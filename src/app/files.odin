@@ -58,8 +58,6 @@ File_Kind :: enum u8 {
 	Link_Send,    // the selected objects go to the Blender link's folder (link.odin); no path
 	Link_Get,     // what Blender left in the link's folder comes in; the path is LINK_AUTO for the focus check's
 	Environment,  // a panorama lights the physically based materials (environment.odin)
-	Export_Workspace, // the current workspace goes to a .workspace file (workspace_file.odin)
-	Import_Workspace, // a .workspace file becomes a workspace of the user's own
 	Diagnostic_Report, // the Input diagnostics report goes to a ZIP file (diagnostics.odin)
 	Crash_Log,    // the last crash's log goes to a text file (crash_log.odin)
 	Export_Vdm,   // the brush's VDM alpha goes to an OpenEXR file, laid out for the app vdm_axes names (vdm_files.odin)
@@ -148,13 +146,6 @@ when ODIN_PLATFORM_SUBTARGET == .Android {
 	ENVIRONMENT_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
 } else {
 	ENVIRONMENT_FILTERS := [?]sdl.DialogFileFilter{{"Panoramas (OpenEXR, Radiance HDR, PNG, JPEG, BMP, TGA, QOI)", "exr;hdr;png;jpg;jpeg;bmp;tga;qoi"}}
-}
-// On Android SDL turns an extension it does not know into no MIME type at all, so there
-// every file is offered and the file's own first line decides, as for packs.
-when ODIN_PLATFORM_SUBTARGET == .Android {
-	WORKSPACE_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
-} else {
-	WORKSPACE_FILTERS := [?]sdl.DialogFileFilter{{"Workspaces", "workspace"}}
 }
 @(private = "file")
 DIAGNOSTIC_FILTERS := [?]sdl.DialogFileFilter{{"Diagnostic report (ZIP)", "zip"}}
@@ -279,8 +270,6 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Make_Pack:                                             dialog_save(app, userdata, PACK_FILTERS[:])
 	case .Export_Vdm:                                            dialog_save(app, userdata, EXR_FILTERS[:])
 	case .Export_Bary:                                           dialog_save(app, userdata, BARY_FILTERS[:])
-	case .Export_Workspace:                                      dialog_save(app, userdata, WORKSPACE_FILTERS[:])
-	case .Import_Workspace:                                      dialog_open(app, userdata, WORKSPACE_FILTERS[:])
 	case .Diagnostic_Report:                                     dialog_save(app, userdata, DIAGNOSTIC_FILTERS[:], diag_report_name(app))
 	case .Crash_Log:                                             dialog_save(app, userdata, TEXT_FILTERS[:], "sculpt-log-crash.txt")
 	case .Timelapse, .Turntable, .Bake:                          dialog_folder(app, userdata)
@@ -323,7 +312,6 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		case .Make_Pack: suffix = ".sculptpack"
 		case .Export_Vdm: suffix = ".exr"
 		case .Export_Bary: suffix = ".bary"
-		case .Export_Workspace: suffix = WORKSPACE_FILE_SUFFIX
 		case .Diagnostic_Report: suffix = ".zip"
 		case .Crash_Log: suffix = ".txt"
 		}
@@ -532,10 +520,6 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = skin_map_load(app, req.path)
 	case .Export_Bary:
 		_ = skin_bary_export(app, req.path)
-	case .Export_Workspace:
-		_ = workspace_export(app, req.path)
-	case .Import_Workspace:
-		_ = workspace_import(app, req.path)
 	case .Diagnostic_Report:
 		_ = diag_export(app, req.path)
 	case .Crash_Log:

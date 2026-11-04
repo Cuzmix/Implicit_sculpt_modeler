@@ -69,7 +69,7 @@ palette_group_hits :: proc(hits: []Palette_Hit, entries: []Palette_Entry) -> (ou
 
 // The commands the Lens top bar runs, for where they live.
 @(rodata)
-TOP_BAR_COMMANDS := [?]Command_Id{.Undo, .Redo, .Command_Palette, .Settings, .Workspace}
+TOP_BAR_COMMANDS := [?]Command_Id{.Undo, .Redo, .Command_Palette, .Settings, .Layout_Reset}
 
 // Where the entry lives, as its second line says it: a Settings tab, a card, the shelf
 // page or the picker for a brush, the card and section a command's control is in, a bar
@@ -92,7 +92,7 @@ palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
 	switch place := LENS_MENU_PLACE[e.id]; place {
 	case .None:
 	case .Main: return "Menu"
-	case .New, .Recent, .Import, .Export, .Workspaces, .More: return fmt.tprintf("Menu · %s", LENS_SUBMENU_NAMES[place])
+	case .New, .Recent, .Import, .Export, .More: return fmt.tprintf("Menu · %s", LENS_SUBMENU_NAMES[place])
 	}
 	if slice.contains(TOP_BAR_COMMANDS[:], e.id) do return "Top bar"
 	return ""

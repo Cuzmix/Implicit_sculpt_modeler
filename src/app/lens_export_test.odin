@@ -65,7 +65,7 @@ export_names_and_sizes :: proc(t: ^testing.T) {
 }
 
 // Lens's menu keeps one Export... row: the formats' own commands are found in it, and
-// Send to Blender and Export workspace moved to the menus they belong with.
+// Send to Blender moved to the menu it belongs with.
 @(test)
 export_commands_live_in_the_sheet :: proc(t: ^testing.T) {
 	testing.expect_value(t, LENS_MENU_PLACE[.Export_Sheet], Lens_Submenu.Main)
@@ -73,7 +73,6 @@ export_commands_live_in_the_sheet :: proc(t: ^testing.T) {
 		testing.expectf(t, LENS_MENU_PLACE[id] == .Export, "%v", id)
 	}
 	testing.expect_value(t, LENS_MENU_PLACE[.Send_To_Blender], Lens_Submenu.More)
-	testing.expect_value(t, LENS_MENU_PLACE[.Workspace_Export], Lens_Submenu.Workspaces)
 }
 
 // Every preset offers formats that belong to it, and every format but the pictures'

@@ -277,16 +277,16 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 	look := bar_look(k, which, slot)
 	side := bar_side(app, which)
 	name := fmt.tprintf("%s##value %v %d", BRUSH_VALUE_NAMES[v], which, slot)
-	enabled := k.bars_edit || value_enabled(app, v)
+	enabled := bar_editing(k, which) || value_enabled(app, v)
 	lit := bar_pop_showing(app, .Value) && k.bar_pop.value == v
 	hint := hint_join(value_text(app, v), command_hint(app, .Brush_Value, int(v)))
 	if look == .Icon {
 		if ui.icon_button(ctx, name, BRUSH_VALUE_ICONS[v], lit, enabled, hint, cell.x) {
-			if k.bars_edit do bar_slot_open(app, which, slot, ctx.last_rect)
+			if bar_editing(k, which) do bar_slot_open(app, which, slot, ctx.last_rect)
 			else do value_pop_toggle(app, v, ctx.last_rect, side)
 		}
-		if enabled && !k.bars_edit do value_roll(app, v, ui.hover_roll(ctx, ctx.last_id, ctx.hot == ctx.last_id))
-		if k.bars_edit do bar_edit_ring(app, ctx.last_rect)
+		if enabled && !bar_editing(k, which) do value_roll(app, v, ui.hover_roll(ctx, ctx.last_id, ctx.hot == ctx.last_id))
+		if bar_editing(k, which) do bar_edit_ring(app, ctx.last_rect)
 		else if ctx.last_id != 0 && ui.secondary(ctx) do value_menu_open(app, which, slot, v, ctx.last_rect, side)
 		bar_slot_lift(app, which, slot, value_slot(v), look)
 		return
@@ -297,7 +297,7 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 	axis := 0 if column else 1
 	scrubbing := false
 	// Held still, a drag lifts the chip to carry it (bar_drag.odin) rather than scrubbing.
-	if enabled && !k.bars_edit && v != .Pressure && !ui.held_still(ctx, a.id) {
+	if enabled && !bar_editing(k, which) && v != .Pressure && !ui.held_still(ctx, a.id) {
 		if a.pressed do ctx.press_value = value_fraction(app, v)
 		if a.held && ui.claim_drag(ctx, axis) {
 			d := ctx.input.mouse - ctx.won_mouse
@@ -317,7 +317,7 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 		}
 	}
 	if !a.held && k.value_scrubbing == a.id do k.value_scrubbing = 0
-	if enabled && !k.bars_edit do value_roll(app, v, ui.hover_roll(ctx, a.id, a.hovered))
+	if enabled && !bar_editing(k, which) do value_roll(app, v, ui.hover_roll(ctx, a.id, a.hovered))
 	if a.held && enabled do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_pressed)
 	else if lit do ui.fill_rect(ctx, pill, t.radius_medium, t.accent_soft)
 	else if a.hovered && enabled do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_hover)
@@ -332,7 +332,7 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 	if enabled do ui.fill_rect(ctx, {line.x, line.y, line.w * value_fraction(app, v), line.h}, 1, t.accent)
 	ui.tip(ctx, a.id, pill, BRUSH_VALUE_NAMES[v], hint)
 	if a.id != 0 do bar_slot_lift(app, which, slot, value_slot(v), look)
-	if k.bars_edit {
+	if bar_editing(k, which) {
 		bar_edit_ring(app, a.rect)
 		if a.clicked do bar_slot_open(app, which, slot, a.rect)
 		return

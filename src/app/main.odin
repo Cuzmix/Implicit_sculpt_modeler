@@ -93,8 +93,6 @@ Options :: struct {
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as Menu > Open scene... does."`,
 	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply, .stl, .glb, .gltf, .usd, .usda, .usdc, .usdz or .fbx file instead of spheres (after any --open), as Menu > Import mesh... does."`,
 	export:    string `usage:"On exit, write the selected object's shown level to this .obj, .ply, .stl, .glb or .usda file, as Menu > Export mesh... does."`,
-	export_workspace: string `usage:"On exit, write the current workspace's layout to this .workspace file, as the workspace menu's Export workspace... does."`,
-	import_workspace: string `usage:"Read this .workspace file as a new workspace of your own and switch to it on the first frame, as the workspace menu's Import workspace... does."`,
 	export_print: string `usage:"On exit, write the selected objects to this .stl, .obj or .3mf file at their print size, as the Export sheet's 3D print does."`,
 	save:      string `usage:"On exit, save the scene to this .sculpt file, as Menu > Save scene does."`,
 	autosave:  f32 `usage:"Autosave every this many seconds once the scene changed and the app rested, as Settings > System > Autosave does every few minutes; scripted runs only autosave with this or --autosave-folder."`,
@@ -849,7 +847,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.pencil.system_palms = SYSTEM_PALMS || opts.system_palms
 	pen_samples_init(&app, window)
 	// The benchmarks measure the viewport filling the window, so their numbers stay
-	// comparable whatever grid a workspace keeps.
+	// comparable whatever grid a layout keeps.
 	if opts.bench_stroke > 0 || opts.gpubench != "" do app.kit.grid.tree = grid_preset_tree(.Single)
 	// Only for the settings of everyday use: a run with a settings file of its own (a test's)
 	// keeps the code's look unless the file says otherwise.
@@ -929,7 +927,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// After autosave_init, whose folder Home's Autosaves lists.
 	if home_at_start(&app, opts, interactive) do home_open(&app)
 	// Read on the first frame, as a file picked in the dialog is.
-	if opts.import_workspace != "" do file_post(.Import_Workspace, opts.import_workspace)
 	// The benchmark's autosave writes the scene it starts with.
 	if opts.bench_after_autosave do app.autosave.clean = 0
 	if opts.autosave_hold do autosave_hold(&app)
@@ -997,7 +994,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.export_print != "" && set_up && !print_export(&app, opts.export_print) do return false
 	if opts.save != "" && set_up && !scene_save(&app, opts.save) do return false
 	if opts.save_strokes != "" && set_up && !strokes_save(&app, opts.save_strokes) do return false
-	if opts.export_workspace != "" && set_up && !workspace_export(&app, opts.export_workspace) do return false
 	// A run still under way at exit ends here, so its verdict is in the stats and the report.
 	if app.diag.run_open do diag_run_end(&app, .End)
 	if opts.diag_export != "" && !diag_export(&app, opts.diag_export) do return false

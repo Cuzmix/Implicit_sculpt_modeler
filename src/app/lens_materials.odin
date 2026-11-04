@@ -22,7 +22,7 @@ import "../ui"
 // takes it off, a star on its corner; Favourites over the grid shows only those, as the
 // brush browser's Favorites does, and settings.txt keeps them (material_favorite).
 
-// Materials first: the Render workspace, where the card shows, lights its objects.
+// Materials first: the Render space, where the card shows, lights its objects.
 Material_Tab :: enum u8 {
 	Materials,
 	Matcaps,

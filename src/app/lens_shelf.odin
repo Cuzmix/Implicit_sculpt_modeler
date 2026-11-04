@@ -442,7 +442,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	if focus do n = min(n, SHELF_FOCUS)
 	// The Add tile shows while arranging, and on an empty page (one just added) always, so
 	// the page says what it is for and a tap fills it.
-	adding := (k.bars_edit || n == 0) && !focus
+	adding := (dock_editing(k, .Shelf) || n == 0) && !focus
 	// Its lines stand the tiles in rows, as many to a row as fit, after its grip.
 	lines := dock_lines(k, .Shelf)
 	room = max(room - DOCK_GRIP_H, 0)
@@ -451,7 +451,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// A brush picked from All, Search or the pie that is not among the tiles shown visits
 	// the shelf as the first tile after All, so what the pen holds is always in sight; the
 	// shelf grows toward the off-hand side for it, so the tiles under the pen hand stay put.
-	active, active_on := shelf_active_item(app, used[:n], k.bars_edit)
+	active, active_on := shelf_active_item(app, used[:n], dock_editing(k, .Shelf))
 	if active_on {
 		room = max(room - ui.BRUSH_TILE.x, 0)
 		n, tile = shelf_lines_layout(len(used) if !focus else min(len(used), SHELF_FOCUS), lines, room, adding, row)
@@ -525,12 +525,12 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 				sh.pinning = nil
 				report(app, nil, {}, "%s is on %s in place of %s", shelf_label(app, pin), shelf_page_name(k, sh.page), shelf_label(app, s))
 				sh.pins += 1
-			} else if k.bars_edit do bar_slot_open(app, which, i, ctx.last_rect)
+			} else if dock_editing(k, .Shelf) do bar_slot_open(app, which, i, ctx.last_rect)
 			else do bar_slot_run(app, s, ctx.last_rect, dock_side(app, .Shelf))
 		}
 		if sh.pinning != nil do ui.stroke_rect(ctx, ctx.last_rect, t.radius_medium + 2, t.warning, 1)
 		sh.tiles[i] = ctx.last_rect
-		if k.bars_edit {
+		if dock_editing(k, .Shelf) {
 			bar_edit_ring(app, ctx.last_rect)
 		} else if ctx.last_id != 0 && ui.secondary(ctx) {
 			// A brush's long press picks it and shows its quick settings over the tile; a
@@ -827,7 +827,7 @@ lens_shelf_pages :: proc(app: ^App, x, y: ui.Anchor, at: [2]f32) {
 		if a.clicked && !on do shelf_turn(app, i - here)
 		if ui.secondary(ctx) do shelf_page_menu_open(k, p, a.rect)
 	}
-	if k.bars_edit && !lens_focus(k) {
+	if dock_editing(k, .Shelf) && !lens_focus(k) {
 		a := ui.area(ctx, "add page##shelf", {28, 24})
 		if a.hovered do ui.fill_rect(ctx, a.rect, t.radius_medium, t.fill_hover)
 		ui.icon(ctx, ui.ICON_PLUS, {a.rect.x + a.rect.w * 0.5, a.rect.y + a.rect.h * 0.5}, t.icon_small - 2, t.text_secondary)
@@ -836,14 +836,14 @@ lens_shelf_pages :: proc(app: ^App, x, y: ui.Anchor, at: [2]f32) {
 	}
 	// The shelf's ⋯ ends its page names rather than its row, which keeps every tile's room
 	// on a tablet.
-	if (k.bars_edit || !k.docks[.Shelf].more_off) && !lens_focus(k) {
+	if (dock_editing(k, .Shelf) || !k.docks[.Shelf].more_off) && !lens_focus(k) {
 		a := ui.area(ctx, "More##shelf", {28, 24})
 		open := bar_pop_showing(app, .Dock_Menu) && k.bar_pop.dock == .Shelf
 		if a.hovered || open do ui.fill_rect(ctx, a.rect, t.radius_medium, t.fill_hover)
 		ui.icon(ctx, ui.ICON_MORE, {a.rect.x + a.rect.w * 0.5, a.rect.y + a.rect.h * 0.5}, t.icon_small - 2, t.text_secondary)
 		ui.tip(ctx, a.id, a.rect, "More", "Add a button, or stand the tiles in more rows")
 		if a.clicked do dock_menu_toggle(app, .Shelf, a.rect)
-		dock_more_hold(app)
+		dock_more_hold(app, .Shelf)
 	}
 	ui.end(ctx)
 }

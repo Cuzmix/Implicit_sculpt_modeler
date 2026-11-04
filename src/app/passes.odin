@@ -11,7 +11,7 @@ import "../ui"
 // viewport passes and ZBrush's normal and depth views. The shading chip over the view names
 // the mode, or the pass while one shows; a tap opens the list, and a hold peeks at the last
 // other pass for as long as it is held, as Marmoset's and Substance's hold-to-compare do; a
-// held backquote peeks too. The mode and the pass are part of the workspace's layout. Only the viewport shows it: the thumbnail window, the navigation
+// held backquote peeks too. The mode and the pass are part of the space's layout. Only the viewport shows it: the thumbnail window, the navigation
 // head and object pictures stay shaded, and the studio render and render mode wait,
 // since what they build is the shaded picture.
 

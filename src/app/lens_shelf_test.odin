@@ -9,7 +9,7 @@ import "../sculpt"
 import "../ui"
 
 // Each shelf page is a bar of its own: a fresh install's brushes, changed by the bars'
-// procs, kept whole in settings.txt, and left out of a workspace's layout.
+// procs, kept whole in settings.txt, and left out of a space's layout.
 @(test)
 shelf_pages_are_bars_kept_in_settings_not_layouts :: proc(t: ^testing.T) {
 	path := "build/shelf_test.txt"
@@ -38,7 +38,7 @@ shelf_pages_are_bars_kept_in_settings_not_layouts :: proc(t: ^testing.T) {
 	testing.expect_value(t, bar_names(&b, .Shelf_Paint), bar_names(&a, .Shelf_Paint))
 	testing.expect_value(t, bar_names(&b, .Shelf_Sculpt), bar_names(&a, .Shelf_Sculpt))
 
-	// A workspace's layout neither carries the pages nor puts them back.
+	// A space's layout neither carries the pages nor puts them back.
 	text := kit_layout_text(&a.kit)
 	c: App
 	defer results_destroy(&c)
@@ -172,7 +172,7 @@ b_opens_the_brush_picker :: proc(t: ^testing.T) {
 }
 
 // Lens's brush pie is a bar of eight: a fresh install's brushes clockwise from the top,
-// kept in settings.txt and left out of a workspace's layout, as the shelf's pages are.
+// kept in settings.txt and left out of a space's layout, as the shelf's pages are.
 @(test)
 brush_pie_is_a_bar_kept_in_settings :: proc(t: ^testing.T) {
 	path := "build/brush_pie_test.txt"

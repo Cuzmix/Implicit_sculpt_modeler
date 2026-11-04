@@ -101,6 +101,9 @@ Kit_State :: struct {
 	mini_rows:  bool,
 	mini_swaps: int,
 	bars_edit:  bool,
+	// The one dock whose buttons are being edited, when Edit buttons in its menu began it;
+	// nil while Edit docks edits every dock.
+	edit_dock:  Maybe(Dock_Id),
 	arrange:           Arrange_State, // Lens's Arrange: the zone picked, the Library (lens_arrange.odin)
 	bar_slot:   Bar_Slot_Menu,
 	// Drag and drop on the bars (bar_drag.odin): the button carried, where each bar's
@@ -196,9 +199,9 @@ Kit_State :: struct {
 	guide_lines: int,
 	guide_drags: int,
 	rail_side:  Rail_Side, // where the modifier wheel sits, if anywhere (modifiers.odin)
-	// What the workspace hides, and the workspaces (workspaces.odin).
+	// What the layout hides, and each space's layout (layouts.odin).
 	hidden:     bit_set[Zone],
-	workspaces: Workspaces,
+	layouts:    Layouts,
 	// The working space (spaces.odin), and the view toggles Focus and Inspect, which hide
 	// bars or show the form four ways without changing the layout.
 	spaces:     Spaces,
@@ -439,7 +442,7 @@ float_raise :: proc(k: ^Kit_State, which: Float_Ref) {
 windows_reset :: proc(k: ^Kit_State) {
 	k.windows = {}
 	panels_default(k)
-	// Every bar comes back too, so a workspace that hides them is never a dead end.
+	// Every bar comes back too, so a layout that hides them is never a dead end.
 	k.hidden = {}
 }
 
@@ -964,7 +967,7 @@ kit_init :: proc(app: ^App) {
 	k.pies = PIE_DEFAULTS
 	panels_default(k)
 	cards_default(k)
-	workspaces_init(k)
+	layouts_init(k)
 	k.last_frame = time.tick_now()
 }
 
@@ -978,7 +981,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
 	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
 	k.colors.palette_menu, k.colors.swatch_menu, k.colors.pop = false, false, false
-	k.panels.menu, k.workspaces.menu, k.passes.menu = false, false, false
+	k.panels.menu, k.layouts.menu, k.passes.menu = false, false, false
 	k.shelf.quick, k.shelf.menu, k.export.open = false, false, false
 	k.pane_menu.open, k.grid.areas.menu.open = false, false
 	k.ctx.select_open = 0
@@ -989,7 +992,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.bind.open || k.pie_editor || k.object_menu || k.scene_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.themes.menu || k.themes.code.open || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.passes.menu || k.shelf.quick || k.shelf.menu || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.bind.open || k.pie_editor || k.object_menu || k.scene_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.themes.menu || k.themes.code.open || k.colors.pop || k.home_menu || k.panels.menu || k.layouts.menu || k.passes.menu || k.shelf.quick || k.shelf.menu || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -1001,7 +1004,7 @@ kit_destroy :: proc(app: ^App) {
 	delete(app.kit.events)
 	render.ui_pass_destroy(&app.renderer, &app.kit.pass)
 	ui.destroy(&app.kit.ctx)
-	workspaces_destroy(&app.kit)
+	layouts_destroy(&app.kit)
 }
 
 // Window coordinates per interface point. SDL gives the pointer and the window's size in
@@ -1411,9 +1414,9 @@ kit_layout :: proc(app: ^App) {
 	kit_shape_bar(app)
 
 	// Round the edges: the top bar (kit_top_lens.odin), then what stands round the view.
-	// A bar the workspace hides is not laid out (workspaces.odin): what opened from it opens
+	// A bar the layout hides is not laid out (layouts.odin): what opened from it opens
 	// from the top bar, which takes Undo, Redo, Search and the tray's button in its place.
-	workspaces_frame(k)
+	layouts_frame(k)
 	// Each bar notes where its buttons stand as it is drawn (bar_spot).
 	k.bar_spot_count = 0
 	menu_anchor, search_anchor := kit_top_bar(app)
@@ -1499,7 +1502,7 @@ kit_layout :: proc(app: ^App) {
 	kit_color_popover(app)
 	kit_bar_slot_menu(app)
 	kit_menu_lens(app, menu_anchor)
-	kit_workspace_menu(app)
+	kit_layout_menu(app)
 	kit_pass_menu(app)
 	kit_history_menu(app)
 	kit_layer_menu(app)
@@ -1731,7 +1734,6 @@ Rename_Entry :: struct {
 	typing: bool, // its field had the keys, which go back when it closes
 	id:     int, // the object, or minus the folder; the slot for a macro
 	macro:  bool,
-	workspace: bool, // the slot of an own workspace
 	step:   time.Tick, // a History step's bookmark, by its first entry's time (history_menu.odin)
 	layer:  int, // a sculpt layer of object `id`, its index + 1 (lens_layers.odin)
 	shelf_page: int, // a page of the shelf, its Shelf_Page + 1 (lens_shelf.odin)
@@ -1753,7 +1755,6 @@ kit_rename :: proc(app: ^App) {
 	r := &k.rename
 	gone := object_by_id(app, r.id) == nil && folder_by_id(app, -r.id) == nil
 	if r.macro do gone = app.macro.slots[r.id].name == ""
-	if r.workspace do gone = !k.workspaces.list[r.id].used
 	step, _, has_step := history_step_of(app, r.step)
 	if r.step != {} do gone = !has_step
 	layer_s: ^sculpt.Sculptor
@@ -1774,7 +1775,7 @@ kit_rename :: proc(app: ^App) {
 	}
 	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = 4, padding = 12, width = 280}) do return
 	defer ui.popover_end(ctx)
-	ui.caption(ctx, "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "RENAME WORKSPACE" if r.workspace else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
+	ui.caption(ctx, "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
 	now := ""
 	if r.step != {} {
 		if has_step do now = history_entry_at(app, step).bookmark
@@ -1786,8 +1787,6 @@ kit_rename :: proc(app: ^App) {
 		now = sculpt.sculptor_layer_name(&sculpt.sculptor_layers(layer_s)[r.layer - 1])
 	} else if r.macro {
 		now = app.macro.slots[r.id].name
-	} else if r.workspace {
-		now = workspace_name(k, r.id)
 	} else {
 		if obj := object_by_id(app, r.id); obj != nil do now = object_label(obj)
 		if f := folder_by_id(app, -r.id); f != nil do now = folder_label(f)
@@ -1818,9 +1817,6 @@ kit_rename :: proc(app: ^App) {
 	} else if apply && r.open && r.macro && rename_text(r.text[:]) != "" {
 		// A macro is no part of the scene: its file changes at once, outside the History.
 		_ = macro_rename(app, r.id, rename_text(r.text[:]))
-	} else if apply && r.open && r.workspace {
-		// A workspace is no part of the scene either: the settings keep its name.
-		workspace_rename(k, r.id, rename_text(r.text[:]))
 	} else if apply && r.open && rename_text(r.text[:]) != "" {
 		cmd := Scene_Command{kind = .Arrange, arrange = .Rename_Folder if r.id < 0 else .Rename_Object, id = abs(r.id)}
 		copy(cmd.name[:], r.text[:])

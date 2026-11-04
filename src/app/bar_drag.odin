@@ -68,7 +68,7 @@ bar_slot_lift :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, look 
 	ctx := &k.ctx
 	r := ctx.last_rect
 	bar_spot(app, which, slot, r)
-	if k.bar_carry == nil && ctx.last_id != 0 && ui.lift(ctx, k.bars_edit) do bar_lift(app, {slot = s, look = look, from = which, from_slot = slot})
+	if k.bar_carry == nil && ctx.last_id != 0 && ui.lift(ctx, bar_editing(k, which)) do bar_lift(app, {slot = s, look = look, from = which, from_slot = slot})
 }
 
 // Starts carrying `c`: whatever its long press opened closes, as the finger has moved on;

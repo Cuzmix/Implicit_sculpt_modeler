@@ -103,7 +103,7 @@ skill whose description fits the request BEFORE you form a plan.
 - The interface never owns sculpt state; panels keep no references between frames; scene changes are `Scene_Command`s and
   file actions are requests (`file_take`), both applied at the start of the next frame.
 - No backward compatibility until release: nobody uses the app yet. The `.sculpt` scene file (chunks, `SCENE_VERSION`
-  in `src/app/files.odin`), `settings.txt`, workspace layouts, `.strokes` and the cage and voxel sections read only what
+  in `src/app/files.odin`), `settings.txt`, the space layouts, `.strokes` and the cage and voxel sections read only what
   this build writes: a format change edits the writer and the reader together and deletes the old reading, with no
   version branches, optional trailing fields, renamed-line aliases or one-time default conversions. A file an earlier
   build wrote is refused (or a settings line passed over), never converted. A damaged file is refused, never asserted on.

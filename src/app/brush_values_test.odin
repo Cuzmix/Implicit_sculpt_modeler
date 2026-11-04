@@ -102,7 +102,7 @@ the_island_is_a_bar_of_values :: proc(t: ^testing.T) {
 	// The island's three, the rail's Strength, and the Render page's Exposure.
 	testing.expect_value(t, values_on_bars(&b), 5)
 
-	// The island is the person's, as the brush pie is: a workspace's layout leaves it be.
+	// The island is the person's, as the brush pie is: a space's layout leaves it be.
 	text := kit_layout_text(&a.kit)
 	c: App
 	defer results_destroy(&c)

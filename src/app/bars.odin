@@ -50,7 +50,7 @@ Bar_Which :: enum u8 {
 	Top_App,
 }
 
-// The bars a workspace's layout holds: the shelf's pages and the brush pie hold the
+// The bars a space's layout holds: the shelf's pages and the brush pie hold the
 // person's brushes, and the island the person's values, which are no layout's; the
 // person's own docks are the screen's, as the rail is.
 @(rodata)
@@ -253,7 +253,7 @@ bar_list_changed :: proc(k: ^Kit_State, which: Bar_Which) -> bool {
 	return false
 }
 
-// Whether a workspace's layout holds bar `which`.
+// Whether a space's layout holds bar `which`.
 bar_in_layout :: proc(which: Bar_Which) -> bool {
 	for w in BAR_LAYOUT do if w == which do return true
 	return false
@@ -262,7 +262,7 @@ bar_in_layout :: proc(which: Bar_Which) -> bool {
 // The lines of every bar, each written whole where it differs from a fresh install's
 // (`bar_count <zone> N`, then `bar <zone> <slot> <command>`, and `bar_look <zone> <slot>
 // <look>` after a value item that does not show as the bar's values do at first): the
-// settings file's, and with `layout` a workspace's layout's, which holds only BAR_LAYOUT's
+// settings file's, and with `layout` a layout's, which holds only BAR_LAYOUT's
 // bars. An older build passes over the bar_look lines and keeps the values.
 bars_save :: proc(k: ^Kit_State, out: ^strings.Builder, layout := false) {
 	for which in Bar_Which {
@@ -609,13 +609,13 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 	more := bar_has_more(s.id)
 	name := fmt.tprintf("%s##%v %d", bar_label(app, s), which, slot)
 	// A dock of Tiles shows each command's name under its icon, as the shelf's brushes do.
-	enabled := k.bars_edit || bar_enabled(app, s)
-	pressed := ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled, more && !k.bars_edit) if tile else ui.icon_button(ctx, name, bar_icon(app, s), bar_lit(app, s), enabled, command_hint(app, s.id, s.arg), size, more && !k.bars_edit, named, width)
+	enabled := bar_editing(k, which) || bar_enabled(app, s)
+	pressed := ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled, more && !bar_editing(k, which)) if tile else ui.icon_button(ctx, name, bar_icon(app, s), bar_lit(app, s), enabled, command_hint(app, s.id, s.arg), size, more && !bar_editing(k, which), named, width)
 	if pressed {
-		if k.bars_edit do bar_slot_open(app, which, slot, ctx.last_rect)
+		if bar_editing(k, which) do bar_slot_open(app, which, slot, ctx.last_rect)
 		else do bar_slot_run(app, s, ctx.last_rect, side)
 	}
-	if k.bars_edit {
+	if bar_editing(k, which) {
 		bar_edit_ring(app, ctx.last_rect)
 		bar_slot_lift(app, which, slot, s)
 		return

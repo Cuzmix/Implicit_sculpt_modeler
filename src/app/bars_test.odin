@@ -67,7 +67,7 @@ bars_are_remembered :: proc(t: ^testing.T) {
 }
 
 // The view rail starts with its cards, and is kept as the other bars are:
-// whole in settings.txt and in a workspace's layout once it changes, as a fresh install's
+// whole in settings.txt and in a space's layout once it changes, as a fresh install's
 // otherwise.
 @(test)
 view_rail_is_a_bar_of_its_own :: proc(t: ^testing.T) {
@@ -89,7 +89,7 @@ view_rail_is_a_bar_of_its_own :: proc(t: ^testing.T) {
 	settings_load(&b, path)
 	testing.expect_value(t, bar_names(&b, .View_Rail), bar_names(&a, .View_Rail))
 
-	// A workspace's layout carries it, and a layout that names no bars puts it back.
+	// A space's layout carries it, and a layout that names no bars puts it back.
 	text := kit_layout_text(&a.kit)
 	c: App
 	defer results_destroy(&c)

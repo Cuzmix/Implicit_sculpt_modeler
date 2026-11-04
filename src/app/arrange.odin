@@ -4,13 +4,12 @@ import "core:fmt"
 import "core:strings"
 import "../ui"
 
-// Arrange: the one mode in which the interface's layout is changed, grown from Customise
-// bars (bars.odin), whose rings, slot popovers and + tiles it keeps. While it is on, the
-// top bar and the Library (lens_arrange.odin) offer which bars show, where every panel
-// goes, Revert, Save as new and Done; both columns show where a panel can be
-// dropped, and a hidden bar shows as an outline in its place with Show. What is arranged
-// is the current workspace's live layout: the switcher's dot says it has changed, and
-// Save keeps it.
+// Arrange: the mode in which the docks' buttons are changed, grown from Customise bars
+// (bars.odin), whose rings, slot popovers and + tiles it keeps. While it is on, the top
+// bar and the Library (lens_arrange.odin) offer which bars show, where every panel goes,
+// Reset layout and Done; both columns show where a panel can be dropped, and a hidden bar
+// shows as an outline in its place with Show. What is arranged is the current space's
+// layout, kept as it is: the tab's dot says it differs from how it ships.
 
 // The bars as the Library's Show chips name them, in the order it lists them.
 @(rodata)
@@ -45,7 +44,7 @@ arrange_put :: proc(app: ^App, ref: Panel_Ref, place: int) {
 	panel_set_open(app, ref, place != 0)
 }
 
-// The Show chips: one for each bar, lit while the workspace shows it.
+// The Show chips: one for each bar, lit while the layout shows it.
 arrange_show_chips :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -55,7 +54,7 @@ arrange_show_chips :: proc(app: ^App) {
 	for z in Zone {
 		shown := z not_in k.hidden
 		w := ui.text_width(ctx, ZONE_NAMES[z], t.text_size, .Semibold) + 28
-		if ui.toggle_button(ctx, fmt.tprintf("%s##zone", ZONE_NAMES[z]), shown, w, tooltip = fmt.tprintf("Show the %s in this workspace", strings.to_lower(ZONE_NAMES[z], context.temp_allocator))) {
+		if ui.toggle_button(ctx, fmt.tprintf("%s##zone", ZONE_NAMES[z]), shown, w, tooltip = fmt.tprintf("Show the %s in this space's layout", strings.to_lower(ZONE_NAMES[z], context.temp_allocator))) {
 			zone_toggle(k, z)
 		}
 	}
@@ -81,7 +80,7 @@ arrange_panel_rows :: proc(app: ^App) {
 		if to := ui.tabs(ctx, fmt.tprintf("place##%s", panel_name(ref)), ARRANGE_SHOWN[:], now, 66); to >= 0 && to != now do arrange_put(app, ref, to)
 		ui.end(ctx)
 	}
-	ui.paragraph(ctx, "A card opens beside the dock button that holds it; its Pin keeps it open in the workspace.")
+	ui.paragraph(ctx, "A card opens beside the dock button that holds it; its Pin keeps it open in the space's layout.")
 }
 
 // While arranging: each hidden bar as an outline where it would be, with Show.

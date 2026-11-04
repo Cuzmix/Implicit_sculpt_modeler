@@ -20,7 +20,6 @@ Lens_Submenu :: enum u8 {
 	Recent,
 	Import,
 	Export,
-	Workspaces,
 	More,
 }
 
@@ -32,7 +31,6 @@ LENS_SUBMENU_NAMES := [Lens_Submenu]string {
 	.Recent     = "Open recent",
 	.Import     = "Import",
 	.Export     = "Export...",
-	.Workspaces = "Workspaces",
 	.More       = "More",
 }
 
@@ -48,14 +46,12 @@ LENS_MENU_PLACE := #partial [Command_Id]Lens_Submenu {
 	.Scene_Versions         = .Main,
 	.Export_Sheet           = .Main,
 	.Send_Scene             = .Main,
-	.Customise_Bars         = .Main,
 	.Settings               = .Main,
 	.Help                   = .Main,
 	.New_Scene              = .New,
 	.Open_Last_Autosave     = .Recent,
 	.Import_Mesh            = .Import,
 	.Get_From_Blender       = .Import,
-	.Workspace_Import       = .Import,
 	// The Export sheet holds these, under Menu > Export....
 	.Export_Mesh            = .Export,
 	.Screenshot             = .Export,
@@ -63,8 +59,6 @@ LENS_MENU_PLACE := #partial [Command_Id]Lens_Submenu {
 	.Record_Turntable       = .Export,
 	.Export_Print           = .Export,
 	.Send_To_Blender        = .More,
-	.Workspace_Export       = .Workspaces,
-	.Workspace              = .Workspaces,
 	.Stats                  = .More,
 	.Macros                 = .More,
 	.Library                = .More,
@@ -112,8 +106,6 @@ kit_menu_lens :: proc(app: ^App, anchor: ui.Rect) {
 		if command_menu_item(app, .Send_Scene, label = fmt.tprintf("Send to %s##send", to) if to != "" else "Send to...##send") do pick = true
 	}
 	ui.divider(ctx, across = true)
-	lens_sub_row(app, .Workspaces, ui.ICON_PANEL)
-	if command_menu_item(app, .Customise_Bars, label = "Edit docks...") do pick = true
 	if command_menu_item(app, .Settings) do pick = true
 	if command_menu_item(app, .Help, int(Help_Tab.Keys), "Help and shortcuts") do pick = true
 	lens_sub_row(app, .More, ui.ICON_MORE)
@@ -179,27 +171,8 @@ kit_submenu :: proc(app: ^App) {
 	case .Import:
 		if command_menu_item(app, .Import_Mesh) do pick = true
 		if LINK_AVAILABLE && command_menu_item(app, .Get_From_Blender) do pick = true
-		if command_menu_item(app, .Workspace_Import) do pick = true
 	case .Export:
 		// Not a submenu: the Export sheet holds what it held.
-	case .Workspaces:
-		ui.caption(ctx, "  WORKSPACES")
-		w := &k.workspaces
-		for ws, slot in w.list {
-			if !ws.used do continue
-			if command_menu_item(app, .Workspace, slot, label = fmt.tprintf("%s##menu workspace %d", workspace_name(k, slot), slot)) do pick = true
-		}
-		ui.divider(ctx, across = true)
-		if command_menu_item(app, .Workspace_Export) do pick = true
-		if ui.menu_item(ctx, "Workspace options...", glyph = ui.ICON_SETTINGS) {
-			// The switcher's own menu opens where the switcher is, after this one closes.
-			at := w.menu_at
-			kit_floats_close(k)
-			w.menu, w.menu_at = true, at
-			menu_close_all(app)
-			ui.popover_end(ctx)
-			return
-		}
 	case .More:
 		if LINK_AVAILABLE && command_menu_item(app, .Send_To_Blender) do pick = true
 		// The menu stays open over the two that switch something on or off.

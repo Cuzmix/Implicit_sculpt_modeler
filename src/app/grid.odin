@@ -100,7 +100,7 @@ grid_undo_destroy :: proc(g: ^View_Grid) {
 	g.undo = {}
 }
 
-// The grid's choices, kept by workspaces (workspaces.odin): the tree and its view panes'
+// The grid's choices, kept by layouts (layouts.odin): the tree and its view panes'
 // tabs (grid_tabs.odin), each pane showing its active tab's view (grid_view).
 View_Grid :: struct {
 	tree:      Grid_Tree,
@@ -654,7 +654,7 @@ grid_reset :: proc(g: ^View_Grid) {
 	g.serial += 1
 }
 
-// A layout's grid lines (workspaces.odin): none for one pane; else the tree, then each view
+// A layout's grid lines (layouts.odin): none for one pane; else the tree, then each view
 // pane's tabs (grid_tab_lines): each tab's camera and pass, and its shading when not a
 // fresh view's.
 // A Free camera's turn is not kept, as the second view's is not.
@@ -827,7 +827,7 @@ kit_grid :: proc(app: ^App) {
 		room = snap(room, px)
 	}
 	grid_work(app, n)
-	// A new layout (a preset, a split or join, a workspace's grid) fades its view panes in
+	// A new layout (a preset, a split or join, a layout's grid) fades its view panes in
 	// over the ground, so what moved is seen to arrive; the first frames' layout is where
 	// the run starts.
 	if g.fade_serial != g.serial {

@@ -15,7 +15,7 @@ import "../ui"
 // and the torn-off viewports of 3D-Coat and Marmoset. Each has its own camera and pass and
 // a small head to change them, drawn by an interface context of its own at its monitor's
 // scale; its picture follows the view panes' rules (drawn whole, only at rest, one picture
-// a frame). It is a view, not a second workspace: brushes stay in the main window, and keys
+// a frame). It is a view, not a second layout: brushes stay in the main window, and keys
 // typed while it has the focus are the main window's. Desktop only: Android gives an app
 // one window.
 VIEW_WINDOWS_MAX :: 3

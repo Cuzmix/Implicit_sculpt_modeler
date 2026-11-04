@@ -315,7 +315,10 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			preset := "none"
 			if p, on := brush_preset(app); on do preset, _ = strings.replace_all(preset_name(p), " ", "_", context.temp_allocator)
 			fmt.printfln("presets=%d preset=%d preset_name=%s preset_changed=%d", app.preset_count, app.brush.preset, preset, int(preset_changed(app)))
-			fmt.printfln("browser=%d bars_edit=%d bar_slot_menu=%d bar_lifts=%d bar_drops=%d bar_refusals=%d bar_drops_off=%d bar_carry=%d", int(app.kit.browser), int(app.kit.bars_edit), int(app.kit.bar_slot.open),
+			// The dock whose buttons alone are being edited, "all" in Edit docks.
+			edit_dock := "all"
+			if d, only := app.kit.edit_dock.?; only do edit_dock = strings.to_lower(fmt.tprint(d), context.temp_allocator)
+			fmt.printfln("browser=%d bars_edit=%d edit_dock=%s bar_slot_menu=%d bar_lifts=%d bar_drops=%d bar_refusals=%d bar_drops_off=%d bar_carry=%d", int(app.kit.browser), int(app.kit.bars_edit), edit_dock, int(app.kit.bar_slot.open),
 				app.kit.bar_lifts, app.kit.bar_drops, app.kit.bar_refusals, app.kit.bar_drops_off, int(app.kit.bar_carry != nil))
 			// The island's items and how its values show, the values on every bar, and the
 			// value popovers opened, the chips scrubbed and the value the popover is on.
@@ -506,14 +509,15 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// often cards opened, folded, pinned and closed; the floating cards, and how many were
 		// torn out of a column and put back.
 		fmt.printfln("cards=%s cards_shut=%s card_opens=%d card_folds=%d card_pins=%d card_closes=%d cards_float=%s card_floated=%d card_returned=%d panel_menu=%d", columns_text(k), cards_shut_text(k), k.cards.opens, k.cards.folds, k.cards.pins, k.cards.closes, cards_float_text(k), k.cards.floated, k.cards.returned, int(k.panels.menu))
-		// The workspace (its name escaped, as it may hold spaces), whether its layout has
-		// changes not saved, how many there are, and the zones hidden (by it or a view toggle).
-		if w := &k.workspaces; len(w.list) > 0 {
-			count := 0
-			for ws in w.list do if ws.used do count += 1
+		// Each space's layout: which differ from how they ship (the current one's dot), the
+		// layout menu, Reset layout's runs, and the zones hidden (by it or a view toggle).
+		{
+			l := &k.layouts
+			changed := strings.builder_make(context.temp_allocator)
+			for s in Space do if layout_changed(k, s) do fmt.sbprintf(&changed, "%s%s", "," if strings.builder_len(changed) > 0 else "", strings.to_lower(SPACE_NAMES[s], context.temp_allocator))
 			zones := strings.builder_make(context.temp_allocator)
 			for z in Zone do if zone_hidden(k, z) do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
-			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d workspace_exports=%d workspace_imports=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, w.exports, w.imports, strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
+			fmt.printfln("layout_modified=%d layouts_changed=%s layout_menu=%d layout_resets=%d zones_hidden=%s", int(l.modified), strings.to_string(changed) if strings.builder_len(changed) > 0 else "none", int(l.menu), l.resets, strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
 			// The working space, how many times it changed, and the view toggles.
 			// The interface's layout faults in the last whole frame (ui.layout_fault): rows
 			// whose children lie over each other or spill out of a fixed size.
