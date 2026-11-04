@@ -134,7 +134,8 @@ re-check the stores' pages before a first submission, because they move every ye
   Inter (OFL 1.1, its licence beside the font files), Lucide (ISC), stb (public domain or MIT),
   kb_text_shape, Luau (MIT, with Lua's MIT notice; its texts in the repository's assets/licenses folder, desktop builds only; Luau asks for "Luau"
   in user-facing docs), Stephen Hill's ACES fit (MIT, assets/licenses/ACES-fit-LICENSE.txt; finish.frag.slang), ufbx (MIT or public domain,
-  assets/licenses/ufbx-LICENSE.txt; FBX import on every platform) and anything
+  assets/licenses/ufbx-LICENSE.txt; FBX import on every platform), SuiteSparse's AMD order (BSD 3-clause,
+  assets/licenses/SuiteSparse-AMD-LICENSE.txt, its notice also in src/sparse/amd.odin; Quad Remesh's solves) and anything
   added later. A new dependency is added there in the same change.
 
 ## Before calling a change done
