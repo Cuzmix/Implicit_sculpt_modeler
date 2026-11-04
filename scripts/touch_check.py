@@ -12109,10 +12109,14 @@ def layers_survive_a_rebuild():
 def deformers_from_the_palette():
     """The palette's Twist opens the Object tab's Deformers section on Twist, and a drag of
     its Amount slider by the mouse, a finger or the pen twists the sphere as one undo step,
-    the slider springing back; the camera stays still."""
+    the slider springing back; the camera stays still. The pen is near from the start, as it
+    is when the pen opens the card, so the card stops clear of the palm and scrolls to Amount."""
     def run(drag):
         s = Script()
         s.wait(3)
+        if drag is pen:
+            s.add("pnear")
+            s.wait(2)
         palette_run(s, "twist")
         s.wait(5)
         drag(s)
@@ -12137,7 +12141,7 @@ def deformers_from_the_palette():
     return Steps([(run(drag), [], camera_still(want)) for drag in (mouse, finger, pen)])
 
 
-DEFORM_AMOUNT = on_card((1378, 776), "object")  # the Deformers section's Amount slider, where search opens it as its own card
+DEFORM_AMOUNT = (1378, 744)  # the Deform card's Amount slider, where the palette opens the card on Deformers
 
 
 @scenario
@@ -12203,7 +12207,7 @@ def lattice_point_dragged_with_physics():
                                                         "undo_steps": near(1, 0), "dabs": near(0)})
 
 
-LATTICE_SIDE = (1032, 522)  # the cage's +x side middle point round the starting sphere
+LATTICE_SIDE = (1188, 522)  # the cage's +x side middle point round the starting sphere
 
 
 # The History panel's Strip view, which the bar's scenarios use (the List is the default).
@@ -13030,7 +13034,7 @@ def rebuild_fewer_and_quads():
 # The Move tool's gizmo on the starting sphere, seen from the starting camera: its centre,
 # the middle of its X arm, its XY plane square, the front of its Y ring and the action
 # bar's chips.
-GIZMO_CENTER = MIDDLE
+GIZMO_CENTER = (801, 432)  # where the gizmo stands on the starting sphere
 GIZMO_X_ARM = (GIZMO_CENTER[0] + 38, GIZMO_CENTER[1] + 8)
 GIZMO_XY_SQUARE = (GIZMO_CENTER[0] + 29, GIZMO_CENTER[1] - 27)
 GIZMO_Y_RING = (GIZMO_CENTER[0], GIZMO_CENTER[1] + 31)
@@ -13283,7 +13287,7 @@ def gizmo_drag_cancels_back():
 
 # Posing (pose.odin): Ctrl + a mouse drag from empty space masks everything below the
 # sphere's middle on screen, a hard edge, so the gizmo goes to the free ring along it.
-POSE_MASK = line((250, 470), (1296, 880), 10)
+POSE_MASK = line((406, 470), (1452, 880), 10)
 
 
 def pose_masked(s, presses):
@@ -13294,7 +13298,7 @@ def pose_masked(s, presses):
     s.wait(2)
 
 
-POSE_CENTER = (650, 467)  # where the gizmo goes for that mask
+POSE_CENTER = (804, 467)  # where the gizmo goes for that mask
 POSE_Y_RING = (POSE_CENTER[0], POSE_CENTER[1] + 31)
 POSE_X_ARM = (POSE_CENTER[0] + 38, POSE_CENTER[1] + 8)
 

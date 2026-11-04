@@ -161,6 +161,9 @@ Cards :: struct {
 	shut:     bit_set[Section],
 	reveal:   Maybe(Section),
 	revealed: Maybe(Section),
+	// Frames the reveal has been tried: the section it unfolds lengthens the card only in
+	// the next frame's layout, so the scroll may not reach it on the first one.
+	reveal_tries: int,
 	drawing:  bool,
 	// Each card's scrolling body as last laid out, and how far it can scroll.
 	bodies:   [Card]struct {
@@ -393,6 +396,7 @@ card_reveal :: proc(app: ^App, sec: Section) {
 	card_open(app, section_card(sec))
 	k.cards.shut -= {sec}
 	k.cards.reveal, k.cards.revealed = sec, sec
+	k.cards.reveal_tries = 0
 }
 
 // Opens the card where command `id` (with `arg`) has its control and marks the control

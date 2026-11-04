@@ -41,6 +41,10 @@ Column :: struct {
 	scrolls: [Card]f32,
 	rects:   [2]ui.Rect,
 	frame:   int,
+	// Whether the column keeps above the palm (CARD_PALM_TOP), as the pointer last said
+	// while it was not on the column or pressed: a pen that comes down on a card a finger
+	// opened finds it where it was, and it shortens once the pen goes elsewhere.
+	palm:    bool,
 }
 
 // The width of a card, and the gap between it and its dock and between two cards.
@@ -284,7 +288,11 @@ column_place :: proc(app: ^App, s: Column_Side, col: ^Column) -> (x, y, room: f3
 		if ctx.mirror do left = area.w - (left + CARD_W)
 		if hi + CARD_GAP > left && lo - CARD_GAP < left + CARD_W do bottom = min(bottom, area.y + area.h - dock_stack(app) - CARD_GAP)
 	}
-	if s == .Right && app.device.pointer == .Pen do bottom = min(bottom, area.y + area.h * CARD_PALM_TOP)
+	shown := col.frame == k.frame - 1
+	over := false
+	if shown do for r in col.rects[:col.count] do over ||= ui.rect_contains(r, ctx.input.mouse)
+	if !shown || !(over || ctx.input.down != {} || ctx.input.pressed != {}) do col.palm = app.device.pointer == .Pen
+	if s == .Right && col.palm do bottom = min(bottom, area.y + area.h * CARD_PALM_TOP)
 	room = max(bottom - y, CARD_BODY_MIN + t.target)
 	return
 }
@@ -326,9 +334,13 @@ card_draw :: proc(app: ^App, col: ^Column, i: int, pos: [2]f32, room: f32) {
 	reveal_at := card_body(app, c, inner, scroll.at.y, scroll.shown)
 	kit_scroll_end(ctx, scroll)
 	k.cards.bodies[c] = {scroll.at, scroll.limit}
+	// The scroll is kept to the limit the previous layout gave, which did not yet hold the
+	// section the reveal unfolded: it is tried again until the limit reaches it (or a few
+	// frames have passed, for a section near the foot that can never scroll to the top).
 	if reveal_at >= 0 {
 		col.scrolls[c] = reveal_at
-		k.cards.reveal = nil
+		k.cards.reveal_tries += 1
+		if scroll.limit >= reveal_at || k.cards.reveal_tries >= 3 do k.cards.reveal = nil
 	}
 	ui.end(ctx)
 	col.rects[i] = ui.last_ended(ctx)
