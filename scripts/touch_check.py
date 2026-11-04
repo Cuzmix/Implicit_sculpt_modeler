@@ -111,7 +111,7 @@ UI = {
     "shelf_pinch": At("shelf brushes/Pinch", 740, 833), "shelf_crease": At("shelf brushes/Crease", 804, 833),
     "shelf_grab": At("shelf brushes/Grab", 868, 833), "shelf_flatten": At("shelf brushes/Flatten", 932, 833),
     "shelf_mask": At("shelf brushes/Mask", 996, 833), "shelf_layer": At("shelf brushes/Layer", 1060, 833),
-    "remesh": At("dock/Remesh", 1124, 833), "dyntopo": At("dock/Dyntopo", 1188, 833),
+    "remesh": At("dock/Voxel", 1124, 833), "dyntopo": At("dock/Dyntopo", 1188, 833),
     # The old tools strip's tools, on a Brushes page of their own (tools_page).
     "retopo": At("dock/Quad Remesh", 868, 833), "subdivide": At("dock/Subdivide", 932, 833),
     "live_boolean": At("dock/Live boolean", 996, 833),
@@ -4056,7 +4056,7 @@ def lens_left_handed_mirrors_the_chrome():
 # and the Draw and Inflate cards.
 LENS_SHELF = {"all": At("dock/All", 331, 833), "clay": At("shelf brushes/Clay", 404, 833), "draw": At("shelf brushes/Draw", 468, 833),
               "inflate": At("shelf brushes/Inflate", 596, 833), "pinch": At("shelf brushes/Pinch", 660, 833),
-              "layer": At("shelf brushes/Layer", 980, 833), "remesh": At("shelf brushes/Remesh", 1044, 833)}
+              "layer": At("shelf brushes/Layer", 980, 833), "remesh": At("shelf brushes/Voxel", 1044, 833)}
 # Sculpt's pages, by name ("page Sculpt" shows as Brushes); Model's one page shows only in
 # the Model space, reached by its tab.
 LENS_SHELF_PAGES = {"sculpt": At("page Sculpt", 630, 884), "paint": At("page Paint", 696, 884),
@@ -4089,7 +4089,7 @@ def lens_shelf_long_press_shows_quick_settings():
 
 @scenario
 def lens_shelf_shows_every_tile_it_adds():
-    """Every tile of the Brushes page shows, all twelve, narrowed to fit on a tablet-shaped window; a page with no room left refuses one more from Search rather than add it out of sight, and a wider row takes it."""
+    """Every tile of the Brushes page shows, all twelve, on a tablet-shaped window and two more narrowed to fit; a page with no room left refuses one more from Search rather than add it out of sight, and a wider row takes it."""
     def run(size, more, count, fits):
         s = Script()
         for name in ["snake hook", "clay strips", "elastic"][:more]:
@@ -4102,12 +4102,12 @@ def lens_shelf_shows_every_tile_it_adds():
             s.wait(4)
         return s, size, camera_still({"shelf_shown": near(count), "shelf": lambda v: len(v.split(",")) == count, "shelf_fits": near(fits), "dabs": near(0)})
     tablet = ["--width=1180", "--height=820"]
-    # The tablet's palm-safe row holds twelve at the narrowest, so a thirteenth is refused
+    # The tablet's palm-safe row holds fourteen at the narrowest, so a fifteenth is refused
     # there; a desktop window, or the tablet with Keep the shelf clear of the palm off, shows
     # it (a page holds up to 24; the shelf's grip takes a tile's room from 24 at 1440 points
     # and 18 on the tablet).
-    return Steps([run(tablet, 0, 12, 12), run(tablet, 1, 12, 12), run(LENS_1440, 1, 13, 23),
-                  run(tablet + ["--script=set shelf_palm 0"], 1, 13, 17)])
+    return Steps([run(tablet, 0, 12, 14), run(tablet, 3, 14, 14), run(LENS_1440, 3, 15, 23),
+                  run(tablet + ["--script=set shelf_palm 0"], 3, 15, 17)])
 
 
 # At 1280 x 720: the Curve page's name under the shelf, its menu's New page, and once a
@@ -10094,7 +10094,7 @@ def palette_slash_then_escape_closes_it():
 
 @scenario
 def palette_finds_other_apps_names():
-    """Typing ZBrush's "dynamesh" finds Remesh first; Enter runs it."""
+    """Typing ZBrush's "dynamesh" finds Voxel remesh first; Enter runs it."""
     s = Script()
     s.press("k", ("ctrl",))
     s.type("dynamesh")
@@ -11520,10 +11520,10 @@ def save_with_versions_off_keeps_none():
     return Steps([first_save(), (s, [f"--open={path}", f"--settings-file={settings_file()}"], {"@none kept": lambda _: versions_of(path) == []})])
 
 
-# Adjust last operation (adjust_last.odin): the bar's Adjust button with only the Remesh
-# group showing, and the popover's controls, which sit at its foot just over the bar at
-# 1600x900 whatever the lines above them say.
-ADJUST_BUTTON = (826, 786)
+# Adjust last operation (adjust_last.odin): the bar's Adjust button with only the Voxel
+# remesh group showing, by name, and the popover's controls, which sit at its foot just
+# over the bar at 1600x900 whatever the lines above them say.
+ADJUST_BUTTON = At("action bar/Adjust...", 842, 764)
 ADJUST_SIZES = {"41k": (686, 722), "500k": (731, 722), "1M": (777, 722)}
 ADJUST_AXES = {"X": (709, 680), "Y": (800, 680), "Z": (891, 680)}
 ADJUST_STEPS_LEFT = (662, 644)  # the Steps slider's left end: 1 step
@@ -12067,7 +12067,7 @@ def usd_export_keeps_layers():
 
 @scenario
 def adjust_remesh_from_the_bar():
-    """Ctrl+R remeshes; the action bar offers Remesh / Adjust..., and picking 500k there
+    """Ctrl+R remeshes; the action bar offers Voxel remesh / Adjust..., and picking 500k there
     remeshes again from the sphere, as one undo step: the mesh is a straight 500k remesh's,
     bit for bit."""
     direct, adjusted = autosave_folder() + "-direct.ply", autosave_folder() + "-adjusted.ply"
@@ -12081,7 +12081,7 @@ def adjust_remesh_from_the_bar():
     s.wait(5)
     return Steps([
         (Script(), ["--script=remesh_to 500000", f"--export={direct}"], {}),
-        (s, [f"--export={adjusted}"], {"adjust_op": is_text("remesh"), "adjusts": near(1, 0), "adjust_pop": near(1, 0),
+        (s, [f"--export={adjusted}"], {"adjust_op": is_text("voxel_remesh"), "adjusts": near(1, 0), "adjust_pop": near(1, 0),
                                        "undo_steps": near(1, 0), "redo_steps": near(0, 0), "@a straight remesh": same_file(direct, adjusted)}),
     ])
 
@@ -13066,7 +13066,7 @@ def rebuild_even_is_a_straight_remesh():
     s.wait(10)
     return Steps([
         (Script(), ["--script=remesh_to 500000", f"--export={direct}"], {}),
-        (s, palettes_only("remesh") + [f"--export={panel}"], {"undo_steps": near(1), "adjust_op": is_text("remesh"), "@a straight remesh": same_file(direct, panel)}),
+        (s, palettes_only("remesh") + [f"--export={panel}"], {"undo_steps": near(1), "adjust_op": is_text("voxel_remesh"), "@a straight remesh": same_file(direct, panel)}),
     ])
 
 

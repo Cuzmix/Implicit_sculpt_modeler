@@ -94,7 +94,7 @@ pie_slots_change :: proc(t: ^testing.T) {
 	app.kit.pies[2][0] = {.Remesh, 0}
 	testing.expect(t, pie_changed(&app, 2))
 	testing.expect_value(t, pie_names(&app, 2), "Remesh,empty,empty,empty,empty,empty,empty,empty")
-	testing.expect_value(t, pie_slot_label(app.kit.pies[2][0]), "Remesh")
+	testing.expect_value(t, pie_slot_label(app.kit.pies[2][0]), "Voxel remesh")
 	testing.expect_value(t, pie_slot_label({.Stats, 0}), "Stats panel")
 	testing.expect_value(t, pie_slot_label({.Brush, int(sculpt.Brush_Kind.Clay)}), command_label(.Brush, int(sculpt.Brush_Kind.Clay)))
 	testing.expect_value(t, pie_slot_label({}), "Empty")

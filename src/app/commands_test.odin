@@ -129,7 +129,7 @@ every_choice_has_its_own_label :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expect_value(t, command_label(.Mask, int(sculpt.Mask_Command.Clear)), "Clear mask")
-	testing.expect_value(t, command_label(.Remesh_To, 2), "Remesh to 1M vertices")
+	testing.expect_value(t, command_label(.Remesh_To, 2), "Voxel remesh to 1M vertices")
 	testing.expect_value(t, command_keys(&app, .Mask, int(sculpt.Mask_Command.Clear)), "Alt+M")
 	testing.expect_value(t, command_keys(&app, .Mask, int(sculpt.Mask_Command.Invert)), "Ctrl+I")
 	free_all(context.temp_allocator)

@@ -278,7 +278,7 @@ memory_bar :: proc(ctx: ^ui.Context, width: f32, need, free, history: int) {
 
 @(private = "file")
 memory_verb :: proc(cmd: Scene_Command) -> string {
-	return "Remesh" if cmd.kind == .Remesh else "Subdivide"
+	return "Voxel remesh" if cmd.kind == .Remesh else "Subdivide"
 }
 
 // A count as the Remesh to presets read it: 12M, 500k.

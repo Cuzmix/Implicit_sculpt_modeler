@@ -214,7 +214,7 @@ shelf_fit_keeps_three_brushes :: proc(t: ^testing.T) {
 }
 
 // Every tile shows while it can: at full width with room, then narrower; only past the
-// narrowest are tiles left out. A tablet's row keeps to eight full tiles' width. An iPad
+// narrowest are tiles left out. A tablet's row keeps to ten full tiles' width. An iPad
 // Air's room (628 points) shows all ten of a fresh Sculpt page. In lines, each row holds
 // its share.
 @(test)
@@ -227,7 +227,11 @@ shelf_layout_narrows_tiles_before_hiding_them :: proc(t: ^testing.T) {
 	testing.expect(t, b == 10, "an iPad Air's shelf shows the whole page")
 	b, tile = shelf_layout(30, 628, false, SHELF_TABLET * ui.BRUSH_TILE.x)
 	testing.expect(t, b < 30 && tile == SHELF_TILE_MIN, "past the narrowest, tiles are left out")
-	// The row on a tablet keeps to eight full tiles' width, however wide the window.
+	// An iPad Air's palm-safe room (699 points) gives a fresh page's twelve tiles 52 points
+	// each, wide enough for their whole names.
+	b, tile = shelf_layout(12, 699, false, SHELF_TABLET * ui.BRUSH_TILE.x)
+	testing.expect(t, b == 12 && tile >= 52, "a fresh page's names are cut on an iPad")
+	// The row on a tablet keeps to ten full tiles' width, however wide the window.
 	b, tile = shelf_layout(12, 2000, false, SHELF_TABLET * ui.BRUSH_TILE.x)
 	testing.expect(t, b == 12 && f32(b) * tile <= SHELF_TABLET * ui.BRUSH_TILE.x)
 	// Two lines: twelve tiles in two rows of six at full width.

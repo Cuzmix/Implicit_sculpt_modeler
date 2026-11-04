@@ -1036,7 +1036,7 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, _: int) -> bool {return app.tool == .Brush && app.ui.viewport_hovered},
 	},
 	.Remesh = {
-		label = "Remesh",
+		label = "Voxel remesh",
 		help = "Rebuilds the selected object as an even closed mesh at its own cell size, the one its last remesh used (or about as many vertices, when none did).",
 		run = proc(app: ^App, _: int) {
 			obj := selected_object(app)
@@ -1476,7 +1476,7 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, _: int) -> bool {return app.ui.reshape.last.valid && len(app.scene.objects) > 1 && !app.ui.reshape.drag.active},
 	},
 	.Remesh_To = {
-		label = "Remesh to",
+		label = "Voxel remesh to",
 		help = "Rebuilds the selected object as an even closed mesh of this many vertices that keeps its shape.",
 		args = len(SPHERE_PRESETS),
 		run = proc(app: ^App, arg: int) {
@@ -2828,7 +2828,7 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		// do with ("wire" in "Twist (deformer)"); the help line says it is a deformer.
 		return deformer_name(arg)
 	case .Remesh_To, .Decimate_To:
-		return fmt.tprintf("%s to %s vertices", "Remesh" if id == .Remesh_To else "Decimate", SPHERE_PRESETS[arg].label)
+		return fmt.tprintf("%s to %s vertices", "Voxel remesh" if id == .Remesh_To else "Decimate", SPHERE_PRESETS[arg].label)
 	case .Help:
 		return fmt.tprintf("Help: %s", HELP_TAB_NAMES[Help_Tab(arg)])
 	case .Open_Card:
