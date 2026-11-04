@@ -217,9 +217,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.View_Back        = "camera undo back history last view",
 	.View_Forward     = "camera redo forward history",
 	.Stats            = "performance fps statistics",
-	.Inspector        = "panel properties tray subpalette",
-	.Open_Card        = "card section panel stack open show go",
-	.Pin_Section      = "pin keep card stack panel unpin",
+	.Open_Card        = "card panel palette properties tray open show go",
+	.Open_Section     = "section card panel open show go fold",
 	.Panels_Reset     = "reset panels layout columns dock windows restore default",
 	.Workspace        = "workspace layout room switch focus sculpt inspect studio",
 	.Workspace_Save   = "workspace layout keep store",
@@ -285,8 +284,6 @@ palette_entries :: proc() -> []Palette_Entry {
 		if !palette_lists(id) do continue
 		n := COMMANDS[id].args
 		for arg in 0 ..< max(n, 1) {
-			// Only a section's card is pinned to the stack; the cards of their own are in it.
-			if id == .Pin_Section && !panel_is_section(Panel_Kind(arg)) do continue
 			append(&out, Palette_Entry{.Command, id, arg})
 		}
 	}
@@ -754,19 +751,19 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	}
 	if e, ok := shown.?; ok {
 		palette_close(app)
-		_ = tray_show(app, e.id, e.arg)
+		_ = card_show(app, e.id, e.arg)
 		return
 	}
 	if e, ok := ran.?; ok do palette_run(app, e)
 }
 
-// Where the entry's control is in the tray, as "the Mask card", or
-// "" for one with no home there (a Settings tab, or a command only the bars or keys run).
+// Where the entry's control is on the cards, as "the Mesh card's Rebuild", or "" for one
+// with no home there (a Settings tab, or a command only the docks or keys run).
 palette_home :: proc(e: Palette_Entry) -> string {
 	if e.kind != .Command do return ""
 	sec, ok := COMMAND_HOMES[e.id].?
 	if !ok do return ""
-	if section_palette(sec) == .Tool do return fmt.tprintf("the Brush card's %s", tray_section_title(sec))
-	if !panel_is_section(sec) do return fmt.tprintf("the %s card", STACK_CARD_NAMES[sec])
-	return fmt.tprintf("the %s card", tray_section_title(sec))
+	c := section_card(sec)
+	if card_sections_count(c) == 1 do return fmt.tprintf("the %s card", card_title(c))
+	return fmt.tprintf("the %s card's %s", card_title(c), section_title(sec))
 }

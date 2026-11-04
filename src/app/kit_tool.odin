@@ -9,7 +9,7 @@ import "../gizmo"
 import "../sculpt"
 import "../ui"
 
-// The tray's first palette: the tool in use, and everything that sets it up.
+// The Tool card's sections: the tool in use, and everything that sets it up.
 
 // The palette's name, after the tool it shows.
 kit_tool_name :: proc(tool: Tool) -> string {
@@ -23,8 +23,8 @@ kit_tool_name :: proc(tool: Tool) -> string {
 	return ""
 }
 
-// The Brush card's body under a tool other than the brush, whose body is the stack's own
-// (stack_brush).
+// The Tool card's Brush section under a tool other than the brush (the brush's own is
+// card_brush).
 kit_tool_tab :: proc(app: ^App) {
 	switch app.tool {
 	case .Brush:
@@ -52,7 +52,7 @@ kit_tool_head :: proc(ctx: ^ui.Context, glyph: rune, title, help: string) {
 // One section of a palette that is not per object (the Brush and Scene cards): which
 // it is, its title, what it draws, and when it is offered (always, when nil).
 Kit_Tab_Section :: struct {
-	section: Panel_Kind,
+	section: Section,
 	title:   string,
 	draw:    proc(app: ^App),
 	shown:   proc(app: ^App) -> bool,
@@ -282,21 +282,14 @@ kit_preset :: proc(app: ^App) {
 	}
 }
 
-// Size, strength, then the stroke mode (with Spray's spread) or, for the brushes that
-// lay no dabs along the path, the cloth brush's mode; under More, how the path is
-// followed: the lazy mouse, straight lines and joined strokes.
+// The stroke mode (with Spray's spread) or, for the brushes that lay no dabs along the
+// path, the cloth brush's mode; under More, how the path is followed: the lazy mouse,
+// straight lines and joined strokes. Size and Strength stand above it on the Tool card
+// (card_brush), whose readers know the keys from the dock's tooltips.
 @(private = "file")
 kit_stroke :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	kind := app.brush.kind
-	// Lens's Brush card shows Radius and Strength above its groups, and its readers know the
-	// keys from the island's tooltips.
-	stack := app.kit.in_stack
-	if !stack {
-		_ = ui.slider(ctx, "Size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px))
-		s := brush_strength(app)
-		_ = ui.slider(ctx, "Strength", s, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", s^))
-	}
 	// Grab, Snake hook and Cloth move what they pick up rather than laying dabs, so a
 	// stroke mode means nothing to them.
 	if BRUSHES[kind].flags & {.Grab, .Hook, .Cloth} == {} {
@@ -345,7 +338,6 @@ kit_stroke :: proc(app: ^App) {
 			kit_more_end(app)
 		}
 	}
-	if !stack do ui.paragraph(ctx, "S or U over the viewport sizes the brush or sets its strength there; [ and ] step the size, Shift with them the strength. Each brush keeps its own strength. Space, or a right click without dragging (a pen's side button), opens the brush pie.")
 }
 
 // The Stroke section's More: how the stroke follows the pointer's path.

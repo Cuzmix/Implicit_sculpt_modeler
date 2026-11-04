@@ -28,7 +28,7 @@ Zone :: enum u8 {
 // the slots they always have (spaces.odin).
 Built_In :: enum u8 {
 	Sculpt, // the brushes, the brush's panel, layers and the scene
-	Model, // the cage's actions and their settings beside the stack
+	Model, // the cage's actions and their settings
 	Render, // the lights, the material and the environment, with a thumbnail view
 }
 
@@ -41,9 +41,9 @@ WORKSPACE_CHIP_ROOM :: 160
 
 // The panels a layout opens and closes. Settings, Help, Macros and Library are opened
 // from the menu and History by a long press on Undo, so none of them changes a layout.
-LAYOUT_PANELS :: [?]Kit_Window{.Inspector, .Stats, .Objects, .Colors, .Thumbnail}
+LAYOUT_PANELS :: [?]Kit_Window{.Stats, .Colors, .Thumbnail}
 // The windows whose place and fold a layout keeps.
-LAYOUT_WINDOWS :: [?]Kit_Window{.Inspector, .Stats, .History, .Objects, .Colors, .Thumbnail}
+LAYOUT_WINDOWS :: [?]Kit_Window{.Stats, .History, .Colors, .Thumbnail}
 
 Workspace :: struct {
 	used:  bool,
@@ -112,16 +112,14 @@ workspace_built_in :: proc(slot: int) -> (Built_In, bool) {
 @(private = "file")
 layout_open :: proc(k: ^Kit_State, w: Kit_Window) -> ^bool {
 	#partial switch w {
-	case .Stats:     return &k.stats
-	case .Objects:   return &k.objects_card
 	case .Colors:    return &k.colors_card
 	case .Thumbnail: return &k.thumbnail
 	}
-	return &k.inspector
+	return &k.stats
 }
 
 // The layout as text: the lines of the hidden zones, the pass, the open panels, the windows' places,
-// where the stack goes and the stack's own lines, in that order. Places are written as they are for the
+// the cards pinned in the columns, the docks and the bars, in that order. Places are written as they are for the
 // right-handed layout, so a workspace saved with either hand reads the same with the other.
 kit_layout_text :: proc(k: ^Kit_State) -> string {
 	out := strings.builder_make(context.temp_allocator)
@@ -143,14 +141,8 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 		if mirror do window_mirror(&win)
 		window_save_line(&out, w, win)
 	}
-	stack_place_save(k, &out)
-	// The right bar's column, the bottom bar's strip and the view rail, after a line that
-	// says the layout holds them (one saved before it did keeps the bars as they are). The
-	// dock holds the user's brushes, which are no layout's: it stays as it is in every
-	// workspace.
-	stack_layout_save(k, &out)
-	stack_sizes_save(k, &out)
-	stack_groups_save(k, &out)
+	columns_save(k, &out)
+	// The docks, then the bars after a line that says the layout holds them.
 	docks_save(k, &out)
 	strings.write_string(&out, "bars\n")
 	bars_save(k, &out, layout = true)
@@ -165,7 +157,10 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	for w in LAYOUT_WINDOWS do k.windows[w] = {}
 	for w in LAYOUT_PANELS do layout_open(k, w)^ = false
 	panels_default(k)
-	stack_default(k)
+	// No card open but those the layout pins; which sections are folded is the person's,
+	// in every workspace.
+	if !k.cards.set do cards_default(k)
+	k.cards.columns = {}
 	k.hidden = {}
 	// Every dock as it comes, and none of the person's but those the layout names, with
 	// only the buttons it names.
@@ -178,7 +173,6 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	k.grid.serial += 1
 	grid_undo_clear(&k.grid)
 	k.second_in_layout = false
-	groups := make([dynamic][]string, 0, 4, context.temp_allocator)
 	for line in strings.split_lines(text, context.temp_allocator) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) == 0 do continue
@@ -204,15 +198,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			for word in f[1:] do for w in LAYOUT_PANELS do if strings.equal_fold(word, fmt.tprint(w)) do layout_open(k, w)^ = true
 		case "window":
 			for w in LAYOUT_WINDOWS do if len(f) > 1 && strings.equal_fold(f[1], fmt.tprint(w)) do window_load_line(k, f)
-		case "stack":
-			stack_layout_read(k, f)
-		case "stack_place":
-			stack_place_read(k, f)
-		case "stack_size":
-			stack_sizes_read(k, f)
-		case "stack_group":
-			// Read once the whole layout is in place, as a group needs the stack's order.
-			append(&groups, f)
+		case "column":
+			columns_read(k, f)
 		case "bars":
 			bar_lists_reset(k)
 		case "bar_count", "bar", "bar_look":
@@ -220,9 +207,6 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 		}
 	}
 	if k.ctx.mirror do for w in LAYOUT_WINDOWS do window_mirror(&k.windows[w])
-	for f in groups do stack_group_read(k, f)
-	// The tray and the Objects card share a place: the card wins, as opening it does.
-	if k.objects_card do k.inspector = false
 	kit_floats_close(k)
 }
 
@@ -230,18 +214,13 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 built_in_layout :: proc(b: Built_In) -> string {
 	text: string
 	switch b {
-	case .Sculpt:
-		text = "open Inspector\n"
-	case .Model:
-		// The cage's palette shows in the Brush card under the Model tool; Layers, the
-		// scene and symmetry follow it, folded.
-		text = "open Inspector\nstack Brush+ Layers Scene Symmetry -Tools\n"
+	case .Sculpt, .Model:
+		// The view clear: every card opens from its dock button when it is wanted.
+		text = ""
 	case .Render:
-		// The look's sections are cards of the stack, after round 2's studio2 screen: Lights
-		// and Material open, Environment folded, and the thumbnail shows the
-		// render building up beside the stack's foot, so the stack has the column's whole
-		// height.
-		text = "thumbnail Follow Render\nopen Inspector Thumbnail\nwindow Thumbnail 1 End End 390 112 0\nstack Lights+ Material+ Environment -Brush -Symmetry -Layers -Scene -Tools\n"
+		// The Look card pinned on the pen side, after round 2's studio2 screen, and the
+		// thumbnail showing the render building up beside it.
+		text = "thumbnail Follow Render\nopen Thumbnail\nwindow Thumbnail 1 End End 390 112 0\ncolumn right Look\n"
 	}
 	// Read and written again, so it is exactly what the layout writes when it is in place;
 	// every built-in has the bars a fresh install has.

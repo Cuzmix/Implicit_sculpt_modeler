@@ -8,51 +8,37 @@ import "../render"
 import "../sculpt"
 import "../ui"
 
-// The Object palette's sections fall in pages, by the question an artist asks of the
-// selected object (UX research 08 section 3): what shape and topology it has, which
-// part is being worked on, what is on its surface, and what is made from it. Search lists
-// them in that order; the page of the one drawn last is kept for the exit stats.
-Object_Page :: enum u8 {
-	Shape,
-	Select,
-	Surface,
-	Build,
-}
-
-// One section of the Object palette: the page it is on, which it is, its title and what
-// it draws.
+// One section that works on the selected object: which it is, its title and what it draws.
+// Each is on one card (cards.odin's section_card).
 Object_Section :: struct {
-	page:    Object_Page,
-	section: Panel_Kind,
+	section: Section,
 	title:   string,
 	draw:    proc(app: ^App, obj: ^Object),
 }
 
-// Every Object palette section, page by page in the order shown; each is on one page only
-// (object_sections_each_on_one_page).
 @(rodata)
 OBJECT_SECTIONS := [?]Object_Section {
-	{.Shape, .Transform, "Transform", kit_transform},
-	{.Shape, .Levels, "Subdivision levels", kit_levels},
-	{.Shape, .Hd, "HD detail", kit_hd},
-	{.Shape, .Topology, "Dynamic topology", kit_dyntopo},
-	{.Shape, .Remesh, "Rebuild", kit_rebuild},
-	{.Shape, .Mirror, "Modify topology", proc(app: ^App, _: ^Object) {kit_topology(app)}},
-	{.Select, .Mask, "Mask", proc(app: ^App, _: ^Object) {kit_mask(app)}},
-	{.Select, .Sets, "Selection sets", kit_sets},
-	{.Select, .Groups, "Polygroups", proc(app: ^App, _: ^Object) {kit_groups(app)}},
-	{.Select, .Visibility, "Hide, clip and slice", kit_visibility},
-	{.Surface, .Layers, "Layers", proc(app: ^App, _: ^Object) {kit_lens_layers(app)}},
-	{.Surface, .Paint, "Polypaint", proc(app: ^App, _: ^Object) {kit_paint(app)}},
-	{.Surface, .Morph, "Morph target", kit_morph},
-	{.Surface, .Deform, "Deformation", kit_deformation},
-	{.Surface, .Deformers, "Deformers", kit_deformers},
-	{.Build, .Voxels, "Voxels", kit_voxels},
-	{.Build, .Retopo, "UVs and baking", proc(app: ^App, _: ^Object) {kit_retopo_section(app)}},
-	{.Build, .Textures, "Textures", proc(app: ^App, _: ^Object) {kit_textures_section(app)}},
-	{.Build, .Project, "Project detail", proc(app: ^App, _: ^Object) {kit_project_section(app)}},
-	{.Build, .Booleans, "Booleans", proc(app: ^App, _: ^Object) {kit_boolean_section(app)}},
-	{.Build, .Extract, "Extract", proc(app: ^App, _: ^Object) {kit_extract_section(app)}},
+	{.Transform, "Transform", kit_transform},
+	{.Levels, "Subdivision levels", kit_levels},
+	{.Hd, "HD detail", kit_hd},
+	{.Topology, "Dynamic topology", kit_dyntopo},
+	{.Remesh, "Rebuild", kit_rebuild},
+	{.Mirror, "Modify topology", proc(app: ^App, _: ^Object) {kit_topology(app)}},
+	{.Mask, "Mask", proc(app: ^App, _: ^Object) {kit_mask(app)}},
+	{.Sets, "Selection sets", kit_sets},
+	{.Groups, "Polygroups", proc(app: ^App, _: ^Object) {kit_groups(app)}},
+	{.Visibility, "Hide, clip and slice", kit_visibility},
+	{.Layers, "Layers", proc(app: ^App, _: ^Object) {kit_lens_layers(app)}},
+	{.Paint, "Polypaint", proc(app: ^App, _: ^Object) {kit_paint(app)}},
+	{.Morph, "Morph target", kit_morph},
+	{.Deform, "Deformation", kit_deformation},
+	{.Deformers, "Deformers", kit_deformers},
+	{.Voxels, "Voxels", kit_voxels},
+	{.Retopo, "UVs and baking", proc(app: ^App, _: ^Object) {kit_retopo_section(app)}},
+	{.Textures, "Textures", proc(app: ^App, _: ^Object) {kit_textures_section(app)}},
+	{.Project, "Project detail", proc(app: ^App, _: ^Object) {kit_project_section(app)}},
+	{.Booleans, "Booleans", proc(app: ^App, _: ^Object) {kit_boolean_section(app)}},
+	{.Extract, "Extract", proc(app: ^App, _: ^Object) {kit_extract_section(app)}},
 }
 
 // Where the object is, how it is turned and how big it is: values to drag.
@@ -271,6 +257,10 @@ kit_mask :: proc(app: ^App) {
 	ui.paragraph(ctx, fmt.tprintf("Paint the mask with the Mask brush, or Ctrl + drag a shape from empty space (with Alt: unmask). Masked parts show darker and no brush moves them. Blur, Sharpen, Grow and Shrink (over the shelf while something is masked, and under More options) move its edge Steps rings of triangles. %s clears, %s inverts. With Mask on and the Sculpt tool, a tap off the model inverts, one on the mask blurs it and one on an unmasked part sharpens it.", command_keys(app, .Mask, int(sculpt.Mask_Command.Clear)), command_keys(app, .Mask, int(sculpt.Mask_Command.Invert))))
 	kit_last_result(app, .Mask)
 	if kit_more(app, .Mask) {
+		// Whether the view darkens what is masked; the mask stays either way, and it is no
+		// undo step.
+		shown := !app.ui.mask_hidden
+		if ui.switch_row(ctx, "Show the mask", &shown) do app.ui.mask_hidden = !shown
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Blur), int(sculpt.Mask_Command.Sharpen), "Blur", "Sharpen")
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Grow), int(sculpt.Mask_Command.Shrink), "Grow", "Shrink")
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Cavity), int(sculpt.Mask_Command.Hidden), "Mask cavities", "Mask hidden")

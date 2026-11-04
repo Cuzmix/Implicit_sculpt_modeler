@@ -12,7 +12,6 @@ inspect_shows_four_panes_and_leaves_the_layout :: proc(t: ^testing.T) {
 	defer free(k)
 	bars_reset(k)
 	panels_default(k)
-	k.inspector = true
 	workspaces_init(k)
 	defer workspaces_destroy(k)
 	workspaces_frame(k)

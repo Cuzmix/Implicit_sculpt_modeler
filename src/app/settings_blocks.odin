@@ -22,7 +22,6 @@ Settings_Block :: enum u8 {
 	Starting,
 	Brush_Ring,
 	Symmetry_Line,
-	Column_Popovers,
 	View_Grid,
 	Bars,
 	Action_Bar,
@@ -92,7 +91,6 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Starting         = "start at home starting launch",
 	.Brush_Ring       = "brush ring cursor surface circle",
 	.Symmetry_Line    = "symmetry line plane mirror mirrored brush ring point radial axis",
-	.Column_Popovers  = "stack columns pop over narrow window panels",
 	.View_Grid        = "view grid panes views run under panels work in any view",
 	.Bars             = "bars customise customize buttons dock rail labels names shelf palm tablet width",
 	.Action_Bar       = "action bar next steps",
@@ -205,9 +203,6 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Symmetry_Line:
 		_ = ui.switch_row(ctx, "Show the symmetry line", &k.symmetry_line)
 		ui.paragraph(ctx, "While symmetry is on, a thin line in each plane's colour (X red, Y green, Z blue) runs where the plane crosses the selected object, and with Radial a line along its axis. The brush ring always shows a copy with a dot at every mirrored spot.")
-	case .Column_Popovers:
-		_ = ui.switch_row(ctx, "The stack pops over a narrow window", &k.column_popovers)
-		ui.paragraph(ctx, "On a window under 1180 points wide, the docked panel stack shows only while you ask for it: from the tab at its top, by opening a card or a section, or with Palettes; a press on the view, or Escape, puts it away. Off, it stays beside the view as on a wide window.")
 	case .View_Grid:
 		_ = ui.switch_row(ctx, "Work in any view", &k.panes_work)
 		ui.paragraph(ctx, "A press in any pane works there, as Blender's quad views each take the tools; off, the other panes only show.")
@@ -498,7 +493,6 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Starting:        app.start_home = true
 	case .Brush_Ring:      k.surface_ring = true
 	case .Symmetry_Line:   k.symmetry_line = true
-	case .Column_Popovers: k.column_popovers = true
 	case .View_Grid:       k.panes_work = true
 	case .Bars:
 		bars_reset(k)

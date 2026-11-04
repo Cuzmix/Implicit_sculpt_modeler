@@ -313,7 +313,7 @@ pencil_preferred_run :: proc(app: ^App) {
 	case .Switch_Eraser:      rail_toggle(&app.rail, .Smooth)
 	case .Switch_Previous:    _ = command_run(app, .Brush, int(p.brush_before))
 	case .Color_Palette:      _ = command_run(app, .Colors_Card)
-	case .Ink_Attributes:     _ = command_run(app, .Open_Card, int(Panel_Kind.Stroke))
+	case .Ink_Attributes:     _ = command_run(app, .Open_Section, int(Section.Stroke))
 	case .Contextual_Palette: _ = command_run(app, .Brush_Pie)
 	}
 }

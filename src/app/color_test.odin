@@ -259,7 +259,7 @@ colors_palettes_keep_the_discs_size :: proc(t: ^testing.T) {
 	defer workspaces_destroy(&app.kit)
 	k := &app.kit
 	c := &k.colors
-	k.inspector, k.colors_card = false, true
+	k.colors_card = true
 	for own in ([2]bool{false, true}) {
 		if own {
 			testing.expect(t, palette_new(c) == 0)

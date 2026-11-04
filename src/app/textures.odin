@@ -189,13 +189,13 @@ object_layout_uvs :: proc(app: ^App, obj: ^Object) {
 	layout := geom.quad_uv_unwrap(sculpt.levels_quad_mesh(&obj.levels), retopo.UV_PADDING, context.temp_allocator)
 	next, folded := sculpt.levels_uvs_from_layout(&obj.levels, layout, obj.levels.allocator)
 	if !folded {
-		report(app, Panel_Kind.Retopo, {}, "New UVs on %s failed: its triangles are not all halves of its quads", object_label(obj))
+		report(app, Section.Retopo, {}, "New UVs on %s failed: its triangles are not all halves of its quads", object_label(obj))
 		return
 	}
 	had := object_has_textures(obj)
 	textures_replace(app, obj, {}, "new UVs", next)
 	note := ", its maps removed (they followed the old UVs)" if had else ""
-	report(app, Panel_Kind.Retopo, {}, "New UVs on %s: %d charts filling %.0f%%%s", object_label(obj), layout.charts, 100 * layout.filled, note)
+	report(app, Section.Retopo, {}, "New UVs on %s: %d charts filling %.0f%%%s", object_label(obj), layout.charts, 100 * layout.filled, note)
 }
 
 // What a .Textures step that loads map `m` is called in the History (constants: the
@@ -233,7 +233,7 @@ texture_load :: proc(app: ^App, obj: ^Object, m: render.Texture_Map, path: strin
 	t.image[m] = data
 	textures_replace(app, obj, t, TEXTURE_LOAD_LABELS[m])
 	if app.texture_view == .Off do app.texture_view = .Textured
-	report(app, Panel_Kind.Textures, {}, "Loaded %s as the %s map of %s", filepath.base(path), TEXTURE_MAP_NAMES[m], object_label(obj))
+	report(app, Section.Textures, {}, "Loaded %s as the %s map of %s", filepath.base(path), TEXTURE_MAP_NAMES[m], object_label(obj))
 	return ""
 }
 
@@ -241,7 +241,7 @@ texture_load :: proc(app: ^App, obj: ^Object, m: render.Texture_Map, path: strin
 texture_remove :: proc(app: ^App, obj: ^Object) {
 	if obj == nil || !object_has_textures(obj) do return
 	textures_replace(app, obj, {}, "remove maps")
-	report(app, Panel_Kind.Textures, {}, "Removed the maps of %s", object_label(obj))
+	report(app, Section.Textures, {}, "Removed the maps of %s", object_label(obj))
 }
 
 // Whether `obj` draws through its textured preview this frame, with `lv` the level shown:

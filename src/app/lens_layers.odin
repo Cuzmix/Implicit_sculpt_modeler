@@ -51,7 +51,7 @@ Layer_Panel :: struct {
 	tint_last:   int, // the layer tinted last, for counting new tints
 }
 
-// The card's content, as the stack draws it.
+// The Layers section's content, as the Layers card draws it.
 kit_lens_layers :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx

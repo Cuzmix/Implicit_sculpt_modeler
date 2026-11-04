@@ -50,9 +50,8 @@ SETTINGS_INTERFACE := [?]Settings_Entry {
 	{.Starting, "STARTING"},
 	{.Brush_Ring, "BRUSH RING"},
 	{.Symmetry_Line, "SYMMETRY"},
-	{.Column_Popovers, "PANELS"},
 	{.View_Grid, "VIEW GRID"},
-	{.Inspector, "INSPECTOR"},
+	{.Inspector, "CARDS"},
 	{.Panel_Places, "PANEL PLACES"},
 }
 @(rodata)

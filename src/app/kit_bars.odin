@@ -41,7 +41,7 @@ BAR_EDGE :: 4
 
 // What a bar's popover holds: the three symmetry axes, what the polyframe shows, Remesh's
 // quick menu, the Shading or Camera menu, or the view layout. A section or card a button
-// opens pops out as the stack's own floating card instead (card_pop.odin).
+// opens shows in the card column beside it instead (column.odin).
 Bar_Pop_Kind :: enum u8 {
 	Symmetry,
 	Polyframe,
@@ -133,14 +133,14 @@ kit_edge_width :: proc(app: ^App, edge: Dock_Edge) -> f32 {
 
 // Where a card under the top bar (the first-run tip, the recovery offer) goes: under the
 // window's middle where that clears the off-hand island on the left and the view rail and
-// the stack on the right, else in the middle of the room between them; lower down where
+// the card column on the right, else in the middle of the room between them; lower down where
 // it would meet the readout. Returns its shift from the middle, its width (at
 // most `most`, at least `least`) and its top; false when even that does not fit.
 kit_card_place :: proc(app: ^App, most, least: f32) -> (shift, w, top: f32, fits: bool) {
 	k := &app.kit
 	area := ui.safe_area(&k.ctx)
 	left := kit_left(app)
-	right := kit_right(app) + (KIT_SETTINGS_W + 8 if side_panel_open(k) else tray_width(app) + 8 if k.inspector else 0)
+	right := kit_right(app) + (KIT_SETTINGS_W + 8 if side_panel_open(k) else cards_right_room(app))
 	room := area.w - left - right
 	if room < least do return
 	w = min(most, room)
@@ -244,8 +244,8 @@ kit_bar_popover :: proc(app: ^App) {
 	}
 }
 
-// The symmetry axes, Local, and the radial copies: the bar's Symmetry popover and the Lens
-// stack's Symmetry panel.
+// The symmetry axes, Local, and the radial copies: the bar's Symmetry popover and the
+// Symmetry card.
 symmetry_controls :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	ui.caption(ctx, "SYMMETRY")
@@ -274,9 +274,9 @@ symmetry_controls :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Show the symmetry line", &app.kit.symmetry_line)
 }
 
-// Section `sec` of the tray, wherever its palette lists it: its title and what draws it
-// (for the Object palette's, with the object).
-bar_section :: proc(app: ^App, sec: Panel_Kind) -> (title: string, draw: proc(app: ^App), obj_draw: proc(app: ^App, obj: ^Object), found: bool) {
+// Section `sec`, wherever its card's table lists it: its title and what draws it
+// (for the object sections, with the object).
+bar_section :: proc(app: ^App, sec: Section) -> (title: string, draw: proc(app: ^App), obj_draw: proc(app: ^App, obj: ^Object), found: bool) {
 	for s in BRUSH_SECTIONS do if s.section == sec do return s.title, s.draw, nil, true
 	for s in SCENE_SECTIONS do if s.section == sec do return s.title, s.draw, nil, true
 	for s in OBJECT_SECTIONS do if s.section == sec do return s.title, nil, s.draw, true

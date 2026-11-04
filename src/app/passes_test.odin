@@ -10,7 +10,6 @@ a_layout_holds_the_pass_but_never_a_peek :: proc(t: ^testing.T) {
 	k: Kit_State
 	bars_reset(&k)
 	panels_default(&k)
-	k.inspector = true
 	shaded := kit_layout_text(&k)
 	testing.expect(t, shaded == built_in_layout(.Sculpt), "Shaded writes a pass line")
 	testing.expect(t, !strings.contains(shaded, "pass"), "Shaded writes a pass line")

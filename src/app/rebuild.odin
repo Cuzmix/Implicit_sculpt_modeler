@@ -429,7 +429,7 @@ kit_remesh_quick :: proc(app: ^App) {
 	if ui.menu_item(ctx, "More options", glyph = ui.ICON_SETTINGS) {
 		at, side := k.bar_pop.at, k.bar_pop.side
 		k.bar_pop.open = false
-		card_pop_section(app, .Remesh, at, side)
+		bar_section_toggle(app, .Remesh, at, side)
 	}
 }
 

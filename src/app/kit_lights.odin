@@ -160,7 +160,7 @@ kit_lights :: proc(app: ^App) {
 		_ = ui.slider(ctx, "Height all", &app.light_height, -90, 90, .Linear, fmt.tprintf("%+.0f°", app.light_height))
 		if ui.button(ctx, "Use as starting lights", .Bordered) {
 			app.start_lights = set^
-			report(app, Panel_Kind.Lights, {}, "New scenes start with these lights")
+			report(app, Section.Lights, {}, "New scenes start with these lights")
 		}
 		if ui.button(ctx, "Reset lights", .Bordered) do set^ = LIGHTS_DEFAULT
 		// Whole rigs at once, as KeyShot's and Marmoset's presets: each replaces the lights.

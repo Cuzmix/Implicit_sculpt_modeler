@@ -58,52 +58,28 @@ summary.
   Chip), and `value_item` draws every look, a Chip claiming the drag only across its bar (`claim_drag`). Customise bars (`k.bars_edit`) is
   Arrange (`lens_arrange.odin`): a tap on a ringed slot opens `kit_bar_slot_menu` with `bar_slot_actions`, the
   Library (`bar_choose` -> `library_open_for`, `library_put` -> `bar_put`) chooses its button; Arrange's sheet's Panels tab is
-  `arrange_show_chips` + `arrange_panel_rows` (the stack Hidden/Left/Right/Float, other windows Hidden/Shown), and
+  `arrange_show_chips` + `arrange_panel_rows` (every window Hidden/Shown), and
   `kit_arrange_ghosts` outlines a hidden shelf, wheel or action bar. A bar button opens the one `Bar_Pop` (`bar_pop_toggle`): the symmetry axes, the
-  polyframe parts, the Remesh quick menu, Shading, Camera or View layout. A section or card button off the rail (and a
-  long press's section, a value menu's or quick menu's settings) pops the stack's own card out as a floating window
-  beside it (`card_pop.odin`: `card_pop_toggle`, `card_pop_section`, one at a time, placed again by its laid-out size,
-  Keep open / Close in its head, `card_pop=` stat); a card the docked stack shows opens there instead. `corner = true` on `icon_button` draws the triangle that says a long press does more.
+  polyframe parts, the Remesh quick menu, Shading, Camera or View layout. A card or section button (and a long press's section, a value menu's or quick
+  menu's settings) opens its card in the column beside it (`card_toggle`, `bar_section_toggle`; column.odin). `corner = true` on `icon_button` draws the triangle that says a long press does more.
   An overlay on a panel's own area takes no hits from a `begin_at` root (the mini view's chip is part of the picture's
-  press). Thumbnail = `kit_mini_view`; `lens_mini_reach` shortens the docked stack above it. The shelf's pages are
+  press). Thumbnail = `kit_mini_view`. The shelf's pages are
   drag_scroll, so `ui.swipe_update` on it turns pages (`shelf_turn`); `shelf_lines_layout`/`shelf_fit` decide how many tiles (in the dock's lines as rows)
-  show; ask a child's `prev_rect` inside its parent. `k.order` is `Float_Ref` (windows and floated
-  `Panel_Kind`s): `float_raise` on a press; the dial (`kit_modifier_rail`) is laid out after the floats, before menus
+  show; ask a child's `prev_rect` inside its parent. `k.order` is `Float_Ref` (the windows): `float_raise` on a press; the dial (`kit_modifier_rail`) is laid out after the floats, before menus
   and popovers, so it is the top lasting root. `ui.row_room` right-aligns in a fixed-width row (spacer(0) does
-  nothing). The tray is the stack (`lens_stack.odin`, `kit_inspector`, `panel_begin(bare)`): cards in `k.stack`,
-  layout line `stack`; `tray_open` calls `stack_reveal` (`exact` for Show where), which brings a left-out section's
-  palette in as `s.visit` (`stack_visit`; `stack_keep` keeps a section for good, Pin to the stack, `stack_kept` asks; the layout never writes the visit; markers ask
-  `palette_on_screen`; `s.revealed` is the section opened last); the tray and its Palettes card are gone (PR 9c),
-  and `stack_layout_upgrade` rewrites a saved layout that still names Palettes; `k.in_stack` lets a section drop what the Brush card shows above it. What a panel holds is a `Panel_Kind`
-  (`panel_kind.odin`: one enum, the cards of their own (`STACK_CARDS`) then a card per section, `panel_is_section`;
-  sections start in `STACK_HIDDEN_DEFAULT`, and stack lines write one only while shown, as
-  `panel_word`'s `section:Mask`); its content is `panel_body`, which the stack and the pane strip's tab
-  both call, and its title, icon, folded line and layout name (`card:Brush`, `section:Stroke`) come from
-  the `panel_kind_*` procs. The brush pie is
+  nothing). The cards and their columns are `cards.odin` and `column.odin` (SKILL.md, Cards and columns). The brush pie is
   `Bar_Which.Brush_Pie` (`k.brush_pie`, eight slots); `pie_slot` reads it, `lens_pie_update` adds tap-to-pick and
-  the rest that opens `pie_quick`. Stack sizes live in `lens_resize.odin` (`stack_width`, which `tray_width` returns,
-  `heights`, `sizes`, layout line `stack_size`); its handles are `ui.begin_at` roots drawn after what they resize.
+  the rest that opens `pie_quick`.
   Split views chrome is `lens_panes.odin`: `lens_pane_head` (chips, `k.pane_menu` lists), `grid_divider_lens`
   (grip, `handle_double_tap` evens, edge close via `grid_close_target`, the main pane never closes), `grid_choose`
-  (the View grid command; `k.new_panes`), and the stack's tab strip while `stack_strip_shown` (panes beside the main view;
-  `kit_stack_tab` draws a card over the view through `stack_card_body`, and
-  `stack_reveal` opens the strip's card at `s.strip_at`). Palette groups (`stack_groups.odin`) are runs in
-  `s.order`: a host then the cards in `s.joined`; the host carries open, floated, hidden, window, height, size and
-  scroll, `s.shown[host]` (read through `stack_shown`) the tab drawn. Iterate hosts only (skip `s.joined`), move runs
-  (`stack_move_to_k`), and read `stack_group` lines after the whole layout (`kit_layout_put`). Carrying is
-  `stack_carry.odin`: sources set `s.carry` (the grip; `ui.tabs(dragged = &i)`), `stack_carry_update` runs once after
-  the floats (new_ui.odin) and targets only this frame's `s.seen` and `s.strip_seen` rects, cleared by `stack_frame_begin`; a strip icon
-  joins after `stack_dwell` reaches 1 (twice `long_press`, drawn with `ui.hold_ring`). A group shows as tabs or, with its
-  host in `s.sections` (`stack_as_sections`), as sections (`stack_sections_body`, folds in `s.folded`); the panel's width is
-  `stack_width` everywhere (`tray_width`, `panel_width`); `view_grid_room` is the whole window, panes always under the panels.
+  (the View grid command; `k.new_panes`); cards open over the panes as over one view; `view_grid_room` is the whole window, panes always under the panels.
   The grid is a split tree (`Grid_Tree`, at most four leaves; pane 0 the main view, panes keep their numbers and the
   last fills a closed one's): change it only through the tree ops in grid.odin. Gestures (`lens_areas.odin`) queue a
   `Grid_Op` that `kit_grid` applies before layout; each op is a `Grid_Step` that `undo_run`/`redo_run` order against
   the History by `at` ticks. Pictures follow moved views in `grid_pictures_follow`.
   The menu is `kit_menu_lens` (`lens_menu.odin`; `LENS_MENU_PLACE` says where each command is, keep it in step with
   the rows, and touch_check's `MENU_ROWS`); search's rows, groups and Put on a bar are `lens_search.odin`
-  (`palette_where`). The stack's Scene, Layers and Tools cards are `kit_lens_scene`, `kit_lens_layers` and
-  `kit_lens_tools` (the full sections are cards of their own; a Tools tile is a registry command); the action
+  (`palette_where`). The Scene and Layers sections are `kit_lens_scene` and `kit_lens_layers`; the action
   bar's lists come from `action_list`; a lock (`Object.locked`) goes through `object_pickable`, never a raycast of its
   own. The Scene card is the outliner: its chips (`Outliner.kind`, `object_scene_kind`) and Find narrow the rows and
   stop drags (a narrowed list is not the scene's order); its Add menu (`kit_scene_add_menu`, drawn after the layer
@@ -112,8 +88,8 @@ summary.
   `row_toggle_rect`, the toggle's own rect, which must follow `ui.thumb_row`'s layout of the toggles.
   An object's spaces dots (`Object.spaces_off`, `ui.Thumb_Row.dots`) feed `object_flags`, so leaving an object out of
   the current space is exactly an eye turned off there; anything that asks whether an object shows goes through
-  `object_shown`/`object_pickable`, never `obj.off` alone. The look's cards (Lights, Material, Environment: `lens_studio.odin`) start in `stack.hidden`; every stack loop
-  skips hidden cards. `built_in_layout(b)` gives each built-in workspace's layout.
+  `object_shown`/`object_pickable`, never `obj.off` alone. The look's sections (Material, Lights, Environment, Floor, Background) are the Look card's.
+  `built_in_layout(b)` gives each built-in workspace's layout.
   Settings rows live in `settings_block` (`settings_blocks.odin`), one case per heading; each `Settings_Section`
   (`settings_sections.odin`) is a list of `Settings_Entry`, shown by the sheet and by the narrow window's
   drill-down panel (`kit_settings.odin`, under 840 points) alike. A new setting goes in a block, its default in `settings_block_reset`, and its search words in

@@ -66,10 +66,10 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
   `brush_ms`, `normals_ms`, `upload_kb`, `latency_ms`; with `--bench-stroke` `undo_mb= undo_ms= redo_ms=` and
   `level_changes_ms=`; always `camera_yaw= camera_pitch= camera_roll= camera_distance= camera_target=x,y,z`,
   `orbit_pivot=x,y,z pivot_source=centre|stroke|pointer|object` (the last orbit's), `undo_steps= redo_steps=
-  brush_radius_px= brush_strength= selected=`, `inspector_scroll= settings_scroll= settings_open=`, `cursor_hit=
-  cursor_normal=x,y,z` and `window_inspector= window_stats= window_history= window_settings=` (each
-  `open,folded,left,top`), `column_left= column_right= panel_pins=` (docked panels top to bottom, pinned
-  sections, or none): what scripted input did. These are the numbers to quote; `--frames=N` ends a run by itself.
+  brush_radius_px= brush_strength= selected=`, `card_scroll= cards= settings_scroll= settings_open=`, `cursor_hit=
+  cursor_normal=x,y,z` and `window_stats= window_history= window_settings=` (each
+  `open,folded,left,top`), `layout_left_column= layout_right_column=` (where the card columns stood, or
+  zeros): what scripted input did. These are the numbers to quote; `--frames=N` ends a run by itself.
 
 ## Seeing the viewport
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\view.ppm

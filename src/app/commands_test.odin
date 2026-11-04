@@ -81,7 +81,7 @@ menus_show_the_same_shortcuts :: proc(t: ^testing.T) {
 		{.Redo, 0, "Ctrl+Shift+Z"},
 		{.Clean_View, 0, "Tab"},
 		{.Brush_Picker, 0, "B"},
-		{.Inspector, 0, ""},
+		{.Open_Card, 0, ""},
 		{.Symmetry_X, 0, "X"},
 		{.Brush, int(sculpt.Brush_Kind.Draw), "1"},
 		{.Brush, int(sculpt.Brush_Kind.Layer), "0"},
@@ -167,7 +167,7 @@ controls_that_run_commands_show_their_hints :: proc(t: ^testing.T) {
 			}
 		}
 	}
-	// The scan saw the sources: the top bar's Undo, Redo and Inspector at least.
+	// The scan saw the sources: the top bar's Undo and Redo and a card's control at least.
 	testing.expect(t, checked >= 3)
 	free_all(context.temp_allocator)
 }

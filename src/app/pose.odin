@@ -86,18 +86,18 @@ pose_pivot_place :: proc(app: ^App) {
 // saying why, in an HD window, under dynamic topology, or with nothing shown left free.
 pose_begin :: proc(app: ^App, obj: ^Object, drag := false) -> bool {
 	if object_in_hd(obj) {
-		report(app, Panel_Kind.Transform, {.Warning}, "Posing needs the HD window left first (A)")
+		report(app, Section.Transform, {.Warning}, "Posing needs the HD window left first (A)")
 		return false
 	}
 	if object_dynamic(obj) {
-		report(app, Panel_Kind.Transform, {.Warning}, "Posing needs dynamic topology off")
+		report(app, Section.Transform, {.Warning}, "Posing needs dynamic topology off")
 		return false
 	}
 	if !sculpt.sculptor_pose_begin(object_sculptor(obj)) {
-		report(app, Panel_Kind.Transform, {.Warning}, "Nothing is free to pose: the mask covers all that is shown")
+		report(app, Section.Transform, {.Warning}, "Nothing is free to pose: the mask covers all that is shown")
 		return false
 	}
-	if drag do pose_physics_begin(app, obj, Panel_Kind.Transform)
+	if drag do pose_physics_begin(app, obj, Section.Transform)
 	return true
 }
 
@@ -110,7 +110,7 @@ PHYSICS_POSE_MAX :: 300_000
 // (sculpt.sculptor_pose_physics): the free part lags behind the handle, swings and settles,
 // colliding with what the Cloth brush's switches say. A pose over PHYSICS_POSE_MAX free
 // vertices says so in `section` and runs without it.
-pose_physics_begin :: proc(app: ^App, obj: ^Object, section: Panel_Kind) {
+pose_physics_begin :: proc(app: ^App, obj: ^Object, section: Section) {
 	if !app.brush.physics do return
 	s := object_sculptor(obj)
 	if free := sculpt.sculptor_pose_moved(s); free > PHYSICS_POSE_MAX {

@@ -340,7 +340,6 @@ SETTINGS := [?]Setting {
 	{"clean_view_dial", K + offset_of(Kit_State, clean_dial), bool, 0, 0},
 	{"panes_work", K + offset_of(Kit_State, panes_work), bool, 0, 0},
 	{"new_panes", K + offset_of(Kit_State, new_panes), New_Panes, 0, 0},
-	{"column_popovers", K + offset_of(Kit_State, column_popovers), bool, 0, 0},
 	{"action_bar", K + offset_of(Kit_State, action_bar), bool, 0, 0},
 	{"modifier_rail", K + offset_of(Kit_State, rail_side), Rail_Side, 0, 0},
 	{"wheel_size", K + offset_of(Kit_State, wheel_size), Wheel_Size, 0, 0},
@@ -874,6 +873,13 @@ settings_load :: proc(app: ^App, path: string) {
 					if _, dup := brush_favorite(p, key); !dup do brush_favorite_toggle(p, key)
 				}
 			}
+		case "cards_shut":
+			// cards_shut <Section> ...: the sections folded on the cards, whichever card is
+			// open; a word naming no section this build has is passed over.
+			k := &app.kit
+			if !k.cards.set do cards_default(k)
+			k.cards.shut = {}
+			for word in f[1:] do if sec, ok := section_from_word(word); ok do k.cards.shut += {sec}
 		case "material_favorite":
 			// material_favorite <key, escaped> ...: the Material card's favourite spheres in
 			// the order added, by material_ball_key. A key naming nothing (a pack removed) is
@@ -1161,6 +1167,9 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		for &k in p.favorites[:p.favorite_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))
 		strings.write_byte(&out, '\n')
 	}
+	strings.write_string(&out, "cards_shut")
+	for sec in Section do if sec in app.kit.cards.shut do fmt.sbprintf(&out, " %v", sec)
+	strings.write_byte(&out, '\n')
 	if mc := &app.kit.material_card; mc.favorite_count > 0 {
 		strings.write_string(&out, "material_favorite")
 		for &k in mc.favorites[:mc.favorite_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))

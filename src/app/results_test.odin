@@ -11,7 +11,7 @@ results_keep_the_latest_line :: proc(t: ^testing.T) {
 	defer results_destroy(&app)
 	defer delete(app.history.done)
 	name := [6]u8{'S', 'p', 'h', 'e', 'r', 'e'}
-	report(&app, Panel_Kind.Mask, {.Quiet}, "Blur %s", string(name[:]))
+	report(&app, Section.Mask, {.Quiet}, "Blur %s", string(name[:]))
 	name[0] = 'X'
 	testing.expect_value(t, app.result.text, "Blur Sphere")
 	testing.expect(t, app.result.undo == nil)
@@ -21,7 +21,7 @@ results_keep_the_latest_line :: proc(t: ^testing.T) {
 	testing.expect(t, !ok)
 
 	append(&app.history.done, History_Entry{id = 1}, History_Entry{id = 2, at = time.tick_now()})
-	report(&app, Panel_Kind.Deform, {.Undo}, "Smoothed %s", "Sphere")
+	report(&app, Section.Deform, {.Undo}, "Smoothed %s", "Sphere")
 	report_detail(&app, "GPU: %d ms", 3)
 	testing.expect(t, app.result.undo == Undo_Mark{2, app.history.done[1].at})
 	testing.expect_value(t, app.result.detail, "GPU: 3 ms")
@@ -31,7 +31,7 @@ results_keep_the_latest_line :: proc(t: ^testing.T) {
 	// A file note belongs to no section.
 	report(&app, nil, {.Warning}, "Cannot open %s", "a.sculpt")
 	testing.expect_value(t, app.result.detail, "")
-	for s in Panel_Kind {
+	for s in Section {
 		_, ok = result_for(&app, s)
 		testing.expect(t, !ok)
 	}
