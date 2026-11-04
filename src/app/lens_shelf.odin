@@ -399,6 +399,8 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	ctx := &k.ctx
 	t := ctx.theme
 	sh := &k.shelf
+	motion := ui.motion_mark(ctx)
+	defer dock_motion_end(app, .Shelf, motion)
 	pages := shelf_pages(k, k.spaces.current)
 	if !shelf_page_used(k, sh.page) || shelf_page_space(k, sh.page) != k.spaces.current do sh.page = pages[0]
 	which := shelf_which(sh.page)

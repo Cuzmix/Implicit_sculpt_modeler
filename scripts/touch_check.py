@@ -3936,6 +3936,98 @@ def lens_rail_opens_beside_itself():
     return Steps([run("passes", {"pass_menu": near(1)}), run("lights", {"card_front": is_text("look"), "card_section": is_text("Lights")}), run("layout", {"bar_pop": is_text("view_layout")})])
 
 
+# The narrow window's sheet (under 900 points wide): the Tool card's head, where a drag
+# down starts.
+NARROW_SHEET_HEAD = (300, 438)
+
+
+@scenario
+def narrow_sheet_drag_down_puts_it_away():
+    """On a narrow window a drag down on the card's head past a third of its height puts the sheet away; a short one lets it spring back."""
+    def run(far):
+        s = Script()
+        s.wait(30)
+        x, y = NARROW_SHEET_HEAD
+        s.fdrag([(x, y + i * (20 if far else 6)) for i in range(11)])
+        s.wait(20)
+        return (s, ["--width=720", "--height=900", "--script=open_card tool"],
+                camera_still({"sheet_pulls": near(1 if far else 0), "cards": is_text("left:;right:" if far else "left:;right:Tool"), "dabs": near(0)}))
+    return Steps([run(True), run(False)])
+
+
+# The view pane's Maximise at 1600x900.
+GRID_PANE_MAXIMISE = (1120, 90)
+
+
+@scenario
+def view_pane_maximise_grows_from_its_cell():
+    """Maximise on the side-by-side view pane grows it from its cell to the whole grid, once, sculpting nothing."""
+    s = Script()
+    s.wait(6)
+    s.ftap(GRID_PANE_MAXIMISE)
+    s.wait(30)
+    return s, ["--script=view_grid side_by_side"], camera_still({"grid_max": near(1), "pane_grows": near(1), "dabs": near(0)})
+
+
+@scenario
+def floating_card_lifts_and_glides_back():
+    """A floating card carried by its grip lifts while carried, and let go at the window's right side glides back into the right column."""
+    s = Script()
+    float_tool_card(s)
+    s.add(f"move:{where(CARD_GRIP)}")
+    s.wait(1)
+    s.add("down")
+    for k in range(1, 13):
+        s.wait(1)
+        s.add(f"move:{700 + 72 * k},{300}")
+    s.wait(1)
+    s.add("up")
+    s.wait(30)
+    return s, [], camera_still({"cards": is_text("left:;right:Tool*"), "card_lifts": near(1), "card_glides": near(1), "dabs": near(0)})
+
+
+@scenario
+def floating_card_closed_fades_out():
+    """A floating card closed from its dock button fades where it floated rather than vanishing."""
+    s = Script()
+    float_tool_card(s)
+    s.ftap(UI["inspector"])
+    s.wait(30)
+    return s, [], camera_still({"cards_float": is_text("none"), "panel_leaves": lambda v: int(v) >= 1, "dabs": near(0)})
+
+
+@scenario
+def dock_dropped_glides_into_place():
+    """In Arrange the rail dropped by the left edge glides the last stretch into its place there."""
+    a = LENS_ARRANGE
+    s = Script()
+    s.wait(6)
+    s.fdrag(line(a["rail_tag"], ARRANGE_LEFT_MID, 30))
+    s.wait(30)
+    return s, LENS_1440 + ["--script=customise_bars"], camera_still({"bar_carries": near(1), "dock_glides": near(1), "dabs": near(0)})
+
+
+@scenario
+def edit_buttons_close_up_when_reordered():
+    """In Customise bars Camera dragged above View layout goes first, and the rail's buttons glide to their new places rather than jumping."""
+    s = Script()
+    s.wait(4)
+    s.fdrag(line(DRAG_RAIL["camera"], (DRAG_RAIL["camera"][0], DRAG_RAIL["layout"][1] - 10), 12))
+    s.wait(30)
+    return s, DRAG_1280 + eight_rail() + ["--script=customise_bars"], camera_still({"bar_drops": near(1), "slot_moves": lambda v: int(v) >= 2,
+                                                                    "view_rail": lambda v: v.startswith("Camera_Menu,View_Layout_Menu"), "dabs": near(0)})
+
+
+@scenario
+def job_pill_settles_in_and_fades_out():
+    """A remesh run from Search shows its pill, which settles in under the top bar and fades out the way it came when the job is done."""
+    s = Script()
+    palette_run(s, "remesh")
+    s.wait(90)
+    return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "long_job_running": near(0),
+                                                                   "pills_in": lambda v: int(v) >= 2, "pills_out": lambda v: int(v) >= 1})
+
+
 @scenario
 def lens_rail_second_view_splits_the_view():
     """The rail's Second view splits the view in two, the second pane with its own camera; again joins them."""

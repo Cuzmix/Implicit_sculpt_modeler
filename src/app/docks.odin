@@ -731,6 +731,10 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 	ctx := &k.ctx
 	t := ctx.theme
 	d := &k.docks[id]
+	// It slides in from its edge the first frames it shows, and off again as it hides
+	// (panel_motion.odin).
+	mark := ui.motion_mark(ctx)
+	defer dock_motion_end(app, id, mark)
 	which := dock_which(k, id)
 	used := bar_used(app, which)
 	root := DOCK_ROOTS[id]
@@ -786,6 +790,7 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 		}
 		if lines > 1 do ui.end(ctx)
 	}
+	if dock_editing(k, id) do bar_slots_leaving(app, which)
 	kit_scroll_end(ctx, scroll)
 	if dock_editing(k, id) do bar_add_button(app, which, len(used), width)
 	if more do dock_more_button(app, id, width * f32(lines))
@@ -820,6 +825,7 @@ kit_dock_row :: proc(app: ^App, id: Dock_Id, used: []Bar_Slot, x, y: ui.Anchor, 
 		}
 		ui.end(ctx)
 	}
+	if dock_editing(k, id) do bar_slots_leaving(app, which)
 	ui.end(ctx)
 	if dock_editing(k, id) do bar_add_button(app, which, len(used), width)
 	if more do dock_more_button(app, id, width, row = true)
