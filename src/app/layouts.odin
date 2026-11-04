@@ -296,6 +296,9 @@ layouts_loaded :: proc(k: ^Kit_State) {
 	l := &k.layouts
 	if l.shipped[.Sculpt] == "" do return
 	s := k.spaces.current
-	kit_layout_put(k, l.kept[s] if l.kept[s] != "" else l.shipped[s])
+	// Sculpt as it ships is how the interface starts, with any bar the settings named
+	// (a scenario's view rail), so it is put in place only when the file kept another.
+	if l.kept[s] != "" do kit_layout_put(k, l.kept[s])
+	else if s != .Sculpt do kit_layout_put(k, l.shipped[s])
 	layout_text_set(&l.kept[s], "")
 }
