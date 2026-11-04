@@ -762,7 +762,7 @@ scene_delete_others :: proc(app: ^App, all: bool) {
 		bytes += object_put_estimate(obj)
 	}
 	if len(ids) == 0 do return
-	if bytes > SWAP_LIMIT_BYTES {
+	if bytes > history_swap_limit(&app.history) {
 		report(app, nil, {.Warning}, "Too much to delete in one undoable step (%.1f GB); delete fewer objects at a time", f64(bytes) / (1 << 30))
 		return
 	}
@@ -1241,8 +1241,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		levels := &obj.levels
 		#partial switch cmd.kind {
 		case .Subdivide:
-			if _, _, bytes := sculpt.levels_subdivide_estimate(levels); bytes > MAX_SUBDIVIDE_BYTES {
-				log.warnf("subdivide: the new level would need about %d MB; the limit is %d MB", bytes >> 20, MAX_SUBDIVIDE_BYTES >> 20)
+			if vertices, _, bytes := sculpt.levels_subdivide_estimate(levels); !mesh_subdivide_fits(app, vertices, bytes) {
+				log.warnf("subdivide: the new level of %d vertices would need about %d MB, more than Settings > Performance > Mesh size allows", vertices, bytes >> 20)
 				return true
 			}
 			if levels.hd.steps > 0 {
@@ -1321,9 +1321,6 @@ object_set_level :: proc(app: ^App, obj: ^Object, level: int) -> bool {
 	sculpt.levels_set_current(&obj.levels, level)
 	return object_show_level(app, obj, start)
 }
-
-// Largest new level Subdivide makes, in CPU memory.
-MAX_SUBDIVIDE_BYTES :: 12 << 30
 
 // Brings the current level's normals and GPU buffers up to date after it became
 // current: uploads what changed while it was not, or everything the first time it is

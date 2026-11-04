@@ -344,8 +344,8 @@ merge_visible :: proc(app: ^App, folder: int) -> bool {
 	for obj in objs do object_hd_leave(app, obj)
 	bytes := 0
 	for obj in objs do bytes += object_put_estimate(obj)
-	if bytes > MAX_SUBDIVIDE_BYTES {
-		report(app, nil, {.Warning}, "%s: the new object would need about %d MB; the limit is %d MB", what, bytes >> 20, MAX_SUBDIVIDE_BYTES >> 20)
+	if most := mesh_bytes_most(); bytes > most {
+		report(app, nil, {.Warning}, "%s: the new object would need about %d MB; the limit is %d MB", what, bytes >> 20, most >> 20)
 		return true
 	}
 	table: [dynamic]Group_Material

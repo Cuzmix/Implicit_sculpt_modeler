@@ -30,8 +30,8 @@ History :: struct {
 	// forgetting, and not the steps inside an HD window, whose detail no file holds.
 	// The autosave's fingerprint (autosave.odin) follows it.
 	edits:  u64,
-	// The bytes swap snapshots may take before the oldest go; 0 for SWAP_LIMIT_BYTES (a
-	// test sets a small one).
+	// The bytes swap snapshots may take before the oldest go; 0 for the device's own
+	// (history_swap_automatic; a test sets a small one).
 	swap_limit: int,
 	// When the History last started afresh (a scene opened or begun), and how many of its
 	// oldest steps the limits or Delete older history dropped since: the History list's
@@ -229,7 +229,7 @@ history_record_textures :: proc(app: ^App, obj: ^Object, step: ^Texture_Step, wh
 @(private = "file")
 history_trim :: proc(app: ^App) {
 	h := &app.history
-	limit := h.swap_limit if h.swap_limit > 0 else SWAP_LIMIT_BYTES
+	limit := history_swap_limit(h)
 	for h.swap_bytes > limit {
 		newest := len(h.done) - 1
 		for newest > 0 && h.done[newest].chain do newest -= 1
@@ -272,6 +272,7 @@ HISTORY_LIMITS_NAMES := [?]string{"Automatic", "256 MB", "512 MB", "1 GB", "2 GB
 // step kept on purpose.
 history_cap :: proc(app: ^App) {
 	if history_busy(app) || timeline_busy(app) do return
+	if app.memory_low do history_low_memory(app)
 	history_limits_apply(app)
 	if limit := int(app.undo_steps); limit > 0 {
 		if n := history_step_count(app.history.done[:]); n > limit do _ = history_drop_unmarked(app, n - limit)
@@ -292,11 +293,14 @@ history_cap :: proc(app: ^App) {
 history_limits_apply :: proc(app: ^App) {
 	h := &app.history
 	mb := int(app.history_limit_mb)
-	if mb == h.limit_mb && mb == 0 do return
-	limit := mb << 20 if mb > 0 else sculpt.UNDO_LIMIT_BYTES
+	limit := mb << 20 if mb > 0 else history_level_automatic(platform_ram())
+	// On Automatic still, only the stores at sculpt's own limit take the device's share (a
+	// store made since, as a new level), so a test's own limit stays.
+	still := mb == h.limit_mb && mb == 0
+	if still && limit == sculpt.UNDO_LIMIT_BYTES do return
 	for obj in app.scene.objects {
-		for lv in obj.levels.levels do lv.sculptor.history.limit = limit
-		if w := obj.levels.hd.window; w != nil do w.sculptor.history.limit = limit
+		for lv in obj.levels.levels do if !still || lv.sculptor.history.limit == sculpt.UNDO_LIMIT_BYTES do lv.sculptor.history.limit = limit
+		if w := obj.levels.hd.window; w != nil && (!still || w.sculptor.history.limit == sculpt.UNDO_LIMIT_BYTES) do w.sculptor.history.limit = limit
 	}
 	h.swap_limit = mb << 20 if mb > 0 else 0
 	h.limit_mb = mb

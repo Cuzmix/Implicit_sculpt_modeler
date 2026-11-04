@@ -128,6 +128,9 @@ SCENE_REPORTS := #partial [type_of(Scene_Command{}.kind)]struct {
 // Runs a deferred scene command (scene_apply) and, when a destructive one left an undo
 // step, reports it with Undo offered. Returns false only on a fatal GPU failure.
 scene_run :: proc(app: ^App, cmd: Scene_Command) -> bool {
+	cmd := cmd
+	// A remesh past what the device should make is held to it (Settings > Mesh size).
+	mesh_remesh_limit(app, &cmd)
 	// A heavy step that would not fit the memory left waits for the person's answer.
 	if memory_check_holds(app, cmd) do return true
 	what := SCENE_REPORTS[cmd.kind]

@@ -94,7 +94,7 @@ history_same_stroke :: proc(a, b: History_Entry) -> bool {
 // limit (the swap snapshots and texture steps, and each sculptor's strokes).
 history_memory :: proc(app: ^App) -> (bytes: int, full: f32) {
 	h := &app.history
-	limit := h.swap_limit if h.swap_limit > 0 else SWAP_LIMIT_BYTES
+	limit := history_swap_limit(h)
 	bytes = h.swap_bytes
 	full = f32(h.swap_bytes) / f32(limit)
 	for obj in app.scene.objects {
