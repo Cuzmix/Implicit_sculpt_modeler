@@ -26,6 +26,7 @@ Frame_Loop :: struct {
 	main_window:   sdl.WindowID, // the view windows' events go to them, the rest to this one
 	bench:         ^Gpubench,
 	driven:        bool, // a run a person drives, which rests when idle; a scripted one keeps every frame
+	last_start:    time.Tick, // the previous frame's start, for interval_ms (zero before the first)
 	frame_index:   int,
 	bench_skipped: int, // frames --bench-after-autosave held the stroke back
 	// The previous frame's, kept while timing the GPU so the next frame can wait for it.
@@ -40,9 +41,13 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	}
 	rested := idle_rest(app, loop.driven)
 	frame_start := time.tick_now()
+	// A rest between the frames is no frame's pace.
+	if loop.last_start != {} && !rested do ring_push(&app.stats.interval_ms, time.duration_milliseconds(time.tick_diff(loop.last_start, frame_start)))
+	loop.last_start = frame_start
 	// Before this frame records anything: the GPU times of a frame a few back.
 	if times, ok := render.timestamps_frame(&app.renderer); ok {
 		for span in times.ran do ring_push(&app.stats.gpu_spans[span], times.ms[span])
+		app.stats.gpu_viewport_stamped_ms = times.ms[.None] - times.ms[.Interface]
 	}
 	render.gpu_cull_frame(&app.renderer)
 	// The positions and normals a stroke's earlier frames read back land in the mesh

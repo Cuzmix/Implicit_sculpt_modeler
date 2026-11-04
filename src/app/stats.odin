@@ -32,12 +32,19 @@ ring_percentiles :: proc(r: Sample_Ring) -> (p50, p99: f32) {
 
 Frame_Stats :: struct {
 	frame_ms:   Sample_Ring, // whole frame, waits included
+	// From one frame's start to the next's: what the screen's pace is made of, including
+	// the work after the submit (autosave, simplified copies and any GPU wait in them)
+	// that frame_ms ends before.
+	interval_ms: Sample_Ring,
 	cpu_ms:     Sample_Ring, // the frame minus its waits
 	wait_ms:    Sample_Ring, // waiting for the display (and, while timing the GPU, for the previous frame)
 	gpu_ms:     Sample_Ring, // GPU time of the 3D viewport's uploads and drawing; only while timing the GPU
 	// GPU time by pass from timestamps (render.Gpu_Times), a few frames late and without
 	// waiting; [.None] is the frame's whole GPU time. Only where render.caps has timestamps.
 	gpu_spans:  [render.Gpu_Span]Sample_Ring,
+	// The 3D viewport's share of the newest timestamped frame (every span but the
+	// interface's), what gpu_ms measures by waiting; 0 until one comes back.
+	gpu_viewport_stamped_ms: f64,
 	lod_ms:     Sample_Ring, // building and uploading simplified copies, on frames that did
 	ui_ms:      Sample_Ring, // the interface's layout and tessellation, CPU
 	ui_vertices: int, // the interface's vertices last frame
