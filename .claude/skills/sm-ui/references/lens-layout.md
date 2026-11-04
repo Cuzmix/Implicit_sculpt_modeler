@@ -43,9 +43,9 @@ summary.
   Default, Left/Right at `along` for the columns, Bottom at `along` for the shelf (`dock_edges`), Float at `at`, layout terms). Default must draw as before
   (parity); anything that keeps clear of a side bar asks `kit_left`/`kit_right` (they measure the bars on each edge) and
   a popover's side `bar_side(app, which)`, never "the island is left, the rail right". Each dock's own grip (`dock_grip`, always there, at the
-  top of `kit_dock`) and Edit docks' heads carry them, one carry for both
-  (`arrange_carry_follow`, `dock_drop`, `dock_place_set` swaps two docks on one edge; a floating drop lines up by `dock_align`),
-  and each dock's resize corner (`arrange_resize_corner`, faint outside Edit docks, the shelf's only while editing) sets `more_lines`; a dock's menu holds `dock_reset` and Delete dock. Whatever keeps clear of the
+  start of `kit_dock`, `kit_dock_row` and `kit_shelf`) carries it
+  (`arrange_carry_follow`, keyed by the grip that took the press; `dock_drop`, `dock_place_set` swaps two docks on one edge; a floating drop lines up by `dock_align`),
+  and each dock's resize corner (`arrange_resize_corner`, faint outside Edit docks) sets `more_lines`; any dock takes Left, Right, Top or Bottom (`dock_edges`; the shelf Top and Bottom) or Float, and `dock_row` says it lays out as a row (top and bottom, and the shelf); side docks keep clear of rows by `dock_rows_reach`, a top row stands at `dock_top_at`; a dock's menu holds `dock_reset` and Delete dock. Whatever keeps clear of the
   shelf at the bottom asks `shelf_bottom_size`/`shelf_bottom_span` (nothing while it floats), never "centred, last frame's size".
   User docks: `Kit_State.dock_lists[i]` is `Bar_Which.Dock_1 + i`'s list, `Dock_Id.Dock_1 + i` (`user_dock_id`) its dock; they are layout-only (`bars_save` skips them in settings and while unused), home Float
   (a Default one floats in the middle, `dock_anchor`). Ask `user_dock_shown`, and from inside a container find a root with

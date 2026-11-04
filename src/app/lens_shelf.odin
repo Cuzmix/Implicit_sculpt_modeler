@@ -443,8 +443,9 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// The Add tile shows while arranging, and on an empty page (one just added) always, so
 	// the page says what it is for and a tap fills it.
 	adding := (k.bars_edit || n == 0) && !focus
-	// Its lines stand the tiles in rows, as many to a row as fit.
+	// Its lines stand the tiles in rows, as many to a row as fit, after its grip.
 	lines := dock_lines(k, .Shelf)
+	room = max(room - DOCK_GRIP_H, 0)
 	tile: f32
 	n, tile = shelf_lines_layout(n, lines, room, adding, row)
 	// A brush picked from All, Search or the pie that is not among the tiles shown visits
@@ -485,6 +486,11 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 		}
 	}
 	ui.begin_anchored(ctx, "dock", place_x, place_y, place_at, {direction = .Row, gap = 0, padding = SHELF_PAD, radius = t.radius_large + 4, background = .Panel, center = true, drag_scroll = true})
+	// The grip at its start moves it as any dock's does; it takes the press, so a drag on it
+	// never turns the page.
+	cols := max((n + int(adding) + lines - 1) / lines, 1)
+	rows := (n + int(adding) + cols - 1) / cols
+	dock_grip(app, .Shelf, {DOCK_GRIP_H, f32(max(rows, 1)) * ui.BRUSH_TILE.y}, row = true)
 	// All at the off-hand end beside the dial, a thumb's reach (first, or last when
 	// left-handed), then the visiting tile; All is never taken off, as every page's way to
 	// the rest.
@@ -493,8 +499,6 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// Asked for in the shelf, as the row's id is the shelf's child.
 	sh.row = ui.prev_rect(ctx, "shelf brushes")
 	brushes_at := sh.row
-	cols := max((n + int(adding) + lines - 1) / lines, 1)
-	rows := (n + int(adding) + cols - 1) / cols
 	ui.begin(ctx, "shelf brushes", {direction = .Column if lines > 1 else .Row, gap = 0, width = f32(cols) * tile, height = f32(max(rows, 1)) * ui.BRUSH_TILE.y, clip = true})
 	mark := ui.vertex_mark(ctx)
 	sh.shown, sh.tile_w = n, tile
@@ -522,7 +526,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 				report(app, nil, {}, "%s is on %s in place of %s", shelf_label(app, pin), shelf_page_name(k, sh.page), shelf_label(app, s))
 				sh.pins += 1
 			} else if k.bars_edit do bar_slot_open(app, which, i, ctx.last_rect)
-			else do bar_slot_run(app, s, ctx.last_rect, .Above_Center)
+			else do bar_slot_run(app, s, ctx.last_rect, dock_side(app, .Shelf))
 		}
 		if sh.pinning != nil do ui.stroke_rect(ctx, ctx.last_rect, t.radius_medium + 2, t.warning, 1)
 		sh.tiles[i] = ctx.last_rect
@@ -536,7 +540,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 				kit_floats_close(k)
 				sh.quick, sh.quick_at = true, ctx.last_rect
 			} else if bar_has_more(s.id) {
-				bar_slot_more(app, s, ctx.last_rect, .Above_Center)
+				bar_slot_more(app, s, ctx.last_rect, dock_side(app, .Shelf))
 			}
 		}
 		// The card carried from the picker lands on the tile it is let go over.
@@ -876,7 +880,7 @@ kit_shelf_page_menu :: proc(app: ^App) {
 	sh := &k.shelf
 	p := sh.menu_page
 	if sh.menu && (!shelf_page_used(k, p) || shelf_page_space(k, p) != k.spaces.current) do sh.menu = false
-	if !ui.popover_begin(ctx, "shelf page menu", &sh.menu, sh.menu_at, .Above_Center, {direction = .Column, gap = 0, padding = 6, width = 240}) do return
+	if !ui.popover_begin(ctx, "shelf page menu", &sh.menu, sh.menu_at, dock_side(app, .Shelf), {direction = .Column, gap = 0, padding = 6, width = 240}) do return
 	defer ui.popover_end(ctx)
 	picked := false
 	name := shelf_page_name(k, p)
@@ -940,7 +944,7 @@ kit_shelf_quick :: proc(app: ^App) {
 	ctx := &k.ctx
 	t := ctx.theme
 	sh := &k.shelf
-	if !ui.popover_begin(ctx, "shelf quick", &sh.quick, sh.quick_at, .Above_Center, {direction = .Column, gap = 6, padding = 12, width = 360}) do return
+	if !ui.popover_begin(ctx, "shelf quick", &sh.quick, sh.quick_at, dock_side(app, .Shelf), {direction = .Column, gap = 6, padding = 12, width = 360}) do return
 	defer ui.popover_end(ctx)
 	kind := app.brush.kind
 	cur := brush_item_current(app)

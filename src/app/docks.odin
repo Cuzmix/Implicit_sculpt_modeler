@@ -18,15 +18,17 @@ import "../ui"
 //
 // A place is the layout's, since it belongs to the screen (the dial's, which belongs to
 // the hand, is a setting): as the layout has it (Default), on the left or right edge at a
-// point down it (the shelf: along the bottom at a point across it), or floating where
-// Arrange let go of it. The top edge is no dock's: the top bar, the readout, the
-// navigation head and the panels' tops hold it. Places are kept in layout terms, from the
-// start side, so the kit's mirror flips them for a left hand as it flips every anchor.
+// point down it, on the top or bottom edge at a point across it (a row there: its lines
+// become rows), or floating where its grip let go of it. A top dock stands under the top
+// bar, and the side docks start under it and stop above a bottom one. Places are kept in
+// layout terms, from the start side, so the kit's mirror flips them for a left hand as it
+// flips every anchor.
 
 Dock_Edge :: enum u8 {
 	Default, // the place the layout gives the dock: first, so a fresh Kit_State has it
 	Left,
 	Right,
+	Top,
 	Bottom,
 	Float,
 }
@@ -180,7 +182,43 @@ dock_named :: proc(app: ^App, d: Dock_Id) -> bool {
 
 // The edges each dock may stand on: the columns down the sides, the shelf along the bottom.
 dock_edges :: proc(b: Dock_Id) -> bit_set[Dock_Edge] {
-	return {.Bottom} if b == .Shelf else {.Left, .Right}
+	return {.Top, .Bottom} if b == .Shelf else {.Left, .Right, .Top, .Bottom}
+}
+
+// Whether dock `b` lays its buttons in a row: the shelf always, any other on the top or
+// bottom edge.
+dock_row :: proc(k: ^Kit_State, b: Dock_Id) -> bool {
+	return b == .Shelf || dock_edge(k, b) == .Top || dock_edge(k, b) == .Bottom
+}
+
+// How far down from the safe area's top a top dock stands: under the top bar, and a dock
+// other than the shelf under a shelf there too.
+dock_top_at :: proc(app: ^App, b: Dock_Id) -> f32 {
+	k := &app.kit
+	at: f32 = TOP_BAR_H + 6
+	if b != .Shelf && dock_shown(k, .Shelf) && dock_edge(k, .Shelf) == .Top {
+		if size, _ := ui.prev_layout(&k.ctx, DOCK_ROOTS[.Shelf]); size.y > 0 do at += size.y + 8
+	}
+	return at
+}
+
+// The room the side docks keep clear of at the top and the bottom, in points from the safe
+// area's top and bottom: the docks on the top edge, and those but the shelf on the bottom
+// (the shelf is counted by dock_stack).
+dock_rows_reach :: proc(app: ^App) -> (top, bottom: f32) {
+	k := &app.kit
+	ctx := &k.ctx
+	area := ui.safe_area(ctx)
+	for b in Dock_Id {
+		if !dock_shown(k, b) do continue
+		edge := dock_edge(k, b)
+		if edge != .Top && (edge != .Bottom || b == .Shelf) do continue
+		r := ui.prev_root_rect(ctx, DOCK_ROOTS[b])
+		if r.h <= 0 do continue
+		if edge == .Top do top = max(top, r.y + r.h - area.y + 8)
+		else do bottom = max(bottom, area.y + area.h - r.y + 8)
+	}
+	return
 }
 
 // The highest a floating shelf's top goes, as a share of the safe area down from its top,
@@ -219,6 +257,9 @@ dock_room :: proc(app: ^App, edge: Dock_Edge) -> (lo, hi: f32) {
 	area := ui.safe_area(ctx)
 	lo = points_bottom(app) if edge == .Left else TOP_BAR_H + 6
 	hi = area.h - t.edge - dock_stack(app) - 8
+	top, bottom := dock_rows_reach(app)
+	lo = max(lo, top)
+	hi = min(hi, area.h - bottom)
 	side := Rail_Side.Left if edge == .Left else .Right
 	if reach := rail_reach(app, side); reach > 0 do hi = min(hi, area.h - reach - 8)
 	if edge == .Right do hi = min(hi, area.h - lens_palm(app) - 8)
@@ -240,9 +281,12 @@ dock_anchor :: proc(app: ^App, b: Dock_Id, size: [2]f32) -> (x, y: ui.Anchor, of
 	if p.edge == .Default && DOCK_HOME[b] == .Float do p = {edge = .Float, at = user_dock_middle(k)}
 	y = .Start
 	switch p.edge {
-	case .Bottom:
+	case .Top, .Bottom:
 		lo, hi := shelf_across(app)
 		left := lo + clamp(p.along, 0, 1) * max(hi - lo - size.x, 0)
+		if p.edge == .Top do return .Start, .Start, {left, dock_top_at(app, b)}, hi - lo
+		// A bottom dock other than the shelf stands over whatever stacks at the bottom.
+		if b != .Shelf do return .Start, .End, {left, t.edge + dock_stack(app) + 8}, hi - lo
 		return .Start, .End, {left, t.edge + dock_lift(app)}, hi - lo
 	case .Default, .Left, .Right:
 		if p.edge == .Default && b == .Offhand {
@@ -286,7 +330,7 @@ shelf_across :: proc(app: ^App) -> (lo, hi: f32) {
 // History, the shape bar, the columns, the dial): last frame's while it stands along the
 // bottom, none while it floats.
 shelf_bottom_size :: proc(app: ^App) -> [2]f32 {
-	if app.kit.docks[.Shelf].edge == .Float do return {}
+	if app.kit.docks[.Shelf].edge == .Float || app.kit.docks[.Shelf].edge == .Top do return {}
 	size, _ := ui.prev_layout(&app.kit.ctx, "dock")
 	return size
 }
@@ -311,10 +355,13 @@ shelf_bottom_span :: proc(app: ^App) -> (lo, hi: f32) {
 // the window's middle (in layout terms, as popover_begin mirrors sides).
 dock_side :: proc(app: ^App, b: Dock_Id) -> ui.Side {
 	k := &app.kit
-	if b == .Shelf do return .Above_Center
+	// The shelf's tiles open their popovers and the brush picker over it, or under it on
+	// the top edge.
+	if b == .Shelf do return .Below if dock_edge(k, b) == .Top else .Above_Center
 	switch dock_edge(k, b) {
 	case .Default, .Left: return .Right
 	case .Right:          return .Left
+	case .Top:            return .Below
 	case .Bottom:         return .Above_Center
 	case .Float:
 		// Asked from inside the dock, by its buttons.
@@ -344,11 +391,24 @@ dock_drop :: proc(app: ^App, b: Dock_Id, box: ui.Rect, p: [2]f32, default_top: f
 		px = area.w - px
 	}
 	if b == .Shelf do return shelf_drop(app, box, x, p.y - area.y)
+	// A side within reach of the pointer, else the top (under the top bar) or the bottom:
+	// the sides come first, so a drop in a corner keeps a column a column.
+	py := p.y - area.y
 	edge := Dock_Edge.Float
 	if px < DOCK_REACH do edge = .Left
 	else if px > area.w - DOCK_REACH do edge = .Right
+	else if py < TOP_BAR_H + DOCK_REACH do edge = .Top
+	else if py > area.h - DOCK_REACH do edge = .Bottom
 	if edge == .Float {
 		return {edge = .Float, at = {math.round(x), math.round(box.y - area.y)}}
+	}
+	if edge == .Top || edge == .Bottom {
+		// The row is wider than the column carried, so it centres on the pointer as near as
+		// the edge's room lets it.
+		lo, hi := shelf_across(app)
+		along := clamp((px - lo) / max(hi - lo, 1), 0, 1)
+		if abs(along - 0.5) < DOCK_SNAP do along = 0.5
+		return {edge = edge, along = math.round(along * 100) / 100}
 	}
 	lo, hi := dock_room(app, edge)
 	span := max(hi - lo - box.h, 1)
@@ -359,17 +419,19 @@ dock_drop :: proc(app: ^App, b: Dock_Id, box: ui.Rect, p: [2]f32, default_top: f
 	return {edge = edge, along = along}
 }
 
-// The shelf's drop: within DOCK_REACH of the bottom it stands along it where the outline
-// was across (`x`, layout terms), Default near the middle; elsewhere it floats.
+// The shelf's drop: within DOCK_REACH of the bottom, or of the top bar, it stands along
+// that edge where the outline was across (`x`, layout terms), Default near the bottom's
+// middle; elsewhere it floats.
 @(private = "file")
 shelf_drop :: proc(app: ^App, box: ui.Rect, x, py: f32) -> Dock_Place {
 	area := ui.safe_area(&app.kit.ctx)
-	if py < area.h - DOCK_REACH {
-		return {edge = .Float, at = {math.round(x), math.round(box.y - area.y)}}
-	}
 	lo, hi := shelf_across(app)
 	span := max(hi - lo - box.w, 1)
 	along := clamp((x - lo) / span, 0, 1)
+	if py < TOP_BAR_H + DOCK_REACH do return {edge = .Top, along = math.round(along * 100) / 100}
+	if py < area.h - DOCK_REACH {
+		return {edge = .Float, at = {math.round(x), math.round(box.y - area.y)}}
+	}
 	// At about the middle it is where it comes, which the tablet's shift and the panes
 	// keep where they put it.
 	if abs(x + box.w * 0.5 - area.w * 0.5) < area.w * DOCK_SNAP do return {}
@@ -440,6 +502,9 @@ dock_place_set :: proc(app: ^App, b: Dock_Id, to: Dock_Place) {
 	edge := dock_edge(k, b)
 	for other in Dock_Id {
 		if other == b || dock_edge(k, other) != edge || !dock_shown(k, other) do continue
+		// A dock that cannot stand where `b` was (the shelf on a side) keeps its place, the
+		// two sharing the edge.
+		if was.edge != .Float && was_edge not_in dock_edges(other) do continue
 		// The other dock takes the edge `b` left, at its old height, or `b`'s old float.
 		if was.edge == .Float || was_edge == edge {
 			k.docks[other].place = was
@@ -505,7 +570,7 @@ dock_places_text :: proc(k: ^Kit_State) -> string {
 		edge := strings.to_lower(fmt.tprint(d.edge), context.temp_allocator)
 		switch d.edge {
 		case .Default:               fmt.sbprintf(&out, "%s:%s", DOCK_NAMES[b], edge)
-		case .Left, .Right, .Bottom: fmt.sbprintf(&out, "%s:%s:%.2f", DOCK_NAMES[b], edge, d.along)
+		case .Left, .Right, .Top, .Bottom: fmt.sbprintf(&out, "%s:%s:%.2f", DOCK_NAMES[b], edge, d.along)
 		case .Float:                 fmt.sbprintf(&out, "%s:%s:%.0f,%.0f", DOCK_NAMES[b], edge, d.at.x, d.at.y)
 		}
 	}
@@ -658,6 +723,10 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 		for s in used do longest = max(longest, ui.text_width(ctx, rail_label(app, s), t.small_size))
 		width = t.target + longest + 10
 	}
+	if dock_row(k, id) {
+		kit_dock_row(app, id, used, x, y, offset, width, lines, named, more)
+		return
+	}
 	// The foot under the buttons: the + while arranging and the ⋯, each a target and a gap.
 	foot: f32 = 2 * 3 + DOCK_GRIP_H + 3 + (t.target + 6 if k.bars_edit else 0) + (t.target + 7 if more else 0)
 	// Sliders until the buttons outgrow the room, then the last sliders as chips.
@@ -671,7 +740,7 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 		tall = dock_rows_tall(app, id, used, lines, sliders)
 	}
 	ui.begin_anchored(ctx, root, x, y, offset, {direction = .Column, padding = 3, radius = t.radius_large, background = .Panel, center = true})
-	dock_grip(app, id, width * f32(lines))
+	dock_grip(app, id, {width * f32(lines), DOCK_GRIP_H})
 	scroll := kit_scroll_begin(ctx, fmt.tprintf("%s body", root), &k.dock_scroll[id], ui.id_of(ctx, root), width * f32(lines), max(room - foot, t.target * 2), 0)
 	if id == .Offhand do k.island_sliders, k.island_frame = {}, k.frame
 	shown := 0
@@ -699,6 +768,38 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 	ui.end(ctx)
 
 	v_slider :: proc(k: ^Kit_State, which: Bar_Which, i: int) -> bool {return bar_look(k, which, i) == .Slider}
+}
+
+// Dock `id` on the top or bottom edge, as a row: its grip at the start, its buttons in
+// `lines` rows (values as chips, since a tall slider has no room across a row), then the +
+// while editing and the ⋯.
+@(private = "file")
+kit_dock_row :: proc(app: ^App, id: Dock_Id, used: []Bar_Slot, x, y: ui.Anchor, offset: [2]f32, width: f32, lines: int, named, more: bool) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	which := dock_which(k, id)
+	root := DOCK_ROOTS[id]
+	if id == .Offhand do k.island_sliders, k.island_frame = {}, k.frame
+	ui.begin_anchored(ctx, root, x, y, offset, {direction = .Row, padding = 3, radius = t.radius_large, background = .Panel, center = true})
+	dock_grip(app, id, {DOCK_GRIP_H, f32(lines) * t.target}, row = true)
+	per := max((len(used) + lines - 1) / lines, 1)
+	ui.begin(ctx, fmt.tprintf("%s rows", root), {direction = .Column})
+	for line in 0 ..< lines {
+		lo, hi := line * per, min((line + 1) * per, len(used))
+		if lo >= hi do break
+		ui.begin(ctx, fmt.tprintf("%s line %d", root, line), {direction = .Row, center = true})
+		for j in lo ..< hi {
+			s := used[j]
+			if v, value := value_of(s); value && id == .Offhand do value_item(app, which, j, v)
+			else do bar_slot_button(app, which, j, s, named = rail_label(app, s) if named else "", width = width)
+		}
+		ui.end(ctx)
+	}
+	ui.end(ctx)
+	if k.bars_edit do bar_add_button(app, which, len(used), width)
+	if more do dock_more_button(app, id, width, row = true)
+	ui.end(ctx)
 }
 
 // How tall dock `id`'s buttons stand in `lines` lines, the first `sliders` of its sliders
@@ -768,14 +869,20 @@ island_roll :: proc(ctx: ^ui.Context) -> f32 {
 	return ui.hover_roll(ctx, ctx.last_id, ctx.hot == ctx.last_id)
 }
 
-// The ⋯ at a dock's end, under a hairline: opens the dock's menu (kit_dock_menu).
+// The ⋯ at a dock's end, after a hairline (across a column, down a row): opens the dock's
+// menu (kit_dock_menu).
 @(private = "file")
-dock_more_button :: proc(app: ^App, id: Dock_Id, width: f32) {
+dock_more_button :: proc(app: ^App, id: Dock_Id, width: f32, row := false) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	r := ui.place(ctx, {width, 1})
-	ui.fill_rect(ctx, {r.x + 8, r.y, max(r.w - 16, 8), 1}, 0, t.border)
+	if row {
+		r := ui.place(ctx, {1, t.target})
+		ui.fill_rect(ctx, {r.x, r.y + 8, 1, max(r.h - 16, 8)}, 0, t.border)
+	} else {
+		r := ui.place(ctx, {width, 1})
+		ui.fill_rect(ctx, {r.x + 8, r.y, max(r.w - 16, 8), 1}, 0, t.border)
+	}
 	open := bar_pop_showing(app, .Dock_Menu) && k.bar_pop.dock == id
 	if ui.icon_button(ctx, fmt.tprintf("More##%s", DOCK_ROOTS[id]), ui.ICON_MORE, open, keys = "", width = width) do dock_menu_toggle(app, id, ctx.last_rect)
 	dock_more_hold(app)
@@ -871,19 +978,20 @@ your_docks_rows :: proc(app: ^App, width: f32) {
 // with a finger without taking a button's room.
 DOCK_GRIP_H :: 14
 
-// Dock `id`'s grip, `width` wide, at its start: a faint pill that brightens under the
-// pointer. A drag carries the dock to an edge or anywhere, as Arrange's head does (the
+// Dock `id`'s grip, `size` big, at its start: a faint pill (across a column's top, down a
+// `row`'s start) that brightens under the pointer. A drag carries the dock to an edge or anywhere, as Arrange's head does (the
 // outline, edge strips and lining up draw in kit_arrange_lens), and a tap opens its menu.
 // It is there all the time, so moving a dock never needs Edit docks.
-dock_grip :: proc(app: ^App, id: Dock_Id, width: f32) {
+dock_grip :: proc(app: ^App, id: Dock_Id, size: [2]f32, row := false) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	a := ui.area(ctx, fmt.tprintf("Move %s##dock grip", DOCK_TITLES[id]), {width, DOCK_GRIP_H})
+	a := ui.area(ctx, fmt.tprintf("Move %s##dock grip", DOCK_TITLES[id]), size)
 	carried, carrying := k.arrange.carry.?
 	carrying &&= k.arrange.carrying && carried == id
 	lit := a.hovered || a.held || carrying
 	pill := ui.Rect{a.rect.x + a.rect.w * 0.5 - 11, a.rect.y + a.rect.h * 0.5 - 2, 22, 4}
+	if row do pill = {a.rect.x + a.rect.w * 0.5 - 2, a.rect.y + a.rect.h * 0.5 - 11, 4, 22}
 	ui.fill_rect(ctx, pill, 2, ui.color_fade(t.text_secondary if lit else t.text_tertiary, 0.9 if lit else 0.35))
 	ui.tip(ctx, a.id, a.rect, fmt.tprintf("Drag to move %s to an edge or anywhere; tap for its lines, names and reset", DOCK_TITLES[id]))
 	was_carrying := carrying
