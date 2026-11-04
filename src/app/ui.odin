@@ -11,6 +11,7 @@ import "../geom"
 import "../render"
 import "../sculpt"
 import "../ui"
+import "../quadmesh"
 import "../retopo"
 
 // Interface state that is not the kit's own. Sculpt and render state live in App; the
@@ -85,6 +86,7 @@ Ui_State :: struct {
 	light_place:        bool, // Place highlight: a press on the model moves the picked light's highlight there
 	retopo_quads:       i32,  // quads Quad Remesh asks for
 	retopo_engine:      retopo.Engine, // ...and from which engine (retopo.odin)...
+	retopo_core:        quadmesh.Core, // ...whose pipeline the C++ or the Odin driver runs (settings line only)...
 	retopo_adaptivity:  f32,  // ...with smaller quads where the surface bends (AutoRemesher)
 	retopo_keep_symmetry: bool, // ...the brush's symmetry kept: one part remeshed and mirrored
 	retopo_close_first: bool, // ...an open or unsound mesh voxel remeshed first

@@ -88,6 +88,91 @@ void qm_copy(const Qm_Result* r, float* positions, uint32_t* first, uint32_t* co
 void qm_times(const Qm_Result* r, Qm_Times* times);
 void qm_free(Qm_Result* r);
 
+/* ---- Stage calls ----------------------------------------------------------------------
+ * qm_remesh's stages one at a time, for the Odin driver (src/quadmesh/driver.odin), which
+ * runs the same pipeline itself so any stage can be swapped for an Odin one and checked
+ * against this one. Each call takes arrays the caller owns, returns QM_OK, QM_CANCELLED,
+ * QM_OUT_OF_MEMORY or QM_FAILED (with `error` saying why), and on QM_OK sets *out to its
+ * output, read through qm_stage_view and freed by qm_stage_free. Positions are doubles, as
+ * the core keeps them, so one stage's output goes into the next unchanged. */
+
+typedef struct Qm_Stage Qm_Stage;
+
+/* How a stage runs: its own loops may use `threads` threads, unless `serial` (a thread
+ * running one island of several, as qm_remesh's island threads keep their loops), and it
+ * reports its own 0..1 to `progress` (may be NULL), whose 0 cancels. */
+typedef struct Qm_Stage_Run {
+    uint32_t threads;
+    int serial;
+    Qm_Progress progress;
+    void* tag;
+} Qm_Stage_Run;
+
+/* A stage's input: a triangle mesh and what rides on it, each array NULL for none. */
+typedef struct Qm_Mesh {
+    const double* positions;       /* 3 a vertex */
+    uint32_t vertex_count;
+    const uint32_t* triangles;     /* 3 a triangle */
+    uint32_t triangle_count;
+    const uint32_t* features;      /* 2 a feature edge (thin, isotropic) */
+    uint32_t feature_count;
+    const double* density;         /* 1 a vertex (thin, isotropic) */
+    const double* refine;          /* 1 a vertex (thin, isotropic) */
+    const double* vertex_scale;    /* 1 a vertex: the quad size the density asks (face guides, cover) */
+    const uint8_t* corner_feature; /* 1 a triangle corner: its edge is a feature edge (cover, extract) */
+    const double* face_guides;     /* 3 a triangle: the direction a guide asks, times its weight (cover) */
+    const double* uvs;             /* 6 a triangle: the cover's UV at each corner (extract) */
+    const uint32_t* singular;      /* the field's singular vertices (extract) */
+    uint32_t singular_count;
+} Qm_Mesh;
+
+/* A stage's output, valid until qm_stage_free; each array NULL when the stage gave none. */
+typedef struct Qm_Stage_View {
+    const double* positions;       /* thin, isotropic, extract */
+    uint32_t vertex_count;
+    const uint32_t* triangles;     /* thin, isotropic */
+    uint32_t triangle_count;
+    const uint32_t* features;      /* thin */
+    uint32_t feature_count;
+    const double* density;         /* thin */
+    const double* refine;          /* thin */
+    const double* vertex_scale;    /* isotropic */
+    const uint8_t* corner_feature; /* isotropic */
+    double mean_edge;              /* isotropic: the mean edge the cover's scaling multiplies */
+    const double* face_guides;     /* face guides */
+    const double* uvs;             /* cover */
+    const uint32_t* singular;      /* cover */
+    uint32_t singular_count;
+    const uint32_t* first;         /* extract: face_count + 1 entries into corners */
+    const uint32_t* corners;       /* extract */
+    uint32_t face_count;
+    uint32_t added;                /* thin: vertices the unpinch made */
+    int decimated;                 /* thin: whether the island was decimated */
+} Qm_Stage_View;
+
+/* Feature chains under two quad edges dropped, an island far denser than its target
+ * decimated (meshoptimizer), pinched vertices split. */
+int qm_stage_thin(const Qm_Mesh* mesh, double voxel_size, double quad_edge, double sharp_degrees,
+                  Qm_Stage** out, char* error, size_t error_size);
+/* The isotropic remesh at `voxel_size`, with Adaptivity's target lengths, the density's
+ * edge factor and the refinement. */
+int qm_stage_isotropic(const Qm_Mesh* mesh, double voxel_size, double adaptivity, double sharp_degrees,
+                       const Qm_Stage_Run* run, Qm_Stage** out, char* error, size_t error_size);
+/* The guide curves as a direction per triangle (none when no guide comes near). */
+int qm_stage_face_guides(const Qm_Mesh* mesh, double quad_edge, const float* guides, uint32_t guide_count,
+                         float guide_strength, Qm_Stage** out, char* error, size_t error_size);
+/* One quad cover at `scaling`: frame field, singularity simplification, cover. QM_FAILED
+ * with an empty `error` when the core gave up without an exception (qm_console_line then
+ * holds its own line). */
+int qm_stage_cover(const Qm_Mesh* mesh, double scaling, double adaptivity, double anisotropy, double sharp_degrees,
+                   const Qm_Stage_Run* run, Qm_Stage** out, char* error, size_t error_size);
+/* The quads traced from the cover and cleaned up; none when the extractor gave none. */
+int qm_stage_extract(const Qm_Mesh* mesh, const Qm_Stage_Run* run, Qm_Stage** out, char* error, size_t error_size);
+void qm_stage_view(const Qm_Stage* stage, Qm_Stage_View* view);
+void qm_stage_free(Qm_Stage* stage);
+/* The last whole line the core wrote to its console, the reason it gave for a failure. */
+void qm_console_line(char* text, size_t size);
+
 #ifdef __cplusplus
 }
 #endif

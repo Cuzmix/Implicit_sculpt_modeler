@@ -62,6 +62,13 @@ Options :: struct {
 	// the quads' edges to run along them, 0 not at all to 1 as closely as the field can
 	// follow (GUIDE_STRENGTH_DEFAULT, half, as ZRemesher's).
 	guide_strength: f32,
+	// Who runs AutoRemesher's pipeline (quadmesh.Params.core): the C++ core whole, or the
+	// Odin driver a stage at a time while its stages are ported. The settings line
+	// retopo_core sets it; there is no control.
+	core: quadmesh.Core,
+	// A folder the Odin driver writes each stage's output to (quadmesh.Params.dump; the
+	// app's --quadmesh-dump), or "". Not an option a person picks, so Adjust last leaves it.
+	dump: string,
 }
 
 GUIDE_STRENGTH_DEFAULT :: f32(0.5)
@@ -191,6 +198,7 @@ Result :: struct {
 	mesh:      geom.Mesh,
 	polys:     sculpt.Polys, // AutoRemesher: the polygons as the base level keeps them, over `mesh`
 	engine:    Engine, // the engine that made it: Auto may have given way to Own
+	core:      quadmesh.Core, // with Auto, who ran its pipeline
 	faces:     int, // AutoRemesher's polygons...
 	quads:     int, // ...of which quads,
 	triangles: int, // triangles
@@ -706,6 +714,8 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 	params := quadmesh.DEFAULT_PARAMS
 	params.adaptivity = clamp(options.adaptivity, 0, 1)
 	params.threads = clamp(jobs.pool_size(pool) if pool != nil else 1, 1, quadmesh.MAX_THREADS)
+	params.core, params.dump = options.core, options.dump
+	r.core = options.core
 	edge_degrees := options.edge_degrees if options.edge_degrees > 0 else EDGE_DEGREES_DEFAULT
 	features: []u32
 	defer delete(features)
@@ -779,6 +789,7 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 			return
 		case .None:
 		}
+		if params.core == .Odin do log.infof("quad remesh: stages %s", quadmesh.checks_line(report.checks))
 		// The faces with an odd number of sides the extractor left are joined up in pairs,
 		// or to the seam, so the result is all quads (quad_fill_odd); on a mirrored half
 		// before the mirror, with the caps out of the way, so both sides mend alike.

@@ -15,18 +15,21 @@ import "../sculpt"
 // engine's and its stages' (the engine's own decimation of a dense island, the isotropic
 // remesh, the parameterization, the quad extraction; summed over the islands), what it
 // gave (faces, the quads' share, the share of vertices with four quads) and the peak
-// memory. On a platform without the engine one line says so.
+// memory. With --core=cpp,odin each size runs once through the C++ core whole and once
+// through the Odin driver (quadmesh.Core), one row each, for an A/B of the stages as they
+// are ported. On a platform without the engine one line says so.
 
 QUAD_BENCH_QUADS :: 20_000
 
 quadremesh_header :: proc() {
-	fmt.println("| Vertices | Engine input triangles | Decimate ms | Quad remesh ms | Stages ms (decimate, isotropic, parameterize, extract) | Faces | Quads | Four-valent | Peak RSS MB |")
-	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	fmt.println("| Vertices | Core | Engine input triangles | Decimate ms | Quad remesh ms | Stages ms (decimate, isotropic, parameterize, extract) | Faces | Quads | Four-valent | Peak RSS MB |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 }
 
-run_quadremesh :: proc(target: int, pool: ^jobs.Pool) {
+run_quadremesh :: proc(target: int, pool: ^jobs.Pool, core: quadmesh.Core) {
+	name := quadmesh.CORE_NAMES[core]
 	when !quadmesh.AVAILABLE {
-		fmt.printfln("| %s | the engine is not built on this platform | | | | | | |", thousands(target))
+		fmt.printfln("| %s | %s | the engine is not built on this platform | | | | | | | |", thousands(target), name)
 		return
 	} else {
 		sp := new(Sphere)
@@ -51,7 +54,7 @@ run_quadremesh :: proc(target: int, pool: ^jobs.Pool) {
 			decimate_ms = time.duration_milliseconds(time.tick_since(t0))
 			free_all(context.temp_allocator)
 			if !ok {
-				fmt.printfln("| %s | decimation failed | | | | | | | |", thousands(target))
+				fmt.printfln("| %s | %s | decimation failed | | | | | | | |", thousands(target), name)
 				geom.mesh_destroy(&sp.mesh)
 				return
 			}
@@ -60,6 +63,7 @@ run_quadremesh :: proc(target: int, pool: ^jobs.Pool) {
 		params := quadmesh.DEFAULT_PARAMS
 		params.quads = QUAD_BENCH_QUADS
 		params.threads = clamp(jobs.pool_size(pool) if pool != nil else 1, 1, quadmesh.MAX_THREADS)
+		params.core = core
 		input_triangles := len(input.indices) / 3
 		t1 := time.tick_now()
 		out, report, err, reason := quadmesh.remesh(input.positions[:], input.indices[:], params)
@@ -68,12 +72,12 @@ run_quadremesh :: proc(target: int, pool: ^jobs.Pool) {
 		geom.mesh_destroy(&sp.mesh)
 		free_all(context.temp_allocator)
 		if err != .None {
-			fmt.printfln("| %s | %s | %.0f | %.0f | | failed: %s | | | |", thousands(target), thousands(input_triangles), decimate_ms, remesh_ms, reason)
+			fmt.printfln("| %s | %s | %s | %.0f | %.0f | | failed: %s | | | |", thousands(target), name, thousands(input_triangles), decimate_ms, remesh_ms, reason)
 			return
 		}
 		defer quadmesh.polygon_mesh_destroy(&out)
 		four := four_valent_share(out)
-		fmt.printfln("| %s | %s | %.0f | %.0f | %.0f, %.0f, %.0f, %.0f | %d | %.1f%% | %.1f%% | %.0f |", thousands(target), thousands(input_triangles), decimate_ms, remesh_ms,
+		fmt.printfln("| %s | %s | %s | %.0f | %.0f | %.0f, %.0f, %.0f, %.0f | %d | %.1f%% | %.1f%% | %.0f |", thousands(target), name, thousands(input_triangles), decimate_ms, remesh_ms,
 			report.decimate_ms, report.isotropic_ms, report.parameterize_ms, report.extract_ms,
 			report.faces, 100 * f64(report.quads) / f64(max(report.faces, 1)), 100 * four, peak_rss_mb())
 	}

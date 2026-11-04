@@ -780,28 +780,30 @@ std::vector<Vector3> faceGuides(const Guides& guides, const std::vector<Vector3>
     return out;
 }
 
-// Runs the stages on one island; progress reported as the island's share. An island whose
-// parameterization fails is left without quads, with the reason kept for the report, as
-// the core does; a cancel passes through.
-void remeshIsland(size_t index, Island& island, const Qm_Params& params, double voxelSize, double quadEdge,
-    const Guides& guides, Handler& handler, Stages& stages)
+// An island's first stage: feature chains too short to follow dropped, the island
+// decimated when it is far denser than the target, and pinched vertices split. Returns
+// whether it was decimated; `added` is how many vertices the unpinch made.
+bool thinIsland(Island& island, double voxelSize, double quadEdge, double sharpDegrees, size_t* added)
+{
+    dropShortFeatureChains(island.vertices, island.features, quadEdge);
+    const bool decimated = decimateIfDense(island.vertices, island.triangles, island.features, island.density, island.refine, voxelSize, sharpDegrees);
+    const size_t made = unpinch(island.vertices, island.triangles, island.density, island.refine);
+    if (added) *added = made;
+    return decimated;
+}
+
+// An island's second stage: the isotropic remesh at the target edge, which replaces the
+// island's vertices and triangles. `vertexScale` gets the quad size per vertex the density
+// asks (blurred; empty for none) and `cornerFeature` the remeshed feature edges as flags on
+// the corners (empty for none).
+void isotropicIsland(Island& island, double voxelSize, double adaptivity, double sharpDegrees,
+    const AutoRemesher::ProgressHandler& progress, std::vector<double>& vertexScale, std::vector<char>& cornerFeature)
 {
     auto& vertices = island.vertices;
     auto& triangles = island.triangles;
-    const auto stageProgress = [&handler, index](float begin, float end) {
-        return AutoRemesher::ProgressHandler([&handler, index, begin, end](float fraction, const char* name) {
-            handler.report(index, begin + (end - begin) * fraction, name);
-        });
-    };
-
-    handler.report(index, 0.0f, "Remeshing uniformly");
-    const auto t0 = Clock::now();
-    dropShortFeatureChains(vertices, island.features, quadEdge);
-    decimateIfDense(vertices, triangles, island.features, island.density, island.refine, voxelSize, params.sharp_degrees);
-    unpinch(vertices, triangles, island.density, island.refine);
-    const auto t1 = Clock::now();
-    stages.decimateUs += (long long)(1000.0 * milliseconds(t0, t1));
-    std::vector<double> targetLengths = adaptiveTargetLengths(vertices, triangles, voxelSize, params.adaptivity);
+    vertexScale.clear();
+    cornerFeature.clear();
+    std::vector<double> targetLengths = adaptiveTargetLengths(vertices, triangles, voxelSize, adaptivity);
     // The density shortens the edges where it asks for more quads: a quad's edge goes as
     // 1 / sqrt(density). The isotropic remesh carries that factor to its vertices (its
     // payload), and the cover's scaling takes it per face from there.
@@ -819,41 +821,146 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
         if (targetLengths.empty()) targetLengths.assign(vertices.size(), voxelSize);
         for (size_t v = 0; v < vertices.size(); ++v) targetLengths[v] *= island.refine[v];
     }
+    AutoRemesher::IsotropicRemesher isotropic(vertices, triangles);
+    isotropic.setProgressHandler(progress);
+    isotropic.setTargetEdgeLength(voxelSize);
+    if (!targetLengths.empty()) isotropic.setVertexTargetEdgeLengths(&targetLengths);
+    isotropic.setSharpEdgeDegrees(sharpDegrees);
+    isotropic.setSmoothNormalDegrees(0.0);
+    if (dense) isotropic.setVertexPayloads(&edgeFactor);
+    std::vector<Vector3> featurePositions;
+    if (!island.features.empty()) {
+        featurePositions = smoothedFeaturePositions(vertices, island.features);
+        isotropic.setFeatureEdges(&island.features);
+        isotropic.setFeaturePositions(&featurePositions);
+    }
+    isotropic.remesh();
+    vertices = isotropic.remeshedVertices();
+    triangles = isotropic.remeshedTriangles();
+    if (dense && isotropic.remeshedVertexPayloads().size() == vertices.size())
+        vertexScale = blurredScale(isotropic.remeshedVertexPayloads(), triangles, 4);
+    // The remeshed mesh's feature edges (the caller's, carried through, and the edges
+    // sharp by angle), as flags on the corners the parameterizer judges.
+    if (!island.features.empty()) {
+        std::unordered_set<uint64_t> featured;
+        for (const auto& edge : isotropic.remeshedFeatureEdges())
+            featured.insert(((uint64_t)std::min(edge.first, edge.second) << 32) | (uint64_t)std::max(edge.first, edge.second));
+        cornerFeature.assign(3 * triangles.size(), 0);
+        for (size_t f = 0; f < triangles.size(); ++f)
+            for (size_t k = 0; k < 3; ++k) {
+                const size_t a = triangles[f][k], b = triangles[f][(k + 1) % 3];
+                if (featured.count(((uint64_t)std::min(a, b) << 32) | (uint64_t)std::max(a, b))) cornerFeature[3 * f + k] = 1;
+            }
+    }
+}
+
+// What one quad cover gives: a UV per triangle corner (the same twice, as the extractor
+// takes them) and the field's singular vertices.
+struct Cover {
+    std::unique_ptr<std::vector<std::vector<AutoRemesher::Vector2>>> uvs;
+    std::vector<std::vector<AutoRemesher::Vector2>> originalUvs;
+    std::vector<size_t> singular;
+};
+
+// An island's third stage, once: the frame field, the singularity simplification and the
+// quad cover at `scaling`. False when it fails, with `failure` saying why ("" when the core
+// gave no reason of its own but its console line); a cancel passes through.
+bool coverIsland(const std::vector<Vector3>& vertices, const std::vector<std::vector<size_t>>& triangles,
+    double scaling, double adaptivity, double anisotropy, double sharpDegrees,
+    const std::vector<char>& cornerFeature, const std::vector<double>& vertexScale, const std::vector<Vector3>& guided,
+    const AutoRemesher::ProgressHandler& progress, Cover& out, std::string& failure)
+{
+    AutoRemesher::Parameterizer parameterizer(&vertices, &triangles, nullptr);
+    parameterizer.setProgressHandler(progress);
+    parameterizer.setScaling(scaling);
+    parameterizer.setGradientAdaptivity(adaptivity);
+    parameterizer.setAnisotropy(anisotropy);
+    parameterizer.setSharpEdgeDegrees(sharpDegrees);
+    if (!cornerFeature.empty()) parameterizer.setCornerFeatures(&cornerFeature);
+    if (!vertexScale.empty()) parameterizer.setVertexScaling(&vertexScale);
+    if (!guided.empty()) parameterizer.setFaceGuides(&guided);
+    bool parameterized = true;
+    failure.clear();
+    try {
+        parameterized = parameterizer.parameterize();
+    } catch (const Qm_Cancel&) {
+        throw;
+    } catch (const std::exception& e) {
+        parameterized = false;
+        failure = std::string("parameterization failed: ") + e.what();
+    } catch (...) {
+        parameterized = false;
+        failure = "parameterization failed";
+    }
+    if (!parameterized) return false;
+    out.uvs = parameterizer.takeTriangleUvs();
+    out.originalUvs = parameterizer.originalTriangleUvs();
+    out.singular = parameterizer.singularVertexIndices();
+    return true;
+}
+
+// The cover's area in cells over the triangles not on a cap.
+double coverCells(const std::vector<std::vector<AutoRemesher::Vector2>>& uvs, const std::vector<char>& capFace)
+{
+    double cells = 0.0;
+    for (size_t f = 0; f < uvs.size(); ++f) {
+        const auto& t = uvs[f];
+        if (t.size() != 3 || (f < capFace.size() && capFace[f])) continue;
+        cells += 0.5 * std::fabs((t[1][0] - t[0][0]) * (t[2][1] - t[0][1]) - (t[2][0] - t[0][0]) * (t[1][1] - t[0][1]));
+    }
+    return cells;
+}
+
+// An island's last stage: the quads traced from the cover and cleaned up. False when the
+// extractor gave none.
+bool extractIsland(const std::vector<Vector3>& vertices, const std::vector<std::vector<size_t>>& triangles,
+    const Cover& cover, const std::vector<char>& cornerFeature, const AutoRemesher::ProgressHandler& progress,
+    std::vector<Vector3>& outVertices, std::vector<std::vector<size_t>>& outFaces)
+{
+    AutoRemesher::QuadExtractor extractor(&vertices, &triangles, cover.uvs.get());
+    extractor.setOriginalTriangleUvs(&cover.originalUvs);
+    // The feature edges as segments, so the extractor's smoothing keeps a quad vertex on
+    // them where the cover put it.
+    std::vector<std::pair<Vector3, Vector3>> featureSegments;
+    if (!cornerFeature.empty()) {
+        for (size_t c = 0; c < cornerFeature.size(); ++c)
+            if (cornerFeature[c]) {
+                const size_t a = triangles[c / 3][c % 3], b = triangles[c / 3][(c % 3 + 1) % 3];
+                if (a < b) featureSegments.push_back({ vertices[a], vertices[b] });
+            }
+        extractor.setFeatureSegments(&featureSegments);
+    }
+    extractor.setSingularVertices(&cover.singular);
+    extractor.setProgressHandler(progress);
+    if (!extractor.extract()) return false;
+    outVertices = extractor.remeshedVertices();
+    outFaces = extractor.remeshedQuads();
+    return true;
+}
+
+// Runs the stages on one island; progress reported as the island's share. An island whose
+// parameterization fails is left without quads, with the reason kept for the report, as
+// the core does; a cancel passes through. The Odin driver (quadmesh/driver.odin) runs the
+// same stages one call at a time and must give the same result bit for bit.
+void remeshIsland(size_t index, Island& island, const Qm_Params& params, double voxelSize, double quadEdge,
+    const Guides& guides, Handler& handler, Stages& stages)
+{
+    auto& vertices = island.vertices;
+    auto& triangles = island.triangles;
+    const auto stageProgress = [&handler, index](float begin, float end) {
+        return AutoRemesher::ProgressHandler([&handler, index, begin, end](float fraction, const char* name) {
+            handler.report(index, begin + (end - begin) * fraction, name);
+        });
+    };
+
+    handler.report(index, 0.0f, "Remeshing uniformly");
+    const auto t0 = Clock::now();
+    thinIsland(island, voxelSize, quadEdge, params.sharp_degrees, nullptr);
+    const auto t1 = Clock::now();
+    stages.decimateUs += (long long)(1000.0 * milliseconds(t0, t1));
     std::vector<double> vertexScale;
     std::vector<char> cornerFeature;
-    {
-        AutoRemesher::IsotropicRemesher isotropic(vertices, triangles);
-        isotropic.setProgressHandler(stageProgress(0.0f, islandResampleEnd));
-        isotropic.setTargetEdgeLength(voxelSize);
-        if (!targetLengths.empty()) isotropic.setVertexTargetEdgeLengths(&targetLengths);
-        isotropic.setSharpEdgeDegrees(params.sharp_degrees);
-        isotropic.setSmoothNormalDegrees(0.0);
-        if (dense) isotropic.setVertexPayloads(&edgeFactor);
-        std::vector<Vector3> featurePositions;
-        if (!island.features.empty()) {
-            featurePositions = smoothedFeaturePositions(vertices, island.features);
-            isotropic.setFeatureEdges(&island.features);
-            isotropic.setFeaturePositions(&featurePositions);
-        }
-        isotropic.remesh();
-        vertices = isotropic.remeshedVertices();
-        triangles = isotropic.remeshedTriangles();
-        if (dense && isotropic.remeshedVertexPayloads().size() == vertices.size())
-            vertexScale = blurredScale(isotropic.remeshedVertexPayloads(), triangles, 4);
-        // The remeshed mesh's feature edges (the caller's, carried through, and the
-        // edges sharp by angle), as flags on the corners the parameterizer judges.
-        if (!island.features.empty()) {
-            std::unordered_set<uint64_t> featured;
-            for (const auto& edge : isotropic.remeshedFeatureEdges())
-                featured.insert(((uint64_t)std::min(edge.first, edge.second) << 32) | (uint64_t)std::max(edge.first, edge.second));
-            cornerFeature.assign(3 * triangles.size(), 0);
-            for (size_t f = 0; f < triangles.size(); ++f)
-                for (size_t k = 0; k < 3; ++k) {
-                    const size_t a = triangles[f][k], b = triangles[f][(k + 1) % 3];
-                    if (featured.count(((uint64_t)std::min(a, b) << 32) | (uint64_t)std::max(a, b))) cornerFeature[3 * f + k] = 1;
-                }
-        }
-    }
+    isotropicIsland(island, voxelSize, params.adaptivity, params.sharp_degrees, stageProgress(0.0f, islandResampleEnd), vertexScale, cornerFeature);
     const auto t2 = Clock::now();
     stages.isotropicUs += (long long)(1000.0 * milliseconds(t1, t2));
     stages.isotropicTriangles += (long long)triangles.size();
@@ -897,64 +1004,33 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
     }
     const double cellsWanted = scaledArea / (quadEdge * quadEdge);
     const std::vector<Vector3> guided = faceGuides(guides, vertices, triangles, vertexScale, quadEdge);
-    std::unique_ptr<std::vector<std::vector<AutoRemesher::Vector2>>> uvs;
-    std::vector<std::vector<AutoRemesher::Vector2>> originalUvs;
-    std::vector<size_t> singular;
+    Cover cover;
     const float coverSpan = islandParameterizeEnd - islandResampleEnd;
     // The cover nearest the ask so far, and the nearest scalings measured under and over it
     // (their cells off the caps; 0 for none yet).
-    std::unique_ptr<std::vector<std::vector<AutoRemesher::Vector2>>> bestUvs;
-    std::vector<std::vector<AutoRemesher::Vector2>> bestOriginalUvs;
-    std::vector<size_t> bestSingular;
+    Cover best;
     double bestMiss = 0.0, underScaling = 0.0, underCells = 0.0, overScaling = 0.0, overCells = 0.0;
     for (int pass = 0; pass < 3; ++pass) {
         // The first cover takes the whole parameterize share of the bar; a later one takes
         // the last third of it again, so the bar steps back a little rather than stalling.
         const float begin = pass == 0 ? islandResampleEnd : islandResampleEnd + coverSpan * 0.67f;
-        AutoRemesher::Parameterizer parameterizer(&vertices, &triangles, nullptr);
-        parameterizer.setProgressHandler(stageProgress(begin, islandParameterizeEnd));
-        parameterizer.setScaling(scaling);
-        parameterizer.setGradientAdaptivity(params.adaptivity);
-        parameterizer.setAnisotropy(params.anisotropy > 0.0f ? params.anisotropy : 1.0);
-        parameterizer.setSharpEdgeDegrees(params.sharp_degrees);
-        if (!cornerFeature.empty()) parameterizer.setCornerFeatures(&cornerFeature);
-        if (!vertexScale.empty()) parameterizer.setVertexScaling(&vertexScale);
-        if (!guided.empty()) parameterizer.setFaceGuides(&guided);
-        bool parameterized = true;
         ++stages.covers;
-        try {
-            parameterized = parameterizer.parameterize();
-        } catch (const Qm_Cancel&) {
-            throw;
-        } catch (const std::exception& e) {
-            parameterized = false;
-            handler.failed(std::string("parameterization failed: ") + e.what());
-        } catch (...) {
-            parameterized = false;
-            handler.failed("parameterization failed");
-        }
-        if (!parameterized) {
+        std::string failure;
+        if (!coverIsland(vertices, triangles, scaling, params.adaptivity, params.anisotropy > 0.0f ? params.anisotropy : 1.0,
+                params.sharp_degrees, cornerFeature, vertexScale, guided, stageProgress(begin, islandParameterizeEnd), cover, failure)) {
+            if (!failure.empty()) handler.failed(failure);
             const auto tFailed = Clock::now();
             stages.parameterizeUs += (long long)(1000.0 * milliseconds(t2, tFailed));
             handler.report(index, 1.0f, nullptr);
             return;
         }
-        uvs = parameterizer.takeTriangleUvs();
-        originalUvs = parameterizer.originalTriangleUvs();
-        singular = parameterizer.singularVertexIndices();
-        if (!landing || !uvs) break;
-        double cells = 0.0;
-        for (size_t f = 0; f < uvs->size(); ++f) {
-            const auto& t = (*uvs)[f];
-            if (t.size() != 3 || (f < capFace.size() && capFace[f])) continue;
-            cells += 0.5 * std::fabs((t[1][0] - t[0][0]) * (t[2][1] - t[0][1]) - (t[2][0] - t[0][0]) * (t[1][1] - t[0][1]));
-        }
+        if (!landing || !cover.uvs) break;
+        const double cells = coverCells(*cover.uvs, capFace);
         if (cells <= 0.0 || cellsWanted <= 0.0) break;
         const double miss = std::fabs(cells / cellsWanted - 1.0);
         if (pass == 0 || miss < bestMiss) {
-            bestUvs = std::move(uvs);
-            bestOriginalUvs = std::move(originalUvs);
-            bestSingular = std::move(singular);
+            best = std::move(cover);
+            cover = Cover();
             bestMiss = miss;
         }
         if (bestMiss <= 0.03 || pass == 2) break;
@@ -973,33 +1049,11 @@ void remeshIsland(size_t index, Island& island, const Qm_Params& params, double 
         else
             scaling *= std::max(1.0 / 1.5, std::min(1.5, std::sqrt(cells / cellsWanted)));
     }
-    if (bestUvs) {
-        uvs = std::move(bestUvs);
-        originalUvs = std::move(bestOriginalUvs);
-        singular = std::move(bestSingular);
-    }
+    if (best.uvs) cover = std::move(best);
     const auto t3 = Clock::now();
     stages.parameterizeUs += (long long)(1000.0 * milliseconds(t2, t3));
     handler.report(index, islandParameterizeEnd, nullptr);
-    AutoRemesher::QuadExtractor extractor(&vertices, &triangles, uvs.get());
-    extractor.setOriginalTriangleUvs(&originalUvs);
-    // The feature edges as segments, so the extractor's smoothing keeps a quad vertex on
-    // them where the cover put it.
-    std::vector<std::pair<Vector3, Vector3>> featureSegments;
-    if (!cornerFeature.empty()) {
-        for (size_t c = 0; c < cornerFeature.size(); ++c)
-            if (cornerFeature[c]) {
-                const size_t a = triangles[c / 3][c % 3], b = triangles[c / 3][(c % 3 + 1) % 3];
-                if (a < b) featureSegments.push_back({ vertices[a], vertices[b] });
-            }
-        extractor.setFeatureSegments(&featureSegments);
-    }
-    extractor.setSingularVertices(&singular);
-    extractor.setProgressHandler(stageProgress(islandParameterizeEnd, 1.0f));
-    if (extractor.extract()) {
-        island.outVertices = extractor.remeshedVertices();
-        island.outFaces = extractor.remeshedQuads();
-    }
+    extractIsland(vertices, triangles, cover, cornerFeature, stageProgress(islandParameterizeEnd, 1.0f), island.outVertices, island.outFaces);
     const auto t4 = Clock::now();
     stages.extractUs += (long long)(1000.0 * milliseconds(t3, t4));
     handler.report(index, 1.0f, nullptr);
@@ -1252,4 +1306,297 @@ extern "C" void qm_times(const Qm_Result* r, Qm_Times* times)
 extern "C" void qm_free(Qm_Result* r)
 {
     delete r;
+}
+
+// ---- Stage calls (quadmesh_shim.h) --------------------------------------------------
+
+struct Qm_Stage {
+    std::vector<double> positions;
+    std::vector<uint32_t> triangles, features;
+    std::vector<double> density, refine, vertexScale, faceGuides, uvs;
+    std::vector<uint8_t> cornerFeature;
+    std::vector<uint32_t> singular, first, corners;
+    double meanEdge = 0.0;
+    uint32_t added = 0;
+    int decimated = 0;
+};
+
+namespace {
+
+// A stage's run: the thread count its loops may use and whether it stays on this thread
+// (one island of several), set on this thread for the call and put back after, and the
+// caller's progress as the core's handler, whose stop throws Qm_Cancel.
+struct StageRun {
+    unsigned threads;
+    bool wasWorker;
+    explicit StageRun(const Qm_Stage_Run* run)
+        : threads(quadmesh_threads)
+        , wasWorker(tbb::detail::in_worker)
+    {
+        sink();
+        if (run) {
+            quadmesh_threads = std::max(1u, std::min(run->threads, 16u));
+            if (run->serial) tbb::detail::in_worker = true;
+        }
+    }
+    ~StageRun()
+    {
+        quadmesh_threads = threads;
+        tbb::detail::in_worker = wasWorker;
+    }
+};
+
+AutoRemesher::ProgressHandler stageHandler(const Qm_Stage_Run* run)
+{
+    if (!run || !run->progress) return AutoRemesher::ProgressHandler();
+    const Qm_Progress progress = run->progress;
+    void* tag = run->tag;
+    return AutoRemesher::ProgressHandler([progress, tag](float fraction, const char* name) {
+        if (!progress(tag, fraction, name ? name : "")) throw Qm_Cancel{};
+    });
+}
+
+// The caller's mesh in the core's types.
+void meshIn(const Qm_Mesh& mesh, std::vector<Vector3>& vertices, std::vector<std::vector<size_t>>& triangles)
+{
+    vertices.clear();
+    vertices.reserve(mesh.vertex_count);
+    for (uint32_t v = 0; v < mesh.vertex_count; ++v)
+        vertices.emplace_back(mesh.positions[3 * v], mesh.positions[3 * v + 1], mesh.positions[3 * v + 2]);
+    triangles.assign(mesh.triangle_count, std::vector<size_t>(3));
+    for (uint32_t t = 0; t < mesh.triangle_count; ++t)
+        for (size_t k = 0; k < 3; ++k) triangles[t][k] = mesh.triangles[3 * t + k];
+}
+
+std::vector<double> valuesIn(const double* values, size_t count)
+{
+    return values ? std::vector<double>(values, values + count) : std::vector<double>();
+}
+
+void meshOut(const std::vector<Vector3>& vertices, const std::vector<std::vector<size_t>>& triangles, Qm_Stage& out)
+{
+    out.positions.resize(3 * vertices.size());
+    for (size_t v = 0; v < vertices.size(); ++v)
+        for (size_t k = 0; k < 3; ++k) out.positions[3 * v + k] = vertices[v][k];
+    out.triangles.resize(3 * triangles.size());
+    for (size_t t = 0; t < triangles.size(); ++t)
+        for (size_t k = 0; k < 3; ++k) out.triangles[3 * t + k] = (uint32_t)triangles[t][k];
+}
+
+// Runs `body` with the boundary's catches: a cancel, memory, or the core's own failure.
+template <typename Body>
+int guarded(char* error, size_t errorSize, const Body& body)
+{
+    say(error, errorSize, "");
+    try {
+        return body();
+    } catch (const Qm_Cancel&) {
+        say(error, errorSize, "cancelled");
+        return QM_CANCELLED;
+    } catch (const std::bad_alloc&) {
+        say(error, errorSize, "out of memory");
+        return QM_OUT_OF_MEMORY;
+    } catch (const std::exception& e) {
+        say(error, errorSize, e.what());
+        return QM_FAILED;
+    } catch (...) {
+        say(error, errorSize, "AutoRemesher failed");
+        return QM_FAILED;
+    }
+}
+
+}
+
+extern "C" int qm_stage_thin(const Qm_Mesh* mesh, double voxel_size, double quad_edge, double sharp_degrees,
+    Qm_Stage** out, char* error, size_t error_size)
+{
+    *out = nullptr;
+    return guarded(error, error_size, [&] {
+        const StageRun scope(nullptr);
+        Island island;
+        meshIn(*mesh, island.vertices, island.triangles);
+        if (mesh->features)
+            for (uint32_t e = 0; e < mesh->feature_count; ++e)
+                island.features.push_back({ mesh->features[2 * e], mesh->features[2 * e + 1] });
+        island.density = valuesIn(mesh->density, mesh->vertex_count);
+        island.refine = valuesIn(mesh->refine, mesh->vertex_count);
+        size_t added = 0;
+        std::unique_ptr<Qm_Stage> r(new Qm_Stage);
+        r->decimated = thinIsland(island, voxel_size, quad_edge, sharp_degrees, &added) ? 1 : 0;
+        r->added = (uint32_t)added;
+        meshOut(island.vertices, island.triangles, *r);
+        for (const auto& edge : island.features) {
+            r->features.push_back((uint32_t)edge.first);
+            r->features.push_back((uint32_t)edge.second);
+        }
+        r->density = std::move(island.density);
+        r->refine = std::move(island.refine);
+        *out = r.release();
+        return QM_OK;
+    });
+}
+
+extern "C" int qm_stage_isotropic(const Qm_Mesh* mesh, double voxel_size, double adaptivity, double sharp_degrees,
+    const Qm_Stage_Run* run, Qm_Stage** out, char* error, size_t error_size)
+{
+    *out = nullptr;
+    return guarded(error, error_size, [&] {
+        const StageRun scope(run);
+        Island island;
+        meshIn(*mesh, island.vertices, island.triangles);
+        if (mesh->features)
+            for (uint32_t e = 0; e < mesh->feature_count; ++e)
+                island.features.push_back({ mesh->features[2 * e], mesh->features[2 * e + 1] });
+        island.density = valuesIn(mesh->density, mesh->vertex_count);
+        island.refine = valuesIn(mesh->refine, mesh->vertex_count);
+        std::vector<double> vertexScale;
+        std::vector<char> cornerFeature;
+        isotropicIsland(island, voxel_size, adaptivity, sharp_degrees, stageHandler(run), vertexScale, cornerFeature);
+        std::unique_ptr<Qm_Stage> r(new Qm_Stage);
+        meshOut(island.vertices, island.triangles, *r);
+        r->vertexScale = std::move(vertexScale);
+        r->cornerFeature.assign(cornerFeature.begin(), cornerFeature.end());
+        // The mean edge the cover's scaling is measured against, as the landing takes it.
+        if (!island.vertices.empty() && !island.triangles.empty())
+            r->meanEdge = AutoRemesher::SurfaceMesh(island.vertices, island.triangles).averageEdgeLength();
+        *out = r.release();
+        return QM_OK;
+    });
+}
+
+extern "C" int qm_stage_face_guides(const Qm_Mesh* mesh, double quad_edge, const float* guides, uint32_t guide_count,
+    float guide_strength, Qm_Stage** out, char* error, size_t error_size)
+{
+    *out = nullptr;
+    return guarded(error, error_size, [&] {
+        const StageRun scope(nullptr);
+        std::vector<Vector3> vertices;
+        std::vector<std::vector<size_t>> triangles;
+        meshIn(*mesh, vertices, triangles);
+        Qm_Params params {};
+        params.guides = guides;
+        params.guide_count = guide_count;
+        params.guide_strength = guide_strength;
+        // As qm_remesh files them: within three quarters of a quad edge, at most four
+        // times the plain one where the density makes the quads larger.
+        const Guides filed = makeGuides(params, 4.0 * 0.75 * quad_edge);
+        const std::vector<double> vertexScale = valuesIn(mesh->vertex_scale, mesh->vertex_count);
+        const std::vector<Vector3> guided = faceGuides(filed, vertices, triangles, vertexScale, quad_edge);
+        std::unique_ptr<Qm_Stage> r(new Qm_Stage);
+        r->faceGuides.resize(3 * guided.size());
+        for (size_t f = 0; f < guided.size(); ++f)
+            for (size_t k = 0; k < 3; ++k) r->faceGuides[3 * f + k] = guided[f][k];
+        *out = r.release();
+        return QM_OK;
+    });
+}
+
+extern "C" int qm_stage_cover(const Qm_Mesh* mesh, double scaling, double adaptivity, double anisotropy, double sharp_degrees,
+    const Qm_Stage_Run* run, Qm_Stage** out, char* error, size_t error_size)
+{
+    *out = nullptr;
+    return guarded(error, error_size, [&] {
+        const StageRun scope(run);
+        std::vector<Vector3> vertices;
+        std::vector<std::vector<size_t>> triangles;
+        meshIn(*mesh, vertices, triangles);
+        const std::vector<double> vertexScale = valuesIn(mesh->vertex_scale, mesh->vertex_count);
+        std::vector<char> cornerFeature;
+        if (mesh->corner_feature) cornerFeature.assign(mesh->corner_feature, mesh->corner_feature + 3 * (size_t)mesh->triangle_count);
+        std::vector<Vector3> guided;
+        if (mesh->face_guides)
+            for (uint32_t f = 0; f < mesh->triangle_count; ++f)
+                guided.emplace_back(mesh->face_guides[3 * f], mesh->face_guides[3 * f + 1], mesh->face_guides[3 * f + 2]);
+        Cover cover;
+        std::string failure;
+        if (!coverIsland(vertices, triangles, scaling, adaptivity, anisotropy, sharp_degrees, cornerFeature, vertexScale, guided,
+                stageHandler(run), cover, failure)) {
+            say(error, error_size, failure.c_str());
+            return QM_FAILED;
+        }
+        std::unique_ptr<Qm_Stage> r(new Qm_Stage);
+        if (cover.uvs) {
+            r->uvs.resize(6 * cover.uvs->size());
+            for (size_t f = 0; f < cover.uvs->size(); ++f)
+                for (size_t k = 0; k < 3 && k < (*cover.uvs)[f].size(); ++k) {
+                    r->uvs[6 * f + 2 * k] = (*cover.uvs)[f][k][0];
+                    r->uvs[6 * f + 2 * k + 1] = (*cover.uvs)[f][k][1];
+                }
+        }
+        for (const size_t v : cover.singular) r->singular.push_back((uint32_t)v);
+        *out = r.release();
+        return QM_OK;
+    });
+}
+
+extern "C" int qm_stage_extract(const Qm_Mesh* mesh, const Qm_Stage_Run* run, Qm_Stage** out, char* error, size_t error_size)
+{
+    *out = nullptr;
+    return guarded(error, error_size, [&] {
+        const StageRun scope(run);
+        std::vector<Vector3> vertices;
+        std::vector<std::vector<size_t>> triangles;
+        meshIn(*mesh, vertices, triangles);
+        std::vector<char> cornerFeature;
+        if (mesh->corner_feature) cornerFeature.assign(mesh->corner_feature, mesh->corner_feature + 3 * (size_t)mesh->triangle_count);
+        Cover cover;
+        cover.uvs = std::make_unique<std::vector<std::vector<AutoRemesher::Vector2>>>(mesh->triangle_count, std::vector<AutoRemesher::Vector2>(3));
+        for (uint32_t f = 0; f < mesh->triangle_count; ++f)
+            for (size_t k = 0; k < 3; ++k)
+                (*cover.uvs)[f][k] = AutoRemesher::Vector2(mesh->uvs[6 * f + 2 * k], mesh->uvs[6 * f + 2 * k + 1]);
+        cover.originalUvs = *cover.uvs;
+        if (mesh->singular) cover.singular.assign(mesh->singular, mesh->singular + mesh->singular_count);
+        std::vector<Vector3> outVertices;
+        std::vector<std::vector<size_t>> outFaces;
+        std::unique_ptr<Qm_Stage> r(new Qm_Stage);
+        if (extractIsland(vertices, triangles, cover, cornerFeature, stageHandler(run), outVertices, outFaces)) {
+            r->positions.resize(3 * outVertices.size());
+            for (size_t v = 0; v < outVertices.size(); ++v)
+                for (size_t k = 0; k < 3; ++k) r->positions[3 * v + k] = outVertices[v][k];
+            r->first.reserve(outFaces.size() + 1);
+            for (const auto& f : outFaces) {
+                r->first.push_back((uint32_t)r->corners.size());
+                for (const size_t v : f) r->corners.push_back((uint32_t)v);
+            }
+            r->first.push_back((uint32_t)r->corners.size());
+        }
+        *out = r.release();
+        return QM_OK;
+    });
+}
+
+extern "C" void qm_stage_view(const Qm_Stage* s, Qm_Stage_View* view)
+{
+    *view = Qm_Stage_View {};
+    const auto ptr = [](const auto& v) { return v.empty() ? nullptr : v.data(); };
+    view->positions = ptr(s->positions);
+    view->vertex_count = (uint32_t)(s->positions.size() / 3);
+    view->triangles = ptr(s->triangles);
+    view->triangle_count = (uint32_t)(s->triangles.size() / 3);
+    view->features = ptr(s->features);
+    view->feature_count = (uint32_t)(s->features.size() / 2);
+    view->density = ptr(s->density);
+    view->refine = ptr(s->refine);
+    view->vertex_scale = ptr(s->vertexScale);
+    view->corner_feature = ptr(s->cornerFeature);
+    view->mean_edge = s->meanEdge;
+    view->face_guides = ptr(s->faceGuides);
+    view->uvs = ptr(s->uvs);
+    view->singular = ptr(s->singular);
+    view->singular_count = (uint32_t)s->singular.size();
+    view->first = ptr(s->first);
+    view->corners = ptr(s->corners);
+    view->face_count = s->first.empty() ? 0 : (uint32_t)(s->first.size() - 1);
+    view->added = s->added;
+    view->decimated = s->decimated;
+}
+
+extern "C" void qm_stage_free(Qm_Stage* s)
+{
+    delete s;
+}
+
+extern "C" void qm_console_line(char* text, size_t size)
+{
+    say(text, size, sink().last_line().c_str());
 }

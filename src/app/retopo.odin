@@ -84,7 +84,7 @@ object_shape :: proc(obj: ^Object, top: bool, mask: ^[]u8 = nil) -> (view: geom.
 // The options as the Rebuild section has them set.
 quad_options :: proc(app: ^App) -> retopo.Options {
 	mirror := symmetry_planes(app, selected_object(app)) if app.ui.retopo_keep_symmetry else {}
-	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, mirror, app.ui.retopo_close_first, app.ui.retopo_keep_groups, app.ui.retopo_keep_creases, app.ui.retopo_edge_degrees, app.ui.retopo_use_paint, app.ui.retopo_use_mask, app.ui.retopo_guide_strength}
+	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, mirror, app.ui.retopo_close_first, app.ui.retopo_keep_groups, app.ui.retopo_keep_creases, app.ui.retopo_edge_degrees, app.ui.retopo_use_paint, app.ui.retopo_use_mask, app.ui.retopo_guide_strength, app.ui.retopo_core, app.quadmesh_dump}
 }
 
 // The Edge angle slider's floor: lower would keep nearly every edge of a sculpt.
@@ -165,6 +165,7 @@ quad_options_set :: proc(app: ^App, o: retopo.Options) {
 	app.ui.retopo_edge_degrees = o.edge_degrees if o.edge_degrees > 0 else retopo.EDGE_DEGREES_DEFAULT
 	app.ui.retopo_use_paint, app.ui.retopo_use_mask = o.use_paint, o.use_mask
 	app.ui.retopo_guide_strength = o.guide_strength
+	app.ui.retopo_core = o.core
 	if o.mirror.axes != {} do app.ui.retopo_keep_symmetry = true
 }
 
@@ -231,6 +232,7 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 	// when it was not asked for.
 	engine := retopo.ENGINE_NAMES[res.engine]
 	if res.reason != "" do engine = fmt.tprintf("built-in, as AutoRemesher said %s", res.reason)
+	if res.reason == "" && res.engine == .Auto && res.core == .Odin do engine = fmt.tprintf("%s through the Odin driver", engine)
 	if res.mirrored do engine = fmt.tprintf("%s, mirrored across %s", engine, planes_label(res.mirror))
 	if res.unmirrored != "" do engine = fmt.tprintf("%s, not mirrored since %s", engine, res.unmirrored)
 	if res.closed > 0 do engine = fmt.tprintf("%s, closed first", engine)
