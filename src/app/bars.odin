@@ -599,10 +599,17 @@ bar_slot_more :: proc(app: ^App, s: Bar_Slot, at: ui.Rect, side: ui.Side) {
 bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, size: f32 = 0, tile := false, named := "", width: f32 = 0) {
 	k := &app.kit
 	ctx := &k.ctx
+	// While the bar is edited its buttons grow in, shrink out and close up (panel_motion.odin).
+	editing := bar_editing(k, which)
+	motion: ui.Motion_Mark
+	at: ui.Rect
+	if editing do motion = ui.motion_mark(ctx)
+	defer if editing do slot_motion_end(app, which, s, motion, at)
 	if v, ok := value_of(s); ok {
 		cell: [2]f32 = {size, ui.BRUSH_TILE.y - 2} if size > 0 else {}
 		if size <= 0 && which != .Offhand && bar_column(which) do cell = {ui.BRUSH_TILE.x if tile else ctx.theme.target, VALUE_CHIP.y - 4}
 		value_item(app, which, slot, v, cell, column = bar_column(which))
+		at = ctx.last_rect
 		return
 	}
 	side := bar_side(app, which)
@@ -611,6 +618,7 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 	// A dock of Tiles shows each command's name under its icon, as the shelf's brushes do.
 	enabled := bar_editing(k, which) || bar_enabled(app, s)
 	pressed := ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled, more && !bar_editing(k, which)) if tile else ui.icon_button(ctx, name, bar_icon(app, s), bar_lit(app, s), enabled, command_hint(app, s.id, s.arg), size, more && !bar_editing(k, which), named, width)
+	at = ctx.last_rect
 	if pressed {
 		if bar_editing(k, which) do bar_slot_open(app, which, slot, ctx.last_rect)
 		else do bar_slot_run(app, s, ctx.last_rect, side)

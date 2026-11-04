@@ -55,6 +55,7 @@ card_float_at :: proc(k: ^Kit_State, c: Card, offset: [2]f32) {
 card_float_return :: proc(app: ^App, c: Card, s: Column_Side) {
 	k := &app.kit
 	if c not_in k.cards.floats do return
+	card_glide_from(app, c, panel_rect(app, c))
 	k.cards.floats -= {c}
 	k.cards.returned += 1
 	card_rest(k, s, c)
@@ -76,6 +77,7 @@ card_float_draw :: proc(app: ^App, c: Card) -> (raised: bool) {
 	if c not_in k.cards.floats do return false
 	w := &k.cards.windows[c]
 	was_dragging := w.dragging
+	mark := ui.motion_mark(ctx)
 	PAD :: 10
 	width := card_width(c)
 	p := panel_begin(app, c, "", .End, .Start, {kit_right(app) + CARD_GAP, kit_top()}, {direction = .Column, gap = 6, padding = PAD, width = width, radius = t.radius_large, background = .Panel}, card = true)
@@ -85,6 +87,8 @@ card_float_draw :: proc(app: ^App, c: Card) -> (raised: bool) {
 	height := max(min(p.room - head.h - 6 - 24, CARD_FLOAT_MAX_H), CARD_BODY_MIN)
 	_, _ = card_content(app, c, inner, height, p.owner, &k.cards.float_scrolls[c])
 	panel_end(app, &p)
+	if w.dragging && !was_dragging do k.moving.lifts += 1
+	card_float_motion_end(app, c, mark, panel_rect(app, c), w.dragging)
 	if c == .Colours do kit_colors_menus(app)
 	raised = p.raised
 	// A hold on the grip puts it back on the pen side; a drag let go at a side of the

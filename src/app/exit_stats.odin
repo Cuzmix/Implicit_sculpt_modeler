@@ -219,7 +219,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// Motion II's moves as the run ends: how far the pie has unfolded, how far from its
 		// place the hand switch still draws the bars, how many times view panes faded in, and
 		// how many times Arrange opened (its outlines drawing in each time).
-		fmt.printfln("pie_unfold=%.2f hand_slide=%.2f pane_fades=%d arrange_openings=%d", pie_unfolded(app), app.kit.ctx.mirror_slide, app.kit.grid.fades, app.kit.arrange.openings)
+		fmt.printfln("pie_unfold=%.2f hand_slide=%.2f pane_fades=%d pane_grows=%d arrange_openings=%d", pie_unfolded(app), app.kit.ctx.mirror_slide, app.kit.grid.fades, app.kit.grid.grows, app.kit.arrange.openings)
 		fmt.printfln("long_job_running=%d long_jobs=%d long_job_cancels=%d long_job_ms=%.0f long_job_progress=%.2f long_job_holds=%d", int(app.long_job.on), app.long_job.runs, app.long_job.cancels, app.long_job.ms, long_job_progress(app), app.long_job.holds)
 		fmt.printfln("cross_fading=%d look_fades=%d mesh_fades=%d view_holds=%d", int(app.cross_fade.on), app.cross_fade.looks, app.cross_fade.meshes, app.cross_fade.holds)
 		fmt.printfln("flashing=%d undo_flashes=%d mask_wipes=%d selection_outlines=%d save_ticks=%d", int(flashing(app)), app.flashes.undos, app.flashes.masks, app.flashes.selections, app.flashes.saves)
@@ -501,6 +501,9 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// often cards opened, folded, pinned and closed; the floating cards, and how many were
 		// torn out of a column and put back.
 		fmt.printfln("cards=%s cards_shut=%s card_opens=%d card_folds=%d card_pins=%d card_closes=%d cards_float=%s card_floated=%d card_returned=%d panel_menu=%d", columns_text(k), cards_shut_text(k), k.cards.opens, k.cards.folds, k.cards.pins, k.cards.closes, cards_float_text(k), k.cards.floated, k.cards.returned, int(k.panels.menu))
+		// Panels sliding (panel_motion.odin): cards and docks that slid in, that left from a
+		// copy of their drawing, and narrow-window sheets put away by a drag.
+		fmt.printfln("panel_slides=%d panel_leaves=%d sheet_pulls=%d card_glides=%d card_lifts=%d dock_glides=%d slot_moves=%d pills_in=%d pills_out=%d", k.moving.slides, k.moving.leaves, k.moving.pulled_away, k.moving.glides, k.moving.lifts, k.moving.dock_glides, k.moving.slot_moves, k.moving.popped, k.moving.unpopped)
 		// Each space's layout: which differ from how they ship (the current one's dot), the
 		// layout menu, Reset layout's runs, and the zones hidden (by it or a view toggle).
 		{

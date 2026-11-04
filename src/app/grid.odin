@@ -132,6 +132,15 @@ View_Grid :: struct {
 	fade_serial: int,
 	fade_at:     f64,
 	fades:       int,
+	// Whether that fade also wipes each new pane open from the side away from the main
+	// pane (a new layout) or only fades (a pane put back from Maximise); never kept.
+	fade_wipe:   bool,
+	// The pane last seen maximised, and where the one maximised grows from and since when
+	// (View panes motion); never kept.
+	max_was:     int,
+	max_from:    ui.Rect,
+	max_at:      f64,
+	grows:       int,
 	drags:     int, // frames a divider moved, for the exit stats
 	// Lens's dividers (lens_panes.odin): the last tap on one, the divider let go at the
 	// edge would close the side beyond (1 + its node, 0 for none) and which side, and for
@@ -776,6 +785,7 @@ GRID_COLUMN_GAP :: 8
 
 // How long view panes take to fade in when the grid's layout changes.
 PANE_FADE_TIME :: 0.24
+PANE_GROW_TIME :: 0.26
 
 // A divider: the gap it lies along, the split it moves, its direction and the split's room.
 Grid_Divider :: struct {
@@ -831,9 +841,22 @@ kit_grid :: proc(app: ^App) {
 	// over the ground, so what moved is seen to arrive; the first frames' layout is where
 	// the run starts.
 	if g.fade_serial != g.serial {
-		if k.frame > 2 do g.fade_at, g.fades = ctx.time, g.fades + 1
+		if k.frame > 2 do g.fade_at, g.fades, g.fade_wipe = ctx.time, g.fades + 1, true
 		g.fade_serial = g.serial
+		g.max_was = g.maximised
 	}
+	// Maximise grows the pane from its cell to the whole grid; putting it back fades the
+	// panes in where they were, as a new layout does but without the wipe.
+	if g.max_was != g.maximised {
+		if k.frame > 2 {
+			grows := g.maximised != 0 && g.max_was == 0
+			if grows do g.max_from, g.max_at, g.grows = cells[g.maximised], ctx.time, g.grows + 1
+			// Reduced motion has no growth, so it fades the maximised pane in instead.
+			if !grows || ctx.motion == .Reduced do g.fade_at, g.fades, g.fade_wipe = ctx.time, g.fades + 1, false
+		}
+		g.max_was = g.maximised
+	}
+	grow, growing := grid_grow_rect(app, room)
 	g.main, g.home = cells[0], cells[0]
 	if g.work != 0 do g.main = room if g.maximised == g.work else cells[g.work]
 	// While a view pane is worked in, the main pane holds the picture it showed as the
@@ -871,21 +894,37 @@ kit_grid :: proc(app: ^App) {
 	}
 	if run := ui.motion_duration(ctx, motion_class(.Panes), PANE_FADE_TIME); run > 0 && g.fade_at > 0 {
 		if t := f32(ctx.time - g.fade_at) / run; t < 1 {
-			ground := ui.color_fade(ctx.theme.frame, 1 - ui.ease(.Out_Cubic, t))
+			e := ui.ease(.Out_Cubic, t)
+			ground := ui.color_fade(ctx.theme.frame, 1 - e)
 			for i in 1 ..< n {
 				if g.maximised != 0 && g.maximised != i do continue
-				ui.fill_rect(ctx, room if g.maximised == i else cells[i], 0, ground)
+				r := room if g.maximised == i else cells[i]
+				ui.fill_rect(ctx, r, 0, ground)
+				// Under full motion a new pane opens from the main pane's side outward,
+				// the part not yet open still the ground; Reduced only fades.
+				if g.fade_wipe && g.maximised == 0 && ctx.motion != .Reduced {
+					if hide := pane_unopened(r, cells[0], e); hide.w > 0 && hide.h > 0 do ui.fill_rect(ctx, hide, 0, ctx.theme.frame)
+				}
 			}
 			// Keeps frames coming until it is done (idle.odin rests once nothing changes).
 			_ = ui.tween_from(ctx, ui.salt(ui.hash_under(0, "pane fade"), u64(g.fades)), 0, 1, run, .Linear, class = motion_class(.Panes))
 		}
+	}
+	// A pane growing to fill the grid shows only the part inside its growing rect, the
+	// rest the ground, its head riding the rect's corner.
+	if growing {
+		ground := ctx.theme.frame
+		ui.fill_rect(ctx, {room.x, room.y, room.w, grow.y - room.y}, 0, ground)
+		ui.fill_rect(ctx, {room.x, grow.y + grow.h, room.w, room.y + room.h - grow.y - grow.h}, 0, ground)
+		ui.fill_rect(ctx, {room.x, grow.y, grow.x - room.x, grow.h}, 0, ground)
+		ui.fill_rect(ctx, {grow.x + grow.w, grow.y, room.x + room.w - grow.x - grow.w, grow.h}, 0, ground)
 	}
 	// The corner handles under the panes' heads, whose chips win where the two meet.
 	if g.maximised == 0 do lens_pane_corners(app, cells, n)
 	for i in 1 ..< n {
 		if g.maximised != 0 && g.maximised != i do continue
 		r := room if g.maximised == i else cells[i]
-		lens_pane_head(app, i, grid_head_at(app, r), r, cells, n)
+		lens_pane_head(app, i, grid_head_at(app, grow if growing else r), r, cells, n)
 	}
 	if g.maximised != 0 do return
 	dividers, count := grid_dividers(&g.tree, rooms)
@@ -960,6 +999,37 @@ grid_divider_drag :: proc(app: ^App, div: Grid_Divider, m: [2]f32, room: ui.Rect
 
 // Where a view pane's head stands in pane rect `r`: its top left corner, clear of the top
 // bar, the brush bar and a docked left column.
+// The part of new pane `r` not yet opened, `e` (0 to 1) of the way: it opens from the
+// edge facing the main pane `main` toward its far edge, along the axis they are split on.
+pane_unopened :: proc(r, main: ui.Rect, e: f32) -> ui.Rect {
+	d := [2]f32{r.x + r.w * 0.5 - (main.x + main.w * 0.5), r.y + r.h * 0.5 - (main.y + main.h * 0.5)}
+	if abs(d.x) >= abs(d.y) {
+		open := r.w * e
+		if d.x >= 0 do return {r.x + open, r.y, r.w - open, r.h}
+		return {r.x, r.y, r.w - open, r.h}
+	}
+	open := r.h * e
+	if d.y >= 0 do return {r.x, r.y + open, r.w, r.h - open}
+	return {r.x, r.y, r.w, r.h - open}
+}
+
+// Where the maximised pane is shown while it grows from its cell to `room`, and whether
+// it still is; never under Reduced or Off motion, which fade it in instead.
+grid_grow_rect :: proc(app: ^App, room: ui.Rect) -> (ui.Rect, bool) {
+	ctx := &app.kit.ctx
+	g := &app.kit.grid
+	if g.maximised == 0 || g.max_at <= 0 || ctx.motion == .Reduced do return room, false
+	run := ui.motion_duration(ctx, motion_class(.Panes), PANE_GROW_TIME)
+	if run <= 0 do return room, false
+	t := f32(ctx.time - g.max_at) / run
+	if t >= 1 do return room, false
+	// Keeps frames coming until it is done.
+	_ = ui.tween_from(ctx, ui.salt(ui.hash_under(0, "pane grow"), u64(g.grows)), 0, 1, run, .Linear, class = motion_class(.Panes))
+	e := ui.ease(.Out_Cubic, t)
+	f := g.max_from
+	return {f.x + (room.x - f.x) * e, f.y + (room.y - f.y) * e, f.w + (room.w - f.w) * e, f.h + (room.h - f.h) * e}, true
+}
+
 grid_head_at :: proc(app: ^App, r: ui.Rect) -> [2]f32 {
 	return {max(r.x, kit_left(app), grid_left_column_edge(app)) + 6, max(r.y, kit_top() - 8) + 6}
 }

@@ -244,6 +244,7 @@ arrange_carry_follow :: proc(app: ^App, b: Dock_Id, r: ui.Rect, a: ui.Area) {
 		if lines[0].shown || lines[1].shown do s.aligns += 1
 		default_top := brush_bar_top(app) if b == .Offhand else TOP_BAR_H + 6
 		dock_place_set(app, b, dock_drop(app, b, box, a.mouse, default_top))
+		dock_glide_from(app, b, box)
 		s.carries += 1
 	}
 	s.carry, s.carrying = nil, false

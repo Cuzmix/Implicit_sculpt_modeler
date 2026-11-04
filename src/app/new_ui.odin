@@ -94,6 +94,7 @@ Kit_State :: struct {
 	value_scrubbing: ui.Id,
 	pie_quicks: int, // quick settings opened by resting on the brush pie, for the exit stats
 	cards:      Cards, // the cards and the columns they open in (cards.odin, column.odin)
+	moving:     Panel_Motion, // cards and docks sliding in and out (panel_motion.odin)
 	new_panes:  New_Panes, // what a pane a view layout adds starts as (lens_panes.odin)
 	pane_menu:  Pane_Menu, // a view pane's camera or pass list
 	bars_edit:  bool,
@@ -950,6 +951,7 @@ kit_destroy :: proc(app: ^App) {
 	render.ui_pass_destroy(&app.renderer, &app.kit.pass)
 	ui.destroy(&app.kit.ctx)
 	layouts_destroy(&app.kit)
+	panel_motion_destroy(&app.kit.moving)
 }
 
 // Window coordinates per interface point. SDL gives the pointer and the window's size in
@@ -1350,13 +1352,16 @@ kit_layout :: proc(app: ^App) {
 	}
 	if k.clean {
 		kit_clean_view(app)
+		docks_leaving(app)
 		return
 	}
 	// Home just closed: the scene grows out of the tile it closed from, under the bars.
 	kit_home_reveal(app)
 
 	// First, so that every panel and popover laid out after it is above it.
+	pop := ui.motion_mark(ctx)
 	kit_shape_bar(app)
+	pop_motion_end(app, .Shape, pop)
 
 	// Round the edges: the top bar (kit_top_lens.odin), then what stands round the view.
 	// A bar the layout hides is not laid out (layouts.odin): what opened from it opens
@@ -1365,8 +1370,12 @@ kit_layout :: proc(app: ^App) {
 	// Each bar notes where its buttons stand as it is drawn (bar_spot).
 	k.bar_spot_count = 0
 	menu_anchor, search_anchor := kit_top_bar(app)
+	pop = ui.motion_mark(ctx)
 	kit_job_pill(app)
+	pop_motion_end(app, .Job, pop)
+	pop = ui.motion_mark(ctx)
 	kit_send_pill(app)
+	pop_motion_end(app, .Send, pop)
 	// Round the view: the readout at the top corner on the off-hand side (readout.odin), the
 	// off-hand island down the off-hand side, the navigation head at the pen side's top and
 	// the view rail of cards down the pen side. Focused (kit_top_lens.odin), the readout
@@ -1374,8 +1383,10 @@ kit_layout :: proc(app: ^App) {
 	// reaches for while sculpting.
 	focus := lens_focus(k)
 	k.nav.placed = false
+	pop = ui.motion_mark(ctx)
 	if focus do k.readout.shown = false
 	else do kit_readout(app)
+	pop_motion_end(app, .Readout, pop)
 	if focus || !zone_hidden(k, .Brush_Bar) do kit_dock(app, .Offhand)
 	kit_nav_head(app)
 	if !zone_hidden(k, .View_Bar) {
@@ -1395,6 +1406,8 @@ kit_layout :: proc(app: ^App) {
 	}
 	// Over the dock, the next steps for what is active (kit_action_bar.odin); notes rise
 	// above both.
+	// A dock that stopped showing slides off its edge (panel_motion.odin).
+	docks_leaving(app)
 	kit_colour_island(app)
 	kit_action_bar(app)
 	stack_h := dock_stack(app)
@@ -1405,7 +1418,9 @@ kit_layout :: proc(app: ^App) {
 	coach_update(app)
 	kit_coach(app)
 	kit_recover(app)
+	pop = ui.motion_mark(ctx)
 	kit_macro_chip(app)
+	pop_motion_end(app, .Macro, pop)
 
 	// The cards in their columns, under the windows (column.odin): a press on the view
 	// closes those not pinned first, so it never sculpts. Then the windows, back to front:
@@ -1418,6 +1433,7 @@ kit_layout :: proc(app: ^App) {
 	top: Maybe(Card)
 	order := k.order
 	for c in order do if card_float_draw(app, c) do top = c
+	floats_leaving(app)
 	if c, ok := top.?; ok do float_raise(k, c)
 	// A finger held still on the view, filling toward its menu.
 	kit_hold_menu_ring(app)
