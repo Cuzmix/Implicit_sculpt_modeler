@@ -508,8 +508,10 @@ settings_look :: proc(app: ^App) {
 	hold := ui.area(ctx, "Hold to compare##look", {132, t.target}, drag = false)
 	vis := ui.Rect{hold.rect.x, hold.rect.y + (hold.rect.h - t.control) * 0.5, hold.rect.w, t.control}
 	ts.compare = draft && hold.held
-	ui.fill_rect(ctx, vis, t.radius_medium, ui.color_fade(t.fill_pressed if ts.compare else t.fill, 1 if draft else 0.4))
-	ui.text(ctx, "Hold to compare", vis.x + vis.w * 0.5, vis.y + vis.h * 0.5, t.text_size, ui.color_fade(t.text_secondary, 1 if draft else 0.4), .Regular, .Center)
+	// Dimmed as every disabled button is: a hairline and the disabled ink, no fill.
+	if draft do ui.fill_rect(ctx, vis, t.radius_medium, t.fill_pressed if ts.compare else t.fill)
+	else do ui.stroke_rect(ctx, vis, t.radius_medium, t.border_strong, 1)
+	ui.text(ctx, "Hold to compare", vis.x + vis.w * 0.5, vis.y + vis.h * 0.5, t.text_size, t.text_secondary if draft else ui.disabled_ink(t), .Regular, .Center)
 	ui.end(ctx)
 
 	// The gallery: the built-in themes, then the person's own, as many to a row as fit.
