@@ -32,8 +32,10 @@
 #           without Xcode or linking, so iOS-only compile errors show up anywhere
 #   ios     macOS with Xcode only: build the iPad app (ios/, README.md "iPad") into
 #           build/ios/Sculpt.ipa, unsigned for AltStore to sign on the iPad, or signed for
-#           TestFlight and the App Store when SCULPT_SIGN_IDENTITY and SCULPT_PROFILE are set
-#           (.github/workflows/ipad.yml runs it on GitHub's macOS runner)
+#           TestFlight and the App Store when SCULPT_SIGN_IDENTITY and SCULPT_PROFILE are set;
+#           with SCULPT_IOS_OBJECT it links the app's object from that path rather than
+#           compiling it (.github/workflows/ipad.yml compiles it on Linux with iphonecheck
+#           and runs this on GitHub's macOS runner)
 #   iosupload macOS only: send the signed build/ios/Sculpt.ipa to App Store Connect for
 #           TestFlight (ASC_KEY_ID, ASC_ISSUER_ID and the API key's .p8)
 #   maccheck compile the app for the Mac (Apple silicon) to an object file, as `mac` does,
@@ -360,7 +362,14 @@ case "$mode" in
 		cc=(xcrun -sdk iphoneos clang -target "arm64-apple-ios$IOS_MIN")
 		[ -f "$out/sdl/lib/libSDL3.a" ] || "$ROOT/scripts/sdl_ios.sh" "$IOS_MIN" "$DEPS/sdl3-src" "$out"
 		metal_check iphoneos ios
-		ios_object
+		# The app's object: compiled here, or the one SCULPT_IOS_OBJECT names, which the iPad
+		# workflow compiles on Linux so that the Mac needs no Odin of its own.
+		if [ -n "${SCULPT_IOS_OBJECT:-}" ]; then
+			[ -f "$SCULPT_IOS_OBJECT" ] || { echo "SCULPT_IOS_OBJECT names no file: $SCULPT_IOS_OBJECT"; exit 1; }
+			cp "$SCULPT_IOS_OBJECT" "$out/sculpt.o"
+		else
+			ios_object
+		fi
 		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_truetype.c" -o "$out/stb_truetype.o"
 		# ufbx with the app's shim round it, for FBX import (src/fbx).
 		"${cc[@]}" -O2 -w -I"$DEPS/ufbx-src" -c "$ROOT/src/fbx/fbx_shim.c" -o "$out/ufbx.o"
