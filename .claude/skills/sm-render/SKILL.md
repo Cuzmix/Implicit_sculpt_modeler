@@ -272,8 +272,8 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   view's projection narrowed to the step's square (a pre-multiplied crop matrix), in the step's own frame.
 - `Thumbnail_View` (`thumbnail_view.odin`): the frame's draw items again into a small target of its own at a
   supersample (`THUMBNAIL_SUPERSAMPLE`, 1 maximised), whole (chunks, groups, hidden and LOD cleared, as thumbnails
-  are), with the view, projection, items and ground the app gives. The app's second view (thumbnail.odin) picks its
-  camera (`second_orbit`: Follow, axis presets ortho, Free in `App.second_orbit`), builds the lights for that camera,
+  are), with the view, projection, items and ground the app gives. Each view pane and view window (a `Second_View`,
+  thumbnail.odin) picks its camera (`second_orbit`: Follow, axis presets ortho, Free in `sv.orbit`), builds the lights for that camera,
   and marks the items with `pass_items` (Silhouette is the shader's pass, with `pass_ground`'s paper); it draws only
   at rest, or every frame while its own camera is dragged.
 - Transparent screenshots (app `capture.odin`): `render_viewport` again, after the frame's viewport and live AO, into a

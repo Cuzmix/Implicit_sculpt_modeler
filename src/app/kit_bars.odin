@@ -7,7 +7,7 @@ import "../sculpt"
 import "../ui"
 
 // What the bars round the view share (the top bar is kit_top_lens.odin, the off-hand
-// island, view rail and mini view lens_chrome.odin, the shelf lens_shelf.odin):
+// island and view rail lens_chrome.odin, the shelf lens_shelf.odin):
 // the interface's looks, the one popover a bar button opens beside itself, and where the
 // panels start clear of the bars.
 
@@ -153,17 +153,6 @@ kit_card_place :: proc(app: ^App, most, least: f32) -> (shift, w, top: f32, fits
 	reach := area.x + area.w - points.x if k.ctx.mirror else points.x - area.x + points.w
 	if points.w > 0 && area.w * 0.5 + shift - w * 0.5 < reach + 8 do top = points_bottom(app)
 	return shift, w, top, true
-}
-
-// How much a panel `width` wide on the right, where it starts, gives up at its foot so as
-// to stay clear of the shelf (laid out as "dock") and the action bar over it where the
-// two would meet.
-side_panel_below :: proc(app: ^App, width: f32) -> f32 {
-	ctx := &app.kit.ctx
-	area := ui.safe_area(ctx)
-	_, dock_hi := shelf_bottom_span(app)
-	if dock_hi + 8 > area.w - kit_right(app) - width do return dock_stack(app) + 8
-	return 0
 }
 
 // How far down from the safe area's top the readout ("points") reaches, with a margin

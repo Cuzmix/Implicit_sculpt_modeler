@@ -472,7 +472,7 @@ bar_icon :: proc(app: ^App, s: Bar_Slot) -> rune {
 	case .Hide_Gesture_Pick: return GESTURE_ICONS[Gesture_Tool(s.arg)]
 	case .Camera_Menu:     return ICON_CAMERA
 	case .Shading_Menu:    return ICON_SHADING
-	case .Thumbnail:       return ICON_MINI_VIEW
+	case .Second_View:       return ICON_SECOND_VIEW
 	case .View_Layout_Menu: return ICON_VIEW_LAYOUT
 	case .Pass_Menu:       return ICON_PASSES
 	case .Open_Card:       return card_icon(app, Card(s.arg)) if s.arg >= 0 && s.arg < len(Card) else ui.ICON_PANEL

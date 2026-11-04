@@ -375,14 +375,6 @@ SETTINGS := [?]Setting {
 	{"scene_pictures", K + offset_of(Kit_State, scene_pictures), bool, 0, 0},
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
 	{"tour", K + offset_of(Kit_State, tour) + offset_of(Tour, step), i32, 0, f32(TOUR_DONE)},
-	{"thumbnail", K + offset_of(Kit_State, thumbnail), bool, 0, 0},
-	{"second_camera", K + offset_of(Kit_State, second) + offset_of(Second_View, camera), Second_Camera, 0, 0},
-	{"second_pass", K + offset_of(Kit_State, second) + offset_of(Second_View, pass), Second_Pass, 0, 0},
-	{"second_shading", K + offset_of(Kit_State, second) + offset_of(Second_View, shading) + offset_of(View_Shading, mode), Shading_Mode, 0, 0},
-	{"second_lighting", K + offset_of(Kit_State, second) + offset_of(Second_View, shading) + offset_of(View_Shading, lighting), Solid_Lighting, 0, 0},
-	{"second_color", K + offset_of(Kit_State, second) + offset_of(Second_View, shading) + offset_of(View_Shading, color), Solid_Color, 0, 0},
-	{"second_matcap", K + offset_of(Kit_State, second) + offset_of(Second_View, shading) + offset_of(View_Shading, matcap), int, 0, 0},
-	{"thumbnail_flip", K + offset_of(Kit_State, thumbnail_flip), bool, 0, 0},
 	{"stats_advanced", K + offset_of(Kit_State, stats_advanced), bool, 0, 0},
 	{"frame_rate", offset_of(App, frame_rate), Frame_Rate, 0, 0},
 	{"frame_limit", offset_of(App, frame_limit), i32, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX},
@@ -854,8 +846,6 @@ settings_load :: proc(app: ^App, path: string) {
 		case "ui_scale":
 			want := number(f[1], 1)
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
-		case "window":
-			window_load_line(&app.kit, f)
 		case "space_layout", "space_current":
 			// space_layout <Space> <layout, escaped>: a space's layout where it differs from
 			// how it ships; space_current <Space>: the space in front.
@@ -1074,33 +1064,6 @@ settings_load :: proc(app: ^App, path: string) {
 	}
 }
 
-// Reads a `window <name> <moved 0|1> <x anchor> <y anchor> <x offset> <y offset>
-// <minimised 0|1>` line (`f` split by spaces); the kit keeps every window's title bar on
-// screen whatever the offsets say.
-window_load_line :: proc(k: ^Kit_State, f: []string) {
-	if len(f) != 8 do return
-	for which in Kit_Window {
-		if !strings.equal_fold(f[1], fmt.tprint(which)) do continue
-		w := &k.windows[which]
-		w.moved, w.minimized = f[2] == "1", f[7] == "1"
-		for a in ui.Anchor {
-			if strings.equal_fold(f[3], fmt.tprint(a)) do w.x = a
-			if strings.equal_fold(f[4], fmt.tprint(a)) do w.y = a
-		}
-		w.offset = {clamp(window_number(f[5]), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX), clamp(window_number(f[6]), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX)}
-	}
-
-	window_number :: proc(s: string) -> f32 {
-		v, ok := strconv.parse_f32(s)
-		return v if ok && v == v else 0
-	}
-}
-
-// Writes window `which`'s line, as window_load_line reads it.
-window_save_line :: proc(out: ^strings.Builder, which: Kit_Window, w: ui.Window) {
-	fmt.sbprintfln(out, "window %v %d %v %v %g %g %d", which, int(w.moved), w.x, w.y, w.offset.x, w.offset.y, int(w.minimized))
-}
-
 // Writes the settings to `path`. Returns false, with a warning, when it cannot.
 settings_save :: proc(app: ^App, path: string) -> bool {
 	if path == "" do return false
@@ -1160,7 +1123,6 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
 	themes_save(&app.kit, &out)
-	for w, which in k.windows do window_save_line(&out, which, w)
 	layouts_save(&app.kit, &out)
 	if p := &app.kit.brushes; p.recent_count > 0 {
 		strings.write_string(&out, "brush_recent")

@@ -14,7 +14,7 @@ import "../render"
 // GPU awake and costs a tablet's battery. Once frames have changed nothing for
 // IDLE_AFTER (no input, nothing held down, the same panels, nothing redrawn in the
 // viewport, no stroke, replay, script, studio samples, thumbnails, Home's pictures or
-// a thumbnail view waiting to be drawn), the loop waits for the next event before each
+// a view pane waiting to be drawn), the loop waits for the next event before each
 // frame, as an app with retained panels would, waking at least every IDLE_TICK so
 // timers (autosave, the Blender link, work that finished on another thread) still come
 // through. Any event ends the rest at once, and the frame it starts reads that input, so
@@ -265,7 +265,7 @@ idle_note :: proc(app: ^App, drawn: render.Viewport_Stats, dabs: int, gpu_work, 
 	id.thumbs = app.thumb_slots.drawn
 	held := app.device.down != {} || app.touch.fingers.count > 0 || app.ui.pie.space_down
 	busy := app.stroke.active || replay_busy(app) || timelapse_capturing(app) || app.script.running ||
-		(studio_running(app) && !render_running(app) && app.studio.samples < int(app.studio_samples)) || render_busy(app) || home_busy(app) || app.thumbnail.due || grid_due(app) || view_windows_due(app) || app.capture.path != "" || turntable_recording(app) || lod_waiting(app) || app.gpu_lookup_waiting
+		(studio_running(app) && !render_running(app) && app.studio.samples < int(app.studio_samples)) || render_busy(app) || home_busy(app) || grid_due(app) || view_windows_due(app) || app.capture.path != "" || turntable_recording(app) || lod_waiting(app) || app.gpu_lookup_waiting
 	viewport := !drawn.partial || drawn.redrawn_px > 0 || drawn.cache_redrawn
 	// The view settles into full detail LOD_SETTLE after it stops: that redraw is
 	// timed, not driven by input, so the quiet run waits for it.

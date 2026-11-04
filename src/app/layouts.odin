@@ -22,13 +22,6 @@ Zone :: enum u8 {
 	Action_Bar, // the next steps over the dock
 }
 
-// The panels a layout opens and closes. Settings, Help, Macros and Library are opened
-// from the menu, so none of them changes a layout; the cards are its column and
-// card_float lines.
-LAYOUT_PANELS :: [?]Kit_Window{.Thumbnail}
-// The windows whose place and fold a layout keeps.
-LAYOUT_WINDOWS :: [?]Kit_Window{.Thumbnail}
-
 Layouts :: struct {
 	shipped:  [Space]string, // each space's layout as it ships (heap)
 	kept:     [Space]string, // each space but the current one's layout as it was left, "" when as it ships (heap)
@@ -91,15 +84,10 @@ layout_reset :: proc(k: ^Kit_State) {
 	l.resets += 1
 }
 
-// The flag that says whether a layout panel is open.
-@(private = "file")
-layout_open :: proc(k: ^Kit_State, w: Kit_Window) -> ^bool {
-	return &k.thumbnail
-}
-
-// The layout as text: the lines of the hidden zones, the pass, the open panels, the windows' places,
-// the cards pinned in the columns, the floating cards, the docks and the bars, in that order. Places are written as they are for the
-// right-handed layout, so a layout kept with either hand reads the same with the other.
+// The layout as text: the lines of the hidden zones, the pass, the view grid, the cards
+// pinned in the columns, the floating cards, the docks and the bars, in that order. Places
+// are written as they are for the right-handed layout, so a layout kept with either hand
+// reads the same with the other.
 kit_layout_text :: proc(k: ^Kit_State) -> string {
 	out := strings.builder_make(context.temp_allocator)
 	if k.hidden != {} {
@@ -110,16 +98,6 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	strings.write_string(&out, pass_layout_line(k))
 	// Inspect's panes are a view, not the layout: the grid it found is what the layout holds.
 	strings.write_string(&out, k.inspect.before if k.inspect.on else grid_layout_lines(k))
-	if k.second_in_layout do fmt.sbprintfln(&out, "thumbnail %v %v%s", k.second.camera, k.second.pass, second_shading_words(&k.second))
-	strings.write_string(&out, "open")
-	for w in LAYOUT_PANELS do if layout_open(k, w)^ do fmt.sbprintf(&out, " %v", w)
-	strings.write_byte(&out, '\n')
-	mirror := k.ctx.mirror
-	for w in LAYOUT_WINDOWS {
-		win := k.windows[w]
-		if mirror do window_mirror(&win)
-		window_save_line(&out, w, win)
-	}
 	columns_save(k, &out)
 	cards_float_save(k, &out)
 	// The docks, then the bars after a line that says the layout holds them.
@@ -134,8 +112,6 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 // the settings file uses. Floating menus close, as what they hung from may have gone.
 kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	view_toggles_off(k)
-	for w in LAYOUT_WINDOWS do k.windows[w] = {}
-	for w in LAYOUT_PANELS do layout_open(k, w)^ = false
 	panels_default(k)
 	// No card open but those the layout pins; which sections are folded is the person's,
 	// in every space.
@@ -153,7 +129,6 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	k.grid.tree, k.grid.maximised = grid_preset_tree(.Single), 0
 	k.grid.serial += 1
 	grid_undo_clear(&k.grid)
-	k.second_in_layout = false
 	for line in strings.split_lines(text, context.temp_allocator) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) == 0 do continue
@@ -166,19 +141,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			shading_layout_read(k, f)
 		case "dock":
 			dock_read(k, f)
-		case "thumbnail":
-			if len(f) < 3 do continue
-			for c in Second_Camera do if strings.equal_fold(fmt.tprint(c), f[1]) do k.second.camera = c
-			for p in Second_Pass do if strings.equal_fold(fmt.tprint(p), f[2]) do k.second.pass = p
-			k.second.shading = {}
-			if len(f) > 3 do shading_words_read(&k.second.shading, f[3:])
-			k.second_in_layout = true
 		case "panes", "pane", "pane_tab":
 			grid_layout_read(&k.grid, f)
-		case "open":
-			for word in f[1:] do for w in LAYOUT_PANELS do if strings.equal_fold(word, fmt.tprint(w)) do layout_open(k, w)^ = true
-		case "window":
-			for w in LAYOUT_WINDOWS do if len(f) > 1 && strings.equal_fold(f[1], fmt.tprint(w)) do window_load_line(k, f)
 		case "column":
 			columns_read(k, f)
 		case "card_float":
@@ -189,7 +153,6 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			bars_load_line(k, f)
 		}
 	}
-	if k.ctx.mirror do for w in LAYOUT_WINDOWS do window_mirror(&k.windows[w])
 	kit_floats_close(k)
 }
 
@@ -201,9 +164,9 @@ built_in_layout :: proc(s: Space) -> string {
 		// The view clear: every card opens from its dock button when it is wanted.
 		text = ""
 	case .Render:
-		// The Look card pinned on the pen side, after round 2's studio2 screen, and the
-		// thumbnail showing the render building up beside it.
-		text = "thumbnail Follow Render\nopen Thumbnail\nwindow Thumbnail 1 End End 390 112 0\ncolumn right Look\n"
+		// The Look card pinned on the pen side, after round 2's studio2 screen; Second view
+		// splits off a pane to watch the render build up beside the work.
+		text = "column right Look\n"
 	}
 	// Read and written again, so it is exactly what the layout writes when it is in place;
 	// every space ships with the bars a fresh install has.

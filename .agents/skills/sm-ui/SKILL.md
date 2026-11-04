@@ -51,13 +51,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   default, to Lens once. Colours outside widgets come from the theme too: the swapchain
   clear and screen dumps (`kit_frame_color`), the top bar (`Background.Band`: `frame` plus `frame_line`), view pane
   grounds and pass grounds (`pane`, `color_f32`).
-- Windows (`src/ui/window.odin`, `Kit_Window` in `new_ui.odin`): Stats and Thumbnail are
-  `ui.window_begin(ctx, name, title, &k.windows[which], x, y, offset, box, close_keys)` … `ui.window_end`: a title
-  bar (drag it to move, Minimise folds to it, a tap on a folded title opens it, Close) over the caller's body, which
-  is laid out only while `body` is true. A moved window keeps to its nearer edges (`ui.Window.x/y/offset`) and its
-  title bar stays in the safe area. `raised` (a press anywhere on it) moves it to the end of `k.order` with
-  `window_raise`; the draw order is the hit-test order from the next frame. `window_room` is the height it has where
-  it is; `window_slide` the side it slides from. Positions and folds are `window` lines in the settings;
+- Floating places (`ui.Window`, `src/ui/window.odin`): only floating cards float; there is no other window kind.
+  A moved one keeps to its nearer edges (`ui.Window.x/y/offset`, `cards.windows[c]`), `kit_mirror` sends it across
+  when the hand changes, and `float_raise(k, c)` moves it to the end of `k.order` (a `Card` each) on a press; the
+  draw order is the hit-test order from the next frame. `window_room` is the height it has where it is;
   `windows_reset` puts them back (Settings > Interface > Reset panel positions).
 - Cards and columns (`src/app/cards.odin`, `src/app/column.odin`): docks hold buttons, cards hold controls. `Card`
   (Tool, Layers, Scene, Mesh, Mask, Deform, Paint, Symmetry, Look, Render) is the card enum and `Section` every
@@ -77,7 +74,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   Floating cards (`card_float.odin`): `card_head` returns `torn` when the title is dragged past the slop and
   `card_float_tear` takes the card out of its column into `cards.floats` with a `ui.Window` of its own
   (`cards.windows[c]`), grabbed by the same press; `card_float_draw` draws it through `panel_begin(card = true)`
-  among the windows (`Float_Ref` and `Panel_Ref` hold a `Card`); `card_float_return(app, c, side)` puts it back
+  in `k.order` (`Panel_Ref` is a `Card`); `card_float_return(app, c, side)` puts it back
   pinned (Put back, a hold on the grip, a drop past `CARD_RETURN_REACH` of a side); a `card_float` layout line.
   Under `CARD_SHEET_BELOW` (900 pt) `cards_as_sheet` puts one card at a time over the lower part (`column_place`).
   Android's side-edge gesture strips: `gesture_edges.odin`.
@@ -140,17 +137,17 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   it (keys stay the main window's); heads are laid out right after `kit_frame` and share `view_head_camera`,
   `view_head_pass`, `view_head_link` with the panes; `second_view_input` takes the context and scale it runs in.
   Scripted events reach a window as `FRAME:winN:...`.
-- Second view (`src/app/thumbnail.odin`, `k.second: Second_View`, the Thumbnail window and command): the picture is a
-  `ui.area` (`second_view_input`): on a linked view (`second_linked`: Follow, Mirror) a drag turns `app.camera` itself
+- Second view (the `.Second_View` command toggles the grid between Single and Side by side; each view pane and view
+  window holds a `Second_View`, `src/app/thumbnail.odin`): the picture is a `ui.area` (`second_view_input`): on a linked view (`second_linked`: Follow, Mirror) a drag turns `app.camera` itself
   (`orbit_latch` first, x reversed for Mirror, counted in `sv.linked`), on an independent one `second_free` seeds
   `sv.orbit` from the camera shown and the drag turns that; the wheel zooms the same camera. `camera.orbit_mirror_x`
   reflects in x = 0. Camera and pass are two `ui.select`s after `camera_dot` (`second_color`: `Theme.camera[0]` when
-  linked, a ring when mirrored, else `camera[index]`), with Flip, the link button (`second_link_toggle`), Maximise
-  (floating only, never kept) and Close under them. `Second_Camera`/`Second_Pass` are settings rows by name (a new
-  camera goes at the end so touch scenarios' list rows hold); zero is Follow ("Linked") with Silhouette.
+  linked, a ring when mirrored, else `camera[index]`) and the link button (`second_link_toggle`) on the pane's head.
+  `Second_Camera`/`Second_Pass` are written by name in `pane` layout lines (a new camera goes at the end so touch
+  scenarios' list rows hold); zero is Follow ("Linked") with Silhouette.
 - Cards (`ui.card_begin`): a window with no title bar, as ZBrush for iPad's quick-access cards, its dots on top
   dragging it like a title bar and a long press on them returning `dock`, then a large centred title. The Objects
-  card (`kit_objects_card.odin`, `Kit_Window.Objects`) is one: Add / Duplicate / New folder /
+  card (`kit_objects_card.odin`) is one: Add / Duplicate / New folder /
   More, then `ui.thumb_row` rows (a picture cell of `KIT_THUMBS_IMAGE` from `thumb_for`, the name, a switch under it,
   toggles at the right, an accent outline when selected; `drags = true` makes a mouse drag or a long press then drag
   report `dragged`), fed to the shared `kit_row_drags`/`kit_tree_drags` with a `Tree_Scroll` of its own body. Its menus are popovers in `kit_objects_card_menus`; `menu_item(trailing = true)` puts the icon at the right
@@ -300,7 +297,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | a user preference in Settings | a field in `Nav_Prefs`/`Kit_State` with its default in `NAV_DEFAULT` or `kit_init`, a row in its `settings_<tab>` proc with a one-line `paragraph`, a line in `settings_reset`, the two settings lines above, README "Settings" |
 | a control that drags sideways inside a scrolling panel | act only `if held && claim_drag(ctx, 0)` (a tap may still act on `clicked`), so a vertical finger drag scrolls instead |
 | a new scrolling panel | in the app, `kit_scroll_begin(ctx, name, &scroll, window_id, width, height, gap)` before the body and `kit_scroll_end(ctx, s)` after (`new_ui.odin`: wheel, drag, easing and the bar, as the inspector, Settings and Help scroll); in the kit itself, `scroll_update(ctx, id, prev_rect(ctx, name), &scroll, limit)` before, `begin` with `clip`, `scroll` and `drag_scroll = true`, `scroll_take(ctx, id, scroll, limit, root)` after, the drag followed with tween duration 0 |
-| a new floating panel | a `Kit_Window` value, a place in `KIT_WINDOW_ORDER`, its proc returning `raised` from `ui.window_begin` (default anchors as `begin_anchored`'s) with its body only while `body`, `ui.window_end`, a case in `kit_layout`'s loop and in the exit stats' `window_*` names; scroll its body as above, sized by `window_room`; but first ask whether it is a card (kept beside the work) or a sheet (opened, read or set, put away) |
+| a new floating panel | none: a panel is a card (kept beside the work, which floats when torn out) or a sheet (opened, read or set, put away) |
 | a new sheet | `sheet_begin`/`sheet_end` (`sheet.odin`: centred under the top bar, Close and Esc, a press outside puts it away) on its open flag, drawn from `kit_sheets` so what floats from it (a key's Assign, a theme's menu) draws over it; join `sheet_open`/`sheet_close` when it is one of the one-at-a-time sheets (Settings, Help, Macros), and size its scrolling body from the `room` it returns |
 | a follow-up action for something active on the object | a group or a row in `ACTION_GROUPS` (`kit_action_bar.odin`) and its state in `action_groups_now`; derived facts that cost a scan (like `object_has_mask`) are cached on `history.serial`, never computed every frame; anything at the bottom middle keeps clear of `dock_stack`, the shelf plus the action bar |
 | a long press (secondary action) on a control | `if ui.secondary(ctx) do ...` right after the widget (a value slider: `vslider(reset = v)`); add a row to README "Touch and pen" and a `long_press(s, x, y)` scenario; a control without one shows its tooltip |

@@ -95,21 +95,21 @@ each_space_comes_back_on_its_own_layout :: proc(t: ^testing.T) {
 	layouts_frame(k)
 	for s in Space do testing.expect(t, !layout_changed(k, s), "every space starts as it ships")
 	command_run(a, .Space_Switch, int(Space.Model))
-	k.thumbnail = true
+	command_run(a, .Second_View, 0)
 	layouts_frame(k)
 	testing.expect(t, layout_changed(k, .Model))
 	testing.expect(t, command_enabled(a, .Layout_Reset, 0))
 	command_run(a, .Space_Switch, int(Space.Sculpt))
 	layouts_frame(k)
-	testing.expect(t, !k.thumbnail)
+	testing.expect_value(t, grid_panes(&k.grid), 1)
 	testing.expect(t, !layout_changed(k, .Sculpt))
 	testing.expect(t, layout_changed(k, .Model), "Model's dot stays while Sculpt is in front")
 	command_run(a, .Space_Switch, int(Space.Model))
 	layouts_frame(k)
-	testing.expect(t, k.thumbnail, "Model's own layout did not come back")
+	testing.expect(t, grid_panes(&k.grid) == 2, "Model's own layout did not come back")
 	command_run(a, .Layout_Reset, 0)
 	layouts_frame(k)
-	testing.expect(t, !k.thumbnail)
+	testing.expect_value(t, grid_panes(&k.grid), 1)
 	testing.expect(t, !layout_changed(k, .Model))
 	testing.expect_value(t, k.layouts.resets, 1)
 	testing.expect_value(t, k.spaces.current, Space.Model)
@@ -124,7 +124,7 @@ the_layouts_read_back :: proc(t: ^testing.T) {
 	a := spaces_app()
 	defer spaces_app_free(a)
 	command_run(a, .Space_Switch, int(Space.Model))
-	a.kit.thumbnail = true
+	command_run(a, .Second_View, 0)
 	command_run(a, .Space_Switch, int(Space.Render))
 	testing.expect(t, settings_save(a, path))
 	b := spaces_app()
@@ -136,7 +136,7 @@ the_layouts_read_back :: proc(t: ^testing.T) {
 	testing.expect(t, !layout_changed(k, .Render))
 	testing.expect(t, layout_changed(k, .Model))
 	command_run(b, .Space_Switch, int(Space.Model))
-	testing.expect(t, k.thumbnail, "Model's layout read back")
+	testing.expect(t, grid_panes(&k.grid) == 2, "Model's layout read back")
 }
 
 // Each space has its own dial: switching space switches the sectors the rail reads, a

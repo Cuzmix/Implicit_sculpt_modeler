@@ -391,7 +391,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	app.renderer.wire_color = theme_wire_color(&app.kit)
 	environment_view(app)
 	// A pass with a ground of its own shows it instead of the background or the
-	// environment's image, and a Silhouette stands on nothing, as the thumbnail's does.
+	// environment's image, and a Silhouette stands on nothing, as a view pane's does.
 	app.kit.passes.recording = timelapse_capturing(app) || turntable_recording(app)
 	shown_pass := viewport_pass(&app.kit)
 	// The main view draws its own copy of the items, shaded as its shading says; the
@@ -462,7 +462,6 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	thumbs_frame(app, cmd)
 	home_frame(app, cmd)
 	app.pictures_drawn = 0
-	thumbnail_frame(app, cmd, draws[:], froms[:])
 	grid_frame(app, cmd, draws[:], froms[:])
 	view_windows_pictures(app, cmd, draws[:], froms[:])
 	step_pictures_frame(app, cmd, view, proj, draws[:])

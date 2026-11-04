@@ -5,18 +5,13 @@ import "core:strings"
 
 import "../ui"
 
-// The floating panels: Stats and the thumbnail float as windows, a card torn out of its
-// column as a card; Settings, Help and Macros are side panels. Folded, a floating panel keeps its
-// header. The cards that hold the controls open in columns beside the docks (column.odin).
+// The floating panels: a card torn out of its column floats as a card of its own, the only
+// thing that floats over the view; Settings, Help and Macros are side panels. Folded, a
+// floating card keeps its header. The cards that hold the controls open in columns beside
+// the docks (column.odin).
 
-// A panel: one of the windows Panel options and Arrange place, or a floating card.
-Panel_Ref :: union {
-	Kit_Window,
-	Card,
-}
-
-// The windows that are panels; Settings, Help, Macros and Library stay side panels.
-PANEL_WINDOWS :: bit_set[Kit_Window]{.Thumbnail}
+// A floating panel: a card torn out of its column.
+Panel_Ref :: Card
 
 // What a panel was last laid out as: where, and in which frame.
 Panel_Seen :: struct {
@@ -28,7 +23,7 @@ Panel_Seen :: struct {
 
 // The panels' state in Kit_State.
 Panels :: struct {
-	seen:    [dynamic; len(Kit_Window) + len(Card)]Panel_Seen,
+	seen:    [dynamic; len(Card)]Panel_Seen,
 	// The panel menu (Panel options): open, for which panel, beside what.
 	menu:    bool,
 	menu_of: Panel_Ref,
@@ -56,25 +51,17 @@ Panel_Frame :: struct {
 }
 
 // The panels as a new user finds them: nothing remembered of where they were drawn, and
-// the windows in their starting order.
+// nothing floating.
 panels_default :: proc(k: ^Kit_State) {
 	p := &k.panels
 	clear(&p.seen)
 	p.menu = false
 	k.order = {}
-	for w in KIT_WINDOW_ORDER do append(&k.order, Float_Ref(w))
 }
 
 // The panel's container name at the root, as its window or card is named when it floats.
 panel_name :: proc(ref: Panel_Ref) -> string {
-	switch r in ref {
-	case Kit_Window:
-		names := [Kit_Window]string{.Thumbnail = "thumbnail"}
-		return names[r]
-	case Card:
-		return card_root_name(r)
-	}
-	return ""
+	return card_root_name(ref)
 }
 
 // A stable id for the panel's own animations (its presence).
@@ -84,38 +71,7 @@ panel_id :: proc(ref: Panel_Ref) -> ui.Id {
 
 // The window that holds where the panel floats and whether it is folded.
 panel_window :: proc(k: ^Kit_State, ref: Panel_Ref) -> ^ui.Window {
-	switch r in ref {
-	case Kit_Window:  return &k.windows[r]
-	case Card:        return &k.cards.windows[r]
-	}
-	return nil
-}
-
-// Whether the panel is shown (open), wherever it is.
-panel_open :: proc(app: ^App, ref: Panel_Ref) -> bool {
-	k := &app.kit
-	switch r in ref {
-	case Kit_Window:
-		#partial switch r {
-		case .Thumbnail: return k.thumbnail
-		}
-	case Card:
-		return r in k.cards.floats
-	}
-	return false
-}
-
-// Opens or closes the panel.
-panel_set_open :: proc(app: ^App, ref: Panel_Ref, open: bool) {
-	k := &app.kit
-	switch r in ref {
-	case Kit_Window:
-		#partial switch r {
-		case .Thumbnail: k.thumbnail = open
-		}
-	case Card:
-		if !open do card_close(app, r)
-	}
+	return &k.cards.windows[ref]
 }
 
 // Where the panel was laid out this frame (or the last, during the layout); empty when
@@ -136,15 +92,7 @@ panel_seen :: proc(k: ^Kit_State, ref: Panel_Ref) -> ^Panel_Seen {
 
 // The panel's name in its header and menus.
 panel_title :: proc(app: ^App, ref: Panel_Ref) -> string {
-	switch r in ref {
-	case Kit_Window:
-		#partial switch r {
-		case .Thumbnail: return "Thumbnail"
-		}
-	case Card:
-		return card_title(r)
-	}
-	return ""
+	return card_title(ref)
 }
 
 // Opens panel `ref` as a floating window (or, with `card`, a card titled `title`, "" for
@@ -233,7 +181,7 @@ kit_panel_menu :: proc(app: ^App) {
 	}
 	ui.divider(ctx, across = true)
 	if ui.menu_item(ctx, "Close", glyph = ui.ICON_CLOSE) {
-		panel_set_open(app, ref, false)
+		card_close(app, ref)
 		picked = true
 	}
 	if picked do m.menu = false

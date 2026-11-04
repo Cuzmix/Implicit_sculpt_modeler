@@ -67,7 +67,7 @@ render_mode_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, i
 
 // Whether render mode's bands go to the compute queue: Async compute where the device has
 // a second queue, or --async-compute wherever the backend has a compute queue at all.
-// The pictures (view panes, the thumbnail window) keep theirs in the frame by choice.
+// The pictures (view panes and view windows) keep theirs in the frame by choice.
 render_async :: proc(app: ^App) -> bool {
 	switch render.caps(&app.renderer).async_compute {
 	case .Off:          return false

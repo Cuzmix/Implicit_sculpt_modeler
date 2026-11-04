@@ -274,7 +274,6 @@ App :: struct {
 	autosave: Autosave, // the background autosave and crash recovery (autosave.odin)
 	preview:  Scene_Preview, // the picture scene files keep for the Home screen (scene_preview.odin)
 	home:     Home, // the Home screen's pictures and autosaves (home.odin)
-	thumbnail: Picture, // the second view's picture (thumbnail.odin)
 	panes:     [GRID_VIEWS]Picture, // the view panes' pictures (grid.odin)
 	view_windows: View_Windows, // second views in OS windows of their own (view_window.odin)
 	work_still: render.Viewport_Target, // what the main pane holds while a view pane is worked in (grid_work)
@@ -920,7 +919,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer autosave_destroy(&app)
 	defer scene_preview_destroy(&app)
 	defer home_destroy(&app)
-	defer thumbnail_destroy(&app)
 	defer grid_destroy(&app)
 	// Before the renderer and the interface go, which the windows' buffers belong to.
 	defer view_windows_destroy(&app)
