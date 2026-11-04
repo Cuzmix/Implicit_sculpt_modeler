@@ -35,6 +35,7 @@ Motion_Kind :: enum u8 {
 	Cards, // cards sliding out from their dock and back, and the narrow screen's sheet rising (panel_motion.odin)
 	Docks, // docks sliding off their edge as they hide and back as they show
 	Spaces, // the docks fading across when the space changes
+	Pills, // the job, send and macro pills, the shape bar and the readout coming and going
 }
 
 #assert(int(Motion_Kind.Tooltips) == int(ui.MOTION_TOOLTIPS) && len(Motion_Kind) <= 32)
@@ -62,6 +63,7 @@ MOTION_KIND_NAMES := [Motion_Kind]string {
 	.Cards       = "Cards sliding",
 	.Docks       = "Docks sliding",
 	.Spaces      = "Switching space",
+	.Pills       = "Pills and chips",
 }
 
 MOTION_LEVEL_NAMES := [ui.Motion_Level]string {

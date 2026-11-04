@@ -1359,7 +1359,9 @@ kit_layout :: proc(app: ^App) {
 	kit_home_reveal(app)
 
 	// First, so that every panel and popover laid out after it is above it.
+	pop := ui.motion_mark(ctx)
 	kit_shape_bar(app)
+	pop_motion_end(app, .Shape, pop)
 
 	// Round the edges: the top bar (kit_top_lens.odin), then what stands round the view.
 	// A bar the layout hides is not laid out (layouts.odin): what opened from it opens
@@ -1368,8 +1370,12 @@ kit_layout :: proc(app: ^App) {
 	// Each bar notes where its buttons stand as it is drawn (bar_spot).
 	k.bar_spot_count = 0
 	menu_anchor, search_anchor := kit_top_bar(app)
+	pop = ui.motion_mark(ctx)
 	kit_job_pill(app)
+	pop_motion_end(app, .Job, pop)
+	pop = ui.motion_mark(ctx)
 	kit_send_pill(app)
+	pop_motion_end(app, .Send, pop)
 	// Round the view: the readout at the top corner on the off-hand side (readout.odin), the
 	// off-hand island down the off-hand side, the navigation head at the pen side's top and
 	// the view rail of cards down the pen side. Focused (kit_top_lens.odin), the readout
@@ -1377,8 +1383,10 @@ kit_layout :: proc(app: ^App) {
 	// reaches for while sculpting.
 	focus := lens_focus(k)
 	k.nav.placed = false
+	pop = ui.motion_mark(ctx)
 	if focus do k.readout.shown = false
 	else do kit_readout(app)
+	pop_motion_end(app, .Readout, pop)
 	if focus || !zone_hidden(k, .Brush_Bar) do kit_dock(app, .Offhand)
 	kit_nav_head(app)
 	if !zone_hidden(k, .View_Bar) {
@@ -1410,7 +1418,9 @@ kit_layout :: proc(app: ^App) {
 	coach_update(app)
 	kit_coach(app)
 	kit_recover(app)
+	pop = ui.motion_mark(ctx)
 	kit_macro_chip(app)
+	pop_motion_end(app, .Macro, pop)
 
 	// The cards in their columns, under the windows (column.odin): a press on the view
 	// closes those not pinned first, so it never sculpts. Then the windows, back to front:

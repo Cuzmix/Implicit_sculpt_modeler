@@ -270,6 +270,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   Cards and docks do this in panel_motion.odin; a new panel that comes and goes joins it rather than redrawing inert.
   Items that move within a container (Edit buttons) keep their place relative to `open_root_rect(ctx)`, so the whole
   moving is told from a move within it, and glide from the old place (slot_motion_end is the pattern).
+  Something small that comes and goes over the view (a pill, a chip) is a `Pop`: `m := motion_mark`, draw it, `pop_motion_end(app, pop, m)`.
 - Popovers (`popup.odin`): `popover_begin(ctx, name, open, anchor, side, box)` … `popover_end`; a press outside one
   closes it (swallowed if on the viewport); the first frame is measured invisibly. Selects draw their list in
   `frame_end`, over everything; a list taller than the room above or below its field is cut to the window and

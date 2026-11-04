@@ -4019,6 +4019,16 @@ def edit_buttons_close_up_when_reordered():
 
 
 @scenario
+def job_pill_settles_in_and_fades_out():
+    """A remesh run from Search shows its pill, which settles in under the top bar and fades out the way it came when the job is done."""
+    s = Script()
+    palette_run(s, "remesh")
+    s.wait(90)
+    return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "long_job_running": near(0),
+                                                                   "pills_in": lambda v: int(v) >= 2, "pills_out": lambda v: int(v) >= 1})
+
+
+@scenario
 def lens_rail_second_view_splits_the_view():
     """The rail's Second view splits the view in two, the second pane with its own camera; again joins them."""
     s = Script()

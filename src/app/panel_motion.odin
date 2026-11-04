@@ -27,6 +27,9 @@ FLOAT_CLOSE_TIME :: 0.16 // a floating card closed, fading where it was
 CARD_LIFT :: 0.03 // how much larger a floating card is drawn while carried
 DOCK_GLIDE_TIME :: 0.22 // a dock let go gliding from where it was dropped to where it snaps
 SLOT_TIME :: 0.2 // an Edit button growing in, shrinking out, or gliding to its new place
+POP_IN_TIME :: 0.2 // a pill or chip settling in
+POP_OUT_TIME :: 0.14 // and going
+POP_SETTLE :: 8 // how far it settles, in points
 // The Edit buttons followed at once, across the docks and bars being edited.
 SLOTS_SEEN :: 96
 
@@ -112,6 +115,13 @@ Panel_Motion :: struct {
 	slot_left:   ui.Rect,
 	slot_moves:  int,
 	dock_glides: int,
+	pops:        [Pop]struct {
+		drawn:  ui.Draw_Range,
+		serial: u64,
+	},
+	pop_leave:   [Pop]Panel_Leave,
+	popped:      int,
+	unpopped:    int,
 	dock_leave:  [Dock_Id]Panel_Leave,
 	switches:    int, // the space switches seen, to tell a space change from a hide
 	space_frame: u64, // the frame the space last changed in
@@ -128,6 +138,7 @@ panel_motion_destroy :: proc(m: ^Panel_Motion) {
 	for &l in m.dock_leave do ui.draw_copy_destroy(&l.copy)
 	ui.draw_copy_destroy(&m.float_leave.copy)
 	ui.draw_copy_destroy(&m.slot_leave.copy)
+	for &l in m.pop_leave do ui.draw_copy_destroy(&l.copy)
 }
 
 // The share (0 to 1) a start numbered `serial` has run, `time` long, for kind `kind`: 1
@@ -510,4 +521,65 @@ bar_slots_leaving :: proc(app: ^App, which: Bar_Which) {
 	r := pm.slot_left
 	m := ui.draw_copy(ctx, &l.copy)
 	ui.transform_since(ctx, m.vertex, 1 - t, 1 - 0.5 * ease_out(t), {r.x + r.w * 0.5, r.y + r.h * 0.5})
+}
+
+// What comes and goes over the view for a while: the long job's and Send's pills, the
+// macro recording's chip, the shape bar under a shape being placed, and the readout.
+Pop :: enum u8 {
+	Job,
+	Send,
+	Macro,
+	Shape,
+	Readout,
+}
+
+// Each one's root container, and which way it settles in from (none for the readout,
+// which fades where it stands).
+@(private = "file")
+POP_ROOTS := [Pop]string {
+	.Job     = "job pill",
+	.Send    = "send pill",
+	.Macro   = "macro chip",
+	.Shape   = "shape bar",
+	.Readout = "points",
+}
+
+@(private = "file")
+POP_FROM := [Pop][2]f32 {
+	.Job     = {0, -1},
+	.Send    = {0, -1},
+	.Macro   = {0, -1},
+	.Shape   = {0, 1},
+	.Readout = {},
+}
+
+// After `pop` had its chance to draw from mark `m`: the first frames it shows it fades
+// in and settles a few points toward where it stands, and the frame it stops showing it
+// fades out the way it came from a copy of its last drawing.
+pop_motion_end :: proc(app: ^App, pop: Pop, m: ui.Motion_Mark) {
+	k := &app.kit
+	ctx := &k.ctx
+	pm := &k.moving
+	e := &pm.pops[pop]
+	l := &pm.pop_leave[pop]
+	way := Panel_Way{from = POP_FROM[pop], dist = POP_SETTLE}
+	if ui.root_rect(ctx, POP_ROOTS[pop]).w > 0 {
+		if !ui.drawn_last(ctx, e.drawn) {
+			pm.serial += 1
+			e.serial = pm.serial
+			pm.popped += 1
+			l.active = false
+		}
+		if p := panel_progress(ctx, e.serial, POP_IN_TIME, .Pills); p < 1 {
+			ui.slide_since(ctx, m, p, way.from * way.dist * (1 - ease_out(p)))
+		}
+		e.drawn = ui.range_end(ctx, m)
+		return
+	}
+	if ui.drawn_last(ctx, e.drawn) && motion_duration_of(ctx, .Pills) > 0 && ui.copy_prev(ctx, e.drawn, &l.copy) {
+		pm.serial += 1
+		pm.unpopped += 1
+		l^ = {copy = l.copy, way = way, serial = pm.serial, fade = true, time = POP_OUT_TIME, class = .Pills, active = true}
+	}
+	panel_leave_draw(app, l)
 }
