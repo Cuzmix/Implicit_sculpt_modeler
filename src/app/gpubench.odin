@@ -55,6 +55,9 @@ gpubench_cases := [?]Gpubench_Case {
 
 Gpubench_Cell :: struct {
 	gpu_p50, gpu_p99: f32,
+	// The same work from the GPU's own timestamps, a few frames late (render.Gpu_Times):
+	// no wait for the GPU and no submit or driver time in it. Only where timestamps exist.
+	stamped_p50, stamped_p99: f32,
 	cpu_p50, cpu_p99: f32,
 	triangles:        f32, // drawn per frame, p50
 	// Stroke cases: from the frame's pointer sample to its submit, as the Stats panel's
@@ -81,6 +84,7 @@ Gpubench :: struct {
 	kase:   int, // index into gpubench_cases
 	frame:  int, // frames run in the current case, warm-up included
 	gpu:    Sample_Ring, // the current case's measured frames
+	stamped: Sample_Ring,
 	cpu:    Sample_Ring,
 	tris:   Sample_Ring,
 	latency: Sample_Ring,
@@ -144,6 +148,7 @@ gpubench_end_frame :: proc(app: ^App, b: ^Gpubench, gpu_ms, cpu_ms, latency_ms, 
 	c := gpubench_cases[b.kase]
 	if b.frame >= GPUBENCH_WARMUP && (!c.stroke || dabs > 0) {
 		ring_push(&b.gpu, gpu_ms)
+		if render.caps(&app.renderer).timestamps do ring_push(&b.stamped, app.stats.gpu_viewport_stamped_ms)
 		ring_push(&b.cpu, cpu_ms)
 		ring_push(&b.tris, f64(app.stats.viewport.triangles))
 		ring_push(&b.cull, app.stats.viewport.cull_ms)
@@ -159,13 +164,14 @@ gpubench_end_frame :: proc(app: ^App, b: ^Gpubench, gpu_ms, cpu_ms, latency_ms, 
 	row := &b.rows[len(b.rows) - 1]
 	cell := &row.cells[b.kase]
 	cell.gpu_p50, cell.gpu_p99 = ring_percentiles(b.gpu)
+	if b.stamped.count > 0 do cell.stamped_p50, cell.stamped_p99 = ring_percentiles(b.stamped)
 	cell.cpu_p50, cell.cpu_p99 = ring_percentiles(b.cpu)
 	cell.triangles, _ = ring_percentiles(b.tris)
 	cell.latency_p50, cell.latency_p99 = ring_percentiles(b.latency)
 	cell.cull_p50, cell.cull_p99 = ring_percentiles(b.cull)
 	cell.upload_p50, cell.upload_p99 = ring_percentiles(b.upload)
 	cell.samples = b.gpu.count
-	b.gpu, b.cpu, b.tris, b.latency, b.cull, b.upload = {}, {}, {}, {}, {}, {}
+	b.gpu, b.stamped, b.cpu, b.tris, b.latency, b.cull, b.upload = {}, {}, {}, {}, {}, {}, {}
 	log.infof("gpubench: %d vertices, %s: GPU p50 %.2f ms, CPU p50 %.2f ms over %d frames",
 		row.vertices, c.label, cell.gpu_p50, cell.cpu_p50, cell.samples)
 	if c.stroke {
@@ -211,6 +217,7 @@ gpubench_write :: proc(app: ^App, b: ^Gpubench) -> bool {
 
 	Table :: enum {
 		Gpu,
+		Gpu_Stamped,
 		Cpu,
 		Triangles,
 		Latency,
@@ -228,6 +235,7 @@ gpubench_write :: proc(app: ^App, b: ^Gpubench) -> bool {
 			for cell in row.cells {
 				p50, p99 := cell.cpu_p50, cell.cpu_p99
 				if kind == .Gpu do p50, p99 = cell.gpu_p50, cell.gpu_p99
+				if kind == .Gpu_Stamped do p50, p99 = cell.stamped_p50, cell.stamped_p99
 				if kind == .Latency do p50, p99 = cell.latency_p50, cell.latency_p99
 				if kind == .Cull do p50, p99 = cell.cull_p50, cell.cull_p99
 				if kind == .Upload do p50, p99 = cell.upload_p50, cell.upload_p99
@@ -243,7 +251,10 @@ gpubench_write :: proc(app: ^App, b: ^Gpubench) -> bool {
 			fmt.sbprintf(sb, "\n")
 		}
 	}
-	table(&sb, "GPU time of the 3D viewport", b.rows[:], .Gpu)
+	table(&sb, "GPU time of the 3D viewport (submit to the end of the wait for it)", b.rows[:], .Gpu)
+	if render.caps(&app.renderer).timestamps {
+		table(&sb, "GPU time of the 3D viewport from GPU timestamps (no submit, driver or wait time in it)", b.rows[:], .Gpu_Stamped)
+	}
 	table(&sb, "CPU time per frame", b.rows[:], .Cpu)
 	table(&sb, "Triangles drawn per frame (p50; strokes mostly redraw only around the brush)", b.rows[:], .Triangles)
 	table(&sb, "Stroke latency, the pointer's sample to the frame's submit (the display then shows it at its next refresh, or the one after with vsync)", b.rows[:], .Latency)

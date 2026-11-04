@@ -418,6 +418,9 @@ Sculptor :: struct {
 	gpu_leaves:      [dynamic]u32,
 	gpu_leaves_last: [dynamic]u32,
 	gpu_ranges:      [dynamic]Vertex_Range,
+	// What the dabs and flushes did, in vertices (work.odin); the normals jobs add to
+	// `renormalised` from the pool's workers, atomically.
+	work:            Work_Counts,
 	gpu_ranges_last: [dynamic]Vertex_Range,
 	// Per node: readbacks of its positions on their way from the GPU, and whether the
 	// last flush's ranges were counted.
@@ -1205,6 +1208,8 @@ dab_once :: proc(s: ^Sculptor, brush: Brush, center: Vec3, img: Sym_Image, own: 
 	if len(s.hit) == 0 do return 0
 	candidates: u32
 	for leaf in s.hit do candidates += s.nodes[s.node_of[leaf]].vert_count
+	s.work.dabs += 1
+	s.work.scanned += u64(candidates)
 	pool := s.pool if candidates >= PARALLEL_MIN_VERTS else nil
 	if s.dyn != nil && brush.kind != .Mask && brush.kind != .Paint && brush.detail > 0 {
 		if s.history.recording do record_hit(s, masks = false)
@@ -1418,6 +1423,7 @@ finish_move :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 		append(&s.changed, leaf)
 		mark_shape_changed(s, s.node_of[leaf])
 	}
+	s.work.moved += u64(moved)
 	if len(s.changed) == 0 do return 0
 	if d.mesh_share > 0 && s.skin != nil do skin_split_moved(s, d)
 	if s.history.recording do record_changed(s)
@@ -2002,7 +2008,10 @@ sculptor_place_vertices :: proc(s: ^Sculptor, verts: []u32, positions: []Vec3) {
 // normals (a new subdivision level).
 sculptor_recompute_all :: proc(s: ^Sculptor) {
 	for id in 0 ..< len(s.nodes) do mark_stale(s, u32(id), .Shape)
+	// Normals for the whole mesh are setting it up, not what brushes cost (Work_Counts).
+	renormalised := s.work.renormalised
 	_ = sculptor_flush(s)
+	s.work.renormalised = renormalised
 }
 
 // Empties the list of edited nodes, once subdivision levels have carried the edits over.
@@ -2029,6 +2038,8 @@ job_node_normals :: proc(data: rawptr, i: int) {
 		return
 	case .Shape:
 	}
+	// A changed node recomputes every owned normal, moved or not.
+	sync.atomic_add(&s.work.renormalised, u64(n.vert_count))
 	face_n: [MAX_CACHED_FACES]Vec3 = ---
 	cached := n.tri_count if n.tri_count <= MAX_CACHED_FACES else 0
 	for k in 0 ..< cached do face_n[k] = face_normal(m, n.tri_first + k)
@@ -2059,6 +2070,8 @@ job_node_normals :: proc(data: rawptr, i: int) {
 @(private)
 edge_normals :: proc(s: ^Sculptor, n: Node) {
 	m := s.mesh
+	recomputed: u64
+	defer if recomputed > 0 do sync.atomic_add(&s.work.renormalised, recomputed)
 	for v in n.vert_first ..< n.vert_first + n.vert_count {
 		faces := faces_of(s, v)
 		stale := false
@@ -2073,6 +2086,7 @@ edge_normals :: proc(s: ^Sculptor, n: Node) {
 		sum: Vec3
 		for f in faces do sum += face_normal(m, f)
 		m.normals[v] = linalg.normalize0(sum)
+		recomputed += 1
 	}
 }
 

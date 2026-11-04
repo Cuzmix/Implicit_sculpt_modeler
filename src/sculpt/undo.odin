@@ -466,6 +466,7 @@ record_hit :: proc(s: ^Sculptor, masks: bool) {
 		append(&h.current.saved, Saved_Node{node = id})
 		verts += int(s.nodes[id].vert_count)
 	}
+	s.work.saved += u64(verts)
 	if masks || s.dyn != nil || verts == 0 do return
 	// The copies are filled below, after allocating: a hit as large as a whole-mesh clip
 	// saves millions of positions, which one allocation and a parallel copy make quick

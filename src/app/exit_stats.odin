@@ -675,6 +675,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	fmt.printfln("low_latency=%v frames_in_flight=%d present_timing=%v", app.low_latency, caps.frames_in_flight, caps.present_timing)
 	if linked, known := render.display_link_frames(&app.renderer); known do fmt.printfln("display_link=%v display_link_frames=%d", app.display_link, linked)
 	print_stat("frame_ms", app.stats.frame_ms)
+	if app.stats.interval_ms.count > 0 do print_stat("interval_ms", app.stats.interval_ms)
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)
 	if app.time_gpu do print_stat("gpu_ms", app.stats.gpu_ms)
@@ -700,6 +701,19 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		print_stat("normals_ms", app.stats.normals_ms)
 		print_stat("upload_kb", app.stats.upload_kb)
 		print_stat("latency_ms", app.stats.latency_ms)
+		// How much of the per-node work landed on vertices that moved (sculpt.Work_Counts),
+		// over the run, for every object's current level; voxel clay is not counted.
+		work: sculpt.Work_Counts
+		for obj in app.scene.objects {
+			if obj.voxel != nil do continue
+			w := object_sculptor(obj).work
+			work.dabs += w.dabs
+			work.scanned += w.scanned
+			work.moved += w.moved
+			work.renormalised += w.renormalised
+			work.saved += w.saved
+		}
+		fmt.printfln("work_dabs=%d work_scanned=%d work_moved=%d work_renormalised=%d work_saved=%d", work.dabs, work.scanned, work.moved, work.renormalised, work.saved)
 	}
 	sg := app.renderer.sculpt_gpu.stats
 	fmt.printfln("gpu_sculpt=%v gpu_sculpt_strokes=%d gpu_dab_strokes=%d cpu_sculpt_strokes=%d gpu_sculpt_dabs=%d gpu_sculpt_dispatches=%d", app.gpu_sculpt && render.caps(&app.renderer).gpu_sculpt && !app.renderer.sculpt_gpu.failed, sg.strokes_gpu, sg.strokes_dabs, sg.strokes_cpu, sg.dabs, sg.dispatches)
