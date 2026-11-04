@@ -25,8 +25,10 @@ import "../retopo"
 // show a ring filling as the work goes, and Escape or the pill's Cancel stops it. Blender
 // keeps drawing through its long operators the same way; ZBrush and Nomad freeze.
 //
-// The job works on its own copy of the object's triangles (Subdivide and the voxel jobs
-// only read the object's levels or clay, which the scene holding still keeps as they are),
+// The job works on its own copy of the object's triangles for Quad Remesh and Convert to
+// voxels (Remesh, Subdivide and the voxel jobs only read the object's level, levels or
+// clay, which the scene holding still keeps as they are: a copy of a 15M remesh's input
+// was 0.7 GB more at its peak),
 // with its own worker pool, and changes no object, history or interface: those stay the
 // frame thread's. A job that makes a new mesh also prepares it for sculpting there
 // (long_job_prepare), so only the upload is left for the frame. While it runs the scene is
@@ -58,6 +60,7 @@ Long_Job :: struct {
 	done:       bool, // atomic: the thread finished, built or not
 	// The thread's input (its own copy, for the jobs that read a mesh) and output.
 	input:      geom.Mesh,
+	borrowed:   bool, // `input` is the object's own level, read in place (Remesh), not a copy
 	area:       f64,
 	bounds:     geom.Aabb,
 	mesh:       geom.Mesh,
@@ -252,7 +255,17 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		if cmd.kind == .Retopo && cmd.quad.use_mask do copy_mask = &j.retopo_source.mask
 		if cmd.kind == .Remesh do copy_mask = &j.mask
 	}
-	if cmd.kind == .Remesh || cmd.kind == .Retopo || cmd.kind == .Mesh_To_Voxels do j.input = long_job_copy(obj, copy_mask)
+	// A remesh reads the level in place: its positions and indices stay as they are while
+	// the scene holds still, as the snapshot `before` already took them. A dynamic layout is
+	// compacted into a copy first, as the commands read it. Quad Remesh works out normals
+	// on its input and Convert to voxels keeps to a copy as before.
+	j.borrowed = cmd.kind == .Remesh && !object_dynamic(obj)
+	if j.borrowed {
+		m := object_mesh(obj)
+		j.input = {positions = m.positions, indices = m.indices}
+	} else if cmd.kind == .Remesh || cmd.kind == .Retopo || cmd.kind == .Mesh_To_Voxels {
+		j.input = long_job_copy(obj, copy_mask)
+	}
 	jobs.pool_init(&j.pool, max(jobs.pool_size(&app.pool) - 2, 1))
 	j.thread = thread.create_and_start_with_data(j, long_job_thread, context, .Normal, name = "long job")
 	j.runs += 1
@@ -398,7 +411,10 @@ long_job_levels :: proc(j: ^Long_Job) -> ^sculpt.Levels {
 // Frees whatever the job made or copied that nothing took.
 @(private = "file")
 long_job_drop :: proc(j: ^Long_Job) {
-	geom.mesh_destroy(&j.input)
+	// A borrowed input is the object's own level: only the job's view of it goes.
+	if j.borrowed do j.input = {}
+	else do geom.mesh_destroy(&j.input)
+	j.borrowed = false
 	geom.mesh_destroy(&j.mesh)
 	if j.prepared do sculpt.levels_destroy(&j.levels)
 	j.prepared = false
