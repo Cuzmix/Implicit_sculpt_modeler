@@ -11,30 +11,42 @@ import "core:slice"
 // smallest angle and the largest spread, which are the worst island's. Only the Odin
 // driver fills them; qm_remesh's are zero.
 Checks :: struct {
-	islands:            int,
-	thin_triangles:     int, // the islands' triangles after the thinning
-	thin_decimated:     int, // islands the thinning decimated
-	thin_unpinched:     int, // vertices it split off pinches
-	thin_open_edges:    int, // edges of one triangle in what the thinning gave
-	thin_nonmanifold:   int, // and of three or more
-	iso_triangles:      int,
-	iso_open_edges:     int, // edges of one triangle
-	iso_nonmanifold:    int, // edges of three or more
-	iso_min_angle:      f64, // degrees: the smallest corner of any triangle
-	iso_edge_spread:    f64, // the edges' standard deviation over their mean
-	covers:             int, // covers solved
-	cover_singular:     int, // the frame field's singular vertices, in the covers kept
-	cover_flipped:      int, // triangles the kept covers turn over: folds
-	cover_cells:        f64, // the kept covers' area in cells, signed, so folds take away
-	cover_cells_abs:    f64, // and unsigned
-	cover_cells_wanted: f64, // what the count asks of the triangles off the caps
-	quad_faces:         int,
-	quad_quads:         int,
-	quad_triangles:     int,
-	quad_ngons:         int,
-	quad_open_edges:    int, // edges of one polygon
-	quad_nonmanifold:   int, // edges of three or more
-	quad_valence:       [7]int, // vertices by the polygons meeting there, six or more in the last
+	islands:             int,
+	thin_triangles:      int, // the islands' triangles after the thinning
+	thin_decimated:      int, // islands the thinning decimated
+	thin_unpinched:      int, // vertices it split off pinches
+	thin_open_edges:     int, // edges of one triangle in what the thinning gave
+	thin_nonmanifold:    int, // and of three or more
+	iso_triangles:       int,
+	iso_open_edges:      int, // edges of one triangle
+	iso_nonmanifold:     int, // edges of three or more
+	iso_euler:           int, // vertices less edges plus triangles: what the quads should keep
+	iso_min_angle:       f64, // degrees: the smallest corner of any triangle
+	iso_edge_spread:     f64, // the edges' standard deviation over their mean
+	covers:              int, // covers solved
+	cover_singular:      int, // the frame field's singular vertices, in the covers kept
+	cover_flipped:       int, // triangles the kept covers turn over: folds
+	cover_cells:         f64, // the kept covers' area in cells, signed, so folds take away
+	cover_cells_abs:     f64, // and unsigned
+	cover_cells_wanted:  f64, // what the count asks of the triangles off the caps
+	quad_faces:          int,
+	quad_quads:          int,
+	quad_triangles:      int,
+	quad_ngons:          int,
+	quad_open_edges:     int, // edges of one polygon
+	quad_nonmanifold:    int, // edges of three or more
+	quad_valence:        [7]int, // vertices by the polygons meeting there, six or more in the last
+	quad_euler:          int, // vertices less edges plus faces: the input's, 2 for a closed sphere, when nothing was lost
+	// The Odin extraction's own (extract.odin); zero from the C++'s.
+	extract_points:      int, // the cover's grid points, each a quad vertex
+	extract_holes:       int, // triangles it went round: turned over, flat, or beside a seam that does not close
+	extract_open_seams:  int, // edges whose triangles' charts do not meet
+	extract_unmatched:   int, // quad edges whose trace found no partner
+	extract_filled:      int, // faces of more than four sides filled with quads
+	extract_patched:     int, // of those, the ones filled with their own grid cells (the rest cut in a ladder or a fan)
+	extract_dropped:     int, // cycles of no area (an edge walked there and back) dropped
+	extract_bad_cuts:    int, // faces no cut could fill without joining a corner to itself twice
+	extract_largest_cut: int, // the most sides a face cut into quads had (the largest over the islands)
 }
 
 // The sums of two islands' checks.
@@ -50,6 +62,7 @@ checks_add :: proc(to: ^Checks, c: Checks) {
 	to.iso_triangles += c.iso_triangles
 	to.iso_open_edges += c.iso_open_edges
 	to.iso_nonmanifold += c.iso_nonmanifold
+	to.iso_euler += c.iso_euler
 	to.iso_min_angle, to.iso_edge_spread = angle, spread
 	to.covers += c.covers
 	to.cover_singular += c.cover_singular
@@ -64,6 +77,16 @@ checks_add :: proc(to: ^Checks, c: Checks) {
 	to.quad_open_edges += c.quad_open_edges
 	to.quad_nonmanifold += c.quad_nonmanifold
 	for n, i in c.quad_valence do to.quad_valence[i] += n
+	to.quad_euler += c.quad_euler
+	to.extract_points += c.extract_points
+	to.extract_holes += c.extract_holes
+	to.extract_open_seams += c.extract_open_seams
+	to.extract_unmatched += c.extract_unmatched
+	to.extract_filled += c.extract_filled
+	to.extract_patched += c.extract_patched
+	to.extract_dropped += c.extract_dropped
+	to.extract_bad_cuts += c.extract_bad_cuts
+	to.extract_largest_cut = max(to.extract_largest_cut, c.extract_largest_cut)
 }
 
 // The checks as key=value pairs on one line, in temp memory. `cells_lost` is the share of
@@ -75,11 +98,12 @@ checks_line :: proc(c: Checks) -> string {
 	vertices := 0
 	for n in c.quad_valence do vertices += n
 	regular := 100 * f64(c.quad_valence[4]) / f64(vertices) if vertices > 0 else 0
-	return fmt.tprintf("islands=%d thin_triangles=%d thin_decimated=%d thin_unpinched=%d thin_open=%d thin_nonmanifold=%d iso_triangles=%d iso_open=%d iso_nonmanifold=%d iso_min_angle=%.2f iso_edge_spread=%.3f covers=%d cover_singular=%d cover_flipped=%d cover_cells=%.1f cover_cells_abs=%.1f cover_cells_wanted=%.1f quad_faces=%d quad_quads=%d quad_triangles=%d quad_ngons=%d quad_open=%d quad_nonmanifold=%d quad_valence=%d,%d,%d,%d,%d,%d quad_regular=%.1f%% cells_lost=%.1f%%",
-		c.islands, c.thin_triangles, c.thin_decimated, c.thin_unpinched, c.thin_open_edges, c.thin_nonmanifold, c.iso_triangles, c.iso_open_edges, c.iso_nonmanifold, c.iso_min_angle, c.iso_edge_spread,
+	return fmt.tprintf("islands=%d thin_triangles=%d thin_decimated=%d thin_unpinched=%d thin_open=%d thin_nonmanifold=%d iso_triangles=%d iso_open=%d iso_nonmanifold=%d iso_euler=%d iso_min_angle=%.2f iso_edge_spread=%.3f covers=%d cover_singular=%d cover_flipped=%d cover_cells=%.1f cover_cells_abs=%.1f cover_cells_wanted=%.1f quad_faces=%d quad_quads=%d quad_triangles=%d quad_ngons=%d quad_open=%d quad_nonmanifold=%d quad_valence=%d,%d,%d,%d,%d,%d quad_regular=%.1f%% quad_euler=%d cells_lost=%.1f%% extract_points=%d extract_holes=%d extract_open_seams=%d extract_unmatched=%d extract_filled=%d extract_patched=%d extract_dropped=%d extract_bad_cuts=%d extract_largest_cut=%d",
+		c.islands, c.thin_triangles, c.thin_decimated, c.thin_unpinched, c.thin_open_edges, c.thin_nonmanifold, c.iso_triangles, c.iso_open_edges, c.iso_nonmanifold, c.iso_euler, c.iso_min_angle, c.iso_edge_spread,
 		c.covers, c.cover_singular, c.cover_flipped, c.cover_cells, c.cover_cells_abs, c.cover_cells_wanted,
 		c.quad_faces, c.quad_quads, c.quad_triangles, c.quad_ngons, c.quad_open_edges, c.quad_nonmanifold,
-		c.quad_valence[1], c.quad_valence[2], c.quad_valence[3], c.quad_valence[4], c.quad_valence[5], c.quad_valence[6], regular, lost)
+		c.quad_valence[1], c.quad_valence[2], c.quad_valence[3], c.quad_valence[4], c.quad_valence[5], c.quad_valence[6], regular, c.quad_euler, lost,
+		c.extract_points, c.extract_holes, c.extract_open_seams, c.extract_unmatched, c.extract_filled, c.extract_patched, c.extract_dropped, c.extract_bad_cuts, c.extract_largest_cut)
 }
 
 // What the thinning gave: its open and non-manifold edges.
@@ -92,7 +116,7 @@ checks_thin :: proc(c: ^Checks, thin: Island) {
 		a, b := t[k], t[(k + 1) % 3]
 		keys[3 * f + k] = u64(min(a, b)) << 32 | u64(max(a, b))
 	}
-	c.thin_open_edges, c.thin_nonmanifold = edge_counts(keys)
+	c.thin_open_edges, c.thin_nonmanifold, _ = edge_counts(keys)
 }
 
 // The isotropic mesh: its open and non-manifold edges, its smallest angle and how evenly
@@ -120,7 +144,9 @@ checks_isotropic :: proc(c: ^Checks, iso: Isotropic) {
 		}
 	}
 	c.iso_min_angle = smallest
-	c.iso_open_edges, c.iso_nonmanifold = edge_counts(keys)
+	edges: int
+	c.iso_open_edges, c.iso_nonmanifold, edges = edge_counts(keys)
+	c.iso_euler = len(iso.positions) - edges + len(iso.triangles)
 	// Each edge once: its length's mean and spread.
 	sum, squares, n := f64(0), f64(0), 0
 	for i := 0; i < len(keys); i += 1 {
@@ -172,16 +198,24 @@ checks_quads :: proc(c: ^Checks, q: Quads) {
 			valence[a] += 1
 		}
 	}
-	c.quad_open_edges, c.quad_nonmanifold = edge_counts(keys)
-	for n in valence do c.quad_valence[min(n, len(c.quad_valence) - 1)] += 1
+	edges: int
+	c.quad_open_edges, c.quad_nonmanifold, edges = edge_counts(keys)
+	used := 0
+	for n in valence {
+		c.quad_valence[min(n, len(c.quad_valence) - 1)] += 1
+		if n > 0 do used += 1
+	}
+	c.quad_euler = used - edges + c.quad_faces
 }
 
-// How many of the edges (sorted here) one face has and how many three or more.
+// How many of the edges (sorted here) one face has, how many three or more, and how many
+// edges there are.
 @(private = "file")
-edge_counts :: proc(keys: []u64) -> (open, nonmanifold: int) {
+edge_counts :: proc(keys: []u64) -> (open, nonmanifold, edges: int) {
 	slice.sort(keys)
 	for i := 0; i < len(keys); {
 		j := i + 1
+		edges += 1
 		for j < len(keys) && keys[j] == keys[i] do j += 1
 		switch j - i {
 		case 1: open += 1

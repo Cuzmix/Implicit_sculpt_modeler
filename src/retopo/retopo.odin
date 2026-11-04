@@ -789,7 +789,7 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 			return
 		case .None:
 		}
-		if params.core == .Odin do log.infof("quad remesh: stages %s", quadmesh.checks_line(report.checks))
+		if params.core != .Cpp do log.infof("quad remesh: stages %s", quadmesh.checks_line(report.checks))
 		// The faces with an odd number of sides the extractor left are joined up in pairs,
 		// or to the seam, so the result is all quads (quad_fill_odd); on a mirrored half
 		// before the mirror, with the caps out of the way, so both sides mend alike.
