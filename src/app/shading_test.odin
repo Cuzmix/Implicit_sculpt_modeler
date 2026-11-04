@@ -51,7 +51,7 @@ shading_modes_rewrite_items :: proc(t: ^testing.T) {
 	testing.expect_value(t, shading_pass(app, {mode = .Material_Preview}, .Shaded), render.View_Pass.Shaded)
 }
 
-// The mode and Solid's options go in a workspace's layout and come back from it, a fresh
+// The mode and Solid's options go in a space's layout and come back from it, a fresh
 // view's writing nothing; a layout without the line puts a view back to Solid.
 @(test)
 shading_is_kept_in_the_layout :: proc(t: ^testing.T) {
