@@ -117,7 +117,7 @@ VIEW_RAIL_DEFAULT :: [?]Bar_Slot {
 // tabs and the object chip; Search, History and Settings.
 TOP_FILE_DEFAULT :: [?]Bar_Slot{{.Main_Menu, 0}, {.File_Chip, 0}, {.Save_Scene, 0}, {.Undo, 0}, {.Redo, 0}}
 TOP_SPACES_DEFAULT :: [?]Bar_Slot{{.Space_Tabs, 0}, {.Object_Chip, 0}}
-TOP_APP_DEFAULT :: [?]Bar_Slot{{.Command_Palette, 0}, {.History_Panel, 0}, {.Settings, 0}}
+TOP_APP_DEFAULT :: [?]Bar_Slot{{.Command_Palette, 0}, {.Open_Card, int(Card.History)}, {.Settings, 0}}
 
 // The island a fresh install has: Size and Strength as tall sliders.
 OFFHAND_DEFAULT :: [?]Bar_Slot{{.Brush_Value, int(Brush_Value.Size)}, {.Brush_Value, int(Brush_Value.Strength)}}

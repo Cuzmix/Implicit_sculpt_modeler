@@ -488,8 +488,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// among them), what the History holds and how many old steps it dropped.
 		history_bytes, _ := history_memory(app)
 		fmt.printfln("history_view=%s history_rows=%d history_bytes=%d history_dropped=%d history_bookmarks=%d history_menus=%d history_tints=%d history_tint=%d history_page=%s history_limit_mb=%d history_quick_scrubs=%d history_quick_last=%d history_quick=%s history_pictures_drawn=%d history_picture=%d history_pictures=%d", strings.to_lower(fmt.tprint(app.timeline.view), context.temp_allocator), len(history_rows(app, open_at = app.timeline.open_at, group = !app.history_ungrouped)), history_bytes, app.history.dropped, history_bookmarks(app), app.timeline.menus, app.timeline.tints, int(history_tint_step(app) != {}), "settings" if app.timeline.settings else "steps", app.history_limit_mb, app.timeline.quick.scrubs, app.timeline.quick.last, strings.to_lower(fmt.tprint(app.timeline.quick.by), context.temp_allocator), app.step_picture_slots.drawn, int(newest_step_pictured(app)), int(app.history_pictures))
-		open := [Kit_Window]bool{.Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Colors = k.colors_card, .Thumbnail = k.thumbnail}
-		names := [Kit_Window]string{.Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Colors = "colors card", .Thumbnail = "thumbnail"}
+		open := [Kit_Window]bool{.Stats = k.stats, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Thumbnail = k.thumbnail}
+		names := [Kit_Window]string{.Stats = "stats", .Settings = "settings", .Help = "help", .Macros = "macros", .Thumbnail = "thumbnail"}
 		for w, which in k.windows {
 			r := ui.prev_rect(&k.ctx, names[which])
 			if which in PANEL_WINDOWS do r = panel_rect(app, which)

@@ -23,10 +23,10 @@ paint_toggle :: proc(app: ^App) {
 }
 
 // Whether the colour island shows: in Sculpt, while the brushes paint (or the Paint brush,
-// which always does, is held), with the dock in sight and History not in its place.
+// which always does, is held), with the dock in sight.
 colour_island_shown :: proc(app: ^App) -> bool {
 	k := &app.kit
-	if k.spaces.current != .Sculpt || app.tool != .Brush || zone_hidden(k, .Dock) || k.history || lens_focus(k) do return false
+	if k.spaces.current != .Sculpt || app.tool != .Brush || zone_hidden(k, .Dock) || lens_focus(k) do return false
 	return app.brush.channel != .Sculpt || .Paint in BRUSHES[app.brush.kind].flags
 }
 

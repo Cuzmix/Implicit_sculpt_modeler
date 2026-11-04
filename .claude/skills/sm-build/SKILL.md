@@ -67,7 +67,7 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
   `level_changes_ms=`; always `camera_yaw= camera_pitch= camera_roll= camera_distance= camera_target=x,y,z`,
   `orbit_pivot=x,y,z pivot_source=centre|stroke|pointer|object` (the last orbit's), `undo_steps= redo_steps=
   brush_radius_px= brush_strength= selected=`, `card_scroll= cards= settings_scroll= settings_open=`, `cursor_hit=
-  cursor_normal=x,y,z` and `window_stats= window_history= window_settings=` (each
+  cursor_normal=x,y,z` and `window_stats= window_settings=` (each
   `open,folded,left,top`), `layout_left_column= layout_right_column=` (where the card columns stood, or
   zeros): what scripted input did. These are the numbers to quote; `--frames=N` ends a run by itself.
 

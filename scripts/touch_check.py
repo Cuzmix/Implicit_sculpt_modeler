@@ -677,12 +677,16 @@ def shift_blurs_and_ctrl_erases_while_painting():
     return Steps([run(("shift",), "Blur"), run(("ctrl",), "Erase")])
 
 
-# The Colors card beside the off-hand island at 1600 x 900 (COLORS opens it): its header's buttons, its tabs, the
+# The Colours card in the pen side's column at 1600 x 900 (COLORS opens it): its header's buttons, its tabs, the
 # first swatch of the default palette (Skin) under the Disc and the Value tab's hex field.
-COLORS_CARD = {"main": (102, 173), "secondary": (150, 173), "swap": (198, 173), "fill": (246, 173), "gradient": (294, 173),
-               "eyedropper": (342, 173), "close": (390, 173), "disc": (110, 760), "classic": (178, 760), "harmony": (246, 760),
-               "value": (314, 760), "palettes": (381, 760), "skin": (102, 645), "hex": (353, 432)}
-COLORS = "--script=colors_card"
+COLORS_CARD = {"main": At("card Colours/colors swatch 0", 1208, 156), "secondary": At("card Colours/colors swatch 1", 1256, 156),
+               "swap": At("card Colours/Swap colours", 1304, 156), "fill": At("card Colours/Fill with colour", 1352, 156),
+               "gradient": At("card Colours/Fill gradient", 1400, 156), "eyedropper": At("card Colours/Eyedropper", 1448, 156),
+               "close": At("card Colours/card head/Close", 1500, 102), "disc": At("card Colours/Disc", 1216, 744),
+               "classic": At("card Colours/Classic", 1285, 744), "harmony": At("card Colours/Harmony", 1354, 744),
+               "value": At("card Colours/Value", 1423, 744), "palettes": At("card Colours/Palettes", 1492, 744),
+               "skin": At("card Colours/palette default 0", 1208, 631), "hex": At("card Colours/colors hex", 1400, 432)}
+COLORS = "--script=open_card colours"
 
 
 # The Colour section's well with the Paint brush (the Brush card's Colour group), and the
@@ -712,7 +716,7 @@ def colour_well_opens_the_picker():
 
 @scenario
 def colors_card_picks_a_swatch():
-    """On the Colors card, a tap on a palette swatch makes it the main colour and puts it in
+    """On the Colours card, a tap on a palette swatch makes it the main colour and puts it in
     the history; Classic stays the tab picked; Close puts the card away; nothing is sculpted
     and the view stays."""
     s = Script()
@@ -725,9 +729,9 @@ def colors_card_picks_a_swatch():
     closed.wait(4)
     closed.ftap(COLORS_CARD["close"])
     closed.wait(10)
-    return Steps([(s, [COLORS], camera_still({"window_colors": lambda v: v.startswith("1,"), "paint_color": is_text("F8E1D4"), "color_history": near(1),
+    return Steps([(s, [COLORS], camera_still({"cards": lambda v: "Colours" in v, "paint_color": is_text("F8E1D4"), "color_history": near(1),
                                              "colors_tab": is_text("classic"), "dabs": near(0)})),
-                  (closed, [COLORS], {"window_colors": lambda v: v.startswith("0,"), "dabs": near(0)})])
+                  (closed, [COLORS], {"cards": lambda v: "Colours" not in v, "dabs": near(0)})])
 
 
 @scenario
@@ -849,7 +853,7 @@ def colors_value_hex_sets_the_colour():
 COLORS_CARD_W = 7 * 48 + 2 * 12
 # The Palettes tab's list in the floating card: Skin's first swatch, and Vivid's once the list
 # is scrolled to its end.
-COLORS_PALETTES = {"skin": (102, 335), "vivid": (102, 646)}
+COLORS_PALETTES = {"skin": (1208, 321), "vivid": (1208, 632)}
 
 
 def ppm_region(path, rect):
@@ -865,7 +869,7 @@ def ppm_region(path, rect):
 
 @scenario
 def colors_palettes_keep_the_cards_size():
-    """On Palettes the Colors card keeps the Disc's size: a swatch in the list is a tap, the
+    """On Palettes the Colours card keeps the Disc's size: a swatch in the list is a tap, the
     list scrolls inside the card to Vivid, the last palette, and the tabs stay where the Disc
     had them, so a tap there picks Value (the list took the card down to the window's foot and
     the tabs with it)."""
@@ -875,14 +879,14 @@ def colors_palettes_keep_the_cards_size():
     s.wait(8)
     s.ftap(COLORS_PALETTES["skin"])
     s.wait(4)
-    s.fdrag(line((250, 600), (250, 150), 15))
+    s.fdrag(line((1356, 586), (1356, 136), 15))
     s.wait(20)
     s.ftap(COLORS_PALETTES["vivid"])
     s.wait(4)
     s.ftap(COLORS_CARD["value"])
     s.wait(6)
     return s, [COLORS], camera_still({"paint_color": is_text("E6194B"), "color_history": near(2), "colors_tab": is_text("value"),
-                                      "window_colors": lambda v: v.startswith("1,"), "dabs": near(0)})
+                                      "cards": lambda v: "Colours" in v, "dabs": near(0)})
 
 
 
@@ -4044,7 +4048,7 @@ def lens_shelf_page_names_turn_the_page():
     s.ftap(LENS_SHELF_PAGES["paint"])
     s.wait(10)
     return s, LENS_1440, camera_still({"shelf_page": is_text("Paint"), "shelf_turns": near(1),
-                                       "shelf": lambda v: v.startswith("Brush:Paint,Brush:Mask,Brush:Smooth,Colors_Card")})
+                                       "shelf": lambda v: v.startswith("Brush:Paint,Brush:Mask,Brush:Smooth,Open_Card:Colours")})
 
 
 @scenario
@@ -6048,7 +6052,7 @@ def top_dock_button_carried_to_another_dock():
     s.press("Escape")
     s.wait(8)
     return s, LENS_1440 + ["--script=customise_bars", f"--settings-file={settings_file()}"], camera_still({
-        "top_file": is_text("Main_Menu,File_Chip,Undo,Redo"), "top_app": is_text("Command_Palette,History_Panel,Save_Scene,Settings"),
+        "top_file": is_text("Main_Menu,File_Chip,Undo,Redo"), "top_app": is_text("Command_Palette,Open_Card:History,Save_Scene,Settings"),
         "dabs": near(0), "@saved": settings_hold("bar top_app")})
 
 
@@ -6064,7 +6068,7 @@ def top_dock_add_opens_the_library():
     s.ftap(PICKER_WIREFRAME)
     s.wait(6)
     return s, LENS_1440 + ["--script=customise_bars"], camera_still({
-        "library_for": is_text("top_app"), "library_puts": near(1), "top_app": is_text("Command_Palette,History_Panel,Settings,Wireframe"), "dabs": near(0)})
+        "library_for": is_text("top_app"), "library_puts": near(1), "top_app": is_text("Command_Palette,Open_Card:History,Settings,Wireframe"), "dabs": near(0)})
 
 
 @scenario
@@ -7545,23 +7549,23 @@ STATUS_CHIP = UI["status"]
 
 @scenario
 def long_press_undo_opens_history():
-    """After a stroke, a long press on Undo opens the History panel and undoes nothing."""
+    """After a stroke, a long press on Undo opens the History card and undoes nothing."""
     s = Script()
     s.fdrag(line((760, 430), (860, 470), 20))
     long_press(s, UI["undo"])
-    return s, [], camera_still({"undo_steps": near(1), "redo_steps": near(0), "window_history": lambda v: v.startswith("1,")})
+    return s, [], camera_still({"undo_steps": near(1), "redo_steps": near(0), "cards": lambda v: "History" in v})
 
 
 @scenario
 def right_click_undo_opens_history():
-    """The desktop twin: a right-click on Undo opens the History panel; a left click still undoes."""
+    """The desktop twin: a right-click on Undo opens the History card; a left click still undoes."""
     s = Script()
     s.fdrag(line((760, 430), (860, 470), 20))
     s.add("move:{:g},{:g}".format(*UI["undo"]))
     s.wait(3)
     s.add("right")
     s.wait(4)
-    return s, [], camera_still({"undo_steps": near(1), "window_history": lambda v: v.startswith("1,")})
+    return s, [], camera_still({"undo_steps": near(1), "cards": lambda v: "History" in v})
 
 
 def slide(s, fingers, dx, frames, starts):
@@ -7584,7 +7588,7 @@ def hold_undo_and_slide_scrubs():
     s.wait(8)
     s.add("fup:0")
     s.wait(4)
-    return s, [], camera_still({"undo_steps": near(2), "redo_steps": near(3), "window_history": lambda v: v.startswith("0,"),
+    return s, [], camera_still({"undo_steps": near(2), "redo_steps": near(3), "cards": lambda v: "History" not in v,
                                 "history_quick_scrubs": near(1), "history_quick_last": near(-3), "history_quick": is_text("off")})
 
 
@@ -7620,7 +7624,7 @@ def mouse_drag_off_undo_scrubs():
     s.wait(8)
     s.add("up")
     s.wait(4)
-    return s, [], camera_still({"undo_steps": near(2), "redo_steps": near(2), "window_history": lambda v: v.startswith("0,"), "history_quick_scrubs": near(1)})
+    return s, [], camera_still({"undo_steps": near(2), "redo_steps": near(2), "cards": lambda v: "History" not in v, "history_quick_scrubs": near(1)})
 
 
 @scenario
@@ -9401,7 +9405,7 @@ def pen_roll_over_settings_scrolls_it():
 
 @scenario
 def pencil_double_tap_follows_the_place_under_it():
-    """The pencil double-tapped while it hovers over the shelf opens the brush picker, over Undo the History panel, and over the navigation head, after a spin, puts the camera back: each place's own default."""
+    """The pencil double-tapped while it hovers over the shelf opens the brush picker, over Undo the History card, and over the navigation head, after a spin, puts the camera back: each place's own default."""
     shelf = Script()
     pen_hover(shelf, *PEN_SHELF_TILE, frames=4)
     shelf.add("pdtap")
@@ -9416,7 +9420,7 @@ def pencil_double_tap_follows_the_place_under_it():
     head.add("pdtap")
     head.wait(30)
     return Steps([(shelf, [], camera_still({"brush_sheet": near(1), "rail_latched": is_text("none"), "dabs": near(0)})),
-                  (undo, [], camera_still({"window_history": lambda v: v.startswith("1,"), "rail_latched": is_text("none")})),
+                  (undo, [], camera_still({"cards": lambda v: "History" in v, "rail_latched": is_text("none")})),
                   (head, [], {"camera_yaw": near(0.6, 2e-3), "camera_roll": near(0), "rail_latched": is_text("none")})])
 
 
@@ -12072,11 +12076,8 @@ def adjust_remesh_from_the_bar():
 # Adjust last stroke's popover: with no action bar after a stroke it sits over the dock,
 # its Amount slider's left end (0%) here at 1600x900.
 ADJUST_STROKE_NONE = (662, 765)
-# The middles of the History panel bar's three steps, after three strokes.
-TIMELINE_STEPS_OF_3 = [(566, 616), (800, 616), (1033, 616)]
-# The History panel's Marker and Delete older history buttons, at its foot.
-HISTORY_MARKER = (622, 722)
-HISTORY_DELETE_OLDER = (977, 722)
+# The middles of the History card's bar's three steps, after three strokes (Strip view).
+TIMELINE_STEPS_OF_3 = [(1228, 275), (1368, 275), (1508, 275)]
 # Search's History brush row, under its three commands, while "history brush" is typed.
 SEARCH_HISTORY_BRUSH = (625, 294)
 # mesh_sum after the History scenario's two Draw strokes, before the History brush.
@@ -12280,15 +12281,15 @@ def lattice_point_dragged_with_physics():
 LATTICE_SIDE = (1188, 522)  # the cage's +x side middle point round the starting sphere
 
 
-# The History panel's Strip view, which the bar's scenarios use (the List is the default).
+# The History card's Strip view, which the bar's scenarios use (the List is the default).
 HISTORY_STRIP = ["--script=set history_view strip"]
 
 
 # The History list at 1600x900 with three strokes of one brush: the group's chevron, its
 # oldest stroke's row once opened, and the first row (where the History starts) closed.
-HISTORY_GROUP_OPEN, HISTORY_OLDEST_SUB, HISTORY_ROOT = (1502, 236), (1300, 362), (1300, 288)
-HISTORY_GROUP_ROW = (1300, 236)
-HISTORY_LIST_TAB = (1185, 146)
+HISTORY_GROUP_OPEN, HISTORY_OLDEST_SUB, HISTORY_ROOT = (1554, 240), (1300, 366), (1300, 292)
+HISTORY_GROUP_ROW = (1300, 240)
+HISTORY_LIST_TAB = (1203, 150)
 
 
 def history_three_strokes(s):
@@ -12383,9 +12384,9 @@ def history_step_menu_from_the_list():
 
 # The step menu over a step of the strip's three (it opens centred over the step's
 # block): the y of its rows.
-STRIP_MENU_PAINT_BACK_Y, STRIP_MENU_BOOKMARK_Y, STRIP_MENU_DELETE_Y = 385, 429, 562
+STRIP_MENU_PAINT_BACK_Y, STRIP_MENU_BOOKMARK_Y, STRIP_MENU_DELETE_Y = 149, 193, 326
 # A bookmark's flag over the strip's first step.
-STRIP_FIRST_FLAG = (470, 585)
+STRIP_FIRST_FLAG = (1179, 266)
 
 
 def strip_three_strokes(s):
@@ -12418,7 +12419,7 @@ def history_tint_shows_what_a_step_changed():
     return Steps([run(False), run(True)])
 
 
-HISTORY_GEAR = (1500, 146)
+HISTORY_GEAR = (1562, 150)
 
 
 @scenario
@@ -12585,7 +12586,7 @@ def history_bookmark_flies_over_the_strip():
 
 @scenario
 def timeline_tap_and_drag_by_finger():
-    """A finger's tap on the History panel's bar goes to that point, and a drag along it
+    """A finger's tap on the History card's bar goes to that point, and a drag along it
     scrubs: after a tap at the first step's end one step is done, after a drag back to the
     start none."""
     def run(drag):
@@ -12597,9 +12598,9 @@ def timeline_tap_and_drag_by_finger():
         click(s, UI["history"])
         s.wait(20)
         if drag:
-            s.fdrag(line(TIMELINE_STEPS_OF_3[2], (420, 616), 12))
+            s.fdrag(line(TIMELINE_STEPS_OF_3[2], (1150, 275), 12))
         else:
-            s.ftap(676, 616)
+            s.ftap(1294, 275)
         s.wait(30)
         done = 0 if drag else 1
         return s, HISTORY_STRIP, camera_still({"undo_steps": near(done, 0), "redo_steps": near(3 - done, 0)})

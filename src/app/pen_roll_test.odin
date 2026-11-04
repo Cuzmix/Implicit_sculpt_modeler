@@ -126,7 +126,7 @@ pencil_gestures_follow_the_interface_places :: proc(t: ^testing.T) {
 	testing.expect_value(t, pen_area_now(&app), Pen_Area.Empty)
 	g := app.nav.gestures
 	testing.expect_value(t, g[.Pen_Double_Tap_Shelf], Pie_Slot{.Brush_Picker, 0})
-	testing.expect_value(t, g[.Pen_Double_Tap_History], Pie_Slot{.History_Panel, 0})
+	testing.expect_value(t, g[.Pen_Double_Tap_History], Pie_Slot{.Open_Card, int(Card.History)})
 	testing.expect_value(t, g[.Pen_Double_Tap_Nav_Head], Pie_Slot{.Reset_Camera, 0})
 	testing.expect_value(t, g[.Pen_Double_Tap_Colors], Pie_Slot{.Swap_Colors, 0})
 	for area in Pen_Area.Shelf ..= Pen_Area.Colors do testing.expect(t, gesture_lists(g[PEN_AREA_SLOTS[area][1]].id))

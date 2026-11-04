@@ -77,16 +77,15 @@ card_float_draw :: proc(app: ^App, c: Card) -> (raised: bool) {
 	w := &k.cards.windows[c]
 	was_dragging := w.dragging
 	PAD :: 10
-	p := panel_begin(app, c, "", .End, .Start, {kit_right(app) + CARD_GAP, kit_top()}, {direction = .Column, gap = 6, padding = PAD, width = CARD_W, radius = t.radius_large, background = .Panel}, card = true)
-	inner := f32(CARD_W - 2 * PAD)
+	width := card_width(c)
+	p := panel_begin(app, c, "", .End, .Start, {kit_right(app) + CARD_GAP, kit_top()}, {direction = .Column, gap = 6, padding = PAD, width = width, radius = t.radius_large, background = .Panel}, card = true)
+	inner := width - 2 * PAD
 	_ = card_head(app, c, true, inner, floating = true)
 	head := ctx.last_rect
 	height := max(min(p.room - head.h - 6 - 24, CARD_FLOAT_MAX_H), CARD_BODY_MIN)
-	scroll := kit_scroll_begin(ctx, "card body", &k.cards.float_scrolls[c], p.owner, inner, height, 6)
-	_ = card_body(app, c, inner, scroll.at.y, scroll.shown)
-	kit_scroll_end(ctx, scroll)
-	k.cards.bodies[c] = {scroll.at, scroll.limit}
+	_, _ = card_content(app, c, inner, height, p.owner, &k.cards.float_scrolls[c])
 	panel_end(app, &p)
+	if c == .Colours do kit_colors_menus(app)
 	raised = p.raised
 	// A hold on the grip puts it back on the pen side; a drag let go at a side of the
 	// window puts it back in that side's column.

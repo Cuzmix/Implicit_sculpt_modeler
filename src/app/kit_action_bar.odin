@@ -167,10 +167,10 @@ action_groups_now :: proc(app: ^App) -> (groups: bit_set[Action_Group]) {
 	return
 }
 
-// Whether the bar is laid out at all: on in Settings and in the workspace, with the History panel (which
-// takes the same place over the dock) closed, and something to show.
+// Whether the bar is laid out at all: on in Settings and in the workspace, with something to
+// show.
 action_bar_shown :: proc(app: ^App) -> bool {
-	return app.kit.action_bar && .Action_Bar not_in app.kit.hidden && !app.kit.history && action_groups_now(app) != {}
+	return app.kit.action_bar && .Action_Bar not_in app.kit.hidden && action_groups_now(app) != {}
 }
 
 // The height of the dock and, when it is shown, the action bar above it, from last frame's

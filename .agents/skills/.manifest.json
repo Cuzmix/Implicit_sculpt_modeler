@@ -1,12 +1,12 @@
 {
   "source": ".claude/skills",
   "files": {
-    "sm-build/SKILL.md": "774c0647de1869626a35bd7d2d15ee650f8060642fbd6eb45f7c2a5af2b1b264",
+    "sm-build/SKILL.md": "715c9e2ba1ab3b862ab1f910a5b88bdb2f296a312c98dd0479e75679a6e5a059",
     "sm-cad/SKILL.md": "f654ece22e66c85d5b480a7e60e3808b3ea2c53fdaee77a0f8eb3b0015a5701d",
     "sm-cad/references/algorithms.md": "01d2533465f6863979662a3e062a7451fc82aec36cbd178148858991583f02b2",
     "sm-cad/references/undo-and-topology.md": "5b5ac5f6a7c802a413c9e22deea2fb31074478f02d7d3f63bce968c4fff5e249",
     "sm-design/SKILL.md": "79cad0ae1bc91a5f47c2986be2c1e1d628e15d6c16f40001fb86ddf4714590ce",
-    "sm-figma-ui/SKILL.md": "2fe0014b56571b18d3c3e38777adfddc5c69d3a9ba8b846c7c55db9459da1ba2",
+    "sm-figma-ui/SKILL.md": "c89ac06a53f00b2fee1887cfbb372921dcd5d154c089196abe153291acc810e0",
     "sm-geom/SKILL.md": "a7f8e782c8bc13919812a1d6eee836d5e75c9f071df8e7f68054efd661f2aaea",
     "sm-lint/SKILL.md": "195b687806fc5dbe96c33ef989f9e81bb0faaa36e3bfa8a967e2fefe742c7537",
     "sm-odin/SKILL.md": "bde4a86cc9e03992de614d703b247aed001b8bc22a77b95d7ddc552e03ba3683",
@@ -17,9 +17,9 @@
     "sm-sdf/SKILL.md": "0ee9925a61b1f6154260488a77e0fdea96c77558831c50612c6e605601e03218",
     "sm-sdf/references/implicit.md": "02dfceacf3562e6a8bcd039b7f065fd70aab0b355c136398928d58112ce592d2",
     "sm-store/SKILL.md": "54b69be9ef7d86c978c2131377ec1d4c11b8db0dd524036dbd570403be2244ae",
-    "sm-touch-testing/SKILL.md": "11981c706616ad4f65410a05c5abffa841beaa8fd5961af1117aaca0b9a5e6ad",
-    "sm-ui/SKILL.md": "ae9f865d4cbce8bc2023e867df4c44d79ebd6863883685612284a617bef37598",
+    "sm-touch-testing/SKILL.md": "bdbb6254b63e9cb5234abbffcab141ad6fda13e48bacfd048a76cc498d28588a",
+    "sm-ui/SKILL.md": "abee4605824144cfdc3032bea923519b6474eb740465209f96f02ba59e23c291",
     "sm-ui/references/input-routing.md": "1c9681829ec9edbed6463694f7004f380d2c75588fdc94316d0608634afc4e26",
-    "sm-ui/references/lens-layout.md": "fd91579160dfd0ef705574aed0455ae15cf7a731fc96dcb6fda8c4c3bc2db8c0"
+    "sm-ui/references/lens-layout.md": "9f1a1afacb3a363bb70bd7d65c0102afe027f6798b786b32638d9c2e2931ff63"
   }
 }

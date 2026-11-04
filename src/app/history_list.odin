@@ -31,8 +31,6 @@ History_Row :: struct {
 HISTORY_ROW_H :: 50
 HISTORY_SUB_H :: 38
 HISTORY_ROW_GAP :: 2
-// The list's width.
-KIT_HISTORY_LIST_W :: 400
 
 // The entry at timeline position `i` (0 is the oldest done step, done and undone counted
 // as the timeline counts them).
@@ -115,14 +113,14 @@ history_memory :: proc(app: ^App) -> (bytes: int, full: f32) {
 	return bytes, clamp(full, 0, 1)
 }
 
-// The list view: the memory line, the rows in a scrolling body as tall as the window has
-// room for, and the playback buttons under them.
-kit_history_list :: proc(app: ^App, p: ^Panel_Frame, width: f32, can: bool) {
+// The list view, `inner` wide: the memory line, the rows in a scrolling body as tall as
+// the card's `room` leaves, and the playback buttons under them. `owner` is the card's
+// root, which a drag on the rows scrolls.
+kit_history_list :: proc(app: ^App, inner, room: f32, owner: ui.Id, can: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	tl := &app.timeline
-	inner := width - 20
 	// The memory line: steps and bytes (of History may use, when set), and a meter of how
 	// near the History is to its limit.
 	steps := history_step_count(app.history.done[:]) + history_step_count(app.history.undone[:])
@@ -149,11 +147,11 @@ kit_history_list :: proc(app: ^App, p: ^Panel_Frame, width: f32, can: bool) {
 	rows := history_rows(app, only, tl.open_at, !app.history_ungrouped)
 	natural: f32 = HISTORY_ROW_H + HISTORY_ROW_GAP // the first row of all, where the History starts
 	for row in rows do natural += (HISTORY_SUB_H if row.sub else HISTORY_ROW_H) + HISTORY_ROW_GAP
-	// The rows take what the window has left under its head, the memory line and the
+	// The rows take what the card has left under its head, the memory line and the
 	// playback buttons.
-	room := max(p.room - 4 * t.target - 40, 3 * HISTORY_ROW_H)
-	height := min(natural, room)
-	s := kit_scroll_begin(ctx, "history rows", &tl.list_scroll, p.owner, inner, height, 0, fixed = true)
+	rows_room := max(room - 4 * t.target - 40, 3 * HISTORY_ROW_H)
+	height := min(natural, rows_room)
+	s := kit_scroll_begin(ctx, "history rows", &tl.list_scroll, owner, inner, height, 0, fixed = true)
 	// Only the rows in sight are laid out; spacers stand for the rest, so a History of
 	// hundreds of steps costs what a screenful does.
 	top, bottom := s.shown, s.shown + height

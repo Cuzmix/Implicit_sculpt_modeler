@@ -231,7 +231,9 @@ columns_update :: proc(app: ^App) {
 	if !k.cards.set do cards_default(k)
 	if ctx.input.pressed == {} || !ctx.input.mouse_valid || !(ctx.pointer_root == 0 || ctx.viewport_drag) do return
 	// A press on what a card put in the view (a light's marker or gizmo, Place highlight's
-	// press, the Move tool's gizmo) is that card's work, so the cards stay.
+	// press, the Move tool's gizmo), or one a card's control waits for (the Eyedropper, Pick
+	// focus, Pick a group), is that card's work, so the cards stay.
+	if app.ui.eyedrop_armed || app.ui.focus_armed || app.ui.group_pick do return
 	at, size := ctx.input.mouse, ctx.input.window
 	if lights_take_press(app, at, size) || (app.tool == .Move && gizmo_pick(app, at, size) != .None) do return
 	closed := false
@@ -249,7 +251,10 @@ kit_columns :: proc(app: ^App) {
 	for &col, s in k.cards.columns {
 		if col.count == 0 do continue
 		first := 0 if columns_split(app) else col.count - 1
-		x, y, room := column_place(app, s, &col)
+		// The column is as wide as its widest card; a narrower one keeps to its dock's side.
+		w: f32 = 0
+		for i in first ..< col.count do w = max(w, card_width(col.cards[i].card))
+		x, y, room, align := column_place(app, s, &col, w)
 		shown := col.count - first
 		each := room if shown == 1 else (room - CARD_GAP) * 0.5
 		for i in first ..< col.count {
@@ -259,17 +264,19 @@ kit_columns :: proc(app: ^App) {
 				h := ui.prev_rect(&k.ctx, card_root_name(col.cards[i].card)).h
 				top = y + room - (h if h > 0 else room)
 			}
-			card_draw(app, &col, i, {x, top}, each)
+			card_draw(app, &col, i, {x + (w - card_width(col.cards[i].card)) * align, top}, each)
 			y += each + CARD_GAP
 		}
 		col.frame = k.frame
 	}
 }
 
-// Where column `s` goes: its left edge and top, and the room its cards share down to what
-// stands under it (the shelf where they would meet; on a tablet, the pen side's palm).
+// Where column `s`, `w` wide, goes: its left edge and top, the room its cards share down to
+// what stands under it (the shelf where they would meet; on a tablet, the pen side's palm),
+// and how a narrower card in it lines up (0 to its left edge, 1 to its right, beside a dock
+// on its right).
 @(private = "file")
-column_place :: proc(app: ^App, s: Column_Side, col: ^Column) -> (x, y, room: f32) {
+column_place :: proc(app: ^App, s: Column_Side, col: ^Column, w: f32) -> (x, y, room, align: f32) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -283,25 +290,28 @@ column_place :: proc(app: ^App, s: Column_Side, col: ^Column) -> (x, y, room: f3
 	bottom := area.y + area.h - t.edge
 	#partial switch side {
 	case .Left, .Right:
-		x = at.x - CARD_GAP - CARD_W if side == .Left else at.x + at.w + CARD_GAP
+		x = at.x - CARD_GAP - w if side == .Left else at.x + at.w + CARD_GAP
+		align = 1 if side == .Left else 0
 		// The column runs from under the top bar whichever button opened it, so two cards
 		// split the whole height rather than what lies under the lower button.
 		y = area.y + kit_top()
 	case .Below:
-		x = at.x + at.w * 0.5 - CARD_W * 0.5
+		x = at.x + at.w * 0.5 - w * 0.5
+		align = 0.5
 		y = at.y + at.h + CARD_GAP
 	case:
-		x = at.x + at.w * 0.5 - CARD_W * 0.5
+		x = at.x + at.w * 0.5 - w * 0.5
+		align = 0.5
 		y = area.y + kit_top()
 		bottom = at.y - CARD_GAP
 	}
-	x = clamp(x, area.x + t.edge, max(area.x + area.w - t.edge - CARD_W, area.x + t.edge))
+	x = clamp(x, area.x + t.edge, max(area.x + area.w - t.edge - w, area.x + t.edge))
 	// Clear of the shelf where they would meet across.
 	if side != .Above_Center {
 		lo, hi := shelf_bottom_span(app)
 		left := x - area.x
-		if ctx.mirror do left = area.w - (left + CARD_W)
-		if hi + CARD_GAP > left && lo - CARD_GAP < left + CARD_W do bottom = min(bottom, area.y + area.h - dock_stack(app) - CARD_GAP)
+		if ctx.mirror do left = area.w - (left + w)
+		if hi + CARD_GAP > left && lo - CARD_GAP < left + w do bottom = min(bottom, area.y + area.h - dock_stack(app) - CARD_GAP)
 	}
 	shown := col.frame == k.frame - 1
 	over := false
@@ -340,29 +350,53 @@ card_draw :: proc(app: ^App, col: ^Column, i: int, pos: [2]f32, room: f32) {
 	fade := ui.tween(ctx, ui.salt(owner, 0x6a6465), PANEL_FADED if entry.faded else 1, t.hover_time)
 	mark := ui.vertex_mark(ctx)
 	shown := ui.presence(ctx, ui.salt(owner, 0x6f70656e), true, t.panel_time)
-	ui.begin_at(ctx, name, pos, {direction = .Column, gap = 6, padding = PAD, width = CARD_W, radius = t.radius_large, background = .Panel})
-	inner := f32(CARD_W - 2 * PAD)
+	width := card_width(c)
+	ui.begin_at(ctx, name, pos, {direction = .Column, gap = 6, padding = PAD, width = width, radius = t.radius_large, background = .Panel})
+	inner := width - 2 * PAD
 	torn := card_head(app, c, entry.pinned, inner)
 	head := ctx.last_rect
 	height := max(room - 2 * PAD - head.h - 6, CARD_BODY_MIN)
-	scroll := kit_scroll_begin(ctx, "card body", &col.scrolls[c], owner, inner, height, 6)
-	reveal_at := card_body(app, c, inner, scroll.at.y, scroll.shown)
-	kit_scroll_end(ctx, scroll)
-	k.cards.bodies[c] = {scroll.at, scroll.limit}
+	reveal_at, limit := card_content(app, c, inner, height, owner, &col.scrolls[c])
 	// The scroll is kept to the limit the previous layout gave, which did not yet hold the
 	// section the reveal unfolded: it is tried again until the limit reaches it (or a few
 	// frames have passed, for a section near the foot that can never scroll to the top).
 	if reveal_at >= 0 {
 		col.scrolls[c] = reveal_at
 		k.cards.reveal_tries += 1
-		if scroll.limit >= reveal_at || k.cards.reveal_tries >= 3 do k.cards.reveal = nil
+		if limit >= reveal_at || k.cards.reveal_tries >= 3 do k.cards.reveal = nil
 	}
 	ui.end(ctx)
 	col.rects[i] = ui.last_ended(ctx)
+	if c == .Colours do kit_colors_menus(app)
 	if fade < 1 || shown < 1 do ui.transform_since(ctx, mark, fade * shown, 1, {}, {0, (1 - shown) * 12})
 	// Its title dragged past the slop tears the card out of the column: it floats on under
 	// the pointer from the next frame (card_float.odin).
 	if torn do card_float_tear(app, c, {col.rects[i].x, col.rects[i].y})
+}
+
+// Card `c`'s content under its head, `inner` wide and `height` tall, `owner` its root:
+// an own-body card (OWN_BODY_CARDS) draws all of it, keeping its own scroll; every other
+// card's sections scroll in a body by `scroll`. Returns where the section Show where
+// opened stands in that body (-1 for none) and how far it can scroll.
+card_content :: proc(app: ^App, c: Card, inner, height: f32, owner: ui.Id, scroll: ^f32) -> (reveal_at, limit: f32) {
+	k := &app.kit
+	ctx := &k.ctx
+	reveal_at = -1
+	#partial switch c {
+	case .Colours:
+		colors_card_body(app, inner, height, owner)
+		k.cards.bodies[c] = {}
+		return
+	case .History:
+		history_card_body(app, inner, height, owner)
+		k.cards.bodies[c] = {}
+		return
+	}
+	body := kit_scroll_begin(ctx, "card body", scroll, owner, inner, height, 6)
+	reveal_at = card_body(app, c, inner, body.at.y, body.shown)
+	kit_scroll_end(ctx, body)
+	k.cards.bodies[c] = {body.at, body.limit}
+	return reveal_at, body.limit
 }
 
 // A card's header: its icon, title and what it holds; the Symmetry card's axes as chips;
@@ -434,7 +468,7 @@ card_rect :: proc(app: ^App, c: Card) -> ui.Rect {
 // How far a card pinned on the pen side reaches in from the dock on that edge (its width
 // and gap), for what keeps clear of a card that stays; 0 with none.
 cards_right_room :: proc(app: ^App) -> f32 {
-	if column_rest_rect(app, .Right).w > 0 do return CARD_W + CARD_GAP
+	if r := column_rest_rect(app, .Right); r.w > 0 do return r.w + CARD_GAP
 	return 0
 }
 

@@ -113,7 +113,7 @@ kit_history_menu :: proc(app: ^App) {
 	t := ctx.theme
 	tl := &app.timeline
 	head, last, ok := history_step_of(app, tl.menu_step)
-	if !ok || !k.history {
+	if !ok || !card_shown(app, .History) {
 		tl.menu = false
 		return
 	}

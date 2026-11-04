@@ -1,6 +1,6 @@
 ---
 name: sm-ui
-description: The interface — the kit in src/ui (containers, widgets, hit testing, the gesture arena, scrolling, fingers, tokens, motion, popovers, layers, text fields) and its use in src/app (new_ui.odin's toolbars, shelf, cards and menus; kit_tool, kit_object, kit_scene, kit_stats, kit_settings; each feature's kit_*_section; the History panel in timeline.odin) — and the frame loop: the Device, touch and pen routing (touch.odin, navigate.odin), Viewport_Input, pen samples, the viewport overlay, the brush pie, shortcuts, Scene_Command, remembered settings. Load for ANY task that adds or changes something the user taps, reads or types, e.g. "add a section to the Object tab", "add a shortcut", "add a setting", "show X in the Stats panel", "the slider does not update", "the viewport ignores the pointer", "a finger turns the view by itself". Requires sm-odin and sm-build; testing touch is sm-touch-testing; what buttons do is sm-sculpt or sm-cad; viewport pixels are sm-render; touch targets and store rules are sm-store.
+description: The interface — the kit in src/ui (containers, widgets, hit testing, the gesture arena, scrolling, fingers, tokens, motion, popovers, layers, text fields) and its use in src/app (new_ui.odin's toolbars, shelf, cards and menus; kit_tool, kit_object, kit_scene, kit_stats, kit_settings; each feature's kit_*_section; the History card in timeline.odin) — and the frame loop: the Device, touch and pen routing (touch.odin, navigate.odin), Viewport_Input, pen samples, the viewport overlay, the brush pie, shortcuts, Scene_Command, remembered settings. Load for ANY task that adds or changes something the user taps, reads or types, e.g. "add a section to the Object tab", "add a shortcut", "add a setting", "show X in the Stats panel", "the slider does not update", "the viewport ignores the pointer", "a finger turns the view by itself". Requires sm-odin and sm-build; testing touch is sm-touch-testing; what buttons do is sm-sculpt or sm-cad; viewport pixels are sm-render; touch targets and store rules are sm-store.
 ---
 
 # Interface
@@ -32,7 +32,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - `Ui_State` (`ui.odin:15`): `viewport_request`, `scene_command`, the pointer over the viewport for shortcuts that act
   there, the pie, the S/U adjust, curve handles, and each section's own settings and last results. `Kit_State`
   (`new_ui.odin:30`): the kit context, which tab, which sections show More (`Section`), menus, Stats (Simple or
-  Advanced), Settings (open, tab, scroll) and History panels, the interface size (`ui_scale`), the cards (`cards: Cards`),
+  Advanced), Settings (open, tab, scroll) and the History card's view, the interface size (`ui_scale`), the cards (`cards: Cards`),
   add shape and size, the overlay's `layer`, text input on or off.
 - Layout: one, Lens; never add a second chrome (`settings_load` passes over the old Classic lines). `kit_layout`
   (`new_ui.odin`) lays out in order: the top bar `kit_top_bar` (`kit_top_lens.odin`: three docks, `Top_Dock`, whose
@@ -51,7 +51,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   default, to Lens once. Colours outside widgets come from the theme too: the swapchain
   clear and screen dumps (`kit_frame_color`), the top bar (`Background.Band`: `frame` plus `frame_line`), view pane
   grounds and pass grounds (`pane`, `color_f32`).
-- Windows (`src/ui/window.odin`, `Kit_Window` in `new_ui.odin`): Stats, History, Colors and Thumbnail are
+- Windows (`src/ui/window.odin`, `Kit_Window` in `new_ui.odin`): Stats and Thumbnail are
   `ui.window_begin(ctx, name, title, &k.windows[which], x, y, offset, box, close_keys)` … `ui.window_end`: a title
   bar (drag it to move, Minimise folds to it, a tap on a folded title opens it, Close) over the caller's body, which
   is laid out only while `body` is true. A moved window keeps to its nearer edges (`ui.Window.x/y/offset`) and its
@@ -163,8 +163,10 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `command_button(..., icon_only = true)`: the icon alone, the label in its tooltip. Touch scenarios reach section
   bodies by header coordinates (`OBJECTS_CARD` in touch_check), which move by `CARD_ROW_H` with each row the list
   gains or loses.
-  The Colors card (`kit_colors.odin`, `Kit_Window.Colors`, `Colors_Card` command) is the other:
-  beside the off-hand island, Procreate's tabs (`Colors_Tab`) as `brush_tile`s along its bottom over a `kit_scroll` body,
+  The Colours card (`kit_colors.odin`, `Card.Colours`, `colors_card_body`) and the History card (`timeline.odin`'s
+  `history_card_body`, `Card.History`) are `OWN_BODY_CARDS`: `card_content` hands them the card's inner width, height
+  and root, and they keep their own scroll and the controls that stay under it; `card_width` makes them wider than
+  `CARD_W` and a column as wide as its widest card. The Colours card has Procreate's tabs (`Colors_Tab`) as `brush_tile`s along its bottom over a `kit_scroll` body,
   its state in `Kit_State.colors` (`Colors_Card`: the HSV it edits, kept apart from the RGB so a grey keeps its hue,
   `colors_sync` re-reading it when the colour changed elsewhere; history; your palettes). A pick goes through
   `colors_set_hsv`/`colors_set_rgb` and joins the history when the pointer lets go; `colors_pick` for taps. The

@@ -71,7 +71,6 @@ Command_Id :: enum u16 {
 	Paint_Channel,
 	Paint_Toggle,
 	Swap_Colors,
-	Colors_Card,
 	Eyedropper,
 	Front_Only,
 	Lock_Plane,
@@ -304,7 +303,6 @@ Command_Id :: enum u16 {
 	Save_Pack,
 	Pencil_Preferred, // pencil.odin: only a pencil gesture's slot holds it
 	Input_Diagnostics, // diagnostics.odin
-	History_Panel,
 	Pen_As_Empty, // pen_roll.odin: only a pencil gesture's slot over a place of the interface holds it
 	Save_Crash_Log, // crash_log.odin
 }
@@ -948,13 +946,6 @@ COMMANDS := [Command_Id]Command {
 		help = "Trades the main colour, which brushes paint, with the secondary one.",
 		icon = ICON_SWAP_COLORS,
 		run = proc(app: ^App, _: int) {swap_colors(app)},
-	},
-	.Colors_Card = {
-		label = "Colors",
-		help = "Opens the Colors card beside the off-hand island: Disc, Classic, Harmony, Value and Palettes, the colours picked last, Fill and the Eyedropper.",
-		icon = ICON_COLOUR,
-		run = proc(app: ^App, _: int) {colors_card_toggle(app)},
-		checked = proc(app: ^App, _: int) -> bool {return app.kit.colors_card},
 	},
 	.Eyedropper = {
 		label = "Eyedropper",
@@ -2677,13 +2668,6 @@ COMMANDS := [Command_Id]Command {
 		},
 		enabled = proc(app: ^App, _: int) -> bool {return app.diag.allowed},
 		checked = proc(app: ^App, _: int) -> bool {return app.diag.open},
-	},
-	.History_Panel = {
-		label = "History panel",
-		help = "Shows or hides the History panel: step through the History, scrub it on the bar, play it back, and record it as a time-lapse.",
-		icon = ui.ICON_HISTORY,
-		run = proc(app: ^App, _: int) {app.kit.history = !app.kit.history},
-		checked = proc(app: ^App, _: int) -> bool {return app.kit.history},
 	},
 	.Save_Crash_Log = {
 		label = "Save the crash log...",

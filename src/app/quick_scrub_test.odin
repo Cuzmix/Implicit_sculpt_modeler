@@ -62,7 +62,7 @@ quick_scrub_moves_by_steps :: proc(t: ^testing.T) {
 	testing.expect_value(t, app.timeline.quick.scrubs, 1)
 	testing.expect_value(t, app.timeline.quick.last, -1)
 	testing.expect_value(t, len(app.history.done), 4)
-	testing.expect(t, !app.kit.history)
+	testing.expect(t, !card_shown(&app, .History))
 
 	// Held at the window's side, it keeps stepping past what the slide reaches.
 	quick_scrub_begin(&app, .Redo, 100)
@@ -76,14 +76,14 @@ quick_scrub_moves_by_steps :: proc(t: ^testing.T) {
 	in_.down = {}
 	settle(&app)
 
-	// A hold let go without sliding opens the History panel and moves nothing.
+	// A hold let go without sliding opens the History card and moves nothing.
 	quick_scrub_begin(&app, .Undo, 300)
 	in_.down = {.Left}
 	in_.mouse.x = 302
 	settle(&app)
 	in_.down = {}
 	settle(&app)
-	testing.expect(t, app.kit.history)
+	testing.expect(t, card_shown(&app, .History))
 	testing.expect_value(t, len(app.history.done), 0)
 	testing.expect_value(t, app.timeline.quick.scrubs, 2)
 }
