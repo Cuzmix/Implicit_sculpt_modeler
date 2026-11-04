@@ -6,6 +6,7 @@ tables what each gave, against the acceptance the plan set.
     python scripts/remesh_check.py --only gap --keep     # one fixture, its OBJ outputs kept
     python scripts/remesh_check.py --vertices 50000 --quads 4000
     python scripts/remesh_check.py --real "Female expression6.obj"   # a real sculpt besides
+    python scripts/remesh_check.py --core cpp,odin       # Quad Remesh through both cores, compared
 
 Each fixture is written as an OBJ into build/remesh_check/fixtures by a generator here
 (deterministic, nothing random), then each tool runs on it in the headless app:
@@ -21,7 +22,10 @@ boundary and non-manifold edges, the signed volume against the input's, and the 
 from the input (every output vertex's distance to the nearest input triangle, as a share
 of the input's bounding diagonal). Memory is the app's own `peak_rss_mb` exit stat (Linux
 and Android; 0 elsewhere). `--stability` runs each tool once more on one thread and
-compares the two OBJ files byte for byte.
+compares the two OBJ files byte for byte. `--core cpp,odin` runs Quad Remesh once through
+each core (`retopo_core`: AutoRemesher's C++ pipeline whole, or the Odin driver a stage
+at a time), the Odin rows named `-odin`, and says in each Odin row's Check whether its OBJ
+is byte for byte the C++ row's; while every stage is the C++'s, a difference is a FAIL.
 
 The Check column holds the plan's acceptance (the report's section 7) per fixture: a
 closed fixture's Remesh must come back closed and manifold (every face a quad with
@@ -508,6 +512,15 @@ def check_run(tool, checks, info, result, requested, input_volume, spacing, stab
     return verdict
 
 
+def same_as_cpp(odin_obj, cpp_obj):
+    """Whether the Odin core's OBJ is the C++ core's byte for byte; None when either run
+    exported nothing (a refusal, which the Check column already judges)."""
+    if not os.path.exists(odin_obj) or not os.path.exists(cpp_obj):
+        return None
+    with open(odin_obj, "rb") as a, open(cpp_obj, "rb") as b:
+        return a.read() == b.read()
+
+
 def measure(out_obj, surface):
     if not os.path.exists(out_obj):
         return None
@@ -552,7 +565,12 @@ def main(argv):
     parser.add_argument("--keep", action="store_true", help="keep the exported OBJ files")
     parser.add_argument("--timeout", type=int, default=1800, help="seconds a run may take")
     parser.add_argument("--stability", action="store_true", help="run each tool again on one thread and compare the OBJ files")
+    parser.add_argument("--core", default="cpp", help="Quad Remesh's cores, comma separated: cpp, odin (cpp)")
     args = parser.parse_args(argv)
+    cores = [c.strip() for c in args.core.split(",") if c.strip()]
+    if not cores or any(c not in ("cpp", "odin") for c in cores):
+        print("--core takes cpp, odin or both, not %s" % args.core)
+        return 2
     EXE = args.app
     if not os.path.exists(EXE):
         print("no app at %s: build it first" % EXE)
@@ -566,12 +584,18 @@ def main(argv):
             print("no fixture %s; there are %s" % (args.only, ", ".join(names)))
             return 2
         names = [args.only]
-    rows, failed = [], 0
+    rows, failed, compared, identical = [], 0, 0, 0
     tools = [
         ("remesh", "set remesh_quads off; set rebuild_goal even; set rebuild_even %d; rebuild" % args.vertices, args.vertices, 0),
         ("remesh-quads", "set remesh_quads on; set rebuild_goal even; set rebuild_even %d; rebuild" % args.vertices, args.vertices, 1),
-        ("quad-remesh", "set retopo_close_first off; set retopo_quads %d; retopologize" % args.quads, args.quads, 2),
     ]
+    # Quad Remesh's runs, once a core: the C++ one keeps the plain name, so a cpp-only
+    # report reads as before, and an Odin run names the C++ run it must equal.
+    def quad_runs(close_first):
+        name = "quad-remesh-closed-first" if close_first else "quad-remesh"
+        script = "set retopo_close_first %s; set retopo_quads %d; retopologize" % ("on" if close_first else "off", args.quads)
+        return [(name if core == "cpp" else name + "-odin", "set retopo_core %s; %s" % (core, script), args.quads, 2) for core in cores]
+    tools += quad_runs(False)
     for name in names:
         if name == "real":
             fixture_obj = os.path.abspath(args.real)
@@ -581,7 +605,7 @@ def main(argv):
                 for i in range(1, len(f) - 1):
                     tris.append((f[0], f[i], f[i + 1]))
             remesh_checks, quad_checks = set(), set()
-            runs = tools + [("quad-remesh-closed-first", "set retopo_close_first on; set retopo_quads %d; retopologize" % args.quads, args.quads, 2)]
+            runs = tools + quad_runs(True)
         else:
             builder, remesh_checks, quad_checks = FIXTURES[name]
             verts, tris = builder()
@@ -596,6 +620,7 @@ def main(argv):
         input_volume = volume(verts, sound) if sound_verts else 0.0
         # Remesh's lattice spacing for the request (geom.remesh_spacing).
         spacing = math.sqrt(1.5 * area(verts, sound) / args.vertices) if sound else 0.0
+        kept = []
         for tool, script, requested, kind in runs:
             out_obj = os.path.join(OUT, "%s_%s.obj" % (name, tool))
             if os.path.exists(out_obj):
@@ -611,18 +636,39 @@ def main(argv):
                     os.remove(again)
             checks = remesh_checks if kind < 2 else quad_checks
             check = check_run(tool, checks, info, result, requested, input_volume, spacing if kind < 2 else 0.0, stable)
+            if tool.endswith("-odin") and "cpp" in cores:
+                same = same_as_cpp(out_obj, os.path.join(OUT, "%s_%s.obj" % (name, tool[:-len("-odin")])))
+                if same is not None:
+                    compared += 1
+                    if same:
+                        identical += 1
+                        check += ", the C++ core's bytes"
+                    elif check.startswith("PASS"):
+                        check = "FAIL (differs from the C++ core's OBJ)" + check[len("PASS"):]
+                    else:
+                        check += "; differs from the C++ core's OBJ"
             if check.startswith("FAIL"):
                 failed += 1
             line = row(name, tool, info, result, check)
             rows.append(line)
             print("  " + line, flush=True)
-            if not args.keep and os.path.exists(out_obj):
-                os.remove(out_obj)
-    report = "# remesh_check: %d vertices asked of Remesh, %d quads of Quad Remesh\n\n%s\n%s\n" % (args.vertices, args.quads, HEADER, "\n".join(rows))
+            kept.append(out_obj)
+        # The C++ run's OBJ stays until its Odin twin is compared, so the files go at the
+        # end of the fixture.
+        if not args.keep:
+            for obj in kept:
+                if os.path.exists(obj):
+                    os.remove(obj)
+    cores_line = ""
+    if compared:
+        cores_line = "\nThe Odin core's OBJ was byte for byte the C++ core's on %d of %d runs.\n" % (identical, compared)
+    report = "# remesh_check: %d vertices asked of Remesh, %d quads of Quad Remesh\n\n%s\n%s\n%s" % (args.vertices, args.quads, HEADER, "\n".join(rows), cores_line)
     path = os.path.join(OUT, "report.md")
     with open(path, "w", encoding="utf-8") as f:
         f.write(report)
     print("\n%s\n%s" % (HEADER, "\n".join(rows)))
+    if compared:
+        print(cores_line.strip())
     print("\n%d checks failed; the table is in %s" % (failed, os.path.relpath(path, ROOT)))
     return 1 if failed else 0
 

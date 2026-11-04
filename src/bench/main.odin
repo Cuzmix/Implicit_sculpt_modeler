@@ -19,7 +19,8 @@
 //   --skin       instead, the detail skin table, 50k to 1M by default (see run_skin)
 //   --brushes    instead, a stroke with each brush kind (see run_brushes)
 //   --remesh     instead, voxel remesh of a stretched sphere (see run_remesh)
-//   --quadremesh instead, Quad Remesh's engine on that sphere (see run_quadremesh)
+//   --quadremesh instead, Quad Remesh's engine on that sphere (see run_quadremesh);
+//                --core=cpp,odin runs it through each core named, one row each
 //   --dyntopo    instead, dynamic topology strokes (see run_dyntopo)
 //   --files      instead, OBJ, PLY and scene files written and read (see run_files)
 //   --masks      instead, every mask command on a half-masked sphere (see run_masks)
@@ -44,6 +45,7 @@ import "core:time"
 import "../camera"
 import "../geom"
 import "../jobs"
+import "../quadmesh"
 import "../sculpt"
 
 Vec3 :: geom.Vec3
@@ -67,6 +69,8 @@ skin := false
 brushes := false
 remesh := false
 quadremesh := false
+// --core: the cores --quadremesh runs through, the C++'s alone by default.
+quad_cores: bit_set[quadmesh.Core]
 dyntopo := false
 files := false
 masks := false
@@ -102,6 +106,10 @@ main :: proc() {
 			remesh = true
 		} else if arg == "--quadremesh" {
 			quadremesh = true
+		} else if strings.has_prefix(arg, "--core=") {
+			for name in strings.split(arg[7:], ",", context.temp_allocator) {
+				for core_name, core in quadmesh.CORE_NAMES do if name == core_name do quad_cores += {core}
+			}
 		} else if arg == "--dyntopo" {
 			dyntopo = true
 		} else if arg == "--files" {
@@ -170,7 +178,8 @@ main :: proc() {
 	}
 	if quadremesh {
 		quadremesh_header()
-		for c in cases do if c.meshes == 1 do run_quadremesh(c.vertices, pool)
+		if quad_cores == {} do quad_cores = {.Cpp}
+		for c in cases do if c.meshes == 1 do for core in quad_cores do run_quadremesh(c.vertices, pool, core)
 		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
 		return
 	}

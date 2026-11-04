@@ -1,8 +1,7 @@
 package quadmesh
 
-import "base:runtime"
-import "core:c"
-@(require) import "core:time" // used only where AVAILABLE
+import "core:os"
+import "core:time"
 
 import "../geom"
 import "../jobs"
@@ -15,6 +14,13 @@ import "../jobs"
 // seconds and hundreds of megabytes on a million triangles, and never ends on some
 // non-manifold input) and what it gets back (a few polygons may be triangles or pentagons,
 // and an edge may come back non-manifold on thin parts).
+//
+// Two sides run the pipeline (Params.core): the boundary's qm_remesh whole (cpp.odin), or
+// the Odin driver (driver.odin), which splits the mesh into islands, sizes and lands the
+// quad count and gathers the quads itself and calls the boundary's stage calls for the
+// rest, one at a time, checking what each gave (checks.odin) and writing it out when asked
+// (dump.odin). The stages move to Odin one by one behind the same seams, each checked
+// against the C++'s, which the driver matches byte for byte while every stage is the C++'s.
 
 // Built on the desktops only for now: Android's and the iPad's builds do not compile the
 // C++ yet, and the proc then refuses with .Unavailable (the Odin side compiles everywhere).
@@ -52,6 +58,23 @@ Params :: struct {
 	// the quads asked, which go to the rest. None by default.
 	cap:      geom.Remesh_Mirror,
 	cap_snap: f32,
+	// Which side runs the pipeline: the C++ core whole, or the Odin driver a stage at a
+	// time (driver.odin), where the stages are ported one by one and checked against the
+	// C++'s. Both give the same quads while every stage is the C++'s.
+	core: Core,
+	// A folder each stage's output is written to (dump.odin; the driver only), or "".
+	dump: string,
+}
+
+// Who runs the pipeline (Params.core).
+Core :: enum u8 {
+	Cpp, // qm_remesh: AutoRemesher's stages as the C++ boundary drives them
+	Odin, // the Odin driver, each stage the C++'s or, once ported, its Odin replacement
+}
+
+CORE_NAMES := [Core]string {
+	.Cpp  = "cpp",
+	.Odin = "odin",
 }
 
 // AutoRemesher's own values.
@@ -74,6 +97,7 @@ Report :: struct {
 	decimate_ms, isotropic_ms, parameterize_ms, extract_ms: f64, // the stages, summed over the islands (so over the threads)
 	isotropic_triangles:                                    int, // the isotropic meshes' triangles, over the islands
 	covers:                                                 int, // the quad covers solved, over the islands (up to three each)
+	checks:                                                 Checks, // what each stage gave (the Odin driver only)
 }
 
 Error :: enum u8 {
@@ -117,133 +141,24 @@ remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, progress:
 	if len(indices) % 3 != 0 do return {}, {}, .Refused, "the triangle list is not whole triangles"
 	for i in indices do if int(i) >= len(positions) do return {}, {}, .Refused, "a triangle names a vertex the mesh does not have"
 	if params.quads <= 0 do return {}, {}, .Refused, "no quads asked for"
-	when AVAILABLE {
-		start := time.tick_now()
-		tag := Progress_Tag{progress, share}
-		p := Qm_Params {
-			quads         = u32(params.quads),
-			adaptivity    = params.adaptivity,
-			sharp_degrees = params.sharp_degrees,
-			anisotropy    = params.anisotropy,
-			scaling       = params.scaling,
-			threads       = u32(clamp(params.threads, 1, MAX_THREADS)),
-			features      = raw_data(params.features) if len(params.features) >= 2 else nil,
-			feature_count = u32(len(params.features) / 2),
-			density       = raw_data(params.density) if len(params.density) == len(positions) else nil,
-			density_count = u32(len(params.density)) if len(params.density) == len(positions) else 0,
-			refine        = raw_data(params.refine) if len(params.refine) == len(positions) else nil,
-			refine_count  = u32(len(params.refine)) if len(params.refine) == len(positions) else 0,
-			guides         = ([^]f32)(raw_data(params.guides)),
-			guide_count    = u32(len(params.guides) / 2),
-			guide_strength = params.guide_strength,
-			cap_axes       = u32(params.cap.axes[0]) | u32(params.cap.axes[1]) << 1 | u32(params.cap.axes[2]) << 2,
-			cap_center     = params.cap.center,
-			cap_snap       = params.cap_snap,
-		}
-		message := make([]u8, REASON_MAX, context.temp_allocator)
-		result: ^Qm_Result
-		code := qm_remesh(cast([^]f32)raw_data(positions), u32(len(positions)), raw_data(indices), u32(len(indices) / 3), &p, progress_c, &tag, &result, raw_data(message), c.size_t(len(message)))
-		switch code {
-		case QM_OK:
-		case QM_CANCELLED:
-			return {}, {}, .Cancelled, ""
-		case:
-			return {}, {}, .Failed, string(cstring(raw_data(message)))
-		}
-		defer qm_free(result)
-		vertices, faces, corners: u32
-		qm_counts(result, &vertices, &faces, &corners)
-		out.positions = make([]geom.Vec3, vertices, allocator)
-		out.first = make([]u32, faces + 1, allocator)
-		out.corners = make([]u32, corners, allocator)
-		qm_copy(result, cast([^]f32)raw_data(out.positions), raw_data(out.first), raw_data(out.corners))
-		report.faces = int(faces)
-		report.quads, report.triangles, report.ngons = polygon_share(out)
-		times: Qm_Times
-		qm_times(result, &times)
-		report.decimate_ms = f64(times.decimate_ms)
-		report.isotropic_ms = f64(times.isotropic_ms)
-		report.parameterize_ms = f64(times.parameterize_ms)
-		report.extract_ms = f64(times.extract_ms)
-		report.isotropic_triangles = int(times.isotropic_triangles)
-		report.covers = int(times.covers)
-		report.ms = time.duration_milliseconds(time.tick_since(start))
-		return out, report, .None, ""
-	} else {
-		return {}, {}, .Unavailable, "Quad Remesh is not built for this platform"
+	start := time.tick_now()
+	times: Qm_Times
+	switch params.core {
+	case .Cpp:
+		out, times, err, reason = cpp_remesh(positions, indices, params, progress, share, allocator)
+	case .Odin:
+		if params.dump != "" do _ = os.make_directory_all(params.dump)
+		out, times, report.checks, err, reason = driver_remesh(positions, indices, params, progress, share, allocator)
 	}
-}
-
-// What the progress handler gets as its tag.
-@(private = "file")
-Progress_Tag :: struct {
-	progress: ^jobs.Progress,
-	share:    [2]f32,
-}
-
-// AutoRemesher's progress, from the remesh's own threads: 0 to 1 onto the caller's share,
-// and the caller's cancel back as "stop".
-@(private = "file")
-progress_c :: proc "c" (tag: rawptr, fraction: f32, stage: cstring) -> c.int {
-	context = runtime.default_context()
-	t := (^Progress_Tag)(tag)
-	jobs.progress_set(t.progress, t.share[0], t.share[1], fraction)
-	return 0 if jobs.progress_cancelled(t.progress) else 1
-}
-
-// The C boundary, quadmesh_shim.h.
-@(private = "file")
-Qm_Params :: struct {
-	quads:         u32,
-	adaptivity:    f32,
-	sharp_degrees: f32,
-	anisotropy:    f32,
-	scaling:       f32,
-	threads:       u32,
-	features:      [^]u32,
-	feature_count: u32,
-	density:       [^]f32,
-	density_count: u32,
-	refine:        [^]f32,
-	refine_count:  u32,
-	guides:         [^]f32,
-	guide_count:    u32,
-	guide_strength: f32,
-	cap_axes:       u32,
-	cap_center:     [3]f32,
-	cap_snap:       f32,
-}
-
-@(private = "file")
-Qm_Result :: struct {}
-
-@(private = "file")
-Qm_Times :: struct {
-	decimate_ms, isotropic_ms, parameterize_ms, extract_ms, total_ms: f32,
-	isotropic_triangles, covers:                                      u32,
-}
-
-@(private = "file")
-QM_OK :: 0
-@(private = "file")
-QM_CANCELLED :: 2
-
-when AVAILABLE {
-	when ODIN_OS == .Windows {
-		// Built with /MT, as the app is.
-		foreign import lib "../../deps/autoremesher/autoremesher.lib"
-	} else when ODIN_OS == .Darwin {
-		foreign import lib {"../../deps/autoremesher/libautoremesher.a", "system:c++"}
-	} else {
-		foreign import lib {"../../deps/autoremesher/libautoremesher.a", "system:stdc++", "system:m"}
-	}
-
-	@(default_calling_convention = "c")
-	foreign lib {
-		qm_remesh :: proc(positions: [^]f32, vertex_count: u32, triangles: [^]u32, triangle_count: u32, params: ^Qm_Params, progress: proc "c" (tag: rawptr, fraction: f32, stage: cstring) -> c.int, tag: rawptr, out: ^^Qm_Result, error: [^]u8, error_size: c.size_t) -> c.int ---
-		qm_counts :: proc(r: ^Qm_Result, vertices, faces, corners: ^u32) ---
-		qm_copy :: proc(r: ^Qm_Result, positions: [^]f32, first: [^]u32, corners: [^]u32) ---
-		qm_times :: proc(r: ^Qm_Result, times: ^Qm_Times) ---
-		qm_free :: proc(r: ^Qm_Result) ---
-	}
+	if err != .None do return {}, {}, err, reason
+	report.faces = len(out.first) - 1
+	report.quads, report.triangles, report.ngons = polygon_share(out)
+	report.decimate_ms = f64(times.decimate_ms)
+	report.isotropic_ms = f64(times.isotropic_ms)
+	report.parameterize_ms = f64(times.parameterize_ms)
+	report.extract_ms = f64(times.extract_ms)
+	report.isotropic_triangles = int(times.isotropic_triangles)
+	report.covers = int(times.covers)
+	report.ms = time.duration_milliseconds(time.tick_since(start))
+	return out, report, .None, ""
 }
