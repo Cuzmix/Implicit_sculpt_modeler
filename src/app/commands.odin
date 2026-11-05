@@ -2871,6 +2871,7 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 
 // The first key chord bound to the command, as menus and tooltips show it, or "".
 command_keys :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
+	if app.kit.keyless do return ""
 	for b in keymap(app) do if b.command == id && b.arg == arg do return chord_text(b.chord)
 	return ""
 }

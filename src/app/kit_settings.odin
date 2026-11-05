@@ -132,3 +132,15 @@ speed_slider :: proc(ctx: ^ui.Context, label: string, value: ^f32) {
 key_or :: proc(keys, fallback: string) -> string {
 	return keys if keys != "" else fallback
 }
+
+// The command's keys, or with no keyboard its name, for a sentence that starts with
+// whatever runs it ("D goes up", "Level up goes up").
+keys_or_name :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
+	return key_or(command_keys(app, id, arg), command_label(id, arg))
+}
+
+// The command's keys in brackets after a space (" (Ctrl+K)"), or "" with none.
+keys_paren :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
+	keys := command_keys(app, id, arg)
+	return fmt.tprintf(" (%s)", keys) if keys != "" else ""
+}

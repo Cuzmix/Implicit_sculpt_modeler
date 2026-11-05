@@ -199,7 +199,8 @@ dock_named :: proc(app: ^App, d: Dock_Id) -> bool {
 	switch k.docks[d].names {
 	case .Off:    return false
 	case .Always: return true
-	case .Wide:   return ui.safe_area(&k.ctx).w >= DOCK_NAMES_WIDE
+	// The rail's buttons are named on a touch screen too, as no tooltip shows there.
+	case .Wide:   return ui.safe_area(&k.ctx).w >= DOCK_NAMES_WIDE || (d == .Rail && (MOBILE || k.keyless))
 	}
 	return false
 }

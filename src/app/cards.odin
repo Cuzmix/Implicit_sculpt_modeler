@@ -92,15 +92,16 @@ OBJECT_CARDS :: bit_set[Card]{.Mesh, .Mask, .Deform, .Paint}
 // Every section, grouped by the card that holds it and in the order it shows there
 // (section_card). Files and scripts name a section by its name, never by number.
 Section :: enum u8 {
-	// The Tool card: the brush (or the tool held), then the brush's sections.
+	// The Tool card: the brush (or the tool held), then the brush's sections, those it is
+	// changed by most first (section_group's Common) and the rest under More.
 	Brush,
-	Preset,
 	Stroke,
+	Falloff,
+	Alpha,
 	Paint_Color,
 	Recall,
-	Falloff,
+	Preset,
 	Samples,
-	Alpha,
 	Pen,
 	Options,
 	Recorder,
@@ -112,16 +113,16 @@ Section :: enum u8 {
 	History,
 	Details,
 	References,
-	// Mesh.
+	// Mesh, in four groups (section_group): Resolution, Rebuild, Combine and Surface.
 	Levels,
 	Hd,
 	Topology,
 	Remesh,
-	Mirror,
 	Voxels,
-	Retopo,
 	Booleans,
 	Extract,
+	Mirror,
+	Retopo,
 	Project,
 	// Mask.
 	Mask,
@@ -173,6 +174,25 @@ section_card :: proc(sec: Section) -> Card {
 	case .Render ..= .Print:       return .Render
 	}
 	return .Tool
+}
+
+// The group a long card's section `sec` belongs to, named over the first of its sections
+// shown, or "" for a section in none. The Tool card's are Common and More; the Mesh card's ten sections fall into what changes
+// the mesh's resolution, what rebuilds it, what joins or splits it and what lays a surface
+// over it.
+section_group :: proc(sec: Section) -> string {
+	#partial switch sec {
+	// The brush with its size and strength, its stroke, falloff and alpha are what a brush
+	// is changed by most; a painting brush's colour and the History brush's step join them
+	// while they show, as those brushes ask for nothing sooner.
+	case .Brush, .Stroke, .Falloff, .Alpha, .Paint_Color, .Recall: return "COMMON"
+	case .Preset, .Samples, .Pen, .Options, .Recorder:            return "MORE"
+	case .Levels, .Hd, .Topology:        return "RESOLUTION"
+	case .Remesh, .Voxels:               return "REBUILD"
+	case .Booleans, .Extract, .Mirror:   return "COMBINE"
+	case .Retopo, .Project:              return "SURFACE"
+	}
+	return ""
 }
 
 // The sections a fresh layout shows folded: on each card all but the first few, so a card
@@ -602,12 +622,22 @@ card_body :: proc(app: ^App, c: Card, inner: f32, body_y: f32, scroll: f32) -> (
 	defer ctx.hints = hints
 	sections := card_sections(app, c)
 	for sec, i in sections {
-		if len(sections) == 1 || sec == .Brush {
+		if len(sections) == 1 {
+			section_draw(app, sec, inner)
+			continue
+		}
+		// A group's caption stands in for the divider over its first section.
+		if group := section_group(sec); group != "" && (i == 0 || section_group(sections[i - 1]) != group) {
+			if i > 0 do ui.spacer(ctx, 6)
+			ui.caption(ctx, group)
+		} else if i > 0 {
+			ui.divider(ctx, inner, across = true)
+		}
+		if sec == .Brush {
 			section_draw(app, sec, inner)
 			continue
 		}
 		open := sec not_in k.cards.shut
-		if i > 0 do ui.divider(ctx, inner, across = true)
 		g := ui.area(ctx, fmt.tprintf("%s##section", section_title(sec)), {inner, 36})
 		if r, ok := k.cards.reveal.?; ok && r == sec do reveal_at = g.rect.y - body_y + scroll
 		if g.hovered || g.held do ui.fill_rect(ctx, g.rect, t.radius_medium, t.fill_pressed if g.held else t.fill_hover)
