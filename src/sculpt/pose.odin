@@ -28,10 +28,10 @@ Pose_Kind :: enum {
 Pose :: struct {
 	kind:   Pose_Kind,
 	pivot:  Vec3, // what turns and scales go about
-	axis:   Vec3, // Turn: the unit axis through the pivot
+	axis:   Vec3, // Turn: the unit axis through the pivot; Scale: the axis it stretches along, or zero for an even scale
 	angle:  f32,  // Turn: radians, right-handed about the axis
 	delta:  Vec3, // Move: the offset
-	factor: f32,  // Scale: the factor for a free vertex
+	factor: f32,  // Scale: the factor for a free vertex; with `axis` set, along that unit axis only (a stretch)
 	deform: Deform, // Deform: which, along what and how much
 	lattice: Lattice_Move, // Lattice: the point and its move
 	reshape: Reshape, // Reshape: which, along what and how much
@@ -158,7 +158,9 @@ sculptor_pose_apply :: proc(s: ^Sculptor, p: Pose) {
 			case .Move:
 				positions[k] = a + w * p.delta
 			case .Scale:
-				positions[k] = p.pivot + (a - p.pivot) * (1 + w * (p.factor - 1))
+				f := 1 + w * (p.factor - 1)
+				if job.axis == {} do positions[k] = p.pivot + (a - p.pivot) * f
+				else do positions[k] = a + job.axis * (linalg.dot(a - p.pivot, job.axis) * (f - 1))
 			case .Turn:
 				if job.axis == {} {
 					positions[k] = a

@@ -4,6 +4,7 @@
 // interface, the renderer or meshes.
 package gizmo
 
+import "core:math"
 import "core:math/linalg"
 
 Vec2 :: [2]f32
@@ -27,7 +28,11 @@ Handle :: enum u8 {
 	Turn_Y,
 	Turn_Z,
 	Turn_View,
-	Scale, // the centre disc and the circle round it
+	Scale, // the centre disc and the circle round it, and the All mode's white knob: even
+	// The knobs on the arms, each stretching along its axis, as ZBrush's Gizmo 3D's boxes do.
+	Scale_X,
+	Scale_Y,
+	Scale_Z,
 }
 
 // What the gizmo's handles do: move, turn or scale, or all three at once (as ZBrush's,
@@ -79,11 +84,13 @@ Screen :: struct {
 	ring_front: [4][RING_POINTS]bool,
 	ring_ok:    [4]bool,
 	arm_px:     f32, // an arm's length on screen, which the scale circle's radius is too
-	// The All mode's arrow tips, out past the rings, and its scale knobs on the arms
-	// inside them; set only for that mode.
+	// The All mode's arrow tips, out past the rings, set only for that mode; the stretch
+	// knobs on the arms (the All and Scale modes'), and the All mode's even-scale knob on
+	// the view ring, up and to the right of the middle.
 	ends:       [3]Vec2,
 	end_ok:     [3]bool,
 	knobs:      [3]Vec2,
+	uniform:    Vec2,
 	ok:         bool,
 }
 
@@ -99,12 +106,15 @@ screen :: proc(view_proj: Mat4, center: Vec3, arm: f32, toward_eye: Vec3, size: 
 	for axis, i in AXES {
 		s.tips[i], s.tip_ok[i] = project(view_proj, center + axis * arm, size)
 		s.rings[i], s.ring_front[i], s.ring_ok[i] = ring(view_proj, center, axis, radius, toward_eye, size)
-		if mode == .All {
-			s.ends[i], s.end_ok[i] = project(view_proj, center + axis * (arm * ALL_ARM), size)
-			s.knobs[i], _ = project(view_proj, center + axis * (arm * KNOB_AT), size)
-		}
+		if mode == .All do s.ends[i], s.end_ok[i] = project(view_proj, center + axis * (arm * ALL_ARM), size)
+		if mode == .All || mode == .Scale do s.knobs[i], _ = project(view_proj, center + axis * (arm * KNOB_AT), size)
 	}
 	s.rings[3], _, s.ring_ok[3] = ring(view_proj, center, toward_eye, radius * VIEW_RING_SCALE, toward_eye, size)
+	if mode == .All {
+		// The view ring is a circle on screen whatever the view: the knob sits on it at 45°.
+		r := linalg.length(s.rings[3][0] - s.center)
+		s.uniform = s.center + Vec2{1, -1} * (r * 0.70710678)
+	}
 	for &f in s.ring_front[3] do f = true
 	return
 }
@@ -149,6 +159,11 @@ pick :: proc(s: Screen, mode: Mode, mouse: Vec2, radius: f32) -> Handle {
 		dist := linalg.length(d)
 		if dist <= SCALE_DISC_PX * k + grow do return .Scale
 		consider(&best, &best_dist, .Scale, abs(dist - s.arm_px))
+		// The stretch knobs inside the circle win over it.
+		for i in 0 ..< 3 {
+			if !arm_shows(s, i) do continue
+			consider(&best, &best_dist, Handle(int(Handle.Scale_X) + i), max(linalg.length(mouse - s.knobs[i]) - (KNOB_PX * k + grow), 0))
+		}
 	case .All:
 		// The middle moves in the view plane, as in Move. Where handles cross (a ring over
 		// an arm), the later considered wins a tie: the arms over the rings, and a knob over
@@ -172,10 +187,27 @@ pick :: proc(s: Screen, mode: Mode, mouse: Vec2, radius: f32) -> Handle {
 		}
 		for i in 0 ..< 3 {
 			if !all_arm_shows(s, i) do continue
-			consider(&best, &best_dist, .Scale, max(linalg.length(mouse - s.knobs[i]) - (KNOB_PX * k + grow), 0))
+			consider(&best, &best_dist, Handle(int(Handle.Scale_X) + i), max(linalg.length(mouse - s.knobs[i]) - (KNOB_PX * k + grow), 0))
 		}
+		// The even-scale knob over the view ring it sits on.
+		if s.ring_ok[3] do consider(&best, &best_dist, .Scale, max(linalg.length(mouse - s.uniform) - (KNOB_PX * k + grow), 0))
 	}
 	return best
+}
+
+// The axis a stretch knob stretches along, as 0, 1 or 2; -1 for any other handle.
+stretch_axis :: proc(h: Handle) -> int {
+	if h >= .Scale_X && h <= .Scale_Z do return int(h) - int(Handle.Scale_X)
+	return -1
+}
+
+// The factor a drag from `from` to `to` stretches by along an arm seen from `center` to
+// `knob` on screen: e (2.718) for a drag of `arm_px` outward along it, its inverse inward,
+// as scale_factor is for the even scale.
+stretch_factor :: proc(center, knob, from, to: Vec2, arm_px: f32) -> f32 {
+	along := linalg.normalize0(knob - center)
+	if along == {} do return 1
+	return math.exp(linalg.dot(to - from, along) / max(arm_px, 1))
 }
 
 // Whether the All mode's arm `i` shows, with its arrow and knob: as an arm does, and its

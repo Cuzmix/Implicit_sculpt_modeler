@@ -13128,6 +13128,7 @@ GIZMO_CHIPS = {"move": (670, 766), "turn": (736, 766), "scale": (799, 766), "all
 GIZMO_ALL_X_ARROW = (GIZMO_CENTER[0] + 99, GIZMO_CENTER[1] + 21)
 GIZMO_ALL_Y_KNOB = (GIZMO_CENTER[0], GIZMO_CENTER[1] - 54)
 GIZMO_ALL_VIEW_RING = (GIZMO_CENTER[0] - 68, GIZMO_CENTER[1] - 68)
+GIZMO_ALL_UNIFORM = (GIZMO_CENTER[0] + 68, GIZMO_CENTER[1] - 68)  # the white knob on the view ring
 
 
 def transform_is(test):
@@ -13239,17 +13240,19 @@ def gizmo_chips_switch_the_mode():
 @scenario
 def gizmo_all_moves_turns_and_scales():
     """The All gizmo (W four times) does the three with no switching: the mouse on the X
-    arrow moves the sphere along x only, a finger on the Y knob scales it evenly about its
-    middle, and the mouse round the view ring turns it, each one undo step; Ctrl+Z after
-    all three puts it back."""
-    arrow, knob, ring, undone = Script(), Script(), Script(), Script()
-    for sc in (arrow, knob, ring, undone):
+    arrow moves the sphere along x only, a finger on the Y knob stretches the mesh along y
+    (the object's own scale stays), the white knob on the view ring scales it evenly about
+    its middle, and the mouse round the view ring turns it, each one undo step; Ctrl+Z
+    after the arrow, the knob and the ring puts it back."""
+    arrow, knob, even, ring, undone = Script(), Script(), Script(), Script(), Script()
+    for sc in (arrow, knob, even, ring, undone):
         gizmo_mode(sc, 3)
     for sc in (arrow, undone):
         sc.mouse_drag(line(GIZMO_ALL_X_ARROW, (GIZMO_ALL_X_ARROW[0] + 40, GIZMO_ALL_X_ARROW[1] + 8), 6))
     for sc in (knob, undone):
         sc.fdrag(line(GIZMO_ALL_Y_KNOB, (GIZMO_ALL_Y_KNOB[0], GIZMO_ALL_Y_KNOB[1] - 60), 9))
         sc.wait(4)
+    even.mouse_drag(line(GIZMO_ALL_UNIFORM, (GIZMO_ALL_UNIFORM[0] + 40, GIZMO_ALL_UNIFORM[1] - 40), 6))
     for sc in (ring, undone):
         sc.mouse_drag(line(GIZMO_ALL_VIEW_RING, (GIZMO_ALL_VIEW_RING[0] + 40, GIZMO_ALL_VIEW_RING[1] - 30), 6))
     for _ in range(3):
@@ -13260,7 +13263,9 @@ def gizmo_all_moves_turns_and_scales():
     home = is_text("0.0000,0.0000,0.0000,0.000,0.000,0.000,1.0000")
     return Steps([
         (arrow, [], camera_still({"gizmo_mode": is_text("all"), "gizmo_last": is_text("x"), "transform": along_x, "undo_steps": near(1)})),
-        (knob, [], camera_still(gizmo_where({"gizmo_last": is_text("scale"), "transform": grew, "undo_steps": near(1), "dabs": near(0)}))),
+        (knob, [], camera_still(gizmo_where({"gizmo_last": is_text("scale_y"), "transform": home, "undo_steps": near(1), "dabs": near(0),
+                                              "last_step": is_text("Scale_Y")}))),
+        (even, [], camera_still(gizmo_where({"gizmo_last": is_text("scale"), "transform": grew, "undo_steps": near(1)}))),
         (ring, [], camera_still(gizmo_where({"gizmo_last": is_text("turn_view"), "transform": turned, "undo_steps": near(1)}))),
         (undone, [], camera_still({"gizmo_drags": near(3), "transform": home, "transform_undo": near(0), "redo_steps": near(3)})),
     ])
