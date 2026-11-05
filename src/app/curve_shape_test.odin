@@ -6,6 +6,7 @@ import "core:testing"
 
 import "../camera"
 import "../geom"
+import "../sculpt"
 
 // Each shape sits round its middle at the size asked: the circle's points on the circle and
 // its curve close to it between them, the line's and the spiral's ends at the size, the helix
@@ -62,6 +63,7 @@ curve_shape_added_at_the_view_centre :: proc(t: ^testing.T) {
 	defer {
 		for obj in app.scene.objects {
 			curve_part_free(obj)
+			sculpt.levels_destroy(&obj.levels)
 			delete(obj.name)
 			free(obj)
 		}

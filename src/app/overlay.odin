@@ -261,7 +261,10 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		draw_gizmo(app, o, input)
 	case .Curve, .Insert:
 		draw_curve_overlay(app, o)
-		if app.tool == .Curve && app.curve.kind == .Curve do draw_curve_edit(app, o, input.size)
+		if app.tool == .Curve && app.curve.kind == .Curve {
+			draw_curve_edit(app, o, input.size)
+			draw_curve_gizmo(app, o, input)
+		}
 	case .Model:
 		draw_model_overlay(app, o, input)
 	}
@@ -289,19 +292,29 @@ draw_gizmo :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		}
 	}
 	active := m.drag.handle if m.drag.handle != .None else m.hover
-	px := gizmo_scale(app)
+	turning := m.drag.live && drag_mode(m.drag.handle) == .Turn
+	scaling := m.drag.live && m.drag.handle == .Scale
+	draw_gizmo_shape(o, sc, m.mode, active, gizmo_scale(app), gizmo_stretches(app), turning, scaling, m.drag.center, input.mouse_pos)
+	draw_move_labels(app, o, input)
+}
+
+// A gizmo seen as `sc` in `mode`, `active` lit: the Move tool's on an object, or the Curve
+// tool's on picked points. `stretches` colours the scale knobs by axis (white where every
+// knob scales evenly); while `turning`, a line from the middle to `mouse`, the angle turned;
+// while `scaling`, a circle about `scale_center` through `mouse`, which the factor follows.
+draw_gizmo_shape :: proc(o: Overlay, sc: gizmo.Screen, mode: gizmo.Mode, active: gizmo.Handle, px: f32, stretches, turning, scaling: bool, scale_center, mouse: [2]f32) {
 	colors := GIZMO_AXIS_COLORS
 	color_of :: proc(h, active: gizmo.Handle, c: [4]f32) -> ui.Color {
 		return overlay_color(GIZMO_HIGHLIGHT if h == active else c)
 	}
-	switch m.mode {
+	switch mode {
 	case .Move:
 		draw_move_handles(o, sc, active, px)
 		r := f32(gizmo.CENTER_PX) * px
 		overlay_box(o, sc.center - r, sc.center + r, color_of(.View, active, {1, 1, 1, 0.85}), {}, 2 * px)
 	case .Turn:
 		draw_turn_rings(o, sc, active, px)
-		draw_turn_drag(app, o, sc, input, px)
+		if turning do overlay_line(o, sc.center, mouse, overlay_color(GIZMO_HIGHLIGHT), 1.5 * px)
 		overlay_disc(o, sc.center, 3 * px, overlay_color({1, 1, 1, 0.85}))
 	case .Scale:
 		color := color_of(.Scale, active, {1, 1, 1, 0.85})
@@ -310,12 +323,12 @@ draw_gizmo :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		// The stretch knobs on short arms from the disc, so which way each stretches reads.
 		for i in 0 ..< 3 {
 			if !gizmo.arm_shows(sc, i) do continue
-			c := knob_color(app, i, active)
+			c := knob_color(i, active, stretches)
 			from := sc.center + linalg.normalize0(sc.knobs[i] - sc.center) * (gizmo.SCALE_DISC_PX * px)
 			overlay_line(o, from, sc.knobs[i], c, 2 * px)
 			draw_knob(o, sc.knobs[i], c, px)
 		}
-		draw_scale_drag(app, o, input, px)
+		if scaling do overlay_circle(o, scale_center, linalg.length(mouse - scale_center), overlay_color({1, 0.85, 0.3, 0.6}), 1.5 * px)
 	case .All:
 		// Rings first, then the squares, arms and knobs over them, in the order they pick.
 		draw_turn_rings(o, sc, active, px)
@@ -331,15 +344,14 @@ draw_gizmo :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		// scales evenly.
 		for i in 0 ..< 3 {
 			if !gizmo.all_arm_shows(sc, i) do continue
-			draw_knob(o, sc.knobs[i], knob_color(app, i, active), px)
+			draw_knob(o, sc.knobs[i], knob_color(i, active, stretches), px)
 		}
 		if sc.ring_ok[3] do draw_knob(o, sc.uniform, color_of(.Scale, active, {1, 1, 1, 0.95}), px)
 		r := f32(gizmo.CENTER_PX) * px
 		overlay_box(o, sc.center - r, sc.center + r, color_of(.View, active, {1, 1, 1, 0.85}), {}, 2 * px)
-		draw_turn_drag(app, o, sc, input, px)
-		draw_scale_drag(app, o, input, px)
+		if turning do overlay_line(o, sc.center, mouse, overlay_color(GIZMO_HIGHLIGHT), 1.5 * px)
+		if scaling do overlay_circle(o, scale_center, linalg.length(mouse - scale_center), overlay_color({1, 0.85, 0.3, 0.6}), 1.5 * px)
 	}
-	draw_move_labels(app, o, input)
 }
 
 // A scale knob: a dark square with an outline of `color`.
@@ -352,9 +364,8 @@ draw_knob :: proc(o: Overlay, at: [2]f32, color: ui.Color, px: f32) {
 // The colour of arm `i`'s scale knob: its axis's when it stretches, white when every knob
 // scales evenly (gizmo_stretches), the highlight while under the pointer or dragged.
 @(private = "file")
-knob_color :: proc(app: ^App, i: int, active: gizmo.Handle) -> ui.Color {
+knob_color :: proc(i: int, active: gizmo.Handle, stretches: bool) -> ui.Color {
 	h := gizmo.Handle(int(gizmo.Handle.Scale_X) + i)
-	stretches := gizmo_stretches(app)
 	lit := active == h || !stretches && active == .Scale
 	colors := GIZMO_AXIS_COLORS
 	c := colors[i] if stretches else [4]f32{1, 1, 1, 0.95}
@@ -377,24 +388,6 @@ draw_turn_rings :: proc(o: Overlay, sc: gizmo.Screen, active: gizmo.Handle, px: 
 			if !sc.ring_front[i][k] || !sc.ring_front[i][next] do shade.a *= 0.3
 			overlay_line(o, sc.rings[i][k], sc.rings[i][next], overlay_color(GIZMO_HIGHLIGHT if h == active else shade), width)
 		}
-	}
-}
-
-// While a ring is dragged, a line from the middle to the pointer: the angle the drag is
-// turning through.
-@(private = "file")
-draw_turn_drag :: proc(app: ^App, o: Overlay, sc: gizmo.Screen, input: Viewport_Input, px: f32) {
-	if d := app.move.drag; d.live && drag_mode(d.handle) == .Turn {
-		overlay_line(o, sc.center, input.mouse_pos, overlay_color(GIZMO_HIGHLIGHT), 1.5 * px)
-	}
-}
-
-// While the scale is dragged, a circle through the pointer about the middle: how far out
-// it is, which is what the factor follows.
-@(private = "file")
-draw_scale_drag :: proc(app: ^App, o: Overlay, input: Viewport_Input, px: f32) {
-	if d := app.move.drag; d.live && d.handle == .Scale {
-		overlay_circle(o, d.center, linalg.length(input.mouse_pos - d.center), overlay_color({1, 0.85, 0.3, 0.6}), 1.5 * px)
 	}
 }
 

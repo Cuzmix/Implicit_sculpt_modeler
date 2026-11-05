@@ -516,6 +516,10 @@ curve_key_taken :: proc(app: ^App, chord: Chord) -> bool {
 		return true
 	case KEY_A, KEY_DELETE, KEY_BACKSPACE:
 		return app.curve.editing
+	case KEY_G, KEY_R, KEY_S:
+		return curve_gizmo_shown(app)
+	case KEY_X, KEY_Y, KEY_Z, KEY_RETURN, KEY_KP_ENTER, KEY_ESCAPE:
+		return app.curve.xform.keys
 	}
 	return false
 }
@@ -525,6 +529,17 @@ curve_keys :: proc(app: ^App) {
 	if !curve_key_taken(app, {key = KEY_TAB}) do return
 	if chord_down(d, {key = KEY_TAB}) do app.curve.editing = !app.curve.editing
 	if !app.curve.editing do return
+	// G, R and S move, turn and scale the picked points with the pointer; X, Y and Z keep
+	// it to an axis; Enter keeps it and Escape puts the points back.
+	if chord_down(d, {key = KEY_G}) do curve_xform_key(app, .View)
+	if chord_down(d, {key = KEY_R}) do curve_xform_key(app, .Turn_View)
+	if chord_down(d, {key = KEY_S}) do curve_xform_key(app, .Scale)
+	if app.curve.xform.keys {
+		for k, i in ([3]Key{KEY_X, KEY_Y, KEY_Z}) do if chord_down(d, {key = k}) do curve_xform_axis(app, i)
+		if chord_down(d, {key = KEY_RETURN}) || chord_down(d, {key = KEY_KP_ENTER}) do curve_xform_end(app)
+		if chord_down(d, {key = KEY_ESCAPE}) do curve_xform_cancel(app)
+		return
+	}
 	if chord_down(d, {key = KEY_A}) do curve_select_all(app)
 	if chord_down(d, {key = KEY_DELETE}) || chord_down(d, {key = KEY_BACKSPACE}) do curve_delete_point(app)
 }
