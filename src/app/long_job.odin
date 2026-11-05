@@ -279,7 +279,8 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 	// compacted into a copy first, as the commands read it. Quad Remesh works out normals
 	// on its input and Convert to voxels keeps to a copy as before.
 	j.borrowed = cmd.kind == .Remesh && !object_dynamic(obj)
-	j.two_phase = j.borrowed && long_job_holdable(obj)
+	// Building levels fits the top onto the old surface, which a hold lets go first.
+	j.two_phase = j.borrowed && long_job_holdable(obj) && cmd.remesh.levels == 0
 	j.computed_mesh, j.resume, j.resumed, j.held, j.sets_lost = false, {}, false, false, 0
 	if j.borrowed {
 		m := object_mesh(obj)
@@ -362,7 +363,7 @@ long_job_thread :: proc(data: rawptr) {
 	}
 	#partial switch j.cmd.kind {
 	case .Remesh:
-		j.mesh, j.built = geom.remesh_voxel_measured(j.input, j.area, j.bounds, j.cmd.vertices, &j.pool, progress = &j.progress, share = {0, share}, options = remesh_options(j.cmd.remesh, j.groups, j.color != nil || j.groups != nil || j.mask != nil), report = &j.remesh)
+		j.mesh, j.built = geom.remesh_voxel_measured(j.input, j.area, j.bounds, remesh_base_count(j.cmd.vertices, j.cmd.remesh), &j.pool, progress = &j.progress, share = {0, share}, options = remesh_options(j.cmd.remesh, j.groups, j.color != nil || j.groups != nil || j.mask != nil), report = &j.remesh)
 		if j.built do j.surface = remesh_surface(j.remesh, j.mesh, j.input, j.color, j.groups, j.mask)
 		// The input is read for the last time: the frame may let the old object go before
 		// the new one is made ready (long_job_hold), and says when to go on.
@@ -405,21 +406,14 @@ long_job_thread :: proc(data: rawptr) {
 long_job_prepare :: proc(j: ^Long_Job, normals: bool) {
 	if !j.built || jobs.progress_cancelled(&j.progress) do return
 	share := [2]f32{JOB_COMPUTE_SHARE[j.cmd.kind], 1}
-	if j.surface.color != nil || j.surface.groups != nil || j.surface.mask != nil || j.remesh.quads != nil {
-		// The surface's parts and the quads follow the renumbering onto the level, as
-		// object_build_from and remesh_apply take them on the frame thread.
-		old_to_new := make([]u32, len(j.mesh.positions))
-		defer delete(old_to_new)
-		tri_from := make([]u32, len(j.mesh.indices) / 3)
-		defer delete(tri_from)
-		sculpt.levels_init(&j.levels, j.mesh, &j.pool, old_to_new = old_to_new, tri_from = tri_from, progress = &j.progress, share = share)
-		sculpt.levels_take_surface(&j.levels, j.surface.color, j.surface.groups, old_to_new, tri_from, j.surface.mask)
-		if j.remesh.quads != nil do remesh_take_quads(&j.levels, j.remesh.quads, old_to_new, tri_from)
-	} else {
-		sculpt.levels_init(&j.levels, j.mesh, &j.pool, progress = &j.progress, share = share)
-	}
+	// A remesh's levels take most of what is left after its base.
+	levels := j.cmd.remesh.levels if j.cmd.kind == .Remesh else 0
+	init := share if levels == 0 else {share[0], share[0] + 0.25 * (share[1] - share[0])}
+	levels_prepare(&j.levels, j.mesh, j.surface, j.remesh.quads, &j.pool, &j.progress, init)
 	j.mesh = {}
 	if normals do sculpt.sculptor_recompute_all(&sculpt.levels_current(&j.levels).sculptor)
+	// The input is still the old surface here: a remesh with levels is never held.
+	if levels > 0 do _ = remesh_build_levels(&j.levels, j.input, j.cmd.remesh, j.remesh.cell, &j.pool, &j.progress, {init[1], share[1]})
 	// The simplified copies too, so the result orbits at full speed from its first frame
 	// instead of drawing everything while the frames build them.
 	if !jobs.progress_cancelled(&j.progress) do _, _ = sculpt.sculptor_lod_update(&sculpt.levels_current(&j.levels).sculptor, finish = true)

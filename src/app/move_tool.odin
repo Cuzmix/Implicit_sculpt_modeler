@@ -29,7 +29,6 @@ Move_Tool :: struct {
 	// The Pivot latch: the next press on a surface puts the pivot there instead of
 	// selecting or moving, and lets go.
 	pivot_latch: bool,
-	pivot: Gizmo_Pivot,
 	// Edit pivot: the move handles move the pivot instead of the object (remembered while
 	// the app runs).
 	pivot_edit: bool,
@@ -70,12 +69,14 @@ ICON_PIVOT_RESET :: rune(0xe14c)
 ICON_PIVOT_UNMASKED :: rune(0xe4b6)
 
 // Where turns and scales go about, when not the object's origin: a point in the object's
-// own space, so moving, turning or scaling the object carries it along, kept for that
-// object only and not saved.
+// own space, so moving, turning or scaling the object carries it along. Each object keeps
+// its own (Object.pivot), saved with it in the scene file.
 Gizmo_Pivot :: struct {
-	set: bool,
-	id:  int,
-	at:  Vec3,
+	set:    bool,
+	at:     Vec3,
+	// The surface's normal where Set pivot put it, in the object's own space (the Surface
+	// orientation's up); zero when it was put anywhere else.
+	normal: Vec3,
 }
 
 // A drag in progress, of the gizmo or of an object's body. handle is None when there is
@@ -145,14 +146,14 @@ GIZMO_HIGHLIGHT :: [4]f32{1, 0.85, 0.3, 1}
 
 // Where the gizmo sits on the object: the pivot a tap placed, or its origin.
 gizmo_center :: proc(app: ^App, obj: ^Object) -> Vec3 {
-	if p := app.move.pivot; p.set && p.id == obj.id do return to_world(obj.transform, p.at)
+	if p := obj.pivot; p.set do return to_world(obj.transform, p.at)
 	return obj.transform.position
 }
 
 // Whether the selected object has a pivot of its own (Reset pivot has something to do).
 gizmo_pivot_set :: proc(app: ^App) -> bool {
 	obj := selected_object(app)
-	return obj != nil && app.move.pivot.set && app.move.pivot.id == obj.id
+	return obj != nil && obj.pivot.set
 }
 
 // How many window pixels a point is, for the gizmo's sizes.
@@ -236,8 +237,8 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 			// and the selection stays.
 			origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
 			obj := selected_object(app)
-			if _, hit, ok := scene_raycast(app, origin, dir); ok && obj != nil {
-				m.pivot = {set = true, id = obj.id, at = to_local(obj.transform, hit)}
+			if _, hit, normal, ok := scene_raycast_surface(app, origin, dir); ok && obj != nil {
+				obj.pivot = {set = true, at = to_local(obj.transform, hit), normal = linalg.normalize0(to_local_dir(obj.transform, normal))}
 				m.pivot_latch = false
 			}
 			return
@@ -246,7 +247,7 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		if point := lattice_pick(app, input.mouse_pos, input.size); point > 0 {
 			obj := selected_object(app)
 			at := to_world(obj.transform, lattice_point(&app.ui.deform.lattice, point - 1))
-			m.drag = {handle = .View, on_handle = true, down = input.mouse_pos, id = obj.id, start = obj.transform, grab = at, posed = true, lattice = point, pivot_from = m.pivot, placed_from = m.placed.at}
+			m.drag = {handle = .View, on_handle = true, down = input.mouse_pos, id = obj.id, start = obj.transform, grab = at, posed = true, lattice = point, pivot_from = obj.pivot, placed_from = m.placed.at}
 			return
 		}
 		handle := gizmo_pick(app, input.mouse_pos, input.size)
@@ -286,13 +287,13 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		obj := selected_object(app)
 		// Edit pivot: a handle moves the pivot, and the object stays.
 		if on_handle && m.pivot_edit {
-			m.drag = {handle = handle, on_handle = true, down = input.mouse_pos, id = obj.id, start = obj.transform, grab = grab, pivot_only = true, pivot_from = m.pivot, placed_from = m.placed.at}
+			m.drag = {handle = handle, on_handle = true, down = input.mouse_pos, id = obj.id, start = obj.transform, grab = grab, pivot_only = true, pivot_from = obj.pivot, placed_from = m.placed.at}
 			return
 		}
 		// In pose mode the handles pose the mesh; the body still moves the object.
 		// A stretch knob stretches the mesh itself, through the pose too, mask or none.
 		posed := on_handle && (pose_mode(app) || gizmo.stretch_axis(handle) >= 0)
-		m.drag = {handle = handle, on_handle = on_handle, down = input.mouse_pos, id = obj.id, start = obj.transform, grab = grab, posed = posed, pivot_from = m.pivot, placed_from = m.placed.at}
+		m.drag = {handle = handle, on_handle = on_handle, down = input.mouse_pos, id = obj.id, start = obj.transform, grab = grab, posed = posed, pivot_from = obj.pivot, placed_from = m.placed.at}
 		if !posed do members_take(app, &m.members)
 	}
 
@@ -358,7 +359,7 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		drag.amount = t.scale / drag.start.scale
 	}
 	if drag.pivot_only {
-		m.pivot = {set = true, id = obj.id, at = to_local(obj.transform, drag.pivot + (t.position - drag.start.position))}
+		obj.pivot = {set = true, at = to_local(obj.transform, drag.pivot + (t.position - drag.start.position))}
 		return
 	}
 	if drag.posed {
@@ -390,12 +391,12 @@ pivot_to_middle :: proc(app: ^App) {
 	if obj == nil do return
 	local := geom.AABB_EMPTY
 	if obj.curve != nil {
-		app.move.pivot = {set = true, id = obj.id, at = {}}
+		obj.pivot = {set = true, at = {}}
 		return
 	}
 	for p in object_mesh(obj).positions do geom.aabb_grow(&local, p)
 	if local.lo.x > local.hi.x do return
-	app.move.pivot = {set = true, id = obj.id, at = (local.lo + local.hi) * 0.5}
+	obj.pivot = {set = true, at = (local.lo + local.hi) * 0.5}
 }
 
 // Puts the pivot in the middle of what the mask leaves free on the selected object, each
@@ -409,7 +410,7 @@ pivot_to_unmasked :: proc(app: ^App) {
 		report(app, Section.Transform, {.Warning}, "Nothing is free: the mask covers all that is shown")
 		return
 	}
-	app.move.pivot = {set = true, id = obj.id, at = at}
+	obj.pivot = {set = true, at = at}
 }
 
 // `factor` kept to what the primary (at scale `from`) and each of `list` can take, so a
@@ -584,12 +585,15 @@ move_cancel :: proc(app: ^App) {
 	app.move.drag = {}
 	if drag.handle == .None do return
 	if drag.pivot_only {
-		app.move.pivot = drag.pivot_from
+		if obj := object_by_id(app, drag.id); obj != nil do obj.pivot = drag.pivot_from
 		return
 	}
 	if drag.posed {
-		if obj := object_by_id(app, drag.id); obj != nil do sculpt.sculptor_pose_cancel(object_sculptor(obj))
-		app.move.pivot, app.move.placed.at = drag.pivot_from, drag.placed_from
+		if obj := object_by_id(app, drag.id); obj != nil {
+			sculpt.sculptor_pose_cancel(object_sculptor(obj))
+			obj.pivot = drag.pivot_from
+		}
+		app.move.placed.at = drag.placed_from
 		return
 	}
 	if obj := object_by_id(app, drag.id); obj != nil do obj.transform = drag.start
