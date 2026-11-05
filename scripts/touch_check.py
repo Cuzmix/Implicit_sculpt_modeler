@@ -4425,9 +4425,9 @@ def model_edit_cage_takes_a_sculpt_back():
     return Steps([(s, LENS_1440 + ["--check-mesh", f"--script={base}; edit_cage"], {"cages": near(1), "cage_faces": near(6), "cage_smooth": near(2), "cage_broken": near(0)}),
                   (Script(), LENS_1440 + ["--check-mesh", f"--script={base}; edit_cage; apply_cage"], {"cages": near(0), "selected_levels": near(3), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")}),
                   (Script(), LENS_1440 + [f"--script={base}; edit_cage; undo"], {"cages": near(0), "selected_levels": near(3)}),
-                  # The built-in engine, whose count is exact; AutoRemesher's is a guide (74 points for 100 quads asked).
-                  (Script(), ["--check-mesh", "--script=set retopo_engine own; set retopo_quads 100; retopologize; edit_cage"], {"cages": near(1), "cage_points": near(100), "cage_broken": near(0)}),
-                  (Script(), ["--check-mesh", "--script=set retopo_engine own; set retopo_quads 100; retopologize; edit_cage; apply_cage; subdivide"], {"cages": near(0), "selected_levels": near(2), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")})])
+                  # Fast, whose count is exact; Flow's is a guide (74 points for 100 quads asked).
+                  (Script(), ["--check-mesh", "--script=set retopo_engine fast; set retopo_quads 100; retopologize; edit_cage"], {"cages": near(1), "cage_points": near(100), "cage_broken": near(0)}),
+                  (Script(), ["--check-mesh", "--script=set retopo_engine fast; set retopo_quads 100; retopologize; edit_cage; apply_cage; subdivide"], {"cages": near(0), "selected_levels": near(2), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")})])
 
 @scenario
 def model_live_stack_bevels_and_thickens():
@@ -13328,6 +13328,31 @@ def gizmo_pivot_row_edits_the_pivot():
         (edit, [], camera_still({"gizmo_pivot_edit": near(1), "gizmo_pivot": moved_x, "transform": home, "undo_steps": near(0), "pivot_row": near(1)})),
         (middle, [], camera_still({"gizmo_pivot": lambda v: all(abs(float(c)) < 0.01 for c in v.split(",")), "transform": home, "pivot_row": near(1)})),
         (held, [], camera_still({"pivot_row": near(0)})),
+    ])
+
+
+@scenario
+def mask_keys_paint_the_mask():
+    """Ctrl+Alt dragged over the sphere paints the mask (Ctrl alone still inverts the
+    brush); M held while dragging masks too and latches nothing; a tap of M latches Mask
+    for the next plain drag, and a second tap lets it go."""
+    path = line((760, 440), (840, 460), 8)
+    ctrl_alt, held, tapped, untapped = Script(), Script(), Script(), Script()
+    ctrl_alt.mouse_drag(path, keys=("ctrl", "alt"))
+    held.add("key:m")
+    held.wait(2)
+    held.mouse_drag(path)
+    held.add("keyup:m")
+    held.wait(3)
+    tapped.press("m")
+    tapped.mouse_drag(path)
+    untapped.press("m")
+    untapped.press("m")
+    return Steps([
+        (ctrl_alt, [], camera_still({"masked": near(1), "rail_latched": is_text("none")})),
+        (held, [], camera_still({"masked": near(1), "rail_latched": is_text("none")})),
+        (tapped, [], camera_still({"masked": near(1), "rail_latched": is_text("mask")})),
+        (untapped, [], camera_still({"masked": near(0), "rail_latched": is_text("none")})),
     ])
 
 

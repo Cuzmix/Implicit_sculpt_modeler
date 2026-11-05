@@ -535,7 +535,11 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 			continue
 		}
 		name := fmt.tprintf("%s##shelf %v %d", shelf_label(app, s), sh.page, i)
-		if ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), width = tile) {
+		// A command that cannot run now stands dimmed, as on any bar (Model's actions on a
+		// sculpt mesh); while pinning or arranging every tile takes the tap.
+		_, pin_on := sh.pinning.?
+		enabled := pin_on || dock_editing(k, .Shelf) || bar_enabled(app, s)
+		if ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled = enabled, width = tile, picture = shelf_picture(app, s)) {
 			if pin, pinning := sh.pinning.?; pinning {
 				// Pinning to a full page: the tile tapped gives its place to the brush.
 				bar_list(app, which).slots[i] = pin
@@ -833,13 +837,15 @@ lens_shelf_pages :: proc(app: ^App, x, y: ui.Anchor, at: [2]f32) {
 	here := shelf_page_index(pages, sh.page)
 	for p, i in pages {
 		name := ui.text_fit(ctx, shelf_page_name(k, p), t.small_size, SHELF_PAGE_NAME_W, .Semibold)
-		w := ui.text_width(ctx, name, t.small_size, .Semibold) + 26
+		w := ui.text_width(ctx, name, t.small_size, .Semibold) + 20
 		// By the page, not its name, so a renamed page keeps its press.
 		a := ui.area(ctx, fmt.tprintf("page %v##shelf", p), {w, 24})
 		on := p == sh.page
-		if a.hovered && !on do ui.fill_rect(ctx, a.rect, t.radius_medium, t.fill_hover)
-		ui.fill_circle(ctx, {a.rect.x + 9, a.rect.y + a.rect.h * 0.5}, 3, t.accent if on else t.text_tertiary)
-		ui.text(ctx, name, a.rect.x + 16, a.rect.y + a.rect.h * 0.5, t.small_size, t.text if on else t.text_secondary, .Semibold if on else .Regular)
+		// The page shown wears the one chosen look, the chosen fill and ink, as a chosen
+		// tile or tab does.
+		if on do ui.fill_rect(ctx, a.rect, t.radius_medium, t.chosen)
+		else if a.hovered do ui.fill_rect(ctx, a.rect, t.radius_medium, t.fill_hover)
+		ui.text(ctx, name, a.rect.x + a.rect.w * 0.5, a.rect.y + a.rect.h * 0.5, t.small_size, t.on_chosen if on else t.text_secondary, .Semibold if on else .Regular, .Center)
 		ui.tip(ctx, a.id, a.rect, shelf_page_name(k, p), "Long press or right click to rename it or add a page")
 		if a.clicked && !on do shelf_turn(app, i - here)
 		if ui.secondary(ctx) do shelf_page_menu_open(k, p, a.rect)
@@ -863,6 +869,23 @@ lens_shelf_pages :: proc(app: ^App, x, y: ui.Anchor, at: [2]f32) {
 		dock_more_hold(app, .Shelf)
 	}
 	ui.end(ctx)
+}
+
+// A brush's or a preset's stroke picture for its shelf tile, if the atlas has it yet.
+shelf_picture :: proc(app: ^App, s: Bar_Slot) -> ui.Picture {
+	slot: Dock_Slot
+	#partial switch s.id {
+	case .Brush:
+		if s.arg < 0 || s.arg >= len(sculpt.Brush_Kind) do return {}
+		slot.kind = sculpt.Brush_Kind(s.arg)
+	case .Brush_Preset:
+		slot.preset = s.arg
+	case:
+		return {}
+	}
+	brush_previews_first(app)
+	pic, _ := brush_preview_picture(app, brush_item_key(app, {what = .Slot, slot = slot}))
+	return pic
 }
 
 // The widest a page's name shows under the shelf; a longer one is cut.

@@ -1329,8 +1329,12 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 		input.alt = input.primary && d.alt
 		input.press = input.primary && .Left in d.pressed
 		input.smooth = input.primary && d.shift
-		input.invert = input.primary && d.ctrl
-		input.mask_shape = input.invert && !d.shift
+		// Ctrl+Alt with a brush paints the mask, as Ctrl does in ZBrush, and from empty space
+		// still draws the unmasking shape (Alt, mask_shape.odin); Ctrl alone inverts.
+		mask_keys := input.primary && d.ctrl && d.alt && !d.shift && app.tool == .Brush
+		input.mask = mask_keys
+		input.invert = input.primary && d.ctrl && !mask_keys
+		input.mask_shape = (input.invert && !d.shift) || mask_keys
 		// The modifier rail sets what the keys would, for this press (modifiers.odin).
 		rail_press(app, &input)
 	}

@@ -226,11 +226,11 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 		if !sculpt.levels_set_uvs(&twin.levels, res.uv) do charts = 0
 	}
 	app.ui.bake.source = obj.id
-	// "Quad remeshed X: 1,180 quads (AutoRemesher), UVs in 12 charts, 226 ms", with the
-	// other polygons and no UVs when some are not quads, and why the built-in engine ran
-	// when it was not asked for.
+	// "Quad remeshed X: 1,180 quads (Flow), UVs in 12 charts, 226 ms", with the other
+	// polygons and no UVs when some are not quads, and why Fast ran when it was not asked
+	// for.
 	engine := retopo.ENGINE_NAMES[res.engine]
-	if res.reason != "" do engine = fmt.tprintf("built-in, as AutoRemesher said %s", res.reason)
+	if res.reason != "" do engine = fmt.tprintf("Fast, as Flow said %s", res.reason)
 	if res.mirrored do engine = fmt.tprintf("%s, mirrored across %s", engine, planes_label(res.mirror))
 	if res.unmirrored != "" do engine = fmt.tprintf("%s, not mirrored since %s", engine, res.unmirrored)
 	if res.closed > 0 do engine = fmt.tprintf("%s, closed first", engine)
@@ -245,9 +245,9 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 	if res.quads != res.faces do faces = fmt.tprintf("%s quads, %d triangles and %d larger faces, so no UVs", thousands(res.quads), res.triangles, res.ngons)
 	uvs := fmt.tprintf(", UVs in %d charts", charts) if charts > 0 else ""
 	report(app, Section.Retopo, flags, "Quad remeshed %s: %s (%s)%s, %.0f ms", object_label(obj), faces, engine, uvs, res.retopo_ms + res.uv_ms)
-	if res.engine == .Own {
+	if res.engine == .Fast {
 		how := res.how
-		log.infof("quad remesh: built-in decimated to %d triangles, %d paired; %d vertices not put back; UVs fill %.0f%% in %.0f ms", how.decimated, how.paired, how.unprojected, 100 * res.uv.filled, res.uv_ms)
+		log.infof("quad remesh: Fast decimated to %d triangles, %d paired; %d vertices not put back; UVs fill %.0f%% in %.0f ms", how.decimated, how.paired, how.unprojected, 100 * res.uv.filled, res.uv_ms)
 	}
 	return true, true
 }

@@ -66,6 +66,7 @@ Command_Id :: enum u16 {
 	Brush, // the argument is the sculpt.Brush_Kind
 	Brush_Preset, // the argument is a preset: built-in, the person's own or a pack's (preset_slots.odin)
 	Mask_Shape_Pick, // the argument is the Mask_Shape_Kind
+	Mask_Key,
 	Hide_Gesture_Pick, // the argument is the Gesture_Tool
 	Symmetry_X,
 	Physics,
@@ -642,8 +643,8 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, arg: int) {model_pick_action(app, Model_Action(arg))},
 		// Only a cage (or a curve) takes the actions: on a sculpt mesh or voxel clay they
 		// stand dimmed, and the next steps offer the way to a cage.
-		enabled = proc(app: ^App, _: int) -> bool {return model_actions_apply(app)},
-		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Model && app.model.action == Model_Action(arg) && model_actions_apply(app)},
+		enabled = proc(app: ^App, arg: int) -> bool {return model_actions_apply(app, Model_Action(arg))},
+		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Model && app.model.action == Model_Action(arg) && model_actions_apply(app, Model_Action(arg))},
 	},
 	.Model_Target = {
 		label = "Model target",
@@ -1167,6 +1168,14 @@ COMMANDS := [Command_Id]Command {
 		args = len(sculpt.Mask_Command),
 		run = proc(app: ^App, arg: int) {mask_command(app, sculpt.Mask_Command(arg))},
 	},
+	.Mask_Key = {
+		label = "Mask while held",
+		help = "Its key held, a stroke paints the mask (from empty space it draws a mask shape), as the dial's Mask held; a quick tap latches Mask on until the next tap, as a tap on the dial does. Run from Search or a menu, it latches.",
+		// The dial's Mask sector's own icon (Lucide's contrast).
+		icon = rune(0xe0a1),
+		run = proc(app: ^App, _: int) {rail_toggle(&app.rail, .Mask)},
+		checked = proc(app: ^App, _: int) -> bool {return .Mask in app.rail.latched},
+	},
 	.Mask_By = {
 		label = "Mask by",
 		help = "Masks the selected object by its shape, the view, its polypaint or its edges, through the Mask section's curve, strength and blur.",
@@ -1605,7 +1614,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Retopologize = {
 		label = "Quad Remesh",
-		help = "Makes a new object of quads lying on the selected one, with UVs when every face is a quad; AutoRemesher or the built-in engine, as Rebuild's Quads is set.",
+		help = "Makes a new object of quads lying on the selected one, with UVs when every face is a quad; Flow or Fast, as Rebuild's Quads is set.",
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), quad = quad_options(app)}},
 		enabled = has_object,
 	},
@@ -2711,6 +2720,7 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{KEY_LEFTBRACKET, {.Shift}, true}, .Strength_Down, 0},
 	{{KEY_RIGHTBRACKET, {.Shift}, true}, .Strength_Up, 0},
 	{{KEY_M, {.Alt}, false}, .Mask, int(sculpt.Mask_Command.Clear)},
+	{{KEY_M, {}, false}, .Mask_Key, 0},
 	{{KEY_R, {.Ctrl}, false}, .Remesh, 0},
 	{{KEY_T, {.Ctrl}, false}, .Dyntopo_Toggle, 0},
 	{{KEY_I, {.Ctrl}, false}, .Mask, int(sculpt.Mask_Command.Invert)},

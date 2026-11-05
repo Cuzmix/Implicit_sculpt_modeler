@@ -225,9 +225,10 @@ history_row :: proc(app: ^App, row: History_Row, width: f32, can: bool, recall: 
 	// so only its press does.
 	if (a.hovered && ctx.input.pointer != .Finger) || a.held do history_tint_rest(app, e.at)
 	box := ui.Rect{a.rect.x, a.rect.y, width, h}
+	// The current step wears the one chosen look, the chosen fill with no outline, as a
+	// chosen tile or tab does.
 	if current {
-		ui.fill_rect(ctx, box, t.radius_medium, ui.color_fade(t.accent, 0.16))
-		ui.stroke_rect(ctx, box, t.radius_medium, ui.color_fade(t.accent, 0.45), 1)
+		ui.fill_rect(ctx, box, t.radius_medium, t.chosen)
 	} else if a.held {
 		ui.fill_rect(ctx, box, t.radius_medium, t.fill_pressed)
 	} else if a.hovered {
@@ -320,9 +321,11 @@ history_root_row :: proc(app: ^App, width: f32, can: bool) {
 	current := len(h.done) == 0
 	a := ui.area(ctx, "Start##history root", {width, HISTORY_ROW_H}, drag = false)
 	box := a.rect
-	if current do ui.fill_rect(ctx, box, t.radius_medium, ui.color_fade(t.accent, 0.16))
-	else if a.hovered do ui.fill_rect(ctx, box, t.radius_medium, t.fill_hover)
-	ui.stroke_rect(ctx, box, t.radius_medium, t.border_strong if !current else ui.color_fade(t.accent, 0.45), 1)
+	if current do ui.fill_rect(ctx, box, t.radius_medium, t.chosen)
+	else {
+		if a.hovered do ui.fill_rect(ctx, box, t.radius_medium, t.fill_hover)
+		ui.stroke_rect(ctx, box, t.radius_medium, t.border_strong, 1)
+	}
 	mid := box.y + box.h * 0.5
 	ui.text(ctx, "0", box.x + 24, mid, t.caption_size, t.text_tertiary, .Regular, .Right)
 	ui.icon(ctx, ICON_FILE, {box.x + 52, mid}, t.icon_small, t.text_secondary)
@@ -346,7 +349,7 @@ history_transport :: proc(app: ^App, can: bool) {
 	tl := &app.timeline
 	done, total := len(app.history.done), history_total(app)
 	ui.begin(ctx, "transport", {direction = .Row, center = true})
-	if ui.icon_button(ctx, "Back to the start", ui.ICON_SKIP_BACK, enabled = can) do timeline_seek_to(tl, 0)
+	if ui.icon_button(ctx, "Back to the start", ui.ICON_SKIP_BACK, enabled = can && done > 0) do timeline_seek_to(tl, 0)
 	if ui.icon_button(ctx, "Step back", ui.ICON_STEP_BACK, enabled = can && done > 0) do timeline_seek_to(tl, done - 1)
 	if ui.icon_button(ctx, "Pause" if tl.playing else "Play", ui.ICON_PAUSE if tl.playing else ui.ICON_PLAY, selected = tl.playing, enabled = can && total > 0) {
 		if tl.playing {
@@ -358,7 +361,7 @@ history_transport :: proc(app: ^App, can: bool) {
 		}
 	}
 	if ui.icon_button(ctx, "Step forward", ui.ICON_STEP_FORWARD, enabled = can && done < total) do timeline_seek_to(tl, done + 1)
-	if ui.icon_button(ctx, "Forward to the newest step", ui.ICON_SKIP_FORWARD, enabled = can) do timeline_seek_to(tl, total)
+	if ui.icon_button(ctx, "Forward to the newest step", ui.ICON_SKIP_FORWARD, enabled = can && done < total) do timeline_seek_to(tl, total)
 	ui.spacer(ctx, 10)
 	ui.label(ctx, fmt.tprintf("Step %d of %d", done, total), t.text_size, t.text, .Semibold)
 	ui.end(ctx)

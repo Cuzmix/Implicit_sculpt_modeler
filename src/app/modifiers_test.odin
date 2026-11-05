@@ -382,3 +382,32 @@ brush_ring_colours_by_modifier :: proc(t: ^testing.T) {
 	pink := brush_ring_color(&app, false)
 	testing.expect(t, pink.r > 0.9 && pink.b > 0.8)
 }
+
+// The Mask key held masks as a finger held on the dial's Mask (a finger down since wins);
+// a quick tap latches Mask and a second lets it go; held past the tap's time, or with a
+// press made meanwhile, it acted only while held.
+@(test)
+mask_key_holds_and_taps_latch :: proc(t: ^testing.T) {
+	r: Modifier_Rail
+	rail_key(&r, true, 1.0)
+	testing.expect_value(t, rail_mods(&r), Modifiers{.Mask})
+	mods, held := rail_press_mods(&r)
+	testing.expect(t, held && mods == {.Mask})
+	_ = rail_finger_down(&r, 3, .Smooth, {0, 0}, 1.05)
+	mods, _ = rail_press_mods(&r)
+	testing.expect_value(t, mods, Modifiers{.Hide})
+	_ = rail_finger_up(&r, 3, 1.5, false, 10)
+	rail_key(&r, false, 1.1)
+	testing.expect_value(t, r.latched, Modifiers{.Mask})
+	rail_key(&r, true, 2.0)
+	rail_key(&r, false, 2.1)
+	testing.expect_value(t, r.latched, Modifiers{})
+	rail_key(&r, true, 3.0)
+	rail_key(&r, false, 3.5)
+	testing.expect_value(t, r.latched, Modifiers{})
+	rail_key(&r, true, 4.0)
+	r.key.used = true
+	rail_key(&r, false, 4.1)
+	testing.expect_value(t, r.latched, Modifiers{})
+	testing.expect_value(t, rail_mods(&r), Modifiers{})
+}
