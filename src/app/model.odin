@@ -378,11 +378,12 @@ object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 // levels when that many would be more, so each edit stays quick. Apply makes them all.
 CAGE_EDIT_TRIANGLES :: 2_000_000
 
-// Whether the Model tool's actions reach the selected object: a cage or a curve takes
-// them, and with nothing selected they stand ready for the next one.
-model_actions_apply :: proc(app: ^App) -> bool {
+// Whether Model action `a` reaches the selected object: a cage or a curve takes them, and
+// with nothing selected they stand ready for the next one. Topo draws a new cage over any
+// surface, so it takes a sculpt mesh too.
+model_actions_apply :: proc(app: ^App, a: Model_Action) -> bool {
 	obj := selected_object(app)
-	if obj == nil do return true
+	if obj == nil || a == .Topo do return true
 	#partial switch object_type(obj) {
 	case .Cage, .Curve: return true
 	}
@@ -992,19 +993,10 @@ kit_model_tab :: proc(app: ^App) {
 		if ui.slider(ctx, "Polygroup", &g, 0, 64, .Linear, fmt.tprint(m.group)) do m.group = u16(clamp(int(g + 0.5), 0, 64))
 	}
 	if obj := selected_object(app); obj != nil && obj.cage != nil {
-		// The live surface, as ZBrush's Dynamic Subdivision: steps of smoothing drawn over
-		// the cage, which keeps its edges and is what every action works on.
-		ui.caption(ctx, "SURFACE")
-		steps := [poly.SUBDIVIDE_MAX + 1]string{"Off", "1", "2", "3", "4"}
-		hints: [poly.SUBDIVIDE_MAX + 1]string
-		for &h, i in hints do h = command_hint(app, .Cage_Smooth, i)
-		if picked := ui.tabs(ctx, "cage smooth", steps[:], obj.cage.look.smooth, keys = hints[:]); picked >= 0 do command_run(app, .Cage_Smooth, picked)
-		flat := obj.cage.look.flat
-		if ui.switch_row(ctx, "Flat", &flat, keys = command_hint(app, .Cage_Flat)) do command_run(app, .Cage_Flat)
 		ui.caption(ctx, "CREASES")
 		kit_command_pair(app, .Crease_Cage, .Crease_Cage, arg_a = int(Cage_Crease.By_Angle), arg_b = int(Cage_Crease.Group_Borders), label_a = "By angle", label_b = "Polygroups")
 		_ = command_button(app, .Crease_Cage, int(Cage_Crease.Clear), "Clear creases", width = ui.fill_width(ctx))
-		kit_cage_live(app, obj)
+		ui.paragraph(ctx, "Smooth, Mirror, Thickness and Bevel creases are the cage's rows in the Live stack card.")
 	}
 	// A selected curve makes cages here (curve_cage.odin).
 	if obj := selected_object(app); obj != nil && obj.curve != nil do kit_curve_cage(app)
@@ -1046,13 +1038,22 @@ kit_model_tab :: proc(app: ^App) {
 	ui.paragraph(ctx, fmt.tprintf("%s: %d points, %d edges, %d faces (%d quads, %d triangles, %d polygons), %d creased edges, %d corners, %d poles, %d open edges", object_label(obj), c.vertices, c.edges, c.faces, c.quads, c.triangles, c.ngons, creased, corners, c.poles, c.border_edges))
 }
 
-// The live stack's controls in the Model palette: Mirror's axes, then Thickness and Bevel
-// creases, each a width slider (a share of the cage's size, one undo step a drag) with its segments, and
-// the shell's side.
-@(private = "file")
+// A cage's rows in the Live stack card (kit_stack): the live surface (Smooth, as ZBrush's
+// Dynamic Subdivision: steps of smoothing drawn over the cage, which keeps its edges and is
+// what every action works on; and Flat), Mirror's axes, then Thickness and Bevel creases,
+// each a width slider (a share of the cage's size, one undo step a drag) with its
+// segments, and the shell's side. These change the cage's polygons, which it is small
+// enough to build again after every edit, where a sculpt's rows only make copies.
 kit_cage_live :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	cp := obj.cage
+	ui.caption(ctx, "SMOOTH")
+	steps := [poly.SUBDIVIDE_MAX + 1]string{"Off", "1", "2", "3", "4"}
+	step_hints: [poly.SUBDIVIDE_MAX + 1]string
+	for &h, i in step_hints do h = command_hint(app, .Cage_Smooth, i)
+	if picked := ui.tabs(ctx, "cage smooth", steps[:], cp.look.smooth, keys = step_hints[:]); picked >= 0 do command_run(app, .Cage_Smooth, picked)
+	flat := cp.look.flat
+	if ui.switch_row(ctx, "Flat", &flat, keys = command_hint(app, .Cage_Flat)) do command_run(app, .Cage_Flat)
 	size := cage_size(cp)
 	live := cp.look.live
 	drag :: proc(app: ^App, look: Cage_Look) {app.ui.scene_command = {kind = .Cage_Look, look = look, look_drag = true}}
