@@ -78,6 +78,23 @@ pose_keep_normals :: proc(s: ^Sculptor) {
 	}
 }
 
+// The middle of the free part of the mesh: every vertex weighed by how free it is
+// (shown and unmasked), in the mesh's own space. Not ok when nothing is free. Summed in
+// node order on one thread, so the same mesh gives the same point every time.
+sculptor_free_middle :: proc(s: ^Sculptor) -> (middle: Vec3, ok: bool) {
+	sum: [3]f64
+	weight: f64
+	for p, v in s.mesh.positions {
+		w := f64(shield(s.fade, s.mask, u32(v)))
+		if w <= 0 do continue
+		sum += [3]f64{f64(p.x), f64(p.y), f64(p.z)} * w
+		weight += w
+	}
+	if weight <= 0 do return
+	m := sum / weight
+	return {f32(m.x), f32(m.y), f32(m.z)}, true
+}
+
 // Whether a pose is under way.
 sculptor_posing :: proc(s: ^Sculptor) -> bool {return s.pose.active}
 

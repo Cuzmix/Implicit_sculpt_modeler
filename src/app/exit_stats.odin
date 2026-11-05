@@ -246,7 +246,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 				pivot = fmt.tprintf("%.3f,%.3f,%.3f", at.x, at.y, at.z)
 			}
 			e := app.kit.gizmo_entry
-			fmt.printfln("gizmo_pivot=%s gizmo_pivot_latch=%d gizmo_entry=%s", pivot, int(m.pivot_latch), lower(e.handle) if e.open else "none")
+			fmt.printfln("gizmo_pivot=%s gizmo_pivot_latch=%d gizmo_pivot_edit=%d pivot_row=%d gizmo_entry=%s", pivot, int(m.pivot_latch), int(m.pivot_edit), int(pivot_row_shown(app)), lower(e.handle) if e.open else "none")
 			// The sum of the selected object's coordinates, so a scenario can tell a mesh that
 			// moved from one put back exactly.
 			mesh_sum: f64
