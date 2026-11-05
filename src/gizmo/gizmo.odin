@@ -47,6 +47,17 @@ Mode :: enum u8 {
 
 AXES := [3]Vec3{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}
 
+// Axes whose z is `normal` (unit), as Blender's Normal orientation has it, with x as
+// level as it can be (at right angles to the world's up, or to x when the normal is
+// nearly up), so a surface's gizmo does not spin about the normal as it is placed.
+axes_from_normal :: proc(normal: Vec3) -> [3]Vec3 {
+	z := linalg.normalize0(normal)
+	if z == {} do return AXES
+	ref := Vec3{0, 1, 0} if abs(z.y) < 0.9 else Vec3{1, 0, 0}
+	x := linalg.normalize(linalg.cross(ref, z))
+	return {x, linalg.cross(z, x), z}
+}
+
 // Axis arms are this long on screen, whatever the zoom.
 ARM_PX :: 90 // an arm's length on screen; camera.orbit_world_per_px turns it into world units
 // The cursor picks an arm within this many pixels of it.
@@ -96,14 +107,15 @@ Screen :: struct {
 
 // Projects the gizmo at `center` whose arms are `arm` long in the world, seen from the
 // direction `toward_eye` (from the centre to the eye, or the view's own in parallel
-// projection), on a viewport of `size`, whose arms are `arm_px` long on screen. The All
-// mode draws its rings smaller and its arms longer (ALL_RING, ALL_ARM).
-screen :: proc(view_proj: Mat4, center: Vec3, arm: f32, toward_eye: Vec3, size: Vec2, arm_px: f32, mode := Mode.Move) -> (s: Screen) {
+// projection), on a viewport of `size`, whose arms are `arm_px` long on screen, along
+// `axes` (unit and at right angles: the world's, or an orientation's). The All mode draws
+// its rings smaller and its arms longer (ALL_RING, ALL_ARM).
+screen :: proc(view_proj: Mat4, center: Vec3, arm: f32, toward_eye: Vec3, size: Vec2, arm_px: f32, mode := Mode.Move, axes := AXES) -> (s: Screen) {
 	s.center, s.ok = project(view_proj, center, size)
 	if !s.ok do return
 	s.arm_px = arm_px
 	radius := arm * ALL_RING if mode == .All else arm
-	for axis, i in AXES {
+	for axis, i in axes {
 		s.tips[i], s.tip_ok[i] = project(view_proj, center + axis * arm, size)
 		s.rings[i], s.ring_front[i], s.ring_ok[i] = ring(view_proj, center, axis, radius, toward_eye, size)
 		if mode == .All do s.ends[i], s.end_ok[i] = project(view_proj, center + axis * (arm * ALL_ARM), size)

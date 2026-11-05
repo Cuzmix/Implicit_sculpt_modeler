@@ -13332,6 +13332,32 @@ def gizmo_pivot_row_edits_the_pivot():
 
 
 @scenario
+def gizmo_orientation_turns_the_arms():
+    """The pivot row's orientation steps World, Object, Surface and View; in View the X arm
+    lies flat across the screen, so a drag of it moves the sphere along the view's right
+    (x and z of the world both change, y stays), and the World arm moves along x only."""
+    view, world = Script(), Script()
+    for sc in (view, world):
+        gizmo_mode(sc, 0)
+        sc.wait(3)
+    for _ in range(3):
+        click(view, At("pivot row/orientation", 0, 0))
+        view.wait(2)
+    arm = (GIZMO_CENTER[0] + 40, GIZMO_CENTER[1])
+    view.mouse_drag(line(arm, (arm[0] + 60, arm[1]), 6))
+    view.wait(3)
+    world.mouse_drag(line(GIZMO_X_ARM, (GIZMO_X_ARM[0] + 60, GIZMO_X_ARM[1] + 8), 6))
+    world.wait(3)
+    part = lambda v, i: float(v.split(",")[i])
+    across = lambda v: abs(part(v, 0)) > 0.05 and abs(part(v, 2)) > 0.05 and abs(part(v, 1)) < 1e-3
+    along_x = lambda v: part(v, 0) > 0.05 and abs(part(v, 1)) < 1e-3 and abs(part(v, 2)) < 1e-3
+    return Steps([
+        (view, [], camera_still({"gizmo_orient": is_text("view"), "transform": across, "undo_steps": near(1)})),
+        (world, [], camera_still({"gizmo_orient": is_text("world"), "transform": along_x})),
+    ])
+
+
+@scenario
 def gizmo_all_moves_turns_and_scales():
     """The All gizmo (W four times) does the three with no switching: the mouse on the X
     arrow moves the sphere along x only, a finger on the Y knob stretches the mesh along y

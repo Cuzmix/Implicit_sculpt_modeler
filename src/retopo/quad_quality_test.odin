@@ -198,3 +198,33 @@ dissolve_doublets_mends_a_split_quad :: proc(t: ^testing.T) {
 	testing.expect(t, polygons_closed(m), "the cube is not closed")
 	for p in planes do testing.expect(t, p == 0, "the dissolved vertex's plane entry stayed")
 }
+
+// The corners on the surface: the extraction puts them on the isotropic mesh, whose
+// chords cut a bumpy sphere's creases (0.0042 off it at 1,000 quads); put onto the mesh
+// last, none lies more than a rounding off it, and none of their faces turned over.
+@(test)
+quad_remesh_puts_the_corners_on_the_surface :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	defer geom.mesh_destroy(&m)
+	for &p in m.positions {
+		bump := 1 + 0.08 * math.sin(7 * p.x) * math.sin(5 * p.y) * math.cos(6 * p.z) + 0.04 * math.cos(11 * p.x + 3 * p.z)
+		p *= bump
+	}
+	resize(&m.normals, len(m.positions))
+	geom.mesh_recompute_normals(&m)
+	r := compute(m, 1000, {engine = .Auto}, nil)
+	defer result_destroy(&r)
+	if !testing.expect(t, r.built && r.engine == .Auto, "AutoRemesher did not build it") do return
+	bvh := geom.bvh_build_morton(m, geom.BVH_LEAF_SIZE, nil)
+	defer geom.bvh_destroy(&bvh)
+	off: f32
+	for p in r.mesh.positions {
+		_, _, d, ok := geom.bvh_closest(bvh, m, p, max(f32))
+		if ok do off = max(off, d)
+	}
+	check := geom.mesh_check(r.mesh)
+	log.infof("bumpy: %d faces, the corners at most %.6f off the surface", r.faces, off)
+	testing.expectf(t, off < 1e-4, "a corner lies %.6f off the surface", off)
+	testing.expectf(t, r.quads == r.faces, "%d of %d faces are quads", r.quads, r.faces)
+	testing.expect(t, check.closed && check.non_manifold_edges == 0 && !check.inverted && check.inconsistent_edges == 0, "not closed, or turned")
+}

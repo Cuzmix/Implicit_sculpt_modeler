@@ -366,3 +366,34 @@ gizmo_pivot_rides_with_the_object :: proc(t: ^testing.T) {
 	testing.expect(t, command_run(&app, .Gizmo_Pivot))
 	testing.expect(t, app.move.pivot_latch && app.tool == .Move)
 }
+
+// The orientations point the gizmo's arms along the world, the object turned with it,
+// the surface's normal where the pivot was put, and the view; a typed move goes along
+// the arm, and a stretch along it.
+@(test)
+gizmo_orientations_point_the_arms :: proc(t: ^testing.T) {
+	app: App
+	defer gizmo_scene_free(&app)
+	obj := gizmo_object(&app, 1)
+	app.camera = camera.orbit_default()
+	obj.transform.rotation = {0, 90, 0}
+	near :: proc(a, b: Vec3) -> bool {return linalg.length(a - b) < 1e-4}
+	testing.expect_value(t, gizmo_axes(&app, obj), gizmo.AXES)
+	app.move.orient = .Object
+	a := gizmo_axes(&app, obj)
+	// Turned a quarter about y, the object's x arm points down the world's -z.
+	testing.expectf(t, near(a[0], {0, 0, -1}) && near(a[1], {0, 1, 0}) && near(a[2], {1, 0, 0}), "object axes %v", a)
+	testing.expect(t, gizmo_entry_apply(&app, obj, .X, "+1"))
+	testing.expectf(t, near(obj.transform.position, {0, 0, -1}), "moved to %v", obj.transform.position)
+	// Surface: the object's own until the pivot has a normal, then z along it.
+	app.move.orient = .Surface
+	testing.expect(t, near(gizmo_axes(&app, obj)[0], a[0]))
+	obj.pivot = {set = true, at = {0, 1, 0}, normal = {0, 1, 0}}
+	testing.expect(t, near(gizmo_axes(&app, obj)[2], to_world_dir(obj.transform, {0, 1, 0})))
+	// View: the blue arm toward the eye.
+	app.move.orient = .View
+	_, _, back := camera.orbit_basis(app.camera)
+	testing.expect(t, near(gizmo_axes(&app, obj)[2], back))
+	testing.expect(t, command_run(&app, .Gizmo_Orient, int(Gizmo_Orient.World)))
+	testing.expect_value(t, app.move.orient, Gizmo_Orient.World)
+}

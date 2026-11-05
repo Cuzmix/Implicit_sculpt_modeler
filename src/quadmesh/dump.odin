@@ -99,3 +99,19 @@ dump_write :: proc(folder: string, island: int, name: string, b: strings.Builder
 	path := fmt.tprintf("%s/island%d_%s%s", folder, island, name, extension)
 	_ = os.write_entire_file(path, b.buf[:])
 }
+
+// Polygons written as `name`.obj into the folder, for a caller's own stage after the
+// engine's: retopo writes the mirrored halves there when their seam did not close, so
+// what stayed open or doubled can be found.
+dump_polygons :: proc(folder, name: string, m: Polygon_Mesh) {
+	if folder == "" do return
+	b := dump_begin()
+	defer strings.builder_destroy(&b)
+	for p in m.positions do fmt.sbprintfln(&b, "v %.9g %.9g %.9g", p.x, p.y, p.z)
+	for f in 0 ..< max(len(m.first) - 1, 0) {
+		strings.write_string(&b, "f")
+		for k in m.first[f] ..< m.first[f + 1] do fmt.sbprintf(&b, " %d", m.corners[k] + 1)
+		strings.write_byte(&b, '\n')
+	}
+	_ = os.write_entire_file(fmt.tprintf("%s/%s.obj", folder, name), b.buf[:])
+}

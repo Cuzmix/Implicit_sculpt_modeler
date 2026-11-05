@@ -174,6 +174,14 @@ QUAD_SEAM_SNAP :: f32(1e-4)
 // the cover, and the border there wanders out most of a quad and back.
 @(private = "file")
 QUAD_SEAM_REACH :: f32(1)
+
+// How far, in quad edges, a corner of the quads may move onto the surface last
+// (quad_onto_surface): past a chord's distance from a tight bend, which reached 0.36 of a
+// quad's edge where a hand's thumb meets its palm, and short of the far side of a part a
+// quad and a half round. The nearest point is the corner's own side however far the reach,
+// while the corner lies on that side of the part's middle.
+@(private = "file")
+QUAD_ONTO_REACH :: f32(0.5)
 // The most polygons a patch of an open half lying within QUAD_SEAM_REACH of the plane may
 // have and go as a sliver (open_seam_slivers); a larger one is a part of the sculpt as thin
 // as a quad along the plane, and stays.
@@ -781,16 +789,21 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		// The faces with an odd number of sides the extractor left are joined up in pairs,
 		// or to the seam, so the result is all quads (quad_fill_odd); on a mirrored half
 		// before the mirror, so both sides mend alike.
-		mended, left, doublets: int
+		mended, left, doublets, onto: int
 		if r.mirrored {
 			bvh := geom.bvh_build_morton(half, geom.BVH_LEAF_SIZE, pool)
 			drop := make([]bool, len(out.first) - 1)
 			moved: int
 			planes, moved = open_seam_planes(out, mirror, snap, c.closed, QUAD_SEAM_REACH * quad_edge)
 			if moved > 0 do log.infof("quad remesh: %d seam vertices the extraction left beside the plane put on it", moved)
+			// The bridges first, so a patch along the plane that they leave on its own goes
+			// as a sliver too.
+			bridges := open_seam_bridges(out, mirror, QUAD_SEAM_REACH * quad_edge, &planes, drop)
+			if bridges > 0 do log.infof("quad remesh: %d polygons bridging the cut along the symmetry plane went", bridges)
 			slivers := open_seam_slivers(out, mirror, QUAD_SEAM_REACH * quad_edge, drop)
 			if slivers > 0 do log.infof("quad remesh: %d polygons in patches lying on the symmetry plane went", slivers)
 			mended, left = quad_fill_odd(&out, &drop, &planes, half, &bvh, pool, r.borders > 0)
+			onto = quad_onto_surface(&out, half, &bvh, planes[:], QUAD_ONTO_REACH * quad_edge, pool)
 			geom.bvh_destroy(&bvh)
 			dropped := polygon_mesh_mirror(&out, mirror, drop, &planes)
 			delete(drop)
@@ -806,8 +819,12 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 			// that share both its edges (more often when a kept border turns the paths
 			// inward), which goes as the extraction's did.
 			if mended > 0 do doublets += dissolve_doublets(&out, nil)
+			bvh := geom.bvh_build_morton(input, geom.BVH_LEAF_SIZE, pool)
+			onto = quad_onto_surface(&out, input, &bvh, nil, QUAD_ONTO_REACH * quad_edge, pool)
+			geom.bvh_destroy(&bvh)
 		}
 		if doublets > 0 do log.infof("quad remesh: %d vertices of two faces dissolved", doublets)
+		if onto > 0 do log.infof("quad remesh: %d corners put onto the surface from the isotropic mesh's chords", onto)
 		if mended > 0 || left > 0 do log.infof("quad remesh: %d faces with an odd number of sides mended, %d left", mended, left)
 		report.faces = len(out.first) - 1
 		report.quads, report.triangles, report.ngons = quadmesh.polygon_share(out)
@@ -834,6 +851,7 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		// leave a hole in a half where the whole comes back whole (at a creature's horns).
 		if !r.mirrored || (check.non_manifold_edges == 0 && (!c.closed || check.closed)) do break
 		log.warnf("quad remesh: the mirrored halves left %d non-manifold and %d open edges, so the whole mesh is remeshed instead", check.non_manifold_edges, check.boundary_edges)
+		quadmesh.dump_polygons(options.dump, "mirrored", out)
 		geom.mesh_destroy(&mesh)
 		sculpt.polys_destroy(&polys)
 		quadmesh.polygon_mesh_destroy(&out)
@@ -999,12 +1017,68 @@ open_seam_planes :: proc(m: quadmesh.Polygon_Mesh, mirror: geom.Remesh_Mirror, s
 	return
 }
 
+// The polygons of a half that went in open bridging its cut along the plane: where the cut
+// runs twice within a quad (down a groove along the plane, as a creature's chest has), the
+// quads can join its two runs across an edge both of whose ends are on the plane but which
+// two polygons share, so with their images the edge would have four (the creature under
+// Keep symmetry at 2,000 quads, which then fell back to the whole). Each polygon on such an
+// edge whose corners all lie within `reach` of that plane is marked in `drop`, to go with
+// the mirror, and its corners off the plane join the seam, so the cut's runs close past it
+// each on its own. Where the bridges held a thin part along the plane to the rest (a
+// horn on the creature's middle narrower than a quad, at 2,000 quads), the part's half
+// is left a patch lying on the plane that open_seam_slivers, after, takes away: kept, it
+// came back as a closed piece of its own. Returns how many.
+@(private = "file")
+open_seam_bridges :: proc(m: quadmesh.Polygon_Mesh, mirror: geom.Remesh_Mirror, reach: f32, planes: ^[dynamic]u8, drop: []bool) -> (dropped: int) {
+	faces := len(m.first) - 1
+	sides := make(map[[2]u32]int, context.temp_allocator)
+	defer delete(sides)
+	for f in 0 ..< faces {
+		corners := m.corners[m.first[f]:m.first[f + 1]]
+		for c, k in corners {
+			d := corners[(k + 1) % len(corners)]
+			sides[{min(c, d), max(c, d)}] += 1
+		}
+	}
+	// Every polygon judged on the seam as it was, before any corner joins it, so a polygon
+	// beside a dropped one is not taken for a bridge by the corner it gained.
+	seam := slice.clone(planes[:], context.temp_allocator)
+	defer delete(seam, context.temp_allocator)
+	for f in 0 ..< faces {
+		if drop[f] do continue
+		corners := m.corners[m.first[f]:m.first[f + 1]]
+		across: u8
+		for c, k in corners {
+			d := corners[(k + 1) % len(corners)]
+			if shared := seam[c] & seam[d]; shared != 0 && sides[{min(c, d), max(c, d)}] == 2 do across |= shared
+		}
+		if across == 0 do continue
+		// The plane it bridges along, the first whose every corner is within reach.
+		along := -1
+		for x in 0 ..< 3 {
+			if across & (1 << u8(x)) == 0 || !mirror.axes[x] do continue
+			near := true
+			for v in corners do near &&= abs(m.positions[v][x] - mirror.center[x]) <= reach
+			if near {
+				along = x
+				break
+			}
+		}
+		if along < 0 do continue
+		drop[f] = true
+		dropped += 1
+		for v in corners do planes[v] |= 1 << u8(along)
+	}
+	return
+}
+
 // The patches of a half that went in open lying all but on the plane: an island of the
 // polygons (joined across their edges) of at most QUAD_SEAM_SLIVER_FACES with every vertex
 // within `reach` of a plane of `mirror` (a bump of a fin along the plane poking across it,
 // which the cut leaves as a patch of its own) would come back with its image as a closed
-// sliver thinner than a quad, touching the rest at a vertex; so its polygons are marked in
-// `drop`, to go with the mirror. Returns how many.
+// sliver thinner than a quad, touching the rest at a vertex or apart from it; so its
+// polygons are marked in `drop`, to go with the mirror. The islands are of the polygons
+// not marked already, joined across their edges with each other only. Returns how many.
 @(private = "file")
 open_seam_slivers :: proc(m: quadmesh.Polygon_Mesh, mirror: geom.Remesh_Mirror, reach: f32, drop: []bool) -> (dropped: int) {
 	faces := len(m.first) - 1
@@ -1024,6 +1098,7 @@ open_seam_slivers :: proc(m: quadmesh.Polygon_Mesh, mirror: geom.Remesh_Mirror, 
 	by_edge := make(map[[2]u32]u32, context.temp_allocator)
 	defer delete(by_edge)
 	for f in 0 ..< faces {
+		if drop[f] do continue
 		corners := m.corners[m.first[f]:m.first[f + 1]]
 		for c, k in corners {
 			d := corners[(k + 1) % len(corners)]
@@ -1042,6 +1117,7 @@ open_seam_slivers :: proc(m: quadmesh.Polygon_Mesh, mirror: geom.Remesh_Mirror, 
 	defer delete(near, context.temp_allocator)
 	for &n in near do n = true
 	for f in 0 ..< faces {
+		if drop[f] do continue
 		r := find(root, u32(f))
 		size[r] += 1
 		for v in m.corners[m.first[f]:m.first[f + 1]] {

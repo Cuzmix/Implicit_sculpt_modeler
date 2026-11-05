@@ -39,6 +39,11 @@ THIN_DENSITY_MAX :: f32(16)
 // a part thin enough to matter has dozens of these within a quad of it. The rest take
 // the most their measured neighbours ask.
 THIN_SAMPLES_PER_QUAD :: 32
+// The most vertices measured, whatever the count: at 20,000 quads on a creature of 500k
+// vertices the rule above measured every one, nine rays each, which took 0.85 s of the
+// remesh's 5.5; this many still puts six on each quad's area (the creature's largest
+// miss fell from 0.86 % to 0.43 % of its size), and below 3,750 quads it changes nothing.
+THIN_SAMPLES_MAX :: 120_000
 // The rounds of averaging the refinement with the neighbours, so it fades out over a few
 // edges rather than stepping (the ray's own noise goes too).
 THIN_BLUR_ROUNDS :: 3
@@ -81,7 +86,7 @@ thin_density :: proc(m: geom.Mesh, quad_edge: f32, pool: ^jobs.Pool) -> (density
 		a, b, c := m.positions[m.indices[k]], m.positions[m.indices[k + 1]], m.positions[m.indices[k + 2]]
 		area += f64(linalg.length(linalg.cross(b - a, c - a))) / 2
 	}
-	samples := area / f64(quad_edge * quad_edge) * THIN_SAMPLES_PER_QUAD
+	samples := min(area / f64(quad_edge * quad_edge) * THIN_SAMPLES_PER_QUAD, THIN_SAMPLES_MAX)
 	every := u32(max(1, f64(n) / max(samples, 1)))
 	asked := make([]f32, n)
 	Job :: struct {

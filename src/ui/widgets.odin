@@ -1480,14 +1480,30 @@ hint_short :: proc(s: string) -> string {
 // HINT_H is a hint line's height: taller than its text so a finger finds it.
 HINT_H :: 26
 
-// A paragraph shown as a hint: `short`, cut to one line, and a ? at the line's end. A tap
-// anywhere on the line opens the whole of `s` in a popover under it, and a second tap or a
-// press elsewhere closes it.
+// A paragraph shown as a hint: `short` on up to two lines, cut only past the second, and a
+// ? at the first line's end. A tap anywhere on it opens the whole of `s` in a popover
+// under it, and a second tap or a press elsewhere closes it.
 @(private)
 hint_line :: proc(ctx: ^Context, s, short: string, w: f32) {
 	ctx.controls += 1
 	t := ctx.theme
-	r := place(ctx, {w, HINT_H})
+	QUESTION :: 18
+	room := w - QUESTION - 8
+	// The first line ends at the last space that fits, so a sentence reads whole where a
+	// second line holds the rest, as a sentence cut mid-word on a tablet cannot be read
+	// without the popover.
+	first, rest := short, ""
+	if text_width(ctx, short, t.small_size) > room {
+		cut := -1
+		for i in 0 ..< len(short) {
+			if short[i] != ' ' do continue
+			if text_width(ctx, short[:i], t.small_size) > room do break
+			cut = i
+		}
+		if cut > 0 do first, rest = short[:cut], short[cut + 1:]
+	}
+	line_h := line_height(t.small_size)
+	r := place(ctx, {w, HINT_H if rest == "" else HINT_H + line_h})
 	id := id_of(ctx, s)
 	hovered, _, clicked, _ := interact(ctx, id, r)
 	if clicked {
@@ -1495,11 +1511,11 @@ hint_line :: proc(ctx: ^Context, s, short: string, w: f32) {
 		if ctx.hint_open == id do ctx.hint_id = id
 	}
 	open := ctx.hint_open == id
-	QUESTION :: 18
 	color := t.text_secondary if hovered || open else t.text_tertiary
-	shown := text_fit(ctx, short, t.small_size, r.w - QUESTION - 8)
-	text(ctx, shown, r.x, r.y + r.h * 0.5, t.small_size, color)
-	icon(ctx, ICON_HELP, {r.x + r.w - QUESTION * 0.5, r.y + r.h * 0.5}, t.icon_small, t.accent if open else color)
+	y := r.y + HINT_H * 0.5 if rest == "" else r.y + (HINT_H - line_h) * 0.5 + line_h * 0.5
+	text(ctx, text_fit(ctx, first, t.small_size, room), r.x, y, t.small_size, color)
+	if rest != "" do text(ctx, text_fit(ctx, rest, t.small_size, room), r.x, y + line_h, t.small_size, color)
+	icon(ctx, ICON_HELP, {r.x + r.w - QUESTION * 0.5, y}, t.icon_small, t.accent if open else color)
 	tip(ctx, id, r, "More about this")
 	// The popover belongs to the hint drawn last with it open (or closing).
 	if ctx.hint_id == id {
