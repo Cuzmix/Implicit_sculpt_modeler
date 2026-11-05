@@ -568,7 +568,7 @@ kit_move_tab :: proc(app: ^App) {
 @(private = "file")
 kit_curve_tab :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	kit_tool_head(ctx, ui.ICON_SPLINE, "Curve", "Curve: drag over the surface for a curve that follows the path with as few points as keep it close, or tap points one by one (Enter ends, a tap on the first point closes it, Escape drops them). The curve stays an object of its own, a line over the model; Tube draws one with a tube along it, its width a share of the brush's diameter (S changes the brush size), which follows each edit of the curve until Bake makes it a mesh to sculpt. Stitches and Zipper draw one with stitches or zipper teeth set along it, as live.")
+	kit_tool_head(ctx, ui.ICON_SPLINE, "Curve", "Curve: drag for a curve that follows the path with as few points as keep it close, or tap points one by one, on the model or anywhere in the scene: Draw on says where a point lands (Surface: on the model, off it on the plane facing the view; View, Floor, Front or Side: on that plane, shown as a grid, through the view's centre and then the point before) (Enter ends, a tap on the first point closes it, Escape drops them). The curve stays an object of its own, a line over the model; Tube draws one with a tube along it, its width a share of the brush's diameter (S changes the brush size), which follows each edit of the curve until Bake makes it a mesh to sculpt. Stitches and Zipper draw one with stitches or zipper teeth set along it, as live.")
 	kit_curve_settings(app)
 }
 

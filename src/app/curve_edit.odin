@@ -179,9 +179,9 @@ curve_drag_to :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 	case .None:
 	case .Point:
 		p := &cp.points[d.index]
-		// Onto the surface under the pointer when there is one, else the view plane.
-		if _, hit, _, ok := scene_raycast_surface(app, origin, dir, skip_curves = true); ok do p.p = to_local(t, hit)
-		else do p.p = on_plane(app, t, lo, ld, p.p)
+		// Onto the surface under the pointer with Surface, else the Draw on plane through
+		// where the point is (with Surface, the plane facing the view).
+		if hit, _, ok := curve_land(app, input.mouse_pos, input.size, to_world(t, p.p)); ok do p.p = to_local(t, hit)
 	case .In, .Out:
 		p := &cp.points[d.index]
 		h := on_plane(app, t, lo, ld, p.p) - p.p

@@ -592,7 +592,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Tool_Curve = {
 		label = "Curve tool",
-		help = "Draws a tube, stitches or a zipper over the surface.",
+		help = "Draws curves on the model or in space: lines, tubes, stitches or a zipper.",
 		icon = ui.ICON_SPLINE,
 		run = proc(app: ^App, _: int) {app.tool = .Curve; space_picked(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Curve},
