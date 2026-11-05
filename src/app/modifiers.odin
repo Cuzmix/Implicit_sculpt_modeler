@@ -71,6 +71,16 @@ Modifier_Rail :: struct {
 	// finger lifted mid-stroke never changes the brush the stroke uses; Smooth put down
 	// mid-stroke makes the stroke a straight line instead (rail_press).
 	press:   Rail_Press,
+	// The Mask key (Mask_Key, M) held as a finger on the Mask sector would be: since when,
+	// and whether a press on the viewport went down meanwhile, so its release never latches.
+	key:     Rail_Key,
+	key_code: Key, // the key that went down for it, whose release ends it
+}
+
+Rail_Key :: struct {
+	held: bool,
+	at:   f64,
+	used: bool,
 }
 
 Rail_Finger :: struct {
@@ -306,10 +316,23 @@ rail_remove :: proc(r: ^Modifier_Rail, i: int) {
 	if r.count == 0 do r.gesture, r.began = false, false
 }
 
+// The Mask key went down (`down`) or up at `now`: held, it masks as a finger held on the
+// dial's Mask; let go quickly with no press made meanwhile, it latches Mask (or lets it go).
+rail_key :: proc(r: ^Modifier_Rail, down: bool, now: f64) {
+	if down {
+		if !r.key.held do r.key = {held = true, at = now}
+		return
+	}
+	if !r.key.held do return
+	if !r.key.used && now - r.key.at < RAIL_TAP do rail_toggle(r, .Mask)
+	r.key = {}
+}
+
 // Forgets every finger, as when the app loses focus and their lifts never come.
 rail_forget :: proc(r: ^Modifier_Rail) {
 	r.count = 0
 	r.press = {}
+	r.key = {}
 	r.gesture, r.began = false, false
 }
 
@@ -323,6 +346,7 @@ rail_holds :: proc(r: ^Modifier_Rail, f: Rail_Finger) -> bool {
 // What is on, to light the buttons: latched, or held by a finger.
 rail_mods :: proc(r: ^Modifier_Rail) -> Modifiers {
 	on := r.latched
+	if r.key.held do on += {.Mask}
 	for f in r.fingers[:r.count] do if rail_holds(r, f) do on += {f.which}
 	return on
 }
@@ -334,6 +358,8 @@ rail_press_mods :: proc(r: ^Modifier_Rail) -> (mods: Modifiers, held: bool) {
 	mods = r.latched & {.Invert}
 	mode, has := rail_mode(r.latched).?
 	holding: Modifiers
+	// The Mask key held comes first: a finger put down on the dial since wins.
+	if r.key.held do mode, has, held, holding = .Mask, true, true, {.Mask}
 	for f in r.fingers[:r.count] {
 		if !rail_holds(r, f) do continue
 		if f.which == .Invert {
@@ -372,6 +398,7 @@ rail_press :: proc(app: ^App, input: ^Viewport_Input) {
 			}
 		}
 		for &f in r.fingers[:r.count] do f.used = true
+		if r.key.held do r.key.used = true
 	} else if .Left not_in d.down {
 		r.press = {}
 	}

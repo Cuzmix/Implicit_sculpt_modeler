@@ -66,6 +66,7 @@ Command_Id :: enum u16 {
 	Brush, // the argument is the sculpt.Brush_Kind
 	Brush_Preset, // the argument is a preset: built-in, the person's own or a pack's (preset_slots.odin)
 	Mask_Shape_Pick, // the argument is the Mask_Shape_Kind
+	Mask_Key,
 	Hide_Gesture_Pick, // the argument is the Gesture_Tool
 	Symmetry_X,
 	Physics,
@@ -1166,6 +1167,14 @@ COMMANDS := [Command_Id]Command {
 		help = "Changes the selected object's mask as a whole: clear, invert, fill, by cavity, from what is hidden, the inside of a closed outline, or a step of blur, sharpen, grow or shrink.",
 		args = len(sculpt.Mask_Command),
 		run = proc(app: ^App, arg: int) {mask_command(app, sculpt.Mask_Command(arg))},
+	},
+	.Mask_Key = {
+		label = "Mask while held",
+		help = "Its key held, a stroke paints the mask (from empty space it draws a mask shape), as the dial's Mask held; a quick tap latches Mask on until the next tap, as a tap on the dial does. Run from Search or a menu, it latches.",
+		// The dial's Mask sector's own icon (Lucide's contrast).
+		icon = rune(0xe0a1),
+		run = proc(app: ^App, _: int) {rail_toggle(&app.rail, .Mask)},
+		checked = proc(app: ^App, _: int) -> bool {return .Mask in app.rail.latched},
 	},
 	.Mask_By = {
 		label = "Mask by",
@@ -2711,6 +2720,7 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{KEY_LEFTBRACKET, {.Shift}, true}, .Strength_Down, 0},
 	{{KEY_RIGHTBRACKET, {.Shift}, true}, .Strength_Up, 0},
 	{{KEY_M, {.Alt}, false}, .Mask, int(sculpt.Mask_Command.Clear)},
+	{{KEY_M, {}, false}, .Mask_Key, 0},
 	{{KEY_R, {.Ctrl}, false}, .Remesh, 0},
 	{{KEY_T, {.Ctrl}, false}, .Dyntopo_Toggle, 0},
 	{{KEY_I, {.Ctrl}, false}, .Mask, int(sculpt.Mask_Command.Invert)},

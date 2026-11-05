@@ -13332,6 +13332,31 @@ def gizmo_pivot_row_edits_the_pivot():
 
 
 @scenario
+def mask_keys_paint_the_mask():
+    """Ctrl+Alt dragged over the sphere paints the mask (Ctrl alone still inverts the
+    brush); M held while dragging masks too and latches nothing; a tap of M latches Mask
+    for the next plain drag, and a second tap lets it go."""
+    path = line((760, 440), (840, 460), 8)
+    ctrl_alt, held, tapped, untapped = Script(), Script(), Script(), Script()
+    ctrl_alt.mouse_drag(path, keys=("ctrl", "alt"))
+    held.add("key:m")
+    held.wait(2)
+    held.mouse_drag(path)
+    held.add("keyup:m")
+    held.wait(3)
+    tapped.press("m")
+    tapped.mouse_drag(path)
+    untapped.press("m")
+    untapped.press("m")
+    return Steps([
+        (ctrl_alt, [], camera_still({"masked": near(1), "rail_latched": is_text("none")})),
+        (held, [], camera_still({"masked": near(1), "rail_latched": is_text("none")})),
+        (tapped, [], camera_still({"masked": near(1), "rail_latched": is_text("mask")})),
+        (untapped, [], camera_still({"masked": near(0), "rail_latched": is_text("none")})),
+    ])
+
+
+@scenario
 def gizmo_orientation_turns_the_arms():
     """The pivot row's orientation steps World, Object, Surface and View; in View the X arm
     lies flat across the screen, so a drag of it moves the sphere along the view's right
