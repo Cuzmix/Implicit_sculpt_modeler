@@ -1072,6 +1072,7 @@ history_swap :: proc(app: ^App, e: History_Entry) -> bool {
 	app.move.drag = {}
 	// A press on a curve's point is forgotten; its curve may be the one coming back.
 	curve_drag_drop(app)
+	curve_xform_drop(app)
 	// A copy on disk comes back first; without it there is nothing to go back to.
 	if !undo_disk_load(app, snap) {
 		report(app, nil, {.Warning}, "Could not read the copy of %s back from disk; this step cannot be undone", snap.what)

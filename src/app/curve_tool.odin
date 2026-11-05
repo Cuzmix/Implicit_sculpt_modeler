@@ -84,6 +84,10 @@ Curve_Tool :: struct {
 	box:         Curve_Box,
 	tap:         Curve_Tap,
 	all_handles: bool,
+	// A move, turn or scale of the picked points by the gizmo or G, R or S (curve_gizmo.odin),
+	// and the pointer's last place over the view, where a key's move starts.
+	xform:   Curve_Xform,
+	pointer: [2]f32,
 	// A Use or tube slider's drag on the selected curve, one undo step when it lets go.
 	look_drag: Curve_Look_Drag,
 	brush_runs: int, // Run brush along a curve (curve_brush.odin), for the exit stats
@@ -118,6 +122,8 @@ curve_tool_destroy :: proc(c: ^Curve_Tool) {
 	delete(c.placing)
 	delete(c.placing_n)
 	if c.drag.before != nil do history_snapshot_drop(c.drag.before)
+	if c.xform.before != nil do history_snapshot_drop(c.xform.before)
+	delete(c.xform.start)
 }
 
 // The nearest surface along the ray, with the triangle's normal there, in world space.
@@ -223,6 +229,9 @@ curve_land :: proc(app: ^App, pos, size: [2]f32, anchor: Vec3) -> (p, normal: Ve
 // Follows a Curve drag; on release makes its object. Returns false only on a GPU failure.
 curve_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	c := &app.curve
+	if input.hovered do c.pointer = input.mouse_pos
+	// The picked points' gizmo, or a G, R or S under way, before anything else.
+	if !c.active && c.drag.handle == .None && !c.box.active && curve_xform_frame(app, input) do return true
 	// A press on the selected curve's points, handles or line edits it instead.
 	if !c.active && curve_edit_frame(app, input) do return true
 	// In the Edit tab a press on empty space drags a box that picks points.
@@ -509,6 +518,16 @@ kit_curve_settings :: proc(app: ^App) {
 		keys := [2]string{"Tab", "Tab"}
 		if picked := ui.tabs(ctx, "curve mode", modes[:], int(c.editing), keys = keys[:]); picked >= 0 do c.editing = picked == 1
 		_ = ui.switch_row(ctx, "Show every point's handles", &c.all_handles)
+		if c.editing {
+			// The Move tool's gizmo settings, which the picked points' gizmo shares.
+			modes: [len(gizmo.Mode)]string
+			for name, mode in GIZMO_MODE_NAMES do modes[int(mode)] = name
+			if picked := ui.tabs(ctx, "curve gizmo mode", modes[:], int(app.move.mode)); picked >= 0 do app.move.mode = gizmo.Mode(picked)
+			orients: [len(Gizmo_Orient)]string
+			for name, o in GIZMO_ORIENT_NAMES do orients[int(o)] = name
+			if picked := ui.tabs(ctx, "curve gizmo orientation", orients[:], int(app.move.orient)); picked >= 0 do app.move.orient = Gizmo_Orient(picked)
+			_ = ui.switch_row(ctx, "Snap", &app.move.snap)
+		}
 	}
 	ui.label(ctx, "Draw on", ctx.theme.small_size)
 	planes: [len(Curve_Plane)]string
