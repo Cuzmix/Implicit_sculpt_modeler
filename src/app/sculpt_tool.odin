@@ -715,6 +715,8 @@ stroke_only :: proc(app: ^App) -> int {
 stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: Input_Sample, res: ^Sculpt_Frame_Result) {
 	origin, dir := ray_through(inv, s.pos, input.size)
 	t0 := time.tick_now()
+	// Peel is a look at the UVs, and a stroke wants the model as it is.
+	app.ui.uv_peel = 0
 	// A deformer's Amount held by another finger owns the object's undo until let go.
 	if app.ui.deform.drag.active do return
 	only := stroke_only(app)

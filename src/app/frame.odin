@@ -318,7 +318,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				mesh   = gpu,
 				textured = textured,
 				// Off while only Material Preview asks for the preview: its shading turns it on.
-				texture_view = app.texture_view if textured != nil else .Off,
+				texture_view = object_texture_view(app, obj) if textured != nil else .Off,
 				model  = transform_matrix(obj.transform),
 				color  = color,
 				material = material.shading,

@@ -101,6 +101,9 @@ Ui_State :: struct {
 	unwrap_symmetry:    Unwrap_Symmetry, // ...mirrored islands laid out alike across this plane
 	unwrap_keep_seams:  bool, // ...flattened along the seams the UVs have rather than new ones
 	uv_readout:         Uv_Readout, // the UVs section's stretch, kept until the UVs change
+	uv_peel:            f32,  // Peel: how far object uv_peel_id is laid flat into its UVs, 0 to 1 (a view only, never saved)
+	uv_peel_id:         int,
+	uv_peel_frame:      [3]Vec3, // ...toward a square along these object axes (right, up, toward the eye), the view's when Peel began
 	rebuild_goal:       Rebuild_Goal, // what the Rebuild section makes: an even mesh, fewer polygons or quads
 	rebuild_even:       i32,  // vertices Rebuild's Even goal asks for...
 	remesh_by:          Remesh_By, // ...or a cell size...

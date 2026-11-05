@@ -56,6 +56,7 @@ Texture_Preview :: struct {
 	// its shape or layout changes.
 	broken:     bool,
 	topology:   Split_Topology,
+	peel:       f32, // the Peel the vertices were made at (uv_peel_of)
 }
 
 // How a level of triangles splits where its UVs are (textured_split), kept while its
@@ -256,9 +257,17 @@ texture_remove :: proc(app: ^App, obj: ^Object) {
 // Whether `obj` draws through its textured preview this frame, with `lv` the level shown:
 // a view is on, the object is on its base level with UVs, sculpted in no other
 // way that the preview cannot show (dynamic topology, HD, hidden parts, polygroup colours,
+// The texture view object `obj` draws in, set by the view's own: Peel shows the checker
+// when nothing else is shown, so the islands can be told apart as they lay flat.
+object_texture_view :: proc(app: ^App, obj: ^Object) -> render.Texture_View {
+	if app.texture_view == .Off && uv_peel_of(app, obj) > 0 do return .Uv_Checker
+	return app.texture_view
+}
+
 // a stroke on it right now) and the view has something to show.
 object_textured :: proc(app: ^App, obj: ^Object, lv: ^sculpt.Level) -> bool {
 	view := texture_view_shown(app)
+	if view == .Off && uv_peel_of(app, obj) > 0 do view = .Uv_Checker
 	if view == .Off || obj.voxel != nil || object_in_hd(obj) || object_dynamic(obj) do return false
 	if !sculpt.levels_has_uvs(&obj.levels) do return false
 	if sculpt.sculptor_hidden_units(&lv.sculptor) != nil || app.show_groups do return false
@@ -284,11 +293,12 @@ texture_preview_frame :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, gpu: ^re
 	if p.decoder == nil && p.maps_stamp != obj.textures.stamp && app.texture_decodes == 0 do texture_decoder_start(app, obj)
 	lv := sculpt.levels_current(&obj.levels)
 	if !object_textured(app, obj, lv) do return nil
-	current := p.shape == gpu.version && p.layout == obj.textures.layout
+	peel := uv_peel_of(app, obj)
+	current := p.shape == gpu.version && p.layout == obj.textures.layout && p.peel == peel
 	if p.broken && current do return nil
 	if !current || p.mesh.index_count == 0 {
-		vertices, indices, corners := textured_vertices(obj, gpu, &p.topology, &app.pool)
-		p.shape, p.layout = gpu.version, obj.textures.layout
+		vertices, indices, corners := textured_vertices(obj, gpu, &p.topology, &app.pool, peel, app.ui.uv_peel_frame)
+		p.shape, p.layout, p.peel = gpu.version, obj.textures.layout, peel
 		p.broken = !render.textured_mesh_upload(&app.renderer, cmd, &p.mesh, vertices, indices, corners)
 		if p.broken {
 			file_note(app, true, "The GPU refused the textured copy of %s; it shows as clay", object_label(obj))
@@ -349,8 +359,10 @@ textured_split :: proc(obj: ^Object, level: int) -> (s: Textured_Split) {
 
 // The preview's vertices (textured_split), each with its vertex's mask, for the level
 // shown, whose buffers are `gpu`; a level of triangles keeps its split in `topology`
-// (Split_Topology) and reuses it while it fits. Temp memory.
-textured_vertices :: proc(obj: ^Object, gpu: ^render.Mesh_Buffers, topology: ^Split_Topology, pool: ^jobs.Pool) -> (vertices: []render.Textured_Vertex, indices: []u32, corners: []u32) {
+// (Split_Topology) and reuses it while it fits. With `peel` above 0 each slot moves that
+// far toward its UV coordinate laid on a square through the object's middle along `frame`
+// (right, up and toward the eye, in the object's axes) (Peel). Temp memory.
+textured_vertices :: proc(obj: ^Object, gpu: ^render.Mesh_Buffers, topology: ^Split_Topology, pool: ^jobs.Pool, peel: f32 = 0, frame := [3]geom.Vec3{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}) -> (vertices: []render.Textured_Vertex, indices: []u32, corners: []u32) {
 	level := obj.levels.current
 	lv := sculpt.levels_current(&obj.levels)
 	Job :: struct {
@@ -362,8 +374,17 @@ textured_vertices :: proc(obj: ^Object, gpu: ^render.Mesh_Buffers, topology: ^Sp
 		uv:        [][2]f32,
 		mask:      []u8,
 		gather:    bool, // positions and normals by vertex, tangents squared to them
+		peel:      f32,
+		center:    geom.Vec3, // the middle of the level's box, where the flat square stands
+		side:      f32,       // its longest side, the square's
+		frame:     [3]geom.Vec3,
 	}
-	job := Job{mask = lv.sculptor.mask}
+	job := Job{mask = lv.sculptor.mask, peel = clamp(peel, 0, 1), frame = frame}
+	if job.peel > 0 && len(lv.mesh.positions) > 0 {
+		lo, hi := lv.mesh.positions[0], lv.mesh.positions[0]
+		for p in lv.mesh.positions do lo, hi = linalg.min(lo, p), linalg.max(hi, p)
+		job.center, job.side = 0.5 * (lo + hi), max(hi.x - lo.x, hi.y - lo.y, hi.z - lo.z)
+	}
 	if level == 0 && sculpt.levels_has_quad_uvs(&obj.levels) {
 		split_topology_free(topology)
 		s := textured_split(obj, level)
@@ -401,6 +422,15 @@ textured_vertices :: proc(obj: ^Object, gpu: ^render.Mesh_Buffers, topology: ^Sp
 			} else {
 				p, n = job.positions[slot], job.normals[slot]
 			}
+			if job.peel > 0 {
+				// The UV square, as large as the object's longest side, stands in its middle
+				// facing the eye, u to the right and v up, so the islands read as laid out.
+				at := job.uv[slot] - 0.5
+				flat := job.center + job.side * (at.x * job.frame[0] + at.y * job.frame[1])
+				p = linalg.lerp(p, flat, job.peel)
+				n = linalg.normalize0(linalg.lerp(n, job.frame[2], job.peel))
+				if n == {} do n = job.frame[2]
+			}
 			job.vertices[slot] = {
 				position = p,
 				normal   = render.pack_normal(n, m),
@@ -410,6 +440,27 @@ textured_vertices :: proc(obj: ^Object, gpu: ^render.Mesh_Buffers, topology: ^Sp
 		}
 	}, geom.RANGE_GRAIN)
 	vertices = job.vertices
+	if job.peel > 0 && job.peel < 1 {
+		// Midway, a piece from the far side turns through edge-on toward the eye, and its
+		// triangles face away until it has: each goes twice, the second turned round with
+		// its normal flipped, so no piece goes missing while it turns.
+		count := len(vertices)
+		both := make([]render.Textured_Vertex, 2 * count, context.temp_allocator)
+		copy(both, vertices)
+		for v, i in vertices {
+			w := v
+			n, m := geom.oct_masked_decode(v.normal)
+			w.normal = render.pack_normal(-n, m)
+			both[count + i] = w
+		}
+		twice := make([]u32, 2 * len(indices), context.temp_allocator)
+		copy(twice, indices)
+		for k in 0 ..< len(indices) / 3 {
+			o := len(indices) + 3 * k
+			twice[o], twice[o + 1], twice[o + 2] = indices[3 * k] + u32(count), indices[3 * k + 2] + u32(count), indices[3 * k + 1] + u32(count)
+		}
+		vertices, indices = both, twice
+	}
 	return
 }
 
