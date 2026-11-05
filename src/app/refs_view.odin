@@ -34,6 +34,8 @@ refs_view :: proc(app: ^App) {
 	b := &k.board
 	refs := &app.scene.refs
 	main := k.grid.main
+	// The planes in the scene first, so the places over the view stand above them.
+	refs_planes_view(app)
 	if refs.view_off || main.w <= 0 || main.h <= 0 do return
 	editing := card_shown(app, .References)
 	step := clamp(ctx.input.dt, 0, 0.1) * REF_VIEW_FADE_RATE
@@ -174,7 +176,7 @@ refs_view_color :: proc(app: ^App, at: [2]f32) -> (rgb: [3]f32, over, ok: bool) 
 	return
 }
 
-// The Show refs command: hides or shows every place over the view at once.
+// The Show refs command: hides or shows every place over the view and in the scene at once.
 refs_view_toggle :: proc(app: ^App) {
 	app.scene.refs.view_off = !app.scene.refs.view_off
 	app.scene_edits += 1

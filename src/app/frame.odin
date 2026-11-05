@@ -388,6 +388,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	moving := time.tick_since(app.view_moved) < LOD_SETTLE
 	app.renderer.lod_px = app.simplify_px if app.simplify && moving && !timelapse_capturing(app) && !turntable_recording(app) else 0
 	app.renderer.floor = floor_grid_frame(app)
+	// The reference planes are for working: a time-lapse or a turntable records the model alone.
+	app.renderer.ref_planes = nil if timelapse_capturing(app) || turntable_recording(app) else refs_planes_frame(app)
 	theme_bring_background(app)
 	app.renderer.background = background_frame(app.background)
 	app.renderer.wire_color = theme_wire_color(&app.kit)
