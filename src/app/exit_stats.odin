@@ -255,7 +255,9 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			if obj := selected_object(app); obj != nil do for q in object_sculptor(obj).mesh.positions do mesh_sum += f64(q.x) + f64(q.y) + f64(q.z)
 			fmt.printfln("stroke_lines=%d stroke_joins=%d stroke_edits=%d stamp_edits=%d stroke_edit_open=%v", app.stroke_end.lines, app.stroke_end.joins, app.stroke_end.edits, app.stroke_end.stamp_edits, app.stroke_edit.open)
 			curves, curve_points := curve_counts(app)
-			fmt.printfln("curves=%d curve_points=%d curves_made=%d curve_placing=%d curve_edits=%d", curves, curve_points, app.curve.made, len(app.curve.placing), app.curve.edits)
+			curve_picked := 0
+			if obj := selected_curve(app); obj != nil do curve_picked = curve_selected_count(obj.curve)
+			fmt.printfln("curves=%d curve_points=%d curves_made=%d curve_placing=%d curve_edits=%d curve_picked=%d curve_editing=%v", curves, curve_points, app.curve.made, len(app.curve.placing), app.curve.edits, curve_picked, app.curve.editing)
 			tubes, lathes, alongs, tube_vertices, lathe_vertices, along_vertices := 0, 0, 0, 0, 0, 0
 			for obj in app.scene.objects do if obj.curve != nil && object_draws_triangles(obj) {
 				n := len(sculpt.levels_current(&obj.levels).mesh.positions)

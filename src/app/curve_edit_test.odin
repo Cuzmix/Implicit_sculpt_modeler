@@ -70,8 +70,8 @@ point_on_screen :: proc(app: ^App, obj: ^Object, i: int) -> [2]f32 {
 	return at
 }
 
-// Dragging a point moves it, one undo step; a tap makes it a corner and another smooth
-// again, each a step; nothing new is drawn by those presses.
+// Dragging a point moves it, one undo step; a tap picks it (no step), a double tap makes it
+// a corner and another smooth again, each a step; nothing new is drawn by those presses.
 @(test)
 curve_point_drags_and_taps :: proc(t: ^testing.T) {
 	app: App
@@ -88,9 +88,12 @@ curve_point_drags_and_taps :: proc(t: ^testing.T) {
 
 	at = point_on_screen(&app, obj, 1)
 	edit_curve_drag(&app, at, at)
-	testing.expect(t, obj.curve.points[1].corner, "a tap did not make a corner")
+	testing.expect(t, !obj.curve.points[1].corner && obj.curve.points[1].selected, "a tap did not just pick the point")
 	edit_curve_drag(&app, at, at)
-	testing.expect(t, !obj.curve.points[1].corner, "a second tap did not make it smooth")
+	testing.expect(t, obj.curve.points[1].corner, "a double tap did not make a corner")
+	edit_curve_drag(&app, at, at)
+	edit_curve_drag(&app, at, at)
+	testing.expect(t, !obj.curve.points[1].corner, "a second double tap did not make it smooth")
 	testing.expect_value(t, len(app.history.done), steps + 3)
 	testing.expect_value(t, app.curve.edits, 3)
 	testing.expect(t, app.curve.drag.before == nil, "a snapshot is still held")
@@ -148,4 +151,66 @@ curve_commands :: proc(t: ^testing.T) {
 	testing.expect(t, command_run(&app, .Curve_Corner))
 	testing.expect(t, command_checked(&app, .Curve_Corner), "not a corner")
 	testing.expect_value(t, action_groups_now(&app), bit_set[Action_Group]{.Curve})
+}
+
+// Shift-taps pick several points, which a drag of one moves together, one undo step; in the
+// Edit tab a box over empty space picks those inside and a tap there picks none; Delete
+// takes the picked points as one step and keeps the rest.
+@(test)
+curve_points_picked_move_and_delete_together :: proc(t: ^testing.T) {
+	app: App
+	defer edit_curve_free(&app)
+	obj := edit_curve_scene(&app)
+	cp := obj.curve
+	steps := len(app.history.done)
+	a, b := point_on_screen(&app, obj, 0), point_on_screen(&app, obj, 2)
+	edit_curve_drag(&app, a, a)
+	_ = curve_tool_frame(&app, {size = EDIT_CURVE_SIZE, mouse_pos = b, hovered = true, primary = true, press = true, smooth = true})
+	_ = curve_tool_frame(&app, {size = EDIT_CURVE_SIZE, mouse_pos = b, hovered = true, smooth = true})
+	testing.expect_value(t, curve_selected_count(cp), 2)
+	testing.expect_value(t, len(app.history.done), steps)
+	was0, was1, was2 := cp.points[0].p, cp.points[1].p, cp.points[2].p
+	edit_curve_drag(&app, b, b + {0, 60})
+	moved := cp.points[2].p - was2
+	testing.expectf(t, linalg.length(moved) > 0.05, "moved %v", moved)
+	testing.expectf(t, linalg.length(cp.points[0].p - was0 - moved) < 1e-4, "the other picked point moved by %v, not %v", cp.points[0].p - was0, moved)
+	testing.expect(t, cp.points[1].p == was1, "a point not picked moved")
+	testing.expect_value(t, len(app.history.done), steps + 1)
+
+	// The Edit tab: a tap on empty space picks none, a box round the middle point picks it.
+	app.curve.editing = true
+	edit_curve_drag(&app, {20, 20}, {20, 20})
+	testing.expect_value(t, curve_selected_count(cp), 0)
+	m := point_on_screen(&app, obj, 1)
+	edit_curve_drag(&app, m - {30, 30}, m + {30, 30})
+	testing.expect(t, cp.points[1].selected && curve_selected_count(cp) == 1, "the box did not pick just the middle point")
+	testing.expect_value(t, len(app.scene.objects), 2)
+
+	// A curve keeps two points: deleting all three is refused, deleting one is a step.
+	curve_select_all(&app)
+	testing.expect(t, !command_enabled(&app, .Curve_Delete_Point), "deleting every point is offered")
+	curve_select_none(cp)
+	cp.points[1].selected = true
+	testing.expect(t, command_run(&app, .Curve_Delete_Point))
+	testing.expect_value(t, len(cp.points), 2)
+	testing.expect_value(t, len(app.history.done), steps + 2)
+}
+
+// Handles show on picked points and their neighbours only, unless every point's are asked for.
+@(test)
+curve_handles_show_round_the_picked :: proc(t: ^testing.T) {
+	cp: Curve_Part
+	defer delete(cp.points)
+	for _ in 0 ..< 5 do append(&cp.points, geom.Bezier_Point{})
+	app: App
+	testing.expect(t, !curve_handles_shown(&app, &cp, 2), "handles show with nothing picked")
+	cp.points[2].selected = true
+	for i in 0 ..< 5 do testing.expectf(t, curve_handles_shown(&app, &cp, i) == (i >= 1 && i <= 3), "point %d", i)
+	curve_select_none(&cp)
+	cp.points[0].selected = true
+	testing.expect(t, !curve_handles_shown(&app, &cp, 4), "an open curve's ends are neighbours")
+	cp.closed = true
+	testing.expect(t, curve_handles_shown(&app, &cp, 4), "a loop's ends are not neighbours")
+	app.curve.all_handles = true
+	testing.expect(t, curve_handles_shown(&app, &cp, 2), "every point's handles do not show")
 }

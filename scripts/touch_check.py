@@ -1479,6 +1479,21 @@ def curve_edited_by_pen():
                                                                      "undo_steps": near(1), "redo_steps": near(1), "dabs": near(0)})
 
 
+@scenario
+def curve_points_boxed_in_edit_and_moved_together():
+    """Add › Curve's circle, Tab to the Curve tool's Edit tab, a mouse box drawn round the
+    whole circle picks its four points, and a drag on one moves them all as one edit, one
+    undo step (look with --screens)."""
+    s = Script()
+    s.wait(2)
+    s.press("Tab")
+    s.mouse_drag(line((420, 160), (1180, 760), 8))
+    s.mouse_drag(line((891, 432), (951, 472), 6))
+    s.wait(2)
+    return s, ["--script=add_curve circle"], camera_still({"curves": near(1), "curve_editing": lambda v: v == "true", "curve_picked": near(4),
+                                                          "curve_edits": near(1), "undo_steps": near(1), "dabs": near(0)})
+
+
 def tube_loop(s):
     """Three pen taps and a tap back on the first: a closed curve making a tube, then its
     second point dragged by pen, which makes the tube again."""
