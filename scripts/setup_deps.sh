@@ -45,7 +45,7 @@ if [ ! -f "$DEPS/sdl3/lib/libSDL3.so" ]; then
 	fi
 	cmake -S "$DEPS/sdl3-src" -B "$DEPS/sdl3-src/build" -G Ninja \
 		-DCMAKE_BUILD_TYPE=Release -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF "${sdl_video[@]}" \
-		-DCMAKE_INSTALL_PREFIX="$DEPS/sdl3" > "$DEPS/sdl3-configure.log"
+		-DCMAKE_INSTALL_PREFIX="$DEPS/sdl3" -DCMAKE_INSTALL_LIBDIR=lib >"$DEPS/sdl3-configure.log"
 	ninja -C "$DEPS/sdl3-src/build" install > "$DEPS/sdl3-build.log"
 fi
 
