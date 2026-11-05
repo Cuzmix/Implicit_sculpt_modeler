@@ -605,7 +605,8 @@ card_body :: proc(app: ^App, c: Card, inner: f32, body_y: f32, scroll: f32) -> (
 		ui.icon(ctx, ui.ICON_CHEVRON_DOWN if open else ui.ICON_CHEVRON_RIGHT, {g.rect.x + 8, y}, t.icon_small - 2, t.text_secondary)
 		ui.text(ctx, section_title(sec), g.rect.x + 22, y, t.text_size, t.text, .Semibold)
 		used := 22 + ui.text_width(ctx, section_title(sec), t.text_size, .Semibold) + 12
-		if line := section_summary(app, sec); line != "" && g.rect.w - used > 24 {
+		// The summary stands in for a folded section's controls; an open one shows them.
+		if line := section_summary(app, sec); !open && line != "" && g.rect.w - used > 24 {
 			ui.text(ctx, ui.text_fit(ctx, line, t.small_size, g.rect.w - used - 6), g.rect.x + g.rect.w - 6, y, t.small_size, t.text_tertiary, align = .Right)
 		}
 		ui.tip(ctx, g.id, g.rect, "Fold" if open else "Unfold", label = false)

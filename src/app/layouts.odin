@@ -160,9 +160,13 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 built_in_layout :: proc(s: Space) -> string {
 	text: string
 	switch s {
-	case .Sculpt, .Model:
+	case .Sculpt:
 		// The view clear: every card opens from its dock button when it is wanted.
 		text = ""
+	case .Model:
+		// As Sculpt, without the brush bar: its Size and Strength move no cage, so in Model
+		// they would only take room from the view.
+		text = "hidden Brush_Bar\n"
 	case .Render:
 		// The Look card pinned on the pen side, after round 2's studio2 screen; Second view
 		// splits off a pane to watch the render build up beside the work.
