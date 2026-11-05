@@ -60,8 +60,10 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
 const problems = [];
+const logs = [];
 page.on("console", (m) => {
 	const text = m.text();
+	logs.push(text);
 	// WebGPU's validation messages come as warnings; the app's own log as plain logs, its
 	// errors marked [ERROR].
 	if (m.type() !== "log" || /\[ERROR\]|\[FATAL\]/.test(text)) problems.push(`console ${m.type()}: ${text}`);
@@ -165,6 +167,25 @@ try {
 	results.turn_diff = await maxDiff(redone, turned);
 	expect(results.turn_diff > 8, "a drag off the sphere did not turn the view");
 
+	// A picture pasted outside a text field goes on the References board, through the
+	// page's paste event (web/sdl_web.js), and the References card opens on it.
+	await page.evaluate(async () => {
+		const c = document.createElement("canvas");
+		c.width = 8; c.height = 4;
+		const g = c.getContext("2d");
+		g.fillStyle = "#c08060";
+		g.fillRect(0, 0, 8, 4);
+		const blob = await new Promise((ok) => c.toBlob(ok, "image/png"));
+		const data = new DataTransfer();
+		data.items.add(new File([blob], "p.png", { type: "image/png" }));
+		window.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data }));
+	});
+	await page.waitForTimeout(1500);
+	await shot("7-pasted");
+	results.pasted = logs.some((l) => l.includes("Added Pasted picture.png to References"));
+	expect(results.pasted, "a pasted picture did not go on the References board");
+	await page.keyboard.press("Escape");
+
 	// Save hands the scene file to the browser's downloads.
 	const download = page.waitForEvent("download", { timeout: 30000 }).catch(() => null);
 	await page.keyboard.press("Control+s");
@@ -172,7 +193,7 @@ try {
 	results.saved = file ? file.suggestedFilename() : "none";
 	results.saved_bytes = file ? fs.statSync(await file.path()).size : 0;
 	expect(file && results.saved.endsWith(".sculpt") && results.saved_bytes > 1000, "Ctrl+S gave no .sculpt download");
-	await shot("7-saved");
+	await shot("8-saved");
 	const late = await failure();
 	expect(!late, `the page failed: ${late}`);
 } catch (e) {

@@ -184,7 +184,9 @@ refs_delete_selected :: proc(app: ^App) {
 refs_paste :: proc(app: ^App) -> bool {
 	data := platform_clipboard_image()
 	if data == nil {
-		file_note(app, true, "The clipboard holds no picture to add to References")
+		// The browser reads its clipboard later and drops the picture it finds (web/sdl_web.js).
+		when ODIN_OS == .JS do file_note(app, false, "Looking for a picture on the clipboard")
+		else do file_note(app, true, "The clipboard holds no picture to add to References")
 		return false
 	}
 	return refs_add_bytes(app, "Pasted picture", data)

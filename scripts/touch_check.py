@@ -8819,6 +8819,48 @@ def rail_panels_picker_adds_a_card():
                                 "view_rail": is_text("Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:References,Open_Card:Deform,Open_Card:Look")})
 
 
+# The References card from its rail button, its Add note, and its board (a drag's points
+# are offsets from the board's middle, where the board, fitted to a first note, shows it).
+REFS_RAIL = At("view bar/References", 1563, 373)
+REFS_ADD_NOTE = At("card References/Add note", 1300, 160)
+REFS_BOARD = "card References/board"
+
+
+@scenario
+def references_note_by_finger():
+    """A finger opens the References card from the rail, adds a note and drags it across
+    the board: one note, one move as one undo step; nothing sculpts or turns."""
+    s = Script()
+    s.ftap(REFS_RAIL)
+    s.wait(6)
+    s.ftap(REFS_ADD_NOTE)
+    s.wait(4)
+    s.add(f"fdown:0:@{REFS_BOARD}~0,0")
+    for k in range(1, 9):
+        s.wait(1)
+        s.add(f"fmove:0:@{REFS_BOARD}~{8 * k},{6 * k}")
+    s.wait(1)
+    s.add("fup:0")
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "ref_notes": near(1), "refs_moves": near(1), "undo_steps": near(2)})
+
+
+@scenario
+def references_on_view_let_the_brush_through():
+    """A picture added by a script opens the References card; a finger taps On view and the
+    card's Close, and a finger stroke over the picture standing over the view sculpts: with
+    the card shut it takes no touch."""
+    s = Script()
+    s.wait(6)
+    s.ftap("card References/On view")
+    s.wait(4)
+    s.ftap("card References/Close")
+    s.wait(6)
+    s.fdrag([(500 + 10 * k, 400 + 2 * k) for k in range(12)])
+    s.wait(6)
+    return s, ["--script=reference assets/icon/sculpt-1024.png"], camera_still({"dabs": lambda v: float(v) > 0, "refs": near(1)})
+
+
 @scenario
 def tap_dab_waits_for_nothing_else():
     """A tap's dab then an Undo tap on the panel straight after: the dab plays first, so Undo takes it back."""
