@@ -65,6 +65,7 @@ Uv_Readout :: struct {
 	count:   int,
 	l2:      f64,
 	flips:   int,
+	density: f64, // the UVs' length a unit of the object's own surface takes (uv.Stretch)
 }
 
 // Whether `obj` can be unwrapped now, saying why not when it cannot: its base level's
@@ -142,7 +143,7 @@ uv_readout :: proc(app: ^App, obj: ^Object) -> Uv_Readout {
 	if r.id == obj.id && r.layout == obj.textures.layout && r.corners == raw_data(u.corner) && r.count == len(u.corner) do return r^
 	base := obj.levels.levels[0]
 	s := uv.stretch(u, base.mesh.positions[:], base.mesh.indices[:])
-	r^ = {obj.id, obj.textures.layout, raw_data(u.corner), len(u.corner), s.l2, s.flips}
+	r^ = {obj.id, obj.textures.layout, raw_data(u.corner), len(u.corner), s.l2, s.flips, s.density}
 	return r^
 }
 
@@ -175,6 +176,10 @@ kit_uvs_section :: proc(app: ^App) {
 		u := obj.levels.uvs
 		flips := fmt.tprintf(", %d folded", r.flips) if r.flips > 0 else ""
 		ui.value_row(ctx, "Now", fmt.tprintf("%d islands · stretch %.3f · %.0f%% filled%s", u.islands, r.l2, 100 * u.filled, flips))
+		// In texels of a map Bake's size across a unit of the scene, the object's scale counted.
+		side := app.ui.bake.size
+		scale := f64(obj.transform.scale)
+		if scale > 0 do ui.value_row(ctx, "Texel density", fmt.tprintf("%.0f px a unit at %d", r.density * f64(side) / scale, side))
 	}
 }
 

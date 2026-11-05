@@ -155,3 +155,17 @@ split_follows_the_seams :: proc(t: ^testing.T) {
 		testing.expectf(t, abs(linalg.length(tan.xyz) - 1) < 1e-4 && abs(d) < 1e-4 && abs(tan.w) == 1, "tangent %v", tan)
 	}
 }
+
+// Texel density is the UVs' length a unit of surface takes: UVs twice as large give twice
+// the texels a unit, and a unit square laid out over the unit square gives exactly one.
+@(test)
+texel_density_scales_with_the_uvs :: proc(t: ^testing.T) {
+	positions := []geom.Vec3{{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}}
+	indices := []u32{0, 1, 2, 0, 2, 3}
+	u := make_uvs(2, context.temp_allocator)
+	u.corner[0] = {{0, 0}, {1, 0}, {1, 1}}
+	u.corner[1] = {{0, 0}, {1, 1}, {0, 1}}
+	testing.expectf(t, abs(stretch(u, positions, indices).density - 1) < 1e-9, "density %v", stretch(u, positions, indices).density)
+	for &c in u.corner do for &p in c do p *= 0.5
+	testing.expectf(t, abs(stretch(u, positions, indices).density - 0.5) < 1e-9, "density %v", stretch(u, positions, indices).density)
+}
