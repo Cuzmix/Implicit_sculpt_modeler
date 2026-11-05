@@ -227,6 +227,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Open_Section     = "section card panel open show go fold",
 	.Panels_Reset     = "reset panels layout columns dock windows restore default",
 	.Layout_Reset     = "reset layout workspace default factory docks cards restore",
+	.Layout_Save_As   = "save layout workspace preset my own custom store name docks cards",
+	.Layout_Load      = "load layout workspace preset my own custom apply switch docks cards",
 	.View_Pass        = "pass view mode normals depth curvature cavity occlusion ao silhouette shaded diagnostic check skin detail normal map",
 	.View_Pass_Last   = "pass view back previous toggle",
 	.View_Grid        = "grid split panes quad four views side front top layout compare",
@@ -296,6 +298,7 @@ palette_entries_shown :: proc(app: ^App) -> []Palette_Entry {
 	out := make([dynamic]Palette_Entry, 0, 160, context.temp_allocator)
 	for e in palette_entries() {
 		if e.kind == .Command && e.id == .Run_Macro && app.macro.slots[e.arg].name == "" do continue
+		if e.kind == .Command && e.id == .Layout_Load && app.kit.layouts.saved[e.arg].name == "" do continue
 		if e.kind == .Command && e.id == .Run_Plugin && !plugin_slot_loaded(app, e.arg) do continue
 		if e.kind == .Command && e.id == .Reload_Plugins && !PLUGINS_AVAILABLE do continue
 		// Only the presets there are, of the room kept for them.
@@ -308,6 +311,7 @@ palette_entries_shown :: proc(app: ^App) -> []Palette_Entry {
 // What the palette and Settings > Keys show for the entry: a macro by its name.
 entry_title :: proc(app: ^App, e: Palette_Entry) -> string {
 	if e.kind == .Command && e.id == .Run_Macro && app.macro.slots[e.arg].name != "" do return fmt.tprintf("Macro: %s", app.macro.slots[e.arg].name)
+	if e.kind == .Command && e.id == .Layout_Load && app.kit.layouts.saved[e.arg].name != "" do return fmt.tprintf("Layout: %s", app.kit.layouts.saved[e.arg].name)
 	if e.kind == .Command && e.id == .Run_Plugin && app.plugins.slots[e.arg].key != "" do return plugin_slot_title(app, e.arg)
 	if e.kind == .Command && e.id == .Brush_Preset && e.arg >= PRESET_SLOT_OWN do return fmt.tprintf("%s brush", preset_slot_label(app, e.arg))
 	return palette_label(e)

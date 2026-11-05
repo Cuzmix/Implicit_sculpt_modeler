@@ -261,6 +261,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .New_Scene: return new_start_key(arg)
 	case .Pie:       return fmt.tprint(arg + 1) // as the menus count them
 	case .Run_Macro: return fmt.tprint(arg + 1)
+	case .Layout_Load: return fmt.tprint(arg + 1)
 	case .Run_Plugin: return fmt.tprint(arg + 1)
 	case .Restore_Selection_Set: return fmt.tprint(arg + 1)
 	case .Gizmo:     return fmt.tprint(gizmo.Mode(arg))

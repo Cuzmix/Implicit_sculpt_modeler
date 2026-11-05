@@ -529,6 +529,13 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			zones := strings.builder_make(context.temp_allocator)
 			for z in Zone do if zone_hidden(k, z) do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
 			fmt.printfln("layout_modified=%d layouts_changed=%s layout_menu=%d layout_resets=%d zones_hidden=%s", int(l.modified), strings.to_string(changed) if strings.builder_len(changed) > 0 else "none", int(l.menu), l.resets, strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
+			// The person's own layouts: how many, saved and loaded this run, and the one the
+			// space in front is exactly (by name, spaces as underscores), if any.
+			kept_n := 0
+			for s in l.saved do if s.name != "" do kept_n += 1
+			matching := "none"
+			if l.matching > 0 do matching, _ = strings.replace_all(l.saved[l.matching - 1].name, " ", "_", context.temp_allocator)
+			fmt.printfln("layouts_saved=%d layout_saves=%d layout_loads=%d layout_matching=%s", kept_n, l.saves, l.loads, matching)
 			// The working space, how many times it changed, and the view toggles.
 			// The interface's layout faults in the last whole frame (ui.layout_fault): rows
 			// whose children lie over each other or spill out of a fixed size.
