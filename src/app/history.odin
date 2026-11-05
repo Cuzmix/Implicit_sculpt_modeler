@@ -96,6 +96,8 @@ History_Entry :: struct {
 	lights: ^Light_Step,
 	// A .References entry's board before the change and after it (references.odin), owned.
 	refs: ^Refs_Step,
+	// A .Stack entry's live stack before the change and after it (stack.odin), owned.
+	stack: ^Stack_Step,
 }
 
 Arrange_Step :: struct {
@@ -108,6 +110,7 @@ Arrange_Step :: struct {
 entry_free :: proc(h: ^History, e: History_Entry) {
 	delete(e.bookmark)
 	free(e.lights)
+	free(e.stack)
 	if e.refs != nil {
 		refs_step_free(e.refs)
 		h.refs_dropped = true
@@ -144,6 +147,7 @@ History_Kind :: enum u8 {
 	Model,    // a swap entry of Model mode: a cage edited or applied
 	Curve,    // a swap entry of a curve object: drawn, edited or removed
 	References, // the reference pictures added, moved or removed
+	Stack,      // the object's live stack changed: a row added, set, shown or removed
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap
@@ -420,7 +424,7 @@ history_next_label :: proc(list: []History_Entry) -> string {
 	if len(list) == 0 do return "stroke"
 	e := list[len(list) - 1]
 	if e.swap != nil do return e.swap.what
-	if e.kind == .Transform || e.kind == .Arrange || e.kind == .Textures || e.kind == .Lights || e.kind == .References do return e.what
+	if e.kind == .Transform || e.kind == .Arrange || e.kind == .Textures || e.kind == .Lights || e.kind == .References || e.kind == .Stack do return e.what
 	return "stroke"
 }
 
@@ -859,7 +863,7 @@ history_push :: proc(app: ^App, e: History_Entry) {
 @(private = "file")
 history_drop_redo :: proc(app: ^App) {
 	for e in app.history.undone {
-		if e.swap != nil || e.arrange != nil || e.lights != nil || e.refs != nil || e.kind == .Transform || e.kind == .Textures {
+		if e.swap != nil || e.arrange != nil || e.lights != nil || e.refs != nil || e.stack != nil || e.kind == .Transform || e.kind == .Textures {
 			// Nothing of it is kept anywhere else.
 		} else if obj := object_by_id(app, e.id); obj != nil && obj.voxel != nil {
 			voxel.clay_clear_redo(&obj.voxel.clay)
@@ -913,7 +917,7 @@ history_redo :: proc(app: ^App) {
 history_flash :: proc(app: ^App, to: []History_Entry) {
 	if len(to) == 0 do return
 	e := to[len(to) - 1]
-	if e.lights != nil || e.arrange != nil || e.refs != nil || object_by_id(app, e.id) == nil do return
+	if e.lights != nil || e.arrange != nil || e.refs != nil || e.stack != nil || object_by_id(app, e.id) == nil do return
 	flash_undo_begin(app, e.id)
 }
 
@@ -965,6 +969,18 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 			texture_step_swap(obj, e.textures)
 			app.history.swap_bytes += texture_step_bytes(e.textures)
 			app.scene_edits += 1
+			append(to, e)
+			return true
+		}
+		if e.stack != nil {
+			// The stack changes how the object is drawn, no level and no sculptor; an
+			// object that is gone takes the step with it.
+			obj := object_by_id(app, e.id)
+			if obj == nil {
+				entry_free(&app.history, e)
+				continue
+			}
+			stack_step_apply(app, obj, e.stack, from == &app.history.done)
 			append(to, e)
 			return true
 		}
@@ -1103,7 +1119,7 @@ history_forget_strokes :: proc(app: ^App, id: int) {
 	for list in ([2]^[dynamic]History_Entry{&app.history.done, &app.history.undone}) {
 		kept := 0
 		for e in list {
-			if e.id != id || e.swap != nil || e.arrange != nil || e.lights != nil || e.kind == .Transform || e.kind == .Textures {
+			if e.id != id || e.swap != nil || e.arrange != nil || e.lights != nil || e.stack != nil || e.kind == .Transform || e.kind == .Textures {
 				list[kept] = e
 				kept += 1
 			} else {
@@ -1123,7 +1139,7 @@ history_forget_level :: proc(app: ^App, id: int, level: Maybe(int)) {
 		kept := 0
 		for e in list {
 			only, one := level.?
-			if e.id != id || e.arrange != nil || e.lights != nil || (one && (e.level != only || e.swap != nil || e.kind == .Transform || e.kind == .Textures)) {
+			if e.id != id || e.arrange != nil || e.lights != nil || (one && (e.level != only || e.swap != nil || e.stack != nil || e.kind == .Transform || e.kind == .Textures)) {
 				list[kept] = e
 				kept += 1
 			} else {

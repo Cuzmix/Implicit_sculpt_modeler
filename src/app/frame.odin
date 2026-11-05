@@ -379,6 +379,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			})
 		}
 	}
+	// The live stack's copies, after every item they copy (the boolean preview's too).
+	stack_draw_copies(app, &draws, &froms)
 	aspect := f32(app.target.width) / f32(app.target.height)
 	view, proj := camera.orbit_view(app.camera), camera.orbit_proj(app.camera, aspect)
 	// The main view's role lent to a view pane or given back is no turn of the view: what

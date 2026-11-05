@@ -76,7 +76,7 @@ view_rail_is_a_bar_of_its_own :: proc(t: ^testing.T) {
 	a: App
 	defer results_destroy(&a)
 	bars_reset(&a.kit)
-	testing.expect_value(t, bar_names(&a, .View_Rail), "Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:References")
+	testing.expect_value(t, bar_names(&a, .View_Rail), "Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:Stack,Open_Card:References")
 	testing.expect(t, !bar_changed(&a, .View_Rail))
 	bar_remove(&a, .View_Rail, 2)
 	bar_put(&a, {which = .View_Rail, slot = 0, add = true}, {.Floor_Grid, 0})

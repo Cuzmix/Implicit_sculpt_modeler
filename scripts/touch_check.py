@@ -3873,7 +3873,7 @@ def lens_rail_holds_the_view_tools():
     """Lens shows the off-hand island at the left, the readout over the view's top-left corner and the view rail's cards; nothing moves the camera."""
     s = Script()
     s.wait(10)
-    rail = "Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:References"
+    rail = "Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:Stack,Open_Card:References"
     return s, LENS_1440, camera_still({"view_rail": is_text(rail), "island": rect_x(8, 16), "chips": lambda v: float(v.split(",")[0]) < 20})
 
 
@@ -8816,7 +8816,7 @@ def rail_panels_picker_adds_a_card():
     s.ftap(RAIL_DEFORM)
     s.wait(10)
     return s, [], camera_still({"dabs": near(0), "card_front": is_text("deform"), "library_puts": near(2),
-                                "view_rail": is_text("Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:References,Open_Card:Deform,Open_Card:Look")})
+                                "view_rail": is_text("Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:Stack,Open_Card:References,Open_Card:Deform,Open_Card:Look")})
 
 
 @scenario

@@ -199,6 +199,7 @@ KIND_GLYPHS := [History_Kind]rune {
 	.Model     = ICON_CAGE,
 	.Curve     = ui.ICON_SPLINE,
 	.References = ICON_REFERENCES,
+	.Stack     = ICON_LIVE_STACK,
 }
 
 // One row: a tap goes to its step (a group's newest), a long press, a right click or the
