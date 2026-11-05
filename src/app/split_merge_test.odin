@@ -191,7 +191,8 @@ visibility_slots_round_trip_in_the_file :: proc(t: ^testing.T) {
 	more: [dynamic]u8
 	defer delete(more)
 	lights_more_put(&more, app.scene.lights)
-	end := len(head) - len(more)
+	// The references' chunk follows the scene's.
+	end := len(head) - len(more) - test_refs_chunk_len(&app)
 	testing.expect_value(t, head[end - len(lights) - 4 - GUIDES_BYTES - SCENE_CURVE_FIELD_BYTES - 10], 3)
 	testing.expect_value(t, head[end - len(lights) - 4 - GUIDES_BYTES - SCENE_CURVE_FIELD_BYTES - 9], 0b100)
 }

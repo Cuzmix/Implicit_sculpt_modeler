@@ -434,6 +434,10 @@ card_content :: proc(app: ^App, c: Card, inner, height: f32, owner: ui.Id, scrol
 		details_card_body(app, inner, height, owner)
 		k.cards.bodies[c] = {}
 		return
+	case .References:
+		refs_card_body(app, inner, height, owner)
+		k.cards.bodies[c] = {}
+		return
 	}
 	body := kit_scroll_begin(ctx, "card body", scroll, owner, inner, height, 6)
 	reveal_at = card_body(app, c, inner, body.at.y, body.shown)

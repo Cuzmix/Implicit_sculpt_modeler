@@ -401,7 +401,8 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	more: [dynamic]u8
 	defer delete(more)
 	lights_more_put(&more, app.scene.lights)
-	end := len(head) - len(more)
+	// The references' chunk follows the scene's.
+	end := len(head) - len(more) - test_refs_chunk_len(&app)
 	r.at = end - (4 + 4 + 4 + len("Ears") + 1 + 1 + 4 + 4 + 2 + 8 + len(lights) + 4 + GUIDES_BYTES + SCENE_CURVE_FIELD_BYTES)
 	folders, next, ok := folders_get(&r)
 	defer {

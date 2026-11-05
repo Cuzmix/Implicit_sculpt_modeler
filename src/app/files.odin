@@ -58,6 +58,7 @@ File_Kind :: enum u8 {
 	Link_Send,    // the selected objects go to the Blender link's folder (link.odin); no path
 	Link_Get,     // what Blender left in the link's folder comes in; the path is LINK_AUTO for the focus check's
 	Environment,  // a panorama lights the physically based materials (environment.odin)
+	Reference,    // an image goes on the References card's board (references.odin)
 	Diagnostic_Report, // the Input diagnostics report goes to a ZIP file (diagnostics.odin)
 	Crash_Log,    // the last crash's log goes to a text file (crash_log.odin)
 	Export_Vdm,   // the brush's VDM alpha goes to an OpenEXR file, laid out for the app vdm_axes names (vdm_files.odin)
@@ -79,7 +80,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(39)
+SCENE_VERSION :: u32(40)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -260,7 +261,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Save, .Save_Copy:                                      dialog_save(app, userdata, SCENE_FILTERS[:])
 	case .Open:                                                  dialog_open(app, userdata, SCENE_FILTERS[:])
 	case .Alpha, .Skin_Map:                                      dialog_open(app, userdata, ALPHA_FILTERS[:])
-	case .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map:        dialog_open(app, userdata, IMAGE_FILTERS[:])
+	case .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map, .Reference: dialog_open(app, userdata, IMAGE_FILTERS[:])
 	case .Environment:                                           dialog_open(app, userdata, ENVIRONMENT_FILTERS[:])
 	case .Screenshot:                                            dialog_save(app, userdata, PNG_FILTERS[:])
 	case .Save_Strokes:                                          dialog_save(app, userdata, STROKES_FILTERS[:])
@@ -493,6 +494,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = matcap_load(app, req.path)
 	case .Environment:
 		_ = environment_load(app, req.path)
+	case .Reference:
+		_ = refs_add_file(app, req.path)
 	case .Base_Color_Map, .Orm_Map, .Normal_Map:
 		for kind, m in TEXTURE_FILE_KINDS do if kind == req.kind {
 			if why := texture_load(app, selected_object(app), m, req.path); why != "" do file_note(app, true, "%s", why)
@@ -548,8 +551,14 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 // A file dropped on the window from the desktop: a mesh imports as Import mesh would,
 // anything else says what a drop takes.
 file_drop :: proc(app: ^App, path: string) {
+	if image_path_known(path) {
+		// A picture dropped on the window goes on the References board, as a photo
+		// dropped on PureRef's does.
+		_ = refs_add_file(app, path)
+		return
+	}
 	if mesh_file_kind(path, nil) == .None {
-		file_note(app, true, "Cannot import %s: drop .obj, .ply, .stl, glTF or USD files to import them", filepath.base(path))
+		file_note(app, true, "Cannot import %s: drop .obj, .ply, .stl, glTF or USD files to import them, or pictures to add them to References", filepath.base(path))
 		return
 	}
 	// Never over a dialog's answer, which would be lost.
@@ -1495,7 +1504,6 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	geom.byte_put(out, SCENE_VERSION)
 	preview_block_put(app, out)
 	at := scene_chunk_begin(out, CHUNK_SCENE)
-	defer scene_chunk_end(out, at)
 	curves, _ := curve_counts(app)
 	geom.byte_put(out, u32(len(app.scene.objects) - curves))
 	geom.byte_put(out, i32(scene_selected_without_curves(app)))
@@ -1529,6 +1537,10 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	geom.byte_put(out, i32(curves))
 	geom.byte_put(out, i32(app.scene.selected))
 	lights_more_put(out, app.scene.lights)
+	scene_chunk_end(out, at)
+	// The reference pictures belong to the scene, so every writer of one (a save, the
+	// autosave, Send) carries them after its own chunk.
+	refs_put(out, &app.scene.refs)
 }
 
 // What each light keeps besides lights_put's, at the scene chunk's end: how many lights, then each one's kind (an area light is a
@@ -1854,6 +1866,9 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	// app does not know is stepped over.
 	seen := false
 	curves_read := 0
+	refs: References
+	refs_seen := false
+	defer refs_free(&refs)
 	for damaged == "" {
 		tag, chunk, more := scene_chunk_next(&r)
 		if !more {
@@ -1866,6 +1881,11 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 			if !seen do f, fields_ok = scene_fields_get(app, &chunk)
 			if seen || !fields_ok || f.count > len(data) do damaged = "it is damaged"
 			seen = true
+		case CHUNK_REFS:
+			refs_ok: bool
+			if !refs_seen do refs, refs_ok = refs_get(&chunk)
+			if !seen || refs_seen || !refs_ok do damaged = "its reference pictures are damaged"
+			refs_seen = true
 		case CHUNK_OBJECT, CHUNK_CURVE:
 			curve := tag == CHUNK_CURVE
 			if !seen || (curve && curves_read >= f.curves) || (!curve && len(objects) - curves_read >= f.count) {
@@ -1881,7 +1901,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 			}
 		}
 	}
-	if damaged == "" && (!seen || len(objects) != f.count + f.curves || curves_read != f.curves) do damaged = "it is damaged"
+	if damaged == "" && (!seen || !refs_seen || len(objects) != f.count + f.curves || curves_read != f.curves) do damaged = "it is damaged"
 	if damaged != "" {
 		file_note(app, true, "Cannot open %s: %s", name, damaged)
 		for other in objects do object_discard(app, other)
@@ -1906,6 +1926,8 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	app.scene.lights, app.scene.lights_own = lights, true
 	app.scene.print_mm = print_mm
 	app.scene.guides = guides
+	refs_take(app, &refs)
+	app.kit.board.zoom = 0
 	scene_folders_normalize(app)
 	scene_selection_fix(app)
 	autosave_scene_saved(app, path)
@@ -1948,6 +1970,8 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	app.scene.print_mm = PRINT_MM_DEFAULT
 	// A new scene has no guides until they are shown; an opened one gets its own back.
 	app.scene.guides = {}
+	// A new scene has no reference pictures; an opened one gets its own back.
+	refs_clear(app)
 	// A new scene is lit by the starting lights; an opened one gets its own back. A change
 	// to the old scene's lights still under way goes with its History.
 	app.scene.lights, app.scene.lights_own = app.start_lights, false
