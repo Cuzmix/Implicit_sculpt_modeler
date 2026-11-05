@@ -62,6 +62,7 @@ SCREENS = {
     "mask_card": ("The Mask card from the view rail", tap("view bar/Mask"), []),
     "uv_checker": ("An unwrapped sculpt in the Checker texture view, the Textures section open", "", ["--script=unwrap; texture_view 3; open_section textures"]),
     "uv_checker_level": ("An unwrapped sculpt two subdivision levels up in the Checker texture view: the UVs it takes from the base", "", ["--script=unwrap; subdivide; subdivide; texture_view 3; open_section textures"]),
+    "uvs_straighten": ("A Quad Remesh sphere after Straighten in the UV checker, the UVs section's More options open", "", ["--script=set retopo_quads 600; retopologize; straighten; solo_object; frame_all; texture_view 3; open_section uvs; set all_options on"]),
     "uvs_section": ("The Mesh card's UVs section after Unwrap, the islands shown as polygroups", "", ["--script=unwrap; group uv_charts; polygroups on; open_section uvs"]),
     "stack_card_cage": ("The Live stack card on a cage: its SHAPE rows, Smooth open, then COPIES with an Array", tap("view bar/Live stack") + ";" + tap("card Stack/stack row Smooth", 20), ["--script=add_cage cube; select 1; delete_object; cage_smooth 2; cage_mirror x; stack array 3 0 0 2.5; frame_all"]),
     "export_stack": ("The Export sheet on an object with a live stack: Bake the live stack", "", ["--script=stack array 3 2.2 0 0; export_sheet"]),

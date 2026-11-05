@@ -136,6 +136,38 @@ unwrap_apply :: proc(app: ^App, obj: ^Object, u: uv.Uvs, r: uv.Unwrap_Report, st
 	}
 }
 
+// Straighten (UV6b): lays each of a quad object's islands out as a grid (uv.straighten),
+// in one undo step with the maps that followed the old UVs, as Unwrap does.
+object_straighten :: proc(app: ^App, obj: ^Object) {
+	start := time.tick_now()
+	l := &obj.levels
+	sculpt.levels_sync(l)
+	if !sculpt.levels_has_quad_uvs(l) {
+		report(app, Section.Uvs, {.Warning}, "Straighten needs a quad object with UVs: %s has none", object_label(obj))
+		return
+	}
+	base := l.levels[0]
+	indices := base.mesh.indices[:]
+	partner, ok := uv.quad_partners(sculpt.levels_quad_mesh(l), indices, base.sculptor.faces, context.temp_allocator)
+	if !ok {
+		report(app, Section.Uvs, {.Warning}, "Straighten needs whole quads: %s's triangles are not all halves of its quads", object_label(obj))
+		return
+	}
+	u := uv.clone(l.uvs, l.allocator)
+	r := uv.straighten(&u, base.mesh.positions[:], indices, base.sculptor.faces, partner)
+	if r.straightened == 0 {
+		uv.destroy(&u, l.allocator)
+		report(app, Section.Uvs, {.Warning}, "Straighten left %s as it was: none of its %d islands is a clean grid of quads", object_label(obj), r.kept)
+		return
+	}
+	had := object_has_textures(obj)
+	textures_replace(app, obj, {}, "straighten", u)
+	ms := time.duration_milliseconds(time.tick_since(start))
+	kept := fmt.tprintf(", %d not a clean grid of quads kept %s shape", r.kept, "its" if r.kept == 1 else "their") if r.kept > 0 else ""
+	note := ", its maps removed (they followed the old UVs)" if had else ""
+	report(app, Section.Uvs, {}, "Straightened %d %s of %s%s, filling %.0f%% (%.0f ms)%s", r.straightened, "island" if r.straightened == 1 else "islands", object_label(obj), kept, 100 * u.filled, ms, note)
+}
+
 // The selected object's UVs measured, again only when they changed.
 uv_readout :: proc(app: ^App, obj: ^Object) -> Uv_Readout {
 	u := obj.levels.uvs
@@ -156,7 +188,7 @@ uvs_summary :: proc(obj: ^Object) -> string {
 }
 
 // The Mesh card's UVs section (mock C): Unwrap, its help, Relax, Symmetry and Keep my
-// seams, then how the UVs read now.
+// seams, then how the UVs read now, and Straighten under More options.
 kit_uvs_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	obj := selected_object(app)
@@ -180,6 +212,11 @@ kit_uvs_section :: proc(app: ^App) {
 		side := app.ui.bake.size
 		scale := f64(obj.transform.scale)
 		if scale > 0 do ui.value_row(ctx, "Texel density", fmt.tprintf("%.0f px a unit at %d", r.density * f64(side) / scale, side))
+	}
+	if kit_more(app, .Uvs) {
+		_ = command_button(app, .Straighten, variant = .Bordered)
+		ui.paragraph(ctx, "Lays each quad island out as a grid of rectangles, its rows and columns as long as on the model, so texture rows run along the loops. Islands that are not a clean grid of quads keep their shape, and all are packed again.")
+		kit_more_end(app)
 	}
 }
 

@@ -284,3 +284,47 @@ unwrap_keeps_quads_whole :: proc(t: ^testing.T) {
 	testing.expect(t, again)
 	for c, tri in u.corner do testing.expectf(t, c == back.corner[tri], "triangle %d's corners differ from its quad's", tri)
 }
+
+// Straighten lays each island of a box's unwrap out as a grid: every quad a rectangle
+// with sides along u and v, as long against each other as on the model (the box is twice
+// as long in x), the islands keeping their areas, nothing folded, and the layout still
+// checking. A pole inside an island (the sphere's cube corners) keeps its shape.
+@(test)
+straighten_lays_quads_on_a_grid :: proc(t: ^testing.T) {
+	f := cube_grid(4, true)
+	for &p in f.q.positions do p.x *= 2
+	partner, ok := quad_partners(f.q, f.indices, f.faces, context.temp_allocator)
+	if !testing.expect(t, ok) do return
+	u := make_uvs(len(f.indices) / 3, context.temp_allocator)
+	_ = unwrap(&u, f.q.positions, f.indices, f.faces, partner = partner)
+	r := straighten(&u, f.q.positions, f.indices, f.faces, partner)
+	testing.expect_value(t, r.kept, 0)
+	testing.expect_value(t, r.straightened, u.islands)
+	testing.expect_value(t, check(u, f.indices, f.faces, len(f.q.positions)), "")
+	layout, folded := to_quads(u, f.q, f.indices, f.faces)
+	if !testing.expect(t, folded) do return
+	for c, i in layout.uvs {
+		quad := f.q.quads[i]
+		for k in 0 ..< 4 {
+			d := c[(k + 1) % 4] - c[k]
+			testing.expectf(t, abs(d.x) < 1e-5 || abs(d.y) < 1e-5, "quad %d's edge %d runs across the grid: %v", i, k, d)
+		}
+		// Neighbouring sides keep the model's ratio.
+		e0 := geom.Vec3(f.q.positions[quad[1]] - f.q.positions[quad[0]])
+		e1 := geom.Vec3(f.q.positions[quad[2]] - f.q.positions[quad[1]])
+		d0, d1 := c[1] - c[0], c[2] - c[1]
+		model := math.sqrt(e0.x * e0.x + e0.y * e0.y + e0.z * e0.z) / math.sqrt(e1.x * e1.x + e1.y * e1.y + e1.z * e1.z)
+		laid := math.sqrt(d0.x * d0.x + d0.y * d0.y) / math.sqrt(d1.x * d1.x + d1.y * d1.y)
+		testing.expectf(t, abs(laid - model) < 1e-3 * model, "quad %d is %v to 1, on the model %v", i, laid, model)
+	}
+
+	// On the sphere the unwrap's charts hold the cube's corners, three quads round each.
+	g := cube_grid(6, false)
+	for &p in g.q.positions do p = geom.Vec3(p / max(f32(1e-9), math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z)))
+	pg, _ := quad_partners(g.q, g.indices, g.faces, context.temp_allocator)
+	w := make_uvs(len(g.indices) / 3, context.temp_allocator)
+	_ = unwrap(&w, g.q.positions, g.indices, g.faces, partner = pg)
+	s := straighten(&w, g.q.positions, g.indices, g.faces, pg)
+	testing.expect(t, s.kept > 0 && s.straightened + s.kept == w.islands, "the poles' islands were straightened")
+	testing.expect_value(t, check(w, g.indices, g.faces, len(g.q.positions)), "")
+}
