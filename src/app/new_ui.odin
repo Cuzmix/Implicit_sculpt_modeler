@@ -1363,6 +1363,8 @@ kit_layout :: proc(app: ^App) {
 	// Home just closed: the scene grows out of the tile it closed from, under the bars.
 	kit_home_reveal(app)
 
+	// The reference pictures over the view first of all, under every bar and card.
+	refs_view(app)
 	// First, so that every panel and popover laid out after it is above it.
 	pop := ui.motion_mark(ctx)
 	kit_shape_bar(app)

@@ -38,6 +38,7 @@ Command_Id :: enum u16 {
 	Export_Sheet, // lens_export.odin
 	Screenshot,
 	Screenshot_Transparent,
+	Show_References,
 	Record_Turntable,
 	Send_To_Blender,
 	Get_From_Blender,
@@ -514,6 +515,13 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_IMAGE,
 		run = proc(app: ^App, _: int) {app.screenshot_transparent = !app.screenshot_transparent},
 		checked = proc(app: ^App, _: int) -> bool {return app.screenshot_transparent},
+	},
+	.Show_References = {
+		label = "Show refs",
+		help = "Shows or hides every reference picture standing over the view at once, as they are; the References card puts a picture over the view.",
+		icon = ICON_SHOW_REFS,
+		run = proc(app: ^App, _: int) {refs_view_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return !app.scene.refs.view_off},
 	},
 	.Record_Turntable = {
 		label = "Record turntable...",
