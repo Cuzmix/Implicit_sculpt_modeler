@@ -4425,9 +4425,9 @@ def model_edit_cage_takes_a_sculpt_back():
     return Steps([(s, LENS_1440 + ["--check-mesh", f"--script={base}; edit_cage"], {"cages": near(1), "cage_faces": near(6), "cage_smooth": near(2), "cage_broken": near(0)}),
                   (Script(), LENS_1440 + ["--check-mesh", f"--script={base}; edit_cage; apply_cage"], {"cages": near(0), "selected_levels": near(3), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")}),
                   (Script(), LENS_1440 + [f"--script={base}; edit_cage; undo"], {"cages": near(0), "selected_levels": near(3)}),
-                  # The built-in engine, whose count is exact; AutoRemesher's is a guide (74 points for 100 quads asked).
-                  (Script(), ["--check-mesh", "--script=set retopo_engine own; set retopo_quads 100; retopologize; edit_cage"], {"cages": near(1), "cage_points": near(100), "cage_broken": near(0)}),
-                  (Script(), ["--check-mesh", "--script=set retopo_engine own; set retopo_quads 100; retopologize; edit_cage; apply_cage; subdivide"], {"cages": near(0), "selected_levels": near(2), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")})])
+                  # Fast, whose count is exact; Flow's is a guide (74 points for 100 quads asked).
+                  (Script(), ["--check-mesh", "--script=set retopo_engine fast; set retopo_quads 100; retopologize; edit_cage"], {"cages": near(1), "cage_points": near(100), "cage_broken": near(0)}),
+                  (Script(), ["--check-mesh", "--script=set retopo_engine fast; set retopo_quads 100; retopologize; edit_cage; apply_cage; subdivide"], {"cages": near(0), "selected_levels": near(2), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")})])
 
 @scenario
 def model_live_stack_bevels_and_thickens():

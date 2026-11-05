@@ -86,16 +86,16 @@ Ui_State :: struct {
 	light_place:        bool, // Place highlight: a press on the model moves the picked light's highlight there
 	retopo_quads:       i32,  // quads Quad Remesh asks for
 	retopo_engine:      retopo.Engine, // ...and from which engine (retopo.odin)...
-	retopo_adaptivity:  f32,  // ...with smaller quads where the surface bends (AutoRemesher)
+	retopo_adaptivity:  f32,  // ...with smaller quads where the surface bends (Flow)
 	retopo_keep_symmetry: bool, // ...the brush's symmetry kept: one part remeshed and mirrored
 	retopo_close_first: bool, // ...an open or unsound mesh voxel remeshed first
-	retopo_keep_borders: bool, // ...an open mesh's border kept as it is (AutoRemesher)
-	retopo_keep_groups: bool, // ...polygroup borders kept as quad edges (AutoRemesher)
-	retopo_keep_creases: bool, // ...creased edges kept as quad edges (AutoRemesher)
-	retopo_edge_degrees: f32, // ...and edges sharper than this kept (AutoRemesher; 90 keeps right angles and sharper)
-	retopo_use_paint:   bool, // ...more quads where the paint is red, fewer where blue (AutoRemesher)
-	retopo_use_mask:    bool, // ...and more where it is masked (AutoRemesher)
-	retopo_guide_strength: f32, // ...with the loops pulled along the Guide curves this hard (AutoRemesher)
+	retopo_keep_borders: bool, // ...an open mesh's border kept as it is (Flow)
+	retopo_keep_groups: bool, // ...polygroup borders kept as quad edges (Flow)
+	retopo_keep_creases: bool, // ...creased edges kept as quad edges (Flow)
+	retopo_edge_degrees: f32, // ...and edges sharper than this kept (Flow; 90 keeps right angles and sharper)
+	retopo_use_paint:   bool, // ...more quads where the paint is red, fewer where blue (Flow)
+	retopo_use_mask:    bool, // ...and more where it is masked (Flow)
+	retopo_guide_strength: f32, // ...with the loops pulled along the Guide curves this hard (Flow)
 	rebuild_goal:       Rebuild_Goal, // what the Rebuild section makes: an even mesh, fewer polygons or quads
 	rebuild_even:       i32,  // vertices Rebuild's Even goal asks for...
 	remesh_by:          Remesh_By, // ...or a cell size...
