@@ -1181,7 +1181,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	pen_roll_frame(app, input)
 	// A G, R or S on a curve's points under way takes Escape for itself (curve_keys puts the
 	// points back), so the Escape below must not also drop the pick.
-	curve_moving := app.curve.xform.handle != .None
+	curve_moving := app.curve.xform.handle != .None || app.model.xform.handle != .None
 	if !typed do commands_handle_keys(app)
 	layer_drag_end(app)
 	layer_mask_frame(app)

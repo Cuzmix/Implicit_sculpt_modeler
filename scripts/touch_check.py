@@ -4474,6 +4474,37 @@ def model_select_drag_paints_a_selection():
 
 
 @scenario
+def model_select_then_g_moves_the_selection():
+    """Select taps a cube's front face, then G, the pointer moved up and a click: the face's corners move up with the pointer (the cube's top rises), one undo step for the pick and one for the move."""
+    s = Script()
+    s.mouse_drag([(650, 500)])
+    s.wait(5)
+    s.press("g")
+    for y in range(500, 380, -20):
+        s.add(f"move:650,{y}")
+        s.wait(1)
+    s.add("down")
+    s.wait(1)
+    s.add("up")
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action select"], {"cage_selected": near(1), "model_xforms": near(1), "undo_steps": near(2), "cage_hi": lambda got: float(got.split(",")[1]) > 0.7}
+
+
+@scenario
+def model_points_g_z_keeps_to_the_axis():
+    """Select picking points with Falloff: two picks by script, then G and Z and the pointer moved: the move keeps to Z (the cage's Y bounds stay), one undo step."""
+    s = Script()
+    s.press("g")
+    s.press("z")
+    for x in range(700, 900, 25):
+        s.add(f"move:{x},450")
+        s.wait(1)
+    s.press("Return")
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage sphere; select 1; delete_object; frame_all; model_action select; set model_pick point; set model_falloff 0.3; cage pick 0 1"], {"cage_picked": near(2), "model_xforms": near(1), "cage_lo": lambda got: abs(float(got.split(",")[1]) + 1) < 1e-3, "cage_hi": lambda got: abs(float(got.split(",")[1]) - 1) < 1e-3}
+
+
+@scenario
 def model_select_ctrl_tap_deselects():
     """With every face selected (Select all), a Ctrl tap with Select on the front face deselects it alone."""
     s = Script()

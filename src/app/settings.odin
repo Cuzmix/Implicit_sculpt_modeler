@@ -467,6 +467,8 @@ SETTINGS := [?]Setting {
 	{"gesture", offset_of(App, gesture), Gesture_Tool, 0, 0},
 	{"curve", offset_of(App, curve) + offset_of(Curve_Tool, kind), Curve_Kind, 0, 0},
 	{"curve_plane", offset_of(App, curve) + offset_of(Curve_Tool, plane), Curve_Plane, 0, 0},
+	{"model_pick", offset_of(App, model) + offset_of(Model_Tool, pick), Model_Element, 0, 0},
+	{"model_falloff", offset_of(App, model) + offset_of(Model_Tool, falloff), f32, 0, 1},
 	{"curve_all_handles", offset_of(App, curve) + offset_of(Curve_Tool, all_handles), bool, 0, 0},
 	{"curve_width", offset_of(App, curve) + offset_of(Curve_Tool, size), f32, 0.05, 2},
 	{"curve_lift", offset_of(App, curve) + offset_of(Curve_Tool, lift), f32, -1, 2},

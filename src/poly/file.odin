@@ -3,7 +3,7 @@ package poly
 import "../geom"
 
 // The cage in a scene file and in undo snapshots: its polygons, corner sharpness,
-// creases and selected faces, which mesh_from_polygons turns back into the same
+// creases, selected faces and picked points, which mesh_from_polygons turns back into the same
 // half-edges (edges are numbered by the order faces meet them, so writing and reading
 // give the same ids).
 // Damaged or impossible bytes are refused, never asserted on.
@@ -11,7 +11,7 @@ import "../geom"
 @(private = "file")
 CAGE_MAGIC :: u32(0x4547_4143) // "CAGE"
 @(private = "file")
-CAGE_FILE_VERSION :: u32(2) // the only one read: a change replaces the reader (AGENTS.md)
+CAGE_FILE_VERSION :: u32(3) // the only one read: a change replaces the reader (AGENTS.md)
 
 mesh_write :: proc(m: ^Mesh, out: ^[dynamic]u8) {
 	p := mesh_polygons(m, context.temp_allocator)
@@ -39,6 +39,10 @@ mesh_write :: proc(m: ^Mesh, out: ^[dynamic]u8) {
 	for x in m.selected do if x do chosen += 1
 	geom.byte_put(out, chosen)
 	for x, f in m.selected do if x do geom.byte_put(out, u32(f))
+	picked: u32
+	for x in m.picked do if x do picked += 1
+	geom.byte_put(out, picked)
+	for x, v in m.picked do if x do geom.byte_put(out, u32(v))
 }
 
 // Reads a cage mesh_write wrote. ok is false, with nothing allocated, for damaged bytes
@@ -103,6 +107,20 @@ mesh_read :: proc(r: ^geom.Byte_Reader, allocator := context.allocator) -> (m: M
 			return {}, false
 		}
 		built.selected[f] = true
+	}
+	// The picked points.
+	picked := int(geom.byte_get(r, u32))
+	if !r.ok || picked > nv || picked * 4 > len(r.data) - r.at {
+		mesh_destroy(&built)
+		return {}, false
+	}
+	for _ in 0 ..< picked {
+		v := geom.byte_get(r, u32)
+		if !r.ok || int(v) >= len(built.picked) {
+			mesh_destroy(&built)
+			return {}, false
+		}
+		built.picked[v] = true
 	}
 	return built, true
 }

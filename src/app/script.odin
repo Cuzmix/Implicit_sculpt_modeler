@@ -73,6 +73,7 @@ Script_Verb :: enum u8 {
 	Stack,
 	Curve_Add,
 	Layout_Save,
+	Cage,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -112,6 +113,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Reference_Plane = {"reference_plane", "front, back, right, left, top, bottom or none: the view whose plane in the scene the newest picture stands on, and through to draw it over the model"},
 	.Stack         = {"stack", "the selected object's live stack: mirror x (planes together as xz, -x for the - side), array 4 2.2 0 0 (count and step, then turn x y z and size s), radial 6 y (count and axis), along 8 x (count and the axis along the scene's curve), mirror off, show array, hide radial, open array (the card on that row, its handle in the view) or apply stack"},
 	.Curve_Add     = {"curve_add", "two or more points, x y z each, of an open curve object to add, smooth through them (as the Curve tool lays one)"},
+	.Cage          = {"cage", "the selected cage's selection: pick 0 4 5 (point numbers to pick), move x y z, turn x|y|z degrees or scale f, as its gizmo moves it"},
 	.Layout_Save   = {"layout_save", "a name to save the space's layout under, over a saved layout of that name (as Save layout as does)"},
 }
 
@@ -540,7 +542,7 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		n, ok := strconv.parse_int(args[0])
 		st.count = n
 		return ok && n >= 1
-	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack, .Environment, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference, .Stack, .Curve_Add, .Layout_Save:
+	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack, .Environment, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference, .Stack, .Curve_Add, .Layout_Save, .Cage:
 		// A name or path may have spaces: it is the rest of the line.
 		if len(args) == 0 do return false
 		st.text = strings.join(args, " ")
@@ -622,6 +624,9 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		return "", true
 	case .Curve_Add:
 		return script_curve_add(app, st.text), true
+	case .Cage:
+		if why := cage_script(app, obj, st.text); why != "" do return why, true
+		return "", true
 	case .Stack:
 		// As the Live stack card's rows do, one undo step each.
 		if why := stack_script(app, obj, st.text); why != "" do return why, true
@@ -746,7 +751,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			if why := group_material_set(obj, u16(st.count), current_material(app), st.flip); why != "" do return why, true
 			app.scene_edits += 1
 			return "", true
-		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference, .Reference_Plane, .Stack, .Curve_Add, .Layout_Save:
+		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference, .Reference_Plane, .Stack, .Curve_Add, .Layout_Save, .Cage:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true

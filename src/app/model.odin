@@ -861,18 +861,30 @@ object_crease_cage :: proc(app: ^App, obj: ^Object, kind: Cage_Crease) -> bool {
 
 @(rodata)
 CAGE_SELECT_NAMES := [poly.Select_Op]string {
-	.All    = "Select all faces",
-	.None   = "Select no faces",
-	.Invert = "Invert selected faces",
-	.Grow   = "Grow selected faces",
-	.Shrink = "Shrink selected faces",
+	.All    = "Select all of the cage",
+	.None   = "Select none of the cage",
+	.Invert = "Invert what the cage has selected",
+	.Grow   = "Grow what the cage has selected",
+	.Shrink = "Shrink what the cage has selected",
 }
 
 // Changes `obj`'s cage selection as one undo step (a selection is undone as Blender's
-// is); nothing is listed when nothing changed. Returns false only on a GPU failure.
-object_select_cage :: proc(app: ^App, obj: ^Object, op: poly.Select_Op) -> bool {
+// is): its faces, or with `pick` edges or points its picked points; None takes both away.
+// Nothing is listed when nothing changed. Returns false only on a GPU failure.
+object_select_cage :: proc(app: ^App, obj: ^Object, op: poly.Select_Op, pick: Model_Element) -> bool {
 	before := history_snapshot(app, obj, strings.to_lower(CAGE_SELECT_NAMES[op], context.temp_allocator))
-	if !poly.select_op(&obj.cage.mesh, op) {
+	cage := &obj.cage.mesh
+	changed: bool
+	if op == .None {
+		faces := poly.select_op(cage, .None)
+		points := poly.pick_op(cage, .None)
+		changed = faces || points
+	} else if pick == .Face {
+		changed = poly.select_op(cage, op)
+	} else {
+		changed = poly.pick_op(cage, op)
+	}
+	if !changed {
 		history_snapshot_drop(before)
 		return true
 	}
@@ -943,6 +955,14 @@ Model_Tool :: struct {
 	// The Topo pen's dots and drag (model_topo.odin).
 	topo:      Model_Topo,
 	look_drag: Cage_Look_Drag,
+	// What Select picks (faces, or points through edges and points) and the gizmo's drag of
+	// the selection (model_gizmo.odin), with the falloff its move eases out over, a share
+	// of the cage's size (0 for none, Blender's proportional editing).
+	pick:      Model_Element,
+	falloff:   f32,
+	xform:     Cage_Xform,
+	xforms:    int, // moves, turns and scales of the selection made, for the exit stats
+	pointer:   [2]f32, // the pointer's last place over the view, where a key's drag starts
 	// Since the start, for the exit stats: actions made, and refused.
 	done:      int,
 	refused:   int,
@@ -971,12 +991,18 @@ kit_model_tab :: proc(app: ^App) {
 	actions: [len(Model_Action)]string
 	for a, i in Model_Action do actions[i] = MODEL_ACTION_NAMES[a]
 	if picked := ui.select(ctx, "model action", actions[:], int(m.action)); picked >= 0 do command_run(app, .Model_Action, picked)
+	// Select picks faces, edges or points, as Blender's three select modes; what it picks
+	// shows a gizmo that moves it, with the falloff the move eases out over.
+	if m.action == .Select {
+		picks := [3]string{"Faces", "Edges", "Points"}
+		if picked := ui.tabs(ctx, "model pick", picks[:], int(m.pick)); picked >= 0 do m.pick = Model_Element(picked)
+	}
 	ui.caption(ctx, "TARGET")
 	// Only the targets the action can take.
 	targets := make([dynamic]string, context.temp_allocator)
 	which := make([dynamic]Model_Target, context.temp_allocator)
 	chosen := 0
-	for g in MODEL_ACTION_TARGETS[m.action] {
+	for g in model_targets(m, m.action) {
 		if g == model_target(m, m.action) do chosen = len(which)
 		append(&targets, MODEL_TARGET_NAMES[g])
 		append(&which, g)
@@ -987,6 +1013,11 @@ kit_model_tab :: proc(app: ^App) {
 		ui.paragraph(ctx, fmt.tprintf("%s. Held Ctrl (the dial's Alt): %s.", how, alt))
 	} else {
 		ui.paragraph(ctx, fmt.tprintf("%s.", how))
+	}
+	if m.action == .Select {
+		f := m.falloff * 100
+		if ui.slider(ctx, "Falloff", &f, 0, 100, .Linear, "Off" if m.falloff <= 0 else fmt.tprintf("%.0f%%", f)) do m.falloff = clamp(f / 100, 0, 1)
+		ui.paragraph(ctx, "With something selected, the gizmo at its middle moves, turns or scales it (G, R and S too, X, Y or Z for an axis). Falloff carries the points round the selection part of the way, less the further they are, up to that share of the cage's size.")
 	}
 	if m.action == .Polygroup {
 		g := f32(m.group)

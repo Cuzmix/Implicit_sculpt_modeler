@@ -256,7 +256,8 @@ Scene_Command :: struct {
 	cage:     poly.Primitive, // Add_Cage: the primitive to add as a cage...
 	segments: poly.Primitive_Options, // ...with these segments
 	tidy:     Cage_Tidy, // Tidy_Cage: which
-	select:   poly.Select_Op, // Select_Cage: which
+	select:   poly.Select_Op, // Select_Cage: which...
+	pick:     Model_Element, // ...on the faces, or on the points (edges and points)
 	look:     Cage_Look, // Cage_Look: how the selected cage is drawn
 	look_drag: bool, // Cage_Look: from a slider being dragged, one undo step when it lets go
 	crease:   Cage_Crease, // Crease_Cage: which
@@ -1013,7 +1014,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Tidy_Cage:
 		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_tidy_cage(app, obj, cmd.tidy)
 	case .Select_Cage:
-		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_select_cage(app, obj, cmd.select)
+		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_select_cage(app, obj, cmd.select, cmd.pick)
 	case .Cage_Look:
 		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_set_cage_look(app, obj, cmd.look, cmd.look_drag)
 	case .Crease_Cage:
