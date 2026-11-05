@@ -1,5 +1,7 @@
 package main
 
+import "core:fmt"
+
 import "../gizmo"
 import "../ui"
 
@@ -7,7 +9,8 @@ import "../ui"
 // Gizmo 3D has its icons over it, for what is done to the pivot rather than the object:
 // Edit pivot (the move handles move the pivot, Nomad's Edit pivot), to the middle, to the
 // unmasked middle while a mask is on (ZBrush's Go to unmasked center), on a surface (the
-// next tap places it), back to the origin, and Snap. Each is a registry command, as the
+// next tap places it), back to the origin, Snap, and the gizmo's orientation (a tap steps
+// World, Object, Surface, View). Each is a registry command, as the
 // Move tab's buttons are, so the row, the Move tab, Search and keys run the same ones.
 // It steps out of the way while a drag goes and goes below the gizmo when there is no
 // room above; the Move tab's switch hides it.
@@ -41,6 +44,7 @@ kit_pivot_row :: proc(app: ^App) {
 	cell := t.target if app.device.pointer == .Finger else t.control + 6
 	shown := 0
 	for id in PIVOT_ROW do if id != .Gizmo_Pivot_Unmasked || command_enabled(app, id, 0) do shown += 1
+	shown += 1 // the orientation
 	pad: f32 = 3
 	size := [2]f32{f32(shown) * cell + 2 * pad, cell + 2 * pad}
 	area := ui.safe_area(ctx)
@@ -58,5 +62,11 @@ kit_pivot_row :: proc(app: ^App) {
 		if ui.icon_button(ctx, command_label(id, 0), glyph, selected = command_checked(app, id, 0), enabled = command_enabled(app, id, 0), keys = command_hint(app, id, 0), size = cell) {
 			command_run(app, id, 0)
 		}
+	}
+	// The orientation shows its own icon, and a tap steps to the next one.
+	now := app.move.orient
+	next := int(now) + 1 if now != max(Gizmo_Orient) else 0
+	if ui.icon_button(ctx, fmt.tprintf("%s##orientation", command_label(.Gizmo_Orient, int(now))), GIZMO_ORIENT_ICONS[now], keys = command_hint(app, .Gizmo_Orient, next), size = cell) {
+		command_run(app, .Gizmo_Orient, next)
 	}
 }

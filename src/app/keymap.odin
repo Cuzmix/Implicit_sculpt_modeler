@@ -264,6 +264,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Run_Plugin: return fmt.tprint(arg + 1)
 	case .Restore_Selection_Set: return fmt.tprint(arg + 1)
 	case .Gizmo:     return fmt.tprint(gizmo.Mode(arg))
+	case .Gizmo_Orient: return fmt.tprint(Gizmo_Orient(arg))
 	case .Deformer:  return deformer_name(arg)
 	case .Deformation: return fmt.tprint(Reshape_Choice(arg))
 	case .Visibility_Slot: return fmt.tprintf("V%d", arg + 1)

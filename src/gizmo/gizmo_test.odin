@@ -222,3 +222,18 @@ scale_mode_stretches_along_each_arm :: proc(t: ^testing.T) {
 	testing.expect(t, abs(stretch_factor(sc.center, sc.knobs[0], {562, 500}, {462, 500}, 100) - 1 / math.E) < 1e-4)
 	testing.expect(t, abs(stretch_factor(sc.center, sc.knobs[0], {562, 500}, {562, 560}, 100) - 1) < 1e-6)
 }
+
+// A surface's axes are a right-handed frame whose z is the normal, for any normal.
+@(test)
+axes_from_normal_stand_on_the_normal :: proc(t: ^testing.T) {
+	for n in ([]Vec3{{0, 0, 1}, {0, 1, 0}, {0, -1, 0}, {1, 1, 0}, {0.3, -0.2, 0.9}}) {
+		a := axes_from_normal(n)
+		testing.expect(t, linalg.length(a[2] - linalg.normalize(n)) < 1e-5)
+		for i in 0 ..< 3 {
+			testing.expect(t, abs(linalg.length(a[i]) - 1) < 1e-5)
+			testing.expect(t, abs(linalg.dot(a[i], a[(i + 1) % 3])) < 1e-5)
+		}
+		testing.expect(t, linalg.length(linalg.cross(a[0], a[1]) - a[2]) < 1e-5)
+	}
+	testing.expect_value(t, axes_from_normal({}), AXES)
+}

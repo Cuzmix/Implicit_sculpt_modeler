@@ -218,11 +218,11 @@ pose_entry_apply :: proc(app: ^App, obj: ^Object, h: gizmo.Handle, op: u8, v: f3
 	#partial switch h {
 	case .X, .Y, .Z:
 		if op != 0 && op != '+' do return false
-		to.position += gizmo.AXES[int(h) - int(gizmo.Handle.X)] * v
+		to.position += gizmo_axes(app, obj)[int(h) - int(gizmo.Handle.X)] * v
 	case .Turn_X ..= .Turn_View:
 		if op != 0 && op != '+' do return false
 		i := int(h) - int(gizmo.Handle.Turn_X)
-		axis = gizmo.AXES[i] if i < 3 else -camera.orbit_toward(app.camera, pivot)
+		axis = gizmo_axes(app, obj)[i] if i < 3 else -camera.orbit_toward(app.camera, pivot)
 		degrees = v
 	case .Scale:
 		factor := 1 + v if op == '+' else v
@@ -232,7 +232,7 @@ pose_entry_apply :: proc(app: ^App, obj: ^Object, h: gizmo.Handle, op: u8, v: f3
 		if op != 0 && op != '+' do return false
 		factor := 1 + v if op == '+' else v
 		if factor <= 0 do return false
-		p := stretch_pose(obj.transform, pivot, gizmo.stretch_axis(h), clamp(factor, MIN_STRETCH, MAX_STRETCH))
+		p := stretch_pose(obj.transform, pivot, gizmo_axes(app, obj)[gizmo.stretch_axis(h)], clamp(factor, MIN_STRETCH, MAX_STRETCH))
 		if pose_is_still(p) || !pose_begin(app, obj) do return true
 		sculpt.sculptor_pose_apply(object_sculptor(obj), p)
 		_ = pose_end(app, obj, h, "" if pose_mode(app) else STRETCH_WHAT[gizmo.stretch_axis(h)])

@@ -62,6 +62,7 @@ Command_Id :: enum u16 {
 	Gizmo_Pivot_Edit,
 	Gizmo_Pivot_Center,
 	Gizmo_Pivot_Unmasked,
+	Gizmo_Orient,
 	Brush, // the argument is the sculpt.Brush_Kind
 	Brush_Preset, // the argument is a preset: built-in, the person's own or a pack's (preset_slots.odin)
 	Mask_Shape_Pick, // the argument is the Mask_Shape_Kind
@@ -874,6 +875,14 @@ COMMANDS := [Command_Id]Command {
 			obj := selected_object(app)
 			return obj != nil && obj.voxel == nil && object_has_mask(app, obj)
 		},
+	},
+	.Gizmo_Orient = {
+		label = "Gizmo orientation",
+		help = "Which way the gizmo's arms, rings and stretch knobs point: along the world's axes, the object's own, the surface where Set pivot put the pivot (its normal along the blue arm), or the view.",
+		icon = rune(0xe0eb),
+		args = len(Gizmo_Orient),
+		run = proc(app: ^App, arg: int) {app.move.orient = Gizmo_Orient(arg)},
+		checked = proc(app: ^App, arg: int) -> bool {return app.move.orient == Gizmo_Orient(arg)},
 	},
 	.Brush = {
 		label = "Brush",
@@ -2885,6 +2894,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Grid: %s", GRID_NAMES[Grid_Preset(arg)])
 	case .Space_Switch:
 		return fmt.tprintf("Space: %s", SPACE_NAMES[Space(arg)])
+	case .Gizmo_Orient:
+		return fmt.tprintf("Gizmo orientation: %s", GIZMO_ORIENT_NAMES[Gizmo_Orient(arg)])
 	case .Gizmo:
 		if gizmo.Mode(arg) == .All do return "Move, turn and scale gizmo"
 		return fmt.tprintf("%v gizmo", gizmo.Mode(arg))

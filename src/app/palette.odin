@@ -99,6 +99,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Gizmo_Pivot_Edit = "unlock origin anchor move pivot only affect origins",
 	.Gizmo_Pivot_Center = "origin center centre bounds anchor geometry",
 	.Gizmo_Pivot_Unmasked = "origin center centre mask free unmasked anchor",
+	.Gizmo_Orient     = "orientation align axes local global world normal transform space",
 	.Reset_Transform  = "clear transform origin zero identity unrotate",
 	.Symmetry_X       = "mirror",
 	.Local_Symmetry   = "mirror centre center own middle",
