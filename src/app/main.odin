@@ -374,6 +374,7 @@ App :: struct {
 	matcaps:      [len(MATCAP_RECIPES)]render.Texture,
 	matcap_image: render.Texture,
 	brush_previews: Brush_Previews, // the brushes' pictures made by the brushes (brush_previews.odin)
+	brush_icons:    Brush_Icons, // the brushes' own icons, one atlas (brush_icons.odin)
 	matcap_path:  string,
 	// The image environment the physically based materials light with (environment.odin).
 	env:       Environment_State,
@@ -650,6 +651,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	matcaps_create(&app)
 	defer matcaps_destroy(&app)
 	defer brush_previews_destroy(&app)
+	brush_icons_create(&app)
+	defer brush_icons_destroy(&app)
 	defer environment_destroy(&app)
 	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
 	defer render.studio_destroy(&app.renderer, &app.studio)

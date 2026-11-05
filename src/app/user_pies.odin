@@ -182,7 +182,7 @@ kit_pie_editor :: proc(app: ^App) {
 	for &s, i in k.brush_pie.slots[:PIE_SLOTS] {
 		glyph := ui.ICON_PLUS if s.id == .None else bar_icon(app, s)
 		lit := put.id != .None && s == put
-		if ui.brush_tile(ctx, fmt.tprintf("%s##pie brush %d", shelf_label(app, s) if s.id != .None else "Empty", i), glyph, lit) {
+		if ui.brush_tile(ctx, fmt.tprintf("%s##pie brush %d", shelf_label(app, s) if s.id != .None else "Empty", i), glyph, lit, picture = bar_picture(app, s)) {
 			if put.id != .None && bar_lists(put.id) {
 				s = put
 				pies_saved(app)

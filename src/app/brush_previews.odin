@@ -200,9 +200,7 @@ brush_preview_draw :: proc(app: ^App, key: string, r: ui.Rect) -> bool {
 	return true
 }
 
-// The picture of the brush `key` names in the atlas, if the atlas has it, without asking
-// for a batch: the shelf's tiles read it every frame, and listing every brush to see
-// whether the atlas is current is the browser's and the cards' work.
+// The picture of the brush `key` names in the atlas, if the atlas has it.
 brush_preview_picture :: proc(app: ^App, key: string) -> (ui.Picture, bool) {
 	bp := &app.brush_previews
 	cell, ok := bp.cells[key]
@@ -210,16 +208,6 @@ brush_preview_picture :: proc(app: ^App, key: string) -> (ui.Picture, bool) {
 	cw, ch := f32(sculpt.PREVIEW_W) / f32(bp.size.x), f32(sculpt.PREVIEW_H) / f32(bp.size.y)
 	lo := [2]f32{f32(cell % PREVIEW_COLUMNS) * cw, f32(cell / PREVIEW_COLUMNS) * ch}
 	return {image = KIT_BRUSH_PREVIEWS_IMAGE, lo = lo, hi = lo + {cw, ch}, aspect = f32(sculpt.PREVIEW_W) / f32(sculpt.PREVIEW_H)}, true
-}
-
-// Asks once for the first batch, so the shelf's brushes get their pictures without the
-// browser being opened first: only while the atlas has never been made and no stroke is
-// going on, since listing every brush is not free and the batch's thread should not start
-// under a stroke.
-brush_previews_first :: proc(app: ^App) {
-	bp := &app.brush_previews
-	if bp.sign != 0 || bp.batch != nil || app.stroke.active do return
-	brush_previews_want(app)
 }
 
 // Waits for a batch still running and releases the atlas (the app is closing).

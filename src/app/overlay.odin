@@ -670,7 +670,9 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 		glyph := ui.ICON_PLUS if slot.id == .None else (COMMANDS[slot.id].icon if COMMANDS[slot.id].icon != 0 else ui.ICON_WAND)
 		name := pie_slot_label(slot)
 		if lens && slot.id != .None do glyph, name = bar_icon(app, slot), shelf_label(app, slot)
-		ui.icon(ctx, glyph, {label.x, label.y - 12}, t.icon_small, color)
+		// A brush shows its own icon, larger than a glyph as its ink does not fill its square.
+		if pic := bar_picture(app, slot); lens && pic.image != 0 do ui.picture_icon(ctx, pic, {label.x, label.y - 13}, 26, 1 if usable else 0.5)
+		else do ui.icon(ctx, glyph, {label.x, label.y - 12}, t.icon_small, color)
 		ui.text(ctx, ui.text_fit(ctx, name, t.small_size, room), label.x, label.y + 10, t.small_size, color, font, .Center)
 	}
 	// The middle, and which way the pointer points from it. A user pie's middle names it.

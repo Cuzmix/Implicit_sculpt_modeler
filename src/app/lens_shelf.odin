@@ -539,7 +539,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 		// sculpt mesh); while pinning or arranging every tile takes the tap.
 		_, pin_on := sh.pinning.?
 		enabled := pin_on || dock_editing(k, .Shelf) || bar_enabled(app, s)
-		if ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled = enabled, width = tile, picture = shelf_picture(app, s)) {
+		if ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled = enabled, width = tile, picture = bar_picture(app, s)) {
 			if pin, pinning := sh.pinning.?; pinning {
 				// Pinning to a full page: the tile tapped gives its place to the brush.
 				bar_list(app, which).slots[i] = pin
@@ -669,7 +669,7 @@ shelf_visiting_tile :: proc(app: ^App, it: Brush_Item, which: Bar_Which) -> ui.R
 	t := ctx.theme
 	sh := &k.shelf
 	name := fmt.tprintf("%s##shelf visiting", brush_item_name(app, it))
-	tapped := ui.brush_tile(ctx, name, brush_item_icon(app, it), true, brush_item_hint(app, it))
+	tapped := ui.brush_tile(ctx, name, brush_item_icon(app, it), true, brush_item_hint(app, it), picture = brush_item_picture(app, it))
 	at := ctx.last_rect
 	if tapped || (ctx.last_id != 0 && ui.secondary(ctx)) {
 		if it.what == .Slot {
@@ -817,7 +817,7 @@ shelf_peek :: proc(app: ^App, at: ui.Rect, slide: f32, page_by: int) {
 	mark := ui.vertex_mark(ctx)
 	tile := k.shelf.tile_w if k.shelf.tile_w > 0 else ui.BRUSH_TILE.x
 	for s, j in used[:min(len(used), int(at.w / tile) + 1)] {
-		_ = ui.brush_tile(ctx, fmt.tprintf("%s##peek %v %d", shelf_label(app, s), page, j), bar_icon(app, s), false, width = tile)
+		_ = ui.brush_tile(ctx, fmt.tprintf("%s##peek %v %d", shelf_label(app, s), page, j), bar_icon(app, s), false, width = tile, picture = bar_picture(app, s))
 	}
 	ui.end(ctx)
 	ui.transform_since(ctx, mark, opacity = min(abs(slide) / at.w, 1), offset = {slide + f32(page_by) * at.w, 0}, follows = true)
@@ -869,23 +869,6 @@ lens_shelf_pages :: proc(app: ^App, x, y: ui.Anchor, at: [2]f32) {
 		dock_more_hold(app, .Shelf)
 	}
 	ui.end(ctx)
-}
-
-// A brush's or a preset's stroke picture for its shelf tile, if the atlas has it yet.
-shelf_picture :: proc(app: ^App, s: Bar_Slot) -> ui.Picture {
-	slot: Dock_Slot
-	#partial switch s.id {
-	case .Brush:
-		if s.arg < 0 || s.arg >= len(sculpt.Brush_Kind) do return {}
-		slot.kind = sculpt.Brush_Kind(s.arg)
-	case .Brush_Preset:
-		slot.preset = s.arg
-	case:
-		return {}
-	}
-	brush_previews_first(app)
-	pic, _ := brush_preview_picture(app, brush_item_key(app, {what = .Slot, slot = slot}))
-	return pic
 }
 
 // The widest a page's name shows under the shelf; a longer one is cut.

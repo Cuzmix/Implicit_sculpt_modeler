@@ -617,7 +617,8 @@ bar_slot_button :: proc(app: ^App, which: Bar_Which, slot: int, s: Bar_Slot, siz
 	name := fmt.tprintf("%s##%v %d", bar_label(app, s), which, slot)
 	// A dock of Tiles shows each command's name under its icon, as the shelf's brushes do.
 	enabled := bar_editing(k, which) || bar_enabled(app, s)
-	pressed := ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled, more && !bar_editing(k, which)) if tile else ui.icon_button(ctx, name, bar_icon(app, s), bar_lit(app, s), enabled, command_hint(app, s.id, s.arg), size, more && !bar_editing(k, which), named, width)
+	pic := bar_picture(app, s)
+	pressed := ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled, more && !bar_editing(k, which), picture = pic) if tile else ui.icon_button(ctx, name, bar_icon(app, s), bar_lit(app, s), enabled, command_hint(app, s.id, s.arg), size, more && !bar_editing(k, which), named, width, pic)
 	at = ctx.last_rect
 	if pressed {
 		if bar_editing(k, which) do bar_slot_open(app, which, slot, ctx.last_rect)
