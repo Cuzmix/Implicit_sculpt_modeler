@@ -352,6 +352,7 @@ shelf_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	case .Screenshot:       return "Snapshot"
 	case .Record_Turntable: return "Turntable"
 	case .Render_Preview:   return "Split"
+	case .Place_Light:      return "Highlight"
 	case .Open_Section:     if Section(s.arg) == .Environment do return "HDRI"
 	case .Model_Action:
 		#partial switch Model_Action(s.arg) {

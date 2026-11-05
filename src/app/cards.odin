@@ -604,10 +604,9 @@ section_summary :: proc(app: ^App, sec: Section) -> string {
 }
 
 // Card `c`'s content, `inner` wide: each section it shows, under a header that folds it
-// (a card of one section shows it bare, as does a first section named as its card, and
-// the Tool card's Brush always shows). `body` is where its scrolling body starts on
-// screen and `scroll` how far it is scrolled, so the section Show where opened is
-// scrolled to (returned, or -1 for none).
+// (a card of one section shows it bare, and the Tool card's Brush always shows). `body` is
+// where its scrolling body starts on screen and `scroll` how far it is scrolled, so the
+// section Show where opened is scrolled to (returned, or -1 for none).
 card_body :: proc(app: ^App, c: Card, inner: f32, body_y: f32, scroll: f32) -> (reveal_at: f32) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -641,9 +640,7 @@ card_body :: proc(app: ^App, c: Card, inner: f32, body_y: f32, scroll: f32) -> (
 		case i > 0:
 			ui.divider(ctx, inner, across = true)
 		}
-		// The Brush always shows, and a first section named as its card shows bare, as a
-		// header saying the card's own title again under it reads as a stutter.
-		if sec == .Brush || (i == 0 && section_title(sec) == card_title(c)) {
+		if sec == .Brush {
 			section_draw(app, sec, inner)
 			continue
 		}

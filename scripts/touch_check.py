@@ -3568,13 +3568,13 @@ def render_dial_places_a_highlight():
 
 @scenario
 def model_dial_picks_select():
-    """In Model the dial's left sector picks the Select action, and its sectors are Model's."""
+    """In Model the dial's left sector picks the Select action on a cage, and its sectors are Model's."""
     s = Script()
     s.ftap(SPACE_TABS["model"])
     s.wait(10)
     s.ftap(DIAL_LEFT)
     s.wait(6)
-    return s, [], camera_still({"dabs": near(0), "space": is_text("model"), "model_action": is_text("Select"),
+    return s, ["--script=add_cage cube; select 1; delete_object"], camera_still({"dabs": near(0), "space": is_text("model"), "model_action": is_text("Select"),
                                 "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Model_Action:Select")})
 
 
@@ -12344,9 +12344,9 @@ HISTORY_STRIP = ["--script=set history_view strip"]
 
 # The History list at 1600x900 with three strokes of one brush: the group's chevron, its
 # oldest stroke's row once opened, and the first row (where the History starts) closed.
-HISTORY_GROUP_OPEN, HISTORY_OLDEST_SUB, HISTORY_ROOT = (1554, 240), (1300, 366), (1300, 292)
-HISTORY_GROUP_ROW = (1300, 240)
-HISTORY_LIST_TAB = (1203, 150)
+HISTORY_GROUP_OPEN, HISTORY_OLDEST_SUB, HISTORY_ROOT = (1498, 240), (1244, 366), (1244, 292)
+HISTORY_GROUP_ROW = (1244, 240)
+HISTORY_LIST_TAB = (1147, 150)
 
 
 def history_three_strokes(s):
@@ -12388,7 +12388,7 @@ def history_list_groups_and_goes_to_a_step():
 
 
 # The step menu over the list's newest row (opened at HISTORY_GROUP_ROW): its rows.
-HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_SHOW, HISTORY_MENU_DELETE = (1400, 363), (1400, 407), (1400, 451), (1400, 584)
+HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_SHOW, HISTORY_MENU_DELETE = (1344, 363), (1344, 407), (1344, 451), (1344, 584)
 
 
 @scenario
@@ -12476,7 +12476,7 @@ def history_tint_shows_what_a_step_changed():
     return Steps([run(False), run(True)])
 
 
-HISTORY_GEAR = (1562, 150)
+HISTORY_GEAR = (1506, 150)
 
 
 @scenario
