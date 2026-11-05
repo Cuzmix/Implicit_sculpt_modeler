@@ -380,6 +380,17 @@ CAGE_EDIT_TRIANGLES :: 2_000_000
 
 // Whether Edit cage can take a cage from `obj`: a mesh whose base level is polygons (from
 // Apply to sculpt) or quads (Retopologize), and not under dynamic topology.
+// Whether the Model tool's actions reach the selected object: a cage or a curve takes
+// them, and with nothing selected they stand ready for the next one.
+model_actions_apply :: proc(app: ^App) -> bool {
+	obj := selected_object(app)
+	if obj == nil do return true
+	#partial switch object_type(obj) {
+	case .Cage, .Curve: return true
+	}
+	return false
+}
+
 object_can_edit_cage :: proc(obj: ^Object) -> bool {
 	if obj == nil || obj.cage != nil || obj.voxel != nil || object_dynamic(obj) do return false
 	return obj.levels.levels[0].polys.first != nil || sculpt.levels_has_quads(&obj.levels)

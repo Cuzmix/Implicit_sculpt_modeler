@@ -186,7 +186,7 @@ ICON_FILE :: rune(0xe0c4)
 @(rodata)
 KIND_GLYPHS := [History_Kind]rune {
 	.Stroke    = ui.ICON_BRUSH,
-	.Mask      = ICON_CIRCLE_DASHED,
+	.Mask      = ICON_MASK,
 	.Hide      = ui.ICON_EYE_OFF,
 	.Deform    = ui.ICON_WAND,
 	.Rebuild   = ICON_REMESH,

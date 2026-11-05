@@ -346,6 +346,13 @@ shelf_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	#partial switch s.id {
 	case .Dyntopo_Toggle: return "Dyntopo"
 	case .Remesh:         return "Voxel"
+	// Render's page: one word each, so a tablet's tile shows the whole of it.
+	case .Render_Mode:      return "Final"
+	case .Pick_Focus:       return "Focus"
+	case .Screenshot:       return "Snapshot"
+	case .Record_Turntable: return "Turntable"
+	case .Render_Preview:   return "Split"
+	case .Open_Section:     if Section(s.arg) == .Environment do return "HDRI"
 	case .Model_Action:
 		#partial switch Model_Action(s.arg) {
 		case .Insert_Loop:  return "Add loop"

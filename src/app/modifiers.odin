@@ -125,7 +125,7 @@ modifier_name :: proc(app: ^App, m: Modifier) -> string {
 MODIFIER_ICONS := [Modifier]rune {
 	.Smooth = 0xe283, // waves
 	.Invert = 0xe30c, // diff: plus over minus
-	.Mask   = 0xe0a1, // contrast
+	.Mask   = ICON_MASK,
 	.Hide   = 0xe0bf, // eye-off
 }
 
