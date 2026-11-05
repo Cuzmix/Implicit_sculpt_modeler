@@ -48,13 +48,12 @@ Supernodal_Factor :: struct {
 	values:   []f64,
 }
 
-// The relaxed amalgamation's limits (CHOLMOD's defaults): a merged supernode of up to
-// RELAX_COLUMNS[i] columns may hold up to RELAX_ZEROS[i] of explicit zeros, and any of at
-// most 4 columns is merged whatever its zeros.
+// The relaxed amalgamation's limit: a supernode merges with the parent that follows it
+// while the two hold at most this many columns, whatever zeros that adds. CHOLMOD also
+// merges larger ones up to a share of zeros; on the cover's systems that added a tenth to
+// the factor and gained no time, and the factor is the largest thing a cover holds.
 @(private = "file")
-RELAX_COLUMNS := [3]int{4, 16, 48}
-@(private = "file")
-RELAX_ZEROS := [3]f64{0.8, 0.1, 0.05}
+RELAX_COLUMNS :: 4
 
 // The panel width of the dense factor's blocked loops.
 @(private = "file")
@@ -182,33 +181,17 @@ supernodal_analyze :: proc(m: Symmetric, order: []i32 = nil, allocator := contex
 	}
 
 	// Relaxed amalgamation: a supernode merges with its parent when the parent follows it
-	// and the merged block's explicit zeros are within the limits. Walked from the top so
-	// each merge sees its parent's block already formed.
+	// and the two are small (RELAX_COLUMNS). Walked from the top so each merge sees its
+	// parent's block already formed.
 	columns := make([]int, fundamental, heap)
 	defer delete(columns, heap)
-	first_count := make([]int, fundamental, heap)
-	defer delete(first_count, heap)
-	zeros := make([]f64, fundamental, heap)
-	defer delete(zeros, heap)
 	merged := make([]bool, fundamental, heap)
 	defer delete(merged, heap)
-	for f in 0 ..< fundamental {
-		columns[f] = int(starts[f + 1] - starts[f])
-		first_count[f] = count[starts[f]]
-	}
+	for f in 0 ..< fundamental do columns[f] = int(starts[f + 1] - starts[f])
 	for f := fundamental - 2; f >= 0; f -= 1 {
 		p := f + 1
-		if f_parent[f] != i32(p) do continue
-		nc := columns[f] + columns[p]
-		fc := columns[f] + first_count[p]
-		dense := f64(nc) * f64(fc) - f64(nc) * f64(nc - 1) / 2
-		own := f64(columns[f]) * f64(first_count[f]) - f64(columns[f]) * f64(columns[f] - 1) / 2
-		theirs := f64(columns[p]) * f64(first_count[p]) - f64(columns[p]) * f64(columns[p] - 1) / 2
-		z := dense - own - (theirs - zeros[p])
-		fraction := z / dense if dense > 0 else 0
-		join := nc <= RELAX_COLUMNS[0] || (nc <= RELAX_COLUMNS[1] && fraction < RELAX_ZEROS[0]) || (nc <= RELAX_COLUMNS[2] && fraction < RELAX_ZEROS[1]) || fraction < RELAX_ZEROS[2]
-		if !join do continue
-		columns[f], first_count[f], zeros[f] = nc, fc, z
+		if f_parent[f] != i32(p) || columns[f] + columns[p] > RELAX_COLUMNS do continue
+		columns[f] += columns[p]
 		merged[p] = true
 	}
 	col_first := make([dynamic]i32, heap)
@@ -545,7 +528,7 @@ supernodal_factor :: proc(f: ^Supernodal_Factor, s: ^Supernodal_Symbolic, m: Sym
 Front_Work :: struct {
 	front:   [dynamic]f64, // grown to the largest front met, never cleared whole
 	local:   []i32, // a global row's place in the front being assembled
-	stack:   [dynamic]f64, // the pending updates, each its rows' count squared
+	stack:   [dynamic]f64, // the pending updates, each a lower triangle packed by columns
 	updates: [dynamic][2]int, // per pending update: its supernode and where it starts in the stack
 }
 
@@ -598,26 +581,36 @@ factor_front :: proc(f: ^Supernodal_Factor, s: ^Supernodal_Symbolic, m: Symmetri
 		u := len(crows)
 		if u == 0 do continue
 		U: []f64
-		from_stack := true
+		root := -1
 		if slots != nil {
 			sl := cast(^Slots)slots
 			if sl.slot[child] >= 0 {
-				U = sl.roots[sl.slot[child]]
-				from_stack = false
+				root = int(sl.slot[child])
+				U = sl.roots[root]
 			}
 		}
-		if from_stack {
+		if root < 0 {
 			top := w.updates[len(w.updates) - 1]
 			assert(top[0] == int(child), "supernodal_factor: a child's update is not on top of the stack")
-			U = w.stack[top[1]:top[1] + u * u]
+			U = w.stack[top[1]:top[1] + u * (u + 1) / 2]
 		}
+		p := 0
 		for b in 0 ..< u {
 			cb := int(w.local[crows[b]]) * r
-			for a in b ..< u do F[cb + int(w.local[crows[a]])] += U[a + b * u]
+			for a in b ..< u {
+				F[cb + int(w.local[crows[a]])] += U[p]
+				p += 1
+			}
 		}
-		if from_stack {
+		// A child's update goes once it is added: off the stack, or a piece root's slot
+		// freed, so the tops never hold every root's at once.
+		if root < 0 {
 			top := pop(&w.updates)
 			resize(&w.stack, top[1])
+		} else {
+			sl := cast(^Slots)slots
+			delete(sl.roots[root], runtime.heap_allocator())
+			sl.roots[root] = nil
 		}
 	}
 	// The front's own columns, in panels; each panel then updates every column right of it.
@@ -654,10 +647,15 @@ factor_front :: proc(f: ^Supernodal_Factor, s: ^Supernodal_Symbolic, m: Symmetri
 	}
 	u := r - c
 	if u > 0 && s.parent[t] >= 0 {
+		// The update's lower triangle, packed by columns: column b holds rows b ..< u.
 		start := len(w.stack)
-		non_zero_resize(&w.stack, start + u * u)
+		non_zero_resize(&w.stack, start + u * (u + 1) / 2)
 		U := w.stack[start:]
-		for b in 0 ..< u do copy(U[b * u + b:(b + 1) * u], F[(c + b) * r + c + b:(c + b) * r + r])
+		p := 0
+		for b in 0 ..< u {
+			copy(U[p:p + u - b], F[(c + b) * r + c + b:(c + b) * r + r])
+			p += u - b
+		}
 		append(&w.updates, [2]int{t, start})
 	}
 	return true

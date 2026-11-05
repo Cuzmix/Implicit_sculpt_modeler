@@ -11,6 +11,9 @@ peak_rss_mb :: proc() -> f64 {
 	return f64(c.PeakWorkingSetSize) / (1 << 20) if ok else 0
 }
 
+// The peak stays the process's on Windows, which offers no reset of it.
+peak_rss_reset :: proc() {}
+
 rss_mb :: proc() -> f64 {
 	c, ok := memory_counters()
 	return f64(c.WorkingSetSize) / (1 << 20) if ok else 0

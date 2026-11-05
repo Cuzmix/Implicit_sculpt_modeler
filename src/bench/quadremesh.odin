@@ -15,7 +15,7 @@ import "../sculpt"
 // engine's and its stages' (the engine's own decimation of a dense island, the isotropic
 // remesh, the parameterization, the quad extraction; summed over the islands), what it
 // gave (faces, the quads' share, the share of vertices with four quads) and the peak
-// memory. With --core=cpp,driver,odin each size runs once through each core named
+// memory (the row's own on Linux, peak_rss_reset; the process's elsewhere). With --core=cpp,driver,odin each size runs once through each core named
 // (quadmesh.Core: the C++ core whole, the Odin driver with every stage the C++'s, the Odin
 // driver with the stages ported so far), one row each, for an A/B of the stages as they
 // are ported. On a platform without the engine one line says so.
@@ -33,6 +33,7 @@ run_quadremesh :: proc(target: int, pool: ^jobs.Pool, core: quadmesh.Core) {
 		fmt.printfln("| %s | %s | the engine is not built on this platform | | | | | | | |", thousands(target), name)
 		return
 	} else {
+		peak_rss_reset()
 		sp := new(Sphere)
 		defer free(sp)
 		sp.mesh = geom.geodesic_sphere(geom.geodesic_frequency_for(target), pool)
