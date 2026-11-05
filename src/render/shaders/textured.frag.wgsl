@@ -1,4 +1,4 @@
-// slangc wgsl from textured.frag.spv sha256 9482079816e4dad21087c23b1babde2db067e294f135f543fd462ada49adc6a8
+// slangc wgsl from textured.frag.spv sha256 19081f9249caf3a9f1efd3d36447461fda91c602bd9fc77b51838e77b3b6b854
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Material_Uniforms_std140_0
 {
@@ -367,7 +367,15 @@ fn main( _S28 : pixelInput_0, @builtin(position) position_0 : vec4<f32>, @builti
     var base_0 : vec4<f32> = Material_Uniforms_0.base_color_0;
     var shading_0 : vec4<f32> = Material_Uniforms_0.params_0;
     var surf_0 : vec4<f32> = Material_Uniforms_0.surface_0;
-    var v_3 : vec3<f32> = normalize((vec3<f32>(0) - frag_in_0.view_pos_0));
+    var v_3 : vec3<f32>;
+    if((Material_Uniforms_0.env_0.w) > 0.5f)
+    {
+        v_3 = vec3<f32>(0.0f, 0.0f, 1.0f);
+    }
+    else
+    {
+        v_3 = normalize((vec3<f32>(0) - frag_in_0.view_pos_0));
+    }
     var view_mode_0 : i32 = i32(Material_Uniforms_0.maps_0.w + 0.5f);
     var uv_3 : vec2<f32> = vec2<f32>(frag_in_0.uv_0.x, 1.0f - frag_in_0.uv_0.y);
     var nv_0 : vec3<f32> = frag_in_0.view_normal_0;
@@ -497,13 +505,13 @@ fn main( _S28 : pixelInput_0, @builtin(position) position_0 : vec4<f32>, @builti
                     var _S36 : vec3<f32> = vec3<f32>(0.5f);
                     if(k_2 < 0.0f)
                     {
-                        n_7 = vec3<f32>(0.15000000596046448f, 0.34999999403953552f, 0.85000002384185791f);
+                        v_3 = vec3<f32>(0.15000000596046448f, 0.34999999403953552f, 0.85000002384185791f);
                     }
                     else
                     {
-                        n_7 = vec3<f32>(0.94999998807907104f, 0.55000001192092896f, 0.15000000596046448f);
+                        v_3 = vec3<f32>(0.94999998807907104f, 0.55000001192092896f, 0.15000000596046448f);
                     }
-                    shown_0 = mix(_S36, n_7, vec3<f32>(abs(k_2)));
+                    shown_0 = mix(_S36, v_3, vec3<f32>(abs(k_2)));
                 }
                 else
                 {
