@@ -38,9 +38,9 @@ stack_mirror_placings_and_clip :: proc(t: ^testing.T) {
 	app: App
 	defer stack_scene_free(&app)
 	obj := stack_scene(&app)
-	testing.expect_value(t, len(stack_placings(obj)), 0)
+	testing.expect_value(t, len(stack_placings(&app, obj)), 0)
 	obj.stack.mirror = {added = true, shown = true, axes = {.X, .Z}}
-	placings := stack_placings(obj)
+	placings := stack_placings(&app, obj)
 	testing.expect_value(t, len(placings), 3)
 	reflected := 0
 	for p in placings do reflected += int(render.model_reflected(p))
@@ -50,10 +50,10 @@ stack_mirror_placings_and_clip :: proc(t: ^testing.T) {
 	testing.expect_value(t, stack_clip(obj), [3]f32{-1, 0, -1})
 	// Hidden, or with no plane, it draws nothing extra and clips nothing.
 	obj.stack.mirror.shown = false
-	testing.expect_value(t, len(stack_placings(obj)), 0)
+	testing.expect_value(t, len(stack_placings(&app, obj)), 0)
 	testing.expect_value(t, stack_clip(obj), [3]f32{})
 	obj.stack.mirror = {added = true, shown = true}
-	testing.expect_value(t, len(stack_placings(obj)), 0)
+	testing.expect_value(t, len(stack_placings(&app, obj)), 0)
 }
 
 // A shown mirror holds the brush's symmetry on across its planes, through the origin
@@ -118,6 +118,7 @@ stack_bytes_round_trip :: proc(t: ^testing.T) {
 		mirror = {added = true, shown = false, axes = {.Y, .Z}, minus = true},
 		array  = {added = true, shown = true, count = 5, offset = {1, 2, 3}, turn = {0, 15, 0}, grow = 0.9},
 		radial = {added = true, shown = false, count = 8, axis = .Z, pivot = {0, -1, 0}},
+		along  = {added = true, shown = true, count = 7, axis = .Y, curve = 12},
 	}
 	out: [dynamic]u8
 	defer delete(out)
@@ -159,23 +160,23 @@ stack_array_and_radial_placings :: proc(t: ^testing.T) {
 	defer stack_scene_free(&app)
 	obj := stack_scene(&app)
 	obj.stack.array = STACK_ARRAY_DEFAULT
-	testing.expect_value(t, len(stack_placings(obj)), 2)
-	p := stack_placings(obj)
+	testing.expect_value(t, len(stack_placings(&app, obj)), 2)
+	p := stack_placings(&app, obj)
 	testing.expect(t, abs(p[1][0, 3] - 2 * STACK_ARRAY_DEFAULT.offset.x) < 1e-5, "the second copy is two steps along")
 	obj.stack.radial = STACK_RADIAL_DEFAULT
-	testing.expect_value(t, len(stack_placings(obj)), 17)
-	testing.expect_value(t, len(stack_frames(obj)), 17)
+	testing.expect_value(t, len(stack_placings(&app, obj)), 17)
+	testing.expect_value(t, len(stack_frames(&app, obj)), 17)
 	obj.stack.mirror = {added = true, shown = true, axes = {.X}}
-	placings := stack_placings(obj)
+	placings := stack_placings(&app, obj)
 	testing.expect_value(t, len(placings), 35)
 	reflected := 0
 	for m in placings do reflected += int(render.model_reflected(m))
 	testing.expect_value(t, reflected, 18)
-	testing.expect_value(t, len(stack_frames(obj)), 17)
-	for f in stack_frames(obj) do testing.expect(t, f.scale > 0)
+	testing.expect_value(t, len(stack_frames(&app, obj)), 17)
+	for f in stack_frames(&app, obj) do testing.expect(t, f.scale > 0)
 	// A radial turn about Y through the pivot keeps the pivot where it is.
 	obj.stack = {radial = STACK_RADIAL_DEFAULT}
-	for m in stack_placings(obj) {
+	for m in stack_placings(&app, obj) {
 		q := m * [4]f32{STACK_RADIAL_DEFAULT.pivot.x, STACK_RADIAL_DEFAULT.pivot.y, STACK_RADIAL_DEFAULT.pivot.z, 1}
 		testing.expect(t, linalg.length(q.xyz - STACK_RADIAL_DEFAULT.pivot) < 1e-4)
 	}
@@ -183,7 +184,7 @@ stack_array_and_radial_placings :: proc(t: ^testing.T) {
 	obj.stack.array = STACK_ARRAY_DEFAULT
 	obj.stack.array.count, obj.stack.radial.count = STACK_COUNT_MAX, STACK_COUNT_MAX
 	obj.stack.mirror = {added = true, shown = true, axes = {.X, .Y}}
-	testing.expect(t, len(stack_placings(obj)) < STACK_COPIES_MAX)
+	testing.expect(t, len(stack_placings(&app, obj)) < STACK_COPIES_MAX)
 	free_all(context.temp_allocator)
 }
 
@@ -201,5 +202,44 @@ stack_ray_finds_the_copy :: proc(t: ^testing.T) {
 	testing.expect(t, linalg.length(to_local(frame, hit) - Vec3{0, 0, 1}) < 0.05)
 	_, _, _, on_object, _ := scene_raycast_framed(&app, {0, 0, 5}, {0, 0, -1})
 	testing.expect(t, !on_object)
+	free_all(context.temp_allocator)
+}
+
+// Along lays the object on a straight curve from end to end, its own X running along the
+// curve, under the object's own size; the object stays where it was. Without its curve
+// the row makes nothing.
+@(test)
+stack_along_lays_copies_on_the_curve :: proc(t: ^testing.T) {
+	app: App
+	defer stack_scene_free(&app)
+	obj := stack_scene(&app)
+	obj.transform = {position = {0, 3, 0}, scale = 0.5}
+	curve := new(Object)
+	curve.id = 2
+	curve.transform = {scale = 1}
+	curve.curve = new(Curve_Part)
+	append(&curve.curve.points, geom.Bezier_Point{p = {0, 0, 0}, h_out = {0, 0, 1}}, geom.Bezier_Point{p = {0, 0, 6}, h_in = {0, 0, -1}})
+	defer curve_part_free(curve)
+	append(&app.scene.objects, curve)
+	testing.expect_value(t, stack_script(&app, obj, "along 4 x"), "")
+	testing.expect_value(t, obj.stack.along.curve, 2)
+	placings := stack_placings(&app, obj)
+	testing.expect_value(t, len(placings), 4)
+	world := transform_matrix(obj.transform)
+	for m, k in placings {
+		w := world * m
+		testing.expectf(t, linalg.length(Vec3{w[0, 3], w[1, 3], w[2, 3]} - Vec3{0, 0, 2 * f32(k)}) < 1e-3, "copy %d is at %v", k, Vec3{w[0, 3], w[1, 3], w[2, 3]})
+		// The object's X runs along the curve (+Z), at the object's size.
+		testing.expect(t, linalg.length(Vec3{w[0, 0], w[1, 0], w[2, 0]} - Vec3{0, 0, 0.5}) < 1e-3)
+		testing.expect(t, !render.model_reflected(w))
+	}
+	testing.expect_value(t, len(stack_frames(&app, obj)), 4)
+	// The object itself is not moved, and its copies go with the curve.
+	testing.expect_value(t, obj.transform.position, Vec3{0, 3, 0})
+	curve.transform.position = {1, 0, 0}
+	w := world * stack_placings(&app, obj)[0]
+	testing.expect(t, abs(w[0, 3] - 1) < 1e-3)
+	obj.stack.along.curve = 9
+	testing.expect_value(t, len(stack_placings(&app, obj)), 0)
 	free_all(context.temp_allocator)
 }

@@ -1437,7 +1437,7 @@ scene_raycast_framed :: proc(app: ^App, origin, dir: Vec3, only := -1) -> (index
 	best := max(f32)
 	for obj, i in app.scene.objects {
 		if (only >= 0 && i != only) || !object_pickable(app, obj) do continue
-		frames := stack_frames(obj)
+		frames := stack_frames(app, obj)
 		for k in -1 ..< len(frames) {
 			t := obj.transform if k < 0 else frames[k]
 			local_hit, _, local_ok := object_raycast_local(obj, to_local(t, origin), to_local_dir(t, dir))

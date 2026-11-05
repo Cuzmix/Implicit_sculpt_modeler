@@ -22,7 +22,7 @@ import "../ui"
 // again after every edit.
 //
 // The rows come in a fixed order, one of each kind, as each one copies what the rows
-// above it make: Mirror, then Array, then Radial.
+// above it make: Mirror, then Array, then Radial, then Along a curve.
 //
 // Mirror draws the object clipped at its own plane through its origin on each axis, and
 // its image across the plane, as Blender's Mirror with Clipping does; nothing is cut, so
@@ -33,7 +33,10 @@ import "../ui"
 //
 // Array repeats the object a step at a time (a move, a turn and a size each step), and
 // Radial turns it about an axis through a pivot. A press on any of their copies sculpts
-// the object as if that copy were it (stroke_frame), so every copy follows.
+// the object as if that copy were it (stroke_frame), so every copy follows. Along lays
+// the object and what the rows above make on a curve object of the scene, evenly from end
+// to end, each turned with the curve; the object itself stays where it is, as the model
+// the curve repeats, and the copies follow the curve as it is edited.
 
 // The most the object and its copies draw together, so a row's counts never make a frame
 // draw the mesh more often than a phone can.
@@ -44,6 +47,7 @@ Stack :: struct {
 	mirror: Stack_Mirror,
 	array:  Stack_Array,
 	radial: Stack_Radial,
+	along:  Stack_Along,
 }
 
 // A row is in the stack while `added`; `shown` is its eye.
@@ -66,6 +70,13 @@ Stack_Radial :: struct {
 	count:        int, // the object's own included
 	axis:         sculpt.Axis,
 	pivot:        Vec3, // the point of the object's space the copies turn about
+}
+
+Stack_Along :: struct {
+	added, shown: bool,
+	curve:        int, // the curve object's id; no copies while it is not in the scene
+	count:        int, // the copies laid on the curve, from end to end
+	axis:         sculpt.Axis, // the object's own axis that runs along the curve
 }
 
 STACK_ARRAY_DEFAULT :: Stack_Array{added = true, shown = true, count = 3, offset = {2.2, 0, 0}, grow = 1}
@@ -100,8 +111,50 @@ stack_radial_on :: proc(obj: ^Object) -> bool {
 	return r.added && r.shown && r.count > 1 && obj.cage == nil
 }
 
+// The curve object the Along row lays copies on, while the row shows and the curve is in
+// the scene; nil otherwise.
+stack_along_curve :: proc(app: ^App, obj: ^Object) -> ^Object {
+	a := obj.stack.along
+	if !a.added || !a.shown || a.count < 1 || obj.cage != nil do return nil
+	curve := object_by_id(app, a.curve)
+	if curve == nil || curve == obj || curve.curve == nil || len(curve.curve.points) < 2 do return nil
+	return curve
+}
+
+stack_along_on :: proc(app: ^App, obj: ^Object) -> bool {return stack_along_curve(app, obj) != nil}
+
 // Whether any row of the object's stack is in it, shown or not.
-stack_has_rows :: proc(s: Stack) -> bool {return s.mirror.added || s.array.added || s.radial.added}
+stack_has_rows :: proc(s: Stack) -> bool {return s.mirror.added || s.array.added || s.radial.added || s.along.added}
+
+// The placings of the Along row's copies in the object's own space: the curve sampled
+// evenly from end to end (round a closed one), each sample's frame turning the object's
+// `axis` along the curve and the next axis out along the frame's normal, at the object's
+// own size. None without a curve.
+@(private = "file")
+stack_along_places :: proc(app: ^App, obj: ^Object) -> [dynamic]render.Mat4 {
+	out := make([dynamic]render.Mat4, 0, 8, context.temp_allocator)
+	curve := stack_along_curve(app, obj)
+	if curve == nil do return out
+	a := obj.stack.along
+	cp := curve.curve
+	length := geom.bezier_length(cp.points[:], cp.closed)
+	if !(length > 0) do return out
+	steps := a.count if cp.closed else max(a.count - 1, 1)
+	samples := geom.bezier_sample(cp.points[:], cp.closed, length / f32(steps), context.temp_allocator)
+	frames := geom.bezier_frames(samples, {0, 1, 0}, cp.closed, context.temp_allocator)
+	inv := linalg.inverse(transform_matrix(obj.transform))
+	turn := transform_rotation(curve.transform)
+	ax := int(a.axis)
+	for f, k in frames {
+		if k >= a.count do break
+		cols: [3]Vec3
+		cols[ax], cols[(ax + 1) % 3], cols[(ax + 2) % 3] = turn * f.t, turn * f.n, turn * f.b
+		rot: matrix[3, 3]f32
+		for r in 0 ..< 3 do for c in 0 ..< 3 do rot[r, c] = cols[c][r]
+		append(&out, inv * similarity(rot, obj.transform.scale, to_world(curve.transform, f.p)))
+	}
+	return out
+}
 
 // The similarity that turns by `rot`, scales by `size` and then moves by `move`.
 @(private = "file")
@@ -123,10 +176,11 @@ transform_of_matrix :: proc(m: render.Mat4) -> Transform {
 	return {position = {m[0, 3], m[1, 3], m[2, 3]}, scale = s, rotation = gizmo.rotation_degrees(rot)}
 }
 
-// The placings Array and Radial make, in the object's own space, the object's own (the
-// identity) first: each Radial turn of each Array step. None turns space over, so each
-// is a transform a stroke can sculpt through (stack_frames).
-stack_steps :: proc(obj: ^Object, allocator := context.temp_allocator) -> [dynamic]render.Mat4 {
+// The placings Array, Radial and Along make, in the object's own space, the object's own
+// (the identity) first: each Radial turn of each Array step, then all of them again at
+// each of Along's places. None turns space over, so each is a transform a stroke can
+// sculpt through (stack_frames).
+stack_steps :: proc(app: ^App, obj: ^Object, allocator := context.temp_allocator) -> [dynamic]render.Mat4 {
 	out := make([dynamic]render.Mat4, 0, 8, allocator)
 	turns := make([dynamic]render.Mat4, 0, 8, context.temp_allocator)
 	append(&turns, render.Mat4(1))
@@ -152,10 +206,15 @@ stack_steps :: proc(obj: ^Object, allocator := context.temp_allocator) -> [dynam
 	}
 	images := 1 << uint(card(obj.stack.mirror.axes)) if stack_mirror_on(obj) else 1
 	most := max(1, STACK_COPIES_MAX / images)
-	for t in turns {
-		for a in steps {
-			if len(out) == most do return out
-			append(&out, t * a)
+	places := make([dynamic]render.Mat4, 0, 8, context.temp_allocator)
+	append(&places, render.Mat4(1))
+	append(&places, ..stack_along_places(app, obj)[:])
+	for at in places {
+		for t in turns {
+			for a in steps {
+				if len(out) == most do return out
+				append(&out, at * t * a)
+			}
 		}
 	}
 	return out
@@ -164,7 +223,7 @@ stack_steps :: proc(obj: ^Object, allocator := context.temp_allocator) -> [dynam
 // The placings of the object's copies, in its own space, its own (the identity) left
 // out: the mirror images across each plane and their combinations (X and Z give three),
 // each copied by every Array and Radial step, at most STACK_COPIES_MAX - 1.
-stack_placings :: proc(obj: ^Object, allocator := context.temp_allocator) -> [dynamic]render.Mat4 {
+stack_placings :: proc(app: ^App, obj: ^Object, allocator := context.temp_allocator) -> [dynamic]render.Mat4 {
 	out := make([dynamic]render.Mat4, 0, 8, allocator)
 	images := make([dynamic]render.Mat4, 0, 8, context.temp_allocator)
 	append(&images, render.Mat4(1))
@@ -177,7 +236,7 @@ stack_placings :: proc(obj: ^Object, allocator := context.temp_allocator) -> [dy
 			for k in 0 ..< count do append(&images, flip * images[k])
 		}
 	}
-	steps := stack_steps(obj)
+	steps := stack_steps(app, obj)
 	for s, i in steps {
 		for m, k in images {
 			if i == 0 && k == 0 do continue
@@ -190,9 +249,9 @@ stack_placings :: proc(obj: ^Object, allocator := context.temp_allocator) -> [dy
 // The world transforms a stroke can sculpt the object through besides its own: one for
 // each Array and Radial step, a mirror image's being its step's, whose hidden half lies
 // under the image.
-stack_frames :: proc(obj: ^Object, allocator := context.temp_allocator) -> [dynamic]Transform {
+stack_frames :: proc(app: ^App, obj: ^Object, allocator := context.temp_allocator) -> [dynamic]Transform {
 	out := make([dynamic]Transform, 0, 8, allocator)
-	steps := stack_steps(obj)
+	steps := stack_steps(app, obj)
 	if len(steps) < 2 do return out
 	world := transform_matrix(obj.transform)
 	for s in steps[1:] do append(&out, transform_of_matrix(world * s))
@@ -217,7 +276,7 @@ stack_draw_copies :: proc(app: ^App, draws: ^[dynamic]render.Draw_Item, froms: ^
 	for i in 0 ..< n {
 		obj := froms[i].obj
 		if obj == nil do continue
-		placings := stack_placings(obj)
+		placings := stack_placings(app, obj)
 		if len(placings) == 0 do continue
 		draws[i].clip = stack_clip(obj)
 		item, from := draws[i], froms[i]
@@ -305,6 +364,11 @@ stack_put :: proc(out: ^[dynamic]u8, s: Stack) {
 	geom.byte_put(out, u8(r.count))
 	geom.byte_put(out, u8(r.axis))
 	geom.byte_put(out, r.pivot)
+	l := s.along
+	geom.byte_put(out, u8(l.added) | u8(l.shown) << 1)
+	geom.byte_put(out, u8(l.count))
+	geom.byte_put(out, u8(l.axis))
+	geom.byte_put(out, i32(l.curve))
 }
 
 stack_get :: proc(r: ^geom.Byte_Reader) -> (s: Stack, ok: bool) {
@@ -313,20 +377,24 @@ stack_get :: proc(r: ^geom.Byte_Reader) -> (s: Stack, ok: bool) {
 	offset, turn, grow := geom.byte_get(r, Vec3), geom.byte_get(r, Vec3), geom.byte_get(r, f32)
 	rb, rc, ra := geom.byte_get(r, u8), geom.byte_get(r, u8), geom.byte_get(r, u8)
 	pivot := geom.byte_get(r, Vec3)
+	lb, lc, la, curve := geom.byte_get(r, u8), geom.byte_get(r, u8), geom.byte_get(r, u8), geom.byte_get(r, i32)
 	if !r.ok || mb > 7 || axes > 7 || ab > 3 || rb > 3 || ra > 2 do return
-	if ac > STACK_COUNT_MAX || rc > STACK_COUNT_MAX do return
+	if ac > STACK_COUNT_MAX || rc > STACK_COUNT_MAX || lc > STACK_COUNT_MAX || lb > 3 || la > 2 || curve < 0 do return
+	if lb & 1 != 0 && lc < 1 do return
 	if !vec_finite(offset) || !vec_finite(turn) || !vec_finite(pivot) do return
 	// A row not in the stack is all zeros; one in it has copies and a size step.
 	if ab & 1 != 0 && (ac < 2 || !(grow >= STACK_GROW_MIN && grow <= STACK_GROW_MAX)) || rb & 1 != 0 && rc < 2 do return
 	s.mirror = {added = mb & 1 != 0, shown = mb & 2 != 0, minus = mb & 4 != 0, axes = transmute(sculpt.Symmetry)axes}
 	s.array = {added = ab & 1 != 0, shown = ab & 2 != 0, count = int(ac), offset = offset, turn = turn, grow = grow}
 	s.radial = {added = rb & 1 != 0, shown = rb & 2 != 0, count = int(rc), axis = sculpt.Axis(ra), pivot = pivot}
+	s.along = {added = lb & 1 != 0, shown = lb & 2 != 0, count = int(lc), axis = sculpt.Axis(la), curve = int(curve)}
 	return s, true
 }
 
 STACK_GROW_MIN :: 0.05
-// What stack_put writes: the mirror's 2 bytes, the array's 30 and the radial's 15.
-STACK_BYTES :: 47
+// What stack_put writes: the mirror's 2 bytes, the array's 30, the radial's 15 and
+// Along's 7.
+STACK_BYTES :: 54
 STACK_GROW_MAX :: 4
 
 @(private = "file")
@@ -353,10 +421,11 @@ kit_stack :: proc(app: ^App, obj: ^Object) {
 	if obj.stack.mirror.added do kit_stack_mirror(app, obj)
 	if obj.stack.array.added do kit_stack_array(app, obj)
 	if obj.stack.radial.added do kit_stack_radial(app, obj)
+	if obj.stack.along.added do kit_stack_along(app, obj)
 	if stack_has_rows(obj.stack) do ui.divider(ctx, across = true)
 	kit_stack_add(app, obj)
 	if stack_has_rows(obj.stack) {
-		can := obj.voxel == nil && !app.stroke.active && (stack_mirror_on(obj) || stack_array_on(obj) || stack_radial_on(obj))
+		can := obj.voxel == nil && !app.stroke.active && (stack_mirror_on(obj) || stack_array_on(obj) || stack_radial_on(obj) || stack_along_on(app, obj))
 		if ui.button(ctx, "Apply the stack", enabled = can, reason = "Needs a shown row on a mesh object") {
 			app.ui.scene_command = {kind = .Stack_Apply}
 		}
@@ -369,7 +438,7 @@ kit_stack :: proc(app: ^App, obj: ^Object) {
 kit_stack_add :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	s := obj.stack
-	if s.mirror.added && s.array.added && s.radial.added do return
+	if s.mirror.added && s.array.added && s.radial.added && s.along.added do return
 	ui.begin(ctx, "stack add", {direction = .Row})
 	if !s.mirror.added && ui.button(ctx, "Mirror##add", glyph = ICON_SYMMETRY, tone = .Accent) {
 		s.mirror = {added = true, shown = true, axes = {.X}}
@@ -382,6 +451,10 @@ kit_stack_add :: proc(app: ^App, obj: ^Object) {
 	if !s.radial.added && ui.button(ctx, "Radial##add", glyph = ui.ICON_PLUS, tone = .Accent) {
 		s.radial = STACK_RADIAL_DEFAULT
 		stack_set(app, obj, s, "Add radial")
+	}
+	if !s.along.added && ui.button(ctx, "Along##add", glyph = ui.ICON_SPLINE, tone = .Accent) {
+		s.along = {added = true, shown = true, count = 6, curve = stack_first_curve(app, obj)}
+		stack_set(app, obj, s, "Add along a curve")
 	}
 	ui.end(ctx)
 }
@@ -410,6 +483,7 @@ kit_stack_remove :: proc(app: ^App, obj: ^Object, name: string) {
 	case "Mirror": s.mirror = {}
 	case "Array": s.array = {}
 	case "Radial": s.radial = {}
+	case "Along": s.along = {}
 	}
 	stack_set(app, obj, s, fmt.tprintf("Remove %s", strings.to_lower(name, context.temp_allocator)))
 }
@@ -419,6 +493,7 @@ row_shown :: proc(s: ^Stack, name: string) -> ^bool {
 	switch name {
 	case "Array": return &s.array.shown
 	case "Radial": return &s.radial.shown
+	case "Along": return &s.along.shown
 	}
 	return &s.mirror.shown
 }
@@ -502,6 +577,66 @@ kit_stack_radial :: proc(app: ^App, obj: ^Object) {
 	}
 }
 
+// The first curve object of the scene other than `obj`, by id; 0 for none.
+stack_first_curve :: proc(app: ^App, obj: ^Object) -> int {
+	for o in app.scene.objects do if o != obj && o.curve != nil do return o.id
+	return 0
+}
+
+// A curve object's name in the Along row's list: its own, or "Curve" and its place among
+// the scene's curves.
+@(private = "file")
+stack_curve_label :: proc(app: ^App, curve: ^Object) -> string {
+	if curve.name != "" do return curve.name
+	n := 0
+	for o in app.scene.objects {
+		if o.curve == nil do continue
+		n += 1
+		if o == curve do break
+	}
+	return fmt.tprintf("Curve %d", n)
+}
+
+@(private = "file")
+kit_stack_along :: proc(app: ^App, obj: ^Object) {
+	ctx := &app.kit.ctx
+	kit_stack_head(app, obj, "Along", obj.stack.along.shown)
+	defer kit_stack_remove(app, obj, "Along")
+	curves := make([dynamic]^Object, 0, 4, context.temp_allocator)
+	names := make([dynamic]string, 0, 4, context.temp_allocator)
+	chosen := -1
+	for o in app.scene.objects {
+		if o == obj || o.curve == nil do continue
+		if o.id == obj.stack.along.curve do chosen = len(curves)
+		append(&curves, o)
+		append(&names, stack_curve_label(app, o))
+	}
+	if len(curves) == 0 {
+		ui.paragraph(ctx, "Draw a curve object (Curve, then a stroke on the view) to lay copies along it.")
+		return
+	}
+	if chosen < 0 do ui.paragraph(ctx, "Pick the curve to lay copies along.")
+	if pick := ui.select(ctx, "Curve##along", names[:], chosen); pick != chosen && pick >= 0 {
+		s := obj.stack
+		s.along.curve = curves[pick].id
+		stack_set(app, obj, s, "Along curve")
+	}
+	l := &obj.stack.along
+	before := obj.stack
+	count := f32(l.count)
+	if ui.drag_value(ctx, "Count##along", &count, 0.05, 1, STACK_COUNT_MAX, fmt.tprintf("%d", l.count)) do l.count = int(math.round(count))
+	if obj.stack != before do stack_drag_changed(app, obj, before)
+	ui.begin(ctx, "stack along axis", {direction = .Row})
+	for a in sculpt.Axis {
+		if ui.toggle_button(ctx, fmt.tprintf("%v##along", a), obj.stack.along.axis == a, 48, tooltip = fmt.tprintf("The object's own %v axis runs along the curve", a)) {
+			s := obj.stack
+			s.along.axis = a
+			stack_set(app, obj, s, "Along axis")
+		}
+	}
+	ui.end(ctx)
+}
+
 // "X", "X and Z", "X, Y and Z".
 stack_axes_label :: proc(axes: sculpt.Symmetry) -> string {
 	names: [3]string
@@ -526,6 +661,7 @@ stack_summary :: proc(obj: ^Object) -> string {
 	if m := s.mirror; m.added do append(&parts, fmt.tprintf("Mirror %s", stack_axes_label(m.axes)) if m.shown else "Mirror (hidden)")
 	if a := s.array; a.added do append(&parts, fmt.tprintf("Array %d", a.count) if a.shown else "Array (hidden)")
 	if r := s.radial; r.added do append(&parts, fmt.tprintf("Radial %d", r.count) if r.shown else "Radial (hidden)")
+	if l := s.along; l.added do append(&parts, fmt.tprintf("Along %d", l.count) if l.shown else "Along (hidden)")
 	return strings.join(parts[:], ", ", context.temp_allocator)
 }
 
@@ -535,7 +671,7 @@ stack_summary :: proc(obj: ^Object) -> string {
 // what it hid. A hidden row stays. False only when rebuilding the object failed.
 stack_apply :: proc(app: ^App, obj: ^Object) -> bool {
 	if obj.voxel != nil || obj.cage != nil do return true
-	mirror, copies := stack_mirror_on(obj), stack_array_on(obj) || stack_radial_on(obj)
+	mirror, copies := stack_mirror_on(obj), stack_array_on(obj) || stack_radial_on(obj) || stack_along_on(app, obj)
 	if !mirror && !copies do return true
 	before := history_snapshot(app, obj, "apply stack")
 	start := time.tick_now()
@@ -563,6 +699,7 @@ stack_apply :: proc(app: ^App, obj: ^Object) -> bool {
 	}
 	if stack_array_on(obj) do obj.stack.array = {}
 	if stack_radial_on(obj) do obj.stack.radial = {}
+	if stack_along_on(app, obj) do obj.stack.along = {}
 	history_record_swap(app, obj.id, before)
 	if changed {
 		report(app, .Stack, {.Undo}, "Applied the stack: %d vertices (%.0f ms)", object_vertex_count(obj), time.duration_milliseconds(time.tick_since(start)))
@@ -577,7 +714,7 @@ stack_apply :: proc(app: ^App, obj: ^Object) -> bool {
 // merge is (merge_meshes). `changed` is false when there were no copies.
 @(private = "file")
 stack_join_copies :: proc(app: ^App, obj: ^Object) -> (changed, ok: bool) {
-	steps := stack_steps(obj)
+	steps := stack_steps(app, obj)
 	if len(steps) < 2 do return false, true
 	stroke_finish(app)
 	object_hd_leave(app, obj)
@@ -615,15 +752,16 @@ stack_join_copies :: proc(app: ^App, obj: ^Object) -> (changed, ok: bool) {
 // The script verb `stack`: "mirror x" (any of x, y and z together, "-x" style for the -
 // side), "array 4 2.2 0 0" (the count and each step's move, then optionally "turn 0 30 0"
 // and "size 0.9"), "radial 6 y" (the count and
-// the axis), "<row> off", "show <row>", "hide <row>" or "apply stack". What went wrong, or
+// the axis), "along 8 x" (the count and the axis along the curve, on the row's curve or
+// the scene's first), "<row> off", "show <row>", "hide <row>" or "apply stack". What went wrong, or
 // "" when it did what it says.
 stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 	if obj == nil do return "nothing is selected"
 	words := strings.fields(text, context.temp_allocator)
-	USAGE :: "stack takes mirror x, array 4 2.2 0 0, radial 6 y, mirror off, show mirror, hide array or apply stack"
+	USAGE :: "stack takes mirror x, array 4 2.2 0 0, radial 6 y, along 8 x, mirror off, show mirror, hide array or apply stack"
 	if len(words) < 2 do return USAGE
 	s := obj.stack
-	is_row :: proc(w: string) -> bool {return w == "mirror" || w == "array" || w == "radial"}
+	is_row :: proc(w: string) -> bool {return w == "mirror" || w == "array" || w == "radial" || w == "along"}
 	switch {
 	case words[0] == "apply" && words[1] == "stack" && len(words) == 2:
 		if !stack_has_rows(s) do return "the object has no live stack"
@@ -634,6 +772,7 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		case "mirror": s.mirror = {}
 		case "array": s.array = {}
 		case "radial": s.radial = {}
+		case "along": s.along = {}
 		}
 	case (words[0] == "show" || words[0] == "hide") && is_row(words[1]) && len(words) == 2:
 		on := words[0] == "show"
@@ -647,6 +786,9 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		case "radial":
 			if !s.radial.added do return "the object has no radial row"
 			s.radial.shown = on
+		case "along":
+			if !s.along.added do return "the object has no along row"
+			s.along.shown = on
 		}
 	case words[0] == "mirror" && len(words) == 2:
 		axes := words[1]
@@ -706,6 +848,20 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		case: return fmt.tprintf("%q is not an axis: x, y or z", words[2])
 		}
 		s.radial = r
+	case words[0] == "along" && len(words) == 3:
+		count, count_ok := strconv.parse_int(words[1])
+		if !count_ok || count < 1 || count > STACK_COUNT_MAX do return fmt.tprintf("along's count is from 1 to %d", STACK_COUNT_MAX)
+		l := s.along
+		if object_by_id(app, l.curve) == nil do l.curve = stack_first_curve(app, obj)
+		if l.curve == 0 do return "along needs a curve object in the scene"
+		l.added, l.shown, l.count = true, true, count
+		switch words[2] {
+		case "x": l.axis = .X
+		case "y": l.axis = .Y
+		case "z": l.axis = .Z
+		case: return fmt.tprintf("%q is not an axis: x, y or z", words[2])
+		}
+		s.along = l
 	case:
 		return USAGE
 	}
