@@ -8,6 +8,7 @@ import "core:time"
 
 import "../geom"
 import "../jobs"
+import "../sparse"
 
 // Flattening: each island that has a border is laid flat with as little distortion as
 // the method gives, as Blender's Unwrap does, and scaled to its surface area so every
@@ -264,71 +265,47 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool, 
 		}
 	}
 
-	// Eliminated in nested dissection order of the free wedges' places.
-	place := make([][3]f32, free, a)
-	defer delete(place, a)
-	for w in 0 ..< m.wedges do if c := column[w]; c >= 0 do place[c] = positions[m.vertex[w]]
-	dedup := make([]u32, free + 1, a)
-	defer delete(dedup, a)
-	for i in 0 ..< free do dedup[i + 1] = dedup[i] + (ends[i] - next[i])
-	graph := make([]u32, dedup[free], a)
-	defer delete(graph, a)
-	for i in 0 ..< free do copy(graph[dedup[i]:dedup[i + 1]], neighbour[next[i]:ends[i]])
-	order, wedge_tree := dissection_order(place, dedup, graph, a)
-	defer delete(order, a)
-	defer delete(wedge_tree, a)
-	// The same tree over the unknowns, two a wedge.
-	tree := make([]Dissection_Node, len(wedge_tree), a)
-	defer delete(tree, a)
-	for p, i in wedge_tree do tree[i] = {2 * p.lo, 2 * p.middle, 2 * p.hi, p.parent}
-	rank := make([]u32, free, a)
-	defer delete(rank, a)
-	for w, i in order do rank[w] = u32(i)
-
-	// The upper triangle by columns in that order: unknown c of the wedge ranked k is
-	// column 2k + c; its rows are the lower ranked neighbours' two unknowns and its own.
-	system: Sparse
-	defer sparse_destroy(&system, a)
-	system.n = 2 * free
-	system.first = make([]u32, 2 * free + 1, a)
-	rows := make([dynamic]u32, 0, 2 * len(graph) + 3 * free, a)
-	values := make([dynamic]f64, 0, 2 * len(graph) + 3 * free, a)
-	Entry :: struct {
-		rank: u32,
-		at:   u32, // index into `off`
-	}
-	below := make([dynamic]Entry, a)
-	defer delete(below)
-	for k in 0 ..< free {
-		i := order[k]
-		clear(&below)
-		for x in next[i] ..< ends[i] do if r := rank[neighbour[x]]; r < u32(k) do append(&below, Entry{r, x})
-		slice.sort_by(below[:], proc(p, q: Entry) -> bool {return p.rank < q.rank})
-		for c in 0 ..< 2 {
-			for e in below {
-				// Row unknown r of the neighbour, column unknown c of this wedge: the
-				// neighbour's block with this wedge, which is this wedge's transposed.
-				for r in 0 ..< 2 {
-					append(&rows, 2 * e.rank + u32(r))
-					append(&values, off[e.at][c][r])
-				}
-			}
-			for r in 0 ..= c {
-				append(&rows, 2 * u32(k) + u32(r))
-				append(&values, diagonal[i][r][c])
-			}
-			system.first[2 * k + c + 1] = u32(len(rows))
+	// The system on the shared sparse solver: the upper triangle once (each diagonal
+	// block's upper half and each neighbour pair from its lower numbered wedge), unknown c
+	// of wedge i being 2i + c.
+	heap := runtime.heap_allocator()
+	t := sparse.triplets_make(2 * free, 3 * free + 4 * int(next[free]), heap)
+	defer sparse.triplets_destroy(&t)
+	for i in 0 ..< free {
+		for r in 0 ..< 2 do for c in r ..< 2 do sparse.triplets_add(&t, 2 * i + r, 2 * i + c, diagonal[i][r][c])
+		for x in next[i] ..< ends[i] do if j := int(neighbour[x]); j > i {
+			for r in 0 ..< 2 do for c in 0 ..< 2 do sparse.triplets_add(&t, 2 * i + r, 2 * j + c, off[x][r][c])
 		}
 	}
-	system.row, system.value = rows[:], values[:]
-	factor, factored := front_factor(system, tree, pool, a)
-	if !factored do return
-	defer fronts_destroy(&factor, a)
-	x := make([]f64, 2 * free, a)
-	defer delete(x, a)
-	for k in 0 ..< free do x[2 * k], x[2 * k + 1] = rhs[2 * order[k]], rhs[2 * order[k] + 1]
-	front_solve(factor, x)
-	for w in 0 ..< m.wedges do if c := column[w]; c >= 0 do flat[w] = {x[2 * rank[c]], x[2 * rank[c] + 1]}
+	system, built := sparse.symmetric_from_triplets(t, nil, heap)
+	if !built do return
+	defer sparse.symmetric_destroy(&system, heap)
+
+	// AMD over the wedges' graph, each wedge's two unknowns kept together, so the
+	// supernodes come in whole blocks.
+	g := sparse.triplets_make(free, free + int(next[free]), heap)
+	defer sparse.triplets_destroy(&g)
+	for i in 0 ..< free {
+		sparse.triplets_add(&g, i, i, 1)
+		for x in next[i] ..< ends[i] do if j := int(neighbour[x]); j > i do sparse.triplets_add(&g, i, j, 1)
+	}
+	graph, _ := sparse.symmetric_from_triplets(g, nil, heap)
+	defer sparse.symmetric_destroy(&graph, heap)
+	by_wedge, inverse := sparse.amd_order(graph, heap)
+	delete(inverse, heap)
+	order := make([]i32, 2 * free, heap)
+	for w, k in by_wedge do order[2 * k], order[2 * k + 1] = 2 * w, 2 * w + 1
+	delete(by_wedge, heap)
+	symbolic := sparse.supernodal_analyze(system, order, heap)
+	delete(order, heap)
+	defer sparse.supernodal_symbolic_destroy(&symbolic, heap)
+	factor: sparse.Supernodal_Factor
+	if !sparse.supernodal_factor(&factor, &symbolic, system, pool, heap) do return
+	defer sparse.supernodal_factor_destroy(&factor, heap)
+	x := make([]f64, 2 * free, heap)
+	defer delete(x, heap)
+	sparse.supernodal_solve(&factor, rhs, x)
+	for w in 0 ..< m.wedges do if c := column[w]; c >= 0 do flat[w] = {x[2 * c], x[2 * c + 1]}
 	for p in flat do if !finite(p) do return
 
 	if !pinned {

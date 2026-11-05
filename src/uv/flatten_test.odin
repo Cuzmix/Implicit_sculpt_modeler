@@ -1,9 +1,7 @@
 package uv
 
-import "base:runtime"
 import "core:math"
 import "core:math/linalg"
-import "core:math/rand"
 import "core:slice"
 import "core:testing"
 
@@ -152,85 +150,4 @@ flatten_does_not_depend_on_the_pool :: proc(t: ^testing.T) {
 		results[i] = u.corner
 	}
 	testing.expect(t, slice.equal(results[0], results[1]) && slice.equal(results[0], results[2]), "the same on every pool")
-}
-
-// The direct solvers solve a grid's Laplacian plus the identity to rounding, in the
-// order nested dissection gives, which is a permutation, and agree with each other.
-@(test)
-ldl_solves_a_laplacian :: proc(t: ^testing.T) {
-	positions, indices, _, _ := test_grid(20, same)
-	n := len(positions)
-	// The grid's edges as a graph.
-	edges := make([dynamic][2]u32, context.temp_allocator)
-	for tri in 0 ..< len(indices) / 3 do for k in 0 ..< 3 {
-		a, b := indices[3 * tri + k], indices[3 * tri + (k + 1) % 3]
-		append(&edges, [2]u32{a, b}, [2]u32{b, a})
-	}
-	slice.sort_by(edges[:], proc(p, q: [2]u32) -> bool {return p[0] < q[0] || (p[0] == q[0] && p[1] < q[1])})
-	uniq := make([dynamic][2]u32, context.temp_allocator)
-	for e in edges do if len(uniq) == 0 || e != uniq[len(uniq) - 1] do append(&uniq, e)
-	next := make([]u32, n + 1, context.temp_allocator)
-	neighbour := make([]u32, len(uniq), context.temp_allocator)
-	for e, i in uniq {
-		next[e[0] + 1] += 1
-		neighbour[i] = e[1]
-	}
-	for i in 0 ..< n do next[i + 1] += next[i]
-	order, tree := dissection_order(positions, next, neighbour, context.temp_allocator)
-	sorted := slice.clone(order, context.temp_allocator)
-	slice.sort(sorted)
-	for v, i in sorted do testing.expect_value(t, v, u32(i))
-	rank := make([]u32, n, context.temp_allocator)
-	for v, i in order do rank[v] = u32(i)
-	// L + I in the dissection order, upper triangle by columns.
-	a: Sparse
-	a.n = n
-	a.first = make([]u32, n + 1, context.temp_allocator)
-	rows := make([dynamic]u32, context.temp_allocator)
-	values := make([dynamic]f64, context.temp_allocator)
-	for k in 0 ..< n {
-		v := order[k]
-		col := make([dynamic]u32, context.temp_allocator)
-		for w in neighbour[next[v]:next[v + 1]] do if rank[w] < u32(k) do append(&col, rank[w])
-		slice.sort(col[:])
-		for r in col {
-			append(&rows, r)
-			append(&values, -1)
-		}
-		append(&rows, u32(k))
-		append(&values, f64(next[v + 1] - next[v]) + 1)
-		a.first[k + 1] = u32(len(rows))
-	}
-	a.row, a.value = rows[:], values[:]
-	f, ok := ldl_factor(a, context.temp_allocator)
-	if !testing.expect(t, ok) do return
-	b := make([]f64, n, context.temp_allocator)
-	for &x in b do x = rand.float64()
-	x := slice.clone(b, context.temp_allocator)
-	ldl_solve(f, x)
-	// The residual, from the full symmetric matrix.
-	worst: f64
-	for k in 0 ..< n {
-		v := order[k]
-		ax := (f64(next[v + 1] - next[v]) + 1) * x[k]
-		for w in neighbour[next[v]:next[v + 1]] do ax -= x[rank[w]]
-		worst = max(worst, abs(ax - b[k]))
-	}
-	testing.expectf(t, worst < 1e-12, "residual %v", worst)
-
-	// The frontal factor gives the same answer, on one thread and on a pool.
-	for workers in ([]int{-1, 3}) {
-		pool: jobs.Pool
-		if workers >= 0 do jobs.pool_init(&pool, workers)
-		defer if workers >= 0 do jobs.pool_destroy(&pool)
-		// Parts factored side by side allocate from their threads, so not from temp.
-		fronts, factored := front_factor(a, tree, &pool if workers >= 0 else nil, runtime.heap_allocator())
-		if !testing.expect(t, factored) do continue
-		defer fronts_destroy(&fronts, runtime.heap_allocator())
-		y := slice.clone(b, context.temp_allocator)
-		front_solve(fronts, y)
-		gap: f64
-		for v, i in y do gap = max(gap, abs(v - x[i]))
-		testing.expectf(t, gap < 1e-10, "frontal and LDL differ by %v", gap)
-	}
 }
