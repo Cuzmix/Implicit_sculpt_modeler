@@ -189,6 +189,9 @@ Command_Id :: enum u16 {
 	Curve_Close,
 	Curve_Select_All,
 	Curve_Handles,
+	Curve_Join,
+	Curve_Split,
+	Curve_Reverse,
 	Curve_Bake,
 	Curve_Use,
 	Curve_Brush_Run,
@@ -1730,6 +1733,24 @@ COMMANDS := [Command_Id]Command {
 			obj := selected_curve(app)
 			return obj != nil && app.curve.picked >= 1 && app.curve.picked <= len(obj.curve.points) && obj.curve.points[app.curve.picked - 1].handles == geom.Handle_Type(arg)
 		},
+	},
+	.Curve_Join = {
+		label = "Join curves",
+		help = "Makes the two curves selected one, as Blender's Make Segment does: the selected curve's nearest end meets the other's, which follows on in the same space and goes from the scene (ends that touch become one point). With one open curve selected, closes it into a loop. One undo step.",
+		run = proc(app: ^App, _: int) {_ = curve_join(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return curve_joinable(app)},
+	},
+	.Curve_Split = {
+		label = "Split curve",
+		help = "Cuts the selected curve at its picked point: an open curve keeps the points up to it and the rest becomes a new curve with the same look, the point in both; a loop opens there. One undo step.",
+		run = proc(app: ^App, _: int) {_ = curve_split(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return curve_split_at(app) >= 0},
+	},
+	.Curve_Reverse = {
+		label = "Reverse curve",
+		help = "Turns the selected curve round, its end becoming its start, as Blender's Switch Direction: what runs along it (a tube's ends, a lathe from its first point, copies along it, a brush path) runs the other way. One undo step.",
+		run = proc(app: ^App, _: int) {curve_reverse(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_curve(app) != nil},
 	},
 	.Curve_Close = {
 		label = "Close curve",

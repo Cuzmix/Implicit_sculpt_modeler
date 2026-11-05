@@ -332,6 +332,18 @@ bezier_set_vector :: proc(points: []Bezier_Point, closed: bool, i: int) {
 	p.h_out = (points[(i + 1) % n].p - p.p) / 3 if closed || i < n - 1 else {}
 }
 
+// Turns a run of points round, its last first: each point's handles swap, as the way in
+// becomes the way out.
+bezier_reverse :: proc(points: []Bezier_Point) {
+	slice_reverse(points)
+	for &p in points do p.h_in, p.h_out = p.h_out, p.h_in
+}
+
+@(private = "file")
+slice_reverse :: proc(s: []Bezier_Point) {
+	for i in 0 ..< len(s) / 2 do s[i], s[len(s) - 1 - i] = s[len(s) - 1 - i], s[i]
+}
+
 // Sets the handles of every Auto and Vector point from its neighbours, as they stand now:
 // after any point moved, so those points follow. Aligned and Free points keep theirs.
 bezier_auto_handles :: proc(points: []Bezier_Point, closed: bool) {

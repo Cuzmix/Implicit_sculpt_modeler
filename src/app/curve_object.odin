@@ -319,7 +319,7 @@ curve_bake :: proc(app: ^App, obj: ^Object) -> bool {
 // over) making `use`, as a new selected object named "Curve N" placed at their middle, as
 // one undo step. Returns false, adding nothing, for fewer than CURVE_MIN_POINTS points or
 // on a GPU failure.
-curve_object_add :: proc(app: ^App, points: []geom.Bezier_Point, closed: bool, look := CURVE_LOOK_DEFAULTS) -> bool {
+curve_object_add :: proc(app: ^App, points: []geom.Bezier_Point, closed: bool, look := CURVE_LOOK_DEFAULTS, chain := false) -> bool {
 	if len(points) < CURVE_MIN_POINTS do return false
 	stroke_finish(app)
 	bounds := geom.AABB_EMPTY
@@ -341,7 +341,7 @@ curve_object_add :: proc(app: ^App, points: []geom.Bezier_Point, closed: bool, l
 	}
 	scene_append(app, obj)
 	obj.name = strings.clone(curve_name(app, obj.id))
-	history_record_swap(app, obj.id, history_snapshot(app, nil, "add curve"), kind = .Curve)
+	history_record_swap(app, obj.id, history_snapshot(app, nil, "add curve"), chain = chain, kind = .Curve)
 	app.curve.made += 1
 	app.curve.picked = 0
 	return true

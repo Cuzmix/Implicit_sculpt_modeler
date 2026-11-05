@@ -310,6 +310,8 @@ curve_drawn :: proc(app: ^App, pos, size: [2]f32) {
 		clear(&c.placing_n)
 		return
 	}
+	// With an end of the selected curve picked, a tap carries the curve on from it.
+	if len(c.placing) == 0 && curve_grow_tap(app, pos, size) do return
 	// A tap on the first point placed closes the curve.
 	if len(c.placing) >= 3 {
 		view_proj := edit_view_proj(app, size)
@@ -528,6 +530,15 @@ kit_curve_settings :: proc(app: ^App) {
 			hints: [len(geom.Handle_Type)]string
 			for &h, i in hints do h = command_hint(app, .Curve_Handles, i)
 			if picked := ui.tabs(ctx, "curve handles", types[:], shown, keys = hints[:]); picked >= 0 do command_run(app, .Curve_Handles, picked)
+		}
+		if selected_curve(app) != nil {
+			// The run of points: Join, Split and Reverse, a third of the width each.
+			third := (ui.fill_width(ctx) - 2 * ui.SPACE_M) / 3
+			ui.begin(ctx, "curve run", {direction = .Row, gap = ui.SPACE_M})
+			_ = command_button(app, .Curve_Join, width = third, label = "Join")
+			_ = command_button(app, .Curve_Split, width = third, label = "Split")
+			_ = command_button(app, .Curve_Reverse, width = third, label = "Reverse")
+			ui.end(ctx)
 		}
 		if c.editing {
 			// The Move tool's gizmo settings, which the picked points' gizmo shares.
