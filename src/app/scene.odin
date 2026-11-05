@@ -10,6 +10,7 @@ import "core:time"
 
 import "../camera"
 import "../geom"
+import "../jobs"
 import "../gizmo"
 import "../render"
 import "../sculpt"
@@ -437,17 +438,32 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int, setup := Remesh_Se
 	color := sculpt.sculptor_paint_shown(s) if !dyn else nil
 	report: geom.Remesh_Report
 	defer geom.remesh_report_destroy(&report)
-	mesh, built := geom.remesh_voxel_measured(source, area, bounds, vertices, &app.pool, options = remesh_options(setup, groups, color != nil || groups != nil || mask != nil), report = &report)
+	mesh, built := geom.remesh_voxel_measured(source, area, bounds, remesh_base_count(vertices, setup), &app.pool, options = remesh_options(setup, groups, color != nil || groups != nil || mask != nil), report = &report)
 	surface: Surface
 	defer surface_free(&surface)
 	if built do surface = remesh_surface(report, mesh, source, color, groups, mask)
-	geom.mesh_destroy(&packed)
-	free_all(context.temp_allocator)
 	if !built {
+		geom.mesh_destroy(&packed)
+		free_all(context.temp_allocator)
 		log.warn("remesh: the mesh has no volume to remesh")
 		return false, true
 	}
-	return true, remesh_apply(app, obj, mesh, start, time.tick_now(), surface = surface, remeshed = report, setup = setup)
+	computed := time.tick_now()
+	if setup.levels == 0 {
+		geom.mesh_destroy(&packed)
+		free_all(context.temp_allocator)
+		return true, remesh_apply(app, obj, mesh, start, computed, surface = surface, remeshed = report, setup = setup)
+	}
+	// The levels are built before the rebuild lets the old surface go, since the top is
+	// fitted onto it, as a long job builds them on its thread.
+	prepared: sculpt.Levels
+	levels_prepare(&prepared, mesh, surface, report.quads, &app.pool)
+	_ = remesh_build_levels(&prepared, source, setup, report.cell, &app.pool)
+	geom.mesh_destroy(&packed)
+	free_all(context.temp_allocator)
+	// The top's triangles stand for the mesh where the rebuild counts them (a skin's).
+	top := sculpt.levels_current(&prepared).mesh
+	return true, remesh_apply(app, obj, {positions = top.positions, indices = top.indices}, start, computed, &prepared, remeshed = report, setup = setup)
 }
 
 // The second half of a remesh, which a long job (long_job.odin) runs on the frame thread
@@ -469,14 +485,17 @@ remesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start, computed: 
 	defer delete(tri_from)
 	if !object_rebuild(app, obj, mesh, ready, normals = false, surface = surface, prepared = prepared, old_to_new = old_to_new, tri_from = tri_from) do return false
 	if old_to_new != nil do remesh_take_quads(&obj.levels, remeshed.quads, old_to_new, tri_from)
-	// After the rebuild, which forgets the cell of any remesh before.
-	obj.remesh_cell = remeshed.cell
+	// After the rebuild, which forgets the cell of any remesh before. With levels it is
+	// the top's, half the base's a level, so Remesh again makes the same density.
+	built := setup
+	built.levels = len(obj.levels.levels) - 1 if setup.levels > 0 else 0
+	obj.remesh_cell = remeshed.cell / f32(int(1) << uint(built.levels))
 	app.stats.remesh_cell = remeshed.cell
 	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, computed))
 	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(ready))
 	vertices := geom.mesh_vertex_count(object_mesh(obj)^)
 	// Made after the rebuild, which frees the temp memory a note would sit in.
-	note := remesh_note(remeshed, setup)
+	note := remesh_note(remeshed, built)
 	log.infof("remesh: %d vertices in %.0f ms, ready in %.0f ms more%s", vertices, app.stats.remesh_ms, app.stats.remesh_setup_ms, note)
 	if note != "" do report(app, .Remesh, {}, "%s%s", scene_report_line("Remeshed %s", object_label(obj), vertices, time.duration_milliseconds(time.tick_since(start))), note)
 	return true
@@ -1520,12 +1539,31 @@ object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.
 		sculpt.levels_destroy(&obj.levels)
 		return false
 	}
-	obj.gpu[0] = mesh_gpu
+	// Prepared levels may show a level above the base (a remesh's Build levels).
+	obj.gpu[obj.levels.current] = mesh_gpu
 	log.infof("mesh: %d vertices, %d triangles; ready to sculpt in %.0f ms, uploaded in %.0f ms",
 		geom.mesh_vertex_count(object_mesh(obj)^), geom.mesh_triangle_count(object_mesh(obj)^),
 		time.duration_milliseconds(time.tick_diff(start, ready)), time.duration_milliseconds(time.tick_since(ready)))
 	app.stats = {}
 	return true
+}
+
+// Levels `l` made from `mesh` (taking it) with `surface`'s polypaint, polygroups and mask
+// and a remesh's `quads` (nil for none) following the renumbering onto the base, as
+// object_build_from takes a surface on the frame thread: a long job's levels made on its
+// thread, or a remesh's before it builds levels on them.
+levels_prepare :: proc(l: ^sculpt.Levels, mesh: geom.Mesh, surface: Surface, quads: [][4]u32, pool: ^jobs.Pool, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) {
+	if surface.color == nil && surface.groups == nil && surface.mask == nil && quads == nil {
+		sculpt.levels_init(l, mesh, pool, progress = progress, share = share)
+		return
+	}
+	old_to_new := make([]u32, len(mesh.positions))
+	defer delete(old_to_new)
+	tri_from := make([]u32, len(mesh.indices) / 3)
+	defer delete(tri_from)
+	sculpt.levels_init(l, mesh, pool, old_to_new = old_to_new, tri_from = tri_from, progress = progress, share = share)
+	sculpt.levels_take_surface(l, surface.color, surface.groups, old_to_new, tri_from, surface.mask)
+	if quads != nil do remesh_take_quads(l, quads, old_to_new, tri_from)
 }
 
 // Rebuilds the object from `mesh` (taking it), as a remesh does: its levels, HD

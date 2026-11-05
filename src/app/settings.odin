@@ -236,6 +236,7 @@ SETTINGS := [?]Setting {
 	{"remesh_groups", U + offset_of(Ui_State, remesh_groups), bool, 0, 0},
 	{"remesh_quads", U + offset_of(Ui_State, remesh_quads), bool, 0, 0},
 	{"remesh_keep_symmetry", U + offset_of(Ui_State, remesh_keep_symmetry), bool, 0, 0},
+	{"remesh_levels", U + offset_of(Ui_State, remesh_levels), i32, 0, REMESH_LEVELS_MAX},
 	{"rebuild_fewer", U + offset_of(Ui_State, rebuild_fewer), i32, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES},
 	{"decimate_by", U + offset_of(Ui_State, decimate_by), Decimate_By, 0, 0},
 	{"decimate_percent", U + offset_of(Ui_State, decimate_percent), f32, DECIMATE_PERCENT_MIN, DECIMATE_PERCENT_MAX},

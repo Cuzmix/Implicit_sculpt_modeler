@@ -64,6 +64,8 @@ MEMORY_REMESH_BYTES :: 116 // a remesh's lattice, per vertex it makes
 MEMORY_READY_BYTES :: 74 // making that ready to sculpt, while the old object lives
 MEMORY_SNAPSHOT_BYTES :: 40 // the undo copy of the object as it was, per vertex of every level
 MEMORY_COPY_BYTES :: 36 // the remesh thread's copy of the level: a position and two triangles a vertex
+MEMORY_LEVELS_BYTES :: 40 // a level's parents and detail, per vertex of the top (Build levels)
+MEMORY_FIT_BYTES :: 48 // the tree over the old surface the top is fitted onto, per vertex of it
 // The share of what the system says the app may take that a step may plan on: the rest
 // is for what the frame itself allocates meanwhile, and for the estimate being low.
 MEMORY_MARGIN :: 0.9
@@ -82,6 +84,13 @@ memory_need :: proc(app: ^App, obj: ^Object, cmd: Scene_Command) -> (need, fixed
 		made := memory_remesh_count(app, obj, cmd)
 		fixed = snapshot + MEMORY_COPY_BYTES * source
 		per_vertex = max(MEMORY_REMESH_BYTES, MEMORY_OBJECT_BYTES + MEMORY_READY_BYTES)
+		if cmd.remesh.levels > 0 {
+			// Build levels: the lattice makes only the base, but the object holds the levels
+			// below the top too (a third more, with their detail) and the top's fit reads a
+			// tree over the old surface.
+			fixed += MEMORY_FIT_BYTES * source
+			per_vertex = MEMORY_OBJECT_BYTES * 4 / 3 + MEMORY_LEVELS_BYTES + MEMORY_READY_BYTES
+		}
 		return fixed + per_vertex * made, fixed, per_vertex
 	case .Subdivide:
 		vertices, _, bytes := sculpt.levels_subdivide_estimate(&obj.levels)
