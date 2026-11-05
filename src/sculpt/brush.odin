@@ -2004,6 +2004,20 @@ sculptor_place_vertices :: proc(s: ^Sculptor, verts: []u32, positions: []Vec3) {
 	history_seal(&s.history)
 }
 
+// sculptor_place_vertices for every vertex: the mesh takes `positions` whole (a fit of a
+// new level onto another surface, whose undo step is the app's swap), each node marked
+// moved so the levels carry it down at their next sync. Seals the history.
+sculptor_place_all :: proc(s: ^Sculptor, positions: []Vec3) {
+	assert(len(positions) == len(s.mesh.positions))
+	if len(positions) == 0 do return
+	_ = sculptor_gpu_sync(s)
+	copy(s.mesh.positions[:], positions)
+	ids := make([]u32, len(s.nodes), context.temp_allocator)
+	for &id, i in ids do id = u32(i)
+	sculptor_nodes_moved(s, ids)
+	history_seal(&s.history)
+}
+
 // Recomputes every normal, bound and normal cone, for a mesh that arrived without
 // normals (a new subdivision level).
 sculptor_recompute_all :: proc(s: ^Sculptor) {
