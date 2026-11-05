@@ -76,7 +76,7 @@ card_actions :: proc(app: ^App, inner: f32) {
 	t := ctx.theme
 	c := &app.kit.card
 	ui.label(ctx, "Store visibility", t.small_size, t.text_secondary)
-	ui.begin(ctx, "objects card slots", {direction = .Row, width = inner, gap = 4})
+	ui.begin(ctx, "objects card slots", {direction = .Row, width = inner, gap = ui.SPACE_XS})
 	slot_w := (inner - 4 * (VIS_SLOTS - 1)) / VIS_SLOTS
 	// Outlined tiles, the one chosen in the accent, as ZBrush's.
 	for k in 0 ..< VIS_SLOTS {
@@ -91,7 +91,7 @@ card_actions :: proc(app: ^App, inner: f32) {
 		switch action {
 		case .Split:
 			for row in 0 ..< 2 {
-				ui.begin(ctx, fmt.tprintf("card split %d", row), {direction = .Row, width = inner, gap = 6})
+				ui.begin(ctx, fmt.tprintf("card split %d", row), {direction = .Row, width = inner, gap = ui.SPACE_S})
 				for col in 0 ..< 2 do _ = command_button(app, .Split_Object, 2 * row + col, width = half)
 				ui.end(ctx)
 			}
@@ -101,7 +101,7 @@ card_actions :: proc(app: ^App, inner: f32) {
 			_ = command_button(app, .Merge_Visible, width = inner)
 			ui.paragraph(ctx, "Each object merged in keeps polygroups of its own, so Groups split takes them apart again. Merge down drops the levels and layers of the selected object.")
 		case .Transpose:
-			ui.paragraph(ctx, fmt.tprintf("Select several objects (Ctrl or Shift and a tap, or Select several) and the Move tool's gizmo (%s) moves, turns and scales them together; to pose part of one object, mask the rest and use the gizmo.", command_keys(app, .Tool_Move)))
+			ui.paragraph(ctx, fmt.tprintf("Select several objects (Ctrl or Shift and a tap, or Select several) and the Move tool's gizmo%s moves, turns and scales them together; to pose part of one object, mask the rest and use the gizmo.", keys_paren(app, .Tool_Move)))
 		case .Boolean:
 			kit_boolean_section(app)
 		case .Align, .Distribute:
@@ -110,7 +110,7 @@ card_actions :: proc(app: ^App, inner: f32) {
 			LABEL :: 22
 			tile := (inner - LABEL - 3 * 6) / 3
 			for axis in 0 ..< 3 {
-				ui.begin(ctx, fmt.tprintf("card %v %d", action, axis), {direction = .Row, width = inner, gap = 6, center = true})
+				ui.begin(ctx, fmt.tprintf("card %v %d", action, axis), {direction = .Row, width = inner, gap = ui.SPACE_S, center = true})
 				ui.begin(ctx, fmt.tprintf("card %v %d label", action, axis), {width = LABEL})
 				ui.label(ctx, AXIS_NAMES[axis], t.small_size, t.text_secondary, .Semibold)
 				ui.end(ctx)

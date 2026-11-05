@@ -244,8 +244,8 @@ brush_item_hint :: proc(app: ^App, it: Brush_Item) -> string {
 		if arg, ok := preset_slot_of(it.slot.preset); ok do return command_hint(app, .Brush_Preset, arg)
 		return ""
 	case .Tool:       return command_hint(app, TOOL_COMMANDS[it.tool])
-	case .Mask_Shape: return "Ctrl + drag on empty space, or Mask on the wheel"
-	case .Gesture:    return "Ctrl + Shift + drag, or Hide on the wheel"
+	case .Mask_Shape: return "Ctrl + drag on empty space, or Mask on the dial"
+	case .Gesture:    return "Ctrl + Shift + drag, or Hide on the dial"
 	}
 	return ""
 }
@@ -426,7 +426,7 @@ brush_palette_categories :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, h
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	W :: 200
-	ui.begin(ctx, "brush sheet categories", {direction = .Column, gap = 0, padding = 8, width = W, height = height})
+	ui.begin(ctx, "brush sheet categories", {direction = .Column, gap = 0, padding = ui.SPACE_M, width = W, height = height})
 	brush_category_rows(app, owner, all, W - 16, height - 16)
 	ui.end(ctx)
 	if r := ui.prev_rect(ctx, "brush sheet categories"); r.w > 0 do ui.fill_rect(ctx, {r.x + r.w - 1, r.y, 1, r.h}, 0, t.border)

@@ -33,6 +33,7 @@ const EV = {
 	FINGER_DOWN: 0x700, FINGER_UP: 0x701, FINGER_MOTION: 0x702, FINGER_CANCELED: 0x703,
 	PEN_PROXIMITY_IN: 0x1300, PEN_PROXIMITY_OUT: 0x1301, PEN_DOWN: 0x1302, PEN_UP: 0x1303,
 	PEN_BUTTON_DOWN: 0x1304, PEN_BUTTON_UP: 0x1305, PEN_MOTION: 0x1306, PEN_AXIS: 0x1307,
+	DROP_FILE: 0x1000,
 	USER: 0x8000,
 };
 const EVENT_SIZE = 128;
@@ -379,6 +380,14 @@ class Web {
 		}, { passive: false });
 		// Safari's own pinch would zoom the page.
 		for (const name of ["gesturestart", "gesturechange", "gestureend"]) c.addEventListener(name, (e) => e.preventDefault());
+		// Files dropped on the page reach the app as SDL's drop events: a picture goes on the
+		// References board, a mesh is imported, a scene opens (file_drop).
+		c.addEventListener("dragover", (e) => e.preventDefault());
+		c.addEventListener("drop", (e) => {
+			e.preventDefault();
+			const r = c.getBoundingClientRect();
+			for (const file of e.dataTransfer ? e.dataTransfer.files : []) this.dropFile(file, file.name, e.clientX - r.left, e.clientY - r.top);
+		});
 
 		const keyEvent = (e, down) => {
 			const k = KEYS[e.code];
@@ -408,7 +417,9 @@ class Web {
 			// The app has the keys: the browser's own shortcuts (save, find, zoom, back) and
 			// Tab's focus moves would take them. Copy, cut and paste stay the browser's while
 			// text is typed, so the clipboard events below come.
-			const clip = shortcut && ["KeyC", "KeyV", "KeyX"].includes(e.code) && this.textInput;
+			// Paste always stays the browser's too, as only its event carries a picture copied
+			// elsewhere, which then goes on the References board.
+			const clip = shortcut && (e.code === "KeyV" || (["KeyC", "KeyX"].includes(e.code) && this.textInput));
 			if (!clip && !(e.code === "F5" || e.code === "F12" || (shortcut && e.code === "KeyR"))) e.preventDefault();
 		});
 		window.addEventListener("keyup", (e) => { if (keyEvent(e, false)) e.preventDefault(); });
@@ -426,6 +437,15 @@ class Web {
 		});
 		window.addEventListener("focus", () => this.windowEvent(EV.WINDOW_FOCUS_GAINED));
 		window.addEventListener("paste", (e) => {
+			// A picture pasted outside a text field is dropped on the app as a file is.
+			const items = e.clipboardData ? [...e.clipboardData.items] : [];
+			const picture = items.find((i) => i.kind === "file" && i.type.startsWith("image/"));
+			const file = picture && !this.textInput ? picture.getAsFile() : null;
+			if (file) {
+				this.dropFile(file, "Pasted picture." + (picture.type.split("/")[1] || "png"), 0, 0);
+				e.preventDefault();
+				return;
+			}
 			const text = e.clipboardData ? e.clipboardData.getData("text/plain") : "";
 			if (!text) return;
 			this.clipboard = text;
@@ -452,6 +472,33 @@ class Web {
 			if (hidden) this.fs.flush();
 		});
 		this.layout(false);
+	}
+
+	// File `file` (a Blob) handed to the page, put in its Uploads folder as `name` and sent as
+	// SDL's drop event at (x, y), which the app reads through SDL_LoadFile.
+	async dropFile(file, name, x, y) {
+		const path = "/Uploads/" + name.replace(/[\\/]/g, "_");
+		this.fs.mkdirs("/Uploads");
+		this.fs.put(path, new Uint8Array(await file.arrayBuffer()), false);
+		const [ev, v] = this.event(EV.DROP_FILE);
+		v.setUint32(16, WINDOW_ID, true);
+		v.setFloat32(20, x, true); v.setFloat32(24, y, true);
+		v.setUint32(28, 0, true);
+		v.setUint32(32, this.eventText(path), true);
+		this.push(ev);
+	}
+	// The References card's Paste: the browser reads its clipboard only asynchronously, so
+	// the picture it finds there comes back as a drop (dropFile) a moment later.
+	clipboardPicture() {
+		if (!navigator.clipboard || !navigator.clipboard.read) return;
+		navigator.clipboard.read().then(async (items) => {
+			for (const item of items) {
+				const type = item.types.find((t) => t.startsWith("image/"));
+				if (!type) continue;
+				this.dropFile(await item.getType(type), "Pasted picture." + (type.split("/")[1] || "png"), 0, 0);
+				return;
+			}
+		}).catch(() => {});
 	}
 
 	// SDL's event watches see an event as it is sent, before the queue (the app's
@@ -692,6 +739,13 @@ class Web {
 				return ok;
 			},
 			SDL_GetClipboardText: () => self.newCstring(self.clipboard),
+			// A picture asked for starts the clipboard's asynchronous read, which drops what it
+			// finds (clipboardPicture); none is there at once.
+			SDL_HasClipboardData(mime) {
+				if (self.cstring(mime) === "image/png") self.clipboardPicture();
+				return 0;
+			},
+			SDL_GetClipboardData: () => 0,
 
 			// Properties.
 			SDL_CreateProperties() { const id = self.nextProps++; self.props.set(id, new Map()); return id; },

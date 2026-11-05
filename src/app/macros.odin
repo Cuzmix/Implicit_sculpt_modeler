@@ -567,7 +567,7 @@ kit_macro_chip :: proc(app: ^App) {
 	shift, w, top, fits := kit_card_place(app, 340, 220)
 	if !fits do return
 	n := len(m.entries)
-	ui.begin_anchored(ctx, "macro chip", .Center, .Start, {shift, top}, {direction = .Row, gap = 10, padding = 8, width = w, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "macro chip", .Center, .Start, {shift, top}, {direction = .Row, gap = ui.SPACE_M, padding = ui.SPACE_M, width = w, radius = t.radius_large + 4, background = .Panel, center = true})
 	ui.begin(ctx, "macro dot", {width = 20, height = 20})
 	ui.end(ctx)
 	r := ctx.last_rect
@@ -593,7 +593,7 @@ kit_macro_save :: proc(app: ^App) {
 		// Closed by Escape, Back or a tap elsewhere rather than Save: as Discard.
 		if m := &app.macro; len(m.entries) > 0 && !m.recording do macro_discard(app)
 	}
-	if !ui.popover_begin(ctx, "macro save", &p.open, p.at, .Below_End, {direction = .Column, gap = 4, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
+	if !ui.popover_begin(ctx, "macro save", &p.open, p.at, .Below_End, {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
 	m := &app.macro
 	n := len(m.entries)

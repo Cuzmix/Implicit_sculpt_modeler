@@ -38,7 +38,7 @@ kit_tool_tab :: proc(app: ^App) {
 // The palette's heading: an icon on a badge, a title, and a line of help under them.
 kit_tool_head :: proc(ctx: ^ui.Context, glyph: rune, title, help: string) {
 	t := ctx.theme
-	ui.begin(ctx, "tool head", {direction = .Row, gap = 10, center = true})
+	ui.begin(ctx, "tool head", {direction = .Row, gap = ui.SPACE_M, center = true})
 	ui.begin(ctx, "tool badge", {width = 36, height = 36, radius = t.radius_medium, background = .Track})
 	ui.end(ctx)
 	r := ctx.last_rect
@@ -134,7 +134,7 @@ kit_brush_options :: proc(app: ^App) {
 	if b.kind in sculpt.SKIN_KINDS && (object_top_skin(selected_object(app)) != nil || b.detail_to[b.kind] != .Auto) {
 		ui.label(ctx, "Detail goes to", ctx.theme.text_size, ctx.theme.text)
 		if picked := ui.tabs(ctx, "detail goes to", {"Auto", "Mesh", "Skin"}, int(b.detail_to[b.kind])); picked >= 0 do b.detail_to[b.kind] = Detail_To(picked)
-		ui.paragraph(ctx, fmt.tprintf("Auto puts the brush's detail in the object's detail skin; Mesh moves vertices as without one; Skin never moves a vertex. Each brush keeps its own; %s steps through them.", command_keys(app, .Detail_To_Next)))
+		ui.paragraph(ctx, fmt.tprintf("Auto puts the brush's detail in the object's detail skin; Mesh moves vertices as without one; Skin never moves a vertex. Each brush keeps its own; %s steps through them.", keys_or_name(app, .Detail_To_Next)))
 	}
 	if b.kind == .Grab {
 		_ = ui.switch_row(ctx, "All depth", &b.grab_depth)
@@ -533,7 +533,7 @@ kit_move_tab :: proc(app: ^App) {
 	kit_tool_head(ctx, ui.ICON_MOVE, "Move", "Tap or click an object to select it, and drag it to move it across the view. The gizmo moves it along an arm or across a plane square, turns it about a ring, or scales it from the middle; All does the three at once.")
 	// The camera's buttons first, where they always are, then the gizmo's settings.
 	half := (ui.fill_width(ctx) - 8) * 0.5
-	ui.begin(ctx, "move actions", {direction = .Row, gap = 8})
+	ui.begin(ctx, "move actions", {direction = .Row, gap = ui.SPACE_M})
 	_ = command_button(app, .Focus_Selected, width = half, glyph = ui.ICON_FOCUS)
 	_ = command_button(app, .Frame_All, width = half, glyph = ui.ICON_FRAME)
 	ui.end(ctx)
@@ -544,7 +544,7 @@ kit_move_tab :: proc(app: ^App) {
 	if picked := ui.tabs(ctx, "gizmo mode", modes[:], int(app.move.mode), keys = hints[:]); picked >= 0 do command_run(app, .Gizmo, picked)
 	_ = ui.switch_row(ctx, "Snap", &app.move.snap)
 	kit_command_pair(app, .Gizmo_Pivot, .Gizmo_Pivot_Reset, label_a = "Set pivot", label_b = "Reset pivot")
-	ui.paragraph(ctx, fmt.tprintf("All moves on its arrows and plane squares, turns on its rings and scales on the white knobs, with no switching. %s again steps through the four. Snap (or Ctrl for one drag) moves in steps of a grid that follows the zoom, turns 15° at a time and scales in steps of 0.1. Esc puts the object back mid-drag; %s undoes a drag. Tap a handle without moving it to type its value. Set pivot, then a tap on a surface, turns and scales about that point.", command_keys(app, .Tool_Move), command_keys(app, .Undo)))
+	ui.paragraph(ctx, fmt.tprintf("All moves on its arrows and plane squares, turns on its rings, stretches the mesh along an axis on the coloured knobs and scales evenly on the white knob on the view ring, with no switching. %s again steps through the four. Snap (or Ctrl for one drag) moves in steps of a grid that follows the zoom, turns 15° at a time and scales in steps of 0.1. Esc puts the object back mid-drag; %s undoes a drag. Tap a handle without moving it to type its value. Set pivot, then a tap on a surface, turns and scales about that point.", keys_or_name(app, .Tool_Move), keys_or_name(app, .Undo)))
 	// Posing changes what the handles do, so it says so while it is on.
 	if pose_mode(app) {
 		ui.paragraph(ctx, "Posing: a mask is on, so the handles bend the unmasked part about the gizmo, which sits on the mask's soft edge; a drag on the object still moves all of it. Clear the mask to move the object with the handles again.")
@@ -553,7 +553,7 @@ kit_move_tab :: proc(app: ^App) {
 		_ = ui.switch_row(ctx, "Physics", &b.physics, keys = command_hint(app, .Physics))
 		if b.physics do _ = ui.slider(ctx, "Physics strength", &b.physics_strength, 0.05, 1, .Linear, fmt.tprintf("%.0f%%", b.physics_strength * 100))
 	}
-	ui.paragraph(ctx, "Ctrl + drag from the model (or with the rail's Mask on) masks along the surface: free near the press, masked as far as the drag reaches, ready to pose. Alt the other way round.")
+	ui.paragraph(ctx, "Ctrl + drag from the model (or with the dial's Mask on) masks along the surface: free near the press, masked as far as the drag reaches, ready to pose. Alt the other way round.")
 	ui.paragraph(ctx, "The Transform card places the selected object exactly: position, turn and scale.")
 }
 

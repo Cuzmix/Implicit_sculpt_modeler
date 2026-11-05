@@ -306,6 +306,14 @@ draw_gizmo :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		color := color_of(.Scale, active, {1, 1, 1, 0.85})
 		overlay_circle(o, sc.center, sc.arm_px, color, 2 * px)
 		overlay_disc(o, sc.center, gizmo.SCALE_DISC_PX * px, overlay_color(GIZMO_HIGHLIGHT if active == .Scale else {1, 1, 1, 0.5}))
+		// The stretch knobs on short arms from the disc, so which way each stretches reads.
+		for i in 0 ..< 3 {
+			if !gizmo.arm_shows(sc, i) do continue
+			c := knob_color(app, i, active)
+			from := sc.center + linalg.normalize0(sc.knobs[i] - sc.center) * (gizmo.SCALE_DISC_PX * px)
+			overlay_line(o, from, sc.knobs[i], c, 2 * px)
+			draw_knob(o, sc.knobs[i], c, px)
+		}
 		draw_scale_drag(app, o, input, px)
 	case .All:
 		// Rings first, then the squares, arms and knobs over them, in the order they pick.
@@ -317,19 +325,39 @@ draw_gizmo :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 			overlay_line(o, sc.center, sc.ends[i], color, 3 * px)
 			draw_arrowhead(o, sc.center, sc.ends[i], color, px)
 		}
-		// The knobs all scale evenly, so they share one colour rather than their axes'.
-		knob := color_of(.Scale, active, {1, 1, 1, 0.95})
+		// Each knob stretches along its arm in the arm's colour (white where the selection
+		// cannot stretch and every knob scales evenly), and the white knob on the view ring
+		// scales evenly.
 		for i in 0 ..< 3 {
 			if !gizmo.all_arm_shows(sc, i) do continue
-			r := f32(gizmo.KNOB_PX) * px
-			overlay_box(o, sc.knobs[i] - r, sc.knobs[i] + r, overlay_color({0.1, 0.1, 0.12, 0.9}), knob, 1.5 * px)
+			draw_knob(o, sc.knobs[i], knob_color(app, i, active), px)
 		}
+		if sc.ring_ok[3] do draw_knob(o, sc.uniform, color_of(.Scale, active, {1, 1, 1, 0.95}), px)
 		r := f32(gizmo.CENTER_PX) * px
 		overlay_box(o, sc.center - r, sc.center + r, color_of(.View, active, {1, 1, 1, 0.85}), {}, 2 * px)
 		draw_turn_drag(app, o, sc, input, px)
 		draw_scale_drag(app, o, input, px)
 	}
 	draw_move_labels(app, o, input)
+}
+
+// A scale knob: a dark square with an outline of `color`.
+@(private = "file")
+draw_knob :: proc(o: Overlay, at: [2]f32, color: ui.Color, px: f32) {
+	r := f32(gizmo.KNOB_PX) * px
+	overlay_box(o, at - r, at + r, overlay_color({0.1, 0.1, 0.12, 0.9}), color, 1.5 * px)
+}
+
+// The colour of arm `i`'s scale knob: its axis's when it stretches, white when every knob
+// scales evenly (gizmo_stretches), the highlight while under the pointer or dragged.
+@(private = "file")
+knob_color :: proc(app: ^App, i: int, active: gizmo.Handle) -> ui.Color {
+	h := gizmo.Handle(int(gizmo.Handle.Scale_X) + i)
+	stretches := gizmo_stretches(app)
+	lit := active == h || !stretches && active == .Scale
+	colors := GIZMO_AXIS_COLORS
+	c := colors[i] if stretches else [4]f32{1, 1, 1, 0.95}
+	return overlay_color(GIZMO_HIGHLIGHT if lit else c)
 }
 
 // The turn rings of a gizmo seen as `sc`, `active` lit: the far half of each axis ring

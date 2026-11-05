@@ -48,7 +48,7 @@ kit_home :: proc(app: ^App) {
 	ui.fill_rect(ctx, {0, 0, win.x, win.y}, 0, ctx.theme.frame)
 	ui.spacer(ctx, area.x + PAD)
 	width := area.w - 2 * PAD
-	ui.begin(ctx, "home page", {direction = .Column, gap = 14, width = width, height = area.y + area.h})
+	ui.begin(ctx, "home page", {direction = .Column, gap = ui.SPACE_XL, width = width, height = area.y + area.h})
 	ui.spacer(ctx, area.y + 8)
 
 	// The heading, and the way back to the scene at the far end.

@@ -237,7 +237,7 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 		{
 			faces := object_face_count(obj)
 			third := (ui.fill_width(ctx) - 16) / 3
-			ui.begin(ctx, "half same double", {direction = .Row, gap = 8})
+			ui.begin(ctx, "half same double", {direction = .Row, gap = ui.SPACE_M})
 			if ui.button(ctx, "Half", .Flat, .Neutral, width = third, enabled = faces > 0) do app.ui.retopo_quads = i32(clamp(faces / 2, 100, 1_000_000))
 			if ui.button(ctx, "Same", .Flat, .Neutral, width = third, enabled = faces > 0) do app.ui.retopo_quads = i32(clamp(faces, 100, 1_000_000))
 			if ui.button(ctx, "Double", .Flat, .Neutral, width = third, enabled = faces > 0) do app.ui.retopo_quads = i32(clamp(faces * 2, 100, 1_000_000))
@@ -330,7 +330,7 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	}
 	_ = command_button(app, .Rebuild, label = REBUILD_VERBS[goal^], tone = .Accent)
 	kit_last_result(app, .Retopo if goal^ == .Quads else .Remesh)
-	if goal^ != .Quads do ui.paragraph(ctx, fmt.tprintf("Levels, mask and strokes go; Ctrl+Z brings them back. %s remeshes again at the object's own cell.", command_keys(app, .Remesh)))
+	if goal^ != .Quads do ui.paragraph(ctx, fmt.tprintf("Levels, mask and strokes go; %s brings them back. %s remeshes again at the object's own cell.", keys_or_name(app, .Undo), keys_or_name(app, .Remesh)))
 }
 
 // Rebuild's Even density, the same row in the Rebuild section and the Remesh quick menu: a
@@ -394,7 +394,7 @@ kit_remesh_quick :: proc(app: ^App) {
 	own_mm := remesh_cell_mm(app, obj, obj.remesh_cell) if obj.remesh_cell > 0 else app.ui.remesh_cell_mm
 	cell_mm := &app.ui.remesh_cell_mm
 	by_cell := app.ui.remesh_by == .Cell
-	ui.begin(ctx, "remesh quick steps", {direction = .Row, gap = 8})
+	ui.begin(ctx, "remesh quick steps", {direction = .Row, gap = ui.SPACE_M})
 	if ui.button(ctx, "Half", .Bordered, width = third) {
 		if by_cell do cell_mm^ = clamp(own_mm * math.SQRT_TWO, REMESH_CELL_MM_MIN, REMESH_CELL_MM_MAX)
 		else do even^ = rebuild_count(now / 2)

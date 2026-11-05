@@ -732,7 +732,7 @@ colors_value :: proc(app: ^App, inner: f32) {
 	} else {
 		colors_hsb_sliders(app)
 	}
-	ui.begin(ctx, "colors hex row", {direction = .Row, gap = 8, center = true})
+	ui.begin(ctx, "colors hex row", {direction = .Row, gap = ui.SPACE_M, center = true})
 	ui.begin(ctx, "colors hex label", {direction = .Column, width = inner - 128})
 	ui.label(ctx, "Hexadecimal", t.text_size, t.text_secondary)
 	ui.end(ctx)
@@ -880,7 +880,7 @@ kit_colors_menus :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	c := &k.colors
-	if ui.popover_begin(ctx, "colors palette menu", &c.palette_menu, c.palette_menu_at, .Below_End, {direction = .Column, gap = 2, padding = 6}) {
+	if ui.popover_begin(ctx, "colors palette menu", &c.palette_menu, c.palette_menu_at, .Below_End, {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_S}) {
 		n := c.palette_menu_of
 		name, swatches, mine := palette_swatches(app, n)
 		if ui.menu_item(ctx, "Set as default", glyph = ui.ICON_CHECK) {
@@ -906,7 +906,7 @@ kit_colors_menus :: proc(app: ^App) {
 		}
 		ui.popover_end(ctx)
 	}
-	if ui.popover_begin(ctx, "colors swatch menu", &c.swatch_menu, c.swatch_menu_at, .Below, {direction = .Column, gap = 2, padding = 6}) {
+	if ui.popover_begin(ctx, "colors swatch menu", &c.swatch_menu, c.swatch_menu_at, .Below, {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_S}) {
 		i, j := c.swatch_menu_of[0], c.swatch_menu_of[1]
 		if ui.menu_item(ctx, "Set to current colour", glyph = ICON_FILL) {
 			if i >= 0 && i < c.palette_count && j < c.palettes[i].count do c.palettes[i].colors[j] = colors_target(app)^
@@ -1051,12 +1051,19 @@ color_sample :: proc(app: ^App, at, size: [2]f32) -> (rgb: [3]f32, ok: bool) {
 	return {f32(b.r) / 255, f32(b.g) / 255, f32(b.b) / 255}, true
 }
 
+// What the Eyedropper sees at viewport point `at`: a reference picture over the view
+// there (refs_view.odin), else the model's surface.
+eyedrop_sample :: proc(app: ^App, at, size: [2]f32) -> (rgb: [3]f32, ok: bool) {
+	if c, over, picked := refs_view_color(app, at); over do return c, picked
+	return color_sample(app, at, size)
+}
+
 // The Eyedropper command: over the viewport it picks the colour under the pointer at
 // once, as ZBrush's C; from a button it waits for the next press on the model.
 eyedropper_command :: proc(app: ^App) {
 	u := &app.ui
 	if u.viewport_hovered && !u.eyedrop_armed {
-		if rgb, ok := color_sample(app, u.viewport_mouse, u.viewport_size); ok {
+		if rgb, ok := eyedrop_sample(app, u.viewport_mouse, u.viewport_size); ok {
 			colors_pick(app, rgb)
 			report(app, Section.Paint_Color, {.Quiet}, "Picked %s", hex_text(rgb))
 		}
@@ -1076,7 +1083,7 @@ eyedropper_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 		u.eyedrop_armed, u.eyedrop_held = false, true
 	}
 	u.eyedrop_at = input.mouse_pos
-	u.eyedrop_color, u.eyedrop_hit = color_sample(app, input.mouse_pos, input.size)
+	u.eyedrop_color, u.eyedrop_hit = eyedrop_sample(app, input.mouse_pos, input.size)
 	if input.primary do return true
 	u.eyedrop_held = false
 	if u.eyedrop_hit {

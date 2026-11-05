@@ -338,7 +338,7 @@ SETTINGS := [?]Setting {
 	// Settings > Interface, Camera, Touch and Performance.
 	{"surface_ring", K + offset_of(Kit_State, surface_ring), bool, 0, 0},
 	{"symmetry_line", K + offset_of(Kit_State, symmetry_line), bool, 0, 0},
-	{"clean_view_dial", K + offset_of(Kit_State, clean_dial), bool, 0, 0},
+	{"clean_view_keeps", K + offset_of(Kit_State, clean_keep), Clean_Keep, 0, 0},
 	{"panes_work", K + offset_of(Kit_State, panes_work), bool, 0, 0},
 	{"new_panes", K + offset_of(Kit_State, new_panes), New_Panes, 0, 0},
 	{"action_bar", K + offset_of(Kit_State, action_bar), bool, 0, 0},
@@ -395,6 +395,7 @@ SETTINGS := [?]Setting {
 	{"memory_short", offset_of(App, memory_short), Memory_Short, 0, 0},
 	{"remesh_most", offset_of(App, remesh_most), i32, 0, MESH_NO_LIMIT},
 	{"subdivide_most", offset_of(App, subdivide_most), i32, 0, MESH_NO_LIMIT},
+	{"refs_memory_mb", offset_of(App, refs_memory_mb), i32, 0, 65536},
 	{"history_no_lights", offset_of(App, history_no_lights), bool, 0, 0},
 	{"history_no_tree", offset_of(App, history_no_tree), bool, 0, 0},
 	{"history_camera", offset_of(App, history_camera), bool, 0, 0},

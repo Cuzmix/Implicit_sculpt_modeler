@@ -16,7 +16,7 @@ import "../voxel"
 kit_history_settings :: proc(app: ^App, width: f32) {
 	ctx := &app.kit.ctx
 	entries := [?]Settings_Entry{{.Undo_History, "MEMORY"}, {.History_Steps, "WHAT BECOMES A STEP"}, {.History_Back, "GOING BACK"}}
-	ui.begin(ctx, "history settings", {direction = .Column, gap = 6, width = width})
+	ui.begin(ctx, "history settings", {direction = .Column, gap = ui.SPACE_S, width = width})
 	for e in entries {
 		ui.caption(ctx, e.caption)
 		settings_block(app, e.block)

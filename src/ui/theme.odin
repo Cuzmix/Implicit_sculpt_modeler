@@ -2,6 +2,15 @@ package ui
 
 Color :: [4]u8
 
+// The spacing steps: every gap and padding in a layout is one of these (or 0), so panels
+// keep one rhythm, the 8 point step with its halves and quarters inside a control.
+SPACE_2XS :: 2 // between buttons packed edge to edge, a bar's inset
+SPACE_XS :: 4 // inside a control, between its lines
+SPACE_S :: 6 // between a row's icon and words, a pill's inset
+SPACE_M :: 8 // between the controls of a group, a panel's rows
+SPACE_L :: 12 // a panel's or a popover's inset, between groups
+SPACE_XL :: 16 // a page's or a large card's inset, between a page's blocks
+
 // The design tokens: every colour, size and duration the widgets use. Widgets name
 // tokens, never values, so another theme (a light one) is another constant of this
 // struct. The values follow the design spec ("Sculpt UI redesign: design spec").

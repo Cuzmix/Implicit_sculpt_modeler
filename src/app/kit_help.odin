@@ -117,7 +117,7 @@ MOUSE_HELP := [?]Help_Line {
 	{group = "MOUSE", what = "Select an object", how = "Click it", show = move_tool},
 	{group = "MOUSE", what = "Move it", how = "Drag it, a gizmo arm or square", show = move_tool},
 	{group = "MOUSE", what = "Turn or scale it", how = "W again, then drag a ring or the middle", show = move_tool},
-	{group = "MOUSE", what = "Move, turn and scale in one gizmo", how = "W until All: arrows, rings, knobs", show = move_tool},
+	{group = "MOUSE", what = "Move, turn and scale in one gizmo", how = "W until All: arrows, rings, knobs (coloured stretch, white scales)", show = move_tool},
 	{group = "MOUSE", what = "Snap a gizmo drag", how = "Ctrl while dragging", show = move_tool},
 	{group = "MOUSE", what = "Put it back mid-drag", how = "Esc", show = move_tool},
 	{group = "MOUSE", what = "Type a handle's value", how = "Click the handle without moving", show = move_tool},
@@ -147,8 +147,8 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "SCULPT", command = .Strength_Up},
 	{group = "SCULPT", what = "Focal shift", how = "Three fingers sideways", show = proc(app: ^App) -> bool {return app.nav.three_finger}},
 	{group = "SCULPT", what = "Focal shift", how = "Drag a Focal shift chip across (Customise bars puts one on any bar)"},
-	{group = "SCULPT", what = "Smooth, invert, mask or hide", how = "Modifier wheel: tap or hold; Smooth and Mask together hide", show = proc(app: ^App) -> bool {return app.tool == .Brush && rail_shown(&app.kit) != .Off}},
-	{group = "SCULPT", what = "Resize or turn the modifier wheel", how = "Two fingers on its ring: spread or pinch, twist", show = proc(app: ^App) -> bool {return rail_shown(&app.kit) != .Off}},
+	{group = "SCULPT", what = "Smooth, invert, mask or hide", how = "Dial: tap or hold; Smooth and Mask together hide", show = proc(app: ^App) -> bool {return app.tool == .Brush && rail_shown(&app.kit) != .Off}},
+	{group = "SCULPT", what = "Resize or turn the dial", how = "Two fingers on its ring: spread or pinch, twist", show = proc(app: ^App) -> bool {return rail_shown(&app.kit) != .Off}},
 	{group = "SCULPT", what = "Mask or hide a shape", how = "Mask, or Smooth and Mask, on: drag empty space", show = proc(app: ^App) -> bool {return app.tool == .Brush && rail_shown(&app.kit) != .Off}},
 	{group = "SCULPT", what = "Straight line from the press", how = "Hold Smooth mid-stroke", show = proc(app: ^App) -> bool {return app.tool == .Brush && rail_shown(&app.kit) != .Off}},
 	{group = "SCULPT", what = "Mask along the surface, to pose", how = "Mask on, drag from the model", show = proc(app: ^App) -> bool {return app.tool == .Move && rail_shown(&app.kit) != .Off}},
@@ -160,8 +160,8 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "VIEW", what = "Turn the view", how = "One finger from the edges", show = proc(app: ^App) -> bool {return app.nav.edge_orbit && finger_model_now(app) == .Sculpt}},
 	{group = "VIEW", what = "Turn the view", how = "Two fingers down, lift one", show = proc(app: ^App) -> bool {return app.nav.lift_one_orbit}},
 	{group = "VIEW", what = "Turn the view", how = "The pen on empty space", show = proc(app: ^App) -> bool {return empty_turns(app) && app.nav.empty_drag[.Pen] == .Orbit}},
-	{group = "VIEW", what = "Look from a side", how = "Tap that side of the navigation head"},
-	{group = "VIEW", what = "Turn the view", how = "Drag the navigation head"},
+	{group = "VIEW", what = "Look from a side", how = "Tap that side of the view gizmo"},
+	{group = "VIEW", what = "Turn the view", how = "Drag the view gizmo"},
 	{group = "VIEW", what = "Pan", how = "Drag two fingers", show = proc(app: ^App) -> bool {return app.nav.two_finger_pan}},
 	{group = "VIEW", what = "Zoom", how = "Pinch two fingers", show = proc(app: ^App) -> bool {return app.nav.pinch_zoom}},
 	{group = "VIEW", what = "Roll", how = "Twist two fingers", show = proc(app: ^App) -> bool {return twist_rolls(app.nav)}},
@@ -183,7 +183,7 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "ANY CONTROL", what = "Its name, or its second action", how = "Long press"},
 	{group = "ANY CONTROL", what = "Draw size, strength or focal shift", how = "Hold the pen over it and roll the pen"},
 	{group = "ANY CONTROL", what = "Step a choice, scroll a panel, turn the shelf's page, scrub History", how = "Hold the pen over it and roll the pen"},
-	{group = "ANY CONTROL", what = "Its own pen buttons, double-tap and squeeze", how = "Settings > Pen > Where the pen points: the model, empty space, the shelf, panels, History, the navigation head, the colour Disc"},
+	{group = "ANY CONTROL", what = "Its own pen buttons, double-tap and squeeze", how = "Settings > Pen > Where the pen points: the model, empty space, the shelf, panels, History, the view gizmo, the colour Disc"},
 }
 
 // A word the app uses, the names other apps give the same thing, and what it means.
@@ -251,7 +251,7 @@ GLOSSARY := [?]Glossary_Entry {
 	{"Accumulate", "Accumulate (Blender, Nomad), build-up", "Whether a stroke going over itself keeps building up; off, it stops at the height one pass lays, as Draw starts (Brush card > Samples).", "", {}},
 	{"Smooth only", "Smooth Valleys and Smooth Peaks (ZBrush)", "Smooth evening out only the dents (Valleys) or only the bumps (Peaks), leaving the rest (Brush card > Options with Smooth, or those two presets).", "", {}},
 	{"Save next", "Save Next (ZBrush for iPad), Save Incremental (Blender)", "Saving the scene as the next numbered file beside its own, dragon_002 after dragon, and saving there from then on, so each stage stays as a file (Search, or a bar button).", "increment", {.Save_Scene_Next}},
-	{"Screen layout", "Screen Layout (ZBrush for iPad), left-handed mode (Nomad)", "Right-handed or Left-handed: left-handed swaps the sides, the off-hand island and the wheel to the right, the navigation and the palettes to the left (Settings > Interface).", "", {}},
+	{"Screen layout", "Screen Layout (ZBrush for iPad), left-handed mode (Nomad)", "Right-handed or Left-handed: left-handed swaps the sides, the brush toolbar and the dial to the right, the view gizmo and the cards to the left (Settings > Interface).", "", {}},
 	{"Light sphere", "Light palette (ZBrush), studio lights (Blender), lights (Nomad)", "A ball in Lights card showing where each light shines from: drag on it to move the picked light, tap the light to send it behind the model.", "", {}},
 	{"Point and spot lights", "Point and spot lights (Blender, Marmoset, KeyShot), lights (Nomad)", "Lights that shine from a place, brighter close up, a spot only into its cone; each moves with the camera or stays in the scene, and the scene file keeps them. Lights card > More options.", "", {}},
 	{"Light markers", "Light objects (Blender, KeyShot), lights in the viewport (Marmoset)", "The plates in the view standing for each light while Lights card shows: drag one to move its light, a sun round a circle about the orbit's centre, a point light or a spot across the view, or along an axis by the arms round the picked one.", "", {}},
@@ -353,7 +353,7 @@ kit_help :: proc(app: ^App) {
 	if !shown do return
 	defer sheet_end(app)
 	// The tags over the screen itself, for learning it where it is used.
-	ui.begin(ctx, "help top", {direction = .Row, gap = 8})
+	ui.begin(ctx, "help top", {direction = .Row, gap = ui.SPACE_M})
 	half := (inner - 8) * 0.5
 	_ = command_button(app, .Name_Controls, variant = .Bordered, width = half, glyph = ui.ICON_TAG)
 	_ = command_button(app, .Take_Tour, variant = .Bordered, width = half, glyph = ui.ICON_HELP)
@@ -413,7 +413,7 @@ help_rows :: proc(app: ^App, rows: []Help_Row, width: f32) {
 help_glossary :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
-	ui.paragraph(ctx, fmt.tprintf("The words this app uses, and what other apps call the same thing. Search (%s) finds a command by either.", command_keys(app, .Command_Palette)))
+	ui.paragraph(ctx, fmt.tprintf("The words this app uses, and what other apps call the same thing. Search%s finds a command by either.", keys_paren(app, .Command_Palette)))
 	for g in GLOSSARY {
 		ui.spacer(ctx, 6)
 		ui.label(ctx, g.word, 0, t.text, .Semibold)

@@ -329,7 +329,7 @@ history_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 	list := tl.view == .List
 
 	// The view, List or Strip, and in the list which object's steps it shows.
-	ui.begin(ctx, "history head", {direction = .Row, gap = 8, center = true, width = inner})
+	ui.begin(ctx, "history head", {direction = .Row, gap = ui.SPACE_M, center = true, width = inner})
 	views := [len(History_View)]string{"List", "Strip"}
 	glyphs := [len(History_View)]rune{ICON_HISTORY_LIST, ICON_HISTORY_STRIP}
 	// A view's tab also leaves the Settings page.
@@ -372,7 +372,7 @@ history_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 	// Two rows of controls, each half the card: playback speed and the time-lapse's start
 	// or stop, then the time-lapse's steps and turn.
 	half := (inner - 12) * 0.5
-	ui.begin(ctx, "history options", {direction = .Row, gap = 12, center = true})
+	ui.begin(ctx, "history options", {direction = .Row, gap = ui.SPACE_L, center = true})
 	ui.begin(ctx, "speed", {direction = .Column, width = half})
 	_ = ui.slider(ctx, "Steps a second", &tl.speed, 1, TIMELINE_SPEED_MAX, .Logarithmic, fmt.tprintf("%.0f", tl.speed), enabled = can)
 	ui.end(ctx)
@@ -386,7 +386,7 @@ history_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 		frames := lapse.end / int(max(lapse.steps, 1)) + 1
 		ui.label(ctx, "Rewinding..." if lapse.state == .Rewinding else fmt.tprintf("Frame %d of %d", lapse.frame, frames), t.small_size)
 	} else {
-		ui.begin(ctx, "lapse options", {direction = .Row, gap = 12})
+		ui.begin(ctx, "lapse options", {direction = .Row, gap = ui.SPACE_L})
 		ui.begin(ctx, "lapse steps", {direction = .Column, width = half})
 		steps := f32(lapse.steps)
 		if ui.slider(ctx, "Steps a frame", &steps, 1, 20, .Linear, fmt.tprintf("%d", lapse.steps)) do lapse.steps = i32(steps + 0.5)
@@ -541,9 +541,9 @@ timeline_step_card :: proc(app: ^App, head: int, x, top: f32) {
 	W, H :: 260, 96
 	window := ctx.input.window
 	at := [2]f32{clamp(x - W * 0.5, 8, max(window.x - W - 8, 8)), max(top - H - 30, 8)}
-	ui.begin_at(ctx, "timeline step card", at, {direction = .Row, gap = 10, padding = 12, width = W, height = H, radius = t.radius_large, background = .Panel, center = true, inert = true})
+	ui.begin_at(ctx, "timeline step card", at, {direction = .Row, gap = ui.SPACE_M, padding = ui.SPACE_L, width = W, height = H, radius = t.radius_large, background = .Panel, center = true, inert = true})
 	_ = step_picture_draw(app, e.at, ui.place(ctx, {72, 72}))
-	ui.begin(ctx, "timeline step card words", {direction = .Column, gap = 3})
+	ui.begin(ctx, "timeline step card words", {direction = .Column, gap = ui.SPACE_XS})
 	room := f32(W - 12 * 2 - 72 - 10)
 	ui.label(ctx, ui.text_fit(ctx, entry_label(e), t.small_size, room, .Semibold), t.small_size, t.text, .Semibold)
 	obj := object_by_id(app, e.id)

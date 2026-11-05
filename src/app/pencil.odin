@@ -394,7 +394,7 @@ settings_pen_buttons :: proc(app: ^App) {
 	ui.label(ctx, "Eraser end")
 	uses := [len(Eraser_Use)]string{"As the tip", "Smooth", "Invert", "Mask"}
 	if picked := ui.tabs(ctx, "Eraser end", uses[:], int(n.eraser)); picked >= 0 do n.eraser = Eraser_Use(picked)
-	ui.paragraph(ctx, "Turn the pen over and its eraser end sculpts with this, as holding the modifier wheel's sector does. The side and second buttons, the Apple Pencil's double-tap and squeeze, and the roll are under Where the pen points.")
+	ui.paragraph(ctx, "Turn the pen over and its eraser end sculpts with this, as holding the dial's sector does. The side and second buttons, the Apple Pencil's double-tap and squeeze, and the roll are under Where the pen points.")
 }
 
 // Pushes a scripted double-tap or squeeze, as the iPad's bridge sends one.

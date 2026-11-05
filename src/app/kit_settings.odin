@@ -41,7 +41,7 @@ kit_settings :: proc(app: ^App) {
 	q := settings_query(k)
 	// The head: Back and the section's name while one is open, else Search settings.
 	if k.settings_drill {
-		ui.begin(ctx, "settings head", {direction = .Row, gap = 8, center = true, width = inner, height = t.target})
+		ui.begin(ctx, "settings head", {direction = .Row, gap = ui.SPACE_M, center = true, width = inner, height = t.target})
 		if ui.icon_button(ctx, "Back to the sections##settings back", ui.ICON_CHEVRON_LEFT) {
 			k.settings_drill, k.settings_scroll = false, 0
 		}
@@ -74,7 +74,7 @@ kit_settings :: proc(app: ^App) {
 	}
 	kit_scroll_end(ctx, scroll)
 
-	ui.begin(ctx, "settings foot", {direction = .Row, gap = 8, width = inner})
+	ui.begin(ctx, "settings foot", {direction = .Row, gap = ui.SPACE_M, width = inner})
 	if settings_wipe_button(app, (inner - 8) * 0.5) do settings_reset_all(app)
 	if ui.button(ctx, "Done", .Solid, .Accent, width = (inner - 8) * 0.5) do settings_close(app)
 	ui.end(ctx)
@@ -131,4 +131,16 @@ speed_slider :: proc(ctx: ^ui.Context, label: string, value: ^f32) {
 // A command's keys for a sentence, or `fallback` when it has none (the user took them).
 key_or :: proc(keys, fallback: string) -> string {
 	return keys if keys != "" else fallback
+}
+
+// The command's keys, or with no keyboard its name, for a sentence that starts with
+// whatever runs it ("D goes up", "Level up goes up").
+keys_or_name :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
+	return key_or(command_keys(app, id, arg), command_label(id, arg))
+}
+
+// The command's keys in brackets after a space (" (Ctrl+K)"), or "" with none.
+keys_paren :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
+	keys := command_keys(app, id, arg)
+	return fmt.tprintf(" (%s)", keys) if keys != "" else ""
 }

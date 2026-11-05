@@ -22,7 +22,7 @@ OBJECT_SECTIONS := [?]Object_Section {
 	{.Levels, "Subdivision levels", kit_levels},
 	{.Hd, "HD detail", kit_hd},
 	{.Topology, "Dynamic topology", kit_dyntopo},
-	{.Remesh, "Rebuild", kit_rebuild},
+	{.Remesh, "Remesh and decimate", kit_rebuild},
 	{.Mirror, "Modify topology", proc(app: ^App, _: ^Object) {kit_topology(app)}},
 	{.Mask, "Mask", proc(app: ^App, _: ^Object) {kit_mask(app)}},
 	{.Sets, "Selection sets", kit_sets},
@@ -55,7 +55,7 @@ kit_transform :: proc(app: ^App, obj: ^Object) {
 		_ = ui.drag_value(ctx, fmt.tprintf("Position %s", axis), &tr.position[i], 0.005, -1e4, 1e4, fmt.tprintf("%.3f", tr.position[i]))
 	}
 	_ = ui.drag_value(ctx, "Scale", &tr.scale, 0.005, MIN_OBJECT_SCALE, MAX_OBJECT_SCALE, fmt.tprintf("%.3f", tr.scale))
-	ui.paragraph(ctx, fmt.tprintf("Drag sideways on a value to change it, or use the Move tool's gizmo (%s steps it through move, turn, scale and all three at once).", command_keys(app, .Tool_Move)))
+	ui.paragraph(ctx, fmt.tprintf("Drag sideways on a value to change it, or use the Move tool's gizmo (%s steps it through move, turn, scale and all three at once).", keys_or_name(app, .Tool_Move)))
 	if kit_more(app, .Transform) {
 		for axis, i in axes {
 			if ui.drag_value(ctx, fmt.tprintf("Turn about %s", axis), &tr.rotation[i], 0.5, -1e6, 1e6, fmt.tprintf("%.1f°", tr.rotation[i])) {
@@ -92,7 +92,11 @@ kit_levels :: proc(app: ^App, obj: ^Object) {
 	}
 	kit_command_pair(app, .Delete_Lower_Levels, .Delete_Higher_Levels, label_a = "Delete lower", label_b = "Delete higher", tone_a = .Danger, tone_b = .Danger)
 	if object_can_edit_cage(obj) do _ = command_button(app, .Edit_Cage, width = ui.fill_width(ctx), glyph = ui.ICON_SHAPES)
-	ui.paragraph(ctx, fmt.tprintf("%s and %s go up and down. All levels use %s of memory; %s undoes a deletion.", command_keys(app, .Level_Up), command_keys(app, .Level_Down), bytes_label(sculpt.levels_bytes(levels)), command_keys(app, .Undo)))
+	if up, down := command_keys(app, .Level_Up), command_keys(app, .Level_Down); up != "" && down != "" {
+		ui.paragraph(ctx, fmt.tprintf("%s and %s go up and down. All levels use %s of memory; %s undoes a deletion.", up, down, bytes_label(sculpt.levels_bytes(levels)), keys_or_name(app, .Undo)))
+	} else {
+		ui.paragraph(ctx, fmt.tprintf("All levels use %s of memory; Undo brings a deleted level back.", bytes_label(sculpt.levels_bytes(levels))))
+	}
 	if s := app.stats; s.level_sync_ms + s.level_show_ms > 0 {
 		ui.paragraph(ctx, fmt.tprintf("Last change: %.0f ms to update the levels, %.0f ms to show.", s.level_sync_ms, s.level_show_ms))
 	}
@@ -191,11 +195,13 @@ kit_hd :: proc(app: ^App, obj: ^Object) {
 	ui.paragraph(ctx, fmt.tprintf("%d step%s up: %s vertices.", steps, "" if steps == 1 else "s", count_label(sculpt.levels_hd_vertices(levels))))
 	if object_in_hd(obj) {
 		_ = command_button(app, .Hd_Leave, tone = .Accent)
-		ui.paragraph(ctx, fmt.tprintf("A window of %s vertices, opened in %.0f + %.0f ms. %s leaves it too.", count_label(hd.window_vertices), app.stats.hd_open_ms, app.stats.hd_upload_ms, command_keys(app, .Hd_Toggle)))
+		ui.paragraph(ctx, fmt.tprintf("A window of %s vertices, opened in %.0f + %.0f ms. %s leaves it too.", count_label(hd.window_vertices), app.stats.hd_open_ms, app.stats.hd_upload_ms, keys_or_name(app, .Hd_Toggle)))
 	} else {
 		// From the button, the window opens around the middle of the viewport.
 		_ = command_button(app, .Hd_Sculpt, variant = .Solid, tone = .Accent)
-		ui.paragraph(ctx, fmt.tprintf("%s opens a window where the pointer is.", command_keys(app, .Hd_Toggle)))
+		// A key opens a window where the pointer is; with no keyboard there is no pointer
+		// to open it at, so the sentence says nothing.
+		if keys := command_keys(app, .Hd_Toggle); keys != "" do ui.paragraph(ctx, fmt.tprintf("%s opens a window where the pointer is.", keys))
 	}
 	millions := f32(app.hd_window_vertices / 1_000_000)
 	if ui.slider(ctx, "Window", &millions, 1, 16, .Linear, fmt.tprintf("%dM vertices", app.hd_window_vertices / 1_000_000)) {
@@ -255,7 +261,7 @@ kit_mask :: proc(app: ^App) {
 	ui.label(ctx, "Ctrl + drag on empty space draws", t.small_size)
 	shapes := [2]string{"Rectangle", "Lasso"}
 	if picked := ui.tabs(ctx, "mask shape", shapes[:], int(app.ui.mask_shape_kind)); picked >= 0 do app.ui.mask_shape_kind = Mask_Shape_Kind(picked)
-	ui.paragraph(ctx, fmt.tprintf("Paint the mask with the Mask brush, or Ctrl + drag a shape from empty space (with Alt: unmask). Masked parts show darker and no brush moves them. Blur, Sharpen, Grow and Shrink (over the shelf while something is masked, and under More options) move its edge Steps rings of triangles. %s clears, %s inverts. With Mask on and the Sculpt tool, a tap off the model inverts, one on the mask blurs it and one on an unmasked part sharpens it.", command_keys(app, .Mask, int(sculpt.Mask_Command.Clear)), command_keys(app, .Mask, int(sculpt.Mask_Command.Invert))))
+	ui.paragraph(ctx, fmt.tprintf("Paint the mask with the Mask brush, or Ctrl + drag a shape from empty space (with Alt: unmask). Masked parts show darker and no brush moves them. Blur, Sharpen, Grow and Shrink (over the shelf while something is masked, and under More options) move its edge Steps rings of triangles. %s clears, %s inverts. With Mask on and the Sculpt tool, a tap off the model inverts, one on the mask blurs it and one on an unmasked part sharpens it.", keys_or_name(app, .Mask, int(sculpt.Mask_Command.Clear)), keys_or_name(app, .Mask, int(sculpt.Mask_Command.Invert))))
 	kit_last_result(app, .Mask)
 	if kit_more(app, .Mask) {
 		// Whether the view darkens what is masked; the mask stays either way, and it is no
@@ -323,7 +329,7 @@ kit_visibility :: proc(app: ^App, obj: ^Object) {
 	}
 	kit_command_pair(app, .Show_All, .Invert_Hidden, label_b = "Invert hiding")
 	kit_command_pair(app, .Hide_Masked, .Hide_Unmasked)
-	ui.paragraph(ctx, fmt.tprintf("%s shows all; %s inverts. Hide masked and Hide unmasked hide by the mask; Mask hidden (Mask, More options) turns what is hidden into a mask.", command_keys(app, .Show_All), command_keys(app, .Invert_Hidden)))
+	ui.paragraph(ctx, fmt.tprintf("%s shows all; %s inverts. Hide masked and Hide unmasked hide by the mask; Mask hidden (Mask, More options) turns what is hidden into a mask.", keys_or_name(app, .Show_All), keys_or_name(app, .Invert_Hidden)))
 	kit_last_result(app, .Visibility)
 	if app.stats.slice_ms > 0 do ui.paragraph(ctx, fmt.tprintf("Last slice: %.0f ms, ready in %.0f ms more.", app.stats.slice_ms, app.stats.slice_setup_ms))
 	if kit_more(app, .Visibility) {
@@ -350,7 +356,7 @@ kit_groups :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Visible), int(sculpt.Group_Command.Masked), "Group visible", "Group masked")
 	_ = ui.switch_row(ctx, "Show polygroups", &app.show_groups, keys = command_hint(app, .Polygroups))
-	ui.paragraph(ctx, fmt.tprintf("%s groups the masked part (clearing the mask), or with nothing masked what is shown. Ctrl + Shift click a group to show only it (again: everything but it); with Alt, to mask it. %s shows the groups. Not in HD or with dynamic topology.", command_keys(app, .Group_Shortcut), command_keys(app, .Polygroups)))
+	ui.paragraph(ctx, fmt.tprintf("%s groups the masked part (clearing the mask), or with nothing masked what is shown. Ctrl + Shift click a group to show only it (again: everything but it); with Alt, to mask it. %s shows the groups. Not in HD or with dynamic topology.", keys_or_name(app, .Group_Shortcut), keys_or_name(app, .Polygroups)))
 	if kit_more(app, .Groups) {
 		_ = ui.slider(ctx, "Angle", &app.ui.crease_degrees, 1, 90, .Linear, fmt.tprintf("%.0f°", app.ui.crease_degrees))
 		kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Creases), int(sculpt.Group_Command.Normals), "Groups by creases", "Groups by normals")

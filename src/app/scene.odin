@@ -220,13 +220,16 @@ Scene_Command :: struct {
 	// Repair: Close holes leaves the largest open, Delete half keeps the + side; New: an
 	// empty scene, with no object.
 	on:       bool,
+	// Add: put the new object's middle at `point` (in the world here), where a menu was
+	// opened on the view, rather than at the next free place.
+	placed:   bool,
 	axis:     int, // Symmetrize, Align, Distribute, Repair's Delete half: 0 x, 1 y, 2 z; Curve_Cage: the Curve_Cage_Kind
 	edge:     int, // Align, Distribute: 0 each object's low side, 1 its middle, 2 its high side
 	split:    Split_Mode, // Split: what becomes objects of their own
 	level:    int, // Set_Level; HD steps for Hd_Steps
 	at:       [2]f32, // Hd_Enter: the viewport point to open the window around
 	size:     [2]f32, // ...in a viewport of this size
-	point:    Vec3, // Slice, Knife: a point of the plane, in the selected object's space
+	point:    Vec3, // Slice, Knife: a point of the plane, in the selected object's space; Add: where it goes, placed
 	normal:   Vec3, // ...and the way to the part that becomes a new object (Slice) or goes (Knife)
 	// Runs the command again in place of the last one of its kind, from before it
 	// (adjust_last.odin): Remesh, Decimate, Symmetrize, Retopo and Extract.
@@ -950,6 +953,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			if !scene_add_voxel_sphere(app, cmd.voxels, at) do return false
 		} else if !scene_add_primitive(app, cmd.shape, cmd.vertices, at) do return false
 		if len(app.scene.objects) > before {
+			if cmd.placed do selected_object(app).transform.position = cmd.point
 			// Inserted below the selection, in its folder, rather than at the end.
 			if cmd.on && sel != nil {
 				added := selected_object(app)

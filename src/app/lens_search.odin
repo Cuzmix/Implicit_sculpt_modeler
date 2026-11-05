@@ -94,7 +94,7 @@ palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
 	}
 	// A command's home is its section on its card.
 	if sec, ok := COMMAND_HOMES[e.id].?; ok do return fmt.tprintf("%s card · %s", card_title(section_card(sec)), section_title(sec))
-	if slice.contains(bar_used(app, .View_Rail), s) do return "View rail"
+	if slice.contains(bar_used(app, .View_Rail), s) do return "View toolbar"
 	for p in Shelf_Page do if shelf_page_used(&app.kit, p) && slice.contains(bar_used(app, shelf_which(p)), s) do return fmt.tprintf("Shelf · %s", shelf_page_name(&app.kit, p))
 	if slice.contains(bar_used(app, .Brush_Pie), s) do return "Brush pie"
 	for i in 0 ..< USER_DOCKS do if app.kit.docks[user_dock_id(i)].used && slice.contains(bar_used(app, user_dock_which(i)), s) do return DOCK_TITLES[user_dock_id(i)]
@@ -226,6 +226,8 @@ lens_palette_footer :: proc(app: ^App, e: Maybe(Palette_Entry), width: f32, anch
 	t := ctx.theme
 	ui.begin(ctx, "palette footer", {direction = .Row, center = true, height = t.target})
 	hint := "Enter run · Tab show where it lives · Ctrl+Enter put on a bar" if k.palette_for == nil else "Enter choose · Esc close"
+	// Without a keyboard the keys name nothing a finger can press: the buttons say it.
+	if k.keyless do hint = ""
 	// Four buttons, and a fifth, the shelf's pin, for a brush, a preset or a shape in Sculpt.
 	pin := false
 	if c, ok := e.?; ok && c.kind == .Command && shelf_holds_brushes(c.id) && k.palette_for == nil && k.spaces.current == .Sculpt do pin = true

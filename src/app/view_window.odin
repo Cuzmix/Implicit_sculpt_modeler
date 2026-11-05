@@ -320,7 +320,7 @@ view_window_layout :: proc(app: ^App, w: ^View_Window) {
 	if w.pic.shown != 0 do ui.image(ctx, a.rect, VIEW_WINDOW_IMAGE)
 	second_view_input(app, ctx, scale, &w.view, a)
 	ui.end(ctx)
-	ui.begin_at(ctx, "view window head", {6, 6}, {direction = .Row, center = true, gap = 4, padding = 4, radius = t.radius_large, background = .Panel})
+	ui.begin_at(ctx, "view window head", {6, 6}, {direction = .Row, center = true, gap = ui.SPACE_XS, padding = ui.SPACE_XS, radius = t.radius_large, background = .Panel})
 	view_head_camera(app, ctx, &w.view, GRID_VIEWS + w.number)
 	view_head_pass(ctx, &w.view)
 	view_head_link(app, ctx, &w.view)

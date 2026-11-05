@@ -184,10 +184,11 @@ Kit_State :: struct {
 	symmetry_line: bool, // the mirror planes' lines show across the selected object (symmetry.odin)
 	panes_work:   bool, // a press in a view pane works there (grid_work)
 	panels_faded: int, // panels a stroke passed under (Lens), for the exit stats
-	// Clean view (Lens: Tab or a four-finger tap): every control hidden, the modifier
-	// wheel aside while `clean_dial`; `clean_at` is when it began, for its hint.
+	// Clean view (Lens: Tab or a four-finger tap): every control hidden but what
+	// `clean_keep` keeps; `clean_at` is when it began, for its hint. Keeping the shelf
+	// hides only the side zones (`focus_mode`), so `clean` is false then.
 	clean:        bool,
-	clean_dial:   bool,
+	clean_keep:   Clean_Keep,
 	clean_at:     f64,
 	view_started: bool, // Lens drew the model in the free area at the start (lens_view_frame)
 	// The proportion guide tag held (guides.odin), 0 for none, never kept; the guide
@@ -286,6 +287,12 @@ Kit_State :: struct {
 	// was last laid out (the Object menu command opens there off the view), and the scene
 	// menu, empty space's menu: open, and where.
 	object_menu_by: Menu_Opener,
+	// Where on the view the object or scene menu was opened, in the world, for Add object
+	// to put the new object there: the surface point under an object menu, the point at the
+	// depth the view turns about under the scene menu. Not set when a menu opened away
+	// from the view (the object chip, the Scene card).
+	menu_point:     Vec3,
+	menu_point_set: bool,
 	// The offer standing last frame (its fix, None for none) and the fixes tapped (offers.odin).
 	offer:          Command_Id,
 	offer_fixes:    int,
@@ -298,6 +305,10 @@ Kit_State :: struct {
 	readout: Readout, // the view corner's camera, shading and live numbers (readout.odin)
 	// The readout is hidden (Menu > More > Viewport readout).
 	readout_hidden: bool,
+	// No keyboard is attached (a tablet's own screen, or --no-keyboard), so key shortcuts
+	// are left out wherever they would show: they name keys nobody can press.
+	keyless:     bool,
+	no_keyboard: bool, // --no-keyboard
 	// The readout adds the GPU's time a frame (Menu > More > GPU time in the readout): a
 	// developer's number, so off unless asked for.
 	readout_gpu: bool,
@@ -904,7 +915,7 @@ kit_init :: proc(app: ^App) {
 	k.surface_ring = true
 	k.symmetry_line = true
 	k.panes_work = true
-	k.clean_dial = true
+	k.clean_keep = .Dial
 	k.rail_side, k.wheel_size = .Left, .Medium
 	k.dials = DIAL_DEFAULTS
 	k.action_bar = true
@@ -992,6 +1003,8 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	_ = sdl.GetWindowSizeInPixels(window, &pw, &ph)
 	scale := kit_content_scale(window) * k.ui_scale
 	k.frame += 1
+	// A desktop always has its keyboard; a tablet or phone may have one attached or not.
+	k.keyless = k.no_keyboard || (MOBILE && !sdl.HasKeyboard())
 	d := &app.device
 	in_ := ui.Input {
 		mouse         = d.mouse / scale,
@@ -1221,7 +1234,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		if k.recover_shown && quiet && !shape_waits && !sheet_open(k) do app.autosave.offer_hidden = true
 		if app.diag.open && quiet do diag_close(app)
 		else if k.home && quiet do home_close(app)
-		else if k.clean && quiet do clean_view_set(app, false)
+		else if clean_view_on(k) && quiet do clean_view_set(app, false)
 		else if k.bars_edit && quiet && !k.palette do k.bars_edit = false
 		else if edit_waits && quiet do stroke_edit_cancel(app)
 		else if placing && quiet {
@@ -1363,6 +1376,8 @@ kit_layout :: proc(app: ^App) {
 	// Home just closed: the scene grows out of the tile it closed from, under the bars.
 	kit_home_reveal(app)
 
+	// The reference pictures over the view first of all, under every bar and card.
+	refs_view(app)
 	// First, so that every panel and popover laid out after it is above it.
 	pop := ui.motion_mark(ctx)
 	kit_shape_bar(app)
@@ -1514,7 +1529,7 @@ menu_new_scenes :: proc(app: ^App, body_w: f32) -> (pick: bool) {
 	w := (body_w - 2 * 6) / 3
 	starts := len(NEW_SCENES)
 	for row in 0 ..< (starts + 2) / 3 {
-		ui.begin(ctx, fmt.tprintf("new scene row %d", row), {direction = .Row, gap = 6})
+		ui.begin(ctx, fmt.tprintf("new scene row %d", row), {direction = .Row, gap = ui.SPACE_S})
 		for i in row * 3 ..< min(row * 3 + 3, starts) {
 			armed := new_scene_armed(app, i)
 			label := "Discard?" if armed else NEW_SCENES[i].name
@@ -1529,7 +1544,7 @@ menu_new_scenes :: proc(app: ^App, body_w: f32) -> (pick: bool) {
 		n := 0
 		for m, j in app.library.meshes {
 			if m.gone || m.pack != pack.id do continue
-			if n % 3 == 0 do ui.begin(ctx, fmt.tprintf("new scene pack %d row %d", p, n / 3), {direction = .Row, gap = 6})
+			if n % 3 == 0 do ui.begin(ctx, fmt.tprintf("new scene pack %d row %d", p, n / 3), {direction = .Row, gap = ui.SPACE_S})
 			armed := new_mesh_armed(app, j)
 			label := "Discard?" if armed else ui.text_fit(ctx, m.stem, ctx.theme.text_size, w - 12)
 			if ui.button(ctx, fmt.tprintf("%s##new scene mesh %d", label, j), .Solid if armed else .Flat, .Danger if armed else .Neutral, width = w) {
@@ -1576,7 +1591,7 @@ kit_camera_menu :: proc(app: ^App) {
 	ui.caption(ctx, "  CAMERA")
 	_ = command_menu_item(app, .Ortho_Toggle)
 	// Inset as the menu's rows are.
-	ui.begin(ctx, "camera menu fov", {direction = .Column, padding = 10})
+	ui.begin(ctx, "camera menu fov", {direction = .Column, padding = ui.SPACE_L})
 	kit_field_of_view(app)
 	ui.end(ctx)
 	if command_menu_item(app, .Focus_Selected) do k.bar_pop.open = false
@@ -1720,7 +1735,7 @@ kit_rename :: proc(app: ^App) {
 		ctx.text_focus = 0
 		r.typing = false
 	}
-	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = 4, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
+	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
 	ui.caption(ctx, "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
 	now := ""

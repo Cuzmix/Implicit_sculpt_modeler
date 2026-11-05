@@ -232,7 +232,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Render_Preview   = "render preview pane path trace rendered view beside split",
 	.View_Window      = "window monitor second screen display detach tear off pop out view",
 	.View_Windows_Close = "close view windows monitor second screen",
-	.Clean_View       = "clean view hide interface chrome controls zen distraction free fullscreen tab",
+	.Clean_View       = "clean view hide interface chrome controls zen distraction free fullscreen tab focus mode",
+	.Inspect_Mode     = "four views inspect form check curvature normals silhouette shaded grid",
 	.Brush_Picker     = "brush picker browser library all brushes cards stroke preview choose shelf",
 	.View_Layout_Menu = "view layout grid split panes quad four single preset menu",
 	.Pass_Menu        = "passes pass menu normals depth curvature silhouette occlusion ao matcap wipe",
@@ -628,7 +629,7 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	width := min(f32(LENS_SEARCH_W), area.w - 2 * t.edge)
 	anchor, side := lens_search_anchor(app, search, width)
 	was := k.palette
-	if !ui.popover_begin(ctx, "palette", &k.palette, anchor, side, {direction = .Column, gap = 2, padding = 8, width = width}) do return
+	if !ui.popover_begin(ctx, "palette", &k.palette, anchor, side, {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_M, width = width}) do return
 	defer ui.popover_end(ctx)
 	// A press outside closed it: give the keys back.
 	if was && !k.palette do ctx.text_focus = 0

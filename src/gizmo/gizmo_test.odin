@@ -179,8 +179,11 @@ all_mode_picks_every_handle :: proc(t: ^testing.T) {
 	testing.expect_value(t, pick(sc, .All, {625, 503}, PICK_PX), Handle.X)
 	testing.expect_value(t, pick(sc, .All, {530, 501}, PICK_PX), Handle.X)
 	testing.expect_value(t, pick(sc, .All, {501, 380}, PICK_PX), Handle.Y)
-	testing.expect_value(t, pick(sc, .All, {565, 502}, PICK_PX), Handle.Scale)
-	testing.expect_value(t, pick(sc, .All, {500, 438}, PICK_PX), Handle.Scale)
+	// Each knob stretches along its own arm; the white knob on the view ring scales evenly.
+	testing.expect_value(t, pick(sc, .All, {565, 502}, PICK_PX), Handle.Scale_X)
+	testing.expect_value(t, pick(sc, .All, {500, 438}, PICK_PX), Handle.Scale_Y)
+	testing.expect(t, abs(sc.uniform.x - 575.13) < 0.01 && abs(sc.uniform.y - 424.87) < 0.01)
+	testing.expect_value(t, pick(sc, .All, {576, 425}, PICK_PX), Handle.Scale)
 	testing.expect_value(t, pick(sc, .All, {560, 560}, PICK_PX), Handle.Turn_Z)
 	testing.expect_value(t, pick(sc, .All, {575, 575}, PICK_PX), Handle.Turn_View)
 	testing.expect_value(t, pick(sc, .All, {500, 570}, PICK_PX), Handle.Turn_X)
@@ -188,10 +191,34 @@ all_mode_picks_every_handle :: proc(t: ^testing.T) {
 	testing.expect_value(t, pick(sc, .All, {680, 680}, PICK_PX), Handle.None)
 	// A finger's radius grows the knob as it grows the middle.
 	testing.expect_value(t, pick(sc, .All, {562, 517}, PICK_PX), Handle.None)
-	testing.expect_value(t, pick(sc, .All, {562, 517}, 24), Handle.Scale)
+	testing.expect_value(t, pick(sc, .All, {562, 517}, 24), Handle.Scale_X)
 	// The z arm points at the eye: no arrow, no knob.
 	testing.expect(t, !all_arm_shows(sc, 2))
 	// The other modes have no arrows or knobs.
 	plain := screen(vp, {0, 0, 0}, 2, {0, 0, 1}, {1000, 1000}, 100)
 	testing.expect(t, !all_arm_shows(plain, 0))
+}
+
+// The Scale mode has the stretch knobs inside its circle, which win over it; a drag along
+// a knob's arm stretches by e an arm's length outward and its inverse inward, and a drag
+// across the arm stretches nothing.
+@(test)
+scale_mode_stretches_along_each_arm :: proc(t: ^testing.T) {
+	vp := Mat4{
+		0.1, 0, 0, 0,
+		0, 0.1, 0, 0,
+		0, 0, 0.1, 0,
+		0, 0, 0, 1,
+	}
+	sc := screen(vp, {0, 0, 0}, 2, {0, 0, 1}, {1000, 1000}, 100, .Scale)
+	testing.expect(t, abs(sc.knobs[0].x - 562) < 0.01 && abs(sc.knobs[1].y - 438) < 0.01)
+	testing.expect_value(t, pick(sc, .Scale, {562, 500}, PICK_PX), Handle.Scale_X)
+	testing.expect_value(t, pick(sc, .Scale, {500, 438}, PICK_PX), Handle.Scale_Y)
+	testing.expect_value(t, pick(sc, .Scale, {600, 500}, PICK_PX), Handle.Scale)
+	testing.expect_value(t, pick(sc, .Scale, {502, 501}, PICK_PX), Handle.Scale)
+	testing.expect_value(t, stretch_axis(.Scale_Z), 2)
+	testing.expect_value(t, stretch_axis(.Scale), -1)
+	testing.expect(t, abs(stretch_factor(sc.center, sc.knobs[0], {562, 500}, {662, 500}, 100) - math.E) < 1e-4)
+	testing.expect(t, abs(stretch_factor(sc.center, sc.knobs[0], {562, 500}, {462, 500}, 100) - 1 / math.E) < 1e-4)
+	testing.expect(t, abs(stretch_factor(sc.center, sc.knobs[0], {562, 500}, {562, 560}, 100) - 1) < 1e-6)
 }

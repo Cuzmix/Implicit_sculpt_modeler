@@ -368,7 +368,7 @@ kit_floor :: proc(app: ^App) {
 	on := f.on
 	if ui.switch_row(ctx, "Floor grid", &on, keys = command_hint(app, .Floor_Grid)) do command_run(app, .Floor_Grid)
 	ui.caption(ctx, "PLANES")
-	ui.begin(ctx, "floor planes", {direction = .Row, gap = 4})
+	ui.begin(ctx, "floor planes", {direction = .Row, gap = ui.SPACE_XS})
 	planes := [3]struct {
 		name, tip: string,
 	}{{"Side", "The wall square to X, on the far side"}, {"Floor", "The floor, under the scene"}, {"Back", "The wall square to Z, behind the scene"}}
