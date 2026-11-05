@@ -9,6 +9,7 @@ import "core:time"
 
 import "../geom"
 import "../gizmo"
+import "../poly"
 import "../render"
 import "../sculpt"
 import "../ui"
@@ -103,19 +104,19 @@ stack_mirror_on :: proc(obj: ^Object) -> bool {
 
 stack_array_on :: proc(obj: ^Object) -> bool {
 	a := obj.stack.array
-	return a.added && a.shown && a.count > 1 && obj.cage == nil
+	return a.added && a.shown && a.count > 1
 }
 
 stack_radial_on :: proc(obj: ^Object) -> bool {
 	r := obj.stack.radial
-	return r.added && r.shown && r.count > 1 && obj.cage == nil
+	return r.added && r.shown && r.count > 1
 }
 
 // The curve object the Along row lays copies on, while the row shows and the curve is in
 // the scene; nil otherwise.
 stack_along_curve :: proc(app: ^App, obj: ^Object) -> ^Object {
 	a := obj.stack.along
-	if !a.added || !a.shown || a.count < 1 || obj.cage != nil do return nil
+	if !a.added || !a.shown || a.count < 1 do return nil
 	curve := object_by_id(app, a.curve)
 	if curve == nil || curve == obj || curve.curve == nil || len(curve.curve.points) < 2 do return nil
 	return curve
@@ -408,23 +409,25 @@ vec_finite :: proc(v: Vec3) -> bool {
 kit_stack :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	if obj.cage != nil {
-		ui.paragraph(ctx, "A cage's live rows (Mirror, Thickness, Bevel creases) are in the Model palette for now.")
-		return
-	}
-	if obj.voxel == nil && object_draws_triangles(obj) == false {
+		// A cage's own rows change its polygons (cage_look_apply); Array, Radial and Along
+		// copy what they make, as on a sculpt.
+		kit_cage_live(app, obj)
+	} else if obj.voxel == nil && object_draws_triangles(obj) == false {
 		ui.paragraph(ctx, "A curve shows no surface to copy.")
 		return
 	}
 	if !stack_has_rows(obj.stack) {
 		ui.paragraph(ctx, "Rows here change how the object is shown, not what it holds: switch them off, tune them or apply them at any time. Copies cost a stroke nothing, and a stroke on any copy sculpts them all.")
 	}
-	if obj.stack.mirror.added do kit_stack_mirror(app, obj)
+	if obj.stack.mirror.added && obj.cage == nil do kit_stack_mirror(app, obj)
 	if obj.stack.array.added do kit_stack_array(app, obj)
 	if obj.stack.radial.added do kit_stack_radial(app, obj)
 	if obj.stack.along.added do kit_stack_along(app, obj)
 	if stack_has_rows(obj.stack) do ui.divider(ctx, across = true)
 	kit_stack_add(app, obj)
-	if stack_has_rows(obj.stack) {
+	if obj.cage != nil {
+		if stack_has_rows(obj.stack) do ui.paragraph(ctx, "A cage's copies are drawn only: Apply to sculpt (Model palette) makes it a mesh, whose stack then applies.")
+	} else if stack_has_rows(obj.stack) {
 		can := obj.voxel == nil && !app.stroke.active && (stack_mirror_on(obj) || stack_array_on(obj) || stack_radial_on(obj) || stack_along_on(app, obj))
 		if ui.button(ctx, "Apply the stack", enabled = can, reason = "Needs a shown row on a mesh object") {
 			app.ui.scene_command = {kind = .Stack_Apply}
@@ -438,9 +441,9 @@ kit_stack :: proc(app: ^App, obj: ^Object) {
 kit_stack_add :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	s := obj.stack
-	if s.mirror.added && s.array.added && s.radial.added && s.along.added do return
+	if (s.mirror.added || obj.cage != nil) && s.array.added && s.radial.added && s.along.added do return
 	ui.begin(ctx, "stack add", {direction = .Row})
-	if !s.mirror.added && ui.button(ctx, "Mirror##add", glyph = ICON_SYMMETRY, tone = .Accent) {
+	if !s.mirror.added && obj.cage == nil && ui.button(ctx, "Mirror##add", glyph = ICON_SYMMETRY, tone = .Accent) {
 		s.mirror = {added = true, shown = true, axes = {.X}}
 		stack_set(app, obj, s, "Add mirror")
 	}
@@ -655,9 +658,21 @@ stack_axes_label :: proc(axes: sculpt.Symmetry) -> string {
 
 // The card's line: what the stack holds, its hidden rows marked.
 stack_summary :: proc(obj: ^Object) -> string {
-	if obj == nil || !stack_has_rows(obj.stack) do return ""
+	if obj == nil do return ""
 	s := obj.stack
 	parts := make([dynamic]string, 0, 3, context.temp_allocator)
+	if cp := obj.cage; cp != nil {
+		// A cage's own rows first, in the card's order.
+		l := cp.look.live
+		if cp.look.smooth > 0 do append(&parts, fmt.tprintf("Smooth %d", cp.look.smooth))
+		if l.mirror != {} {
+			axes: sculpt.Symmetry
+			for a in poly.Mirror_Axis do if a in l.mirror do axes += {sculpt.Axis(int(a))}
+			append(&parts, fmt.tprintf("Mirror %s", stack_axes_label(axes)))
+		}
+		if l.thickness > 0 do append(&parts, "Thickness")
+		if l.bevel > 0 do append(&parts, "Bevel")
+	}
 	if m := s.mirror; m.added do append(&parts, fmt.tprintf("Mirror %s", stack_axes_label(m.axes)) if m.shown else "Mirror (hidden)")
 	if a := s.array; a.added do append(&parts, fmt.tprintf("Array %d", a.count) if a.shown else "Array (hidden)")
 	if r := s.radial; r.added do append(&parts, fmt.tprintf("Radial %d", r.count) if r.shown else "Radial (hidden)")

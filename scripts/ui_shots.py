@@ -60,6 +60,7 @@ SCREENS = {
     "scene_card": ("The Scene card from the view rail", tap("view bar/Scene"), []),
     "mesh_card": ("The Mesh card from the view rail", tap("view bar/Mesh"), []),
     "mask_card": ("The Mask card from the view rail", tap("view bar/Mask"), []),
+    "stack_card_cage": ("The Live stack card on a cage: its Smooth, Mirror, Thickness and Bevel rows, then an Array", tap("view bar/Live stack"), ["--script=add_cage cube; select 1; delete_object; cage_smooth 2; cage_mirror x; stack array 3 0 0 2.5; frame_all"]),
     "stack_card": ("The Live stack card with a Mirror, an Array and a Radial row", tap("view bar/Live stack"), ["--script=stack mirror x; stack array 3 2.2 0 0; stack radial 6 y"]),
     "library": ("The brush Library from the shelf's All", tap("dock/All"), []),
     "menu": ("The main menu", tap("top bar/Menu"), []),
