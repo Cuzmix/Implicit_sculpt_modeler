@@ -309,11 +309,12 @@ typing :: proc(app: ^App) -> bool {
 }
 
 count_label :: proc(n: int) -> string {
+	// Rounded to the nearest, as the readout rounds, so 40,962 reads 41k in both places.
 	switch {
-	case n >= 1_000_000:
+	case n >= 999_500:
 		return fmt.tprintf("%.1fM", f64(n) / 1e6)
 	case n >= 1_000:
-		return fmt.tprintf("%dk", n / 1000)
+		return fmt.tprintf("%dk", (n + 500) / 1000)
 	}
 	return fmt.tprintf("%d", n)
 }
