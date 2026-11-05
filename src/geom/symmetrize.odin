@@ -61,9 +61,12 @@ symmetrized_polygons_destroy :: proc(s: ^Symmetrized_Polygons, allocator := cont
 // order, so the two polygons of an edge make the same point and it welds. The result is
 // a closed mesh when the input is, with normals zero for the sculptor to compute. With
 // `out_polygons` given, the result's polygons and the creases of `creases` that lie on
-// the kept side and their mirror images go there (made with `allocator`). Returns ok
-// false when nothing of the mesh is on the kept side.
-mesh_symmetrize :: proc(m: Mesh, axis: int, keep_positive: bool, pool: ^jobs.Pool, allocator := context.allocator, polygons: Polygons = {}, creases: Creases = {}, out_polygons: ^Symmetrized_Polygons = nil) -> (out: Mesh, ok: bool) {
+// the kept side and their mirror images go there (made with `allocator`). With `out_from`
+// given, each result vertex's vertex of `m` goes there, as mesh_decimate's `from`: a kept
+// vertex's own, a mirror image's its kept twin's, a cut point the kept end of the edge it
+// cut, so data by vertex (paint) can follow. Returns ok false when nothing of the mesh is
+// on the kept side.
+mesh_symmetrize :: proc(m: Mesh, axis: int, keep_positive: bool, pool: ^jobs.Pool, allocator := context.allocator, polygons: Polygons = {}, creases: Creases = {}, out_polygons: ^Symmetrized_Polygons = nil, out_from: ^[dynamic]u32 = nil) -> (out: Mesh, ok: bool) {
 	assert(axis >= 0 && axis < 3)
 	n := len(m.positions)
 	side: f32 = 1 if keep_positive else -1
@@ -133,9 +136,12 @@ mesh_symmetrize :: proc(m: Mesh, axis: int, keep_positive: bool, pool: ^jobs.Poo
 		if cuts^ != nil do cuts[u64(min(a, b)) << 32 | u64(max(a, b))] = at
 		return at
 	}
+	// The kept end of the edge each cut point was made on, in the order they were made.
+	ends := make([dynamic]u32, 0, 64, context.temp_allocator)
 	// Clips the loop of `corners` to the kept side, corner by corner in order, into
-	// `loop`; false when what is kept is not one piece.
-	clip :: proc(positions: ^[dynamic]Vec3, where_: []i8, corners: []u32, axis: int, loop: ^[dynamic]u32, cuts: ^map[u64]u32) -> bool {
+	// `loop`, noting each cut point's kept end in `ends`; false when what is kept is not
+	// one piece.
+	clip :: proc(positions: ^[dynamic]Vec3, where_: []i8, corners: []u32, axis: int, loop: ^[dynamic]u32, cuts: ^map[u64]u32, ends: ^[dynamic]u32) -> bool {
 		clear(loop)
 		runs := 0
 		count := len(corners)
@@ -147,7 +153,10 @@ mesh_symmetrize :: proc(m: Mesh, axis: int, keep_positive: bool, pool: ^jobs.Poo
 		for c in 0 ..< count {
 			a, b := corners[c], corners[(c + 1) % count]
 			if where_[a] >= 0 do append(loop, a)
-			if (where_[a] > 0 && where_[b] < 0) || (where_[a] < 0 && where_[b] > 0) do append(loop, cut(positions, a, b, axis, cuts))
+			if (where_[a] > 0 && where_[b] < 0) || (where_[a] < 0 && where_[b] > 0) {
+				append(loop, cut(positions, a, b, axis, cuts))
+				append(ends, a if where_[a] > 0 else b)
+			}
 		}
 		return true
 	}
@@ -225,7 +234,7 @@ mesh_symmetrize :: proc(m: Mesh, axis: int, keep_positive: bool, pool: ^jobs.Poo
 				next += 1
 				continue
 			}
-			if clip(&positions, where_, corners, axis, &loop, &cuts) {
+			if clip(&positions, where_, corners, axis, &loop, &cuts, &ends) {
 				for k in 1 ..< len(loop) - 1 {
 					append(&indices, loop[0], loop[k], loop[k + 1])
 					if out_polygons != nil do append(&polys, next)
@@ -235,7 +244,7 @@ mesh_symmetrize :: proc(m: Mesh, axis: int, keep_positive: bool, pool: ^jobs.Poo
 			}
 			// In pieces: each triangle clipped on its own, as a polygon of its own.
 			for t in own {
-				if !clip(&positions, where_, m.indices[3 * t:][:3], axis, &loop, &cuts) do continue
+				if !clip(&positions, where_, m.indices[3 * t:][:3], axis, &loop, &cuts, &ends) do continue
 				for k in 1 ..< len(loop) - 1 {
 					append(&indices, loop[0], loop[k], loop[k + 1])
 					if out_polygons != nil do append(&polys, next)
@@ -259,12 +268,31 @@ mesh_symmetrize :: proc(m: Mesh, axis: int, keep_positive: bool, pool: ^jobs.Poo
 		copy(out_polygons.polys[:], polys[:])
 		if creases.edges != nil || creases.verts != nil do remap = make([]u32, len(positions), context.temp_allocator)
 	}
+	// Each vertex's source before the weld: its own below n, a cut point's kept end, and
+	// a twin its kept vertex's.
+	origin: []u32
+	if out_from != nil {
+		origin = make([]u32, len(positions), context.temp_allocator)
+		for v in 0 ..< len(positions) do origin[v] = u32(v) if v < n else ends[v - n] if v - n < len(ends) else 0
+		for t, v in twin do if int(t) != v do origin[t] = origin[v]
+		if remap == nil do remap = make([]u32, len(positions), context.temp_allocator)
+	}
 	if _, err := mesh_clean(&out, pool, polys = &out_polygons.polys if out_polygons != nil else nil, remap = remap); err != .None {
 		mesh_destroy(&out)
 		if out_polygons != nil do symmetrized_polygons_destroy(out_polygons, allocator)
 		return {}, false
 	}
-	if remap != nil do out_polygons.creases = creases_mirrored(creases, where_, cuts, twin, remap, allocator)
+	if out_polygons != nil && (creases.edges != nil || creases.verts != nil) do out_polygons.creases = creases_mirrored(creases, where_, cuts, twin, remap, allocator)
+	if out_from != nil {
+		// A welded vertex takes the source of the first kept vertex, cut point or image at
+		// its place: a vertex of the dropped side can sit exactly where an image does (a
+		// symmetric mesh) and weld with it, and it is not what the result shows there.
+		clear(out_from)
+		resize(out_from, len(out.positions))
+		for &f in out_from do f = max(u32)
+		for r, v in remap do if r != max(u32) && out_from[r] == max(u32) && (v >= n || where_[v] >= 0) do out_from[r] = origin[v]
+		for r, v in remap do if r != max(u32) && out_from[r] == max(u32) do out_from[r] = origin[v]
+	}
 	return out, true
 }
 

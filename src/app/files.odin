@@ -1166,6 +1166,27 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 		delete(mask)
 		positions, normals, indices = packed.positions[:], packed.normals[:], packed.indices[:]
 	}
+	// The live stack as it shows, unless the Export sheet keeps it out: a mirror welded and
+	// every copy joined in, the paint going by each vertex's source (`baked_from`), so
+	// what goes out is what the view shows.
+	baked_from: [dynamic]u32
+	defer delete(baked_from)
+	baked_mesh: geom.Mesh
+	defer geom.mesh_destroy(&baked_mesh)
+	baked := false
+	if !once.keep_stack && stack_shows(app, obj) {
+		baked_mesh, baked = stack_bake(app, obj, positions, indices, &baked_from)
+		if baked {
+			positions, normals, indices = baked_mesh.positions[:], baked_mesh.normals[:], baked_mesh.indices[:]
+			if colors != nil {
+				moved := make([][3]u8, len(baked_from), context.temp_allocator)
+				for v, k in baked_from do moved[k] = colors[v]
+				colors = moved
+			}
+		} else {
+			file_note(app, true, "%s's live stack is too big to bake, so it went out as the object holds it", object_label(obj))
+		}
+	}
 	// Decimate for this file only: a copy with fewer triangles whose vertices are the
 	// object's own (geom.mesh_decimate's `from`), so its paint, shape keys and groups
 	// follow them. A retopologized base going out as its quads, and a textured glTF whose
@@ -1174,10 +1195,10 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	defer delete(from)
 	decimated: geom.Mesh
 	defer geom.mesh_destroy(&decimated)
-	quads_out := ext == ".obj" && !print && obj.levels.current == 0 && sculpt.levels_has_quads(&obj.levels) && !object_dynamic(obj)
-	textured := ext == ".glb" && object_exports_textures(obj)
+	quads_out := ext == ".obj" && !print && obj.levels.current == 0 && sculpt.levels_has_quads(&obj.levels) && !object_dynamic(obj) && !baked
+	textured := ext == ".glb" && object_exports_textures(obj) && !baked
 	if once.decimate > 0 && len(indices) / 3 > once.decimate && !quads_out && !textured {
-		src := packed if obj.voxel != nil || object_dynamic(obj) else lv.mesh
+		src := baked_mesh if baked else packed if obj.voxel != nil || object_dynamic(obj) else lv.mesh
 		ok: bool
 		decimated, _, ok = geom.mesh_decimate(src, once.decimate, &app.pool, from = &from)
 		if ok {
@@ -1193,6 +1214,15 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 			clear(&from)
 		}
 	}
+	// From here `from` gives each vertex that goes out its vertex of the level, through
+	// the bake and the decimation both.
+	if baked {
+		if len(from) > 0 {
+			for &v in from do v = baked_from[v]
+		} else {
+			append(&from, ..baked_from[:])
+		}
+	}
 	out := make([dynamic]u8)
 	defer delete(out)
 	layers := 0
@@ -1205,7 +1235,9 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	case ext == ".glb" || ext == ".usda":
 		// Dynamic topology bakes the layers, so a dynamic object has none to write.
 		sculpt.sculptor_refresh_normals(&lv.sculptor)
-		list := sculpt.sculptor_layers(&lv.sculptor)
+		// A baked stack's copies share their vertices' shape keys, which glTF and USD give
+		// one vertex each, so the layers go out baked in as shown.
+		list := sculpt.sculptor_layers(&lv.sculptor) if !baked else nil
 		morphs := make([]geom.Morph_Target, len(list), context.temp_allocator)
 		// After a decimation a shape key keeps the vertices still there, by their new numbers.
 		kept: []u32
@@ -1323,7 +1355,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	// The times shown are this action's alone.
 	app.stats.file_read_ms, app.stats.file_parse_ms = 0, 0
 	app.stats.file_write_ms = time.duration_milliseconds(time.tick_since(start))
-	with := fmt.tprintf(", %d %s as shape keys", layers, "layer" if layers == 1 else "layers") if layers > 0 else ""
+	with := fmt.tprintf(", %d %s as shape keys", layers, "layer" if layers == 1 else "layers") if layers > 0 else ", its live stack baked" if baked else ""
 	if print {
 		app.print_exports += 1
 		file_note(app, false, "Exported %s for printing: %s; %d triangles in %.0f ms", name, printed, len(indices) / 3, app.stats.file_write_ms)

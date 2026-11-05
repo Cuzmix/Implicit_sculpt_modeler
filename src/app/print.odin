@@ -51,8 +51,44 @@ PRINT_MM_MAX :: 10_000
 PRINT_CHECK_MAX :: 12_000_000
 
 // The object's box in the scene, its placement applied, in scene units: the shown
-// level's (a voxel object's bricks'). Close rather than exact on a turned object.
-print_bounds :: proc(obj: ^Object) -> geom.Aabb {
+// level's (a voxel object's bricks'), with its live stack's copies while the Export sheet
+// bakes it (its mirror welds the kept half to its image). Close rather than exact on a
+// turned object or copy.
+print_bounds :: proc(app: ^App, obj: ^Object) -> geom.Aabb {
+	if app.kit.export.keep_stack || !stack_shows(app, obj) do return print_bounds_alone(obj)
+	b := geom.AABB_EMPTY
+	if vp := obj.voxel; vp != nil {
+		b = voxel.clay_bounds(&vp.clay)
+	} else {
+		s := object_sculptor(obj)
+		for c in s.chunks do b = geom.aabb_union(b, c.bounds)
+		if len(s.chunks) == 0 do for p in object_mesh(obj).positions do geom.aabb_grow(&b, p)
+	}
+	if b.lo.x > b.hi.x do return b
+	if stack_mirror_on(obj) {
+		m := obj.stack.mirror
+		for a in m.axes {
+			i := int(a)
+			far := -min(b.lo[i], 0) if m.minus else max(b.hi[i], 0)
+			b.lo[i], b.hi[i] = -far, far
+		}
+	}
+	model := transform_matrix(obj.transform)
+	world := geom.AABB_EMPTY
+	for step in stack_steps(app, obj) {
+		at := model * step
+		for corner in 0 ..< 8 {
+			p := Vec3{b.hi.x if corner & 1 != 0 else b.lo.x, b.hi.y if corner & 2 != 0 else b.lo.y, b.hi.z if corner & 4 != 0 else b.lo.z}
+			q := at * [4]f32{p.x, p.y, p.z, 1}
+			geom.aabb_grow(&world, q.xyz)
+		}
+	}
+	return world
+}
+
+// The object's own box in the scene, without its live stack, as print_bounds gives it.
+@(private = "file")
+print_bounds_alone :: proc(obj: ^Object) -> geom.Aabb {
 	if vp := obj.voxel; vp != nil {
 		local := voxel.clay_bounds(&vp.clay)
 		world := geom.AABB_EMPTY
@@ -73,7 +109,7 @@ print_scale :: proc(app: ^App) -> f32 {
 
 // The object's printed size along X, Y and Z, in millimetres.
 print_size_mm :: proc(app: ^App, obj: ^Object) -> Vec3 {
-	b := print_bounds(obj)
+	b := print_bounds(app, obj)
 	if b.lo.x > b.hi.x do return {}
 	return (b.hi - b.lo) * print_scale(app)
 }
@@ -81,7 +117,7 @@ print_size_mm :: proc(app: ^App, obj: ^Object) -> Vec3 {
 // Sets the scene's scale so that the object's side along `axis` prints `mm` long; false
 // when that side has no length or the scale would leave its range.
 print_set_side :: proc(app: ^App, obj: ^Object, axis: int, mm: f32) -> bool {
-	b := print_bounds(obj)
+	b := print_bounds(app, obj)
 	side := b.hi[axis] - b.lo[axis]
 	if b.lo.x > b.hi.x || !(side > 1e-12) || !(mm > 0) do return false
 	scale := clamp(mm / side, PRINT_MM_MIN, PRINT_MM_MAX)
@@ -173,15 +209,15 @@ print_objects_of :: proc(app: ^App, all: bool) -> []^Object {
 }
 
 // The box round the objects of a print in the scene, in scene units.
-print_bounds_of :: proc(objs: []^Object) -> geom.Aabb {
+print_bounds_of :: proc(app: ^App, objs: []^Object) -> geom.Aabb {
 	b := geom.AABB_EMPTY
-	for obj in objs do b = geom.aabb_union(b, print_bounds(obj))
+	for obj in objs do b = geom.aabb_union(b, print_bounds(app, obj))
 	return b
 }
 
 // The print of `objs` along X, Y and Z, in millimetres.
 print_size_of :: proc(app: ^App, objs: []^Object) -> Vec3 {
-	b := print_bounds_of(objs)
+	b := print_bounds_of(app, objs)
 	if b.lo.x > b.hi.x do return {}
 	return (b.hi - b.lo) * print_scale(app)
 }
@@ -221,14 +257,20 @@ print_export_many :: proc(app: ^App, objs: []^Object, path: string, once := Expo
 	// written, so they and the slices holding them come from the context's allocator.
 	packed := make([]geom.Mesh, len(objs))
 	decimated := make([]geom.Mesh, len(objs))
+	baked := make([]geom.Mesh, len(objs))
 	defer {
 		for &m in packed do geom.mesh_destroy(&m)
 		for &m in decimated do geom.mesh_destroy(&m)
+		for &m in baked do geom.mesh_destroy(&m)
 		delete(packed)
 		delete(decimated)
+		delete(baked)
 	}
 	total, walls := 0, 0
-	for obj in objs do total += object_triangle_count(obj)
+	for obj in objs {
+		copies := len(stack_steps(app, obj)) if !once.keep_stack && stack_shows(app, obj) else 1
+		total += copies * object_triangle_count(obj)
+	}
 	painted := false
 	for obj, i in objs {
 		lv := sculpt.levels_current(&obj.levels)
@@ -246,10 +288,24 @@ print_export_many :: proc(app: ^App, objs: []^Object, path: string, once := Expo
 			for x, v in c do colors[i][v] = paint_over(x, {255, 255, 255})
 			painted = true
 		}
+		// Each object as its live stack shows it, unless the sheet keeps the stack out.
+		if !once.keep_stack && stack_shows(app, obj) {
+			from: [dynamic]u32
+			defer delete(from)
+			made: bool
+			if baked[i], made = stack_bake(app, obj, at, indices, &from); made {
+				at, indices = baked[i].positions[:], baked[i].indices[:]
+				if colors[i] != nil {
+					moved := make([][3]u8, len(from), context.temp_allocator)
+					for v, k in from do moved[k] = colors[i][v]
+					colors[i] = moved
+				}
+			}
+		}
 		if once.decimate > 0 && total > 0 {
 			share := max(int(i64(once.decimate) * i64(len(indices) / 3) / i64(total)), 4)
 			if len(indices) / 3 > share {
-				src := packed[i] if obj.voxel != nil || object_dynamic(obj) else lv.mesh
+				src := baked[i] if len(baked[i].positions) > 0 else packed[i] if obj.voxel != nil || object_dynamic(obj) else lv.mesh
 				from: [dynamic]u32
 				defer delete(from)
 				ok: bool

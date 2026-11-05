@@ -712,9 +712,7 @@ stack_apply :: proc(app: ^App, obj: ^Object) -> bool {
 		}
 		changed ||= did
 	}
-	if stack_array_on(obj) do obj.stack.array = {}
-	if stack_radial_on(obj) do obj.stack.radial = {}
-	if stack_along_on(app, obj) do obj.stack.along = {}
+	stack_take_shown(app, obj)
 	history_record_swap(app, obj.id, before)
 	if changed {
 		report(app, .Stack, {.Undo}, "Applied the stack: %d vertices (%.0f ms)", object_vertex_count(obj), time.duration_milliseconds(time.tick_since(start)))
@@ -722,6 +720,15 @@ stack_apply :: proc(app: ^App, obj: ^Object) -> bool {
 		report(app, .Stack, {.Warning, .Undo}, "Nothing of the object was on the side to keep: the rows are taken out")
 	}
 	return true
+}
+
+// Takes the rows that show out of the object's stack, once they are baked into its mesh;
+// a hidden row stays. The caller's swap step brings them back.
+stack_take_shown :: proc(app: ^App, obj: ^Object) {
+	if stack_mirror_on(obj) do obj.stack.mirror = {}
+	if stack_array_on(obj) do obj.stack.array = {}
+	if stack_radial_on(obj) do obj.stack.radial = {}
+	if stack_along_on(app, obj) do obj.stack.along = {}
 }
 
 // The object's shown level and every Array and Radial copy of it joined into one mesh,
@@ -762,6 +769,102 @@ stack_join_copies :: proc(app: ^App, obj: ^Object) -> (changed, ok: bool) {
 	defer delete(surface.color)
 	if !object_rebuild(app, obj, mesh, start, normals = true, surface = surface) do return true, false
 	return true, true
+}
+
+// Whether a row that changes what the object shows is on: a mirror, or copies.
+stack_shows :: proc(app: ^App, obj: ^Object) -> bool {
+	return obj != nil && (stack_mirror_on(obj) || stack_array_on(obj) || stack_radial_on(obj) || stack_along_on(app, obj))
+}
+
+// The most vertices a baked stack may hold, so every index fits in a u32 with room to
+// spare for the writers' own copies (a glTF's seams).
+STACK_BAKE_VERTICES_MAX :: 1 << 30
+
+// The mesh of `positions` and `indices` (the object's shown level, in its own space) as
+// its live stack shows it, for an export, the Blender link or a boolean, which take what
+// the view shows: Mirror and weld across each mirror plane keeping its side
+// (geom.mesh_symmetrize), then a copy at every Array, Radial and Along placing, with
+// normals. With `from` given, each vertex's source vertex goes there, as
+// geom.mesh_decimate's does, so paint and polygroups follow: a mirror image's vertex takes
+// its kept vertex's, and a point the cut made the kept end of the edge it cut. `baked` is false,
+// with nothing made, when no such row shows or the copies would pass
+// STACK_BAKE_VERTICES_MAX; a mirror with nothing on its kept side is passed over, as the
+// view shows nothing of it.
+stack_bake :: proc(app: ^App, obj: ^Object, positions: []Vec3, indices: []u32, from: ^[dynamic]u32 = nil) -> (out: geom.Mesh, baked: bool) {
+	if !stack_shows(app, obj) do return {}, false
+	cur := geom.Mesh {
+		positions = make([dynamic]Vec3, len(positions)),
+		indices   = make([dynamic]u32, len(indices)),
+		normals   = make([dynamic]Vec3, len(positions)),
+	}
+	copy(cur.positions[:], positions)
+	copy(cur.indices[:], indices)
+	origin := make([dynamic]u32, len(positions))
+	defer delete(origin)
+	for &o, v in origin do o = u32(v)
+	if stack_mirror_on(obj) {
+		m := obj.stack.mirror
+		for a in sculpt.Axis {
+			if a not_in m.axes do continue
+			step_from: [dynamic]u32
+			next, ok := geom.mesh_symmetrize(cur, int(a), !m.minus, &app.pool, out_from = &step_from)
+			if !ok {
+				delete(step_from)
+				continue
+			}
+			for &f in step_from do f = origin[f]
+			geom.mesh_destroy(&cur)
+			delete(origin)
+			cur, origin = next, step_from
+		}
+	}
+	steps := stack_steps(app, obj)
+	if len(steps) > 1 {
+		n, m := len(cur.positions), len(cur.indices)
+		if n * len(steps) > STACK_BAKE_VERTICES_MAX {
+			geom.mesh_destroy(&cur)
+			return {}, false
+		}
+		joined := geom.Mesh {
+			positions = make([dynamic]Vec3, n * len(steps)),
+			indices   = make([dynamic]u32, m * len(steps)),
+			normals   = make([dynamic]Vec3, n * len(steps)),
+		}
+		joined_origin := make([dynamic]u32, n * len(steps))
+		for step, k in steps {
+			for p, v in cur.positions {
+				q := step * [4]f32{p.x, p.y, p.z, 1}
+				joined.positions[k * n + v] = q.xyz
+			}
+			for i, j in cur.indices do joined.indices[k * m + j] = i + u32(k * n)
+			copy(joined_origin[k * n:][:n], origin[:])
+		}
+		geom.mesh_destroy(&cur)
+		delete(origin)
+		cur, origin = joined, joined_origin
+	}
+	geom.mesh_recompute_normals(&cur)
+	if from != nil {
+		clear(from)
+		append(from, ..origin[:])
+	}
+	app.stack_bakes += 1
+	return cur, true
+}
+
+// The shape of `obj` as shape_in gives it, in the space `into` places, with its live
+// stack baked (stack_bake), as a boolean takes a marked object: each copy takes part.
+stack_shape_in :: proc(app: ^App, obj: ^Object, into: Transform) -> geom.Mesh {
+	if !stack_shows(app, obj) do return shape_in(obj, into)
+	local := shape_in(obj, obj.transform)
+	baked, ok := stack_bake(app, obj, local.positions[:], local.indices[:])
+	if !ok {
+		geom.mesh_destroy(&local)
+		return shape_in(obj, into)
+	}
+	geom.mesh_destroy(&local)
+	for &p in baked.positions do p = to_local(into, to_world(obj.transform, p))
+	return baked
 }
 
 // The script verb `stack`: "mirror x" (any of x, y and z together, "-x" style for the -
