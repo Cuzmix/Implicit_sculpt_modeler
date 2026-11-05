@@ -19,7 +19,7 @@ import "../ui"
 // themselves unless Keep borders holds them (its Keep Borders); masked areas and the
 // edges in the paint keep more of their triangles (its Use Mask and Use Polypaint).
 // UVs belong to quad faces in this app, which a decimation turns into triangles, so they
-// go, as they do in Blender; New UVs lays out fresh ones.
+// go, as they do in Blender; Unwrap lays out fresh ones.
 
 Decimate_By :: enum u8 {
 	Percent, // a share of the object's vertices

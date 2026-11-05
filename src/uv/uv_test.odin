@@ -259,3 +259,28 @@ f 3/7 4/8 8/10 7/9
 		}
 	}
 }
+
+// Unwrap keeps a quad object's quads whole: on a ball of quads (split both ways) no seam
+// cuts a diagonal, so both halves of each quad agree on their shared corners and the UVs
+// read as the quads' layout.
+@(test)
+unwrap_keeps_quads_whole :: proc(t: ^testing.T) {
+	f := cube_grid(6, true)
+	for &p in f.q.positions do p = geom.Vec3(p / max(f32(1e-9), math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z)))
+	partner, ok := quad_partners(f.q, f.indices, f.faces, context.temp_allocator)
+	testing.expect(t, ok)
+	for p, tri in partner do testing.expectf(t, p >= 0 && partner[p] == i32(tri), "partner of %d", tri)
+	u := make_uvs(len(f.indices) / 3, context.temp_allocator)
+	r := unwrap(&u, f.q.positions, f.indices, f.faces, partner = partner)
+	testing.expect_value(t, r.flatten.flips, 0)
+	testing.expect_value(t, check(u, f.indices, f.faces, len(f.q.positions)), "")
+	for s, tri in u.seam do for k in s {
+		o, _, _ := across(f.indices, f.faces, u32(tri), k)
+		testing.expectf(t, i32(o) != partner[tri], "a seam cuts the diagonal of triangle %d", tri)
+	}
+	layout, folded := to_quads(u, f.q, f.indices, f.faces)
+	testing.expect(t, folded)
+	back, again := from_quads(layout, f.q, f.indices, f.faces, context.temp_allocator)
+	testing.expect(t, again)
+	for c, tri in u.corner do testing.expectf(t, c == back.corner[tri], "triangle %d's corners differ from its quad's", tri)
+}

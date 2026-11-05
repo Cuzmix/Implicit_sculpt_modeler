@@ -18,8 +18,9 @@ import "../ui"
 import "../voxel"
 import "../render"
 import "../retopo"
+import "../uv"
 
-// Long jobs (the overhaul's round 3, PR 12): Remesh, Decimate, Quad Remesh, Subdivide,
+// Long jobs (the overhaul's round 3, PR 12): Remesh, Decimate, Quad Remesh, Unwrap, Subdivide,
 // Convert to mesh, Convert to voxels and Res+/Res− of a big object, and every Import, run
 // on a thread of their own, so the frame goes on (the camera turns, the panels
 // answer, motion plays) while a pill under the top bar, and the button that started it,
@@ -115,6 +116,10 @@ Long_Job :: struct {
 	imported:   Mesh_Import,
 	note:       string, // owned: the import's note
 	warning:    bool,
+	// Unwrap: the new UVs, made with the object's levels' allocator, and what came of it.
+	uvs:        uv.Uvs,
+	uvs_allocator: runtime.Allocator,
+	unwrapped:  uv.Unwrap_Report,
 	// For the exit stats.
 	runs:       int,
 	cancels:    int,
@@ -151,6 +156,7 @@ JOB_VERBS := #partial [Scene_Command_Kind]string {
 	.Voxel_To_Mesh  = "Converting to a mesh:",
 	.Mesh_To_Voxels = "Converting to voxels:",
 	.Voxel_Resample = "Resampling",
+	.Unwrap         = "Unwrapping",
 }
 
 @(private = "file")
@@ -162,6 +168,7 @@ JOB_NOUNS := #partial [Scene_Command_Kind]string {
 	.Voxel_To_Mesh  = "conversion",
 	.Mesh_To_Voxels = "conversion",
 	.Voxel_Resample = "resampling",
+	.Unwrap         = "unwrap",
 }
 
 // What an import is called while it runs, and what it is.
@@ -194,6 +201,7 @@ JOB_BUTTONS := #partial [Scene_Command_Kind]Command_Set {
 	.Voxel_To_Mesh  = {.Convert_To_Mesh},
 	.Mesh_To_Voxels = {.Convert_To_Voxels},
 	.Voxel_Resample = {.Voxel_Res_Up, .Voxel_Res_Down},
+	.Unwrap         = {.Unwrap},
 }
 
 // The shares of a mesh-making job that its computing half takes, at 2M to 4M vertices in a
@@ -260,6 +268,12 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		sculpt.levels_sync(&obj.levels)
 		levels := &obj.levels
 		j.layers = len(levels.levels[len(levels.levels) - 1].sculptor.layers.list)
+	case .Unwrap:
+		// The thread reads the base level in place: the scene holds still while it runs.
+		sculpt.levels_sync(&obj.levels)
+		j.uvs, j.uvs_allocator, j.unwrapped = {}, obj.levels.allocator, {}
+		// Unwrap reports itself, so scene_run never names it: the pill names it here.
+		j.label, j.named = strings.clone(object_label(obj)), true
 	case .Voxel_To_Mesh:
 		// The thread meshes the clay as it is now without flushing it, so it only reads
 		// it; what the flush meshed here goes to the GPU whole with the next upload.
@@ -388,6 +402,8 @@ long_job_thread :: proc(data: rawptr) {
 		j.built = j.voxels != nil
 	case .Voxel_Resample:
 		j.clay, j.built = resample_compute(j.object.voxel, j.cmd.voxels, &j.pool, &j.progress)
+	case .Unwrap:
+		j.uvs, j.unwrapped, j.built = unwrap_compute(j.object, j.cmd.unwrap, &j.pool, &j.progress)
 	case .Voxel_To_Mesh:
 		j.mesh = voxel.clay_to_mesh(&j.object.voxel.clay, mask = &j.values if j.masked else nil, flush = false, pool = &j.pool)
 		jobs.progress_set(&j.progress, 0, 1, share)
@@ -458,6 +474,8 @@ long_job_drop :: proc(j: ^Long_Job) {
 	j.clay = {}
 	delete(j.values)
 	j.values = nil
+	if uv.has(j.uvs) do uv.destroy(&j.uvs, j.uvs_allocator)
+	j.uvs = {}
 	mesh_import_free(&j.imported)
 	delete(j.path)
 	delete(j.note)
@@ -518,6 +536,12 @@ long_job_frame :: proc(app: ^App) -> bool {
 	defer app.sets_lost, app.layers_kept, app.layers_lost = 0, 0, 0
 	// The old object's sets went as it was let go, before the reset above.
 	if j.held do app.sets_lost = j.sets_lost
+	if cmd.kind == .Unwrap {
+		unwrap_apply(app, obj, j.uvs, j.unwrapped, j.start)
+		j.uvs = {}
+		long_job_drop(j)
+		return true
+	}
 	ok, applied := true, true
 	#partial switch cmd.kind {
 	case .Remesh, .Decimate:

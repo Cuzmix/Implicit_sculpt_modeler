@@ -149,7 +149,7 @@ scene_keeps_textures :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 }
 
-// Baking (textures_replace) and New UVs are undo steps of their own: undo puts the maps
+// Baking (textures_replace) and Unwrap are undo steps of their own: undo puts the maps
 // and the UVs back and redo takes them again, while the object's strokes stay; the
 // maps go when the UVs do.
 @(test)
@@ -169,16 +169,18 @@ textures_undo_and_redo :: proc(t: ^testing.T) {
 	counter := obj.textures.layout
 	testing.expect_value(t, counter, 0)
 
-	object_layout_uvs(&app, obj)
-	testing.expect(t, !object_has_textures(obj), "New UVs keeps maps made on the old layout")
+	object_unwrap(&app, obj, unwrap_setup(&app))
+	testing.expect(t, !object_has_textures(obj), "Unwrap keeps maps made on the old layout")
 	testing.expect(t, raw_data(obj.levels.uvs.corner) != layout)
+	_, folded := sculpt.levels_quad_uvs(&obj.levels)
+	testing.expect(t, folded, "Unwrap keeps a quad object's UVs readable as its quads")
 	testing.expect(t, obj.textures.layout != counter, "the preview must see the new layout")
 	counter = obj.textures.layout
 	testing.expect_value(t, len(app.history.done), 2)
 	testing.expect_value(t, app.history.done[1].kind, History_Kind.Textures)
 
 	history_undo(&app)
-	testing.expect(t, object_has_textures(obj) && raw_data(obj.levels.uvs.corner) == layout, "undo of New UVs brings both back")
+	testing.expect(t, object_has_textures(obj) && raw_data(obj.levels.uvs.corner) == layout, "undo of Unwrap brings both back")
 	testing.expect(t, obj.textures.stamp != stamp, "the preview must see the change")
 	testing.expect(t, obj.textures.layout != counter, "nor may it miss the old layout coming back")
 	history_undo(&app)

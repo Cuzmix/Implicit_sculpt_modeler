@@ -3,7 +3,6 @@ package uv
 import "base:runtime"
 import "core:math"
 import "core:math/linalg"
-import "core:math/rand"
 import "core:slice"
 import "core:testing"
 
@@ -67,10 +66,19 @@ lscm_unrolls_a_tube :: proc(t: ^testing.T) {
 	testing.expect_value(t, r.flips, 0)
 	s := stretch(u, positions, indices)
 	testing.expectf(t, abs(s.l2 - 1) < 1e-4 && s.worst < 1 + 1e-3, "stretch %v", s)
-	// The two sides of the cut at the first vertex lie the polygon's perimeter apart.
+	// The two sides of the cut at the first vertex lie the polygon's perimeter apart, in
+	// the scale the packing gave the island (its UV area over its surface area).
+	uv_area, surface: f64
+	for c, tri in u.corner {
+		e1, e2 := c[1] - c[0], c[2] - c[0]
+		uv_area += abs(f64(e1.x * e2.y - e1.y * e2.x)) * 0.5
+		p := positions[indices[3 * tri]]
+		surface += f64(linalg.length(linalg.cross(positions[indices[3 * tri + 1]] - p, positions[indices[3 * tri + 2]] - p))) * 0.5
+	}
+	scale := f32(math.sqrt(uv_area / surface))
 	ends := make([dynamic][2]f32, context.temp_allocator)
 	for c, tri in u.corner do for k in 0 ..< 3 do if indices[3 * tri + k] == 0 && !slice.contains(ends[:], c[k]) do append(&ends, c[k])
-	perimeter := f32(24 * 2 * math.sin(math.PI / 24))
+	perimeter := f32(24 * 2 * math.sin(math.PI / 24)) * scale
 	if testing.expect_value(t, len(ends), 2) {
 		d := linalg.length(ends[1] - ends[0])
 		testing.expectf(t, abs(d - perimeter) < 1e-3 * perimeter, "the cut's sides %v apart, perimeter %v", d, perimeter)
@@ -154,83 +162,236 @@ flatten_does_not_depend_on_the_pool :: proc(t: ^testing.T) {
 	testing.expect(t, slice.equal(results[0], results[1]) && slice.equal(results[0], results[2]), "the same on every pool")
 }
 
-// The direct solvers solve a grid's Laplacian plus the identity to rounding, in the
-// order nested dissection gives, which is a permutation, and agree with each other.
+// The packing puts every flattened island inside the unit square, no two boxes touching,
+// and covers most of it with like islands.
 @(test)
-ldl_solves_a_laplacian :: proc(t: ^testing.T) {
-	positions, indices, _, _ := test_grid(20, same)
-	n := len(positions)
-	// The grid's edges as a graph.
-	edges := make([dynamic][2]u32, context.temp_allocator)
-	for tri in 0 ..< len(indices) / 3 do for k in 0 ..< 3 {
-		a, b := indices[3 * tri + k], indices[3 * tri + (k + 1) % 3]
-		append(&edges, [2]u32{a, b}, [2]u32{b, a})
+flatten_packs_islands_apart :: proc(t: ^testing.T) {
+	positions, indices, faces, u := dome(12, 7)
+	for i in 0 ..= 12 do for j in 0 ..< 12 do if i % 3 == 0 && i > 0 && i < 12 {
+		cut(&u, indices, u32(j * 13 + i), u32((j + 1) * 13 + i))
+		cut(&u, indices, u32(i * 13 + j), u32(i * 13 + j + 1))
 	}
-	slice.sort_by(edges[:], proc(p, q: [2]u32) -> bool {return p[0] < q[0] || (p[0] == q[0] && p[1] < q[1])})
-	uniq := make([dynamic][2]u32, context.temp_allocator)
-	for e in edges do if len(uniq) == 0 || e != uniq[len(uniq) - 1] do append(&uniq, e)
-	next := make([]u32, n + 1, context.temp_allocator)
-	neighbour := make([]u32, len(uniq), context.temp_allocator)
-	for e, i in uniq {
-		next[e[0] + 1] += 1
-		neighbour[i] = e[1]
+	islands_find(&u, indices, faces)
+	r := flatten(&u, positions, indices, faces)
+	testing.expect_value(t, r.flattened, u.islands)
+	lo := make([][2]f32, u.islands, context.temp_allocator)
+	hi := make([][2]f32, u.islands, context.temp_allocator)
+	for &l in lo do l = {2, 2}
+	for &h in hi do h = {-1, -1}
+	for c, tri in u.corner do for p in c {
+		i := u.island[tri]
+		lo[i], hi[i] = {min(lo[i].x, p.x), min(lo[i].y, p.y)}, {max(hi[i].x, p.x), max(hi[i].y, p.y)}
 	}
-	for i in 0 ..< n do next[i + 1] += next[i]
-	order, tree := dissection_order(positions, next, neighbour, context.temp_allocator)
-	sorted := slice.clone(order, context.temp_allocator)
-	slice.sort(sorted)
-	for v, i in sorted do testing.expect_value(t, v, u32(i))
-	rank := make([]u32, n, context.temp_allocator)
-	for v, i in order do rank[v] = u32(i)
-	// L + I in the dissection order, upper triangle by columns.
-	a: Sparse
-	a.n = n
-	a.first = make([]u32, n + 1, context.temp_allocator)
-	rows := make([dynamic]u32, context.temp_allocator)
-	values := make([dynamic]f64, context.temp_allocator)
-	for k in 0 ..< n {
-		v := order[k]
-		col := make([dynamic]u32, context.temp_allocator)
-		for w in neighbour[next[v]:next[v + 1]] do if rank[w] < u32(k) do append(&col, rank[w])
-		slice.sort(col[:])
-		for r in col {
-			append(&rows, r)
-			append(&values, -1)
+	for i in 0 ..< u.islands {
+		testing.expectf(t, lo[i].x >= 0 && lo[i].y >= 0 && hi[i].x <= 1 && hi[i].y <= 1, "island %d inside: %v %v", i, lo[i], hi[i])
+		for j in i + 1 ..< u.islands {
+			apart := hi[i].x < lo[j].x || hi[j].x < lo[i].x || hi[i].y < lo[j].y || hi[j].y < lo[i].y
+			testing.expectf(t, apart, "islands %d and %d apart", i, j)
 		}
-		append(&rows, u32(k))
-		append(&values, f64(next[v + 1] - next[v]) + 1)
-		a.first[k + 1] = u32(len(rows))
 	}
-	a.row, a.value = rows[:], values[:]
-	f, ok := ldl_factor(a, context.temp_allocator)
-	if !testing.expect(t, ok) do return
-	b := make([]f64, n, context.temp_allocator)
-	for &x in b do x = rand.float64()
-	x := slice.clone(b, context.temp_allocator)
-	ldl_solve(f, x)
-	// The residual, from the full symmetric matrix.
-	worst: f64
-	for k in 0 ..< n {
-		v := order[k]
-		ax := (f64(next[v + 1] - next[v]) + 1) * x[k]
-		for w in neighbour[next[v]:next[v + 1]] do ax -= x[rank[w]]
-		worst = max(worst, abs(ax - b[k]))
-	}
-	testing.expectf(t, worst < 1e-12, "residual %v", worst)
+	testing.expectf(t, u.filled > 0.7, "filled %v", u.filled)
+}
 
-	// The frontal factor gives the same answer, on one thread and on a pool.
-	for workers in ([]int{-1, 3}) {
-		pool: jobs.Pool
-		if workers >= 0 do jobs.pool_init(&pool, workers)
-		defer if workers >= 0 do jobs.pool_destroy(&pool)
-		// Parts factored side by side allocate from their threads, so not from temp.
-		fronts, factored := front_factor(a, tree, &pool if workers >= 0 else nil, runtime.heap_allocator())
-		if !testing.expect(t, factored) do continue
-		defer fronts_destroy(&fronts, runtime.heap_allocator())
-		y := slice.clone(b, context.temp_allocator)
-		front_solve(fronts, y)
-		gap: f64
-		for v, i in y do gap = max(gap, abs(v - x[i]))
-		testing.expectf(t, gap < 1e-10, "frontal and LDL differ by %v", gap)
+// ABF++ reaches its angles on a dome (no fallback): every triangle's angles sum to π and
+// round each inner vertex to 2π, and the island keeps the surface's angles better than
+// LSCM alone does, with no flips.
+@(test)
+abf_keeps_angles_better_than_lscm :: proc(t: ^testing.T) {
+	positions, indices, faces, base := dome(16, 9)
+	abf := clone(base, context.temp_allocator)
+	r := flatten(&abf, positions, indices, faces, .Abf)
+	testing.expect_value(t, r.flattened, 1)
+	testing.expect_value(t, r.fallbacks, 0)
+	testing.expect_value(t, r.flips, 0)
+	lscm := clone(base, context.temp_allocator)
+	_ = flatten(&lscm, positions, indices, faces, .Lscm)
+	sa, sl := stretch(abf, positions, indices), stretch(lscm, positions, indices)
+	testing.expectf(t, sa.angle < sl.angle, "angle error ABF++ %v, LSCM %v", sa.angle, sl.angle)
+
+	order, first := island_triangles(base, context.temp_allocator)
+	island := island_mesh(base, indices, faces, order[first[0]:first[1]], context.temp_allocator)
+	angles, ok := abf_angles(positions, &island, nil)
+	defer delete(angles, runtime.heap_allocator())
+	if !testing.expect(t, ok) do return
+	worst := 0.0
+	for k in 0 ..< len(angles) / 3 do worst = max(worst, abs(angles[3 * k] + angles[3 * k + 1] + angles[3 * k + 2] - math.PI))
+	around := make([]f64, island.wedges, context.temp_allocator)
+	for a, c in angles do around[island.wedge[c]] += a
+	for w in 0 ..< island.wedges do if !island.on_edge[w] do worst = max(worst, abs(around[w] - 2 * math.PI))
+	testing.expectf(t, worst < 1e-6, "angle sums off by %v", worst)
+}
+
+// Relax leaves a map that keeps lengths as it is (energy 4, the least), lowers a dome's
+// LSCM energy without a flip, pulls a stretched grid back towards its lengths, holds
+// pins, skips a folded island and gives the same bits on any pool.
+@(test)
+relax_lowers_stretch_and_keeps_pins :: proc(t: ^testing.T) {
+	// The flat grid with its own coordinates.
+	{
+		positions, indices, faces, u := test_grid(6, same)
+		r := relax(&u, positions, indices, faces)
+		testing.expect_value(t, r.relaxed, 1)
+		testing.expectf(t, abs(r.before - 4) < 1e-9 && abs(r.after - 4) < 1e-9, "energy %v to %v", r.before, r.after)
+	}
+	// A dome flattened by LSCM.
+	{
+		positions, indices, faces, u := dome(12, 7)
+		_ = flatten(&u, positions, indices, faces, .Lscm)
+		r := relax(&u, positions, indices, faces)
+		testing.expect_value(t, r.relaxed, 1)
+		testing.expectf(t, r.after < r.before && r.after >= 4, "energy %v to %v", r.before, r.after)
+		testing.expect_value(t, stretch(u, positions, indices).flips, 0)
+	}
+	// A grid whose coordinates are stretched twice as wide: relax takes most of it out.
+	{
+		positions, indices, faces, u := test_grid(6, proc(p: geom.Vec3) -> [2]f32 {return {p.x * 2, p.y}})
+		r := relax(&u, positions, indices, faces, 30)
+		testing.expectf(t, r.before > 4.4 && r.after < 4.01, "energy %v to %v", r.before, r.after)
+		testing.expectf(t, stretch(u, positions, indices).l2 < 1.01, "stretch %v", stretch(u, positions, indices))
+	}
+	// Two pins hold still and keep the island where it is.
+	{
+		positions, indices, faces, u := dome(8, 6)
+		_ = flatten(&u, positions, indices, faces, .Lscm)
+		u.pins = []u32{0, 8}
+		held: [2][2]f32
+		for c, tri in u.corner do for k in 0 ..< 3 {
+			if indices[3 * tri + k] == 0 do held[0] = c[k]
+			if indices[3 * tri + k] == 8 do held[1] = c[k]
+		}
+		r := relax(&u, positions, indices, faces)
+		testing.expect_value(t, r.relaxed, 1)
+		for c, tri in u.corner do for k in 0 ..< 3 {
+			if indices[3 * tri + k] == 0 do testing.expect_value(t, c[k], held[0])
+			if indices[3 * tri + k] == 8 do testing.expect_value(t, c[k], held[1])
+		}
+	}
+	// A folded triangle: skipped and left as it was.
+	{
+		positions, indices, faces, u := test_grid(4, same)
+		for &c, tri in u.corner do for k in 0 ..< 3 do if indices[3 * tri + k] == 6 do c[k] = {3, 3}
+		before := slice.clone(u.corner, context.temp_allocator)
+		r := relax(&u, positions, indices, faces)
+		testing.expect_value(t, r.skipped, 1)
+		testing.expect(t, slice.equal(before, u.corner), "left as it was")
+	}
+	// The same on any pool, over many islands.
+	{
+		positions, indices, faces, base := dome(12, 7)
+		for i in 0 ..= 12 do for j in 0 ..< 12 do if i % 3 == 0 && i > 0 && i < 12 {
+			cut(&base, indices, u32(j * 13 + i), u32((j + 1) * 13 + i))
+			cut(&base, indices, u32(i * 13 + j), u32(i * 13 + j + 1))
+		}
+		islands_find(&base, indices, faces)
+		_ = flatten(&base, positions, indices, faces, .Lscm)
+		results: [3][][3][2]f32
+		for workers, i in ([3]int{0, 1, 3}) {
+			pool: jobs.Pool
+			jobs.pool_init(&pool, workers)
+			defer jobs.pool_destroy(&pool)
+			u := clone(base, context.temp_allocator)
+			r := relax(&u, positions, indices, faces, pool = &pool)
+			testing.expect_value(t, r.relaxed, base.islands)
+			results[i] = u.corner
+		}
+		testing.expect(t, slice.equal(results[0], results[1]) && slice.equal(results[0], results[2]), "the same on every pool")
+	}
+}
+
+// A tube welded round, mirror symmetric across y = 0 (each square's diagonal turned to
+// match its mirror's), cut along x's line at angle 0 and, with `both`, at angle π too.
+@(private)
+mirror_tube :: proc(around, along: int, both: bool) -> (positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, u: Uvs) {
+	m: geom.Mesh
+	m.positions = make([dynamic]geom.Vec3, context.temp_allocator)
+	m.indices = make([dynamic]u32, context.temp_allocator)
+	for y in 0 ..= along do for x in 0 ..< around {
+		a := 2 * math.PI * f64(x) / f64(around)
+		append(&m.positions, geom.Vec3{f32(math.cos(a)) * 3, f32(math.sin(a)) * 3, f32(y)})
+	}
+	for &p in m.positions do if abs(p.y) < 1e-6 do p.y = 0
+	at :: proc(around, x, y: int) -> u32 {return u32(y * around + x % around)}
+	for y in 0 ..< along do for x in 0 ..< around {
+		if x < around / 2 {
+			append(&m.indices, at(around, x, y), at(around, x + 1, y), at(around, x + 1, y + 1))
+			append(&m.indices, at(around, x, y), at(around, x + 1, y + 1), at(around, x, y + 1))
+		} else {
+			append(&m.indices, at(around, x, y), at(around, x + 1, y), at(around, x, y + 1))
+			append(&m.indices, at(around, x + 1, y), at(around, x + 1, y + 1), at(around, x, y + 1))
+		}
+	}
+	positions, indices = m.positions[:], m.indices[:]
+	faces = geom.vertex_faces_build(m, nil, context.temp_allocator)
+	u = make_uvs(len(indices) / 3, context.temp_allocator)
+	for y in 0 ..< along {
+		cut(&u, indices, at(around, 0, y), at(around, 0, y + 1))
+		if both do cut(&u, indices, at(around, around / 2, y), at(around, around / 2, y + 1))
+	}
+	islands_find(&u, indices, faces)
+	return
+}
+
+// The worst difference between a UV edge and its mirror edge's length, over the mean
+// edge, for the triangles that have mirrors.
+@(private)
+mirror_mismatch :: proc(u: Uvs, r: Mirror) -> (worst: f32, mirrored: int) {
+	mean: f32 = 0
+	for c in u.corner do mean += linalg.length(c[1] - c[0])
+	mean /= f32(len(u.corner))
+	for c, t in u.corner {
+		o := r.tri[t]
+		if o < 0 do continue
+		mirrored += 1
+		for k in 0 ..< 3 {
+			a := linalg.length(c[(k + 1) % 3] - c[k])
+			mc := u.corner[o]
+			b := linalg.length(mc[r.at[t][(k + 1) % 3]] - mc[r.at[t][k]])
+			worst = max(worst, abs(a - b) / mean)
+		}
+	}
+	return
+}
+
+// Two mirrored halves: the second takes the first's layout reflected (same shapes, no
+// flips); one island across the plane comes out symmetric; and a vertex moved off its
+// mirror leaves its island to be laid out alone.
+@(test)
+symmetry_mirrors_islands :: proc(t: ^testing.T) {
+	sym := DEFAULT_SYMMETRY
+	sym.axis = 1
+	{
+		positions, indices, faces, u := mirror_tube(16, 4, true)
+		testing.expect_value(t, u.islands, 2)
+		order, first := island_triangles(u, context.temp_allocator)
+		m := mirror_build(u, positions, indices, faces, sym, order, first)
+		testing.expect(t, m.leader[1] == 0 && m.leader[0] == -1, "island 1 follows island 0")
+		r := flatten(&u, positions, indices, faces, .Abf, symmetry = &sym)
+		testing.expect_value(t, r.flattened, 2)
+		testing.expect_value(t, r.flips, 0)
+		testing.expect_value(t, stretch(u, positions, indices).flips, 0)
+		worst, mirrored := mirror_mismatch(u, m)
+		testing.expect_value(t, mirrored, len(indices) / 3)
+		testing.expectf(t, worst < 1e-5, "mirror edges differ by %v", worst)
+		_ = relax(&u, positions, indices, faces, symmetry = &sym)
+		worst, _ = mirror_mismatch(u, m)
+		testing.expectf(t, worst < 1e-5, "after relax, mirror edges differ by %v", worst)
+	}
+	{
+		positions, indices, faces, u := mirror_tube(16, 4, false)
+		testing.expect_value(t, u.islands, 1)
+		order, first := island_triangles(u, context.temp_allocator)
+		m := mirror_build(u, positions, indices, faces, sym, order, first)
+		testing.expect(t, m.self[0], "the island is its own mirror")
+		r := flatten(&u, positions, indices, faces, .Lscm, symmetry = &sym)
+		testing.expect_value(t, r.flips, 0)
+		worst, _ := mirror_mismatch(u, m)
+		testing.expectf(t, worst < 1e-5, "mirror edges differ by %v", worst)
+	}
+	{
+		positions, indices, faces, u := mirror_tube(16, 4, true)
+		positions[3].z += 0.3
+		order, first := island_triangles(u, context.temp_allocator)
+		m := mirror_build(u, positions, indices, faces, sym, order, first)
+		testing.expect(t, m.leader[1] == -1 && m.leader[0] == -1, "no island follows another")
 	}
 }
