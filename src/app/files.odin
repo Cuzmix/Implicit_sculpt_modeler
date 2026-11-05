@@ -80,7 +80,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(43)
+SCENE_VERSION :: u32(44)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -2251,9 +2251,7 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 	obj.vis_off = geom.byte_get(r, u8)
 	obj.remesh_cell = geom.byte_get(r, f32)
 	if !(obj.remesh_cell >= 0 && obj.remesh_cell <= max(f32)) do r.ok = false
-	stack_bytes: [STACK_BYTES]u8
-	for &b in stack_bytes do b = geom.byte_get(r, u8)
-	stack, stack_ok := stack_get(stack_bytes[:])
+	stack, stack_ok := stack_get(r)
 	if !stack_ok do r.ok = false
 	obj.stack = stack
 }

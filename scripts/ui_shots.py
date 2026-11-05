@@ -58,6 +58,7 @@ SCREENS = {
     "scene_card": ("The Scene card from the view rail", tap("view bar/Scene"), []),
     "mesh_card": ("The Mesh card from the view rail", tap("view bar/Mesh"), []),
     "mask_card": ("The Mask card from the view rail", tap("view bar/Mask"), []),
+    "stack_card": ("The Live stack card with a Mirror, an Array and a Radial row", tap("view bar/Live stack"), ["--script=stack mirror x; stack array 3 2.2 0 0; stack radial 6 y"]),
     "library": ("The brush Library from the shelf's All", tap("dock/All"), []),
     "menu": ("The main menu", tap("top bar/Menu"), []),
     "object_menu": ("The object chip's menu", tap("top bar/Object"), []),
