@@ -387,7 +387,7 @@ card_draw :: proc(app: ^App, s: Column_Side, col: ^Column, i: int, pos: [2]f32, 
 	fade := ui.tween(ctx, ui.salt(owner, 0x6a6465), PANEL_FADED if entry.faded else 1, t.hover_time)
 	mark := ui.motion_mark(ctx)
 	width := card_width(c)
-	ui.begin_at(ctx, name, pos, {direction = .Column, gap = 6, padding = PAD, width = width, radius = t.radius_large, background = .Panel})
+	ui.begin_at(ctx, name, pos, {direction = .Column, gap = ui.SPACE_S, padding = PAD, width = width, radius = t.radius_large, background = .Panel})
 	inner := width - 2 * PAD
 	torn := card_head(app, c, entry.pinned, inner)
 	head := ctx.last_rect
@@ -487,7 +487,7 @@ card_head :: proc(app: ^App, c: Card, pinned: bool, inner: f32, floating := fals
 		ui.spacer(ctx, 4)
 	}
 	if floating {
-		if ui.icon_button(ctx, "Put back beside the dock##dock", ui.ICON_PANEL) do card_float_return(app, c, .Right)
+		if ui.icon_button(ctx, "Put back beside the toolbar##dock", ui.ICON_PANEL) do card_float_return(app, c, .Right)
 	} else if ui.icon_button(ctx, "Unpin##pin" if pinned else "Pin: keep it open while you sculpt##pin", ICON_PIN, selected = pinned) {
 		card_pin(app, c)
 	}

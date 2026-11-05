@@ -73,13 +73,13 @@ DOCK_ROOTS := [Dock_Id]string {
 // What each dock is called where the person reads it.
 @(rodata)
 DOCK_TITLES := [Dock_Id]string {
-	.Offhand = "Brush bar",
-	.Rail    = "View rail",
+	.Offhand = "Brush toolbar",
+	.Rail    = "View toolbar",
 	.Shelf   = "Shelf",
-	.Dock_1  = "Dock 1",
-	.Dock_2  = "Dock 2",
-	.Dock_3  = "Dock 3",
-	.Dock_4  = "Dock 4",
+	.Dock_1  = "Toolbar 1",
+	.Dock_2  = "Toolbar 2",
+	.Dock_3  = "Toolbar 3",
+	.Dock_4  = "Toolbar 4",
 }
 
 // The edge each dock's Default stands on, in layout terms. A dock of the person's has no
@@ -680,7 +680,7 @@ user_dock_new :: proc(app: ^App) -> bool {
 		report(app, nil, {}, "Made %s: its + adds a button, and its head carries it to an edge", DOCK_TITLES[user_dock_id(i)])
 		return true
 	}
-	report(app, nil, {.Warning}, "There are %d docks at most: delete one first", USER_DOCKS)
+	report(app, nil, {.Warning}, "There are %d toolbars at most: delete one first", USER_DOCKS)
 	return false
 }
 
@@ -768,7 +768,7 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 		sliders -= 1
 		tall = dock_rows_tall(app, id, used, lines, sliders)
 	}
-	ui.begin_anchored(ctx, root, x, y, offset, {direction = .Column, padding = 3, radius = t.radius_large, background = .Panel, center = true})
+	ui.begin_anchored(ctx, root, x, y, offset, {direction = .Column, padding = ui.SPACE_XS, radius = t.radius_large, background = .Panel, center = true})
 	dock_grip(app, id, {width * f32(lines), DOCK_GRIP_H})
 	scroll := kit_scroll_begin(ctx, fmt.tprintf("%s body", root), &k.dock_scroll[id], ui.id_of(ctx, root), width * f32(lines), max(room - foot, t.target * 2), 0)
 	if id == .Offhand do k.island_sliders, k.island_frame = {}, k.frame
@@ -811,7 +811,7 @@ kit_dock_row :: proc(app: ^App, id: Dock_Id, used: []Bar_Slot, x, y: ui.Anchor, 
 	which := dock_which(k, id)
 	root := DOCK_ROOTS[id]
 	if id == .Offhand do k.island_sliders, k.island_frame = {}, k.frame
-	ui.begin_anchored(ctx, root, x, y, offset, {direction = .Row, padding = 3, radius = t.radius_large, background = .Panel, center = true})
+	ui.begin_anchored(ctx, root, x, y, offset, {direction = .Row, padding = ui.SPACE_XS, radius = t.radius_large, background = .Panel, center = true})
 	dock_grip(app, id, {DOCK_GRIP_H, f32(lines) * t.target}, row = true)
 	per := max((len(used) + lines - 1) / lines, 1)
 	ui.begin(ctx, fmt.tprintf("%s rows", root), {direction = .Column})
@@ -950,7 +950,7 @@ kit_dock_menu :: proc(app: ^App) {
 	d := &k.docks[id]
 	which := dock_which(k, id)
 	W :: 248
-	if !ui.popover_begin(ctx, "dock menu", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = 10, width = W + 20}) do return
+	if !ui.popover_begin(ctx, "dock menu", &p.open, p.at, p.side, {direction = .Column, gap = ui.SPACE_XS, padding = ui.SPACE_L, width = W + 20}) do return
 	defer ui.popover_end(ctx)
 	ui.label(ctx, DOCK_TITLES[id], t.title_size, t.text, .Semibold)
 	full := bar_count(app, which)^ >= bar_capacity(which)
@@ -961,7 +961,7 @@ kit_dock_menu :: proc(app: ^App) {
 		return
 	}
 	ui.caption(ctx, "LINES")
-	ui.begin(ctx, "dock menu lines", {direction = .Row, gap = 4, center = true})
+	ui.begin(ctx, "dock menu lines", {direction = .Row, gap = ui.SPACE_XS, center = true})
 	lines := dock_lines(k, id)
 	if ui.icon_button(ctx, "Fewer lines", ui.ICON_MINIMISE, enabled = lines > 1) do d.more_lines -= 1
 	r := ui.place(ctx, {W - 2 * t.target - 8, t.target})
@@ -978,7 +978,7 @@ kit_dock_menu :: proc(app: ^App) {
 	if !editing && ui.menu_item(ctx, "Hide this button", glyph = ui.ICON_EYE_OFF) {
 		d.more_off = true
 		p.open = false
-		report(app, nil, {}, "A tap on the dock's grip opens this menu again")
+		report(app, nil, {}, "A tap on the toolbar's grip opens this menu again")
 	} else if editing && d.more_off && ui.menu_item(ctx, "Show this button", glyph = ui.ICON_EYE) {
 		d.more_off = false
 	}
@@ -994,7 +994,7 @@ kit_dock_menu :: proc(app: ^App) {
 		p.open = false
 		dock_reset(app, id)
 	}
-	if DOCK_HOME[id] == .Float && ui.menu_item(ctx, "Delete dock", glyph = ui.ICON_TRASH, tone = .Danger) {
+	if DOCK_HOME[id] == .Float && ui.menu_item(ctx, "Delete toolbar", glyph = ui.ICON_TRASH, tone = .Danger) {
 		p.open = false
 		user_dock_delete(app, int(id) - int(Dock_Id.Dock_1))
 	}
@@ -1004,9 +1004,9 @@ kit_dock_menu :: proc(app: ^App) {
 your_docks_rows :: proc(app: ^App, width: f32) {
 	k := &app.kit
 	ctx := &k.ctx
-	ui.caption(ctx, fmt.tprintf("YOUR DOCKS  %d OF %d", user_docks_used(k), USER_DOCKS))
-	_ = command_button(app, .New_Dock, label = "New dock", variant = .Bordered, width = width)
-	ui.paragraph(ctx, "A dock is a column of any commands and brush values, as the rail is. Its + adds one from the Library, a tap on a button moves or removes it, its head in the view carries it to the left or right edge or anywhere and a tap on the head opens its menu (lines, names, delete), and its curved corner gives it more or fewer lines. Each space's layout keeps its own docks.")
+	ui.caption(ctx, fmt.tprintf("YOUR TOOLBARS  %d OF %d", user_docks_used(k), USER_DOCKS))
+	_ = command_button(app, .New_Dock, label = "New toolbar", variant = .Bordered, width = width)
+	ui.paragraph(ctx, "A toolbar of your own is a column of any commands and brush values, as the view toolbar is. Its + adds one from the Library, a tap on a button moves or removes it, its head in the view carries it to the left or right edge or anywhere and a tap on the head opens its menu (lines, names, delete), and its curved corner gives it more or fewer lines. Each space's layout keeps its own toolbars.")
 }
 
 // How tall a dock's grip is, in points: a strip at the dock's start that is easy to find

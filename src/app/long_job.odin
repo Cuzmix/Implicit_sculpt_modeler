@@ -134,7 +134,7 @@ JOB_ALLOWED_COMMANDS :: Command_Set{
 	.View_Axis, .Ortho_Toggle, .Focus_Selected, .Reset_Camera, .View_Back, .View_Forward, .Camera_Menu, .Shading_Menu,
 	.Wireframe, .Flat_Shading, .Texture_View, .Polygroups, .Live_Occlusion, .Shading_Mode, .Solid_Lighting, .Floor_Grid, .Second_View,
 	.Transparency,
-	.Stats, .Open_Card, .Open_Section, .Panels_Reset, .Focus_Mode, .Inspect_Mode, .View_Pass,
+	.Stats, .Open_Card, .Open_Section, .Panels_Reset, .Inspect_Mode, .View_Pass,
 	.View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .View_Window, .View_Windows_Close,
 	.Clean_View, .View_Layout_Menu, .Pass_Menu, .Brush_Picker, .Settings, .Main_Menu, .File_Chip, .Space_Tabs, .Object_Chip, .Viewport_Readout, .Readout_Gpu, .Reduce_Motion, .Left_Handed,
 	.Command_Palette, .Customise_Bars, .Help, .Coach_Tips, .Name_Controls, .Take_Tour, .Pie, .Brush_Pie, .Library,
@@ -754,7 +754,7 @@ kit_job_pill :: proc(app: ^App) {
 	if size == {} do size = {320, t.target + 8}
 	area := ui.safe_area(ctx)
 	pos := [2]f32{area.x + (area.w - size.x) * 0.5, area.y + kit_top() + 12}
-	ui.begin_at(ctx, "job pill", pos, {direction = .Row, gap = 10, padding = 6, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_at(ctx, "job pill", pos, {direction = .Row, gap = ui.SPACE_M, padding = ui.SPACE_S, radius = t.radius_large + 4, background = .Panel, center = true})
 	r := ui.place(ctx, {28, 28})
 	share := long_job_progress(app)
 	draw_progress_ring(ctx, {r.x + 14, r.y + 14}, 11, share, 3)

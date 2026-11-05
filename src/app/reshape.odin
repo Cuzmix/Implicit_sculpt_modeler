@@ -345,7 +345,7 @@ kit_deformation :: proc(app: ^App, obj: ^Object) {
 	if picked := ui.select(ctx, "deformation kind", names[:], int(p.choice)); picked >= 0 && !p.drag.active do p.choice = Reshape_Choice(picked)
 	c := p.choice
 	if has, one := reshape_choice_axes(c); has {
-		ui.begin(ctx, "deformation axes", {direction = .Row, gap = 4})
+		ui.begin(ctx, "deformation axes", {direction = .Row, gap = ui.SPACE_XS})
 		axes := reshape_axes(p, c)
 		for a in sculpt.Axis {
 			if ui.toggle_button(ctx, fmt.tprintf("%v##deformation", a), a in axes, 92) && !p.drag.active {

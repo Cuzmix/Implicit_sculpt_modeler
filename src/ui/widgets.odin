@@ -111,12 +111,21 @@ centered :: proc(r: Rect, size: [2]f32) -> Rect {
 	return {r.x + (r.w - size.x) * 0.5, r.y + (r.h - size.y) * 0.5, size.x, size.y}
 }
 
+// How far apart lines of text `size` points high stand, as a multiple of the size.
+LINE_SPACING :: 1.4
+
+// The height of a line of text `size` points high, in whole points: what a label places
+// and what a panel that sizes itself by its lines counts for one.
+line_height :: proc(size: f32) -> f32 {
+	return math.ceil(size * LINE_SPACING)
+}
+
 // A line of text taking its own width.
 label :: proc(ctx: ^Context, s: string, size: f32 = 0, color: Color = {}, font := Font.Regular) {
 	t := ctx.theme
 	size := size if size > 0 else t.text_size
 	color := color if color.a > 0 else t.text_secondary
-	r := place(ctx, {text_width(ctx, s, size, font), math.ceil(size * 1.4)})
+	r := place(ctx, {text_width(ctx, s, size, font), line_height(size)})
 	text(ctx, s, r.x, r.y + r.h * 0.5, size, color, font)
 }
 

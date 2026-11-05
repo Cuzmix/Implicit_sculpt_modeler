@@ -89,12 +89,32 @@ view_fit_free :: proc(app: ^App, fit: bool) {
 	}
 }
 
+// What Clean view leaves on screen: nothing, the dial (as it comes), or the shelf and the
+// dial, which hides only the side toolbars, the cards and the next steps.
+Clean_Keep :: enum u8 {
+	Nothing,
+	Dial,
+	Shelf,
+}
+
+// Whether Clean view is on, in either of its forms.
+clean_view_on :: proc(k: ^Kit_State) -> bool {
+	return k.clean || k.focus_mode
+}
+
 // Turns Clean view on or off; on, whatever floats closes with the controls.
 clean_view_set :: proc(app: ^App, on: bool) {
 	k := &app.kit
-	if on == k.clean do return
-	k.clean, k.clean_at = on, k.ctx.time
-	if !on do return
+	if on == clean_view_on(k) do return
+	if !on {
+		k.clean, k.focus_mode = false, false
+		return
+	}
+	if k.clean_keep == .Shelf {
+		k.focus_mode = true
+		return
+	}
+	k.clean, k.clean_at = true, k.ctx.time
 	if k.palette do palette_close(app)
 	kit_floats_close(k)
 }
@@ -105,7 +125,7 @@ kit_clean_view :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	if k.clean_dial do kit_modifier_rail(app)
+	if k.clean_keep == .Dial do kit_modifier_rail(app)
 	age := ctx.time - k.clean_at
 	if age > CLEAN_HINT_TIME + CLEAN_HINT_FADE do return
 	shown := 1 - clamp(f32(age - CLEAN_HINT_TIME) / CLEAN_HINT_FADE, 0, 1)

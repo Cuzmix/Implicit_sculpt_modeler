@@ -764,7 +764,7 @@ kit_gizmo_entry :: proc(app: ^App) {
 		ctx.text_focus = 0
 		e.typing = false
 	}
-	if !ui.popover_begin(ctx, "gizmo entry", &e.open, e.at, .Above_Center, {direction = .Column, gap = 4, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
+	if !ui.popover_begin(ctx, "gizmo entry", &e.open, e.at, .Above_Center, {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
 	posing := pose_mode(app)
 	title := gizmo_entry_title(e.handle)

@@ -109,7 +109,7 @@ kit_sets :: proc(app: ^App, obj: ^Object) {
 	restore_width: f32 = 104
 	field := ui.fill_width(ctx) - restore_width - 4
 	for &set, i in sets {
-		ui.begin(ctx, fmt.tprintf("set %d %d", obj.id, set.id), {direction = .Row, gap = 4, center = true})
+		ui.begin(ctx, fmt.tprintf("set %d %d", obj.id, set.id), {direction = .Row, gap = ui.SPACE_XS, center = true})
 		name := set.name
 		// Keyed by the object too: set ids start again for each object.
 		if ui.text_field(ctx, fmt.tprintf("name##set %d %d", obj.id, set.id), name[:], field, hint = "Name") {

@@ -29,7 +29,7 @@ kit_lens_paint_layers :: proc(app: ^App, obj: ^Object) {
 	picked := sculpt.sculptor_paint_picked(s)
 	width := ui.fill_width(ctx)
 
-	ui.begin(ctx, "lens paint head", {direction = .Row, gap = 6, center = true, width = width})
+	ui.begin(ctx, "lens paint head", {direction = .Row, gap = ui.SPACE_S, center = true, width = width})
 	_ = command_button(app, .New_Paint_Layer, label = "New layer", variant = .Solid, tone = .Accent, glyph = ui.ICON_PLUS, width = ui.text_width(ctx, "New layer", t.text_size, .Semibold) + 52)
 	ui.label(ctx, "On vertices", t.small_size, t.text_secondary)
 	ui.end(ctx)
@@ -40,7 +40,7 @@ kit_lens_paint_layers :: proc(app: ^App, obj: ^Object) {
 	// The foot shows with no layers too, its buttons off, so it stays where it is found.
 	{
 		ui.divider(ctx, across = true)
-		ui.begin(ctx, "lens paint foot", {direction = .Row, gap = 4, center = true, width = width})
+		ui.begin(ctx, "lens paint foot", {direction = .Row, gap = ui.SPACE_XS, center = true, width = width})
 		// Up and Down as arrows, so Merge down and Delete keep their words on a narrow card.
 		arrow := t.target
 		half := (width - 2 * arrow - 12) / 2
@@ -70,7 +70,7 @@ lens_paint_row :: proc(app: ^App, obj: ^Object, i: int, picked: bool, width: f32
 		}
 	}
 	fade: f32 = 1 if l.visible else 0.5
-	ui.begin(ctx, name, {direction = .Row, center = true, gap = 8, width = width, height = LAYER_ROW_H, padding = 6})
+	ui.begin(ctx, name, {direction = .Row, center = true, gap = ui.SPACE_M, width = width, height = LAYER_ROW_H, padding = ui.SPACE_S})
 	words_w := width - LAYER_PICTURE - LAYER_SLIDER_W - t.target - 32
 	a := ui.area(ctx, fmt.tprintf("%s##lens paint pick %d", sculpt.sculptor_paint_layer_name(&l), i), {LAYER_PICTURE + 8 + words_w, 44}, drag = false)
 	sw := ui.Rect{a.rect.x, a.rect.y + 2, LAYER_PICTURE, LAYER_PICTURE}

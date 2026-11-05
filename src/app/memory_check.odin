@@ -271,7 +271,7 @@ memory_bar :: proc(ctx: ^ui.Context, width: f32, need, free, history: int) {
 	ui.fill_rect(ctx, {r.x + r.w * f32(free) / whole, r.y, r.w * f32(history) / whole, r.h}, 0, t.warning)
 	mark := r.x + r.w * f32(need) / whole
 	ui.fill_rect(ctx, {mark - 1, r.y - 4, 2, r.h + 8}, 1, t.text)
-	line := ui.place(ctx, {width, t.small_size + 4})
+	line := ui.place(ctx, {width, ui.line_height(t.small_size)})
 	ui.text(ctx, fmt.tprintf("free %s · history %s", bytes_label(free), bytes_label(history)), line.x, line.y + line.h * 0.5, t.small_size, t.text_secondary)
 	ui.text(ctx, fmt.tprintf("needs %s", bytes_label(need)), line.x + line.w, line.y + line.h * 0.5, t.small_size, t.text_secondary, .Regular, .Right)
 }

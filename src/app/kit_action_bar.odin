@@ -264,7 +264,7 @@ kit_action_bar :: proc(app: ^App) {
 	}
 	dock := shelf_bottom_size(app)
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + dock_lift(app) + dock.y + ACTION_BAR_GAP + colour_island_lift(app)}, {direction = .Row, gap = 4, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + dock_lift(app) + dock.y + ACTION_BAR_GAP + colour_island_lift(app)}, {direction = .Row, gap = ui.SPACE_XS, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
 	n := 0
 	for g in groups {
 		if n > 0 do ui.divider(ctx, 28)
@@ -318,7 +318,7 @@ kit_action_popover :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	if !k.action_pop do return
-	if ui.popover_begin(ctx, "action group", &k.action_pop, k.action_anchor, .Above_Center, {direction = .Column, gap = 2, padding = ui.MENU_PAD, width = ui.MENU_W}) {
+	if ui.popover_begin(ctx, "action group", &k.action_pop, k.action_anchor, .Above_Center, {direction = .Column, gap = ui.SPACE_2XS, padding = ui.MENU_PAD, width = ui.MENU_W}) {
 		for a in action_list(app, k.action_group) {
 			if action_button(app, a, ui.fill_width(ctx)) do k.action_pop = false
 		}

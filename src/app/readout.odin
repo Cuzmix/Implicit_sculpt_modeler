@@ -52,8 +52,8 @@ kit_readout :: proc(app: ^App) {
 		r.memory, r.read = process_memory(), k.frame
 	}
 	ui.begin_anchored(ctx, "points", .Start, .Start, at, {direction = .Column})
-	ui.begin(ctx, "readout lines", {direction = .Column, gap = 1})
-	ui.begin(ctx, "readout", {direction = .Row, gap = 2, center = true})
+	ui.begin(ctx, "readout lines", {direction = .Column, gap = 0})
+	ui.begin(ctx, "readout", {direction = .Row, gap = ui.SPACE_2XS, center = true})
 	c := main_camera(app)
 	camera := "Ortho" if c.ortho else fmt.tprintf("Persp · %.0f mm", lens_focal_mm(c.fov_y))
 	if a := readout_word(ctx, "Camera##readout", camera, bar_pop_showing(app, .Camera), command_hint(app, .Camera_Menu)); a.clicked {
@@ -73,7 +73,7 @@ kit_readout :: proc(app: ^App) {
 		ram := platform_ram()
 		text := fmt.tprintf("%s / %s", readout_bytes(r.memory), readout_bytes(ram)) if ram > 0 else readout_bytes(r.memory)
 		w := READOUT_BAR_W + 6 + ui.text_width(ctx, text, t.small_size)
-		line := ui.place(ctx, {w, t.small_size + 4})
+		line := ui.place(ctx, {w, ui.line_height(t.small_size)})
 		bar := ui.Rect{line.x + 6, line.y + (line.h - READOUT_BAR_H) * 0.5, READOUT_BAR_W, READOUT_BAR_H}
 		_, faint := readout_inks(t)
 		ui.fill_rect(ctx, bar, READOUT_BAR_H * 0.5, ui.color_fade(faint, 0.3))
@@ -111,7 +111,7 @@ readout_word :: proc(ctx: ^ui.Context, name, text: string, lit: bool, keys: stri
 @(private = "file")
 readout_line :: proc(ctx: ^ui.Context, text: string) {
 	t := ctx.theme
-	r := ui.place(ctx, {ui.text_width(ctx, text, t.small_size) + 6, t.small_size + 4})
+	r := ui.place(ctx, {ui.text_width(ctx, text, t.small_size) + 6, ui.line_height(t.small_size)})
 	_, faint := readout_inks(t)
 	ui.text(ctx, text, r.x + 6, r.y + r.h * 0.5, t.small_size, faint)
 }

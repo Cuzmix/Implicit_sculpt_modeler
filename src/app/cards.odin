@@ -700,7 +700,7 @@ card_brush :: proc(app: ^App, inner: f32) {
 	t := ctx.theme
 	cur := brush_item_current(app)
 	key := brush_item_key(app, cur)
-	ui.begin(ctx, "card brush", {direction = .Row, gap = 10, center = true, width = inner})
+	ui.begin(ctx, "card brush", {direction = .Row, gap = ui.SPACE_M, center = true, width = inner})
 	r := ui.place(ctx, {44, 44})
 	lens_stroke_preview(ctx, r, cur, app)
 	// The picture, the name and the heart with the row's two gaps between them.

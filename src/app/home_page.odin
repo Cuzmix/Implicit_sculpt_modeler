@@ -61,13 +61,13 @@ home_body :: proc(app: ^App, width: f32) {
 	open_w, import_w: f32 = 120, 210
 	wide := width >= HOME_WIDE
 	if wide {
-		ui.begin(ctx, "home recent head", {direction = .Row, gap = 8, center = true, width = width})
+		ui.begin(ctx, "home recent head", {direction = .Row, gap = ui.SPACE_M, center = true, width = width})
 		ui.begin(ctx, "home tabs", {direction = .Row, width = width - open_w - import_w - 16})
 		home_tabs(app, 320)
 		ui.end(ctx)
 	} else {
 		home_tabs(app, width)
-		ui.begin(ctx, "home recent head", {direction = .Row, gap = 8, center = true, width = width})
+		ui.begin(ctx, "home recent head", {direction = .Row, gap = ui.SPACE_M, center = true, width = width})
 		open_w = (width - 8) * 0.4
 		import_w = width - 8 - open_w
 	}
@@ -84,7 +84,7 @@ home_body :: proc(app: ^App, width: f32) {
 home_starts :: proc(app: ^App, w, h: f32) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
-	ui.begin(ctx, "home starts", {direction = .Column, gap = 10, width = w, height = h})
+	ui.begin(ctx, "home starts", {direction = .Column, gap = ui.SPACE_M, width = w, height = h})
 	ui.caption(ctx, "START NEW")
 	more_h := t.target
 	tile_w := (w - 2 * 12) / 3
@@ -93,13 +93,13 @@ home_starts :: proc(app: ^App, w, h: f32) {
 	stacked := (w - MORE_LABEL_W - 4 * 6) / 4 < 72
 	tile_h := f32(int((h - ctx.last_rect.h - more_h - 3 * 10) / 2)) if h > 0 else min(tile_w, 150)
 	for row in 0 ..< 2 {
-		ui.begin(ctx, fmt.tprintf("home starts row %d", row), {direction = .Row, gap = 12})
+		ui.begin(ctx, fmt.tprintf("home starts row %d", row), {direction = .Row, gap = ui.SPACE_L})
 		for i in row * 3 ..< row * 3 + 3 do home_start_tile(app, HOME_STARTS[i], {tile_w, tile_h})
 		ui.end(ctx)
 	}
 	// The other starters, by name: they are blockouts for a figure, used less often.
 	if stacked do ui.label(ctx, "More starters", t.small_size, t.text_secondary)
-	ui.begin(ctx, "home more", {direction = .Row, gap = 6, center = true})
+	ui.begin(ctx, "home more", {direction = .Row, gap = ui.SPACE_S, center = true})
 	button_w := (w - 3 * 6) / 4
 	if !stacked {
 		more := ui.place(ctx, {MORE_LABEL_W, more_h})
@@ -197,7 +197,7 @@ home_continue_card :: proc(app: ^App, size: [2]f32) {
 	case kind == .Start:         label = "Start"
 	}
 	button_w: f32 = 150 if armed else 120
-	ui.begin(ctx, "home continue foot", {direction = .Row, center = true, gap = 12, width = size.x, height = FOOT_H})
+	ui.begin(ctx, "home continue foot", {direction = .Row, center = true, gap = ui.SPACE_L, width = size.x, height = FOOT_H})
 	ui.spacer(ctx, PAD)
 	words := ui.place(ctx, {size.x - 2 * PAD - button_w - 2 * 12, FOOT_H})
 	ui.text(ctx, "Continue" if kind != .Start else "Start sculpting", words.x, words.y + 22, t.small_size, t.text_secondary)

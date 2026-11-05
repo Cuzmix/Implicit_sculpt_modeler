@@ -198,19 +198,19 @@ kit_bar_popover :: proc(app: ^App) {
 	p := &k.bar_pop
 	switch p.kind {
 	case .Symmetry:
-		if !ui.popover_begin(ctx, "bar symmetry", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
+		if !ui.popover_begin(ctx, "bar symmetry", &p.open, p.at, p.side, {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 		defer ui.popover_end(ctx)
 		symmetry_controls(app)
 	case .Polyframe:
-		if !ui.popover_begin(ctx, "bar polyframe", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
+		if !ui.popover_begin(ctx, "bar polyframe", &p.open, p.at, p.side, {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 		defer ui.popover_end(ctx)
 		ui.caption(ctx, "POLYFRAME SHOWS")
-		ui.begin(ctx, "polyframe parts", {direction = .Row, gap = 4})
+		ui.begin(ctx, "polyframe parts", {direction = .Row, gap = ui.SPACE_XS})
 		if ui.toggle_button(ctx, "Lines", app.polyframe_lines, 96, tooltip = "The selected object's edges") do app.polyframe_lines = !app.polyframe_lines
 		if ui.toggle_button(ctx, "Fill", app.polyframe_fill, 96, tooltip = "The selected object's polygroups in their colours") do app.polyframe_fill = !app.polyframe_fill
 		ui.end(ctx)
 	case .Remesh_Quick:
-		if !ui.popover_begin(ctx, "bar remesh", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = 12, width = ui.POPOVER_W}) do return
+		if !ui.popover_begin(ctx, "bar remesh", &p.open, p.at, p.side, {direction = .Column, gap = ui.SPACE_S, padding = ui.SPACE_L, width = ui.POPOVER_W}) do return
 		defer ui.popover_end(ctx)
 		kit_remesh_quick(app)
 	case .Shading:
@@ -222,7 +222,7 @@ kit_bar_popover :: proc(app: ^App) {
 		defer ui.popover_end(ctx)
 		kit_camera_menu(app)
 	case .View_Layout:
-		if !ui.popover_begin(ctx, "bar view layout", &p.open, p.at, p.side, {direction = .Column, gap = 8, padding = 12, width = VIEW_LAYOUT_W + 24}) do return
+		if !ui.popover_begin(ctx, "bar view layout", &p.open, p.at, p.side, {direction = .Column, gap = ui.SPACE_M, padding = ui.SPACE_L, width = VIEW_LAYOUT_W + 24}) do return
 		defer ui.popover_end(ctx)
 		kit_view_layout_lens(app, VIEW_LAYOUT_W)
 	case .Value:
@@ -241,7 +241,7 @@ kit_bar_popover :: proc(app: ^App) {
 symmetry_controls :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	ui.caption(ctx, "SYMMETRY")
-	ui.begin(ctx, "symmetry axes", {direction = .Row, gap = 4})
+	ui.begin(ctx, "symmetry axes", {direction = .Row, gap = ui.SPACE_XS})
 	for axis in sculpt.Axis {
 		name := fmt.tprint(axis)
 		tip := fmt.tprintf("Symmetry across %s", name)
@@ -250,7 +250,7 @@ symmetry_controls :: proc(app: ^App) {
 	if ui.toggle_button(ctx, "Local", app.brush.sym_local, 64, command_hint(app, .Local_Symmetry), COMMANDS[.Local_Symmetry].help) do command_run(app, .Local_Symmetry)
 	ui.end(ctx)
 	ui.caption(ctx, "RADIAL")
-	ui.begin(ctx, "radial axes", {direction = .Row, gap = 4})
+	ui.begin(ctx, "radial axes", {direction = .Row, gap = ui.SPACE_XS})
 	if ui.toggle_button(ctx, "Radial", app.brush.radial_on, 64, command_hint(app, .Radial_Symmetry), COMMANDS[.Radial_Symmetry].help) do command_run(app, .Radial_Symmetry)
 	for axis in sculpt.Axis {
 		name := fmt.tprintf("%v##radial", axis)

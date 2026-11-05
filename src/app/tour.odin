@@ -43,7 +43,7 @@ Tour :: struct {
 TOUR_TITLES := [Tour_Step]string {
 	.Spaces   = "Three spaces, one model",
 	.Dial     = "The dial is under your thumb",
-	.Cards    = "Cards beside the docks",
+	.Cards    = "Cards beside the toolbars",
 	.History  = "Every step, kept",
 	.Paint    = "Paint with the same brushes",
 }
@@ -51,7 +51,7 @@ TOUR_TITLES := [Tour_Step]string {
 TOUR_TEXT := [Tour_Step]string {
 	.Spaces   = "Sculpt, Model and Render each keep their own tools and layout. Tap Model, then Sculpt to come back.",
 	.Dial     = "Hold Smooth while you draw to smooth, Invert to dig, Mask to mask; tap one to keep it on. Try it now on the model.",
-	.Cards    = "A dock button opens its card beside it, and a tap on the view closes it again. Pin keeps a card open while you sculpt, and Search opens any section by name. Tap one to try it.",
+	.Cards    = "A toolbar button opens its card beside it, and a tap on the view closes it again. Pin keeps a card open while you sculpt, and Search opens any section by name. Tap one to try it.",
 	.History  = "History lists what you did: tap a step to go back to it, or hold Undo to scrub. Open it now.",
 	.Paint    = "The shelf's Paint page holds the painting brushes, and Also paint colour in any brush's quick settings (a long press on its tile) makes it paint too. Pick Paint and paint a stroke.",
 }
@@ -185,13 +185,13 @@ kit_tour :: proc(app: ^App) {
 		x = hole.x - 12 - W if hole.x - 12 - W >= 8 else hole.x + hole.w + 12
 	}
 	mark := ui.vertex_mark(ctx)
-	ui.begin_at(ctx, "tour card", {x, y}, {direction = .Column, gap = 6, padding = 16, width = W, radius = t.radius_large, background = .Panel})
+	ui.begin_at(ctx, "tour card", {x, y}, {direction = .Column, gap = ui.SPACE_S, padding = ui.SPACE_XL, width = W, radius = t.radius_large, background = .Panel})
 	ui.label(ctx, fmt.tprintf("%d of %d", int(s) + 1, len(Tour_Step)), t.small_size, t.text_secondary)
 	ui.label(ctx, TOUR_TITLES[s], t.title_size, t.text, .Semibold)
 	ui.paragraph(ctx, TOUR_TEXT[s])
 	if tr.done do ui.label(ctx, "That's it", t.small_size, t.accent, .Semibold)
 	ui.spacer(ctx, 4)
-	ui.begin(ctx, "tour card foot", {direction = .Row, gap = 8, center = true, width = W - 32})
+	ui.begin(ctx, "tour card foot", {direction = .Row, gap = ui.SPACE_M, center = true, width = W - 32})
 	dots := ui.place(ctx, {len(Tour_Step) * 12, 12})
 	for d in Tour_Step {
 		at := [2]f32{dots.x + f32(d) * 12 + 4, dots.y + 6}

@@ -346,7 +346,7 @@ top_focus_view :: proc(app: ^App) {
 	layout := bar_pop_showing(app, .View_Layout)
 	if ui.icon_button(ctx, "View layout", ICON_VIEW_LAYOUT, selected = layout, keys = command_hint(app, .View_Layout_Menu)) do bar_pop_toggle(app, .View_Layout, ctx.last_rect, .Below)
 	k.bar_at[.View_Layout], k.bar_side[.View_Layout] = ctx.last_rect, .Below
-	if ui.icon_button(ctx, "Passes", ICON_PASSES, selected = k.passes.menu, keys = command_hint(app, .Pass_Menu)) {
+	if ui.icon_button(ctx, "Shading modes", ICON_PASSES, selected = k.passes.menu, keys = command_hint(app, .Pass_Menu)) {
 		k.passes.menu_at, k.passes.menu_side = ctx.last_rect, .Below
 		pass_menu_toggle(app)
 	}
@@ -401,7 +401,7 @@ top_file_block :: proc(app: ^App) -> f32 {
 	shown := ui.text_fit(ctx, status, t.small_size, w - 16)
 	ui.text(ctx, shown, r.x + 8, mid + 8, t.small_size, t.text_tertiary)
 	// A save just made says so with a tick after the status (feedback_motion.odin).
-	draw_save_tick(app, {r.x + 8 + ui.text_width(ctx, shown, t.small_size) + 4 + t.small_size * 0.5, mid + 8}, t.small_size)
+	draw_save_tick(app, {r.x + 8 + ui.text_width(ctx, shown, t.small_size) + 4, mid + 8}, t.small_size)
 	return w
 }
 
