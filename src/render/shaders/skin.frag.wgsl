@@ -1,4 +1,4 @@
-// slangc wgsl from skin.frag.spv sha256 3eb63a8f46d19ddd8dd3ad78b984b3cbb5faee7e7f44ca6837a5c6f54f81f388
+// slangc wgsl from skin.frag.spv sha256 83db51ce87738d4c3c4ed4126d8d09652fbcc04fa5d5126cc067fee61cb73a5e
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Material_Uniforms_std140_0
 {
@@ -614,7 +614,15 @@ fn main( _S50 : pixelInput_0, @builtin(position) position_0 : vec4<f32>, @builti
         base_0 = _S52;
         shading_0 = _S53;
     }
-    var v_6 : vec3<f32> = normalize((vec3<f32>(0) - frag_in_0.view_pos_0));
+    var v_6 : vec3<f32>;
+    if((Material_Uniforms_0.env_0.w) > 0.5f)
+    {
+        v_6 = vec3<f32>(0.0f, 0.0f, 1.0f);
+    }
+    else
+    {
+        v_6 = normalize((vec3<f32>(0) - frag_in_0.view_pos_0));
+    }
     var n_8 : vec3<f32> = normalize(skin_view_normal_0());
     var n_9 : vec3<f32>;
     if(!front_facing_0)
@@ -687,13 +695,13 @@ fn main( _S50 : pixelInput_0, @builtin(position) position_0 : vec4<f32>, @builti
                     var _S58 : vec3<f32> = vec3<f32>(0.5f);
                     if(k_3 < 0.0f)
                     {
-                        n_9 = vec3<f32>(0.15000000596046448f, 0.34999999403953552f, 0.85000002384185791f);
+                        v_6 = vec3<f32>(0.15000000596046448f, 0.34999999403953552f, 0.85000002384185791f);
                     }
                     else
                     {
-                        n_9 = vec3<f32>(0.94999998807907104f, 0.55000001192092896f, 0.15000000596046448f);
+                        v_6 = vec3<f32>(0.94999998807907104f, 0.55000001192092896f, 0.15000000596046448f);
                     }
-                    shown_0 = mix(_S58, n_9, vec3<f32>(abs(k_3)));
+                    shown_0 = mix(_S58, v_6, vec3<f32>(abs(k_3)));
                 }
                 else
                 {
