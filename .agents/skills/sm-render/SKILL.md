@@ -191,6 +191,15 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   at the viewport's size (`view_width`); the kernel derives rays from `textureSize(prev)`. render_display.frag.slang blends
   the four traced texels premultiplied by coverage when `params.w` is 1; at 0 it keeps the exact full-size path
   (0 px against the old display: keep it so).
+  Specialization constants (`RT_ITEMS`, `RT_ENV_IMAGE`, `RT_LENS`, `RT_SPHERE_LIGHTS` in render_trace.slang, constant_id
+  0 to 3, all uint): unset they allow everything (the general kernel); a kernel made with
+  `gpu.Compute_Pipeline_Desc.constants` (an array indexed by shaders_gen's `Name_Constants` enum) has the branches they rule
+  out folded by the driver (Vulkan's VkSpecializationInfo, Metal's function constants; WebGPU refuses them). A new
+  feature branch in the kernel gets a constant of its own; measure it with `scripts/kernel_stats.py` (sm-perf).
+  path.odin computes a run's `Render_Features` in path_scene_build and picks its variant at each sample's start
+  (path_kernel_pick): built off the frame by `gpu.compute_build_start`/`_ready`/`_finish` (checks, layout and
+  module on the main thread, only the driver's compile on a thread), waited for when `Renderer.kernel_builds_wait`
+  (scripted runs), up to 8 kept. A new feature's flag must reach Render_Features, or its variant folds it away.
   Textured items (ITEM_TEXTURED): `Textured_Mesh.corners` (geom.quad_mesh_triangle_corners, 3 slots a base-level
   triangle in its own corner order, uploaded with the preview) and its vertices are gpu-copied into Scene_Buffer
   `.Textured` (the 8th storage buffer: the per-stage limit is 8, none left). `Item_Record.tex` = first tri, corner

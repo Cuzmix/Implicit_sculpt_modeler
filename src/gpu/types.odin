@@ -227,7 +227,16 @@ Compute_Pipeline_Desc :: struct {
 	num_readwrite_storage_buffers:  u32,
 	num_uniform_buffers:            u32,
 	threadcount_x, threadcount_y, threadcount_z: u32,
+	// Values for the kernel's specialization constants (Metal's function constants),
+	// constant i taking constant_id i, each 32 bits: the driver folds the branches they
+	// rule out. Empty leaves every constant at the default the shader gives it. WebGPU
+	// refuses a kernel given any.
+	constants:                      []u32,
 }
+
+// The most specialization constants a kernel takes (Compute_Pipeline_Desc.constants): the
+// Vulkan backend lays them out on the stack.
+COMPUTE_CONSTANTS_MAX :: 8
 
 Vertex_Buffer :: struct {
 	slot:       u32,

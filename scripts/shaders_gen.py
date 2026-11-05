@@ -24,7 +24,9 @@ pipeline makers add, so it is not counted either.
 
 Beside each constant are enums naming the shader's slots, one per kind it binds (Name_Samplers,
 _Textures, _Buffers, _Write_Textures, _Write_Buffers, _Uniforms), each member a parameter's name in
-the order of its slot, which the renderer indexes its binding arrays and uniform pushes by.
+the order of its slot, which the renderer indexes its binding arrays and uniform pushes by. A kernel
+with specialization constants also gets Name_Constants, its members the constants' names by
+constant_id, which the renderer indexes the values it gives the kernel by.
 
 A shader whose first line is "// vulkan only" has no Metal or WGSL source, so its constant
 exists only in the Vulkan build (`when gpu.VULKAN`) and embeds its .spv.
@@ -187,6 +189,15 @@ def entry(source, digest, reflection):
     for suffix, names in slot_names(source, reflection).items():
         if names:
             constant += f"\n{title}_{suffix} :: enum u32 {{" + ", ".join(names) + "}"
+    # Its specialization constants the same way, by constant_id, which must run 0, 1, 2...:
+    # the renderer gives a kernel its values as an enumerated array of them, whose position
+    # is the id (gpu.Compute_Pipeline_Desc.constants).
+    special = sorted((p["binding"]["index"], p["name"]) for p in reflection["parameters"]
+                     if p["binding"].get("kind") == "specializationConstant")
+    if special:
+        if [i for i, _ in special] != list(range(len(special))):
+            raise RuntimeError(f"{source}: its constant_ids must run 0, 1, 2... ({special})")
+        constant += f"\n{title}_Constants :: enum u32 {{" + ", ".join(n for _, n in special) + "}"
     return f"// {base}.spv sha256 {digest}\n{constant}\n"
 
 

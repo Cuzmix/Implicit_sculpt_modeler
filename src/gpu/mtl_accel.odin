@@ -260,13 +260,3 @@ mtl_buffer_address :: proc(command_buffer: Cmd, buffer: Buffer) -> u64 {
 	return MTL.Buffer_gpuAddress(b.buffer)
 }
 
-// A traced kernel's pipeline: one whose slot table (scripts/shaders_msl.py) names the
-// acceleration structure it traces against.
-mtl_create_compute_pipeline_traced :: proc(#by_ptr info: Compute_Pipeline_Desc) -> rawptr {
-	slots, ok := mtl_slots_parse(info.code)
-	if !ok || slots.accel < 0 {
-		fail(.Invalid, "Metal: a traced kernel's slot table names no acceleration structure")
-		return nil
-	}
-	return mtl_create_compute_pipeline(info)
-}
