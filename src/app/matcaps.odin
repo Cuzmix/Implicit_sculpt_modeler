@@ -1,5 +1,6 @@
 package main
 
+import "core:c"
 import "core:fmt"
 import "core:image"
 import "core:math"
@@ -7,6 +8,8 @@ import "core:math/linalg"
 import "core:mem"
 import "core:path/filepath"
 import "core:strings"
+
+import stbi "vendor:stb/image"
 
 import "../render"
 import "../geom"
@@ -188,7 +191,12 @@ matcap_image_load :: proc(app: ^App, path: string, quiet := false) -> bool {
 // Pure, so a pack's install thread checks its matcaps with it.
 matcap_pixels :: proc(data: []u8, allocator := context.allocator) -> (rgba: []u8, width, height: int, failed: string) {
 	img, img_err := image.load_from_bytes(data)
-	if img_err != nil do return nil, 0, 0, fmt.tprintf("%v (PNG, JPEG, BMP, TGA and QOI images work)", img_err)
+	if img_err != nil {
+		// Odin's own readers leave out progressive JPEGs, which most pictures saved from the
+		// web are, and a few rarer PNG and BMP kinds: stb_image reads those.
+		if pixels, w, h, ok := stb_pixels(data, allocator); ok do return pixels, w, h, ""
+		return nil, 0, 0, fmt.tprintf("%v (PNG, JPEG, BMP, TGA and QOI images work)", img_err)
+	}
 	defer image.destroy(img)
 	rgba = make([]u8, img.width * img.height * 4, allocator)
 	if !image_rgba8(img, rgba) {
@@ -196,6 +204,20 @@ matcap_pixels :: proc(data: []u8, allocator := context.allocator) -> (rgba: []u8
 		return nil, 0, 0, fmt.tprintf("%d-bit channels are not supported", img.depth)
 	}
 	return rgba, img.width, img.height, ""
+}
+
+// An image file's pixels as RGBA8 read by stb_image, for what Odin's own readers refuse;
+// false when stb_image refuses it too. Safe on any thread: it keeps no state between calls.
+stb_pixels :: proc(data: []u8, allocator := context.allocator) -> (rgba: []u8, width, height: int, ok: bool) {
+	if len(data) == 0 || len(data) > int(max(c.int)) do return
+	w, h, channels: c.int
+	pixels := stbi.load_from_memory(raw_data(data), c.int(len(data)), &w, &h, &channels, 4)
+	if pixels == nil do return
+	defer stbi.image_free(pixels)
+	if w <= 0 || h <= 0 do return
+	rgba = make([]u8, int(w) * int(h) * 4, allocator)
+	copy(rgba, pixels[:len(rgba)])
+	return rgba, int(w), int(h), true
 }
 
 // The colour other objects are tinted with under a matcap: the picture a little dimmed,

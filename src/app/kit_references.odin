@@ -623,6 +623,26 @@ refs_float_bar :: proc(app: ^App) {
 	ui.end(ctx)
 }
 
+// The empty board's Add image, in its middle: it opens the Add menu, as the head's Add
+// does, where a first picture is looked for. Laid out after the cards, as the floating
+// edits are, so a press on it is its own and never the board's.
+@(private = "file")
+refs_empty_add :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	b := &k.board
+	if b.board_frame != k.frame || len(app.scene.refs.refs) > 0 || b.shown.w <= 0 do return
+	label := "Add image"
+	w := ui.text_width(ctx, label, t.text_size, .Semibold) + t.icon_small + 6 + 28
+	r := b.room
+	pos := [2]f32{r.x + (r.w - w) * 0.5, r.y + (r.h - t.target) * 0.5}
+	if pos.y < b.shown.y || pos.y + t.target > b.shown.y + b.shown.h do return
+	ui.begin_at(ctx, "refs empty", pos, {direction = .Row})
+	if ui.button(ctx, "Add image##refs empty", .Solid, .Accent, width = w, glyph = ui.ICON_PLUS) do b.add_menu, b.menu_at = !b.add_menu, ctx.last_rect
+	ui.end(ctx)
+}
+
 // The References card's floating edits and menus, laid out after the cards so they are
 // over them: the edits over the picked places, Add's and Tidy's menus from the head, More
 // from the edits and the In scene menu from its chip. All shut with the card.
@@ -635,6 +655,7 @@ refs_card_menus :: proc(app: ^App) {
 		return
 	}
 	refs_float_bar(app)
+	refs_empty_add(app)
 	refs := &app.scene.refs
 	box := ui.Box{direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}
 	if ui.popover_begin(ctx, "refs add menu", &b.add_menu, b.menu_at, .Below_End, box) {
@@ -814,9 +835,11 @@ board_draw :: proc(app: ^App, r: ui.Rect) {
 	board_ground(app, r)
 	refs := &app.scene.refs
 	if len(refs.refs) == 0 {
-		ui.icon(ctx, ICON_REFERENCES, {r.x + r.w * 0.5, r.y + r.h * 0.5 - t.target * 0.5}, t.icon_small * 2, t.text_tertiary)
-		line := "Add pictures, paste one, or drop image files here"
-		ui.text(ctx, ui.text_fit(ctx, line, t.small_size, r.w - 2 * t.gap), r.x + r.w * 0.5, r.y + r.h * 0.5 + t.gap, t.small_size, t.text_secondary, .Regular, .Center)
+		// Its middle holds Add image (refs_empty_add, laid out after the cards), the icon
+		// over it and what else adds a picture under it.
+		ui.icon(ctx, ICON_REFERENCES, {r.x + r.w * 0.5, r.y + r.h * 0.5 - 1.5 * t.target}, t.icon_small * 2, t.text_tertiary)
+		line := "or paste one, or drop image files here"
+		ui.text(ctx, ui.text_fit(ctx, line, t.small_size, r.w - 2 * t.gap), r.x + r.w * 0.5, r.y + r.h * 0.5 + t.target, t.small_size, t.text_secondary, .Regular, .Center)
 		return
 	}
 	for &p in refs.refs {

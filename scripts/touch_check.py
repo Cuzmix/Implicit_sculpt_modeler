@@ -9128,6 +9128,20 @@ def references_note_by_finger():
 
 
 @scenario
+def references_empty_board_add_image():
+    """A finger opens the References card from the rail; its empty board's Add image opens
+    the Add menu, whose Add note puts a note on the board: one undo step, nothing sculpts."""
+    s = Script()
+    s.ftap(REFS_RAIL)
+    s.wait(6)
+    s.ftap("refs empty/Add image")
+    s.wait(6)
+    s.ftap(REFS_ADD_NOTE)
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "ref_notes": near(1), "undo_steps": near(1)})
+
+
+@scenario
 def references_on_view_let_the_brush_through():
     """A picture added by a script opens the References card; a finger taps On view and the
     card's Close, and a finger stroke over the picture standing over the view sculpts: with
