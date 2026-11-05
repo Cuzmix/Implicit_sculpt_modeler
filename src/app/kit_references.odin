@@ -11,8 +11,11 @@ import "../ui"
 // PureRef's, inside a card, so it floats, pins and sits in a column as every card does
 // and the model stays in view beside it. A drag on a picture moves the picked ones, its
 // corner sizes it, a drag on the board's ground pans, the wheel or a pinch zooms about the
-// pointer, and a double tap on the ground fits everything. The pictures are drawn by the
-// interface from their GPU copies (references.odin), only where the board shows them.
+// pointer, and a double tap on the ground fits everything. The top row adds (a file, the
+// clipboard, the view itself, a note) and tidies (Arrange, Same height, Fit all); the row
+// under it edits the picked places (Flip, Grey, Turn, Crop, Lock, Delete), or a picked
+// note's text. The pictures are drawn by the interface from their GPU copies
+// (references.odin), only where the board shows them.
 
 // The board as the card shows it: the board point at its top left and the screen points a
 // board point takes (0 until it is first fitted), the picked places by id, and the drag
@@ -30,13 +33,29 @@ Ref_Board :: struct {
 	tap:      Handle_Tap,
 	room:     ui.Rect, // where the board was last drawn, in points
 	moves:    int, // drags that moved or sized pictures, for the exit stats
+	snap:     bool, // Snap view waits for the next frame's start (refs_poll)
+	// The place whose crop is shown whole with its edges to drag (0: none), and the edges
+	// a crop drag moves (CROP_LEFT and the others).
+	cropping: u32,
+	edges:    u8,
+	// The picked note's text as its field edits it, which note that is, and the board
+	// before the edit began (owned), for one undo step when the field lets go.
+	note:     [REF_NOTE_MAX]u8,
+	note_id:  u32,
+	note_before: []Ref,
 }
+
+CROP_LEFT :: 1
+CROP_RIGHT :: 2
+CROP_TOP :: 4
+CROP_BOTTOM :: 8
 
 Ref_Drag :: enum u8 {
 	None,
 	Pan,
 	Move,
 	Size,
+	Crop,
 }
 
 // How wide the card is: room for a board two pictures across beside the model.
@@ -44,6 +63,8 @@ REFS_CARD_W :: 420
 // The board's zoom range, in screen points a board point.
 BOARD_ZOOM_MIN :: 0.05
 BOARD_ZOOM_MAX :: 8
+// The gap Arrange leaves between places, in board points.
+BOARD_ARRANGE_GAP :: 12
 // How far a wheel notch zooms.
 BOARD_WHEEL_STEP :: 1.2
 // The least height the board takes, so a short card still shows something to work on.
@@ -51,11 +72,14 @@ BOARD_MIN_H :: 160
 // The gap between a picture added and the one before it, in board points.
 BOARD_ADD_STEP :: 32
 
-// GPU copy of picture `slot` (KIT_REF_IMAGE + slot), for kit_draws; nil while it decodes.
+// GPU copy of picture `slot` (KIT_REF_IMAGE + slot), or its grey copy past
+// REF_IMAGES_MAX, for kit_draws; nil while it decodes.
 refs_texture :: proc(app: ^App, slot: int) -> render.Texture {
 	images := app.scene.refs.images[:]
-	if slot < 0 || slot >= len(images) do return 0
-	return images[slot].texture
+	grey := slot >= REF_IMAGES_MAX
+	at := slot - REF_IMAGES_MAX if grey else slot
+	if at < 0 || at >= len(images) do return 0
+	return images[at].grey if grey else images[at].texture
 }
 
 // The board point at screen point `p` of the board drawn at `room`.
@@ -159,35 +183,255 @@ refs_paste :: proc(app: ^App) -> bool {
 	return refs_add_bytes(app, "Pasted picture", data)
 }
 
-// The References card's body, `inner` wide and at most `room` tall: Add, Paste, Fit and
-// Delete over the board.
+// Adds a note where the next picture would go, picked, with its text ready to type.
+refs_add_note :: proc(app: ^App) {
+	refs := &app.scene.refs
+	before := refs_clone(refs.refs[:])
+	refs.next_ref += 1
+	n := Ref{id = refs.next_ref, at = board_drop_point(app), size = REF_NOTE_SIZE, crop_hi = 1, sized = true}
+	copy(n.text[:REF_NOTE_MAX - 1], "Note")
+	append(&refs.refs, n)
+	history_record_refs(app, before, "Add note")
+	b := &app.kit.board
+	clear(&b.selected)
+	append(&b.selected, n.id)
+	board_show(app, n.id)
+}
+
+// The places Arrange and Same height work on: the picked ones when two or more are, else
+// all, as indices into the board's list, leaving out locked ones (and notes when `notes`
+// is off). Temporary.
+@(private = "file")
+refs_tidy_list :: proc(app: ^App, notes: bool) -> [dynamic]int {
+	b := &app.kit.board
+	list := make([dynamic]int, context.temp_allocator)
+	for r, i in app.scene.refs.refs {
+		if r.locked || (!notes && r.image == 0) do continue
+		if len(b.selected) >= 2 && !board_picked(b, r.id) do continue
+		append(&list, i)
+	}
+	return list
+}
+
+// Packs the places in rows, tallest first, from where the first of them lies, about as
+// wide as the board shows for their area, so they take its shape without gaps; then fits
+// the board to them. One undo step.
+refs_arrange :: proc(app: ^App) {
+	refs := &app.scene.refs
+	list := refs_tidy_list(app, true)
+	if len(list) < 2 do return
+	before := refs_clone(refs.refs[:])
+	start := refs.refs[list[0]].at
+	area: f32
+	for i in list {
+		r := refs.refs[i]
+		start = {min(start.x, r.at.x), min(start.y, r.at.y)}
+		area += (r.size.x + BOARD_ARRANGE_GAP) * (r.size.y + BOARD_ARRANGE_GAP)
+	}
+	room := app.kit.board.room
+	aspect := room.w / room.h if room.w > 0 && room.h > 0 else 1
+	width := math.sqrt(area * aspect)
+	// Tallest first, and by the board's order among equals, so the same board always arranges the same way.
+	Item :: struct {
+		i: int,
+		h: f32,
+	}
+	items := make([]Item, len(list), context.temp_allocator)
+	for i, k in list do items[k] = {i, refs.refs[i].size.y}
+	slice.stable_sort_by(items, proc(a, b: Item) -> bool {return a.h > b.h})
+	x, y, row := start.x, start.y, f32(0)
+	for it in items {
+		r := &refs.refs[it.i]
+		// A place starts a new row unless its middle still falls inside the width, so rows
+		// come out about as wide as asked rather than always narrower.
+		if x > start.x && x + r.size.x * 0.5 > start.x + width {
+			x, y, row = start.x, y + row + BOARD_ARRANGE_GAP, 0
+		}
+		r.at = {x, y}
+		x += r.size.x + BOARD_ARRANGE_GAP
+		row = max(row, r.size.y)
+	}
+	history_record_refs(app, before, "Arrange references")
+	board_fit(app, app.kit.board.room)
+}
+
+// Gives the pictures one height, each keeping its shape and its top left: the first
+// picked one's when two or more are picked, else the middle one of all their heights.
+// One undo step.
+refs_same_height :: proc(app: ^App) {
+	refs := &app.scene.refs
+	b := &app.kit.board
+	list := refs_tidy_list(app, false)
+	if len(list) < 2 do return
+	height: f32
+	if len(b.selected) >= 2 {
+		height = refs.refs[list[0]].size.y
+		for i in list do if refs.refs[i].id == b.selected[0] do height = refs.refs[i].size.y
+	} else {
+		heights := make([]f32, len(list), context.temp_allocator)
+		for i, k in list do heights[k] = refs.refs[i].size.y
+		slice.sort(heights)
+		height = heights[len(heights) / 2]
+	}
+	before := refs_clone(refs.refs[:])
+	for i in list {
+		r := &refs.refs[i]
+		r.size = {r.size.x * height / r.size.y, height}
+	}
+	if slice.equal(before, refs.refs[:]) {
+		delete(before)
+		return
+	}
+	history_record_refs(app, before, "Same height")
+}
+
+// The edits of the picked places' row, each one undo step on the picked pictures (notes
+// pass them by): Flip and Grey set every one as the first is not, Turn turns the
+// unlocked ones a quarter clockwise about their middles, Lock sets every picked place
+// (notes too) as the first is not.
+Ref_Edit :: enum u8 {
+	Flip,
+	Grey,
+	Turn,
+	Lock,
+}
+
+refs_edit :: proc(app: ^App, edit: Ref_Edit) {
+	refs := &app.scene.refs
+	b := &app.kit.board
+	first: Maybe(Ref)
+	for r in refs.refs do if board_picked(b, r.id) && (r.image != 0 || edit == .Lock) {
+		first = r
+		break
+	}
+	f, ok := first.?
+	if !ok do return
+	before := refs_clone(refs.refs[:])
+	for &r in refs.refs {
+		if !board_picked(b, r.id) || (r.image == 0 && edit != .Lock) do continue
+		switch edit {
+		case .Flip:
+			r.flip = !f.flip
+		case .Grey:
+			r.grey = !f.grey
+		case .Lock:
+			r.locked = !f.locked
+		case .Turn:
+			if r.locked do continue
+			middle := r.at + r.size * 0.5
+			r.turn = (r.turn + 1) % 4
+			r.size = r.size.yx
+			r.at = middle - r.size * 0.5
+		}
+	}
+	if slice.equal(before, refs.refs[:]) {
+		delete(before)
+		return
+	}
+	names := [Ref_Edit]string{.Flip = "Flip reference", .Grey = "Grey reference", .Turn = "Turn reference", .Lock = "Lock reference"}
+	history_record_refs(app, before, names[edit])
+	if edit == .Turn || edit == .Lock do b.cropping = 0
+}
+
+// Whether every picked place `pick` says of, for the row's lit buttons: flipped, grey or
+// locked.
+@(private = "file")
+refs_picked_all :: proc(app: ^App, pick: proc(r: Ref) -> bool) -> bool {
+	b := &app.kit.board
+	found := false
+	for r in app.scene.refs.refs do if board_picked(b, r.id) {
+		if !pick(r) do return false
+		found = true
+	}
+	return found
+}
+
+// Lists a note's typing as one undo step once its field lets go of the keys.
+@(private = "file")
+refs_note_commit :: proc(app: ^App) {
+	b := &app.kit.board
+	if b.note_before == nil do return
+	if slice.equal(b.note_before, app.scene.refs.refs[:]) do delete(b.note_before)
+	else do history_record_refs(app, b.note_before, "Edit note")
+	b.note_before = nil
+}
+
+// The one picked place when exactly one is, or nil.
+@(private = "file")
+board_one :: proc(app: ^App) -> ^Ref {
+	b := &app.kit.board
+	if len(b.selected) != 1 do return nil
+	i := ref_index(&app.scene.refs, b.selected[0])
+	return &app.scene.refs.refs[i] if i >= 0 else nil
+}
+
+// The References card's body, `inner` wide and at most `room` tall: the row that adds and
+// tidies, the row that edits the picked places, then the board.
 refs_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	b := &k.board
+	refs := &app.scene.refs
+	// What a picked place no longer on the board (undone, deleted) leaves behind.
+	for i := len(b.selected) - 1; i >= 0; i -= 1 do if ref_index(refs, b.selected[i]) < 0 do ordered_remove(&b.selected, i)
+	if b.cropping != 0 && (len(b.selected) != 1 || b.selected[0] != b.cropping) do b.cropping = 0
+	filled := len(refs.refs) > 0
 	ui.begin(ctx, "refs actions", {direction = .Row, width = inner, gap = t.gap, center = true})
-	// Add and Paste share what the two icon buttons leave.
-	wide := (inner - 2 * t.target - 3 * t.gap) * 0.5
-	if ui.button(ctx, "Add##refs", .Bordered, width = wide, glyph = ICON_IMAGE_PLUS) do file_dialog(app, .Reference)
-	if ui.button(ctx, "Paste##refs", .Bordered, width = wide, glyph = ICON_CLIPBOARD_PASTE) do _ = refs_paste(app)
-	if ui.icon_button(ctx, "Fit all##refs", ICON_SCAN, enabled = len(app.scene.refs.refs) > 0) do board_fit(app, b.room)
-	if ui.icon_button(ctx, "Delete##refs", ICON_TRASH_2, enabled = len(b.selected) > 0) do refs_delete_selected(app)
+	if ui.icon_button(ctx, "Add pictures##refs", ICON_IMAGE_PLUS) do file_dialog(app, .Reference)
+	if ui.icon_button(ctx, "Paste picture##refs", ICON_CLIPBOARD_PASTE) do _ = refs_paste(app)
+	if ui.icon_button(ctx, "Snap view##refs", ICON_IMAGE_DOWN) do b.snap = true
+	if ui.icon_button(ctx, "Add note##refs", ICON_STICKY_NOTE) do refs_add_note(app)
+	if ui.icon_button(ctx, "Arrange##refs", ICON_LAYOUT_DASHBOARD, enabled = len(refs.refs) > 1) do refs_arrange(app)
+	if ui.icon_button(ctx, "Same height##refs", ICON_STRETCH_VERTICAL, enabled = len(refs.refs) > 1) do refs_same_height(app)
+	if ui.icon_button(ctx, "Fit all##refs", ICON_SCAN, enabled = filled) do board_fit(app, b.room)
 	ui.end(ctx)
-	board_h := max(room - t.target - t.gap, BOARD_MIN_H)
+	one := board_one(app)
+	picked := len(b.selected) > 0
+	ui.begin(ctx, "refs edits", {direction = .Row, width = inner, gap = t.gap, center = true})
+	if one != nil && one.image == 0 {
+		// A note's text, typed in its own buffer and put on the note as it changes, one undo step a typing.
+		if b.note_id != one.id do refs_note_commit(app)
+		// Unless typing is under way, the field shows the note as it is, an undo's too.
+		if b.note_id != one.id || b.note_before == nil do b.note = one.text
+		b.note_id = one.id
+		field := inner - 2 * t.target - 2 * t.gap
+		if ui.text_field(ctx, "note text##refs", b.note[:REF_NOTE_MAX - 1], field, hint = "Note") {
+			if b.note_before == nil do b.note_before = refs_clone(refs.refs[:])
+			one.text = b.note
+			app.scene_edits += 1
+		}
+		if ctx.text_focus != ui.id_of(ctx, "note text##refs") do refs_note_commit(app)
+	} else {
+		refs_note_commit(app)
+		b.note_id = 0
+		pictures := false
+		for r in refs.refs do if board_picked(b, r.id) && r.image != 0 do pictures = true
+		if ui.icon_button(ctx, "Flip##refs", ICON_FLIP_PICTURE, selected = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.flip}), enabled = pictures) do refs_edit(app, .Flip)
+		if ui.icon_button(ctx, "Grey##refs", ICON_GREY, selected = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.grey}), enabled = pictures) do refs_edit(app, .Grey)
+		if ui.icon_button(ctx, "Turn##refs", ICON_TURN, enabled = pictures) do refs_edit(app, .Turn)
+		crop_ok := one != nil && one.image != 0 && !one.locked
+		if ui.icon_button(ctx, "Crop##refs", ICON_CROP, selected = b.cropping != 0, enabled = crop_ok) do b.cropping = 0 if b.cropping != 0 else one.id
+	}
+	locked := refs_picked_all(app, proc(r: Ref) -> bool {return r.locked})
+	if ui.icon_button(ctx, "Unlock##refs" if locked else "Lock##refs", ICON_LOCK if locked else ICON_LOCK_OPEN, selected = locked, enabled = picked) do refs_edit(app, .Lock)
+	if ui.icon_button(ctx, "Delete##refs", ICON_TRASH_2, enabled = picked) do refs_delete_selected(app)
+	ui.end(ctx)
+	board_h := max(room - 2 * t.target - 2 * t.gap, BOARD_MIN_H)
 	ui.begin(ctx, "refs board", {width = inner, height = board_h, clip = true, radius = t.radius_medium})
 	a := ui.area(ctx, "board", {inner, board_h})
 	ui.end(ctx)
 	r := a.rect
 	// The first time it is shown with pictures on it, the board fits them.
-	if b.zoom <= 0 && len(app.scene.refs.refs) > 0 do board_fit(app, r)
+	if b.zoom <= 0 && filled do board_fit(app, r)
 	b.room = r
 	board_input(app, a)
 	board_draw(app, r)
 }
 
-// The board's ground, its pictures and the picked ones' outlines and corner, clipped to
-// `r` by the container it is drawn in.
+// The board's ground, its pictures and notes, and the picked ones' outlines and corner (or
+// the cropped one whole, faint, with its crop's edges), clipped to `r` by the container it
+// is drawn in.
 @(private = "file")
 board_draw :: proc(app: ^App, r: ui.Rect) {
 	k := &app.kit
@@ -202,27 +446,65 @@ board_draw :: proc(app: ^App, r: ui.Rect) {
 		ui.text(ctx, ui.text_fit(ctx, line, t.small_size, r.w - 2 * t.gap), r.x + r.w * 0.5, r.y + r.h * 0.5 + t.gap, t.small_size, t.text_secondary, .Regular, .Center)
 		return
 	}
-	for p in refs.refs {
+	for &p in refs.refs {
 		at := board_rect(b, r, p)
+		if p.id == b.cropping {
+			// The whole picture faint under its crop, so the edges have somewhere to go.
+			full_at, full_size := ref_full(p)
+			whole := p
+			whole.at, whole.size, whole.crop_lo, whole.crop_hi = full_at, full_size, 0, 1
+			board_picture(app, r, whole, 70)
+		}
 		if ui.rect_intersect(at, r).w <= 0 || ui.rect_intersect(at, r).h <= 0 do continue
-		slot := ref_image_slot(refs, p.image)
-		img := refs.images[slot]
-		if img.texture != 0 {
-			ui.image(ctx, at, KIT_REF_IMAGE + u64(slot))
-		} else {
-			ui.fill_rect(ctx, at, 0, t.fill)
-			note := "Loading" if img.failed == "" else fmt.tprintf("Cannot show %s: %s", img.name, img.failed)
-			ui.text(ctx, ui.text_fit(ctx, note, t.small_size, at.w - t.gap), at.x + at.w * 0.5, at.y + at.h * 0.5, t.small_size, t.text_tertiary, .Regular, .Center)
+		if p.image == 0 {
+			ui.fill_rect(ctx, at, t.radius_small * board_zoom(b), t.surface_raised)
+			size := p.size.y * 0.45 * board_zoom(b)
+			if size >= 4 {
+				text := ui.text_fit(ctx, ref_note_text(&p), size, at.w - size)
+				ui.text(ctx, text, at.x + size * 0.5, at.y + at.h * 0.5, size, t.text, .Regular, .Left)
+			}
+		} else do board_picture(app, r, p, 255)
+		if p.locked && at.w > t.icon_small * 2 && at.h > t.icon_small * 2 {
+			ui.icon(ctx, ICON_LOCK, {at.x + at.w - t.icon_small, at.y + t.icon_small}, t.icon_small, t.text_secondary)
 		}
 	}
 	for p in refs.refs {
 		if !board_picked(b, p.id) do continue
 		at := board_rect(b, r, p)
 		ui.stroke_rect(ctx, at, 0, t.accent, 2)
-		if len(b.selected) == 1 do ui.fill_circle(ctx, {at.x + at.w, at.y + at.h}, board_corner(ctx) * 0.4, t.accent)
+		if p.id == b.cropping {
+			// Each edge's middle and each corner, where a finger takes it.
+			for e in ([?][2]f32{{0, 0}, {0.5, 0}, {1, 0}, {1, 0.5}, {1, 1}, {0.5, 1}, {0, 1}, {0, 0.5}}) {
+				ui.fill_circle(ctx, {at.x + at.w * e.x, at.y + at.h * e.y}, board_corner(ctx) * 0.3, t.accent)
+			}
+		} else if len(b.selected) == 1 && !p.locked {
+			ui.fill_circle(ctx, {at.x + at.w, at.y + at.h}, board_corner(ctx) * 0.4, t.accent)
+		}
 	}
 	z := int(math.round(board_zoom(b) * 100))
 	ui.text(ctx, fmt.tprintf("%d%%", z), r.x + r.w - t.gap, r.y + r.h - t.gap, t.small_size, t.text_tertiary, .Regular, .Right)
+}
+
+// Picture place `p` on the board drawn at `r`, at opacity `alpha`: its GPU copy cropped,
+// flipped and turned (the grey copy once made, when grey), or a box saying it loads or
+// why it cannot be shown.
+@(private = "file")
+board_picture :: proc(app: ^App, r: ui.Rect, p: Ref, alpha: u8) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	refs := &app.scene.refs
+	at := board_rect(&app.kit.board, r, p)
+	slot := ref_image_slot(refs, p.image)
+	img := refs.images[slot]
+	if img.texture != 0 {
+		id := KIT_REF_IMAGE + u64(slot)
+		if p.grey && img.grey != 0 do id += REF_IMAGES_MAX
+		ui.image_corners(ctx, at, id, ref_corners(p), {255, 255, 255, alpha})
+		return
+	}
+	ui.fill_rect(ctx, at, 0, t.fill)
+	note := "Loading" if img.failed == "" else fmt.tprintf("Cannot show %s: %s", img.name, img.failed)
+	ui.text(ctx, ui.text_fit(ctx, note, t.small_size, at.w - t.gap), at.x + at.w * 0.5, at.y + at.h * 0.5, t.small_size, t.text_tertiary, .Regular, .Center)
 }
 
 // The reach of a picked picture's corner, which sizes it: a finger's target.
@@ -231,11 +513,26 @@ board_corner :: proc(ctx: ^ui.Context) -> f32 {
 	return ctx.theme.target * 0.5
 }
 
+// The crop edges of the place drawn at `at` within reach of screen point `p`
+// (CROP_LEFT and the others; two at a corner), or 0.
+@(private = "file")
+crop_edges_at :: proc(ctx: ^ui.Context, at: ui.Rect, p: [2]f32) -> u8 {
+	reach := board_corner(ctx)
+	if p.x < at.x - reach || p.x > at.x + at.w + reach || p.y < at.y - reach || p.y > at.y + at.h + reach do return 0
+	edges: u8
+	if abs(p.x - at.x) <= reach do edges |= CROP_LEFT
+	else if abs(p.x - at.x - at.w) <= reach do edges |= CROP_RIGHT
+	if abs(p.y - at.y) <= reach do edges |= CROP_TOP
+	else if abs(p.y - at.y - at.h) <= reach do edges |= CROP_BOTTOM
+	return edges
+}
+
 // The board's input on area `a`: two fingers pan and pinch, the wheel zooms about the
 // pointer, a press on a picture picks it (Shift adds or takes it from the picked ones)
-// and drags the picked ones, a press on the picked one's corner sizes it, a press on the
-// ground clears the picks and pans, a double tap on the ground fits everything. A drag
-// that moved or sized pictures is one undo step when it lets go.
+// and drags the picked ones, a press on the picked one's corner sizes it (on a cropped
+// one's edges, crops it), a press on the ground clears the picks and pans, a double tap on
+// the ground fits everything. A locked place is picked but a drag on it pans. A drag that
+// moved, sized or cropped places is one undo step when it lets go.
 @(private = "file")
 board_input :: proc(app: ^App, a: ui.Area) {
 	k := &app.kit
@@ -256,7 +553,7 @@ board_input :: proc(app: ^App, a: ui.Area) {
 		}
 		b.spread, b.middle = spread, middle
 		// A pinch ends any drag a finger began, putting the pictures back where it found them.
-		if b.drag == .Move || b.drag == .Size do board_drag_cancel(app)
+		if b.drag == .Move || b.drag == .Size || b.drag == .Crop do board_drag_cancel(app)
 		b.drag = .None
 		return
 	}
@@ -273,14 +570,19 @@ board_input :: proc(app: ^App, a: ui.Area) {
 			}
 		}
 		corner := false
-		if len(b.selected) == 1 {
-			if i := ref_index(refs, b.selected[0]); i >= 0 {
-				at := board_rect(b, room, refs.refs[i])
+		b.edges = 0
+		if one := board_one(app); one != nil && !one.locked {
+			at := board_rect(b, room, one^)
+			if one.id == b.cropping {
+				b.edges = crop_edges_at(ctx, at, a.mouse)
+			} else {
 				d := a.mouse - [2]f32{at.x + at.w, at.y + at.h}
 				corner = d.x * d.x + d.y * d.y <= board_corner(ctx) * board_corner(ctx)
 			}
 		}
 		switch {
+		case b.edges != 0:
+			b.drag = .Crop
 		case corner:
 			b.drag = .Size
 		case hit >= 0:
@@ -296,12 +598,12 @@ board_input :: proc(app: ^App, a: ui.Area) {
 				clear(&b.selected)
 				append(&b.selected, id)
 			}
-			b.drag = .Move if board_picked(b, id) else .None
+			b.drag = .Move if board_picked(b, id) && !refs.refs[hit].locked else .Pan
 		case:
 			if !ctx.input.shift do clear(&b.selected)
 			b.drag = .Pan
 		}
-		if b.drag == .Move || b.drag == .Size {
+		if b.drag == .Move || b.drag == .Size || b.drag == .Crop {
 			delete(b.before)
 			b.before = refs_clone(refs.refs[:])
 		}
@@ -314,22 +616,24 @@ board_input :: proc(app: ^App, a: ui.Area) {
 		case .Pan:
 			b.pan -= d / z
 		case .Move:
-			for &p in refs.refs do if board_picked(b, p.id) do p.at += d / z
+			for &p in refs.refs do if board_picked(b, p.id) && !p.locked do p.at += d / z
 		case .Size:
-			if i := ref_index(refs, b.selected[0]); i >= 0 {
-				p := &refs.refs[i]
+			if p := board_one(app); p != nil {
 				// The corner follows the pointer along the picture's diagonal, so it keeps its shape.
 				grow := (d.x * p.size.x + d.y * p.size.y) / max(p.size.x * p.size.x + p.size.y * p.size.y, 1e-6) / z
 				f := max(1 + grow, REF_MIN_SIDE / max(min(p.size.x, p.size.y), 1e-6))
 				p.size *= f
 			}
+		case .Crop:
+			if p := board_one(app); p != nil do board_crop_drag(p, board_point(b, room, a.mouse), b.edges)
 		}
 		b.last = a.mouse
 	}
 	if !a.held && b.drag != .None {
-		if (b.drag == .Move || b.drag == .Size) && b.before != nil {
+		if (b.drag == .Move || b.drag == .Size || b.drag == .Crop) && b.before != nil {
 			if !slice.equal(b.before, refs.refs[:]) {
-				history_record_refs(app, b.before, "Move reference" if b.drag == .Move else "Size reference")
+				names := [Ref_Drag]string{.None = "", .Pan = "", .Move = "Move reference", .Size = "Size reference", .Crop = "Crop reference"}
+				history_record_refs(app, b.before, names[b.drag])
 				b.moves += 1
 			} else do delete(b.before)
 			b.before = nil
@@ -337,6 +641,28 @@ board_input :: proc(app: ^App, a: ui.Area) {
 		b.drag = .None
 	}
 	if a.clicked && b.drag == .None && len(b.selected) == 0 && handle_double_tap(ctx, &b.tap, a.id) do board_fit(app, room)
+}
+
+// board_crop_drag for the tests.
+board_crop_test_drag :: proc(p: ^Ref, at: [2]f32, edges: u8) {
+	board_crop_drag(p, at, edges)
+}
+
+// Moves crop edges `edges` of place `p` to board point `at`, within the whole picture
+// and leaving at least REF_MIN_SIDE between them; what stays keeps its place on the board.
+@(private = "file")
+board_crop_drag :: proc(p: ^Ref, at: [2]f32, edges: u8) {
+	full_at, full_size := ref_full(p^)
+	lo, hi := ref_crop_shown(p^)
+	f := (at - full_at) / full_size
+	least := REF_MIN_SIDE / full_size
+	if edges & CROP_LEFT != 0 do lo.x = clamp(f.x, 0, hi.x - least.x)
+	if edges & CROP_RIGHT != 0 do hi.x = clamp(f.x, lo.x + least.x, 1)
+	if edges & CROP_TOP != 0 do lo.y = clamp(f.y, 0, hi.y - least.y)
+	if edges & CROP_BOTTOM != 0 do hi.y = clamp(f.y, lo.y + least.y, 1)
+	ref_crop_set(p, lo, hi)
+	p.at = full_at + lo * full_size
+	p.size = (hi - lo) * full_size
 }
 
 // The least side a picture is sized down to, in board points.
@@ -353,8 +679,18 @@ board_drag_cancel :: proc(app: ^App) {
 	b.before = nil
 }
 
-// Lucide's image-plus, clipboard-paste, scan and trash-2, for the card's actions.
+// Lucide's image-plus, clipboard-paste, scan and trash-2, image-down, sticky-note,
+// layout-dashboard, stretch-vertical, flip-horizontal, sun-moon, rotate-cw-square and
+// crop, for the card's actions.
 ICON_IMAGE_PLUS :: rune(0xe1f7)
 ICON_CLIPBOARD_PASTE :: rune(0xe3ec)
 ICON_SCAN :: rune(0xe257)
 ICON_TRASH_2 :: rune(0xe18e)
+ICON_IMAGE_DOWN :: rune(0xe541)
+ICON_STICKY_NOTE :: rune(0xe303)
+ICON_LAYOUT_DASHBOARD :: rune(0xe1c1)
+ICON_STRETCH_VERTICAL :: rune(0xe27d)
+ICON_FLIP_PICTURE :: rune(0xe361)
+ICON_GREY :: rune(0xe2b2)
+ICON_TURN :: rune(0xe5d6)
+ICON_CROP :: rune(0xe0af)

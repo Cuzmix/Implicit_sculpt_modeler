@@ -33,6 +33,10 @@ Ref_Image :: struct {
 	height:  int,
 	texture: render.Texture,
 	shown:   [2]int, // the GPU copy's size in pixels
+	// Its grey copy, made only once a place shows it grey (Ref.grey), so the colour copy
+	// alone costs memory until then; grey_failed keeps a refused one from being tried again.
+	grey:        render.Texture,
+	grey_failed: bool,
 	decode:  ^Ref_Decode,
 	failed:  string, // why it cannot be shown, owned; "" while it can
 	used:    bool, // refs_collect's mark
@@ -40,14 +44,31 @@ Ref_Image :: struct {
 
 // A place of a picture on the board: its top left and size in board points (a point at
 // zoom 1), drawn in the list's order, the last on top. `sized` is false until the
-// picture's own shape is known, when the place takes it at the same height.
+// picture's own shape is known, when the place takes it at the same height. What it shows
+// is the picture's part between crop_lo and crop_hi (its texture coordinates, 0 to 1),
+// mirrored left to right when flipped, then turned a quarter clockwise `turn` times, in
+// grey when `grey`; none of it changes the picture's file. A locked place stays where it
+// is: it is picked but neither moved, sized, cropped nor turned. A place of image 0 is a
+// note, its text NUL-ended in `text`, drawn in its box at a size its height sets.
 Ref :: struct {
-	id:    u32,
-	image: u32,
-	at:    [2]f32,
-	size:  [2]f32,
-	sized: bool,
+	id:      u32,
+	image:   u32,
+	at:      [2]f32,
+	size:    [2]f32,
+	crop_lo: [2]f32,
+	crop_hi: [2]f32,
+	turn:    u8,
+	flip:    bool,
+	grey:    bool,
+	locked:  bool,
+	sized:   bool,
+	text:    [REF_NOTE_MAX]u8,
 }
+
+// The longest note, in bytes with its ending NUL: a label, not a document.
+REF_NOTE_MAX :: 96
+// A note's box when added, in board points: one line of text at a readable size.
+REF_NOTE_SIZE :: [2]f32{220, 40}
 
 // The scene's references: its pictures and their places on the board.
 References :: struct {
@@ -86,13 +107,14 @@ Ref_Decode :: struct {
 	kept:      []u8,
 	why:       string,
 	ms:        f64,
+	grey:      bool, // the grey copy, in place of the colour one
 	done:      bool, // atomic
 	thread:    ^thread.Thread,
 }
 
 // The image of the interface that draws picture `slot` (its place in References.images).
 KIT_REF_IMAGE :: KIT_TAB_IMAGE_END
-KIT_REF_IMAGE_END :: KIT_REF_IMAGE + REF_IMAGES_MAX
+KIT_REF_IMAGE_END :: KIT_REF_IMAGE + 2 * REF_IMAGES_MAX // the grey copies after the colour ones
 
 // The picture of id `id`, or nil.
 ref_image :: proc(refs: ^References, id: u32) -> ^Ref_Image {
@@ -141,20 +163,75 @@ refs_add :: proc(app: ^App, name: string, bytes: []u8, at: [2]f32) -> (ref: Ref,
 		if w, h, ok := image_size_peek(img.bytes); ok do img.width, img.height = w, h
 	}
 	refs.next_ref += 1
-	ref = {id = refs.next_ref, image = img.id, at = at, size = REF_ADD_HEIGHT, sized = false}
+	ref = {id = refs.next_ref, image = img.id, at = at, size = REF_ADD_HEIGHT, crop_hi = 1}
 	if img.width > 0 do ref = ref_sized(ref, img)
 	append(&refs.refs, ref)
 	return ref, ""
 }
 
-// Place `r` given the shape of its picture at its height.
+// Place `r` given the shape of its picture (as cropped and turned) at its height.
 ref_sized :: proc(r: Ref, img: ^Ref_Image) -> Ref {
 	r := r
 	if img.width > 0 && img.height > 0 {
-		r.size.x = r.size.y * f32(img.width) / f32(img.height)
+		part := (r.crop_hi - r.crop_lo) * [2]f32{f32(img.width), f32(img.height)}
+		if r.turn % 2 == 1 do part = part.yx
+		r.size.x = r.size.y * part.x / max(part.y, 1e-6)
 		r.sized = true
 	}
 	return r
+}
+
+// The picture's texture coordinates shown at place `r`'s top left, top right, bottom
+// right and bottom left: its crop, mirrored, then turned clockwise. Turned once, the top
+// left shows what was the bottom left.
+ref_corners :: proc(r: Ref) -> [4][2]f32 {
+	lo, hi := r.crop_lo, r.crop_hi
+	c := [4][2]f32{{lo.x, lo.y}, {hi.x, lo.y}, {hi.x, hi.y}, {lo.x, hi.y}}
+	if r.flip do c = {c[1], c[0], c[3], c[2]}
+	out: [4][2]f32
+	for i in 0 ..< 4 do out[i] = c[(i + 4 - int(r.turn % 4)) % 4]
+	return out
+}
+
+// Where the picture's texture coordinate `p` shows across a place of the whole picture of
+// `r`'s flip and turn, 0 to 1 from its top left; ref_from_shown goes back.
+ref_to_shown :: proc(r: Ref, p: [2]f32) -> [2]f32 {
+	q := p
+	if r.flip do q.x = 1 - q.x
+	for _ in 0 ..< r.turn % 4 do q = {1 - q.y, q.x}
+	return q
+}
+
+ref_from_shown :: proc(r: Ref, q: [2]f32) -> [2]f32 {
+	p := q
+	for _ in 0 ..< r.turn % 4 do p = {p.y, 1 - p.x}
+	if r.flip do p.x = 1 - p.x
+	return p
+}
+
+// Place `r`'s crop as shown (after its flip and turn), as its least and greatest corner.
+ref_crop_shown :: proc(r: Ref) -> (lo, hi: [2]f32) {
+	a, b := ref_to_shown(r, r.crop_lo), ref_to_shown(r, r.crop_hi)
+	return {min(a.x, b.x), min(a.y, b.y)}, {max(a.x, b.x), max(a.y, b.y)}
+}
+
+// Sets place `r`'s crop from its shown corners `lo` and `hi`.
+ref_crop_set :: proc(r: ^Ref, lo, hi: [2]f32) {
+	a, b := ref_from_shown(r^, lo), ref_from_shown(r^, hi)
+	r.crop_lo, r.crop_hi = {min(a.x, b.x), min(a.y, b.y)}, {max(a.x, b.x), max(a.y, b.y)}
+}
+
+// Where the whole picture of place `r` would lie, at the scale its crop shows it: the
+// frame its crop's edges move in.
+ref_full :: proc(r: Ref) -> (at, size: [2]f32) {
+	lo, hi := ref_crop_shown(r)
+	size = r.size / [2]f32{max(hi.x - lo.x, 1e-6), max(hi.y - lo.y, 1e-6)}
+	return r.at - lo * size, size
+}
+
+// A note's text, up to its NUL.
+ref_note_text :: proc(r: ^Ref) -> string {
+	return string(cstring(raw_data(r.text[:])))
 }
 
 // Reads an image file and adds it to the board, at the middle of what the board shows,
@@ -274,6 +351,7 @@ ref_image_free :: proc(app: ^App, img: ^Ref_Image) {
 		ref_decode_free(d)
 	}
 	render.matcap_destroy(&app.renderer, &img.texture)
+	render.matcap_destroy(&app.renderer, &img.grey)
 	delete(img.name)
 	delete(img.bytes)
 	delete(img.failed)
@@ -309,6 +387,8 @@ refs_destroy :: proc(app: ^App) {
 	app.kit.board.selected = nil
 	delete(app.kit.board.before)
 	app.kit.board.before = nil
+	delete(app.kit.board.note_before)
+	app.kit.board.note_before = nil
 }
 
 // Frees the pictures neither the board nor any step of the History places, once the
@@ -379,6 +459,32 @@ refs_poll :: proc(app: ^App) {
 		ref_decode_start(img)
 		running += 1
 	}
+	// Grey copies after every colour one, for the pictures a place shows grey.
+	for img in refs.images {
+		if running >= REF_DECODES_MAX do break
+		if img.decode != nil || img.texture == 0 || img.grey != 0 || img.grey_failed do continue
+		wanted := false
+		for r in refs.refs do if r.image == img.id && r.grey do wanted = true
+		if !wanted do continue
+		ref_decode_start(img, grey = true)
+		running += 1
+	}
+	if app.kit.board.snap {
+		app.kit.board.snap = false
+		refs_snap_view(app)
+	}
+}
+
+// Puts a picture of the viewport as the last frame drew it on the board, as one undo
+// step: the sculpt beside its references, or a before beside an after.
+refs_snap_view :: proc(app: ^App) {
+	w, h := int(app.target.width), int(app.target.height)
+	pixels := render.viewport_download(&app.renderer, &app.target, context.temp_allocator, viewport_shown(app))
+	if pixels == nil {
+		file_note(app, true, "Could not read the viewport back for References")
+		return
+	}
+	_ = refs_add_bytes(app, "View", png_write.encode(pixels, w, h, alpha = false))
 }
 
 // Waits for every decode and takes it, for a script or test that must see the pictures.
@@ -398,9 +504,9 @@ refs_finish :: proc(app: ^App) {
 }
 
 @(private = "file")
-ref_decode_start :: proc(img: ^Ref_Image) {
+ref_decode_start :: proc(img: ^Ref_Image, grey := false) {
 	d := new(Ref_Decode, runtime.heap_allocator())
-	d.bytes, d.side = img.bytes, REF_GPU_SIDE
+	d.bytes, d.side, d.grey = img.bytes, REF_GPU_SIDE, grey
 	img.decode = d
 	d.thread = thread.create_and_start_with_data(d, proc(data: rawptr) {
 		d := (^Ref_Decode)(data)
@@ -433,6 +539,13 @@ ref_decode :: proc(d: ^Ref_Decode) {
 	d.pixels = make([]u8, len(shown))
 	copy(d.pixels, shown)
 	d.shown = {gw, gh}
+	if d.grey {
+		// Rec. 709's weights on the stored values: the brightness the eye sees, alpha kept.
+		for i := 0; i < len(d.pixels); i += 4 {
+			y := (2126 * u32(d.pixels[i]) + 7152 * u32(d.pixels[i + 1]) + 722 * u32(d.pixels[i + 2]) + 5000) / 10000
+			d.pixels[i], d.pixels[i + 1], d.pixels[i + 2] = u8(y), u8(y), u8(y)
+		}
+	}
 }
 
 // Halves RGBA8 `pixels` (w by h) by averaging each 2 by 2 until its long side is at most
@@ -466,6 +579,11 @@ ref_decode_take :: proc(app: ^App, img: ^Ref_Image) {
 	img.decode = nil
 	defer ref_decode_free(d)
 	app.refs_decode_ms = max(app.refs_decode_ms, d.ms)
+	if d.grey {
+		if d.why == "" do img.grey = render.picture_create(&app.renderer, d.pixels, d.shown.x, d.shown.y)
+		img.grey_failed = img.grey == 0
+		return
+	}
 	if d.why != "" {
 		img.failed = strings.clone(d.why)
 		return
@@ -490,10 +608,26 @@ refs_shown_count :: proc(app: ^App) -> int {
 	return n
 }
 
+// How many places are notes, and how many pictures have their grey copy, for the exit stats.
+refs_note_count :: proc(app: ^App) -> int {
+	n := 0
+	for r in app.scene.refs.refs do if r.image == 0 do n += 1
+	return n
+}
+
+refs_grey_count :: proc(app: ^App) -> int {
+	n := 0
+	for img in app.scene.refs.images do if img.grey != 0 do n += 1
+	return n
+}
+
 // The GPU copies' size in megabytes, mips included, for the exit stats.
 refs_gpu_mb :: proc(app: ^App) -> f64 {
 	bytes := 0
-	for img in app.scene.refs.images do if img.texture != 0 do bytes += img.shown.x * img.shown.y * 4 * 4 / 3
+	for img in app.scene.refs.images {
+		if img.texture != 0 do bytes += img.shown.x * img.shown.y * 4 * 4 / 3
+		if img.grey != 0 do bytes += img.shown.x * img.shown.y * 4 * 4 / 3
+	}
 	return f64(bytes) / f64(1 << 20)
 }
 
@@ -516,18 +650,23 @@ refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {
 		append(out, ..img.bytes)
 	}
 	geom.byte_put(out, u32(len(refs.refs)))
-	for r in refs.refs {
+	for &r in refs.refs {
 		geom.byte_put(out, r.id)
 		geom.byte_put(out, r.image)
 		geom.byte_put(out, r.at)
 		geom.byte_put(out, r.size)
-		geom.byte_put(out, u8(r.sized))
+		geom.byte_put(out, r.crop_lo)
+		geom.byte_put(out, r.crop_hi)
+		geom.byte_put(out, r.turn)
+		geom.byte_put(out, u8(r.flip) | u8(r.grey) << 1 | u8(r.locked) << 2 | u8(r.sized) << 3)
+		if r.image == 0 do geom.byte_put_string(out, ref_note_text(&r))
 	}
 }
 
 // The references as refs_put wrote them; ok is false when the chunk is damaged: a count
 // past what it holds, a picture's id twice or past the next one, a place of a picture it
-// does not hold, a size that is not a positive finite number.
+// does not hold, a size that is not a positive finite number, a crop outside the picture
+// or turned inside out, a turn past three quarters, a note's text too long.
 refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
 	refs.next_image = geom.byte_get(r, u32)
 	refs.next_ref = geom.byte_get(r, u32)
@@ -557,11 +696,22 @@ refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
 		p.image = geom.byte_get(r, u32)
 		p.at = geom.byte_get(r, [2]f32)
 		p.size = geom.byte_get(r, [2]f32)
-		sized := geom.byte_get(r, u8)
-		if !r.ok || sized > 1 || p.id == 0 || p.id > refs.next_ref || ref_image(&refs, p.image) == nil do return
+		p.crop_lo = geom.byte_get(r, [2]f32)
+		p.crop_hi = geom.byte_get(r, [2]f32)
+		p.turn = geom.byte_get(r, u8)
+		bits := geom.byte_get(r, u8)
+		if !r.ok || bits > 15 || p.turn > 3 || p.id == 0 || p.id > refs.next_ref do return
+		if p.image != 0 && ref_image(&refs, p.image) == nil do return
 		if !(p.size.x > 0 && p.size.y > 0 && p.size.x < math.F32_MAX && p.size.y < math.F32_MAX) do return
 		if !(abs(p.at.x) < math.F32_MAX && abs(p.at.y) < math.F32_MAX) do return
-		p.sized = sized == 1
+		if !(p.crop_lo.x >= 0 && p.crop_lo.y >= 0 && p.crop_hi.x <= 1 && p.crop_hi.y <= 1) do return
+		if !(p.crop_lo.x < p.crop_hi.x && p.crop_lo.y < p.crop_hi.y) do return
+		p.flip, p.grey, p.locked, p.sized = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0
+		if p.image == 0 {
+			text := geom.byte_get_string(r, context.temp_allocator)
+			if !r.ok || len(text) >= REF_NOTE_MAX do return
+			copy(p.text[:], text)
+		}
 		append(&refs.refs, p)
 	}
 	ok = r.ok && r.at == len(r.data)
