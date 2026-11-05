@@ -1340,7 +1340,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 		// A retopologized object's base level goes as its quads, with their UVs.
 		q := sculpt.levels_quad_mesh(&obj.levels)
 		layout, _ := sculpt.levels_quad_uvs(&obj.levels)
-		geom.quad_mesh_write_obj(&out, q.positions, q.quads, layout.uvs, obj.file.scale, obj.file.position)
+		geom.faces_write_obj(&out, q.positions, q.quads, layout.uvs, obj.file.scale, obj.file.position)
 	case ext == ".obj":
 		geom.mesh_write_obj(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool, colors)
 	case ext == ".stl":

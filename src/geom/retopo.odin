@@ -408,10 +408,10 @@ quad_split :: proc(positions: []Vec3, f: [4]u32) -> [6]u32 {
 @(private = "file")
 QUAD_SPLIT_FLAT :: f32(1e-12)
 
-// Appends the quads to `out` as OBJ text: `v` lines (each position as `scale * p +
-// offset`), with `uvs` (per quad corner) a `vt` line a corner and `f` lines naming both,
-// else plain `f` lines.
-quad_mesh_write_obj :: proc(out: ^[dynamic]u8, positions: []Vec3, quads: [][4]u32, uvs: [][4][2]f32 = nil, scale: f32 = 1, offset := Vec3{}) {
+// Appends the faces (quads, or triangles, all with N corners) to `out` as OBJ text: `v`
+// lines (each position as `scale * p + offset`), with `uvs` (per face corner) a `vt` line
+// a corner and `f` lines naming both, else plain `f` lines.
+faces_write_obj :: proc(out: ^[dynamic]u8, positions: []Vec3, faces: [][$N]u32, uvs: [][N][2]f32 = nil, scale: f32 = 1, offset := Vec3{}) {
 	tmp: [32]u8
 	number :: proc(out: ^[dynamic]u8, tmp: []u8, x: f32) {
 		append(out, ' ')
@@ -433,14 +433,14 @@ quad_mesh_write_obj :: proc(out: ^[dynamic]u8, positions: []Vec3, quads: [][4]u3
 			}
 		}
 	}
-	for f, i in quads {
+	for f, i in faces {
 		append(out, 'f')
 		for v, k in f {
 			append(out, ' ')
 			append(out, ..tmp[:format_u32(tmp[:], v + 1)])
 			if uvs != nil {
 				append(out, '/')
-				append(out, ..tmp[:format_u32(tmp[:], u32(4 * i + k + 1))])
+				append(out, ..tmp[:format_u32(tmp[:], u32(N * i + k + 1))])
 			}
 		}
 		append(out, '\n')

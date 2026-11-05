@@ -19,7 +19,7 @@ import "../retopo"
 // Retopology and baking on the app side: Quad Remesh makes a new object of quads from
 // the selected one (quadmesh.remesh, or geom.mesh_retopo), with UVs laid out
 // (geom.quad_uv_unwrap), next to it; Bake maps... then bakes another object's detail into normal and displacement maps
-// on it (geom.bake_maps) and writes them to a folder with the quads as OBJ. Both work in
+// on any sculpt with UVs (geom.bake_maps, geom.bake_low_maps) and writes them to a folder with it as OBJ. Both work in
 // the objects' own spaces, so moving or turning either object changes nothing.
 
 BAKE_SIZES := [?]i32{512, 1024, 2048, 4096}
@@ -27,7 +27,7 @@ BAKE_SIZES := [?]i32{512, 1024, 2048, 4096}
 Bake_Settings :: struct {
 	source:          int, // id of the object to bake from; 0 picks the one the quads came from
 	size:            i32, // texels square
-	reach_edges:     f32, // how far rays look, in the quads' average edge length
+	reach_edges:     f32, // how far rays look, in the low surface's average edge length
 	// The bake set's maps beyond normal and displacement (geom.Bake_Kind).
 	base_color:      bool,
 	orm:             bool,
@@ -261,14 +261,15 @@ bake_source :: proc(app: ^App, low: ^Object) -> ^Object {
 	return src
 }
 
-// Bakes the bake source's detail onto the selected quad object and writes, into
-// `folder`, NAME_normal.png (tangent space, OpenGL's green up), NAME_displacement.png
-// (16-bit grey, 32768 for none), NAME_displacement.txt (the distance the full range
-// stands for) and NAME.obj (the quads with their UVs), NAME being the object's.
+// Bakes the bake source's detail onto the selected object's UVs (a quad object's quads, or
+// any sculpt's base triangles) and writes, into `folder`, NAME_normal.png (tangent space,
+// OpenGL's green up), NAME_displacement.png (16-bit grey, 32768 for none),
+// NAME_displacement.txt (the distance the full range stands for) and NAME.obj (its faces
+// with their UVs), NAME being the object's.
 bake_to_folder :: proc(app: ^App, folder: string) {
 	low := selected_object(app)
-	if low == nil || !sculpt.levels_has_quad_uvs(&low.levels) {
-		file_note(app, true, "Bake: select an object made by Quad Remesh first")
+	if low == nil || low.curve != nil || low.cage != nil || !sculpt.levels_has_uvs(&low.levels) {
+		file_note(app, true, "Bake: select a sculpt with UVs first (Mesh > UVs > Unwrap)")
 		return
 	}
 	src := bake_source(app, low)
@@ -304,9 +305,18 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 	defer if src == low do geom.bvh_destroy(&rest_bvh)
 	sculpt.levels_sync(&low.levels)
 	quads := sculpt.levels_quad_mesh(&low.levels)
+	layout, has_quads := sculpt.levels_quad_uvs(&low.levels)
+	level := low.levels.levels[0]
+	// Reach counts in the low surface's own edges: a quad's four sides, else a triangle's three.
 	edge: f32
-	for f in quads.quads do for k in 0 ..< 4 do edge += linalg.length(quads.positions[f[(k + 1) % 4]] - quads.positions[f[k]])
-	edge /= f32(max(4 * len(quads.quads), 1))
+	if has_quads {
+		for f in quads.quads do for k in 0 ..< 4 do edge += linalg.length(quads.positions[f[(k + 1) % 4]] - quads.positions[f[k]])
+		edge /= f32(max(4 * len(quads.quads), 1))
+	} else {
+		at, tris := level.mesh.positions[:], level.mesh.indices[:]
+		for t in 0 ..< len(tris) / 3 do for k in 0 ..< 3 do edge += linalg.length(at[tris[3 * t + (k + 1) % 3]] - at[tris[3 * t + k]])
+		edge /= f32(max(len(tris), 1))
+	}
 	size := int(app.ui.bake.size)
 	set := &app.ui.bake
 	kinds: bit_set[geom.Bake_Kind]
@@ -320,8 +330,14 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 		source.rest, source.rest_bvh = rest, &rest_bvh
 	}
 	options := geom.Bake_Options{object_space = set.object_space, directx = set.target == .Unreal}
-	layout, _ := sculpt.levels_quad_uvs(&low.levels)
-	maps := geom.bake_maps(quads, layout, source, size, set.reach_edges * edge, kinds, &app.pool, options = options)
+	maps: geom.Bake_Maps
+	if has_quads {
+		maps = geom.bake_maps(quads, layout, source, size, set.reach_edges * edge, kinds, &app.pool, options = options)
+	} else {
+		// Any other sculpt bakes onto its base level's triangles, split where its UVs are.
+		split := textured_split(low)
+		maps = geom.bake_low_maps({split.positions, split.normals, split.uv, split.tangents, split.indices}, source, size, set.reach_edges * edge, kinds, &app.pool, options = options)
+	}
 	defer geom.bake_maps_destroy(&maps)
 	baked_ms := time.duration_milliseconds(time.tick_since(start))
 
@@ -345,7 +361,12 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 	defer delete(disp_png)
 	obj_text := make([dynamic]u8)
 	defer delete(obj_text)
-	geom.quad_mesh_write_obj(&obj_text, quads.positions, quads.quads, layout.uvs, low.file.scale, low.file.position)
+	if has_quads {
+		geom.faces_write_obj(&obj_text, quads.positions, quads.quads, layout.uvs, low.file.scale, low.file.position)
+	} else {
+		tris := slice.reinterpret([][3]u32, level.mesh.indices[:])
+		geom.faces_write_obj(&obj_text, level.mesh.positions[:], tris, low.levels.uvs.corner, low.file.scale, low.file.position)
+	}
 	full := maps.max_displacement * low.file.scale
 	note := fmt.tprintf("Displacement %s_displacement.png: 16-bit grey, 32768 is the surface of %s.obj, 0 and 65535 are %v units in and out along its normal (in the OBJ's units).\n", base, base, full)
 	if !write_file_safely(app, path(folder, base, "_normal.png"), normal_png, "bake") do return
@@ -518,8 +539,8 @@ kit_retopo_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	obj := selected_object(app)
 	kit_last_result(app, .Retopo)
-	if obj == nil || !sculpt.levels_has_quads(&obj.levels) {
-		ui.paragraph(ctx, "Bakes onto a quad object with UVs: make one with Shape > Rebuild > Quads, then select it here.")
+	if obj == nil || obj.voxel != nil || obj.curve != nil || obj.cage != nil {
+		ui.paragraph(ctx, "Bakes onto a sculpt with UVs: select one here.")
 		return
 	}
 	if !sculpt.levels_has_uvs(&obj.levels) {
@@ -540,7 +561,7 @@ kit_retopo_section :: proc(app: ^App) {
 	}
 	if picked := ui.select(ctx, "bake from", names[:], chosen); picked >= 0 do app.ui.bake.source = ids[picked]
 	if ui.button(ctx, "Bake maps...", .Bordered) do file_dialog(app, .Bake)
-	ui.paragraph(ctx, "Bakes the source's detail (its top level) into normal and displacement maps on this object's UVs, with its colour and the other maps chosen under More options, and writes them with the quads as OBJ into a folder.")
+	ui.paragraph(ctx, "Bakes the source's detail (its top level) into normal and displacement maps on this object's UVs, with its colour and the other maps chosen under More options, and writes them with the object as OBJ into a folder.")
 	if kit_more(app, .Retopo) {
 		sizes: [len(BAKE_SIZES)]string
 		size := -1

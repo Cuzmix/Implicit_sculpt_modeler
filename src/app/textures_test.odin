@@ -9,6 +9,7 @@ import "core:strings"
 import "core:testing"
 
 import "../geom"
+import "../jobs"
 import "../png_write"
 import "../render"
 import "../sculpt"
@@ -378,5 +379,49 @@ unwrapped_sculpt_takes_maps :: proc(t: ^testing.T) {
 	if !testing.expect(t, object_export(&app, obj, path)) do return
 	json := glb_json(t, path)
 	for want in ([?]string{`"TEXCOORD_0"`, `"TANGENT"`, `"normalTexture"`}) do testing.expectf(t, strings.contains(json, want), "the file has no %s", want)
+	free_all(context.temp_allocator)
+}
+
+// A sculpt given UVs by Unwrap bakes like a quad object: another sphere's detail into its
+// maps, written with its triangles and their UVs as OBJ.
+@(test)
+unwrapped_sculpt_bakes :: proc(t: ^testing.T) {
+	FOLDER :: "build/textures_test_bake/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	app := new(App)
+	defer free(app)
+	jobs.pool_init(&app.pool, 2)
+	defer jobs.pool_destroy(&app.pool)
+	objs := tree_scene(app)
+	defer tree_free(app)
+	low := objs[0]
+	defer textures_free(&low.textures)
+	low.file = {scale = 1}
+	object_unwrap(app, low, unwrap_setup(app))
+	if !testing.expect(t, sculpt.levels_has_uvs(&low.levels)) do return
+	app.ui.bake = {source = objs[1].id, size = 256, reach_edges = 2}
+	bake_to_folder(app, FOLDER)
+	base, _ := strings.replace_all(object_label(low), " ", "_", context.temp_allocator)
+	for suffix in ([?]string{"_normal.png", "_displacement.png", "_displacement.txt"}) {
+		testing.expectf(t, os.exists(strings.concatenate({FOLDER, base, suffix}, context.temp_allocator)), "no %s written", suffix)
+	}
+	text, err := os.read_entire_file(strings.concatenate({FOLDER, base, ".obj"}, context.temp_allocator), context.temp_allocator)
+	if !testing.expect(t, err == nil) do return
+	mesh := low.levels.levels[0].mesh
+	v, vt, f := 0, 0, 0
+	for line in strings.split_lines(string(text), context.temp_allocator) {
+		switch {
+		case strings.has_prefix(line, "vt "): vt += 1
+		case strings.has_prefix(line, "v "): v += 1
+		case strings.has_prefix(line, "f "):
+			f += 1
+			testing.expect_value(t, strings.count(line, "/"), 3)
+		}
+	}
+	testing.expect_value(t, v, len(mesh.positions))
+	testing.expect_value(t, f, len(mesh.indices) / 3)
+	testing.expect_value(t, vt, len(mesh.indices))
 	free_all(context.temp_allocator)
 }
