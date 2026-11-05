@@ -330,7 +330,7 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	}
 	_ = command_button(app, .Rebuild, label = REBUILD_VERBS[goal^], tone = .Accent)
 	kit_last_result(app, .Retopo if goal^ == .Quads else .Remesh)
-	if goal^ != .Quads do ui.paragraph(ctx, fmt.tprintf("Levels, mask and strokes go; Ctrl+Z brings them back. %s remeshes again at the object's own cell.", command_keys(app, .Remesh)))
+	if goal^ != .Quads do ui.paragraph(ctx, fmt.tprintf("Levels, mask and strokes go; %s brings them back. %s remeshes again at the object's own cell.", keys_or_name(app, .Undo), keys_or_name(app, .Remesh)))
 }
 
 // Rebuild's Even density, the same row in the Rebuild section and the Remesh quick menu: a

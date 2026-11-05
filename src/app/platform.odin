@@ -96,6 +96,24 @@ platform_dark :: proc() -> bool {
 	return sdl.GetSystemTheme() != .LIGHT
 }
 
+// The picture on the system clipboard as an image file's bytes (owned by the caller), the
+// first of the kinds the app reads that it holds; nil when it holds none. A copied image
+// is offered as PNG by every system SDL speaks to, and a copied photo often as JPEG too.
+platform_clipboard_image :: proc(allocator := context.allocator) -> []u8 {
+	for mime in ([?]cstring{"image/png", "image/jpeg", "image/bmp"}) {
+		if !sdl.HasClipboardData(mime) do continue
+		size: uint
+		data := sdl.GetClipboardData(mime, &size)
+		if data == nil do continue
+		defer sdl.free(data)
+		if size == 0 do continue
+		out := make([]u8, int(size), allocator)
+		copy(out, ([^]u8)(data)[:size])
+		return out
+	}
+	return nil
+}
+
 // The text on the system clipboard, in temp memory; "" when it holds none.
 platform_clipboard_text :: proc() -> string {
 	text := sdl.GetClipboardText()

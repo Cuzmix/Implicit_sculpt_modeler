@@ -28,6 +28,7 @@ Card :: enum u8 {
 	Render,
 	History,
 	Details,
+	References,
 }
 
 @(rodata)
@@ -45,6 +46,7 @@ CARD_NAMES := [Card]string {
 	.Render   = "Render",
 	.History  = "History",
 	.Details  = "Details",
+	.References = "References",
 }
 
 @(rodata)
@@ -62,13 +64,14 @@ CARD_ICONS := [Card]rune {
 	.Render   = ICON_RENDER_PREVIEW,
 	.History  = ui.ICON_HISTORY,
 	.Details  = ui.ICON_ACTIVITY,
+	.References = ICON_REFERENCES,
 }
 
 // The cards that draw their whole body themselves, each with a scroll and controls of its
 // own that stay put under it (the Colours card's tabs along its foot, the History list's
 // rows drawn only where they show, the Details card's Simple and Advanced tabs over its
 // numbers), so the card's body does not scroll them.
-OWN_BODY_CARDS :: bit_set[Card]{.Colours, .History, .Details}
+OWN_BODY_CARDS :: bit_set[Card]{.Colours, .History, .Details, .References}
 
 // How wide card `c` is: the Colours card seven touch-sized swatches across, the History card
 // what its rows of controls need, every other card the same.
@@ -77,6 +80,7 @@ card_width :: proc(c: Card) -> f32 {
 	case .Colours: return COLORS_CARD_W
 	case .History: return KIT_HISTORY_CARD_W
 	case .Details: return DETAILS_CARD_W
+	case .References: return REFS_CARD_W
 	}
 	return CARD_W
 }
@@ -88,15 +92,16 @@ OBJECT_CARDS :: bit_set[Card]{.Mesh, .Mask, .Deform, .Paint}
 // Every section, grouped by the card that holds it and in the order it shows there
 // (section_card). Files and scripts name a section by its name, never by number.
 Section :: enum u8 {
-	// The Tool card: the brush (or the tool held), then the brush's sections.
+	// The Tool card: the brush (or the tool held), then the brush's sections, those it is
+	// changed by most first (section_group's Common) and the rest under More.
 	Brush,
-	Preset,
 	Stroke,
+	Falloff,
+	Alpha,
 	Paint_Color,
 	Recall,
-	Falloff,
+	Preset,
 	Samples,
-	Alpha,
 	Pen,
 	Options,
 	Recorder,
@@ -107,16 +112,17 @@ Section :: enum u8 {
 	Colours,
 	History,
 	Details,
-	// Mesh.
+	References,
+	// Mesh, in four groups (section_group): Resolution, Rebuild, Combine and Surface.
 	Levels,
 	Hd,
 	Topology,
 	Remesh,
-	Mirror,
 	Voxels,
-	Retopo,
 	Booleans,
 	Extract,
+	Mirror,
+	Retopo,
 	Project,
 	// Mask.
 	Mask,
@@ -159,6 +165,7 @@ section_card :: proc(sec: Section) -> Card {
 	case .Colours:                 return .Colours
 	case .History:                 return .History
 	case .Details:                 return .Details
+	case .References:              return .References
 	case .Levels ..= .Project:     return .Mesh
 	case .Mask ..= .Visibility:    return .Mask
 	case .Transform ..= .Deformers: return .Deform
@@ -167,6 +174,25 @@ section_card :: proc(sec: Section) -> Card {
 	case .Render ..= .Print:       return .Render
 	}
 	return .Tool
+}
+
+// The group a long card's section `sec` belongs to, named over the first of its sections
+// shown, or "" for a section in none. The Tool card's are Common and More; the Mesh card's ten sections fall into what changes
+// the mesh's resolution, what rebuilds it, what joins or splits it and what lays a surface
+// over it.
+section_group :: proc(sec: Section) -> string {
+	#partial switch sec {
+	// The brush with its size and strength, its stroke, falloff and alpha are what a brush
+	// is changed by most; a painting brush's colour and the History brush's step join them
+	// while they show, as those brushes ask for nothing sooner.
+	case .Brush, .Stroke, .Falloff, .Alpha, .Paint_Color, .Recall: return "COMMON"
+	case .Preset, .Samples, .Pen, .Options, .Recorder:            return "MORE"
+	case .Levels, .Hd, .Topology:        return "RESOLUTION"
+	case .Remesh, .Voxels:               return "REBUILD"
+	case .Booleans, .Extract, .Mirror:   return "COMBINE"
+	case .Retopo, .Project:              return "SURFACE"
+	}
+	return ""
 }
 
 // The sections a fresh layout shows folded: on each card all but the first few, so a card
@@ -261,6 +287,7 @@ section_title :: proc(sec: Section) -> string {
 	case .Colours:  return "Colours"
 	case .History:  return "History"
 	case .Details:  return "Details"
+	case .References: return "References"
 	}
 	for s in BRUSH_SECTIONS do if s.section == sec do return s.title
 	for s in OBJECT_SECTIONS do if s.section == sec do return s.title
@@ -290,6 +317,7 @@ SECTION_ICONS := [Section]rune {
 	.Colours     = ICON_COLOUR,
 	.History     = ui.ICON_HISTORY,
 	.Details     = ui.ICON_ACTIVITY,
+	.References  = ICON_REFERENCES,
 	.Levels      = ICON_SUBDIVIDE,
 	.Hd          = ui.ICON_ZOOM_IN,
 	.Topology    = ICON_DYNTOPO,
@@ -327,6 +355,8 @@ SECTION_ICONS := [Section]rune {
 // Lucide's icons the cards use that the kit does not name already.
 ICON_CONTRAST :: rune(0xe0a1) // half filled: inverting
 ICON_SPARKLES :: rune(0xe417)
+// Lucide's images: the References card, a stack of pictures.
+ICON_REFERENCES :: rune(0xe5c9)
 ICON_MINUS :: rune(0xe120)
 ICON_CIRCLE_DASHED :: rune(0xe4b5) // a hole's open border
 ICON_SCAN_EYE :: rune(0xe53b) // facing the eye: masking by angle, a step's tint
@@ -592,12 +622,22 @@ card_body :: proc(app: ^App, c: Card, inner: f32, body_y: f32, scroll: f32) -> (
 	defer ctx.hints = hints
 	sections := card_sections(app, c)
 	for sec, i in sections {
-		if len(sections) == 1 || sec == .Brush {
+		if len(sections) == 1 {
+			section_draw(app, sec, inner)
+			continue
+		}
+		// A group's caption stands in for the divider over its first section.
+		if group := section_group(sec); group != "" && (i == 0 || section_group(sections[i - 1]) != group) {
+			if i > 0 do ui.spacer(ctx, 6)
+			ui.caption(ctx, group)
+		} else if i > 0 {
+			ui.divider(ctx, inner, across = true)
+		}
+		if sec == .Brush {
 			section_draw(app, sec, inner)
 			continue
 		}
 		open := sec not_in k.cards.shut
-		if i > 0 do ui.divider(ctx, inner, across = true)
 		g := ui.area(ctx, fmt.tprintf("%s##section", section_title(sec)), {inner, 36})
 		if r, ok := k.cards.reveal.?; ok && r == sec do reveal_at = g.rect.y - body_y + scroll
 		if g.hovered || g.held do ui.fill_rect(ctx, g.rect, t.radius_medium, t.fill_pressed if g.held else t.fill_hover)

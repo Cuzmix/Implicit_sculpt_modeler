@@ -54,7 +54,7 @@ scene_fields_read_back_from_their_chunk :: proc(t: ^testing.T) {
 	head: [dynamic]u8
 	defer delete(head)
 	scene_header_put(&app, &head)
-	// A field from a newer version, at the chunk's end.
+	// Bytes past the scene's fields, at the chunk's end.
 	geom.byte_put(&head, u32(0xfeed))
 	// The chunk's size takes it in, as the newer app's scene_chunk_end would have.
 	r := geom.byte_reader(head[len(SCENE_MAGIC):])
@@ -72,7 +72,11 @@ scene_fields_read_back_from_their_chunk :: proc(t: ^testing.T) {
 	testing.expect_value(t, f.selected, 2)
 	testing.expect_value(t, f.next_id, 9)
 	testing.expect_value(t, f.print_mm, 40)
-	testing.expect_value(t, len(chunk.data) - chunk.at, 4)
+	// The references' chunk follows the scene's, so the chunk took it in too.
+	refs: [dynamic]u8
+	defer delete(refs)
+	refs_put(&refs, &app.scene.refs)
+	testing.expect_value(t, len(chunk.data) - chunk.at, 4 + len(refs))
 
 	// A selection past the objects is damage.
 	app.scene.selected = 5

@@ -276,7 +276,7 @@ scene_view :: proc(app: ^App, change: View_Change, id: int, space := Space.Sculp
 		if obj == nil do return
 		obj.off = change == .Hide
 		if change == .Hide {
-			report(app, nil, {}, "Hid %s; %s shows every object again", object_label(obj), command_keys(app, .Show_All_Objects))
+			report(app, nil, {}, "Hid %s; %s shows every object again", object_label(obj), keys_or_name(app, .Show_All_Objects))
 		}
 	case .Ghost, .Unghost:
 		if obj == nil do return

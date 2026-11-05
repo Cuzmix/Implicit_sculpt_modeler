@@ -213,7 +213,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Bars:
 		_ = command_button(app, .Customise_Bars, glyph = ICON_CUSTOMISE)
 		ui.paragraph(ctx, "Choose the buttons on every dock: down the view rail and the brush bar and on each of the shelf's pages: any command, in any order.")
-		ui.paragraph(ctx, "Each dock's ⋯ sets how many lines its buttons stand in and when they show their names: Wide names them on a desktop's window, where the room is there, and keeps a tablet's docks to their icons.")
+		ui.paragraph(ctx, "Each dock's ⋯ sets how many lines its buttons stand in and when they show their names: Wide names them on a desktop's window, where the room is there, and names the view rail's on a touch screen, where no tooltip does; a tablet's other docks keep to their icons.")
 		_ = ui.switch_row(ctx, "Keep the shelf clear of the palm", &k.shelf_palm)
 		ui.paragraph(ctx, "On a tablet the shelf stands left of the middle and holds as many tiles as fit before the pen hand rests, twelve at their narrowest; the rest of a page waits in All and Search. Off, it takes the window's width, so a page of up to 24 tiles shows more of them.")
 		// What the edit mode's own sheet held: which bars this space's layout shows and the
@@ -243,7 +243,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		for name, s in WHEEL_SIZE_NAMES do sizes[s] = name
 		if picked := ui.tabs(ctx, "Wheel size", sizes[:], int(k.wheel_size)); picked >= 0 do k.wheel_size = Wheel_Size(picked)
 		ui.label(ctx, "Sectors show")
-		labels := [len(Wheel_Labels)]string{"Icons", "Icons and names", "Names"}
+		labels := [len(Wheel_Labels)]string{"Auto", "Icons", "Icons and names", "Names"}
 		if picked := ui.tabs(ctx, "Wheel sectors show", labels[:], int(k.wheel_labels)); picked >= 0 do k.wheel_labels = Wheel_Labels(picked)
 		if ui.slider(ctx, "Wheel turn", &k.wheel_turn, -180, 180, .Linear, fmt.tprintf("%.0f°", k.wheel_turn)) do k.wheel_turn = wheel_turn_snapped(k.wheel_turn)
 		dial_sector_rows(app, ui.fill_width(ctx))
@@ -512,7 +512,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Action_Bar:      k.action_bar = true
 	case .Wheel:
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
-		k.wheel_labels, k.wheel_turn = .Icons, 0
+		k.wheel_labels, k.wheel_turn = .Auto, 0
 		k.dials = DIAL_DEFAULTS
 	case .Inspector:       k.all_options, k.explain_all = false, false
 	case .Pies, .Mouse, .Blender_Link:

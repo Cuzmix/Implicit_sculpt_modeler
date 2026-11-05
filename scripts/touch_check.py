@@ -3873,7 +3873,7 @@ def lens_rail_holds_the_view_tools():
     """Lens shows the off-hand island at the left, the readout over the view's top-left corner and the view rail's cards; nothing moves the camera."""
     s = Script()
     s.wait(10)
-    rail = "Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry"
+    rail = "Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:References"
     return s, LENS_1440, camera_still({"view_rail": is_text(rail), "island": rect_x(8, 16), "chips": lambda v: float(v.split(",")[0]) < 20})
 
 
@@ -8816,7 +8816,7 @@ def rail_panels_picker_adds_a_card():
     s.ftap(RAIL_DEFORM)
     s.wait(10)
     return s, [], camera_still({"dabs": near(0), "card_front": is_text("deform"), "library_puts": near(2),
-                                "view_rail": is_text("Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:Deform,Open_Card:Look")})
+                                "view_rail": is_text("Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:References,Open_Card:Deform,Open_Card:Look")})
 
 
 @scenario
@@ -12971,11 +12971,10 @@ def shape_clip_line_waits():
 REBUILD_GOALS = {k: At(f"rebuild goal/{k.capitalize()}", *in_section(on_card(v, "object"), "remesh"))
                  for k, v in {"even": (1283, 287), "fewer": (1378, 287), "quads": (1472, 287)}.items()}
 REBUILD_DENSITY = in_section(on_card((1406, 346), "object"), "remesh")
-# The button, by the verb it shows for each goal, since what stands above it differs;
-# Even's by its place, as its More options row is named after Remesh too.
+# The button, by the verb it shows for each goal, since what stands above it differs.
 REBUILD_APPLY = {k: At(f"card Mesh/{verb}", *in_section(on_card((1377, 504), "object"), "remesh"))
                  for k, verb in {"fewer": "Decimate", "quads": "Quad Remesh (new object)"}.items()}
-REBUILD_APPLY["even"] = (1377, 444)
+REBUILD_APPLY["even"] = At("card Mesh/Voxel remesh", 1377, 400)
 
 
 def open_rebuild(s, goal=None, tap=click):

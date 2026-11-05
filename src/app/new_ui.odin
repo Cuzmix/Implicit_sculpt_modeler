@@ -298,6 +298,10 @@ Kit_State :: struct {
 	readout: Readout, // the view corner's camera, shading and live numbers (readout.odin)
 	// The readout is hidden (Menu > More > Viewport readout).
 	readout_hidden: bool,
+	// No keyboard is attached (a tablet's own screen, or --no-keyboard), so key shortcuts
+	// are left out wherever they would show: they name keys nobody can press.
+	keyless:     bool,
+	no_keyboard: bool, // --no-keyboard
 	// The readout adds the GPU's time a frame (Menu > More > GPU time in the readout): a
 	// developer's number, so off unless asked for.
 	readout_gpu: bool,
@@ -337,6 +341,8 @@ Kit_State :: struct {
 	brushes:        Brush_Palette,
 	// The Colors card (kit_colors.odin): open, and its tab, history and palettes.
 	colors:         Colors_Card,
+	// The References card's board: where it looks and what is picked (kit_references.odin).
+	board:          Ref_Board,
 	grid:             View_Grid,
 	// Which Stats sections are open, and which sections show their More options; with
 	// all_options (Settings > Interface) every section shows everything.
@@ -990,6 +996,8 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	_ = sdl.GetWindowSizeInPixels(window, &pw, &ph)
 	scale := kit_content_scale(window) * k.ui_scale
 	k.frame += 1
+	// A desktop always has its keyboard; a tablet or phone may have one attached or not.
+	k.keyless = k.no_keyboard || (MOBILE && !sdl.HasKeyboard())
 	d := &app.device
 	in_ := ui.Input {
 		mouse         = d.mouse / scale,
@@ -1834,6 +1842,12 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 		if c.texture == .Image && c.image == KIT_BRUSH_PREVIEWS_IMAGE {
 			draws[i].image, draws[i].smooth = app.brush_previews.atlas, true
 			if app.brush_previews.atlas == 0 do draws[i].index_count = 0
+		}
+		if c.texture == .Image && c.image >= KIT_REF_IMAGE && c.image < KIT_REF_IMAGE_END {
+			// A reference picture: nothing until its GPU copy is made.
+			tex := refs_texture(app, int(c.image - KIT_REF_IMAGE))
+			draws[i].image, draws[i].smooth = tex, true
+			if tex == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.home.pictures.atlas, true

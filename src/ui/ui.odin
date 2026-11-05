@@ -1248,6 +1248,23 @@ image_part :: proc(ctx: ^Context, r: Rect, image_id: u64, lo, hi: [2]f32, tint :
 	draw_quad(&ctx.draw, to_px(ctx, r), lo, hi, tint)
 }
 
+// A registered image over `r` with texture coordinate `uv[i]` at its top left, top right,
+// bottom right and bottom left corners in turn: a picture mirrored or turned by quarters
+// as well as cut, as a reference picture on its board is.
+image_corners :: proc(ctx: ^Context, r: Rect, image_id: u64, uv: [4][2]f32, tint := Color{255, 255, 255, 255}) {
+	draw_set_state(&ctx.draw, .Image, image_id, ctx.clip)
+	dl := &ctx.draw
+	p := to_px(ctx, r)
+	base := u32(len(dl.vertices))
+	append(&dl.vertices,
+		Vertex{{p.x, p.y}, uv[0], tint},
+		Vertex{{p.x + p.w, p.y}, uv[1], tint},
+		Vertex{{p.x + p.w, p.y + p.h}, uv[2], tint},
+		Vertex{{p.x, p.y + p.h}, uv[3], tint},
+	)
+	draw_add_indices(dl, base, base + 1, base + 2, base, base + 2, base + 3)
+}
+
 // A registered image drawn in a circle of `radius` round `center`, the image's square
 // fitted to the circle and its corners left out, with a feathered rim: a picture of a
 // sphere (a MatCap) shown as the ball it is.

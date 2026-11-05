@@ -226,6 +226,8 @@ lens_palette_footer :: proc(app: ^App, e: Maybe(Palette_Entry), width: f32, anch
 	t := ctx.theme
 	ui.begin(ctx, "palette footer", {direction = .Row, center = true, height = t.target})
 	hint := "Enter run · Tab show where it lives · Ctrl+Enter put on a bar" if k.palette_for == nil else "Enter choose · Esc close"
+	// Without a keyboard the keys name nothing a finger can press: the buttons say it.
+	if k.keyless do hint = ""
 	// Four buttons, and a fifth, the shelf's pin, for a brush, a preset or a shape in Sculpt.
 	pin := false
 	if c, ok := e.?; ok && c.kind == .Command && shelf_holds_brushes(c.id) && k.palette_for == nil && k.spaces.current == .Sculpt do pin = true

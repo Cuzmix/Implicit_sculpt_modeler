@@ -413,7 +413,7 @@ help_rows :: proc(app: ^App, rows: []Help_Row, width: f32) {
 help_glossary :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
-	ui.paragraph(ctx, fmt.tprintf("The words this app uses, and what other apps call the same thing. Search (%s) finds a command by either.", command_keys(app, .Command_Palette)))
+	ui.paragraph(ctx, fmt.tprintf("The words this app uses, and what other apps call the same thing. Search%s finds a command by either.", keys_paren(app, .Command_Palette)))
 	for g in GLOSSARY {
 		ui.spacer(ctx, 6)
 		ui.label(ctx, g.word, 0, t.text, .Semibold)

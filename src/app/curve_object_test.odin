@@ -164,6 +164,7 @@ curve_scene_round_trip :: proc(t: ^testing.T) {
 	for {
 		next, body, more := scene_chunk_next(&r)
 		if !more do break
+		if next == CHUNK_REFS do continue
 		testing.expect_value(t, next, CHUNK_CURVE)
 		// A curve in an object's chunk is damage; in its own it reads back.
 		wrong := body

@@ -134,7 +134,7 @@ kit_brush_options :: proc(app: ^App) {
 	if b.kind in sculpt.SKIN_KINDS && (object_top_skin(selected_object(app)) != nil || b.detail_to[b.kind] != .Auto) {
 		ui.label(ctx, "Detail goes to", ctx.theme.text_size, ctx.theme.text)
 		if picked := ui.tabs(ctx, "detail goes to", {"Auto", "Mesh", "Skin"}, int(b.detail_to[b.kind])); picked >= 0 do b.detail_to[b.kind] = Detail_To(picked)
-		ui.paragraph(ctx, fmt.tprintf("Auto puts the brush's detail in the object's detail skin; Mesh moves vertices as without one; Skin never moves a vertex. Each brush keeps its own; %s steps through them.", command_keys(app, .Detail_To_Next)))
+		ui.paragraph(ctx, fmt.tprintf("Auto puts the brush's detail in the object's detail skin; Mesh moves vertices as without one; Skin never moves a vertex. Each brush keeps its own; %s steps through them.", keys_or_name(app, .Detail_To_Next)))
 	}
 	if b.kind == .Grab {
 		_ = ui.switch_row(ctx, "All depth", &b.grab_depth)
@@ -544,7 +544,7 @@ kit_move_tab :: proc(app: ^App) {
 	if picked := ui.tabs(ctx, "gizmo mode", modes[:], int(app.move.mode), keys = hints[:]); picked >= 0 do command_run(app, .Gizmo, picked)
 	_ = ui.switch_row(ctx, "Snap", &app.move.snap)
 	kit_command_pair(app, .Gizmo_Pivot, .Gizmo_Pivot_Reset, label_a = "Set pivot", label_b = "Reset pivot")
-	ui.paragraph(ctx, fmt.tprintf("All moves on its arrows and plane squares, turns on its rings, stretches the mesh along an axis on the coloured knobs and scales evenly on the white knob on the view ring, with no switching. %s again steps through the four. Snap (or Ctrl for one drag) moves in steps of a grid that follows the zoom, turns 15° at a time and scales in steps of 0.1. Esc puts the object back mid-drag; %s undoes a drag. Tap a handle without moving it to type its value. Set pivot, then a tap on a surface, turns and scales about that point.", command_keys(app, .Tool_Move), command_keys(app, .Undo)))
+	ui.paragraph(ctx, fmt.tprintf("All moves on its arrows and plane squares, turns on its rings, stretches the mesh along an axis on the coloured knobs and scales evenly on the white knob on the view ring, with no switching. %s again steps through the four. Snap (or Ctrl for one drag) moves in steps of a grid that follows the zoom, turns 15° at a time and scales in steps of 0.1. Esc puts the object back mid-drag; %s undoes a drag. Tap a handle without moving it to type its value. Set pivot, then a tap on a surface, turns and scales about that point.", keys_or_name(app, .Tool_Move), keys_or_name(app, .Undo)))
 	// Posing changes what the handles do, so it says so while it is on.
 	if pose_mode(app) {
 		ui.paragraph(ctx, "Posing: a mask is on, so the handles bend the unmasked part about the gizmo, which sits on the mask's soft edge; a drag on the object still moves all of it. Clear the mask to move the object with the handles again.")
