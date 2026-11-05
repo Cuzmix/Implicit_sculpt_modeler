@@ -487,7 +487,7 @@ card_head :: proc(app: ^App, c: Card, pinned: bool, inner: f32, floating := fals
 		ui.spacer(ctx, 4)
 	}
 	if floating {
-		if ui.icon_button(ctx, "Put back beside the dock##dock", ui.ICON_PANEL) do card_float_return(app, c, .Right)
+		if ui.icon_button(ctx, "Put back beside the toolbar##dock", ui.ICON_PANEL) do card_float_return(app, c, .Right)
 	} else if ui.icon_button(ctx, "Unpin##pin" if pinned else "Pin: keep it open while you sculpt##pin", ICON_PIN, selected = pinned) {
 		card_pin(app, c)
 	}

@@ -37,7 +37,7 @@ PEN_AREA_NAMES := [Pen_Area]string {
 	.Shelf    = "Over the shelf",
 	.Panels   = "Over a panel",
 	.History  = "Over Undo, Redo or History",
-	.Nav_Head = "Over the navigation head",
+	.Nav_Head = "Over the view gizmo",
 	.Colors   = "Over the colour Disc",
 }
 

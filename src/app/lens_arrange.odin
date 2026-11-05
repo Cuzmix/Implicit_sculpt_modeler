@@ -110,7 +110,7 @@ arrange_top_controls :: proc(app: ^App) -> f32 {
 	ui.text(ctx, title, r.x, r.y + r.h * 0.5, t.text_size, t.accent, .Semibold)
 	if k.layouts.modified do ui.fill_circle(ctx, {r.x + r.w - 6, r.y + r.h * 0.5}, 3, t.warning)
 	labels := ARRANGE_TOP_LABELS
-	_ = command_button(app, .New_Dock, label = "New dock", variant = .Bordered, width = arrange_button_width(ctx, labels[0]))
+	_ = command_button(app, .New_Dock, label = "New toolbar", variant = .Bordered, width = arrange_button_width(ctx, labels[0]))
 	_ = command_button(app, .Left_Handed, label = "Mirror", variant = .Bordered, width = arrange_button_width(ctx, labels[1]))
 	_ = command_button(app, .Layout_Reset, label = "Reset layout", variant = .Bordered, width = arrange_button_width(ctx, labels[2]))
 	if ui.button(ctx, "Done##arrange", .Solid, .Accent, width = arrange_button_width(ctx, labels[3])) do k.bars_edit = false
@@ -120,7 +120,7 @@ arrange_top_controls :: proc(app: ^App) -> f32 {
 }
 
 @(private = "file")
-ARRANGE_TOP_LABELS := [4]string{"New dock", "Mirror", "Reset layout", "Done"}
+ARRANGE_TOP_LABELS := [4]string{"New toolbar", "Mirror", "Reset layout", "Done"}
 
 @(private = "file")
 arrange_title :: proc(app: ^App) -> string {

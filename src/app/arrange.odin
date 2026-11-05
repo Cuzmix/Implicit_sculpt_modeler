@@ -14,10 +14,10 @@ import "../ui"
 // The bars as the Library's Show chips name them, in the order it lists them.
 @(rodata)
 ZONE_NAMES := [Zone]string {
-	.Brush_Bar  = "Off-hand island",
-	.View_Bar   = "View rail",
+	.Brush_Bar  = "Brush toolbar",
+	.View_Bar   = "View toolbar",
 	.Dock       = "Shelf",
-	.Wheel      = "Wheel",
+	.Wheel      = "Dial",
 	.Action_Bar = "Next steps",
 }
 

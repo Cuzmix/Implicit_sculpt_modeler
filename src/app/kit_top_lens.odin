@@ -346,7 +346,7 @@ top_focus_view :: proc(app: ^App) {
 	layout := bar_pop_showing(app, .View_Layout)
 	if ui.icon_button(ctx, "View layout", ICON_VIEW_LAYOUT, selected = layout, keys = command_hint(app, .View_Layout_Menu)) do bar_pop_toggle(app, .View_Layout, ctx.last_rect, .Below)
 	k.bar_at[.View_Layout], k.bar_side[.View_Layout] = ctx.last_rect, .Below
-	if ui.icon_button(ctx, "Passes", ICON_PASSES, selected = k.passes.menu, keys = command_hint(app, .Pass_Menu)) {
+	if ui.icon_button(ctx, "Shading modes", ICON_PASSES, selected = k.passes.menu, keys = command_hint(app, .Pass_Menu)) {
 		k.passes.menu_at, k.passes.menu_side = ctx.last_rect, .Below
 		pass_menu_toggle(app)
 	}

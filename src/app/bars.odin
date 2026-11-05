@@ -338,15 +338,15 @@ bar_put :: proc(app: ^App, pick: Bar_Pick, s: Bar_Slot) {
 // "The view rail", for notes.
 bar_title :: proc(app: ^App, which: Bar_Which) -> string {
 	switch which {
-	case .View_Rail: return "The view rail"
+	case .View_Rail: return "The view toolbar"
 	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render, .Shelf_Extra_1, .Shelf_Extra_2, .Shelf_Extra_3, .Shelf_Extra_4, .Shelf_Extra_5, .Shelf_Extra_6:
 		page, _ := shelf_page_of(which)
 		return fmt.tprintf("The shelf's %s page", shelf_page_name(&app.kit, page))
 	case .Brush_Pie:    return "The brush pie"
-	case .Offhand:      return "The brush bar"
-	case .Top_File:     return "The top bar's File dock"
-	case .Top_Spaces:   return "The top bar's Spaces dock"
-	case .Top_App:      return "The top bar's App dock"
+	case .Offhand:      return "The brush toolbar"
+	case .Top_File:     return "The top bar's File toolbar"
+	case .Top_Spaces:   return "The top bar's Spaces toolbar"
+	case .Top_App:      return "The top bar's App toolbar"
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 		d, _ := dock_of_bar(which)
 		return DOCK_TITLES[d]

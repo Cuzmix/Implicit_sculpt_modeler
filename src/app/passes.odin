@@ -126,7 +126,7 @@ pass_shaded :: proc(app: ^App) -> bool {
 
 // What the studio render's and render mode's sections say while a pass pauses them.
 pass_paused_note :: proc(app: ^App) -> string {
-	return fmt.tprintf("Paused while the viewport shows %s; it starts again once the pass is put away.", PASS_LABELS[viewport_pass(&app.kit)])
+	return fmt.tprintf("Paused while the viewport shows %s; it starts again once that shading is put away.", PASS_LABELS[viewport_pass(&app.kit)])
 }
 
 // Live occlusion runs while it is on and the viewport is shaded, and always in the AO pass
@@ -258,7 +258,7 @@ DIAGNOSTIC_PASSES := [?]render.View_Pass{.Normals, .Curvature, .AO, .Depth, .Sil
 
 // Lens's list (round 2's inspect2 screen, with Blender's shading modes): RECENT, the pass
 // shown and the last other one, to flip between; SHADING, the four modes, and under Solid
-// its lighting, its MatCap and its colour; INSPECT, the passes that check the form. Each row
+// its lighting, its MatCap and its colour; INSPECT, the passes that check the form and Four views. Each row
 // shows its keys; the one shown is highlighted.
 @(private = "file")
 lens_pass_menu :: proc(app: ^App) {
@@ -291,11 +291,12 @@ lens_pass_menu :: proc(app: ^App) {
 	if shown == .Solid && ps.pass == .Shaded do solid_options(app, &ps.shading, true)
 	ui.caption(ctx, "  INSPECT")
 	for p in DIAGNOSTIC_PASSES do if row(app, p, "diagnostic") do picked = true
+	if command_menu_item(app, .Inspect_Mode) do picked = true
 	ui.divider(ctx, across = true)
 	if command_menu_item(app, .Flat_Shading) do picked = true
 	if command_menu_item(app, .View_Pass_Last) do picked = true
 	if command_menu_item(app, .View_Wipe) do picked = true
-	ui.paragraph(ctx, "Hold the shading chip, or the ` key, to peek at your last pass; release to come back.")
+	ui.paragraph(ctx, "Hold the shading chip, or the ` key, to peek at your last shading; release to come back.")
 	if picked do ps.menu = false
 }
 

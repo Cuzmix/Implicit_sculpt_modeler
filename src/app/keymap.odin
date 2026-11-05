@@ -80,7 +80,7 @@ chord_reserved :: proc(chord: Chord) -> (reason: string, reserved: bool) {
 	case KEY_SPACE:
 		return "Space opens the brush pie", true
 	case KEY_GRAVE:
-		return "` held peeks at the last other pass", true
+		return "` held peeks at the last other shading", true
 	case KEY_S, KEY_U:
 		if chord.mods == {} do return "S and U held over the model size the brush and set its strength", true
 	case KEY_LCTRL, KEY_RCTRL, KEY_LSHIFT, KEY_RSHIFT, KEY_LALT, KEY_RALT, KEY_LGUI, KEY_RGUI, KEY_MODE:

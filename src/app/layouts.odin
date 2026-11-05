@@ -224,9 +224,6 @@ kit_layout_menu :: proc(app: ^App) {
 	for s in Space do picked ||= command_menu_item(app, .Space_Switch, int(s), label = fmt.tprintf("%s##layout menu", SPACE_NAMES[s]))
 	ui.divider(ctx, across = true)
 	picked ||= command_menu_item(app, .Layout_Reset)
-	ui.divider(ctx, across = true)
-	picked ||= command_menu_item(app, .Focus_Mode)
-	picked ||= command_menu_item(app, .Inspect_Mode)
 	if picked do l.menu = false
 }
 

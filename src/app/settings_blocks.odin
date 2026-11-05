@@ -86,7 +86,7 @@ SETTINGS_KEYS := [?]Settings_Entry{{.Keys, ""}}
 SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Look             = "look theme themes colour color lens studio graphite paper midnight high contrast accent dark light match device night day tint opacity corners black oled",
 	.Size             = "size interface scale bigger text touch targets zoom",
-	.Clean_Dial       = "keep the dial in clean view tab four-finger",
+	.Clean_Dial       = "clean view keeps dial shelf focus mode tab four-finger hide interface",
 	.Hands            = "left-handed right-handed hand mirror screen layout",
 	.Top_Bar          = "top bar search field icon docks command palette file spaces object centred",
 	.Motion           = "reduce motion animation",
@@ -190,12 +190,13 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		if picked := ui.select(ctx, "Interface size", names[:], chosen); picked >= 0 do k.ui_scale = UI_SCALES[picked]
 		ui.paragraph(ctx, "How big panels, text and touch targets are, on top of the size the screen asks for.")
 	case .Clean_Dial:
-		_ = ui.switch_row(ctx, "Keep the dial in clean view", &k.clean_dial)
-		ui.paragraph(ctx, "Clean view (Tab, or a four-finger tap) hides every control so you can judge the form; the dial stays unless this is off, so you can still smooth and mask.")
+		keeps := [len(Clean_Keep)]string{"Nothing", "The dial", "Shelf and dial"}
+		if picked := ui.tabs(ctx, "Clean view keeps", keeps[:], int(k.clean_keep)); picked >= 0 do k.clean_keep = Clean_Keep(picked)
+		ui.paragraph(ctx, "Clean view (Tab, or a four-finger tap) hides the controls so you can judge the form. Keeping the dial leaves smoothing and masking to hand; keeping the shelf and dial hides only the side toolbars, the cards and the next steps, so brushes stay in reach.")
 	case .Hands:
 		hands := [2]string{"Right-handed", "Left-handed"}
 		if picked := ui.tabs(ctx, "Screen layout", hands[:], int(ctx.mirror)); picked >= 0 do ctx.mirror = picked == 1
-		ui.paragraph(ctx, "Left-handed swaps the sides: Size and Strength, the dial and the readout go to the right; the navigation, the view rail and the panels to the left.")
+		ui.paragraph(ctx, "Left-handed swaps the sides: Size and Strength, the dial and the view info go to the right; the view gizmo, the view toolbar and the cards to the left.")
 	case .Motion:
 		settings_motion(app)
 	case .Starting:
@@ -212,8 +213,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.paragraph(ctx, "A press in any pane works there, as Blender's quad views each take the tools; off, the other panes only show.")
 	case .Bars:
 		_ = command_button(app, .Customise_Bars, glyph = ICON_CUSTOMISE)
-		ui.paragraph(ctx, "Choose the buttons on every dock: down the view rail and the brush bar and on each of the shelf's pages: any command, in any order.")
-		ui.paragraph(ctx, "Each dock's ⋯ sets how many lines its buttons stand in and when they show their names: Wide names them on a desktop's window, where the room is there, and names the view rail's on a touch screen, where no tooltip does; a tablet's other docks keep to their icons.")
+		ui.paragraph(ctx, "Choose the buttons on every toolbar: down the view toolbar and the brush toolbar and on each of the shelf's pages: any command, in any order.")
+		ui.paragraph(ctx, "Each toolbar's ⋯ sets how many lines its buttons stand in and when they show their names: Wide names them on a desktop's window, where the room is there, and names the view toolbar's on a touch screen, where no tooltip does; a tablet's other toolbars keep to their icons.")
 		_ = ui.switch_row(ctx, "Keep the shelf clear of the palm", &k.shelf_palm)
 		ui.paragraph(ctx, "On a tablet the shelf stands left of the middle and holds as many tiles as fit before the pen hand rests, twelve at their narrowest; the rest of a page waits in All and Search. Off, it takes the window's width, so a page of up to 24 tiles shows more of them.")
 		// What the edit mode's own sheet held: which bars this space's layout shows and the
@@ -222,7 +223,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		_ = command_button(app, .Panels_Reset, label = "Put the panels back as they come", variant = .Bordered, width = ui.fill_width(ctx))
 		your_docks_rows(app, ui.fill_width(ctx))
 	case .Top_Bar:
-		ui.paragraph(ctx, "The top bar is three docks: the menu, the file, Save, Undo and Redo at the start; the spaces and the selected object in the middle; Search, History and Settings at the end. Edit docks changes their buttons as any dock's. As the window narrows the middle keeps its place while the chips give up their least needed parts.")
+		ui.paragraph(ctx, "The top bar is three toolbars: the menu, the file, Save, Undo and Redo at the start; the spaces and the selected object in the middle; Search, History and Settings at the end. Edit toolbars changes their buttons as any toolbar's. As the window narrows the middle keeps its place while the chips give up their least needed parts.")
 		_ = ui.switch_row(ctx, "Search as a field in the top bar", &k.search_field)
 		ui.paragraph(ctx, "Off, Search is an icon, which leaves the space tabs and the object chip their room. On, it is the wider field naming what it finds, which gives way to the icon while the bar is too narrow for it.")
 	case .Action_Bar:
@@ -235,19 +236,19 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		on_screen :: proc(side: int, mirror: bool) -> int {
 			return 3 - side if mirror && side > 0 else side
 		}
-		if picked := ui.tabs(ctx, "Modifier wheel", sides[:], on_screen(int(k.rail_side), ctx.mirror)); picked >= 0 {
+		if picked := ui.tabs(ctx, "Dial side", sides[:], on_screen(int(k.rail_side), ctx.mirror)); picked >= 0 {
 			k.rail_side, k.wheel_offset = Rail_Side(on_screen(picked, ctx.mirror)), {}
 		}
 		ui.label(ctx, "Size")
 		sizes: [len(Wheel_Size)]string
 		for name, s in WHEEL_SIZE_NAMES do sizes[s] = name
-		if picked := ui.tabs(ctx, "Wheel size", sizes[:], int(k.wheel_size)); picked >= 0 do k.wheel_size = Wheel_Size(picked)
+		if picked := ui.tabs(ctx, "Dial size", sizes[:], int(k.wheel_size)); picked >= 0 do k.wheel_size = Wheel_Size(picked)
 		ui.label(ctx, "Sectors show")
 		labels := [len(Wheel_Labels)]string{"Auto", "Icons", "Icons and names", "Names"}
-		if picked := ui.tabs(ctx, "Wheel sectors show", labels[:], int(k.wheel_labels)); picked >= 0 do k.wheel_labels = Wheel_Labels(picked)
-		if ui.slider(ctx, "Wheel turn", &k.wheel_turn, -180, 180, .Linear, fmt.tprintf("%.0f°", k.wheel_turn)) do k.wheel_turn = wheel_turn_snapped(k.wheel_turn)
+		if picked := ui.tabs(ctx, "Dial sectors show", labels[:], int(k.wheel_labels)); picked >= 0 do k.wheel_labels = Wheel_Labels(picked)
+		if ui.slider(ctx, "Dial turn", &k.wheel_turn, -180, 180, .Linear, fmt.tprintf("%.0f°", k.wheel_turn)) do k.wheel_turn = wheel_turn_snapped(k.wheel_turn)
 		dial_sector_rows(app, ui.fill_width(ctx))
-		ui.paragraph(ctx, "As it comes: Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right; the sectors above put any of them, the brush pie or a command on each. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the wheel; picking a side puts it back. Two fingers on the ring spread or pinch to resize it and twist to turn it.")
+		ui.paragraph(ctx, "As it comes: Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right; the sectors above put any of them, the brush pie or a command on each. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the dial; picking a side puts it back. Two fingers on the ring spread or pinch to resize it and twist to turn it.")
 	case .Inspector:
 		_ = ui.switch_row(ctx, "Show every option", &k.all_options)
 		ui.paragraph(ctx, "Each section of the tray shows its common controls and keeps the rest under More options. On, every section shows everything.")
@@ -330,7 +331,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Hold:
 		// In steps of 0.05 s, so the value shown is the value used.
 		if ui.slider(ctx, "Hold delay", &n.hold_delay, HOLD_DELAY_MIN, HOLD_DELAY_MAX, .Linear, fmt.tprintf("%.2f s", n.hold_delay)) do n.hold_delay = f32(int(n.hold_delay * 20 + 0.5)) / 20
-		ui.paragraph(ctx, "How long a finger or the pen holds a button still before its long press: a button's menu, a name and shortcut, or a brush value's menu (a drag on the island's sliders or across a value chip sets the value at once, with no hold). Shorter is quicker; below about 0.2 s a slow tap may open the menu instead, so longer leaves more time for one.")
+		ui.paragraph(ctx, "How long a finger or the pen holds a button still before its long press: a button's menu, a name and shortcut, or a brush value's menu (a drag on the brush toolbar's sliders or across a value chip sets the value at once, with no hold). Shorter is quicker; below about 0.2 s a slow tap may open the menu instead, so longer leaves more time for one.")
 	case .Pen_Empty:
 		empty := [len(Empty_Drag)]string{"Turns the view", "Waits for the model"}
 		ui.label(ctx, "Pen")
@@ -495,7 +496,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	switch b {
 	case .Look:            themes_reset(k)
 	case .Size:            k.ui_scale = 1
-	case .Clean_Dial:      k.clean_dial = true
+	case .Clean_Dial:      k.clean_keep = .Dial
 	case .Hands:           k.ctx.mirror = false
 	case .Top_Bar:
 		k.search_field = false
