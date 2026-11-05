@@ -479,15 +479,17 @@ refs_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 		b.opacity_before = nil
 	}
 	board_h := max(room - rows * t.target - rows * t.gap, BOARD_MIN_H)
+	// Drawn inside its container, whose clip keeps a picture or note zoomed past the
+	// board's edge from spilling over the card and the view.
 	ui.begin(ctx, "refs board", {width = inner, height = board_h, clip = true, radius = t.radius_medium})
 	a := ui.area(ctx, "board", {inner, board_h})
-	ui.end(ctx)
 	r := a.rect
 	// The first time it is shown with pictures on it, the board fits them.
 	if b.zoom <= 0 && filled do board_fit(app, r)
 	b.room = r
 	board_input(app, a)
 	board_draw(app, r)
+	ui.end(ctx)
 }
 
 // Draws picture place `p` at screen rect `at`, at opacity `alpha`: its GPU copy cropped,

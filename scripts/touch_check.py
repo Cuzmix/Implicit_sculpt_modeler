@@ -8884,6 +8884,19 @@ def references_in_scene_by_finger():
 
 
 @scenario
+def references_board_zoom_stays_inside():
+    """A picture added by a script opens the References card; two fingers spread on the
+    board zoom it far in: the picture is drawn inside the board alone (--screens shows it
+    cut at the board's edges, never over the card's rows or the view), and the view stays
+    as it was."""
+    s = Script()
+    s.wait(6)
+    s.fingers([(1270, 560), (1330, 560)], [(-160, -120), (160, 120)], 16)
+    s.wait(6)
+    return s, ["--script=reference assets/icon/sculpt-1024.png"], camera_still({"refs": near(1), "dabs": near(0)})
+
+
+@scenario
 def tap_dab_waits_for_nothing_else():
     """A tap's dab then an Undo tap on the panel straight after: the dab plays first, so Undo takes it back."""
     s = Script()
