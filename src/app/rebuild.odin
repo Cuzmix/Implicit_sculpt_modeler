@@ -249,7 +249,7 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 			engines: [len(retopo.Engine)]string
 			for e in retopo.Engine do engines[int(e)] = retopo.ENGINE_NAMES[e]
 			if picked := ui.tabs(ctx, "quad engine", engines[:], int(app.ui.retopo_engine)); picked >= 0 do app.ui.retopo_engine = retopo.Engine(picked)
-			if app.ui.retopo_engine == .Auto {
+			if app.ui.retopo_engine == .Flow {
 				a := app.ui.retopo_adaptivity
 				_ = ui.slider(ctx, "Adaptive size", &app.ui.retopo_adaptivity, 0, 1, .Linear, "Even" if a == 0 else fmt.tprintf("%.0f%%", 100 * a))
 				// Keep groups, Keep creases and Edge angle, as ZRemesher's KeepGroups,
@@ -278,7 +278,7 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 			// Keep borders, as ZRemesher's FreezeBorder: an open mesh's border comes back
 			// as it was, so the result welds onto what it was cut from. Close first leaves
 			// no border to keep.
-			if app.ui.retopo_engine == .Auto do _ = ui.switch_row(ctx, "Keep borders", &app.ui.retopo_keep_borders, enabled = !app.ui.retopo_close_first)
+			if app.ui.retopo_engine == .Flow do _ = ui.switch_row(ctx, "Keep borders", &app.ui.retopo_keep_borders, enabled = !app.ui.retopo_close_first)
 			kit_keep_symmetry(app, &app.ui.retopo_keep_symmetry)
 			kit_more_end(app)
 		}

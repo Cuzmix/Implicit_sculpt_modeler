@@ -14,57 +14,58 @@ import "../quadmesh"
 import "../sculpt"
 
 // Package retopo is Quad Remesh's work with no scene, interface or GPU: about so many quads
-// on a mesh by AutoRemesher (src/quadmesh) or the own engine (geom.mesh_retopo), with
-// Close first, symmetry and UVs, so a long job runs it on its own thread and the
-// benchmark and tests run it alone. The app makes the object from the result.
+// on a mesh by Flow (src/quadmesh) or Fast (geom.mesh_retopo), with Close first, symmetry
+// and UVs, so a long job runs it on its own thread and the benchmark and tests run it
+// alone. The app makes the object from the result.
 
-// Which quad remesher Quad Remesh (Rebuild's Quads) runs: AutoRemesher's pipeline, ported
-// to Odin (src/quadmesh), whose edge flow follows the surface's curvature as ZBrush's
-// ZRemesher does, or the own edge-pairing retopology (geom.mesh_retopo), quicker and
-// plainer. AutoRemesher is the default; where it refuses the mesh, the own one runs in its
-// place and the report says why.
+// Which quad remesher Quad Remesh (Rebuild's Quads) runs, named for what it is picked for:
+// Flow, the field-aligned pipeline in src/quadmesh (begun as a port of AutoRemesher's,
+// MIT, and since rewritten stage by stage), whose edge flow follows the surface's
+// curvature as ZBrush's ZRemesher does, or Fast, the edge-pairing retopology
+// (geom.mesh_retopo), quicker and plainer. Flow is the default; where it refuses the
+// mesh, Fast runs in its place and the report says why.
 Engine :: enum u8 {
-	Auto,
-	Own,
+	Flow,
+	Fast,
 }
 
 ENGINE_NAMES := [Engine]string {
-	.Auto = "AutoRemesher",
-	.Own  = "Built-in",
+	.Flow = "Flow",
+	.Fast = "Fast",
 }
 
 // What a Quad Remesh runs with besides the count: carried in the scene command, so the
 // long job's thread reads no interface state, and put back by Adjust last.
 Options :: struct {
 	engine:      Engine,
-	adaptivity:  f32, // Adaptive size: 0 quads of one size, 1 smaller ones where the surface bends and larger where it is flat, at the same count (AutoRemesher)
+	adaptivity:  f32, // Adaptive size: 0 quads of one size, 1 smaller ones where the surface bends and larger where it is flat, at the same count (Flow)
 	// Keep symmetry: the planes the result is its own mirror image across (the brush's
 	// symmetry, through the centre its dabs mirror about), none for a whole remesh. The
 	// part on the + side of every plane is remeshed alone and mirrored, so the halves
 	// match quad for quad along the seam, with either engine.
 	mirror:      geom.Remesh_Mirror,
 	close_first: bool, // an open or unsound mesh is voxel remeshed first, whichever engine runs
-	// AutoRemesher: an open mesh's border kept as it is, as ZRemesher's FreezeBorder: its
+	// Flow: an open mesh's border kept as it is, as ZRemesher's FreezeBorder: its
 	// vertices stay where they are, one quad edge between each two, so the result welds
 	// back onto what it was cut from (quadmesh.Params.frozen). The border comes first and
 	// the count second: the quads beside it are its edges' size. A symmetric half's cut
 	// is remeshed as before, and Close first leaves no border to keep.
 	keep_borders: bool,
-	// AutoRemesher's feature edges, as ZRemesher's KeepGroups and KeepCreases: the
+	// Flow's feature edges, as ZRemesher's KeepGroups and KeepCreases: the
 	// borders between the polygroups and the creased edges of `Source` are kept as quad
 	// edges, so the loops run along them; and an edge whose faces meet sharper than
 	// `edge_degrees` is kept too (90, or 0 for it, keeps right angles and sharper, as
-	// before; lower keeps softer edges). The built-in engine knows none of the three.
+	// before; lower keeps softer edges). Fast knows none of the three.
 	keep_groups:  bool,
 	keep_creases: bool,
 	edge_degrees: f32,
-	// AutoRemesher's density, as ZRemesher's Use PolyPaint: `Source.paint` red asks up to
+	// Flow's density, as ZRemesher's Use PolyPaint: `Source.paint` red asks up to
 	// four times the quads per area, blue a quarter, white, grey and green leave it be;
 	// `Source.mask` asks up to twice as many where masked. The count stays what was asked
 	// (vertex_density).
 	use_paint: bool,
 	use_mask:  bool,
-	// AutoRemesher's guides, as ZRemesher's Curves Strength: how hard `Source.guides` pull
+	// Flow's guides, as ZRemesher's Curves Strength: how hard `Source.guides` pull
 	// the quads' edges to run along them, 0 not at all to 1 as closely as the field can
 	// follow (GUIDE_STRENGTH_DEFAULT, half, as ZRemesher's).
 	guide_strength: f32,
@@ -157,15 +158,15 @@ UV_PADDING :: f32(8.0 / 4096)
 QUAD_CLOSE_VERTICES_PER_QUAD :: 20
 QUAD_CLOSE_MIN_VERTICES :: 20_000
 
-// AutoRemesher takes seconds and hundreds of megabytes per million triangles, and past
+// Flow takes seconds and hundreds of megabytes per million triangles, and past
 // about that many its result depends little on the input's density, so a bigger input is
 // decimated to this first.
 QUAD_REMESH_MAX_TRIANGLES :: 1_000_000
-// Each separate part is an island AutoRemesher parameterizes alone, with a floor of cells
+// Each separate part is an island Flow parameterizes alone, with a floor of cells
 // each, so a dust of fragments is refused rather than left to it.
 QUAD_REMESH_MAX_PIECES :: 256
 // A remeshed half's seam vertices within this share of the object's size of the symmetry
-// plane are put on it: AutoRemesher smooths its boundary along the cut loop, which lies
+// plane are put on it: Flow smooths its boundary along the cut loop, which lies
 // on the plane, so they are near it but not on it to the bit.
 @(private = "file")
 QUAD_SEAM_SNAP :: f32(1e-4)
@@ -188,9 +189,9 @@ QUAD_ONTO_REACH :: f32(0.5)
 @(private = "file")
 QUAD_SEAM_SLIVER_FACES :: 16
 
-// Where the progress ring stands after each of AutoRemesher's stages: the decimation past
+// Where the progress ring stands after each of Flow's stages: the decimation past
 // the triangle cap, the check with Close first's voxel remesh, the remesh itself; the mirror and
-// the UVs take the rest. The own engine, standing in, starts from the check.
+// the UVs take the rest. Fast, standing in, starts from the check.
 @(private = "file")
 QUAD_SHARE_CAPPED :: f32(0.05)
 @(private = "file")
@@ -202,26 +203,26 @@ QUAD_SHARE_REMESHED :: f32(0.85)
 // the polygons they came from and, when every polygon is a quad, the quads with their UVs.
 Result :: struct {
 	q:         geom.Quad_Mesh, // every polygon a quad: the quads, over positions `mesh` copied; nil otherwise
-	how:       geom.Retopo_Report, // the own engine's account
+	how:       geom.Retopo_Report, // Fast's account
 	uv:        geom.Uv_Layout, // with `q`
 	mesh:      geom.Mesh,
-	polys:     sculpt.Polys, // AutoRemesher: the polygons as the base level keeps them, over `mesh`
+	polys:     sculpt.Polys, // Flow: the polygons as the base level keeps them, over `mesh`
 	engine:    Engine, // the engine that made it: Auto may have given way to Own
-	faces:     int, // AutoRemesher's polygons...
+	faces:     int, // Flow's polygons...
 	quads:     int, // ...of which quads,
 	triangles: int, // triangles
 	ngons:     int, // and five corners or more
-	capped:    int, // AutoRemesher: triangles the input was decimated to first, 0 for none
+	capped:    int, // Flow: triangles the input was decimated to first, 0 for none
 	closed:    int, // Close first: vertices of the voxel remesh that stood in for the input, 0 for none
-	features:  int, // AutoRemesher: polygroup borders and creased edges handed to it as feature edges
-	guides:    int, // AutoRemesher: guide curves that came within a quad's width of the surface
-	thin:      int, // AutoRemesher: vertices on parts too thin for THIN_AROUND quads round, given smaller quads (thin_density)
-	borders:   int, // AutoRemesher, Keep borders: the border vertices kept where they were
+	features:  int, // Flow: polygroup borders and creased edges handed to it as feature edges
+	guides:    int, // Flow: guide curves that came within a quad's width of the surface
+	thin:      int, // Flow: vertices on parts too thin for THIN_AROUND quads round, given smaller quads (thin_density)
+	borders:   int, // Flow, Keep borders: the border vertices kept where they were
 	mirrored:  bool, // one part remeshed and mirrored, as the symmetry asked...
 	mirror:    geom.Remesh_Mirror, // ...across these planes
 	unmirrored: string, // symmetry asked but not kept: why (a literal, not owned)
 	unkept:    string, // feature edges handed over but remeshed without them in the end: why (a literal, not owned)
-	reason:    string, // owned: why AutoRemesher was not used, "" when it was
+	reason:    string, // owned: why Flow was not used, "" when it was
 	built:     bool,
 	retopo_ms: f64,
 	uv_ms:     f64,
@@ -230,8 +231,8 @@ Result :: struct {
 // The quads of about `quads` on `view` (with normals) by the engine and options, their
 // UVs and triangles; touches no object or interface, so a long job runs it on its own
 // thread with its own pool, and with `progress` it stops after a cancel, built false with
-// nothing to free. AutoRemesher gives way to the own engine when it refuses the mesh,
-// and `reason` then says why; the own engine knows no adaptivity and
+// nothing to free. Flow gives way to Fast when it refuses the mesh,
+// and `reason` then says why; Fast knows no adaptivity and
 // no feature edges (`source`, per triangle and vertex of `view`), but Close first and
 // symmetry serve it too.
 compute :: proc(view: geom.Mesh, quads: int, options: Options, pool: ^jobs.Pool, progress: ^jobs.Progress = nil, source := Source{}) -> (r: Result) {
@@ -240,7 +241,7 @@ compute :: proc(view: geom.Mesh, quads: int, options: Options, pool: ^jobs.Pool,
 	closed: geom.Mesh
 	defer geom.mesh_destroy(&closed)
 	input := view
-	if options.engine == .Auto {
+	if options.engine == .Flow {
 		outcome: Quad_Outcome
 		r, outcome = quad_remesh_compute(view, quads, options, pool, progress, source)
 		if outcome != .Fallback do return
@@ -282,13 +283,13 @@ compute :: proc(view: geom.Mesh, quads: int, options: Options, pool: ^jobs.Pool,
 	r.uv = geom.quad_uv_unwrap(q, UV_PADDING)
 	r.uv_ms = time.duration_milliseconds(time.tick_since(uv_start))
 	r.mesh = geom.quad_mesh_triangulate(q)
-	r.q, r.how, r.engine, r.built = q, how, .Own, true
+	r.q, r.how, r.engine, r.built = q, how, .Fast, true
 	r.faces, r.quads = len(q.quads), len(q.quads)
 	jobs.progress_set(progress, 0, 1, 1)
 	return
 }
 
-// The own engine under symmetry: the part of `m` on the + side of every plane, cut open,
+// Fast under symmetry: the part of `m` on the + side of every plane, cut open,
 // remeshed to its share of `quads` with the cut as a seam, and mirrored. Not mirrored,
 // with why, when a plane misses the mesh or the mirrored halves do not close along the
 // seam; built false only when there was too little to remesh or after a cancel.
@@ -335,7 +336,7 @@ own_mirrored :: proc(m: geom.Mesh, quads: int, mirror: geom.Remesh_Mirror, pool:
 	for &f, k in mirrored.quads do copy(f[:], corners[4 * k:][:4])
 	check := geom.mesh_check(geom.quad_mesh_triangulate(mirrored, context.temp_allocator))
 	if check.non_manifold_edges > 0 || check.inconsistent_edges > 0 || len(corners) != 4 * (len(first) - 1) {
-		log.warnf("quad remesh: the built-in engine's mirrored halves left %d non-manifold and %d flipped edges, so the whole mesh is remeshed instead", check.non_manifold_edges, check.inconsistent_edges)
+		log.warnf("quad remesh: Fast's mirrored halves left %d non-manifold and %d flipped edges, so the whole mesh is remeshed instead", check.non_manifold_edges, check.inconsistent_edges)
 		geom.quad_mesh_destroy(&mirrored)
 		geom.quad_mesh_destroy(&q)
 		return {}, {}, false, "the seam did not close"
@@ -379,7 +380,7 @@ quad_close_first :: proc(m: geom.Mesh, quads: int, pool: ^jobs.Pool, progress: ^
 Quad_Outcome :: enum u8 {
 	Built,
 	Cancelled, // nothing kept
-	Fallback, // only `reason` kept: the own engine runs instead
+	Fallback, // only `reason` kept: Fast runs instead
 }
 
 // The vertices of `m` on its border (an edge of one triangle), as quadmesh.Params.frozen
@@ -450,7 +451,7 @@ half_values :: proc(half: geom.Mesh, whole: geom.Mesh, origins: geom.Slice_From,
 	return out
 }
 
-// The guide curves as AutoRemesher takes them (quadmesh.Params.guides): the segments of
+// The guide curves as Flow takes them (quadmesh.Params.guides): the segments of
 // each polyline whose two ends lie within `reach` of `m`, both ends moved onto its
 // surface, two points a segment; and how many of the curves gave one. Under `mirror` each
 // segment is first cut at every plane and its parts on the - side reflected to the +
@@ -504,10 +505,10 @@ guide_segments :: proc(m: geom.Mesh, guides: [][]geom.Vec3, mirror: geom.Remesh_
 	return out[:], curves
 }
 
-// The feature edges of `m` for AutoRemesher, two vertex indices each, each edge once:
+// The feature edges of `m` for Flow, two vertex indices each, each edge once:
 // every edge between two triangles of different groups (`groups` per triangle, nil for
 // none) and every edge whose key is in `creases` (nil for none). An edge on the mesh's
-// border is none of AutoRemesher's concern here (it keeps a border as it is).
+// border is none of Flow's concern here (it keeps a border as it is).
 @(private = "file")
 feature_edges :: proc(m: geom.Mesh, groups: []u16, creases: []u64) -> []u32 {
 	if groups == nil && creases == nil do return nil
@@ -563,7 +564,7 @@ half_features :: proc(half: geom.Mesh, origins: geom.Slice_From, groups: []u16, 
 	return
 }
 
-// AutoRemesher's half of compute: refuses what it cannot take before it starts,
+// Flow's half of compute: refuses what it cannot take before it starts,
 // decimates past the triangle cap, remeshes, and turns the polygons into the
 // triangles the object is built of, with the quads and UVs when every polygon is a quad.
 @(private = "file")
@@ -578,7 +579,7 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 	// origins or, for Close first's new surface, by the nearest point of the one before.
 	density := vertex_density(len(view.positions), source.paint if options.use_paint else nil, source.mask if options.use_mask else nil)
 	defer delete(density)
-	// Fewer triangles first past the cap: more make AutoRemesher slower, not better, and
+	// Fewer triangles first past the cap: more make Flow slower, not better, and
 	// the check below has no cancel and a serial pass or two, so it runs on the smaller mesh.
 	input := view
 	capped: geom.Mesh
@@ -626,7 +627,7 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 			groups, creases = nil, nil
 		}
 	}
-	// What AutoRemesher cannot take, or runs forever on, is refused before it starts.
+	// What Flow cannot take, or runs forever on, is refused before it starts.
 	whole := geom.mesh_integrity(input, pool)
 	jobs.progress_set(progress, 0, QUAD_SHARE_CHECKED, 1)
 	c := whole.check
@@ -872,7 +873,7 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 	}
 	r.faces, r.quads, r.triangles, r.ngons = report.faces, report.quads, report.triangles, report.ngons
 	if check.closed && check.inverted {
-		// AutoRemesher's winding follows its input's, so this is not expected; the sculpt
+		// Flow's winding follows its input's, so this is not expected; the sculpt
 		// wants every face outward, so each polygon is turned round and cut again.
 		polygon_mesh_flip(&out)
 		geom.mesh_destroy(&mesh)
@@ -880,7 +881,7 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		mesh, polys = polygon_mesh_triangulate(out, seam[:])
 		check = geom.mesh_check(mesh)
 	}
-	log.infof("quad remesh: AutoRemesher gave %d polygons (%d quads, %d triangles, %d larger) over %d vertices from %d triangles%s with %d feature edges, %d guide segments and %d thin vertices in %.0f ms (decimate %.0f, isotropic %.0f to %d triangles, parameterize %.0f in %d covers, extract %.0f, summed over the islands); %s, %d boundary and %d non-manifold edges",
+	log.infof("quad remesh: Flow gave %d polygons (%d quads, %d triangles, %d larger) over %d vertices from %d triangles%s with %d feature edges, %d guide segments and %d thin vertices in %.0f ms (decimate %.0f, isotropic %.0f to %d triangles, parameterize %.0f in %d covers, extract %.0f, summed over the islands); %s, %d boundary and %d non-manifold edges",
 		r.faces, r.quads, r.triangles, r.ngons, len(mesh.positions), c.triangles, fmt.tprintf(" decimated to %d", r.capped) if r.capped > 0 else "", r.features, len(guides) / 2, r.thin, report.ms,
 		report.decimate_ms, report.isotropic_ms, report.isotropic_triangles, report.parameterize_ms, report.covers, report.extract_ms,
 		"closed" if check.closed else "open", check.boundary_edges, check.non_manifold_edges)
@@ -904,7 +905,7 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		r.uv_ms = time.duration_milliseconds(time.tick_since(uv_start))
 		r.q = q
 	}
-	r.mesh, r.polys, r.engine, r.built = mesh, polys, .Auto, true
+	r.mesh, r.polys, r.engine, r.built = mesh, polys, .Flow, true
 	if r.mirrored do r.mirror = mirror
 	jobs.progress_set(progress, 0, 1, 1)
 	return r, .Built

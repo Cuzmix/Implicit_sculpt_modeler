@@ -14,7 +14,7 @@ headless app:
 `--import` the fixture, `--script` the tool's set lines and verb (what the panel would
 do) and `--export` the selected object (the remeshed one, or Quad Remesh's new object, as
 quads where it has them). The log gives the time (Remesh's own line, Quad Remesh's result
-line, which also says when the engine fell back to the built-in one and why). A run the
+line, which also says when Flow fell back to Fast and why). A run the
 app ends with exit code 2 refused or warned (the script runner fails a statement whose
 result is a warning, and then exports nothing): the row says what the result line or the
 last warning said. Any other failure is a crash. The exported OBJ is read back as
@@ -35,7 +35,7 @@ quad with no boundary (but on the open cylinder) or non-manifold edge, faces wit
 the request, the volume within 2 %, a deviation under 0.1 % at most and 0.01 % on average,
 a loss under 2.5 %, at least 90 % four-valent vertices, 98 % on the sphere and the bumpy
 sphere and 100 % on the torus. An engine fallback is judged as a result that is not
-AutoRemesher's (FAIL, with the engine's reason). Open, non-manifold and invalid fixtures
+Flow's (FAIL, with the engine's reason). Open, non-manifold and invalid fixtures
 stay in the table with what they did: a refusal there is a PASS, as is the import's
 refusal of a NaN position. The exit code is 1 when a check failed, else 0. A development
 aid only: nothing of it ships.
@@ -326,7 +326,7 @@ def with_flipped():
 # spacing of the input: a closed solid's surface, not an open input whose caps lie off it), "volume"
 # (within 1 % of the input's; 2 % for Quad Remesh), "count" (within 5 % of the request),
 # "quads" (every face a quad, no boundary or non-manifold edge, faces within 2 %, the
-# deviation and the loss, 90 % four-valent, AutoRemesher itself), "open" (as "quads",
+# deviation and the loss, 90 % four-valent, Flow itself), "open" (as "quads",
 # open edges allowed), "regular" (98 % four-valent), "regular100" (every vertex), "refuse"
 # (a refusal, a fallback or a result all pass), "unreadable" (the import refuses the
 # file).
@@ -531,8 +531,8 @@ def area(verts, tris):
 # Remesh's own log line always carries its time (the result line leaves it out under 50 ms).
 REMESH_LINE = re.compile(r"remesh: (\d+) vertices in (\d+) ms")
 RESULT_REMESH = re.compile(r"Remeshed .*?: [\d,]+ vertices(?: \(\d+ ms\))?(.*)$")
-# "Quad remeshed X: 1,608 quads (AutoRemesher), UVs in 12 charts, 226 ms", the engine
-# "built-in, as AutoRemesher said <why>" when it fell back.
+# "Quad remeshed X: 1,608 quads (Flow), UVs in 12 charts, 226 ms", the engine
+# "Fast, as Flow said <why>" when it fell back.
 RESULT_QUAD = re.compile(r"Quad remeshed .*?: (.*?) \((.*)\)(?:, UVs in \d+ charts)?, (\d+) ms\s*$")
 WARNING = re.compile(r"\[WARN \].*?\] (?:\[.*?\] )?(.*)$")
 UNREADABLE = re.compile(r"Cannot read .*?: (.*)$")
@@ -567,7 +567,7 @@ def run_app(fixture_obj, script, out_obj, timeout, threads=0):
         if m:
             info["ms"], info["detail"] = int(m.group(3)), m.group(1)
             engine = m.group(2)
-            if engine.startswith("built-in"):
+            if engine.startswith("Fast, as Flow said"):
                 info["fell_back"] = engine
         m = WARNING.search(line)
         if m:
