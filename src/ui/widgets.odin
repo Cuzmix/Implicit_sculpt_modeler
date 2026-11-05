@@ -133,8 +133,9 @@ label :: proc(ctx: ^Context, s: string, size: f32 = 0, color: Color = {}, font :
 // drawn as a smaller rounded square. `name` is its tooltip, with `keys`, its shortcut,
 // beside it. `corner` marks its bottom right with a small chevron, which says a long press
 // opens more (its settings). With `named` the cell is `width` wide and names the button
-// beside its icon, as a labelled rail does. Returns true when clicked.
-icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false, enabled := true, keys := "", size: f32 = 0, corner := false, named := "", width: f32 = 0) -> bool {
+// beside its icon, as a labelled rail does. An icon `picture` (a brush's own icon) stands
+// in for the glyph. Returns true when clicked.
+icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false, enabled := true, keys := "", size: f32 = 0, corner := false, named := "", width: f32 = 0, picture := Picture{}) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	size := size if size > 0 else t.target
@@ -148,8 +149,10 @@ icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false,
 		x := vis.x + t.control + 2
 		text(ctx, text_fit(ctx, s, t.small_size, vis.x + vis.w - x - 6), x, vis.y + vis.h * 0.5, t.small_size, color, .Regular)
 	}
+	pic_size := t.control - 4
 	if !enabled {
-		icon(ctx, glyph, mid, t.icon_size, disabled_ink(t))
+		if picture.image != 0 do picture_icon(ctx, picture, mid, pic_size, 0.45)
+		else do icon(ctx, glyph, mid, t.icon_size, disabled_ink(t))
 		if labelled do words(ctx, named, vis, disabled_ink(t))
 		if ctx.names.on do names_place(ctx, id_of(ctx, name), cell)
 		return false
@@ -162,7 +165,8 @@ icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false,
 	scale := feedback(ctx, id, vis, t.radius_medium, hovered, held)
 	h := tween(ctx, salt(id, 2), 1 if hovered else 0, t.hover_time, class = MOTION_PRESS)
 	color := color_mix(color_mix(t.text_secondary, t.text, h), t.accent, sel)
-	icon(ctx, glyph, mid, t.icon_size, color)
+	if picture.image != 0 do picture_icon(ctx, picture, mid, pic_size)
+	else do icon(ctx, glyph, mid, t.icon_size, color)
 	if labelled do words(ctx, named, vis, color)
 	if corner do more_chevron(ctx, {vis.x + vis.w - 7, vis.y + vis.h - 6}, color)
 	press_scale(ctx, mark, vis, scale)
@@ -1176,7 +1180,8 @@ BRUSH_TILE :: [2]f32{64, 58}
 // A brush in the dock or the browser: its icon over its name. The chosen one sits on the
 // chosen colour, which slides from tile to tile. Returns true when clicked. A command's
 // tile, on a dock of tiles, may be disabled (faded, taking no press) and may mark that it
-// has a long press with `corner`, as icon_button does.
+// has a long press with `corner`, as icon_button does. An icon `picture` (a brush's own
+// icon) stands in for the glyph.
 brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys := "", enabled := true, corner := false, width: f32 = 0, picture := Picture{}) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
@@ -1186,7 +1191,8 @@ brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys :
 	vis := centered(cell, {cell.w - 4, 54})
 	if !enabled {
 		faded := disabled_ink(t)
-		icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, faded)
+		if picture.image != 0 do picture_icon(ctx, picture, {vis.x + vis.w * 0.5, vis.y + 21}, PICTURE_ICON, 0.45)
+		else do icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, faded)
 		text(ctx, text_fit(ctx, label_text(s), t.caption_size, cell.w - 2), vis.x + vis.w * 0.5, vis.y + 42, t.caption_size, faded, .Regular, .Center)
 		if ctx.names.on do names_place(ctx, id_of(ctx, s), cell)
 		return false
@@ -1198,15 +1204,9 @@ brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys :
 	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.indicator_time, class = MOTION_TABS)
 	scale := feedback(ctx, id, vis, t.radius_medium + 2, hovered && !selected, held)
 	color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.7), t.on_chosen, o)
-	// A brush's own stroke on clay, where it has one, says what it does as no glyph can;
-	// the glyph stands in until the picture is made.
-	if picture.image != 0 {
-		swatch := Rect{vis.x + 6, vis.y + 6, vis.w - 12, 28}
-		picture_cover(ctx, swatch, picture)
-		stroke_rect(ctx, swatch, t.radius_small, color_fade(t.border_strong, 0.6), 1)
-	} else {
-		icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, color)
-	}
+	// A brush's own icon, where it has one, stands in for the glyph.
+	if picture.image != 0 do picture_icon(ctx, picture, {vis.x + vis.w * 0.5, vis.y + 21}, PICTURE_ICON)
+	else do icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, color)
 	// A preset's name may be longer than the tile: it is cut, and shown whole in the tip.
 	name := label_text(s)
 	shown := text_fit(ctx, name, t.caption_size, cell.w - 2)
@@ -1680,6 +1680,15 @@ Picture :: struct {
 	lo, hi: [2]f32,
 	aspect: f32,
 	glyph:  rune,
+}
+
+// How large a picture icon is drawn on a tile or an icon button, in points: a little
+// larger than the glyph it replaces, since a picture's ink does not fill its square.
+PICTURE_ICON :: 34
+
+// Draws picture icon `pic` centred on `center`, `size` points square, faded by `fade`.
+picture_icon :: proc(ctx: ^Context, pic: Picture, center: [2]f32, size: f32, fade: f32 = 1) {
+	image_part(ctx, {center.x - size * 0.5, center.y - size * 0.5, size, size}, pic.image, pic.lo, pic.hi, {255, 255, 255, u8(255 * clamp(fade, 0, 1))})
 }
 
 // How a picture tile's well is ringed: a hairline, the accent (what is open now) or the

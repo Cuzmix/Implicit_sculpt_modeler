@@ -1874,6 +1874,10 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 			draws[i].image, draws[i].smooth = tex, tab.flat.zoom < TEXEL_GRID_ZOOM
 			if tex == 0 || tab.kind != .Texture do draws[i].index_count = 0
 		}
+		if c.texture == .Image && c.image == KIT_BRUSH_ICONS_IMAGE {
+			draws[i].image, draws[i].smooth = app.brush_icons.atlas, true
+			if app.brush_icons.atlas == 0 do draws[i].index_count = 0
+		}
 		if c.texture == .Image && c.image == KIT_BRUSH_PREVIEWS_IMAGE {
 			draws[i].image, draws[i].smooth = app.brush_previews.atlas, true
 			if app.brush_previews.atlas == 0 do draws[i].index_count = 0
