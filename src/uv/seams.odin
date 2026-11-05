@@ -26,9 +26,12 @@ DEFAULT_SEAMS :: Seam_Options{66, 1, 1, 1}
 
 // Chooses the seams of `u` (any it had are replaced) for the mesh `positions` and
 // `indices` with `faces`, then finds the islands. `groups` (one a triangle) and `hidden`
-// (one a vertex) may be nil. Returns how many charts it cut. Runs on the calling thread
-// with temp memory; the result follows from the mesh alone.
-auto_seams :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, groups: []u16 = nil, hidden: []f32 = nil, options := DEFAULT_SEAMS) -> (charts: int) {
+// (one a vertex) may be nil. With `partner` (one a triangle: the other half of its quad,
+// -1 for none; quad_partners), the two halves of a quad always share a chart, so no seam
+// cuts a quad's diagonal and the UVs read as the quads' (to_quads). Returns how many
+// charts it cut. Runs on the calling thread with temp memory; the result follows from the
+// mesh alone.
+auto_seams :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, groups: []u16 = nil, hidden: []f32 = nil, options := DEFAULT_SEAMS, partner: []i32 = nil) -> (charts: int) {
 	a := context.temp_allocator
 	count := len(indices) / 3
 	if count == 0 || len(u.corner) != count do return 0
@@ -95,10 +98,24 @@ auto_seams :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.
 		if chart[seed] >= 0 do continue
 		c := i32(charts)
 		charts += 1
-		chart[seed] = c
-		mean := normal[seed] * area[seed]
+		mean: geom.Vec3
 		pq.clear(&queue)
-		for k in 0 ..< 3 do if o := across_of[seed][k]; o >= 0 && chart[o] < 0 {
+		// A triangle joins with its quad's other half, which needs no test of its own: a
+		// seam across the diagonal is never wanted.
+		join :: proc(t, c: i32, mean: ^geom.Vec3, chart: []i32, partner: []i32, normal: []geom.Vec3, area: []f32) -> (both: [2]i32, n: int) {
+			chart[t] = c
+			mean^ += normal[t] * area[t]
+			both[0], n = t, 1
+			if partner != nil && partner[t] >= 0 && chart[partner[t]] < 0 {
+				p := partner[t]
+				chart[p] = c
+				mean^ += normal[p] * area[p]
+				both[1], n = p, 2
+			}
+			return
+		}
+		joined, n := join(i32(seed), c, &mean, chart, partner, normal, area)
+		for j in 0 ..< n do for k in 0 ..< 3 do if o := across_of[joined[j]][k]; o >= 0 && chart[o] < 0 {
 			if cost, ok := cost_of(o, c, mean, chart, across_of, hold, normal); ok do pq.push(&queue, Candidate{cost, o})
 		}
 		for pq.len(queue) > 0 {
@@ -107,9 +124,8 @@ auto_seams :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.
 			if chart[t] >= 0 do continue
 			if linalg.dot(normal[t], linalg.normalize0(mean)) < cone do continue
 			if _, ok := cost_of(t, c, mean, chart, across_of, hold, normal); !ok do continue
-			chart[t] = c
-			mean += normal[t] * area[t]
-			for k in 0 ..< 3 do if o := across_of[t][k]; o >= 0 && chart[o] < 0 {
+			joined, n = join(t, c, &mean, chart, partner, normal, area)
+			for j in 0 ..< n do for k in 0 ..< 3 do if o := across_of[joined[j]][k]; o >= 0 && chart[o] < 0 {
 				if cost, ok := cost_of(o, c, mean, chart, across_of, hold, normal); ok do pq.push(&queue, Candidate{cost, o})
 			}
 		}
@@ -117,7 +133,7 @@ auto_seams :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.
 
 	// Every chart made a disc: one that is not is split in two from its two triangles
 	// farthest apart (in steps across edges), grown side by side, until each is.
-	charts = discs(chart, charts, indices, across_of)
+	charts = discs(chart, charts, indices, across_of, partner)
 
 	for &s, t in u.seam {
 		s = {}
@@ -130,9 +146,11 @@ auto_seams :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.
 // Splits the charts that are not discs until every one is; returns the chart count. A
 // chart is a disc when V - E + F is 1 and its border is one loop; one that is not is cut
 // into the triangles nearer (in steps across edges) to one or the other of two that lie
-// farthest apart, the lower on a tie, which leaves both halves connected.
+// farthest apart, the lower on a tie, which leaves both halves connected. A quad's two
+// halves (`partner`) go to the side of the lower of them, next to each other, so they
+// stay connected too.
 @(private = "file")
-discs :: proc(chart: []i32, charts: int, indices: []u32, across_of: [][3]i32) -> int {
+discs :: proc(chart: []i32, charts: int, indices: []u32, across_of: [][3]i32, partner: []i32) -> int {
 	a := context.temp_allocator
 	charts := charts
 	count := len(chart)
@@ -203,10 +221,26 @@ discs :: proc(chart: []i32, charts: int, indices: []u32, across_of: [][3]i32) ->
 		for t in members do if hops_a[t] > hops_a[far_b] do far_b = t
 		walk(far_b, c, chart, across_of, &members, hops_b)
 		half := i32(charts)
+		side :: proc(t: i32, hops_a, hops_b, partner: []i32) -> bool {
+			lo := t
+			if partner != nil && partner[t] >= 0 do lo = min(t, partner[t])
+			return hops_b[lo] < hops_a[lo]
+		}
+		in_half, in_c := i32(-1), i32(-1)
+		for t in members {
+			if side(t, hops_a, hops_b, partner) {
+				if in_half < 0 do in_half = t
+			} else if in_c < 0 do in_c = t
+		}
+		// A chart the pairs leave in one piece stays as it is rather than split forever.
+		if in_half < 0 || in_c < 0 do continue
+		// The walks start again from the two far ones where they stay on their sides.
+		if side(far_b, hops_a, hops_b, partner) do in_half = far_b
+		if !side(far_a, hops_a, hops_b, partner) do in_c = far_a
 		charts += 1
-		append(&first_tri, far_b)
-		first_tri[c] = far_a
-		for t in members do if hops_b[t] < hops_a[t] do chart[t] = half
+		append(&first_tri, in_half)
+		first_tri[c] = in_c
+		for t in members do if side(t, hops_a, hops_b, partner) do chart[t] = half
 		append(&todo, half, c)
 	}
 	return charts
@@ -249,18 +283,47 @@ Unwrap_Report :: struct {
 	flatten: Flatten_Report,
 	relax:   Relax_Report,
 	ms:      f64,
+	cancelled: bool,
 }
 
 // UVs in one call, as one tap gives them: auto seams (unless kept), every island
-// flattened, relaxed and packed into the unit square.
-unwrap :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, groups: []u16 = nil, hidden: []f32 = nil, options := DEFAULT_UNWRAP, pool: ^jobs.Pool = nil) -> (r: Unwrap_Report) {
+// flattened, relaxed and packed into the unit square. `partner` keeps quads whole
+// (auto_seams). With `progress`, the stages move it (seams to 15 %, flattening to 80 %,
+// relaxing the rest) and a cancel stops it between them, `cancelled` then set and `u`
+// half made: the caller drops it.
+unwrap :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, groups: []u16 = nil, hidden: []f32 = nil, options := DEFAULT_UNWRAP, pool: ^jobs.Pool = nil, partner: []i32 = nil, progress: ^jobs.Progress = nil) -> (r: Unwrap_Report) {
 	start := time.tick_now()
+	defer r.ms = time.duration_milliseconds(time.tick_since(start))
 	if !has(u^) do return
-	if !options.keep_seams do r.charts = auto_seams(u, positions, indices, faces, groups, hidden, options.seams)
+	if !options.keep_seams do r.charts = auto_seams(u, positions, indices, faces, groups, hidden, options.seams, partner)
+	jobs.progress_set(progress, 0, 1, 0.15)
+	if r.cancelled = jobs.progress_cancelled(progress); r.cancelled do return
 	sym := options.symmetry
 	at: ^Symmetry = &sym if options.symmetric else nil
 	r.flatten = flatten(u, positions, indices, faces, options.method, pool, at)
+	jobs.progress_set(progress, 0, 1, 0.8)
+	if r.cancelled = jobs.progress_cancelled(progress); r.cancelled do return
 	if options.relax > 0 do r.relax = relax(u, positions, indices, faces, options.relax, pool, at)
-	r.ms = time.duration_milliseconds(time.tick_since(start))
+	jobs.progress_set(progress, 0, 1, 1)
 	return
+}
+
+// Each triangle's other half of its quad in `q` (the triangles `indices` with `faces`
+// are its halves), -1 where it is none, for auto_seams to keep quads whole; made with
+// `allocator`. False when a triangle is no half of a quad.
+quad_partners :: proc(q: geom.Quad_Mesh, indices: []u32, faces: geom.Vertex_Faces, allocator := context.allocator) -> (partner: []i32, ok: bool) {
+	slots := half_slots(q, indices, faces) or_return
+	count := len(indices) / 3
+	halves := make([][2]i32, len(q.quads), context.temp_allocator)
+	for &h in halves do h = {-1, -1}
+	for t in 0 ..< count {
+		s := int(slots[3 * t])
+		halves[s / 6][s % 6 / 3] = i32(t)
+	}
+	partner = make([]i32, count, allocator)
+	for t in 0 ..< count {
+		s := int(slots[3 * t])
+		partner[t] = halves[s / 6][1 - s % 6 / 3]
+	}
+	return partner, true
 }
