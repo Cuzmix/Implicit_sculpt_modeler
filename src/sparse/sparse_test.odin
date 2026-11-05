@@ -327,3 +327,142 @@ ldlt_speed :: proc(t: ^testing.T) {
 		log.infof("%s: %d unknowns, fill %d, analyze %.1f ms, factor %.1f ms, solve %.1f ms, residual %.2g", c.name, c.m.n, symbolic_fill(s), time.duration_milliseconds(time.tick_diff(t0, t1)), time.duration_milliseconds(time.tick_diff(t1, t2)), time.duration_milliseconds(time.tick_diff(t2, t3)), residual)
 	}
 }
+
+// A connection Laplacian over an nx by ny grid as a Hermitian matrix (each node one complex
+// unknown, each grid edge the energy |e^{i turn} z_a - z_b|²) and as the real system of
+// twice the size it stands for (each complex entry a + ib the block [a -b; b a]).
+@(private = "file")
+complex_connection :: proc(nx, ny: int, shift: f64, seed: u64) -> (h: Hermitian, m: Symmetric) {
+	heap := runtime.heap_allocator()
+	state := rand.create(seed)
+	gen := runtime.default_random_generator(&state)
+	ht := hermitian_triplets_make(nx * ny, 4 * nx * ny, heap)
+	defer hermitian_triplets_destroy(&ht)
+	rt := triplets_make(2 * nx * ny, 12 * nx * ny, heap)
+	defer triplets_destroy(&rt)
+	put :: proc(ht: ^Hermitian_Triplets, rt: ^Triplets, a, b: int, v: complex128) {
+		hermitian_triplets_add(ht, a, b, v)
+		if a == b {
+			triplets_add(rt, 2 * a, 2 * a, real(v))
+			triplets_add(rt, 2 * a + 1, 2 * a + 1, real(v))
+			return
+		}
+		// Row a's block at column b, [re -im; im re]; the transpose is row b's at a.
+		triplets_add(rt, 2 * a, 2 * b, real(v))
+		triplets_add(rt, 2 * a, 2 * b + 1, -imag(v))
+		triplets_add(rt, 2 * a + 1, 2 * b, imag(v))
+		triplets_add(rt, 2 * a + 1, 2 * b + 1, real(v))
+	}
+	for y in 0 ..< ny do for x in 0 ..< nx {
+		v := y * nx + x
+		put(&ht, &rt, v, v, complex(shift, 0))
+		for w in ([2]int{v + 1 if x + 1 < nx else -1, v + nx if y + 1 < ny else -1}) {
+			if w < 0 do continue
+			turn := rand.float64_range(-1.2, 1.2, gen)
+			c := complex(math.cos(turn), math.sin(turn))
+			put(&ht, &rt, v, v, 1)
+			put(&ht, &rt, w, w, 1)
+			put(&ht, &rt, v, w, -conj(c))
+		}
+	}
+	h, _ = hermitian_from_triplets(ht, heap)
+	m, _ = symmetric_from_triplets(rt, allocator = heap)
+	return
+}
+
+// The Hermitian factor solves what the real system of twice the size solves, to the
+// rounding, through any order, and refactors on its symbolic pass.
+@(test)
+hermitian_matches_the_real_system :: proc(t: ^testing.T) {
+	heap := runtime.heap_allocator()
+	h, m := complex_connection(40, 30, 1e-3, 9)
+	defer hermitian_destroy(&h, heap)
+	defer symmetric_destroy(&m, heap)
+	n := h.n
+	b := make([]complex128, n, heap)
+	defer delete(b, heap)
+	rb := make([]f64, 2 * n, heap)
+	defer delete(rb, heap)
+	state := rand.create(4)
+	gen := runtime.default_random_generator(&state)
+	for &v, i in b {
+		v = complex(rand.float64_range(-1, 1, gen), rand.float64_range(-1, 1, gen))
+		rb[2 * i], rb[2 * i + 1] = real(v), imag(v)
+	}
+	natural := make([]i32, n, heap)
+	defer delete(natural, heap)
+	for &v, i in natural do v = i32(n - 1 - i)
+	for order in ([2][]i32{nil, natural}) {
+		s := ldlt_analyze(hermitian_pattern(h), order, heap)
+		defer symbolic_destroy(&s, heap)
+		f: Hermitian_Factor
+		defer hermitian_factor_destroy(&f, heap)
+		if !testing.expect(t, hermitian_factor(&f, &s, h, heap), "the Hermitian factor failed") do return
+		x := make([]complex128, n, heap)
+		defer delete(x, heap)
+		hermitian_solve(&f, b, x)
+		residual := hermitian_residual(h, x, b)
+		rx := make([]f64, 2 * n, heap)
+		defer delete(rx, heap)
+		rs := ldlt_analyze(m, allocator = heap)
+		defer symbolic_destroy(&rs, heap)
+		rf: Factor
+		defer factor_destroy(&rf, heap)
+		testing.expect(t, ldlt_factor(&rf, &rs, m, heap))
+		ldlt_solve(&rf, rb, rx)
+		apart := f64(0)
+		for v, i in x do apart = max(apart, abs(real(v) - rx[2 * i]), abs(imag(v) - rx[2 * i + 1]))
+		log.infof("Hermitian %d unknowns (%s order): fill %d against the real system's %d, residual %.2g, apart from the real solution %.2g", n, "AMD" if order == nil else "reversed", symbolic_fill(s), symbolic_fill(rs), residual, apart)
+		testing.expectf(t, residual < 1e-10, "residual %g", residual)
+		testing.expectf(t, apart < 1e-8, "%g apart from the real system's solution", apart)
+		// New numbers on the same pattern: twice the diagonal's shift.
+		for p in 0 ..< len(h.values) do if int(h.rows[p]) == column_of(h, p) do h.values[p] += 1e-3
+		testing.expect(t, hermitian_factor(&f, &s, h, heap))
+		hermitian_solve(&f, b, x)
+		testing.expectf(t, hermitian_residual(h, x, b) < 1e-10, "refactored residual %g", hermitian_residual(h, x, b))
+		for p in 0 ..< len(h.values) do if int(h.rows[p]) == column_of(h, p) do h.values[p] -= 1e-3
+	}
+}
+
+// The column entry p of the matrix is in.
+@(private = "file")
+column_of :: proc(h: Hermitian, p: int) -> int {
+	for j in 0 ..< h.n do if p < h.first[j + 1] do return j
+	return h.n
+}
+
+// The Hermitian factor against the real one on the same connection Laplacian, 40,000
+// complex unknowns (80,000 real).
+@(test)
+hermitian_speed :: proc(t: ^testing.T) {
+	heap := runtime.heap_allocator()
+	h, m := complex_connection(200, 200, 1e-6, 5)
+	defer hermitian_destroy(&h, heap)
+	defer symmetric_destroy(&m, heap)
+	b := make([]complex128, h.n, heap)
+	defer delete(b, heap)
+	for &v, i in b do v = complex(math.sin(f64(i)), math.cos(f64(i)))
+	t0 := time.tick_now()
+	s := ldlt_analyze(hermitian_pattern(h), allocator = heap)
+	defer symbolic_destroy(&s, heap)
+	t1 := time.tick_now()
+	f: Hermitian_Factor
+	defer hermitian_factor_destroy(&f, heap)
+	testing.expect(t, hermitian_factor(&f, &s, h, heap))
+	t2 := time.tick_now()
+	x := make([]complex128, h.n, heap)
+	defer delete(x, heap)
+	hermitian_solve(&f, b, x)
+	t3 := time.tick_now()
+	residual := hermitian_residual(h, x, b)
+	testing.expectf(t, residual < 1e-10, "residual %g", residual)
+	rs := ldlt_analyze(m, allocator = heap)
+	defer symbolic_destroy(&rs, heap)
+	t4 := time.tick_now()
+	rf: Factor
+	defer factor_destroy(&rf, heap)
+	testing.expect(t, ldlt_factor(&rf, &rs, m, heap))
+	t5 := time.tick_now()
+	ms :: proc(a, b: time.Tick) -> f64 {return time.duration_milliseconds(time.tick_diff(a, b))}
+	log.infof("Hermitian %d unknowns: fill %d, analyze %.1f ms, factor %.1f ms, solve %.1f ms, residual %.2g; the real system's %d: fill %d, analyze %.1f ms, factor %.1f ms", h.n, symbolic_fill(s), ms(t0, t1), ms(t1, t2), ms(t2, t3), residual, m.n, symbolic_fill(rs), ms(t3, t4), ms(t4, t5))
+}

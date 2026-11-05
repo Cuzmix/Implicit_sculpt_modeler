@@ -330,54 +330,12 @@ corner_vertex :: #force_inline proc(x: ^Extractor, c: u32) -> u32 {
 
 // ---- The mesh and the cover's charts --------------------------------------------------
 
-// Each corner's opposite: the one corner whose edge runs the other way. An edge of one
-// triangle, or of three or more, or run twice the same way, has none and counts as border.
+// Each corner's opposite (corner_opposites); an edge without one is the border.
 @(private = "file")
 extract_topology :: proc(x: ^Extractor) {
-	corners := 3 * len(x.triangles)
-	x.opp = make([]u32, corners, x.heap)
-	x.border = make([]bool, corners, x.heap)
-	vertex_count := len(x.positions)
-	first := make([]u32, vertex_count + 1, x.heap)
-	defer delete(first, x.heap)
-	for t in x.triangles do for v in t do first[v + 1] += 1
-	for v in 0 ..< vertex_count do first[v + 1] += first[v]
-	cursor := make([]u32, vertex_count, x.heap)
-	defer delete(cursor, x.heap)
-	copy(cursor, first[:vertex_count])
-	filed := make([]u32, corners, x.heap) // corners by their first vertex
-	defer delete(filed, x.heap)
-	for t, f in x.triangles do for k in 0 ..< 3 {
-		filed[cursor[t[k]]] = u32(3 * f + k)
-		cursor[t[k]] += 1
-	}
-	for c in 0 ..< u32(corners) {
-		a, b := corner_vertex(x, c), corner_vertex(x, corner_next(c))
-		same, found := 0, NONE
-		reverse := 0
-		for i in first[a] ..< first[a + 1] do if corner_vertex(x, corner_next(filed[i])) == b do same += 1
-		for i in first[b] ..< first[b + 1] {
-			o := filed[i]
-			if corner_vertex(x, corner_next(o)) == a {
-				reverse += 1
-				found = o
-			}
-		}
-		if same == 1 && reverse == 1 {
-			x.opp[c] = found
-		} else {
-			x.opp[c] = NONE
-			x.border[c] = true
-		}
-	}
-	// An opposite must name this corner back (two edges one way and one the other do not).
-	for c in 0 ..< u32(corners) {
-		o := x.opp[c]
-		if o != NONE && x.opp[o] != c {
-			x.opp[c] = NONE
-			x.border[c] = true
-		}
-	}
+	x.opp = corner_opposites(len(x.positions), x.triangles, x.heap)
+	x.border = make([]bool, len(x.opp), x.heap)
+	for o, c in x.opp do x.border[c] = o == NONE
 }
 
 // The transition across each edge: the quarter turns that best take the edge's direction

@@ -393,29 +393,40 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 		return
 	}
 	anisotropy := f64(params.anisotropy) if params.anisotropy > 0 else 1.0
+	// The Odin field is solved once for all the island's covers, as none of it depends on
+	// the scaling; the C++ cover solves its own each time.
+	field: Field
+	defer field_destroy(&field)
+	cover_from := ISLAND_RESAMPLE_END
+	cover_span := ISLAND_PARAMETERIZE_END - ISLAND_RESAMPLE_END
+	if params.core == .Odin {
+		tag = {d, i, ISLAND_RESAMPLE_END, ISLAND_RESAMPLE_END + cover_span * FIELD_SHARE}
+		field, err = odin_field(iso, guided, f64(params.adaptivity), anisotropy, f64(params.sharp_degrees), &run, &reason, &w.checks)
+		if err == .Failed {
+			fail_island(d, i, &reason, t2)
+			return
+		}
+		if err != .None {
+			driver_fail(d, err, &reason)
+			return
+		}
+		cover_from += cover_span * FIELD_SHARE
+		cover_span -= cover_span * FIELD_SHARE
+	}
 	cover, best: Cover
 	defer cover_destroy(&cover)
 	defer cover_destroy(&best)
 	best_miss, under_scaling, under_cells, over_scaling, over_cells: f64
-	cover_span := ISLAND_PARAMETERIZE_END - ISLAND_RESAMPLE_END
 	for pass in 0 ..< LANDING_COVERS {
 		// The first cover takes the whole parameterize share of the bar; a later one the
 		// last third of it again, so the bar steps back a little rather than stalling.
-		tag = {d, i, ISLAND_RESAMPLE_END if pass == 0 else ISLAND_RESAMPLE_END + cover_span * 0.67, ISLAND_PARAMETERIZE_END}
+		tag = {d, i, cover_from if pass == 0 else cover_from + cover_span * 0.67, ISLAND_PARAMETERIZE_END}
 		sync.atomic_add(&d.covers, 1)
 		cover_destroy(&cover)
-		cover, err = cpp_cover(iso, guided, scaling, f64(params.adaptivity), anisotropy, f64(params.sharp_degrees), &run, &reason)
+		cover, err = cpp_cover(iso, guided, field, scaling, f64(params.adaptivity), anisotropy, f64(params.sharp_degrees), &run, &reason)
 		w.checks.covers += 1
 		if err == .Failed {
-			// An island whose cover fails is left without quads, its reason kept for the
-			// report, as the core does.
-			if reason_string(&reason) != "" {
-				sync.mutex_lock(&d.lock)
-				d.failure = reason
-				sync.mutex_unlock(&d.lock)
-			}
-			add_ns(&d.parameterize_ns, t2)
-			_ = driver_report(d, i, 1)
+			fail_island(d, i, &reason, t2)
 			return
 		}
 		if err != .None {
@@ -471,6 +482,24 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	dump_quads(params.dump, i, w.quads, w.checks)
 	_ = driver_report(d, i, 1)
 }
+
+// An island whose field or cover failed is left without quads, its reason kept for the
+// report, as the core does.
+@(private = "file")
+fail_island :: proc(d: ^Driver, i: int, reason: ^Reason, from: time.Tick) {
+	if reason_string(reason) != "" {
+		sync.mutex_lock(&d.lock)
+		d.failure = reason^
+		sync.mutex_unlock(&d.lock)
+	}
+	add_ns(&d.parameterize_ns, from)
+	_ = driver_report(d, i, 1)
+}
+
+// The share of the parameterize bar the Odin field takes before the covers (the C++ cover
+// reports its own field in about that share).
+@(private = "file")
+FIELD_SHARE :: 0.25
 
 // The landing's smallest step down, 1 / 1.5 as the C++ divides it.
 @(private = "file")

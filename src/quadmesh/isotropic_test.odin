@@ -16,7 +16,7 @@ import "../jobs"
 // and damaged input, serial against parallel, and cancelled.
 
 // An island of a mesh, from the heap as the stages' are.
-@(private = "file")
+@(private)
 island_of :: proc(positions: []geom.Vec3, indices: []u32) -> (m: Island) {
 	heap := runtime.heap_allocator()
 	m.positions = make([][3]f64, len(positions), heap)
@@ -27,7 +27,7 @@ island_of :: proc(positions: []geom.Vec3, indices: []u32) -> (m: Island) {
 }
 
 // The stage's edge for about `quads` quads over the island, as the driver sizes it.
-@(private = "file")
+@(private)
 edge_for :: proc(m: Island, quads: int) -> f64 {
 	area := f64(0)
 	for t in m.triangles do area += triangle_area(m.positions[t[0]], m.positions[t[1]], m.positions[t[2]])
@@ -87,7 +87,7 @@ against_cpp :: proc(t: ^testing.T, name: string, island: Island, edge, adaptivit
 }
 
 // A torus of nu by nv quads cut in two triangles each, wound outward.
-@(private = "file")
+@(private)
 torus_island :: proc(nu, nv: int, big, small: f64) -> (m: Island) {
 	heap := runtime.heap_allocator()
 	m.positions = make([][3]f64, nu * nv, heap)
@@ -108,7 +108,7 @@ torus_island :: proc(nu, nv: int, big, small: f64) -> (m: Island) {
 }
 
 // A cube of side 2 with each face an n by n grid, wound outward.
-@(private = "file")
+@(private)
 cube_island :: proc(n: int) -> (m: Island) {
 	heap := runtime.heap_allocator()
 	positions := make([dynamic][3]f64, heap)

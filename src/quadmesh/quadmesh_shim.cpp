@@ -49,6 +49,7 @@
 #include <AutoRemesher/IsotropicRemesher>
 #include <AutoRemesher/MeshSeparator>
 #include <AutoRemesher/Parameterizer>
+#include <AutoRemesher/QuadParameterizer>
 #include <AutoRemesher/QuadExtractor>
 #include <AutoRemesher/SurfaceMesh>
 #include <AutoRemesher/Vector3>
@@ -1316,8 +1317,9 @@ struct Qm_Stage {
     std::vector<double> density, refine, vertexScale, faceGuides, uvs;
     std::vector<uint8_t> cornerFeature;
     std::vector<uint32_t> singular, first, corners;
+    std::vector<double> faceField, faceSizes;
     double meanEdge = 0.0;
-    uint32_t added = 0;
+    uint32_t added = 0, singularSolved = 0, singularAfter = 0;
     int decimated = 0;
 };
 
@@ -1491,6 +1493,102 @@ extern "C" int qm_stage_face_guides(const Qm_Mesh* mesh, double quad_edge, const
     });
 }
 
+extern "C" int qm_stage_field(const Qm_Mesh* mesh, double adaptivity, double anisotropy, double sharp_degrees,
+    const Qm_Stage_Run* run, Qm_Stage** out, char* error, size_t error_size)
+{
+    *out = nullptr;
+    return guarded(error, error_size, [&] {
+        const StageRun scope(run);
+        std::vector<Vector3> vertices;
+        std::vector<std::vector<size_t>> triangles;
+        meshIn(*mesh, vertices, triangles);
+        const std::vector<double> vertexScale = valuesIn(mesh->vertex_scale, mesh->vertex_count);
+        std::vector<char> cornerFeature;
+        if (mesh->corner_feature) cornerFeature.assign(mesh->corner_feature, mesh->corner_feature + 3 * (size_t)mesh->triangle_count);
+        std::vector<Vector3> guided;
+        if (mesh->face_guides)
+            for (uint32_t f = 0; f < mesh->triangle_count; ++f)
+                guided.emplace_back(mesh->face_guides[3 * f], mesh->face_guides[3 * f + 1], mesh->face_guides[3 * f + 2]);
+        AutoRemesher::Parameterizer parameterizer(&vertices, &triangles, nullptr);
+        parameterizer.setProgressHandler(stageHandler(run));
+        parameterizer.setGradientAdaptivity(adaptivity);
+        parameterizer.setAnisotropy(anisotropy);
+        parameterizer.setSharpEdgeDegrees(sharp_degrees);
+        if (!cornerFeature.empty()) parameterizer.setCornerFeatures(&cornerFeature);
+        if (!vertexScale.empty()) parameterizer.setVertexScaling(&vertexScale);
+        if (!guided.empty()) parameterizer.setFaceGuides(&guided);
+        AutoRemesher::Parameterizer::FieldStage field;
+        parameterizer.setFieldStageOnly(&field);
+        if (!parameterizer.parameterize()) {
+            say(error, error_size, "frame field solve failed");
+            return QM_FAILED;
+        }
+        std::unique_ptr<Qm_Stage> r(new Qm_Stage);
+        r->faceField.resize(3 * field.field.size());
+        r->faceSizes.resize(3 * field.field.size());
+        for (size_t f = 0; f < field.field.size(); ++f)
+            for (size_t k = 0; k < 3; ++k) r->faceField[3 * f + k] = field.field[f][k];
+        for (size_t f = 0; f < field.faceScaling.size() && f < field.field.size(); ++f) {
+            r->faceSizes[3 * f] = field.faceScaling[f];
+            r->faceSizes[3 * f + 1] = field.faceScalingU[f];
+            r->faceSizes[3 * f + 2] = field.faceScalingV[f];
+        }
+        r->singularSolved = (uint32_t)field.singularBefore;
+        r->singularAfter = (uint32_t)field.singularAfter;
+        *out = r.release();
+        return QM_OK;
+    });
+}
+
+// The cover alone on a field worked out elsewhere (the Odin field, field.odin): what
+// Parameterizer::parameterize does once it has its field and sizes. False, with the reason
+// in `failure`, when the core gave up.
+static bool coverOnField(const std::vector<Vector3>& vertices, const std::vector<std::vector<size_t>>& triangles,
+    const Qm_Mesh& mesh, double scaling, double sharpDegrees, const std::vector<char>& cornerFeature,
+    const std::vector<Vector3>& guided, const AutoRemesher::ProgressHandler& progress, Cover& out, std::string& failure)
+{
+    const size_t faces = triangles.size();
+    std::vector<Vector3> field(faces);
+    std::vector<double> faceScaling(faces), faceScalingU(faces), faceScalingV(faces);
+    for (size_t f = 0; f < faces; ++f) {
+        field[f] = Vector3(mesh.face_field[3 * f], mesh.face_field[3 * f + 1], mesh.face_field[3 * f + 2]);
+        faceScaling[f] = mesh.face_sizes[3 * f];
+        faceScalingU[f] = mesh.face_sizes[3 * f + 1];
+        faceScalingV[f] = mesh.face_sizes[3 * f + 2];
+    }
+    // A guided face keeps its direction through the cover's curl correction as firmly as
+    // the guide pulled the field there (Parameterizer::parameterize's).
+    std::vector<double> faceTurnWeight;
+    if (guided.size() == faces) {
+        faceTurnWeight.resize(faces);
+        for (size_t f = 0; f < faces; ++f) faceTurnWeight[f] = guided[f].length();
+    }
+    AutoRemesher::QuadParameterizer::Result cover;
+    failure.clear();
+    try {
+        if (!AutoRemesher::QuadParameterizer::parameterize(vertices, triangles, &field, scaling, sharpDegrees, &cover,
+                &faceScaling, &faceScalingU, &faceScalingV, progress ? &progress : nullptr,
+                cornerFeature.empty() ? nullptr : &cornerFeature, faceTurnWeight.empty() ? nullptr : &faceTurnWeight)) {
+            failure = "Quad cover solve failed";
+            return false;
+        }
+    } catch (const Qm_Cancel&) {
+        throw;
+    } catch (const std::exception& e) {
+        failure = std::string("parameterization failed: ") + e.what();
+        return false;
+    } catch (...) {
+        failure = "parameterization failed";
+        return false;
+    }
+    out.uvs = std::make_unique<std::vector<std::vector<AutoRemesher::Vector2>>>(cover.triangleUvs);
+    out.originalUvs = cover.triangleUvs;
+    out.singular.clear();
+    for (const size_t v : cover.singularVertices)
+        if (v < vertices.size()) out.singular.push_back(v);
+    return true;
+}
+
 extern "C" int qm_stage_cover(const Qm_Mesh* mesh, double scaling, double adaptivity, double anisotropy, double sharp_degrees,
     const Qm_Stage_Run* run, Qm_Stage** out, char* error, size_t error_size)
 {
@@ -1509,8 +1607,11 @@ extern "C" int qm_stage_cover(const Qm_Mesh* mesh, double scaling, double adapti
                 guided.emplace_back(mesh->face_guides[3 * f], mesh->face_guides[3 * f + 1], mesh->face_guides[3 * f + 2]);
         Cover cover;
         std::string failure;
-        if (!coverIsland(vertices, triangles, scaling, adaptivity, anisotropy, sharp_degrees, cornerFeature, vertexScale, guided,
-                stageHandler(run), cover, failure)) {
+        const bool covered = mesh->face_field && mesh->face_sizes
+            ? coverOnField(vertices, triangles, *mesh, scaling, sharp_degrees, cornerFeature, guided, stageHandler(run), cover, failure)
+            : coverIsland(vertices, triangles, scaling, adaptivity, anisotropy, sharp_degrees, cornerFeature, vertexScale, guided,
+                  stageHandler(run), cover, failure);
+        if (!covered) {
             say(error, error_size, failure.c_str());
             return QM_FAILED;
         }
@@ -1589,6 +1690,10 @@ extern "C" void qm_stage_view(const Qm_Stage* s, Qm_Stage_View* view)
     view->face_count = s->first.empty() ? 0 : (uint32_t)(s->first.size() - 1);
     view->added = s->added;
     view->decimated = s->decimated;
+    view->face_field = ptr(s->faceField);
+    view->face_sizes = ptr(s->faceSizes);
+    view->singular_solved = s->singularSolved;
+    view->singular_after = s->singularAfter;
 }
 
 extern "C" void qm_stage_free(Qm_Stage* s)
