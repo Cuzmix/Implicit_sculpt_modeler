@@ -55,6 +55,9 @@ Wgpu_Uniform_Slot :: struct {
 
 Wgpu_Cmd :: struct {
 	encoder:           wgpu.CommandEncoder,
+	// The render pass draws reflected (set_front_face): pipelines that cull bind their
+	// twin with the other winding. Reset at each pass's start.
+	flipped:           bool,
 	render:            wgpu.RenderPassEncoder,
 	compute:           wgpu.ComputePassEncoder,
 	recorded:          bool,
@@ -449,6 +452,7 @@ wgpu_store :: proc(op: Store_Op) -> wgpu.StoreOp {
 wgpu_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_Target, num_color_targets: u32, depth_stencil_target_info: Maybe(^Depth_Target)) -> Render_Pass {
 	cmd := (^Wgpu_Cmd)(command_buffer)
 	cmd.recorded = true
+	cmd.flipped = false
 	width, height := max(u32), max(u32)
 	colors := make([]wgpu.RenderPassColorAttachment, int(num_color_targets), context.temp_allocator)
 	for i in 0 ..< int(num_color_targets) {
@@ -521,9 +525,21 @@ wgpu_bind_graphics_pipeline :: proc(render_pass: Render_Pass, graphics_pipeline:
 	p := (^Wgpu_Pipeline)(object(graphics_pipeline))
 	if p == nil || p == cmd.pipeline do return
 	cmd.pipeline = p
-	wgpu.RenderPassEncoderSetPipeline(cmd.render, p.pipeline)
+	wgpu.RenderPassEncoderSetPipeline(cmd.render, p.flipped if cmd.flipped && p.flipped != nil else p.pipeline)
 	cmd.resources_dirty = true
 	cmd.uniforms_dirty[.Vertex], cmd.uniforms_dirty[.Fragment] = true, true
+}
+
+// Turns the winding over (or back) for what the pass draws next: the bound pipeline's
+// twin goes in at once, and every later bind picks its twin. The bind groups and
+// uniforms stay, since both twins share their layout.
+wgpu_set_front_face :: proc(render_pass: Render_Pass, flipped: bool) {
+	cmd := (^Wgpu_Cmd)(render_pass)
+	if cmd.flipped == flipped do return
+	cmd.flipped = flipped
+	if p := cmd.pipeline; p != nil && p.flipped != nil {
+		wgpu.RenderPassEncoderSetPipeline(cmd.render, p.flipped if flipped else p.pipeline)
+	}
 }
 
 wgpu_bind_vertex_buffers :: proc(render_pass: Render_Pass, first_slot: u32, bindings: [^]Buffer_Binding, num_bindings: u32) {

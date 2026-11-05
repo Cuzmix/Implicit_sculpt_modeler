@@ -190,6 +190,13 @@ Mesh_Pipelines :: struct {
 	// refused it, when the wireframe is drawn as lines through `wire`.
 	mesh_wire:      gpu.Graphics_Pipeline,
 	mesh_wire_made: bool,
+	// The plain, see-through, textured and skinned pipelines clipped at Draw_Item.clip
+	// (*_clip.frag.slang), made the first time a clipped item is drawn (clip_pipelines),
+	// each nil until then or where the device refused it, when the item draws whole. A
+	// clipped item leaves out area lights and the wireframe drawn in its shading, which
+	// it draws as lines instead.
+	clip:           [Clip_Pipeline]gpu.Graphics_Pipeline,
+	clip_made:      bool,
 	samples:      gpu.Sample_Count, // the targets' sample count they were made for
 }
 
@@ -342,6 +349,21 @@ Mesh_Buffers :: struct {
 	// Sculpting on the GPU (sculpt_gpu.odin): the mesh's vertex -> triangle lookup and the
 	// frame's queued normals.
 	sculpt: Mesh_Sculpt,
+
+	// The culled commands of the items drawing this mesh as a copy (Draw_Item.copy): copy k's
+	// at k - 1, grown as copies are first drawn and released with the buffers.
+	copy_draws: [dynamic]Copy_Draws,
+}
+
+// What one copy of a mesh (Draw_Item.copy) draws this frame, culled under its own model:
+// the commands of its visible chunks, then of its groups' simplified copies.
+Copy_Draws :: struct {
+	indirect:       gpu.Buffer,
+	capacity:       u32, // commands
+	draw_count:     u32,
+	lod_draw_count: u32,
+	visible:        [dynamic]geom.Index_Range, // scratch
+	lod_visible:    [dynamic]geom.Index_Range, // scratch
 }
 
 Normal_Packed :: [2]i16
@@ -461,6 +483,30 @@ Draw_Item :: struct {
 	// not nil: a picture that culled `chunks` for its own narrower view (thumbnail_view_draw
 	// with cull), which must not touch the indirect commands the viewport drew from.
 	ranges: []geom.Index_Range,
+	// A copy of an item drawing the same `mesh` under another `model` (the app's live stack:
+	// a mirror image, an array's or a radial copy), numbered from 1; 0 for the item itself.
+	// A copy culls its chunks on the CPU under its own model into Mesh_Buffers.copy_draws,
+	// never on the GPU, and draws the mesh's triangles: no skin grid or skin lighting, and
+	// untextured when reflected (a normal map's tangent frame would turn over). The path
+	// render leaves copies out. `model` may be reflected (a negative determinant): the
+	// front face then turns over (gpu.set_front_face).
+	copy: u32,
+	// Planes through the mesh's origin that clip what is drawn, in the mesh's own space: a
+	// point is kept where clip[a] * p[a] >= 0 for each axis a, so +1 keeps the positive
+	// side, -1 the negative one and 0 clips nothing (the live stack's mirror, whose image
+	// draws the kept side again across the plane), drawn with the clipped variants of the
+	// mesh pipelines (Mesh_Pipelines.clip). The depth-only passes (Live AO's, the studio's)
+	// draw it whole.
+	clip: [3]f32,
+}
+
+// Whether `model` turns space over (a reflection): its triangles then wind the other way.
+model_reflected :: proc(model: Mat4) -> bool {
+	return linalg.determinant(matrix[3, 3]f32{
+		model[0, 0], model[0, 1], model[0, 2],
+		model[1, 0], model[1, 1], model[1, 2],
+		model[2, 0], model[2, 1], model[2, 2],
+	}) < 0
 }
 
 // How the viewport shows the meshes (Draw_Item.pass): shaded as the materials say, or
@@ -524,8 +570,10 @@ Material_Uniforms :: struct {
 	// The wireframe's colour, linear, read only by mesh_wire.frag.slang, whose block alone
 	// declares it: the other mesh shaders read the 1152 bytes before it.
 	wire:       [4]f32,
+	// Draw_Item.clip, read only by the clipped variants (*_clip.frag.slang).
+	clip:       [4]f32,
 }
-#assert(size_of(Material_Uniforms) == 1168)
+#assert(size_of(Material_Uniforms) == 1184)
 #assert(offset_of(Material_Uniforms, pass) == 1136)
 #assert(offset_of(Material_Uniforms, maps) == 896)
 
@@ -746,6 +794,7 @@ mesh_pipelines_create :: proc(r: ^Renderer, samples: gpu.Sample_Count) -> Mesh_P
 mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
 	for pipeline in ([10]gpu.Graphics_Pipeline{p.mesh, p.wire, p.lines, p.clear, p.see, p.floor, p.textured, p.textured_see, p.skinned, p.skin_tess}) do if pipeline != 0 do gpu.release_graphics_pipeline(pipeline)
 	for pipeline in p.area do if pipeline != 0 do gpu.release_graphics_pipeline(pipeline)
+	for pipeline in p.clip do if pipeline != 0 do gpu.release_graphics_pipeline(pipeline)
 	if p.mesh_wire != 0 do gpu.release_graphics_pipeline(p.mesh_wire)
 	p^ = {}
 }
@@ -761,6 +810,26 @@ area_pipelines :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
 	p.area[.See] = create_mesh_pipeline(r, .See_Through, samples, area = true)
 	p.area[.Textured] = create_mesh_pipeline(r, .Solid, samples, textured = true, area = true)
 	p.area[.Textured_See] = create_mesh_pipeline(r, .See_Through, samples, textured = true, area = true)
+}
+
+Clip_Pipeline :: enum u8 {
+	Mesh,
+	See,
+	Textured,
+	Textured_See,
+	Skinned,
+}
+
+@(private)
+clip_pipelines :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
+	if p.clip_made do return
+	p.clip_made = true
+	samples := p.samples
+	p.clip[.Mesh] = create_mesh_pipeline(r, .Solid, samples, clip = true)
+	p.clip[.See] = create_mesh_pipeline(r, .See_Through, samples, clip = true)
+	p.clip[.Textured] = create_mesh_pipeline(r, .Solid, samples, textured = true, clip = true)
+	p.clip[.Textured_See] = create_mesh_pipeline(r, .See_Through, samples, textured = true, clip = true)
+	if p.skinned != 0 do p.clip[.Skinned] = create_mesh_pipeline(r, .Solid, samples, skinned = true, clip = true)
 }
 
 // The pipeline drawing `p`'s sample count's meshes with their wireframe in the shading
@@ -792,11 +861,11 @@ lights_have_area :: proc(l: Lights) -> bool {
 // near triangles as the skin's grid: no vertex buffers, the paint, mesh and three skin
 // buffers in the vertex stage, and the clay's own fragment stage.
 @(private)
-create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: gpu.Sample_Count, textured := false, skinned := false, area := false, wire_bary := false, skin_tess := false) -> gpu.Graphics_Pipeline {
-	vert_desc, frag_desc := MESH_VERT, MESH_AREA_FRAG if area else MESH_FRAG
+create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: gpu.Sample_Count, textured := false, skinned := false, area := false, wire_bary := false, skin_tess := false, clip := false) -> gpu.Graphics_Pipeline {
+	vert_desc, frag_desc := MESH_VERT, MESH_CLIP_FRAG if clip else MESH_AREA_FRAG if area else MESH_FRAG
 	if wire_bary do vert_desc, frag_desc = MESH_WIRE_VERT, MESH_WIRE_FRAG
-	if textured do vert_desc, frag_desc = TEXTURED_VERT, TEXTURED_AREA_FRAG if area else TEXTURED_FRAG
-	if skinned do vert_desc, frag_desc = SKIN_VERT, SKIN_FRAG
+	if textured do vert_desc, frag_desc = TEXTURED_VERT, TEXTURED_CLIP_FRAG if clip else TEXTURED_AREA_FRAG if area else TEXTURED_FRAG
+	if skinned do vert_desc, frag_desc = SKIN_VERT, SKIN_CLIP_FRAG if clip else SKIN_FRAG
 	if skin_tess do vert_desc = SKIN_TESS_VERT
 	vert := gpu.create_shader(vert_desc)
 	frag := gpu.create_shader(frag_desc)
@@ -1240,6 +1309,12 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	if mb.indices != 0 do gpu.release_buffer(mb.indices)
 	if mb.indirect != 0 do gpu.release_buffer(mb.indirect)
 	if mb.lod_indices != 0 do gpu.release_buffer(mb.lod_indices)
+	for &cd in mb.copy_draws {
+		if cd.indirect != 0 do gpu.release_buffer(cd.indirect)
+		delete(cd.visible)
+		delete(cd.lod_visible)
+	}
+	delete(mb.copy_draws)
 	gpu_cull_release(r, mb)
 	sculpt_gpu_forget(r, mb)
 	gpu.release_readback(mb.cull.download)
@@ -1721,6 +1796,10 @@ prepare_draws :: proc(r: ^Renderer, cmd: gpu.Cmd, view, proj: Mat4, items: []Dra
 	for item in items {
 		if want, filtered := live.?; filtered && item.live != want do continue
 		if !r.cull && item.hidden == nil do continue
+		if item.copy > 0 {
+			copy_prepare(r, cmd, item, narrow * proj * view * item.model, linalg.inverse(item.model) * eye_world, lod, stats)
+			continue
+		}
 		mb := item.mesh
 		mb.lod_draw_count = 0
 		mb.tess_draw_count = 0
@@ -1729,7 +1808,7 @@ prepare_draws :: proc(r: ^Renderer, cmd: gpu.Cmd, view, proj: Mat4, items: []Dra
 		simplify := r.cull && lod.max_px > 0 && len(item.lod.groups) > 0 && mb.lod_indices != 0 && mb.skin_normals == 0
 		eye := linalg.inverse(item.model) * eye_world
 		clip := narrow * proj * view * item.model
-		tess := r.cull && height > 0 && skin_tess_near(r, item, proj, height, eye.xyz)
+		tess := r.cull && height > 0 && item.clip == {} && skin_tess_near(r, item, proj, height, eye.xyz)
 		// The GPU writes the commands itself, after the commands staged for the meshes
 		// before it. Chunks drawn as a skin's grid are picked on the CPU.
 		if r.cull && !tess && len(item.chunks) > 0 && gpu_cull_wanted(r, item, simplify) {
@@ -1803,6 +1882,67 @@ prepare_draws :: proc(r: ^Renderer, cmd: gpu.Cmd, view, proj: Mat4, items: []Dra
 			stats.culled_back += late[3]
 		}
 		g.call += 1
+	}
+}
+
+// prepare_draws for a copy (Draw_Item.copy): its chunks culled on the CPU under its own
+// `clip` and `eye`, into its own commands, which draw_item_triangles draws.
+@(private)
+copy_prepare :: proc(r: ^Renderer, cmd: gpu.Cmd, item: Draw_Item, clip: Mat4, eye: [4]f32, lod: Lod_View, stats: ^Viewport_Stats) {
+	mb := item.mesh
+	for len(mb.copy_draws) < int(item.copy) do append(&mb.copy_draws, Copy_Draws{})
+	cd := &mb.copy_draws[item.copy - 1]
+	cd.draw_count, cd.lod_draw_count = 0, 0
+	if len(item.chunks) == 0 do return
+	simplify := r.cull && lod.max_px > 0 && len(item.lod.groups) > 0 && mb.lod_indices != 0
+	commands := u32(len(item.chunks) + (len(item.lod.groups) if simplify else 0))
+	if cd.indirect == 0 || cd.capacity < commands {
+		if cd.indirect != 0 do gpu.release_buffer(cd.indirect)
+		cd.indirect = gpu.create_buffer({usage = {.Indirect}, size = commands * size_of(gpu.Indexed_Indirect_Draw)})
+		cd.capacity = commands if cd.indirect != 0 else 0
+		if cd.indirect == 0 {
+			log.errorf("copy draws: indirect buffer creation failed: %s", gpu.last_error())
+			return
+		}
+	}
+	clear(&cd.visible)
+	clear(&cd.lod_visible)
+	switch {
+	case !r.cull:
+		geom.chunks_shown(item.chunks, item.hidden, &cd.visible)
+	case simplify:
+		ls := geom.cull_lod(item.chunks, item.lod, clip, eye.xyz, lod.px_per_unit, lod.max_px, &cd.visible, &cd.lod_visible, item.hidden)
+		stats.chunks += u64(ls.units)
+		stats.culled_view += u64(ls.frustum)
+		stats.culled_back += u64(ls.backface)
+		stats.simplified += u64(ls.groups)
+	case:
+		cs: geom.Cull_Stats
+		if len(item.chunk_groups) > 0 {
+			cs = geom.cull_chunks_grouped_parallel(r.pool, item.chunks, item.chunk_groups, clip, eye.xyz, &cd.visible, item.hidden)
+		} else {
+			cs = geom.cull_chunks(item.chunks, clip, eye.xyz, &cd.visible, hidden = item.hidden)
+		}
+		stats.chunks += u64(cs.chunks)
+		stats.culled_view += u64(cs.frustum)
+		stats.culled_back += u64(cs.backface)
+	}
+	cd.draw_count, cd.lod_draw_count = u32(len(cd.visible)), u32(len(cd.lod_visible))
+	total := cd.draw_count + cd.lod_draw_count
+	if total == 0 do return
+	staged := gpu.stage_buffer(cmd, cd.indirect, 0, total * size_of(gpu.Indexed_Indirect_Draw))
+	if staged == nil {
+		log.errorf("copy draws: upload memory was refused (%s); the copy is left out of this frame", gpu.last_error())
+		cd.draw_count, cd.lod_draw_count = 0, 0
+		return
+	}
+	dst := cast([^]gpu.Indexed_Indirect_Draw)raw_data(staged)
+	numbered := r.caps.barycentric
+	for v, i in cd.visible {
+		dst[i] = {num_indices = v.index_count, num_instances = 1, first_index = v.first_index, first_instance = v.first_index / 3 if numbered else 0}
+	}
+	for v, i in cd.lod_visible {
+		dst[int(cd.draw_count) + i] = {num_indices = v.index_count, num_instances = 1, first_index = v.first_index, first_instance = WIRE_ALL_EDGES if numbered else 0}
 	}
 }
 
@@ -1972,8 +2112,9 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 	for item in items {
 		if want, filtered := live.?; filtered && item.live != want do continue
 		if blended(pipes, item) != see do continue
-		textured := draws_textured(pipes, item)
-		skinned := !textured && !see && draws_skinned(pipes, item)
+		reflected := model_reflected(item.model)
+		textured := draws_textured(pipes, item) && !(item.copy > 0 && reflected)
+		skinned := !textured && !see && item.copy == 0 && draws_skinned(pipes, item)
 		main := pipes.see if see else pipes.mesh
 		if textured do main = pipes.textured_see if see else pipes.textured
 		if lights_have_area(item.lights) {
@@ -1997,6 +2138,26 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 				poly_shaded = !item.wireframe
 			}
 		}
+		// A clipped item (the live stack's mirror) draws with the clipped variant of its
+		// pipeline, its wireframe as lines and no area light.
+		clipped := item.clip != {}
+		if clipped {
+			clip_pipelines(r, pipes)
+			which: Maybe(Clip_Pipeline)
+			switch {
+			case skinned: which = .Skinned
+			case textured: which = .Textured_See if see else .Textured
+			case see: which = .See
+			case: which = .Mesh
+			}
+			if c := pipes.clip[which.?]; c != 0 {
+				main = c
+				wire_lines = item.wireframe
+				poly_shaded = false
+			} else {
+				clipped = false
+			}
+		}
 		if stats != nil && (item.wireframe || poly_shaded) {
 			if wire_lines do stats.wire_lines += 1
 			else do stats.wire_shaded += 1
@@ -2005,6 +2166,7 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 			gpu.bind_graphics_pipeline(pass, main)
 			bound = main
 		}
+		gpu.set_front_face(pass, reflected)
 		mb := item.mesh
 		show_paint, show_groups := item.paint && mb.paint != 0, item.groups && mb.paint != 0
 		slotted := item.slots != nil && mb.paint != 0 && !textured
@@ -2019,6 +2181,7 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 		lights := item.lights if item.lights != {} else lights_default()
 		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights, style = item.style, pass = item.pass, wire = wire_color(r)}
 		if poly_shaded do material.wire.w = 1
+		if clipped do material.clip = {item.clip.x, item.clip.y, item.clip.z, 0}
 		material_environment(r, &material)
 		// Parallel projection: the shading takes the view's axis as the way to the eye
 		// (mesh_shading.slang's env.w).
@@ -2310,6 +2473,18 @@ draw_item_triangles :: proc(r: ^Renderer, pass: gpu.Render_Pass, item: Draw_Item
 		if stats == nil do return
 		for run in item.ranges do stats.triangles += u64(run.index_count / 3)
 		stats.draws += u64(len(item.ranges))
+	} else if item.copy > 0 && (r.cull || item.hidden != nil) && len(item.chunks) > 0 {
+		if int(item.copy) > len(mb.copy_draws) do return
+		cd := &mb.copy_draws[item.copy - 1]
+		if cd.draw_count > 0 do gpu.draw_indexed_primitives_indirect(pass, cd.indirect, 0, cd.draw_count)
+		if cd.lod_draw_count > 0 {
+			gpu.bind_index_buffer(pass, {buffer = mb.lod_indices}, .U32)
+			gpu.draw_indexed_primitives_indirect(pass, cd.indirect, cd.draw_count * size_of(gpu.Indexed_Indirect_Draw), cd.lod_draw_count)
+		}
+		if stats == nil do return
+		for v in cd.visible do stats.triangles += u64(v.index_count / 3)
+		for v in cd.lod_visible do stats.triangles += u64(v.index_count / 3)
+		stats.draws += u64(cd.draw_count + cd.lod_draw_count)
 	} else if mb.cull.culled && r.cull && len(item.chunks) > 0 && mb.indirect != 0 {
 		// The kernels wrote the commands and their count; prepare_draws counted the stats.
 		gpu.draw_indexed_primitives_indirect_count(pass, mb.indirect, CULL_HEADER, mb.indirect, 0, mb.draw_count)

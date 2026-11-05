@@ -279,6 +279,7 @@ KIND_COLORS := [History_Kind][4]f32 {
 	.Model     = {0.4, 0.8, 1, 1},
 	.Curve     = {0.55, 0.95, 0.7, 1},
 	.References = {0.8, 0.75, 0.95, 1},
+	.Stack      = {0.55, 0.8, 0.95, 1},
 }
 
 // How a step reads in the panel: "Clay stroke", "Blur mask", "remesh", on a layer's mask

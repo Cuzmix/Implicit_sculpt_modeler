@@ -56,6 +56,8 @@ view_depth_draw :: proc(r: ^Renderer, cmd: gpu.Cmd, depth_pipeline, clear_pipeli
 		// one too: the anti-aliased viewport then shades as the plain one does.
 		if blended(&r.single, item) do continue
 		u := Shadow_Uniforms{proj * view, item.model}
+		// The pipeline culls back faces, which a reflected copy winds the other way.
+		gpu.set_front_face(pass, model_reflected(item.model))
 		push_vertex(cmd, Shadow_Vert_Uniforms.Shadow_Uniforms, &u)
 		vbufs := [1]gpu.Buffer_Binding{{buffer = item.mesh.positions}}
 		gpu.bind_vertex_buffers(pass, 0, &vbufs[0], 1)

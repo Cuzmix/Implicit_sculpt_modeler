@@ -106,11 +106,11 @@ Bar_List :: struct {
 }
 
 // What a fresh install has. The view rail holds the cards a sculptor reaches for, each
-// opening beside its button: Tool, Layers, Scene, Mesh, Mask, Symmetry and References. The view's own
+// opening beside its button: Tool, Layers, Scene, Mesh, Mask, Symmetry, Live stack and References. The view's own
 // settings are the readout's menus (readout.odin).
 VIEW_RAIL_DEFAULT :: [?]Bar_Slot {
 	{.Open_Card, int(Card.Tool)}, {.Open_Card, int(Card.Layers)}, {.Open_Card, int(Card.Scene)}, {.Open_Card, int(Card.Mesh)},
-	{.Open_Card, int(Card.Mask)}, {.Open_Card, int(Card.Symmetry)}, {.Open_Card, int(Card.References)},
+	{.Open_Card, int(Card.Mask)}, {.Open_Card, int(Card.Symmetry)}, {.Open_Card, int(Card.Stack)}, {.Open_Card, int(Card.References)},
 }
 
 // The top bar's docks as they come: the menu, the file chip, Save, Undo and Redo; the space

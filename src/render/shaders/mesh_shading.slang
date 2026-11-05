@@ -59,10 +59,17 @@
 	// The viewport's pass (render.View_Pass) in x, 0 shaded as usual; y and z where the
 	// Depth pass starts and ends, as distances from the eye; w a wipe compare (main below).
 	float4 pass;
-#ifdef WIRE_BARY
+#if defined(WIRE_BARY) || defined(CLIP)
 	// The wireframe's colour, linear, drawn over the triangles' edges (wire_over below), and
-	// in w 1 when tri_edges says which of them are polygon edges, 0 to draw them all.
+	// in w 1 when tri_edges says which of them are polygon edges, 0 to draw them all. A
+	// clipped variant declares it only to reach `clip` after it.
 	float4 wire;
+#endif
+#ifdef CLIP
+	// The mirror's planes through the mesh's origin (render.Draw_Item.clip): a pixel whose
+	// mesh-space point has clip.a * p.a below 0 on any axis is not drawn. Only the clipped
+	// variants (*_clip.frag) read it, so the rest keep their early depth test.
+	float4 clip;
 #endif
 };
 
@@ -449,6 +456,9 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 float4 shade(Mesh_Varyings v_in, float4 position, bool is_front) {
 #else
 float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : SV_IsFrontFace) : SV_Target0 {
+#endif
+#ifdef CLIP
+	if (any(clip.xyz * v_in.mesh_pos < float3(0.0))) discard;
 #endif
 	frag_in = v_in;
 	frag_coord = position;

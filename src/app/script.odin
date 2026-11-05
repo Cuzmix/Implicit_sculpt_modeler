@@ -69,6 +69,7 @@ Script_Verb :: enum u8 {
 	Export_Vdm,
 	Export_Bary,
 	Reference,
+	Stack,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -105,6 +106,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Export_Vdm    = {"export_vdm", "an .exr file to write the brush's VDM stamp to, laid out for the app vdm_axes names"},
 	.Export_Bary   = {"export_bary", "a .bary file to write the selected object's detail skin to, as an NVIDIA displacement micro-map"},
 	.Reference     = {"reference", "an image file (PNG, JPEG, BMP, TGA or QOI) to add to the References card's board"},
+	.Stack         = {"stack", "mirror x (planes together as xz, -x for the - side), mirror off, show mirror, hide mirror or apply mirror: the selected object's live stack"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -532,7 +534,7 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		n, ok := strconv.parse_int(args[0])
 		st.count = n
 		return ok && n >= 1
-	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack, .Environment, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference:
+	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack, .Environment, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference, .Stack:
 		// A name or path may have spaces: it is the rest of the line.
 		if len(args) == 0 do return false
 		st.text = strings.join(args, " ")
@@ -606,6 +608,10 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		// As Pick focus and Focus on the pivot do.
 		if st.flip do app.focus = nil
 		else do app.focus = st.numbers.xyz
+		return "", true
+	case .Stack:
+		// As the Live stack card's rows do, one undo step each.
+		if why := stack_script(app, obj, st.text); why != "" do return why, true
 		return "", true
 	case .Reference:
 		// As Add does, the decode waited for so the next line (a dump, say) sees it.
@@ -712,7 +718,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			if why := group_material_set(obj, u16(st.count), current_material(app), st.flip); why != "" do return why, true
 			app.scene_edits += 1
 			return "", true
-		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference:
+		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference, .Stack:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true

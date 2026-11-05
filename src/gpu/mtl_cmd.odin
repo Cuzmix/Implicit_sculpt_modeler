@@ -35,6 +35,9 @@ Mtl_Present :: struct {
 
 Mtl_Cmd :: struct {
 	cb:                ^MTL.CommandBuffer,
+	// The render pass draws reflected (set_front_face): every pipeline's winding is turned
+	// over. Reset at each pass's start.
+	flipped:           bool,
 	serial:            u64, // the submission's number, once submitted
 	stamp:             u64, // this recording's number, which tracked backings remember
 	render:            ^MTL.RenderCommandEncoder,
@@ -327,6 +330,7 @@ mtl_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_
 	NS.scoped_autoreleasepool()
 	cmd := (^Mtl_Cmd)(command_buffer)
 	cmd.recorded = true
+	cmd.flipped = false
 	desc := MTL.RenderPassDescriptor_renderPassDescriptor()
 	width, height := max(u32), max(u32)
 	colors := MTL.RenderPassDescriptor_colorAttachments(desc)
@@ -406,6 +410,17 @@ mtl_end_render_pass :: proc(render_pass: Render_Pass) {
 	cmd.pipeline = nil
 }
 
+// Turns the winding over (or back) for what the pass draws next, against each pipeline's
+// own: set again at once for the pipeline bound, and at every later bind.
+mtl_set_front_face :: proc(render_pass: Render_Pass, flipped: bool) {
+	cmd := (^Mtl_Cmd)(render_pass)
+	if cmd.flipped == flipped do return
+	cmd.flipped = flipped
+	if p := cmd.pipeline; p != nil {
+		MTL.RenderCommandEncoder_setFrontFacingWinding(cmd.render, .Clockwise if (p.raster.front_face == .Clockwise) != flipped else .CounterClockwise)
+	}
+}
+
 mtl_bind_graphics_pipeline :: proc(render_pass: Render_Pass, graphics_pipeline: Graphics_Pipeline) {
 	cmd := (^Mtl_Cmd)(render_pass)
 	p := (^Mtl_Pipeline)(object(graphics_pipeline))
@@ -420,7 +435,7 @@ mtl_bind_graphics_pipeline :: proc(render_pass: Render_Pass, graphics_pipeline: 
 	case .Back:  cull = .Back
 	}
 	MTL.RenderCommandEncoder_setCullMode(enc, cull)
-	MTL.RenderCommandEncoder_setFrontFacingWinding(enc, .Clockwise if rs.front_face == .Clockwise else .CounterClockwise)
+	MTL.RenderCommandEncoder_setFrontFacingWinding(enc, .Clockwise if (rs.front_face == .Clockwise) != cmd.flipped else .CounterClockwise)
 	MTL.RenderCommandEncoder_setDepthClipMode(enc, .Clip if rs.enable_depth_clip else .Clamp)
 	if rs.enable_depth_bias {
 		MTL.RenderCommandEncoder_setDepthBias(enc, rs.depth_bias_constant_factor, rs.depth_bias_slope_factor, rs.depth_bias_clamp)

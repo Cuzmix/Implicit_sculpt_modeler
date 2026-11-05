@@ -77,6 +77,9 @@ VK_COMPUTE_STORAGE_BUFFERS :: 16
 
 Vk_Cmd :: struct {
 	cb:              vk.CommandBuffer,
+	// The render pass draws reflected (set_front_face): every pipeline's front face is
+	// turned over. Reset at each pass's start.
+	flipped:         bool,
 	queue:           Queue,
 	serial:          u64, // the submission's timeline value on its queue, once submitted
 	// A graphics command buffer waits for the compute timeline to reach this before it
@@ -787,6 +790,7 @@ vk_bind_sets :: proc(cmd: ^Vk_Cmd) -> bool {
 vk_begin_render_pass :: proc(command_buffer: Cmd, color_target_infos: [^]Color_Target, num_color_targets: u32, depth_stencil_target_info: Maybe(^Depth_Target)) -> Render_Pass {
 	cmd := (^Vk_Cmd)(command_buffer)
 	cmd.recorded = true
+	cmd.flipped = false
 	width, height := max(u32), max(u32)
 	colors: [8]vk.RenderingAttachmentInfo
 	vk_memory_barrier(cmd)
@@ -885,6 +889,16 @@ vk_bind_graphics_pipeline :: proc(render_pass: Render_Pass, graphics_pipeline: G
 	vk_cmd_track_pipeline(cmd, p)
 	cmd.pipeline = p
 	cmd.set_dirty = {true, true, true, true}
+	vk.CmdSetFrontFace(cmd.cb, .CLOCKWISE if p.clockwise != cmd.flipped else .COUNTER_CLOCKWISE)
+}
+
+// Turns the front face over (or back) for what the pass draws next, against each
+// pipeline's own: set again at once for the pipeline bound, and at every later bind.
+vk_set_front_face :: proc(render_pass: Render_Pass, flipped: bool) {
+	cmd := (^Vk_Cmd)(render_pass)
+	if cmd.flipped == flipped do return
+	cmd.flipped = flipped
+	if p := cmd.pipeline; p != nil && !p.compute do vk.CmdSetFrontFace(cmd.cb, .CLOCKWISE if p.clockwise != flipped else .COUNTER_CLOCKWISE)
 }
 
 vk_bind_vertex_buffers :: proc(render_pass: Render_Pass, first_slot: u32, bindings: [^]Buffer_Binding, num_bindings: u32) {

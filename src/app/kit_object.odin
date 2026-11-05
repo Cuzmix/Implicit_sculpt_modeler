@@ -29,6 +29,7 @@ OBJECT_SECTIONS := [?]Object_Section {
 	{.Groups, "Polygroups", proc(app: ^App, _: ^Object) {kit_groups(app)}},
 	{.Visibility, "Hide, clip and slice", kit_visibility},
 	{.Layers, "Layers", proc(app: ^App, _: ^Object) {kit_lens_layers(app)}},
+	{.Stack, "Live stack", kit_stack},
 	{.Paint, "Polypaint", proc(app: ^App, _: ^Object) {kit_paint(app)}},
 	{.Morph, "Morph target", kit_morph},
 	{.Deform, "Deformation", kit_deformation},
