@@ -133,7 +133,7 @@ curve_scene_round_trip :: proc(t: ^testing.T) {
 	defer curve_scene_free(&app)
 	app.camera = camera.orbit_default()
 	app.scene.lights = app.start_lights
-	a := []geom.Bezier_Point{{p = {0, 0, 0}, h_out = {0.1, 0, 0}, radius = 0.2, intensity = 1}, {p = {1, 0, 0}, h_in = {-0.1, 0, 0}, radius = 0.1, intensity = 0.5, twist = 0.3, corner = true}}
+	a := []geom.Bezier_Point{{p = {0, 0, 0}, h_out = {0.1, 0, 0}, radius = 0.2, intensity = 1}, {p = {1, 0, 0}, h_in = {-0.1, 0, 0}, radius = 0.1, intensity = 0.5, twist = 0.3, handles = .Free}}
 	b := []geom.Bezier_Point{{p = {0, 1, 0}, radius = 1, intensity = 1}, {p = {0, 2, 0}, radius = 1, intensity = 1}, {p = {1, 2, 0}, radius = 1, intensity = 1}}
 	testing.expect(t, curve_object_add(&app, a, false))
 	testing.expect(t, curve_object_add(&app, b, true))
@@ -189,7 +189,7 @@ curve_scene_round_trip :: proc(t: ^testing.T) {
 	if c0 != nil && len(c0.points) == 2 {
 		// Points are kept about the object's middle, which its transform puts back.
 		world := to_world(got[0].transform, c0.points[1].p)
-		testing.expectf(t, abs(world.x - 1) < 1e-5 && c0.points[1].corner && c0.points[1].twist == 0.3, "%v", c0.points[1])
+		testing.expectf(t, abs(world.x - 1) < 1e-5 && c0.points[1].handles == .Free && c0.points[1].twist == 0.3, "%v", c0.points[1])
 	}
 }
 
@@ -253,8 +253,8 @@ curve_damage_is_refused :: proc(t: ^testing.T) {
 	check(t, use, false, "a use past the last")
 	corner := make([]u8, len(bytes), context.temp_allocator)
 	copy(corner, bytes[:])
-	corner[6 + CURVE_POINT_BYTES - 1] = 2
-	check(t, corner, false, "a corner of 2")
+	corner[6 + CURVE_POINT_BYTES - 1] = u8(len(geom.Handle_Type))
+	check(t, corner, false, "a handle type past the last")
 	nan := make([]u8, len(bytes), context.temp_allocator)
 	copy(nan, bytes[:])
 	bits := transmute([4]u8)math.nan_f32()

@@ -518,6 +518,17 @@ kit_curve_settings :: proc(app: ^App) {
 		keys := [2]string{"Tab", "Tab"}
 		if picked := ui.tabs(ctx, "curve mode", modes[:], int(c.editing), keys = keys[:]); picked >= 0 do c.editing = picked == 1
 		_ = ui.switch_row(ctx, "Show every point's handles", &c.all_handles)
+		if obj := selected_curve(app); obj != nil && c.editing {
+			// The picked points' handle type, as the last picked point's shows.
+			ui.label(ctx, "Handles", ctx.theme.small_size)
+			types: [len(geom.Handle_Type)]string
+			for kind, i in geom.Handle_Type do types[i] = fmt.tprint(kind)
+			shown := -1
+			if c.picked >= 1 && c.picked <= len(obj.curve.points) do shown = int(obj.curve.points[c.picked - 1].handles)
+			hints: [len(geom.Handle_Type)]string
+			for &h, i in hints do h = command_hint(app, .Curve_Handles, i)
+			if picked := ui.tabs(ctx, "curve handles", types[:], shown, keys = hints[:]); picked >= 0 do command_run(app, .Curve_Handles, picked)
+		}
 		if c.editing {
 			// The Move tool's gizmo settings, which the picked points' gizmo shares.
 			modes: [len(gizmo.Mode)]string

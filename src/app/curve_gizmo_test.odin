@@ -151,3 +151,33 @@ curve_keys_move_turn_and_scale :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, len(app.history.done), steps + 2)
 }
+
+// Handles: the command sets the picked points' type as one undo step, and an Auto point's
+// handles follow when its neighbours are moved by the gizmo's keys.
+@(test)
+curve_handle_types_follow_moved_points :: proc(t: ^testing.T) {
+	app: App
+	defer gizmo_curve_free(&app)
+	obj := gizmo_curve_scene(&app)
+	cp := obj.curve
+	steps := len(app.history.done)
+	curve_select_none(cp)
+	cp.points[1].selected = true
+	app.curve.picked = 2
+	testing.expect(t, command_run(&app, .Curve_Handles, int(geom.Handle_Type.Auto)))
+	testing.expect_value(t, cp.points[1].handles, geom.Handle_Type.Auto)
+	testing.expect(t, command_checked(&app, .Curve_Handles, int(geom.Handle_Type.Auto)), "Auto is not shown as set")
+	testing.expect_value(t, len(app.history.done), steps + 1)
+	was := cp.points[1].h_out
+	// The point after it moves up the view; the Auto point's handles turn toward it.
+	curve_select_none(cp)
+	cp.points[2].selected = true
+	at := [2]f32{500, 400}
+	gizmo_curve_frame(&app, at, false, false)
+	curve_xform_key(&app, .View)
+	gizmo_curve_frame(&app, at + {0, -80}, false, false)
+	curve_xform_end(&app)
+	testing.expectf(t, linalg.length(cp.points[1].h_out - was) > 1e-3, "the Auto point's handle stayed at %v", was)
+	testing.expectf(t, linalg.length(cp.points[1].h_in + cp.points[1].h_out * (linalg.length(cp.points[1].h_in) / linalg.length(cp.points[1].h_out))) < 1e-4, "the Auto handles are not in one line")
+	testing.expect_value(t, len(app.history.done), steps + 2)
+}
