@@ -68,7 +68,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/sculpt` | brushes over a `Mesh` split into nodes, dirty ranges, undo, subdivision levels, HD windows, simplified copies |
 | `src/ui` | the interface kit: immediate-mode layout, widgets, hit testing, CPU tessellation, fonts (no SDL, no render) |
 | `src/jobs` | the persistent worker pool (`parallel_for`, `parallel_ranges`) |
-| `src/sparse` | sparse symmetric systems, no meshes: triplets to compressed columns, the AMD order (SuiteSparse's, BSD), an LDLᵀ whose symbolic pass is kept for refactoring, its Hermitian twin (complex unknowns, half the size of the paired real system), conjugate gradients; Quad Remesh's field and cover solve with it |
+| `src/sparse` | sparse symmetric systems, no meshes: triplets to compressed columns, the AMD order (SuiteSparse's, BSD), an LDLᵀ whose symbolic pass is kept for refactoring, its Hermitian twin (complex unknowns, half the size of the paired real system), conjugate gradients, a supernodal multifrontal Cholesky on the pool (`supernodal.odin`, the same bits on any thread count); Quad Remesh's field and cover solve with it |
 | `src/zip` | ZIP archives in, as content packs come: entries, names checked against zip slip and case clashes, inflating capped by the declared size |
 | `src/bench` | the headless CPU benchmark (markdown tables) |
 | `src/luau` | the binding to Luau (script plugins): the C API the plugins use, linked from `deps/luau` on the desktop builds only (`AVAILABLE`) |

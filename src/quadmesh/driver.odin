@@ -413,6 +413,21 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 		cover_from += cover_span * FIELD_SHARE
 		cover_span -= cover_span * FIELD_SHARE
 	}
+	// The Odin cover's work that does not depend on the scaling, once for all the covers.
+	plan: Cover_Plan
+	defer cover_plan_destroy(&plan)
+	if params.core == .Odin {
+		tag = {d, i, cover_from, ISLAND_PARAMETERIZE_END}
+		plan, err = odin_cover_plan(iso, field, guided, f64(params.sharp_degrees), &run, &reason)
+		if err == .Failed {
+			fail_island(d, i, &reason, t2)
+			return
+		}
+		if err != .None {
+			driver_fail(d, err, &reason)
+			return
+		}
+	}
 	cover, best: Cover
 	defer cover_destroy(&cover)
 	defer cover_destroy(&best)
@@ -423,7 +438,11 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 		tag = {d, i, cover_from if pass == 0 else cover_from + cover_span * 0.67, ISLAND_PARAMETERIZE_END}
 		sync.atomic_add(&d.covers, 1)
 		cover_destroy(&cover)
-		cover, err = cpp_cover(iso, guided, field, scaling, f64(params.adaptivity), anisotropy, f64(params.sharp_degrees), &run, &reason)
+		if params.core == .Odin {
+			cover, err = odin_cover_at(&plan, scaling, &run, &reason, &w.checks)
+		} else {
+			cover, err = cpp_cover(iso, guided, field, scaling, f64(params.adaptivity), anisotropy, f64(params.sharp_degrees), &run, &reason)
+		}
 		w.checks.covers += 1
 		if err == .Failed {
 			fail_island(d, i, &reason, t2)
