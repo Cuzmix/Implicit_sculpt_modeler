@@ -380,10 +380,10 @@ CAGE_EDIT_TRIANGLES :: 2_000_000
 
 // Whether Model action `a` reaches the selected object: a cage or a curve takes them, and
 // with nothing selected they stand ready for the next one. Topo draws a new cage over any
-// surface, so it takes a sculpt mesh too.
+// surface, so it takes a sculpt mesh too, and Measure measures anything shown.
 model_actions_apply :: proc(app: ^App, a: Model_Action) -> bool {
 	obj := selected_object(app)
-	if obj == nil || a == .Topo do return true
+	if obj == nil || a == .Topo || a == .Measure do return true
 	#partial switch object_type(obj) {
 	case .Cage, .Curve: return true
 	}
@@ -954,6 +954,7 @@ Model_Tool :: struct {
 	aligned:   Model_Aligned,
 	// The Topo pen's dots and drag (model_topo.odin).
 	topo:      Model_Topo,
+	measure:   Model_Measure,
 	look_drag: Cage_Look_Drag,
 	// What Select picks (faces, or points through edges and points) and the gizmo's drag of
 	// the selection (model_gizmo.odin), with the falloff its move eases out over, a share
@@ -1017,7 +1018,8 @@ kit_model_tab :: proc(app: ^App) {
 	if m.action == .Select {
 		f := m.falloff * 100
 		if ui.slider(ctx, "Falloff", &f, 0, 100, .Linear, "Off" if m.falloff <= 0 else fmt.tprintf("%.0f%%", f)) do m.falloff = clamp(f / 100, 0, 1)
-		ui.paragraph(ctx, "With something selected, the gizmo at its middle moves, turns or scales it (G, R and S too, X, Y or Z for an axis). Falloff carries the points round the selection part of the way, less the further they are, up to that share of the cage's size.")
+		kit_snap_rows(app, "model")
+		ui.paragraph(ctx, "With something selected, the gizmo at its middle moves, turns or scales it (G, R and S too, X, Y or Z for an axis); tap a handle without moving it to type its value. Falloff carries the points round the selection part of the way, less the further they are, up to that share of the cage's size. Snap (or Ctrl) moves by the grid's steps, onto the nearest point, edge or face middle, or onto a surface.")
 	}
 	if m.action == .Polygroup {
 		g := f32(m.group)

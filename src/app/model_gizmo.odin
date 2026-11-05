@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:math/linalg"
 import "core:strconv"
 import "core:strings"
@@ -186,6 +187,8 @@ cage_xform_go_live :: proc(app: ^App, obj: ^Object, at, size: [2]f32) -> bool {
 	poly.selection_points(cage, &carried)
 	poly.point_move_destroy(&x.plan)
 	x.plan = poly.point_move_plan(cage, carried[:], model_axes(app), model_falloff_reach(app, cage))
+	// A snap lands on anything but the points that move (the plan's ids are ascending).
+	x.skip = {id = obj.id, points = x.plan.verts[:]}
 	return true
 }
 
@@ -246,6 +249,9 @@ model_xform_frame :: proc(app: ^App, input: Viewport_Input) -> (taken, ok: bool)
 		return input.primary, true
 	}
 	if !input.primary {
+		// A tap on a handle, which moved nothing, asks for its value instead, as the object
+		// gizmo's does.
+		if !x.live && entry_takes(x.handle) do gizmo_entry_open(app, obj, x.handle, x.down, cage = true)
 		cage_xform_end(app)
 		return true, true
 	}
@@ -401,6 +407,15 @@ cage_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		return USAGE
 	}
 	if !model_has_selection(cage) do return "the cage has nothing selected"
+	if !cage_selection_map(app, obj, m, move) do return "the cage could not be drawn"
+	return ""
+}
+
+// Moves `obj`'s cage selection by the world map about its middle by `m`, then along
+// `move`, with the symmetry and falloff set, as one undo step (none when nothing moved).
+// Returns false only on a GPU failure.
+cage_selection_map :: proc(app: ^App, obj: ^Object, m: matrix[3, 3]f32, move: Vec3) -> bool {
+	cage := &obj.cage.mesh
 	x := &app.model.xform
 	cage_xform_drop(app)
 	x.id = obj.id
@@ -412,8 +427,50 @@ cage_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 	x.plan = poly.point_move_plan(cage, carried[:], model_axes(app), model_falloff_reach(app, cage))
 	if !cage_xform_apply(app, obj, m, move) {
 		cage_xform_drop(app)
-		return "the cage could not be drawn"
+		return false
 	}
 	cage_xform_end(app)
-	return ""
+	return true
+}
+
+// Moves the cage's selection by the value typed for `handle`, as one undo step: an arm's
+// number sets the selection's middle along it ("+0.5" moves it that far), a ring's turns
+// it that many degrees, a knob's or the scale's is the factor ("+0.5" adds half). False,
+// changing nothing, when the text is no value.
+cage_entry_apply :: proc(app: ^App, obj: ^Object, handle: gizmo.Handle, text: string) -> bool {
+	if obj.cage == nil || !model_has_selection(&obj.cage.mesh) do return false
+	s := strings.trim_space(text)
+	op: u8
+	if len(s) > 0 && (s[0] == '+' || s[0] == '*' || s[0] == 'x') {
+		op = s[0]
+		s = strings.trim_space(s[1:])
+	}
+	v, ok := strconv.parse_f32(s)
+	if !ok || math.is_nan(v) || math.is_inf(v) do return false
+	axes := model_gizmo_axes(app, obj)
+	mid, _ := model_selection_middle(obj)
+	m := matrix[3, 3]f32{1, 0, 0, 0, 1, 0, 0, 0, 1}
+	move: Vec3
+	#partial switch handle {
+	case .X, .Y, .Z:
+		axis := axes[int(handle) - int(gizmo.Handle.X)]
+		switch op {
+		case '+': move = axis * v
+		case 0:   move = axis * (v - linalg.dot(mid, axis))
+		case:     return false
+		}
+	case .Turn_X ..= .Turn_View:
+		if op != 0 && op != '+' do return false
+		i := int(handle) - int(gizmo.Handle.Turn_X)
+		axis := axes[i] if i < 3 else -camera.orbit_toward(app.camera, mid)
+		m = linalg.matrix3_rotate_f32(linalg.to_radians(v), linalg.normalize(axis))
+	case .Scale, .Scale_X, .Scale_Y, .Scale_Z:
+		f := 1 + v if op == '+' else v
+		if f <= 0 do return false
+		i := gizmo.stretch_axis(handle)
+		m = point_xform_scale_matrix(axes[i] if i >= 0 else {}, f, i >= 0)
+	case:
+		return false
+	}
+	return cage_selection_map(app, obj, m, move)
 }
