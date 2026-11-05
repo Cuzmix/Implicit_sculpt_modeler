@@ -875,9 +875,19 @@ open :: proc(ctx: ^Context, id: Id, r: Rect, box: Box, root: bool) {
 	append(&ctx.stack, c)
 }
 
-// Asks the innermost container to slide its indicator to `r`, under its children.
+// Asks the innermost container to slide its indicator to `r`, under its children. A
+// container slides one: a second chosen child in it (two things on at once, such as a
+// shading mode and an open card on one shelf) is filled where it stands instead, so both
+// show the same chosen look rather than the second losing its fill.
 indicator :: proc(ctx: ^Context, r: Rect, radius: f32, color: Color, line := Color{}) {
-	if n := len(ctx.stack); n > 0 do ctx.stack[n - 1].indicator = Indicator{r, radius, color, line}
+	n := len(ctx.stack)
+	if n == 0 do return
+	if _, taken := ctx.stack[n - 1].indicator.?; taken {
+		fill_rect(ctx, r, radius, color)
+		if line.a > 0 do stroke_rect(ctx, r, radius, line, 1)
+		return
+	}
+	ctx.stack[n - 1].indicator = Indicator{r, radius, color, line}
 }
 
 // The smallest rectangle holding both.
