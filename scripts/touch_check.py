@@ -1519,6 +1519,23 @@ def curve_points_moved_by_g_along_x():
 
 
 @scenario
+def curve_points_moved_by_the_point_section():
+    """Add › Curve's circle, Tab to Edit, a box round it picks its points, and on the Tool
+    card's Point section a drag on Y moves them all up as one undo step, the readout
+    following (look with --screens)."""
+    s = Script()
+    s.wait(2)
+    s.press("Tab")
+    s.mouse_drag(line((420, 160), (1180, 760), 8))
+    s.ftap(UI["inspector"])
+    s.wait(10)
+    s.mouse_drag(line((1370, 531), (1470, 531), 10))
+    s.wait(3)
+    return s, ["--script=add_curve circle"], camera_still({"curves": near(1), "curve_picked": near(4), "curve_edits": near(1),
+                                                          "undo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
 def curve_grown_from_its_nub():
     """Add › Curve's Bézier, Tab to Edit: a mouse press on the green ＋ past its last point adds
     a point there and the drag places it, one undo step (look with --screens for the nubs)."""

@@ -52,6 +52,7 @@ gizmo_curve_free :: proc(app: ^App) {
 		free(obj)
 	}
 	delete(app.scene.objects)
+	delete(app.scene.also)
 	curve_tool_destroy(&app.curve)
 	history_destroy(&app.history)
 	results_destroy(app)
@@ -180,4 +181,43 @@ curve_handle_types_follow_moved_points :: proc(t: ^testing.T) {
 	testing.expectf(t, linalg.length(cp.points[1].h_out - was) > 1e-3, "the Auto point's handle stayed at %v", was)
 	testing.expectf(t, linalg.length(cp.points[1].h_in + cp.points[1].h_out * (linalg.length(cp.points[1].h_in) / linalg.length(cp.points[1].h_out))) < 1e-4, "the Auto handles are not in one line")
 	testing.expect_value(t, len(app.history.done), steps + 2)
+}
+
+// The Point section moves the picked points by the change to their middle, radius and
+// tilt, the rest staying, one undo step that Undo takes back; a drag of the values is one
+// step when it ends.
+@(test)
+curve_point_values_move_the_picked :: proc(t: ^testing.T) {
+	app: App
+	defer gizmo_curve_free(&app)
+	obj := gizmo_curve_scene(&app)
+	steps := len(app.history.done)
+	first, last := obj.curve.points[0], obj.curve.points[2]
+	v, n := curve_point_values(obj)
+	testing.expect_value(t, n, 2)
+	testing.expectf(t, abs(v.radius - 0.05) < 1e-6 && v.tilt == 0, "values %v", v)
+	w := v
+	w.middle.y += 0.2
+	w.radius, w.tilt = 0.1, 30
+	testing.expect(t, curve_set_point_values(&app, obj, w))
+	testing.expect_value(t, len(app.history.done), steps + 1)
+	p := obj.curve.points[0]
+	testing.expectf(t, linalg.length(p.p - (first.p + {0, 0.2, 0})) < 1e-5, "the point is at %v", p.p)
+	testing.expectf(t, abs(p.radius - 0.1) < 1e-6 && abs(p.twist - linalg.to_radians(f32(30))) < 1e-5, "radius %v tilt %v", p.radius, p.twist)
+	testing.expect(t, obj.curve.points[2] == last, "a point not picked moved")
+	// Undo brings the curve back as a new object, so it is looked up again.
+	history_undo(&app)
+	obj = selected_object(&app)
+	testing.expect(t, obj.curve.points[0].p == first.p, "Undo did not put it back")
+
+	// A drag: two changes, one step once it ends.
+	steps = len(app.history.done)
+	obj.curve.points[0].selected, obj.curve.points[1].selected = true, true
+	for k in 1 ..= 2 {
+		w, _ = curve_point_values(obj)
+		w.middle.x += 0.05 * f32(k)
+		testing.expect(t, curve_set_point_values(&app, obj, w, drag = true))
+	}
+	curve_look_drag_end(&app, force = true)
+	testing.expect_value(t, len(app.history.done), steps + 1)
 }
