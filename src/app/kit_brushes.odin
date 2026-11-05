@@ -426,7 +426,7 @@ brush_palette_categories :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, h
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	W :: 200
-	ui.begin(ctx, "brush sheet categories", {direction = .Column, gap = 0, padding = 8, width = W, height = height})
+	ui.begin(ctx, "brush sheet categories", {direction = .Column, gap = 0, padding = ui.SPACE_M, width = W, height = height})
 	brush_category_rows(app, owner, all, W - 16, height - 16)
 	ui.end(ctx)
 	if r := ui.prev_rect(ctx, "brush sheet categories"); r.w > 0 do ui.fill_rect(ctx, {r.x + r.w - 1, r.y, 1, r.h}, 0, t.border)

@@ -173,7 +173,7 @@ kit_quick_scrub :: proc(app: ^App) {
 	at := history_place_of(places[:], done)
 	safe := ui.safe_area(ctx)
 	width := min(f32(QUICK_SCRUB_WIDTH), safe.w - 2 * LENS_EDGE)
-	ui.begin_at(ctx, "quick scrub", {safe.x + (safe.w - width) * 0.5, safe.y + TOP_BAR_H + 6}, {direction = .Column, gap = 4, padding = 12, width = width, radius = t.radius_large, background = .Panel, inert = true})
+	ui.begin_at(ctx, "quick scrub", {safe.x + (safe.w - width) * 0.5, safe.y + TOP_BAR_H + 6}, {direction = .Column, gap = ui.SPACE_XS, padding = ui.SPACE_L, width = width, radius = t.radius_large, background = .Panel, inert = true})
 	defer ui.end(ctx)
 
 	title := "The start: nothing done yet"

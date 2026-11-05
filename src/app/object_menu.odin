@@ -281,7 +281,7 @@ object_menu_head :: proc(app: ^App, obj: ^Object, kind: Object_Type) {
 @(private = "file")
 object_menu_quick :: proc(app: ^App, kind: Object_Type) -> (picked: bool) {
 	ctx := &app.kit.ctx
-	ui.begin(ctx, "object menu quick", {direction = .Row, gap = 4})
+	ui.begin(ctx, "object menu quick", {direction = .Row, gap = ui.SPACE_XS})
 	defer ui.end(ctx)
 	for id in ([?]Command_Id{.Focus_Selected, .Solo_Object, .Hide_Object, .Lock_Object}) {
 		if command_button(app, id, glyph = COMMANDS[id].icon, icon_only = true) do picked = true

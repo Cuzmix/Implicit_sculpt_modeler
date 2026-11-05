@@ -128,11 +128,11 @@ kit_history_menu :: proc(app: ^App) {
 
 	// The step: its picture (history_pictures.odin), what it was and its number, then its
 	// object, age and size.
-	ui.begin(ctx, "history menu head", {direction = .Row, gap = 10, padding = 8, center = true})
+	ui.begin(ctx, "history menu head", {direction = .Row, gap = ui.SPACE_M, padding = ui.SPACE_M, center = true})
 	if _, _, has := step_picture_of(app, e.at); has {
 		_ = step_picture_draw(app, e.at, ui.place(ctx, {56, 56}))
 	}
-	ui.begin(ctx, "history menu words", {direction = .Column, gap = 2})
+	ui.begin(ctx, "history menu words", {direction = .Column, gap = ui.SPACE_2XS})
 	ui.label(ctx, fmt.tprintf("%s · step %d", entry_label(e), head + 1), t.text_size, t.text, .Semibold)
 	on := fmt.tprintf("%s · ", object_label(obj)) if obj != nil else ""
 	size := fmt.tprintf(" · %s", bytes_label(bytes)) if bytes > 0 else ""

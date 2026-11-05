@@ -820,7 +820,7 @@ lens_shelf_pages :: proc(app: ^App, x, y: ui.Anchor, at: [2]f32) {
 	ctx := &k.ctx
 	t := ctx.theme
 	sh := &k.shelf
-	ui.begin_anchored(ctx, "dock pages", x, y, at, {direction = .Row, gap = 2, padding = 2, radius = t.radius_large, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "dock pages", x, y, at, {direction = .Row, gap = ui.SPACE_2XS, padding = ui.SPACE_2XS, radius = t.radius_large, background = .Panel, center = true})
 	pages := shelf_pages(k, k.spaces.current)
 	here := shelf_page_index(pages, sh.page)
 	for p, i in pages {
@@ -953,13 +953,13 @@ kit_shelf_quick :: proc(app: ^App) {
 	ctx := &k.ctx
 	t := ctx.theme
 	sh := &k.shelf
-	if !ui.popover_begin(ctx, "shelf quick", &sh.quick, sh.quick_at, dock_side(app, .Shelf), {direction = .Column, gap = 6, padding = ui.POPOVER_PAD, width = ui.POPOVER_WIDE_W}) do return
+	if !ui.popover_begin(ctx, "shelf quick", &sh.quick, sh.quick_at, dock_side(app, .Shelf), {direction = .Column, gap = ui.SPACE_S, padding = ui.POPOVER_PAD, width = ui.POPOVER_WIDE_W}) do return
 	defer ui.popover_end(ctx)
 	kind := app.brush.kind
 	cur := brush_item_current(app)
 	key := brush_item_key(app, cur)
 	_, favourite := brush_favorite(&k.brushes, key)
-	ui.begin(ctx, "shelf quick head", {direction = .Row, gap = 8, center = true, width = 336})
+	ui.begin(ctx, "shelf quick head", {direction = .Row, gap = ui.SPACE_M, center = true, width = 336})
 	r := ui.place(ctx, {32, 32})
 	lens_stroke_preview(ctx, r, cur, app)
 	ui.label(ctx, ui.text_fit(ctx, brush_item_name(app, cur), t.title_size, 360 - 24 - 40 - 8 - t.target, .Semibold), t.title_size, t.text, .Semibold)
@@ -990,7 +990,7 @@ kit_shelf_quick :: proc(app: ^App) {
 		painting := app.brush.channel != .Sculpt
 		if ui.switch_row(ctx, "Also paint colour", &painting, keys = command_hint(app, .Paint_Toggle)) do command_run(app, .Paint_Toggle)
 	}
-	ui.begin(ctx, "shelf quick actions", {direction = .Row, gap = 6})
+	ui.begin(ctx, "shelf quick actions", {direction = .Row, gap = ui.SPACE_S})
 	// Pin to shelf keeps the brush on the page shown, Remove from shelf takes it off.
 	if slot, ok := shelf_slot_of(cur); ok {
 		which := shelf_which(sh.page)
@@ -1051,7 +1051,7 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	all := brush_items_all(app, buttons = true)
 	side := brush_palette_categories(app, owner, all[:], room)
 	main_w := width - side
-	ui.begin(ctx, "brush sheet main", {direction = .Column, gap = 8, padding = 12, width = main_w})
+	ui.begin(ctx, "brush sheet main", {direction = .Column, gap = ui.SPACE_M, padding = ui.SPACE_L, width = main_w})
 	// The head fits the sheet's width (a narrow window, an iPad held upright): the search
 	// field first gives up its room down to SHEET_FIELD_MIN, then Import becomes its icon,
 	// then the page tabs go to a row of their own under the head.
@@ -1113,7 +1113,7 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	scroll := kit_scroll_begin(ctx, "brush sheet grid", &k.grid_scroll, owner, inner, grid_h, 10)
 	pick, settings: Maybe(Brush_Item)
 	for l, i in list {
-		if i % SHEET_COLUMNS == 0 do ui.begin(ctx, fmt.tprintf("brush sheet row %d", i / SHEET_COLUMNS), {direction = .Row, gap = 10})
+		if i % SHEET_COLUMNS == 0 do ui.begin(ctx, fmt.tprintf("brush sheet row %d", i / SHEET_COLUMNS), {direction = .Row, gap = ui.SPACE_M})
 		// A card does not take the drag on the press, so a finger or a pen swiped up or down
 		// over the cards scrolls the grid (drag = false); one going sideways first carries it.
 		a := ui.area(ctx, fmt.tprintf("%s##sheet %s", l.name, l.key), {card_w, CARD_H}, drag = false)

@@ -80,7 +80,7 @@ kit_lens_layers :: proc(app: ^App) {
 	if lp.swiped_id != obj.id || lp.swiped > len(layers) do lp.swiped = 0
 
 	// The head: New layer, the level and Wide ±5.
-	ui.begin(ctx, "lens layers head", {direction = .Row, gap = 6, center = true, width = width})
+	ui.begin(ctx, "lens layers head", {direction = .Row, gap = ui.SPACE_S, center = true, width = width})
 	_ = command_button(app, .New_Layer, label = "New layer", variant = .Solid, tone = .Accent, glyph = ui.ICON_PLUS, width = ui.text_width(ctx, "New layer", t.text_size, .Semibold) + 52)
 	level := HD_LEVEL if object_in_hd(obj) else obj.levels.current
 	level_text := "HD window" if level == HD_LEVEL else fmt.tprintf("Level %d of %d", level + 1, len(obj.levels.levels))
@@ -107,7 +107,7 @@ kit_lens_layers :: proc(app: ^App) {
 	// The foot: what acts on the picked layer, and its menu.
 	if len(layers) > 0 {
 		ui.divider(ctx, across = true)
-		ui.begin(ctx, "lens layers foot", {direction = .Row, gap = 4, center = true, width = width})
+		ui.begin(ctx, "lens layers foot", {direction = .Row, gap = ui.SPACE_XS, center = true, width = width})
 		third := (width - t.target - 12) / 3
 		_ = command_button(app, .Layer_Edit, int(Layer_Action.Duplicate), label = "Duplicate", width = third)
 		_ = command_button(app, .Layer_Edit, int(Layer_Action.Merge_Down), label = "Merge down", width = third)
@@ -116,7 +116,7 @@ kit_lens_layers :: proc(app: ^App) {
 		ui.end(ctx)
 		// What the menu also holds, as buttons for the picked layer, folded under More.
 		if kit_more(app, .Layers) {
-			ui.begin(ctx, "lens layers more", {direction = .Row, gap = 4, center = true, width = width})
+			ui.begin(ctx, "lens layers more", {direction = .Row, gap = ui.SPACE_XS, center = true, width = width})
 			_ = command_button(app, .Layer_Edit, int(Layer_Action.Invert), label = "Invert", width = third)
 			_ = command_button(app, .Layer_Edit, int(Layer_Action.Move_Up), label = "Move up", width = third)
 			_ = command_button(app, .Layer_Edit, int(Layer_Action.Move_Down), label = "Move down", width = third)
@@ -169,7 +169,7 @@ lens_layer_row :: proc(app: ^App, obj: ^Object, i: int, width: f32, allowed: boo
 		lp.swiped = 0
 	}
 	mark := ui.vertex_mark(ctx)
-	ui.begin(ctx, zone_name, {direction = .Row, center = true, gap = 8, width = zone_w, height = LAYER_ROW_H, padding = 6, drag_scroll = true})
+	ui.begin(ctx, zone_name, {direction = .Row, center = true, gap = ui.SPACE_M, width = zone_w, height = LAYER_ROW_H, padding = ui.SPACE_S, drag_scroll = true})
 	p := ui.area(ctx, fmt.tprintf("Layer picture##lens layer %d", i), {LAYER_PICTURE, LAYER_PICTURE}, drag = false)
 	pic := p.rect
 	if !layer_picture_draw(app, obj, i, pic, fade) {
@@ -214,7 +214,7 @@ lens_layer_row :: proc(app: ^App, obj: ^Object, i: int, width: f32, allowed: boo
 
 	if open {
 		// Swiped open: Merge down and Delete, as an iOS list's row offers them.
-		ui.begin(ctx, fmt.tprintf("lens layer %d actions", i), {direction = .Row, gap = 4, center = true, width = LAYER_SWIPE_W})
+		ui.begin(ctx, fmt.tprintf("lens layer %d actions", i), {direction = .Row, gap = ui.SPACE_XS, center = true, width = LAYER_SWIPE_W})
 		if ui.icon_button(ctx, fmt.tprintf("Merge down##lens layer swipe %d", i), ICON_MERGE, enabled = allowed && i > 0) {
 			app.ui.layer_selected = i
 			layer_action(app, .Merge_Down)
@@ -359,7 +359,7 @@ kit_layer_menu :: proc(app: ^App) {
 	l := &layers[i]
 	allowed := layers_allowed(obj)
 	app.ui.layer_selected = i
-	ui.begin(ctx, "layer menu head", {direction = .Column, gap = 2, padding = 8})
+	ui.begin(ctx, "layer menu head", {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_M})
 	ui.label(ctx, sculpt.sculptor_layer_name(l), t.text_size, t.text, .Semibold)
 	ui.label(ctx, fmt.tprintf("%s · strength %.2f%s", object_label(obj), l.strength, "" if l.visible else " · hidden"), t.small_size, t.text_secondary)
 	ui.end(ctx)

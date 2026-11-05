@@ -38,7 +38,7 @@ kit_tool_tab :: proc(app: ^App) {
 // The palette's heading: an icon on a badge, a title, and a line of help under them.
 kit_tool_head :: proc(ctx: ^ui.Context, glyph: rune, title, help: string) {
 	t := ctx.theme
-	ui.begin(ctx, "tool head", {direction = .Row, gap = 10, center = true})
+	ui.begin(ctx, "tool head", {direction = .Row, gap = ui.SPACE_M, center = true})
 	ui.begin(ctx, "tool badge", {width = 36, height = 36, radius = t.radius_medium, background = .Track})
 	ui.end(ctx)
 	r := ctx.last_rect
@@ -533,7 +533,7 @@ kit_move_tab :: proc(app: ^App) {
 	kit_tool_head(ctx, ui.ICON_MOVE, "Move", "Tap or click an object to select it, and drag it to move it across the view. The gizmo moves it along an arm or across a plane square, turns it about a ring, or scales it from the middle; All does the three at once.")
 	// The camera's buttons first, where they always are, then the gizmo's settings.
 	half := (ui.fill_width(ctx) - 8) * 0.5
-	ui.begin(ctx, "move actions", {direction = .Row, gap = 8})
+	ui.begin(ctx, "move actions", {direction = .Row, gap = ui.SPACE_M})
 	_ = command_button(app, .Focus_Selected, width = half, glyph = ui.ICON_FOCUS)
 	_ = command_button(app, .Frame_All, width = half, glyph = ui.ICON_FRAME)
 	ui.end(ctx)

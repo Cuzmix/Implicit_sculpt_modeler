@@ -768,7 +768,7 @@ kit_dock :: proc(app: ^App, id: Dock_Id) {
 		sliders -= 1
 		tall = dock_rows_tall(app, id, used, lines, sliders)
 	}
-	ui.begin_anchored(ctx, root, x, y, offset, {direction = .Column, padding = 3, radius = t.radius_large, background = .Panel, center = true})
+	ui.begin_anchored(ctx, root, x, y, offset, {direction = .Column, padding = ui.SPACE_XS, radius = t.radius_large, background = .Panel, center = true})
 	dock_grip(app, id, {width * f32(lines), DOCK_GRIP_H})
 	scroll := kit_scroll_begin(ctx, fmt.tprintf("%s body", root), &k.dock_scroll[id], ui.id_of(ctx, root), width * f32(lines), max(room - foot, t.target * 2), 0)
 	if id == .Offhand do k.island_sliders, k.island_frame = {}, k.frame
@@ -811,7 +811,7 @@ kit_dock_row :: proc(app: ^App, id: Dock_Id, used: []Bar_Slot, x, y: ui.Anchor, 
 	which := dock_which(k, id)
 	root := DOCK_ROOTS[id]
 	if id == .Offhand do k.island_sliders, k.island_frame = {}, k.frame
-	ui.begin_anchored(ctx, root, x, y, offset, {direction = .Row, padding = 3, radius = t.radius_large, background = .Panel, center = true})
+	ui.begin_anchored(ctx, root, x, y, offset, {direction = .Row, padding = ui.SPACE_XS, radius = t.radius_large, background = .Panel, center = true})
 	dock_grip(app, id, {DOCK_GRIP_H, f32(lines) * t.target}, row = true)
 	per := max((len(used) + lines - 1) / lines, 1)
 	ui.begin(ctx, fmt.tprintf("%s rows", root), {direction = .Column})
@@ -950,7 +950,7 @@ kit_dock_menu :: proc(app: ^App) {
 	d := &k.docks[id]
 	which := dock_which(k, id)
 	W :: 248
-	if !ui.popover_begin(ctx, "dock menu", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = 10, width = W + 20}) do return
+	if !ui.popover_begin(ctx, "dock menu", &p.open, p.at, p.side, {direction = .Column, gap = ui.SPACE_XS, padding = ui.SPACE_L, width = W + 20}) do return
 	defer ui.popover_end(ctx)
 	ui.label(ctx, DOCK_TITLES[id], t.title_size, t.text, .Semibold)
 	full := bar_count(app, which)^ >= bar_capacity(which)
@@ -961,7 +961,7 @@ kit_dock_menu :: proc(app: ^App) {
 		return
 	}
 	ui.caption(ctx, "LINES")
-	ui.begin(ctx, "dock menu lines", {direction = .Row, gap = 4, center = true})
+	ui.begin(ctx, "dock menu lines", {direction = .Row, gap = ui.SPACE_XS, center = true})
 	lines := dock_lines(k, id)
 	if ui.icon_button(ctx, "Fewer lines", ui.ICON_MINIMISE, enabled = lines > 1) do d.more_lines -= 1
 	r := ui.place(ctx, {W - 2 * t.target - 8, t.target})

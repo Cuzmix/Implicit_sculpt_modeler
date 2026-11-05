@@ -67,7 +67,7 @@ kit_lights :: proc(app: ^App) {
 	add_w := ui.text_width(ctx, "Add", ctx.theme.text_size)
 	kinds :: f32(len(Light_Kind))
 	each := (ui.fill_width(ctx) - add_w - kinds * 8) / kinds
-	ui.begin(ctx, "light add", {direction = .Row, gap = 8, center = true})
+	ui.begin(ctx, "light add", {direction = .Row, gap = ui.SPACE_M, center = true})
 	ui.label(ctx, "Add")
 	for kind in Light_Kind {
 		label := fmt.tprintf("%s##add %s light", LIGHT_KIND_LABELS[kind], strings.to_lower(LIGHT_KIND_LABELS[kind], context.temp_allocator))
@@ -168,7 +168,7 @@ kit_lights :: proc(app: ^App) {
 		// Two a row, so each name has room on a narrow card.
 		half := (ui.fill_width(ctx) - 8) * 0.5
 		for row in 0 ..< (len(Light_Preset) + 1) / 2 {
-			ui.begin(ctx, fmt.tprintf("light presets %d", row), {direction = .Row, gap = 8})
+			ui.begin(ctx, fmt.tprintf("light presets %d", row), {direction = .Row, gap = ui.SPACE_M})
 			for i in row * 2 ..< min(row * 2 + 2, len(Light_Preset)) {
 				p := Light_Preset(i)
 				if ui.button(ctx, fmt.tprintf("%s##light preset", LIGHT_PRESET_NAMES[p]), .Bordered, width = half) {

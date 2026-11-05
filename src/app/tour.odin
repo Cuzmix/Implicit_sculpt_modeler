@@ -185,13 +185,13 @@ kit_tour :: proc(app: ^App) {
 		x = hole.x - 12 - W if hole.x - 12 - W >= 8 else hole.x + hole.w + 12
 	}
 	mark := ui.vertex_mark(ctx)
-	ui.begin_at(ctx, "tour card", {x, y}, {direction = .Column, gap = 6, padding = 16, width = W, radius = t.radius_large, background = .Panel})
+	ui.begin_at(ctx, "tour card", {x, y}, {direction = .Column, gap = ui.SPACE_S, padding = ui.SPACE_XL, width = W, radius = t.radius_large, background = .Panel})
 	ui.label(ctx, fmt.tprintf("%d of %d", int(s) + 1, len(Tour_Step)), t.small_size, t.text_secondary)
 	ui.label(ctx, TOUR_TITLES[s], t.title_size, t.text, .Semibold)
 	ui.paragraph(ctx, TOUR_TEXT[s])
 	if tr.done do ui.label(ctx, "That's it", t.small_size, t.accent, .Semibold)
 	ui.spacer(ctx, 4)
-	ui.begin(ctx, "tour card foot", {direction = .Row, gap = 8, center = true, width = W - 32})
+	ui.begin(ctx, "tour card foot", {direction = .Row, gap = ui.SPACE_M, center = true, width = W - 32})
 	dots := ui.place(ctx, {len(Tour_Step) * 12, 12})
 	for d in Tour_Step {
 		at := [2]f32{dots.x + f32(d) * 12 + 4, dots.y + 6}

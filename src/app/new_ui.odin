@@ -1520,7 +1520,7 @@ menu_new_scenes :: proc(app: ^App, body_w: f32) -> (pick: bool) {
 	w := (body_w - 2 * 6) / 3
 	starts := len(NEW_SCENES)
 	for row in 0 ..< (starts + 2) / 3 {
-		ui.begin(ctx, fmt.tprintf("new scene row %d", row), {direction = .Row, gap = 6})
+		ui.begin(ctx, fmt.tprintf("new scene row %d", row), {direction = .Row, gap = ui.SPACE_S})
 		for i in row * 3 ..< min(row * 3 + 3, starts) {
 			armed := new_scene_armed(app, i)
 			label := "Discard?" if armed else NEW_SCENES[i].name
@@ -1535,7 +1535,7 @@ menu_new_scenes :: proc(app: ^App, body_w: f32) -> (pick: bool) {
 		n := 0
 		for m, j in app.library.meshes {
 			if m.gone || m.pack != pack.id do continue
-			if n % 3 == 0 do ui.begin(ctx, fmt.tprintf("new scene pack %d row %d", p, n / 3), {direction = .Row, gap = 6})
+			if n % 3 == 0 do ui.begin(ctx, fmt.tprintf("new scene pack %d row %d", p, n / 3), {direction = .Row, gap = ui.SPACE_S})
 			armed := new_mesh_armed(app, j)
 			label := "Discard?" if armed else ui.text_fit(ctx, m.stem, ctx.theme.text_size, w - 12)
 			if ui.button(ctx, fmt.tprintf("%s##new scene mesh %d", label, j), .Solid if armed else .Flat, .Danger if armed else .Neutral, width = w) {
@@ -1582,7 +1582,7 @@ kit_camera_menu :: proc(app: ^App) {
 	ui.caption(ctx, "  CAMERA")
 	_ = command_menu_item(app, .Ortho_Toggle)
 	// Inset as the menu's rows are.
-	ui.begin(ctx, "camera menu fov", {direction = .Column, padding = 10})
+	ui.begin(ctx, "camera menu fov", {direction = .Column, padding = ui.SPACE_L})
 	kit_field_of_view(app)
 	ui.end(ctx)
 	if command_menu_item(app, .Focus_Selected) do k.bar_pop.open = false
@@ -1726,7 +1726,7 @@ kit_rename :: proc(app: ^App) {
 		ctx.text_focus = 0
 		r.typing = false
 	}
-	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = 4, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
+	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
 	ui.caption(ctx, "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
 	now := ""

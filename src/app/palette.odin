@@ -628,7 +628,7 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	width := min(f32(LENS_SEARCH_W), area.w - 2 * t.edge)
 	anchor, side := lens_search_anchor(app, search, width)
 	was := k.palette
-	if !ui.popover_begin(ctx, "palette", &k.palette, anchor, side, {direction = .Column, gap = 2, padding = 8, width = width}) do return
+	if !ui.popover_begin(ctx, "palette", &k.palette, anchor, side, {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_M, width = width}) do return
 	defer ui.popover_end(ctx)
 	// A press outside closed it: give the keys back.
 	if was && !k.palette do ctx.text_focus = 0

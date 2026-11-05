@@ -194,7 +194,7 @@ kit_send_pill :: proc(app: ^App) {
 	area := ui.safe_area(ctx)
 	below: f32 = t.target + 20 if app.long_job.on else 0
 	pos := [2]f32{area.x + (area.w - size.x) * 0.5, area.y + kit_top() + 12 + below}
-	ui.begin_at(ctx, "send pill", pos, {direction = .Row, gap = 10, padding = 6, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_at(ctx, "send pill", pos, {direction = .Row, gap = ui.SPACE_M, padding = ui.SPACE_S, radius = t.radius_large + 4, background = .Panel, center = true})
 	defer ui.end(ctx)
 	r := ui.place(ctx, {28, 28})
 	if asking {

@@ -401,7 +401,7 @@ top_file_block :: proc(app: ^App) -> f32 {
 	shown := ui.text_fit(ctx, status, t.small_size, w - 16)
 	ui.text(ctx, shown, r.x + 8, mid + 8, t.small_size, t.text_tertiary)
 	// A save just made says so with a tick after the status (feedback_motion.odin).
-	draw_save_tick(app, {r.x + 8 + ui.text_width(ctx, shown, t.small_size) + 4 + t.small_size * 0.5, mid + 8}, t.small_size)
+	draw_save_tick(app, {r.x + 8 + ui.text_width(ctx, shown, t.small_size) + 4, mid + 8}, t.small_size)
 	return w
 }
 

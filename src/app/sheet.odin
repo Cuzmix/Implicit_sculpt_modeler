@@ -52,7 +52,7 @@ sheet_begin :: proc(app: ^App, name, title: string, glyph: rune, open: ^bool, wi
 	inner = w - 2 * SHEET_PAD
 	room = max(area.y + area.h - top - SHEET_MARGIN - 2 * SHEET_PAD - t.target - gap, 160)
 
-	ui.begin(ctx, "sheet head", {direction = .Row, center = true, gap = 8, width = inner})
+	ui.begin(ctx, "sheet head", {direction = .Row, center = true, gap = ui.SPACE_M, width = inner})
 	mark := ui.place(ctx, {t.icon_size, t.target})
 	ui.icon(ctx, glyph, {mark.x + mark.w * 0.5, mark.y + mark.h * 0.5}, t.icon_size, t.text)
 	head := ui.place(ctx, {inner - mark.w - t.target - 16, t.target})

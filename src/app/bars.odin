@@ -681,7 +681,7 @@ kit_bar_slot_menu :: proc(app: ^App) {
 	m := &k.bar_slot
 	used := bar_used(app, m.which)
 	if m.slot >= len(used) do m.open = false
-	if !ui.popover_begin(ctx, "bar slot", &m.open, m.at, bar_side(app, m.which), {direction = .Column, gap = 4, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
+	if !ui.popover_begin(ctx, "bar slot", &m.open, m.at, bar_side(app, m.which), {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
 	s := used[m.slot]
 	ui.begin(ctx, "bar slot head", {direction = .Row, center = true})
@@ -690,7 +690,7 @@ kit_bar_slot_menu :: proc(app: ^App) {
 	ui.end(ctx)
 	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do m.open = false
 	ui.end(ctx)
-	ui.begin(ctx, "bar slot moves", {direction = .Row, gap = 4})
+	ui.begin(ctx, "bar slot moves", {direction = .Row, gap = ui.SPACE_XS})
 	if bar_slot_actions(app, m.which, m.slot) do m.open = false
 	ui.end(ctx)
 	ui.paragraph(ctx, COMMANDS[s.id].help)

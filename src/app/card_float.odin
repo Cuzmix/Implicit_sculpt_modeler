@@ -80,7 +80,7 @@ card_float_draw :: proc(app: ^App, c: Card) -> (raised: bool) {
 	mark := ui.motion_mark(ctx)
 	PAD :: 10
 	width := card_width(c)
-	p := panel_begin(app, c, "", .End, .Start, {kit_right(app) + CARD_GAP, kit_top()}, {direction = .Column, gap = 6, padding = PAD, width = width, radius = t.radius_large, background = .Panel}, card = true)
+	p := panel_begin(app, c, "", .End, .Start, {kit_right(app) + CARD_GAP, kit_top()}, {direction = .Column, gap = ui.SPACE_S, padding = PAD, width = width, radius = t.radius_large, background = .Panel}, card = true)
 	inner := width - 2 * PAD
 	_ = card_head(app, c, true, inner, floating = true)
 	head := ctx.last_rect

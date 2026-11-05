@@ -113,11 +113,11 @@ kit_help_labels_note :: proc(app: ^App) {
 	H :: f32(64)
 	at := [2]f32{safe.x + (safe.w - W) * 0.5, safe.y + kit_top() + 82}
 	ctx.labels.clear = {at.x, at.y, W, H}
-	ui.begin_at(ctx, "help labels note", at, {direction = .Row, gap = 10, padding = 12, width = W, height = H, radius = t.radius_large, background = .Panel, center = true})
+	ui.begin_at(ctx, "help labels note", at, {direction = .Row, gap = ui.SPACE_M, padding = ui.SPACE_L, width = W, height = H, radius = t.radius_large, background = .Panel, center = true})
 	defer ui.end(ctx)
 	glyph := ui.place(ctx, {24, 24})
 	ui.icon(ctx, ui.ICON_TAG, {glyph.x + 12, glyph.y + 12}, 18, t.text)
-	ui.begin(ctx, "help labels note words", {direction = .Column, gap = 2, width = W - 24 - 10 - 24 - (90 if k.labels.latched else 0)})
+	ui.begin(ctx, "help labels note words", {direction = .Column, gap = ui.SPACE_2XS, width = W - 24 - 10 - 24 - (90 if k.labels.latched else 0)})
 	ui.label(ctx, "Every control, named", t.text_size, t.text, .Semibold)
 	ui.label(ctx, "Tap anything to try it" if k.labels.latched else "Let go of ? to put them away", t.small_size, t.text_secondary)
 	ui.end(ctx)

@@ -274,9 +274,10 @@ draw_mask_band :: proc(o: Overlay, lo, hi: [2]f32, x0, x1: f32, color: ui.Color)
 	overlay_fill(o, points[:], color)
 }
 
-// The tick beside the file block's status after a save, at `p` (its middle) and `size`
-// across: it grows on with a small overshoot, holds, then fades.
-draw_save_tick :: proc(app: ^App, p: [2]f32, size: f32) {
+// The tick beside the file block's status after a save, `size` across, its left edge at
+// `start` and its middle at `start`'s height: it grows on with a small overshoot, holds,
+// then fades.
+draw_save_tick :: proc(app: ^App, start: [2]f32, size: f32) {
 	ctx := &app.kit.ctx
 	t, ok := flash_progress(app, &app.flashes.saved, .Save_Tick, SAVE_TICK_TIME)
 	if !ok do return
@@ -287,7 +288,7 @@ draw_save_tick :: proc(app: ^App, p: [2]f32, size: f32) {
 	alpha := ui.ease(.Out_Quad, in_) * clamp((SAVE_TICK_TIME - elapsed) / FADE, 0, 1)
 	scale: f32 = 1
 	if ctx.motion == .Full do scale = 0.4 + 0.6 * ui.ease(.Out_Back, in_)
-	ui.icon(ctx, ui.ICON_CHECK, p, size * scale, ui.color_fade(ctx.theme.success, alpha))
+	ui.icon(ctx, ui.ICON_CHECK, {start.x + size * 0.5, start.y}, size * scale, ui.color_fade(ctx.theme.success, alpha))
 }
 
 // Whether any flash shows now, for the exit stats.

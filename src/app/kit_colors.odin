@@ -732,7 +732,7 @@ colors_value :: proc(app: ^App, inner: f32) {
 	} else {
 		colors_hsb_sliders(app)
 	}
-	ui.begin(ctx, "colors hex row", {direction = .Row, gap = 8, center = true})
+	ui.begin(ctx, "colors hex row", {direction = .Row, gap = ui.SPACE_M, center = true})
 	ui.begin(ctx, "colors hex label", {direction = .Column, width = inner - 128})
 	ui.label(ctx, "Hexadecimal", t.text_size, t.text_secondary)
 	ui.end(ctx)
@@ -880,7 +880,7 @@ kit_colors_menus :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	c := &k.colors
-	if ui.popover_begin(ctx, "colors palette menu", &c.palette_menu, c.palette_menu_at, .Below_End, {direction = .Column, gap = 2, padding = 6}) {
+	if ui.popover_begin(ctx, "colors palette menu", &c.palette_menu, c.palette_menu_at, .Below_End, {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_S}) {
 		n := c.palette_menu_of
 		name, swatches, mine := palette_swatches(app, n)
 		if ui.menu_item(ctx, "Set as default", glyph = ui.ICON_CHECK) {
@@ -906,7 +906,7 @@ kit_colors_menus :: proc(app: ^App) {
 		}
 		ui.popover_end(ctx)
 	}
-	if ui.popover_begin(ctx, "colors swatch menu", &c.swatch_menu, c.swatch_menu_at, .Below, {direction = .Column, gap = 2, padding = 6}) {
+	if ui.popover_begin(ctx, "colors swatch menu", &c.swatch_menu, c.swatch_menu_at, .Below, {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_S}) {
 		i, j := c.swatch_menu_of[0], c.swatch_menu_of[1]
 		if ui.menu_item(ctx, "Set to current colour", glyph = ICON_FILL) {
 			if i >= 0 && i < c.palette_count && j < c.palettes[i].count do c.palettes[i].colors[j] = colors_target(app)^

@@ -47,8 +47,8 @@ kit_library_manage :: proc(app: ^App, owner: ui.Id, inner, height: f32) {
 	_, foot_size := ui.prev_layout(ctx, "library foot")
 	_, head_size := ui.prev_layout(ctx, "library pending")
 	extra := head_size.y + 8 if l.pending != nil else 0
-	if l.worker != nil do extra += t.caption_size * 1.4 + 8
-	body_h := max(height - 3 * 8 - t.target - t.caption_size * 1.4 - foot_size.y - extra, 120)
+	if l.worker != nil do extra += ui.line_height(t.caption_size) + 8
+	body_h := max(height - 3 * 8 - t.target - ui.CAPTION_H - foot_size.y - extra, 120)
 	scroll := kit_scroll_begin(ctx, "library body", &k.library_scroll, owner, inner, body_h, 4)
 	kit_library_row(app, -1, inner)
 	for _, i in l.packs do kit_library_row(app, i, inner)
@@ -65,9 +65,9 @@ kit_pack_pending :: proc(app: ^App, u: ^Pack_Unpacked, inner: f32) {
 	ctx := &app.kit.ctx
 	old := ""
 	for p in app.library.packs do if strings.equal_fold(p.name, u.info.name) && strings.equal_fold(p.author, u.info.author) do old = p.version
-	ui.begin(ctx, "library pending", {direction = .Column, gap = 8, width = inner})
+	ui.begin(ctx, "library pending", {direction = .Column, gap = ui.SPACE_M, width = inner})
 	ui.paragraph(ctx, fmt.tprintf("%s is installed already%s. Replace it with the one in %s%s? Its alphas keep their names, so presets that use them keep working.", u.info.name, "" if old == "" else fmt.tprintf(" (version %s)", old), u.source, "" if u.info.version == "" else fmt.tprintf(" (version %s)", u.info.version)))
-	ui.begin(ctx, "library pending buttons", {direction = .Row, gap = 8, width = inner})
+	ui.begin(ctx, "library pending buttons", {direction = .Row, gap = ui.SPACE_M, width = inner})
 	half := (inner - 8) * 0.5
 	if ui.button(ctx, "Replace", .Solid, .Accent, width = half) do pack_pending_answer(app, true)
 	if ui.button(ctx, "Keep the old one", .Bordered, width = half) do pack_pending_answer(app, false)

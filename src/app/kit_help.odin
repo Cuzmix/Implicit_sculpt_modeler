@@ -353,7 +353,7 @@ kit_help :: proc(app: ^App) {
 	if !shown do return
 	defer sheet_end(app)
 	// The tags over the screen itself, for learning it where it is used.
-	ui.begin(ctx, "help top", {direction = .Row, gap = 8})
+	ui.begin(ctx, "help top", {direction = .Row, gap = ui.SPACE_M})
 	half := (inner - 8) * 0.5
 	_ = command_button(app, .Name_Controls, variant = .Bordered, width = half, glyph = ui.ICON_TAG)
 	_ = command_button(app, .Take_Tour, variant = .Bordered, width = half, glyph = ui.ICON_HELP)

@@ -26,7 +26,7 @@ arrange_show_chips :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	ui.begin(ctx, "arrange zones", {direction = .Row, gap = 4, center = true})
+	ui.begin(ctx, "arrange zones", {direction = .Row, gap = ui.SPACE_XS, center = true})
 	ui.label(ctx, "Show", t.small_size, t.text_secondary)
 	for z in Zone {
 		shown := z not_in k.hidden

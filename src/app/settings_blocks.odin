@@ -460,7 +460,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 				link_copy_path(app)
 			}
 			half := (width - 8) / 2
-			ui.begin(ctx, "link buttons", {direction = .Row, gap = 8})
+			ui.begin(ctx, "link buttons", {direction = .Row, gap = ui.SPACE_M})
 			_ = command_button(app, .Send_To_Blender, width = half)
 			_ = command_button(app, .Get_From_Blender, width = half)
 			ui.end(ctx)

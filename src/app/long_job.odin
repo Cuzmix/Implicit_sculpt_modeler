@@ -754,7 +754,7 @@ kit_job_pill :: proc(app: ^App) {
 	if size == {} do size = {320, t.target + 8}
 	area := ui.safe_area(ctx)
 	pos := [2]f32{area.x + (area.w - size.x) * 0.5, area.y + kit_top() + 12}
-	ui.begin_at(ctx, "job pill", pos, {direction = .Row, gap = 10, padding = 6, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_at(ctx, "job pill", pos, {direction = .Row, gap = ui.SPACE_M, padding = ui.SPACE_S, radius = t.radius_large + 4, background = .Panel, center = true})
 	r := ui.place(ctx, {28, 28})
 	share := long_job_progress(app)
 	draw_progress_ring(ctx, {r.x + 14, r.y + 14}, 11, share, 3)
