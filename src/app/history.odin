@@ -42,6 +42,9 @@ History :: struct {
 	// step the limits last stopped at, whose note is not said again.
 	limit_mb: int,
 	held_at:  time.Tick,
+	// A step placing reference pictures was let go, so pictures nothing places any more
+	// can be freed (refs_collect).
+	refs_dropped: bool,
 }
 
 History_Entry :: struct {
@@ -91,6 +94,8 @@ History_Entry :: struct {
 	textures: ^Texture_Step,
 	// A .Lights entry's scene lights before the change and after it (lights.odin), owned.
 	lights: ^Light_Step,
+	// A .References entry's board before the change and after it (references.odin), owned.
+	refs: ^Refs_Step,
 }
 
 Arrange_Step :: struct {
@@ -103,6 +108,10 @@ Arrange_Step :: struct {
 entry_free :: proc(h: ^History, e: History_Entry) {
 	delete(e.bookmark)
 	free(e.lights)
+	if e.refs != nil {
+		refs_step_free(e.refs)
+		h.refs_dropped = true
+	}
 	group_table_step_free(e.group_table)
 	if e.textures != nil {
 		h.swap_bytes -= texture_step_bytes(e.textures)
@@ -134,6 +143,7 @@ History_Kind :: enum u8 {
 	Lights,   // the scene's lights changed
 	Model,    // a swap entry of Model mode: a cage edited or applied
 	Curve,    // a swap entry of a curve object: drawn, edited or removed
+	References, // the reference pictures added, moved or removed
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap
@@ -410,7 +420,7 @@ history_next_label :: proc(list: []History_Entry) -> string {
 	if len(list) == 0 do return "stroke"
 	e := list[len(list) - 1]
 	if e.swap != nil do return e.swap.what
-	if e.kind == .Transform || e.kind == .Arrange || e.kind == .Textures || e.kind == .Lights do return e.what
+	if e.kind == .Transform || e.kind == .Arrange || e.kind == .Textures || e.kind == .Lights || e.kind == .References do return e.what
 	return "stroke"
 }
 
@@ -849,7 +859,7 @@ history_push :: proc(app: ^App, e: History_Entry) {
 @(private = "file")
 history_drop_redo :: proc(app: ^App) {
 	for e in app.history.undone {
-		if e.swap != nil || e.arrange != nil || e.lights != nil || e.kind == .Transform || e.kind == .Textures {
+		if e.swap != nil || e.arrange != nil || e.lights != nil || e.refs != nil || e.kind == .Transform || e.kind == .Textures {
 			// Nothing of it is kept anywhere else.
 		} else if obj := object_by_id(app, e.id); obj != nil && obj.voxel != nil {
 			voxel.clay_clear_redo(&obj.voxel.clay)
@@ -903,7 +913,7 @@ history_redo :: proc(app: ^App) {
 history_flash :: proc(app: ^App, to: []History_Entry) {
 	if len(to) == 0 do return
 	e := to[len(to) - 1]
-	if e.lights != nil || e.arrange != nil || object_by_id(app, e.id) == nil do return
+	if e.lights != nil || e.arrange != nil || e.refs != nil || object_by_id(app, e.id) == nil do return
 	flash_undo_begin(app, e.id)
 }
 
@@ -926,6 +936,12 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 		if e.lights != nil {
 			// The lights belong to the scene, not to any object, level or sculptor.
 			app.scene.lights = e.lights.before if from == &app.history.done else e.lights.after
+			append(to, e)
+			return true
+		}
+		if e.refs != nil {
+			// The board belongs to the scene, not to any object, level or sculptor.
+			refs_set(app, e.refs.before if from == &app.history.done else e.refs.after)
 			append(to, e)
 			return true
 		}

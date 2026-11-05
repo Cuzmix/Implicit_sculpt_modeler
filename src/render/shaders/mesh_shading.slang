@@ -40,7 +40,9 @@
 	// view (1 the maps, 2 the normal map alone, 3 the UV checker); all 0 on the sculpt mesh.
 	float4 maps;
 	// The image environment (render/environment.odin): x 1 while one is bound (0: the
-	// studio below), y its strength as a factor, z its prefiltered levels less one.
+	// studio below), y its strength as a factor, z its prefiltered levels less one; and w,
+	// whatever the environment, 1 under a parallel (orthographic) projection, where the
+	// way to the eye is the view's own direction at every pixel.
 	float4 env;
 	// The panorama's axes in view space, as the columns of a rotation: turned with the
 	// light rig, never tilted.
@@ -469,7 +471,12 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		surf.w = 0.0;
 	}
 #endif
-	float3 v = normalize(-frag_in.view_pos);
+	// The way to the eye. In parallel projection it is the view's own axis everywhere: the
+	// eye sits close to the target there (zooming moves it in, even past the surface), so
+	// the way to its point would turn sideways toward the outline and point away from
+	// what lies behind it, which turned flat shading's normals, the rim and the
+	// highlights inside out.
+	float3 v = env.w > 0.5 ? float3(0.0, 0.0, 1.0) : normalize(-frag_in.view_pos);
 	float3 n;
 	// How much of the studio's ambient light reaches the pixel (a textured mesh's baked
 	// occlusion); 1 on the sculpt mesh.

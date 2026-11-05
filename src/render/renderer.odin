@@ -516,7 +516,7 @@ Material_Uniforms :: struct {
 	lights:     Lights, // Draw_Item.lights
 	maps:       [4]f32, // textured items: x, y, z which maps are bound (base colour, ORM, normal), w the Texture_View; zero otherwise
 	// The image environment (environment.odin's material_environment); zero for the studio.
-	env:        [4]f32, // x: 1 when bound, y: its strength, z: its prefiltered levels less one
+	env:        [4]f32, // x: 1 when bound, y: its strength, z: its prefiltered levels less one; w: 1 under a parallel projection, bound or not
 	env_axes:   [3][4]f32, // the panorama's axes in view space (Environment_Look.rotation)
 	env_sh:     [9][4]f32, // its diffuse light's harmonics, rgb
 	style:      [4]f32, // Draw_Item.style
@@ -2020,6 +2020,9 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights, style = item.style, pass = item.pass, wire = wire_color(r)}
 		if poly_shaded do material.wire.w = 1
 		material_environment(r, &material)
+		// Parallel projection: the shading takes the view's axis as the way to the eye
+		// (mesh_shading.slang's env.w).
+		if proj[3, 3] == 1 do material.env.w = 1
 		// Drawn solid after all where the blended pipeline is missing, and opaque then.
 		if !see do material.look.w = 0
 		if textured {

@@ -28,6 +28,7 @@ Card :: enum u8 {
 	Render,
 	History,
 	Details,
+	References,
 }
 
 @(rodata)
@@ -45,6 +46,7 @@ CARD_NAMES := [Card]string {
 	.Render   = "Render",
 	.History  = "History",
 	.Details  = "Details",
+	.References = "References",
 }
 
 @(rodata)
@@ -62,13 +64,14 @@ CARD_ICONS := [Card]rune {
 	.Render   = ICON_RENDER_PREVIEW,
 	.History  = ui.ICON_HISTORY,
 	.Details  = ui.ICON_ACTIVITY,
+	.References = ICON_REFERENCES,
 }
 
 // The cards that draw their whole body themselves, each with a scroll and controls of its
 // own that stay put under it (the Colours card's tabs along its foot, the History list's
 // rows drawn only where they show, the Details card's Simple and Advanced tabs over its
 // numbers), so the card's body does not scroll them.
-OWN_BODY_CARDS :: bit_set[Card]{.Colours, .History, .Details}
+OWN_BODY_CARDS :: bit_set[Card]{.Colours, .History, .Details, .References}
 
 // How wide card `c` is: the Colours card seven touch-sized swatches across, the History card
 // what its rows of controls need, every other card the same.
@@ -77,6 +80,7 @@ card_width :: proc(c: Card) -> f32 {
 	case .Colours: return COLORS_CARD_W
 	case .History: return KIT_HISTORY_CARD_W
 	case .Details: return DETAILS_CARD_W
+	case .References: return REFS_CARD_W
 	}
 	return CARD_W
 }
@@ -108,6 +112,7 @@ Section :: enum u8 {
 	Colours,
 	History,
 	Details,
+	References,
 	// Mesh, in four groups (section_group): Resolution, Rebuild, Combine and Surface.
 	Levels,
 	Hd,
@@ -160,6 +165,7 @@ section_card :: proc(sec: Section) -> Card {
 	case .Colours:                 return .Colours
 	case .History:                 return .History
 	case .Details:                 return .Details
+	case .References:              return .References
 	case .Levels ..= .Project:     return .Mesh
 	case .Mask ..= .Visibility:    return .Mask
 	case .Transform ..= .Deformers: return .Deform
@@ -281,6 +287,7 @@ section_title :: proc(sec: Section) -> string {
 	case .Colours:  return "Colours"
 	case .History:  return "History"
 	case .Details:  return "Details"
+	case .References: return "References"
 	}
 	for s in BRUSH_SECTIONS do if s.section == sec do return s.title
 	for s in OBJECT_SECTIONS do if s.section == sec do return s.title
@@ -310,6 +317,7 @@ SECTION_ICONS := [Section]rune {
 	.Colours     = ICON_COLOUR,
 	.History     = ui.ICON_HISTORY,
 	.Details     = ui.ICON_ACTIVITY,
+	.References  = ICON_REFERENCES,
 	.Levels      = ICON_SUBDIVIDE,
 	.Hd          = ui.ICON_ZOOM_IN,
 	.Topology    = ICON_DYNTOPO,
@@ -347,6 +355,8 @@ SECTION_ICONS := [Section]rune {
 // Lucide's icons the cards use that the kit does not name already.
 ICON_CONTRAST :: rune(0xe0a1) // half filled: inverting
 ICON_SPARKLES :: rune(0xe417)
+// Lucide's images: the References card, a stack of pictures.
+ICON_REFERENCES :: rune(0xe5c9)
 ICON_MINUS :: rune(0xe120)
 ICON_CIRCLE_DASHED :: rune(0xe4b5) // a hole's open border
 ICON_SCAN_EYE :: rune(0xe53b) // facing the eye: masking by angle, a step's tint

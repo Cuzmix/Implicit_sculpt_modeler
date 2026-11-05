@@ -341,6 +341,8 @@ Kit_State :: struct {
 	brushes:        Brush_Palette,
 	// The Colors card (kit_colors.odin): open, and its tab, history and palettes.
 	colors:         Colors_Card,
+	// The References card's board: where it looks and what is picked (kit_references.odin).
+	board:          Ref_Board,
 	grid:             View_Grid,
 	// Which Stats sections are open, and which sections show their More options; with
 	// all_options (Settings > Interface) every section shows everything.
@@ -1840,6 +1842,12 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 		if c.texture == .Image && c.image == KIT_BRUSH_PREVIEWS_IMAGE {
 			draws[i].image, draws[i].smooth = app.brush_previews.atlas, true
 			if app.brush_previews.atlas == 0 do draws[i].index_count = 0
+		}
+		if c.texture == .Image && c.image >= KIT_REF_IMAGE && c.image < KIT_REF_IMAGE_END {
+			// A reference picture: nothing until its GPU copy is made.
+			tex := refs_texture(app, int(c.image - KIT_REF_IMAGE))
+			draws[i].image, draws[i].smooth = tex, true
+			if tex == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.home.pictures.atlas, true

@@ -375,6 +375,8 @@ App :: struct {
 	matcap_path:  string,
 	// The image environment the physically based materials light with (environment.odin).
 	env:       Environment_State,
+	// The longest a reference picture took to decode, in ms, for the exit stats.
+	refs_decode_ms: f64,
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
 	// What objects with texture maps show of them (textures.odin): .Off draws them as clay.
 	texture_view: render.Texture_View,
