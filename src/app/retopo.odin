@@ -335,7 +335,7 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 		maps = geom.bake_maps(quads, layout, source, size, set.reach_edges * edge, kinds, &app.pool, options = options)
 	} else {
 		// Any other sculpt bakes onto its base level's triangles, split where its UVs are.
-		split := textured_split(low)
+		split := textured_split(low, 0)
 		maps = geom.bake_low_maps({split.positions, split.normals, split.uv, split.tangents, split.indices}, source, size, set.reach_edges * edge, kinds, &app.pool, options = options)
 	}
 	defer geom.bake_maps_destroy(&maps)
@@ -430,26 +430,26 @@ bake_glb :: proc(out: ^[dynamic]u8, low: ^Object, src: geom.Bake_Source, name: s
 		metallic  = own.metallic,
 		roughness = own.roughness,
 	}
-	_, _ = textured_object_glb(out, low, name, {.Base_Color = base_color, .Orm = orm, .Normal = normal}, mat, occlusion)
+	_, _ = textured_object_glb(out, low, 0, name, {.Base_Color = base_color, .Orm = orm, .Normal = normal}, mat, occlusion)
 }
 
-// Object `obj`'s base level as a binary glTF, split where the UVs are (textured_split):
-// a quad object's quads as triangles with the normals and tangents the normal map was
-// baked in, any other mesh its own triangles, and material `mat` with `maps` (nil for none) embedded as its textures: a base
+// Level `level` of object `obj` as a binary glTF, split where the UVs are (textured_split):
+// a quad object's base quads as triangles with the normals and tangents the normal map was
+// baked in, any other level its own triangles, and material `mat` with `maps` (nil for none) embedded as its textures: a base
 // colour map stands for the material's colour, and an ORM map for its roughness and metal
 // and, with `occlusion`, its occlusion. A map that is neither PNG nor JPEG, the two glTF
-// reads, goes as PNG. `morphs` are the base level's layers and `colors` its vertex colours
+// reads, goes as PNG. `morphs` are that level's layers and `colors` its vertex colours
 // (nil for none), carried onto the split vertices, and `lights` go beside the mesh.
 // Returns how many vertices were
 // written; false when the file would pass glTF's 4 GB.
-textured_object_glb :: proc(out: ^[dynamic]u8, obj: ^Object, name: string, maps: [render.Texture_Map][]u8, mat: geom.Export_Material, occlusion: bool, morphs: []geom.Morph_Target = nil, colors: [][3]u8 = nil, lights: []geom.Export_Light = nil) -> (vertices: int, ok: bool) {
+textured_object_glb :: proc(out: ^[dynamic]u8, obj: ^Object, level: int, name: string, maps: [render.Texture_Map][]u8, mat: geom.Export_Material, occlusion: bool, morphs: []geom.Morph_Target = nil, colors: [][3]u8 = nil, lights: []geom.Export_Light = nil) -> (vertices: int, ok: bool) {
 	maps := maps
 	for &img in maps {
 		if img == nil || geom.image_mime(img) == "image/jpeg" || (len(img) >= 4 && string(img[:4]) == "\x89PNG") do continue
 		pixels, w, h, failed := matcap_pixels(img, context.temp_allocator)
 		img = png_write.encode(pixels, w, h, false, context.temp_allocator) if failed == "" else nil
 	}
-	frame := textured_split(obj)
+	frame := textured_split(obj, level)
 	positions, split_normals, texcoords, indices := frame.positions, frame.normals, frame.uv, frame.indices
 	images := make([dynamic]geom.Export_Image, context.temp_allocator)
 	mat := mat
@@ -468,7 +468,7 @@ textured_object_glb :: proc(out: ^[dynamic]u8, obj: ^Object, name: string, maps:
 	}
 	// A layer moves a vertex, and so every slot the split made of it.
 	split := make([]geom.Morph_Target, len(morphs), context.temp_allocator)
-	at := make([]i32, len(obj.levels.levels[0].mesh.positions), context.temp_allocator)
+	at := make([]i32, len(obj.levels.levels[level].mesh.positions), context.temp_allocator)
 	for m, k in morphs {
 		slice.fill(at, -1)
 		for v, i in m.vertices do at[v] = i32(i)

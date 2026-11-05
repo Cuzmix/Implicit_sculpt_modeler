@@ -79,7 +79,10 @@ textured_vertices_follow_the_split :: proc(t: ^testing.T) {
 	s := &sculpt.levels_current(&obj.levels).sculptor
 	s.mask = make([]u8, len(s.mesh.positions))
 	for &m, v in s.mask do m = u8(v * 37 % 256)
-	vertices, indices, corners := textured_vertices(obj)
+	buffers: render.Mesh_Buffers
+	topology: Split_Topology
+	defer split_topology_free(&topology)
+	vertices, indices, corners := textured_vertices(obj, &buffers, &topology, nil)
 	quads := sculpt.levels_quad_mesh(&obj.levels)
 	normals := geom.quad_mesh_normals(quads, context.temp_allocator)
 	layout, _ := sculpt.levels_quad_uvs(&obj.levels)
@@ -369,7 +372,10 @@ unwrapped_sculpt_takes_maps :: proc(t: ^testing.T) {
 	maps: Object_Textures
 	maps.image[.Normal] = png_of({128, 128, 255, 255})
 	textures_replace(&app, obj, maps, "load normal map")
-	vertices, indices, corners := textured_vertices(obj)
+	buffers: render.Mesh_Buffers
+	topology: Split_Topology
+	defer split_topology_free(&topology)
+	vertices, indices, corners := textured_vertices(obj, &buffers, &topology, nil)
 	base := obj.levels.levels[0]
 	testing.expect_value(t, len(indices), len(base.mesh.indices))
 	testing.expect(t, len(vertices) > len(base.mesh.positions), "the seams split no vertices")
@@ -423,5 +429,51 @@ unwrapped_sculpt_bakes :: proc(t: ^testing.T) {
 	testing.expect_value(t, v, len(mesh.positions))
 	testing.expect_value(t, f, len(mesh.indices) / 3)
 	testing.expect_value(t, vt, len(mesh.indices))
+	free_all(context.temp_allocator)
+}
+
+// A level above the base shows and exports the maps through the UVs it takes from the
+// base: its own triangles, split at the same seams, the split kept between edits.
+@(test)
+levels_show_the_maps :: proc(t: ^testing.T) {
+	FOLDER :: "build/textures_test_levels/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	path := strings.clone(FOLDER + "level.glb")
+	defer delete(path)
+	app: App
+	defer tree_free(&app)
+	objs := tree_scene(&app)
+	obj := objs[0]
+	defer textures_free(&obj.textures)
+	object_unwrap(&app, obj, unwrap_setup(&app))
+	maps: Object_Textures
+	maps.image[.Normal] = png_of({128, 128, 255, 255})
+	textures_replace(&app, obj, maps, "load normal map")
+	testing.expect(t, sculpt.levels_subdivide(&obj.levels))
+	sculpt.levels_set_current(&obj.levels, 1)
+	lv := obj.levels.levels[1]
+	buffers := render.Mesh_Buffers{index_version = 7}
+	topology: Split_Topology
+	defer split_topology_free(&topology)
+	vertices, indices, corners := textured_vertices(obj, &buffers, &topology, nil)
+	testing.expect_value(t, len(indices), len(lv.mesh.indices))
+	testing.expect(t, len(vertices) > len(lv.mesh.positions), "the seams split no vertices")
+	testing.expect_value(t, len(corners), len(indices))
+	kept := raw_data(topology.vertex)
+	_, _, _ = textured_vertices(obj, &buffers, &topology, nil)
+	testing.expect(t, raw_data(topology.vertex) == kept, "an edit made the split again")
+	buffers.index_version = 8
+	_, _, _ = textured_vertices(obj, &buffers, &topology, nil)
+	testing.expect(t, topology.index_version == 8 && len(topology.vertex) > 0, "new triangles kept the old split")
+	testing.expect(t, object_exports_textures(obj))
+	if !testing.expect(t, object_export(&app, obj, path)) do return
+	json := glb_json(t, path)
+	for want in ([?]string{`"TEXCOORD_0"`, `"TANGENT"`, `"normalTexture"`}) do testing.expectf(t, strings.contains(json, want), "the file has no %s", want)
+	// Delete lower keeps the UVs, so the maps stay.
+	sculpt.levels_delete_lower(&obj.levels)
+	textures_settle(&app)
+	testing.expect(t, sculpt.levels_has_uvs(&obj.levels) && object_has_textures(obj), "Delete lower dropped the maps")
 	free_all(context.temp_allocator)
 }

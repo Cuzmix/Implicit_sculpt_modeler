@@ -1259,7 +1259,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 			// two); polygroup materials stay out, since the maps give one material.
 			paint := colors if obj.textures.image[.Base_Color] == nil else nil
 			written: bool
-			vertices, written = textured_object_glb(&out, obj, object_label(obj), obj.textures.image, material, true, morphs, paint, export_lights(app, obj.transform))
+			vertices, written = textured_object_glb(&out, obj, obj.levels.current, object_label(obj), obj.textures.image, material, true, morphs, paint, export_lights(app, obj.transform))
 			if !written {
 				free_all(context.temp_allocator)
 				file_note(app, true, "Cannot export %s: a glTF file holds at most 4 GB", name)
@@ -1375,10 +1375,10 @@ sparse_keep :: proc(vertices: []u32, deltas: []Vec3, kept: []u32) -> ([]u32, []V
 	return vertices[:n], deltas[:n]
 }
 
-// Whether a .glb export of `obj` carries its maps: it has some and shows its base level,
-// whose quads and UVs they follow, without dynamic topology.
+// Whether a .glb export of `obj` carries its maps: it has some, and UVs they follow on the
+// level it shows (sculpt.levels_uvs_at), without dynamic topology.
 object_exports_textures :: proc(obj: ^Object) -> bool {
-	return object_has_textures(obj) && obj.voxel == nil && obj.levels.current == 0 && !object_dynamic(obj) && !object_in_hd(obj) && texture_target_check(obj) == ""
+	return object_has_textures(obj) && obj.voxel == nil && !object_dynamic(obj) && !object_in_hd(obj) && texture_target_check(obj) == ""
 }
 
 // What USD carries beyond glTF: a retopologized base level's quads and UVs, as OBJ

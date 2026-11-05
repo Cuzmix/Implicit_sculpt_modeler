@@ -66,7 +66,6 @@ quads_round_trip_the_file :: proc(t: ^testing.T) {
 }
 
 // A unit cube as six quads facing out, with `allocator`.
-@(private = "file")
 cube_quads :: proc(allocator := context.temp_allocator) -> (q: geom.Quad_Mesh) {
 	q.positions = make([]geom.Vec3, 8, allocator)
 	for &p, i in q.positions do p = {f32(i & 1), f32(i >> 1 & 1), f32(i >> 2)}

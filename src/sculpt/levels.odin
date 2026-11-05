@@ -290,7 +290,8 @@ levels_delete_higher :: proc(l: ^Levels) -> (carried, dropped: int) {
 }
 
 // Deletes every level below the current one, which becomes the base. The selection
-// sets kept by those levels are carried up to it first.
+// sets kept by those levels are carried up to it first, and the UVs become the new base's
+// own (levels_uvs_at), so maps made on them still fit.
 levels_delete_lower :: proc(l: ^Levels) {
 	assert(l.hd.window == nil, "leave the HD window first")
 	k := l.current
@@ -298,7 +299,9 @@ levels_delete_lower :: proc(l: ^Levels) {
 	sync_levels(l, down = false)
 	levels_sets_carry(l, {0, k}, k)
 	for &set in l.sets do set.level -= k
+	uvs, kept := levels_uvs_at(l, k, l.allocator)
 	levels_drop_quads(l) // the base's triangles are a level above's now
+	if kept do l.uvs = uvs
 	for lv in l.levels[:k] do level_free(l, lv)
 	level_unlink(l, l.levels[k])
 	copy(l.levels[:], l.levels[k:])
