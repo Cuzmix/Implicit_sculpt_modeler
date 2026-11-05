@@ -163,12 +163,15 @@ class Script:
         self.wait(gap)
 
     def fdrag(self, path, finger=0, step=1, lift=True):
-        """Finger down at path[0], moving through the rest one frame each."""
-        x, y = path[0]
-        self.add(f"fdown:{finger}:{x:g},{y:g}")
-        for x, y in path[1:]:
+        """Finger down at path[0], moving through the rest one frame each. A point is an
+        (x, y) pair, or a string "@NAME~DX,DY" for a point that far from a named control's
+        middle, which follows the control wherever the layout puts it."""
+        def at(p):
+            return p if isinstance(p, str) else f"{p[0]:g},{p[1]:g}"
+        self.add(f"fdown:{finger}:{at(path[0])}")
+        for p in path[1:]:
             self.wait(step)
-            self.add(f"fmove:{finger}:{x:g},{y:g}")
+            self.add(f"fmove:{finger}:{at(p)}")
         self.wait(1)
         if lift:
             self.add(f"fup:{finger}")
@@ -3146,7 +3149,7 @@ def nav_head_tap_looks_from_that_side():
     s.add("up")
     s.wait(4)
     x, y = UI["nav_head"]
-    s.ftap(x - 18, y)
+    s.ftap(x - 24, y)
     s.wait(4)
     return s, ["--script=set view_gizmo model"], {"dabs": near(0), "undo_steps": near(0), "nav_taps": near(2),
                    "camera_yaw": near(-math.pi / 2, 1e-3), "camera_pitch": near(0), "camera_distance": near(3.5)}
@@ -6356,8 +6359,8 @@ def each_space_keeps_its_layout_in_settings():
 
 # The view's shading chip at 1600 x 900, and the Wireframe, Normals and Wipe compare rows
 # of its list (the shading modes and Solid's options come first).
-PASS_CHIP, PASS_NORMALS, PASS_MENU_WIPE = UI["pass_chip"], (230, 492), At("Wipe compare", 234, 801)
-PASS_MENU_WIREFRAME = (220, 158)
+PASS_CHIP, PASS_NORMALS, PASS_MENU_WIPE = UI["pass_chip"], At("pass menu/Normals", 230, 492), At("Wipe compare", 234, 801)
+PASS_MENU_WIREFRAME, PASS_MENU_SOLID = At("pass menu/Wireframe", 220, 158), At("pass menu/Solid", 220, 202)
 
 
 @scenario
@@ -6372,7 +6375,7 @@ def shading_chip_picks_wireframe_then_solid():
         if back:
             s.ftap(PASS_CHIP)
             s.wait(10)
-            s.ftap(PASS_MENU_WIREFRAME[0], PASS_MENU_WIREFRAME[1] + 44)
+            s.ftap(PASS_MENU_SOLID)
             s.wait(10)
         return s, [], camera_still({"dabs": near(0), "pass": is_text("Shaded"), "shading_mode": is_text("Solid" if back else "Wireframe"),
                                     "pass_menu": near(1 if back else 0), "layout_modified": near(0 if back else 1)})
@@ -6564,7 +6567,7 @@ def hide_unmasked_then_undo_shows_it_again():
 
 # Selection sets: the first set's Restore, where search shows the section (its own card
 # under the folded cards above it).
-SETS_RESTORE_FIRST = on_card((1471, 647), "object")
+SETS_RESTORE_FIRST = At("card Mask/set 1 1/Restore", *on_card((1471, 647), "object"))
 
 
 def store_set(s):
@@ -9441,9 +9444,10 @@ def gesture_any_command_from_search():
     s.wait(20)
     s.ftap(At("gesture row Pen_Button/Pen side button", 1063, 656))
     s.wait(12)
-    # Its list opens above it; the list's last row is Any command...
+    # Its list opens above it; the list's last row is Any command... The drags start well
+    # inside the list, whose bottom edge follows the row as the help lines above it wrap.
     for _ in range(10):
-        s.fdrag(line((1063, 600), (1063, 20), 10))
+        s.fdrag(line((1063, 540), (1063, 20), 10))
         s.wait(4)
     s.wait(20)
     s.ftap(At("select list/Any command...", 1018, 618))
@@ -13126,7 +13130,8 @@ def shape_clip_line_waits():
 # its goals, its Density slider's track and its Remesh button.
 REBUILD_GOALS = {k: At(f"rebuild goal/{k.capitalize()}", *in_section(on_card(v, "object"), "remesh"))
                  for k, v in {"even": (1283, 287), "fewer": (1378, 287), "quads": (1472, 287)}.items()}
-REBUILD_DENSITY = in_section(on_card((1406, 346), "object"), "remesh")
+# Density by its name, since the goal's hint above it takes one line or two.
+REBUILD_DENSITY_NAME = "@card Mesh/Density"
 # The button, by the verb it shows for each goal, since what stands above it differs.
 REBUILD_APPLY = {k: At(f"card Mesh/{verb}", *in_section(on_card((1377, 504), "object"), "remesh"))
                  for k, verb in {"fewer": "Decimate", "quads": "Quad Remesh (new object)"}.items()}
@@ -13153,8 +13158,9 @@ def rebuild_density_shows_the_cells():
     lifted, gone, fewer, held = Script(), Script(), Script(), Script()
     for sc, goal in ((lifted, "even"), (gone, "even"), (fewer, "fewer"), (held, "even")):
         open_rebuild(sc, goal, ftap_at)
-        x, y = REBUILD_DENSITY
-        sc.fdrag([(x, y), (x - 40, y), (x - 60, y)], lift=sc is not held)
+        # Fewer shows no Density, so its drag goes where Even's slider stands, from Even's button.
+        at = "@rebuild goal/Even~%d,50" if sc is fewer else REBUILD_DENSITY_NAME + "~%d,0"
+        sc.fdrag([at % (dx + (96 if sc is fewer else 0)) for dx in (28, -12, -32)], lift=sc is not held)
         sc.wait(20)
     gone.wait(100)  # past REBUILD_PREVIEW_HOLD (1.5 s at 60 frames a second)
     return Steps([
