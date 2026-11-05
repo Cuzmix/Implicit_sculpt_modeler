@@ -162,6 +162,7 @@ Command_Id :: enum u16 {
 	Voxel_Res_Up,
 	Voxel_Res_Down,
 	Add_Cage,
+	Add_Curve,
 	Apply_Cage,
 	Edit_Cage,
 	Model_Action,
@@ -621,6 +622,18 @@ COMMANDS := [Command_Id]Command {
 			app.ui.scene_command = {kind = .Add_Cage, cage = poly.Primitive(arg), segments = model_segments(app.model)}
 			// A cage is modelled: adding one goes to Model with the Model tool.
 			space_switch(app, .Model)
+		},
+	},
+	.Add_Curve = {
+		label = "Add curve",
+		help = "Adds a curve object at the view's centre, facing the view, with no model needed: a Line, a Bézier S, a Circle, a Spiral or a Helix. The Curve tool comes on to edit it, its last point picked. One undo step.",
+		icon = ui.ICON_SPLINE,
+		args = len(Curve_Shape) - 1,
+		run = proc(app: ^App, arg: int) {
+			app.ui.scene_command = {kind = .Add, curve_shape = Curve_Shape(arg + 1)}
+			// A curve is edited with the Curve tool's Curve kind, whose pen moves its points.
+			app.tool, app.curve.kind = .Curve, .Curve
+			space_picked(app)
 		},
 	},
 	.Apply_Cage = {
@@ -2829,6 +2842,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("New scene: %s", NEW_SCENES[arg].name)
 	case .Add_Cage:
 		return fmt.tprintf("Add cage: %s", poly.PRIMITIVE_NAMES[poly.Primitive(arg)])
+	case .Add_Curve:
+		return fmt.tprintf("Add curve: %s", CURVE_SHAPE_NAMES[Curve_Shape(arg + 1)])
 	case .Model_Action:
 		return fmt.tprintf("Model: %s", MODEL_ACTION_NAMES[Model_Action(arg)])
 	case .Model_Target:

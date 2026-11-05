@@ -49,6 +49,7 @@ Outliner :: struct {
 	add_at:      ui.Rect,
 	starters:    bool, // the Add menu's starter shapes are unfolded
 	cages:       bool, // and its cages
+	curves:      bool, // and its curves
 	adds:        int, // things added from the Add menu
 	switches:    int, // lights switched on or off from their rows
 	menus:       int, // object menus opened by a row's ⋯
@@ -382,8 +383,8 @@ scene_notes :: proc(app: ^App) {
 }
 
 // The Add menu, over every panel: the mesh shapes at the Add object section's size, the
-// starters folded under one row, a voxel sphere, the cages folded under one row, and a
-// light of each kind; each added at once as one undo step, selected.
+// starters folded under one row, a voxel sphere, the cages and the curves folded under a row
+// each, and a light of each kind; each added at once as one undo step, selected.
 kit_scene_add_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -426,6 +427,16 @@ kit_scene_add_menu :: proc(app: ^App) {
 		for p in poly.Primitive {
 			if ui.menu_item(ctx, fmt.tprintf("%s cage##scene add", poly.PRIMITIVE_NAMES[p]), glyph = ui.ICON_GRID, hint = command_hint(app, .Add_Cage, int(p))) {
 				_ = command_run(app, .Add_Cage, int(p))
+				picked = true
+			}
+		}
+	}
+	if ui.menu_item(ctx, "Curve##scene add", glyph = ui.ICON_CHEVRON_DOWN if ol.curves else ui.ICON_CHEVRON_RIGHT, trailing = true) do ol.curves = !ol.curves
+	if ol.curves {
+		for shape in Curve_Shape {
+			if shape == .None do continue
+			if ui.menu_item(ctx, fmt.tprintf("%s curve##scene add", CURVE_SHAPE_NAMES[shape]), glyph = ui.ICON_SPLINE, hint = command_hint(app, .Add_Curve, int(shape) - 1)) {
+				_ = command_run(app, .Add_Curve, int(shape) - 1)
 				picked = true
 			}
 		}
