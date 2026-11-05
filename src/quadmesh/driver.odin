@@ -395,7 +395,11 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	}
 	guided: [][3]f64
 	defer delete(guided, heap)
-	guided, err = cpp_face_guides(iso, d.quad_edge, params.guides, params.guide_strength, &reason)
+	if params.core == .Odin {
+		guided = odin_face_guides(iso, d.quad_edge, params.guides, params.guide_strength, heap)
+	} else {
+		guided, err = cpp_face_guides(iso, d.quad_edge, params.guides, params.guide_strength, &reason)
+	}
 	if err != .None {
 		driver_fail(d, err, &reason)
 		return

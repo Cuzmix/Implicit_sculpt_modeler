@@ -70,7 +70,7 @@ Params :: struct {
 Core :: enum u8 {
 	Cpp, // qm_remesh: AutoRemesher's stages as the C++ boundary drives them
 	Driver, // the Odin driver with every stage the C++'s: qm_remesh's result bit for bit
-	Odin, // the Odin driver with every stage in Odin but the guide curves' directions per triangle (cpp_face_guides)
+	Odin, // the Odin driver with every stage in Odin: no C++ runs
 }
 
 CORE_NAMES := [Core]string {

@@ -423,7 +423,7 @@ guide_alignment :: proc(r: Result, line: []geom.Vec3, near: f32) -> (mean: f32, 
 // Guides: a circle drawn round a sphere 30 degrees off its pole pulls the quads' edges
 // along it (under 10 degrees on average at full strength, where with no guide they lie at
 // random to it, about 27); a circle across the bumpy sphere likewise; with the mirror on,
-// the same circle guides the half; the count stays what was asked.
+// the same circle guides the half; the count stays what was asked. Through either core.
 @(test)
 quad_remesh_follows_guides :: proc(t: ^testing.T) {
 	when !quadmesh.AVAILABLE {
@@ -438,39 +438,46 @@ quad_remesh_follows_guides :: proc(t: ^testing.T) {
 	defer delete(circle)
 	lines := [][]geom.Vec3{circle}
 	near := f32(math.sqrt(4 * math.PI / 2000)) / 2
-	plain := compute(shape_view(&m), 2000, {engine = .Auto}, nil)
-	defer result_destroy(&plain)
-	half := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 0.5}, nil, source = {guides = lines})
-	defer result_destroy(&half)
-	full := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 1}, nil, source = {guides = lines})
-	defer result_destroy(&full)
-	mirrored := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 1, mirror = {axes = {false, true, false}}}, nil, source = {guides = lines})
-	defer result_destroy(&mirrored)
 	bumpy := geom.icosphere(5)
 	defer geom.mesh_destroy(&bumpy)
 	for &p in bumpy.positions do p *= bump(p)
 	across := guide_circle({0.3, 0.9, 0.3}, 70, 300, bump)
 	defer delete(across)
-	bumpy_plain := compute(shape_view(&bumpy), 3000, {engine = .Auto}, nil)
-	defer result_destroy(&bumpy_plain)
-	bumpy_guided := compute(shape_view(&bumpy), 3000, {engine = .Auto, guide_strength = 1}, nil, source = {guides = {across}})
-	defer result_destroy(&bumpy_guided)
-	results := [?]^Result{&plain, &half, &full, &mirrored, &bumpy_plain, &bumpy_guided}
-	for r in results do if !testing.expect(t, r.built && r.q.quads != nil, "nothing built, or not all quads") do return
-	a0, n0 := guide_alignment(plain, circle, near)
-	a1, n1 := guide_alignment(half, circle, near)
-	a2, n2 := guide_alignment(full, circle, near)
-	a3, n3 := guide_alignment(mirrored, circle, near)
-	near_bumpy := f32(math.sqrt(4 * math.PI / 3000)) / 2
-	b0, m0 := guide_alignment(bumpy_plain, across, near_bumpy)
-	b1, m1 := guide_alignment(bumpy_guided, across, near_bumpy)
-	log.infof("guides: none %.1f° (%d edges), half %.1f° (%d), full %.1f° (%d), mirrored %.1f° (%d); bumpy none %.1f° (%d), full %.1f° (%d); faces %d %d %d %d %d %d; guides %d %d %d",
-		a0, n0, a1, n1, a2, n2, a3, n3, b0, m0, b1, m1, plain.faces, half.faces, full.faces, mirrored.faces, bumpy_plain.faces, bumpy_guided.faces, half.guides, full.guides, mirrored.guides)
-	testing.expectf(t, full.guides == 1 && mirrored.guides == 1 && plain.guides == 0, "guides kept: %d, %d mirrored, %d with none", full.guides, mirrored.guides, plain.guides)
-	testing.expectf(t, a2 < 10 && a3 < 10 && b1 < 10, "at full strength the edges lie %.1f°, %.1f° mirrored and %.1f° on the bumpy sphere from the guide", a2, a3, b1)
-	testing.expectf(t, a1 < a0 && a2 <= a1 + 1 && a0 > 12 && b0 > 12, "the edges lie %.1f° from the guide with none, %.1f° at half and %.1f° at full (bumpy: %.1f° with none)", a0, a1, a2, b0)
-	// The mirrored count runs short of the count asked with or without guides (the flat
-	// cap takes more than its share), so only the whole remeshes are held to it.
-	for r in results[1:3] do testing.expectf(t, r.faces >= 1900 && r.faces <= 2100, "%d faces for 2000 asked", r.faces)
-	testing.expectf(t, bumpy_guided.faces >= 2850 && bumpy_guided.faces <= 3150, "%d faces for 3000 asked on the bumpy sphere", bumpy_guided.faces)
+	for core in ([]quadmesh.Core{.Cpp, .Odin}) {
+		plain := compute(shape_view(&m), 2000, {engine = .Auto, core = core}, nil)
+		defer result_destroy(&plain)
+		half := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 0.5, core = core}, nil, source = {guides = lines})
+		defer result_destroy(&half)
+		full := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 1, core = core}, nil, source = {guides = lines})
+		defer result_destroy(&full)
+		mirrored := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 1, mirror = {axes = {false, true, false}}, core = core}, nil, source = {guides = lines})
+		defer result_destroy(&mirrored)
+		bumpy_plain := compute(shape_view(&bumpy), 3000, {engine = .Auto, core = core}, nil)
+		defer result_destroy(&bumpy_plain)
+		bumpy_guided := compute(shape_view(&bumpy), 3000, {engine = .Auto, guide_strength = 1, core = core}, nil, source = {guides = {across}})
+		defer result_destroy(&bumpy_guided)
+		results := [?]^Result{&plain, &half, &full, &mirrored, &bumpy_plain, &bumpy_guided}
+		built := true
+		for r in results do built &&= r.built && r.q.quads != nil
+		if !testing.expectf(t, built, "%v: nothing built, or not all quads", core) do continue
+		a0, n0 := guide_alignment(plain, circle, near)
+		a1, n1 := guide_alignment(half, circle, near)
+		a2, n2 := guide_alignment(full, circle, near)
+		a3, n3 := guide_alignment(mirrored, circle, near)
+		near_bumpy := f32(math.sqrt(4 * math.PI / 3000)) / 2
+		b0, m0 := guide_alignment(bumpy_plain, across, near_bumpy)
+		b1, m1 := guide_alignment(bumpy_guided, across, near_bumpy)
+		log.infof("%v guides: none %.1f° (%d edges), half %.1f° (%d), full %.1f° (%d), mirrored %.1f° (%d); bumpy none %.1f° (%d), full %.1f° (%d); faces %d %d %d %d %d %d; guides %d %d %d",
+			core, a0, n0, a1, n1, a2, n2, a3, n3, b0, m0, b1, m1, plain.faces, half.faces, full.faces, mirrored.faces, bumpy_plain.faces, bumpy_guided.faces, half.guides, full.guides, mirrored.guides)
+		testing.expectf(t, full.guides == 1 && mirrored.guides == 1 && plain.guides == 0, "%v: guides kept: %d, %d mirrored, %d with none", core, full.guides, mirrored.guides, plain.guides)
+		testing.expectf(t, a2 < 10 && a3 < 10 && b1 < 10, "%v: at full strength the edges lie %.1f°, %.1f° mirrored and %.1f° on the bumpy sphere from the guide", core, a2, a3, b1)
+		testing.expectf(t, a1 < a0 && a2 <= a1 + 1 && a0 > 12 && b0 > 12, "%v: the edges lie %.1f° from the guide with none, %.1f° at half and %.1f° at full (bumpy: %.1f° with none)", core, a0, a1, a2, b0)
+		// Through the C++ the mirrored count runs short of the count asked with or without
+		// guides (the flat cap takes more than its share), so only the whole remeshes are
+		// held to it there; the Odin core's open half lands it too.
+		for r in results[1:4] do if r != &mirrored || core == .Odin {
+			testing.expectf(t, r.faces >= 1900 && r.faces <= 2100, "%v: %d faces for 2000 asked", core, r.faces)
+		}
+		testing.expectf(t, bumpy_guided.faces >= 2850 && bumpy_guided.faces <= 3150, "%v: %d faces for 3000 asked on the bumpy sphere", core, bumpy_guided.faces)
+	}
 }
