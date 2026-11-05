@@ -1,0 +1,16 @@
+---
+name: remesh-quad-build-details
+description: Per-PR notes of the Remesh / Quad Remesh build, part 1 (PRs 1-3: #358 wireframe edges, #360 AutoRemesher dependency, #362 Quad Remesh command) and container notes
+metadata:
+  type: project
+---
+
+Summary: [[remesh-quad-build]]. PRs 4-6: [[remesh-quad-build-details-2]].
+
+Research and decisions: [[remesh-quad-research]] (report https://claude.ai/artifact/Y7oLGn8QV2MmegNP2uYWgV).
+
+Container notes: apt here lacks X11/Wayland dev packages and mesa-vulkan-drivers; SDL3 builds with `-DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_OFFSCREEN=ON -DSDL_UNIX_CONSOLE_BUILD=ON`; the only Vulkan ICD is Chromium's SwiftShader (/opt/pw-browsers/chromium-1243/chrome-linux64/vk_swiftshader_icd.json). Odin tests of geom/sculpt run without SDL. Odin release tarballs downloaded fine today.
+
+Build (Bolt "Ok proceed" 2026-10-30 07:09): PR 1 merged as #358 (2026-10-30 07:31): polygon edges in the wireframe (`sculpt.levels_polygon_edges`, `src/app/poly_edges.odin`, `Object.poly_edges` keys per level, exit stat `poly_edges=`), the shelf's Retopologize tile runs on a tap, tests for the quad cube's edges, the retopology valence floor (70% regular, 2-8 quads a vertex) and the tile. Next: PR 2 AutoRemesher dependency + `src/quadmesh` (design review first), then PR 3 Quad Remesh command, PR 4 options, PR 5 Remesh gaps, PR 6 checks and bench. Picture: /mnt/project-files/notes/remesh/pr1_poly_wire.png.
+PR 2 merged as #360 (2026-10-30 07:55): `scripts/build_autoremesher.py` (AUTOREMESHER_COMMIT in versions.env, deps/autoremesher), `src/quadmesh` (`remesh` -> Polygon_Mesh{positions, first, corners}, Report, Error, reason; AVAILABLE = desktops; thread-local thread count; locked std::cerr sink; cancel by exception on the calling thread). Gotchas: the Odin test runner runs a package's tests on one thread per core, so anything process-global in C++ races; never put quadmesh output in a cross-platform parity comparison (unordered_map order). Design + review: /mnt/project-files/notes/remesh/pr2-design.md. Next PR 3: Quad Remesh command (Polys side table, long job, validate/repair/refuse, cap input).
+PR 3 merged as #362 (2026-10-30 08:35): Retopologize is now **Quad Remesh** (command id/script verb `retopologize` and `.Retopo` unchanged); `Quad_Engine {Auto, Own}` in `app.ui.retopo_engine` (setting/script `retopo_engine`, tabs under Rebuild's Density when `quadmesh.AVAILABLE`), carried in `Scene_Command.engine`; `quad_remesh_compute` in src/app/retopo.odin: decimate past 1M tris, `mesh_integrity` refusals (non-manifold, flipped, degenerate, duplicate, NaN, >256 pieces) fall back to the own engine with the reason in the result line; polygons kept on the new object via `levels_set_polys(.Smooth)` using `scene_add_mesh(..., tri_from)` + `retopo_polys_renumber`; all-quad results also keep quads+UVs. Verified by scripted runs (1,202 quads from 1500 asked, poly_edges 2x quads, levels_rule Smooth, subdivide gives 4x quads). Touch scenarios could not run here: this container's deps/sdl3 is built without X11 (SDL_X11=OFF; apt lacks libxcursor-dev etc., and rebuilding deps was denied). Design + review: /mnt/project-files/notes/remesh/pr3-design.md. Next: PR 4 options (symmetry, Close first, rule choice, adaptivity), PR 5a/5b Remesh gaps, PR 6 remesh_check.py + bench, then the full gate.

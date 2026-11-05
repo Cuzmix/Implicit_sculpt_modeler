@@ -1,0 +1,413 @@
+<title>Panels Motion</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one row per place, a live sketch of the iPad screen that plays the motion beside what moves, how long and
+   which Motion switch turns it off. One dark world on purpose, the app's own (Lens), as the earlier panel mocks are. */
+:root{
+  --frame:#0D0F12; --surface:#161A1F; --raised:#1E242B; --line:#2A3139; --text:#E7ECF0; --dim:#8C98A4; --faint:#56616C;
+  --glaze:#5ED6C4; --warn:#F3B54A; --plan:#9AA8FF; --finger:#FF86B9;
+  --page:#0A0C0F; --page-text:#D9E0E6;
+  --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{background:var(--page);color:var(--page-text);font-family:var(--sans)}
+body{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 48px}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit}
+button:focus-visible{outline:2px solid var(--glaze);outline-offset:2px}
+.wrap{max-width:1200px;margin:0 auto}
+header.page{display:flex;flex-wrap:wrap;gap:16px 32px;align-items:flex-end;justify-content:space-between;margin-bottom:20px}
+header.page h1{font-size:24px;margin:0;letter-spacing:-.01em;text-wrap:balance}
+header.page p{margin:6px 0 0;color:var(--dim);max-width:70ch;line-height:1.5}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:13px;color:var(--dim)}
+.seg{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px}
+.seg button{background:none;border:0;padding:6px 12px;border-radius:7px;cursor:pointer;color:var(--dim);font-size:13px}
+.seg button.on{background:var(--raised);color:var(--text)}
+.play{background:var(--glaze);color:#06201C;border:0;border-radius:9px;padding:7px 14px;font-weight:600;cursor:pointer;font-size:13px}
+.play:disabled{opacity:.5;cursor:default}
+
+.place{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:24px;align-items:start;padding-block:26px;border-top:1px solid var(--line)}
+@media (max-width:880px){.place{grid-template-columns:minmax(0,1fr)}}
+.place h2{margin:0 0 4px;font-size:18px;letter-spacing:-.005em;text-wrap:balance;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.place h2 .n{font-family:var(--mono);font-size:12px;color:var(--faint);font-weight:500}
+.pick{font-family:var(--mono);font-size:11px;color:var(--glaze);border:1px solid rgba(94,214,196,.4);border-radius:999px;padding:2px 8px}
+.text{min-width:0;font-size:14px;line-height:1.55}
+.text p{margin:8px 0;max-width:60ch}
+.spec{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;margin-top:12px;font-size:13px}
+.spec dt{color:var(--faint);font-family:var(--mono);font-size:11.5px;padding-top:2px;text-transform:uppercase;letter-spacing:.06em}
+.spec dd{margin:0;color:var(--dim)}
+.spec dd b{color:var(--text);font-weight:500}
+.shot{min-width:0;display:grid;gap:8px}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+
+/* ---------- The sketch: the iPad screen at 1180 x 820 points ---------- */
+.dev{position:relative;width:100%;aspect-ratio:1180/820;border-radius:12px;border:1px solid var(--line);overflow:hidden;
+  background:radial-gradient(120% 90% at 50% 40%,#232A31 0%,#14181D 60%,#0D0F12 100%);container-type:inline-size}
+.dev.narrow{aspect-ratio:600/820;width:min(100%,340px);justify-self:center}
+.x{position:absolute}
+.model{border-radius:50%;background:radial-gradient(circle at 38% 32%,#F2E6DC 0%,#D8C2B0 30%,#A88C78 70%,#6E5A4C 100%);box-shadow:0 2cqw 5cqw rgba(0,0,0,.45)}
+.isl{background:rgba(22,26,31,.95);border:1px solid var(--line);border-radius:1.1cqw;display:flex;align-items:center;justify-content:flex-start;gap:.9cqw;padding:.9cqw .5cqw}
+.isl.v{flex-direction:column}
+.isl.h{flex-direction:row;padding:.5cqw .9cqw;justify-content:center}
+.grip{width:2.2cqw;height:.45cqw;border-radius:1cqw;background:#3A444E;flex:none}
+.isl.h .grip{width:.45cqw;height:2.2cqw}
+.ic{width:2.6cqw;height:2.6cqw;border-radius:.7cqw;background:#2B333C;flex:none}
+.ic.on{background:rgba(94,214,196,.6)}
+.top{display:flex;gap:.4cqw;padding:.5cqw;align-items:center}
+.tab{font-size:1.25cqw;color:var(--dim);padding:.5cqw 1.1cqw;border-radius:.7cqw;position:relative;z-index:1}
+.tab.on{color:#06201C}
+.ind{position:absolute;top:.5cqw;bottom:.5cqw;border-radius:.7cqw;background:var(--glaze);z-index:0}
+.card{background:rgba(22,26,31,.98);border:1px solid var(--line);border-radius:1.1cqw;padding:1.1cqw;display:flex;flex-direction:column;gap:.8cqw;overflow:hidden;box-shadow:0 1.2cqw 3cqw rgba(0,0,0,.45)}
+.card .hd{display:flex;align-items:center;gap:.6cqw;font-size:1.5cqw;font-weight:600;color:var(--text);white-space:nowrap}
+.card .hd .sp{flex:1}
+.card .hd .pin{width:1.3cqw;height:1.3cqw;border-radius:.3cqw;border:1px solid var(--faint)}
+.row{height:2.1cqw;border-radius:.5cqw;background:#232A31;flex:none}
+.row.s{width:66%}
+.row.acc{background:linear-gradient(90deg,rgba(94,214,196,.55) 58%,#232A31 58%)}
+.sec{font-size:1.05cqw;letter-spacing:.08em;color:var(--faint);text-transform:uppercase;flex:none}
+.clip{position:absolute;overflow:hidden}
+.scrim{position:absolute;inset:0;background:rgba(5,7,9,.55)}
+.finger{position:absolute;width:4cqw;height:4cqw;margin:-2cqw 0 0 -2cqw;border-radius:50%;background:rgba(255,134,185,.35);border:2px solid var(--finger);opacity:0;pointer-events:none;z-index:20}
+.pane2{position:absolute;top:0;bottom:0;right:0;width:50%;overflow:hidden;background:radial-gradient(120% 90% at 50% 45%,#262D35 0%,#15191E 70%)}
+.divider{position:absolute;top:0;bottom:0;width:.35cqw;background:var(--glaze);opacity:.7}
+.chip{position:absolute;font-size:1.2cqw;color:var(--text);background:rgba(22,26,31,.92);border:1px solid var(--line);border-radius:.8cqw;padding:.4cqw .9cqw;white-space:nowrap}
+.caption{position:absolute;left:1.5cqw;bottom:1.3cqw;font-family:var(--mono);font-size:1.25cqw;color:var(--dim);z-index:25}
+.foot{margin-top:28px;padding-top:18px;border-top:1px solid var(--line);color:var(--dim);font-size:13.5px;line-height:1.55;max-width:80ch}
+</style>
+
+<div class="wrap">
+<header class="page">
+  <div>
+    <h1>Panels motion</h1>
+    <p>Eight places where the panels still snap. Press Play on each one to see it move. Today shows how the app behaves now. Proposed shows the new motion. Every motion gets its own switch under Settings &gt; Interface &gt; Motion, follows Reduced and Off, and never runs during a stroke or a camera drag.</p>
+  </div>
+  <div class="controls">
+    <span>Speed</span>
+    <div class="seg" id="speed"><button class="on" data-v="1">1x</button><button data-v="4">Slow</button></div>
+  </div>
+</header>
+
+<section class="place" data-demo="cards">
+  <div class="shot">
+    <div class="dev" id="d-cards"></div>
+    <div class="bar"><div class="seg mode"><button data-m="now">Today</button><button class="on" data-m="new">Proposed</button></div><button class="play">Play</button></div>
+  </div>
+  <div class="text">
+    <h2><span class="n">1</span>Cards slide from their dock <span class="pick">start here</span></h2>
+    <p>The card comes out from behind the dock that opened it, so you can see where it came from and where it goes back to. Opening another card in the same column slides the old one away. Closing slides it back in. Today a card fades and rises 12 points when it opens, and simply disappears when it closes.</p>
+    <dl class="spec"><dt>Time</dt><dd><b>220 ms</b> open, 180 ms close, eased out</dd><dt>Switch</dt><dd><b>Cards</b> (new)</dd><dt>Reduced</dt><dd>a fade only</dd></dl>
+  </div>
+</section>
+
+<section class="place" data-demo="sheet">
+  <div class="shot">
+    <div class="dev narrow" id="d-sheet"></div>
+    <div class="bar"><div class="seg mode"><button data-m="now">Today</button><button class="on" data-m="new">Proposed</button></div><button class="play">Play</button></div>
+  </div>
+  <div class="text">
+    <h2><span class="n">2</span>Bottom sheet on narrow screens <span class="pick">start here</span></h2>
+    <p>Below 900 points a card opens as a sheet over the lower part. It rises from the bottom edge. Dragging its grip down makes it follow your finger, and letting go past a third of its height puts it away; letting go sooner springs it back. Today it fades in, and only its close button puts it away.</p>
+    <dl class="spec"><dt>Time</dt><dd><b>260 ms</b> rise, follows the finger exactly, 200 ms away</dd><dt>Switch</dt><dd><b>Cards</b></dd><dt>Reduced</dt><dd>a fade; the drag still works</dd></dl>
+  </div>
+</section>
+
+<section class="place" data-demo="modal">
+  <div class="shot">
+    <div class="dev" id="d-modal"></div>
+    <div class="bar"><div class="seg mode"><button data-m="now">Today</button><button class="on" data-m="new">Proposed</button></div><button class="play">Play</button></div>
+  </div>
+  <div class="text">
+    <h2><span class="n">3</span>Sheets fade and grow in <span class="pick">start here</span></h2>
+    <p>Settings, Help, Library, Export and Macros open by growing slightly from 96% while the view dims behind them, and leave with a quicker fade. This is the iPadOS form sheet's feel. Today they appear and vanish in one frame.</p>
+    <dl class="spec"><dt>Time</dt><dd><b>200 ms</b> in, 150 ms out</dd><dt>Switch</dt><dd><b>Sheets</b> (new)</dd><dt>Reduced</dt><dd>the fade without the growth</dd></dl>
+  </div>
+</section>
+
+<section class="place" data-demo="hide">
+  <div class="shot">
+    <div class="dev" id="d-hide"></div>
+    <div class="bar"><div class="seg mode"><button data-m="now">Today</button><button class="on" data-m="new">Proposed</button></div><button class="play">Play</button></div>
+  </div>
+  <div class="text">
+    <h2><span class="n">4</span>Docks slide off their edge <span class="pick">start here</span></h2>
+    <p>Focus mode, the clean view and Reset layout send each dock off the edge it stands on and bring it back the same way, a few milliseconds apart, so the screen clears without a jolt. A floating dock fades instead. Today they pop out and in.</p>
+    <dl class="spec"><dt>Time</dt><dd><b>240 ms</b>, 30 ms apart</dd><dt>Switch</dt><dd><b>Docks</b> (new)</dd><dt>Reduced</dt><dd>a fade</dd></dl>
+  </div>
+</section>
+
+<section class="place" data-demo="drop">
+  <div class="shot">
+    <div class="dev" id="d-drop"></div>
+    <div class="bar"><div class="seg mode"><button data-m="now">Today</button><button class="on" data-m="new">Proposed</button></div><button class="play">Play</button></div>
+  </div>
+  <div class="text">
+    <h2><span class="n">5</span>Dropped docks glide into place</h2>
+    <p>A dock let go near an edge glides the last stretch to where it snaps, rather than jumping there. In Edit buttons, a button you add opens a gap and grows into it, and one you remove shrinks while its neighbours close up.</p>
+    <dl class="spec"><dt>Time</dt><dd><b>200 ms</b> glide, 180 ms per button</dd><dt>Switch</dt><dd><b>Docks</b></dd><dt>Reduced</dt><dd>no glide; buttons fade</dd></dl>
+  </div>
+</section>
+
+<section class="place" data-demo="float">
+  <div class="shot">
+    <div class="dev" id="d-float"></div>
+    <div class="bar"><div class="seg mode"><button data-m="now">Today</button><button class="on" data-m="new">Proposed</button></div><button class="play">Play</button></div>
+  </div>
+  <div class="text">
+    <h2><span class="n">6</span>Floating cards lift and return</h2>
+    <p>Tearing a card out of its column lifts it slightly, a little larger with a deeper shadow, so it reads as picked up. Put back glides it into its slot in the column. Today it doesn't lift, and Put back moves it in one frame.</p>
+    <dl class="spec"><dt>Time</dt><dd><b>120 ms</b> lift, 260 ms return</dd><dt>Switch</dt><dd><b>Cards</b></dd><dt>Reduced</dt><dd>shadow only; the return fades</dd></dl>
+  </div>
+</section>
+
+<section class="place" data-demo="pane">
+  <div class="shot">
+    <div class="dev" id="d-pane"></div>
+    <div class="bar"><div class="seg mode"><button data-m="now">Today</button><button class="on" data-m="new">Proposed</button></div><button class="play">Play</button></div>
+  </div>
+  <div class="text">
+    <h2><span class="n">7</span>Second view slides in, panes grow</h2>
+    <p>Second view brings the divider in from the edge and the pane opens behind it; a second tap takes it back out. Maximise grows a pane from its own rectangle to the whole view, and Restore shrinks it back. Today the pane fades in and Maximise jumps. The 3D views keep drawing at rest only, so this costs no extra renders.</p>
+    <dl class="spec"><dt>Time</dt><dd><b>260 ms</b> split, 240 ms maximise</dd><dt>Switch</dt><dd><b>View panes</b> (exists, today only the fade)</dd><dt>Reduced</dt><dd>the fade it has now</dd></dl>
+  </div>
+</section>
+
+<section class="place" data-demo="space">
+  <div class="shot">
+    <div class="dev" id="d-space"></div>
+    <div class="bar"><div class="seg mode"><button data-m="now">Today</button><button class="on" data-m="new">Proposed</button></div><button class="play">Play</button></div>
+  </div>
+  <div class="text">
+    <h2><span class="n">8</span>Switching space fades across</h2>
+    <p>Going from Sculpt to Render, the docks and cards that leave fade out quickly, and the new space's ones fade in and settle a few points. A card the new layout pins, such as Render's Look card, slides out from its dock as in 1. Only the tab indicator moves today; everything else changes in one frame.</p>
+    <dl class="spec"><dt>Time</dt><dd><b>120 ms</b> out, 180 ms in</dd><dt>Switch</dt><dd><b>Spaces</b> (new)</dd><dt>Reduced</dt><dd>the fade without the settle</dd></dl>
+  </div>
+</section>
+
+<p class="foot">How it would be built: every motion uses the kit's existing tweens (<code>ui.presence</code>, <code>ui.tween</code>, <code>transform_since</code>), which already respect the Motion level. A closing card is drawn for its last 180 ms from what it showed, so a panel still keeps no state between frames. Cost: the interface's vertices move on the CPU only while something animates, the 3D view is not redrawn for any of it, and nothing animates while a brush or the camera is held. Suggested order: one PR for 1 to 4, then one for 5 to 8.</p>
+</div>
+
+<script>
+(() => {
+  const OUT = "cubic-bezier(.33,1,.68,1)", IN = "cubic-bezier(.32,0,.67,0)";
+  let slow = 1;
+  document.querySelectorAll("#speed button").forEach(b => b.addEventListener("click", () => {
+    document.querySelectorAll("#speed button").forEach(x => x.classList.toggle("on", x === b));
+    slow = +b.dataset.v;
+  }));
+  const T = ms => ms * slow;
+  const sleep = ms => new Promise(r => setTimeout(r, T(ms)));
+  const anim = (el, kf, ms, ease = OUT, extra = {}) => el.animate(kf, {duration: T(ms), easing: ease, fill: "forwards", ...extra}).finished;
+  const el = (cls, style, html = "") => { const d = document.createElement("div"); d.className = cls; if (style) d.setAttribute("style", style); d.innerHTML = html; return d; };
+  const ics = (n, on = -1) => Array.from({length: n}, (_, i) => `<div class="ic${i === on ? " on" : ""}"></div>`).join("");
+  const rows = n => Array.from({length: n}, (_, i) => `<div class="row${i % 3 === 1 ? " s" : i % 3 === 2 ? " acc" : ""}"></div>`).join("");
+  const card = (name, sec, n = 7) => `<div class="hd">${name}<span class="sp"></span><span class="pin"></span></div><div class="sec">${sec}</div>${rows(n)}`;
+  const clear = d => d.getAnimations({subtree: true}).forEach(a => a.cancel());
+
+  // The parts every sketch shares: the model, the top bar, the off-hand island, the shelf and the right dock.
+  function base(d, opts = {}) {
+    d.innerHTML = "";
+    d.append(el("x model", "left:33%;top:20%;width:34%;aspect-ratio:1"));
+    if (!opts.noTop) d.append(el("x isl h top", "left:34%;top:1.6%;height:6.4%;width:32%", `<span class="tab on" style="color:var(--text)">Sculpt</span><span class="tab">Model</span><span class="tab">Render</span>`));
+    const left = el("x isl v", "left:1.2%;top:26%;width:4.8%;height:38%", `<div class="grip"></div>${ics(4)}`);
+    const shelf = el("x isl h", "left:28%;bottom:2.2%;width:44%;height:8.5%", `<div class="grip"></div>${ics(7, 2)}`);
+    const dock = el("x isl v", "right:1.2%;top:12%;width:4.8%;height:56%;z-index:5", `<div class="grip"></div>${ics(7, 0)}`);
+    d.append(left, shelf, dock);
+    return {left, shelf, dock};
+  }
+  const finger = d => { const f = el("finger"); d.append(f); return f; };
+  const fingerTo = (f, x, y, ms, ease = "linear") => anim(f, [{left: f.style.left || x, top: f.style.top || y}, {left: x, top: y}], ms, ease).then(() => { f.style.left = x; f.style.top = y; });
+  const fingerShow = (f, on) => anim(f, [{opacity: on ? 0 : 1}, {opacity: on ? 1 : 0}], 120, "linear");
+  const caption = (d, text) => { let c = d.querySelector(".caption"); if (!c) { c = el("caption"); d.append(c); } c.textContent = text; };
+
+  const demos = {
+    // 1. A card in the right column slides out from behind the dock, swaps, and slides back.
+    async cards(d, m) {
+      const {dock} = base(d);
+      const clip = el("clip", "right:6.4%;top:12%;width:30%;height:66%;z-index:4");
+      d.append(clip);
+      const make = (name, sec) => el("x card", "right:.6%;top:0;width:88%;height:100%", card(name, sec));
+      const ic = dock.querySelectorAll(".ic");
+      const a = make("Tool", "Stroke"), b = make("Layers", "Layers");
+      const press = i => { ic.forEach((x, j) => x.classList.toggle("on", j === i)); };
+      caption(d, "Tap Tool"); press(1); clip.append(a);
+      if (m === "new") await anim(a, [{transform: "translateX(108%)"}, {transform: "translateX(0)"}], 220);
+      else await anim(a, [{opacity: 0, transform: "translateY(12px)"}, {opacity: 1, transform: "none"}], 200);
+      await sleep(700);
+      caption(d, "Tap Layers"); press(2); clip.append(b);
+      if (m === "new") {
+        await Promise.all([anim(a, [{transform: "translateX(0)", opacity: 1}, {transform: "translateX(-14%)", opacity: 0}], 200),
+          anim(b, [{transform: "translateX(108%)"}, {transform: "translateX(0)"}], 220)]);
+      } else { a.remove(); await anim(b, [{opacity: 0, transform: "translateY(12px)"}, {opacity: 1, transform: "none"}], 200); }
+      a.remove();
+      await sleep(700);
+      caption(d, "Tap Layers again"); press(0);
+      if (m === "new") await anim(b, [{transform: "translateX(0)"}, {transform: "translateX(108%)"}], 180, IN);
+      else b.remove();
+      await sleep(300); caption(d, "");
+    },
+    // 2. The narrow sheet rises, follows a drag down, and goes.
+    async sheet(d, m) {
+      d.innerHTML = "";
+      d.append(el("x model", "left:18%;top:14%;width:64%;aspect-ratio:1"));
+      const s = el("x card", "left:2%;right:2%;bottom:0;height:46%;border-radius:2.6cqw 2.6cqw 0 0;z-index:5;padding:2cqw", `<div class="grip" style="align-self:center;width:6cqw;height:.9cqw;background:#4A5560"></div><div class="hd" style="font-size:3cqw">Tool<span class="sp"></span><span style="color:var(--dim);font-size:2.6cqw">✕</span></div>${rows(5).replaceAll("row", "row x2")}`);
+      s.querySelectorAll(".x2").forEach(r => r.style.height = "4cqw");
+      const f = finger(d);
+      caption(d, "Tap Tool"); d.append(s);
+      if (m === "new") await anim(s, [{transform: "translateY(100%)"}, {transform: "translateY(0)"}], 260);
+      else await anim(s, [{opacity: 0, transform: "translateY(12px)"}, {opacity: 1, transform: "none"}], 200);
+      await sleep(600);
+      if (m === "new") {
+        caption(d, "Drag the grip down");
+        f.style.left = "50%"; f.style.top = "56%"; await fingerShow(f, true);
+        await Promise.all([fingerTo(f, "50%", "74%", 420), anim(s, [{transform: "translateY(0)"}, {transform: "translateY(40%)"}], 420, "linear")]);
+        caption(d, "Let go");
+        await Promise.all([fingerShow(f, false), anim(s, [{transform: "translateY(40%)"}, {transform: "translateY(100%)"}], 200)]);
+      } else {
+        caption(d, "Drag does nothing; tap ✕");
+        f.style.left = "50%"; f.style.top = "56%"; await fingerShow(f, true); await fingerTo(f, "50%", "70%", 420); await fingerShow(f, false);
+        await sleep(200); f.style.left = "92%"; f.style.top = "60.5%"; await fingerShow(f, true); await sleep(150); s.remove(); await fingerShow(f, false);
+      }
+      s.remove(); await sleep(300); caption(d, "");
+    },
+    // 3. A centred sheet grows in over a dimmed view and fades out.
+    async modal(d, m) {
+      base(d);
+      const scrim = el("scrim"), s = el("x card", "left:22%;top:12%;width:56%;height:76%;z-index:8;padding:1.6cqw",
+        `<div class="hd" style="font-size:1.9cqw">Settings<span class="sp"></span><span style="color:var(--dim)">✕</span></div><div style="display:flex;gap:.6cqw">${["Interface","Pen","Keys","Performance"].map((t, i) => `<span class="tab" style="${i ? "" : "background:var(--raised);color:var(--text)"}">${t}</span>`).join("")}</div>${rows(8)}`);
+      scrim.style.zIndex = 7;
+      caption(d, "Open Settings"); d.append(scrim, s);
+      if (m === "new") await Promise.all([anim(scrim, [{opacity: 0}, {opacity: 1}], 200), anim(s, [{opacity: 0, transform: "scale(.96)"}, {opacity: 1, transform: "scale(1)"}], 200)]);
+      await sleep(900);
+      caption(d, "Close");
+      if (m === "new") await Promise.all([anim(scrim, [{opacity: 1}, {opacity: 0}], 150, "linear"), anim(s, [{opacity: 1, transform: "scale(1)"}, {opacity: 0, transform: "scale(.98)"}], 150, IN)]);
+      scrim.remove(); s.remove(); await sleep(300); caption(d, "");
+    },
+    // 4. Focus mode sends each dock off its own edge and back.
+    async hide(d, m) {
+      const {left, shelf, dock} = base(d);
+      const top = d.querySelector(".top");
+      const parts = [[left, "translateX(-150%)"], [dock, "translateX(150%)"], [shelf, "translateY(160%)"], [top, "translateY(-170%)"]];
+      caption(d, "Focus on");
+      if (m === "new") await Promise.all(parts.map(([p, t], i) => anim(p, [{transform: "none"}, {transform: t}], 240, OUT, {delay: T(i * 30)})));
+      else parts.forEach(([p]) => p.style.visibility = "hidden");
+      await sleep(900);
+      caption(d, "Focus off");
+      if (m === "new") await Promise.all(parts.map(([p, t], i) => anim(p, [{transform: t}, {transform: "none"}], 240, OUT, {delay: T(i * 30)})));
+      else parts.forEach(([p]) => p.style.visibility = "");
+      await sleep(300); caption(d, "");
+    },
+    // 5. A floating dock dragged near the left edge glides into its snap; then a button grows into a gap.
+    async drop(d, m) {
+      d.innerHTML = "";
+      d.append(el("x model", "left:33%;top:20%;width:34%;aspect-ratio:1"));
+      d.append(el("x isl v", "right:1.2%;top:12%;width:4.8%;height:56%", `<div class="grip"></div>${ics(7, 0)}`));
+      const dock = el("x isl v", "left:26%;top:30%;width:4.8%", `<div class="grip"></div>${ics(4)}`);
+      d.append(dock);
+      const f = finger(d);
+      caption(d, "Drag the dock by its grip");
+      f.style.left = "28.4%"; f.style.top = "31.6%"; await fingerShow(f, true);
+      await Promise.all([fingerTo(f, "7.6%", "27.6%", 520), anim(dock, [{left: "26%", top: "30%"}, {left: "5.2%", top: "26%"}], 520, "linear")]);
+      caption(d, "Let go near the edge");
+      fingerShow(f, false);
+      if (m === "new") await anim(dock, [{left: "5.2%", top: "26%"}, {left: "1.2%", top: "26%"}], 200);
+      else await anim(dock, [{left: "1.2%", top: "26%"}, {left: "1.2%", top: "26%"}], 1);
+      await sleep(600);
+      caption(d, "Edit buttons: add one");
+      const add = el("ic on");
+      dock.insertBefore(add, dock.children[3]);
+      if (m === "new") await anim(add, [{height: "0", marginBlock: "-.45cqw", opacity: 0, transform: "scale(.6)"}, {height: "2.6cqw", marginBlock: "0", opacity: 1, transform: "scale(1)"}], 180);
+      await sleep(700);
+      caption(d, "Remove it");
+      if (m === "new") await anim(add, [{height: "2.6cqw", marginBlock: "0", opacity: 1, transform: "scale(1)"}, {height: "0", marginBlock: "-.45cqw", opacity: 0, transform: "scale(.6)"}], 180, IN);
+      add.remove(); await sleep(300); caption(d, "");
+    },
+    // 6. A card torn from the column lifts, floats, and glides back on Put back.
+    async float(d, m) {
+      base(d);
+      const c = el("x card", "right:7%;top:12%;width:26%;height:62%;z-index:6", card("Mask", "Mask"));
+      d.append(c);
+      const f = finger(d);
+      caption(d, "Drag the card's title out");
+      f.style.left = "78%"; f.style.top = "15.5%"; await fingerShow(f, true);
+      if (m === "new") await anim(c, [{transform: "none", boxShadow: "0 1.2cqw 3cqw rgba(0,0,0,.45)"}, {transform: "scale(1.03)", boxShadow: "0 3cqw 7cqw rgba(0,0,0,.7)"}], 120);
+      const lift = m === "new" ? " scale(1.03)" : "";
+      await Promise.all([fingerTo(f, "48%", "27.5%", 520), anim(c, [{transform: "translate(0,0)" + lift}, {transform: "translate(-115%,19%)" + lift}], 520, "linear")]);
+      caption(d, "Let go: it floats");
+      fingerShow(f, false);
+      if (m === "new") await anim(c, [{transform: "translate(-115%,19%) scale(1.03)", boxShadow: "0 3cqw 7cqw rgba(0,0,0,.7)"}, {transform: "translate(-115%,19%)", boxShadow: "0 1.6cqw 4cqw rgba(0,0,0,.55)"}], 120);
+      await sleep(800);
+      caption(d, "Put back");
+      if (m === "new") await anim(c, [{transform: "translate(-115%,19%)"}, {transform: "none"}], 260, "cubic-bezier(.65,0,.35,1)");
+      else await anim(c, [{transform: "none"}, {transform: "none"}], 1);
+      await sleep(300); caption(d, "");
+    },
+    // 7. Second view: the divider comes in from the edge; then the pane maximises from its rectangle.
+    async pane(d, m) {
+      d.innerHTML = "";
+      const main = el("x model", "left:12%;top:20%;width:30%;aspect-ratio:1");
+      d.append(main);
+      const pane = el("pane2"), div = el("divider", "left:50%");
+      pane.append(el("x model", "left:20%;top:20%;width:60%;aspect-ratio:1;filter:hue-rotate(-10deg) saturate(.6)"), el("chip", "left:4%;top:4%", "Front · ortho"));
+      d.append(el("x isl v", "right:1.2%;top:12%;width:4.8%;height:56%;z-index:5", `<div class="grip"></div>${ics(7, 6)}`));
+      caption(d, "Second view on");
+      d.append(pane, div);
+      if (m === "new") await Promise.all([anim(pane, [{clipPath: "inset(0 0 0 100%)"}, {clipPath: "inset(0 0 0 0)"}], 260), anim(div, [{left: "100%"}, {left: "50%"}], 260),
+        anim(main, [{left: "33%"}, {left: "12%"}], 260)]);
+      else await anim(pane, [{opacity: 0}, {opacity: 1}], 200, "linear");
+      await sleep(800);
+      caption(d, "Maximise the pane");
+      if (m === "new") await Promise.all([anim(pane, [{width: "50%"}, {width: "100%"}], 240), anim(div, [{left: "50%", opacity: .7}, {left: "0%", opacity: 0}], 240)]);
+      else { pane.style.width = "100%"; div.style.opacity = 0; }
+      await sleep(700);
+      caption(d, "Restore");
+      if (m === "new") await Promise.all([anim(pane, [{width: "100%"}, {width: "50%"}], 240), anim(div, [{left: "0%", opacity: 0}, {left: "50%", opacity: .7}], 240)]);
+      else { pane.style.width = "50%"; div.style.opacity = .7; }
+      await sleep(400); caption(d, "");
+    },
+    // 8. Sculpt to Render: the indicator slides; the docks and the shelf cross over; Look slides out.
+    async space(d, m) {
+      const {left, shelf} = base(d, {noTop: true});
+      const top = el("x isl h top", "left:34%;top:1.6%;height:6.4%;width:32%;justify-content:flex-start", `<span class="ind"></span><span class="tab on">Sculpt</span><span class="tab">Model</span><span class="tab">Render</span>`);
+      d.append(top);
+      const tabs = top.querySelectorAll(".tab"), ind = top.querySelector(".ind");
+      const place = t => { ind.style.left = t.offsetLeft + "px"; ind.style.width = t.offsetWidth + "px"; };
+      place(tabs[0]);
+      const shelf2 = el("x isl h", "left:36%;bottom:2.2%;width:28%;height:8.5%", `<div class="grip"></div>${ics(4, 0)}`);
+      const clip = el("clip", "right:6.4%;top:12%;width:30%;height:66%;z-index:4");
+      const look = el("x card", "right:.6%;top:0;width:88%;height:100%", card("Look", "Material", 6));
+      await sleep(300);
+      caption(d, "Tap Render");
+      const from = {left: ind.offsetLeft + "px", width: ind.offsetWidth + "px"};
+      tabs[0].classList.remove("on"); tabs[2].classList.add("on");
+      const to = {left: tabs[2].offsetLeft + "px", width: tabs[2].offsetWidth + "px"};
+      const slide = anim(ind, [from, to], 220).then(() => place(tabs[2]));
+      if (m === "new") {
+        await Promise.all([anim(left, [{opacity: 1}, {opacity: 0}], 120, "linear"), anim(shelf, [{opacity: 1}, {opacity: 0}], 120, "linear")]);
+        left.remove(); shelf.remove(); d.append(shelf2, clip); clip.append(look);
+        await Promise.all([slide, anim(shelf2, [{opacity: 0, transform: "translateY(8px)"}, {opacity: 1, transform: "none"}], 180),
+          anim(look, [{transform: "translateX(108%)"}, {transform: "translateX(0)"}], 220)]);
+      } else { left.remove(); shelf.remove(); d.append(shelf2, clip); clip.append(look); await slide; }
+      await sleep(900); caption(d, "");
+    },
+  };
+
+  // Each sketch shows its resting state, and Play runs it in the chosen mode.
+  document.querySelectorAll(".place").forEach(sec => {
+    const name = sec.dataset.demo, d = sec.querySelector(".dev"), btn = sec.querySelector(".play");
+    let mode = "new";
+    sec.querySelectorAll(".mode button").forEach(b => b.addEventListener("click", () => {
+      sec.querySelectorAll(".mode button").forEach(x => x.classList.toggle("on", x === b)); mode = b.dataset.m;
+    }));
+    const rest = () => { clear(d); if (name === "sheet") { d.innerHTML = ""; d.append(el("x model", "left:18%;top:14%;width:64%;aspect-ratio:1")); } else if (name === "pane") { demos.pane.rest?.(d); base(d); } else base(d); };
+    rest();
+    btn.addEventListener("click", async () => {
+      btn.disabled = true; rest();
+      try { await demos[name](d, mode); } catch (e) { /* a cancelled animation ends the run */ }
+      btn.disabled = false;
+    });
+  });
+})();
+</script>

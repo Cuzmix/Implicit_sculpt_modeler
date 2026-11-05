@@ -4,6 +4,12 @@ A performance-focused sculpting prototype in Odin (SDL3 for windows and input, i
 ZBrush as the behaviour model. README.md is the only document and describes what exists now; this file is the map and
 the skills hold the detail. It builds and runs on Windows (`build.bat`) and Linux (`build.sh`).
 
+## 0. Project memory
+`.claude/project-memory/` is a snapshot (2026-11-05) of what the cloud project's threads knew: read its
+`README.md`, then `memory/MEMORY.md` (Bolt's standing working rules and every plan with its PRs) before
+planning, and the memory file or `notes/` design a task touches. It does not update itself; where it
+and the code disagree, the code wins.
+
 ## 1. Before you plan: load skills
 Skills live in `.claude/skills/<name>/SKILL.md` (mirrored to `.agents/skills/` by `scripts/agents_sync.py`, which also writes the agents as Codex's `.codex/agents/*.toml`). Load every
 skill whose description fits the request BEFORE you form a plan.
@@ -80,7 +86,7 @@ skill whose description fits the request BEFORE you form a plan.
 | `scripts/` | `setup_deps.*`, `versions.env` (the pins), `build_luau.py` (Luau from source, which setup_deps runs), `build_autoremesher.py` (AutoRemesher's core with our boundary, which setup_deps runs), `ipad_build.py` (the IPA from GitHub's Mac, or a TestFlight upload), `sdl_ios.sh` and `sdl_mac.sh` (SDL for the iPad and the Mac, which `build.sh ios` and `mac` run and their workflows cache), `build_shadercross.py` and `shaders_msl.py` (each shader's Metal source from its `.spv`; `check` runs `--check`), `gate.py` (the done gate in one command; `--changed` for one PR), `headless.py` (how scripts open the app's window with no display: offscreen SDL or Xvfb), `input_report.py` (analyses an Input diagnostics report; its tests and samples beside it), `test_only.py` (some tests of one package), `try_it.py` (a real machine's run: short checks on its GPU, a report and a zip to send back), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `parity_check.py` (19 scenes against a baseline build, pixel for pixel), `touch_check.py` (touch, pen and camera scenarios), `export_check.py` (a glTF or USD export through its validator and Blender), `remesh_check.py` (Remesh and Quad Remesh over a fixture corpus, judged against the plan's acceptance), `link_check.py` (the Blender link's round trip through the add-on in bpy) |
 | `tools/blender/` | the Blender add-on of the Blender link (`sculpt_link`, Python, GPL-3.0-or-later as Blender requires): outside the build, never in the APK |
 | `deps/`, `build/` | ignored: the pinned toolchain and third-party sources; build outputs and dumps |
-| `.vscode/`, `.claude/`, `.agents/`, `.codex/agents/` | tasks and launch configurations by device; skills, agents and permissions; the generated skill mirror and Codex's copies of the agents (never edited by hand) |
+| `.vscode/`, `.claude/`, `.agents/`, `.codex/agents/` | tasks and launch configurations by device; skills, agents, permissions and the project-memory snapshot; the generated skill mirror and Codex's copies of the agents (never edited by hand) |
 
 ## 5. Hard rules
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
@@ -108,7 +114,8 @@ skill whose description fits the request BEFORE you form a plan.
 - GPU: consume every `gpu_*` result (in `render`; `hal.odin` marks them `require_results`); `render.wait_idle` before freeing buffers; set vsync before acquiring the
   swapchain; `Draw_Item.model` is a similarity: rotation, translation, uniform scale (no shear or non-uniform scale).
 - No TODO or FIXME: write it or design it. Comments are full sentences giving reasons. README is updated with any flag,
-  control or panel change. No handoff, status or notes files.
+  control or panel change. No handoff, status or notes files (beyond the
+  `.claude/project-memory/` snapshot).
 - Never edit `deps/`, `build/`, `.agents/` or `.codex/agents/`; never sleep, poll, `tail -f` or kill `sculpt.exe` by name; one
   `build.bat` per shell call, never piped into `head`, `tail` or `findstr`.
 

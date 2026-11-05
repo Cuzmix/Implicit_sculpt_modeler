@@ -1,0 +1,709 @@
+diff --git a/src/app/files.odin b/src/app/files.odin
+index 66fc93b..950a5fa 100644
+--- a/src/app/files.odin
++++ b/src/app/files.odin
+@@ -23,7 +23,7 @@ import "../sculpt"
+ 
+ File_Kind :: enum u8 {
+ 	None,
+-	Import, // a mesh file becomes a new object
++	Import, // a mesh file or a blockout becomes a new object
+ 	Export, // the selected object's shown level goes to a mesh file
+ 	Save,   // the scene goes to a .sculpt file
+ 	Open,   // a .sculpt file replaces the scene
+@@ -64,6 +64,8 @@ pending: struct {
+ @(private = "file")
+ MESH_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY)", "obj;ply"}, {"OBJ", "obj"}, {"PLY", "ply"}}
+ @(private = "file")
++IMPORT_FILTERS := [?]sdl.DialogFileFilter{{"Meshes and blockouts (OBJ, PLY, JSON)", "obj;ply;json"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"Blockout (JSON)", "json"}}
++@(private = "file")
+ SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
+ 
+ // Shows the dialog that picks the file for `kind`; its answer becomes a request. Does
+@@ -78,7 +80,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
+ 	userdata := rawptr(uintptr(kind))
+ 	#partial switch kind {
+ 	case .Import:
+-		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(MESH_FILTERS[:]), len(MESH_FILTERS), nil, false)
++		sdl.ShowOpenFileDialog(file_dialog_done, userdata, app.window, raw_data(IMPORT_FILTERS[:]), len(IMPORT_FILTERS), nil, false)
+ 	case .Export:
+ 		sdl.ShowSaveFileDialog(file_dialog_done, userdata, app.window, raw_data(MESH_FILTERS[:]), len(MESH_FILTERS), nil)
+ 	case .Save:
+@@ -195,8 +197,8 @@ scene_remember_path :: proc(app: ^App, path: string) {
+ }
+ 
+ // Reads an OBJ or PLY file into a new object beside the others, sized like a sphere
+-// (its place in the file is kept for export: see Object.file). Returns false only on a
+-// GPU failure.
++// (its place in the file is kept for export: see Object.file), or builds a blockout
++// from a .json file (scene_build_blockout). Returns false only on a GPU failure.
+ scene_import :: proc(app: ^App, path: string) -> bool {
+ 	start := time.tick_now()
+ 	name := filepath.base(path)
+@@ -215,8 +217,10 @@ scene_import :: proc(app: ^App, path: string) -> bool {
+ 		mesh, failed, line = geom.mesh_read_obj(data, &app.pool)
+ 	case ".ply":
+ 		mesh, failed, line = geom.mesh_read_ply(data, &app.pool)
++	case ".json":
++		return scene_build_blockout(app, filepath.stem(path), data, start)
+ 	case:
+-		file_note(app, true, "Cannot import %s: only .obj and .ply files import", name)
++		file_note(app, true, "Cannot import %s: only .obj, .ply and blockout .json files import", name)
+ 		return true
+ 	}
+ 	cleaned: geom.Mesh_Clean_Report
+@@ -259,6 +263,34 @@ scene_import :: proc(app: ^App, path: string) -> bool {
+ 	return true
+ }
+ 
++// Builds a blockout's shapes (geom.blockout_parse) into one new object of about the
++// Scene panel's vertex count, merged as a remesh merges them, beside the others and
++// sized like a sphere; export puts it back in the blockout's coordinates. Returns
++// false only on a GPU failure.
++scene_build_blockout :: proc(app: ^App, name: string, data: []u8, start: time.Tick) -> bool {
++	shapes, problem := geom.blockout_parse(data)
++	if problem != "" {
++		file_note(app, true, "Cannot build blockout %s: %s", name, problem)
++		return true
++	}
++	count := len(shapes)
++	mesh, ok := geom.blockout_mesh(shapes[:], int(app.ui.sphere_vertices), &app.pool)
++	free_all(context.temp_allocator)
++	if !ok {
++		file_note(app, true, "Cannot build blockout %s: its shapes have no volume", name)
++		return true
++	}
++	built := time.tick_now()
++	center, radius := geom.mesh_normalize(&mesh, &app.pool)
++	vertices := geom.mesh_vertex_count(mesh)
++	if !scene_add_mesh(app, mesh, name if name != "" else "Blockout", {position = center, scale = radius}, {position = next_free_position(app), scale = 1}, built) do return false
++	// After the new object's stats reset: building is a remesh, so it shows as one.
++	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, built))
++	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(built))
++	file_note(app, false, "Built blockout %s: %d %s merged into %d vertices in %.0f ms", name, count, "shape" if count == 1 else "shapes", vertices, app.stats.remesh_ms)
++	return true
++}
++
+ // Writes the object's shown level (packed, if dynamic) to an OBJ or PLY file, where
+ // it was in the file it came from (Object.file); Move tool placement is not written.
+ // Returns whether it was written.
+diff --git a/src/app/main.odin b/src/app/main.odin
+index ebf616f..4bf0c51 100644
+--- a/src/app/main.odin
++++ b/src/app/main.odin
+@@ -59,7 +59,7 @@ Options :: struct {
+ 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
+ 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
+ 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as File > Open scene does."`,
+-	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj or .ply file instead of spheres (after any --open), as File > Import mesh does."`,
++	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj or .ply file, or the blockout in this .json file (at the Scene panel's default vertex count, or --vertices), instead of spheres (after any --open), as File > Import does."`,
+ 	export:    string `usage:"On exit, write the selected object's shown level to this .obj or .ply file, as File > Export selected does."`,
+ 	save:      string `usage:"On exit, save the scene to this .sculpt file, as File > Save scene does."`,
+ }
+@@ -163,6 +163,8 @@ run :: proc(opts: Options) -> bool {
+ 	defer jobs.pool_destroy(&app.pool)
+ 	log.infof("sculpt threads: %d", jobs.pool_size(&app.pool))
+ 	app.scene.selected = -1
++	// Before any file: a blockout reads the Scene panel's vertex count.
++	app.ui = ui_state_default()
+ 	defer scene_destroy(&app)
+ 	defer history_destroy(&app.history)
+ 	defer delete(app.samples)
+@@ -173,6 +175,9 @@ run :: proc(opts: Options) -> bool {
+ 		if !ok || !opened do return false
+ 		scene_remember_path(&app, opts.open)
+ 	}
++	// The Scene panel's count, which Add, Remesh and blockouts use, starts at the
++	// starting spheres' size.
++	if opts.vertices > 0 do app.ui.sphere_vertices = i32(clamp(opts.vertices, MIN_SPHERE_VERTICES, MAX_SPHERE_VERTICES))
+ 	if opts.import_mesh != "" {
+ 		before := len(app.scene.objects)
+ 		if !scene_import(&app, opts.import_mesh) || len(app.scene.objects) == before do return false
+@@ -244,7 +249,6 @@ run :: proc(opts: Options) -> bool {
+ 	app.simplify_px = 1
+ 	app.vsync = !opts.no_vsync && opts.gpubench == ""
+ 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
+-	app.ui = ui_state_default()
+ 	app.brush = {kind = .Draw, radius_px = 60, strength = 0.5, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true}
+ 	if opts.detail > 0 do app.brush.detail_px = opts.detail
+ 	app.brush.tilt_strength = clamp(opts.tilt_strength, 0, 1)
+diff --git a/src/app/ui.odin b/src/app/ui.odin
+index 9c0c5ee..7d8e7b7 100644
+--- a/src/app/ui.odin
++++ b/src/app/ui.odin
+@@ -155,7 +155,7 @@ draw_menu_bar :: proc(app: ^App) {
+ 		if imgui.MenuItem("Save scene", "Ctrl+S") do save_scene(app)
+ 		if imgui.MenuItem("Save scene as...", "Ctrl+Shift+S") do file_dialog(app, .Save)
+ 		imgui.Separator()
+-		if imgui.MenuItem("Import mesh (OBJ, PLY)...") do file_dialog(app, .Import)
++		if imgui.MenuItem("Import mesh or blockout (OBJ, PLY, JSON)...") do file_dialog(app, .Import)
+ 		if imgui.MenuItem("Export selected (OBJ, PLY)...", nil, false, selected_object(app) != nil) do file_dialog(app, .Export)
+ 		imgui.Separator()
+ 		if imgui.MenuItem("Quit", "Alt+F4") do app.running = false
+diff --git a/src/geom/blockout.odin b/src/geom/blockout.odin
+new file mode 100644
+index 0000000..bcf3758
+--- /dev/null
++++ b/src/geom/blockout.odin
+@@ -0,0 +1,428 @@
++package geom
++
++import "core:encoding/json"
++import "core:fmt"
++import "core:math"
++import "core:math/linalg"
++
++import "../jobs"
++
++// Blockouts: a base mesh made of simple shapes, the way a ZBrush user starts from
++// spheres and DynaMesh. Each shape becomes a closed surface and the voxel remesh merges
++// them into one even surface, overlaps filled, so the shapes never need to meet
++// exactly. A blockout is written as JSON (blockout_parse), by hand or by an assistant;
++// y is up and +z faces the default camera.
++
++Shape_Kind :: enum u8 {
++	Sphere,
++	Ellipsoid,
++	Capsule, // two spheres and the cone that joins them: a limb, tapered when the radii differ
++	Cylinder, // flat ends; a cone when one radius is 0
++	Box,
++	Torus,
++}
++
++SHAPE_NAMES := [Shape_Kind]string {
++	.Sphere    = "sphere",
++	.Ellipsoid = "ellipsoid",
++	.Capsule   = "capsule",
++	.Cylinder  = "cylinder",
++	.Box       = "box",
++	.Torus     = "torus",
++}
++
++// One shape. Which fields count depends on the kind; blockout_parse fills the rest
++// with what makes them harmless.
++Shape :: struct {
++	kind:      Shape_Kind,
++	center:    Vec3, // sphere, ellipsoid, box, torus
++	from, to:  Vec3, // capsule, cylinder: the ends of the axis
++	radius:    f32, // sphere; capsule and cylinder at `from`; torus from its centre to the tube's middle
++	radius_to: f32, // capsule and cylinder at `to`
++	tube:      f32, // torus: the tube's radius
++	size:      Vec3, // ellipsoid: radii; box: full width, height and depth
++	rotate:    Vec3, // degrees about x, then y, then z: ellipsoid, box and torus (whose hole runs along y)
++	mirror:    bool, // a copy mirrored across x = 0 as well, for the other side of a symmetric model
++}
++
++BLOCKOUT_MAX_SHAPES :: 512
++
++// Reads a blockout: either an object whose "shapes" is an array, or the array itself.
++// Each shape is an object with "type" (a SHAPE_NAMES entry) and:
++//
++//   sphere:    "center", "radius"
++//   ellipsoid: "center", "radii" [x, y, z], optional "rotate"
++//   capsule:   "from", "to", "radius", optional "radius_to" (default: "radius")
++//   cylinder:  "from", "to", "radius", optional "radius_to" (default: "radius"; 0 for a cone)
++//   box:       "center", "size" [width, height, depth], optional "rotate"
++//   torus:     "center", "radius", "tube", optional "rotate"
++//
++// and optionally "mirror": true. Points and sizes are arrays of three numbers, "rotate"
++// is degrees about x, y and z. Anything else in an object is skipped, so a blockout
++// can carry names and notes. JSON5 is accepted (comments, trailing commas). On failure
++// `err` says which shape and what is wrong, in temp memory; the shapes are in temp
++// memory too.
++blockout_parse :: proc(data: []u8) -> (shapes: [dynamic]Shape, err: string) {
++	shapes = make([dynamic]Shape, context.temp_allocator)
++	value, json_err := json.parse(data, allocator = context.temp_allocator)
++	if json_err != .None do return shapes, fmt.tprintf("not valid JSON (%v)", json_err)
++	list: json.Array
++	#partial switch v in value {
++	case json.Array:
++		list = v
++	case json.Object:
++		found: bool
++		list, found = v["shapes"].(json.Array)
++		if !found do return shapes, "no \"shapes\" array"
++	case:
++		return shapes, "neither an object with \"shapes\" nor an array of shapes"
++	}
++	if len(list) == 0 do return shapes, "no shapes"
++	if len(list) > BLOCKOUT_MAX_SHAPES do return shapes, fmt.tprintf("%d shapes, more than %d", len(list), BLOCKOUT_MAX_SHAPES)
++	for item, i in list {
++		o, is_object := item.(json.Object)
++		if !is_object do return shapes, fmt.tprintf("shape %d is not an object", i + 1)
++		s, problem := shape_parse(o)
++		if problem != "" {
++			name, _ := o["type"].(json.String)
++			return shapes, fmt.tprintf("shape %d (%s): %s", i + 1, name, problem)
++		}
++		append(&shapes, s)
++	}
++	return shapes, ""
++}
++
++@(private = "file")
++shape_parse :: proc(o: json.Object) -> (s: Shape, problem: string) {
++	name, has_name := o["type"].(json.String)
++	if !has_name do return s, "no \"type\""
++	known: bool
++	for kind_name, kind in SHAPE_NAMES {
++		if name == kind_name do s.kind, known = kind, true
++	}
++	if !known do return s, "unknown type; the types are sphere, ellipsoid, capsule, cylinder, box and torus"
++	// Reads the fields this kind needs: `need` lists them, optional ones may be absent.
++	ok := true
++	vec :: proc(o: json.Object, key: string, out: ^Vec3, ok: ^bool, problem: ^string, required := true) {
++		v, present := o[key]
++		if !present {
++			if required && ok^ do ok^, problem^ = false, fmt.tprintf("no \"%s\"", key)
++			return
++		}
++		a, is_array := v.(json.Array)
++		if !is_array || len(a) != 3 {
++			if ok^ do ok^, problem^ = false, fmt.tprintf("\"%s\" is not three numbers", key)
++			return
++		}
++		for c, i in a {
++			f, is_number := c.(json.Float)
++			if !is_number || math.is_nan(f) || math.is_inf(f) || abs(f) > 1e6 {
++				if ok^ do ok^, problem^ = false, fmt.tprintf("\"%s\" is not three numbers", key)
++				return
++			}
++			out[i] = f32(f)
++		}
++	}
++	num :: proc(o: json.Object, key: string, out: ^f32, ok: ^bool, problem: ^string, required := true) {
++		v, present := o[key]
++		if !present {
++			if required && ok^ do ok^, problem^ = false, fmt.tprintf("no \"%s\"", key)
++			return
++		}
++		f, is_number := v.(json.Float)
++		if !is_number || math.is_nan(f) || math.is_inf(f) || abs(f) > 1e6 {
++			if ok^ do ok^, problem^ = false, fmt.tprintf("\"%s\" is not a number", key)
++			return
++		}
++		out^ = f32(f)
++	}
++	switch s.kind {
++	case .Sphere:
++		vec(o, "center", &s.center, &ok, &problem)
++		num(o, "radius", &s.radius, &ok, &problem)
++	case .Ellipsoid:
++		vec(o, "center", &s.center, &ok, &problem)
++		vec(o, "radii", &s.size, &ok, &problem)
++		vec(o, "rotate", &s.rotate, &ok, &problem, required = false)
++	case .Capsule, .Cylinder:
++		vec(o, "from", &s.from, &ok, &problem)
++		vec(o, "to", &s.to, &ok, &problem)
++		num(o, "radius", &s.radius, &ok, &problem)
++		s.radius_to = s.radius
++		num(o, "radius_to", &s.radius_to, &ok, &problem, required = false)
++	case .Box:
++		vec(o, "center", &s.center, &ok, &problem)
++		vec(o, "size", &s.size, &ok, &problem)
++		vec(o, "rotate", &s.rotate, &ok, &problem, required = false)
++	case .Torus:
++		vec(o, "center", &s.center, &ok, &problem)
++		num(o, "radius", &s.radius, &ok, &problem)
++		num(o, "tube", &s.tube, &ok, &problem)
++		vec(o, "rotate", &s.rotate, &ok, &problem, required = false)
++	}
++	if !ok do return
++	if mirror, present := o["mirror"]; present {
++		b, is_bool := mirror.(json.Boolean)
++		if !is_bool do return s, "\"mirror\" is not true or false"
++		s.mirror = b
++	}
++	switch s.kind {
++	case .Sphere:
++		if !(s.radius > 0) do return s, "\"radius\" is not above 0"
++	case .Ellipsoid, .Box:
++		if !(min(s.size.x, s.size.y, s.size.z) > 0) do return s, fmt.tprintf("\"%s\" has a size that is not above 0", "radii" if s.kind == .Ellipsoid else "size")
++	case .Capsule, .Cylinder:
++		if s.radius < 0 || s.radius_to < 0 || max(s.radius, s.radius_to) <= 0 do return s, "the radii must be 0 or more, and one above 0"
++		if s.kind == .Cylinder && s.from == s.to do return s, "\"from\" and \"to\" are the same point"
++	case .Torus:
++		if !(s.tube > 0) || !(s.radius > s.tube) do return s, "needs \"tube\" above 0 and \"radius\" above \"tube\""
++	}
++	return s, ""
++}
++
++// One closed, even surface of about `target` vertices around all the shapes, overlaps
++// merged (geom.remesh_voxel_spacing). Fewer vertices when the lattice would pass
++// REMESH_MAX_LATTICE along an axis. The result has normals; false for no shapes.
++blockout_mesh :: proc(shapes: []Shape, target: int, pool: ^jobs.Pool = nil, allocator := context.allocator) -> (out: Mesh, ok: bool) {
++	if len(shapes) == 0 do return {}, false
++	// A coarse surface first, for its size and area, which set the lattice spacing.
++	coarse: Mesh
++	reach: f32
++	for s in shapes do reach = max(reach, shape_reach(s))
++	for s in shapes do shape_append(&coarse, s, 0.02 * reach)
++	h := remesh_spacing(coarse, target)
++	bounds := AABB_EMPTY
++	for p in coarse.positions do aabb_grow(&bounds, p)
++	mesh_destroy(&coarse)
++	extent := bounds.hi - bounds.lo
++	h_min := max(extent.x, extent.y, extent.z) / (REMESH_MAX_LATTICE - 4)
++	for attempt in 0 ..< 2 {
++		h = max(h, h_min)
++		// Chords within an eighth of a lattice step of the true curves: finer would add
++		// triangles the lattice cannot see.
++		surface: Mesh
++		for s in shapes do shape_append(&surface, s, h / 8)
++		out, ok = remesh_voxel_spacing(surface, h, pool, allocator)
++		mesh_destroy(&surface)
++		if !ok do return
++		// Where shapes overlap, their area counted but the merged surface has none, so
++		// a blockout of many overlapping shapes comes out short: once, try finer.
++		n := len(out.positions)
++		if attempt == 1 || f32(n) >= 0.8 * f32(target) || h <= h_min do return
++		mesh_destroy(&out)
++		h *= math.sqrt(f32(n) / f32(target))
++	}
++	return
++}
++
++// How far the shape reaches from the origin, for the coarse surface's tolerance.
++@(private = "file")
++shape_reach :: proc(s: Shape) -> f32 {
++	switch s.kind {
++	case .Sphere:
++		return linalg.length(s.center) + s.radius
++	case .Ellipsoid:
++		return linalg.length(s.center) + max(s.size.x, s.size.y, s.size.z)
++	case .Box:
++		return linalg.length(s.center) + linalg.length(s.size) / 2
++	case .Torus:
++		return linalg.length(s.center) + s.radius + s.tube
++	case .Capsule, .Cylinder:
++		return max(linalg.length(s.from), linalg.length(s.to)) + max(s.radius, s.radius_to)
++	}
++	return 0
++}
++
++// Appends the shape's closed, outward-facing surface (and its mirror image when it has
++// one) to `out`, its curves cut into chords that stray at most `tolerance` from them.
++// Only positions and indices; the remesh gives the normals.
++shape_append :: proc(out: ^Mesh, s: Shape, tolerance: f32) {
++	first := len(out.positions)
++	first_index := len(out.indices)
++	rotation := euler_degrees(s.rotate)
++	switch s.kind {
++	case .Sphere:
++		revolve(out, arc_profile({}, s.radius, -math.PI / 2, math.PI / 2, tolerance, context.temp_allocator)[:], segments(s.radius, tolerance), false)
++		place(out, first, 1, linalg.MATRIX3F32_IDENTITY, s.center)
++	case .Ellipsoid:
++		// A unit sphere cut finely enough for the largest radius, then stretched.
++		r := max(s.size.x, s.size.y, s.size.z)
++		revolve(out, arc_profile({}, 1, -math.PI / 2, math.PI / 2, tolerance / r, context.temp_allocator)[:], segments(r, tolerance), false)
++		for &p in out.positions[first:] do p = s.center + rotation * (p * s.size)
++	case .Capsule:
++		capsule(out, s, tolerance)
++	case .Cylinder:
++		profile := make([dynamic][2]f32, context.temp_allocator)
++		length := linalg.length(s.to - s.from)
++		append(&profile, [2]f32{0, 0}, [2]f32{s.radius, 0})
++		if s.radius_to > 0 do append(&profile, [2]f32{s.radius_to, length})
++		append(&profile, [2]f32{0, length})
++		if s.radius == 0 do ordered_remove(&profile, 1)
++		revolve(out, profile[:], segments(max(s.radius, s.radius_to), tolerance), false)
++		place(out, first, 1, axis_frame(s.to - s.from), s.from)
++	case .Box:
++		box(out, s.size / 2)
++		for &p in out.positions[first:] do p = s.center + rotation * p
++	case .Torus:
++		tube := arc_profile({s.radius, 0}, s.tube, 0, 2 * math.PI, tolerance, context.temp_allocator)
++		pop(&tube) // the last point is the first again: the profile closes on itself
++		revolve(out, tube[:], segments(s.radius + s.tube, tolerance), true)
++		for &p in out.positions[first:] do p = s.center + rotation * p
++	}
++	if s.mirror {
++		last, last_index := len(out.positions), len(out.indices)
++		for i in first ..< last do append(&out.positions, Vec3{-out.positions[i].x, out.positions[i].y, out.positions[i].z})
++		// Mirroring turns the surface inside out, so each triangle runs the other way.
++		shift := u32(last - first)
++		for t := first_index; t < last_index; t += 3 {
++			append(&out.indices, out.indices[t] + shift, out.indices[t + 2] + shift, out.indices[t + 1] + shift)
++		}
++	}
++}
++
++// The rotation `rotate` names: degrees about x, then y, then z.
++@(private = "file")
++euler_degrees :: proc(rotate: Vec3) -> matrix[3, 3]f32 {
++	a := rotate * (math.PI / 180)
++	return linalg.matrix3_rotate(a.z, Vec3{0, 0, 1}) * linalg.matrix3_rotate(a.y, Vec3{0, 1, 0}) * linalg.matrix3_rotate(a.x, Vec3{1, 0, 0})
++}
++
++// Moves the positions from `first` on out of revolve's frame (axis along y) into the
++// world: scaled, turned by `frame`, then moved to `origin`.
++@(private = "file")
++place :: proc(out: ^Mesh, first: int, scale: f32, frame: matrix[3, 3]f32, origin: Vec3) {
++	for &p in out.positions[first:] do p = origin + frame * (p * scale)
++}
++
++// A rotation taking y to the direction of `axis`, so revolve's surfaces can lie along
++// any axis. Rotations keep surfaces facing out.
++@(private = "file")
++axis_frame :: proc(axis: Vec3) -> matrix[3, 3]f32 {
++	u := linalg.normalize(axis)
++	// Any direction across the axis will do; the one least along it is the most exact.
++	helper := Vec3{1, 0, 0} if abs(u.x) < 0.9 else Vec3{0, 0, 1}
++	e1 := linalg.normalize(linalg.cross(helper, u))
++	e2 := linalg.cross(u, e1)
++	// Columns: where x, y and z go. Revolve puts its angle-0 direction on z and its
++	// quarter turn on x, so z goes to e1 and x to e2, which with y to u keeps the
++	// handedness (e2 · (u × e1) = 1).
++	return matrix[3, 3]f32{
++		e2.x, u.x, e1.x,
++		e2.y, u.y, e1.y,
++		e2.z, u.z, e1.z,
++	}
++}
++
++// Pieces around a circle of radius `r` so no chord strays more than `tolerance` from
++// it: a chord across angle θ strays r (1 − cos(θ / 2)).
++@(private = "file")
++segments :: proc(r, tolerance: f32) -> int {
++	MIN :: 8
++	MAX :: 512
++	if !(tolerance < r) do return MIN
++	return clamp(int(math.ceil(math.PI / math.acos(1 - tolerance / r))), MIN, MAX)
++}
++
++// Points on an arc in revolve's (distance from the axis, height) plane: centre `c`,
++// radius `r`, from angle a0 to a1 (0 points away from the axis, π/2 up), both ends
++// included.
++@(private = "file")
++arc_profile :: proc(c: [2]f32, r, a0, a1, tolerance: f32, allocator := context.allocator) -> [dynamic][2]f32 {
++	n := max(int(math.ceil(f32(segments(r, tolerance)) * abs(a1 - a0) / (2 * math.PI))), 2)
++	out := make([dynamic][2]f32, 0, n + 1, allocator)
++	for i in 0 ..= n {
++		a := a0 + (a1 - a0) * f32(i) / f32(n)
++		append(&out, c + r * [2]f32{math.cos(a), math.sin(a)})
++	}
++	// On the axis exactly, where revolve makes a pole of it.
++	for &p in out do if abs(p.x) < 1e-6 * r do p.x = 0
++	return out
++}
++
++// Two spheres and the cone that touches both, in revolve's frame along `from` to `to`.
++@(private = "file")
++capsule :: proc(out: ^Mesh, s: Shape, tolerance: f32) {
++	first := len(out.positions)
++	length := linalg.length(s.to - s.from)
++	ra, rb := s.radius, s.radius_to
++	// One sphere inside the other, or both at one point: the larger sphere alone.
++	if length <= abs(ra - rb) {
++		center, r := s.from, ra
++		if rb > ra do center, r = s.to, rb
++		revolve(out, arc_profile({}, r, -math.PI / 2, math.PI / 2, tolerance, context.temp_allocator)[:], segments(r, tolerance), false)
++		place(out, first, 1, linalg.MATRIX3F32_IDENTITY, center)
++		return
++	}
++	// The cone touches each sphere where the surface's normal leans φ toward `to`,
++	// sin φ = (ra − rb) / length; the profile runs from the pole beyond `from` over the
++	// first sphere to there, along the cone, and over the second sphere to its far pole.
++	phi := math.asin((ra - rb) / length)
++	profile := make([dynamic][2]f32, context.temp_allocator)
++	if ra > 0 {
++		arc := arc_profile({0, 0}, ra, -math.PI / 2, phi, tolerance, context.temp_allocator)
++		append(&profile, ..arc[:])
++	} else {
++		append(&profile, [2]f32{0, 0})
++	}
++	if rb > 0 {
++		arc := arc_profile({0, length}, rb, phi, math.PI / 2, tolerance, context.temp_allocator)
++		append(&profile, ..arc[:])
++	} else {
++		append(&profile, [2]f32{0, length})
++	}
++	revolve(out, profile[:], segments(max(ra, rb), tolerance), false)
++	place(out, first, 1, axis_frame(s.to - s.from), s.from)
++}
++
++// A surface of revolution about y. Each profile point is (distance from the axis,
++// height); the angle-0 direction is +z and a quarter turn is +x. An open profile must
++// start and end on the axis (distance 0), and those points become poles; a closed one
++// (`loop`) must stay off it and runs counter-clockwise in the profile plane, as a torus's
++// tube does. With the profile rising on the outside, triangles come out counter-
++// clockwise seen from outside.
++@(private = "file")
++revolve :: proc(out: ^Mesh, profile: [][2]f32, segments: int, loop: bool) {
++	base := u32(len(out.positions))
++	rings := profile if loop else profile[1:len(profile) - 1]
++	ring_at :: proc(base: u32, loop: bool, segments, ring, j: int) -> u32 {
++		return base + u32(0 if loop else 1) + u32(ring * segments + j % segments)
++	}
++	if !loop do append(&out.positions, Vec3{0, profile[0].y, 0})
++	for p in rings {
++		for j in 0 ..< segments {
++			a := 2 * math.PI * f32(j) / f32(segments)
++			append(&out.positions, Vec3{p.x * math.sin(a), p.y, p.x * math.cos(a)})
++		}
++	}
++	if !loop do append(&out.positions, Vec3{0, profile[len(profile) - 1].y, 0})
++	n := len(rings)
++	bands := n if loop else n - 1
++	for i in 0 ..< bands {
++		for j in 0 ..< segments {
++			a, b := ring_at(base, loop, segments, i, j), ring_at(base, loop, segments, i, j + 1)
++			c, d := ring_at(base, loop, segments, (i + 1) % n, j + 1), ring_at(base, loop, segments, (i + 1) % n, j)
++			append(&out.indices, a, b, c, a, c, d)
++		}
++	}
++	if !loop {
++		top := u32(len(out.positions) - 1)
++		for j in 0 ..< segments {
++			append(&out.indices, base, ring_at(base, loop, segments, 0, j + 1), ring_at(base, loop, segments, 0, j))
++			append(&out.indices, ring_at(base, loop, segments, n - 1, j), ring_at(base, loop, segments, n - 1, j + 1), top)
++		}
++	}
++}
++
++// A box of these half sizes around the origin: corner i is at ±half by its bits (x, y,
++// z), and each face's four corners run counter-clockwise seen from outside.
++@(private = "file")
++box :: proc(out: ^Mesh, half: Vec3) {
++	base := u32(len(out.positions))
++	for i in 0 ..< 8 {
++		append(&out.positions, Vec3{half.x if i & 1 != 0 else -half.x, half.y if i & 2 != 0 else -half.y, half.z if i & 4 != 0 else -half.z})
++	}
++	FACES :: [6][4]u32{{1, 3, 7, 5}, {0, 4, 6, 2}, {2, 6, 7, 3}, {0, 1, 5, 4}, {4, 5, 7, 6}, {0, 2, 3, 1}}
++	for f in FACES {
++		append(&out.indices, base + f[0], base + f[1], base + f[2], base + f[0], base + f[2], base + f[3])
++	}
++}
+diff --git a/src/geom/blockout_test.odin b/src/geom/blockout_test.odin
+new file mode 100644
+index 0000000..21e18fe
+--- /dev/null
++++ b/src/geom/blockout_test.odin
+@@ -0,0 +1,127 @@
++package geom
++
++import "core:math"
++import "core:strings"
++import "core:testing"
++
++import "../jobs"
++
++@(test)
++blockout_shapes_are_closed_and_hold_their_volume :: proc(t: ^testing.T) {
++	PI :: math.PI
++	Case :: struct {
++		shape:  Shape,
++		volume: f64,
++	}
++	cases := [?]Case {
++		{{kind = .Sphere, center = {0.3, -1, 2}, radius = 1.5}, 4.0 / 3 * PI * 1.5 * 1.5 * 1.5},
++		{{kind = .Ellipsoid, center = {1, 0, 0}, size = {1, 0.5, 2}, rotate = {30, 45, 10}}, 4.0 / 3 * PI * 1 * 0.5 * 2},
++		{{kind = .Capsule, from = {0, 0, 0}, to = {1, 2, -1}, radius = 0.4, radius_to = 0.4}, PI * 0.16 * math.sqrt(f64(6)) + 4.0 / 3 * PI * 0.064},
++		{{kind = .Cylinder, from = {0, 0, 0}, to = {0, 0, 3}, radius = 0.5, radius_to = 0.5}, PI * 0.25 * 3},
++		{{kind = .Cylinder, from = {1, 1, 1}, to = {1, 3, 1}, radius = 0.6, radius_to = 0}, PI * 0.36 * 2 / 3},
++		{{kind = .Cylinder, from = {0, 0, 0}, to = {-2, 0, 0}, radius = 0.2, radius_to = 0.5}, PI * 2 / 3 * (0.04 + 0.1 + 0.25)},
++		{{kind = .Box, center = {0, 1, 0}, size = {1, 2, 3}, rotate = {10, 20, 30}}, 6},
++		{{kind = .Torus, center = {0, 0, 0}, radius = 1, tube = 0.25, rotate = {90, 0, 0}}, 2 * PI * PI * 1 * 0.0625},
++	}
++	for c in cases {
++		m: Mesh
++		defer mesh_destroy(&m)
++		shape_append(&m, c.shape, 0.001)
++		r := mesh_check(m)
++		testing.expectf(t, r.closed && !r.inverted && r.degenerate_triangles == 0 && r.nan_count == 0, "%v: %v", c.shape.kind, r)
++		testing.expectf(t, abs(r.volume / c.volume - 1) < 0.01, "%v: volume %v, expected %v", c.shape.kind, r.volume, c.volume)
++
++		// Its mirror image, clear of it, doubles it and faces out too.
++		mirrored := c.shape
++		mirrored.mirror = true
++		mirrored.center += {10, 0, 0}
++		mirrored.from += {10, 0, 0}
++		mirrored.to += {10, 0, 0}
++		both: Mesh
++		defer mesh_destroy(&both)
++		shape_append(&both, mirrored, 0.001)
++		rb := mesh_check(both)
++		testing.expectf(t, rb.closed && !rb.inverted && abs(rb.volume / r.volume - 2) < 1e-3, "%v mirrored: %v", c.shape.kind, rb)
++	}
++	// A tapered capsule: its volume lies between the cone through the centres with the
++	// end spheres added and that minus the overlaps, so check the sphere-swept shape's
++	// own count instead: closed, outward, and fatter than the bare frustum.
++	m: Mesh
++	defer mesh_destroy(&m)
++	shape_append(&m, {kind = .Capsule, from = {0, 0, 0}, to = {0, 1, 0}, radius = 0.5, radius_to = 0.1}, 0.001)
++	r := mesh_check(m)
++	frustum := PI * 1 / 3 * (0.25 + 0.05 + 0.01)
++	testing.expectf(t, r.closed && !r.inverted && r.volume > frustum, "tapered capsule: %v", r)
++}
++
++@(test)
++blockout_merges_overlapping_shapes_into_one_surface :: proc(t: ^testing.T) {
++	pool: jobs.Pool
++	jobs.pool_init(&pool, 3)
++	defer jobs.pool_destroy(&pool)
++	// Two unit spheres one apart: their union is both less the lens they share,
++	// π (4r + d)(2r − d)² / 12.
++	shapes := [?]Shape{{kind = .Sphere, radius = 1}, {kind = .Sphere, center = {1, 0, 0}, radius = 1}}
++	union_volume := 2 * 4.0 / 3 * math.PI - math.PI * 5 / 12
++	for target in ([?]int{5_000, 40_000}) {
++		out, ok := blockout_mesh(shapes[:], target, &pool)
++		defer mesh_destroy(&out)
++		testing.expect(t, ok)
++		r := mesh_check(out)
++		testing.expectf(t, r.closed && !r.inverted && r.degenerate_triangles == 0, "%d: %v", target, r)
++		testing.expectf(t, abs(r.volume / union_volume - 1) < 0.03, "%d: volume %v, expected %v", target, r.volume, union_volume)
++		testing.expectf(t, len(out.positions) > target * 7 / 10 && len(out.positions) < target * 3 / 2, "%d: %d vertices", target, len(out.positions))
++		testing.expect(t, len(out.normals) == len(out.positions), "the merged surface has normals")
++	}
++	_, none := blockout_mesh(nil, 1000, &pool)
++	testing.expect(t, !none, "no shapes, no mesh")
++}
++
++@(test)
++blockout_parse_reads_every_kind_and_says_what_is_wrong :: proc(t: ^testing.T) {
++	text := `{
++		"name": "test", // JSON5: comments and trailing commas
++		"shapes": [
++			{"type": "sphere", "center": [0, 1, 0], "radius": 0.5, "note": "head"},
++			{"type": "ellipsoid", "center": [0, 0, 0], "radii": [0.6, 0.8, 0.4], "rotate": [0, 0, 10]},
++			{"type": "capsule", "from": [0.3, 0.5, 0], "to": [0.9, 0, 0], "radius": 0.12, "radius_to": 0.08, "mirror": true},
++			{"type": "cylinder", "from": [0, -1, 0], "to": [0, -0.8, 0], "radius": 0.3, "radius_to": 0},
++			{"type": "box", "center": [0, -1, 0], "size": [1, 0.1, 1]},
++			{"type": "torus", "center": [0, 1.4, 0], "radius": 0.3, "tube": 0.05},
++		],
++	}`
++	shapes, err := blockout_parse(transmute([]u8)text)
++	testing.expectf(t, err == "" && len(shapes) == 6, "%q, %d shapes", err, len(shapes))
++	if len(shapes) == 6 {
++		testing.expect(t, shapes[0].kind == .Sphere && shapes[0].center == {0, 1, 0} && shapes[0].radius == 0.5)
++		testing.expect(t, shapes[1].size == {0.6, 0.8, 0.4} && shapes[1].rotate == {0, 0, 10})
++		testing.expect(t, shapes[2].mirror && shapes[2].radius_to == 0.08 && shapes[2].to == {0.9, 0, 0})
++		testing.expect(t, shapes[3].kind == .Cylinder && shapes[3].radius_to == 0)
++		testing.expect(t, shapes[4].size == {1, 0.1, 1} && shapes[4].rotate == {})
++		testing.expect(t, shapes[5].tube == 0.05 && !shapes[5].mirror)
++	}
++	bare, bare_err := blockout_parse(transmute([]u8)string(`[{"type": "capsule", "from": [0,0,0], "to": [0,1,0], "radius": 0.2}]`))
++	testing.expectf(t, bare_err == "" && len(bare) == 1 && bare[0].radius_to == 0.2, "a bare array, radius_to defaulting to radius: %q", bare_err)
++
++	Bad :: struct {
++		text, says: string,
++	}
++	bad := [?]Bad {
++		{`{"shapes": [`, "not valid JSON"},
++		{`{"parts": []}`, `no "shapes"`},
++		{`{"shapes": []}`, "no shapes"},
++		{`[{"type": "sphere", "center": [0,0,0], "radius": 1}, {"type": "cube"}]`, "shape 2 (cube): unknown type"},
++		{`[{"type": "sphere", "center": [0,0,0]}]`, `no "radius"`},
++		{`[{"type": "sphere", "center": [0,0], "radius": 1}]`, `"center" is not three numbers`},
++		{`[{"type": "sphere", "center": [0,0,0], "radius": -1}]`, "not above 0"},
++		{`[{"type": "sphere", "center": [0,0,0], "radius": 1, "mirror": "yes"}]`, `"mirror"`},
++		{`[{"type": "cylinder", "from": [0,0,0], "to": [0,0,0], "radius": 1}]`, "same point"},
++		{`[{"type": "torus", "center": [0,0,0], "radius": 0.1, "tube": 0.2}]`, `"radius" above "tube"`},
++		{`[{"type": "box", "center": [0,0,0], "size": [1,0,1]}]`, "not above 0"},
++		{`[3]`, "shape 1 is not an object"},
++	}
++	for b in bad {
++		_, e := blockout_parse(transmute([]u8)b.text)
++		testing.expectf(t, strings.contains(e, b.says), "%s: said %q, expected %q", b.text, e, b.says)
++	}
++}

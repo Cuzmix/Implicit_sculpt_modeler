@@ -1,0 +1,31 @@
+# Lens P1-6: the view grid
+
+Spec: Lens report P1 item 6 ("View grid presets and dividers: single, side by side, stacked, one plus two, four, three across"), with the report's rule that secondary panes refresh after each stroke, never live, so a 10M mesh is not drawn twice per stroke frame. Strokes in any pane and heavy passes per pane come later (the "Later" items); camera linking and colour dots are item 7.
+
+## What exists when done
+- **Six presets**: Single (today's view, the default), Side by side, Stacked, One plus two (a big pane left, two stacked right), Four, Three across. They are picked from Camera > View grid (a row of six icon buttons), the command palette and Search (`View_Grid` command, its argument the preset, labels "Grid: Side by side"…), and scripts (`grid four`).
+- **Pane 0 is the main view**: the camera, the tools, the cursor, the pass chip, live AO, the studio and render mode, exactly as now. It is the first cell (left, top, or the big one).
+- **Panes 1 to 3 are view panes**, each a second view grown from P0-5's: its own camera (Follow, the six axis views, Free) and cheap pass (Silhouette, Shaded, Normals, Depth, Curvature), chosen from two compact selects in the pane's top-left corner, plus Maximise. A drag in the pane turns its Free camera, the wheel zooms it, as in the second view. It draws only at rest (after a stroke or a turn, at most every 0.1 s, every frame while its own camera is dragged).
+- **New panes start as the useful partner**: Side by side and Stacked: Front, Shaded. One plus two and Three across: Front and Right. Four: Front, Right, Top (the classic quad). Each preset remembers its panes' choices while the app runs.
+- **Dividers**: a 12 pt grab strip on each inner edge (a 1 px line in the frame colour); dragging moves the split, kept between 20% and 80%. Double-tap a divider puts it back to the middle.
+- **Maximise** on a view pane fills the grid with it, Restore brings the grid back; never kept. The main pane is not maximised: Single already is that.
+- **The grid's room**: Single fills the window as now (columns float over it, nothing moves for anyone). With more than one pane, the grid spans between the docked columns (last frame's column rects, so the left pane is not under the left column), the full height; bars and rails float over it as they do over the view now.
+- **Workspaces** keep the grid: a `grid <preset> <split x> <split y>` line and `pane <1..3> <camera> <pass>` lines, written only when the preset is not Single, so every saved layout and built-in text reads as before. The Inspect built-in becomes Four: main, Follow + Curvature, Follow + Normals, Front + Silhouette.
+- **Exit stats**: `grid=<preset> grid_panes=N pane_draws=N pane_ms=x` (draws summed over view panes, the CPU time of the last).
+
+## Code
+- `src/app/grid.odin` (new): `Grid_Preset :: enum u8 {Single, Side_By_Side, Stacked, One_Plus_Two, Four, Three_Across}`; `View_Grid {preset, split: [2]f32, panes: [Grid_Preset][3]Second_View-like choices, maximised: int, dragging divider}` in `Kit_State` (`k.grid`); `grid_cells(preset, split, room) -> [4]ui.Rect` (pure, tested); `grid_room(app)`; `kit_grid(app)` lays out the view panes (ui.area per pane, the image, the two selects, Maximise) and the dividers; `grid_frame(app, cmd, draws)` draws each view pane.
+- The second view's picture code is factored so a view pane and the thumbnail window share it: `Second_View` (camera, pass, drag state) and a `Picture` (`render.Thumbnail_View`, shown, key, at, due, draws, ms). `second_orbit`, `second_free` and `second_view_input` take the `^Second_View` and the Free orbit (`App.second_orbit` becomes per view: each `Second_View` holds its own `orbit: camera.Orbit`). `thumbnail_frame` becomes `picture_frame(app, cmd, draws, sv, pic, size, supersample)`; the thumbnail window and each pane call it.
+- **The main pane's place**: `App.ui.viewport_request` becomes pane 0's pixel size, and `app.ui.viewport_origin` its top-left in window pixels (zero in Single). `kit_frame` draws `KIT_VIEWPORT_IMAGE` into pane 0's rect. `kit_viewport_input` moves `mouse_pos` and every sample into the pane (minus the origin), so the tools, the cursor, the raycasts and `input.size` agree with the target's aspect as now. The places that read the window's pointer directly (`navigate.odin`'s `d.mouse` for the press, the ray and the pivot; `touch.odin`'s release sample and finger centre) go through `viewport_point(app, p)`. `Overlay.at` adds the origin back, and the light markers, pivot dot and gizmo (drawn through `Overlay`) follow. Pane 0 hovered also needs the pointer inside its rect (`input.hovered`), so a press in a view pane or on a divider is not the main view's.
+- Images: `KIT_PANE_IMAGE + i` (three new ids) mapped in `kit_draws` to each pane's texture, smoothed.
+- Command `View_Grid` (args `len(Grid_Preset)`), label "Grid: X", palette words "grid split quad four views"; script `grid <name>` through the command's name. Camera menu row "View grid" with the six icons.
+- Layout text: `kit_layout_text` writes `grid`/`pane` lines after `pass` when not Single; `kit_layout_put` resets to Single first, then reads them; `built_in_layout(.Inspect)` gains the Four lines.
+
+## Tests and checks
+- Unit: `grid_cells` for every preset (cells tile the room, no overlap, pane 0 first and largest in One plus two, splits clamped); the layout round trip with and without `grid` lines; Inspect's built-in reads as Four; `viewport_point` with an origin.
+- Touch scenarios: pick Side by side from the Camera menu (`grid=Side_By_Side`, `viewport_px` halves); a stroke in the left pane with a docked left column (origin non-zero) lands under the finger (dabs > 0, cursor where pressed); a drag in a view pane turns its camera, not the main one; the divider drag moves the split; Maximise and Restore.
+- Dumped screen of Four with Front/Right/Top, described.
+- Perf: a release 2M stroke with Four open against Single (frame p50 the same during the stroke, since view panes wait); `pane_ms` after the stroke.
+
+## Not in this PR
+Camera links and colour dots (7), wipe and proportion guides (8), strokes in view panes, heavy passes in view panes, and any change to Single.

@@ -1,0 +1,740 @@
+<title>Docks and Cards</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* v2: Affinity's model. Docks hold buttons; a button pops out a window holding cards; windows move, pin, resize and take tabs. */
+:root {
+  color-scheme: dark;
+  --ground: #121316; --stage: #2a2c31; --surface: #1c1d21; --card: #24262b; --card-2: #2e3036;
+  --line: #3a3d44; --text: #e9e9ec; --text-2: #a9acb4; --text-3: #7f838c;
+  --accent: #40c4b2; --accent-ink: #0d2421; --pin: #f0a43a;
+  --ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--ground); color: var(--text); font-family: var(--ui); font-size: 14px; }
+[hidden] { display: none !important; }
+.page { display: flex; flex-direction: column; gap: 14px; padding: 16px max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px)); }
+header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+header.top h1 { margin: 0; font-size: 20px; font-weight: 600; }
+.badge { font: 500 12px var(--mono); color: var(--accent-ink); background: var(--accent); border-radius: 5px; padding: 2px 7px; }
+header.top p { margin: 0; color: var(--text-2); flex: 1 1 320px; line-height: 1.45; }
+.btn { font: inherit; color: var(--text); background: var(--card-2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 14px; cursor: pointer; min-height: 36px; }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.layout { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.stage-wrap { flex: 999 1 640px; min-width: 0; }
+.side { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+
+.stage-box { position: relative; width: 100%; aspect-ratio: 1280 / 860; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; }
+.stage { position: absolute; left: 0; top: 0; width: 1280px; height: 860px; transform-origin: 0 0; background: radial-gradient(ellipse at 50% 42%, #36383e 0%, var(--stage) 60%, #222327 100%); }
+.model { position: absolute; left: 400px; top: 190px; width: 440px; height: 440px; border-radius: 50%; background: radial-gradient(circle at 38% 32%, #ece2d8 0%, #c6b3a4 40%, #7c6c62 100%); box-shadow: 0 30px 60px rgba(0,0,0,0.35); pointer-events: none; }
+
+.dock { position: absolute; display: grid; gap: 4px; padding: 5px; background: var(--surface); border: 1px solid #2b2d33; border-radius: 14px; box-shadow: 0 6px 18px rgba(0,0,0,0.3); }
+.dock.selected { outline: 2px solid var(--pin); outline-offset: 3px; }
+.item { position: relative; display: flex; align-items: center; justify-content: center; gap: 6px; width: 48px; height: 48px; border: 0; background: transparent; color: var(--text-2); font: 500 13px var(--ui); border-radius: 10px; cursor: pointer; padding: 0; touch-action: none; }
+.item:hover { background: #2a2c32; color: var(--text); }
+.item.lit { background: rgba(64,196,178,0.16); color: var(--accent); }
+.item.wide { width: auto; padding: 0 14px; }
+.item svg { width: 22px; height: 22px; flex: none; }
+.item.group::after { content: ""; position: absolute; right: 6px; bottom: 6px; width: 5px; height: 5px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; opacity: 0.6; }
+.item .tip { position: absolute; font: 500 11px var(--ui); color: var(--text); background: #0e0f11; border-radius: 5px; padding: 2px 6px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; z-index: 5; }
+.dock[data-edge="right"] .item .tip { right: 54px; }
+.dock[data-edge="left"] .item .tip { left: 54px; }
+.dock[data-edge="top"] .item .tip { top: 52px; }
+.dock[data-edge="bottom"] .item .tip { bottom: 52px; }
+.item:hover .tip { opacity: 1; }
+
+.win { position: absolute; display: flex; flex-direction: column; background: var(--card); border: 1px solid #3a3d44; border-radius: 14px; box-shadow: 0 14px 40px rgba(0,0,0,0.45); overflow: hidden; min-width: 220px; min-height: 160px; }
+.win.pinned { border-color: rgba(240,164,58,0.55); }
+.win.drop { outline: 3px solid var(--accent); outline-offset: 2px; }
+.grip { width: 36px; height: 6px; border-radius: 3px; background: #4a4d55; }
+.win-top { background: var(--surface); cursor: grab; touch-action: none; }
+.tabs { display: flex; gap: 2px; flex: 1; min-width: 0; overflow: hidden; }
+.tab { font: 500 13px var(--ui); color: var(--text-2); background: transparent; border: 0; border-radius: 8px 8px 0 0; padding: 0 12px; height: 36px; cursor: pointer; white-space: nowrap; touch-action: none; }
+.tab.on { color: var(--text); background: var(--card); }
+.hbtn { width: 38px; height: 38px; border: 0; background: transparent; color: var(--text-3); border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: none; }
+.hbtn:hover { color: var(--text); background: #2a2c32; }
+.hbtn.on { color: var(--pin); }
+.hbtn svg { width: 18px; height: 18px; }
+.win-body { flex: 1; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+.row { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-2); }
+.row span { width: 78px; flex: none; }
+.bar { flex: 1; height: 6px; border-radius: 3px; background: #3a3d44; position: relative; }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--accent); }
+.list-row { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px; border-radius: 8px; background: var(--card-2); font-size: 13px; }
+.resize { position: absolute; right: 0; bottom: 0; width: 26px; height: 26px; cursor: nwse-resize; touch-action: none; }
+.resize::after { content: ""; position: absolute; right: 6px; bottom: 6px; width: 10px; height: 10px; border-right: 2px solid #6b6f78; border-bottom: 2px solid #6b6f78; border-radius: 0 0 3px 0; }
+
+.dock.outlined { outline: 2px dashed rgba(255,255,255,0.75); outline-offset: 4px; z-index: 60; }
+.dock.outlined.drop { outline-color: var(--accent); outline-style: solid; }
+.sep { background: #3a3d44; border-radius: 1px; align-self: center; justify-self: center; }
+.veil { position: absolute; inset: 0; background: rgba(10,10,12,0.55); backdrop-filter: blur(3px); z-index: 50; }
+.sheet { position: absolute; left: 330px; top: 150px; width: 600px; background: #26282d; border: 1px solid var(--line); border-radius: 22px; padding: 22px; z-index: 55; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+.sheet h3 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
+.sheet ul { margin: 0 0 14px; padding-left: 18px; color: var(--text-2); font-size: 13px; line-height: 1.55; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 84px; border: 1.5px solid #5a5e66; border-radius: 12px; background: #1f2125; color: var(--text); font: 500 13px var(--ui); cursor: grab; touch-action: none; }
+.tile svg { width: 26px; height: 26px; }
+.tile.used { opacity: 0.35; border-color: #3a3d44; cursor: default; }
+.sheet-foot { display: flex; align-items: center; gap: 14px; margin-top: 16px; font-size: 13px; color: var(--text-2); }
+.sheet-foot input { flex: 1; accent-color: var(--accent); }
+.win.dragging { pointer-events: none; opacity: 0.6; }
+.win.min { min-height: 0; }
+.win.snapped { border-radius: 14px; }
+.win-top { position: relative; height: 34px; display: flex; align-items: center; justify-content: flex-end; gap: 0; padding: 0 4px; }
+.win-top .grip { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); margin: 0; }
+.wtitle { position: absolute; left: 12px; top: 9px; font: 600 13px var(--ui); color: var(--text); white-space: nowrap; overflow: hidden; max-width: 55%; text-overflow: ellipsis; }
+.win-top .hbtn { width: 32px; height: 30px; }
+.panes { flex: 1; display: flex; min-height: 0; }
+.panes.split-col { flex-direction: column; }
+.pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex-basis: 0; }
+.pane .tabs { background: var(--surface); padding: 0 4px; flex: none; }
+.splitter { flex: none; background: #17181b; touch-action: none; }
+.panes.split-row > .splitter { width: 5px; cursor: ew-resize; }
+.panes.split-col > .splitter { height: 5px; cursor: ns-resize; }
+.splitter:hover { background: var(--accent); }
+.guides { position: absolute; z-index: 900; pointer-events: none; }
+.guide { position: absolute; width: 36px; height: 36px; border-radius: 7px; background: rgba(28,29,33,0.92); border: 1.5px solid #6b6f78; pointer-events: auto; }
+.guide::after { content: ""; position: absolute; background: rgba(64,196,178,0.55); border-radius: 2px; }
+.guide[data-zone="center"]::after { inset: 7px; }
+.guide[data-zone="left"]::after { left: 6px; top: 6px; bottom: 6px; width: 10px; }
+.guide[data-zone="right"]::after { right: 6px; top: 6px; bottom: 6px; width: 10px; }
+.guide[data-zone="top"]::after { left: 6px; right: 6px; top: 6px; height: 10px; }
+.guide[data-zone="bottom"]::after { left: 6px; right: 6px; bottom: 6px; height: 10px; }
+.guide.hot { border-color: var(--accent); background: rgba(64,196,178,0.25); }
+.preview { position: absolute; z-index: 890; background: rgba(64,196,178,0.18); border: 2px solid var(--accent); border-radius: 10px; pointer-events: none; }
+.ghost { position: absolute; pointer-events: none; z-index: 999; font: 500 13px var(--ui); color: var(--accent-ink); background: var(--accent); border-radius: 8px; padding: 8px 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.4); }
+.toast { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); font-size: 15px; color: var(--text); background: rgba(14,15,17,0.92); border-radius: 10px; padding: 9px 16px; pointer-events: none; white-space: nowrap; transition: opacity .25s; z-index: 1000; }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+.side-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.side-tabs button { font: inherit; color: var(--text-2); background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 6px 12px; cursor: pointer; min-height: 34px; }
+.side-tabs button[aria-pressed="true"] { background: var(--card-2); color: var(--text); border-color: var(--line); }
+.panel h2 { font-size: 15px; margin: 0 0 8px; font-weight: 600; }
+.panel p, .panel li { color: var(--text-2); line-height: 1.5; }
+.panel ol { padding-left: 20px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+td { padding: 7px 6px; border-top: 1px solid var(--line); vertical-align: top; color: var(--text-2); }
+td:first-child { color: var(--text); font-weight: 600; white-space: nowrap; }
+td.old { color: var(--text-3); font-size: 12px; }
+pre { font: 12px/1.5 var(--mono); color: var(--text); background: var(--ground); border-radius: 8px; padding: 10px; overflow-x: auto; margin: 0; }
+.field { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.field label { width: 90px; color: var(--text-2); }
+select { font: inherit; color: var(--text); background: var(--card-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-height: 34px; }
+.try li b { color: var(--text); }
+</style>
+
+<div class="page">
+  <header class="top">
+    <h1>Docks and Cards</h1><span class="badge">v3</span>
+    <p>Affinity's docks with ImGui's windows: a dock button pops out a window; windows take cards as tabs or splits, snap to a side, pin, minimise and resize. Everything on the stage is live.</p>
+    <button class="btn" id="reset">Start over</button>
+  </header>
+  <div class="layout">
+    <div class="stage-wrap"><div class="stage-box" id="box"><div class="stage" id="stage"><div class="model"></div></div></div></div>
+    <div class="side">
+      <div class="side-tabs" id="sideTabs">
+        <button data-p="try" aria-pressed="true">Try</button>
+        <button data-p="terms" aria-pressed="false">Terms</button>
+        <button data-p="rules" aria-pressed="false">Rules</button>
+        <button data-p="dock" aria-pressed="false">Dock settings</button>
+        <button data-p="saved" aria-pressed="false">Saved as</button>
+      </div>
+      <div class="panel" data-panel="try">
+        <h2>Things to try</h2>
+        <ol class="try">
+          <li><b>Tap</b> a button in the right dock: its window pops out beside the dock. Tap the view and it goes away.</li>
+          <li><b>Pin</b> it with the pin, or just drag its bar or resize its corner: a moved window stays.</li>
+          <li><b>Look</b> is a group: one window with three tabs.</li>
+          <li><b>Drag a tab or a window's bar</b> over another window: ImGui-style guides appear. The middle square joins it as a tab; the side squares split the window; the square by a screen edge snaps it to that side, full height. Drop anywhere else to tear it off.</li>
+          <li>Drag the <b>line between split cards</b> to share the room.</li>
+          <li><b>Minimise</b> (the dash) folds a window to its bar; tap it again to open.</li>
+          <li><b>Drag a dock button</b> onto a window's guides the same way, or onto the view to open it pinned where you drop it.</li>
+          <li>Tap a dock's <b>⋯</b>: every dock gets outlined and the card sheet opens. Drag a card onto a dock, drag buttons to reorder or off to remove, and set columns with the slider.</li>
+          <li>In <b>Dock settings</b>, change a dock's edge or its number of columns.</li>
+        </ol>
+      </div>
+      <div class="panel" data-panel="terms" hidden>
+        <h2>Words we use</h2>
+        <table id="terms"></table>
+      </div>
+      <div class="panel" data-panel="rules" hidden>
+        <h2>Hard rules</h2>
+        <ol id="rules"></ol>
+      </div>
+      <div class="panel" data-panel="dock" hidden>
+        <h2>Dock settings</h2>
+        <p>Every dock is the same kind of thing. Only these settings differ.</p>
+        <div class="field"><label for="dockPick">Dock</label><select id="dockPick"></select></div>
+        <div class="field"><label for="dockEdge">Edge</label><select id="dockEdge"><option>left</option><option>right</option><option>top</option><option>bottom</option></select></div>
+        <div class="field"><label for="dockLines" id="linesLabel">Columns</label><select id="dockLines"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+      </div>
+      <div class="panel" data-panel="saved" hidden>
+        <h2>How the layout is saved</h2>
+        <p>One dock line per dock, a button line per button, a window line per pinned window. Unpinned windows are not saved.</p>
+        <pre id="saved"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const W = 1280, H = 860, BTN = 48, TOP = 78;
+const P = 'fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
+const ICONS = {
+  brush: '<path d="M4 20c3 0 5-2 5-4l9-11 2 2-11 9c0 2-2 4-5 4z"/>',
+  sym: '<path d="M12 3v18M8 7l-4 5 4 5M16 7l4 5-4 5"/>',
+  layers: '<path d="M12 4l8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4"/>',
+  scene: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  look: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/>',
+  history: '<path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4M12 8v4l3 2"/>',
+  colors: '<circle cx="9" cy="9" r="5"/><circle cx="15" cy="9" r="5"/><circle cx="12" cy="15" r="5"/>',
+  stats: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
+  move: '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>',
+  draw: '<path d="M4 18c4-8 8-12 16-12"/><circle cx="4" cy="18" r="1.6" fill="currentColor"/>',
+  clay: '<path d="M4 16c2-6 6-8 8-8s6 2 8 8z"/>',
+  smooth: '<path d="M3 14c3-4 6-4 9 0s6 4 9 0"/>',
+  grab: '<path d="M8 12V6a2 2 0 0 1 4 0v5M12 11V5a2 2 0 0 1 4 0v7M16 12a2 2 0 0 1 4 0v2a7 7 0 0 1-7 7h-1a6 6 0 0 1-5-3l-3-5a2 2 0 0 1 3-2l1 2"/>',
+  mask: '<circle cx="12" cy="12" r="8"/><path d="M12 4v16"/><path d="M12 6a6 6 0 0 1 0 12" fill="currentColor"/>',
+  undo: '<path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/>',
+  redo: '<path d="M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3"/>',
+  search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  more: '<circle cx="6" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="18" cy="12" r="1.4" fill="currentColor"/>',
+  sep: '<path d="M5 12h14"/>',
+  pin: '<path d="M9 4h6l-1 6 3 3H7l3-3zM12 13v7"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  min: '<path d="M6 12h12"/>',
+  open: '<path d="M6 9l6 6 6-6"/>',
+};
+const svg = k => `<svg viewBox="0 0 24 24" ${P}>${ICONS[k]}</svg>`;
+
+// Cards: content only. Each says what it shows; a window decides where.
+const CARDS = {
+  brush: { name: 'Brush', rows: [['Size', .42], ['Strength', .6], ['Spacing', .2], ['Falloff', .7]] },
+  sym: { name: 'Symmetry', rows: [['X', 1], ['Y', 0], ['Z', 0], ['Radial', .1]] },
+  layers: { name: 'Layers', list: ['Detail', 'Wrinkles', 'Base'] },
+  scene: { name: 'Scene', list: ['Head', 'Eyes', 'Teeth', 'Hair guides'] },
+  material: { name: 'Material', rows: [['Roughness', .5], ['Metal', 0], ['Cavity', .35]] },
+  lights: { name: 'Lights', rows: [['Key', .8], ['Fill', .35], ['Rim', .55]] },
+  env: { name: 'Environment', rows: [['Exposure', .5], ['Rotation', .25], ['Blur', .1]] },
+  history: { name: 'History', list: ['Clay', 'Smooth', 'Clay', 'Mask'] },
+  colors: { name: 'Colours', rows: [['Hue', .08], ['Saturation', .4], ['Value', .8]] },
+  stats: { name: 'Stats', list: ['2,400,000 triangles', '0.8 ms GPU', '60 fps'] },
+};
+
+const START = () => ({
+  docks: [
+    { id: 'Spaces', edge: 'top', lines: 1, buttons: [
+      { kind: 'space', id: 'Sculpt', wide: true }, { kind: 'space', id: 'Model', wide: true }, { kind: 'space', id: 'Render', wide: true },
+      { kind: 'cmd', id: 'undo', name: 'Undo' }, { kind: 'cmd', id: 'redo', name: 'Redo' }, { kind: 'cmd', id: 'search', name: 'Search' }, { kind: 'cmd', id: 'menu', name: 'Menu' } ] },
+    { id: 'Tools', edge: 'left', lines: 1, buttons: ['move', 'draw', 'clay', 'smooth', 'grab', 'mask'].map(t => ({ kind: 'tool', id: t, name: t[0].toUpperCase() + t.slice(1) })) },
+    { id: 'Cards', edge: 'right', lines: 2, buttons: [
+      { kind: 'card', id: 'brush', icon: 'brush' }, { kind: 'card', id: 'sym', icon: 'sym' },
+      { kind: 'card', id: 'layers', icon: 'layers' }, { kind: 'card', id: 'scene', icon: 'scene' },
+      { kind: 'group', id: 'look', name: 'Look', icon: 'look', cards: ['material', 'lights', 'env'] }, { kind: 'card', id: 'history', icon: 'history' },
+      { kind: 'card', id: 'colors', icon: 'colors' }, { kind: 'card', id: 'stats', icon: 'stats' } ] },
+  ],
+  windows: [], custom: null, space: 'Sculpt', tool: 'clay', nextId: 1,
+});
+let S = START();
+let selectedDock = 'Cards';
+
+const stage = document.getElementById('stage'), box = document.getElementById('box');
+let scale = 1;
+function fit() { scale = box.clientWidth / W; stage.style.transform = `scale(${scale})`; }
+new ResizeObserver(fit).observe(box);
+
+function btnCards(b) { return b.kind === 'group' ? b.cards : [b.id]; }
+function btnName(b) { return b.kind === 'group' ? b.name : b.kind === 'card' ? CARDS[b.id].name : b.name || b.id; }
+function btnKey(d, i) { return d.id + ':' + i; }
+
+let toastTimer;
+function toast(msg) {
+  let t = stage.querySelector('.toast');
+  if (!t) { t = document.createElement('div'); t.className = 'toast'; stage.appendChild(t); }
+  t.textContent = msg; t.style.opacity = 1;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.opacity = 0, 2600);
+}
+
+// Docks: one kind. Edge decides where; lines decide how many columns (side docks) or rows (top and bottom).
+const dockBox = {};
+function renderDocks() {
+  stage.querySelectorAll('.dock').forEach(n => n.remove());
+  for (const d of S.docks) {
+    const el = document.createElement('div');
+    el.className = 'dock' + (d.id === selectedDock && side === 'dock' && !S.custom ? ' selected' : '') + (S.custom ? ' outlined' : '');
+    el.dataset.dock = d.id; el.dataset.edge = d.edge;
+    const vertical = d.edge === 'left' || d.edge === 'right';
+    if (vertical) { el.style.gridTemplateColumns = `repeat(${d.lines}, ${BTN}px)`; el.style.gridAutoFlow = 'row'; }
+    else { el.style.gridTemplateRows = `repeat(${d.lines}, ${BTN}px)`; el.style.gridAutoFlow = 'column'; }
+    d.buttons.forEach((b, i) => {
+      if (b.kind === 'sep') {
+        const n = document.createElement('div'); n.className = 'sep'; n.dataset.key = btnKey(d, i);
+        if (vertical) { n.style.gridColumn = '1 / -1'; n.style.width = '70%'; n.style.height = '2px'; }
+        else { n.style.gridRow = '1 / -1'; n.style.height = '70%'; n.style.width = '2px'; }
+        el.appendChild(n); return;
+      }
+      const n = document.createElement('button');
+      n.className = 'item' + (b.wide ? ' wide' : '') + (b.kind === 'group' ? ' group' : '');
+      n.dataset.key = btnKey(d, i);
+      const lit = (b.kind === 'space' && S.space === b.id) || (b.kind === 'tool' && S.tool === b.id) ||
+        ((b.kind === 'card' || b.kind === 'group') && S.windows.some(w => w.source === btnKey(d, i)));
+      if (lit) n.classList.add('lit');
+      n.innerHTML = b.wide ? b.id : svg(b.icon || b.id) + `<span class="tip">${btnName(b)}</span>`;
+      n.setAttribute('aria-label', btnName(b));
+      el.appendChild(n);
+    });
+    // Every dock ends with its own customise button; it is part of the dock, not a saved button.
+    if (d.id !== 'Spaces') {
+      const m = document.createElement('button'); m.className = 'item'; m.dataset.more = d.id;
+      m.innerHTML = svg('more') + '<span class="tip">Customise</span>'; m.setAttribute('aria-label', 'Customise ' + d.id);
+      if (vertical) m.style.gridColumn = '1 / -1'; else m.style.gridRow = '1 / -1';
+      m.style.justifySelf = 'center'; m.style.alignSelf = 'center';
+      el.appendChild(m);
+    }
+    stage.appendChild(el);
+    const w = el.offsetWidth, h = el.offsetHeight;
+    const pos = { left: [12, (H - h) / 2], right: [W - 12 - w, TOP], top: [(W - w) / 2, 12], bottom: [(W - w) / 2, H - 12 - h] }[d.edge];
+    // A side dock that would meet the top dock starts below it.
+    const x = pos[0], y = Math.max(pos[1], vertical ? TOP : 0);
+    el.style.left = x + 'px'; el.style.top = y + 'px';
+    dockBox[d.edge] = { x, y, w, h };
+  }
+}
+
+function cardBody(id) {
+  const c = CARDS[id];
+  if (c.rows) return c.rows.map(([l, v]) => `<div class="row"><span>${l}</span><div class="bar"><i style="width:${v * 100}%"></i></div></div>`).join('');
+  return c.list.map(l => `<div class="list-row">${l}</div>`).join('');
+}
+
+// Windows: one frame for every card. A window holds panes split one way (row or column);
+// each pane holds cards as tabs. A window floats, or snaps to a screen side at full height.
+const cardsOf = w => w.panes.flatMap(p => p.tabs);
+const SNAP_W = 300, MIN_H = 36;
+function layoutSnapped() {
+  for (const edge of ['left', 'right']) {
+    const list = S.windows.filter(w => w.snap === edge).sort((a, b) => a.order - b.order);
+    if (!list.length) continue;
+    const db = dockBox[edge];
+    const x = edge === 'right' ? (db ? db.x - 10 - SNAP_W : W - 12 - SNAP_W) : (db ? db.x + db.w + 10 : 12);
+    const top = TOP, bottom = H - 12, gap = 8;
+    const mins = list.filter(w => w.min).length, open = list.length - mins;
+    const room = bottom - top - gap * (list.length - 1) - mins * MIN_H;
+    let y = top;
+    for (const w of list) {
+      w.x = x; w.y = y; w.w = SNAP_W; w.h = w.min ? MIN_H : room / Math.max(open, 1);
+      y += w.h + gap;
+    }
+  }
+}
+function renderWindows() {
+  stage.querySelectorAll('.win').forEach(n => n.remove());
+  layoutSnapped();
+  for (const w of S.windows) {
+    const el = document.createElement('div');
+    el.className = 'win' + (w.pinned ? ' pinned' : '') + (w.min ? ' min' : '') + (w.snap ? ' snapped' : '');
+    el.dataset.win = w.id;
+    Object.assign(el.style, { left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: (w.min ? MIN_H : w.h) + 'px', zIndex: 10 + w.z });
+    const title = w.min ? `<span class="wtitle">${cardsOf(w).map(c => CARDS[c].name).join(' · ')}</span>` : '';
+    let panes = '';
+    if (!w.min) {
+      panes = `<div class="panes split-${w.split || 'row'}">` + w.panes.map((p, pi) =>
+        (pi ? `<div class="splitter" data-splitter="${pi - 1}"></div>` : '') +
+        `<div class="pane" data-pane="${pi}" style="flex-grow:${p.f}"><div class="tabs" data-grab="1">${p.tabs.map(t => `<button class="tab${t === p.active ? ' on' : ''}" data-tab="${t}" data-pane="${pi}">${CARDS[t].name}</button>`).join('')}</div>
+        <div class="win-body">${cardBody(p.active)}</div></div>`).join('') + '</div>';
+    }
+    el.innerHTML = `<div class="win-top" data-grab="1"><div class="grip"></div>${title}
+      <button class="hbtn" data-act="min" aria-label="${w.min ? 'Open' : 'Minimise'}">${svg(w.min ? 'open' : 'min')}</button>
+      <button class="hbtn${w.pinned ? ' on' : ''}" data-act="pin" aria-label="Pin">${svg('pin')}</button>
+      <button class="hbtn" data-act="close" aria-label="Close">${svg('close')}</button></div>
+      ${panes}${w.min || w.snap ? '' : '<div class="resize" data-resize="1"></div>'}`;
+    stage.appendChild(el);
+  }
+}
+
+// The customise sheet: every card and group, used ones dimmed; drag one onto an outlined dock.
+const TILES = [{ kind: 'sep', id: 'sep', name: 'Separator', icon: 'sep' },
+  ...Object.keys(CARDS).filter(k => !['material', 'lights', 'env'].includes(k)).map(k => ({ kind: 'card', id: k, icon: k })),
+  { kind: 'card', id: 'material', icon: 'look' }, { kind: 'card', id: 'lights', icon: 'look' }, { kind: 'card', id: 'env', icon: 'look' },
+  { kind: 'group', id: 'look', name: 'Look', icon: 'look', cards: ['material', 'lights', 'env'] }];
+function tileUsed(t) {
+  if (t.kind === 'sep') return false;
+  return S.docks.some(d => d.buttons.some(b => b.kind === t.kind && b.id === t.id));
+}
+function renderSheet() {
+  stage.querySelectorAll('.veil, .sheet').forEach(n => n.remove());
+  if (!S.custom) return;
+  const d = S.docks.find(x => x.id === S.custom);
+  const vertical = d.edge === 'left' || d.edge === 'right';
+  const veil = document.createElement('div'); veil.className = 'veil'; stage.appendChild(veil);
+  const sh = document.createElement('div'); sh.className = 'sheet';
+  sh.innerHTML = `<h3>Customise docks</h3><ul><li>Touch and hold a card, then drag it onto an outlined dock.</li><li>Drag a dock's buttons to reorder them, or off the dock to remove them.</li><li>Tap outside this sheet to finish.</li></ul>
+    <div class="tiles">${TILES.map((t, i) => `<div class="tile${tileUsed(t) ? ' used' : ''}" data-tile="${i}">${svg(t.icon)}<span>${t.name || CARDS[t.id].name}</span></div>`).join('')}</div>
+    <div class="sheet-foot"><span>${d.id}: ${vertical ? 'columns' : 'rows'}</span><input type="range" min="1" max="4" step="1" value="${d.lines}" id="linesRange"><b id="linesVal">${d.lines}</b><button class="btn" data-act="resetdocks">Reset docks</button></div>`;
+  stage.appendChild(sh);
+  sh.querySelector('#linesRange').oninput = e => { d.lines = +e.target.value; renderDocks(); renderWindows(); renderSaved(); sh.querySelector('#linesVal').textContent = d.lines; };
+}
+function render() { renderDocks(); renderWindows(); renderSheet(); renderSaved(); }
+
+let zTop = 1, order = 1;
+function newWindow(tabs, x, y, pinned, source) {
+  const w = { id: S.nextId++, panes: [{ tabs: [...tabs], active: tabs[0], f: 1 }], split: null, x, y, w: 300, h: 260, pinned, min: false, snap: null, order: order++, source, z: zTop++ };
+  clampWin(w); S.windows.push(w); return w;
+}
+function clampWin(w) { w.x = Math.max(0, Math.min(W - w.w, w.x)); w.y = Math.max(0, Math.min(H - 60, w.y)); }
+function closeUnpinned() { S.windows = S.windows.filter(w => w.pinned); }
+function findWin(id) { return S.windows.find(w => w.id == id); }
+function removeTab(w, t) {
+  for (const p of w.panes) { p.tabs = p.tabs.filter(x => x !== t); if (p.active === t) p.active = p.tabs[0]; }
+  w.panes = w.panes.filter(p => p.tabs.length);
+  if (w.panes.length < 2) w.split = null;
+  if (!w.panes.length) S.windows = S.windows.filter(x => x !== w);
+  w.source = null;
+}
+// A card lives in one window at a time: adding it somewhere takes it from where it was.
+function takeCard(t) { for (const w of [...S.windows]) if (cardsOf(w).includes(t)) removeTab(w, t); }
+
+// Puts cards into window `target` by a guide: the middle joins pane `pi` as tabs, a side splits beside it.
+function placeInto(target, pi, cards, zone) {
+  const pane = target.panes[pi];
+  const dir = zone === 'left' || zone === 'right' ? 'row' : 'col';
+  if (zone !== 'center' && target.split && target.split !== dir && target.panes.length > 1) {
+    zone = 'center'; toast('This mock splits a window one way only; joined as tabs.');
+  }
+  cards.forEach(takeCard);
+  if (!S.windows.includes(target)) { const nw = newWindow(cards, target.x, target.y, true, null); return nw; }
+  let at = target.panes.indexOf(pane);
+  if (zone === 'center') {
+    const p = at >= 0 ? pane : target.panes[0];
+    p.tabs.push(...cards); p.active = cards[0];
+  } else {
+    if (at < 0) at = target.panes.length - 1;
+    const np = { tabs: [...cards], active: cards[0], f: 1 };
+    target.panes.splice(zone === 'left' || zone === 'top' ? at : at + 1, 0, np);
+    target.split = dir;
+    // A window grows away from the nearer screen side, so it never spreads over a dock.
+    if (!target.snap) {
+      if (dir === 'row') { const nw = Math.max(target.w, 220 * target.panes.length); if (target.x + target.w / 2 > W / 2) target.x -= nw - target.w; target.w = nw; }
+      else target.h = Math.max(target.h, 200 * target.panes.length);
+      clampWin(target);
+    }
+  }
+  target.pinned = true; target.min = false; target.source = null;
+  return target;
+}
+function snapWindow(w, edge) { w.snap = edge; w.pinned = true; w.min = false; w.order = order++; w.source = null; }
+
+function tapDockButton(d, i, el) {
+  const b = d.buttons[i], key = btnKey(d, i);
+  if (b.kind === 'space') { S.space = b.id; toast(`Space: ${b.id}. A space is a set of docks and windows.`); return; }
+  if (b.kind === 'tool') { S.tool = b.id; toast(`Tool: ${btnName(b)}`); return; }
+  if (b.kind === 'cmd') { toast(`${btnName(b)}: a command button, no window.`); return; }
+  const open = S.windows.find(w => w.source === key);
+  if (open) { S.windows = S.windows.filter(w => w !== open); toast(`${btnName(b)} closed.`); return; }
+  // A card already shown in a pinned window: bring that window forward and open it.
+  const shown = S.windows.find(w => btnCards(b).every(c => cardsOf(w).includes(c)) && w.pinned);
+  if (shown) { shown.z = zTop++; shown.min = false; for (const p of shown.panes) if (p.tabs.includes(btnCards(b)[0])) p.active = btnCards(b)[0]; toast(`${btnName(b)} is already in a window: brought forward.`); return; }
+  closeUnpinned();
+  const cards = btnCards(b);
+  cards.forEach(takeCard);
+  const r = el.getBoundingClientRect(), sr = stage.getBoundingClientRect();
+  const by = (r.top - sr.top) / scale, pr = el.parentElement.getBoundingClientRect();
+  const dl = (pr.left - sr.left) / scale, dr = (pr.right - sr.left) / scale;
+  const x = d.edge === 'right' ? dl - 310 : d.edge === 'left' ? dr + 10 : (r.left - sr.left) / scale;
+  const y = d.edge === 'top' ? TOP : d.edge === 'bottom' ? H - 360 : by - 8;
+  newWindow(cards, x, y, false, key);
+  toast(`${btnName(b)} popped out. Tap the view to put it away, or pin it.`);
+}
+
+// Guides: ImGui's drop targets. Five squares on the pane under the pointer, and one square by
+// each side of the screen to snap there.
+let guideFor = null;
+function hitAt(e) {
+  const g = stage.querySelector('.ghost'); if (g) g.style.display = 'none';
+  const n = document.elementFromPoint(e.clientX, e.clientY); if (g) g.style.display = '';
+  return n;
+}
+function showGuides(e, except) {
+  const n = hitAt(e);
+  const hot = n && n.closest('.guide');
+  stage.querySelectorAll('.guide.hot').forEach(x => x.classList.remove('hot'));
+  stage.querySelector('.preview')?.remove();
+  if (hot) { hot.classList.add('hot'); preview(hot.dataset); return; }
+  const winEl = n && n.closest('.win'), paneEl = n && n.closest('.pane');
+  let key = null, w = null, pi = 0;
+  if (winEl) { w = findWin(winEl.dataset.win); pi = paneEl ? +paneEl.dataset.pane : 0; if (w === except) w = null; else key = w.id + ':' + pi; }
+  if (key === guideFor && stage.querySelector('.guides')) return;
+  stage.querySelectorAll('.guides').forEach(x => x.remove());
+  guideFor = key;
+  const layer = document.createElement('div'); layer.className = 'guides'; layer.style.inset = '0';
+  const sq = (x, y, zone, win, pane) => `<div class="guide" data-zone="${zone}" data-win="${win}" data-pane="${pane}" style="left:${x - 18}px;top:${y - 18}px"></div>`;
+  let html = sq(110, H / 2, 'snap-left', '', '') + sq(W - 170, H / 2, 'snap-right', '', '');
+  if (w && !w.min) {
+    const pr = (winEl.querySelector(`.pane[data-pane="${pi}"]`) || winEl).getBoundingClientRect(), sr = stage.getBoundingClientRect();
+    const cx = (pr.left - sr.left + pr.width / 2) / scale, cy = (pr.top - sr.top + pr.height / 2) / scale;
+    html += sq(cx, cy, 'center', w.id, pi) + sq(cx - 42, cy, 'left', w.id, pi) + sq(cx + 42, cy, 'right', w.id, pi) + sq(cx, cy - 42, 'top', w.id, pi) + sq(cx, cy + 42, 'bottom', w.id, pi);
+  } else if (w && w.min) {
+    const cx = w.x + w.w / 2, cy = w.y + MIN_H + 24;
+    html += sq(cx, cy, 'center', w.id, 0);
+  }
+  layer.innerHTML = html; stage.appendChild(layer);
+}
+function preview(z) {
+  let r;
+  if (z.zone === 'snap-left' || z.zone === 'snap-right') {
+    const edge = z.zone.slice(5), db = dockBox[edge];
+    r = { x: edge === 'right' ? (db ? db.x - 10 - SNAP_W : W - 12 - SNAP_W) : (db ? db.x + db.w + 10 : 12), y: TOP, w: SNAP_W, h: H - 12 - TOP };
+  } else {
+    const winEl = stage.querySelector(`.win[data-win="${z.win}"]`); if (!winEl) return;
+    const pe = winEl.querySelector(`.pane[data-pane="${z.pane}"]`) || winEl;
+    const pr = pe.getBoundingClientRect(), sr = stage.getBoundingClientRect();
+    let x = (pr.left - sr.left) / scale, y = (pr.top - sr.top) / scale, w = pr.width / scale, h = pr.height / scale;
+    if (z.zone === 'left') w /= 2; if (z.zone === 'right') { x += w / 2; w /= 2; }
+    if (z.zone === 'top') h /= 2; if (z.zone === 'bottom') { y += h / 2; h /= 2; }
+    r = { x, y, w, h };
+  }
+  const p = document.createElement('div'); p.className = 'preview';
+  Object.assign(p.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
+  stage.appendChild(p);
+}
+function guideAt(e) { const n = hitAt(e); const g = n && n.closest('.guide'); return g ? { zone: g.dataset.zone, win: findWin(g.dataset.win), pane: +g.dataset.pane } : null; }
+function clearGuides() { stage.querySelectorAll('.guides, .preview, .ghost').forEach(x => x.remove()); guideFor = null; stage.querySelectorAll('.dock.drop').forEach(n => n.classList.remove('drop')); }
+
+// One pointer handler for the whole stage.
+let drag = null;
+function pt(e) { const r = stage.getBoundingClientRect(); return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale }; }
+function overStage(e) { const r = box.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; }
+function ghost(text, p) {
+  let g = stage.querySelector('.ghost');
+  if (!g) { g = document.createElement('div'); g.className = 'ghost'; stage.appendChild(g); }
+  g.textContent = text; g.style.left = p.x + 12 + 'px'; g.style.top = p.y + 12 + 'px';
+}
+function dockAt(e) {
+  const n = hitAt(e);
+  const el = n && n.closest('.dock'); if (!el) return null;
+  const d = S.docks.find(x => x.id === el.dataset.dock);
+  const btn = n.closest('[data-key]'); const at = btn ? +btn.dataset.key.split(':')[1] : d.buttons.length;
+  return { d, at, el };
+}
+function dockHint(h) { stage.querySelectorAll('.dock.drop').forEach(n => n.classList.remove('drop')); if (h) h.el.classList.add('drop'); }
+
+stage.addEventListener('pointerdown', e => {
+  const p = pt(e), t = e.target;
+  if (S.custom) {
+    if (t.closest('[data-act="resetdocks"]')) { const c = S.custom; S.docks = START().docks; S.custom = c; render(); toast('Docks back to the start.'); return; }
+    const tile = t.closest('[data-tile]');
+    if (tile && !tile.classList.contains('used')) { drag = { kind: 'tile', tile: TILES[+tile.dataset.tile], start: p, moved: false }; stage.setPointerCapture(e.pointerId); return; }
+    const key = t.closest('.dock [data-key]');
+    if (key) { const [dockId, i] = key.dataset.key.split(':'); drag = { kind: 'rearrange', d: S.docks.find(x => x.id === dockId), i: +i, start: p, moved: false }; stage.setPointerCapture(e.pointerId); return; }
+    if (t.closest('.sheet') || t.closest('.dock')) return;
+    drag = { kind: 'endcustom' }; return;
+  }
+  const more = t.closest('[data-more]');
+  if (more) { drag = { kind: 'more', id: more.dataset.more }; return; }
+  const winEl = t.closest('.win');
+  if (winEl) {
+    const w = findWin(winEl.dataset.win); w.z = zTop++; winEl.style.zIndex = 10 + w.z;
+    const act = t.closest('[data-act]');
+    if (act) { drag = { kind: 'act', w, act: act.dataset.act }; return; }
+    const tab = t.closest('[data-tab]');
+    if (tab) { drag = { kind: 'tab', w, card: tab.dataset.tab, pane: +tab.dataset.pane, start: p, moved: false }; stage.setPointerCapture(e.pointerId); return; }
+    const sp = t.closest('[data-splitter]');
+    if (sp) { const i = +sp.dataset.splitter, box2 = sp.parentElement.getBoundingClientRect(); drag = { kind: 'split', w, i, start: p, f0: [w.panes[i].f, w.panes[i + 1].f], size: (w.split === 'col' ? box2.height : box2.width) / scale }; stage.setPointerCapture(e.pointerId); return; }
+    if (t.closest('[data-resize]')) { drag = { kind: 'resize', w, start: p, w0: w.w, h0: w.h }; stage.setPointerCapture(e.pointerId); return; }
+    if (t.closest('[data-grab]')) { drag = { kind: 'move', w, el: winEl, start: p, x0: w.x, y0: w.y, moved: false }; stage.setPointerCapture(e.pointerId); return; }
+    return;
+  }
+  const item = t.closest('.item');
+  if (item) {
+    const [dockId, i] = item.dataset.key.split(':');
+    drag = { kind: 'button', d: S.docks.find(x => x.id === dockId), i: +i, el: item, start: p, moved: false };
+    stage.setPointerCapture(e.pointerId); return;
+  }
+  if (t.closest('.dock')) return;
+  drag = { kind: 'view' };
+});
+
+stage.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const p = pt(e);
+  const far = d => Math.hypot(p.x - d.start.x, p.y - d.start.y) > 8;
+  if (drag.kind === 'tile' || drag.kind === 'rearrange') {
+    if (!drag.moved && !far(drag)) return;
+    drag.moved = true;
+    const b = drag.kind === 'tile' ? drag.tile : drag.d.buttons[drag.i];
+    ghost(b.kind === 'sep' ? 'Separator' : btnName(b), p); dockHint(dockAt(e));
+  } else if (drag.kind === 'move') {
+    if (!drag.moved && !far(drag)) return;
+    if (!drag.moved) {
+      drag.moved = true;
+      // Pulling a snapped window off its side floats it again, under the finger.
+      if (drag.w.snap) { drag.w.snap = null; drag.w.h = 300; drag.x0 = p.x - drag.w.w / 2; drag.y0 = p.y - 16; drag.start = p; }
+    }
+    drag.w.x = drag.x0 + p.x - drag.start.x; drag.w.y = drag.y0 + p.y - drag.start.y; clampWin(drag.w);
+    const el = stage.querySelector(`.win[data-win="${drag.w.id}"]`);
+    el.classList.add('dragging'); Object.assign(el.style, { left: drag.w.x + 'px', top: drag.w.y + 'px', height: (drag.w.min ? MIN_H : drag.w.h) + 'px' });
+    showGuides(e, drag.w);
+  } else if (drag.kind === 'resize') {
+    drag.w.w = Math.max(220, drag.w0 + p.x - drag.start.x); drag.w.h = Math.max(160, drag.h0 + p.y - drag.start.y);
+    const el = stage.querySelector(`.win[data-win="${drag.w.id}"]`); el.style.width = drag.w.w + 'px'; el.style.height = drag.w.h + 'px';
+  } else if (drag.kind === 'split') {
+    const d = (drag.w.split === 'col' ? p.y - drag.start.y : p.x - drag.start.x) / drag.size;
+    const sum = drag.f0[0] + drag.f0[1], n = drag.w.panes.reduce((a, q) => a + q.f, 0);
+    const a = Math.max(0.15 * sum, Math.min(0.85 * sum, drag.f0[0] + d * n));
+    drag.w.panes[drag.i].f = a; drag.w.panes[drag.i + 1].f = sum - a;
+    const panes = stage.querySelectorAll(`.win[data-win="${drag.w.id}"] .pane`);
+    panes[drag.i].style.flexGrow = a; panes[drag.i + 1].style.flexGrow = sum - a;
+  } else if (drag.kind === 'tab') {
+    if (!drag.moved && !far(drag)) return;
+    drag.moved = true; ghost(CARDS[drag.card].name, p);
+    showGuides(e, cardsOf(drag.w).length > 1 ? null : drag.w);
+  } else if (drag.kind === 'button') {
+    const b = drag.d.buttons[drag.i];
+    if (b.kind !== 'card' && b.kind !== 'group') return;
+    if (!drag.moved && !far(drag)) return;
+    drag.moved = true; ghost(btnName(b), p); showGuides(e, null);
+  }
+});
+
+stage.addEventListener('pointerup', e => {
+  if (!drag) return;
+  const p = pt(e), d = drag; drag = null;
+  const g = d.moved ? guideAt(e) : null;
+  clearGuides();
+  if (d.kind === 'more') { closeUnpinned(); S.custom = d.id; selectedDock = d.id; }
+  else if (d.kind === 'endcustom') { S.custom = null; toast('Docks saved.'); }
+  else if (d.kind === 'tile') {
+    const h = d.moved && dockAt(e);
+    if (h) { const b = { ...d.tile }; if (b.cards) b.cards = [...b.cards]; h.d.buttons.splice(h.at, 0, b); toast(`${b.kind === 'sep' ? 'Separator' : btnName(b)} added to ${h.d.id}.`); }
+  } else if (d.kind === 'rearrange') {
+    if (d.moved) {
+      const h = dockAt(e), [b] = d.d.buttons.splice(d.i, 1);
+      if (h) { let at = h.at; if (h.d === d.d && at > d.i) at--; h.d.buttons.splice(at, 0, b); }
+      else toast(`${b.kind === 'sep' ? 'Separator' : btnName(b)} removed from ${d.d.id}.`);
+      for (const w of S.windows) w.source = null;
+    }
+  } else if (d.kind === 'act') {
+    if (d.act === 'pin') { d.w.pinned = !d.w.pinned; if (!d.w.pinned) d.w.snap = null; toast(d.w.pinned ? 'Pinned: it stays when you tap elsewhere.' : 'Unpinned: a tap on the view puts it away.'); }
+    else if (d.act === 'min') { d.w.min = !d.w.min; d.w.pinned = true; toast(d.w.min ? 'Minimised to its bar. Tap the arrow to open.' : 'Opened.'); }
+    else S.windows = S.windows.filter(x => x !== d.w);
+  } else if (d.kind === 'move') {
+    if (d.moved) {
+      const cards = cardsOf(d.w);
+      if (g && g.zone.startsWith('snap')) { snapWindow(d.w, g.zone.slice(5)); toast(`Snapped to the ${g.zone.slice(5)} side.`); }
+      else if (g && g.win) {
+        // Dropping a whole window on another's guides moves all its cards there.
+        const split = d.w.panes.length > 1 && g.zone === 'center';
+        S.windows = S.windows.filter(x => x !== d.w);
+        placeInto(g.win, g.pane, cards, g.zone);
+        toast(g.zone === 'center' ? 'Joined as tabs.' + (split ? ' Its split became tabs.' : '') : `Split ${g.zone}.`);
+      } else if (!d.w.pinned) { d.w.pinned = true; toast('Moved, so pinned.'); }
+    }
+  } else if (d.kind === 'resize') {
+    if (!d.w.pinned) { d.w.pinned = true; toast('Resized, so pinned.'); }
+  } else if (d.kind === 'tab') {
+    if (!d.moved) { d.w.panes[d.pane].active = d.card; }
+    else if (g && g.zone.startsWith('snap')) {
+      takeCard(d.card); const nw = newWindow([d.card], 0, 0, true, null); snapWindow(nw, g.zone.slice(5)); toast(`${CARDS[d.card].name} snapped to the ${g.zone.slice(5)} side.`);
+    } else if (g && g.win) {
+      if (!(g.win === d.w && g.zone === 'center' && g.pane === d.pane)) { placeInto(g.win, g.pane, [d.card], g.zone); toast(g.zone === 'center' ? `${CARDS[d.card].name} joined as a tab.` : `${CARDS[d.card].name} split ${g.zone}.`); }
+    } else if (overStage(e)) {
+      const inside = p.x >= d.w.x && p.x <= d.w.x + d.w.w && p.y >= d.w.y && p.y <= d.w.y + d.w.h;
+      if (!inside && cardsOf(d.w).length > 1) { takeCard(d.card); newWindow([d.card], p.x - 40, p.y - 20, true, null); toast(`${CARDS[d.card].name} torn off into its own window.`); }
+    }
+  } else if (d.kind === 'button') {
+    const b = d.d.buttons[d.i];
+    if (!d.moved) tapDockButton(d.d, d.i, d.el);
+    else {
+      const cards = btnCards(b);
+      if (g && g.zone.startsWith('snap')) { cards.forEach(takeCard); const nw = newWindow(cards, 0, 0, true, null); snapWindow(nw, g.zone.slice(5)); toast(`${btnName(b)} snapped to the ${g.zone.slice(5)} side.`); }
+      else if (g && g.win) { placeInto(g.win, g.pane, cards, g.zone); toast(`${btnName(b)} ${g.zone === 'center' ? 'joined as ' + (cards.length > 1 ? 'tabs' : 'a tab') : 'split ' + g.zone}.`); }
+      else if (overStage(e) && !hitAt(e)?.closest('.dock')) { cards.forEach(takeCard); newWindow(cards, p.x - 40, p.y - 20, true, null); toast(`${btnName(b)} opened pinned where you dropped it.`); }
+    }
+  } else if (d.kind === 'view') {
+    if (S.windows.some(w => !w.pinned)) { closeUnpinned(); toast('Tap elsewhere: unpinned windows put away.'); }
+  }
+  render();
+});
+stage.addEventListener('pointercancel', () => { drag = null; clearGuides(); render(); });
+
+// Side panel.
+let side = 'try';
+document.getElementById('sideTabs').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  side = b.dataset.p;
+  document.querySelectorAll('#sideTabs button').forEach(x => x.setAttribute('aria-pressed', x === b));
+  document.querySelectorAll('[data-panel]').forEach(x => x.hidden = x.dataset.panel !== side);
+  render();
+});
+
+const TERMS = [
+  ['Dock', 'A strip of buttons on an edge, in one or more rows or columns.', 'rail, bar, shelf, tools strip, island, Dock 1-4'],
+  ['Button', 'One slot of a dock: a tool, a command, a space, a card or a group.', 'slot, bar item'],
+  ['Card', 'One piece of content: Brush, Layers, Lights. Never knows where it is shown.', 'panel, palette, section, Kit_Window'],
+  ['Window', 'The one frame that shows cards: bar, minimise, pin, close, tabs, resize corner.', 'popover, stack, column, float'],
+  ['Pane', 'One part of a split window, with its own tabs.', 'stack group'],
+  ['Group', 'A button that opens several cards as tabs of one window.', 'rail group, stack group'],
+  ['Pop out', 'A tap on a card button opens its window beside the dock.', 'popover'],
+  ['Pin', 'Keeps a window open when you tap elsewhere. Moving, resizing, joining or minimising pins.', 'float'],
+  ['Minimise', 'Folds a window to its bar, which shows its cards\' names.', 'collapse'],
+  ['Guides', 'The squares that appear while you drag (ImGui\'s docking targets): middle joins, sides split, screen-side squares snap.', 'none'],
+  ['Join', 'Drop on the middle guide: the card becomes a tab.', 'add to stack'],
+  ['Split', 'Drop on a side guide: the window divides into panes.', 'none'],
+  ['Snap', 'Drop on a screen-side guide: the window fills that side beside the dock, full height; snapped windows share it.', 'docked column, Stack_Place'],
+  ['Tear off', 'Drag a tab out onto the view: it gets its own window.', 'Float'],
+  ['Customise', 'The sheet a dock\'s ⋯ opens: all cards, drag them onto docks, set columns.', 'Add panels, Arrange mode, bar menu'],
+  ['Separator', 'A thin line between buttons in a dock.', 'divider'],
+  ['Space', 'A named set of docks and windows (Sculpt, Model, Render). Affinity calls it a studio.', 'workspace, layout'],
+  ['Context bar', 'A dock whose buttons follow the tool in use.', 'tool options bar'],
+  ['Wheel', 'A round dock under the finger or pen.', 'brush pie'],
+];
+document.getElementById('terms').innerHTML = '<tr><td>Term</td><td>Meaning</td><td class="old">Replaces today</td></tr>' +
+  TERMS.map(([a, b, c]) => `<tr><td>${a}</td><td>${b}</td><td class="old">${c}</td></tr>`).join('');
+
+const RULES = [
+  'There are three kinds of things on screen: Docks, Cards and Windows. Nothing else.',
+  'A dock only holds buttons. Its edge, rows or columns and button size are settings, not new kinds.',
+  'A card is content only. It never draws its own frame and never knows which window shows it.',
+  'A window is the only frame. Every card, everywhere, is shown in one, so it looks and behaves the same.',
+  'A card is in at most one window at a time. Opening it elsewhere moves it.',
+  'An unpinned window closes on a tap elsewhere; a pinned one stays. Moving, resizing, joining or minimising pins.',
+  'Every drop goes through the same guides: middle joins, side splits, screen side snaps, nothing tears off.',
+  'A group is a button that names several cards. Opening it is a window with those cards as tabs.',
+  'Layout is data: dock, button and window lines. Code never places a panel by hand.',
+];
+document.getElementById('rules').innerHTML = RULES.map(r => `<li>${r}</li>`).join('');
+
+// Dock settings.
+const pick = document.getElementById('dockPick'), edge = document.getElementById('dockEdge'), lines = document.getElementById('dockLines');
+pick.innerHTML = S.docks.map(d => `<option>${d.id}</option>`).join('');
+function syncDockFields() {
+  const d = S.docks.find(x => x.id === selectedDock);
+  pick.value = d.id; edge.value = d.edge; lines.value = d.lines;
+  document.getElementById('linesLabel').textContent = d.edge === 'left' || d.edge === 'right' ? 'Columns' : 'Rows';
+}
+pick.onchange = () => { selectedDock = pick.value; syncDockFields(); render(); };
+edge.onchange = () => { S.docks.find(x => x.id === selectedDock).edge = edge.value; closeUnpinned(); syncDockFields(); render(); };
+lines.onchange = () => { S.docks.find(x => x.id === selectedDock).lines = +lines.value; closeUnpinned(); render(); };
+
+function renderSaved() {
+  const out = [];
+  for (const d of S.docks) {
+    out.push(`dock ${d.id} ${d.edge} ${d.edge === 'left' || d.edge === 'right' ? 'columns' : 'rows'} ${d.lines}`);
+    for (const b of d.buttons) out.push(b.kind === 'sep' ? '  separator' : `  button ${b.kind} ${b.kind === 'group' ? b.name + ' ' + b.cards.join(',') : b.id}`);
+  }
+  for (const w of S.windows.filter(w => w.pinned)) {
+    const where = w.snap ? `snap ${w.snap}` : `at ${Math.round(w.x)} ${Math.round(w.y)} ${Math.round(w.w)} ${Math.round(w.h)}`;
+    out.push(`window ${where}${w.min ? ' min' : ''}${w.split ? ' split ' + w.split : ''}`);
+    for (const p of w.panes) out.push(`  pane ${p.f.toFixed(2)} tabs ${p.tabs.join(',')} on ${p.active}`);
+  }
+  out.push(`space ${S.space}`);
+  document.getElementById('saved').textContent = out.join('\n');
+}
+
+document.getElementById('reset').onclick = () => { S = START(); selectedDock = 'Cards'; syncDockFields(); render(); toast('Back to the start.'); };
+
+fit(); syncDockFields(); render();
+</script>

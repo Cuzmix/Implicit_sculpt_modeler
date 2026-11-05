@@ -1,0 +1,669 @@
+diff --git a/src/app/float_pane.odin b/src/app/float_pane.odin
+new file mode 100644
+index 0000000..bd673c1
+--- /dev/null
++++ b/src/app/float_pane.odin
+@@ -0,0 +1,515 @@
++package main
++
++import "core:fmt"
++import "core:math/linalg"
++
++import "../render"
++import "../ui"
++
++// Floating panes and moving tabs (docking DK3, after Dear ImGui's docking, iPadOS's Slide
++// Over and Windows' windows): a tab dragged by its segment lands where the drag lets go,
++// with a tinted landing rectangle saying what will happen first: on another pane's head or
++// in its middle it joins that pane's tabs, on a side of a pane it splits that pane with the
++// tab beside it, and in the main view's middle it floats there, over the model. A floating
++// pane is a pane out of the tree: up to PANE_FLOATS of them, each with its tabs, a head to
++// move it by, a corner to size it, See-through, Pin (kept across workspaces) and Dock (back
++// into the grid, where it came from when that pane is still there) and Close. Its 3D tab
++// draws at rest into a picture of its own, as a view pane's does, and is never worked in:
++// the tools stay with the panes. Every change is a layout step.
++
++// The most floating panes: more cover the model they float over.
++PANE_FLOATS :: 2
++// The panes with tabs: the view panes in the tree, then the floating panes.
++PANE_SLOTS :: GRID_VIEWS + PANE_FLOATS
++// The pane number of the first floating pane, after the tree's four.
++FLOAT_PANE :: GRID_PANES
++
++// A floating pane's place, kept by the layout: its rect in shares of the stage, how see-
++// through its picture is (an index into FLOAT_SEE), Pin, and the view pane it floated from
++// (1 to 3, 0 for none), where Dock puts it back.
++Pane_Float :: struct {
++	open:   bool,
++	pinned: bool,
++	rect:   ui.Rect,
++	see:    int,
++	home:   int,
++}
++
++// The opacities See-through steps through.
++@(rodata)
++FLOAT_SEE := [3]f32{1, 0.65, 0.35}
++
++// A floating pane's least size and its new size, in points and shares of the stage.
++FLOAT_MIN :: [2]f32{220, 180}
++FLOAT_NEW :: [2]f32{0.36, 0.42}
++// Its head's height, in points.
++FLOAT_HEAD :: 44
++
++// A tab carried by its segment, never kept.
++Tab_Drag :: struct {
++	pane:   int, // the pane it is carried from, 0 for none
++	tab:    int,
++	from:   [2]f32,
++	at:     [2]f32,
++	moving: bool, // past the slop
++}
++
++// A floating pane's head or corner held, never kept.
++Float_Hold :: struct {
++	pane:   int, // 0 for none
++	resize: bool,
++	from:   [2]f32,
++	rect:   ui.Rect, // its rect in points as the hold began
++}
++
++// Where a carried tab would land.
++Tab_Drop_Kind :: enum u8 {
++	None,
++	Join, // into `pane`'s tabs
++	Split, // a new pane on `edge` of `pane`
++	Float, // a floating pane at the point
++}
++
++Tab_Drop :: struct {
++	kind: Tab_Drop_Kind,
++	pane: int,
++	edge: Grid_Edge,
++	rect: ui.Rect, // the landing rectangle
++}
++
++// Whether pane `pane` is shown: a view pane in the tree (1 to n-1) or an open floating pane.
++pane_exists :: proc(g: ^View_Grid, pane: int) -> bool {
++	if pane >= 1 && pane < grid_panes(g) do return true
++	f := pane - FLOAT_PANE
++	return f >= 0 && f < PANE_FLOATS && g.floats[f].open
++}
++
++// The floating pane number `pane` is (0 or 1), or -1 for a pane in the tree.
++pane_float :: proc(pane: int) -> int {
++	f := pane - FLOAT_PANE
++	return f if f >= 0 && f < PANE_FLOATS else -1
++}
++
++// The stage the floating panes lie on, in points: the grid's room.
++float_stage :: proc(app: ^App) -> ui.Rect {
++	return view_grid_room(app)
++}
++
++// Floating pane `f`'s rect in points, kept on the stage with its head in the safe area.
++float_rect :: proc(app: ^App, f: int) -> ui.Rect {
++	s := float_stage(app)
++	fl := &app.kit.grid.floats[f]
++	r := ui.Rect{s.x + fl.rect.x * s.w, s.y + fl.rect.y * s.h, max(fl.rect.w * s.w, FLOAT_MIN.x), max(fl.rect.h * s.h, FLOAT_MIN.y)}
++	r.w, r.h = min(r.w, s.w), min(r.h, s.h)
++	area := ui.safe_area(&app.kit.ctx)
++	top := area.y + kit_top()
++	r.x = clamp(r.x, s.x, s.x + s.w - r.w)
++	r.y = clamp(r.y, top, max(top, s.y + s.h - r.h))
++	return r
++}
++
++// Opens a floating pane holding `tab`, its middle at `at` (points), from view pane `home`;
++// returns its pane number, or 0 when PANE_FLOATS float already.
++float_open :: proc(app: ^App, tab: Pane_Tab, at: [2]f32, home: int) -> int {
++	g := &app.kit.grid
++	for &fl, f in g.floats {
++		if fl.open do continue
++		s := float_stage(app)
++		w, h := FLOAT_NEW.x, FLOAT_NEW.y
++		x := clamp((at.x - s.x) / max(s.w, 1) - w * 0.5, 0, 1 - w)
++		y := clamp((at.y - s.y) / max(s.h, 1) - h * 0.5, 0, 1 - h)
++		fl^ = {open = true, rect = {x, y, w, h}, home = home}
++		p := &g.tabs[FLOAT_PANE - 1 + f]
++		p^ = {}
++		p.tabs[0] = tab
++		p.count = 1
++		float_raise(g, f)
++		g.float_opens += 1
++		return FLOAT_PANE + f
++	}
++	return 0
++}
++
++// Brings floating pane `f` to the front.
++float_raise :: proc(g: ^View_Grid, f: int) {
++	if g.float_order[PANE_FLOATS - 1] == f do return
++	at := 0
++	for o, i in g.float_order do if o == f do at = i
++	for i in at ..< PANE_FLOATS - 1 do g.float_order[i] = g.float_order[i + 1]
++	g.float_order[PANE_FLOATS - 1] = f
++}
++
++// Takes tab `tab` out of pane `pane`, the tab after it showing (else the one before).
++@(private = "file")
++tab_take :: proc(g: ^View_Grid, pane, tab: int) -> (taken: Pane_Tab, emptied: bool) {
++	p := &g.tabs[pane - 1]
++	taken = p.tabs[tab]
++	for i in tab ..< p.count - 1 do p.tabs[i] = p.tabs[i + 1]
++	p.count -= 1
++	p.tabs[p.count] = {}
++	if p.active > tab || p.active >= p.count do p.active = max(p.active - 1, 0)
++	return taken, p.count == 0
++}
++
++// Puts `tab` after pane `pane`'s active tab and shows it.
++@(private = "file")
++tab_put :: proc(g: ^View_Grid, pane: int, tab: Pane_Tab) {
++	p := &g.tabs[pane - 1]
++	at := min(p.active + 1, p.count)
++	for i := p.count; i > at; i -= 1 do p.tabs[i] = p.tabs[i - 1]
++	p.tabs[at] = tab
++	p.count += 1
++	p.active = at
++}
++
++// Removes pane `pane`, whose last tab left: a floating one closes, a view pane in the tree
++// gives its room to its neighbour.
++@(private = "file")
++pane_remove :: proc(g: ^View_Grid, pane: int) {
++	if f := pane_float(pane); f >= 0 {
++		g.floats[f].open = false
++		return
++	}
++	at := grid_tree_leaf(&g.tree, pane)
++	parent := grid_tree_parent(&g.tree, at)
++	if parent >= 0 do _ = grid_close_side(g, parent, int(g.tree.nodes[parent].b) == at)
++}
++
++// Moves tab `tab` of pane `pane` into pane `other`'s tabs.
++tab_join :: proc(g: ^View_Grid, pane, tab, other: int) -> bool {
++	if pane == other || !pane_exists(g, pane) || !pane_exists(g, other) || g.tabs[other - 1].count >= PANE_TABS do return false
++	if tab < 0 || tab >= g.tabs[pane - 1].count do return false
++	moved, emptied := tab_take(g, pane, tab)
++	tab_put(g, other, moved)
++	// The source goes last: a view pane closing renumbers the panes after the join.
++	if emptied do pane_remove(g, pane)
++	g.tab_moves += 1
++	return true
++}
++
++// Moves tab `tab` of pane `pane` into a new pane on `edge` of pane `other` (0 the main
++// view), taking half of it; never with four panes.
++tab_split :: proc(g: ^View_Grid, pane, tab, other: int, edge: Grid_Edge) -> bool {
++	if !pane_exists(g, pane) || grid_panes(g) >= GRID_PANES || other < 0 || other >= grid_panes(g) do return false
++	if tab < 0 || tab >= g.tabs[pane - 1].count do return false
++	// A pane's only tab beside itself is no move.
++	if pane == other && g.tabs[pane - 1].count == 1 do return false
++	moved, emptied := tab_take(g, pane, tab)
++	vertical := edge == .Left || edge == .Right
++	first := edge == .Left || edge == .Top
++	added := grid_split_pane(g, other, vertical, 0.5, first, moved.view)
++	if added == 0 {
++		tab_put(g, pane, moved)
++		return false
++	}
++	g.tabs[added - 1] = {}
++	g.tabs[added - 1].tabs[0] = moved
++	g.tabs[added - 1].count = 1
++	if emptied do pane_remove(g, pane)
++	g.tab_moves += 1
++	return true
++}
++
++// Moves tab `tab` of pane `pane` into a new floating pane at `at`.
++tab_float :: proc(app: ^App, pane, tab: int, at: [2]f32) -> bool {
++	g := &app.kit.grid
++	if !pane_exists(g, pane) || tab < 0 || tab >= g.tabs[pane - 1].count do return false
++	// A floating pane's only tab is that pane already.
++	if pane_float(pane) >= 0 && g.tabs[pane - 1].count == 1 do return false
++	free_slot := false
++	for fl in g.floats do if !fl.open do free_slot = true
++	if !free_slot do return false
++	moved, emptied := tab_take(g, pane, tab)
++	home := pane if pane_float(pane) < 0 && !emptied else 0
++	_ = float_open(app, moved, at, home)
++	if emptied do pane_remove(g, pane)
++	return true
++}
++
++// Puts floating pane `pane`'s tabs back into the grid: into the view pane it came from
++// while that is still there and has room, else into a new pane beside the main view, else
++// into the first view pane; then it closes.
++float_dock :: proc(g: ^View_Grid, pane: int) -> bool {
++	f := pane_float(pane)
++	if f < 0 || !g.floats[f].open do return false
++	src := &g.tabs[pane - 1]
++	n := grid_panes(g)
++	into := 0
++	home := g.floats[f].home
++	if home >= 1 && home < n && g.tabs[home - 1].count + src.count <= PANE_TABS do into = home
++	if into == 0 && n < GRID_PANES {
++		added := grid_split_pane(g, 0, true, 0.62, false, src.tabs[0].view)
++		if added == 0 do return false
++		g.tabs[added - 1] = src^
++		g.floats[f].open = false
++		g.float_docks += 1
++		return true
++	}
++	if into == 0 && n > 1 && g.tabs[0].count + src.count <= PANE_TABS do into = 1
++	if into == 0 do return false
++	for j in 0 ..< src.count do tab_put(g, into, src.tabs[j])
++	g.floats[f].open = false
++	g.float_docks += 1
++	return true
++}
++
++// Where a tab carried to `at` would land: over a pane's head, or a floating pane, it joins
++// that pane's tabs; over a view pane's middle third too; over a side of a pane (the
++// triangles between its diagonals) it splits that pane; over the main view's middle it
++// floats.
++tab_drop_at :: proc(app: ^App, from: int, at: [2]f32) -> (d: Tab_Drop) {
++	g := &app.kit.grid
++	ctx := &app.kit.ctx
++	inside :: proc(r: ui.Rect, p: [2]f32) -> bool {return r.w > 0 && p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h}
++	// The floating panes first, front to back, as they are drawn over the grid.
++	for k := PANE_FLOATS - 1; k >= 0; k -= 1 {
++		f := g.float_order[k]
++		if !g.floats[f].open do continue
++		r := float_rect(app, f)
++		if !inside(r, at) do continue
++		pane := FLOAT_PANE + f
++		if pane == from || g.tabs[pane - 1].count >= PANE_TABS do return
++		return {kind = .Join, pane = pane, rect = r}
++	}
++	n := grid_panes(g)
++	for i in 1 ..< n {
++		head := ui.prev_rect(ctx, fmt.tprintf("view pane %d head", i))
++		if i != from && inside(head, at) && g.tabs[i - 1].count < PANE_TABS do return {kind = .Join, pane = i, rect = g.cells[i]}
++	}
++	for i in 0 ..< n {
++		c := g.cells[i]
++		if !inside(c, at) do continue
++		rel := [2]f32{(at.x - c.x) / max(c.w, 1) * 2 - 1, (at.y - c.y) / max(c.h, 1) * 2 - 1}
++		if abs(rel.x) < 1.0 / 3 && abs(rel.y) < 1.0 / 3 {
++			if i == 0 do return {kind = .Float, rect = {at.x - 60, at.y - 40, 120, 80}}
++			if i == from || g.tabs[i - 1].count >= PANE_TABS do return
++			return {kind = .Join, pane = i, rect = c}
++		}
++		if n >= GRID_PANES do return
++		edge: Grid_Edge = .Left if rel.x < 0 else .Right
++		if abs(rel.y) > abs(rel.x) do edge = .Top if rel.y < 0 else .Bottom
++		half := c
++		switch edge {
++		case .Left:   half.w *= 0.5
++		case .Right:  half.x, half.w = c.x + c.w * 0.5, c.w * 0.5
++		case .Top:    half.h *= 0.5
++		case .Bottom: half.y, half.h = c.y + c.h * 0.5, c.h * 0.5
++		}
++		if i == from && g.tabs[from - 1].count == 1 do return
++		return {kind = .Split, pane = i, edge = edge, rect = half}
++	}
++	return
++}
++
++// Tab `tab`'s segment `a` on pane `pane`'s head as a handle: past the slop it carries the
++// tab, and let go it lands as tab_drop_at says. Returns whether it was carried, so its tap
++// does nothing else.
++tab_segment_drag :: proc(app: ^App, pane, tab: int, a: ui.Area) -> (dragged: bool) {
++	g := &app.kit.grid
++	d := &g.areas.tab_drag
++	if a.pressed do d^ = {pane = pane, tab = tab, from = a.mouse, at = a.mouse}
++	if d.pane != pane || d.tab != tab do return false
++	if a.held {
++		d.at = a.mouse
++		if !d.moving && linalg.length(a.mouse - d.from) > GRID_CHIP_SLOP do d.moving = true
++		if d.moving && (app.touch.fingers.count >= 2 || key_pressed(&app.device, KEY_ESCAPE) || app.kit.ctx.input.cancel) {
++			d^ = {}
++			g.areas.cancels += 1
++		}
++		return d.moving
++	}
++	dragged = d.moving
++	if dragged {
++		drop := tab_drop_at(app, pane, d.at)
++		switch drop.kind {
++		case .None:
++		case .Join:  g.areas.op = {kind = .Tab_Join, pane = pane, tab = tab, other = drop.pane}
++		case .Split: g.areas.op = {kind = .Tab_Split, pane = pane, tab = tab, other = drop.pane, edge = drop.edge}
++		case .Float: g.areas.op = {kind = .Tab_Float, pane = pane, tab = tab, at = d.at}
++		}
++	}
++	d^ = {}
++	return
++}
++
++// The landing rectangle and its words while a tab is carried, over everything in the grid.
++tab_drag_overlay :: proc(app: ^App) {
++	g := &app.kit.grid
++	d := &g.areas.tab_drag
++	if !d.moving do return
++	ctx := &app.kit.ctx
++	t := ctx.theme
++	drop := tab_drop_at(app, d.pane, d.at)
++	ui.begin_at(ctx, "tab drag", {0, 0}, {width = 0, height = 0})
++	defer ui.end(ctx)
++	words := "Let go to leave it"
++	switch drop.kind {
++	case .None:
++	case .Join:  words = "Join as a tab"
++	case .Split: words = "Split here"
++	case .Float: words = "Float here"
++	}
++	if drop.kind != .None {
++		ui.fill_rect(ctx, drop.rect, t.radius_medium, ui.color_fade(t.accent, 0.22))
++		ui.stroke_rect(ctx, drop.rect, t.radius_medium, t.accent, 2)
++	}
++	n, _ := pane_tab_label(app, &g.tabs[d.pane - 1].tabs[clamp(d.tab, 0, PANE_TABS - 1)])
++	grid_pill(ctx, n, d.at + {0, -28}, t.accent, t.on_accent)
++	grid_pill(ctx, words, d.at + {0, 28}, t.surface, t.text)
++}
++
++// The floating panes, back to front, over the grid and under the panels: each a frame with
++// its head (a grip to move it, its tabs, New tab, See-through, Pin, Dock, Close), its
++// picture or 2D tab, and a corner to size it.
++kit_floats :: proc(app: ^App) {
++	k := &app.kit
++	ctx := &k.ctx
++	t := ctx.theme
++	g := &k.grid
++	hold := &g.areas.float_hold
++	if hold.pane != 0 && !pane_exists(g, hold.pane) do hold^ = {}
++	for o in g.float_order {
++		f := o
++		fl := &g.floats[f]
++		if !fl.open {
++			g.float_px[f] = {}
++			continue
++		}
++		pane := FLOAT_PANE + f
++		r := float_rect(app, f)
++		raised := false
++		// The frame and its head.
++		ui.begin_at(ctx, fmt.tprintf("float pane %d", f), {r.x, r.y}, {width = r.w, height = FLOAT_HEAD})
++		ui.fill_rect(ctx, r, t.radius_large, t.surface)
++		ui.stroke_rect(ctx, r, t.radius_large, t.border_strong if fl.pinned else t.border, 1.5 if fl.pinned else 1)
++		ui.begin(ctx, "float head", {direction = .Row, gap = 6, center = true, padding = 6, width = r.w})
++		grip := ui.area(ctx, "Move##float grip", {24, t.target})
++		ui.icon(ctx, ui.ICON_GRIP, {grip.rect.x + 12, grip.rect.y + grip.rect.h * 0.5}, t.icon_small, t.text_tertiary)
++		ui.tip(ctx, grip.id, grip.rect, "Move")
++		if grip.pressed {
++			hold^ = {pane = pane, from = grip.mouse, rect = r}
++			raised = true
++		}
++		if grip.held && hold.pane == pane && !hold.resize do float_hold_move(app, f, grip.mouse)
++		// The buttons at the right take what they need first; the tabs the rest.
++		buttons: f32 = 4 * (lens_chip_width(ctx, "", glyph = ICON_LINK) + 6)
++		left := max(r.w - 12 - 30 - buttons - lens_chip_width(ctx, "", glyph = ui.ICON_PLUS) - 12, 40)
++		m := &k.pane_menu
++		tab := pane_tab_shown(g, pane)
++		chip_menu := Pane_Menu_Kind.Camera if tab.kind == .View else .Map
++		cam, _ := lens_pane_tabs(app, pane, left, m.open && m.pane == pane && m.kind == chip_menu)
++		if cam.pressed do raised = true
++		if cam.clicked && !g.areas.tab_drag.moving do pane_menu_open(k, pane, chip_menu, cam.rect)
++		if g.tabs[pane - 1].count == 1 do _ = tab_segment_drag(app, pane, 0, cam)
++		if g.tabs[pane - 1].count < PANE_TABS {
++			add := lens_chip(ctx, fmt.tprintf("New tab##float %d new tab", f), "", glyph = ui.ICON_PLUS, lit = m.open && m.pane == pane && m.kind == .Add)
++			if add.clicked do pane_menu_open(k, pane, .Add, add.rect)
++		}
++		ui.end(ctx)
++		// The buttons, at the head's right.
++		bx := r.x + r.w - 6 - buttons
++		ui.begin_at(ctx, fmt.tprintf("float pane %d buttons", f), {bx, r.y + 6}, {direction = .Row, gap = 6, center = true})
++		see := lens_chip(ctx, fmt.tprintf("See-through (%d%%)##float %d see", int(FLOAT_SEE[fl.see] * 100 + 0.5), f), "", glyph = ui.ICON_EYE, lit = fl.see != 0)
++		if see.clicked do fl.see = (fl.see + 1) % len(FLOAT_SEE)
++		pin := lens_chip(ctx, fmt.tprintf("%s##float %d pin", "Unpin" if fl.pinned else "Pin: keep it across workspaces", f), "", glyph = ICON_PIN, lit = fl.pinned)
++		if pin.clicked do fl.pinned = !fl.pinned
++		dock := lens_chip(ctx, fmt.tprintf("Dock into the grid##float %d dock", f), "", glyph = ui.ICON_PANEL)
++		if dock.clicked do g.areas.op = {kind = .Float_Dock, pane = pane}
++		shut := lens_chip(ctx, fmt.tprintf("Close##float %d close", f), "", glyph = ui.ICON_CLOSE)
++		if shut.clicked do g.areas.op = {kind = .Float_Close, pane = pane}
++		ui.end(ctx)
++		ui.end(ctx)
++		// The body.
++		body := ui.Rect{r.x + 4, r.y + FLOAT_HEAD, r.w - 8, r.h - FLOAT_HEAD - 4}
++		d := ctx.input.pixel_density
++		if tab.kind == .View {
++			g.float_px[f] = {u32(body.w * d + 0.5), u32(body.h * d + 0.5)}
++			ui.begin_at(ctx, fmt.tprintf("float pane %d body", f), {body.x, body.y}, {width = body.w, height = body.h})
++			a := ui.area(ctx, "picture", {body.w, body.h})
++			ui.fill_rect(ctx, a.rect, t.radius_medium, ui.color_fade(t.pane, FLOAT_SEE[fl.see]))
++			if app.float_pictures[f].shown != nil do ui.image(ctx, a.rect, KIT_FLOAT_IMAGE + u64(f), ui.color_fade({255, 255, 255, 255}, FLOAT_SEE[fl.see]))
++			second_view_input(app, ctx, k.scale, grid_view(g, pane), a)
++			if a.pressed do raised = true
++			ui.end(ctx)
++		} else {
++			g.float_px[f] = {}
++			kit_texture_tab(app, pane, body, tab)
++		}
++		// The corner that sizes it.
++		CORNER :: 28
++		ui.begin_at(ctx, fmt.tprintf("float pane %d corner", f), {r.x + r.w - CORNER, r.y + r.h - CORNER}, {width = CORNER, height = CORNER})
++		corner := ui.area(ctx, "Size##float corner", {CORNER, CORNER})
++		ui.fill_circle(ctx, {corner.rect.x + CORNER - 9, corner.rect.y + CORNER - 9}, 4, t.accent if corner.held else t.border_strong)
++		if corner.pressed {
++			hold^ = {pane = pane, resize = true, from = corner.mouse, rect = r}
++			raised = true
++		}
++		if corner.held && hold.pane == pane && hold.resize do float_hold_move(app, f, corner.mouse)
++		ui.end(ctx)
++		if raised do float_raise(g, f)
++	}
++	if hold.pane != 0 && ctx.input.down == {} do float_hold_end(app)
++	tab_drag_overlay(app)
++}
++
++// The head or corner held at `m`: the pane follows, or its corner does.
++@(private = "file")
++float_hold_move :: proc(app: ^App, f: int, m: [2]f32) {
++	g := &app.kit.grid
++	h := &g.areas.float_hold
++	s := float_stage(app)
++	r := h.rect
++	d := m - h.from
++	if h.resize {
++		r.w, r.h = max(r.w + d.x, FLOAT_MIN.x), max(r.h + d.y, FLOAT_MIN.y)
++	} else {
++		r.x, r.y = r.x + d.x, r.y + d.y
++	}
++	if !g.areas.float_moving {
++		g.areas.float_moving, g.areas.float_before = true, grid_step_now(g)
++	}
++	fl := &g.floats[f]
++	fl.rect = {(r.x - s.x) / max(s.w, 1), (r.y - s.y) / max(s.h, 1), r.w / max(s.w, 1), r.h / max(s.h, 1)}
++}
++
++// A move or a resize let go: one layout step.
++@(private = "file")
++float_hold_end :: proc(app: ^App) {
++	g := &app.kit.grid
++	g.areas.float_hold = {}
++	if !g.areas.float_moving do return
++	g.areas.float_moving = false
++	if g.areas.float_before.floats != g.floats {
++		grid_step_push(g, g.areas.float_before)
++		g.float_moves += 1
++	}
++}
++
++// A floating pane's layout lines: `float F x y w h see` in thousandths of the stage, then a
++// `pane` line a tab as a view pane's (pane FLOAT_PANE + F). A pinned one is no layout's:
++// it stays across them, so no layout writes it.
++float_layout_lines :: proc(b: ^strings_Builder, g: ^View_Grid) {
++	for fl, f in g.floats {
++		if !fl.open || fl.pinned do continue
++		r := fl.rect
++		fmt.sbprintf(b, "float %d %d %d %d %d %d\n", f, int(r.x * 1000 + 0.5), int(r.y * 1000 + 0.5), int(r.w * 1000 + 0.5), int(r.h * 1000 + 0.5), fl.see)
++		grid_tab_lines(b, g, FLOAT_PANE + f)
++	}
++}
++
++// Draws each floating pane's 3D tab whose picture is due, as the view panes' are drawn.
++floats_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, froms: []Item_From) {
++	g := &app.kit.grid
++	for &pic, f in app.float_pictures {
++		size := g.float_px[f]
++		if app.kit.home || !g.floats[f].open || size.x == 0 || size.y == 0 || !pane_shows_view(g, FLOAT_PANE + f) {
++			pic.shown, pic.key, pic.due = nil, 0, false
++			continue
++		}
++		picture_frame(app, cmd, draws, froms, grid_view(g, FLOAT_PANE + f), &pic, size, 1)
++	}
++}
++
++// The image id of floating pane `f`'s picture.
++KIT_FLOAT_IMAGE :: KIT_TAB_IMAGE_END
++KIT_FLOAT_IMAGE_END :: KIT_FLOAT_IMAGE + PANE_FLOATS
+diff --git a/src/app/grid.odin b/src/app/grid.odin
+index 18411b4..8b71178 100644
+--- a/src/app/grid.odin
++++ b/src/app/grid.odin
+@@ -72,9 +72,10 @@ Grid_Tree :: struct {
+ // A layout step that Undo takes back (lens_areas.odin): the tree and the panes as they
+ // were, and when the step was made, which orders it among the scene's History steps.
+ Grid_Step :: struct {
+-	tree: Grid_Tree,
+-	tabs: [GRID_VIEWS]Pane_Tabs,
+-	at:   time.Tick,
++	tree:   Grid_Tree,
++	tabs:   [PANE_SLOTS]Pane_Tabs,
++	floats: [PANE_FLOATS]Pane_Float,
++	at:     time.Tick,
+ }
+ 
+ GRID_UNDO :: 16
+@@ -104,7 +105,12 @@ grid_undo_destroy :: proc(g: ^View_Grid) {
+ // tabs (grid_tabs.odin), each pane showing its active tab's view (grid_view).
+ View_Grid :: struct {
+ 	tree:      Grid_Tree,
+-	tabs:      [GRID_VIEWS]Pane_Tabs,
++	// The tabs of the view panes in the tree (1 to 3), then of the floating panes
++	// (FLOAT_PANE on; float_pane.odin), each open while its Pane_Float says so.
++	tabs:      [PANE_SLOTS]Pane_Tabs,
++	floats:    [PANE_FLOATS]Pane_Float,
++	float_px:  [PANE_FLOATS][2]u32, // each floating pane's picture size this frame; never kept
++	float_order: [PANE_FLOATS]int, // the floating panes back to front, the last pressed last; never kept
+ 	// The view panes a layout's `pane` lines have given a first tab since its `panes`
+ 	// line, so later lines add tabs; never kept.
+ 	tabs_read: bit_set[0 ..< GRID_VIEWS],
+@@ -660,7 +666,8 @@ grid_views_default :: proc(preset: Grid_Preset) -> (views: [GRID_VIEWS]Second_Vi
+ // Puts the grid back as a new user finds it: one view.
+ grid_reset :: proc(g: ^View_Grid) {
+ 	g.tree, g.maximised = grid_preset_tree(.Single), 0
+-	g.tabs = grid_tabs_of(grid_views_default(.Four))
++	grid_tabs_set(g, grid_views_default(.Four))
++	g.floats = {}
+ 	g.serial += 1
+ }
+ 
+@@ -736,7 +743,7 @@ grid_layout_read :: proc(g: ^View_Grid, f: []string) {
+ 		t, ok := grid_tree_read(f[1:])
+ 		if !ok do return
+ 		g.tree, g.maximised = t, 0
+-		g.tabs = grid_tabs_of(grid_views_default(.Four))
++		grid_tabs_set(g, grid_views_default(.Four))
+ 		g.tabs_read = {}
+ 		g.serial += 1
+ 	case f[0] == "pane" && len(f) >= 4:
+@@ -921,7 +928,11 @@ kit_grid :: proc(app: ^App) {
+ 	// A drag let go that moved its divider is a layout step.
+ 	if was != 0 && g.dragged == 0 && g.areas.held {
+ 		g.areas.held = false
+-		if g.areas.held_step.tree != g.tree do grid_step_push(g, g.areas.held_step)
++		if g.areas.held_tree != g.tree {
++		step := grid_step_now(g)
++		step.tree = g.areas.held_tree
++		grid_step_push(g, step)
++	}
+ 	}
+ 	lens_areas_overlay(app, cells, n)
+ }
+@@ -936,7 +947,7 @@ grid_divider_drag :: proc(app: ^App, div: Grid_Divider, m: [2]f32, room: ui.Rect
+ 	ctx := &k.ctx
+ 	g := &k.grid
+ 	if !going {
+-		g.areas.held, g.areas.held_step = true, grid_step_now(g)
++		g.areas.held, g.areas.held_tree = true, g.tree
+ 	}
+ 	g.dragged = div.node + 1
+ 	size := room.w if div.vertical else room.h
+diff --git a/src/app/grid_tabs.odin b/src/app/grid_tabs.odin
+index 265cf43..2caa071 100644
+--- a/src/app/grid_tabs.odin
++++ b/src/app/grid_tabs.odin
+@@ -80,10 +80,9 @@ pane_tabs_one :: proc(v: Second_View) -> Pane_Tabs {
+ 	return p
+ }
+ 
+-// The view panes holding one tab each of `views`.
+-grid_tabs_of :: proc(views: [GRID_VIEWS]Second_View) -> (out: [GRID_VIEWS]Pane_Tabs) {
+-	for v, i in views do out[i] = pane_tabs_one(v)
+-	return
++// The view panes in the tree holding one tab each of `views`; the floating panes keep theirs.
++grid_tabs_set :: proc(g: ^View_Grid, views: [GRID_VIEWS]Second_View) {
++	for v, i in views do g.tabs[i] = pane_tabs_one(v)
+ }
+ 
+ // The view pane a tab command acts on: `arg` 1 to 3 names one; 0 the view pane last
+diff --git a/src/app/grid_test.odin b/src/app/grid_test.odin
+index cddefc3..a055a48 100644
+--- a/src/app/grid_test.odin
++++ b/src/app/grid_test.odin
+@@ -194,7 +194,7 @@ work_in_a_pane_lends_the_camera_and_gives_it_back :: proc(t: ^testing.T) {
+ 	g := &app.kit.grid
+ 	grid_reset(g)
+ 	g.tree = grid_preset_tree(.Four)
+-	g.tabs = grid_tabs_of(grid_views_default(.Four))
++	grid_tabs_set(g, grid_views_default(.Four))
+ 	main := app.camera
+ 	main.yaw, main.distance = 0.6, 3.5
+ 	app.camera = main
+diff --git a/src/app/lens_areas.odin b/src/app/lens_areas.odin
+index b265a23..14ebb69 100644
+--- a/src/app/lens_areas.odin
++++ b/src/app/lens_areas.odin
+@@ -105,14 +105,15 @@ Grid_Areas :: struct {
+ 	stroke_end: f64, // when the last stroke was going on
+ 	// A divider drag's layout before it began, a step once the drag changed it.
+ 	held:      bool,
+-	held_step: Grid_Step,
++	// Only the tree, since a divider moves nothing else.
++	held_tree: Grid_Tree,
+ 	// For the exit stats.
+ 	splits, joins, swaps, docks, undos, redos, refused, cancels: int,
+ }
+ 
+ // The layout as it is now, as a step Undo would bring back.
+ grid_step_now :: proc(g: ^View_Grid) -> Grid_Step {
+-	return {tree = g.tree, tabs = g.tabs, at = time.tick_now()}
++	return {tree = g.tree, tabs = g.tabs, floats = g.floats, at = time.tick_now()}
+ }
+ 
+ // Keeps `s` as the newest layout step; what was undone is gone.
+@@ -136,7 +137,7 @@ grid_step_push :: proc(g: ^View_Grid, s: Grid_Step) {
+ @(private = "file")
+ grid_step_put :: proc(app: ^App, s: Grid_Step) {
+ 	g := &app.kit.grid
+-	g.tree, g.tabs, g.maximised = s.tree, s.tabs, 0
++	g.tree, g.tabs, g.floats, g.maximised = s.tree, s.tabs, s.floats, 0
+ 	g.serial += 1
+ 	for &pic in app.panes do pic.key, pic.due = 0, true
+ 	app.kit.pane_menu.open = false
+diff --git a/src/app/lens_areas_test.odin b/src/app/lens_areas_test.odin
+index 3ce0a67..8c8ff4e 100644
+--- a/src/app/lens_areas_test.odin
++++ b/src/app/lens_areas_test.odin
+@@ -59,7 +59,7 @@ a_join_across_rows_and_an_even_out :: proc(t: ^testing.T) {
+ 	g: View_Grid
+ 	grid_reset(&g)
+ 	g.tree = grid_preset_tree(.Four)
+-	g.tabs = grid_tabs_of(grid_views_default(.Four))
++	grid_tabs_set(&g, grid_views_default(.Four))
+ 	// Pane 1 (top right) and pane 3 (bottom right) line up: 1 grows down over 3.
+ 	testing.expect(t, grid_joinable(&g, 1, 3))
+ 	testing.expect(t, grid_join(&g, 1, 3))

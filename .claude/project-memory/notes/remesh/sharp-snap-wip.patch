@@ -1,0 +1,285 @@
+diff --git a/src/geom/remesh.odin b/src/geom/remesh.odin
+index 864f4f3..3bef4ff 100644
+--- a/src/geom/remesh.odin
++++ b/src/geom/remesh.odin
+@@ -64,6 +64,9 @@ Remesh_Options :: struct {
+ 	// remesh carries them; a caller with nothing on the surface leaves it off and pays
+ 	// nothing (remesh_sources).
+ 	sources:     bool,
++	// Creases and corners of the old surface put back sharp (remesh_sharpen), which a
++	// lattice rounds off by up to half a cell.
++	keep_sharp:  bool,
+ }
+ 
+ // Planes a remesh keeps its lattice the same on both sides of, as the brush's symmetry
+@@ -105,6 +108,7 @@ Remesh_Report :: struct {
+ 	quads_thin:   bool,
+ 	cell:         f32, // the lattice spacing used, in the mesh's units
+ 	thickened:    int, // lattice points Keep thin parts put inside
++	sharpened:    int, // vertices Keep sharp edges moved onto a crease or a corner
+ }
+ 
+ remesh_report_destroy :: proc(r: ^Remesh_Report, allocator := context.allocator) {
+@@ -183,6 +187,10 @@ remesh_voxel_measured :: proc(m: Mesh, area: f64, bounds: Aabb, target: int, poo
+ 	// Keep detail puts every vertex back; without it, the kept thin parts' own go back,
+ 	// which a lattice steps across in terraces a cell high.
+ 	if len(thin) > 0 && !options.keep_detail do project_thin(&out, m, thin[:], h, lattice_origin(box.lo, h, options.mirror), pool)
++	if options.keep_sharp {
++		r.sharpened = remesh_sharpen(&out, m, h, pool, r.quads)
++		mesh_recompute_normals(&out)
++	}
+ 	if options.sources && !options.keep_detail do r.source_tris = remesh_sources(out, m, h, pool, allocator)
+ 	if options.keep_detail {
+ 		if progress != nil && jobs.progress_cancelled(progress) {
+diff --git a/src/geom/remesh_sharp.odin b/src/geom/remesh_sharp.odin
+new file mode 100644
+index 0000000..265c51d
+--- /dev/null
++++ b/src/geom/remesh_sharp.odin
+@@ -0,0 +1,246 @@
++package geom
++
++import "base:runtime"
++import "core:math"
++import "core:math/linalg"
++import "core:slice"
++
++import "../jobs"
++
++// Keep sharp edges: a lattice rounds a crease or a corner off by up to half a cell, since
++// the surface between its points is only ever where the crossings put it, and relaxing
++// rounds it more. Each vertex looks at the old surface within a cell of it: where the
++// faces there turn sharply (their normals spread across more than one direction, the
++// quadric of their planes having a second axis), the point that sits best on all their
++// planes is found (the quadric error minimum of dual contouring, about the faces'
++// closest points, with the weak axes dropped so a crease stays free along its line) and
++// the vertex goes there when it is near enough, onto the crease or the corner itself. A
++// vertex where the faces are flat or gently curved stays where it is. Then the edges
++// between the moved vertices are turned to run along the crease (sharp_flips; a quad's
++// split, with `quads`), since a triangle across it cuts the edge off however exactly its
++// corners sit. Returns how many moved. Each vertex reads only `out` as it came in and the
++// old mesh, so the result does not depend on the pool.
++@(private)
++remesh_sharpen :: proc(out: ^Mesh, m: Mesh, h: f32, pool: ^jobs.Pool, quads: [][4]u32 = nil) -> int {
++	heap := runtime.heap_allocator()
++	Job :: struct {
++		out:   ^Mesh,
++		m:     Mesh,
++		bvh:   Bvh,
++		h:     f32,
++		next:  []Vec3,
++		moved: []int, // per range
++	}
++	ranges := (len(out.positions) + RANGE_GRAIN - 1) / RANGE_GRAIN
++	job := Job{out = out, m = m, bvh = bvh_build_morton(m, pool = pool), h = h, next = make([]Vec3, len(out.positions), heap), moved = make([]int, max(ranges, 1), heap)}
++	defer bvh_destroy(&job.bvh)
++	defer delete(job.next, heap)
++	defer delete(job.moved, heap)
++	jobs.parallel_ranges(pool, len(out.positions), &job, proc(data: rawptr, lo, hi: int) {
++		job := cast(^Job)data
++		stack := make([dynamic]u32, 0, 64, runtime.heap_allocator())
++		defer delete(stack)
++		moved := 0
++		for v in lo ..< hi {
++			p := job.out.positions[v]
++			job.next[v] = p
++			if x, ok := sharp_point(job.bvh, job.m, p, job.h, &stack); ok {
++				job.next[v] = x
++				moved += 1
++			}
++		}
++		job.moved[lo / RANGE_GRAIN] = moved
++	}, RANGE_GRAIN)
++	moved_at := make([]bool, len(out.positions), heap)
++	defer delete(moved_at, heap)
++	for x, v in job.next do moved_at[v] = x != out.positions[v]
++	copy(out.positions[:], job.next)
++	moved := 0
++	for n in job.moved do moved += n
++	if moved > 0 do sharp_flips(out, m, &job.bvh, h, moved_at, quads)
++	return moved
++}
++
++// How far the old surface is from `p`, within two cells (two cells when it is further).
++@(private = "file")
++off_surface :: proc(bvh: Bvh, m: Mesh, p: Vec3, h: f32) -> f32 {
++	_, _, d, ok := bvh_closest(bvh, m, p, 2 * h)
++	return d if ok else 2 * h
++}
++
++// How far a pair of triangles strays from the old surface: at their centres and the
++// middle of the edge they share.
++@(private = "file")
++pair_error :: proc(bvh: Bvh, m: Mesh, ps: []Vec3, a, b, c, d: u32, h: f32) -> f32 {
++	// Triangles (a, b, c) and (b, a, d), sharing a to b.
++	return off_surface(bvh, m, (ps[a] + ps[b] + ps[c]) / 3, h) + off_surface(bvh, m, (ps[b] + ps[a] + ps[d]) / 3, h) + off_surface(bvh, m, (ps[a] + ps[b]) / 2, h)
++}
++
++// Turns the shared edge of each pair of triangles touching a moved vertex where the
++// other diagonal lies on the old surface clearly better (half the error or less), the
++// two new triangles facing the way the old ones did and the new edge not already there;
++// with quads, picks each touched quad's split the same way. In the order of the edges'
++// numbers, serially, each triangle turned at most once a pass, so the result is fixed.
++@(private = "file")
++sharp_flips :: proc(out: ^Mesh, m: Mesh, bvh: ^Bvh, h: f32, moved: []bool, quads: [][4]u32) {
++	ps := out.positions[:]
++	if quads != nil {
++		for f, q in quads {
++			if !moved[f[0]] && !moved[f[1]] && !moved[f[2]] && !moved[f[3]] do continue
++			// Split along 0-2 is (0, 1, 2) and (0, 2, 3), the pair (f2, f0) with f1 and f3.
++			e02 := pair_error(bvh^, m, ps, f[2], f[0], f[1], f[3], h)
++			e13 := pair_error(bvh^, m, ps, f[3], f[1], f[2], f[0], h)
++			split := [6]u32{f[0], f[1], f[2], f[0], f[2], f[3]} if e02 <= e13 else [6]u32{f[0], f[1], f[3], f[1], f[2], f[3]}
++			copy(out.indices[6 * q:][:6], split[:])
++		}
++		return
++	}
++	heap := runtime.heap_allocator()
++	key :: proc(a, b: u32) -> u64 {return u64(min(a, b)) << 32 | u64(max(a, b))}
++	Edge :: struct {
++		key: u64,
++		tri: u32,
++	}
++	tcount := len(out.indices) / 3
++	edges := make([dynamic]Edge, 0, 3 * tcount, heap)
++	defer delete(edges)
++	for t in 0 ..< tcount {
++		for c in 0 ..< 3 {
++			a, b := out.indices[3 * t + c], out.indices[3 * t + (c + 1) % 3]
++			if moved[a] || moved[b] || moved[out.indices[3 * t + (c + 2) % 3]] do append(&edges, Edge{key(a, b), u32(t)})
++		}
++	}
++	// Every edge of the mesh, to refuse a turn onto one that exists.
++	all := make([]u64, 3 * tcount, heap)
++	defer delete(all, heap)
++	for t in 0 ..< tcount do for c in 0 ..< 3 do all[3 * t + c] = key(out.indices[3 * t + c], out.indices[3 * t + (c + 1) % 3])
++	slice.sort(all)
++	slice.sort_by(edges[:], proc(x, y: Edge) -> bool {return x.key < y.key || (x.key == y.key && x.tri < y.tri)})
++	turned := make([]bool, tcount, heap)
++	defer delete(turned, heap)
++	added := make([dynamic]u64, 0, 64, heap)
++	defer delete(added)
++	for i := 0; i + 1 < len(edges); i += 1 {
++		if edges[i].key != edges[i + 1].key do continue
++		if i + 2 < len(edges) && edges[i + 2].key == edges[i].key do continue
++		t1, t2 := edges[i].tri, edges[i + 1].tri
++		i += 1
++		if turned[t1] || turned[t2] do continue
++		// t1 runs a to b, c opposite; t2 runs b to a, d opposite.
++		a, b := u32(edges[i].key >> 32), u32(edges[i].key & (1 << 32 - 1))
++		tri1 := out.indices[3 * t1:][:3]
++		tri2 := out.indices[3 * t2:][:3]
++		k := 0
++		for k < 3 && !(tri1[k] == a && tri1[(k + 1) % 3] == b) && !(tri1[k] == b && tri1[(k + 1) % 3] == a) do k += 1
++		if k == 3 do continue
++		a, b = tri1[k], tri1[(k + 1) % 3]
++		c := tri1[(k + 2) % 3]
++		d := u32(max(u32))
++		for j in 0 ..< 3 do if tri2[j] != a && tri2[j] != b do d = tri2[j]
++		if d == max(u32) || c == d do continue
++		if _, found := slice.binary_search(all, key(c, d)); found do continue
++		if slice.contains(added[:], key(c, d)) do continue
++		before := pair_error(bvh^, m, ps, a, b, c, d, h)
++		after := pair_error(bvh^, m, ps, c, d, b, a, h)
++		if !(after <= 0.5 * before) do continue
++		n_old := linalg.cross(ps[b] - ps[a], ps[c] - ps[a]) + linalg.cross(ps[a] - ps[b], ps[d] - ps[b])
++		n1 := linalg.cross(ps[d] - ps[a], ps[c] - ps[a])
++		n2 := linalg.cross(ps[b] - ps[d], ps[c] - ps[d])
++		if linalg.dot(n1, n_old) <= 0 || linalg.dot(n2, n_old) <= 0 do continue
++		tri1[0], tri1[1], tri1[2] = a, d, c
++		tri2[0], tri2[1], tri2[2] = d, b, c
++		turned[t1], turned[t2] = true, true
++		append(&added, key(c, d))
++	}
++}
++
++// How far the faces' normals must spread for a crease: the quadric's second axis at least
++// this share of its first, about 20 degrees between two equal faces.
++SHARP_SPREAD :: 0.1
++// How far a vertex may go onto its crease, in cells: the rounding a lattice leaves is
++// within half a cell of the crease, relaxing adds a little.
++SHARP_REACH :: 0.75
++
++// The point the old surface's faces within a cell of `p` agree on, when they turn
++// sharply there and it lies within SHARP_REACH cells of `p`.
++@(private = "file")
++sharp_point :: proc(bvh: Bvh, m: Mesh, p: Vec3, h: f32, stack: ^[dynamic]u32) -> (x: Vec3, ok: bool) {
++	if len(bvh.nodes) == 0 do return
++	r2 := h * h
++	a: matrix[3, 3]f32
++	b: Vec3
++	mass: Vec3
++	count: f32
++	clear(stack)
++	append(stack, 0)
++	for len(stack) > 0 {
++		node := bvh.nodes[pop(stack)]
++		near := linalg.clamp(p, node.bounds.lo, node.bounds.hi) - p
++		if linalg.dot(near, near) > r2 do continue
++		if node.count == 0 {
++			append(stack, node.first, node.first + 1)
++			continue
++		}
++		for i in node.first ..< node.first + node.count {
++			t := bvh.tri_order[i] if bvh.tri_order != nil else i
++			p0, p1, p2 := m.positions[m.indices[3 * t]], m.positions[m.indices[3 * t + 1]], m.positions[m.indices[3 * t + 2]]
++			c, _ := closest_on_triangle(p, p0, p1, p2)
++			if d := c - p; linalg.dot(d, d) > r2 do continue
++			n := linalg.cross(p1 - p0, p2 - p0)
++			l := linalg.length(n)
++			if !(l > 0) do continue
++			n /= l
++			a += linalg.outer_product(n, n)
++			b += n * linalg.dot(n, c)
++			mass += c
++			count += 1
++		}
++	}
++	if count < 2 do return
++	mass /= count
++	values, vectors := symmetric_eigen3(a)
++	if !(values[0] > 0) || values[1] < SHARP_SPREAD * values[0] do return
++	// The minimum about the mass point along the strong axes only.
++	r := b - a * mass
++	x = mass
++	for k in 0 ..< 3 {
++		if values[k] < SHARP_SPREAD * values[0] do continue
++		u := vectors[k]
++		x += u * (linalg.dot(u, r) / values[k])
++	}
++	if d := x - p; linalg.dot(d, d) > (SHARP_REACH * h) * (SHARP_REACH * h) do return
++	return x, true
++}
++
++// The eigenvalues of a symmetric 3×3 matrix, largest first, and their unit eigenvectors,
++// by cyclic Jacobi rotations (a few sweeps reach float precision for 3×3).
++@(private)
++symmetric_eigen3 :: proc(a: matrix[3, 3]f32) -> (values: [3]f32, vectors: [3]Vec3) {
++	s := a
++	v := matrix[3, 3]f32{1, 0, 0, 0, 1, 0, 0, 0, 1}
++	for _ in 0 ..< 12 {
++		off := s[0, 1] * s[0, 1] + s[0, 2] * s[0, 2] + s[1, 2] * s[1, 2]
++		if off < 1e-20 do break
++		for pq in ([3][2]int{{0, 1}, {0, 2}, {1, 2}}) {
++			i, j := pq[0], pq[1]
++			if abs(s[i, j]) < 1e-30 do continue
++			theta := (s[j, j] - s[i, i]) / (2 * s[i, j])
++			t := math.sign(theta) / (abs(theta) + math.sqrt(theta * theta + 1))
++			if theta == 0 do t = 1
++			c := 1 / math.sqrt(t * t + 1)
++			sn := t * c
++			rot := matrix[3, 3]f32{1, 0, 0, 0, 1, 0, 0, 0, 1}
++			rot[i, i], rot[j, j], rot[i, j], rot[j, i] = c, c, sn, -sn
++			s = linalg.transpose(rot) * s * rot
++			v = v * rot
++		}
++	}
++	order := [3]int{0, 1, 2}
++	for i in 0 ..< 3 do for j in i + 1 ..< 3 do if s[order[j], order[j]] > s[order[i], order[i]] do order[i], order[j] = order[j], order[i]
++	for k in 0 ..< 3 {
++		values[k] = s[order[k], order[k]]
++		vectors[k] = Vec3{v[0, order[k]], v[1, order[k]], v[2, order[k]]}
++	}
++	return
++}
++

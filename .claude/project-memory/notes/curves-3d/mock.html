@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Curves in 3D space: plan and mock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --frame: #111214; --line: #26272c; --pane: #1b1c20; --raised: #24252b; --fill: #2d2e35;
+  --text: #ededf0; --text2: #a1a1aa; --text3: #71717a;
+  --accent: #5b8cff; --accent-soft: rgba(91,140,255,.16);
+  --curve: #66d9ff; --handle: #f2a93b; --ok: #2fc07a; --clay: #c9a68a;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--frame); color: var(--text); font: 15px/1.55 var(--body); }
+a { color: var(--accent); }
+main { max-width: 1240px; margin: 0 auto; padding: 28px 20px 64px; display: grid; gap: 40px; }
+header h1 { font: 600 34px/1.15 var(--display); margin: 0 0 8px; letter-spacing: -.01em; text-wrap: balance; }
+header p { margin: 0; color: var(--text2); max-width: 78ch; }
+h2 { font: 600 22px/1.2 var(--display); margin: 0 0 12px; }
+h3 { font: 600 15px/1.3 var(--body); margin: 18px 0 6px; }
+.lede { max-width: 78ch; color: var(--text2); margin: 0 0 14px; }
+.tag { display: inline-block; font: 500 11px/1 var(--mono); padding: 4px 6px; border-radius: 4px; background: var(--fill); color: var(--text2); vertical-align: 2px; }
+.tag.new { background: rgba(47,192,122,.16); color: var(--ok); }
+.tag.have { background: var(--accent-soft); color: #9db8ff; }
+
+.states { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.states button { font: 500 13px var(--body); color: var(--text2); background: var(--pane); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+.states button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--curve); outline-offset: 2px; }
+.caption { color: var(--text2); font-size: 13.5px; margin: 10px 0 0; max-width: 100ch; min-height: 3em; }
+
+.mock { position: relative; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #16171a; aspect-ratio: 16 / 10; min-height: 560px; user-select: none; -webkit-user-select: none; }
+.mock #cv { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.island { position: absolute; display: flex; gap: 2px; padding: 4px; background: rgba(27,28,32,.94); border: 1px solid rgba(255,255,255,.07); border-radius: 12px; align-items: center; }
+.island button { font: 500 12px var(--body); color: var(--text2); background: transparent; border: 0; border-radius: 8px; padding: 6px 10px; cursor: pointer; white-space: nowrap; }
+.island button.on { background: var(--accent); color: #fff; }
+.island button:disabled { opacity: .35; cursor: default; }
+.island .sep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 4px; }
+.top-l { top: 10px; left: 10px; } .top-c { top: 10px; left: 50%; transform: translateX(-50%); } .top-r { top: 10px; right: 10px; }
+.ctx { bottom: 12px; left: 50%; transform: translateX(-50%); }
+.shelf { position: absolute; left: 10px; top: 60px; display: grid; gap: 6px; padding: 6px; background: rgba(27,28,32,.94); border: 1px solid rgba(255,255,255,.07); border-radius: 12px; }
+.tile { width: 62px; height: 56px; border-radius: 9px; background: var(--raised); border: 1px solid transparent; display: grid; place-items: center; padding: 6px 2px 4px; color: var(--text2); font: 500 10.5px/1.1 var(--body); cursor: pointer; }
+.tile svg { width: 24px; height: 24px; }
+.tile.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+
+.menu { position: absolute; top: 52px; left: 10px; width: 210px; background: rgba(27,28,32,.98); border: 1px solid rgba(255,255,255,.09); border-radius: 12px; padding: 6px; display: none; z-index: 5; box-shadow: 0 12px 30px rgba(0,0,0,.45); }
+.menu.open { display: block; }
+.menu .grp { font: 500 10.5px var(--body); color: var(--text3); text-transform: uppercase; letter-spacing: .06em; padding: 8px 8px 4px; }
+.menu button { display: flex; width: 100%; align-items: center; gap: 10px; font: 500 13px var(--body); color: var(--text); background: transparent; border: 0; border-radius: 8px; padding: 7px 8px; cursor: pointer; text-align: left; }
+.menu button:hover { background: var(--fill); }
+.menu button svg { width: 20px; height: 20px; flex: none; }
+.menu button.dim { color: var(--text3); }
+
+.card { position: absolute; right: 10px; top: 60px; bottom: 70px; width: 272px; overflow: auto; background: rgba(27,28,32,.96); border: 1px solid rgba(255,255,255,.07); border-radius: 14px; padding: 12px; display: grid; align-content: start; gap: 12px; font-size: 12.5px; }
+.card .head { display: flex; align-items: center; justify-content: space-between; }
+.card .head b { font: 600 14px var(--body); }
+.card .head span { color: var(--text3); font-size: 11.5px; }
+.row { display: grid; gap: 6px; }
+.lbl { color: var(--text2); font-size: 11.5px; display: flex; justify-content: space-between; gap: 8px; }
+.lbl em { font-style: normal; color: var(--text3); }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; background: var(--pane); border-radius: 9px; padding: 3px; }
+.seg button { font: 500 11.5px var(--body); color: var(--text2); background: transparent; border: 0; border-radius: 7px; padding: 6px 2px; cursor: pointer; display: grid; place-items: center; gap: 2px; }
+.seg button svg { width: 18px; height: 18px; }
+.seg button.on { background: var(--fill); color: var(--text); box-shadow: inset 0 0 0 1px rgba(91,140,255,.6); }
+.seg button.mixed { box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); }
+.seg button:disabled { opacity: .35; cursor: default; }
+.xyz { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.xyz label { display: grid; grid-template-columns: 14px 1fr; align-items: center; background: var(--pane); border-radius: 7px; padding: 0 0 0 7px; font: 600 11px var(--mono); }
+.xyz input { width: 100%; background: transparent; border: 0; color: var(--text); font: 12px var(--mono); padding: 6px 4px; }
+.xyz label:nth-child(1) { color: #ff6b6b; } .xyz label:nth-child(2) { color: #6bdc7c; } .xyz label:nth-child(3) { color: #6ba7ff; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.hint { color: var(--text3); font-size: 11.5px; line-height: 1.45; }
+.divider { height: 1px; background: var(--line); }
+.switch { display: flex; align-items: center; justify-content: space-between; color: var(--text2); font-size: 12px; }
+.switch input { accent-color: var(--accent); }
+.pad { width: 100%; height: auto; background: #131416; border: 1px solid var(--line); border-radius: 9px; touch-action: none; cursor: crosshair; display: block; }
+.padbar { display: flex; justify-content: space-between; align-items: center; }
+.mini { font: 500 11.5px var(--body); color: var(--text2); background: var(--fill); border: 0; border-radius: 7px; padding: 5px 9px; cursor: pointer; }
+.mini:disabled { opacity: .35; cursor: default; }
+.toast { position: absolute; left: 50%; top: 58px; transform: translateX(-50%); background: rgba(27,28,32,.96); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 7px 12px; font-size: 12.5px; color: var(--text); opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap; }
+.toast.show { opacity: 1; }
+.legend { position: absolute; left: 84px; bottom: 64px; color: var(--text3); font: 11.5px var(--body); background: rgba(17,18,20,.7); padding: 6px 9px; border-radius: 8px; line-height: 1.5; max-width: 360px; pointer-events: none; }
+
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+th { color: var(--text2); font-weight: 500; font-size: 12px; }
+td:first-child { font-weight: 600; white-space: nowrap; }
+.prs { display: grid; gap: 10px; counter-reset: pr; }
+.pr { background: var(--pane); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.pr h3 { margin: 0 0 4px; }
+.pr p { margin: 0; color: var(--text2); font-size: 14px; }
+.today { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.today div { background: var(--pane); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 14px; color: var(--text2); }
+.today b { color: var(--text); display: block; margin-bottom: 4px; }
+ol.q li { margin-bottom: 10px; color: var(--text2); } ol.q b { color: var(--text); }
+kbd { font: 500 11.5px var(--mono); background: var(--fill); border-radius: 4px; padding: 1px 5px; color: var(--text); }
+@media (max-width: 860px) { .card { width: 220px; } .legend { display: none; } }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Curves in 3D space, with handles to edit</h1>
+  <p>Today a curve can only start on a model. This plan makes a curve an object you can add or draw anywhere in the scene, as in Blender, and edit point by point with handles, a gizmo and exact numbers. The mock below works: try each step, then read the plan under it.</p>
+</header>
+
+<section aria-labelledby="mock-h">
+  <h2 id="mock-h">The mock</h2>
+  <div class="states" role="group" aria-label="Steps">
+    <button data-step="add" aria-pressed="true">1 · Add a curve</button>
+    <button data-step="draw" aria-pressed="false">2 · Draw in space</button>
+    <button data-step="edit" aria-pressed="false">3 · Edit handles</button>
+    <button data-step="gizmo" aria-pressed="false">4 · Move many points</button>
+    <button data-step="grow" aria-pressed="false">5 · Grow from an end</button>
+    <button data-step="exact" aria-pressed="false">6 · Exact numbers</button>
+    <button data-step="profile" aria-pressed="false">7 · Profile</button>
+  </div>
+  <div class="mock" id="mock">
+    <canvas id="cv"></canvas>
+
+    <div class="island top-l">
+      <button id="addBtn" aria-haspopup="true">＋ Add</button>
+      <span class="sep"></span>
+      <button id="undoBtn">Undo</button>
+      <button id="redoBtn">Redo</button>
+    </div>
+    <div class="menu" id="addMenu" role="menu">
+      <div class="grp">Mesh</div>
+      <button class="dim" data-none><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8"/></svg>Sphere</button>
+      <button class="dim" data-none><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="5" width="14" height="14" rx="1"/></svg>Cube</button>
+      <div class="grp">Curve <span class="tag new" style="margin-left:4px">new</span></div>
+      <button data-shape="line"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 18 L20 6"/><circle cx="4" cy="18" r="1.8" fill="currentColor"/><circle cx="20" cy="6" r="1.8" fill="currentColor"/></svg>Line</button>
+      <button data-shape="bezier"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 17 C8 3, 16 21, 21 7"/></svg>Bézier</button>
+      <button data-shape="circle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="7.5" stroke-dasharray="2 0"/><circle cx="12" cy="4.5" r="1.6" fill="currentColor"/><circle cx="19.5" cy="12" r="1.6" fill="currentColor"/></svg>Circle</button>
+      <button data-shape="spiral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 12 m0 0 c2 0 2 3 0 3 c-3 0 -4 -4 0 -5 c4 -1 6 3 4 6 c-2 4 -9 3 -10 -2 c-1 -5 5 -9 10 -6"/></svg>Spiral</button>
+      <button data-shape="helix"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 20 C18 18, 18 15, 6 13 C-2 11, 18 9, 18 7 C18 5, 10 4, 8 3"/></svg>Helix</button>
+    </div>
+
+    <div class="island top-c" role="group" aria-label="Curve tool">
+      <button data-mode="draw">Draw</button>
+      <button data-mode="edit">Edit</button>
+      <span class="sep"></span>
+      <button id="viewFront">Front</button>
+      <button id="viewSide">Side</button>
+      <button id="viewTop">Top</button>
+      <button id="view3">3/4</button>
+    </div>
+    <div class="island top-r">
+      <button id="modelBtn">Model</button>
+      <button id="snapBtn">Snap</button>
+    </div>
+
+    <div class="shelf" aria-label="Tools">
+      <div class="tile" title="Move"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg>Move</div>
+      <div class="tile" title="Brush"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>Brush</div>
+      <div class="tile on" title="Curve"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 17 C8 3, 16 21, 21 7"/><circle cx="3" cy="17" r="1.8" fill="currentColor"/><circle cx="21" cy="7" r="1.8" fill="currentColor"/></svg>Curve</div>
+      <div class="tile" title="Model"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8l8-4 8 4v8l-8 4-8-4z M4 8l8 4 8-4 M12 12v8"/></svg>Model</div>
+    </div>
+
+    <div class="card" id="card" aria-label="Curve card">
+      <div class="head"><b id="cardTitle">Curve</b><span id="cardSub"></span></div>
+
+      <div class="row" id="planeRow">
+        <div class="lbl">Draw on <em>where points land off the model</em></div>
+        <div class="seg" id="planeSeg">
+          <button data-plane="surface" title="On the model, else the view plane"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 17c4-8 14-8 18 0"/><circle cx="12" cy="11" r="1.6" fill="currentColor"/></svg>Surface</button>
+          <button data-plane="view" title="Facing you, through the view's centre or the last point"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="5" width="14" height="14" rx="1"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>View</button>
+          <button data-plane="floor" title="The floor (X and Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 16l6-6h14l-6 6z"/></svg>Floor</button>
+          <button data-plane="front" title="Front (X and Y)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 4h12v16H6z"/></svg>Front</button>
+          <button data-plane="side" title="Side (Z and Y)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 7l8-4v14l-8 4z"/></svg>Side</button>
+        </div>
+        <div class="hint" id="planeHint"></div>
+      </div>
+
+      <div class="row">
+        <div class="lbl">Makes <em>live until Bake</em></div>
+        <div class="seg" id="useSeg">
+          <button data-use="line">Line</button><button data-use="tube">Tube</button><button disabled>Lathe</button><button disabled>Along</button>
+        </div>
+      </div>
+
+      <div class="row" id="profBlock">
+        <div class="lbl">Profile <span class="tag new">new</span><em id="profSub">the tube's cross-section</em></div>
+        <div class="seg" id="profSeg">
+          <button data-prof="round">Round</button><button data-prof="square">Square</button><button data-prof="ribbon">Ribbon</button><button data-prof="star">Star</button><button data-prof="half">Half</button>
+        </div>
+        <canvas class="pad" id="profCv" width="248" height="176" aria-label="Profile pad"></canvas>
+        <div class="padbar">
+          <label class="switch" style="gap:6px">Mirror <input type="checkbox" id="profMirror" checked></label>
+          <button id="profDel" class="mini">Delete point</button>
+        </div>
+        <div class="hint">Drag points and handles; tap the outline to add a point, double-tap a point for a corner. Mirror keeps the two sides the same.</div>
+        <div class="lbl" style="margin-top:6px">Width along <span class="tag new">new</span><em>start → end</em></div>
+        <div class="seg" id="taperSeg">
+          <button data-taper="even">Even</button><button data-taper="taper">Taper</button><button data-taper="both">Both ends</button><button data-taper="bulge">Bulge</button>
+        </div>
+        <canvas class="pad" id="taperCv" width="248" height="96" aria-label="Width along pad"></canvas>
+        <div class="hint">Multiplies each point's radius from start to end. Tap the line to add a point.</div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="row" id="pointBlock">
+        <div class="lbl"><span id="ptTitle">Point</span><em id="ptSub"></em></div>
+        <div class="lbl" style="margin-top:2px">Handles</div>
+        <div class="seg" id="typeSeg">
+          <button data-type="auto" title="Smooth, lengths set for you; follows its neighbours"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 16 C8 6, 16 6, 21 16"/><circle cx="12" cy="8.5" r="2.2" fill="currentColor"/></svg>Auto</button>
+          <button data-type="aligned" title="Smooth: both handles in one line, each its own length"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 12h18"/><rect x="10" y="10" width="4" height="4" fill="currentColor"/><circle cx="3" cy="12" r="1.6"/><circle cx="21" cy="12" r="1.6"/></svg>Aligned</button>
+          <button data-type="free" title="A corner: each handle turns on its own"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6L12 14L20 4"/><path d="M10.5 14l1.5-1.5 1.5 1.5-1.5 1.5z" fill="currentColor"/></svg>Free</button>
+          <button data-type="vector" title="Straight to the next points: a sharp polyline corner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 18L12 6L21 18"/><path d="M10.5 6l1.5-1.5 1.5 1.5-1.5 1.5z" fill="currentColor"/></svg>Vector</button>
+        </div>
+        <div class="lbl" style="margin-top:4px">Position <em id="posSub">in the curve's space</em></div>
+        <div class="xyz">
+          <label>X<input id="px" inputmode="decimal"></label>
+          <label>Y<input id="py" inputmode="decimal"></label>
+          <label>Z<input id="pz" inputmode="decimal"></label>
+        </div>
+        <div class="lbl" style="margin-top:4px">Radius <em id="radV"></em></div>
+        <input type="range" id="rad" min="0.02" max="0.4" step="0.005">
+        <div class="lbl">Tilt <em id="tiltV"></em></div>
+        <input type="range" id="tilt" min="-180" max="180" step="1">
+        <div class="hint" id="ptHint"></div>
+      </div>
+
+      <div class="divider"></div>
+      <label class="switch">Show every point's handles <input type="checkbox" id="allHandles"></label>
+      <div class="hint" id="keysHint"></div>
+    </div>
+
+    <div class="island ctx" id="ctx"></div>
+    <div class="toast" id="toast"></div>
+    <div class="legend" id="legend"></div>
+  </div>
+  <p class="caption" id="caption"></p>
+</section>
+
+<section aria-labelledby="now-h">
+  <h2 id="now-h">What curves do today</h2>
+  <p class="lede">Curve objects already exist (the Bézier series, #453 to #474): each is an object in the Scene card with its own transform, saved in the scene file, and makes a Line, Tube, Lathe, Along, Brush path or Guide live until Bake. What is missing is everything that lets one live away from a model.</p>
+  <div class="today">
+    <div><b>Drawing needs a model</b>A drag only collects points where the pen is over a surface, and the first tapped point must land on one. Only later taps can fall off the model, onto the plane facing the view through the last point.</div>
+    <div><b>No way to add one</b>Nothing in the Add menu makes a curve. The only start is drawing on a model, so an empty scene cannot get a curve at all.</div>
+    <div><b>Points follow the surface</b>A dragged point snaps onto any surface under the pen, else the view plane. There is no moving along an axis, no gizmo, and one point at a time.</div>
+    <div><b>Two handle kinds, one at a time</b>A point is smooth or a corner, toggled by a tap. Handles show on every point, and there is no selection of several points.</div>
+    <div><b>Grows only by inserting</b>A tap on the line inserts a point, but nothing extends a curve past its ends, joins two curves or reverses one.</div>
+    <div><b>No numbers</b>A point's position, radius and twist (the twist is stored) cannot be typed or seen.</div>
+  </div>
+</section>
+
+<section aria-labelledby="best-h">
+  <h2 id="best-h">Best of each app, and what we do better</h2>
+  <table>
+    <thead><tr><th>Part</th><th>Taken from</th><th>Why it still holds</th><th>Avoided</th><th>Done better</th></tr></thead>
+    <tbody>
+      <tr><td>Add a curve</td><td>Blender's Add › Curve (Bézier, Circle, Path), Nomad's curve primitives</td><td>A curve that is not drawn on anything needs a start that is not a stroke</td><td>Blender's 3D cursor, a second point to place before you add anything</td><td>Shapes land where Add puts any object (the view's centre, or "Add object here" on a surface, #658), face the view, and open in Edit with the end point picked</td></tr>
+      <tr><td>Drawing plane</td><td>Blender's Draw tool (Depth: Cursor or Surface), Feather's and Gravity Sketch's drawing planes</td><td>A pen on glass has no depth; something has to give it one</td><td>Blender's setting hidden in the tool header with nothing drawn in the view</td><td>Five chips in the card, and the plane is drawn as a grid while you draw, so you see the depth before the first point lands. Surface falls back to the view plane off the model, as today</td></tr>
+      <tr><td>Edit mode</td><td>Blender's Tab into Edit Mode</td><td>Drawing and picking points want the same empty-space drag; one tab says which</td><td>Blender's edit mode that blocks every other tool</td><td>Draw and Edit are two tabs of the Curve tool, Tab switches. In Draw the selected curve's points still drag as today</td></tr>
+      <tr><td>Selecting points</td><td>Blender (click, Shift, box, A), Illustrator's direct select</td><td>Moving three points as one needs a selection</td><td>Nomad and ZBrush curves: one point at a time</td><td>Tap, Shift or a second finger to add, a box drag on empty space, A for all, all held in an undo step like any edit</td></tr>
+      <tr><td>Moving points</td><td>Blender's G, R and S with X, Y, Z</td><td>Exact moves along an axis are what a curve in space needs most</td><td>Blender's modal keys with no handle to grab: a tablet has no keyboard</td><td>The same gizmo objects use (arrows, centre, turn ring, size knob, World, Object or View orientation, #672) acts on the selected points; G, R, S still work with a keyboard</td></tr>
+      <tr><td>Handle types</td><td>Blender's Auto, Aligned, Free, Vector</td><td>Auto keeps a curve smooth as you move points; Vector makes a polyline corner</td><td>Blender's V pop-up; today's single smooth or corner toggle</td><td>Four chips with pictures; dragging an Auto handle makes it Aligned (as Blender); double-tap on a point switches smooth and corner</td></tr>
+      <tr><td>Which handles show</td><td>Illustrator (handles of the picked points only)</td><td>Ten points with two handles each is twenty orange dots over the model</td><td>Blender's and Nomad's every handle at once</td><td>Handles of the selected points and their neighbours; "Show every point's handles" for the rest</td></tr>
+      <tr><td>Growing</td><td>Blender's Extrude (E) and Ctrl+click, Illustrator's pen continuing a path</td><td>A curve in space is built a point at a time</td><td>Ctrl+click: invisible on a tablet</td><td>A ＋ nub beyond each end: drag it out to add a point; in Draw, taps after a picked end carry on from it</td></tr>
+      <tr><td>Exact values</td><td>Blender's N panel (point X, Y, Z, radius, tilt)</td><td>Symmetry and alignment need numbers</td><td>A separate side panel</td><td>The Curve card's Point section shows the selection's middle, radius and tilt; typing moves all selected points by the change</td></tr>
+      <tr><td>Profile</td><td>Blender's custom bevel profile and Bevel Object, Nomad's tube presets, 3D-Coat's curve profiles</td><td>A cross-section you draw (a moulding, a blade, a cable) is what makes a tube more than a pipe</td><td>Blender's Bevel Object: a second curve object kept only to be a profile, two objects to keep in step; its profile widget is mouse-sized</td><td>The profile lives in the tube: a pad in the card edited with the same points, handles and types as the curve, the five presets as starting shapes, Mirror for symmetric ones; the tube follows live</td></tr>
+      <tr><td>Width along</td><td>Blender's Taper curve, Nomad's per-point radius</td><td>A horn, a tail or a tentacle narrows along its length; dragging a dozen radius dots for that is slow</td><td>Blender's Taper Object, again a separate curve object</td><td>A second pad from start to end that multiplies each point's radius, with Even, Taper, Both ends and Bulge to start from</td></tr>
+      <tr><td>Snapping</td><td>Blender's increment and surface snapping</td><td>Points on a grid make clean shapes</td><td>Several snap menus</td><td>One Snap switch: grid steps for moves, and with Surface chosen, points stick to the model</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section aria-labelledby="pr-h">
+  <h2 id="pr-h">The build, in 9 PRs</h2>
+  <p class="lede">Each PR merges on its own into odin-sculpt and leaves the app working. None touches the brush, stroke or culling paths, so sculpting speed cannot change; curves are tens of points, and an edit costs well under 0.1 ms plus the live tube's rebuild, which exists today.</p>
+  <div class="prs">
+    <div class="pr"><h3>1 · Draw anywhere <span class="tag new">new</span></h3><p>The drawing plane (Surface, View, Floor, Front, Side) for drags and taps, drawn as a grid while drawing; View goes through the view's centre for the first point and through the last point after. A dragged point keeps to its plane unless Surface is chosen. Setting saved; script <code>set curve_plane view</code>.</p></div>
+    <div class="pr"><h3>2 · Add › Curve <span class="tag new">new</span></h3><p>Line, Bézier, Circle, Spiral and Helix in the Add menu, at the add point, facing the view, sized to the view; one undo step; selected with the Curve tool in Edit. Script <code>add_curve circle</code>.</p></div>
+    <div class="pr"><h3>3 · Edit tab and point selection <span class="tag new">new</span></h3><p>Draw and Edit tabs (Tab), a selection of points (tap, Shift, box, A, Escape), handles of the selected points shown, double-tap for corner, Delete deletes the selection. The selection is not saved in the file.</p></div>
+    <div class="pr"><h3>4 · Gizmo on points <span class="tag new">new</span></h3><p>The move gizmo on the selection: arrows, centre, turn ring and size knob, with the gizmo's orientations; G, R, S with X, Y, Z; Snap's grid steps. A gizmo drag is one undo step.</p></div>
+    <div class="pr"><h3>5 · Handle types <span class="tag new">new</span></h3><p><code>geom.Bezier_Point.corner</code> becomes a <code>Handle_Type</code> (Auto, Aligned, Free, Vector) with <code>bezier_auto_handles</code>; the CURV chunk and the scene version change together, old files refused as the rules say.</p></div>
+    <div class="pr"><h3>6 · Grow, join, split, reverse <span class="tag new">new</span></h3><p>＋ nubs at the ends, taps in Draw that continue from a picked end, Join (two ends of two curves into one curve, or the two ends of one into a loop), Split at a point, Reverse.</p></div>
+    <div class="pr"><h3>7 · Profile pad <span class="tag new">new</span></h3><p>The tube's profile becomes a closed 2D Bézier stored with the curve (in place of the <code>Tube_Profile</code> enum); the presets fill it. The card's pad edits it with points, handles, the four types and Mirror. <code>geom.bezier_tube</code> sweeps the sampled outline; the CURV chunk carries it. Bake keeps the shape.</p></div>
+    <div class="pr"><h3>8 · Width along <span class="tag new">new</span></h3><p>An open 2D curve from start to end, multiplying the radius along the length, with its pad and four presets; the tube reads it, and Along's copies grow and shrink with it. Sharp profile corners keep hard edges on the swept mesh.</p></div>
+    <div class="pr"><h3>9 · Point numbers, help and checks</h3><p>The Point section (X, Y, Z, radius, tilt), README and the Help glossary, touch scenarios for each gesture, screenshots described.</p></div>
+  </div>
+</section>
+
+<section aria-labelledby="q-h">
+  <h2 id="q-h">Choices, with what I will do unless you say otherwise</h2>
+  <ol class="q">
+    <li><b>Where you edit points.</b> In the Curve tool's Edit tab (Tab switches, and Tab with a curve selected in any tool goes there). The other way is Blender's: points editable from any tool whenever a curve is selected, which clashes with brush strokes.</li>
+    <li><b>The plane off the model.</b> View, through the view's centre and then the last point, as today's taps already do. Floor is the other good default if you mostly build from the ground up.</li>
+    <li><b>A tap on a point.</b> Selects it, and a double-tap switches smooth and corner. Today a single tap switches corner, which a selection cannot share.</li>
+  </ol>
+</section>
+</main>
+
+<script>
+(() => {
+'use strict';
+// ---------- vector helpers ----------
+const V = (x, y, z) => [x, y, z];
+const add = (a, b) => [a[0]+b[0], a[1]+b[1], a[2]+b[2]];
+const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
+const mul = (a, s) => [a[0]*s, a[1]*s, a[2]*s];
+const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const len = a => Math.hypot(a[0], a[1], a[2]);
+const norm = a => { const l = len(a); return l > 1e-9 ? mul(a, 1/l) : [0,0,0]; };
+const lerp = (a, b, t) => add(a, mul(sub(b, a), t));
+const clone = o => JSON.parse(JSON.stringify(o));
+const rotAround = (v, axis, ang) => { const c = Math.cos(ang), s = Math.sin(ang); return add(add(mul(v, c), mul(cross(axis, v), s)), mul(axis, dot(axis, v)*(1-c))); };
+
+// ---------- state ----------
+const S = {
+  cam: { yaw: 0.65, pitch: 0.38, dist: 6.2, target: V(0, 0.6, 0) },
+  mode: 'draw', plane: 'view', use: 'line', snap: false, model: true, allHandles: false,
+  curves: [], sel: -1, pts: new Set(),
+  placing: [], stroke: null, drag: null, box: null, hover: null,
+  undo: [], redo: [],
+};
+const MODEL = { c: V(-1.5, 0.75, -0.2), r: 0.75 };
+const cv = document.getElementById('cv'), g = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+
+function resize() {
+  const r = cv.getBoundingClientRect(); DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = r.width; H = r.height; cv.width = W*DPR; cv.height = H*DPR; draw();
+}
+
+// ---------- camera ----------
+function camBasis() {
+  const c = S.cam;
+  const eye = add(c.target, mul(V(Math.cos(c.pitch)*Math.sin(c.yaw), Math.sin(c.pitch), Math.cos(c.pitch)*Math.cos(c.yaw)), c.dist));
+  const f = norm(sub(c.target, eye));
+  let r = norm(cross(f, V(0,1,0))); if (len(r) < 1e-6) r = V(1,0,0);
+  const u = cross(r, f);
+  const F = H / (2*Math.tan(0.42));
+  // The view is centred on the space left of the card.
+  const cx = (W - 290) / 2 + 40, cy = H / 2;
+  return { eye, f, r, u, F, cx, cy };
+}
+let B;
+function proj(p) {
+  const d = sub(p, B.eye), z = dot(d, B.f);
+  if (z < 0.05) return null;
+  return [B.cx + dot(d, B.r)/z*B.F, B.cy - dot(d, B.u)/z*B.F, z];
+}
+function ray(sx, sy) { return { o: B.eye, d: norm(add(add(B.f, mul(B.r, (sx-B.cx)/B.F)), mul(B.u, -(sy-B.cy)/B.F))) }; }
+function hitPlane(rr, p0, n) { const den = dot(rr.d, n); if (Math.abs(den) < 1e-6) return null; const t = dot(sub(p0, rr.o), n)/den; return t > 0 ? add(rr.o, mul(rr.d, t)) : null; }
+function hitModel(rr) {
+  if (!S.model) return null;
+  const oc = sub(rr.o, MODEL.c), b = dot(oc, rr.d), c = dot(oc, oc) - MODEL.r*MODEL.r, h = b*b - c;
+  if (h < 0) return null; const t = -b - Math.sqrt(h); return t > 0 ? add(rr.o, mul(rr.d, t)) : null;
+}
+function pxPerUnit(p) { const a = proj(p), b = proj(add(p, mul(B.r, 0.01))); return a && b ? Math.hypot(b[0]-a[0], b[1]-a[1]) / 0.01 : 100; }
+
+// The drawing plane: an anchor point and its normal.
+function drawPlane(anchor) {
+  switch (S.plane) {
+    case 'floor': return { p: V(0, 0, 0), n: V(0,1,0) };
+    case 'front': return { p: anchor ? V(0, 0, anchor[2]) : V(0,0,0), n: V(0,0,1) };
+    case 'side':  return { p: anchor ? V(anchor[0], 0, 0) : V(0,0,0), n: V(1,0,0) };
+    default:      return { p: anchor || S.cam.target, n: mul(B.f, -1) };
+  }
+}
+function landPoint(sx, sy, anchor) {
+  const rr = ray(sx, sy);
+  if (S.plane === 'surface') { const h = hitModel(rr); if (h) return h; }
+  const pl = drawPlane(anchor);
+  let p = hitPlane(rr, pl.p, pl.n);
+  if (!p) p = hitPlane(rr, anchor || S.cam.target, mul(B.f, -1));
+  return p && S.snap ? snapV(p) : p;
+}
+const STEP = 0.125;
+const snapV = p => p.map(v => Math.round(v/STEP)*STEP);
+
+// ---------- curves ----------
+function mkPoint(p) { return { p, hi: V(0,0,0), ho: V(0,0,0), type: 'auto', r: 0.08, tilt: 0 }; }
+function autoHandles(c) {
+  const n = c.pts.length;
+  c.pts.forEach((pt, i) => {
+    const hasPrev = c.closed || i > 0, hasNext = c.closed || i < n-1;
+    const prev = hasPrev ? c.pts[(i-1+n)%n].p : null, next = hasNext ? c.pts[(i+1)%n].p : null;
+    if (pt.type === 'vector') {
+      pt.hi = prev ? mul(sub(prev, pt.p), 1/3) : V(0,0,0);
+      pt.ho = next ? mul(sub(next, pt.p), 1/3) : V(0,0,0);
+    } else if (pt.type === 'auto') {
+      if (prev && next) {
+        const dir = norm(sub(next, prev));
+        pt.hi = mul(dir, -len(sub(prev, pt.p))/3); pt.ho = mul(dir, len(sub(next, pt.p))/3);
+      } else if (next) { pt.ho = mul(sub(next, pt.p), 1/3); pt.hi = mul(pt.ho, -1); }
+      else if (prev) { pt.hi = mul(sub(prev, pt.p), 1/3); pt.ho = mul(pt.hi, -1); }
+    }
+  });
+}
+function segs(c) { return c.pts.length < 2 ? 0 : (c.closed ? c.pts.length : c.pts.length - 1); }
+function ctrl(c, i) { const a = c.pts[i], b = c.pts[(i+1)%c.pts.length]; return [a.p, add(a.p, a.ho), add(b.p, b.hi), b.p]; }
+function cubic(a, b, cc, d, t) { const s = 1-t; return add(add(mul(a, s*s*s), mul(b, 3*s*s*t)), add(mul(cc, 3*s*t*t), mul(d, t*t*t))); }
+function sample(c, per = 24) {
+  const out = [];
+  for (let i = 0; i < segs(c); i++) {
+    const [a, b, cc, d] = ctrl(c, i);
+    const r0 = c.pts[i].r, r1 = c.pts[(i+1)%c.pts.length].r, t0 = c.pts[i].tilt || 0, t1 = c.pts[(i+1)%c.pts.length].tilt || 0;
+    for (let k = 0; k <= per; k++) { if (k === per && i < segs(c)-1) continue; const t = k/per; const sm = t*t*(3-2*t); out.push({ p: cubic(a, b, cc, d, t), u: i + t, r: r0 + (r1-r0)*sm, tl: t0 + (t1-t0)*sm }); }
+  }
+  return out;
+}
+function splitAt(c, u) {
+  const i = Math.min(Math.floor(u), segs(c)-1), t = u - i;
+  const [a, b, cc, d] = ctrl(c, i);
+  const ab = lerp(a, b, t), bc = lerp(b, cc, t), cd = lerp(cc, d, t), abc = lerp(ab, bc, t), bcd = lerp(bc, cd, t), m = lerp(abc, bcd, t);
+  const A = c.pts[i], Bp = c.pts[(i+1)%c.pts.length];
+  if (A.type === 'auto' || A.type === 'vector') A.type = 'aligned';
+  if (Bp.type === 'auto' || Bp.type === 'vector') Bp.type = 'aligned';
+  A.ho = sub(ab, a); Bp.hi = sub(cd, d);
+  const np = { p: m, hi: sub(abc, m), ho: sub(bcd, m), type: 'aligned', r: A.r + (Bp.r - A.r)*t, tilt: 0 };
+  c.pts.splice(i+1, 0, np); return i+1;
+}
+const cur = () => S.curves[S.sel];
+
+// ---------- undo ----------
+function snap() { return clone({ curves: S.curves, sel: S.sel, pts: [...S.pts] }); }
+function pushUndo() { S.undo.push(snap()); if (S.undo.length > 80) S.undo.shift(); S.redo = []; }
+function restore(s) { S.curves = s.curves; S.sel = s.sel; S.pts = new Set(s.pts); }
+function doUndo() { if (!S.undo.length) return; S.redo.push(snap()); restore(S.undo.pop()); refresh(); toast('Undone'); }
+function doRedo() { if (!S.redo.length) return; S.undo.push(snap()); restore(S.redo.pop()); refresh(); toast('Redone'); }
+
+// ---------- shapes from Add ----------
+function addShape(kind) {
+  pushUndo();
+  B = camBasis();
+  const at = S.cam.target, r = B.r, u = B.u, s = 0.9;
+  let pts = [], closed = false;
+  const P = (x, y) => add(at, add(mul(r, x*s), mul(u, y*s)));
+  if (kind === 'line') pts = [mkPoint(P(-1, -0.2)), mkPoint(P(1, 0.2))];
+  if (kind === 'bezier') { pts = [mkPoint(P(-1, -0.3)), mkPoint(P(1, 0.3))]; pts.forEach(p => p.type = 'aligned'); pts[0].ho = add(mul(r, 0.5*s), mul(u, 0.9*s)); pts[0].hi = mul(pts[0].ho, -1); pts[1].hi = add(mul(r, -0.5*s), mul(u, -0.9*s)); pts[1].ho = mul(pts[1].hi, -1); }
+  if (kind === 'circle') { closed = true; const k = 0.5523; for (let i = 0; i < 4; i++) { const a = i*Math.PI/2; const p = mkPoint(P(Math.cos(a), Math.sin(a))); p.type = 'aligned'; const tng = add(mul(r, -Math.sin(a)*k*s), mul(u, Math.cos(a)*k*s)); p.ho = tng; p.hi = mul(tng, -1); pts.push(p); } }
+  if (kind === 'spiral') { for (let i = 0; i < 9; i++) { const a = i*0.95, rad = 0.15 + i*0.11; pts.push(mkPoint(P(Math.cos(a)*rad, Math.sin(a)*rad))); } }
+  if (kind === 'helix') { for (let i = 0; i < 11; i++) { const a = i*Math.PI/2.5; pts.push(mkPoint(add(at, V(Math.cos(a)*0.6, -0.8 + i*0.16, Math.sin(a)*0.6)))); } }
+  const c = { pts, closed, use: S.use, name: { line: 'Line', bezier: 'Bézier', circle: 'Circle', spiral: 'Spiral', helix: 'Helix' }[kind] };
+  autoHandles(c);
+  S.curves.push(c); S.sel = S.curves.length - 1;
+  S.pts = new Set([closed ? 0 : pts.length - 1]);
+  setMode('edit');
+  toast(`Added ${c.name} curve at the view's centre`);
+  refresh();
+}
+
+// ---------- finishing a drawn or tapped curve ----------
+function curveFromPath(path) {
+  // Keep points about every 0.35 units of length, at least two: the app fits Béziers to the
+  // path (geom.bezier_fit); even spacing with Auto handles is close enough for the mock.
+  let total = 0; for (let i = 1; i < path.length; i++) total += len(sub(path[i], path[i-1]));
+  const n = Math.max(2, Math.min(10, Math.round(total / 0.45) + 1));
+  const out = []; let acc = 0, j = 0;
+  for (let k = 0; k < n; k++) {
+    const want = total * k / (n-1);
+    while (j < path.length - 2 && acc + len(sub(path[j+1], path[j])) < want) { acc += len(sub(path[j+1], path[j])); j++; }
+    const segL = len(sub(path[j+1], path[j])) || 1;
+    out.push(mkPoint(lerp(path[j], path[j+1], Math.min(1, (want-acc)/segL))));
+  }
+  return out;
+}
+function finishPlacing(closed) {
+  if (S.placing.length < 2) { S.placing = []; refresh(); return; }
+  pushUndo();
+  const c = { pts: S.placing.map(p => mkPoint(p)), closed: closed && S.placing.length >= 3, use: S.use, name: 'Curve' };
+  autoHandles(c); S.curves.push(c); S.sel = S.curves.length - 1; S.pts = new Set(); S.placing = [];
+  toast(closed ? 'Closed curve made' : 'Curve made'); refresh();
+}
+
+// ---------- picking ----------
+const GRAB = 13;
+function handlesShown(c, i) {
+  if (S.allHandles) return true;
+  const n = c.pts.length;
+  for (const k of S.pts) { if (k === i) return true; if (Math.abs(k - i) === 1 || (c.closed && Math.abs(k - i) === n-1)) return true; }
+  return false;
+}
+function gizmoInfo() {
+  const c = cur(); if (!c || S.mode !== 'edit' || S.pts.size === 0) return null;
+  let m = V(0,0,0); for (const i of S.pts) m = add(m, c.pts[i].p); m = mul(m, 1/S.pts.size);
+  const sc = proj(m); if (!sc) return null;
+  const axes = [V(1,0,0), V(0,1,0), V(0,0,1)].map((a, k) => {
+    const q = proj(add(m, mul(a, 0.05))); const dx = q[0]-sc[0], dy = q[1]-sc[1], l = Math.hypot(dx, dy) || 1;
+    return { k, a, dir: [dx/l, dy/l], ppu: l/0.05, vis: l > 1.2 };
+  });
+  return { m, sc, axes, L: 70, ring: 96 };
+}
+function pick(x, y) {
+  const c = cur();
+  if (c) {
+    // The gizmo first, then handles, points, nubs and the line.
+    const gz = gizmoInfo();
+    if (gz) {
+      const [gx, gy] = gz.sc, d = Math.hypot(x-gx, y-gy);
+      const knob = [gx + gz.ring*Math.cos(-Math.PI/4), gy + gz.ring*Math.sin(-Math.PI/4)];
+      if (Math.hypot(x-knob[0], y-knob[1]) < 11) return { kind: 'gsize' };
+      for (const ax of gz.axes) { if (!ax.vis) continue; const tx = gx + ax.dir[0]*gz.L, ty = gy + ax.dir[1]*gz.L; if (Math.hypot(x-tx, y-ty) < 13 || distSeg(x, y, gx + ax.dir[0]*24, gy + ax.dir[1]*24, tx, ty) < 7) return { kind: 'gaxis', ax }; }
+      if (d < 16) return { kind: 'gfree' };
+      if (Math.abs(d - gz.ring) < 7) return { kind: 'grot' };
+    }
+    let best = null, bd = GRAB;
+    c.pts.forEach((pt, i) => {
+      if (!handlesShown(c, i)) return;
+      for (const side of ['hi', 'ho']) {
+        if (!c.closed && ((side === 'hi' && i === 0) || (side === 'ho' && i === c.pts.length-1))) continue;
+        const s = proj(add(pt.p, pt[side])); if (!s) continue; const d = Math.hypot(x-s[0], y-s[1]);
+        if (d < bd) { bd = d; best = { kind: 'handle', i, side }; }
+      }
+    });
+    c.pts.forEach((pt, i) => { const s = proj(pt.p); if (!s) return; const d = Math.hypot(x-s[0], y-s[1]); if (d < bd + 2) { bd = d; best = { kind: 'point', i }; } });
+    if (best) return best;
+    for (const nb of nubs(c)) if (Math.hypot(x-nb.s[0], y-nb.s[1]) < 12) return { kind: 'nub', end: nb.end };
+    const sm = sample(c, 32); let lu = null, ld = 9;
+    for (let k = 1; k < sm.length; k++) { const a = proj(sm[k-1].p), b = proj(sm[k].p); if (!a || !b) continue; const d = distSeg(x, y, a[0], a[1], b[0], b[1]); if (d < ld) { ld = d; lu = sm[k-1].u + (sm[k].u - sm[k-1].u)*0.5; } }
+    if (lu !== null) return { kind: 'line', u: lu };
+  }
+  // Another curve's line selects that curve.
+  for (let ci = S.curves.length - 1; ci >= 0; ci--) {
+    if (ci === S.sel) continue; const sm = sample(S.curves[ci], 16);
+    for (let k = 1; k < sm.length; k++) { const a = proj(sm[k-1].p), b = proj(sm[k].p); if (a && b && distSeg(x, y, a[0], a[1], b[0], b[1]) < 8) return { kind: 'other', ci }; }
+  }
+  return null;
+}
+function distSeg(px, py, ax, ay, bx, by) { const dx = bx-ax, dy = by-ay, l2 = dx*dx+dy*dy || 1; const t = Math.max(0, Math.min(1, ((px-ax)*dx + (py-ay)*dy)/l2)); return Math.hypot(px - ax - t*dx, py - ay - t*dy); }
+function nubs(c) {
+  if (c.closed || c.pts.length < 2 || (S.mode !== 'edit' && S.step !== 'grow')) return [];
+  const out = [], n = c.pts.length;
+  for (const end of [0, n-1]) {
+    const pt = c.pts[end], s = proj(pt.p); if (!s) continue;
+    let dir = end === 0 ? pt.hi : pt.ho; if (len(dir) < 1e-6) dir = sub(pt.p, c.pts[end === 0 ? 1 : n-2].p);
+    const q = proj(add(pt.p, mul(norm(dir), 0.05))); if (!q) continue;
+    const dx = q[0]-s[0], dy = q[1]-s[1], l = Math.hypot(dx, dy) || 1;
+    out.push({ end, s: [s[0] + dx/l*30, s[1] + dy/l*30], from: s });
+  }
+  return out;
+}
+
+// ---------- pointer ----------
+let lastTap = { t: 0, i: -1 };
+const pointerXY = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('pointerdown', e => {
+  closeMenu(); cv.setPointerCapture(e.pointerId); B = camBasis();
+  const [x, y] = pointerXY(e);
+  if (e.button === 2 || e.button === 1 || e.altKey) { S.drag = { kind: 'orbit', x, y, yaw: S.cam.yaw, pitch: S.cam.pitch, pan: e.button === 1 }; return; }
+  const h = pick(x, y), c = cur();
+  if (h && h.kind === 'other') { S.sel = h.ci; S.pts = new Set(); refresh(); toast(`${S.curves[h.ci].name} selected`); return; }
+  if (h && c) {
+    if (h.kind === 'point') {
+      const now = performance.now();
+      if (now - lastTap.t < 320 && lastTap.i === h.i) { pushUndo(); const pt = c.pts[h.i]; pt.type = (pt.type === 'free' || pt.type === 'vector') ? 'aligned' : 'free'; if (pt.type === 'aligned') alignFrom(pt, 'ho'); autoHandles(c); toast(pt.type === 'free' ? 'Corner' : 'Smooth'); lastTap = { t: 0, i: -1 }; refresh(); return; }
+      lastTap = { t: now, i: h.i };
+      if (e.shiftKey) { S.pts.has(h.i) ? S.pts.delete(h.i) : S.pts.add(h.i); }
+      else if (!S.pts.has(h.i)) S.pts = new Set([h.i]);
+      S.drag = { kind: 'points', x, y, moved: false, start: c.pts.map(p => p.p.slice()), anchor: c.pts[h.i].p.slice(), i: h.i, before: snap() };
+      refresh(); return;
+    }
+    if (h.kind === 'handle') { S.drag = { kind: 'handle', i: h.i, side: h.side, before: snap(), moved: false }; return; }
+    if (h.kind === 'nub') {
+      pushUndo(); const n = c.pts.length; const np = mkPoint(c.pts[h.end].p.slice()); np.r = c.pts[h.end].r;
+      if (h.end === 0) { c.pts.unshift(np); S.pts = new Set([0]); } else { c.pts.push(np); S.pts = new Set([n]); }
+      S.drag = { kind: 'grow', i: h.end === 0 ? 0 : n, anchor: np.p.slice() }; refresh(); return;
+    }
+    if (h.kind === 'line') { S.drag = { kind: 'line', u: h.u, x, y }; return; }
+    if (h.kind === 'gaxis' || h.kind === 'gfree' || h.kind === 'grot' || h.kind === 'gsize') {
+      const gz = gizmoInfo();
+      S.drag = { kind: h.kind, ax: h.ax, x, y, gz, before: snap(), start: c.pts.map(p => ({ p: p.p.slice(), hi: p.hi.slice(), ho: p.ho.slice() })), moved: false };
+      return;
+    }
+  }
+  // Empty space: Draw draws, Edit box-selects.
+  if (S.mode === 'edit') { S.box = { x0: x, y0: y, x1: x, y1: y, add: e.shiftKey }; return; }
+  const anchor = S.placing.length ? S.placing[S.placing.length-1] : null;
+  const p = landPoint(x, y, anchor);
+  S.stroke = { screen: [[x, y]], path: p ? [p] : [], anchor: p };
+  draw();
+});
+cv.addEventListener('pointermove', e => {
+  const [x, y] = pointerXY(e); B = camBasis();
+  const d = S.drag, c = cur();
+  if (!d && !S.stroke && !S.box) { const h = pick(x, y); const k = h ? h.kind : null; if (k !== S.hover) { S.hover = k; cv.style.cursor = k ? (k === 'line' ? 'copy' : 'grab') : (S.mode === 'draw' ? 'crosshair' : 'default'); } S.mouse = [x, y]; if (S.mode === 'draw') draw(); return; }
+  if (S.box) { S.box.x1 = x; S.box.y1 = y; draw(); return; }
+  if (S.stroke) {
+    S.stroke.screen.push([x, y]);
+    const p = landPoint(x, y, S.stroke.anchor);
+    if (p) { if (!S.stroke.anchor) S.stroke.anchor = p; S.stroke.path.push(p); }
+    draw(); return;
+  }
+  if (!d) return;
+  if (d.kind === 'orbit') {
+    if (d.pan) { const k = S.cam.dist / B.F; S.cam.target = add(S.cam.target, add(mul(B.r, -(x - d.x)*k), mul(B.u, (y - d.y)*k))); d.x = x; d.y = y; }
+    else { S.cam.yaw = d.yaw - (x - d.x)*0.008; S.cam.pitch = Math.max(-1.45, Math.min(1.45, d.pitch + (y - d.y)*0.008)); }
+    draw(); return;
+  }
+  if (!c) return;
+  if (d.kind === 'points') {
+    if (!d.moved && Math.hypot(x - d.x, y - d.y) < 4) return;
+    if (!d.moved) { d.moved = true; S.undo.push(d.before); S.redo = []; }
+    // The grabbed point follows the drawing plane through where it was (or the model with Surface);
+    // the rest of the selection moves by the same amount.
+    const rr = ray(x, y);
+    let to = S.plane === 'surface' ? hitModel(rr) : null;
+    if (!to) { const pl = drawPlane(d.anchor); to = hitPlane(rr, pl.p, pl.n) || hitPlane(rr, d.anchor, mul(B.f, -1)); }
+    if (!to) return; if (S.snap) to = snapV(to);
+    const delta = sub(to, d.anchor);
+    for (const i of S.pts) c.pts[i].p = add(d.start[i], delta);
+    autoHandles(c); refresh(); return;
+  }
+  if (d.kind === 'grow') { const pl = drawPlane(d.anchor); let to = hitPlane(ray(x, y), pl.p, pl.n) || hitPlane(ray(x, y), d.anchor, mul(B.f, -1)); if (to) { if (S.snap) to = snapV(to); c.pts[d.i].p = to; autoHandles(c); refresh(); } return; }
+  if (d.kind === 'handle') {
+    if (!d.moved) { d.moved = true; S.undo.push(d.before); S.redo = []; }
+    const pt = c.pts[d.i];
+    const to = hitPlane(ray(x, y), add(pt.p, pt[d.side]), mul(B.f, -1)); if (!to) return;
+    pt[d.side] = sub(to, pt.p);
+    if (pt.type === 'auto' || pt.type === 'vector') { pt.type = 'aligned'; toast('Handle dragged: point is now Aligned'); }
+    if (pt.type === 'aligned') alignFrom(pt, d.side);
+    autoHandles(c); refresh(); return;
+  }
+  if (d.kind === 'line') {
+    if (Math.hypot(x - d.x, y - d.y) > 5) { pushUndo(); const i = splitAt(c, d.u); S.pts = new Set([i]); autoHandles(c); S.drag = { kind: 'points', x: d.x, y: d.y, moved: true, start: c.pts.map(p => p.p.slice()), anchor: c.pts[i].p.slice(), i }; toast('Point added on the line'); refresh(); }
+    return;
+  }
+  if (d.kind.startsWith('g')) {
+    if (!d.moved) { d.moved = true; S.undo.push(d.before); S.redo = []; }
+    const gz = d.gz, m = gz.m;
+    const each = f => { for (const i of S.pts) { const s = d.start[i]; f(c.pts[i], s); } };
+    if (d.kind === 'gaxis') {
+      let t = ((x - d.x)*d.ax.dir[0] + (y - d.y)*d.ax.dir[1]) / d.ax.ppu; if (S.snap) t = Math.round(t/STEP)*STEP;
+      each((pt, s) => { pt.p = add(s.p, mul(d.ax.a, t)); });
+    } else if (d.kind === 'gfree') {
+      let to = hitPlane(ray(x, y), m, mul(B.f, -1)), from = hitPlane(ray(d.x, d.y), m, mul(B.f, -1)); if (!to || !from) return;
+      let dl = sub(to, from); if (S.snap) dl = snapV(dl); each((pt, s) => { pt.p = add(s.p, dl); });
+    } else if (d.kind === 'grot') {
+      const a0 = Math.atan2(d.y - gz.sc[1], d.x - gz.sc[0]), a1 = Math.atan2(y - gz.sc[1], x - gz.sc[0]);
+      let ang = -(a1 - a0); if (S.snap) ang = Math.round(ang/(Math.PI/12))*(Math.PI/12);
+      const axis = mul(B.f, -1);
+      each((pt, s) => { pt.p = add(m, rotAround(sub(s.p, m), axis, ang)); pt.hi = rotAround(s.hi, axis, ang); pt.ho = rotAround(s.ho, axis, ang); });
+    } else if (d.kind === 'gsize') {
+      const k = Math.max(0.05, Math.hypot(x - gz.sc[0], y - gz.sc[1]) / Math.hypot(d.x - gz.sc[0], d.y - gz.sc[1]));
+      each((pt, s) => { pt.p = add(m, mul(sub(s.p, m), k)); pt.hi = mul(s.hi, k); pt.ho = mul(s.ho, k); });
+    }
+    autoHandles(c); refresh(); return;
+  }
+});
+function alignFrom(pt, side) { const o = side === 'ho' ? 'hi' : 'ho'; const l = len(pt[o]) || len(pt[side]); pt[o] = mul(norm(pt[side]), -l); }
+cv.addEventListener('pointerup', e => {
+  const [x, y] = pointerXY(e); B = camBasis();
+  if (S.box) {
+    const b = S.box, c = cur(); S.box = null;
+    if (c) {
+      const x0 = Math.min(b.x0, b.x1), x1 = Math.max(b.x0, b.x1), y0 = Math.min(b.y0, b.y1), y1 = Math.max(b.y0, b.y1);
+      if (x1 - x0 < 4 && y1 - y0 < 4) { if (!b.add) S.pts = new Set(); }
+      else { if (!b.add) S.pts = new Set(); c.pts.forEach((pt, i) => { const s = proj(pt.p); if (s && s[0] >= x0 && s[0] <= x1 && s[1] >= y0 && s[1] <= y1) S.pts.add(i); }); if (S.pts.size) toast(`${S.pts.size} points selected`); }
+    }
+    refresh(); return;
+  }
+  if (S.stroke) {
+    const st = S.stroke; S.stroke = null;
+    let travel = 0; for (let i = 1; i < st.screen.length; i++) travel += Math.hypot(st.screen[i][0]-st.screen[i-1][0], st.screen[i][1]-st.screen[i-1][1]);
+    if (travel > 8 && st.path.length >= 2 && !S.placing.length) {
+      pushUndo(); const c = { pts: curveFromPath(st.path), closed: false, use: S.use, name: 'Curve' };
+      autoHandles(c); S.curves.push(c); S.sel = S.curves.length - 1; S.pts = new Set(); toast('Curve drawn'); refresh(); return;
+    }
+    // A tap: the first placed point closes the curve; otherwise place a point.
+    if (S.placing.length >= 3) { const f = proj(S.placing[0]); if (f && Math.hypot(f[0]-x, f[1]-y) < 14) { finishPlacing(true); return; } }
+    const anchor = S.placing.length ? S.placing[S.placing.length-1] : null;
+    const p = landPoint(x, y, anchor);
+    if (p) S.placing.push(p);
+    refresh(); return;
+  }
+  const d = S.drag; S.drag = null;
+  if (d && d.kind === 'line') { pushUndo(); const c = cur(); const i = splitAt(c, d.u); S.pts = new Set([i]); autoHandles(c); toast('Point added on the line: the shape is kept'); }
+  if (d && d.kind === 'grow') toast('Point added at the end');
+  refresh();
+});
+cv.addEventListener('wheel', e => { e.preventDefault(); S.cam.dist = Math.max(2, Math.min(16, S.cam.dist * Math.exp(e.deltaY * 0.0012))); draw(); }, { passive: false });
+
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  const c = cur();
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
+  if (e.key === 'Tab') { e.preventDefault(); setMode(S.mode === 'draw' ? 'edit' : 'draw'); return; }
+  if (e.key === 'Enter' && S.placing.length) { finishPlacing(false); return; }
+  if (e.key === 'Escape') { if (S.placing.length) { S.placing = []; toast('Points dropped'); } else { S.pts = new Set(); } refresh(); return; }
+  if (!c) return;
+  if (e.key.toLowerCase() === 'a' && S.mode === 'edit') { S.pts = S.pts.size === c.pts.length ? new Set() : new Set(c.pts.map((_, i) => i)); refresh(); return; }
+  if (e.key === 'Delete' || e.key === 'Backspace' || e.key.toLowerCase() === 'x') { deletePoints(); }
+});
+
+// ---------- actions ----------
+function deletePoints() {
+  const c = cur(); if (!c || !S.pts.size) return;
+  const left = c.pts.length - S.pts.size, min = c.closed ? 3 : 2;
+  if (left < min) { toast(`A ${c.closed ? 'loop' : 'curve'} keeps at least ${min} points`); return; }
+  pushUndo(); c.pts = c.pts.filter((_, i) => !S.pts.has(i)); S.pts = new Set(); autoHandles(c); refresh(); toast('Deleted');
+}
+function subdivide() {
+  const c = cur(); if (!c) return; pushUndo();
+  const sel = [...S.pts].sort((a, b) => b - a), n = c.pts.length; const targets = [];
+  for (const i of sel) { const j = i + 1; if (j < n || c.closed) { if (S.pts.has(j % n) || sel.length === 1) targets.push(i); } }
+  if (!targets.length) { for (let i = segs(c) - 1; i >= 0; i--) targets.push(i); }
+  targets.sort((a, b) => b - a).forEach(i => splitAt(c, i + 0.5)); S.pts = new Set(); autoHandles(c); refresh(); toast('Subdivided');
+}
+function toggleClose() { const c = cur(); if (!c || c.pts.length < 3) return; pushUndo(); c.closed = !c.closed; autoHandles(c); refresh(); toast(c.closed ? 'Closed into a loop' : 'Opened'); }
+function reverse() { const c = cur(); if (!c) return; pushUndo(); c.pts.reverse(); c.pts.forEach(p => { const t = p.hi; p.hi = p.ho; p.ho = t; }); const n = c.pts.length; S.pts = new Set([...S.pts].map(i => n-1-i)); refresh(); toast('Reversed'); }
+function setType(t) { const c = cur(); if (!c || !S.pts.size) return; pushUndo(); for (const i of S.pts) { const pt = c.pts[i]; pt.type = t; if (t === 'aligned') alignFrom(pt, len(pt.ho) ? 'ho' : 'hi'); if (t === 'free' && len(pt.ho) < 1e-6) { autoHandles(c); } } autoHandles(c); refresh(); }
+function bake() { toast('Bake makes the tube a mesh object to sculpt (exists today)'); }
+
+
+// ---------- profile and width along ----------
+// A profile is a closed 2D Bézier curve (z = 0) in the tube's cross-section, x across and y up,
+// about -1 to 1; it is edited with the same points, handles and types as a curve in space. Point 0
+// sits on the mirror line (x = 0, at the top), so with Mirror on point i pairs with point n - i.
+function mk2(x, y, type) { const p = mkPoint(V(x, y, 0)); p.type = type || 'auto'; return p; }
+function makeProfile(kind) {
+  let pts;
+  if (kind === 'round') { const k = 0.5523; pts = [[0,1,1,0],[1,0,0,-1],[0,-1,-1,0],[-1,0,0,1]].map(([x,y,tx,ty]) => { const p = mk2(x, y, 'aligned'); p.ho = V(tx*k, ty*k, 0); p.hi = V(-tx*k, -ty*k, 0); return p; }); }
+  if (kind === 'square') pts = [mk2(0, 0.9, 'vector'), mk2(0.9, 0.9, 'vector'), mk2(0.9, -0.9, 'vector'), mk2(0, -0.9, 'vector'), mk2(-0.9, -0.9, 'vector'), mk2(-0.9, 0.9, 'vector')];
+  if (kind === 'ribbon') { const k = 0.5523; pts = [[0,0.28,1,0,0.28],[1,0,0,-1,1],[0,-0.28,-1,0,0.28],[-1,0,0,1,1]].map(([x,y,tx,ty,l]) => { const p = mk2(x, y, 'aligned'); p.ho = V(tx*k, ty*k*0.28, 0); p.hi = V(-tx*k, -ty*k*0.28, 0); return p; }); }
+  if (kind === 'star') { pts = []; for (let i = 0; i < 10; i++) { const a = Math.PI/2 - i*Math.PI/5, r = i % 2 ? 0.6 : 1; pts.push(mk2(Math.cos(a)*r, Math.sin(a)*r, 'vector')); } pts.forEach(p => { if (Math.abs(p.p[0]) < 1e-9) p.p[0] = 0; }); }
+  if (kind === 'half') { pts = [mk2(0, 0.95, 'aligned'), mk2(1, -0.35, 'free'), mk2(0, -0.35, 'vector'), mk2(-1, -0.35, 'free')]; pts[0].ho = V(0.6, 0, 0); pts[0].hi = V(-0.6, 0, 0); pts[1].hi = V(0, 0.75, 0); pts[1].ho = V(-0.33, 0, 0); pts[3].ho = V(0, 0.75, 0); pts[3].hi = V(0.33, 0, 0); }
+  const c = { pts, closed: true, kind }; autoHandles(c); return c;
+}
+function makeTaper(kind) {
+  const ys = { even: [1, 1], taper: [1, 0.15], both: [0.15, 1, 0.15], bulge: [0.5, 1.4, 0.5] }[kind];
+  const c = { pts: ys.map((y, i) => mk2(i/(ys.length-1), y, kind === 'both' && i !== 1 ? 'auto' : 'auto')), closed: false, kind }; autoHandles(c); return c;
+}
+function look(c) { if (!c.prof) { c.prof = makeProfile('round'); c.taper = makeTaper('even'); c.mirror = true; } return c; }
+function profileRing(c) { const sm = sample(c.prof, 10); if (c.prof.closed) sm.pop(); return sm.map(s => [s.p[0], s.p[1]]); }
+function taperAt(c, f) {
+  const sm = sample(c.taper, 16);
+  if (f <= sm[0].p[0]) return sm[0].p[1];
+  for (let k = 1; k < sm.length; k++) if (sm[k].p[0] >= f) { const a = sm[k-1].p, b = sm[k].p, t = (f - a[0]) / Math.max(b[0] - a[0], 1e-6); return Math.max(0, a[1] + (b[1]-a[1])*t); }
+  return Math.max(0, sm[sm.length-1].p[1]);
+}
+
+// The live tube: the profile swept along the curve on rotation-minimizing frames, scaled by each
+// point's radius and the width along, turned by tilt, shaded flat and drawn back to front.
+function drawTube(c) {
+  look(c);
+  const sm = sample(c, 14), ring = profileRing(c);
+  if (sm.length < 2 || ring.length < 3) return;
+  let total = 0; const at = [0]; for (let k = 1; k < sm.length; k++) { total += len(sub(sm[k].p, sm[k-1].p)); at.push(total); }
+  const tang = sm.map((s, k) => norm(sub(sm[Math.min(k+1, sm.length-1)].p, sm[Math.max(k-1, 0)].p)));
+  let t0 = tang[0], n0 = norm(cross(V(0,1,0), t0)); if (len(n0) < 1e-6) n0 = norm(cross(V(1,0,0), t0));
+  const frames = [[n0, cross(t0, n0)]];
+  for (let k = 1; k < sm.length; k++) {
+    // Double reflection (Wang et al. 2008): the frame turns as little as the curve lets it.
+    const v1 = sub(sm[k].p, sm[k-1].p), c1 = dot(v1, v1) || 1e-9;
+    const rL = sub(frames[k-1][0], mul(v1, 2/c1*dot(v1, frames[k-1][0]))), tL = sub(tang[k-1], mul(v1, 2/c1*dot(v1, tang[k-1])));
+    const v2 = sub(tang[k], tL), c2 = dot(v2, v2) || 1e-9;
+    const n = norm(sub(rL, mul(v2, 2/c2*dot(v2, rL)))); frames.push([n, cross(tang[k], n)]);
+  }
+  const rings = sm.map((s, k) => {
+    const w = s.r * taperAt(c, total > 0 ? at[k]/total : 0), [n, bn] = frames[k], ca = Math.cos(s.tl), sa = Math.sin(s.tl);
+    return ring.map(([x, y]) => { const xr = x*ca - y*sa, yr = x*sa + y*ca; return add(s.p, mul(add(mul(n, xr), mul(bn, yr)), w)); });
+  });
+  // A light over the viewer's left shoulder, as the app's default studio light sits.
+  const quads = [], L = norm(add(add(mul(B.r, -0.55), mul(B.u, 0.65)), mul(B.f, -0.5)));
+  const shade = (pts) => { const nn = norm(cross(sub(pts[1], pts[0]), sub(pts[pts.length-1], pts[0]))); const ctr = mul(pts.reduce((a, b) => add(a, b), V(0,0,0)), 1/pts.length); const toEye = norm(sub(B.eye, ctr)); const nf = dot(nn, toEye) < 0 ? mul(nn, -1) : nn; return { ctr, lit: 0.16 + 0.84*Math.max(0, dot(nf, L)), spec: Math.pow(Math.max(0, dot(nf, norm(add(L, toEye)))), 24) }; };
+  const m = ring.length;
+  for (let k = 1; k < rings.length; k++) for (let j = 0; j < m; j++) {
+    const q = [rings[k-1][j], rings[k-1][(j+1)%m], rings[k][(j+1)%m], rings[k][j]]; const sh = shade(q); const pz = proj(sh.ctr); if (!pz) continue;
+    // Faces turned away are left out (outward is away from the curve there), so the sort only orders the near side.
+    const nn = cross(sub(q[1], q[0]), sub(q[3], q[0])), mid = lerp(sm[k-1].p, sm[k].p, 0.5), out = dot(nn, sub(sh.ctr, mid)) < 0 ? mul(nn, -1) : nn;
+    if (dot(out, sub(B.eye, sh.ctr)) < 0) continue;
+    quads.push({ q, z: pz[2], ...sh });
+  }
+  if (!c.closed) for (const r of [rings[0], rings[rings.length-1]]) { const sh = shade(r); const pz = proj(sh.ctr); if (pz) quads.push({ q: r, z: pz[2], ...sh }); }
+  quads.sort((a, b) => b.z - a.z);
+  for (const f of quads) {
+    const P = f.q.map(proj); if (P.some(x => !x)) continue;
+    const r = Math.round(201*f.lit + 255*f.spec*0.35), gg = Math.round(166*f.lit + 240*f.spec*0.35), bb = Math.round(138*f.lit + 225*f.spec*0.35);
+    g.fillStyle = `rgb(${Math.min(r,255)},${Math.min(gg,255)},${Math.min(bb,255)})`; g.strokeStyle = g.fillStyle; g.lineWidth = 0.6;
+    g.beginPath(); P.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); g.fill(); g.stroke();
+  }
+}
+
+// A pad edits a 2D curve (the profile or the width along) with points and handles.
+function makePad(id, get, o) {
+  const el = document.getElementById(id), x2 = el.getContext('2d');
+  const PW = el.width, PH = el.height;
+  el.width = PW*2; el.height = PH*2;
+  const toS = p => [o.x0 + (p[0] - o.bx[0]) / (o.bx[1] - o.bx[0]) * (PW - 2*o.x0), PH - o.y0 - (p[1] - o.by[0]) / (o.by[1] - o.by[0]) * (PH - 2*o.y0)];
+  const toW = (sx, sy) => [o.bx[0] + (sx - o.x0) / (PW - 2*o.x0) * (o.bx[1] - o.bx[0]), o.by[0] + (PH - o.y0 - sy) / (PH - 2*o.y0) * (o.by[1] - o.by[0])];
+  const pad = { sel: -1, drag: null, last: { t: 0, i: -1 } };
+  const ev = e => { const r = el.getBoundingClientRect(); return [(e.clientX - r.left) * PW / r.width, (e.clientY - r.top) * PH / r.height]; };
+  function hit(x, y) {
+    const c = get(); if (!c) return null; let best = null, bd = 10;
+    c.pts.forEach((pt, i) => { for (const side of ['hi', 'ho']) { if (!o.handles(c, i, side)) continue; const s = toS(add(pt.p, pt[side])); const d = Math.hypot(x - s[0], y - s[1]); if (d < bd) { bd = d; best = { kind: 'handle', i, side }; } } });
+    c.pts.forEach((pt, i) => { const s = toS(pt.p); const d = Math.hypot(x - s[0], y - s[1]); if (d < bd + 2) { bd = d; best = { kind: 'point', i }; } });
+    if (best) return best;
+    const sm = sample(c, 24); for (let k = 1; k < sm.length; k++) { const a = toS(sm[k-1].p), b = toS(sm[k].p); if (distSeg(x, y, a[0], a[1], b[0], b[1]) < 7) return { kind: 'line', u: (sm[k-1].u + sm[k].u)/2 }; }
+    return null;
+  }
+  el.addEventListener('pointerdown', e => {
+    const c = get(); if (!c) return; el.setPointerCapture(e.pointerId); const [x, y] = ev(e); const h = hit(x, y); if (!h) { pad.sel = -1; drawPad(); return; }
+    pushUndo();
+    if (h.kind === 'line') { o.insert(c, h.u); pad.sel = -1; autoHandles(c); refresh(); return; }
+    if (h.kind === 'point') {
+      const now = performance.now();
+      if (now - pad.last.t < 320 && pad.last.i === h.i) { const pt = c.pts[h.i]; pt.type = (pt.type === 'free' || pt.type === 'vector') ? 'auto' : 'vector'; o.after(c, h.i); autoHandles(c); pad.last = { t: 0, i: -1 }; refresh(); return; }
+      pad.last = { t: now, i: h.i }; pad.sel = h.i;
+    }
+    pad.drag = h; drawPad();
+  });
+  el.addEventListener('pointermove', e => {
+    const c = get(), d = pad.drag; if (!c || !d) return; const [x, y] = ev(e); const w = toW(x, y);
+    const pt = c.pts[d.i];
+    if (d.kind === 'point') { pt.p = o.clamp(c, d.i, V(w[0], w[1], 0)); }
+    else { pt[d.side] = V(w[0] - pt.p[0], w[1] - pt.p[1], 0); if (pt.type === 'auto' || pt.type === 'vector') pt.type = 'aligned'; if (pt.type === 'aligned') alignFrom(pt, d.side); }
+    o.after(c, d.i); autoHandles(c); refresh(false);
+  });
+  el.addEventListener('pointerup', () => { pad.drag = null; });
+  function drawPad() {
+    const c = get(); x2.setTransform(2, 0, 0, 2, 0, 0); x2.clearRect(0, 0, PW, PH); if (!c) return;
+    o.grid(x2, toS, PW, PH);
+    const sm = sample(c, 24);
+    x2.beginPath(); sm.forEach((s0, k) => { const s = toS(s0.p); k ? x2.lineTo(s[0], s[1]) : x2.moveTo(s[0], s[1]); }); if (c.closed) x2.closePath();
+    if (c.closed) { x2.fillStyle = 'rgba(201,166,138,.22)'; x2.fill(); }
+    x2.strokeStyle = '#66d9ff'; x2.lineWidth = 2; x2.stroke();
+    c.pts.forEach((pt, i) => { for (const side of ['hi', 'ho']) { if (!o.handles(c, i, side) || len(pt[side]) < 1e-6) continue; const a = toS(pt.p), b = toS(add(pt.p, pt[side])); const col = pt.type === 'auto' ? '#d9c25a' : '#f2a93b'; x2.strokeStyle = col; x2.lineWidth = 1.2; x2.setLineDash(pt.type === 'auto' ? [3, 3] : []); x2.beginPath(); x2.moveTo(a[0], a[1]); x2.lineTo(b[0], b[1]); x2.stroke(); x2.setLineDash([]); x2.fillStyle = col; x2.beginPath(); x2.arc(b[0], b[1], 3.5, 0, Math.PI*2); x2.fill(); } });
+    c.pts.forEach((pt, i) => { const s = toS(pt.p), corner = pt.type === 'free' || pt.type === 'vector', on = i === pad.sel; x2.fillStyle = on ? '#fff' : '#66d9ff'; x2.strokeStyle = on ? '#5b8cff' : '#0f2a36'; x2.lineWidth = on ? 2.2 : 1.3; x2.beginPath(); if (corner) { x2.moveTo(s[0], s[1]-6); x2.lineTo(s[0]+6, s[1]); x2.lineTo(s[0], s[1]+6); x2.lineTo(s[0]-6, s[1]); x2.closePath(); } else x2.arc(s[0], s[1], 5, 0, Math.PI*2); x2.fill(); x2.stroke(); });
+  }
+  pad.draw = drawPad; return pad;
+}
+const profPad = makePad('profCv', () => { const c = cur(); return c && c.use === 'tube' ? look(c).prof : null; }, {
+  bx: [-1.45, 1.45], by: [-1.1, 1.1], x0: 8, y0: 8,
+  handles: (c, i) => c.pts[i].type !== 'vector',
+  clamp: (c, i, p) => { const tube = cur(); if (tube.mirror && (i === 0 || 2*i === c.pts.length)) p[0] = 0; return p; },
+  after: (c, i) => { const tube = cur(); c.kind = 'custom'; if (!tube.mirror) return; const n = c.pts.length, j = (n - i) % n, a = c.pts[i], b = c.pts[j];
+    if (j === i) { a.p[0] = 0; if (a.type !== 'auto') { const l = (len(a.ho) + len(a.hi)) / 2; const sgn = a.ho[0] >= 0 ? 1 : -1; a.ho = V(sgn*l, 0, 0); a.hi = V(-sgn*l, 0, 0); } return; }
+    b.type = a.type; b.p = V(-a.p[0], a.p[1], 0); b.hi = V(-a.ho[0], a.ho[1], 0); b.ho = V(-a.hi[0], a.hi[1], 0); },
+  insert: (c, u) => { const tube = cur(); c.kind = 'custom'; if (!tube.mirror) { splitAt(c, u); return; } const n = c.pts.length, i = Math.min(Math.floor(u), n-1), t = u - i, mi = n - 1 - i; if (mi === i) { splitAt(c, i + 0.5); return; } if (mi > i) { splitAt(c, mi + (1 - t)); splitAt(c, i + t); } else { splitAt(c, i + t); splitAt(c, mi + (1 - t)); } },
+  grid: (x, toS, PW, PH) => { x.strokeStyle = 'rgba(255,255,255,.05)'; x.lineWidth = 1; for (let v = -1; v <= 1.001; v += 0.5) { let a = toS([v, -1.1]), b = toS([v, 1.1]); x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); a = toS([-1.45, v]); b = toS([1.45, v]); x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); } if (cur() && cur().mirror) { const a = toS([0, -1.1]), b = toS([0, 1.1]); x.strokeStyle = 'rgba(102,217,255,.35)'; x.setLineDash([4, 4]); x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); x.setLineDash([]); } const r = toS([1, 0]), z = toS([0, 0]); x.strokeStyle = 'rgba(255,255,255,.12)'; x.beginPath(); x.arc(z[0], z[1], r[0] - z[0], 0, Math.PI*2); x.stroke(); },
+});
+const taperPad = makePad('taperCv', () => { const c = cur(); return c && c.use === 'tube' ? look(c).taper : null; }, {
+  bx: [0, 1], by: [0, 1.6], x0: 10, y0: 8,
+  handles: (c, i, side) => c.pts[i].type !== 'vector' && !((i === 0 && side === 'hi') || (i === c.pts.length-1 && side === 'ho')),
+  clamp: (c, i, p) => { const n = c.pts.length; p[0] = i === 0 ? 0 : i === n-1 ? 1 : Math.max(c.pts[i-1].p[0] + 0.02, Math.min(c.pts[i+1].p[0] - 0.02, p[0])); p[1] = Math.max(0, Math.min(1.6, p[1])); return p; },
+  after: (c) => { c.kind = 'custom'; },
+  insert: (c, u) => { c.kind = 'custom'; splitAt(c, u); },
+  grid: (x, toS) => { x.strokeStyle = 'rgba(255,255,255,.06)'; x.lineWidth = 1; for (const v of [0.5, 1, 1.5]) { const a = toS([0, v]), b = toS([1, v]); x.setLineDash(v === 1 ? [4, 4] : []); x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); } x.setLineDash([]); const a = toS([0, 0]), b = toS([1, 0]); x.strokeStyle = 'rgba(255,255,255,.18)'; x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); },
+});
+document.querySelectorAll('[data-prof]').forEach(b => b.onclick = () => { const c = cur(); if (!c || c.use !== 'tube') return; pushUndo(); look(c).prof = makeProfile(b.dataset.prof); profPad.sel = -1; refresh(); });
+document.querySelectorAll('[data-taper]').forEach(b => b.onclick = () => { const c = cur(); if (!c || c.use !== 'tube') return; pushUndo(); look(c).taper = makeTaper(b.dataset.taper); refresh(); });
+document.getElementById('profMirror').onchange = e => { const c = cur(); if (c) { look(c).mirror = e.target.checked; refresh(); } };
+document.getElementById('profDel').onclick = () => { const c = cur(); if (!c) return; const pr = look(c).prof, i = profPad.sel, n = pr.pts.length; if (i < 0) return; const j = (n - i) % n;
+  if (c.mirror) { if (j === i) { toast('A point on the mirror line stays while Mirror is on'); return; } if (n - 2 < 3) return; pushUndo(); pr.pts = pr.pts.filter((_, k) => k !== i && k !== j); }
+  else { if (n - 1 < 3) return; pushUndo(); pr.pts.splice(i, 1); }
+  pr.kind = 'custom'; profPad.sel = -1; autoHandles(pr); refresh(); };
+
+// ---------- UI wiring ----------
+const $ = id => document.getElementById(id);
+function setMode(m) { S.mode = m; if (m === 'draw') { } else S.placing = []; refresh(); }
+document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+document.querySelectorAll('[data-plane]').forEach(b => b.onclick = () => { S.plane = b.dataset.plane; refresh(); });
+document.querySelectorAll('[data-use]').forEach(b => b.onclick = () => { S.use = b.dataset.use; const c = cur(); if (c) { pushUndo(); c.use = S.use; } refresh(); });
+document.querySelectorAll('[data-type]').forEach(b => b.onclick = () => setType(b.dataset.type));
+$('addBtn').onclick = e => { e.stopPropagation(); $('addMenu').classList.toggle('open'); };
+document.querySelectorAll('[data-shape]').forEach(b => b.onclick = () => { closeMenu(); addShape(b.dataset.shape); });
+document.querySelectorAll('[data-none]').forEach(b => b.onclick = () => { closeMenu(); toast('Mesh primitives: as today'); });
+function closeMenu() { $('addMenu').classList.remove('open'); }
+document.addEventListener('click', e => { if (!$('addMenu').contains(e.target) && e.target !== $('addBtn')) closeMenu(); });
+$('undoBtn').onclick = doUndo; $('redoBtn').onclick = doRedo;
+$('modelBtn').onclick = () => { S.model = !S.model; refresh(); };
+$('snapBtn').onclick = () => { S.snap = !S.snap; refresh(); toast(S.snap ? 'Snap on: grid steps of 0.125, turns of 15°' : 'Snap off'); };
+$('allHandles').onchange = e => { S.allHandles = e.target.checked; refresh(); };
+const views = { viewFront: [0, 0.0001], viewSide: [Math.PI/2, 0.0001], viewTop: [0, 1.45], view3: [0.65, 0.38] };
+Object.keys(views).forEach(id => $(id).onclick = () => { [S.cam.yaw, S.cam.pitch] = views[id]; draw(); });
+['px', 'py', 'pz'].forEach((id, k) => {
+  $(id).addEventListener('change', e => {
+    const c = cur(); if (!c || !S.pts.size) return; const v = parseFloat(e.target.value); if (!isFinite(v)) { refresh(); return; }
+    pushUndo(); let mid = 0; for (const i of S.pts) mid += c.pts[i].p[k]; mid /= S.pts.size; const dl = v - mid;
+    for (const i of S.pts) c.pts[i].p[k] += dl; autoHandles(c); refresh();
+  });
+});
+let sliderUndo = false;
+$('rad').addEventListener('input', e => { const c = cur(); if (!c) return; if (!sliderUndo) { pushUndo(); sliderUndo = true; } const v = parseFloat(e.target.value); const set = S.pts.size ? S.pts : new Set(c.pts.map((_, i) => i)); for (const i of set) c.pts[i].r = v; refresh(false); });
+$('tilt').addEventListener('input', e => { const c = cur(); if (!c || !S.pts.size) return; if (!sliderUndo) { pushUndo(); sliderUndo = true; } for (const i of S.pts) c.pts[i].tilt = parseFloat(e.target.value) * Math.PI / 180; refresh(false); });
+['rad', 'tilt'].forEach(id => $(id).addEventListener('change', () => sliderUndo = false));
+
+function ctxButtons() {
+  const c = cur(), el = $('ctx'); el.innerHTML = '';
+  const btn = (label, fn, on = true) => { const b = document.createElement('button'); b.textContent = label; b.disabled = !on; b.onclick = fn; el.appendChild(b); };
+  const sep = () => { const s = document.createElement('span'); s.className = 'sep'; el.appendChild(s); };
+  if (S.mode === 'draw') {
+    if (S.placing.length) { btn(`Done (${S.placing.length})`, () => finishPlacing(false), S.placing.length >= 2); btn('Close', () => finishPlacing(true), S.placing.length >= 3); btn('Cancel', () => { S.placing = []; refresh(); }); }
+    else { btn('Edit points', () => setMode('edit'), !!c); sep(); btn('Close', toggleClose, !!c && c.pts.length >= 3); btn('Bake', bake, !!c && c.use === 'tube'); }
+  } else {
+    const n = c ? c.pts.length : 0;
+    btn(S.pts.size && S.pts.size === n ? 'Select none' : 'Select all', () => { S.pts = S.pts.size === n ? new Set() : new Set(c.pts.map((_, i) => i)); refresh(); }, !!c);
+    btn('Delete', deletePoints, !!c && S.pts.size > 0);
+    btn('Subdivide', subdivide, !!c);
+    sep();
+    btn(c && c.closed ? 'Open' : 'Close', toggleClose, !!c && n >= 3);
+    btn('Reverse', reverse, !!c);
+    btn('Bake', bake, !!c && c.use === 'tube');
+  }
+}
+
+function refresh(updateInputs = true) {
+  const c = cur();
+  document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === S.mode));
+  document.querySelectorAll('[data-plane]').forEach(b => b.classList.toggle('on', b.dataset.plane === S.plane));
+  document.querySelectorAll('[data-use]').forEach(b => b.classList.toggle('on', b.dataset.use === (c ? c.use : S.use)));
+  $('modelBtn').classList.toggle('on', S.model); $('snapBtn').classList.toggle('on', S.snap);
+  $('undoBtn').disabled = !S.undo.length; $('redoBtn').disabled = !S.redo.length;
+  $('cardTitle').textContent = c ? c.name : 'Curve';
+  $('cardSub').textContent = c ? `${c.pts.length} points${c.closed ? ' · loop' : ''}` : (S.mode === 'draw' ? 'Draw a new curve' : 'Nothing selected');
+  $('planeHint').textContent = { surface: 'On the model where the pen is over it, else the view plane (today\'s behaviour).', view: 'A plane facing you through the view\'s centre, then through the last point. Shown as a grid while you draw.', floor: 'The ground plane through the origin: build from the floor up.', front: 'Upright, facing the front, through the last point.', side: 'Upright, facing the side, through the last point.' }[S.plane];
+  const types = c ? new Set([...S.pts].map(i => c.pts[i].type)) : new Set();
+  document.querySelectorAll('[data-type]').forEach(b => { b.disabled = !S.pts.size; b.classList.toggle('on', types.size === 1 && types.has(b.dataset.type)); b.classList.toggle('mixed', types.size > 1 && types.has(b.dataset.type)); });
+  const has = c && S.pts.size;
+  $('ptTitle').textContent = !has ? 'Point' : (S.pts.size === 1 ? `Point ${[...S.pts][0] + 1}` : `${S.pts.size} points`);
+  $('ptSub').textContent = !has ? 'pick one to see it' : (S.pts.size > 1 ? 'values are their middle' : '');
+  ['px', 'py', 'pz'].forEach(id => $(id).disabled = !has);
+  $('tilt').disabled = !has;
+  if (has && updateInputs) {
+    let m = V(0,0,0), r = 0, t = 0; for (const i of S.pts) { m = add(m, c.pts[i].p); r += c.pts[i].r; t += c.pts[i].tilt; } m = mul(m, 1/S.pts.size);
+    $('px').value = m[0].toFixed(3); $('py').value = m[1].toFixed(3); $('pz').value = m[2].toFixed(3);
+    $('rad').value = r/S.pts.size; $('tilt').value = Math.round(t/S.pts.size*180/Math.PI);
+  } else if (!has) { ['px', 'py', 'pz'].forEach(id => $(id).value = ''); }
+  if (c && !has && updateInputs) { $('rad').value = c.pts.reduce((a, p) => a + p.r, 0) / c.pts.length; }
+  $('radV').textContent = (+$('rad').value).toFixed(3); $('tiltV').textContent = `${$('tilt').value}°`;
+  $('ptHint').textContent = S.mode === 'edit' ? 'Typing moves every selected point by the same change, keeping their shape.' : 'Switch to Edit (Tab) to pick several points.';
+  $('keysHint').innerHTML = S.mode === 'edit'
+    ? 'Edit: tap a point to pick it, <kbd>Shift</kbd> to add, drag on empty space for a box, <kbd>A</kbd> all, double-tap for corner or smooth, <kbd>X</kbd> delete, <kbd>Tab</kbd> back to Draw. Right drag orbits, middle drag pans, wheel zooms.'
+    : 'Draw: drag anywhere for a freehand curve, or tap points one by one (<kbd>Enter</kbd> ends, a tap on the first closes, <kbd>Esc</kbd> drops). The selected curve\'s points still drag. Right drag orbits.';
+  const tc = c && c.use === 'tube' ? look(c) : null;
+  $('profBlock').style.display = tc ? '' : 'none';
+  if (tc) {
+    document.querySelectorAll('[data-prof]').forEach(b => b.classList.toggle('on', b.dataset.prof === tc.prof.kind));
+    document.querySelectorAll('[data-taper]').forEach(b => b.classList.toggle('on', b.dataset.taper === tc.taper.kind));
+    $('profSub').textContent = tc.prof.kind === 'custom' ? `custom · ${tc.prof.pts.length} points` : "the tube's cross-section";
+    $('profMirror').checked = tc.mirror; $('profDel').disabled = profPad.sel < 0 || tc.prof.pts.length <= 3;
+    profPad.draw(); taperPad.draw();
+  }
+  ctxButtons(); legend(); draw();
+}
+function legend() {
+  const el = $('legend');
+  el.innerHTML = S.mode === 'edit'
+    ? '<span style="color:#66d9ff">●</span> point &nbsp;<span style="color:#f2a93b">●</span> handle &nbsp;<span style="color:#fff">◆</span> corner &nbsp;<span style="color:#2fc07a">＋</span> grow from end &nbsp;<span style="color:#ff6b6b">→</span><span style="color:#6bdc7c">→</span><span style="color:#6ba7ff">→</span> move on an axis, ring turns, knob sizes'
+    : (S.plane === 'surface' ? 'Drawing on the model, falling back to the view plane off it.' : `Drawing on the ${S.plane} plane: the grid shows where points land.`);
+}
+let toastT;
+function toast(s) { const t = $('toast'); t.textContent = s; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1800); }
+
+// ---------- drawing ----------
+function line(a, b, col, w = 1, dash) { const p = proj(a), q = proj(b); if (!p || !q) return; g.strokeStyle = col; g.lineWidth = w; g.setLineDash(dash || []); g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke(); g.setLineDash([]); }
+function draw() {
+  if (!W) return; B = camBasis();
+  g.setTransform(DPR, 0, 0, DPR, 0, 0); g.clearRect(0, 0, W, H);
+  const bg = g.createRadialGradient(B.cx, H*0.4, 40, B.cx, H*0.5, W*0.75); bg.addColorStop(0, '#24262c'); bg.addColorStop(1, '#141517'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  // Floor grid.
+  const floorOn = S.mode === 'draw' && S.plane === 'floor';
+  for (let i = -6; i <= 6; i++) {
+    const col = i === 0 ? null : (floorOn ? 'rgba(102,217,255,.22)' : 'rgba(255,255,255,.06)');
+    if (i !== 0) { line(V(i*0.5, 0, -3), V(i*0.5, 0, 3), col); line(V(-3, 0, i*0.5), V(3, 0, i*0.5), col); }
+  }
+  line(V(-3, 0, 0), V(3, 0, 0), 'rgba(255,107,107,.55)', 1.2); line(V(0, 0, -3), V(0, 0, 3), 'rgba(107,167,255,.55)', 1.2);
+  // The drawing plane, while drawing.
+  if (S.mode === 'draw' && S.plane !== 'floor') drawPlaneGrid();
+  // The model.
+  if (S.model) {
+    const s = proj(MODEL.c);
+    if (s) { const rr = MODEL.r * B.F / s[2]; const gr = g.createRadialGradient(s[0] - rr*0.35, s[1] - rr*0.4, rr*0.1, s[0], s[1], rr); gr.addColorStop(0, '#e6c9ae'); gr.addColorStop(0.55, '#b38c6f'); gr.addColorStop(1, '#4d3a2e'); g.fillStyle = gr; g.beginPath(); g.arc(s[0], s[1], rr, 0, Math.PI*2); g.fill(); }
+  }
+  // Curves.
+  S.curves.forEach((c, ci) => drawCurve(c, ci === S.sel));
+  // Points being placed.
+  if (S.placing.length) {
+    g.strokeStyle = 'rgba(102,217,255,.9)'; g.lineWidth = 2; g.setLineDash([5, 4]); g.beginPath();
+    S.placing.forEach((p, i) => { const s = proj(p); if (s) i ? g.lineTo(s[0], s[1]) : g.moveTo(s[0], s[1]); });
+    if (S.mouse && S.mode === 'draw') g.lineTo(S.mouse[0], S.mouse[1]);
+    g.stroke(); g.setLineDash([]);
+    S.placing.forEach((p, i) => { const s = proj(p); if (!s) return; g.fillStyle = '#66d9ff'; g.beginPath(); g.arc(s[0], s[1], i === 0 ? 7 : 4.5, 0, Math.PI*2); g.fill(); });
+  }
+  if (S.stroke && S.stroke.path.length > 1) {
+    g.strokeStyle = '#66d9ff'; g.lineWidth = 2.2; g.beginPath(); S.stroke.path.forEach((p, i) => { const s = proj(p); if (s) i ? g.lineTo(s[0], s[1]) : g.moveTo(s[0], s[1]); }); g.stroke();
+  }
+  if (S.box) { const b = S.box; g.fillStyle = 'rgba(91,140,255,.12)'; g.strokeStyle = 'rgba(91,140,255,.9)'; g.lineWidth = 1; g.setLineDash([4, 3]); g.fillRect(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1), Math.abs(b.x1-b.x0), Math.abs(b.y1-b.y0)); g.strokeRect(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1), Math.abs(b.x1-b.x0), Math.abs(b.y1-b.y0)); g.setLineDash([]); }
+  drawGizmo(); drawAxes();
+}
+function drawPlaneGrid() {
+  const anchor = S.placing.length ? S.placing[S.placing.length-1] : (S.stroke && S.stroke.anchor) || null;
+  let pl = drawPlane(anchor); if (S.plane === 'surface') pl = { p: anchor || S.cam.target, n: mul(B.f, -1) };
+  let a = norm(cross(pl.n, Math.abs(pl.n[1]) > 0.9 ? V(1,0,0) : V(0,1,0))), b = cross(pl.n, a);
+  const col = S.plane === 'surface' ? 'rgba(102,217,255,.07)' : 'rgba(102,217,255,.16)';
+  const N = 6, s = 0.4;
+  for (let i = -N; i <= N; i++) { line(add(pl.p, add(mul(a, i*s), mul(b, -N*s))), add(pl.p, add(mul(a, i*s), mul(b, N*s))), col); line(add(pl.p, add(mul(b, i*s), mul(a, -N*s))), add(pl.p, add(mul(b, i*s), mul(a, N*s))), col); }
+  const c = proj(pl.p); if (c) { g.strokeStyle = 'rgba(102,217,255,.5)'; g.lineWidth = 1; g.beginPath(); g.arc(c[0], c[1], 5, 0, Math.PI*2); g.stroke(); }
+}
+function drawCurve(c, selected) {
+  const sm = sample(c);
+  if (c.use === 'tube') drawTube(c);
+  g.strokeStyle = selected ? '#66d9ff' : 'rgba(200,210,230,.55)'; g.lineWidth = selected ? 2.2 : 1.6; g.beginPath();
+  let started = false; sm.forEach(s0 => { const s = proj(s0.p); if (!s) { started = false; return; } started ? g.lineTo(s[0], s[1]) : g.moveTo(s[0], s[1]); started = true; });
+  if (c.closed && sm.length) { const s = proj(sm[0].p); if (s) g.lineTo(s[0], s[1]); }
+  g.stroke();
+  if (!selected) return;
+  // Handles.
+  c.pts.forEach((pt, i) => {
+    if (!handlesShown(c, i)) return;
+    for (const side of ['hi', 'ho']) {
+      if (!c.closed && ((side === 'hi' && i === 0) || (side === 'ho' && i === c.pts.length-1))) continue;
+      if (len(pt[side]) < 1e-6) continue;
+      const a = proj(pt.p), b = proj(add(pt.p, pt[side])); if (!a || !b) continue;
+      const col = pt.type === 'auto' ? '#d9c25a' : pt.type === 'vector' ? '#7fd17f' : '#f2a93b';
+      g.strokeStyle = col; g.lineWidth = 1.3; g.setLineDash(pt.type === 'auto' ? [3, 3] : []); g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); g.setLineDash([]);
+      g.fillStyle = col; g.beginPath(); g.arc(b[0], b[1], 4.5, 0, Math.PI*2); g.fill();
+    }
+  });
+  // Tilt ticks on picked points.
+  for (const i of S.pts) {
+    const pt = c.pts[i]; if (!pt) continue; const tg = norm(len(pt.ho) ? pt.ho : mul(pt.hi, -1)); if (!len(tg)) continue;
+    let up = norm(cross(cross(tg, V(0,1,0)), tg)); if (!len(up)) up = V(1,0,0); up = rotAround(up, tg, pt.tilt);
+    line(pt.p, add(pt.p, mul(up, Math.max(pt.r, 0.08) * 1.6)), 'rgba(255,255,255,.7)', 1.2, [2, 2]);
+  }
+  // Points.
+  c.pts.forEach((pt, i) => {
+    const s = proj(pt.p); if (!s) return; const on = S.pts.has(i);
+    const corner = pt.type === 'free' || pt.type === 'vector';
+    g.fillStyle = on ? '#ffffff' : '#66d9ff'; g.strokeStyle = on ? '#5b8cff' : '#0f2a36'; g.lineWidth = on ? 2.5 : 1.5;
+    g.beginPath();
+    if (corner) { g.moveTo(s[0], s[1]-7); g.lineTo(s[0]+7, s[1]); g.lineTo(s[0], s[1]+7); g.lineTo(s[0]-7, s[1]); g.closePath(); }
+    else g.arc(s[0], s[1], 6, 0, Math.PI*2);
+    g.fill(); g.stroke();
+  });
+  // Grow nubs.
+  nubs(c).forEach(nb => {
+    g.strokeStyle = 'rgba(47,192,122,.6)'; g.lineWidth = 1.2; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(nb.from[0], nb.from[1]); g.lineTo(nb.s[0], nb.s[1]); g.stroke(); g.setLineDash([]);
+    g.fillStyle = 'rgba(17,40,28,.95)'; g.strokeStyle = '#2fc07a'; g.lineWidth = 1.6; g.beginPath(); g.arc(nb.s[0], nb.s[1], 9, 0, Math.PI*2); g.fill(); g.stroke();
+    g.strokeStyle = '#2fc07a'; g.lineWidth = 2; g.beginPath(); g.moveTo(nb.s[0]-4.5, nb.s[1]); g.lineTo(nb.s[0]+4.5, nb.s[1]); g.moveTo(nb.s[0], nb.s[1]-4.5); g.lineTo(nb.s[0], nb.s[1]+4.5); g.stroke();
+  });
+}
+function drawGizmo() {
+  const gz = gizmoInfo(); if (!gz) return; const [gx, gy] = gz.sc;
+  g.strokeStyle = 'rgba(255,255,255,.28)'; g.lineWidth = 1.5; g.beginPath(); g.arc(gx, gy, gz.ring, 0, Math.PI*2); g.stroke();
+  const kx = gx + gz.ring*Math.cos(-Math.PI/4), ky = gy + gz.ring*Math.sin(-Math.PI/4);
+  g.fillStyle = '#fff'; g.fillRect(kx - 5, ky - 5, 10, 10);
+  const cols = ['#ff6b6b', '#6bdc7c', '#6ba7ff'];
+  gz.axes.forEach(ax => {
+    if (!ax.vis) return; const tx = gx + ax.dir[0]*gz.L, ty = gy + ax.dir[1]*gz.L;
+    g.strokeStyle = cols[ax.k]; g.lineWidth = 3; g.beginPath(); g.moveTo(gx + ax.dir[0]*20, gy + ax.dir[1]*20); g.lineTo(tx, ty); g.stroke();
+    g.fillStyle = cols[ax.k]; g.beginPath(); const nx = -ax.dir[1], ny = ax.dir[0];
+    g.moveTo(tx + ax.dir[0]*12, ty + ax.dir[1]*12); g.lineTo(tx + nx*6, ty + ny*6); g.lineTo(tx - nx*6, ty - ny*6); g.closePath(); g.fill();
+  });
+  g.strokeStyle = '#fff'; g.lineWidth = 2; g.beginPath(); g.arc(gx, gy, 12, 0, Math.PI*2); g.stroke();
+}
+function drawAxes() {
+  // The view's axes, bottom left of the card.
+  const ox = W - 330, oy = H - 110, L = 26;
+  [[V(1,0,0), '#ff6b6b', 'X'], [V(0,1,0), '#6bdc7c', 'Y'], [V(0,0,1), '#6ba7ff', 'Z']].forEach(([a, col, t]) => {
+    const dx = dot(a, B.r)*L, dy = -dot(a, B.u)*L;
+    g.strokeStyle = col; g.lineWidth = 2; g.beginPath(); g.moveTo(ox, oy); g.lineTo(ox + dx, oy + dy); g.stroke();
+    g.fillStyle = col; g.font = '600 10px IBM Plex Mono, monospace'; g.fillText(t, ox + dx*1.25 - 3, oy + dy*1.25 + 3);
+  });
+}
+
+// ---------- steps ----------
+const CAPTIONS = {
+  add: 'Add › Curve puts a shape at the view\'s centre, facing you, with no model needed. Open ＋ Add and pick Line, Bézier, Circle, Spiral or Helix. It opens in Edit with the end point picked, so the gizmo and handles are ready. Turn Model off (top right) to see an empty scene.',
+  draw: 'Draw anywhere. Drag for a freehand curve, or tap points one by one: the first lands on the plane chosen in the card, the rest on the same plane through the last point. Try Floor, then orbit with a right drag to see the curve lying flat. Surface keeps today\'s behaviour on the model.',
+  edit: 'Edit handles. Tap a point to pick it: its handles and its neighbours\' show. Drag an orange handle; a smooth point keeps both in line. The card\'s Handles chips set Auto, Aligned, Free or Vector, and a double-tap on a point switches smooth and corner. Tap the line to add a point without changing the shape.',
+  gizmo: 'Move many points. Drag a box over points (or Shift-tap, or A for all), then use the gizmo: an arrow moves along that axis, the centre moves in the view, the ring turns them, the white knob sizes them. Snap gives grid steps and 15° turns.',
+  grow: 'Grow from an end. The green ＋ beyond each end adds a point there: press it and drag to place the new point. Close joins the ends into a loop; Reverse swaps the start and the end.',
+  profile: 'Profile. With a tube, the card shows its cross-section as a small pad: start from a preset, then drag its points and handles, tap the outline for a new point, double-tap for a corner. Mirror keeps both sides the same. Width along shapes the tube from start to end: try Taper or Bulge, or drag its points. The tube in the view follows live.',
+  exact: 'Exact numbers. With points picked, the card shows their middle X, Y and Z: type a value to move them all by the change. Radius sizes the tube at those points and Tilt twists it (the dashed tick). Switch Makes to Tube to see the live tube.',
+};
+function scene(step) {
+  S.curves = []; S.sel = -1; S.pts = new Set(); S.placing = []; S.undo = []; S.redo = []; S.step = step;
+  $('toast').classList.remove('show');
+  S.cam = { yaw: 0.65, pitch: 0.38, dist: 6.2, target: V(0, 0.6, 0) }; if (step !== 'profile') S.model = true;
+  B = camBasis();
+  const mk = (arr, closed, name, use) => { const c = { pts: arr.map(p => mkPoint(p)), closed, use: use || 'line', name }; autoHandles(c); S.curves.push(c); S.sel = S.curves.length - 1; return c; };
+  if (step === 'add') { S.mode = 'draw'; S.plane = 'view'; S.use = 'line'; }
+  if (step === 'draw') { S.mode = 'draw'; S.plane = 'floor'; S.use = 'line'; }
+  if (step === 'edit') { S.mode = 'edit'; S.plane = 'view'; const c = mk([V(-0.4, 0.3, 0.6), V(0.4, 1.3, 0.2), V(1.3, 0.7, -0.3), V(2.0, 1.4, -0.6)], false, 'Curve'); c.pts[2].type = 'aligned'; c.pts[2].ho = V(0.45, 0.35, -0.1); c.pts[2].hi = V(-0.4, -0.3, 0.09); S.pts = new Set([1]); }
+  if (step === 'gizmo') { S.mode = 'edit'; S.plane = 'view'; const c = mk([V(-0.2, 0.2, 0.5), V(0.4, 1.1, 0.4), V(1.0, 0.4, 0.2), V(1.6, 1.2, 0), V(2.2, 0.5, -0.2)], false, 'Curve'); S.pts = new Set([1, 2, 3]); }
+  if (step === 'grow') { S.mode = 'edit'; S.plane = 'view'; mk([V(-0.2, 0.4, 0.3), V(0.6, 1.1, 0.1), V(1.4, 0.6, -0.1)], false, 'Curve'); S.pts = new Set([2]); }
+  if (step === 'profile') { S.mode = 'edit'; S.plane = 'view'; S.use = 'tube'; S.model = false; S.cam.dist = 4.4; S.cam.yaw = -0.55; S.cam.pitch = 0.32; const c = mk([V(-1.2, 0.3, 0.5), V(-0.2, 1.1, 0.2), V(0.9, 0.4, -0.1), V(1.8, 1.0, -0.4)], false, 'Curve', 'tube'); c.pts.forEach(p => p.r = 0.3); look(c).prof = makeProfile('half'); c.taper = makeTaper('bulge'); }
+  if (step === 'exact') { S.mode = 'edit'; S.plane = 'view'; S.use = 'tube'; const c = mk([V(-0.3, 0.2, 0.6), V(0.4, 1.0, 0.2), V(1.2, 0.5, -0.1), V(1.9, 1.3, -0.5)], false, 'Curve', 'tube'); c.pts.forEach((p, i) => p.r = [0.06, 0.14, 0.1, 0.05][i]); S.pts = new Set([1]); }
+  document.querySelectorAll('[data-step]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.step === step)));
+  $('caption').textContent = CAPTIONS[step];
+  refresh();
+}
+document.querySelectorAll('[data-step]').forEach(b => b.onclick = () => scene(b.dataset.step));
+new ResizeObserver(resize).observe(cv);
+resize(); scene('add');
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,310 @@
+<title>View Gizmo Styles</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one live viewport with the gizmo where the app keeps it, the three styles side by side to try, then the settings block and the compare table. One dark look, as the app's. */
+:root{
+  --page:#0A0C0F; --frame:#0D0F12; --surface:#161A1F; --raised:#1E242B; --line:#2A3139;
+  --text:#E7ECF0; --dim:#8C98A4; --faint:#56616C; --glaze:#5ED6C4; --glaze-ink:#06201C;
+  --x:#E24848; --y:#62C456; --z:#4C80EC;
+  --ui:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+  color-scheme:dark;
+}
+body{background:var(--page);color:var(--text);font:15px/1.5 var(--ui);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 60px}
+main{max-width:1060px;margin:0 auto;display:flex;flex-direction:column;gap:36px}
+h1{font-size:28px;margin:0;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:0 0 12px;font-weight:600}
+p{margin:0;max-width:68ch;color:var(--dim)}
+p b{color:var(--text);font-weight:600}
+.lede{display:flex;flex-direction:column;gap:10px}
+.view{position:relative;background:radial-gradient(ellipse at 50% 40%,#2a3038 0%,#15181c 70%);border:1px solid var(--line);border-radius:14px;height:420px;overflow:hidden}
+.view canvas.scene{position:absolute;inset:0;width:100%;height:100%}
+.topbar{position:absolute;left:12px;right:12px;top:10px;height:36px;display:flex;justify-content:space-between;pointer-events:none}
+.pill{background:rgba(22,26,31,.85);border:1px solid var(--line);border-radius:18px;padding:0 14px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--dim)}
+.gizmo-slot{position:absolute;right:16px;top:56px;width:112px;height:112px}
+.gizmo-slot canvas{width:112px;height:112px;touch-action:none;cursor:grab}
+.readout{position:absolute;left:14px;bottom:12px;font:12px var(--mono);color:var(--dim)}
+.styles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+@media (max-width:760px){.styles{grid-template-columns:1fr}}
+.style{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.style.on{border-color:var(--glaze)}
+.style header{display:flex;justify-content:space-between;align-items:baseline}
+.style h3{margin:0;font-size:17px;font-weight:600}
+.from{font:11px var(--mono);color:var(--faint);text-transform:uppercase;letter-spacing:.06em}
+.stage{background:#14171b;border-radius:10px;height:150px;display:flex;align-items:center;justify-content:center}
+.stage canvas{width:120px;height:120px;touch-action:none;cursor:grab}
+.style ul{margin:0;padding-left:18px;color:var(--dim);font-size:14px;display:flex;flex-direction:column;gap:4px}
+.use{align-self:flex-start;background:var(--raised);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 14px;font:inherit;font-size:14px;cursor:pointer}
+.use:focus-visible,.seg button:focus-visible,.mini:focus-visible{outline:2px solid var(--glaze);outline-offset:2px}
+.style.on .use{background:var(--glaze);color:var(--glaze-ink);border-color:var(--glaze)}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+@media (max-width:760px){.two{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.cap{font-size:11px;letter-spacing:.09em;color:var(--dim);font-weight:600}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:40px}
+.row span{font-size:14px}
+.seg{display:flex;background:var(--frame);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
+.seg button{background:none;border:0;color:var(--dim);font:inherit;font-size:13px;padding:6px 12px;border-radius:7px;cursor:pointer}
+.seg button.on{background:var(--raised);color:var(--text)}
+.mini{background:var(--raised);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
+.mini[disabled]{color:var(--faint);cursor:default}
+.switch{width:40px;height:24px;border-radius:12px;background:var(--glaze);position:relative;border:0;cursor:pointer}
+.switch::after{content:"";position:absolute;top:3px;left:19px;width:18px;height:18px;border-radius:9px;background:var(--glaze-ink);transition:left .15s}
+.switch.off{background:var(--line)}.switch.off::after{left:3px;background:var(--dim)}
+.note{font-size:13px;color:var(--faint)}
+.pop{background:var(--raised);border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;gap:8px;box-shadow:0 8px 30px rgba(0,0,0,.45);align-self:flex-start}
+.pop div{width:72px;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:12px;color:var(--dim);border-radius:8px;padding:6px 0}
+.pop div.on{background:var(--frame);color:var(--text);outline:1px solid var(--glaze)}
+.pop canvas{width:48px;height:48px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:720px;font-size:13.5px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--dim);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+td:first-child{color:var(--text);font-weight:600;white-space:nowrap}
+td{color:var(--dim)}
+.budget{font:13px var(--mono);color:var(--dim);display:grid;grid-template-columns:auto 1fr;gap:4px 18px}
+.budget b{color:var(--text);font-weight:500}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&display=swap">
+
+<main>
+  <section class="lede">
+    <h1>View gizmo: three styles, one place</h1>
+    <p>The navigation head in the pen-side top corner becomes a <b>view gizmo</b> with three styles you pick in Settings &gt; Camera or by holding the gizmo: <b>Axes</b> (Blender's balls), <b>Cube</b> (Nomad's labelled cube, with edges and corners) and <b>Model</b> (ZBrush's head, or any model you choose from the scene). Every style turns the view when dragged, snaps it when tapped and spins it with the pen's roll. Try them below: drag to turn, tap to snap.</p>
+  </section>
+
+  <section>
+    <h2>In the view</h2>
+    <div class="view" id="view">
+      <canvas class="scene" id="scene"></canvas>
+      <div class="topbar"><div class="pill">Files · Sculpt · Paint</div><div class="pill">Search</div></div>
+      <div class="gizmo-slot"><canvas id="main-gizmo" width="224" height="224" aria-label="View gizmo"></canvas></div>
+      <div class="readout" id="readout"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The styles</h2>
+    <div class="styles">
+      <article class="style on" data-style="axes">
+        <header><h3>Axes</h3><span class="from">Default · from Blender</span></header>
+        <div class="stage"><canvas width="240" height="240"></canvas></div>
+        <ul>
+          <li>X, Y and Z balls with letters; the minus axes as hollow rings, so the side facing you is always plain.</li>
+          <li>Tap a ball to look from it; tap the ball already facing you to look from the other side.</li>
+          <li>Smallest and quietest: drawn by the interface, nothing rendered.</li>
+        </ul>
+        <button class="use" type="button" id="use-axes">Use Axes</button>
+      </article>
+      <article class="style" data-style="cube">
+        <header><h3>Cube</h3><span class="from">from Nomad and Fusion</span></header>
+        <div class="stage"><canvas width="240" height="240"></canvas></div>
+        <ul>
+          <li>Named faces, tinted by their axis, so the view is read as words.</li>
+          <li>Tap a face, an edge or a corner: 26 views, the edges and corners at 45°, the part under the pointer lit first.</li>
+          <li>A small X Y Z triad at its corner (switchable).</li>
+        </ul>
+        <button class="use" type="button" id="use-cube">Use Cube</button>
+      </article>
+      <article class="style" data-style="model">
+        <header><h3>Model</h3><span class="from">from ZBrush</span></header>
+        <div class="stage"><canvas width="240" height="240"></canvas></div>
+        <ul>
+          <li>The head that turns with the view, as now, or <b>your own model</b>: Use selected object takes a light copy of it.</li>
+          <li>Tap a side to look from it, nearest axis wins.</li>
+          <li>Drawn once per turn of the view into its own small picture, as the head is today.</li>
+        </ul>
+        <button class="use" type="button" id="use-model">Use Model</button>
+      </article>
+    </div>
+  </section>
+
+  <section class="two">
+    <div class="card">
+      <div class="cap">SETTINGS › CAMERA › VIEW GIZMO</div>
+      <div class="row"><span>Style</span>
+        <div class="seg" id="seg"><button type="button" data-s="axes" class="on">Axes</button><button type="button" data-s="cube">Cube</button><button type="button" data-s="model">Model</button></div>
+      </div>
+      <div class="row"><span>Model</span>
+        <div class="seg" id="seg-model"><button type="button" class="on" data-m="head">Head</button><button type="button" data-m="own">Your model</button></div>
+      </div>
+      <div class="row"><span class="note" id="own-note">Your model: none yet</span><button class="mini" type="button" id="take">Use selected object</button></div>
+      <div class="row"><span>Axes at its corner</span><button class="switch" type="button" id="triad" aria-pressed="true" aria-label="Axes at its corner"></button></div>
+      <p class="note">The Model rows show only for the Model style, and the corner axes only for Cube and Model. Your model is kept in the app's own folder, so it is there next time.</p>
+    </div>
+    <div class="card">
+      <div class="cap">HOLD THE GIZMO (OR RIGHT-CLICK IT)</div>
+      <div class="pop" id="pop">
+        <div data-s="axes" class="on"><canvas width="96" height="96"></canvas>Axes</div>
+        <div data-s="cube"><canvas width="96" height="96"></canvas>Cube</div>
+        <div data-s="model"><canvas width="96" height="96"></canvas>Model</div>
+      </div>
+      <p class="note">The same three choices as Settings, where the gizmo is: one UI per thing, two ways to reach it. Tap one to switch; the pen's double-tap and squeeze over the gizmo keep their gestures (Reset view by default).</p>
+      <div class="budget">
+        <span>Axes, Cube</span><b>~300 UI vertices, 0 GPU passes</b>
+        <span>Model</span><b>one cached pass when the view turns (as today)</b>
+        <span>Your model</span><b>≤ 20k triangles, ≈ 0.5 MB, made once</b>
+        <span>Sculpting</span><b>untouched: nothing runs while a stroke draws</b>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What we take, and what we do better</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>Part</th><th>Taken from</th><th>Why it still holds</th><th>Avoided</th><th>Done better</th></tr></thead>
+      <tbody>
+        <tr><td>Axis balls</td><td>Blender</td><td>Reads at any turn in 70 points; the colours are the world's axes everywhere else in the app.</td><td>Blender's hover-only disc that hides what is clickable on touch.</td><td>Finger-sized balls with the slop the app uses everywhere; the facing ball flips to the other side.</td></tr>
+        <tr><td>Named cube</td><td>Nomad, Fusion's ViewCube</td><td>Words beat colours for people new to 3D; edges and corners give the 45° views in one tap.</td><td>Nomad's faces-only taps; a texture per label.</td><td>26 targets lit before the tap; labels drawn as interface text mapped onto the faces, crisp at any size.</td></tr>
+        <tr><td>Your own model</td><td>ZBrush</td><td>A head or a creature tells front from back at a glance, and artists like their own.</td><td>ZBrush's whole tool as the gizmo, heavy at millions of polygons.</td><td>A 20k-triangle copy made once, centred and sized to fit, saved with the settings.</td></tr>
+        <tr><td>Drag, tap, roll</td><td>All three</td><td>The gizmo is the touch way to turn and snap the view.</td><td>Separate behaviours per style.</td><td>One behaviour under every style: drag turns, tap snaps (eased), pen roll spins.</td></tr>
+        <tr><td>Choosing the style</td><td>ZBrush (Preferences), Blender (Preferences)</td><td>A personal taste, set once.</td><td>A choice buried in preferences only.</td><td>Also held on the gizmo itself, the same three tiles.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+</main>
+
+<script>
+(function(){
+const C={x:'#E24848',y:'#62C456',z:'#4C80EC'};
+const cam={yaw:0.6,pitch:0.35};
+let style='axes', model='head', own=false, triad=true;
+let anim=null;
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function basis(c){const cy=Math.cos(c.yaw),sy=Math.sin(c.yaw),cp=Math.cos(c.pitch),sp=Math.sin(c.pitch);
+  return {r:[cy,0,-sy],u:[-sy*sp,cp,-cy*sp],b:[sy*cp,sp,cy*cp]};}
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+function proj(p,B){return [dot(p,B.r),dot(p,B.u),dot(p,B.b)];}
+function lookFrom(d){const l=Math.hypot(...d);d=d.map(v=>v/l);
+  const to={pitch:Math.asin(Math.max(-1,Math.min(1,d[1]))),yaw:Math.abs(d[1])>0.9999?0:Math.atan2(d[0],d[2])};
+  // nearest yaw
+  let dy=to.yaw-cam.yaw;dy=Math.atan2(Math.sin(dy),Math.cos(dy));
+  const from={...cam},target={yaw:cam.yaw+dy,pitch:to.pitch};
+  if(reduce){cam.yaw=target.yaw;cam.pitch=target.pitch;draw();return;}
+  const t0=performance.now();anim={from,target,t0};requestAnimationFrame(step);}
+function step(t){if(!anim)return;let k=Math.min(1,(t-anim.t0)/260);k=1-Math.pow(1-k,3);
+  cam.yaw=anim.from.yaw+(anim.target.yaw-anim.from.yaw)*k;cam.pitch=anim.from.pitch+(anim.target.pitch-anim.from.pitch)*k;
+  draw();if(k<1)requestAnimationFrame(step);else anim=null;}
+
+// ---------- the scene ----------
+const scene=document.getElementById('scene');
+function drawScene(){const r=scene.getBoundingClientRect(),d=devicePixelRatio||1;
+  scene.width=r.width*d;scene.height=r.height*d;const g=scene.getContext('2d');g.setTransform(d,0,0,d,0,0);
+  const B=basis(cam),cx=r.width/2,cy=r.height/2+10,s=Math.min(r.width,r.height)*0.26;
+  const P=p=>{const v=proj(p,B);const f=3.6/(3.6-v[2]);return [cx+v[0]*s*f,cy-v[1]*s*f,v[2]];};
+  g.lineWidth=1;
+  for(let i=-6;i<=6;i++){for(const ax of [0,1]){const a=[0,-1,0],b=[0,-1,0];
+    if(ax){a[0]=i*0.5;a[2]=-3;b[0]=i*0.5;b[2]=3;}else{a[2]=i*0.5;a[0]=-3;b[2]=i*0.5;b[0]=3;}
+    const A=P(a),Bp=P(b);g.strokeStyle=i===0?(ax?'rgba(76,128,236,.5)':'rgba(226,72,72,.5)'):'rgba(255,255,255,.06)';
+    g.beginPath();g.moveTo(A[0],A[1]);g.lineTo(Bp[0],Bp[1]);g.stroke();}}
+  drawMesh(g,HEAD,B,cx,cy,s*0.95,[0.74,0.70,0.66],true);
+  document.getElementById('readout').textContent=`yaw ${(cam.yaw*180/Math.PI%360).toFixed(0)}°  pitch ${(cam.pitch*180/Math.PI).toFixed(0)}°  · gizmo: ${style}`;}
+
+// ---------- a little head mesh (an icosphere pushed about, as nav_head_mesh does) ----------
+function ico(n){let v=[],f=[];const t=(1+Math.sqrt(5))/2;
+  [[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].forEach(p=>{const l=Math.hypot(...p);v.push(p.map(x=>x/l));});
+  f=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  for(let k=0;k<n;k++){const m=new Map(),nf=[];const mid=(a,b)=>{const key=a<b?a+'_'+b:b+'_'+a;if(m.has(key))return m.get(key);
+    const p=[(v[a][0]+v[b][0])/2,(v[a][1]+v[b][1])/2,(v[a][2]+v[b][2])/2],l=Math.hypot(...p);v.push(p.map(x=>x/l));m.set(key,v.length-1);return v.length-1;};
+    for(const [a,b,c] of f){const ab=mid(a,b),bc=mid(b,c),ca=mid(c,a);nf.push([a,ab,ca],[b,bc,ab],[c,ca,bc],[ab,bc,ca]);}f=nf;}
+  return {v,f};}
+function bump(p,c,r){const d=[(p[0]-c[0])/r[0],(p[1]-c[1])/r[1],(p[2]-c[2])/r[2]];return Math.exp(-dot(d,d));}
+function makeHead(){const m=ico(3);m.v=m.v.map(p=>{const q=[...p];const jaw=Math.min(1,Math.max(0,(0.05-p[1])/0.95));
+  q[0]*=0.8*(1-0.2*jaw);q[2]*=0.9*(1-0.1*jaw);q[1]*=1.06;const side=p[0]>=0?1:-1;
+  q[2]+=0.24*bump(p,[0,-0.12,1],[0.1,0.22,0.4]);q[2]+=0.07*bump(p,[0,0.27,0.96],[0.4,0.08,0.4]);
+  const e=bump(p,[side*0.3,0.12,0.95],[0.13,0.09,0.4]);q[0]-=0.12*p[0]*e;q[1]-=0.12*p[1]*e;q[2]-=0.12*p[2]*e;
+  q[0]+=side*0.12*bump(p,[side,0,-0.1],[0.25,0.25,0.15]);q[1]-=0.16*bump(p,[0,-1,-0.2],[0.4,0.4,0.4]);return q;});return m;}
+function makeOwn(){const m=ico(3);m.v=m.v.map(p=>{const q=[...p];// a horned creature skull stand-in for "your model"
+  q[2]*=1.25;q[1]*=0.85;const side=p[0]>=0?1:-1;q[2]+=0.35*bump(p,[0,-0.2,1],[0.35,0.25,0.4]);
+  q[1]+=0.55*bump(p,[side*0.45,0.8,0.1],[0.12,0.25,0.12]);q[0]+=side*0.2*bump(p,[side*0.45,0.8,0.1],[0.12,0.25,0.12]);return q;});return m;}
+const HEAD=makeHead(),OWN=makeOwn();
+function drawMesh(g,m,B,cx,cy,s,col,persp){const V=m.v.map(p=>{const v=proj(p,B);const f=persp?3.6/(3.6-v[2]):1;return [cx+v[0]*s*f,cy-v[1]*s*f,v[2]];});
+  const W=m.v.map(p=>proj(p,B));const tris=[];
+  for(const [a,b,c] of m.f){const A=W[a],Bv=W[b],Cv=W[c];const u=[Bv[0]-A[0],Bv[1]-A[1],Bv[2]-A[2]],w=[Cv[0]-A[0],Cv[1]-A[1],Cv[2]-A[2]];
+    const n=[u[1]*w[2]-u[2]*w[1],u[2]*w[0]-u[0]*w[2],u[0]*w[1]-u[1]*w[0]];if(n[2]<=0)continue;const l=Math.hypot(...n);
+    const light=Math.max(0,(n[0]*-0.35+n[1]*0.55+n[2]*0.75)/l);tris.push([(A[2]+Bv[2]+Cv[2])/3,a,b,c,0.28+0.72*light]);}
+  tris.sort((p,q)=>p[0]-q[0]);
+  for(const [,a,b,c,L] of tris){const k=L;g.fillStyle=`rgb(${col[0]*255*k|0},${col[1]*255*k|0},${col[2]*255*k|0})`;g.strokeStyle=g.fillStyle;g.lineWidth=0.6;
+    g.beginPath();g.moveTo(V[a][0],V[a][1]);g.lineTo(V[b][0],V[b][1]);g.lineTo(V[c][0],V[c][1]);g.closePath();g.fill();g.stroke();}}
+
+// ---------- the three gizmos, drawn at size S around (S/2,S/2) ----------
+const AX=[{d:[1,0,0],c:C.x,l:'X'},{d:[0,1,0],c:C.y,l:'Y'},{d:[0,0,1],c:C.z,l:'Z'}];
+function axesItems(B,S){const R=S*0.34,items=[];for(const a of AX)for(const sg of [1,-1]){const d=a.d.map(v=>v*sg),v=proj(d,B);
+  items.push({d,c:a.c,l:sg>0?a.l:'',neg:sg<0,x:S/2+v[0]*R,y:S/2-v[1]*R,z:v[2],r:S*0.085});}items.sort((p,q)=>p.z-q.z);return items;}
+function drawAxes(g,S,B,hover){g.lineCap='round';
+  if(hover){g.fillStyle='rgba(255,255,255,.07)';g.beginPath();g.arc(S/2,S/2,S*0.47,0,7);g.fill();}
+  for(const it of axesItems(B,S)){if(!it.neg){g.strokeStyle=it.c;g.lineWidth=S*0.025;g.globalAlpha=it.z<-0.2?0.55:1;g.beginPath();g.moveTo(S/2,S/2);g.lineTo(it.x,it.y);g.stroke();}
+    g.globalAlpha=1;const hot=hover&&hover.d&&hover.d.join()==it.d.join();
+    if(it.neg){g.fillStyle=it.c+'55';g.beginPath();g.arc(it.x,it.y,it.r,0,7);g.fill();g.strokeStyle=it.c;g.lineWidth=S*0.018;g.stroke();}
+    else{g.fillStyle=it.c;g.beginPath();g.arc(it.x,it.y,it.r,0,7);g.fill();
+      g.fillStyle='#101317';g.font=`600 ${S*0.1}px "IBM Plex Sans",system-ui`;g.textAlign='center';g.textBaseline='middle';g.fillText(it.l,it.x,it.y+S*0.004);}
+    if(hot){g.strokeStyle='#fff';g.lineWidth=S*0.018;g.beginPath();g.arc(it.x,it.y,it.r+S*0.02,0,7);g.stroke();}}}
+function axesPick(S,B,x,y){const it=axesItems(B,S).reverse().find(i=>Math.hypot(i.x-x,i.y-y)<i.r*1.5);if(!it)return null;
+  // the ball facing you flips to the other side, as Blender's does
+  if(it.z>0.999)return {d:it.d.map(v=>-v)};return {d:it.d};}
+const FACES=[{n:[0,0,1],u:[1,0,0],v:[0,1,0],l:'Front',c:C.z},{n:[0,0,-1],u:[-1,0,0],v:[0,1,0],l:'Back',c:C.z},
+  {n:[1,0,0],u:[0,0,-1],v:[0,1,0],l:'Right',c:C.x},{n:[-1,0,0],u:[0,0,1],v:[0,1,0],l:'Left',c:C.x},
+  {n:[0,1,0],u:[1,0,0],v:[0,0,-1],l:'Top',c:C.y},{n:[0,-1,0],u:[1,0,0],v:[0,0,1],l:'Bottom',c:C.y}];
+const ZONE=0.62;
+function mix(hex,k,base){const h=parseInt(hex.slice(1),16),r=h>>16,g=h>>8&255,b=h&255;const t=base;return `rgb(${(r*t+255*(1-t))*k|0},${(g*t+255*(1-t))*k|0},${(b*t+255*(1-t))*k|0})`;}
+function cubeFaces(B,S){const H=S*0.29;return FACES.map(f=>{const n=proj(f.n,B),u=proj(f.u,B),v=proj(f.v,B);
+  return {...f,facing:n[2],o:[S/2+n[0]*H,S/2-n[1]*H],U:[u[0]*H,-u[1]*H],V:[v[0]*H,-v[1]*H]};}).filter(f=>f.facing>0.02);}
+function drawCube(g,S,B,hover){if(hover){g.fillStyle='rgba(255,255,255,.07)';g.beginPath();g.arc(S/2,S/2,S*0.47,0,7);g.fill();}
+  for(const f of cubeFaces(B,S)){const P=(a,b)=>[f.o[0]+f.U[0]*a+f.V[0]*b,f.o[1]+f.U[1]*a+f.V[1]*b];
+    const k=0.72+0.28*f.facing;g.fillStyle=mix(f.c,k,0.55);g.beginPath();[[-1,-1],[1,-1],[1,1],[-1,1]].forEach(([a,b],i)=>{const p=P(a,b);i?g.lineTo(...p):g.moveTo(...p);});g.closePath();g.fill();
+    g.strokeStyle='rgba(16,19,23,.55)';g.lineWidth=S*0.008;g.stroke();
+    if(hover&&hover.face===f.l){const [a0,a1]=hover.a==0?[-ZONE,ZONE]:hover.a>0?[ZONE,1]:[-1,-ZONE],[b0,b1]=hover.b==0?[-ZONE,ZONE]:hover.b>0?[ZONE,1]:[-1,-ZONE];
+      g.fillStyle='rgba(255,255,255,.45)';g.beginPath();[[a0,b0],[a1,b0],[a1,b1],[a0,b1]].forEach(([a,b],i)=>{const p=P(a,b);i?g.lineTo(...p):g.moveTo(...p);});g.closePath();g.fill();}
+    // the label mapped onto the face: an affine map is exact in a parallel view
+    g.save();const L=S*0.48/ (S*0.29);g.setTransform(f.U[0]/ (S*0.29)*dpr0,f.U[1]/(S*0.29)*dpr0,-f.V[0]/(S*0.29)*dpr0,-f.V[1]/(S*0.29)*dpr0,f.o[0]*dpr0,f.o[1]*dpr0);
+    g.fillStyle=`rgba(16,19,23,${Math.min(1,f.facing*2.2)})`;const fs=S*(f.l.length>5?0.1:0.125);g.font=`600 ${fs}px "IBM Plex Sans",system-ui`;g.textAlign='center';g.textBaseline='middle';g.fillText(f.l,0,0);g.restore();}
+  if(triad)drawTriad(g,S,B);}
+let dpr0=2;
+function drawTriad(g,S,B){const o=[S*0.12,S*0.88],L=S*0.1;const it=AX.map(a=>({a,v:proj(a.d,B)})).sort((p,q)=>p.v[2]-q.v[2]);
+  g.lineCap='round';for(const {a,v} of it){g.strokeStyle=a.c;g.globalAlpha=v[2]<-0.2?0.5:1;g.lineWidth=S*0.016;g.beginPath();g.moveTo(...o);g.lineTo(o[0]+v[0]*L,o[1]-v[1]*L);g.stroke();
+    g.fillStyle=a.c;g.font=`600 ${S*0.06}px "IBM Plex Sans",system-ui`;g.textAlign='center';g.textBaseline='middle';g.fillText(a.l,o[0]+v[0]*L*1.5,o[1]-v[1]*L*1.5);}g.globalAlpha=1;}
+function cubePick(S,B,x,y){for(const f of cubeFaces(B,S)){const px=x-f.o[0],py=y-f.o[1],det=f.U[0]*f.V[1]-f.U[1]*f.V[0];
+    const a=(px*f.V[1]-py*f.V[0])/det,b=(f.U[0]*py-f.U[1]*px)/det;if(Math.abs(a)<=1.04&&Math.abs(b)<=1.04){
+      const za=Math.abs(a)>ZONE?Math.sign(a):0,zb=Math.abs(b)>ZONE?Math.sign(b):0;
+      const d=[0,1,2].map(i=>f.n[i]+za*f.u[i]+zb*f.v[i]);return {face:f.l,a:za,b:zb,d};}}return null;}
+function drawModel(g,S,B,hover){if(hover){g.fillStyle='rgba(255,255,255,.07)';g.beginPath();g.arc(S/2,S/2,S*0.47,0,7);g.fill();}
+  drawMesh(g,model==='own'&&own?OWN:HEAD,B,S/2,S/2,S*0.34,[0.42,0.42,0.43],false);if(triad)drawTriad(g,S,B);}
+function modelPick(S,B,x,y){const vx=(x-S/2)/(S*0.34),vy=-(y-S/2)/(S*0.34),r=Math.hypot(vx,vy);if(r>1.15)return null;
+  const z=Math.sqrt(Math.max(0,1-r*r));const w=[0,1,2].map(i=>B.r[i]*vx+B.u[i]*vy+B.b[i]*z);let k=0;for(let i=1;i<3;i++)if(Math.abs(w[i])>Math.abs(w[k]))k=i;
+  const d=[0,0,0];d[k]=Math.sign(w[k]);return {d};}
+const KIND={axes:[drawAxes,axesPick],cube:[drawCube,cubePick],model:[drawModel,modelPick]};
+
+// ---------- wiring a canvas as a live gizmo ----------
+const gizmos=[];
+function live(cv,kind){const st={cv,kind,hover:null,press:null};gizmos.push(st);
+  const at=e=>{const r=cv.getBoundingClientRect();return [(e.clientX-r.left),(e.clientY-r.top),r.width];};
+  cv.addEventListener('pointermove',e=>{const [x,y,S]=at(e);const k=st.kind();
+    if(st.press){const dx=e.clientX-st.press.x0,dy=e.clientY-st.press.y0;if(!st.press.turned&&Math.hypot(dx,dy)>6)st.press.turned=true;
+      if(st.press.turned){cam.yaw-=(e.clientX-st.press.lx)*0.012;cam.pitch=Math.max(-1.55,Math.min(1.55,cam.pitch+(e.clientY-st.press.ly)*0.012));anim=null;}
+      st.press.lx=e.clientX;st.press.ly=e.clientY;}
+    st.hover=KIND[k][1](S,basis(cam),x,y)||{any:true};draw();});
+  cv.addEventListener('pointerleave',()=>{st.hover=null;draw();});
+  cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);st.press={x0:e.clientX,y0:e.clientY,lx:e.clientX,ly:e.clientY,turned:false};});
+  cv.addEventListener('pointerup',e=>{const p=st.press;st.press=null;if(p&&!p.turned){const [x,y,S]=at(e);const h=KIND[st.kind()][1](S,basis(cam),x,y);if(h)lookFrom(h.d);}draw();});
+  cv.addEventListener('contextmenu',e=>{e.preventDefault();});}
+function paint(st){const cv=st.cv,g=cv.getContext('2d'),r=cv.getBoundingClientRect(),d=cv.width/r.width;dpr0=d;
+  g.setTransform(d,0,0,d,0,0);g.clearRect(0,0,r.width,r.height);KIND[st.kind()][0](g,r.width,basis(cam),st.hover);}
+live(document.getElementById('main-gizmo'),()=>style);
+document.querySelectorAll('.style').forEach(el=>{const k=el.dataset.style;live(el.querySelector('canvas'),()=>k);});
+document.querySelectorAll('.pop div').forEach(el=>{const k=el.dataset.s;gizmos.push({cv:el.querySelector('canvas'),kind:()=>k,hover:null,still:true});
+  el.addEventListener('click',()=>setStyle(k));});
+function draw(){drawScene();for(const st of gizmos){if(st.still){const keep={...cam};cam.yaw=0.6;cam.pitch=0.35;paint(st);Object.assign(cam,keep);}else paint(st);}}
+function setStyle(s){style=s;document.querySelectorAll('.style').forEach(el=>el.classList.toggle('on',el.dataset.style===s));
+  document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on',b.dataset.s===s));
+  document.querySelectorAll('.pop div').forEach(b=>b.classList.toggle('on',b.dataset.s===s));draw();}
+['axes','cube','model'].forEach(s=>document.getElementById('use-'+s).addEventListener('click',()=>setStyle(s)));
+document.querySelectorAll('#seg button').forEach(b=>b.addEventListener('click',()=>setStyle(b.dataset.s)));
+document.querySelectorAll('#seg-model button').forEach(b=>b.addEventListener('click',()=>{model=b.dataset.m;
+  document.querySelectorAll('#seg-model button').forEach(x=>x.classList.toggle('on',x===b));if(model==='own'&&!own)document.getElementById('own-note').textContent='Your model: none yet, use the selected object';draw();}));
+document.getElementById('take').addEventListener('click',()=>{own=true;model='own';document.getElementById('own-note').textContent='Your model: Creature skull, 20,000 triangles';
+  document.querySelectorAll('#seg-model button').forEach(x=>x.classList.toggle('on',x.dataset.m==='own'));setStyle('model');});
+const tri=document.getElementById('triad');tri.addEventListener('click',()=>{triad=!triad;tri.classList.toggle('off',!triad);tri.setAttribute('aria-pressed',triad);draw();});
+addEventListener('resize',draw);
+document.fonts&&document.fonts.ready.then(draw);draw();
+})();
+</script>

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unwrap row mocks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --page: #f3f4f6; --ink: #111827; --muted: #4b5563; --line: #d1d5db;
+  --card: #1b1f25; --card-ink: #e8eaed; --card-hint: #9aa1ab; --card-line: #2c323a;
+  --well: #232830; --btn-line: #3a414b; --accent: #2bb5a0; --accent-ink: #062b26;
+  --primary: #e6e8eb; --primary-ink: #14171b; --view: #34383e; --clay: #c9a596;
+  --rec: #0f766e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --page: #0d0f12; --ink: #e5e7eb; --muted: #9ca3af; --line: #2a2f36; }
+}
+:root[data-theme="dark"] { --page: #0d0f12; --ink: #e5e7eb; --muted: #9ca3af; --line: #2a2f36; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.5 Inter, system-ui, sans-serif; }
+main { max-width: 1240px; margin: 0 auto; padding: 28px 16px 60px; }
+h1 { font-size: 24px; margin: 0 0 6px; }
+p.lead { color: var(--muted); margin: 0 0 22px; max-width: 760px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 22px; }
+.opt { border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+.opt.rec { border-color: var(--rec); box-shadow: 0 0 0 1px var(--rec) inset; }
+.opt h2 { font-size: 17px; margin: 0 0 2px; display: flex; gap: 8px; align-items: center; }
+.tag { font-size: 11px; font-weight: 600; background: var(--rec); color: #fff; border-radius: 99px; padding: 2px 8px; }
+.opt p { color: var(--muted); margin: 0 0 12px; font-size: 14px; }
+.stage { background: var(--view); border-radius: 12px; padding: 14px; display: flex; justify-content: center; }
+.card { width: 300px; background: var(--card); color: var(--card-ink); border-radius: 12px; padding: 10px 12px 14px; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+.head { display: flex; align-items: center; gap: 8px; padding: 4px 0 10px; border-bottom: 1px solid var(--card-line); margin-bottom: 8px; }
+.head b { font-weight: 600; } .head span { color: var(--card-hint); font-size: 12px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cap { color: var(--card-hint); font-size: 11px; letter-spacing: .06em; font-weight: 600; margin: 12px 0 4px; }
+.row { display: flex; align-items: center; gap: 8px; padding: 9px 0; font-weight: 500; }
+.row .chev { width: 12px; color: var(--card-hint); }
+.row .sum { margin-left: auto; color: var(--card-hint); font-weight: 400; font-size: 12px; }
+.btn { display: block; width: 100%; text-align: center; border-radius: 8px; padding: 9px; border: 1px solid var(--btn-line); color: var(--card-ink); font-weight: 500; margin: 6px 0; background: transparent; font: inherit; }
+.btn.primary { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
+.help { color: var(--card-hint); font-size: 12px; margin: 4px 0 8px; }
+.ctl { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; }
+.ctl label { color: var(--card-ink); }
+.seg { display: flex; background: var(--well); border-radius: 8px; padding: 2px; }
+.seg i { font-style: normal; padding: 3px 9px; border-radius: 6px; color: var(--card-hint); font-size: 12px; }
+.seg i.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.slider { width: 130px; height: 4px; background: var(--well); border-radius: 2px; position: relative; }
+.slider::before { content: ""; position: absolute; left: 0; top: 0; height: 4px; width: 25%; background: var(--accent); border-radius: 2px; }
+.slider::after { content: ""; position: absolute; left: 25%; top: -6px; width: 16px; height: 16px; margin-left: -8px; background: #fff; border-radius: 50%; }
+.val { color: var(--card-hint); font-size: 12px; width: 52px; text-align: right; }
+.sw { width: 34px; height: 20px; background: var(--well); border-radius: 10px; position: relative; }
+.sw::after { content: ""; position: absolute; left: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--card-hint); }
+.read { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0 2px; }
+.read div { background: var(--well); border-radius: 8px; padding: 6px; text-align: center; }
+.read b { display: block; font-size: 14px; } .read small { color: var(--card-hint); font-size: 11px; }
+.banner { background: var(--well); border-radius: 10px; padding: 10px; margin: 6px 0; }
+.banner b { display: block; margin-bottom: 2px; } .banner a { color: var(--accent); text-decoration: none; font-weight: 600; }
+.dim { opacity: .45; }
+table { border-collapse: collapse; width: 100%; margin-top: 26px; font-size: 14px; }
+th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 8px 6px; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+.note { color: var(--muted); font-size: 14px; margin-top: 18px; max-width: 900px; }
+@media (max-width: 420px) { .card { width: 100%; } }
+</style>
+</head>
+<body>
+<main>
+<h1>Where Unwrap lives until the Surface space exists</h1>
+<p class="lead">The approved Surface mock puts Unwrap on the UV page, which is not built yet. The engine is ready now: auto seams, ABF++, relax and packing in one call. These are three ways to reach it from today's cards. Each is one command and one undo, and the Surface page will call the same section later.</p>
+
+<div class="grid">
+  <section class="opt">
+    <h2>A. A UVs section in the Mesh card</h2>
+    <p>A new section in the Mesh card's Surface group, beside Quad Remesh. Shut, it shows a one-line summary.</p>
+    <div class="stage"><div class="card">
+      <div class="head"><b>Mesh</b><span>Sphere 1 · 41k vertices</span></div>
+      <div class="cap">SURFACE</div>
+      <div class="row"><span class="chev">⌄</span>UVs<span class="sum">9 islands · 84 %</span></div>
+      <button class="btn primary">Unwrap</button>
+      <div class="help">Cuts seams along creases and polygroup borders, lays each piece flat and packs them in the square.</div>
+      <div class="ctl"><label>Relax</label><div class="slider"></div><span class="val">5 steps</span></div>
+      <div class="ctl"><label>Symmetry</label><div class="seg"><i class="on">Off</i><i>X</i><i>Y</i><i>Z</i></div></div>
+      <div class="ctl"><label>Keep my seams</label><div class="sw"></div></div>
+      <div class="read"><div><b>9</b><small>islands</small></div><div><b>1.005</b><small>stretch</small></div><div><b>84 %</b><small>filled</small></div></div>
+      <div class="row"><span class="chev">›</span>Quad Remesh<span class="sum">20k quads</span></div>
+      <div class="row"><span class="chev">›</span>Project</div>
+    </div></div>
+  </section>
+
+  <section class="opt">
+    <h2>B. Unwrap in the Paint card's Textures</h2>
+    <p>UVs are mostly needed for textures, so the ask shows up where it's needed: in Textures, when the object has no UVs.</p>
+    <div class="stage"><div class="card">
+      <div class="head"><b>Paint</b><span>Sphere 1</span></div>
+      <div class="row"><span class="chev">⌄</span>Textures<span class="sum">No UVs</span></div>
+      <div class="banner"><b>This object has no UVs</b><span class="help">Textures and bakes need them.</span></div>
+      <button class="btn primary">Unwrap</button>
+      <div class="ctl"><label>Relax</label><div class="slider"></div><span class="val">5 steps</span></div>
+      <div class="ctl"><label>Symmetry</label><div class="seg"><i class="on">Off</i><i>X</i><i>Y</i><i>Z</i></div></div>
+      <div class="dim">
+        <button class="btn">Bake maps…</button>
+        <button class="btn">Export textures…</button>
+      </div>
+    </div></div>
+  </section>
+
+  <section class="opt rec">
+    <h2>C. A in the Mesh card, B's ask points to it <span class="tag">Recommended</span></h2>
+    <p>The UVs section lives in the Mesh card (A). Where UVs are missing (Textures, Bake), a one-line ask opens that same section, the way "Show where" finds a control's home.</p>
+    <div class="stage"><div class="card">
+      <div class="head"><b>Paint</b><span>Sphere 1</span></div>
+      <div class="row"><span class="chev">⌄</span>Textures<span class="sum">No UVs</span></div>
+      <div class="banner"><b>This object has no UVs</b><span class="help">Textures and bakes need them. </span><a href="#">Unwrap in Mesh ›</a></div>
+      <div class="dim">
+        <button class="btn">Bake maps…</button>
+        <button class="btn">Export textures…</button>
+      </div>
+    </div></div>
+  </section>
+</div>
+
+<table>
+  <tr><th>Part</th><th>Taken from</th><th>Avoided</th><th>Done better</th></tr>
+  <tr><td>One-tap Unwrap</td><td>ZBrush UV Master, Nomad's auto unwrap</td><td>UV Master's separate plugin palette; Blender's edit-mode ceremony (select all, U, pick a method)</td><td>One button, sensible defaults, and the result readout (islands, stretch, filled) right under it</td></tr>
+  <tr><td>Relax and Symmetry</td><td>Blender's Minimize Stretch, UV Master's Symmetry</td><td>Blender's separate operator with an iteration count to guess</td><td>Part of the same run, one undo; symmetric islands are true reflections</td></tr>
+  <tr><td>Keep my seams</td><td>Blender's Unwrap, which uses marked seams</td><td>Seams lost when re-unwrapping</td><td>Seams from imports and Quad Remesh are kept on request</td></tr>
+  <tr><td>Ask where it's needed (C)</td><td>Substance's "needs UVs" notice</td><td>A second Unwrap control in another card</td><td>The ask opens the one UVs section, so there's still one UI per thing</td></tr>
+</table>
+<p class="note">Same for all three: Unwrap runs as a long job with progress and Cancel, and makes one undo step (a new History kind that holds the old and new UVs). A 100k-triangle sphere takes about 1.8 s on this cloud VM, faster on the iPad. On touch the rows use the touch density, and on a phone the card is a sheet.</p>
+</main>
+</body>
+</html>

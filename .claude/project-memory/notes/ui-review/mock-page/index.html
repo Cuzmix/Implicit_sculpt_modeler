@@ -1,0 +1,135 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sculpt UI upgrade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0f1215;--card:#171b20;--line:#262c33;--text:#e6e8eb;--muted:#9aa1ab;--faint:#7f8793;--acc:#5fd4bf;--accsoft:#1c3b37;--amber:#f0b24a;--ask:#c792ea;color-scheme:dark}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f4f5f7;--card:#ffffff;--line:#e2e5ea;--text:#16191d;--muted:#555d68;--faint:#6b7380;--acc:#0e8f7c;--accsoft:#d6f2ec;--amber:#a76a00;--ask:#7a3fb0;color-scheme:light}}
+:root[data-theme="dark"]{--bg:#0f1215;--card:#171b20;--line:#262c33;--text:#e6e8eb;--muted:#9aa1ab;--faint:#7f8793;--acc:#5fd4bf;--accsoft:#1c3b37}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 Inter,system-ui,sans-serif}
+header{max-width:1120px;margin:0 auto;padding:40px 16px 8px}
+h1{font-size:28px;margin:0 0 6px;letter-spacing:-.01em}
+.lede{color:var(--muted);margin:0 0 16px;max-width:760px}
+nav{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+nav div{max-width:1120px;margin:0 auto;padding:10px 16px;display:flex;gap:6px;overflow-x:auto}
+nav a{color:var(--muted);text-decoration:none;font-size:13px;padding:6px 12px;border-radius:999px;white-space:nowrap}
+nav a:hover{background:var(--card);color:var(--text)}
+main{max-width:1120px;margin:0 auto;padding:8px 16px 64px}
+section{padding-top:28px}
+h2{font-size:20px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 14px;max-width:760px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 18px}
+h3{font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.status{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;letter-spacing:.02em}
+.status.next{background:var(--accsoft);color:var(--acc)}.status.built{background:var(--accsoft);color:var(--acc)}
+.status.plan{background:color-mix(in srgb,var(--amber) 18%,transparent);color:var(--amber)}
+.status.ask{background:color-mix(in srgb,var(--ask) 18%,transparent);color:var(--ask)}
+.cmp,.frame{position:relative;width:100%;border-radius:10px;overflow:hidden;background:#000;container-type:inline-size}
+.cmp img,.frame img{position:absolute;inset:0;width:100%;height:100%;display:block}
+.beforewrap{position:absolute;inset:0;clip-path:inset(0 50% 0 0)}
+.handle{position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--acc);box-shadow:0 0 0 1px rgba(0,0,0,.4);pointer-events:none}
+.handle::after{content:"";position:absolute;top:50%;left:50%;width:28px;height:28px;margin:-14px 0 0 -14px;border-radius:50%;background:var(--acc);box-shadow:0 2px 8px rgba(0,0,0,.5)}
+.cmp input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:ew-resize;margin:0}
+.tag{position:absolute;bottom:8px;font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;background:rgba(0,0,0,.6);color:#fff;pointer-events:none}
+.tag.l{left:8px}.tag.r{right:8px}
+.notes{margin:12px 0 0;padding-left:18px;color:var(--muted)}.notes li{margin:4px 0}.notes b{color:var(--text)}
+.ov,.ring,.tx,.badge{position:absolute}
+.tx{white-space:nowrap;line-height:1;font-family:Inter,system-ui,sans-serif}
+.ring{border:2px solid var(--amber);border-radius:8px;box-shadow:0 0 0 3px rgba(0,0,0,.35)}
+.badge{width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:var(--amber);color:#1a1200;font:700 12px/22px Inter,sans-serif;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.legend{list-style:none;padding:0;margin:12px 0 0}.legend li{display:flex;gap:10px;margin:8px 0;color:var(--muted)}.legend b{color:var(--text)}
+.legend .n{flex:none;width:22px;height:22px;border-radius:50%;background:var(--amber);color:#1a1200;font-weight:700;font-size:12px;text-align:center;line-height:22px}
+.two{display:grid;grid-template-columns:minmax(0,340px) 1fr;gap:20px;align-items:start}
+@media (max-width:720px){.two{grid-template-columns:1fr}}
+.side p{margin:0 0 10px;color:var(--muted)}
+.mcard{background:#171b20;color:#e6e8eb;border:1px solid #262c33;border-radius:14px;padding:12px;font-size:13px}
+.mhead{display:flex;gap:10px;align-items:baseline;padding:2px 4px 10px}.mhead span{color:#7f8793;font-size:12px}
+.mgroup{font-size:11px;font-weight:600;color:#9aa1ab;letter-spacing:.04em;text-transform:uppercase;padding:12px 4px 4px}
+.mrow{display:flex;justify-content:space-between;padding:9px 8px;border-radius:8px}.mrow:hover{background:#20252b}
+.mrow span{font-weight:600}.mrow em{font-style:normal;color:#7f8793;font-size:12px}
+.pr{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 6px}.pr a{font-size:12px;color:var(--acc);text-decoration:none;background:var(--accsoft);padding:3px 9px;border-radius:999px}
+</style></head><body>
+<header><h1>Sculpt UI upgrade</h1>
+<p class="lede">What's built so far, and mocks of the phases still to come. Every picture is a real screenshot from the app. The planned changes are drawn on top of today's screens, marked with numbered amber rings.</p>
+<div class="pr"><a href="https://github.com/Cuzmix/Implicit_sculpt_modeler/pull/632">#632 contrast and states</a><a href="https://github.com/Cuzmix/Implicit_sculpt_modeler/pull/633">#633 widths, type, tabs</a><a href="https://github.com/Cuzmix/Implicit_sculpt_modeler/pull/634">#634 dock corners</a><a href="https://github.com/Cuzmix/Implicit_sculpt_modeler/pull/635">#635 icons</a><a href="https://github.com/Cuzmix/Implicit_sculpt_modeler/pull/638">#638 Voxel remesh, wider shelf</a><a href="https://github.com/Cuzmix/Implicit_sculpt_modeler/pull/647">#647 Model and Mesh card</a></div>
+</header>
+<nav><div><a href="#built">Built so far</a><a href="#next">Phase 3c</a><a href="#touch">Phase 4</a><a href="#decide">Phase 5</a><a href="#polish">Phase 6</a></div></nav>
+<main><section id="built"><h2>Built so far</h2><p class="sub">Drag across each picture to compare. These are real screenshots from the app, taken the same way every time (desktop 1600×900 and iPad Air 1180×820).</p><div class="card">
+<h3>Sculpt on an iPad Air</h3>
+<div class="cmp" style="aspect-ratio:1180/820">
+  <img src="img/a-sculpt_tablet-lens.jpg" alt="after">
+  <div class="beforewrap"><img src="img/b-sculpt_tablet-lens.jpg" alt="before"></div>
+  <div class="handle"></div>
+  <input type="range" min="0" max="100" value="50" aria-label="Drag to compare before and after">
+  <span class="tag l">Before</span><span class="tag r">Now</span>
+</div>
+<ul class="notes"><li>The shelf holds 10 tiles' width, so every name is whole (Smooth, Voxel, Dyntopo).</li><li>Remesh is called Voxel remesh, and its tile says Voxel.</li><li>Clay and Layer have their own icons. Chosen tiles use one look: a soft accent fill.</li></ul>
+</div><div class="card">
+<h3>Model space</h3>
+<div class="cmp" style="aspect-ratio:1600/900">
+  <img src="img/a-model_desktop-lens.jpg" alt="after">
+  <div class="beforewrap"><img src="img/b-model_desktop-lens.jpg" alt="before"></div>
+  <div class="handle"></div>
+  <input type="range" min="0" max="100" value="50" aria-label="Drag to compare before and after">
+  <span class="tag l">Before</span><span class="tag r">Now</span>
+</div>
+<ul class="notes"><li>Every Model action and primitive has its own icon. Before, nine of them shared one glyph.</li><li>The brush bar is gone: in Model, Size and Strength move nothing on a cage.</li><li>The chosen space tab uses the accent, with the space's tint as a small dot.</li></ul>
+</div><div class="card">
+<h3>Mesh card</h3>
+<div class="cmp" style="aspect-ratio:1600/900">
+  <img src="img/a-mesh_card_desktop-lens.jpg" alt="after">
+  <div class="beforewrap"><img src="img/b-mesh_card_desktop-lens.jpg" alt="before"></div>
+  <div class="handle"></div>
+  <input type="range" min="0" max="100" value="50" aria-label="Drag to compare before and after">
+  <span class="tag l">Before</span><span class="tag r">Now</span>
+</div>
+<ul class="notes"><li>An open section drops its header summary, so the card says "Level 1 of 1" once instead of twice.</li><li>The card's count rounds the way the readout does (41k beside 41.0k).</li><li>Disabled buttons are a hairline with dimmed text. Hints pass 4.5:1 contrast.</li></ul>
+</div><div class="card">
+<h3>Search for "smooth" (part of the next PR)</h3>
+<div class="cmp" style="aspect-ratio:1600/900">
+  <img src="img/a-search_desktop-lens.jpg" alt="after">
+  <div class="beforewrap"><img src="img/b-search_desktop-lens.jpg" alt="before"></div>
+  <div class="handle"></div>
+  <input type="range" min="0" max="100" value="50" aria-label="Drag to compare before and after">
+  <span class="tag l">Before</span><span class="tag r">Now</span>
+</div>
+<ul class="notes"><li>The Smooth brush now comes first. The group holding the best match leads.</li><li>Greyed rows (Cage smooth while there is no cage) sink below the rows that can run now.</li><li>The footer reads as a sentence instead of shouting in capitals.</li></ul>
+</div></section><section id="next"><h2>Phase 3c: what the next PR changes</h2><p class="sub">The page draws the changes on top of today's screenshots, so they line up with what you see in the app.</p><div class="card">
+<h3>Readout, view gizmo and Tool card <span class="status next">Next PR</span></h3>
+<figure class="shot"><div class="frame" style="aspect-ratio:1600/900"><img src="img/a-tool_card_desktop-lens.jpg" alt=""><div class="ov" style="left:1.125%;top:12.222%;width:11.875%;height:4.222%;background:#3e3e40"></div><div class="ring" style="left:0.875%;top:10.222%;width:12.500%;height:2.444%;"></div><div class="badge" style="left:13.250%;top:10.667%">1</div><div class="ov" style="left:71.875%;top:7.333%;width:3.750%;height:6.667%;"><svg viewBox="0 0 60 60" style="width:100%;height:100%"><line x1="30" y1="30" x2="30" y2="8" stroke="#4caf50" stroke-width="2.4"/><line x1="30" y1="30" x2="50" y2="38" stroke="#e5534b" stroke-width="2.4"/><line x1="30" y1="30" x2="12" y2="40" stroke="#4f8ff7" stroke-width="2.4"/><circle cx="30" cy="8" r="6" fill="#4caf50"/><text x="30" y="10.5" font-size="7" text-anchor="middle" fill="#0b0d10" font-weight="700">Y</text><circle cx="50" cy="38" r="6" fill="#e5534b"/><text x="50" y="40.5" font-size="7" text-anchor="middle" fill="#0b0d10" font-weight="700">X</text><circle cx="12" cy="40" r="6" fill="#4f8ff7"/><text x="12" y="42.5" font-size="7" text-anchor="middle" fill="#0b0d10" font-weight="700">Z</text><circle cx="30" cy="50" r="5" fill="none" stroke="#4caf50" stroke-width="1.6"/></svg></div><div class="ring" style="left:71.625%;top:6.889%;width:4.250%;height:7.556%;"></div><div class="badge" style="left:71.875%;top:6.444%">2</div><div class="ov" style="left:76.625%;top:20.444%;width:18.500%;height:2.444%;background:#171b20"></div><div class="ring" style="left:76.625%;top:20.444%;width:18.500%;height:2.444%;"></div><div class="badge" style="left:75.375%;top:20.667%">3</div><div class="ov" style="left:90.625%;top:47.667%;width:4.500%;height:2.444%;background:#171b20"></div><div class="ov" style="left:93.750%;top:48.111%;width:0.875%;height:1.556%;background:#BF3326;border-radius:50%;box-shadow:0 0 0 1px rgba(255,255,255,.25)"></div><div class="ring" style="left:93.250%;top:47.444%;width:1.875%;height:2.889%;"></div><div class="badge" style="left:95.250%;top:47.111%">4</div></div></figure>
+<ol class="legend"><li><span class="n">1</span><span>The readout keeps the vertex count only. Memory and GPU time move behind a <b>Show performance</b> switch in Settings, off by default (ZBrush and Nomad keep timings out of the view).</span></li><li><span class="n">2</span><span>An open card no longer covers the view gizmo: the gizmo steps left of the card, as Nomad's does beside its panels.</span></li><li><span class="n">3</span><span>The Tool card stops repeating Size and Strength. The brush bar already shows both, and the card's header still says "Draw · 60 px".</span></li><li><span class="n">4</span><span>Colour's folded summary is a swatch instead of a hex code.</span></li></ol>
+</div><div class="card">
+<h3>Library <span class="status built">Built, in the next PR</span></h3>
+<figure class="shot"><div class="frame" style="aspect-ratio:1600/900"><img src="img/a-library_desktop-lens.jpg" alt=""><div class="ring" style="left:32.000%;top:11.444%;width:18.000%;height:3.778%;"></div><div class="badge" style="left:50.000%;top:10.889%">1</div></div></figure>
+<ol class="legend"><li><span class="n">1</span><span>The field said "Search 706" while All said 45, because it searches brushes, alphas and buttons together. It now says <b>Search brushes and tools</b>.</span></li></ol>
+</div></section><section id="touch"><h2>Phase 4: touch density</h2><p class="sub">Today iPad and desktop share one density. Phase 4 gives touch its own names and target sizes and leaves the mouse layout as it is.</p><div class="card">
+<h3>Touch: names where a finger needs them <span class="status plan">Phase 4</span></h3>
+<figure class="shot"><div class="frame" style="aspect-ratio:1180/820"><img src="img/a-sculpt_tablet-lens.jpg" alt=""><div class="ov" style="left:88.644%;top:10.488%;width:5.424%;height:3.171%;background:#171b20;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div><div class="tx" style="left:93.390%;top:12.073%;font-size:calc(12*100cqw/1180);color:#c9ced6;font-weight:500;transform:translate(-100%,-50%);">Tool</div><div class="ov" style="left:88.644%;top:16.341%;width:5.424%;height:3.171%;background:#171b20;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div><div class="tx" style="left:93.390%;top:17.927%;font-size:calc(12*100cqw/1180);color:#c9ced6;font-weight:500;transform:translate(-100%,-50%);">Layers</div><div class="ov" style="left:88.644%;top:22.195%;width:5.424%;height:3.171%;background:#171b20;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div><div class="tx" style="left:93.390%;top:23.780%;font-size:calc(12*100cqw/1180);color:#c9ced6;font-weight:500;transform:translate(-100%,-50%);">Scene</div><div class="ov" style="left:88.644%;top:28.049%;width:5.424%;height:3.171%;background:#171b20;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div><div class="tx" style="left:93.390%;top:29.634%;font-size:calc(12*100cqw/1180);color:#c9ced6;font-weight:500;transform:translate(-100%,-50%);">Mesh</div><div class="ov" style="left:88.644%;top:33.902%;width:5.424%;height:3.171%;background:#171b20;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div><div class="tx" style="left:93.390%;top:35.488%;font-size:calc(12*100cqw/1180);color:#c9ced6;font-weight:500;transform:translate(-100%,-50%);">Paint</div><div class="ov" style="left:88.644%;top:39.756%;width:5.424%;height:3.171%;background:#171b20;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div><div class="tx" style="left:93.390%;top:41.341%;font-size:calc(12*100cqw/1180);color:#c9ced6;font-weight:500;transform:translate(-100%,-50%);">Mirror</div><div class="ov" style="left:88.644%;top:45.732%;width:5.424%;height:3.171%;background:#171b20;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div><div class="tx" style="left:93.390%;top:47.317%;font-size:calc(12*100cqw/1180);color:#c9ced6;font-weight:500;transform:translate(-100%,-50%);">More</div><div class="ring" style="left:88.305%;top:9.756%;width:11.186%;height:39.756%;"></div><div class="badge" style="left:87.288%;top:8.537%">1</div><div class="tx" style="left:6.610%;top:86.951%;font-size:calc(9*100cqw/1180);color:#c9ced6;font-weight:600;transform:translate(-50%,-50%);">Smooth</div><div class="tx" style="left:10.339%;top:92.317%;font-size:calc(9*100cqw/1180);color:#c9ced6;font-weight:600;transform:translate(-50%,-50%);">Pie</div><div class="tx" style="left:6.610%;top:97.561%;font-size:calc(9*100cqw/1180);color:#c9ced6;font-weight:600;transform:translate(-50%,-50%);">Invert</div><div class="tx" style="left:2.966%;top:92.317%;font-size:calc(9*100cqw/1180);color:#c9ced6;font-weight:600;transform:translate(-50%,-50%);">Mask</div><div class="ring" style="left:0.847%;top:81.951%;width:11.695%;height:16.829%;"></div><div class="badge" style="left:12.373%;top:81.463%">2</div><div class="ov" style="left:32.881%;top:95.976%;width:24.407%;height:3.902%;border:1.5px dashed rgba(95,212,191,.85);border-radius:10px"></div><div class="badge" style="left:57.288%;top:95.366%">3</div></div></figure>
+<ol class="legend"><li><span class="n">1</span><span>On a touch screen the rail names its buttons, as ZBrush for iPad does. A mouse keeps the bare icons and their tooltips.</span></li><li><span class="n">2</span><span>The dial's four sectors carry small names under their icons.</span></li><li><span class="n">3</span><span>The page names under the shelf keep their look, but each gets a 44 pt touch target (dashed). Today they are 24 pt.</span></li></ol>
+</div><div class="card">
+<h3>Touch: no keyboard hints without a keyboard <span class="status plan">Phase 4</span></h3>
+<figure class="shot"><div class="frame" style="aspect-ratio:1180/820"><img src="img/a-search_tablet-lens.jpg" alt=""><div class="ov" style="left:28.475%;top:75.122%;width:22.203%;height:2.927%;background:#171b20"></div><div class="ring" style="left:28.305%;top:74.878%;width:22.542%;height:3.415%;"></div><div class="badge" style="left:50.847%;top:74.390%">1</div></div></figure>
+<ol class="legend"><li><span class="n">1</span><span>On an iPad with no keyboard attached, the key hints go ("Enter run · Tab show where it lives", "D and Shift+D go up and down"). They come back when a keyboard is attached.</span></li></ol>
+</div></section><section id="decide"><h2>Phase 5: needs your pick</h2><p class="sub">These change where things live, so I won't build them until you choose.</p><div class="card"><h3>Mesh card in four groups <span class="status ask">Your call</span></h3>
+<div class="two"><div><div class="mcard">
+<div class="mhead"><b>Mesh</b><span>Sphere 1 · 41k vertices</span></div>
+<div class="mgroup">Resolution</div>
+<div class="mrow"><span>Subdivision levels</span><em>Level 1 of 1</em></div>
+<div class="mrow"><span>HD detail</span><em></em></div>
+<div class="mrow"><span>Dynamic topology</span><em>Off</em></div>
+<div class="mgroup">Rebuild</div>
+<div class="mrow"><span>Voxel remesh</span><em>41k</em></div>
+<div class="mrow"><span>Quad Remesh · Decimate</span><em></em></div>
+<div class="mrow"><span>Voxels</span><em></em></div>
+<div class="mgroup">Combine</div>
+<div class="mrow"><span>Booleans</span><em></em></div>
+<div class="mrow"><span>Extract · Mirror and weld</span><em></em></div>
+<div class="mgroup">Surface</div>
+<div class="mrow"><span>UVs and baking</span><em></em></div>
+</div></div><div class="side"><p>Today the Mesh card is one list of nine sections. Grouping it by what you're trying to do makes it quicker to scan (ZBrush's Geometry palette and Blender's Remesh panel both split this way). Nothing moves to another card.</p>
+<p>This is one of the phase 5 merges in the report. Those change where things live, so they wait for you. The others:</p>
+<ul class="notes"><li>A <b>Common</b> block at the top of the Tool card: the four controls a brush is changed by most, with the rest folded below.</li><li>Fewer names for surface concepts (there are 17 today: Shading, Pass, Look, Material Preview…). This needs its own short proposal before any code.</li></ul></div></div></div></section><section id="polish"><h2>Phase 6: polish and the last council round</h2><div class="card"><ul class="notes"><li>Spacing literals go to tokens (the audit counts 170 left) and the 10 hand-scaled type sizes go to ramp steps.</li><li>Each card's header and section rhythm gets checked against the 8 pt grid.</li><li>A final council: three critics score all 14 screens on desktop and iPad against ZBrush, Nomad and Uniform. The round 0 mean was 6.3 and it is now 6.8. The target is 8 or more on every screen, otherwise the lowest categories go round again.</li></ul></div></section></main>
+<script>
+document.querySelectorAll('.cmp').forEach(c=>{const r=c.querySelector('input'),w=c.querySelector('.beforewrap'),h=c.querySelector('.handle');const f=()=>{w.style.clipPath=`inset(0 ${100-r.value}% 0 0)`;h.style.left=r.value+'%'};r.addEventListener('input',f);f()});
+</script>
+</body></html>

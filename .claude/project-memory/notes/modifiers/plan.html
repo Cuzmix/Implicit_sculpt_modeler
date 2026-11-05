@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live stack: modifiers plan and mock</title>
+<style>
+:root{--bg:#121417;--panel:#1c1f24;--panel2:#23272d;--line:#2f343b;--text:#e7e9ec;--dim:#9aa1aa;--faint:#6b727c;--acc:#3fc1b0;--amber:#e3a74a;--red:#e0675f;--blue:#6aa8ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1120px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:28px;margin:0 0 4px}
+h2{font-size:20px;margin:40px 0 10px;border-top:1px solid var(--line);padding-top:24px}
+h3{font-size:16px;margin:22px 0 6px}
+p,li{color:#d3d7dc}
+.sub{color:var(--dim);margin:0 0 18px}
+.lead{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px}
+.lead b{color:var(--text)}
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.5px}
+th,td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}
+th{color:var(--dim);font-weight:600;background:var(--panel)}
+td:first-child{font-weight:600;color:var(--text)}
+.yes{color:var(--acc)} .no{color:var(--red)} .mid{color:var(--amber)}
+code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12.5px}
+.pill{display:inline-block;font-size:11.5px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--dim);margin-left:6px}
+/* mock */
+.mock{display:grid;grid-template-columns:1fr 330px;gap:0;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#0d0f12;margin:14px 0}
+@media (max-width:820px){.mock{grid-template-columns:1fr}}
+.vp{position:relative;min-height:470px;background:radial-gradient(ellipse at 50% 40%,#2a2f36 0%,#15181c 70%)}
+.vp svg{width:100%;height:100%;position:absolute;inset:0}
+.vpbar{position:absolute;top:10px;left:10px;display:flex;gap:6px;z-index:2}
+.seg{display:flex;background:rgba(28,31,36,.92);border:1px solid var(--line);border-radius:10px;padding:3px}
+.seg button{background:none;border:0;color:var(--dim);font:inherit;font-size:13px;padding:5px 11px;border-radius:7px;cursor:pointer}
+.seg button.on{background:var(--panel2);color:var(--text)}
+.vpnote{position:absolute;left:12px;bottom:10px;right:12px;font-size:12.5px;color:var(--dim);z-index:2;pointer-events:none}
+.card{background:var(--panel);border-left:1px solid var(--line);padding:12px;display:flex;flex-direction:column;gap:8px;font-size:13.5px}
+.card .head{display:flex;justify-content:space-between;align-items:center}
+.card .head b{font-size:15px}
+.card .head span{color:var(--faint);font-size:12px}
+.row{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.row.off{opacity:.55}
+.row.na{opacity:.4}
+.rh{display:flex;align-items:center;gap:8px}
+.rh .nm{flex:1;font-weight:600}
+.rh .kind{font-size:11px;color:var(--faint)}
+.eye{width:26px;height:22px;border-radius:6px;border:1px solid var(--line);background:#191c20;color:var(--acc);cursor:pointer;font-size:12px}
+.row.off .eye{color:var(--faint)}
+.x{background:none;border:0;color:var(--faint);cursor:pointer;font-size:15px}
+.ctl{display:grid;grid-template-columns:78px 1fr 44px;align-items:center;gap:6px;margin-top:6px;color:var(--dim);font-size:12.5px}
+.ctl input[type=range]{width:100%;accent-color:var(--acc)}
+.ctl output{text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
+.chips{display:flex;gap:4px;margin-top:6px}
+.chips button{flex:1;background:#191c20;border:1px solid var(--line);color:var(--dim);border-radius:7px;padding:4px 0;font:inherit;font-size:12.5px;cursor:pointer}
+.chips button.on{border-color:var(--acc);color:var(--text);background:#1d2b2a}
+.ra{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}
+.ra button,.foot button,.add button{background:#191c20;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:4px 10px;font:inherit;font-size:12.5px;cursor:pointer}
+.why{font-size:11.5px;color:var(--faint);margin-top:4px}
+.add{position:relative}
+.add>button{width:100%;padding:7px;border-style:dashed;color:var(--acc)}
+.menu{display:none;position:absolute;left:0;right:0;top:36px;background:#262a31;border:1px solid var(--line);border-radius:10px;padding:6px;z-index:5;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.menu.open{display:block}
+.menu .g{font-size:11px;color:var(--faint);padding:4px 8px 2px;text-transform:uppercase;letter-spacing:.05em}
+.menu div.it{padding:6px 8px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between}
+.menu div.it:hover{background:var(--panel2)}
+.menu div.it.dis{color:var(--faint);cursor:default}
+.menu div.it.dis:hover{background:none}
+.menu div.it small{color:var(--faint)}
+.foot{display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:6px;border-top:1px solid var(--line);color:var(--faint);font-size:12px}
+.stat{font-variant-numeric:tabular-nums}
+.pick{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:10px;padding:12px 16px;margin:10px 0}
+.pick b{color:var(--text)}
+ol.prs li{margin-bottom:8px}
+</style>
+</head>
+<body>
+<main>
+<h1>Live stack: Mirror, Array and the other modifiers</h1>
+<p class="sub">Plan and mock, 5 November 2026. Nothing is built yet; four picks for Bolt are at the end.</p>
+
+<div class="lead">
+<p><b>What we build.</b> One card, the <b>Live stack</b>, on every object. It holds rows that change how the object is shown without changing what it stores, so you can switch them off, tune them and take them away at any time. Each row has an Apply that bakes it, as one undo step.</p>
+<p><b>The rule that makes it fast.</b> On a sculpt, the stack only makes <b>copies</b>: Mirror, Array, Radial and Along a curve. Every copy is the same GPU mesh drawn again under another placing, so a stroke costs exactly what it costs today however many copies there are, and you can sculpt on any copy. Rows that change the polygons (Thickness, Bevel, Smooth) stay on cages, where Model mode already rebuilds them live because cages are small. A sculpt meets those needs with things we already have (levels, layers, the skin, Live boolean).</p>
+<p style="margin:0"><b>Pushback.</b> Blender's free stack, where any modifier goes on any mesh in any order, is the part we should not copy. Its CPU re-evaluates the mesh after every change, which is why sculpting with modifiers on is slow in Blender, and it would break the "no hitch on a stroke" rule at 5M and up. We keep the idea (non-destructive, switch off, apply later) and drop that engine.</p>
+</div>
+
+<h2>Mock</h2>
+<p>Switch between a sculpt and a cage, add rows from <b>+ Add</b>, tune them, and switch them off with the eye. The front view shows one object (bright) and its copies (lighter). The dashed line is the mirror plane.</p>
+
+<div class="mock">
+  <div class="vp" id="vp">
+    <div class="vpbar">
+      <div class="seg" id="kindSeg"><button class="on" data-k="sculpt">Sculpt</button><button data-k="cage">Cage</button></div>
+    </div>
+    <svg id="svg" viewBox="-400 -260 800 520" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="vpnote" id="vpnote"></div>
+  </div>
+  <div class="card">
+    <div class="head"><b>Live stack</b><span id="objname">Claw · 2.1M vertices</span></div>
+    <div id="rows" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div class="add">
+      <button id="addBtn">+ Add</button>
+      <div class="menu" id="menu"></div>
+    </div>
+    <div class="foot"><span class="stat" id="stat"></span><button id="applyAll">Apply all</button></div>
+  </div>
+</div>
+
+<h2>How each app does it</h2>
+<table>
+<tr><th>App</th><th>What it has</th><th>What it does well</th><th>Weak spot</th></tr>
+<tr><td>Blender</td><td>Modifier stack per object: Mirror, Array, Solidify, Bevel, Subdivision, Screw, Simple Deform, Lattice, Curve and about 50 more, any order, Apply.</td><td>Non-destructive, each row switchable in the viewport and in edit mode, Mirror with Clipping and Merge, Array with Merge before Subdivision.</td><td>The whole mesh is re-evaluated on the CPU after every change. Sculpt mode shows modifiers but brushes the base mesh, and dense meshes with a stack lag. Order mistakes are common.</td></tr>
+<tr><td>Nomad</td><td>Repeaters in the scene tree: Array, Radial, Curve and Mirror, whose children are drawn as instances.</td><td>Touch friendly. You can sculpt on any instance and all of them follow. It is cheap.</td><td>Repeaters are scene nodes, so a mirror is an extra object to manage. Stacking repeaters explodes into thousands of objects. No polygon-changing rows.</td></tr>
+<tr><td>ZBrush</td><td>Array Mesh (Repeat, Offset, Rotate, Scale, chained Stages, Make Mesh), NanoMesh, Dynamic Subdivision (Smooth, Thickness, QGrid), Live Boolean. Mirror And Weld is destructive.</td><td>Array Mesh's chained stages make spirals and grids from one row. Dynamic Subdivision on low-poly is instant.</td><td>Palette-heavy, a separate mode per feature, gizmo pivot editing is fiddly. No Mirror that stays live on a sculpt.</td></tr>
+<tr><td>3D-Coat</td><td>Symmetry with Mirror, Radial and Copies modes; the Clone and Instance tools in the voxel room.</td><td>Symmetry copies that you sculpt as one.</td><td>Copies are part of symmetry, not the object, so they are lost when symmetry changes. Instances are a separate tool.</td></tr>
+<tr><td>Cinema 4D</td><td>Cloner (Linear, Radial, Grid, Object), Symmetry object, generators as parents in the tree.</td><td>Effectors give each clone its own falloff. Very flexible.</td><td>Generators live in the hierarchy, which is heavy on a tablet. It is built for motion design.</td></tr>
+<tr><td>Maya / Plasticity</td><td>Construction history, Instance, Duplicate Special; CAD features in a history list.</td><td>Exact numbers and editable history.</td><td>History slows heavy meshes, and the whole idea is dated for sculpting.</td></tr>
+</table>
+
+<h2>What already exists here</h2>
+<table>
+<tr><th>Feature</th><th>Where</th><th>What happens to it</th></tr>
+<tr><td>Brush symmetry (X, Y, Z, Radial, Local)</td><td>Symmetry popover, <code>sculpt.Symmetry</code></td><td>Stays. It edits both halves of a whole mesh. A Mirror row turns symmetry on for its plane and locks it, so the hidden half never drifts.</td></tr>
+<tr><td>Keep symmetry in Remesh, Decimate and Quad Remesh</td><td><code>symmetry_planes</code>, <code>mirror_half.odin</code></td><td>Stays. With a Mirror row on, rebuilds keep symmetry on that plane by force.</td></tr>
+<tr><td>Mirror and weld</td><td>Modify topology card, <code>geom.mesh_symmetrize</code></td><td>Becomes the Mirror row's Apply (pick 1). Same code and the same quads-kept weld.</td></tr>
+<tr><td>Model mode live stack: Mirror, Thickness, Bevel creases, Smooth and Flat</td><td><code>poly.Live</code> in <code>src/poly/live.odin</code>, palette sections</td><td>Moves into the Live stack card as rows. The palette sections go, since that would be two UIs for one thing. The engine is kept as it is.</td></tr>
+<tr><td>Deformers (Bend, Twist, Taper, Lattice) and the Deformation sliders</td><td>Deformers card, <code>sculpt/deform.odin</code></td><td>Stay one-shot with Adjust last. They are not live rows on sculpts (see "Not in the stack"). Optional rows on cages only (pick 3).</td></tr>
+<tr><td>Live boolean</td><td>Booleans card</td><td>Stays on its card. A base object's stack shows a "Booleans · 2 marks" row that opens the same card, and a marked object's copies each take part.</td></tr>
+<tr><td>Subdivision levels, sculpt layers, detail skin</td><td>their cards</td><td>Unchanged. These are already the non-destructive, sculptable answers to Subdivision, Displace and Multires.</td></tr>
+<tr><td>Curve objects (Tube, Lathe, Along)</td><td>Curve tool</td><td>The "Along a curve" row reads any curve object and follows it live while you edit the curve.</td></tr>
+</table>
+
+<h2>The design</h2>
+<h3>The rows</h3>
+<table>
+<tr><th>Row</th><th>On a sculpt (or voxel object)</th><th>On a cage</th><th>Settings</th></tr>
+<tr><td>Mirror</td><td class="yes">Copy: the object drawn clipped to its + side, and again reflected, clipped the same way</td><td class="yes">Geometry, as today (seam points shared)</td><td>X, Y, Z (each on adds an image), keep + or − side</td></tr>
+<tr><td>Array</td><td class="yes">Copies</td><td class="yes">Geometry, with Merge ends so Smooth joins them</td><td>Count; step (a drag handle on the last copy, or numbers); turn and size per step, chained, so one row makes a spiral as ZBrush's stages do; a second direction for grids</td></tr>
+<tr><td>Radial</td><td class="yes">Copies</td><td class="yes">Geometry</td><td>Count, axis, round the object's middle or the pivot, fill angle</td></tr>
+<tr><td>Along a curve</td><td class="yes">Copies (rigid, each turned to the curve)</td><td class="yes">Geometry</td><td>Curve object, count or spacing, turn with the curve, size along it</td></tr>
+<tr><td>Thickness</td><td class="no">No: Extract and levels meet it</td><td class="yes">Existing</td><td>Thickness, segments, side</td></tr>
+<tr><td>Bevel creases</td><td class="no">No</td><td class="yes">Existing</td><td>Width, segments</td></tr>
+<tr><td>Smooth / Flat</td><td class="no">No: subdivision levels are the sculptable form</td><td class="yes">Existing, always last</td><td>Steps 1 to 4</td></tr>
+<tr><td>Bend, Twist, Taper</td><td class="no">No</td><td class="mid">Pick 3</td><td>As the Deformers card</td></tr>
+</table>
+<p>The order is fixed: Mirror, then the copies rows, then Thickness, Bevel, Smooth. Each kind appears once. A fixed order means every combination gives the result you expect, and there is nothing to drag about (pick 2).</p>
+
+<h3>Sculpting on copies</h3>
+<ul>
+<li>A press on any copy picks the object and the stroke goes into the source through that copy's inverse placing. This is the same path brush symmetry already uses for its images, made general: symmetry's images become a list of placings (mirror, radial, array, curve), and each dab is put into the source by its copy's inverse. The source then shows everywhere, as in Nomad.</li>
+<li>The brush ring draws on every copy, as the mirrored rings do now.</li>
+<li>Copies are similarities (turn, move, even size, plus the mirror's reflection), so a dab's radius scales by the copy's size and nothing bends.</li>
+<li>Mirror on a sculpt does not cut the mesh, so levels, the mask, layers and HD are all kept. The − half is still stored and is edited by the locked symmetry, but it is not drawn; the image of the + half is drawn in its place, clipped exactly at the plane. Apply runs Mirror and weld.</li>
+</ul>
+
+<h3>Cost, and how we prove it</h3>
+<table>
+<tr><th>What</th><th>Budget</th><th>Measured by</th></tr>
+<tr><td>A stroke with 0 versus 24 copies</td><td>Same stroke ms within noise; no extra press or lift time</td><td><code>bench</code> stroke rows and the exit stats' stroke times, A/B</td></tr>
+<tr><td>Memory per copy</td><td>One placing (about 80 bytes); no mesh copied</td><td>exit stats <code>stack_copies=</code></td></tr>
+<tr><td>GPU per frame</td><td>2M source with 12 copies under 2 ms on the 3060 Ti; on the iPad and the Mali tablet, copies past the triangle budget draw from the simplified copies</td><td><code>gpubench</code>, exit stats <code>stack_draw_tris=</code></td></tr>
+<tr><td>Changing a row (sliding Count)</td><td>Under 1 ms for sculpt copies (placings only); cages as today's live stack</td><td>exit stats <code>stack_ms=</code></td></tr>
+<tr><td>Apply</td><td>A long job with progress, like Remesh</td><td>the note's own time</td></tr>
+</table>
+
+<h3>What changes underneath</h3>
+<ul>
+<li><b>Render and GPU</b> (needs a design note first, by AGENTS.md's rule): a <code>Draw_Item</code> gets a list of placings drawn as instances of one mesh, a "mirrored" flag that flips the front face, and a clip plane (Vulkan's clip distance is already turned on in <code>vk_device.odin</code>; Metal has <code>clip_distance</code>; on WebGPU it is the optional clip-distances feature, otherwise a discard). GPU culling and the idle cache work per placing.</li>
+<li><b>Object</b>: a <code>Stack</code> value per object (plain settings, no meshes). <code>poly.Live</code> becomes the cage half of it.</li>
+<li><b>Undo</b>: a new <code>History</code> entry, "Stack", holding the row before and after. It is small, with no mesh. Apply is a swap entry, following <code>object_remesh</code>.</li>
+<li><b>Files</b>: a <code>STAK</code> chunk per object, with the cage's live fields moved into it. There are no old readers (pre-release rule).</li>
+<li><b>Export, the Blender link and Send</b>: Export bakes the stack by default (option "Bake the live stack", on); the Blender link sends it baked; Send carries the stack as it is, since both ends are this app.</li>
+<li><b>Rebuilds</b>: Remesh, Decimate, Quad Remesh and booleans keep the stack, because sculpt rows are only placings.</li>
+</ul>
+
+<h3>Compare table</h3>
+<table>
+<tr><th>Part</th><th>Taken from</th><th>Why it still holds</th><th>Avoided</th><th>Done better</th></tr>
+<tr><td>One stack per object, rows you can switch off and Apply</td><td>Blender</td><td>Non-destructive work is the modern default</td><td>Free order and CPU re-evaluation of dense meshes (Blender)</td><td>Fixed order; sculpt rows are GPU placings, so a stroke costs the same with 24 copies</td></tr>
+<tr><td>Sculpt on any copy</td><td>Nomad repeaters, 3D-Coat copies</td><td>You want to work where you are looking</td><td>Repeaters as extra scene objects (Nomad)</td><td>Copies belong to the object; the brush goes through the same inverse placing symmetry already uses</td></tr>
+<tr><td>Chained steps (turn and size per step)</td><td>ZBrush Array Mesh stages</td><td>Spirals and fans from one row</td><td>Modal palette with stage sliders (ZBrush)</td><td>One row, plus a drag handle on the last copy in the view</td></tr>
+<tr><td>Mirror on a sculpt</td><td>Blender Mirror with Clipping, ZBrush Mirror And Weld</td><td>Modelling one half is half the work</td><td>Cutting the mesh, which drops levels (both)</td><td>A clip plane at draw time: nothing cut, levels and layers kept, a seam exact to the pixel</td></tr>
+<tr><td>Polygon rows on cages only</td><td>ZBrush Dynamic Subdivision, Blender Solidify and Bevel</td><td>Cages are small, so a rebuild per edit is instant</td><td>Polygon modifiers on 20M meshes</td><td>Sculpts get levels, layers and the skin, which can be sculpted, unlike a modifier result</td></tr>
+<tr><td>Along a curve</td><td>Nomad curve repeater, Cinema 4D Cloner</td><td>Chains, studs, scales</td><td>Mismatched radii between the tube and its repeater (Nomad forum)</td><td>Reads our own curve objects live; spacing measured along the arc</td></tr>
+</table>
+
+<h3>Not in the stack, and why</h3>
+<ul>
+<li><b>Live deformers on sculpts</b> (Bend, Twist, Taper, Lattice, Curve). A brush would have to work in the bent space, which needs the inverse of a bend for every dab. Blender's approximate form of this is slow and imprecise. The Deformers card with Adjust last, plus sculpt layers, already meets the need.</li>
+<li><b>Remesh, Decimate and Displace as modifiers</b>: Rebuild, the simplified copies and sculpt layers meet these needs, and doing them live would hitch strokes.</li>
+<li><b>Scatter on the surface</b> (NanoMesh, Geometry Nodes): a later plan, once copies exist. It would reuse the same placings.</li>
+</ul>
+
+<h2>Build, in PRs</h2>
+<ol class="prs">
+<li><b>M1 Placings in the renderer.</b> Instances of one mesh, the mirrored flag, the clip plane, culling and the idle cache per placing. Design note first. Checked with the parity check, smoke, and a PNG of 12 copies. About 300 lines.</li>
+<li><b>M2 The card and Mirror on sculpts.</b> <code>Stack</code>, the Live stack card (Object page, and the same card from the Model palette), the "Stack" undo entry, the <code>STAK</code> chunk, Mirror with locked symmetry, picking and brushing the image, Apply through Mirror and weld (pick 1).</li>
+<li><b>M3 Array and Radial on sculpts.</b> Rows, chained turn and size, the step handle on the gizmo, brushing any copy, Apply as a join. Stroke A/B with 0 and 24 copies.</li>
+<li><b>M4 Along a curve.</b> Follows curve edits live; spacing along the arc.</li>
+<li><b>M5 Cages move in.</b> <code>poly.Live</code>'s Mirror, Thickness, Bevel and Smooth become rows, the palette sections are deleted, and Array, Radial and Along become cage geometry with Merge before Smooth.</li>
+<li><b>M6 Out of the app.</b> Export bakes, the Blender link, booleans with copies, exit stats, README.</li>
+<li><b>M7 (pick 3) Bend, Twist and Taper rows on cages.</b></li>
+</ol>
+
+<h2>Picks for Bolt</h2>
+<div class="pick"><b>1. Mirror and weld.</b> Recommended: it becomes the Mirror row's Apply, and the Modify topology button goes (one UI per thing). Other choice: keep both.</div>
+<div class="pick"><b>2. Row order.</b> Recommended: fixed order, one of each kind. Other choice: drag to reorder and allow repeats, as Blender does, which adds order mistakes and a harder card on touch.</div>
+<div class="pick"><b>3. Live deformers on cages (M7).</b> Recommended: later, once M1 to M6 are tried. Other choice: build it now.</div>
+<div class="pick"><b>4. Where the card lives.</b> Recommended: the Object page, with a rail button that opens the same card. Other choice: inside the Scene card as a section per object.</div>
+<p style="color:var(--faint);font-size:13px;margin-top:30px">Sources: <a style="color:var(--blue)" href="https://help.maxon.net/zbr/en-us/Content/html/reference-guide/tool/polymesh/array-mesh/array-mesh.html">ZBrush Array Mesh reference</a>, <a style="color:var(--blue)" href="https://nomadsculpt.com/manual/symmetry">Nomad manual: symmetry and repeaters</a>, <a style="color:var(--blue)" href="https://forum.nomadsculpt.com/t/about-the-new-repeaters/8838">Nomad forum: the new repeaters</a>, <a style="color:var(--blue)" href="https://forum.nomadsculpt.com/t/tube-to-curve-repeater-same-radius-as-tube/24193">Nomad forum: tube to curve repeater</a>; Blender's modifier stack from its manual; our code: <code>src/poly/live.odin</code>, <code>src/geom/symmetrize.odin</code>, <code>src/render/renderer.odin</code> Draw_Item.</p>
+</main>
+
+<script>
+const S = {
+  kind: 'sculpt',
+  rows: {
+    mirror: {on:true, x:true, y:false},
+    array:  {on:true, count:4, step:110, turn:0, size:100},
+    radial: null,
+    along:  null,
+    thick:  null, bevel:null, smooth:null,
+  }
+};
+const DEF = {
+  mirror:{on:true,x:true,y:false},
+  array:{on:true,count:4,step:110,turn:0,size:100},
+  radial:{on:true,count:8,radius:150},
+  along:{on:true,count:7},
+  thick:{on:true,t:12}, bevel:{on:true,w:6}, smooth:{on:true,steps:2},
+};
+const INFO = {
+  mirror:['Mirror','copies'], array:['Array','copies'], radial:['Radial','copies'], along:['Along a curve','copies'],
+  thick:['Thickness','polygons'], bevel:['Bevel creases','polygons'], smooth:['Smooth','polygons'],
+};
+const ORDER = ['mirror','array','radial','along','thick','bevel','smooth'];
+const POLY = new Set(['thick','bevel','smooth']);
+
+// 2D affine: [a,b,c,d,e,f] => x' = a x + c y + e, y' = b x + d y + f
+const I = [1,0,0,1,0,0];
+const mul = (m,n)=>[m[0]*n[0]+m[2]*n[1], m[1]*n[0]+m[3]*n[1], m[0]*n[2]+m[2]*n[3], m[1]*n[2]+m[3]*n[3], m[0]*n[4]+m[2]*n[5]+m[4], m[1]*n[4]+m[3]*n[5]+m[5]];
+const T=(x,y)=>[1,0,0,1,x,y], R=a=>[Math.cos(a),Math.sin(a),-Math.sin(a),Math.cos(a),0,0], Sc=s=>[s,0,0,s,0,0];
+const MX=[-1,0,0,1,0,0], MY=[1,0,0,-1,0,0];
+
+// The object: a claw-like sculpt shape around the origin (right half favoured so the mirror shows).
+const claw = "M-20,60 C-46,30 -40,-20 -10,-58 C10,-84 46,-96 70,-84 C48,-74 30,-52 26,-24 C48,-38 66,-34 78,-20 C56,-14 40,4 36,30 C32,52 10,70 -20,60 Z";
+const cagePath = "M-30,50 L-34,-30 L10,-70 L60,-80 L34,-30 L70,-24 L40,20 L20,56 Z";
+const curve = [[-300,150],[-200,-160],[120,190],[300,-120]];
+function bez(t){const [p0,p1,p2,p3]=curve,u=1-t;return [0,1].map(i=>u*u*u*p0[i]+3*u*u*t*p1[i]+3*u*t*t*p2[i]+t*t*t*p3[i]);}
+function bezd(t){const [p0,p1,p2,p3]=curve,u=1-t;return [0,1].map(i=>3*u*u*(p1[i]-p0[i])+6*u*t*(p2[i]-p1[i])+3*t*t*(p3[i]-p2[i]));}
+
+function placings(){
+  const r=S.rows; let list=[{m:I,mir:false,src:true}];
+  const live=k=>r[k]&&r[k].on&&!(POLY.has(k));
+  let mirrorPlanes=[];
+  if(live('mirror')){
+    if(r.mirror.x){list=list.flatMap(p=>[p,{m:mul(MX,p.m),mir:!p.mir}]);mirrorPlanes.push('x');}
+    if(r.mirror.y){list=list.flatMap(p=>[p,{m:mul(MY,p.m),mir:!p.mir}]);mirrorPlanes.push('y');}
+  }
+  if(live('array')){
+    const a=r.array,out=[];
+    let step=I;
+    for(let k=0;k<a.count;k++){
+      for(const p of list) out.push({m:mul(step,p.m),mir:p.mir,src:p.src&&k===0});
+      step=mul(step,mul(T(a.step,0),mul(R(a.turn*Math.PI/180),Sc(a.size/100))));
+    }
+    list=out;
+  }
+  if(live('radial')){
+    const a=r.radial,out=[];
+    for(let k=0;k<a.count;k++){const m=mul(R(k*2*Math.PI/a.count),T(a.radius,0));for(const p of list) out.push({m:mul(m,p.m),mir:p.mir,src:p.src&&k===0});}
+    list=out;
+  }
+  if(live('along')){
+    const a=r.along,out=[];
+    for(let k=0;k<a.count;k++){const t=a.count<2?0:k/(a.count-1);const [x,y]=bez(t),[dx,dy]=bezd(t);const m=mul(T(x,y),mul(R(Math.atan2(dy,dx)),Sc(.45)));for(const p of list) out.push({m:mul(m,p.m),mir:p.mir,src:p.src&&k===0});}
+    list=out;
+  }
+  return {list,mirrorPlanes};
+}
+
+function fit(list){
+  // scale the whole drawing so all copies stay in the view
+  let lo=[1e9,1e9],hi=[-1e9,-1e9];
+  for(const p of list){for(const [x,y] of [[-60,-100],[90,-100],[-60,80],[90,80]]){const m=p.m;const X=m[0]*x+m[2]*y+m[4],Y=m[1]*x+m[3]*y+m[5];lo=[Math.min(lo[0],X),Math.min(lo[1],Y)];hi=[Math.max(hi[0],X),Math.max(hi[1],Y)];}}
+  const w=hi[0]-lo[0],h=hi[1]-lo[1];const s=Math.min(1.25,700/w,440/h);
+  return mul(Sc(s),T(-(lo[0]+hi[0])/2,-(lo[1]+hi[1])/2));
+}
+
+function draw(){
+  const svg=document.getElementById('svg');
+  const {list,mirrorPlanes}=placings();
+  const view=fit(list);
+  const cage=S.kind==='cage';
+  const r=S.rows;
+  let thick=cage&&r.thick&&r.thick.on?r.thick.t:0;
+  let smooth=cage&&r.smooth&&r.smooth.on;
+  let path=cage?cagePath:claw;
+  let h='<defs><clipPath id="cpx"><rect x="0" y="-400" width="400" height="800"/></clipPath><clipPath id="cpy"><rect x="-400" y="-400" width="800" height="400"/></clipPath></defs>';
+  if(S.kind==='cage'&&r.along&&r.along.on){const pts=[...Array(41)].map((_,i)=>bez(i/40));const m=view;h+=`<polyline points="${pts.map(([x,y])=>[m[0]*x+m[2]*y+m[4],m[1]*x+m[3]*y+m[5]].join(',')).join(' ')}" fill="none" stroke="#6aa8ff" stroke-width="1.5" opacity=".6"/>`;}
+  if(S.kind==='sculpt'&&r.along&&r.along.on){const pts=[...Array(41)].map((_,i)=>bez(i/40));const m=view;h+=`<polyline points="${pts.map(([x,y])=>[m[0]*x+m[2]*y+m[4],m[1]*x+m[3]*y+m[5]].join(',')).join(' ')}" fill="none" stroke="#6aa8ff" stroke-width="1.5" opacity=".6"/>`;}
+  for(const p of list){
+    const m=mul(view,p.m);
+    // the clip: mirror rows draw only the + side of the source in source space
+    let clip='';
+    if(mirrorPlanes.includes('x')) clip+='url(#cpx)';
+    const fill=p.src?'#c9c2b6':'#8f8a82';
+    const stroke=cage?'#1b1d21':'none';
+    let inner=`<path d="${path}" fill="${fill}" stroke="${cage?'#30343a':'none'}" stroke-width="${cage?2.2:0}" stroke-linejoin="round" ${smooth?'filter=""':''}/>`;
+    if(thick) inner=`<path d="${path}" fill="none" stroke="#6d6860" stroke-width="${thick}" stroke-linejoin="round"/>`+inner;
+    if(cage){inner+=`<path d="${path}" fill="none" stroke="#1d1f23" stroke-width="1.3"/>`;}
+    if(mirrorPlanes.includes('y')) inner=`<g clip-path="url(#cpy)">${inner}</g>`;
+    if(mirrorPlanes.includes('x')) inner=`<g clip-path="url(#cpx)">${inner}</g>`;
+    if(smooth && cage) inner=`<g style="filter:url(#sm)">${inner}</g>`;
+    h+=`<g transform="matrix(${m.map(v=>v.toFixed(4)).join(',')})" opacity="${p.src?1:.9}">${inner}${p.src?'<circle cx="46" cy="-40" r="14" fill="none" stroke="#3fc1b0" stroke-width="2"/>':''}</g>`;
+  }
+  h='<defs><filter id="sm"><feGaussianBlur stdDeviation="2.2"/><feComponentTransfer><feFuncA type="table" tableValues="0 0 1 1"/></feComponentTransfer></filter></defs>'+h;
+  // mirror plane lines through the source origin
+  if(mirrorPlanes.length){
+    const o=mul(view,I);
+    if(mirrorPlanes.includes('x')) h+=`<line x1="${o[4]}" y1="-260" x2="${o[4]}" y2="260" stroke="#e0675f" stroke-dasharray="6 6" opacity=".7"/>`;
+    if(mirrorPlanes.includes('y')) h+=`<line x1="-400" y1="${o[5]}" x2="400" y2="${o[5]}" stroke="#6ccf6a" stroke-dasharray="6 6" opacity=".7"/>`;
+  }
+  svg.innerHTML=h;
+  const n=list.length;
+  const tris=S.kind==='sculpt'?4.2:0.0012;
+  document.getElementById('stat').textContent=S.kind==='sculpt'
+    ? `${n} cop${n===1?'y':'ies'} · stroke cost ×1 · draw ${(n*tris).toFixed(1)}M tris`
+    : `${n} cop${n===1?'y':'ies'} · ${Math.round(n*(r.smooth&&r.smooth.on?16:1)*24)} faces drawn`;
+  document.getElementById('vpnote').textContent=S.kind==='sculpt'
+    ? 'Sculpt: copies are the same GPU mesh drawn again. The teal ring is the brush on the source; it shows on every copy, and a stroke on any copy goes into the source.'
+    : 'Cage: rows build real polygons from the cage after every edit (it is small), so Smooth joins merged copies and Apply to sculpt gives levels.';
+  document.getElementById('objname').textContent=S.kind==='sculpt'?'Claw · 2.1M vertices':'Claw cage · 24 faces';
+}
+
+function ctl(label,key,field,min,max,step,unit=''){
+  const v=S.rows[key][field];
+  return `<div class="ctl"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${v}" data-k="${key}" data-f="${field}"><output>${v}${unit}</output></div>`;
+}
+function rowsUI(){
+  const el=document.getElementById('rows');let h='';
+  for(const k of ORDER){
+    const r=S.rows[k]; if(!r) continue;
+    const na=POLY.has(k)&&S.kind==='sculpt';
+    h+=`<div class="row ${r.on?'':'off'} ${na?'na':''}"><div class="rh"><button class="eye" data-eye="${k}" title="Show or hide">${r.on?'●':'○'}</button><span class="nm">${INFO[k][0]}</span><span class="kind">${INFO[k][1]}</span><button class="x" data-rm="${k}" title="Remove">×</button></div>`;
+    if(na){h+=`<div class="why">Polygon rows work on cages. On a sculpt, use subdivision levels, Extract or the skin.</div></div>`;continue;}
+    if(k==='mirror') h+=`<div class="chips"><button class="${r.x?'on':''}" data-tg="mirror.x">X</button><button class="${r.y?'on':''}" data-tg="mirror.y">Y</button><button disabled>Z</button><button disabled>+ side</button></div>`+(S.kind==='sculpt'?'<div class="why">Symmetry X is on and locked while this row is on.</div>':'');
+    if(k==='array') h+=ctl('Count','array','count',1,10,1)+ctl('Step','array','step',40,200,5)+ctl('Turn','array','turn',-45,45,1,'°')+ctl('Size','array','size',70,120,1,'%');
+    if(k==='radial') h+=ctl('Count','radial','count',2,16,1)+ctl('Radius','radial','radius',0,260,5);
+    if(k==='along') h+=ctl('Count','along','count',2,16,1)+'<div class="why">Curve: Curve 1 (blue). Editing the curve moves the copies live.</div>';
+    if(k==='thick') h+=ctl('Thickness','thick','t',2,24,1);
+    if(k==='bevel') h+=ctl('Width','bevel','w',1,12,1);
+    if(k==='smooth') h+=ctl('Steps','smooth','steps',1,4,1);
+    h+=`<div class="ra"><button data-ap="${k}">Apply</button></div></div>`;
+  }
+  if(!h) h='<div class="why" style="padding:8px">Nothing in the stack. Add a row to show copies or a smoothed cage without changing the object.</div>';
+  el.innerHTML=h;
+  // menu
+  let m='<div class="g">Copies</div>';
+  for(const k of ['mirror','array','radial','along']) m+=`<div class="it ${S.rows[k]?'dis':''}" data-add="${k}">${INFO[k][0]}<small>${S.rows[k]?'in the stack':''}</small></div>`;
+  m+='<div class="g">Polygons (cages)</div>';
+  for(const k of ['thick','bevel','smooth']){const dis=S.rows[k]||S.kind==='sculpt';m+=`<div class="it ${dis?'dis':''}" data-add="${dis?'':k}">${INFO[k][0]}<small>${S.rows[k]?'in the stack':(S.kind==='sculpt'?'cages only':'')}</small></div>`;}
+  document.getElementById('menu').innerHTML=m;
+  draw();
+}
+
+document.addEventListener('input',e=>{const t=e.target;if(t.dataset.k){S.rows[t.dataset.k][t.dataset.f]=+t.value;t.nextElementSibling.textContent=t.value+(t.dataset.f==='turn'?'°':t.dataset.f==='size'?'%':'');draw();}});
+document.addEventListener('click',e=>{
+  const t=e.target.closest('button,.it'); const menu=document.getElementById('menu');
+  if(!t){menu.classList.remove('open');return;}
+  if(t.id==='addBtn'){menu.classList.toggle('open');return;}
+  if(t.dataset.add!==undefined){if(t.dataset.add){S.rows[t.dataset.add]=JSON.parse(JSON.stringify(DEF[t.dataset.add]));menu.classList.remove('open');rowsUI();}return;}
+  menu.classList.remove('open');
+  if(t.dataset.eye){S.rows[t.dataset.eye].on=!S.rows[t.dataset.eye].on;rowsUI();}
+  if(t.dataset.rm){S.rows[t.dataset.rm]=null;rowsUI();}
+  if(t.dataset.tg){const [k,f]=t.dataset.tg.split('.');S.rows[k][f]=!S.rows[k][f];rowsUI();}
+  if(t.dataset.ap){flash(`Applied ${INFO[t.dataset.ap][0]}: one undo step (in the app, a long job with progress).`);}
+  if(t.id==='applyAll'){flash('Applied the whole stack: one undo step.');}
+  if(t.dataset.k&&t.closest('#kindSeg')){S.kind=t.dataset.k;document.querySelectorAll('#kindSeg button').forEach(b=>b.classList.toggle('on',b===t));rowsUI();}
+});
+function flash(s){const n=document.getElementById('vpnote');n.textContent=s;n.style.color='#3fc1b0';setTimeout(()=>{n.style.color='';draw();},1800);}
+rowsUI();
+</script>
+</body>
+</html>

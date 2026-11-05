@@ -1,0 +1,2729 @@
+From 552330a8c1d887ac77fa7f697d5bb37a4184dc1e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 19:17:36 +0000
+Subject: [PATCH 2/2] Show up to 64 textured objects' maps in render mode under
+ Vulkan (native GPU plan 5.2b)
+
+render_trace's body moves to the include render_trace.slang. render_trace.comp
+keeps the nine named map samplers and its switch for every backend (its .spv
+is byte-identical), and render_trace_maps.comp reads every map from one
+array with non-uniform indexing. Where Gpu_Caps.texture_arrays holds at least
+four objects' maps, render mode uses the array kernel and shows up to 64
+textured objects with their maps instead of 3; the Render section's note
+gives the limit in force. The array kernel is marked "// vulkan only", so
+shaders_msl.py makes no Metal source for it and the build quiets slangc's
+profile warning.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RvkVmjYXFP4g5FN7pGhnXm
+---
+ .agents/skills/.manifest.json                 |   2 +-
+ .agents/skills/sm-render/SKILL.md             |  10 +-
+ .claude/skills/sm-render/SKILL.md             |  10 +-
+ README.md                                     |   2 +-
+ build.bat                                     |   1 +
+ build.sh                                      |   5 +-
+ scripts/shaders_msl.py                        |  16 +-
+ src/app/render_mode.odin                      |   2 +-
+ src/render/path.odin                          | 103 +-
+ src/render/shaders/render_trace.comp.slang    | 862 +----------------
+ src/render/shaders/render_trace.slang         | 896 ++++++++++++++++++
+ .../shaders/render_trace_maps.comp.slang      |   4 +
+ src/render/shaders/render_trace_maps.comp.spv | Bin 0 -> 77092 bytes
+ 13 files changed, 1022 insertions(+), 891 deletions(-)
+ create mode 100644 src/render/shaders/render_trace.slang
+ create mode 100644 src/render/shaders/render_trace_maps.comp.slang
+ create mode 100644 src/render/shaders/render_trace_maps.comp.spv
+
+diff --git a/.agents/skills/.manifest.json b/.agents/skills/.manifest.json
+index 73432f8..3f23c2b 100644
+--- a/.agents/skills/.manifest.json
++++ b/.agents/skills/.manifest.json
+@@ -10,7 +10,7 @@
+     "sm-lint/SKILL.md": "2b349ffb78b00161cd1bdcefcadb944a6c04ad23d887988668c76f0f0228175a",
+     "sm-odin/SKILL.md": "030ad5a6f2a4466ae693100119e304d6e0b8dbd055d5b941e669e4f26798e7da",
+     "sm-perf/SKILL.md": "59c637adb5720b58cb774b7143035407e4fb2796af493862fe5da8a9a613de1d",
+-    "sm-render/SKILL.md": "6853f3f51d09358630fc55a75afc1fd3969b6bfc237988c1e1e2361ebdfc04ca",
++    "sm-render/SKILL.md": "6ab2424a43c2f72f99576f4f5581d7d72dc5225ba35fc1532970b2748fc79915",
+     "sm-sculpt/SKILL.md": "0171f9f6fad22d2883633a1325402591121348cec13a04918c549ab8ca5d2ffe",
+     "sm-sdf/SKILL.md": "9a59ff62c257f121451050f8bb6c5e4430ca5c42cba5ce0dbf1f09afbf177ace",
+     "sm-sdf/references/implicit.md": "0242284742b5712ed46cbc3498e45c70c9768f5972cc5381b45331ad8641185f",
+diff --git a/.agents/skills/sm-render/SKILL.md b/.agents/skills/sm-render/SKILL.md
+index d86dc27..85cf4d1 100644
+--- a/.agents/skills/sm-render/SKILL.md
++++ b/.agents/skills/sm-render/SKILL.md
+@@ -188,8 +188,14 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines,
+   Textured items (ITEM_TEXTURED): `Textured_Mesh.corners` (geom.quad_mesh_triangle_corners, 3 slots a base-level
+   triangle in its own corner order, uploaded with the preview) and its vertices are gpu-copied into Scene_Buffer
+   `.Textured` (the 8th storage buffer: the per-stage limit is 8, none left). `Item_Record.tex` = first tri, corner
+-  base, vertex base, slot|view<<4|maps<<8; maps bound as 9 named samplers `map0..map8` (RENDER_TEXTURED_MAX 3, 12 of
+-  16 samplers) through a switch, never an array (non-uniform indexing is a device feature). A map's maps_stamp change
++  base, vertex base, min(slot,3)|view<<4|maps<<8|slot<<16. Two kernels share `render_trace.slang`: `render_trace.comp`
++  binds 9 named samplers `map0..map8` through a switch (RENDER_TEXTURED_MAX 3, 14 of 16 samplers; every backend; its
++  .spv must stay byte-identical when the include changes), and `render_trace_maps.comp` (MAP_ARRAY, first line
++  `// vulkan only`: no .msl, slangc's profile warning quieted, loaded only off Darwin) reads `maps[]` at set 3 with
++  NonUniformResourceIndex, through `gpu_create_compute_pipeline_array`/`gpu_bind_compute_texture_array` (own Vulkan
++  with runtime arrays, variable counts and non-uniform sampled-image indexing; `Gpu_Caps.texture_arrays`, capped at
++  `VK_TEXTURE_ARRAY_MAX` 256), up to RENDER_TEXTURED_ARRAY 64 items, `pr.textured_max` in force. Metal would need our
++  own argument buffers (shadercross refuses set 3). A map's maps_stamp change
+   restarts the view (`pr.tex_stamps`). The normal-map bend (reflect below ng) applies to textured hits only.
+   Depth of field (`render.Lens`, app `lens.odin`): uniforms `lens_eye..lens_fwd` (radius 0 = pinhole, exactly the
+   old path: the lens draws its two `rnd()` only when on, after the jitter). Guides are two ping-pong pairs
+diff --git a/.claude/skills/sm-render/SKILL.md b/.claude/skills/sm-render/SKILL.md
+index d86dc27..85cf4d1 100644
+--- a/.claude/skills/sm-render/SKILL.md
++++ b/.claude/skills/sm-render/SKILL.md
+@@ -188,8 +188,14 @@ description: Rendering in src/render with SDL_GPU — the device and pipelines,
+   Textured items (ITEM_TEXTURED): `Textured_Mesh.corners` (geom.quad_mesh_triangle_corners, 3 slots a base-level
+   triangle in its own corner order, uploaded with the preview) and its vertices are gpu-copied into Scene_Buffer
+   `.Textured` (the 8th storage buffer: the per-stage limit is 8, none left). `Item_Record.tex` = first tri, corner
+-  base, vertex base, slot|view<<4|maps<<8; maps bound as 9 named samplers `map0..map8` (RENDER_TEXTURED_MAX 3, 12 of
+-  16 samplers) through a switch, never an array (non-uniform indexing is a device feature). A map's maps_stamp change
++  base, vertex base, min(slot,3)|view<<4|maps<<8|slot<<16. Two kernels share `render_trace.slang`: `render_trace.comp`
++  binds 9 named samplers `map0..map8` through a switch (RENDER_TEXTURED_MAX 3, 14 of 16 samplers; every backend; its
++  .spv must stay byte-identical when the include changes), and `render_trace_maps.comp` (MAP_ARRAY, first line
++  `// vulkan only`: no .msl, slangc's profile warning quieted, loaded only off Darwin) reads `maps[]` at set 3 with
++  NonUniformResourceIndex, through `gpu_create_compute_pipeline_array`/`gpu_bind_compute_texture_array` (own Vulkan
++  with runtime arrays, variable counts and non-uniform sampled-image indexing; `Gpu_Caps.texture_arrays`, capped at
++  `VK_TEXTURE_ARRAY_MAX` 256), up to RENDER_TEXTURED_ARRAY 64 items, `pr.textured_max` in force. Metal would need our
++  own argument buffers (shadercross refuses set 3). A map's maps_stamp change
+   restarts the view (`pr.tex_stamps`). The normal-map bend (reflect below ng) applies to textured hits only.
+   Depth of field (`render.Lens`, app `lens.odin`): uniforms `lens_eye..lens_fwd` (radius 0 = pinhole, exactly the
+   old path: the lens draws its two `rnd()` only when on, after the jitter). Guides are two ping-pong pairs
+diff --git a/README.md b/README.md
+index d854478..4128340 100644
+--- a/README.md
++++ b/README.md
+@@ -1016,7 +1016,7 @@ Occlusion while working (Scene > Look, with its Reach under More options; also a
+ The Render section at Full quality, render mode (also the command "Full render", found as "render mode", "path trace" or "cycles" in the palette), path traces the view while it stays still, as Blender's rendered viewport does with Cycles: every light in the scene casts a soft shadow, light bounces between surfaces (a chin lights the neck from below, a coloured object tints its neighbour), and the materials are taken as physically based surfaces. It builds up a sample a pixel a still frame and shows from the fourth sample on; until then the viewport shows as it otherwise would (the studio render's or live occlusion's image when on). Any change, a stroke, the camera, a light, a material, starts it over, so it costs nothing while sculpting. To keep the render beside the view you sculpt in rather than in place of it, Camera > Render preview pane shows it in a view pane instead (View grid, above). It stops at Samples (1024 by default, 16 to 4096) and follows each path for up to Bounces surfaces (6 by default, 1 to 12; 1 is direct light only). Denoise (on by default) smooths the grain each time a sample is in, with the edge-avoiding À-Trous wavelet filter (Dammertz et al. 2010, `render_atrous.frag.slang`): the first sample goes through each pixel's centre and keeps what it met's colour, normal and distance as guides, and five passes of a 5 x 5 kernel with taps 1 to 16 pixels apart blur the light with the colour divided out, each tap counting less where the guides say it is another surface or its light differs by more than the samples' noise explains, so creases, texture, paint and shadow edges stay sharp. It takes a pass fewer each time the samples grow four times past 64, down to two. The head at 16 samples looks finished where the raw image is grain. The section shows how many samples it has built and how long one takes. How it lights (`src/render/path.odin`, `render_trace.comp.slang`):
+ - The lights are the viewport's, in the world, at their own size (a sun's Angle, a lamp's Radius, in the Lights section); a light of size 0 takes the studio's Shadow softness instead, a sun spanning a cone that wide and a point or spot light a sphere that wide seen from the scene's middle, each as bright as the viewport makes it where its light arrives. At each bounce one light is picked by its share of the brightness and sampled toward its shadow ray, and the surface's own reflection direction is weighed against it (multiple importance sampling), so small lights and wide ones both settle quickly.
+ - A path that leaves the scene takes the environment: the image environment at its Strength, or the built-in studio (the soft sky, the softbox, strip and card the materials reflect) at the ambient light's strength.
+-- Physically based materials keep their metallic and roughness (GGX with visible-normal sampling); the classic shading becomes a dielectric whose roughness matches its highlight's width, and a MatCap object its colour, half rough. Polypaint, polygroup colours and polygroups' own materials show as in the viewport. A textured object (one with maps, while View > Textures shows them) renders as the viewport shows it: Maps gives its base colour map, the roughness and metallic of its ORM map and its normal map, read in the frame the bake made it in; Normal gives the normal map over its material; Checker the UV checker. The maps are read at the size of a pixel where the camera's ray meets them, and coarser along later bounces; the ORM map's occlusion is left out, since the paths find occlusion themselves, as Cycles does with a glTF's. Where a normal map tilts the normal so far that a smooth surface would mirror into itself, the normal is bent just enough not to, so no black specks show. The maps of three textured objects show at once (the sampler slots a GPU stage has); further ones render in their material, and the Render section says how many. See-through objects are left out.
++- Physically based materials keep their metallic and roughness (GGX with visible-normal sampling); the classic shading becomes a dielectric whose roughness matches its highlight's width, and a MatCap object its colour, half rough. Polypaint, polygroup colours and polygroups' own materials show as in the viewport. A textured object (one with maps, while View > Textures shows them) renders as the viewport shows it: Maps gives its base colour map, the roughness and metallic of its ORM map and its normal map, read in the frame the bake made it in; Normal gives the normal map over its material; Checker the UV checker. The maps are read at the size of a pixel where the camera's ray meets them, and coarser along later bounces; the ORM map's occlusion is left out, since the paths find occlusion themselves, as Cycles does with a glTF's. Where a normal map tilts the normal so far that a smooth surface would mirror into itself, the normal is bent just enough not to, so no black specks show. How many textured objects show their maps at once depends on the GPU: up to 64 under the own Vulkan backend on a device with descriptor indexing (desktop GPUs, recent tablets; exit stat `texture_arrays=` gives how many maps one array may hold, 0 without), where the kernel reads every map from one array; three elsewhere (SDL_GPU, Metal), where it names each map's sampler slot and a GPU stage has 16. Further ones render in their material, and the Render section says how many showed their maps. See-through objects are left out.
+ The scene is copied on the GPU into one set of buffers at the first sample of a still view, reusing each mesh's trees from the traced studio render, with a tree over every object's chunks built on the CPU; render mode needs a device that can trace (as the studio does) and write 32-bit float images from a compute shader, and otherwise the section says so. Tablets refuse a scene over 256 MB of copies. A frame takes a band of rows of one sample, as many as keep frames under about 50 ms, so the interface stays responsive. The image is the same every run. Half resolution (on by default on tablets, off on the desktop) traces half the viewport's size each way, a quarter of the pixels, and lays each traced pixel's light smoothly over the viewport, blended by how much of it met the scene so silhouettes stay soft over the viewport's own background: about three times as fast (0.2 s a sample against 0.55 s for three spheres on the test VM), a little softer. Render mode is off at every start; Samples, Bounces, Denoise and Half resolution are remembered. Cost on the test VM (llvmpipe software GPU, 1600 x 900): about 0.5 s a sample for three spheres, 0.8-0.9 s for a 500k-triangle head (20 MB of copies), 2.5 s for the 3.8M-triangle head scan (154 MB); a real GPU is far faster. An image environment is also sampled by its brightness, so a sun in the panorama lights the scene in a few samples where it used to show as scattered bright specks: each surface a path meets takes, besides a light, a direction the panorama's bright parts are likelier to give, in proportion to how much light the environment gives against the lights, weighed against the bounces that find it so nothing counts twice. Render mode reads the image at its full size, not the blurred copy the viewport reflects. The built-in studio is broad enough that bounces find it well, so it is sampled this way only when every light is off. Script: `render_mode on`, `set render_samples 64`, `set render_bounces 3`, `set render_denoise off`, `set render_half on`. The exit stats add `render`, `render_samples`, `render_ms` (a sample's time), `render_mb` (the scene copies) and `render_failed`.
+ 
+ **Depth of field.** The Scene palette's Lens section (after Render) gives render mode a camera's lens: **Depth of field** (off by default) blurs what is nearer or farther than the point in focus, and **Blur** (0 to 1, 0.4 by default) is how wide the lens is, its radius a quarter of the scene's radius at 1, so it reads the same for any model size (a scene has no physical scale, so an f-stop would mean nothing). The focus is the pivot the view turns about until **Pick focus** (in the section, or found as "focus" or "depth of field" in the palette) takes a point from the model, as KeyShot's pick focus point and Blender's focus eyedropper do: the next press on the model puts the focus where it meets the surface, a drag moves it with the finger, a press that meets nothing leaves it as it was, and Escape stops it waiting. A picked point stays in focus while the view turns round it; **Focus on the pivot** goes back, and New scene and Open do too. While Pick focus waits, and while the Lens section is open with depth of field on, a focus mark (a ring with four ticks) shows where the focus is. Each sample traces from a point on the lens (a thin lens across the camera's right and up, through where the pixel's ray meets the plane of focus facing the camera), so the blur is the real one, with near edges blurring over what is behind them and no halo; render mode then lays itself over the background and floor alone, never the sharp viewport, and the denoiser's guides become the mean colour, normal and distance over the samples rather than the first one's, so they blur as the image does. It works in orthographic views too. Any change to it starts render mode over; off, every image is as before, bit for bit. Depth of field and Blur are remembered (`render_dof`, `render_blur`); the point in focus is not, nor kept in the scene file. Script: `set render_dof on`, `set render_blur 0.5`, `render_focus 0 0 1`, `render_focus pivot`. The exit stats add `render_dof`, `render_blur`, `focus_picked`, `focus` (x,y,z) and `focus_armed`.
+diff --git a/build.bat b/build.bat
+index 761542c..c3e70a2 100644
+--- a/build.bat
++++ b/build.bat
+@@ -221,5 +221,6 @@ exit /b 0
+ :shader
+ set FLAGS=
+ findstr /b /c:"// slangc: -fp-mode precise" %1 >nul && set FLAGS=-fp-mode precise
++findstr /b /c:"// vulkan only" %1 >nul && set FLAGS=%FLAGS% -warnings-disable 41012
+ "%SLANGC%" %1 -target spirv -profile spirv_1_3 -matrix-layout-row-major -O0 -stage %2 -entry main %FLAGS% -o "%~dpn1.spv"
+ exit /b
+diff --git a/build.sh b/build.sh
+index 942d473..e7c1a24 100755
+--- a/build.sh
++++ b/build.sh
+@@ -65,7 +65,9 @@ mode="${1:-debug}"; shift || true
+ # are includes. Matrices are row-major, so mul(v, M) is GLSL's M * v (sm-render), and -O0
+ # leaves the arithmetic as written: the optimizer turns x / c into x * (1 / c), which moves
+ # pixels. A shader whose first line is "// slangc: -fp-mode precise" keeps every multiply
+-# and add unfused. Without deps/slang (scripts/setup_deps.sh) the committed .spv files are
++# and add unfused. A shader whose first line starts "// vulkan only" indexes texture arrays,
++# for which Slang raises the profile with SPV_EXT_descriptor_indexing on purpose, so that
++# warning (41012) is quieted for it; it has no Metal source (scripts/shaders_msl.py). Without deps/slang (scripts/setup_deps.sh) the committed .spv files are
+ # used as they are.
+ SLANGC="$DEPS/slang/bin/slangc"
+ compile_shaders() {
+@@ -76,6 +78,7 @@ compile_shaders() {
+ 		case "${name##*.}" in vert) stage=vertex;; frag) stage=fragment;; comp) stage=compute;; esac
+ 		flags=()
+ 		if head -n 1 "$src" | grep -q '^// slangc: -fp-mode precise'; then flags=(-fp-mode precise); fi
++		if head -n 1 "$src" | grep -q '^// vulkan only'; then flags+=(-warnings-disable 41012); fi
+ 		"$SLANGC" "$src" -target spirv -profile spirv_1_3 -matrix-layout-row-major -O0 -stage "$stage" -entry main "${flags[@]}" -o "$name.spv"
+ 	done
+ 	# Each new .spv's Metal source for the iPad build (scripts/shaders_msl.py), when
+diff --git a/scripts/shaders_msl.py b/scripts/shaders_msl.py
+index 15b9083..1263fbb 100644
+--- a/scripts/shaders_msl.py
++++ b/scripts/shaders_msl.py
+@@ -16,7 +16,9 @@ unused bindings: every binding the renderer declares stays where it says.
+ Each .msl starts with a line naming the tool's commit and the SHA-256 of the .spv it was made
+ from, so --check finds a missing or stale one with no tool installed, and a shader changed
+ without its Metal source fails `build.bat check` / `./build.sh check` instead of drawing the old
+-shader on the iPad. Without the tool, remaking prints a note and leaves the committed files as
++shader on the iPad. A shader whose Slang source starts with "// vulkan only" (an array of
++textures indexed per pixel, which shadercross cannot map to SDL's Metal slots) has no .msl:
++only the own Vulkan backend loads it, so both modes skip it. Without the tool, remaking prints a note and leaves the committed files as
+ they are, as the build does with the .spv when slangc is missing.
+ """
+ 
+@@ -43,8 +45,18 @@ def pinned_commit():
+     sys.exit("shaders_msl: no SHADERCROSS_COMMIT in scripts/versions.env")
+ 
+ 
++def vulkan_only(spv):
++    """Whether name.stage.spv's Slang source marks it as the own Vulkan backend's alone."""
++    try:
++        with open(os.path.join(SHADERS, spv[:-len(".spv")] + ".slang"), encoding="utf-8") as f:
++            return f.readline().startswith("// vulkan only")
++    except FileNotFoundError:
++        return False
++
++
+ def spv_files():
+-    return sorted(f for f in os.listdir(SHADERS) if f.endswith(".spv") and f.split(".")[-2] in STAGES)
++    return sorted(f for f in os.listdir(SHADERS)
++                  if f.endswith(".spv") and f.split(".")[-2] in STAGES and not vulkan_only(f))
+ 
+ 
+ def sha256(path):
+diff --git a/src/app/render_mode.odin b/src/app/render_mode.odin
+index d01c46e..fd69522 100644
+--- a/src/app/render_mode.odin
++++ b/src/app/render_mode.odin
+@@ -136,7 +136,7 @@ kit_render_full :: proc(app: ^App) {
+ 		ui.paragraph(ctx, fmt.tprintf("Built up %d of %d samples, %.0f ms a sample.", pr.samples, app.render_samples, ms))
+ 	}
+ 	if render_running(app) && pr.tex_left_out > 0 {
+-		ui.paragraph(ctx, fmt.tprintf("Full shows the maps of %d textured objects; %d more show their material.", render.RENDER_TEXTURED_MAX, pr.tex_left_out))
++		ui.paragraph(ctx, fmt.tprintf("Full shows the maps of %d textured objects; %d more show their material.", render.render_textured_max(pr), pr.tex_left_out))
+ 	}
+ 	ui.paragraph(ctx, fmt.tprintf("Full path traces the view while it stays still: the lights with soft shadows (their own size, or Fast's Shadow softness), the environment, materials, paint and texture maps, and light bounced between surfaces; a MatCap shows as its colour. Any change starts it over; see-through objects are left out. Denoise smooths the grain along the surfaces' edges, colours and normals, less as samples build up. Half resolution traces a quarter of the pixels, four times as fast, for tablets. Lens adds depth of field. %s", command_keys(app, .Render_Mode)))
+ }
+diff --git a/src/render/path.odin b/src/render/path.odin
+index 683fa83..81b4eae 100644
+--- a/src/render/path.odin
++++ b/src/render/path.odin
+@@ -25,6 +25,11 @@ import "../jobs"
+ // the studio leaves them.
+ 
+ RENDER_TRACE_COMP_CODE :: #load("shaders/render_trace.comp" + SHADER_EXT)
++// The same kernel reading every map from one array (render_trace_maps.comp.slang), which
++// only the own Vulkan backend binds, so it has no Metal source.
++when ODIN_OS != .Darwin {
++	RENDER_TRACE_MAPS_COMP_CODE :: #load("shaders/render_trace_maps.comp.spv")
++}
+ RENDER_DISPLAY_FRAG_CODE :: #load("shaders/render_display.frag" + SHADER_EXT)
+ RENDER_DISPLAY_LINEAR_FRAG_CODE :: #load("shaders/render_display_linear.frag" + SHADER_EXT)
+ RENDER_ATROUS_FRAG_CODE :: #load("shaders/render_atrous.frag" + SHADER_EXT)
+@@ -84,6 +89,10 @@ Path_Render :: struct {
+ 	// Its own pipelines for bringing the items' trees up to date, as the studio's.
+ 	tracer:         Tracer,
+ 	pipeline:       ^sdl.GPUComputePipeline,
++	// The pipeline reads the maps from one array (render_trace_maps), and how many textured
++	// items it shows with their maps: RENDER_TEXTURED_MAX with the named samplers.
++	maps_array:     bool,
++	textured_max:   u32,
+ 	display:        ^sdl.GPUGraphicsPipeline,
+ 	atrous:         ^sdl.GPUGraphicsPipeline,
+ 	sampler:        ^sdl.GPUSampler,
+@@ -120,8 +129,9 @@ Path_Render :: struct {
+ 	// The textured items whose maps this view binds, by map slot, with their maps' stamps
+ 	// when it was built (a map that changes since starts the view over), and how many more
+ 	// showed textured than there are slots.
+-	tex_meshes:     [RENDER_TEXTURED_MAX]^Textured_Mesh,
+-	tex_stamps:     [RENDER_TEXTURED_MAX]u64,
++	tex_meshes:     [RENDER_TEXTURED_ARRAY]^Textured_Mesh,
++	tex_stamps:     [RENDER_TEXTURED_ARRAY]u64,
++	tex_count:      u32,
+ 	tex_left_out:   int,
+ 	// The size the paths are traced at (render_size), and the viewport's, which `shown` has.
+ 	width, height:  u32,
+@@ -165,20 +175,28 @@ Scene_Buffer :: enum {
+ 	Textured,
+ }
+ 
+-// How many textured items render mode shows with their maps: three maps each, after the
+-// sum, the environment and its table and the guides, 14 of the 16 samplers a stage may
+-// bind. Others show
+-// their material, and the Render section says so.
++// How many textured items render mode shows with their maps through named samplers: three
++// maps each, after the sum, the environment and its table and the guides, 14 of the 16
++// samplers a stage may bind. Others show their material, and the Render section says so
++// (render_textured_max).
+ RENDER_TEXTURED_MAX :: 3
+ @(private = "file")
+ RENDER_SAMPLERS :: 5 + 3 * RENDER_TEXTURED_MAX
++// ...and through one array of maps, where the device offers texture arrays
++// (Gpu_Caps.texture_arrays, at least four items' worth), or as many as it holds.
++@(private = "file")
++RENDER_TEXTURED_ARRAY :: 64
+ 
+ // Item_Record.tex.w: the item's map slot in the low bits (RENDER_TEXTURED_MAX for none,
+-// which only the UV checker needs), the view from bit 4, and from bit 8 which maps it has.
++// which only the UV checker needs, and for every slot past it), the view from bit 4, from
++// bit 8 which maps it has, and from bit 16 the slot again in full, which only the array
++// kernel reads; the named kernel's bits stay as they were.
+ @(private = "file")
+ TEX_VIEW_SHIFT :: 4
+ @(private = "file")
+ TEX_MAPS_SHIFT :: 8
++@(private = "file")
++TEX_WIDE_SLOT_SHIFT :: 16
+ 
+ // Matches Item in render_trace.comp.slang (std430).
+ Item_Record :: struct {
+@@ -297,18 +315,27 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
+ 	// and the table is built over it.
+ 	env_map := r.environment.source if r.environment != nil else r.no_environment
+ 	table := r.environment.table if r.environment != nil else pr.studio_table
+-	samplers: [RENDER_SAMPLERS]sdl.GPUTextureSamplerBinding
++	samplers: [5 + 3 * RENDER_TEXTURED_ARRAY]sdl.GPUTextureSamplerBinding
+ 	samplers[0], samplers[1], samplers[2] = {texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = env_map, sampler = r.env_sampler}, {texture = table, sampler = pr.sampler}
+ 	samplers[3], samplers[4] = {texture = pr.guides[pr.guide_at][0], sampler = pr.sampler}, {texture = pr.guides[pr.guide_at][1], sampler = pr.sampler}
++	// Every slot the kernel may read is given a texture, defaults where an item lacks a map:
++	// the named kernel's nine, and the array's slots in use (at least one, as a set is
++	// never empty).
+ 	defaults := [Texture_Map]^sdl.GPUTexture{.Base_Color = r.no_matcap, .Orm = r.no_matcap, .Normal = r.no_normal_map}
+-	for slot in 0 ..< RENDER_TEXTURED_MAX {
++	slots := max(pr.tex_count, 1) if pr.maps_array else RENDER_TEXTURED_MAX
++	for slot in 0 ..< int(slots) {
+ 		t := pr.tex_meshes[slot]
+ 		for m in Texture_Map {
+ 			tex := t.maps[m] if t != nil && t.maps[m] != nil else defaults[m]
+ 			samplers[5 + 3 * slot + int(m)] = {texture = tex, sampler = r.texture_sampler}
+ 		}
+ 	}
+-	gpu_bind_compute_samplers(pass, 0, &samplers[0], len(samplers))
++	if pr.maps_array {
++		gpu_bind_compute_samplers(pass, 0, &samplers[0], 5)
++		gpu_bind_compute_texture_array(pass, samplers[5:][:3 * slots])
++	} else {
++		gpu_bind_compute_samplers(pass, 0, &samplers[0], RENDER_SAMPLERS)
++	}
+ 	reads: [Scene_Buffer]^sdl.GPUBuffer = pr.buffers
+ 	gpu_bind_compute_storage_buffers(pass, 0, &reads[Scene_Buffer(0)], len(Scene_Buffer))
+ 	gpu_push_compute_uniform_data(cmd, 0, &u, size_of(u))
+@@ -468,6 +495,35 @@ aabb_transform :: proc(b: geom.Aabb, model: Mat4) -> geom.Aabb {
+ 	return out
+ }
+ 
++// The kernel that reads every map from one array, where the device offers texture arrays
++// for at least four textured items, with how many it shows; nil where it does not, or
++// where the device refuses it (the log says why), and render mode keeps the named kernel.
++@(private = "file")
++path_maps_pipeline :: proc(r: ^Renderer) -> (pipeline: ^sdl.GPUComputePipeline, array: bool, textured_max: u32) {
++	when ODIN_OS != .Darwin {
++		offered := r.caps.texture_arrays / 3
++		if offered <= RENDER_TEXTURED_MAX do return
++		textured_max = min(offered, RENDER_TEXTURED_ARRAY)
++		pipeline = gpu_create_compute_pipeline_array(r.device, {
++			code_size = len(RENDER_TRACE_MAPS_COMP_CODE), code = raw_data(RENDER_TRACE_MAPS_COMP_CODE), entrypoint = SHADER_ENTRY,
++			format = SHADER_FORMAT, num_samplers = 5, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
++			num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
++		}, 3 * textured_max)
++		if pipeline == nil {
++			log.warnf("render mode: the texture array kernel could not be made (%s); it shows %d textured objects' maps", sdl.GetError(), RENDER_TEXTURED_MAX)
++			return nil, false, 0
++		}
++		array = true
++	}
++	return
++}
++
++// How many textured objects render mode shows with their maps on this device, once it has
++// started; others show their material.
++render_textured_max :: proc(pr: ^Path_Render) -> int {
++	return int(pr.textured_max) if pr.pipeline != nil else RENDER_TEXTURED_MAX
++}
++
+ @(private = "file")
+ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: bool) -> bool {
+ 	if pr.pipeline == nil {
+@@ -476,11 +532,15 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half:
+ 			log.warn("render mode: this device cannot write RGBA32F and RGBA16F from compute; it stays off")
+ 			return false
+ 		}
+-		pr.pipeline = gpu_create_compute_pipeline(r.device, {
+-			code_size = len(RENDER_TRACE_COMP_CODE), code = raw_data(RENDER_TRACE_COMP_CODE), entrypoint = SHADER_ENTRY,
+-			format = SHADER_FORMAT, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
+-			num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
+-		})
++		pr.pipeline, pr.maps_array, pr.textured_max = path_maps_pipeline(r)
++		if pr.pipeline == nil {
++			pr.pipeline = gpu_create_compute_pipeline(r.device, {
++				code_size = len(RENDER_TRACE_COMP_CODE), code = raw_data(RENDER_TRACE_COMP_CODE), entrypoint = SHADER_ENTRY,
++				format = SHADER_FORMAT, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
++				num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
++			})
++			pr.maps_array, pr.textured_max = false, RENDER_TEXTURED_MAX
++		}
+ 		pr.display = create_fullscreen_pipeline(r, RENDER_DISPLAY_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 4)
+ 		pr.atrous = create_fullscreen_pipeline(r, RENDER_ATROUS_FRAG_CODE, RENDER_GUIDE_FORMAT, samplers = 3)
+ 		pr.sampler = gpu_create_sampler(r.device, {
+@@ -641,7 +701,7 @@ Path_Item :: struct {
+ 	chunk_off:                   u32,
+ 	paint:                       bool, // its paint buffer is copied
+ 	// A textured item's preview, with where its vertices and corners go in the Textured
+-	// buffer (words) and its map slot (RENDER_TEXTURED_MAX for none).
++	// buffer (words) and its map slot (Path_Render.textured_max for none).
+ 	textured:                    ^Textured_Mesh,
+ 	tex_vertex_off, tex_corner_off: u32,
+ 	tex_slot:                    u32,
+@@ -658,7 +718,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
+ 	}
+ 	placed := make([dynamic]Path_Item, context.temp_allocator)
+ 	vertex_count, tri_count, node_count, word_count, chunk_count, textured_count, textured_words: u32
+-	pr.tex_meshes, pr.tex_stamps, pr.tex_left_out = {}, {}, 0
++	pr.tex_meshes, pr.tex_stamps, pr.tex_count, pr.tex_left_out = {}, {}, 0, 0
+ 	for item, i in items {
+ 		if blended(&r.single, item) do continue
+ 		tm := item.mesh.trace
+@@ -671,9 +731,9 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
+ 		p.vertex_off, p.tri_off, p.node_off, p.word_off, p.chunk_off = vertex_count, tri_count, node_count, word_count, chunk_count
+ 		p.paint = item.mesh.paint != nil && (item.paint || item.groups || item.slots != nil)
+ 		if t := item.textured; t != nil && item.texture_view != .Off && t.index_count > 0 && t.corner_count == 3 * p.triangles {
+-			p.tex_slot = RENDER_TEXTURED_MAX
++			p.tex_slot = pr.textured_max
+ 			if item.texture_view != .Uv_Checker {
+-				if textured_count < RENDER_TEXTURED_MAX {
++				if textured_count < pr.textured_max {
+ 					p.tex_slot = textured_count
+ 					pr.tex_meshes[textured_count], pr.tex_stamps[textured_count] = t, t.maps_stamp
+ 					textured_count += 1
+@@ -681,7 +741,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
+ 					pr.tex_left_out += 1
+ 				}
+ 			}
+-			if p.tex_slot < RENDER_TEXTURED_MAX || item.texture_view == .Uv_Checker {
++			if p.tex_slot < pr.textured_max || item.texture_view == .Uv_Checker {
+ 				// It shows its maps or checker over its preview's normals, never paint or
+ 				// polygroups, as in the viewport.
+ 				p.textured, p.paint = t, false
+@@ -696,6 +756,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
+ 		chunk_count += u32(len(tm.trees))
+ 		append(&placed, p)
+ 	}
++	pr.tex_count = textured_count
+ 	if len(placed) >= 1 << 12 {
+ 		pr.refused = "Render mode traces at most 4096 objects."
+ 		return false
+@@ -884,7 +945,7 @@ path_item_record :: proc(item: Draw_Item, p: Path_Item) -> (rec: Item_Record) {
+ 		rec.offs.y |= ITEM_TEXTURED
+ 		maps: u32
+ 		for m in Texture_Map do if t.maps[m] != nil do maps |= 1 << u32(m)
+-		rec.tex = {p.tri_off, p.tex_corner_off, p.tex_vertex_off, p.tex_slot | u32(item.texture_view) << TEX_VIEW_SHIFT | maps << TEX_MAPS_SHIFT}
++		rec.tex = {p.tri_off, p.tex_corner_off, p.tex_vertex_off, min(p.tex_slot, RENDER_TEXTURED_MAX) | u32(item.texture_view) << TEX_VIEW_SHIFT | maps << TEX_MAPS_SHIFT | p.tex_slot << TEX_WIDE_SLOT_SHIFT}
+ 	}
+ 	if p.paint {
+ 		if item.paint do rec.offs.y |= ITEM_PAINT
+diff --git a/src/render/shaders/render_trace.comp.slang b/src/render/shaders/render_trace.comp.slang
+index 662a51f..f9779d8 100644
+--- a/src/render/shaders/render_trace.comp.slang
++++ b/src/render/shaders/render_trace.comp.slang
+@@ -1,860 +1,2 @@
+-// One sample of render mode (render/path.odin) for a band of rows: a path per pixel from
+-// the camera, through the merged scene (every traced item's triangles, their chunk trees
+-// and a tree over all the chunks in world space), bouncing off Lambert and GGX surfaces.
+-// Each surface the path meets takes light from one of the scene's lights picked by
+-// strength (next-event estimation) and continues in a direction its material picks;
+-// a direction that meets a light counts it too, the two weighted by the power heuristic
+-// so neither is counted twice. A path that leaves the scene takes the environment, which
+-// is also sampled as a light by its brightness (env_sample.odin's table), weighed against
+-// the bounces that find it the same way.
+-// The camera's ray is jittered within its pixel, so the image is anti-aliased, but for
+-// the first sample's, through the pixel's centre, which also writes the denoiser's guides
+-// (render_atrous.frag.slang): what the ray met's colour, normal and distance; with depth of
+-// field every sample adds to them, so they blur as the image does. Every
+-// random number comes from the pixel and the sample, so a sample is the same however the
+-// rows are split between dispatches and on every run.
+-//
+-// SDL_GPU's SPIR-V layout for compute: set 0 holds the sampled textures, then the
+-// read-only storage buffers; set 1 the read-write storage textures; set 2 the uniforms.
+-
+-#include "common.slang"
+-struct Node {
+-	float3 lo;
+-	uint first; // inner: the left child, the right one after it; leaf: see below
+-	float3 hi;
+-	uint count; // 0 for an inner node
+-};
+-
+-// One traced item (render.Item_Record).
+-struct Item {
+-	float4x4 model;      // mesh space into the world, a similarity
+-	float4x4 inv_model;
+-	float4 color;      // the base colour, linear
+-	float4 surface;    // x: metallic, y: roughness
+-	uint4 offs;      // x: the item's first vertex in the merged buffers, y: ITEM_ flags
+-	uint4 slot_group[4];   // the polygroup of each material slot from 1
+-	float4 slot_color[16];   // each slot's colour, as `color`
+-	float4 slot_surface[16]; // ...and surface, as `surface`
+-	// ITEM_TEXTURED: its first triangle, where its corners and its preview vertices start
+-	// in `textured`, and its map slot (bits 0-3, 3 for none), view (4-7: 1 the maps, 2 the
+-	// normal map, 3 the UV checker) and maps it has (8-10: base colour, ORM, normal)
+-	uint4 tex;
+-};
+-
+-static const uint ITEM_PAINT = 1u;  // the polypaint shows over the colour
+-static const uint ITEM_GROUPS = 2u; // each polygroup shows in its own colour instead
+-static const uint ITEM_SLOTS = 4u;  // groups may have materials of their own
+-static const uint ITEM_TEXTURED = 8u; // shows its maps through its preview's UVs
+-
+-// The sum so far: radiance over the samples whose camera ray met the scene in rgb, and
+-// how many did in a.
+-[[vk::binding(0, 0)]] Sampler2D prev;
+-// The image environment as loaded, at full size (render/environment.odin's source); a
+-// black 1 x 1 one while none is bound.
+-[[vk::binding(1, 0)]] Sampler2D environment_map;
+-// The table for sampling the environment by its brightness: the image's, or the built-in
+-// studio's in its own space (render.Env_Table).
+-[[vk::binding(2, 0)]] Sampler2D env_table;
+-// The guides so far (below), which with depth of field each sample adds to.
+-[[vk::binding(3, 0)]] Sampler2D prev_albedo;
+-[[vk::binding(4, 0)]] Sampler2D prev_normal;
+-// Each map slot's base colour (sRGB, so it samples linear), ORM and normal maps
+-// (render.Texture_Map), defaults where an item lacks one (its flags say so).
+-[[vk::binding(5, 0)]] Sampler2D map0;
+-[[vk::binding(6, 0)]] Sampler2D map1;
+-[[vk::binding(7, 0)]] Sampler2D map2;
+-[[vk::binding(8, 0)]] Sampler2D map3;
+-[[vk::binding(9, 0)]] Sampler2D map4;
+-[[vk::binding(10, 0)]] Sampler2D map5;
+-[[vk::binding(11, 0)]] Sampler2D map6;
+-[[vk::binding(12, 0)]] Sampler2D map7;
+-[[vk::binding(13, 0)]] Sampler2D map8;
+-[[vk::binding(14, 0)]] StructuredBuffer<float> positions; // 3 floats a vertex, mesh space
+-[[vk::binding(15, 0)]] StructuredBuffer<uint> indices; // each item's own, from its first vertex
+-// Each vertex's normal (render.Normal_Packed, one word), then from counts.w each vertex's
+-// render.Paint_Packed (two words).
+-[[vk::binding(16, 0)]] StructuredBuffer<uint> attributes;
+-// Every chunk's tree, one after another, a leaf's `first` into its chunk's order; then
+-// from extra.x the tree over every chunk, a leaf's `first` a chunk.
+-[[vk::binding(17, 0)]] StructuredBuffer<Node> nodes;
+-[[vk::binding(18, 0)]] StructuredBuffer<uint> order; // two 16-bit offsets a word
+-// node_off, order_off, first_tri, and the node count with the item in the top 12 bits.
+-[[vk::binding(19, 0)]] StructuredBuffer<uint4> chunks;
+-[[vk::binding(20, 0)]] StructuredBuffer<Item> items;
+-// Each textured item's preview vertices (render.Textured_Vertex: position, packed normal,
+-// tangent as four 16-bit snorms, uv; 8 words), then its corners: for each triangle of its
+-// sculpt mesh, the vertex each corner takes.
+-[[vk::binding(21, 0)]] StructuredBuffer<uint> textured;
+-[[vk::binding(0, 1)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> next;
+-// The guides, written by the first sample only (by every sample, as running means over
+-// the samples, with depth of field): the base colour the camera's ray met with
+-// 1 in a (0 everywhere for a miss), and its normal (world) with the distance in a.
+-[[vk::binding(1, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> guide_albedo;
+-[[vk::binding(2, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> guide_normal;
+-
+-#define LIGHT_COUNT 8
+-
+-[[vk::binding(0, 2)]] cbuffer Render_Uniforms {
+-	float4x4 inv_view_proj; // clip space back to the world
+-	// The lights in world space, as render.Lights carries them in view space (light_at in
+-	// mesh_shading.slang): toward a sun or where a point or spot light is, kind in w; colour
+-	// and strength; a spot's axis and cone; distance, reach and spot edge.
+-	float4 light_pos[LIGHT_COUNT];
+-	float4 light_color[LIGHT_COUNT];
+-	float4 light_spot[LIGHT_COUNT];
+-	float4 light_shape[LIGHT_COUNT];
+-	// Each light as an area: x a sun's cone's cosine or a sphere's radius, y the radiance
+-	// a unit of its colour stands for, z the chance it is picked up to and including it, w
+-	// the chance it is picked.
+-	float4 light_size[LIGHT_COUNT];
+-	// The built-in studio's turn into the world, with the ambient light in rig_x.w.
+-	float4 rig_x;
+-	float4 rig_y;
+-	float4 rig_z;
+-	// The image environment's axes in the world.
+-	float4 env_x;
+-	float4 env_y;
+-	float4 env_z;
+-	float4 env;     // x: 1 while an image environment is bound, y: its strength, z: the chance a light sample takes the environment
+-	float4 scene;   // xyz: the scene's centre, w: its radius
+-	uint4 counts; // x: this sample, y: the first row of this band, z: bounces, w: where paint starts in `attributes`
+-	uint4 extra;  // x: where the scene tree starts in `nodes`, y: 1 when it is empty
+-	// Depth of field (render.Lens): the eye with the lens's radius in w (0: a pinhole),
+-	// the camera's right with the focal plane's distance along its forward in w, its up,
+-	// and its forward.
+-	float4 lens_eye;
+-	float4 lens_right;
+-	float4 lens_up;
+-	float4 lens_fwd;
+-};
+-
+-#include "panorama.slang"
+-#include "studio_env.slang"
+-#include "light_window.slang"
+-
+-static const float PI = 3.14159265;
+-// geom.CHUNK_BVH_STACK for each level: a chunk's entries stay above the scene tree's.
+-static const int STACK = 2 * 57;
+-static const uint IN_CHUNK = 0x80000000u;
+-static const float FAR = 3.0e38;
+-// How blurred the built-in studio is where paths leave the scene: its two narrow lobes
+-// sharp would be found by a diffuse bounce too rarely to converge.
+-static const float STUDIO_BLUR = 0.25;
+-// The largest radiance one sample may add to a pixel: a rare path that finds a bright
+-// light through a narrow gap would otherwise leave a white speck for hundreds of samples.
+-static const float SAMPLE_CLAMP = 16.0;
+-
+-// PCG (O'Neill 2014), the state per invocation.
+-static uint rng;
+-
+-uint pcg_next() {
+-	uint s = rng;
+-	rng = s * 747796405u + 2891336453u;
+-	uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+-	return (w >> 22u) ^ w;
+-}
+-
+-float rnd() {
+-	return float(pcg_next() >> 8) / 16777216.0;
+-}
+-
+-float3 vertex(uint v) {
+-	return float3(positions[3u * v], positions[3u * v + 1u], positions[3u * v + 2u]);
+-}
+-
+-float3 oct_decode(float2 e) {
+-	float3 v = float3(e, 1.0 - abs(e.x) - abs(e.y));
+-	if (v.z < 0.0) v.xy = (1.0 - abs(e.yx)) * float2(e.x >= 0.0 ? 1.0 : -1.0, e.y >= 0.0 ? 1.0 : -1.0);
+-	return normalize(v);
+-}
+-
+-// A normal packed as render.Normal_Packed: two 16-bit halves, the mask in the low 4 bits
+-// of each, which render mode leaves out.
+-float3 normal_decode(uint w) {
+-	int2 raw = int2(int(w << 16) >> 16, int(w) >> 16);
+-	return oct_decode(float2(raw & ~15) / 32767.0);
+-}
+-
+-// A vertex's normal in mesh space.
+-float3 vertex_normal(uint v) {
+-	return normal_decode(attributes[v]);
+-}
+-
+-// A textured item's preview vertex at word `at` of `textured`: its normal and tangent
+-// (w the bitangent's side) in mesh space, and its UV (v up).
+-struct Tex_Vertex {
+-	float3 n;
+-	float4 t;
+-	float2 uv;
+-};
+-
+-Tex_Vertex tex_vertex(uint at) {
+-	Tex_Vertex v;
+-	v.n = normal_decode(textured[at + 3u]);
+-	uint a = textured[at + 4u], b = textured[at + 5u];
+-	v.t = max(float4(int(a << 16) >> 16, int(a) >> 16, int(b << 16) >> 16, int(b) >> 16) / 32767.0, float4(-1.0));
+-	v.uv = float2(asfloat(textured[at + 6u]), asfloat(textured[at + 7u]));
+-	return v;
+-}
+-
+-// Map `kind` (0 base colour, 1 ORM, 2 normal) of map slot `slot` at `uv`, at the level
+-// whose texels are as wide as `lod` says the pixel is, in log2 of the UV square (so the
+-// map's own size adds half the log2 of its texel count). The samplers are named, not an
+-// array: indexing one by a value that differs between pixels needs a device feature
+-// tablets do not promise.
+-#define MAP_AT(s) { float2 size = float2(texture_size(s)); return s.SampleLevel(uv, max(lod + 0.5 * log2(size.x * size.y), 0.0)); }
+-float4 map_at(uint slot, uint kind, float2 uv, float lod) {
+-	switch (slot * 3u + kind) {
+-	case 0u: MAP_AT(map0)
+-	case 1u: MAP_AT(map1)
+-	case 2u: MAP_AT(map2)
+-	case 3u: MAP_AT(map3)
+-	case 4u: MAP_AT(map4)
+-	case 5u: MAP_AT(map5)
+-	case 6u: MAP_AT(map6)
+-	case 7u: MAP_AT(map7)
+-	case 8u: MAP_AT(map8)
+-	}
+-	return float4(0.0);
+-}
+-
+-// The viewport's UV checker (mesh_shading.slang): 8 by 8 cells, every other one darker,
+-// each edged with a line and tinted by its column and row; the lines a fixed share of a
+-// cell, since render mode smooths edges by its samples rather than by pixel derivatives.
+-float3 uv_checker(float2 uv) {
+-	float2 c = uv * 8.0;
+-	float2 f = frac(c);
+-	float line = step(min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y)), 0.015);
+-	float2 cell = floor(c);
+-	float odd = glsl_mod(cell.x + cell.y, 2.0);
+-	float h = (cell.x + 0.5) / 8.0;
+-	float3 hue = clamp(abs(frac(h + float3(0.0, 2.0, 1.0) / 3.0) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+-	float3 tint = lerp(float3(1.0), hue, 0.35) * lerp(0.7, 1.0, (cell.y + 0.5) / 8.0);
+-	return tint * lerp(1.0, 0.72, odd) * (1.0 - 0.5 * line);
+-}
+-
+-uint2 vertex_paint(uint v) {
+-	uint at = counts.w + 2u * v;
+-	return uint2(attributes[at], attributes[at + 1u]);
+-}
+-
+-float3 srgb_decode(float3 c) {
+-	return lerp(c / 12.92, pow((c + 0.055) / 1.055, float3(2.4)), step(0.04045, c));
+-}
+-
+-// As mesh.vert.slang's: hues a golden angle apart, in two lightnesses.
+-float3 group_color(uint g) {
+-	float h = frac(float(g) * 0.618034 + 0.12);
+-	float3 rgb = clamp(abs(frac(h + float3(0.0, 2.0, 1.0) / 3.0) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+-	float light = (g & 1u) == 0u ? 0.75 : 0.55;
+-	return lerp(float3(1.0), rgb, 0.55) * light;
+-}
+-
+-// Where a ray along `d` enters the box, or -1 where it misses it or enters beyond `t_max`;
+-// a box refit empty (lo above hi) is never entered.
+-float enters(Node n, float3 o, float3 inv, float t_max) {
+-	if (n.lo.x > n.hi.x) return -1.0;
+-	float3 t0 = (n.lo - o) * inv, t1 = (n.hi - o) * inv;
+-	float3 near = min(t0, t1), far = max(t0, t1);
+-	float t_in = max(max(near.x, near.y), max(near.z, 0.0));
+-	float t_out = min(far.x, min(far.y, far.z));
+-	return t_in <= t_out && t_in < t_max ? t_in : -1.0;
+-}
+-
+-float3 safe_inverse(float3 d) {
+-	// No component exactly zero, so the slab test never multiplies zero by infinity.
+-	return 1.0 / select(d == float3(0.0), float3(1e-20), d);
+-}
+-
+-struct Hit {
+-	float t;
+-	uint tri;  // in the merged index buffer
+-	uint item;
+-	float2 uv;   // barycentrics of the second and third corners
+-};
+-
+-// The nearest triangle along the ray before `t_max`, or with `any` the first one found.
+-// The scene tree is in world space; at a chunk the ray goes into its item's mesh space
+-// unnormalised, so t keeps measuring the world ray.
+-bool trace(float3 o, float3 d, float t_max, bool any, out Hit hit) {
+-	hit.t = t_max;
+-	hit.tri = 0u;
+-	hit.item = 0u;
+-	hit.uv = float2(0.0);
+-	if (extra.y != 0u) return false;
+-	bool found = false;
+-	float3 inv = safe_inverse(d);
+-	uint stack[STACK];
+-	int top = 1;
+-	stack[0] = extra.x;
+-	uint4 ch = uint4(0u);
+-	uint item = 0u, base = 0u;
+-	float3 om = float3(0.0), dm = float3(0.0), inv_m = float3(0.0);
+-	while (top > 0) {
+-		uint e = stack[--top];
+-		if ((e & IN_CHUNK) == 0u) {
+-			Node n = nodes[e];
+-			if (enters(n, o, inv, hit.t) < 0.0) continue;
+-			if (n.count == 0u) {
+-				// The nearer child is walked first, so later boxes are cut by its hits.
+-				uint a = extra.x + n.first, b = a + 1u;
+-				float ta = enters(nodes[a], o, inv, hit.t), tb = enters(nodes[b], o, inv, hit.t);
+-				if (ta >= 0.0 && tb >= 0.0) {
+-					stack[top++] = ta < tb ? b : a;
+-					stack[top++] = ta < tb ? a : b;
+-				} else if (ta >= 0.0) {
+-					stack[top++] = a;
+-				} else if (tb >= 0.0) {
+-					stack[top++] = b;
+-				}
+-			} else {
+-				// Everything pushed from here on is this chunk's, and is walked before the
+-				// scene tree's next entry comes off the stack.
+-				ch = chunks[n.first];
+-				item = ch.w >> 20;
+-				base = items[item].offs.x;
+-				float4x4 to_mesh = items[item].inv_model;
+-				om = (mul(float4(o, 1.0), to_mesh)).xyz;
+-				dm = mul(d, (float3x3)to_mesh);
+-				inv_m = safe_inverse(dm);
+-				stack[top++] = IN_CHUNK;
+-			}
+-			continue;
+-		}
+-		Node n = nodes[ch.x + (e & ~IN_CHUNK)];
+-		if (enters(n, om, inv_m, hit.t) < 0.0) continue;
+-		if (n.count == 0u) {
+-			uint a = n.first, b = a + 1u;
+-			float ta = enters(nodes[ch.x + a], om, inv_m, hit.t), tb = enters(nodes[ch.x + b], om, inv_m, hit.t);
+-			if (ta >= 0.0 && tb >= 0.0) {
+-				stack[top++] = IN_CHUNK | (ta < tb ? b : a);
+-				stack[top++] = IN_CHUNK | (ta < tb ? a : b);
+-			} else if (ta >= 0.0) {
+-				stack[top++] = IN_CHUNK | a;
+-			} else if (tb >= 0.0) {
+-				stack[top++] = IN_CHUNK | b;
+-			}
+-			continue;
+-		}
+-		for (uint j = n.first; j < n.first + n.count; j++) {
+-			uint at = ch.y + j;
+-			uint word = order[at >> 1];
+-			uint tri = ch.z + ((at & 1u) == 0u ? (word & 0xFFFFu) : (word >> 16));
+-			uint ia = indices[3u * tri], ib = indices[3u * tri + 1u], ic = indices[3u * tri + 2u];
+-			// A triangle with a repeated corner (hidden, or an unused slot) never hits.
+-			if (ia == ib || ib == ic || ia == ic) continue;
+-			// Möller-Trumbore, both sides.
+-			float3 p0 = vertex(base + ia);
+-			float3 e1 = vertex(base + ib) - p0, e2 = vertex(base + ic) - p0;
+-			float3 pv = cross(dm, e2);
+-			float det = dot(e1, pv);
+-			if (det == 0.0) continue;
+-			float f = 1.0 / det;
+-			float3 tv = om - p0;
+-			float u = dot(tv, pv) * f;
+-			if (u < 0.0 || u > 1.0) continue;
+-			float3 qv = cross(tv, e1);
+-			float v = dot(dm, qv) * f;
+-			if (v < 0.0 || u + v > 1.0) continue;
+-			float t = dot(e2, qv) * f;
+-			if (t <= 0.0 || t >= hit.t) continue;
+-			hit.t = t;
+-			hit.tri = tri;
+-			hit.item = item;
+-			hit.uv = float2(u, v);
+-			found = true;
+-			if (any) return true;
+-		}
+-	}
+-	return found;
+-}
+-
+-// Off the surface along its geometric normal by a few steps of the float grid, which
+-// scales with the position itself (Wächter and Binder, "A Fast and Robust Method for
+-// Avoiding Self-Intersection", Ray Tracing Gems 2019).
+-float3 offset_ray(float3 p, float3 n) {
+-	const float ORIGIN = 1.0 / 32.0;
+-	const float FLOAT_SCALE = 1.0 / 65536.0;
+-	const float INT_SCALE = 256.0;
+-	int3 of = int3(INT_SCALE * n);
+-	float3 p_i = float3(
+-		asfloat(asint(p.x) + (p.x < 0.0 ? -of.x : of.x)),
+-		asfloat(asint(p.y) + (p.y < 0.0 ? -of.y : of.y)),
+-		asfloat(asint(p.z) + (p.z < 0.0 ? -of.z : of.z)));
+-	return float3(
+-		abs(p.x) < ORIGIN ? p.x + FLOAT_SCALE * n.x : p_i.x,
+-		abs(p.y) < ORIGIN ? p.y + FLOAT_SCALE * n.y : p_i.y,
+-		abs(p.z) < ORIGIN ? p.z + FLOAT_SCALE * n.z : p_i.z);
+-}
+-
+-// A frame about `n` (Duff et al. 2017): tangent, bitangent.
+-void basis(float3 n, out float3 t, out float3 b) {
+-	float s = n.z >= 0.0 ? 1.0 : -1.0;
+-	float a = -1.0 / (s + n.z);
+-	float c = n.x * n.y * a;
+-	t = float3(1.0 + s * n.x * n.x * a, s * c, -s * n.x);
+-	b = float3(c, s + n.y * n.y * a, -n.y);
+-}
+-
+-float luminance(float3 c) {
+-	return dot(c, float3(0.2126, 0.7152, 0.0722));
+-}
+-
+-struct Surface {
+-	float3 diffuse; // the Lambert part's colour
+-	float3 f0;      // reflectance seen straight on
+-	float a;      // GGX alpha, roughness squared
+-};
+-
+-float3 fresnel(float3 f0, float c) {
+-	return f0 + (1.0 - f0) * pow(1.0 - clamp(c, 0.0, 1.0), 5.0);
+-}
+-
+-float ggx_d(float n_dot_h, float a) {
+-	float a2 = a * a;
+-	float d = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
+-	return a2 / (PI * d * d);
+-}
+-
+-// Smith's Lambda for GGX.
+-float ggx_lambda(float c, float a) {
+-	float c2 = max(c * c, 1e-8);
+-	return 0.5 * (-1.0 + sqrt(1.0 + a * a * (1.0 - c2) / c2));
+-}
+-
+-// The chance the specular lobe is picked, from the Fresnel straight toward the eye: the
+-// half vector is not known before the lobe is.
+-float specular_chance(Surface s, float n_dot_v) {
+-	float3 fv = fresnel(s.f0, n_dot_v);
+-	float es = luminance(fv), ed = luminance(s.diffuse * (1.0 - fv));
+-	if (ed <= 0.0) return 1.0;
+-	return clamp(es / max(es + ed, 1e-6), 0.05, 0.95);
+-}
+-
+-// The BSDF times the cosine toward `l`, and the pdf of picking `l` with bsdf_sample (the
+-// mixture of both lobes).
+-float3 bsdf_eval(Surface s, float3 n, float3 v, float3 l, out float pdf) {
+-	pdf = 0.0;
+-	float n_dot_l = dot(n, l), n_dot_v = dot(n, v);
+-	if (n_dot_l <= 0.0 || n_dot_v <= 0.0) return float3(0.0);
+-	float3 h = normalize(v + l);
+-	float n_dot_h = max(dot(n, h), 0.0), v_dot_h = max(dot(v, h), 0.0);
+-	float D = ggx_d(n_dot_h, s.a);
+-	float lv = ggx_lambda(n_dot_v, s.a), ll = ggx_lambda(n_dot_l, s.a);
+-	float3 F = fresnel(s.f0, v_dot_h);
+-	float3 spec = F * (D / ((1.0 + lv + ll) * 4.0 * n_dot_v * n_dot_l));
+-	float3 diff = s.diffuse * (1.0 - fresnel(s.f0, n_dot_v)) / PI;
+-	float ps = specular_chance(s, n_dot_v);
+-	// The visible normals' pdf of h, carried over to l: G1(v) D / (4 n.v).
+-	float pdf_spec = D / ((1.0 + lv) * 4.0 * n_dot_v);
+-	pdf = ps * pdf_spec + (1.0 - ps) * n_dot_l / PI;
+-	return (diff + spec) * n_dot_l;
+-}
+-
+-// A half vector from GGX's visible normals (Heitz 2018), in the frame where n is +z.
+-float3 sample_vndf(float3 ve, float a, float2 u) {
+-	float3 vh = normalize(float3(a * ve.x, a * ve.y, ve.z));
+-	float lensq = vh.x * vh.x + vh.y * vh.y;
+-	float3 t1 = lensq > 0.0 ? float3(-vh.y, vh.x, 0.0) * rsqrt(lensq) : float3(1.0, 0.0, 0.0);
+-	float3 t2 = cross(vh, t1);
+-	float r = sqrt(u.x), phi = 2.0 * PI * u.y;
+-	float p1 = r * cos(phi), p2 = r * sin(phi);
+-	float s = 0.5 * (1.0 + vh.z);
+-	p2 = (1.0 - s) * sqrt(max(1.0 - p1 * p1, 0.0)) + s * p2;
+-	float3 nh = p1 * t1 + p2 * t2 + sqrt(max(1.0 - p1 * p1 - p2 * p2, 0.0)) * vh;
+-	return normalize(float3(a * nh.x, a * nh.y, max(nh.z, 0.0)));
+-}
+-
+-// A direction to continue in, picked from one lobe; false where it would go under the
+-// surface.
+-bool bsdf_sample(Surface s, float3 n, float3 v, out float3 l) {
+-	float3 t, b;
+-	basis(n, t, b);
+-	float n_dot_v = max(dot(n, v), 1e-4);
+-	float2 u = float2(rnd(), rnd());
+-	if (rnd() < specular_chance(s, n_dot_v)) {
+-		float3 ve = float3(dot(v, t), dot(v, b), dot(v, n));
+-		float3 hl = sample_vndf(ve, s.a, u);
+-		float3 h = t * hl.x + b * hl.y + n * hl.z;
+-		l = reflect(-v, h);
+-	} else {
+-		float r = sqrt(u.x), phi = 2.0 * PI * u.y;
+-		l = normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(1.0 - u.x, 0.0)));
+-	}
+-	return dot(n, l) > 0.0;
+-}
+-
+-// A direction in the cone of cosine `cos_max` about `axis`, uniformly.
+-float3 sample_cone(float3 axis, float cos_max) {
+-	float3 t, b;
+-	basis(axis, t, b);
+-	float c = 1.0 - rnd() * (1.0 - cos_max);
+-	float s = sqrt(max(1.0 - c * c, 0.0)), phi = 2.0 * PI * rnd();
+-	return normalize(t * (s * cos(phi)) + b * (s * sin(phi)) + axis * c);
+-}
+-
+-float cone_pdf(float cos_max) {
+-	return 1.0 / (2.0 * PI * max(1.0 - cos_max, 1e-7));
+-}
+-
+-// How much of a point or spot light's radiance arrives at distance² `d2` from it along `l`
+-// (toward the light): its window at its reach and a spot's cone.
+-float light_falloff(int i, float d2, float3 l) {
+-	return light_window(light_pos[i], light_shape[i], light_spot[i], d2, l);
+-}
+-
+-// Where a ray from `o` along unit `d` meets the sphere, or -1.
+-float sphere_hit(float3 o, float3 d, float3 c, float r) {
+-	float3 oc = o - c;
+-	float b = dot(oc, d);
+-	float q = dot(oc, oc) - r * r;
+-	float disc = b * b - q;
+-	if (disc < 0.0) return -1.0;
+-	float s = sqrt(disc);
+-	float t = -b - s;
+-	if (t < 0.0) t = -b + s;
+-	return t;
+-}
+-
+-// The cone of directions sphere light `i` fills seen from `p`: its cosine, or 2 when `p`
+-// is inside it.
+-float sphere_cone(int i, float3 p) {
+-	float3 d = light_pos[i].xyz - p;
+-	float d2 = dot(d, d), r = light_size[i].x;
+-	if (d2 <= r * r) return 2.0;
+-	return sqrt(1.0 - r * r / d2);
+-}
+-
+-float power_weight(float a, float b) {
+-	return a * a / max(a * a + b * b, 1e-30);
+-}
+-
+-// What a path that leaves the scene along `d` takes: the image environment, or the
+-// built-in studio at the ambient light's strength as the viewport's diffuse takes it.
+-float3 environment(float3 d) {
+-	if (env.x > 0.5) {
+-		float3 e = mul(d, transpose(float3x3(env_x.xyz, env_y.xyz, env_z.xyz)));
+-		return environment_map.SampleLevel(panorama_uv(e), 0.0).rgb * env.y;
+-	}
+-	float3x3 to_rig = transpose(float3x3(rig_x.xyz, rig_y.xyz, rig_z.xyz));
+-	return studio(mul(d, to_rig), STUDIO_BLUR) * (0.7 * rig_x.w);
+-}
+-
+-// The environment's frame: its own axes in the world, an image's or the studio's.
+-float3x3 env_frame() {
+-	return env.x > 0.5 ? float3x3(env_x.xyz, env_y.xyz, env_z.xyz) : float3x3(rig_x.xyz, rig_y.xyz, rig_z.xyz);
+-}
+-
+-// A direction (world) picked by the environment's table, and its density.
+-float3 env_sample(out float pdf) {
+-	int2 ts = texture_size(env_table);
+-	int count = ts.x * ts.y;
+-	float u = rnd() * float(count);
+-	int i = min(int(u), count - 1);
+-	float4 e = env_table.Load(int3(int2(i % ts.x, i / ts.x), 0));
+-	if (frac(u) >= e.x) {
+-		i = int(e.y);
+-		e = env_table.Load(int3(int2(i % ts.x, i / ts.x), 0));
+-	}
+-	float2 uv = (float2(i % ts.x, i / ts.x) + float2(rnd(), rnd())) / float2(ts);
+-	float3 local = panorama_dir(uv);
+-	pdf = e.z / max(sqrt(max(1.0 - local.y * local.y, 0.0)), 1e-4);
+-	return mul(local, env_frame());
+-}
+-
+-// The density env_sample gives direction `d` (world).
+-float env_pdf(float3 d) {
+-	float3 local = mul(d, transpose(env_frame()));
+-	int2 ts = texture_size(env_table);
+-	int2 at = min(int2(panorama_uv(local) * float2(ts)), ts - 1);
+-	return env_table.Load(int3(at, 0)).z / max(sqrt(max(1.0 - local.y * local.y, 0.0)), 1e-4);
+-}
+-
+-// One light's light at a surface (next-event estimation): the environment or a light,
+-// picked by how much light each gives, a direction toward it, the BSDF there and a shadow
+-// ray, weighted against finding the light by the BSDF.
+-float3 direct_light(Surface s, float3 p, float3 ng, float3 n, float3 v) {
+-	float pick = rnd();
+-	if (pick < env.z) {
+-		float pdf_env;
+-		float3 l = env_sample(pdf_env);
+-		if (dot(ng, l) <= 0.0) return float3(0.0);
+-		float pdf_bsdf;
+-		float3 f = bsdf_eval(s, n, v, l, pdf_bsdf);
+-		if (luminance(f) <= 0.0) return float3(0.0);
+-		float3 radiance = environment(l);
+-		float pdf_light = env.z * pdf_env;
+-		if (luminance(radiance) <= 0.0 || pdf_light <= 0.0) return float3(0.0);
+-		Hit shadow;
+-		if (trace(offset_ray(p, ng), l, FAR, true, shadow)) return float3(0.0);
+-		return f * radiance * (power_weight(pdf_light, pdf_bsdf) / pdf_light);
+-	}
+-	int i = -1;
+-	for (int k = 0; k < LIGHT_COUNT; k++) {
+-		if (light_size[k].w > 0.0 && pick < light_size[k].z) {
+-			i = k;
+-			break;
+-		}
+-	}
+-	if (i < 0) return float3(0.0);
+-	float3 l;
+-	float dist = FAR, pdf_dir;
+-	float3 radiance = light_color[i].rgb * light_size[i].y;
+-	if (light_pos[i].w < 0.5) {
+-		l = sample_cone(light_pos[i].xyz, light_size[i].x);
+-		pdf_dir = cone_pdf(light_size[i].x);
+-	} else {
+-		float cos_max = sphere_cone(i, p);
+-		if (cos_max > 1.0) return float3(0.0);
+-		float3 to = light_pos[i].xyz - p;
+-		l = sample_cone(normalize(to), cos_max);
+-		pdf_dir = cone_pdf(cos_max);
+-		dist = sphere_hit(p, l, light_pos[i].xyz, light_size[i].x);
+-		if (dist <= 0.0) return float3(0.0);
+-		radiance *= light_falloff(i, dot(to, to), normalize(to));
+-	}
+-	if (dot(ng, l) <= 0.0 || luminance(radiance) <= 0.0) return float3(0.0);
+-	float pdf_bsdf;
+-	float3 f = bsdf_eval(s, n, v, l, pdf_bsdf);
+-	if (luminance(f) <= 0.0) return float3(0.0);
+-	float pdf_light = light_size[i].w * pdf_dir;
+-	Hit shadow;
+-	if (trace(offset_ray(p, ng), l, dist, true, shadow)) return float3(0.0);
+-	return f * radiance * (power_weight(pdf_light, pdf_bsdf) / pdf_light);
+-}
+-
+-// The lights a ray picked by the BSDF meets before `t_hit` (suns only when it leaves the
+-// scene), weighted against finding them by next-event estimation.
+-float3 lights_met(float3 o, float3 d, float t_hit, bool escaped, float pdf_bsdf) {
+-	float3 sum = float3(0.0);
+-	for (int i = 0; i < LIGHT_COUNT; i++) {
+-		if (light_size[i].w <= 0.0) continue;
+-		float3 radiance = light_color[i].rgb * light_size[i].y;
+-		float pdf_dir;
+-		if (light_pos[i].w < 0.5) {
+-			if (!escaped || dot(d, light_pos[i].xyz) < light_size[i].x) continue;
+-			pdf_dir = cone_pdf(light_size[i].x);
+-		} else {
+-			float t = sphere_hit(o, d, light_pos[i].xyz, light_size[i].x);
+-			float cos_max = sphere_cone(i, o);
+-			if (t <= 0.0 || t >= t_hit || cos_max > 1.0) continue;
+-			float3 to = light_pos[i].xyz - o;
+-			radiance *= light_falloff(i, dot(to, to), normalize(to));
+-			pdf_dir = cone_pdf(cos_max);
+-		}
+-		sum += radiance * power_weight(pdf_bsdf, light_size[i].w * pdf_dir);
+-	}
+-	return sum;
+-}
+-
+-
+-[numthreads(8, 8, 1)]
+-void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 global_id : SV_DispatchThreadID) {
+-	int2 size = texture_size(prev);
+-	int2 px = int2(global_id.x, global_id.y + counts.y);
+-	if (px.x >= size.x || px.y >= size.y) return;
+-	rng = uint(px.y * size.x + px.x) * 9781u + counts.x * 6271u + 1u;
+-	pcg_next();
+-	rng ^= counts.x * 2654435761u;
+-	pcg_next();
+-
+-	// The camera's ray through a random point of the pixel, or the first sample's through
+-	// its centre.
+-	float2 jitter = float2(rnd(), rnd());
+-	bool first = counts.x == 0u;
+-	if (first) jitter = float2(0.5);
+-	float2 uv = (float2(px) + jitter) / float2(size);
+-	float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+-	float4 near = mul(float4(ndc, 0.0, 1.0), inv_view_proj);
+-	float4 far = mul(float4(ndc, 1.0, 1.0), inv_view_proj);
+-	float3 o = near.xyz / near.w;
+-	float3 d = normalize(far.xyz / far.w - o);
+-	// The ray through the next pixel across, for how wide a pixel is where the camera's ray
+-	// meets something (the maps' level).
+-	float2 ndc_dx = ndc + float2(2.0 / float(size.x), 0.0);
+-	float4 near_dx = mul(float4(ndc_dx, 0.0, 1.0), inv_view_proj);
+-	float4 far_dx = mul(float4(ndc_dx, 1.0, 1.0), inv_view_proj);
+-	float3 o_dx = near_dx.xyz / near_dx.w;
+-	float3 d_dx = normalize(far_dx.xyz / far_dx.w - o_dx);
+-	// Depth of field: a thin lens across the eye. The pixel's ray meets the focal plane
+-	// where it would through a pinhole, and the ray goes there from a point of the lens
+-	// instead, picked over its disc (Shirley's concentric map), then starts back where the
+-	// pinhole's did, so the near plane clips as the viewport does. Measured from the eye's
+-	// plane, so it holds for an orthographic view too, whose rays start far behind it.
+-	bool lens = lens_eye.w > 0.0;
+-	if (lens) {
+-		float2 u = 2.0 * float2(rnd(), rnd()) - 1.0;
+-		float2 disc = float2(0.0);
+-		if (any(u != float2(0.0))) {
+-			bool wide = abs(u.x) > abs(u.y);
+-			float r = wide ? u.x : u.y;
+-			float phi = wide ? 0.78539816 * (u.y / u.x) : 1.57079633 - 0.78539816 * (u.x / u.y);
+-			disc = r * float2(cos(phi), sin(phi));
+-		}
+-		float3 fwd = lens_fwd.xyz;
+-		float along = dot(d, fwd);
+-		float3 e = o + d * (dot(lens_eye.xyz - o, fwd) / along);
+-		float3 focal = e + d * (lens_right.w / along);
+-		float3 from = e + lens_eye.w * (disc.x * lens_right.xyz + disc.y * lens_up.xyz);
+-		float3 dl = normalize(focal - from);
+-		o = from + dl * (dot(o - from, fwd) / dot(dl, fwd));
+-		d = dl;
+-	}
+-
+-	float3 radiance = float3(0.0), weight = float3(1.0);
+-	float covered = 0.0, pdf_bsdf = 0.0;
+-	float4 guide_a = float4(0.0), guide_n = float4(0.0);
+-	int bounces = int(counts.z);
+-	for (int bounce = 0; bounce <= bounces; bounce++) {
+-		Hit hit;
+-		bool met = trace(o, d, FAR, false, hit);
+-		// The camera never sees the lights, as in the viewport.
+-		if (bounce > 0) radiance += weight * lights_met(o, d, met ? hit.t : FAR, !met, pdf_bsdf);
+-		if (!met) {
+-			// Weighed against the environment's own samples, when it has any.
+-			if (bounce > 0) radiance += weight * environment(d) * (env.z > 0.0 ? power_weight(pdf_bsdf, env.z * env_pdf(d)) : 1.0);
+-			break;
+-		}
+-		if (bounce == 0) covered = 1.0;
+-		if (bounce == bounces) break;
+-
+-		uint ia = indices[3u * hit.tri], ib = indices[3u * hit.tri + 1u], ic = indices[3u * hit.tri + 2u];
+-		uint base = items[hit.item].offs.x, flags = items[hit.item].offs.y;
+-		float4x4 model = items[hit.item].model;
+-		float w0 = 1.0 - hit.uv.x - hit.uv.y;
+-		float3 p0 = vertex(base + ia), p1 = vertex(base + ib), p2 = vertex(base + ic);
+-		float3 p = (mul(float4(p0 * w0 + p1 * hit.uv.x + p2 * hit.uv.y, 1.0), model)).xyz;
+-		float3 ng = normalize(mul(cross(p1 - p0, p2 - p0), (float3x3)model));
+-		if (dot(ng, d) > 0.0) ng = -ng;
+-		float3 n = normalize(mul((vertex_normal(base + ia) * w0 + vertex_normal(base + ib) * hit.uv.x + vertex_normal(base + ic) * hit.uv.y), (float3x3)model));
+-		if (dot(n, ng) < 0.0) n = -n;
+-		float3 v = -d;
+-		// A shading normal facing away from the eye shades as the triangle does.
+-		if (dot(n, v) <= 0.0) n = ng;
+-
+-		float3 albedo = items[hit.item].color.rgb;
+-		float2 surf = items[hit.item].surface.xy;
+-		if ((flags & (ITEM_PAINT | ITEM_GROUPS | ITEM_SLOTS)) != 0u) {
+-			// The group from the corner the triangle is drawn from, as mesh.vert.slang takes it.
+-			uint group = vertex_paint(base + ia).y & 0xFFFFu;
+-			if ((flags & ITEM_SLOTS) != 0u) {
+-				for (uint k = 1u; k < 16u; k++) {
+-					if (items[hit.item].slot_group[k >> 2][k & 3u] == group) {
+-						albedo = items[hit.item].slot_color[k].rgb;
+-						surf = items[hit.item].slot_surface[k].xy;
+-					}
+-				}
+-			}
+-			if ((flags & ITEM_PAINT) != 0u) {
+-				float4 c0 = unpackUnorm4x8ToFloat(vertex_paint(base + ia).x);
+-				float4 c1 = unpackUnorm4x8ToFloat(vertex_paint(base + ib).x);
+-				float4 c2 = unpackUnorm4x8ToFloat(vertex_paint(base + ic).x);
+-				float4 paint = float4(srgb_decode(c0.rgb), c0.a) * w0 + float4(srgb_decode(c1.rgb), c1.a) * hit.uv.x + float4(srgb_decode(c2.rgb), c2.a) * hit.uv.y;
+-				albedo = lerp(albedo, paint.rgb, paint.a);
+-			}
+-			if ((flags & ITEM_GROUPS) != 0u) albedo = group_color(group);
+-		}
+-		if ((flags & ITEM_TEXTURED) != 0u) {
+-			// The preview's corners for this triangle, in its own corner order.
+-			uint4 tex = items[hit.item].tex;
+-			uint at = tex.y + 3u * (hit.tri - tex.x);
+-			Tex_Vertex t0 = tex_vertex(tex.z + 8u * textured[at]);
+-			Tex_Vertex t1 = tex_vertex(tex.z + 8u * textured[at + 1u]);
+-			Tex_Vertex t2 = tex_vertex(tex.z + 8u * textured[at + 2u]);
+-			uint slot = tex.w & 15u, view = (tex.w >> 4) & 15u, maps = tex.w >> 8;
+-			float2 uv_up = t0.uv * w0 + t1.uv * hit.uv.x + t2.uv * hit.uv.y;
+-			float2 uv = float2(uv_up.x, 1.0 - uv_up.y);
+-			// The level the maps are read at: the camera's ray at the size of its pixel
+-			// where it meets the triangle, over the triangle's UVs; a path's later
+-			// bounces, which only gather light, a coarse one.
+-			float lod = -6.0;
+-			if (bounce == 0) {
+-				float3 e1 = mul((p1 - p0), (float3x3)model), e2 = mul((p2 - p0), (float3x3)model);
+-				float2 u1 = t1.uv - t0.uv, u2 = t2.uv - t0.uv;
+-				float world_area = length(cross(e1, e2));
+-				float uv_area = abs(u1.x * u2.y - u1.y * u2.x);
+-				float footprint = length(o_dx + d_dx * hit.t - p);
+-				lod = log2(max(footprint * sqrt(uv_area / max(world_area, 1e-30)), 1e-12));
+-			}
+-			// The normal from the preview's vertices, then the normal map, in the frame the
+-			// bake solved for (the interpolated normal and tangent, unnormalized, the
+-			// bitangent from their cross product), all turned without the object's scale,
+-			// as textured.vert.slang does; then turned round whole on the back, as the viewport
+-			// does, so the map is not mirrored there.
+-			float3x3 turn = (float3x3)model / length(model[0].xyz);
+-			float3 nv = mul(t0.n * w0 + t1.n * hit.uv.x + t2.n * hit.uv.y, turn);
+-			float4 tw = t0.t * w0 + t1.t * hit.uv.x + t2.t * hit.uv.y;
+-			float3 tv = mul(tw.xyz, turn);
+-			float3 mapped = normalize(nv);
+-			if ((view == 1u || view == 2u) && (maps & 4u) != 0u) {
+-				float3 tn = map_at(slot, 2u, uv, lod).xyz * 2.0 - 1.0;
+-				float3 bv = (tw.w < 0.0 ? -1.0 : 1.0) * cross(nv, tv);
+-				float3 m = tn.x * tv + tn.y * bv + tn.z * nv;
+-				if (dot(m, m) > 0.0) mapped = normalize(m);
+-			}
+-			if (dot(mul(cross(p1 - p0, p2 - p0), (float3x3)model), d) > 0.0) mapped = -mapped;
+-			n = dot(mapped, v) > 0.0 ? mapped : ng;
+-			// A normal map tilts the normal far from the triangle's, and the eye's mirror
+-			// direction about it can then point into the surface, where a smooth surface's
+-			// paths end black: bend the normal just enough to keep that direction on the
+-			// surface's side (the half vector between the eye and the mirror direction laid
+-			// on the horizon, as production path tracers do).
+-			float3 r = reflect(-v, n);
+-			float under = dot(ng, r);
+-			if (under < 0.0) n = normalize(v + normalize(r - ng * (under - 1e-3)));
+-			if (view == 1u && (maps & 1u) != 0u) albedo = items[hit.item].color.rgb * map_at(slot, 0u, uv, lod).rgb;
+-			if (view == 1u && (maps & 2u) != 0u) {
+-				float3 orm = map_at(slot, 1u, uv, lod).rgb;
+-				surf = float2(orm.b, max(orm.g, 0.04));
+-			}
+-			if (view == 3u) albedo *= uv_checker(uv);
+-		}
+-		if (bounce == 0) {
+-			guide_a = float4(albedo, 1.0);
+-			guide_n = float4(n, hit.t);
+-		}
+-		Surface s;
+-		float metallic = clamp(surf.x, 0.0, 1.0);
+-		s.diffuse = albedo * (1.0 - metallic);
+-		s.f0 = lerp(float3(0.04), albedo, metallic);
+-		s.a = max(surf.y * surf.y, 1e-3);
+-
+-		radiance += weight * direct_light(s, p, ng, n, v);
+-
+-		float3 l;
+-		if (!bsdf_sample(s, n, v, l) || dot(l, ng) <= 0.0) break;
+-		float3 f = bsdf_eval(s, n, v, l, pdf_bsdf);
+-		if (pdf_bsdf <= 0.0) break;
+-		weight *= f / pdf_bsdf;
+-		o = offset_ray(p, ng);
+-		d = l;
+-		// Russian roulette from the third bounce on, by how much the path still carries.
+-		if (bounce >= 2) {
+-			float q = clamp(max(weight.r, max(weight.g, weight.b)), 0.05, 0.95);
+-			if (rnd() > q) break;
+-			weight /= q;
+-		}
+-	}
+-	float lum = luminance(radiance);
+-	if (lum > SAMPLE_CLAMP) radiance *= SAMPLE_CLAMP / lum;
+-	float4 sum = first ? float4(0.0) : prev.Load(int3(px, 0));
+-	next[px] = sum + float4(radiance, covered);
+-	if (lens) {
+-		// Running means over the samples whose ray met the scene, the share that did in
+-		// the colour's a, so the colour divided out is the colour the blurred light has.
+-		float4 prev_a = first ? float4(0.0) : prev_albedo.Load(int3(px, 0));
+-		float4 prev_n = first ? float4(0.0) : prev_normal.Load(int3(px, 0));
+-		float done = float(counts.x);
+-		float hit = guide_a.a, hits_before = prev_a.a * done;
+-		float hits = hits_before + hit;
+-		if (hits > 0.0) {
+-			guide_a = float4((prev_a.rgb * hits_before + guide_a.rgb * hit) / hits, hits / (done + 1.0));
+-			guide_n = (prev_n * hits_before + guide_n * hit) / hits;
+-		}
+-		guide_albedo[px] = guide_a;
+-		guide_normal[px] = guide_n;
+-	} else if (first) {
+-		guide_albedo[px] = guide_a;
+-		guide_normal[px] = guide_n;
+-	}
+-}
++// Render mode's kernel with nine named map samplers, which every backend runs (render_trace.slang).
++#include "render_trace.slang"
+diff --git a/src/render/shaders/render_trace.slang b/src/render/shaders/render_trace.slang
+new file mode 100644
+index 0000000..1aacfbe
+--- /dev/null
++++ b/src/render/shaders/render_trace.slang
+@@ -0,0 +1,896 @@
++// One sample of render mode (render/path.odin) for a band of rows: a path per pixel from
++// the camera, through the merged scene (every traced item's triangles, their chunk trees
++// and a tree over all the chunks in world space), bouncing off Lambert and GGX surfaces.
++// Each surface the path meets takes light from one of the scene's lights picked by
++// strength (next-event estimation) and continues in a direction its material picks;
++// a direction that meets a light counts it too, the two weighted by the power heuristic
++// so neither is counted twice. A path that leaves the scene takes the environment, which
++// is also sampled as a light by its brightness (env_sample.odin's table), weighed against
++// the bounces that find it the same way.
++// The camera's ray is jittered within its pixel, so the image is anti-aliased, but for
++// the first sample's, through the pixel's centre, which also writes the denoiser's guides
++// (render_atrous.frag.slang): what the ray met's colour, normal and distance; with depth of
++// field every sample adds to them, so they blur as the image does. Every
++// random number comes from the pixel and the sample, so a sample is the same however the
++// rows are split between dispatches and on every run.
++//
++// SDL_GPU's SPIR-V layout for compute: set 0 holds the sampled textures, then the
++// read-only storage buffers; set 1 the read-write storage textures; set 2 the uniforms.
++// Included by render_trace.comp.slang (nine named map samplers, every backend) and by
++// render_trace_maps.comp.slang, which defines MAP_ARRAY: the maps in set 3 as one array
++// (the own Vulkan backend with descriptor indexing, Gpu_Caps.texture_arrays).
++
++#include "common.slang"
++struct Node {
++	float3 lo;
++	uint first; // inner: the left child, the right one after it; leaf: see below
++	float3 hi;
++	uint count; // 0 for an inner node
++};
++
++// One traced item (render.Item_Record).
++struct Item {
++	float4x4 model;      // mesh space into the world, a similarity
++	float4x4 inv_model;
++	float4 color;      // the base colour, linear
++	float4 surface;    // x: metallic, y: roughness
++	uint4 offs;      // x: the item's first vertex in the merged buffers, y: ITEM_ flags
++	uint4 slot_group[4];   // the polygroup of each material slot from 1
++	float4 slot_color[16];   // each slot's colour, as `color`
++	float4 slot_surface[16]; // ...and surface, as `surface`
++	// ITEM_TEXTURED: its first triangle, where its corners and its preview vertices start
++	// in `textured`, and its map slot (bits 0-3, 3 for none; bits 16-23 under MAP_ARRAY), view
++	// (4-7: 1 the maps, 2 the normal map, 3 the UV checker) and maps it has (8-10: base
++	// colour, ORM, normal)
++	uint4 tex;
++};
++
++static const uint ITEM_PAINT = 1u;  // the polypaint shows over the colour
++static const uint ITEM_GROUPS = 2u; // each polygroup shows in its own colour instead
++static const uint ITEM_SLOTS = 4u;  // groups may have materials of their own
++static const uint ITEM_TEXTURED = 8u; // shows its maps through its preview's UVs
++
++// The sum so far: radiance over the samples whose camera ray met the scene in rgb, and
++// how many did in a.
++[[vk::binding(0, 0)]] Sampler2D prev;
++// The image environment as loaded, at full size (render/environment.odin's source); a
++// black 1 x 1 one while none is bound.
++[[vk::binding(1, 0)]] Sampler2D environment_map;
++// The table for sampling the environment by its brightness: the image's, or the built-in
++// studio's in its own space (render.Env_Table).
++[[vk::binding(2, 0)]] Sampler2D env_table;
++// The guides so far (below), which with depth of field each sample adds to.
++[[vk::binding(3, 0)]] Sampler2D prev_albedo;
++[[vk::binding(4, 0)]] Sampler2D prev_normal;
++#ifdef MAP_ARRAY
++// Every map slot's base colour, ORM and normal maps, three a slot in that order, in their
++// own set (render.gpu_bind_compute_texture_array), defaults where an item lacks one.
++[[vk::binding(0, 3)]] Sampler2D maps[];
++[[vk::binding(5, 0)]] StructuredBuffer<float> positions; // 3 floats a vertex, mesh space
++[[vk::binding(6, 0)]] StructuredBuffer<uint> indices; // each item's own, from its first vertex
++// Each vertex's normal (render.Normal_Packed, one word), then from counts.w each vertex's
++// render.Paint_Packed (two words).
++[[vk::binding(7, 0)]] StructuredBuffer<uint> attributes;
++// Every chunk's tree, one after another, a leaf's `first` into its chunk's order; then
++// from extra.x the tree over every chunk, a leaf's `first` a chunk.
++[[vk::binding(8, 0)]] StructuredBuffer<Node> nodes;
++[[vk::binding(9, 0)]] StructuredBuffer<uint> order; // two 16-bit offsets a word
++// node_off, order_off, first_tri, and the node count with the item in the top 12 bits.
++[[vk::binding(10, 0)]] StructuredBuffer<uint4> chunks;
++[[vk::binding(11, 0)]] StructuredBuffer<Item> items;
++// Each textured item's preview vertices (render.Textured_Vertex: position, packed normal,
++// tangent as four 16-bit snorms, uv; 8 words), then its corners: for each triangle of its
++// sculpt mesh, the vertex each corner takes.
++[[vk::binding(12, 0)]] StructuredBuffer<uint> textured;
++#else
++// Each map slot's base colour (sRGB, so it samples linear), ORM and normal maps
++// (render.Texture_Map), defaults where an item lacks one (its flags say so).
++[[vk::binding(5, 0)]] Sampler2D map0;
++[[vk::binding(6, 0)]] Sampler2D map1;
++[[vk::binding(7, 0)]] Sampler2D map2;
++[[vk::binding(8, 0)]] Sampler2D map3;
++[[vk::binding(9, 0)]] Sampler2D map4;
++[[vk::binding(10, 0)]] Sampler2D map5;
++[[vk::binding(11, 0)]] Sampler2D map6;
++[[vk::binding(12, 0)]] Sampler2D map7;
++[[vk::binding(13, 0)]] Sampler2D map8;
++[[vk::binding(14, 0)]] StructuredBuffer<float> positions; // 3 floats a vertex, mesh space
++[[vk::binding(15, 0)]] StructuredBuffer<uint> indices; // each item's own, from its first vertex
++// Each vertex's normal (render.Normal_Packed, one word), then from counts.w each vertex's
++// render.Paint_Packed (two words).
++[[vk::binding(16, 0)]] StructuredBuffer<uint> attributes;
++// Every chunk's tree, one after another, a leaf's `first` into its chunk's order; then
++// from extra.x the tree over every chunk, a leaf's `first` a chunk.
++[[vk::binding(17, 0)]] StructuredBuffer<Node> nodes;
++[[vk::binding(18, 0)]] StructuredBuffer<uint> order; // two 16-bit offsets a word
++// node_off, order_off, first_tri, and the node count with the item in the top 12 bits.
++[[vk::binding(19, 0)]] StructuredBuffer<uint4> chunks;
++[[vk::binding(20, 0)]] StructuredBuffer<Item> items;
++// Each textured item's preview vertices (render.Textured_Vertex: position, packed normal,
++// tangent as four 16-bit snorms, uv; 8 words), then its corners: for each triangle of its
++// sculpt mesh, the vertex each corner takes.
++[[vk::binding(21, 0)]] StructuredBuffer<uint> textured;
++#endif
++[[vk::binding(0, 1)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> next;
++// The guides, written by the first sample only (by every sample, as running means over
++// the samples, with depth of field): the base colour the camera's ray met with
++// 1 in a (0 everywhere for a miss), and its normal (world) with the distance in a.
++[[vk::binding(1, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> guide_albedo;
++[[vk::binding(2, 1)]] [[vk::image_format("rgba16f")]] RWTexture2D<float4> guide_normal;
++
++#define LIGHT_COUNT 8
++
++[[vk::binding(0, 2)]] cbuffer Render_Uniforms {
++	float4x4 inv_view_proj; // clip space back to the world
++	// The lights in world space, as render.Lights carries them in view space (light_at in
++	// mesh_shading.slang): toward a sun or where a point or spot light is, kind in w; colour
++	// and strength; a spot's axis and cone; distance, reach and spot edge.
++	float4 light_pos[LIGHT_COUNT];
++	float4 light_color[LIGHT_COUNT];
++	float4 light_spot[LIGHT_COUNT];
++	float4 light_shape[LIGHT_COUNT];
++	// Each light as an area: x a sun's cone's cosine or a sphere's radius, y the radiance
++	// a unit of its colour stands for, z the chance it is picked up to and including it, w
++	// the chance it is picked.
++	float4 light_size[LIGHT_COUNT];
++	// The built-in studio's turn into the world, with the ambient light in rig_x.w.
++	float4 rig_x;
++	float4 rig_y;
++	float4 rig_z;
++	// The image environment's axes in the world.
++	float4 env_x;
++	float4 env_y;
++	float4 env_z;
++	float4 env;     // x: 1 while an image environment is bound, y: its strength, z: the chance a light sample takes the environment
++	float4 scene;   // xyz: the scene's centre, w: its radius
++	uint4 counts; // x: this sample, y: the first row of this band, z: bounces, w: where paint starts in `attributes`
++	uint4 extra;  // x: where the scene tree starts in `nodes`, y: 1 when it is empty
++	// Depth of field (render.Lens): the eye with the lens's radius in w (0: a pinhole),
++	// the camera's right with the focal plane's distance along its forward in w, its up,
++	// and its forward.
++	float4 lens_eye;
++	float4 lens_right;
++	float4 lens_up;
++	float4 lens_fwd;
++};
++
++#include "panorama.slang"
++#include "studio_env.slang"
++#include "light_window.slang"
++
++static const float PI = 3.14159265;
++// geom.CHUNK_BVH_STACK for each level: a chunk's entries stay above the scene tree's.
++static const int STACK = 2 * 57;
++static const uint IN_CHUNK = 0x80000000u;
++static const float FAR = 3.0e38;
++// How blurred the built-in studio is where paths leave the scene: its two narrow lobes
++// sharp would be found by a diffuse bounce too rarely to converge.
++static const float STUDIO_BLUR = 0.25;
++// The largest radiance one sample may add to a pixel: a rare path that finds a bright
++// light through a narrow gap would otherwise leave a white speck for hundreds of samples.
++static const float SAMPLE_CLAMP = 16.0;
++
++// PCG (O'Neill 2014), the state per invocation.
++static uint rng;
++
++uint pcg_next() {
++	uint s = rng;
++	rng = s * 747796405u + 2891336453u;
++	uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
++	return (w >> 22u) ^ w;
++}
++
++float rnd() {
++	return float(pcg_next() >> 8) / 16777216.0;
++}
++
++float3 vertex(uint v) {
++	return float3(positions[3u * v], positions[3u * v + 1u], positions[3u * v + 2u]);
++}
++
++float3 oct_decode(float2 e) {
++	float3 v = float3(e, 1.0 - abs(e.x) - abs(e.y));
++	if (v.z < 0.0) v.xy = (1.0 - abs(e.yx)) * float2(e.x >= 0.0 ? 1.0 : -1.0, e.y >= 0.0 ? 1.0 : -1.0);
++	return normalize(v);
++}
++
++// A normal packed as render.Normal_Packed: two 16-bit halves, the mask in the low 4 bits
++// of each, which render mode leaves out.
++float3 normal_decode(uint w) {
++	int2 raw = int2(int(w << 16) >> 16, int(w) >> 16);
++	return oct_decode(float2(raw & ~15) / 32767.0);
++}
++
++// A vertex's normal in mesh space.
++float3 vertex_normal(uint v) {
++	return normal_decode(attributes[v]);
++}
++
++// A textured item's preview vertex at word `at` of `textured`: its normal and tangent
++// (w the bitangent's side) in mesh space, and its UV (v up).
++struct Tex_Vertex {
++	float3 n;
++	float4 t;
++	float2 uv;
++};
++
++Tex_Vertex tex_vertex(uint at) {
++	Tex_Vertex v;
++	v.n = normal_decode(textured[at + 3u]);
++	uint a = textured[at + 4u], b = textured[at + 5u];
++	v.t = max(float4(int(a << 16) >> 16, int(a) >> 16, int(b << 16) >> 16, int(b) >> 16) / 32767.0, float4(-1.0));
++	v.uv = float2(asfloat(textured[at + 6u]), asfloat(textured[at + 7u]));
++	return v;
++}
++
++// Map `kind` (0 base colour, 1 ORM, 2 normal) of map slot `slot` at `uv`, at the level
++// whose texels are as wide as `lod` says the pixel is, in log2 of the UV square (so the
++// map's own size adds half the log2 of its texel count). Without MAP_ARRAY the samplers are
++// named, not an array: indexing one by a value that differs between pixels needs a device
++// feature not every backend offers.
++#define MAP_AT(s) { float2 size = float2(texture_size(s)); return s.SampleLevel(uv, max(lod + 0.5 * log2(size.x * size.y), 0.0)); }
++#ifdef MAP_ARRAY
++float4 map_at(uint slot, uint kind, float2 uv, float lod) {
++	MAP_AT(maps[NonUniformResourceIndex(slot * 3u + kind)])
++}
++#else
++float4 map_at(uint slot, uint kind, float2 uv, float lod) {
++	switch (slot * 3u + kind) {
++	case 0u: MAP_AT(map0)
++	case 1u: MAP_AT(map1)
++	case 2u: MAP_AT(map2)
++	case 3u: MAP_AT(map3)
++	case 4u: MAP_AT(map4)
++	case 5u: MAP_AT(map5)
++	case 6u: MAP_AT(map6)
++	case 7u: MAP_AT(map7)
++	case 8u: MAP_AT(map8)
++	}
++	return float4(0.0);
++}
++#endif
++
++// The viewport's UV checker (mesh_shading.slang): 8 by 8 cells, every other one darker,
++// each edged with a line and tinted by its column and row; the lines a fixed share of a
++// cell, since render mode smooths edges by its samples rather than by pixel derivatives.
++float3 uv_checker(float2 uv) {
++	float2 c = uv * 8.0;
++	float2 f = frac(c);
++	float line = step(min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y)), 0.015);
++	float2 cell = floor(c);
++	float odd = glsl_mod(cell.x + cell.y, 2.0);
++	float h = (cell.x + 0.5) / 8.0;
++	float3 hue = clamp(abs(frac(h + float3(0.0, 2.0, 1.0) / 3.0) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
++	float3 tint = lerp(float3(1.0), hue, 0.35) * lerp(0.7, 1.0, (cell.y + 0.5) / 8.0);
++	return tint * lerp(1.0, 0.72, odd) * (1.0 - 0.5 * line);
++}
++
++uint2 vertex_paint(uint v) {
++	uint at = counts.w + 2u * v;
++	return uint2(attributes[at], attributes[at + 1u]);
++}
++
++float3 srgb_decode(float3 c) {
++	return lerp(c / 12.92, pow((c + 0.055) / 1.055, float3(2.4)), step(0.04045, c));
++}
++
++// As mesh.vert.slang's: hues a golden angle apart, in two lightnesses.
++float3 group_color(uint g) {
++	float h = frac(float(g) * 0.618034 + 0.12);
++	float3 rgb = clamp(abs(frac(h + float3(0.0, 2.0, 1.0) / 3.0) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
++	float light = (g & 1u) == 0u ? 0.75 : 0.55;
++	return lerp(float3(1.0), rgb, 0.55) * light;
++}
++
++// Where a ray along `d` enters the box, or -1 where it misses it or enters beyond `t_max`;
++// a box refit empty (lo above hi) is never entered.
++float enters(Node n, float3 o, float3 inv, float t_max) {
++	if (n.lo.x > n.hi.x) return -1.0;
++	float3 t0 = (n.lo - o) * inv, t1 = (n.hi - o) * inv;
++	float3 near = min(t0, t1), far = max(t0, t1);
++	float t_in = max(max(near.x, near.y), max(near.z, 0.0));
++	float t_out = min(far.x, min(far.y, far.z));
++	return t_in <= t_out && t_in < t_max ? t_in : -1.0;
++}
++
++float3 safe_inverse(float3 d) {
++	// No component exactly zero, so the slab test never multiplies zero by infinity.
++	return 1.0 / select(d == float3(0.0), float3(1e-20), d);
++}
++
++struct Hit {
++	float t;
++	uint tri;  // in the merged index buffer
++	uint item;
++	float2 uv;   // barycentrics of the second and third corners
++};
++
++// The nearest triangle along the ray before `t_max`, or with `any` the first one found.
++// The scene tree is in world space; at a chunk the ray goes into its item's mesh space
++// unnormalised, so t keeps measuring the world ray.
++bool trace(float3 o, float3 d, float t_max, bool any, out Hit hit) {
++	hit.t = t_max;
++	hit.tri = 0u;
++	hit.item = 0u;
++	hit.uv = float2(0.0);
++	if (extra.y != 0u) return false;
++	bool found = false;
++	float3 inv = safe_inverse(d);
++	uint stack[STACK];
++	int top = 1;
++	stack[0] = extra.x;
++	uint4 ch = uint4(0u);
++	uint item = 0u, base = 0u;
++	float3 om = float3(0.0), dm = float3(0.0), inv_m = float3(0.0);
++	while (top > 0) {
++		uint e = stack[--top];
++		if ((e & IN_CHUNK) == 0u) {
++			Node n = nodes[e];
++			if (enters(n, o, inv, hit.t) < 0.0) continue;
++			if (n.count == 0u) {
++				// The nearer child is walked first, so later boxes are cut by its hits.
++				uint a = extra.x + n.first, b = a + 1u;
++				float ta = enters(nodes[a], o, inv, hit.t), tb = enters(nodes[b], o, inv, hit.t);
++				if (ta >= 0.0 && tb >= 0.0) {
++					stack[top++] = ta < tb ? b : a;
++					stack[top++] = ta < tb ? a : b;
++				} else if (ta >= 0.0) {
++					stack[top++] = a;
++				} else if (tb >= 0.0) {
++					stack[top++] = b;
++				}
++			} else {
++				// Everything pushed from here on is this chunk's, and is walked before the
++				// scene tree's next entry comes off the stack.
++				ch = chunks[n.first];
++				item = ch.w >> 20;
++				base = items[item].offs.x;
++				float4x4 to_mesh = items[item].inv_model;
++				om = (mul(float4(o, 1.0), to_mesh)).xyz;
++				dm = mul(d, (float3x3)to_mesh);
++				inv_m = safe_inverse(dm);
++				stack[top++] = IN_CHUNK;
++			}
++			continue;
++		}
++		Node n = nodes[ch.x + (e & ~IN_CHUNK)];
++		if (enters(n, om, inv_m, hit.t) < 0.0) continue;
++		if (n.count == 0u) {
++			uint a = n.first, b = a + 1u;
++			float ta = enters(nodes[ch.x + a], om, inv_m, hit.t), tb = enters(nodes[ch.x + b], om, inv_m, hit.t);
++			if (ta >= 0.0 && tb >= 0.0) {
++				stack[top++] = IN_CHUNK | (ta < tb ? b : a);
++				stack[top++] = IN_CHUNK | (ta < tb ? a : b);
++			} else if (ta >= 0.0) {
++				stack[top++] = IN_CHUNK | a;
++			} else if (tb >= 0.0) {
++				stack[top++] = IN_CHUNK | b;
++			}
++			continue;
++		}
++		for (uint j = n.first; j < n.first + n.count; j++) {
++			uint at = ch.y + j;
++			uint word = order[at >> 1];
++			uint tri = ch.z + ((at & 1u) == 0u ? (word & 0xFFFFu) : (word >> 16));
++			uint ia = indices[3u * tri], ib = indices[3u * tri + 1u], ic = indices[3u * tri + 2u];
++			// A triangle with a repeated corner (hidden, or an unused slot) never hits.
++			if (ia == ib || ib == ic || ia == ic) continue;
++			// Möller-Trumbore, both sides.
++			float3 p0 = vertex(base + ia);
++			float3 e1 = vertex(base + ib) - p0, e2 = vertex(base + ic) - p0;
++			float3 pv = cross(dm, e2);
++			float det = dot(e1, pv);
++			if (det == 0.0) continue;
++			float f = 1.0 / det;
++			float3 tv = om - p0;
++			float u = dot(tv, pv) * f;
++			if (u < 0.0 || u > 1.0) continue;
++			float3 qv = cross(tv, e1);
++			float v = dot(dm, qv) * f;
++			if (v < 0.0 || u + v > 1.0) continue;
++			float t = dot(e2, qv) * f;
++			if (t <= 0.0 || t >= hit.t) continue;
++			hit.t = t;
++			hit.tri = tri;
++			hit.item = item;
++			hit.uv = float2(u, v);
++			found = true;
++			if (any) return true;
++		}
++	}
++	return found;
++}
++
++// Off the surface along its geometric normal by a few steps of the float grid, which
++// scales with the position itself (Wächter and Binder, "A Fast and Robust Method for
++// Avoiding Self-Intersection", Ray Tracing Gems 2019).
++float3 offset_ray(float3 p, float3 n) {
++	const float ORIGIN = 1.0 / 32.0;
++	const float FLOAT_SCALE = 1.0 / 65536.0;
++	const float INT_SCALE = 256.0;
++	int3 of = int3(INT_SCALE * n);
++	float3 p_i = float3(
++		asfloat(asint(p.x) + (p.x < 0.0 ? -of.x : of.x)),
++		asfloat(asint(p.y) + (p.y < 0.0 ? -of.y : of.y)),
++		asfloat(asint(p.z) + (p.z < 0.0 ? -of.z : of.z)));
++	return float3(
++		abs(p.x) < ORIGIN ? p.x + FLOAT_SCALE * n.x : p_i.x,
++		abs(p.y) < ORIGIN ? p.y + FLOAT_SCALE * n.y : p_i.y,
++		abs(p.z) < ORIGIN ? p.z + FLOAT_SCALE * n.z : p_i.z);
++}
++
++// A frame about `n` (Duff et al. 2017): tangent, bitangent.
++void basis(float3 n, out float3 t, out float3 b) {
++	float s = n.z >= 0.0 ? 1.0 : -1.0;
++	float a = -1.0 / (s + n.z);
++	float c = n.x * n.y * a;
++	t = float3(1.0 + s * n.x * n.x * a, s * c, -s * n.x);
++	b = float3(c, s + n.y * n.y * a, -n.y);
++}
++
++float luminance(float3 c) {
++	return dot(c, float3(0.2126, 0.7152, 0.0722));
++}
++
++struct Surface {
++	float3 diffuse; // the Lambert part's colour
++	float3 f0;      // reflectance seen straight on
++	float a;      // GGX alpha, roughness squared
++};
++
++float3 fresnel(float3 f0, float c) {
++	return f0 + (1.0 - f0) * pow(1.0 - clamp(c, 0.0, 1.0), 5.0);
++}
++
++float ggx_d(float n_dot_h, float a) {
++	float a2 = a * a;
++	float d = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
++	return a2 / (PI * d * d);
++}
++
++// Smith's Lambda for GGX.
++float ggx_lambda(float c, float a) {
++	float c2 = max(c * c, 1e-8);
++	return 0.5 * (-1.0 + sqrt(1.0 + a * a * (1.0 - c2) / c2));
++}
++
++// The chance the specular lobe is picked, from the Fresnel straight toward the eye: the
++// half vector is not known before the lobe is.
++float specular_chance(Surface s, float n_dot_v) {
++	float3 fv = fresnel(s.f0, n_dot_v);
++	float es = luminance(fv), ed = luminance(s.diffuse * (1.0 - fv));
++	if (ed <= 0.0) return 1.0;
++	return clamp(es / max(es + ed, 1e-6), 0.05, 0.95);
++}
++
++// The BSDF times the cosine toward `l`, and the pdf of picking `l` with bsdf_sample (the
++// mixture of both lobes).
++float3 bsdf_eval(Surface s, float3 n, float3 v, float3 l, out float pdf) {
++	pdf = 0.0;
++	float n_dot_l = dot(n, l), n_dot_v = dot(n, v);
++	if (n_dot_l <= 0.0 || n_dot_v <= 0.0) return float3(0.0);
++	float3 h = normalize(v + l);
++	float n_dot_h = max(dot(n, h), 0.0), v_dot_h = max(dot(v, h), 0.0);
++	float D = ggx_d(n_dot_h, s.a);
++	float lv = ggx_lambda(n_dot_v, s.a), ll = ggx_lambda(n_dot_l, s.a);
++	float3 F = fresnel(s.f0, v_dot_h);
++	float3 spec = F * (D / ((1.0 + lv + ll) * 4.0 * n_dot_v * n_dot_l));
++	float3 diff = s.diffuse * (1.0 - fresnel(s.f0, n_dot_v)) / PI;
++	float ps = specular_chance(s, n_dot_v);
++	// The visible normals' pdf of h, carried over to l: G1(v) D / (4 n.v).
++	float pdf_spec = D / ((1.0 + lv) * 4.0 * n_dot_v);
++	pdf = ps * pdf_spec + (1.0 - ps) * n_dot_l / PI;
++	return (diff + spec) * n_dot_l;
++}
++
++// A half vector from GGX's visible normals (Heitz 2018), in the frame where n is +z.
++float3 sample_vndf(float3 ve, float a, float2 u) {
++	float3 vh = normalize(float3(a * ve.x, a * ve.y, ve.z));
++	float lensq = vh.x * vh.x + vh.y * vh.y;
++	float3 t1 = lensq > 0.0 ? float3(-vh.y, vh.x, 0.0) * rsqrt(lensq) : float3(1.0, 0.0, 0.0);
++	float3 t2 = cross(vh, t1);
++	float r = sqrt(u.x), phi = 2.0 * PI * u.y;
++	float p1 = r * cos(phi), p2 = r * sin(phi);
++	float s = 0.5 * (1.0 + vh.z);
++	p2 = (1.0 - s) * sqrt(max(1.0 - p1 * p1, 0.0)) + s * p2;
++	float3 nh = p1 * t1 + p2 * t2 + sqrt(max(1.0 - p1 * p1 - p2 * p2, 0.0)) * vh;
++	return normalize(float3(a * nh.x, a * nh.y, max(nh.z, 0.0)));
++}
++
++// A direction to continue in, picked from one lobe; false where it would go under the
++// surface.
++bool bsdf_sample(Surface s, float3 n, float3 v, out float3 l) {
++	float3 t, b;
++	basis(n, t, b);
++	float n_dot_v = max(dot(n, v), 1e-4);
++	float2 u = float2(rnd(), rnd());
++	if (rnd() < specular_chance(s, n_dot_v)) {
++		float3 ve = float3(dot(v, t), dot(v, b), dot(v, n));
++		float3 hl = sample_vndf(ve, s.a, u);
++		float3 h = t * hl.x + b * hl.y + n * hl.z;
++		l = reflect(-v, h);
++	} else {
++		float r = sqrt(u.x), phi = 2.0 * PI * u.y;
++		l = normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(1.0 - u.x, 0.0)));
++	}
++	return dot(n, l) > 0.0;
++}
++
++// A direction in the cone of cosine `cos_max` about `axis`, uniformly.
++float3 sample_cone(float3 axis, float cos_max) {
++	float3 t, b;
++	basis(axis, t, b);
++	float c = 1.0 - rnd() * (1.0 - cos_max);
++	float s = sqrt(max(1.0 - c * c, 0.0)), phi = 2.0 * PI * rnd();
++	return normalize(t * (s * cos(phi)) + b * (s * sin(phi)) + axis * c);
++}
++
++float cone_pdf(float cos_max) {
++	return 1.0 / (2.0 * PI * max(1.0 - cos_max, 1e-7));
++}
++
++// How much of a point or spot light's radiance arrives at distance² `d2` from it along `l`
++// (toward the light): its window at its reach and a spot's cone.
++float light_falloff(int i, float d2, float3 l) {
++	return light_window(light_pos[i], light_shape[i], light_spot[i], d2, l);
++}
++
++// Where a ray from `o` along unit `d` meets the sphere, or -1.
++float sphere_hit(float3 o, float3 d, float3 c, float r) {
++	float3 oc = o - c;
++	float b = dot(oc, d);
++	float q = dot(oc, oc) - r * r;
++	float disc = b * b - q;
++	if (disc < 0.0) return -1.0;
++	float s = sqrt(disc);
++	float t = -b - s;
++	if (t < 0.0) t = -b + s;
++	return t;
++}
++
++// The cone of directions sphere light `i` fills seen from `p`: its cosine, or 2 when `p`
++// is inside it.
++float sphere_cone(int i, float3 p) {
++	float3 d = light_pos[i].xyz - p;
++	float d2 = dot(d, d), r = light_size[i].x;
++	if (d2 <= r * r) return 2.0;
++	return sqrt(1.0 - r * r / d2);
++}
++
++float power_weight(float a, float b) {
++	return a * a / max(a * a + b * b, 1e-30);
++}
++
++// What a path that leaves the scene along `d` takes: the image environment, or the
++// built-in studio at the ambient light's strength as the viewport's diffuse takes it.
++float3 environment(float3 d) {
++	if (env.x > 0.5) {
++		float3 e = mul(d, transpose(float3x3(env_x.xyz, env_y.xyz, env_z.xyz)));
++		return environment_map.SampleLevel(panorama_uv(e), 0.0).rgb * env.y;
++	}
++	float3x3 to_rig = transpose(float3x3(rig_x.xyz, rig_y.xyz, rig_z.xyz));
++	return studio(mul(d, to_rig), STUDIO_BLUR) * (0.7 * rig_x.w);
++}
++
++// The environment's frame: its own axes in the world, an image's or the studio's.
++float3x3 env_frame() {
++	return env.x > 0.5 ? float3x3(env_x.xyz, env_y.xyz, env_z.xyz) : float3x3(rig_x.xyz, rig_y.xyz, rig_z.xyz);
++}
++
++// A direction (world) picked by the environment's table, and its density.
++float3 env_sample(out float pdf) {
++	int2 ts = texture_size(env_table);
++	int count = ts.x * ts.y;
++	float u = rnd() * float(count);
++	int i = min(int(u), count - 1);
++	float4 e = env_table.Load(int3(int2(i % ts.x, i / ts.x), 0));
++	if (frac(u) >= e.x) {
++		i = int(e.y);
++		e = env_table.Load(int3(int2(i % ts.x, i / ts.x), 0));
++	}
++	float2 uv = (float2(i % ts.x, i / ts.x) + float2(rnd(), rnd())) / float2(ts);
++	float3 local = panorama_dir(uv);
++	pdf = e.z / max(sqrt(max(1.0 - local.y * local.y, 0.0)), 1e-4);
++	return mul(local, env_frame());
++}
++
++// The density env_sample gives direction `d` (world).
++float env_pdf(float3 d) {
++	float3 local = mul(d, transpose(env_frame()));
++	int2 ts = texture_size(env_table);
++	int2 at = min(int2(panorama_uv(local) * float2(ts)), ts - 1);
++	return env_table.Load(int3(at, 0)).z / max(sqrt(max(1.0 - local.y * local.y, 0.0)), 1e-4);
++}
++
++// One light's light at a surface (next-event estimation): the environment or a light,
++// picked by how much light each gives, a direction toward it, the BSDF there and a shadow
++// ray, weighted against finding the light by the BSDF.
++float3 direct_light(Surface s, float3 p, float3 ng, float3 n, float3 v) {
++	float pick = rnd();
++	if (pick < env.z) {
++		float pdf_env;
++		float3 l = env_sample(pdf_env);
++		if (dot(ng, l) <= 0.0) return float3(0.0);
++		float pdf_bsdf;
++		float3 f = bsdf_eval(s, n, v, l, pdf_bsdf);
++		if (luminance(f) <= 0.0) return float3(0.0);
++		float3 radiance = environment(l);
++		float pdf_light = env.z * pdf_env;
++		if (luminance(radiance) <= 0.0 || pdf_light <= 0.0) return float3(0.0);
++		Hit shadow;
++		if (trace(offset_ray(p, ng), l, FAR, true, shadow)) return float3(0.0);
++		return f * radiance * (power_weight(pdf_light, pdf_bsdf) / pdf_light);
++	}
++	int i = -1;
++	for (int k = 0; k < LIGHT_COUNT; k++) {
++		if (light_size[k].w > 0.0 && pick < light_size[k].z) {
++			i = k;
++			break;
++		}
++	}
++	if (i < 0) return float3(0.0);
++	float3 l;
++	float dist = FAR, pdf_dir;
++	float3 radiance = light_color[i].rgb * light_size[i].y;
++	if (light_pos[i].w < 0.5) {
++		l = sample_cone(light_pos[i].xyz, light_size[i].x);
++		pdf_dir = cone_pdf(light_size[i].x);
++	} else {
++		float cos_max = sphere_cone(i, p);
++		if (cos_max > 1.0) return float3(0.0);
++		float3 to = light_pos[i].xyz - p;
++		l = sample_cone(normalize(to), cos_max);
++		pdf_dir = cone_pdf(cos_max);
++		dist = sphere_hit(p, l, light_pos[i].xyz, light_size[i].x);
++		if (dist <= 0.0) return float3(0.0);
++		radiance *= light_falloff(i, dot(to, to), normalize(to));
++	}
++	if (dot(ng, l) <= 0.0 || luminance(radiance) <= 0.0) return float3(0.0);
++	float pdf_bsdf;
++	float3 f = bsdf_eval(s, n, v, l, pdf_bsdf);
++	if (luminance(f) <= 0.0) return float3(0.0);
++	float pdf_light = light_size[i].w * pdf_dir;
++	Hit shadow;
++	if (trace(offset_ray(p, ng), l, dist, true, shadow)) return float3(0.0);
++	return f * radiance * (power_weight(pdf_light, pdf_bsdf) / pdf_light);
++}
++
++// The lights a ray picked by the BSDF meets before `t_hit` (suns only when it leaves the
++// scene), weighted against finding them by next-event estimation.
++float3 lights_met(float3 o, float3 d, float t_hit, bool escaped, float pdf_bsdf) {
++	float3 sum = float3(0.0);
++	for (int i = 0; i < LIGHT_COUNT; i++) {
++		if (light_size[i].w <= 0.0) continue;
++		float3 radiance = light_color[i].rgb * light_size[i].y;
++		float pdf_dir;
++		if (light_pos[i].w < 0.5) {
++			if (!escaped || dot(d, light_pos[i].xyz) < light_size[i].x) continue;
++			pdf_dir = cone_pdf(light_size[i].x);
++		} else {
++			float t = sphere_hit(o, d, light_pos[i].xyz, light_size[i].x);
++			float cos_max = sphere_cone(i, o);
++			if (t <= 0.0 || t >= t_hit || cos_max > 1.0) continue;
++			float3 to = light_pos[i].xyz - o;
++			radiance *= light_falloff(i, dot(to, to), normalize(to));
++			pdf_dir = cone_pdf(cos_max);
++		}
++		sum += radiance * power_weight(pdf_bsdf, light_size[i].w * pdf_dir);
++	}
++	return sum;
++}
++
++
++[numthreads(8, 8, 1)]
++void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 global_id : SV_DispatchThreadID) {
++	int2 size = texture_size(prev);
++	int2 px = int2(global_id.x, global_id.y + counts.y);
++	if (px.x >= size.x || px.y >= size.y) return;
++	rng = uint(px.y * size.x + px.x) * 9781u + counts.x * 6271u + 1u;
++	pcg_next();
++	rng ^= counts.x * 2654435761u;
++	pcg_next();
++
++	// The camera's ray through a random point of the pixel, or the first sample's through
++	// its centre.
++	float2 jitter = float2(rnd(), rnd());
++	bool first = counts.x == 0u;
++	if (first) jitter = float2(0.5);
++	float2 uv = (float2(px) + jitter) / float2(size);
++	float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
++	float4 near = mul(float4(ndc, 0.0, 1.0), inv_view_proj);
++	float4 far = mul(float4(ndc, 1.0, 1.0), inv_view_proj);
++	float3 o = near.xyz / near.w;
++	float3 d = normalize(far.xyz / far.w - o);
++	// The ray through the next pixel across, for how wide a pixel is where the camera's ray
++	// meets something (the maps' level).
++	float2 ndc_dx = ndc + float2(2.0 / float(size.x), 0.0);
++	float4 near_dx = mul(float4(ndc_dx, 0.0, 1.0), inv_view_proj);
++	float4 far_dx = mul(float4(ndc_dx, 1.0, 1.0), inv_view_proj);
++	float3 o_dx = near_dx.xyz / near_dx.w;
++	float3 d_dx = normalize(far_dx.xyz / far_dx.w - o_dx);
++	// Depth of field: a thin lens across the eye. The pixel's ray meets the focal plane
++	// where it would through a pinhole, and the ray goes there from a point of the lens
++	// instead, picked over its disc (Shirley's concentric map), then starts back where the
++	// pinhole's did, so the near plane clips as the viewport does. Measured from the eye's
++	// plane, so it holds for an orthographic view too, whose rays start far behind it.
++	bool lens = lens_eye.w > 0.0;
++	if (lens) {
++		float2 u = 2.0 * float2(rnd(), rnd()) - 1.0;
++		float2 disc = float2(0.0);
++		if (any(u != float2(0.0))) {
++			bool wide = abs(u.x) > abs(u.y);
++			float r = wide ? u.x : u.y;
++			float phi = wide ? 0.78539816 * (u.y / u.x) : 1.57079633 - 0.78539816 * (u.x / u.y);
++			disc = r * float2(cos(phi), sin(phi));
++		}
++		float3 fwd = lens_fwd.xyz;
++		float along = dot(d, fwd);
++		float3 e = o + d * (dot(lens_eye.xyz - o, fwd) / along);
++		float3 focal = e + d * (lens_right.w / along);
++		float3 from = e + lens_eye.w * (disc.x * lens_right.xyz + disc.y * lens_up.xyz);
++		float3 dl = normalize(focal - from);
++		o = from + dl * (dot(o - from, fwd) / dot(dl, fwd));
++		d = dl;
++	}
++
++	float3 radiance = float3(0.0), weight = float3(1.0);
++	float covered = 0.0, pdf_bsdf = 0.0;
++	float4 guide_a = float4(0.0), guide_n = float4(0.0);
++	int bounces = int(counts.z);
++	for (int bounce = 0; bounce <= bounces; bounce++) {
++		Hit hit;
++		bool met = trace(o, d, FAR, false, hit);
++		// The camera never sees the lights, as in the viewport.
++		if (bounce > 0) radiance += weight * lights_met(o, d, met ? hit.t : FAR, !met, pdf_bsdf);
++		if (!met) {
++			// Weighed against the environment's own samples, when it has any.
++			if (bounce > 0) radiance += weight * environment(d) * (env.z > 0.0 ? power_weight(pdf_bsdf, env.z * env_pdf(d)) : 1.0);
++			break;
++		}
++		if (bounce == 0) covered = 1.0;
++		if (bounce == bounces) break;
++
++		uint ia = indices[3u * hit.tri], ib = indices[3u * hit.tri + 1u], ic = indices[3u * hit.tri + 2u];
++		uint base = items[hit.item].offs.x, flags = items[hit.item].offs.y;
++		float4x4 model = items[hit.item].model;
++		float w0 = 1.0 - hit.uv.x - hit.uv.y;
++		float3 p0 = vertex(base + ia), p1 = vertex(base + ib), p2 = vertex(base + ic);
++		float3 p = (mul(float4(p0 * w0 + p1 * hit.uv.x + p2 * hit.uv.y, 1.0), model)).xyz;
++		float3 ng = normalize(mul(cross(p1 - p0, p2 - p0), (float3x3)model));
++		if (dot(ng, d) > 0.0) ng = -ng;
++		float3 n = normalize(mul((vertex_normal(base + ia) * w0 + vertex_normal(base + ib) * hit.uv.x + vertex_normal(base + ic) * hit.uv.y), (float3x3)model));
++		if (dot(n, ng) < 0.0) n = -n;
++		float3 v = -d;
++		// A shading normal facing away from the eye shades as the triangle does.
++		if (dot(n, v) <= 0.0) n = ng;
++
++		float3 albedo = items[hit.item].color.rgb;
++		float2 surf = items[hit.item].surface.xy;
++		if ((flags & (ITEM_PAINT | ITEM_GROUPS | ITEM_SLOTS)) != 0u) {
++			// The group from the corner the triangle is drawn from, as mesh.vert.slang takes it.
++			uint group = vertex_paint(base + ia).y & 0xFFFFu;
++			if ((flags & ITEM_SLOTS) != 0u) {
++				for (uint k = 1u; k < 16u; k++) {
++					if (items[hit.item].slot_group[k >> 2][k & 3u] == group) {
++						albedo = items[hit.item].slot_color[k].rgb;
++						surf = items[hit.item].slot_surface[k].xy;
++					}
++				}
++			}
++			if ((flags & ITEM_PAINT) != 0u) {
++				float4 c0 = unpackUnorm4x8ToFloat(vertex_paint(base + ia).x);
++				float4 c1 = unpackUnorm4x8ToFloat(vertex_paint(base + ib).x);
++				float4 c2 = unpackUnorm4x8ToFloat(vertex_paint(base + ic).x);
++				float4 paint = float4(srgb_decode(c0.rgb), c0.a) * w0 + float4(srgb_decode(c1.rgb), c1.a) * hit.uv.x + float4(srgb_decode(c2.rgb), c2.a) * hit.uv.y;
++				albedo = lerp(albedo, paint.rgb, paint.a);
++			}
++			if ((flags & ITEM_GROUPS) != 0u) albedo = group_color(group);
++		}
++		if ((flags & ITEM_TEXTURED) != 0u) {
++			// The preview's corners for this triangle, in its own corner order.
++			uint4 tex = items[hit.item].tex;
++			uint at = tex.y + 3u * (hit.tri - tex.x);
++			Tex_Vertex t0 = tex_vertex(tex.z + 8u * textured[at]);
++			Tex_Vertex t1 = tex_vertex(tex.z + 8u * textured[at + 1u]);
++			Tex_Vertex t2 = tex_vertex(tex.z + 8u * textured[at + 2u]);
++#ifdef MAP_ARRAY
++			uint slot = (tex.w >> 16) & 255u, view = (tex.w >> 4) & 15u, maps = (tex.w >> 8) & 7u;
++#else
++			uint slot = tex.w & 15u, view = (tex.w >> 4) & 15u, maps = tex.w >> 8;
++#endif
++			float2 uv_up = t0.uv * w0 + t1.uv * hit.uv.x + t2.uv * hit.uv.y;
++			float2 uv = float2(uv_up.x, 1.0 - uv_up.y);
++			// The level the maps are read at: the camera's ray at the size of its pixel
++			// where it meets the triangle, over the triangle's UVs; a path's later
++			// bounces, which only gather light, a coarse one.
++			float lod = -6.0;
++			if (bounce == 0) {
++				float3 e1 = mul((p1 - p0), (float3x3)model), e2 = mul((p2 - p0), (float3x3)model);
++				float2 u1 = t1.uv - t0.uv, u2 = t2.uv - t0.uv;
++				float world_area = length(cross(e1, e2));
++				float uv_area = abs(u1.x * u2.y - u1.y * u2.x);
++				float footprint = length(o_dx + d_dx * hit.t - p);
++				lod = log2(max(footprint * sqrt(uv_area / max(world_area, 1e-30)), 1e-12));
++			}
++			// The normal from the preview's vertices, then the normal map, in the frame the
++			// bake solved for (the interpolated normal and tangent, unnormalized, the
++			// bitangent from their cross product), all turned without the object's scale,
++			// as textured.vert.slang does; then turned round whole on the back, as the viewport
++			// does, so the map is not mirrored there.
++			float3x3 turn = (float3x3)model / length(model[0].xyz);
++			float3 nv = mul(t0.n * w0 + t1.n * hit.uv.x + t2.n * hit.uv.y, turn);
++			float4 tw = t0.t * w0 + t1.t * hit.uv.x + t2.t * hit.uv.y;
++			float3 tv = mul(tw.xyz, turn);
++			float3 mapped = normalize(nv);
++			if ((view == 1u || view == 2u) && (maps & 4u) != 0u) {
++				float3 tn = map_at(slot, 2u, uv, lod).xyz * 2.0 - 1.0;
++				float3 bv = (tw.w < 0.0 ? -1.0 : 1.0) * cross(nv, tv);
++				float3 m = tn.x * tv + tn.y * bv + tn.z * nv;
++				if (dot(m, m) > 0.0) mapped = normalize(m);
++			}
++			if (dot(mul(cross(p1 - p0, p2 - p0), (float3x3)model), d) > 0.0) mapped = -mapped;
++			n = dot(mapped, v) > 0.0 ? mapped : ng;
++			// A normal map tilts the normal far from the triangle's, and the eye's mirror
++			// direction about it can then point into the surface, where a smooth surface's
++			// paths end black: bend the normal just enough to keep that direction on the
++			// surface's side (the half vector between the eye and the mirror direction laid
++			// on the horizon, as production path tracers do).
++			float3 r = reflect(-v, n);
++			float under = dot(ng, r);
++			if (under < 0.0) n = normalize(v + normalize(r - ng * (under - 1e-3)));
++			if (view == 1u && (maps & 1u) != 0u) albedo = items[hit.item].color.rgb * map_at(slot, 0u, uv, lod).rgb;
++			if (view == 1u && (maps & 2u) != 0u) {
++				float3 orm = map_at(slot, 1u, uv, lod).rgb;
++				surf = float2(orm.b, max(orm.g, 0.04));
++			}
++			if (view == 3u) albedo *= uv_checker(uv);
++		}
++		if (bounce == 0) {
++			guide_a = float4(albedo, 1.0);
++			guide_n = float4(n, hit.t);
++		}
++		Surface s;
++		float metallic = clamp(surf.x, 0.0, 1.0);
++		s.diffuse = albedo * (1.0 - metallic);
++		s.f0 = lerp(float3(0.04), albedo, metallic);
++		s.a = max(surf.y * surf.y, 1e-3);
++
++		radiance += weight * direct_light(s, p, ng, n, v);
++
++		float3 l;
++		if (!bsdf_sample(s, n, v, l) || dot(l, ng) <= 0.0) break;
++		float3 f = bsdf_eval(s, n, v, l, pdf_bsdf);
++		if (pdf_bsdf <= 0.0) break;
++		weight *= f / pdf_bsdf;
++		o = offset_ray(p, ng);
++		d = l;
++		// Russian roulette from the third bounce on, by how much the path still carries.
++		if (bounce >= 2) {
++			float q = clamp(max(weight.r, max(weight.g, weight.b)), 0.05, 0.95);
++			if (rnd() > q) break;
++			weight /= q;
++		}
++	}
++	float lum = luminance(radiance);
++	if (lum > SAMPLE_CLAMP) radiance *= SAMPLE_CLAMP / lum;
++	float4 sum = first ? float4(0.0) : prev.Load(int3(px, 0));
++	next[px] = sum + float4(radiance, covered);
++	if (lens) {
++		// Running means over the samples whose ray met the scene, the share that did in
++		// the colour's a, so the colour divided out is the colour the blurred light has.
++		float4 prev_a = first ? float4(0.0) : prev_albedo.Load(int3(px, 0));
++		float4 prev_n = first ? float4(0.0) : prev_normal.Load(int3(px, 0));
++		float done = float(counts.x);
++		float hit = guide_a.a, hits_before = prev_a.a * done;
++		float hits = hits_before + hit;
++		if (hits > 0.0) {
++			guide_a = float4((prev_a.rgb * hits_before + guide_a.rgb * hit) / hits, hits / (done + 1.0));
++			guide_n = (prev_n * hits_before + guide_n * hit) / hits;
++		}
++		guide_albedo[px] = guide_a;
++		guide_normal[px] = guide_n;
++	} else if (first) {
++		guide_albedo[px] = guide_a;
++		guide_normal[px] = guide_n;
++	}
++}
+diff --git a/src/render/shaders/render_trace_maps.comp.slang b/src/render/shaders/render_trace_maps.comp.slang
+new file mode 100644
+index 0000000..b41b7a8
+--- /dev/null
++++ b/src/render/shaders/render_trace_maps.comp.slang
+@@ -0,0 +1,4 @@
++// vulkan only: render mode's kernel with every map slot in one array (render_trace.slang),
++// which only the own Vulkan backend binds; no Metal source is made for it.
++#define MAP_ARRAY
++#include "render_trace.slang"
+diff --git a/src/render/shaders/render_trace_maps.comp.spv b/src/render/shaders/render_trace_maps.comp.spv
+new file mode 100644
+index 0000000000000000000000000000000000000000..27146a9efac943dbd5d0e1bba9ca7ce14823e738
+GIT binary patch
+literal 77092
+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
+Ve6i~~^P*sNoHf`u7vP)={vT;?9ESh^
+
+literal 0
+HcmV?d00001
+
+-- 
+2.43.0
+

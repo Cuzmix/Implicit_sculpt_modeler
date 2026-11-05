@@ -1,0 +1,477 @@
+<title>Docks and Cards</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the app's own screen as a live stage on the left, the selected dock or card and the rules on the right; one dark look, as the app has. */
+:root {
+  color-scheme: dark;
+  --ground: #121316;
+  --stage: #2a2c31;
+  --surface: #1c1d21;
+  --card: #24262b;
+  --card-2: #2e3036;
+  --line: #3a3d44;
+  --text: #e9e9ec;
+  --text-2: #a9acb4;
+  --text-3: #7f838c;
+  --accent: #40c4b2;
+  --accent-ink: #0d2421;
+  --arrange: #f0a43a;
+  --ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--ground); color: var(--text); font-family: var(--ui); font-size: 14px; }
+.page { min-height: 100%; display: flex; flex-direction: column; gap: 14px; padding-block: 16px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+header.top h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 0.01em; }
+header.top p { margin: 0; color: var(--text-2); max-width: 70ch; flex: 1 1 320px; line-height: 1.45; }
+.modes { display: inline-flex; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 2px; }
+.modes button { font: inherit; color: var(--text-2); background: transparent; border: 0; border-radius: 7px; padding: 7px 14px; cursor: pointer; min-height: 36px; }
+.modes button[aria-pressed="true"] { background: var(--card-2); color: var(--text); }
+.modes button:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.layout { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.stage-wrap { flex: 999 1 640px; min-width: 0; }
+.side { flex: 1 1 340px; min-width: 0; max-width: 100%; display: flex; flex-direction: column; gap: 12px; }
+
+/* The stage: a 1280 x 800 screen scaled to fit. */
+.stage-box { position: relative; width: 100%; aspect-ratio: 1280 / 800; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); max-width: 100%; }
+.stage { position: absolute; left: 0; top: 0; width: 1280px; height: 800px; transform-origin: 0 0; background: radial-gradient(ellipse at 50% 40%, #34363c 0%, var(--stage) 60%, #232428 100%); }
+.model { position: absolute; left: 330px; top: 170px; width: 420px; height: 420px; border-radius: 50%; background: radial-gradient(circle at 38% 32%, #ece2d8 0%, #c6b3a4 40%, #7c6c62 100%); box-shadow: 0 30px 60px rgba(0,0,0,0.35); pointer-events: none; }
+.stage-note { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); font-size: 13px; color: var(--text-2); background: rgba(18,19,22,0.85); border-radius: 8px; padding: 6px 12px; pointer-events: none; white-space: nowrap; }
+
+.dock { position: absolute; display: grid; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid #2b2d33; border-radius: 14px; box-shadow: 0 6px 18px rgba(0,0,0,0.3); }
+.dock.cards { background: transparent; border-color: transparent; box-shadow: none; padding: 0; gap: 8px; }
+.arrange .dock { outline: 2px dashed rgba(240,164,58,0.55); outline-offset: 3px; cursor: pointer; }
+.arrange .dock.selected { outline: 2px solid var(--arrange); }
+.dock-tag { position: absolute; top: -22px; left: 0; font: 500 11px var(--mono); color: #1b1203; background: var(--arrange); border-radius: 4px; padding: 1px 6px; white-space: nowrap; display: none; pointer-events: none; }
+.arrange .dock-tag { display: block; }
+.dock.edge-top .dock-tag { top: auto; bottom: -22px; }
+[hidden] { display: none !important; }
+
+.item { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border: 0; background: transparent; color: var(--text-2); font: 500 11px var(--ui); border-radius: 10px; cursor: pointer; padding: 0; }
+.item:hover { background: #2a2c32; color: var(--text); }
+.item.lit { background: rgba(64,196,178,0.16); color: var(--accent); }
+.item svg { width: 22px; height: 22px; }
+.item.card-icon::after { content: ""; position: absolute; right: 5px; top: 5px; width: 6px; height: 6px; border-top: 2px solid currentColor; border-right: 2px solid currentColor; opacity: 0.55; border-radius: 1px; }
+.item.labelled { justify-content: center; }
+.item.wide { flex-direction: row; gap: 6px; padding: 0 12px; font-size: 13px; }
+.item.tile { background: #23252a; }
+.item.tile.lit { background: rgba(64,196,178,0.18); }
+.arrange .item.selected-item { box-shadow: 0 0 0 2px var(--arrange) inset; }
+
+.value { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0; color: var(--text-2); font: 500 11px var(--ui); }
+.value .track { width: 6px; height: 120px; border-radius: 3px; background: #3a3d44; position: relative; }
+.value .track i { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 3px; background: var(--accent); }
+.value .track b { position: absolute; left: 50%; width: 18px; height: 18px; border-radius: 50%; background: #f2f2f4; transform: translate(-50%, 50%); }
+.value strong { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.card { width: 300px; background: var(--card); border: 1px solid #33363d; border-radius: 14px; overflow: hidden; }
+.card-head { display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 6px 0 12px; }
+.card-head .t { flex: 1; font-weight: 600; font-size: 14px; color: var(--text); display: flex; align-items: center; gap: 8px; min-width: 0; }
+.card-head .t svg { width: 18px; height: 18px; color: var(--text-2); flex: none; }
+.hbtn { width: 36px; height: 36px; border: 0; background: transparent; color: var(--text-2); border-radius: 8px; display: grid; place-items: center; cursor: pointer; }
+.hbtn:hover { background: #30333a; color: var(--text); }
+.hbtn svg { width: 18px; height: 18px; }
+.card-tabs { display: flex; gap: 2px; padding: 0 8px 6px; }
+.card-tabs button { flex: 1; font: 500 12px var(--ui); color: var(--text-2); background: #2b2d33; border: 0; border-radius: 7px; padding: 7px 4px; cursor: pointer; }
+.card-tabs button[aria-pressed="true"] { background: var(--card-2); color: var(--text); box-shadow: inset 0 0 0 1px #4a4e57; }
+.card-body { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.row { display: flex; align-items: center; gap: 10px; min-height: 36px; border-radius: 8px; padding: 0 8px; background: #2a2c32; color: var(--text); font-size: 13px; }
+.row small { color: var(--text-3); margin-left: auto; font-size: 12px; }
+.row.sel { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.thumb { width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 38% 32%, #e8e2da, #8d8178); flex: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 12px; padding: 6px 10px; border-radius: 999px; background: #2a2c32; color: var(--text-2); }
+.chip.on { background: rgba(64,196,178,0.18); color: var(--accent); }
+.bar { height: 6px; border-radius: 3px; background: #3a3d44; position: relative; }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--accent); }
+.spheres { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.spheres span { aspect-ratio: 1; border-radius: 50%; }
+.flyout { position: absolute; z-index: 5; box-shadow: 0 14px 40px rgba(0,0,0,0.5); }
+.flyout .card { border-color: #4a4e57; }
+
+/* The side column. */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.panel h2 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
+.panel h3 { margin: 0; font-size: 17px; font-weight: 600; }
+.panel p { margin: 0; color: var(--text-2); line-height: 1.5; }
+.field { display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; gap: 8px; }
+.field label { color: var(--text-2); font-size: 13px; }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button { font: 500 12px var(--ui); color: var(--text-2); background: var(--card); border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; cursor: pointer; min-height: 32px; }
+.seg button[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+select { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; min-height: 34px; max-width: 100%; }
+code, .code { font-family: var(--mono); font-size: 12px; }
+.code { background: #15161a; border: 1px solid #2c2e34; border-radius: 8px; padding: 10px; color: #c9ccd3; white-space: pre-wrap; word-break: break-word; }
+ol.rules { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; color: var(--text); line-height: 1.45; }
+ol.rules b { color: var(--accent); font-weight: 600; }
+.map { overflow-x: auto; }
+.map table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.map td { padding: 6px 8px 6px 0; border-top: 1px solid #2c2e34; vertical-align: top; }
+.map td:first-child { color: var(--text-2); }
+.map td:last-child { color: var(--text); }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.tabs button { font: 500 13px var(--ui); color: var(--text-2); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; min-height: 36px; }
+.tabs button[aria-pressed="true"] { background: var(--card-2); color: var(--text); }
+.hint { font-size: 12px; color: var(--text-3); }
+@media (prefers-reduced-motion: no-preference) { .flyout { animation: pop 140ms ease-out; } @keyframes pop { from { opacity: 0; transform: translateY(4px); } } }
+</style>
+
+<div class="page">
+  <header class="top">
+    <h1>Docks and Cards</h1>
+    <p>Two kinds of thing, and nothing else. A <b>dock</b> holds items in rows or columns on an edge or floating. A <b>card</b> is one piece of the interface, the same card wherever it opens. Use the app below, or switch to Arrange and pick any dock to change it.</p>
+    <div class="modes" role="group" aria-label="Mode">
+      <button id="mode-use" aria-pressed="true">Use</button>
+      <button id="mode-arrange" aria-pressed="false">Arrange</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div class="stage-wrap">
+      <div class="stage-box" id="stage-box"><div class="stage" id="stage"></div></div>
+    </div>
+    <aside class="side">
+      <div class="tabs" role="group" aria-label="Side">
+        <button data-tab="selected" aria-pressed="true">Selected</button>
+        <button data-tab="rules" aria-pressed="false">Rules</button>
+        <button data-tab="map" aria-pressed="false">Old to new</button>
+      </div>
+      <section class="panel" id="side-selected"></section>
+      <section class="panel" id="side-rules" hidden>
+        <h2>The hard rules</h2>
+        <ol class="rules">
+          <li><b>Two nouns.</b> Everything on screen is a dock or a card. Inside a dock there are only items: a button, a value or a card.</li>
+          <li><b>One dock type.</b> The rail, the shelf, the island, the top bar's islands, the view chips, the dial and your own docks are all <code>Dock</code>. They differ only in their data: place, direction, lines, size, labels, pages.</li>
+          <li><b>One card per thing.</b> Each card has one id, one title, one icon and one body. Every way in (a dock, Search, a menu, a shortcut) shows that card. A second interface for the same thing is a bug.</li>
+          <li><b>A card shows two ways.</b> As an icon, a tap opens it beside the dock, and a second tap or a tap outside closes it. As a card, it stands open in the dock. A dock picks one for its cards, and any card can change.</li>
+          <li><b>Tabs are a card item holding several cards.</b> No separate group type: drop a card on a card to make tabs, drag a tab out to split.</li>
+          <li><b>One way to save.</b> A dock is one line in the layout: <code>dock &lt;name&gt; &lt;place&gt; &lt;direction&gt; &lt;lines&gt; ...</code> and an <code>item</code> line for each item. Old files are read once and turned into docks.</li>
+          <li><b>Banned words in code.</b> panel, palette, section, tray, rail, bar, shelf, island, stack, column (as a container). They may stay as names a person gives a dock, never as types.</li>
+        </ol>
+      </section>
+      <section class="panel map" id="side-map" hidden>
+        <h2>What the old kinds become</h2>
+        <table>
+          <tbody>
+            <tr><td>View rail</td><td>Dock "Rail": right edge, 1 column, cards as icons</td></tr>
+            <tr><td>Panel stack (Palettes)</td><td>Dock "Cards": right edge, 1 column, cards open</td></tr>
+            <tr><td>Shelf and its pages</td><td>Dock "Shelf": bottom, 1 row, large tiles, pages</td></tr>
+            <tr><td>Off-hand island</td><td>Dock "Island": left, 1 column, values</td></tr>
+            <tr><td>View island chips</td><td>Dock "View": top left, 1 row</td></tr>
+            <tr><td>Top bar's three islands</td><td>Docks "File", "Spaces", "App"</td></tr>
+            <tr><td>Dock 1 to 4</td><td>Any dock you add</td></tr>
+            <tr><td>Brush pie, dial</td><td>A dock whose direction is Radial</td></tr>
+            <tr><td>Cards, section palettes, Stats, History, Colors, Objects, mini view</td><td>Cards</td></tr>
+            <tr><td>Shading, Camera, View layout popovers</td><td>Cards, opened from an icon</td></tr>
+            <tr><td>Rail groups, stack groups, two columns</td><td>A card item with tabs</td></tr>
+            <tr><td>Pin to the stack, Keep, Float</td><td>Move the card to another dock, or Float it as a dock of one</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  // Icons as stroke paths on a 24 grid.
+  const P = {
+    menu: "M4 7h16M4 12h16M4 17h16", save: "M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6", undo: "M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3", redo: "M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3",
+    search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4", history: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2", gear: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-2-4-2 .5-1.5-1.2L15 4h-6l-.5 2.3L7 7.5 5 7l-2 4 2 1-.0 0 2 1-2 4 2 .5 1.5 1.2L9 20h6l.5-2.3 1.5-1.2 2 .5 2-4z",
+    camera: "M4 8h4l2-3h4l2 3h4v11H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", shading: "M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18", sym: "M12 3v18M8 7l-4 5 4 5M16 7l4 5-4 5", wire: "M4 4h16v16H4zM4 10h16M4 16h16M10 4v16M16 4v16",
+    sun: "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4", frame: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
+    layers: "M12 3l9 5-9 5-9-5zM3 13l9 5 9-5", scene: "M5 4h6v6H5zM13 14h6v6h-6zM8 10v7h5", material: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM7 9a5 5 0 0 1 4-3",
+    brush: "M15 4l5 5-9 9H6v-5zM13 6l5 5", plus: "M12 5v14M5 12h14", pin: "M9 4h6l-1 6 3 3H7l3-3zM12 13v7", close: "M6 6l12 12M18 6L6 18", chev: "M8 10l4 4 4-4", chevr: "M10 8l4 4-4 4", more: "M6 12h.01M12 12h.01M18 12h.01",
+    tools: "M4 7h10M18 7h2M4 17h4M12 17h8M14 5v4M8 15v4", mask: "M12 3a9 9 0 1 0 0 18V3z", smooth: "M3 9c3-3 6 3 9 0s6 3 9 0M3 15c3-3 6 3 9 0s6 3 9 0", clay: "M4 16c4-6 12-6 16 0M6 19h12",
+    inflate: "M12 19a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM12 9v6M9 12h6", grab: "M8 11V5a1.5 1.5 0 0 1 3 0v5M11 10V4a1.5 1.5 0 0 1 3 0v6M14 10V6a1.5 1.5 0 0 1 3 0v8a6 6 0 0 1-6 6h-1a5 5 0 0 1-4-2l-3-4 1.5-1.5L8 15",
+    pinch: "M5 5l5 5M19 5l-5 5M5 19l5-5M19 19l-5-5", flatten: "M4 12h16M4 16h16", crease: "M4 18L12 6l8 12", invert: "M12 3a9 9 0 1 0 0 18zM12 3a9 9 0 0 1 0 18", step: "M5 18h4v-4h4v-4h4V6h2",
+    sculpt: "M14 4l6 6-8 8H6v-6z", model: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5", render: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 3v18M3 12h18", stats: "M5 19V11M12 19V5M19 19v-8", colors: "M12 21a9 9 0 1 1 9-9c0 2-2 3-4 3h-2a2 2 0 0 0-1 4c.5.5 0 2-2 2z"
+  };
+  function icon(n) { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${P[n] || P.more}"/></svg>`; }
+
+  // Every card there is: one id, one title, one icon, one body.
+  const CARDS = {
+    brush: { title: "Brush", icon: "brush", body: () => `<div class="row"><span class="thumb" style="border-radius:8px"></span>Draw<small>60 px · 0.50</small></div><div class="chips"><span class="chip on">Dots</span><span class="chip">Rect</span><span class="chip">Spray</span><span class="chip">Drag</span></div><div class="bar"><i style="width:55%"></i></div><div class="row">Falloff<small>The brush's own</small></div>` },
+    symmetry: { title: "Symmetry", icon: "sym", body: () => `<div class="chips"><span class="chip on">X</span><span class="chip">Y</span><span class="chip">Z</span><span class="chip">Radial</span></div><div class="row">Mirror about<small>Object centre</small></div>` },
+    scene: { title: "Scene", icon: "scene", body: () => `<div class="row sel"><span class="thumb"></span>Sphere 1<small>40k tris</small></div><div class="row"><span class="thumb"></span>Sphere 2<small>40k tris</small></div><div class="row">${icon("sun").replace('<svg', '<svg style="width:18px;height:18px"')}Lights · 4<small>4 on</small></div>` },
+    layers: { title: "Layers", icon: "layers", body: () => `<div class="row sel">Layer 2<small>1.00</small></div><div class="row">Layer 1<small>0.60</small></div><div class="row">Base sculpt<small>outside the layers</small></div>` },
+    material: { title: "Material", icon: "material", body: () => `<div class="spheres">${["#d9c6b4","#b7c9d9","#c9b26a","#8a8f99","#d48e7a","#9fc79a","#e6e6e6","#6b5b8f"].map(c => `<span style="background:radial-gradient(circle at 35% 30%, #fff8, ${c} 45%, #222 110%)"></span>`).join("")}</div><div class="row">Roughness<small>0.45</small></div>` },
+    lights: { title: "Lights", icon: "sun", body: () => `<div class="row">Sun<small>1.0</small></div><div class="row">Fill<small>0.4</small></div><div class="chips"><span class="chip">+ Sun</span><span class="chip">+ Point</span><span class="chip">+ Spot</span><span class="chip">+ Area</span></div>` },
+    tools: { title: "Tools", icon: "tools", body: () => `<div class="chips"><span class="chip on">Mask</span><span class="chip">Visibility</span><span class="chip">Geometry</span><span class="chip">Deform</span></div><div class="row">Invert<small>Ctrl+I</small></div><div class="row">Blur<small>Ctrl+click</small></div>` },
+    history: { title: "History", icon: "history", body: () => `<div class="row sel">Draw stroke<small>now</small></div><div class="row">Remesh<small>2 min</small></div><div class="row">Subdivide<small>5 min</small></div>` },
+    settings: { title: "Settings", icon: "gear", body: () => `<div class="row">Interface<small>Dark</small></div><div class="row">Pen<small>Pressure on</small></div><div class="row">Performance<small>Balanced</small></div>` },
+    shading: { title: "Shading", icon: "shading", body: () => `<div class="chips"><span class="chip on">Solid</span><span class="chip">Material</span><span class="chip">Render</span></div><div class="row">Wireframe<small>off</small></div><div class="row">Polygroups<small>off</small></div>` },
+    camera: { title: "Camera", icon: "camera", body: () => `<div class="chips"><span class="chip on">Persp</span><span class="chip">Ortho</span></div><div class="row">Focal length<small>33 mm</small></div><div class="row">Frame all<small>Shift+F</small></div>` },
+    colors: { title: "Colors", icon: "colors", body: () => `<div class="spheres">${["#bf3326","#e08a3c","#e8c84a","#5aa35a","#3f7fd0","#7a55c6","#f2f2f2","#2a2a2a"].map(c => `<span style="background:${c};border-radius:8px"></span>`).join("")}</div>` },
+    stats: { title: "Stats", icon: "stats", body: () => `<div class="row">Frame<small>4.2 ms</small></div><div class="row">Triangles<small>80k</small></div>` }
+  };
+
+  // The commands the docks hold (a brush is a command too).
+  const CMD = {
+    menu: ["Menu", "menu"], save: ["Save", "save"], undo: ["Undo", "undo"], redo: ["Redo", "redo"], search: ["Search", "search"],
+    sculpt: ["Sculpt", "sculpt"], model: ["Model", "model"], render: ["Render", "render"],
+    sym_x: ["Symmetry X", "sym"], wire: ["Wireframe", "wire"], frame: ["Focus", "frame"],
+    clay: ["Clay", "clay"], draw: ["Draw", "brush"], smooth: ["Smooth", "smooth"], inflate: ["Inflate", "inflate"], pinch: ["Pinch", "pinch"], crease: ["Crease", "crease"], grab: ["Grab", "grab"], flatten: ["Flatten", "flatten"], mask: ["Mask", "mask"],
+    invert: ["Invert", "invert"], step: ["Step", "step"], add: ["Add a card", "plus"]
+  };
+
+  // The whole layout is data: docks, each with its items. This is what a layout file holds.
+  const state = {
+    mode: "use",
+    selected: { dock: "Rail", item: null },
+    flyout: null,
+    lit: { draw: true, sculpt: true, sym_x: true },
+    docks: [
+      { name: "File", edge: "top", align: "start", dir: "row", lines: 1, size: "M", labels: false, cards: "icons", items: [c("menu"), c("save"), c("undo"), c("redo")] },
+      { name: "Spaces", edge: "top", align: "center", dir: "row", lines: 1, size: "M", labels: "wide", cards: "icons", items: [c("sculpt"), c("model"), c("render")] },
+      { name: "App", edge: "top", align: "end", dir: "row", lines: 1, size: "M", labels: false, cards: "icons", items: [c("search"), k("history"), k("settings")] },
+      { name: "View", edge: "top", align: "start", dir: "row", lines: 1, size: "M", labels: false, cards: "icons", items: [k("camera"), k("shading"), c("sym_x"), c("wire"), k("lights"), c("frame")] },
+      { name: "Island", edge: "left", align: "center", dir: "column", lines: 1, size: "M", labels: false, cards: "icons", items: [v("Size", "60 px", 0.55), v("Strength", "0.50", 0.5)] },
+      { name: "Shelf", edge: "bottom", align: "center", dir: "row", lines: 1, size: "L", labels: true, cards: "icons", pages: ["Brushes", "Paint", "Move"], items: ["clay", "draw", "smooth", "inflate", "pinch", "crease", "grab", "flatten", "mask"].map(c) },
+      { name: "Rail", edge: "right", align: "start", dir: "column", lines: 1, size: "M", labels: false, cards: "icons", items: [k("scene"), k("layers"), k("material"), c("add")] },
+      { name: "Cards", edge: "right", align: "start", dir: "column", lines: 1, size: "M", labels: false, cards: "open", items: [k("brush"), k("symmetry", true)] },
+      { name: "Dial", edge: "bottom", align: "start", dir: "radial", lines: 1, size: "M", labels: false, cards: "icons", items: [c("smooth"), c("invert"), c("mask"), c("step")] }
+    ]
+  };
+  function c(id) { return { kind: "command", id }; }
+  function k(id, folded) { return { kind: "card", cards: [id], tab: 0, folded: !!folded }; }
+  function v(name, value, f) { return { kind: "value", name, value, f }; }
+
+  const SIZE = { S: 36, M: 46, L: 60 };
+  const stage = document.getElementById("stage");
+  const box = document.getElementById("stage-box");
+
+  function itemHTML(d, it, di, ii) {
+    const s = SIZE[d.size];
+    const sel = state.mode === "arrange" && state.selected.dock === d.name && state.selected.item === ii ? " selected-item" : "";
+    const key = `data-d="${di}" data-i="${ii}"`;
+    if (it.kind === "value") {
+      return `<div class="value" ${key} style="width:${s}px">${it.name}<span class="track"><i style="height:${it.f * 100}%"></i><b style="bottom:${it.f * 100}%"></b></span><strong>${it.value}</strong></div>`;
+    }
+    if (it.kind === "card" && d.cards === "open") return cardHTML(it, di, ii, false);
+    const meta = it.kind === "card" ? CARDS[it.cards[it.tab]] : { title: CMD[it.id][0], icon: CMD[it.id][1] };
+    const title = it.kind === "card" && it.cards.length > 1 ? it.cards.map(x => CARDS[x].title).join(" + ") : meta.title;
+    const lit = it.kind === "card" ? (state.flyout && state.flyout.d === di && state.flyout.i === ii) : !!state.lit[it.id];
+    const wide = d.labels === "wide";
+    const cls = ["item", it.kind === "card" ? "card-icon" : "", d.size === "L" ? "tile" : "", wide ? "wide" : "", lit ? "lit" : ""].join(" ") + sel;
+    const w = wide ? "auto" : s + "px";
+    const label = d.labels ? `<span>${title}</span>` : "";
+    return `<button class="${cls}" ${key} style="width:${w};height:${s}px" aria-label="${title}" title="${title}">${icon(meta.icon)}${label}</button>`;
+  }
+
+  function cardHTML(it, di, ii, flying) {
+    const id = it.cards[it.tab];
+    const meta = CARDS[id];
+    const tabs = it.cards.length > 1 ? `<div class="card-tabs">${it.cards.map((x, t) => `<button data-tab-d="${di}" data-tab-i="${ii}" data-tab-t="${t}" aria-pressed="${t === it.tab}">${CARDS[x].title}</button>`).join("")}</div>` : "";
+    const sel = state.mode === "arrange" && state.selected.dock === state.docks[di].name && state.selected.item === ii ? ' style="box-shadow:0 0 0 2px var(--arrange)"' : "";
+    const folded = !flying && it.folded;
+    const head = `<div class="card-head">
+      ${flying ? "" : `<button class="hbtn" data-fold-d="${di}" data-fold-i="${ii}" aria-label="${folded ? "Unfold" : "Fold"}">${icon(folded ? "chevr" : "chev")}</button>`}
+      <div class="t">${icon(meta.icon)}<span>${it.cards.length > 1 ? "" : meta.title}</span></div>
+      ${flying ? `<button class="hbtn" data-pin aria-label="Keep it open in the Cards dock">${icon("pin")}</button>` : ""}
+      <button class="hbtn" data-more-d="${di}" data-more-i="${ii}" aria-label="Card menu">${icon("more")}</button>
+      ${flying ? `<button class="hbtn" data-close aria-label="Close">${icon("close")}</button>` : ""}
+    </div>`;
+    return `<div class="card" data-d="${di}" data-i="${ii}"${sel}>${head}${folded ? "" : tabs + `<div class="card-body">${meta.body()}</div>`}</div>`;
+  }
+
+  function dockGrid(d) {
+    const n = d.items.length;
+    if (d.dir === "radial") return "";
+    if (d.cards === "open" && d.items.some(i => i.kind === "card")) {
+      return d.dir === "row" ? `grid-auto-flow:column;grid-template-rows:repeat(${d.lines}, auto)` : `grid-auto-flow:row;grid-template-columns:repeat(${d.lines}, auto)`;
+    }
+    const along = Math.ceil(n / d.lines);
+    return d.dir === "row" ? `grid-auto-flow:row;grid-template-columns:repeat(${along}, auto)` : `grid-auto-flow:column;grid-template-rows:repeat(${along}, auto)`;
+  }
+
+  function render() {
+    stage.classList.toggle("arrange", state.mode === "arrange");
+    let html = `<div class="model"></div>`;
+    state.docks.forEach((d, di) => {
+      const sel = state.mode === "arrange" && state.selected.dock === d.name ? " selected" : "";
+      const isCards = d.cards === "open" && d.items.every(i => i.kind === "card");
+      if (d.dir === "radial") {
+        const items = d.items.map((it, ii) => {
+          const a = -Math.PI / 2 + ii * 2 * Math.PI / d.items.length;
+          const r = 46;
+          return `<div style="position:absolute;left:${70 + Math.cos(a) * r - 23}px;top:${70 + Math.sin(a) * r - 23}px">${itemHTML(d, it, di, ii)}</div>`;
+        }).join("");
+        html += `<div class="dock${sel}" data-dock="${di}" style="display:block;width:140px;height:140px;border-radius:50%"><span class="dock-tag">${d.name} · radial</span>${items}</div>`;
+        return;
+      }
+      const pages = d.pages ? `<div style="grid-column:1/-1;display:flex;gap:4px;justify-content:center;padding-top:2px">${d.pages.map((p, i) => `<span class="chip${i === 0 ? " on" : ""}" style="padding:3px 10px;font-size:11px">${p}</span>`).join("")}</div>` : "";
+      html += `<div class="dock${isCards ? " cards" : ""}${d.edge === "top" ? " edge-top" : ""}${sel}" data-dock="${di}" style="${dockGrid(d)}"><span class="dock-tag">${d.name} · ${d.dir === "row" ? d.lines + (d.lines > 1 ? " rows" : " row") : d.lines + (d.lines > 1 ? " columns" : " column")}</span>${d.items.map((it, ii) => itemHTML(d, it, di, ii)).join("")}${pages}</div>`;
+    });
+    if (state.flyout) {
+      const { d, i } = state.flyout;
+      html += `<div class="flyout" id="flyout">${cardHTML(state.docks[d].items[i], d, i, true)}</div>`;
+    }
+    if (state.mode === "arrange") html += `<div class="stage-note">Arrange: pick a dock, or an item in it</div>`;
+    stage.innerHTML = html;
+    place();
+    side();
+  }
+
+  // Docks on one edge and alignment stack inward in their order, so changing one never overlaps the next.
+  function place() {
+    const W = 1280, H = 800, M = 10;
+    const used = {};
+    state.docks.forEach((d, di) => {
+      const el = stage.querySelector(`[data-dock="${di}"]`);
+      const w = el.offsetWidth, h = el.offsetHeight;
+      const key = d.edge + "/" + d.align;
+      const inset = used[key] || 0;
+      let x = 0, y = 0;
+      const top = d.edge !== "top" && (d.edge === "left" || d.edge === "right") ? 66 : M;
+      if (d.edge === "top" || d.edge === "bottom") {
+        y = d.edge === "top" ? M + inset : H - M - inset - h;
+        x = d.align === "start" ? M : d.align === "end" ? W - M - w : (W - w) / 2;
+        used[key] = inset + h + 8;
+      } else {
+        x = d.edge === "left" ? M + inset : W - M - inset - w;
+        y = d.align === "start" ? top : d.align === "end" ? H - M - h : (H - h) / 2;
+        used[key] = inset + w + 8;
+      }
+      el.style.left = x + "px"; el.style.top = y + "px";
+    });
+    const fly = document.getElementById("flyout");
+    if (fly && state.flyout) {
+      const host = stage.querySelector(`[data-dock="${state.flyout.d}"]`);
+      const btn = stage.querySelector(`[data-dock="${state.flyout.d}"] [data-i="${state.flyout.i}"]`);
+      const d = state.docks[state.flyout.d];
+      const hx = parseFloat(host.style.left), hy = parseFloat(host.style.top);
+      const bx = hx + btn.offsetLeft, by = hy + btn.offsetTop;
+      let x, y;
+      if (d.edge === "right") { x = hx - fly.offsetWidth - 10; y = by; }
+      else if (d.edge === "left") { x = hx + host.offsetWidth + 10; y = by; }
+      else if (d.edge === "top") { x = bx; y = hy + host.offsetHeight + 8; }
+      else { x = bx; y = hy - fly.offsetHeight - 8; }
+      x = Math.max(10, Math.min(1280 - fly.offsetWidth - 10, x));
+      y = Math.max(10, Math.min(800 - fly.offsetHeight - 10, y));
+      fly.style.left = x + "px"; fly.style.top = y + "px";
+    }
+  }
+
+  function fit() { stage.style.transform = `scale(${box.clientWidth / 1280})`; }
+
+  // The side column: the selected dock's own settings, which are all a dock is.
+  function side() {
+    const el = document.getElementById("side-selected");
+    const d = state.docks.find(x => x.name === state.selected.dock) || state.docks[0];
+    const it = state.selected.item != null ? d.items[state.selected.item] : null;
+    const seg = (field, opts, cur) => `<div class="seg">${opts.map(([val, label]) => `<button data-set="${field}" data-val="${val}" aria-pressed="${String(cur) === String(val)}">${label}</button>`).join("")}</div>`;
+    let h = `<h2>${state.mode === "arrange" ? "Selected dock" : "Pick a dock in Arrange"}</h2><h3>${d.name}</h3>`;
+    h += `<div class="field"><label>Edge</label>${seg("edge", [["top", "Top"], ["bottom", "Bottom"], ["left", "Left"], ["right", "Right"]], d.edge)}</div>`;
+    h += `<div class="field"><label>Along it</label>${seg("align", [["start", "Start"], ["center", "Middle"], ["end", "End"]], d.align)}</div>`;
+    h += `<div class="field"><label>Direction</label>${seg("dir", [["row", "Row"], ["column", "Column"], ["radial", "Radial"]], d.dir)}</div>`;
+    h += `<div class="field"><label>${d.dir === "row" ? "Rows" : "Columns"}</label>${seg("lines", [[1, "1"], [2, "2"], [3, "3"], [4, "4"]], d.lines)}</div>`;
+    h += `<div class="field"><label>Item size</label>${seg("size", [["S", "Small"], ["M", "Medium"], ["L", "Large"]], d.size)}</div>`;
+    h += `<div class="field"><label>Names</label>${seg("labels", [[false, "Off"], [true, "Under"], ["wide", "Beside"]], d.labels)}</div>`;
+    h += `<div class="field"><label>Cards show as</label>${seg("cards", [["icons", "Icons"], ["open", "Cards"]], d.cards)}</div>`;
+    if (it) {
+      const name = it.kind === "card" ? it.cards.map(x => CARDS[x].title).join(" + ") : it.kind === "value" ? it.name : CMD[it.id][0];
+      h += `<h2 style="margin-top:6px">Selected item</h2><p><b style="color:var(--text)">${name}</b>, a ${it.kind}.</p>`;
+      h += `<div class="field"><label for="move-to">Move to dock</label><select id="move-to">${state.docks.map(x => `<option value="${x.name}"${x.name === d.name ? " selected" : ""}>${x.name}</option>`).join("")}</select></div>`;
+      if (it.kind === "card") h += `<div class="field"><label for="tab-with">Add as a tab</label><select id="tab-with"><option value="">Pick a card</option>${Object.keys(CARDS).filter(x => !it.cards.includes(x)).map(x => `<option value="${x}">${CARDS[x].title}</option>`).join("")}</select></div>`;
+    }
+    h += `<h2 style="margin-top:6px">Saved as</h2><div class="code">${dockLine(d)}</div>`;
+    h += `<p class="hint">Every dock on screen is this one type with different values. Change Rail's Cards show as to Cards and it becomes the old panel stack.</p>`;
+    el.innerHTML = h;
+  }
+
+  function dockLine(d) {
+    const head = `dock ${d.name} ${d.edge} ${d.align} ${d.dir} ${d.lines} ${d.size} names:${d.labels === "wide" ? "beside" : d.labels ? "under" : "off"} cards:${d.cards}${d.pages ? " pages:" + d.pages.join(",") : ""}`;
+    const items = d.items.map(it => it.kind === "card" ? `item card ${it.cards.join("+")}${it.folded ? " folded" : ""}` : it.kind === "value" ? `item value ${it.name}` : `item command ${CMD[it.id][0].replace(/ /g, "_")}`);
+    return [head, ...items].map(s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")).join("\n");
+  }
+
+  // Taps.
+  stage.addEventListener("click", e => {
+    const t = e.target;
+    if (t.closest("[data-close]")) { state.flyout = null; render(); return; }
+    if (t.closest("[data-pin]")) {
+      const { d, i } = state.flyout;
+      const it = state.docks[d].items.splice(i, 1)[0];
+      const target = state.docks.find(x => x.cards === "open") || state.docks[d];
+      target.items.push(it);
+      state.flyout = null; render(); return;
+    }
+    const tab = t.closest("[data-tab-d]");
+    if (tab) { state.docks[+tab.dataset.tabD].items[+tab.dataset.tabI].tab = +tab.dataset.tabT; render(); return; }
+    const fold = t.closest("[data-fold-d]");
+    if (fold && state.mode === "use") { const it = state.docks[+fold.dataset.foldD].items[+fold.dataset.foldI]; it.folded = !it.folded; render(); return; }
+    if (t.closest(".flyout")) return;
+    const itemEl = t.closest("[data-i]");
+    const dockEl = t.closest("[data-dock]");
+    if (state.mode === "arrange") {
+      if (dockEl) {
+        state.selected = { dock: state.docks[+dockEl.dataset.dock].name, item: itemEl ? +itemEl.dataset.i : null };
+      }
+      render(); return;
+    }
+    if (itemEl && dockEl) {
+      const di = +dockEl.dataset.dock, ii = +itemEl.dataset.i;
+      const d = state.docks[di], it = d.items[ii];
+      if (it.kind === "card" && d.cards === "icons") {
+        state.flyout = state.flyout && state.flyout.d === di && state.flyout.i === ii ? null : { d: di, i: ii };
+      } else if (it.kind === "command") {
+        if (d.name === "Shelf") { ["clay", "draw", "smooth", "inflate", "pinch", "crease", "grab", "flatten", "mask"].forEach(x => delete state.lit[x]); state.lit[it.id] = true; }
+        else if (d.name === "Spaces") { ["sculpt", "model", "render"].forEach(x => delete state.lit[x]); state.lit[it.id] = true; }
+        else if (it.id === "sym_x" || it.id === "wire") state.lit[it.id] = !state.lit[it.id];
+        state.flyout = null;
+      }
+      render(); return;
+    }
+    if (state.flyout) { state.flyout = null; render(); }
+  });
+
+  document.getElementById("side-selected").addEventListener("click", e => {
+    const b = e.target.closest("[data-set]");
+    if (!b) return;
+    const d = state.docks.find(x => x.name === state.selected.dock);
+    let val = b.dataset.val;
+    if (b.dataset.set === "lines") val = +val;
+    if (b.dataset.set === "labels") val = val === "wide" ? "wide" : val === "true";
+    d[b.dataset.set] = val;
+    state.flyout = null;
+    render();
+  });
+  document.getElementById("side-selected").addEventListener("change", e => {
+    const d = state.docks.find(x => x.name === state.selected.dock);
+    if (e.target.id === "move-to") {
+      const it = d.items.splice(state.selected.item, 1)[0];
+      const to = state.docks.find(x => x.name === e.target.value);
+      to.items.push(it);
+      state.selected = { dock: to.name, item: to.items.length - 1 };
+    } else if (e.target.id === "tab-with" && e.target.value) {
+      const it = d.items[state.selected.item];
+      it.cards.push(e.target.value); it.tab = it.cards.length - 1;
+    }
+    state.flyout = null;
+    render();
+  });
+
+  function setMode(m) {
+    state.mode = m; state.flyout = null;
+    document.getElementById("mode-use").setAttribute("aria-pressed", m === "use");
+    document.getElementById("mode-arrange").setAttribute("aria-pressed", m === "arrange");
+    render();
+  }
+  document.getElementById("mode-use").addEventListener("click", () => setMode("use"));
+  document.getElementById("mode-arrange").addEventListener("click", () => setMode("arrange"));
+  document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => {
+    document.querySelectorAll("[data-tab]").forEach(x => x.setAttribute("aria-pressed", x === b));
+    ["selected", "rules", "map"].forEach(n => document.getElementById("side-" + n).hidden = n !== b.dataset.tab);
+  }));
+
+  new ResizeObserver(fit).observe(box);
+  fit();
+  render();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
+})();
+</script>

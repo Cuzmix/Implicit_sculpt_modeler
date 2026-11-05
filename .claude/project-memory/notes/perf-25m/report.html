@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sculpting at 25M polygons</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Layout: one reading column, tables allowed to run wider; a frame-budget strip leads. */
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --ink: #1b1f27;
+  --muted: #5b6474;
+  --line: #dde1e8;
+  --accent: #2f5fd0;
+  --good: #1f7a4d;
+  --warn: #a8640a;
+  --bad: #b3261e;
+  --c-normals: #2f5fd0;
+  --c-move: #7a5af0;
+  --c-area: #18a3a3;
+  --c-wait: #9aa3b2;
+  --c-other: #d29a2c;
+  --display: "Fraunces", Georgia, serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151b; --surface: #1a1e26; --ink: #e6e9ef; --muted: #9aa3b2; --line: #2c323d;
+    --accent: #7ea2ff; --good: #5cc28f; --warn: #e2a64a; --bad: #f2867d;
+    --c-normals: #6f93ff; --c-move: #a48cff; --c-area: #3cc7c7; --c-wait: #5d6676; --c-other: #e2b04a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151b; --surface: #1a1e26; --ink: #e6e9ef; --muted: #9aa3b2; --line: #2c323d;
+  --accent: #7ea2ff; --good: #5cc28f; --warn: #e2a64a; --bad: #f2867d;
+  --c-normals: #6f93ff; --c-move: #a48cff; --c-area: #3cc7c7; --c-wait: #5d6676; --c-other: #e2b04a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.55; }
+main { max-width: 980px; margin: 0 auto; padding: 40px 20px 80px; display: grid; gap: 36px; }
+header { display: grid; gap: 10px; }
+h1 { font-family: var(--display); font-size: 2.2rem; line-height: 1.15; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--display); font-size: 1.45rem; margin: 0 0 4px; text-wrap: balance; }
+h3 { font-size: 1.02rem; margin: 0; font-weight: 600; }
+p, li { max-width: 68ch; }
+p { margin: 0; }
+.meta { color: var(--muted); font-size: .9rem; }
+section { display: grid; gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; display: grid; gap: 10px; }
+.lead { font-size: 1.08rem; }
+.verdicts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 4px; }
+.tile .num { font-family: var(--mono); font-size: 1.5rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.tile .lbl { color: var(--muted); font-size: .88rem; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; background: var(--surface); }
+th, td { border-bottom: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
+td.n, th.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+code { font-family: var(--mono); font-size: .86em; background: color-mix(in srgb, var(--line) 45%, transparent); padding: 1px 4px; border-radius: 4px; }
+.pill { display: inline-block; font-size: .75rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.yes { color: var(--good); } .no { color: var(--bad); } .later { color: var(--warn); }
+.bars { display: grid; gap: 12px; }
+.bar-row { display: grid; grid-template-columns: 150px 1fr 70px; gap: 10px; align-items: center; font-size: .88rem; }
+.bar { display: flex; height: 22px; border-radius: 5px; overflow: hidden; position: relative; background: color-mix(in srgb, var(--line) 50%, transparent); }
+.bar::after { content: ""; position: absolute; left: 46.1%; top: 0; bottom: 0; width: 2px; background: var(--ink); opacity: .7; }
+.bar span { display: block; height: 100%; }
+.bar-row .n { font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: .82rem; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.budget { position: relative; }
+ol.plan { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 12px; counter-reset: step; }
+ol.plan > li { counter-increment: step; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; padding: 12px 16px; display: grid; gap: 6px; max-width: none; }
+ol.plan > li h3::before { content: counter(step) ". "; color: var(--accent); }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .85rem; color: var(--muted); }
+ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.small { font-size: .85rem; color: var(--muted); }
+@media (max-width: 520px) { .bar-row { grid-template-columns: 1fr; } .bar-row .n { text-align: left; } h1 { font-size: 1.8rem; } }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Sculpting at 25M polygons</h1>
+  <p class="meta">Analysis for Bolt · 31 Oct 2026 · measured at <code>odin-sculpt</code> 191436b on the cloud VM (4 threads, release builds, SwiftShader as the only GPU). Nothing in the repository was changed.</p>
+</header>
+
+<section>
+  <h2>The short answer</h2>
+  <div class="card lead">
+    <p>The stroke itself is not where 25M hurts most. A large Draw or Clay frame costs 2.8 ms of CPU at 25M triangles and 5.2 ms at 25M quads here, inside a 120 Hz frame. What hurts is <strong>Smooth</strong> (14.4 ms a frame at 25M quads), <strong>the first ten seconds or so after a Remesh</strong> (12 s to remesh, 5 s to get ready, then 8.7 s of simplified copies built 4 ms at a time on the frame thread), <strong>both tablets culling on the CPU</strong>, and <strong>memory</strong> on the iPad.</p>
+    <p>Moving the brush, the raycast or the uploads to the GPU would not pay: they cost 0.02 ms (raycast) and 1 to 3 MB a frame (uploads), and the brush would lose exact undo and the CPU-equals-parallel rule. The GPU work worth doing is culling on Metal and on the Mali tablet, and the simplified pass while orbiting. The rest of the speed comes from CPU work done better.</p>
+  </div>
+  <div class="verdicts">
+    <div class="tile"><span class="num">5.2 ms</span><span class="lbl">Large Draw frame at 25M quads (50M triangles), CPU, 4 VM threads</span></div>
+    <div class="tile"><span class="num">14.4 ms</span><span class="lbl">Large Smooth frame at 25M quads: over budget, so dabs spill into later frames</span></div>
+    <div class="tile"><span class="num">≈ 26 s</span><span class="lbl">Remesh to 25M quads until orbiting is simplified again (12 + 5 + 8.7 s)</span></div>
+    <div class="tile"><span class="num">2.6 GB</span><span class="lbl">CPU memory at 25M quads before undo, levels or the GPU's copy</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>Outcome: what building the plan measured (31 October)</h2>
+  <p>Bolt approved all nine steps, and each was built or measured the same day. The numbers are from <code>bench --profile</code> on this VM with 4 threads, from alternating A/B runs. Where a step fell short of its estimate, the table says so.</p>
+  <table>
+    <thead><tr><th>Step</th><th>Result</th><th>PR</th></tr></thead>
+    <tbody>
+      <tr><td>1. Bench and profiler</td><td><code>bench --profile</code> at 12.5M and 25M.</td><td>#442</td></tr>
+      <tr><td>2. Simplified copies</td><td>Copies are now built after the frame is submitted, in the time it waits for the display, instead of on a worker thread. At 12.5M, idle frame CPU time went from 6.4 to 1.25 ms (p50). The close-view "bug" turned out harmless: it was at most 0.24M triangles.</td><td>#443</td></tr>
+      <tr><td>3. Normals</td><td>Scatter sums were slower, and the border-only variant was within noise. Dropped: the estimate was wrong.</td><td>none</td></tr>
+      <tr><td>4. Smooth</td><td>Each triangle's corner sums are now worked out once a pass. A large dab at 25M went from 3.3 to 2.8 ms, about 15% faster, not 2x.</td><td>#445</td></tr>
+      <tr><td>5. Dab overhead</td><td>The barriers cost little. The real serial work was undo copies on the frame thread, which now run in parallel. A large Draw dab at 25M went from 0.80 to 0.72 ms.</td><td>#448</td></tr>
+      <tr><td>6. GPU culling</td><td>Now offered on tile GPUs such as the OnePlus Pad's Mali, starting off: use Stats &gt; Drawing or <code>--gpu-cull</code> to compare there. Metal kernels were not built because they cannot be verified without a Mac. The simplified pass still culls on the CPU.</td><td>#450</td></tr>
+      <tr><td>7. Undo</td><td>Normal cones are deferred and positions swap back in parallel. Undo plus its flush at 25M went from 28 to 19 ms.</td><td>#446</td></tr>
+      <tr><td>8. Memory</td><td>The BVH's identity triangle order is freed, so peak RSS at 25M went from 3,379 to 3,189 MB. Packed CPU normals were not built: the change touches 170 uses in 46 files.</td><td>#448</td></tr>
+      <tr><td>9. Remesh</td><td>Huge pages made Remesh about 40% slower on this VM, and the rest of the time is spread over parallel kernels and first-touch page faults. Nothing was shipped, and ready-to-sculpt already runs on the long job's thread.</td><td>none</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>What "25M polygons when remeshed" means here</h2>
+  <p>Remesh makes quads by default, and a quad remesh has about one vertex per quad. So 25M polygons is about 25M vertices and 50M triangles to sculpt on. If Quads was off it is 12.5M vertices and 25M triangles. Every table below has both.</p>
+</section>
+
+<section>
+  <h2>Where a stroke frame goes</h2>
+  <p>A frame is four dabs (each with its raycast) and the flush that recomputes normals, as <code>build/bench</code> and the app do. Large brush (r = 0.13 of the sphere), measured by a harness that strokes for 8 to 20 seconds and undoes each stroke, profiled with <code>perf</code>.</p>
+  <div class="card">
+    <div class="bars" role="img" aria-label="Frame composition: Draw at 25M triangles 2.9 ms, Draw at 25M quads 5.2 ms, Smooth at 25M quads 14.4 ms">
+      <div class="bar-row"><span>Draw · 25M tris</span>
+        <div class="bar"><span style="width:3.4%;background:var(--c-move)"></span><span style="width:1.8%;background:var(--c-area)"></span><span style="width:7.2%;background:var(--c-normals)"></span><span style="width:2.6%;background:var(--c-wait)"></span><span style="width:1.1%;background:var(--c-other)"></span></div>
+        <span class="n">2.9 ms</span></div>
+      <div class="bar-row"><span>Draw · 25M quads</span>
+        <div class="bar"><span style="width:6.2%;background:var(--c-move)"></span><span style="width:3.2%;background:var(--c-area)"></span><span style="width:12.9%;background:var(--c-normals)"></span><span style="width:4.6%;background:var(--c-wait)"></span><span style="width:1.9%;background:var(--c-other)"></span></div>
+        <span class="n">5.2 ms</span></div>
+      <div class="bar-row"><span>Smooth · 25M quads</span>
+        <div class="bar"><span style="width:56.2%;background:var(--c-move)"></span><span style="width:14.3%;background:var(--c-normals)"></span><span style="width:7.9%;background:var(--c-wait)"></span><span style="width:1.7%;background:var(--c-other)"></span></div>
+        <span class="n">14.4 ms</span></div>
+      <div class="bar-row small"><span>scale</span><span>full bar = 18 ms; the thin line is a 120 Hz frame (8.3 ms)</span><span></span></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--c-move)"></i>moving vertices (Smooth: its targets and apply)</span>
+      <span><i style="background:var(--c-area)"></i>area under the brush</span>
+      <span><i style="background:var(--c-normals)"></i>normals and chunk bounds</span>
+      <span><i style="background:var(--c-wait)"></i>workers waiting between phases</span>
+      <span><i style="background:var(--c-other)"></i>undo copy, BVH refit, raycast</span>
+    </div>
+    <p class="small">Shares come from the profile at 25M triangles (normals 29% + chunk updates 9%, Draw's move 18%, area 9%, waiting 12%) and of Smooth at 25M triangles (targets 41%, apply 20%, normals 11%), normalised and applied to each row's measured total.</p>
+  </div>
+
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Mesh</th><th>Brush</th><th class="n">Verts a dab</th><th class="n">Dab ms</th><th class="n">Normals ms/frame</th><th class="n">Frame ms</th><th class="n">Frame max</th><th class="n">Upload MB/frame</th><th class="n">Undo ms</th></tr></thead>
+    <tbody>
+      <tr><td>12.5M v · 25M tris</td><td>large</td><td class="n">48,511</td><td class="n">0.449</td><td class="n">0.959</td><td class="n">2.80</td><td class="n">4.31</td><td class="n">1.50</td><td class="n">14.9</td></tr>
+      <tr><td>12.5M v · 25M tris</td><td>small</td><td class="n">4,419</td><td class="n">0.081</td><td class="n">0.221</td><td class="n">0.63</td><td class="n">0.80</td><td class="n">0.36</td><td class="n">6.3</td></tr>
+      <tr><td>25M v · 50M tris</td><td>large</td><td class="n">97,011</td><td class="n">0.873</td><td class="n">1.934</td><td class="n">5.53</td><td class="n">6.58</td><td class="n">2.74</td><td class="n">33.8</td></tr>
+      <tr><td>25M v · 50M tris</td><td>small</td><td class="n">8,836</td><td class="n">0.137</td><td class="n">0.447</td><td class="n">1.08</td><td class="n">1.38</td><td class="n">0.59</td><td class="n">11.4</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small"><code>build/bench 12500000 25000000 --prefault=6000</code>. Raycast is 0.012 to 0.017 ms a dab at every size. By kind at 25M quads (harness, large brush): Draw 5.18 ms, Clay 5.23 ms, Smooth 14.40 ms a frame (3.33 ms a dab).</p>
+
+  <div class="card">
+    <h3>Two things the profile shows</h3>
+    <ul>
+      <li><strong>Normals are a third of every frame.</strong> A flush recomputes every vertex of every node a dab touched, even the far side of a node the brush only grazed, and a neighbour node's border test looks each triangle's node up through two arrays. Normals scale well (2.8× on 4 threads); they are simply a lot of work.</li>
+      <li><strong>A dab scales poorly across cores.</strong> At 25M triangles a large dab takes 0.87 ms on 1 thread, 0.70 on 2 and 0.45 on 4: 1.9× on 4 threads. Each dab is 3 to 4 parallel phases (area, undo copy, move, bounds), each with a barrier, over about a hundred nodes. On the 12-thread PC and the 8-core tablets the gap grows. The app's own run agrees: <code>brush_ms</code> p50 0.95, <code>normals_ms</code> p50 0.71, <code>cpu_ms</code> p50 2.0 at 25M triangles.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>Around the stroke</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>What</th><th class="n">25M tris</th><th class="n">25M quads</th><th>What it costs you</th></tr></thead>
+    <tbody>
+      <tr><td>Remesh (Quads on)</td><td class="n">6.5 s</td><td class="n">12.0 s</td><td>a wait; 43% of its samples on the VM are first touches of new memory</td></tr>
+      <tr><td>Ready to sculpt after it</td><td class="n">1.9 s</td><td class="n">5.0 s</td><td>BVH, face lists, renumbering, upload</td></tr>
+      <tr><td>Simplified copies built</td><td class="n">4.6 s, 987 frames</td><td class="n">8.7 s, 1,978 frames</td><td>each of those frames carries 4 to 5 ms of CPU (idle <code>cpu_ms</code> 6.4 vs 1.3 at 100k), and orbiting draws full detail until done</td></tr>
+      <tr><td>Copies rebuilt after a large stroke</td><td class="n">295 ms</td><td class="n">651 ms</td><td>same: 4 ms slices on the frame thread</td></tr>
+      <tr><td>Close view, simplified vs full triangles</td><td class="n">11k vs 60k</td><td class="n">239k vs 104k</td><td>at 50M triangles the close view draws 2.3× <em>more</em> while orbiting: a selection bug</td></tr>
+      <tr><td>Undo of a large stroke</td><td class="n">15 ms</td><td class="n">34 ms</td><td>one hitch of two frames at 60 Hz</td></tr>
+      <tr><td>Culling, whole view (CPU, by groups)</td><td class="n">0.30 ms</td><td class="n">0.53 ms</td><td>the iPad, the Mac and the OnePlus Pad pay this: GPU culling is off on Metal and where lazy memory exists</td></tr>
+      <tr><td>CPU memory (bench RSS)</td><td class="n">1.36 GB</td><td class="n">2.62 GB</td><td>plus undo (up to 512 MB), levels, and on the iPad the GPU's 1.2 GB of buffers and copies in the same memory</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small"><code>build/bench --remesh</code>, <code>--lod</code> and the culling table; the app idle at <code>--vertices=12500000</code> for <code>cpu_ms</code>. The VM makes first touches of memory several times dearer than a desktop does, so the Remesh and ready times will shrink on the PC; how much is unmeasured.</p>
+</section>
+
+<section>
+  <h2>CPU or GPU, piece by piece</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Work</th><th>Move it?</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Brush dabs</td><td><span class="pill no">No</span></td><td>Undo saves the CPU positions, levels and HD read them, and the CPU-equals-parallel rule would need every brush twice. ZBrush and Nomad sculpt on the CPU too. Making the CPU path faster (below) gets more for less.</td></tr>
+      <tr><td>Raycast under the pen</td><td><span class="pill no">No</span></td><td>0.012 to 0.025 ms. A GPU pick would arrive a frame late for nothing.</td></tr>
+      <tr><td>Uploads (zero copy)</td><td><span class="pill no">No</span></td><td>1 to 3 MB a frame at 25M quads, about a tenth of a millisecond. The shared-buffers design already keeps writes in place to loads, for good reason.</td></tr>
+      <tr><td>Culling on Metal and on the Mali tablet</td><td><span class="pill yes">Yes</span></td><td>Vulkan desktops cull on the GPU; the iPad, the Mac and the OnePlus Pad do it on the CPU (0.3 to 0.5 ms a frame at 25M, more while the camera moves). Metal has no draw-count, so the kernel writes zero-count commands, as the design already allows.</td></tr>
+      <tr><td>Simplified pass while orbiting</td><td><span class="pill yes">Yes</span></td><td>Selecting copies stays on the CPU everywhere: 0.2 to 1.5 ms a frame at 50M triangles. The same kernels can pick copies by error.</td></tr>
+      <tr><td>Normals for the screen</td><td><span class="pill later">Later</span></td><td>The GPU could make them from positions and save 4 bytes a vertex of upload, but the brush still reads CPU normals. Do the CPU fix first and measure again.</td></tr>
+      <tr><td>Voxel Remesh</td><td><span class="pill later">Later</span></td><td>The biggest whole-mesh job and a good GPU fit, but it feeds the mesh, so it must match the CPU bit for bit or stay off; about 1,500 lines. Memory fixes first, then decide with the PC's numbers.</td></tr>
+      <tr><td>Smooth all</td><td><span class="pill yes">Done</span></td><td>Already a GPU kernel on both backends.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section>
+  <h2>Proposed plan, ranked by what you will feel</h2>
+  <p>Estimates are mine and unmeasured until each step is built; every step ends with the gate, a bench A/B (alternating runs, ranges) and the numbers in its PR.</p>
+  <ol class="plan">
+    <li><h3>A 25M bench row and a stroke profiler in the repo</h3>
+      <p>The harness I used here (loops real strokes, undoes each, prints per-phase times) becomes <code>bench --profile-stroke</code>, with 12.5M and 25M rows, so every later step is measured the same way instead of from scratch patches.</p>
+      <div class="facts"><span>~150 lines</span><span>bench only</span></div></li>
+    <li><h3>Simplified copies built off the frame thread, and the close-view fix</h3>
+      <p>The copies are built on a worker that stops when a stroke starts (the autosave thread's pattern), so idle frames after a Remesh drop from about 6.4 ms back to about 1.5 ms and orbiting gets simplified as fast as the cores allow. Fix the selection that draws 2.3× more triangles close up at 50M.</p>
+      <div class="facts"><span>~300 lines</span><span>needs a design note: threads and the sculptor</span><span>est. −4 to −5 ms on ~2,000 frames after a 25M Remesh</span></div></li>
+    <li><h3>Normals: only what moved, and a cheaper border test</h3>
+      <p>Recompute a vertex's normal only where a triangle round it moved (the move pass marks them), and find a triangle's node from the node ranges instead of two lookups. Normals move to their own file out of the 2,047-line <code>brush.odin</code>.</p>
+      <div class="facts"><span>~250 lines</span><span>est. normals 1.5–2× faster: Draw frame at 25M quads 5.2 → about 4.2 ms</span></div></li>
+    <li><h3>Smooth twice as fast</h3>
+      <p>Smooth reads every corner of every triangle round a vertex (18 reads for 6 neighbours) on each pass. A neighbour list per node, made on first touch in a stroke and freed at its end, cuts that to 6 and keeps memory to what the stroke reached. Results stay deterministic but round differently from today's.</p>
+      <div class="facts"><span>~250 lines</span><span>est. Smooth frame 14.4 → about 7 ms at 25M quads</span></div></li>
+    <li><h3>Fewer barriers per dab</h3>
+      <p>The undo copy and the bounds join the move pass, so a dab is two parallel phases instead of four. Exact same results. Matters most on the PC's 12 threads and the tablets' 8 cores.</p>
+      <div class="facts"><span>~150 lines</span><span>est. 10–20% off a dab</span></div></li>
+    <li><h3>GPU culling on Metal and on Mali, and for the simplified pass</h3>
+      <p>The cull kernels get Metal sources and zero-count commands; the Mali path is checked against lazy memory; a third kernel picks simplified copies. Pixels stay identical (<code>parity_check</code> at 0 px).</p>
+      <div class="facts"><span>~450 lines, a shader</span><span>needs a design note</span><span>you check on the iPad and the OnePlus Pad</span></div></li>
+    <li><h3>Undo without the hitch</h3>
+      <p>Undo and redo wait for the normal cones as a stroke's end does, so the 34 ms at 25M quads drops to about half.</p>
+      <div class="facts"><span>~60 lines</span><span>touches undo: short design note</span></div></li>
+    <li><h3>Memory diet for the iPad</h3>
+      <p>Drop the BVH's triangle order once the mesh is renumbered (it is the identity: 200 MB at 50M triangles) and keep CPU normals packed to 4 bytes (200 MB at 25M vertices). About 400 MB of the 2.2 GB of mesh data at 25M quads.</p>
+      <div class="facts"><span>~200 lines</span><span>dynamic topology and levels checked with it</span></div></li>
+    <li><h3>Faster Remesh and ready-to-sculpt</h3>
+      <p>Keep and reuse the remesher's large buffers, ask Linux and Android for huge pages on them, and start the upload while the sculptor is being built. Then, with your PC's numbers, decide on a GPU Remesh.</p>
+      <div class="facts"><span>~200 lines</span><span>remesh gains need a device run to size</span></div></li>
+  </ol>
+  <p>Put together, my estimate for 25M quads on this VM is a Draw frame of about 3.5 ms (from 5.2), a Smooth frame of about 7 ms (from 14.4), and orbiting simplified within a few seconds of a Remesh instead of after eight to nine seconds of slow frames.</p>
+</section>
+
+<section>
+  <h2>Cleanup and structure found on the way</h2>
+  <ul>
+    <li><strong>The GPU seam still speaks SDL_GPU's type names.</strong> SDL_GPU is retired, but render names its own buffers, passes and pipelines as <code>sdl.GPU…</code> in 1,018 places over 35 files. Render's own handle types would make the seam honest. Large but mechanical; best done when no other thread is in render.</li>
+    <li><strong><code>brush.odin</code> is 2,047 lines.</strong> The dab pipeline, normals and Smooth each deserve a file; steps 3 and 4 above do that as they go.</li>
+    <li><strong>The interface costs about 1 ms a frame</strong> (<code>ui_ms</code> p50 0.9 to 1.2, three quarters of an idle frame at 100k). Worth a look of its own; not mesh-related.</li>
+    <li><strong>Why a capability is off is not said anywhere.</strong> GPU culling is off on Metal and under lazy memory inside one line of <code>hal.odin</code>; the exit stats should name the reason, as they do for ray query.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>What I could not measure, and what would settle it</h2>
+  <ul>
+    <li>Any GPU time: this VM has only SwiftShader. On the PC, <code>build.bat gpubench --vertices=12500000</code> and then <code>--vertices=25000000</code> would show whether the RTX stays under 1 ms at 25M quads and how long orbiting runs at full detail before the copies are ready.</li>
+    <li>The iPad's memory ceiling at 25M quads, and its stroke times on 4 performance cores: <code>python scripts/try_it.py</code> after a Remesh to 25M would answer both.</li>
+    <li>How much of Remesh's 12 s is the VM's slow first touch of memory: the PC's Remesh time from the result line.</li>
+  </ul>
+  <p class="small">Raw tables and the profiling harness: <code>notes/perf-25m/</code> in the project files.</p>
+</section>
+</main>
+</body>
+</html>

@@ -1,0 +1,338 @@
+From 42d1581ec33dea4efb1d77b60e10d4ce5a711654 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 19:17:36 +0000
+Subject: [PATCH 1/2] Offer texture arrays to compute kernels under the own
+ Vulkan backend (native GPU plan 5.2a)
+
+Where the device has descriptor indexing (runtime arrays, variable descriptor
+counts and non-uniform indexing of sampled images), a compute pipeline can
+read one array of sampled textures from set 3, sized when it is bound.
+Gpu_Caps.texture_arrays says how many one array may hold (exit stat
+texture_arrays=), 0 under SDL_GPU, Metal or a device without the features.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RvkVmjYXFP4g5FN7pGhnXm
+---
+ src/app/main.odin            |  2 +-
+ src/render/caps.odin         |  5 ++++
+ src/render/hal.odin          | 23 +++++++++++++++++
+ src/render/vk_cmd.odin       | 48 ++++++++++++++++++++++++++++++++----
+ src/render/vk_device.odin    | 11 +++++++++
+ src/render/vk_resources.odin | 42 ++++++++++++++++++++++++++-----
+ 6 files changed, 119 insertions(+), 12 deletions(-)
+
+diff --git a/src/app/main.odin b/src/app/main.odin
+index 1ac2ad6..dcc1e43 100644
+--- a/src/app/main.odin
++++ b/src/app/main.odin
+@@ -2038,7 +2038,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
+ 	print_stat("cpu_ms", app.stats.cpu_ms)
+ 	print_stat("wait_ms", app.stats.wait_ms)
+ 	if app.time_gpu do print_stat("gpu_ms", app.stats.gpu_ms)
+-	fmt.printfln("gpu_timestamps=%v gpu_subgroup_size=%d gpu_int64_atomics=%v shared_buffers=%v transient_targets=%v exact_compute=%v", render.caps(&app.renderer).timestamps, render.caps(&app.renderer).subgroup_size, render.caps(&app.renderer).int64_atomics, render.caps(&app.renderer).shared_buffers, render.caps(&app.renderer).transient_targets, render.caps(&app.renderer).exact_compute)
++	fmt.printfln("gpu_timestamps=%v gpu_subgroup_size=%d gpu_int64_atomics=%v shared_buffers=%v transient_targets=%v exact_compute=%v texture_arrays=%d", render.caps(&app.renderer).timestamps, render.caps(&app.renderer).subgroup_size, render.caps(&app.renderer).int64_atomics, render.caps(&app.renderer).shared_buffers, render.caps(&app.renderer).transient_targets, render.caps(&app.renderer).exact_compute, render.caps(&app.renderer).texture_arrays)
+ 	for r, span in app.stats.gpu_spans do if r.count > 0 do print_stat(fmt.tprintf("gpu_%s_ms", render.GPU_SPAN_NAMES[span]), r)
+ 	if app.stats.ui_ms.count > 0 {
+ 		print_stat("ui_ms", app.stats.ui_ms)
+diff --git a/src/render/caps.odin b/src/render/caps.odin
+index 1ce2c27..77ac90b 100644
+--- a/src/render/caps.odin
++++ b/src/render/caps.odin
+@@ -43,6 +43,10 @@ Gpu_Caps :: struct {
+ 	// so one written in the CPU's order can equal the CPU bit for bit (Smooth all on the
+ 	// GPU): false only under SDL_GPU's Metal backend, which compiles with fast maths.
+ 	exact_compute:     bool,
++	// Textures one compute array binding may hold (gpu_create_compute_pipeline_array): the
++	// own Vulkan backend with descriptor indexing (runtime arrays, variable counts and
++	// non-uniform indexing of sampled images); 0 elsewhere, where kernels name each texture.
++	texture_arrays:    u32,
+ }
+ 
+ Present_Timing :: enum u8 {
+@@ -82,6 +86,7 @@ caps_fill :: proc(r: ^Renderer) {
+ 	r.caps.shared_buffers = gpu_shared_buffers_offered(r.device)
+ 	r.caps.transient_targets = gpu_transient_targets_offered(r.device)
+ 	r.caps.exact_compute = gpu_exact_compute(r.device)
++	r.caps.texture_arrays = gpu_texture_arrays_offered(r.device)
+ }
+ 
+ // Tags the window's next present with when the input it shows came (SDL nanoseconds), so
+diff --git a/src/render/hal.odin b/src/render/hal.odin
+index a0e9eb8..3f490f3 100644
+--- a/src/render/hal.odin
++++ b/src/render/hal.odin
+@@ -69,6 +69,13 @@ gpu_bind_compute_samplers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot:
+ 	sdl.BindGPUComputeSamplers(compute_pass, first_slot, texture_sampler_bindings, num_bindings)
+ }
+ 
++// The textures, in order, of the array a gpu_create_compute_pipeline_array kernel reads; at
++// most the capacity it was made with. Only the own Vulkan backend makes such kernels.
++gpu_bind_compute_texture_array :: proc(compute_pass: ^sdl.GPUComputePass, bindings: []sdl.GPUTextureSamplerBinding) {
++	for b in bindings do transient_check_use(b.texture, "sampled")
++	if gpu_backend == .Vulkan do vk_bind_compute_texture_array(compute_pass, bindings)
++}
++
+ gpu_bind_compute_storage_buffers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: sdl.Uint32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: sdl.Uint32) {
+ 	if gpu_backend == .Vulkan {
+ 		vk_bind_compute_storage_buffers(compute_pass, first_slot, storage_buffers, num_bindings)
+@@ -192,6 +199,22 @@ gpu_create_compute_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo:
+ 	return sdl.CreateGPUComputePipeline(device, createinfo)
+ }
+ 
++// A compute pipeline that also reads an array of up to `capacity` sampled textures, indexed
++// per thread (set 3, binding 0 in SPIR-V): the own Vulkan backend with descriptor indexing
++// only, up to Gpu_Caps.texture_arrays; nil with SDL's error set elsewhere, and the caller
++// keeps a kernel with named samplers.
++gpu_create_compute_pipeline_array :: proc(device: ^sdl.GPUDevice, #by_ptr createinfo: sdl.GPUComputePipelineCreateInfo, capacity: u32) -> ^sdl.GPUComputePipeline {
++	if gpu_backend == .Vulkan do return vk_create_compute_pipeline_array(device, createinfo, capacity)
++	sdl.SetError("texture arrays need the own Vulkan backend")
++	return nil
++}
++
++// How many textures one array binding may hold; 0 where gpu_create_compute_pipeline_array
++// makes nothing.
++gpu_texture_arrays_offered :: proc(device: ^sdl.GPUDevice) -> u32 {
++	return vk_state.texture_arrays if gpu_backend == .Vulkan else 0
++}
++
+ // A compute pipeline whose arithmetic is IEEE 754's, for kernels that must equal the CPU.
+ // SPIR-V shaders already are, built with `-fp-mode precise` (their first line says so), so
+ // only the own Metal backend compiles differently: with fast maths off. SDL_GPU's Metal
+diff --git a/src/render/vk_cmd.odin b/src/render/vk_cmd.odin
+index 503e091..b43d9f5 100644
+--- a/src/render/vk_cmd.odin
++++ b/src/render/vk_cmd.odin
+@@ -77,6 +77,10 @@ Vk_Cmd :: struct {
+ 	compute_storage: [8]vk.Buffer,   // read-only storage buffers
+ 	write_textures:  [8]vk.ImageView,
+ 	write_buffers:   [8]vk.Buffer,
++	// The compute pass's texture array (gpu_bind_compute_texture_array), written into set 3
++	// at the next dispatch; array_count 0 until one is bound.
++	array_images:    [VK_TEXTURE_ARRAY_MAX]vk.DescriptorImageInfo,
++	array_count:     u32,
+ 	sets:            [4]vk.DescriptorSet,
+ 	set_dirty:       [4]bool,
+ 	bind_dirty:      bool,
+@@ -376,11 +380,17 @@ vk_release_fence :: proc(device: ^sdl.GPUDevice, fence: ^sdl.GPUFence) {
+ 
+ // ---- Descriptors and uniforms -------------------------------------------------------
+ 
++// A set from the command buffer's pools, `variable` the element count of a texture array
++// set (0 for any other). A pool made fresh that cannot hold the set fails it rather than
++// making pool after pool.
+ @(private = "file")
+-vk_descriptor_set :: proc(cmd: ^Vk_Cmd, layout: vk.DescriptorSetLayout) -> vk.DescriptorSet {
++vk_descriptor_set :: proc(cmd: ^Vk_Cmd, layout: vk.DescriptorSetLayout, variable: u32 = 0) -> vk.DescriptorSet {
+ 	layout := layout
++	variable := variable
++	counts := vk.DescriptorSetVariableDescriptorCountAllocateInfo{sType = .DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO, descriptorSetCount = 1, pDescriptorCounts = &variable}
+ 	for {
+-		if cmd.pools_used == len(cmd.pools) {
++		fresh := cmd.pools_used == len(cmd.pools)
++		if fresh {
+ 			sizes := [?]vk.DescriptorPoolSize {
+ 				{type = .COMBINED_IMAGE_SAMPLER, descriptorCount = 1024},
+ 				{type = .SAMPLED_IMAGE, descriptorCount = 256},
+@@ -394,10 +404,11 @@ vk_descriptor_set :: proc(cmd: ^Vk_Cmd, layout: vk.DescriptorSetLayout) -> vk.De
+ 			append(&cmd.pools, pool)
+ 		}
+ 		info := vk.DescriptorSetAllocateInfo{sType = .DESCRIPTOR_SET_ALLOCATE_INFO, descriptorPool = cmd.pools[cmd.pools_used], descriptorSetCount = 1, pSetLayouts = &layout}
++		if variable > 0 do info.pNext = &counts
+ 		set: vk.DescriptorSet
+ 		r := vk.AllocateDescriptorSets(vk_state.device, &info, &set)
+ 		if r == .SUCCESS do return set
+-		if r != .ERROR_OUT_OF_POOL_MEMORY && r != .ERROR_FRAGMENTED_POOL do return 0
++		if fresh || (r != .ERROR_OUT_OF_POOL_MEMORY && r != .ERROR_FRAGMENTED_POOL) do return 0
+ 		cmd.pools_used += 1
+ 	}
+ }
+@@ -557,13 +568,22 @@ vk_bind_sets :: proc(cmd: ^Vk_Cmd) -> bool {
+ 			for i in 0 ..< c[4] do vk_write_buffer(&w, cmd.sets[1], c[3] + i, cmd.write_buffers[i])
+ 		}
+ 		if cmd.set_dirty[2] do cmd.sets[2] = vk_uniform_set(cmd, l.sets[2], .Compute, c[5])
++		if cmd.set_dirty[3] && l.sets[3] != 0 {
++			// A kernel with an array reads it, so a dispatch with none bound is refused.
++			cmd.sets[3] = 0
++			if cmd.array_count > 0 do cmd.sets[3] = vk_descriptor_set(cmd, l.sets[3], cmd.array_count)
++			if cmd.sets[3] != 0 {
++				write := vk.WriteDescriptorSet{sType = .WRITE_DESCRIPTOR_SET, dstSet = cmd.sets[3], dstBinding = 0, descriptorCount = cmd.array_count, descriptorType = .COMBINED_IMAGE_SAMPLER, pImageInfo = &cmd.array_images[0]}
++				vk.UpdateDescriptorSets(vk_state.device, 1, &write, 0, nil)
++			}
++		}
+ 		for i in 0 ..< c[5] {
+ 			offsets[n_offsets] = cmd.uniforms[.Compute][i].offset
+ 			n_offsets += 1
+ 		}
+ 	}
+ 	vk_write_flush(&w)
+-	set_count: u32 = 3 if p.compute else 4
++	set_count: u32 = 4 if !p.compute || l.sets[3] != 0 else 3
+ 	for s in cmd.sets[:set_count] do if s == 0 {
+ 		log.error("Vulkan: a descriptor set could not be allocated")
+ 		return false
+@@ -777,6 +797,9 @@ vk_begin_compute_pass :: proc(command_buffer: ^sdl.GPUCommandBuffer, storage_tex
+ 	cmd.pipeline = nil
+ 	cmd.samplers_bound = {}
+ 	cmd.compute_storage = {}
++	// A render pass leaves its fragment uniforms in sets[3], which a kernel with an array
++	// must never take for its own.
++	cmd.sets[3], cmd.array_count = 0, 0
+ 	return (^sdl.GPUComputePass)(cmd)
+ }
+ 
+@@ -786,7 +809,7 @@ vk_bind_compute_pipeline :: proc(compute_pass: ^sdl.GPUComputePass, compute_pipe
+ 	vk.CmdBindPipeline(cmd.cb, .COMPUTE, p.pipeline)
+ 	vk_cmd_track_pipeline(cmd, p)
+ 	cmd.pipeline = p
+-	cmd.set_dirty = {true, true, true, false}
++	cmd.set_dirty = {true, true, true, p.layout.sets[3] != 0}
+ }
+ 
+ vk_bind_compute_samplers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: u32, texture_sampler_bindings: [^]sdl.GPUTextureSamplerBinding, num_bindings: u32) {
+@@ -795,6 +818,21 @@ vk_bind_compute_samplers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot:
+ 	cmd.set_dirty[0] = true
+ }
+ 
++// The textures a kernel's array holds this dispatch on, in order; the count is the set's.
++vk_bind_compute_texture_array :: proc(compute_pass: ^sdl.GPUComputePass, bindings: []sdl.GPUTextureSamplerBinding) {
++	cmd := (^Vk_Cmd)(compute_pass)
++	n := min(len(bindings), VK_TEXTURE_ARRAY_MAX)
++	for b, i in bindings[:n] {
++		t := (^Vk_Texture)(b.texture)
++		s := (^Vk_Sampler)(b.sampler)
++		vk_cmd_track_image(cmd, t.active)
++		vk_cmd_track_sampler(cmd, s)
++		cmd.array_images[i] = {sampler = s.sampler, imageView = t.active.view, imageLayout = .SHADER_READ_ONLY_OPTIMAL}
++	}
++	cmd.array_count = u32(n)
++	cmd.set_dirty[3] = true
++}
++
+ vk_bind_compute_storage_buffers :: proc(compute_pass: ^sdl.GPUComputePass, first_slot: u32, storage_buffers: [^]^sdl.GPUBuffer, num_bindings: u32) {
+ 	cmd := (^Vk_Cmd)(compute_pass)
+ 	for i in 0 ..< num_bindings {
+diff --git a/src/render/vk_device.odin b/src/render/vk_device.odin
+index 85c6fd5..159fd21 100644
+--- a/src/render/vk_device.odin
++++ b/src/render/vk_device.odin
+@@ -45,6 +45,7 @@ Vk_State :: struct {
+ 	shared_buffers:    bool,
+ 	shared_type:       u32,
+ 	lazy_memory:       bool, // a lazily allocated memory type: transient attachments take no memory
++	texture_arrays:    u32, // textures one compute array binding may hold (Gpu_Caps.texture_arrays), 0 for none
+ 	// A timeline semaphore counts submissions: each signals the next serial, so "has the GPU
+ 	// finished submission n" is one comparison.
+ 	timeline:          vk.Semaphore,
+@@ -281,6 +282,10 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
+ 	vk.GetPhysicalDeviceFeatures2(vk_state.physical, &have_chain)
+ 	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, timelineSemaphore = true, hostQueryReset = have12.hostQueryReset, shaderBufferInt64Atomics = have12.shaderBufferInt64Atomics}
+ 	vk_state.int64_atomics = bool(have12.shaderBufferInt64Atomics)
++	// Arrays of sampled textures a kernel indexes per pixel (gpu_bind_compute_texture_array):
++	// sized when the array is bound, every element written, so not partially bound.
++	arrays := have12.runtimeDescriptorArray && have12.descriptorBindingVariableDescriptorCount && have12.shaderSampledImageArrayNonUniformIndexing
++	f12.runtimeDescriptorArray, f12.descriptorBindingVariableDescriptorCount, f12.shaderSampledImageArrayNonUniformIndexing = arrays, arrays, arrays
+ 	f13 := vk.PhysicalDeviceVulkan13Features{sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, pNext = &f12, dynamicRendering = true, synchronization2 = true}
+ 	features := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &f13}
+ 	if vk_state.present_timing == .Present_Wait do f12.pNext = &want_wait
+@@ -326,6 +331,12 @@ vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> (^sdl.GPUDevice,
+ 	vk.GetPhysicalDeviceProperties2(vk_state.physical, &props2)
+ 	vk_state.driver.pNext = nil // p11 is gone after this proc
+ 	vk_state.properties = props2.properties
++	if arrays {
++		// Room is left for the 16 named slots a stage may also bind.
++		l := vk_state.properties.limits
++		room := min(l.maxPerStageDescriptorSamplers, l.maxPerStageDescriptorSampledImages, l.maxPerStageResources, l.maxDescriptorSetSamplers, l.maxDescriptorSetSampledImages)
++		vk_state.texture_arrays = min(VK_TEXTURE_ARRAY_MAX, room - 16) if room > 16 else 0
++	}
+ 	// Subgroups are Vulkan 1.1 core, but a device may offer them to other stages only, or
+ 	// without the arithmetic (reduce and scan) operations a kernel would want.
+ 	if .COMPUTE in p11.subgroupSupportedStages && .ARITHMETIC in p11.subgroupSupportedOperations do vk_state.subgroup_size = p11.subgroupSize
+diff --git a/src/render/vk_resources.odin b/src/render/vk_resources.odin
+index e68f514..bace68b 100644
+--- a/src/render/vk_resources.odin
++++ b/src/render/vk_resources.odin
+@@ -92,10 +92,19 @@ Vk_Set_Key :: struct {
+ 	write_tex:       u32,
+ 	write_buf:       u32,
+ 	uniform_buffers: u32,
++	// A set of one binding, an array of up to this many sampled textures whose count is
++	// given when the set is allocated (gpu_bind_compute_texture_array); 0 for none.
++	array:           u32,
+ }
+ 
++// The most textures one array binding holds: a command buffer's descriptor pools hold 1024
++// sampled textures each, so an array set always fits a fresh pool beside the named ones.
++VK_TEXTURE_ARRAY_MAX :: 256
++
+ Vk_Graphics_Layout_Key :: [8]u32 // the vertex shader's four counts, then the fragment shader's
+-Vk_Compute_Layout_Key :: [6]u32 // samplers, read-only textures and buffers, read-write textures and buffers, uniforms
++// Samplers, read-only textures and buffers, read-write textures and buffers, uniforms, and
++// the texture array's capacity (0 for none), whose set is the fourth.
++Vk_Compute_Layout_Key :: [7]u32
+ 
+ Vk_Pipeline_Layout :: struct {
+ 	layout: vk.PipelineLayout,
+@@ -130,6 +139,12 @@ vk_set_layout :: proc(key: Vk_Set_Key) -> vk.DescriptorSetLayout {
+ 	add(&bindings, &n, key.write_buf, .STORAGE_BUFFER, key.stage)
+ 	add(&bindings, &n, key.uniform_buffers, .UNIFORM_BUFFER_DYNAMIC, key.stage)
+ 	info := vk.DescriptorSetLayoutCreateInfo{sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO, bindingCount = n, pBindings = &bindings[0]}
++	flags := vk.DescriptorBindingFlags{.VARIABLE_DESCRIPTOR_COUNT}
++	array_flags := vk.DescriptorSetLayoutBindingFlagsCreateInfo{sType = .DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO, bindingCount = 1, pBindingFlags = &flags}
++	if key.array > 0 {
++		bindings[0] = {binding = 0, descriptorType = .COMBINED_IMAGE_SAMPLER, descriptorCount = key.array, stageFlags = key.stage}
++		info.bindingCount, info.pNext = 1, &array_flags
++	}
+ 	layout: vk.DescriptorSetLayout
+ 	if vk.CreateDescriptorSetLayout(vk_state.device, &info, nil, &layout) != .SUCCESS do return 0
+ 	vk_state.set_layouts[key] = layout
+@@ -166,18 +181,18 @@ vk_graphics_layout :: proc(vertex, fragment: ^Vk_Shader) -> ^Vk_Pipeline_Layout
+ 	return layout
+ }
+ 
+-vk_compute_layout :: proc(info: sdl.GPUComputePipelineCreateInfo) -> ^Vk_Pipeline_Layout {
+-	key := Vk_Compute_Layout_Key{info.num_samplers, info.num_readonly_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_textures, info.num_readwrite_storage_buffers, info.num_uniform_buffers}
++vk_compute_layout :: proc(info: sdl.GPUComputePipelineCreateInfo, array: u32) -> ^Vk_Pipeline_Layout {
++	key := Vk_Compute_Layout_Key{info.num_samplers, info.num_readonly_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_textures, info.num_readwrite_storage_buffers, info.num_uniform_buffers, array}
+ 	if layout, ok := vk_state.compute_layouts[key]; ok do return layout
+ 	sets := [4]vk.DescriptorSetLayout {
+ 		vk_set_layout({stage = {.COMPUTE}, samplers = key[0], storage_tex = key[1], storage_buf = key[2]}),
+ 		vk_set_layout({stage = {.COMPUTE}, write_tex = key[3], write_buf = key[4]}),
+ 		vk_set_layout({stage = {.COMPUTE}, uniform_buffers = key[5]}),
+-		0,
++		vk_set_layout({stage = {.COMPUTE}, array = array}) if array > 0 else 0,
+ 	}
+ 	counts: [8]u32
+ 	copy(counts[:], key[:])
+-	layout := vk_pipeline_layout_make(sets, 3, counts)
++	layout := vk_pipeline_layout_make(sets, 4 if array > 0 else 3, counts)
+ 	if layout != nil do vk_state.compute_layouts[key] = layout
+ 	return layout
+ }
+@@ -838,8 +853,23 @@ vk_create_graphics_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GP
+ }
+ 
+ vk_create_compute_pipeline :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo) -> ^sdl.GPUComputePipeline {
++	return vk_compute_pipeline_make(info, 0)
++}
++
++// A kernel that also reads an array of up to `capacity` sampled textures from set 3,
++// binding 0 (gpu_create_compute_pipeline_array).
++vk_create_compute_pipeline_array :: proc(device: ^sdl.GPUDevice, #by_ptr info: sdl.GPUComputePipelineCreateInfo, capacity: u32) -> ^sdl.GPUComputePipeline {
++	if capacity == 0 || capacity > vk_state.texture_arrays {
++		sdl.SetError("Vulkan: this device cannot bind an array of %d textures", capacity)
++		return nil
++	}
++	return vk_compute_pipeline_make(info, capacity)
++}
++
++@(private = "file")
++vk_compute_pipeline_make :: proc(info: sdl.GPUComputePipelineCreateInfo, array: u32) -> ^sdl.GPUComputePipeline {
+ 	if .SPIRV not_in info.format do return nil
+-	layout := vk_compute_layout(info)
++	layout := vk_compute_layout(info, array)
+ 	if layout == nil do return nil
+ 	module := vk_module(info.code[:info.code_size])
+ 	if module == 0 do return nil
+-- 
+2.43.0
+

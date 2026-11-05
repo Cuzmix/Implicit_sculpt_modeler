@@ -1,0 +1,1084 @@
+<title>Docks and Cards</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* v5: anything anywhere. Docks go on any edge or float; any button goes on any dock; windows show cards as tabs and snap to a side. One dark look, as the app has. */
+:root {
+  color-scheme: dark;
+  --ground: #121316; --stage: #2a2c31; --surface: #1c1d21; --card: #24262b; --card-2: #2e3036;
+  --line: #3a3d44; --text: #e9e9ec; --text-2: #a9acb4; --text-3: #7f838c;
+  --accent: #40c4b2; --accent-ink: #0d2421; --pin: #f0a43a; --warn: #e6795f;
+  --ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--ground); color: var(--text); font-family: var(--ui); font-size: 14px; }
+[hidden] { display: none !important; }
+.page { display: flex; flex-direction: column; gap: 14px; padding: 16px max(16px, env(safe-area-inset-right, 0px)) 16px max(16px, env(safe-area-inset-left, 0px)); }
+header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+header.top h1 { margin: 0; font-size: 20px; font-weight: 600; }
+.badge { font: 500 12px var(--mono); color: var(--accent-ink); background: var(--accent); border-radius: 5px; padding: 2px 7px; }
+header.top p { margin: 0; color: var(--text-2); flex: 1 1 320px; line-height: 1.45; }
+.btn { font: inherit; color: var(--text); background: var(--card-2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 14px; cursor: pointer; min-height: 36px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.layout { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.stage-wrap { flex: 999 1 640px; min-width: 0; }
+.side { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+
+.stage-box { position: relative; width: 100%; aspect-ratio: 1280 / 860; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; }
+.stage { position: absolute; left: 0; top: 0; width: 1280px; height: 860px; transform-origin: 0 0; background: radial-gradient(ellipse at 50% 42%, #36383e 0%, var(--stage) 60%, #222327 100%); }
+.model { position: absolute; top: 200px; width: 420px; height: 420px; border-radius: 50%; background: radial-gradient(circle at 38% 32%, #ece2d8 0%, #c6b3a4 40%, #7c6c62 100%); box-shadow: 0 30px 60px rgba(0,0,0,0.35); pointer-events: none; transition: left .25s; }
+
+.dock { position: absolute; z-index: 500; display: grid; gap: 4px; padding: 5px; background: var(--surface); border: 1px solid #2b2d33; border-radius: 14px; box-shadow: 0 6px 18px rgba(0,0,0,0.3); }
+.editing .dock { outline: 2px dashed rgba(64,196,178,0.7); outline-offset: 3px; animation: wiggle .35s ease-in-out infinite alternate; }
+.editing .dock.drop { outline-style: solid; outline-color: var(--accent); }
+@keyframes wiggle { from { transform: rotate(-0.25deg); } to { transform: rotate(0.25deg); } }
+@media (prefers-reduced-motion: reduce) { .editing .dock { animation: none; } }
+.dock-head { position: absolute; z-index: 505; display: none; align-items: center; gap: 2px; background: var(--accent); color: var(--accent-ink); border-radius: 8px; padding: 2px; font: 600 12px var(--ui); white-space: nowrap; z-index: 3; }
+.editing .dock-head { display: flex; }
+.dock-head .dh { width: 30px; height: 26px; border: 0; background: transparent; color: inherit; border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; touch-action: none; }
+.dock-head .dh:hover { background: rgba(0,0,0,0.12); }
+.dock-head .dh svg { width: 16px; height: 16px; }
+.dock-head .dname { padding: 0 6px; }
+.dock-head .dh.handle { cursor: grab; }
+.item { position: relative; display: flex; align-items: center; justify-content: center; gap: 6px; width: 48px; height: 48px; border: 0; background: transparent; color: var(--text-2); font: 500 13px var(--ui); border-radius: 10px; cursor: pointer; padding: 0; touch-action: none; }
+.item:hover { background: #2a2c32; color: var(--text); }
+.item.lit { background: rgba(64,196,178,0.16); color: var(--accent); }
+.item.wide { width: auto; padding: 0 14px; }
+.item svg { width: 22px; height: 22px; flex: none; }
+.item.labelled { flex-direction: column; gap: 3px; width: 66px; height: 62px; font-size: 12px; }
+.item.labelled svg { width: 24px; height: 24px; }
+.item.group::after { content: ""; position: absolute; right: 6px; bottom: 6px; width: 5px; height: 5px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; opacity: 0.6; }
+.item .dot { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--pin); }
+.item .lock { position: absolute; top: 3px; right: 3px; width: 12px; height: 12px; color: var(--text-3); }
+.item .lock svg { width: 12px; height: 12px; }
+.item .tip { position: absolute; font: 500 11px var(--ui); color: var(--text); background: #0e0f11; border-radius: 5px; padding: 2px 6px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; z-index: 5; }
+.dock[data-edge="right"] .item .tip { right: 54px; }
+.dock[data-edge="left"] .item .tip, .dock[data-edge="float"] .item .tip { left: 54px; }
+.dock[data-edge="top"] .item .tip { top: 52px; }
+.dock[data-edge="bottom"] .item .tip { bottom: 52px; }
+.item:hover .tip { opacity: 1; }
+.editing .item .tip { display: none; }
+.sep { background: #3a3d44; border-radius: 1px; align-self: center; justify-self: center; }
+.pagestrip { position: absolute; z-index: 500; display: flex; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid #2b2d33; border-radius: 12px; }
+.pagestrip button { display: flex; align-items: center; gap: 6px; font: 500 14px var(--ui); color: var(--text-2); background: transparent; border: 0; border-radius: 9px; padding: 4px 12px; cursor: pointer; }
+.pagestrip button::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #6b6f78; }
+.pagestrip button.on { color: var(--text); font-weight: 600; }
+.pagestrip button.on::before { background: var(--accent); }
+.edgeband { position: absolute; background: rgba(64,196,178,0.16); border: 2px dashed var(--accent); border-radius: 12px; pointer-events: none; z-index: 880; }
+
+.win { position: absolute; display: flex; flex-direction: column; background: var(--card); border: 1px solid #3a3d44; border-radius: 14px; box-shadow: 0 14px 40px rgba(0,0,0,0.45); overflow: hidden; min-width: 220px; }
+.win.pinned { border-color: rgba(240,164,58,0.55); }
+.win.snapped { box-shadow: 0 6px 18px rgba(0,0,0,0.3); }
+.win.dragging { pointer-events: none; opacity: 0.6; }
+.win-top { position: relative; height: 40px; flex: none; display: flex; align-items: center; padding: 0 4px 0 2px; background: var(--surface); cursor: grab; touch-action: none; }
+.wgrip { width: 18px; height: 26px; flex: none; color: #5d616a; display: flex; align-items: center; justify-content: center; }
+.wtitle { flex: 1; min-width: 0; font: 600 15px var(--ui); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hbtn { width: 32px; height: 30px; border: 0; background: transparent; color: var(--text-3); border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: none; }
+.hbtn:hover { color: var(--text); background: #2a2c32; }
+.hbtn.on { color: var(--pin); }
+.hbtn svg { width: 18px; height: 18px; }
+.tabs { display: flex; gap: 2px; padding: 0 4px; background: var(--surface); flex: none; overflow: hidden; }
+.tab { font: 500 13px var(--ui); color: var(--text-2); background: transparent; border: 0; border-radius: 8px 8px 0 0; padding: 0 12px; height: 36px; cursor: pointer; white-space: nowrap; touch-action: none; }
+.tab.on { color: var(--text); background: var(--card); }
+.win-body { flex: 1; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; min-height: 0; }
+.slider { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-2); }
+.slider span { width: 78px; flex: none; }
+.bar { flex: 1; height: 6px; border-radius: 3px; background: #3a3d44; position: relative; }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--accent); }
+.list-row { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px; border-radius: 8px; background: var(--card-2); font-size: 13px; flex: none; }
+.resize { position: absolute; right: 0; bottom: 0; width: 26px; height: 26px; cursor: nwse-resize; touch-action: none; }
+.resize::after { content: ""; position: absolute; right: 6px; bottom: 6px; width: 10px; height: 10px; border-right: 2px solid #6b6f78; border-bottom: 2px solid #6b6f78; border-radius: 0 0 3px 0; }
+.menu { position: absolute; z-index: 950; background: #1a1b1f; border: 1px solid var(--line); border-radius: 12px; padding: 4px; min-width: 210px; box-shadow: 0 14px 40px rgba(0,0,0,0.5); }
+.menu button { display: flex; width: 100%; align-items: center; gap: 8px; font: 500 14px var(--ui); color: var(--text); background: transparent; border: 0; border-radius: 8px; padding: 9px 10px; cursor: pointer; text-align: left; }
+.menu button:hover { background: var(--card-2); }
+.menu button.danger { color: var(--warn); }
+.menu .mrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; font-size: 14px; color: var(--text); }
+.menu .mrow .step { display: flex; gap: 4px; align-items: center; }
+.menu .mrow .step button { width: 32px; height: 30px; padding: 0; justify-content: center; background: var(--card-2); }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+
+.guides { position: absolute; inset: 0; z-index: 900; pointer-events: none; }
+.guide { position: absolute; width: 44px; height: 44px; border-radius: 9px; background: rgba(28,29,33,0.92); border: 1.5px solid #6b6f78; pointer-events: auto; }
+.guide::after { content: ""; position: absolute; background: rgba(64,196,178,0.55); border-radius: 2px; }
+.guide[data-zone="center"]::after { inset: 9px; }
+.guide[data-zone="snap-left"]::after { left: 7px; top: 7px; bottom: 7px; width: 11px; }
+.guide[data-zone="snap-right"]::after { right: 7px; top: 7px; bottom: 7px; width: 11px; }
+.guide.hot { border-color: var(--accent); background: rgba(64,196,178,0.25); }
+.stackcol { position: absolute; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: #4a4d55 transparent; border-radius: 14px; }
+.stackcol > .win { position: relative; flex: none; left: auto !important; top: auto !important; width: auto !important; }
+.stackgrip { flex: none; height: 16px; display: flex; align-items: center; justify-content: center; cursor: grab; touch-action: none; position: sticky; top: 0; z-index: 2; }
+.stackgrip::after { content: ""; width: 44px; height: 5px; border-radius: 3px; background: #5d616a; }
+.stackgrip:hover::after { background: var(--accent); }
+.guide[data-zone="above"]::after { left: 7px; right: 7px; top: 7px; height: 11px; }
+.guide[data-zone="below"]::after { left: 7px; right: 7px; bottom: 7px; height: 11px; }
+.dock-head { z-index: 505; }
+.alignline { position: absolute; z-index: 895; pointer-events: none; opacity: 0.55; transition: opacity .45s ease-out; }
+.alignline.v { width: 1px !important; background: linear-gradient(to bottom, transparent, var(--pin) 20%, var(--pin) 80%, transparent); }
+.alignline.h { height: 1px !important; background: linear-gradient(to right, transparent, var(--pin) 20%, var(--pin) 80%, transparent); }
+.alignline.out { opacity: 0; }
+.preview { position: absolute; z-index: 890; background: rgba(64,196,178,0.18); border: 2px solid var(--accent); border-radius: 10px; pointer-events: none; }
+
+.editbar { position: absolute; left: 50%; top: 80px; transform: translateX(-50%); z-index: 520; display: flex; align-items: center; gap: 8px; background: #1a1b1f; border: 1px solid var(--accent); border-radius: 14px; padding: 6px 6px 6px 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.45); white-space: nowrap; }
+.editbar span { color: var(--text-2); font-size: 14px; margin-right: 4px; }
+.veil { position: absolute; inset: 0; background: rgba(10,10,12,0.62); z-index: 600; }
+.sheet { position: absolute; left: 340px; top: 130px; width: 600px; background: #26282d; border: 1px solid var(--line); border-radius: 22px; padding: 20px; z-index: 610; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+.sheet-top { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+.sheet-top h3 { margin: 0; font-size: 17px; font-weight: 600; white-space: nowrap; }
+.sheet-top input { flex: 1; min-width: 0; font: inherit; color: var(--text); background: #1a1b1f; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; min-height: 40px; }
+.sheet p.hint { margin: 0 0 10px; color: var(--text-2); font-size: 13px; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; max-height: 380px; overflow-y: auto; padding-right: 4px; }
+.tiles h4 { grid-column: 1 / -1; margin: 6px 0 0; font-size: 13px; color: var(--text-2); font-weight: 600; }
+.tile { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 80px; border: 1.5px solid #5a5e66; border-radius: 12px; background: #1f2125; color: var(--text); font: 500 13px var(--ui); cursor: pointer; touch-action: none; }
+.tile svg { width: 26px; height: 26px; }
+.tile .on { position: absolute; top: 5px; right: 7px; font-size: 10px; color: var(--accent); }
+.tile:hover { border-color: var(--accent); }
+
+.ghost { position: absolute; pointer-events: none; z-index: 999; font: 500 13px var(--ui); color: var(--accent-ink); background: var(--accent); border-radius: 8px; padding: 8px 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.4); }
+.toast { position: absolute; left: 50%; top: 140px; transform: translateX(-50%); font-size: 15px; color: var(--text); background: rgba(14,15,17,0.92); border-radius: 10px; padding: 9px 16px; pointer-events: none; white-space: nowrap; transition: opacity .25s; z-index: 1000; }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+.side-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.side-tabs button { font: inherit; color: var(--text-2); background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 6px 12px; cursor: pointer; min-height: 34px; }
+.side-tabs button[aria-pressed="true"] { background: var(--card-2); color: var(--text); border-color: var(--line); }
+.panel h2 { font-size: 15px; margin: 0 0 8px; font-weight: 600; }
+.panel h3 { font-size: 14px; margin: 16px 0 6px; font-weight: 600; }
+.panel p, .panel li { color: var(--text-2); line-height: 1.5; }
+.panel p { margin: 0 0 8px; }
+.panel ol, .panel ul { padding-left: 20px; margin: 0; display: flex; flex-direction: column; gap: 7px; }
+.panel b { color: var(--text); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+td { padding: 7px 6px; border-top: 1px solid var(--line); vertical-align: top; color: var(--text-2); line-height: 1.45; }
+td:first-child { color: var(--text); font-weight: 600; }
+td.old { color: var(--text-3); font-size: 12px; }
+pre { font: 12px/1.5 var(--mono); color: var(--text); background: var(--ground); border-radius: 8px; padding: 10px; overflow-x: auto; margin: 0; max-height: 520px; }
+</style>
+
+<div class="page">
+  <header class="top">
+    <h1>Docks and Cards</h1><span class="badge">v5.6</span>
+    <p>Anything anywhere: any button on any dock, docks on any edge or floating, edited in place. Windows show cards as tabs and snap to a side. Each space keeps its own layout.</p>
+    <button class="btn" id="reset">Start over</button>
+  </header>
+  <div class="layout">
+    <div class="stage-wrap"><div class="stage-box" id="box"><div class="stage" id="stage"><div class="model" id="model"></div></div></div></div>
+    <div class="side">
+      <div class="side-tabs" id="sideTabs">
+        <button data-p="proposal" aria-pressed="true">Proposal</button>
+        <button data-p="try" aria-pressed="false">Try</button>
+        <button data-p="terms" aria-pressed="false">Terms</button>
+        <button data-p="rules" aria-pressed="false">Rules</button>
+        <button data-p="saved" aria-pressed="false">Saved as</button>
+      </div>
+
+      <div class="panel" data-panel="proposal">
+        <h2>The idea in one line</h2>
+        <p>The rail, the shelf, the tools strip and the bars were one thing with different restrictions. v5 drops the restrictions: <b>there is only a dock</b>, it takes any button, and it goes on any edge or floats. Freedom is in placement; the guardrails are in a few things that can't break.</p>
+
+        <h3>What changed from v4</h3>
+        <ul>
+          <li><b>Any button on any dock.</b> Tools, cards, groups, commands and spaces all mix. The rail and the shelf are just two docks in the starting layout.</li>
+          <li><b>Docks go anywhere.</b> Drag a dock by its handle: near an edge it snaps there (anywhere along it), elsewhere it floats. <b>+ New dock</b> makes another.</li>
+          <li><b>Edit in place.</b> Hold any dock (or tap Edit) and every dock wiggles: drag buttons between docks, off to remove, <b>+</b> adds from a searchable picker, <b>⋯</b> sets rows or columns and names. No modal sheet to drag out of.</li>
+          <li><b>Stacks.</b> Drop a window, tab or card button on the square above or below a floating window and they stack, one under another, as in ImGui. A stack moves as one by the grip on top, scrolls when it is taller than the screen, and a window pulled out by its bar floats on its own again. Long docks scroll too.</li>
+          <li><b>Windows: tabs, stacks and snap.</b> Sideways splits are gone; a drop joins as a tab, stacks above or below, snaps to a side, or floats. Snapped windows stack top to bottom beside the dock; the view stays where it is.</li>
+          <li><b>Soft alignment.</b> A floating window or dock you drag lines up with its neighbours within about 10pt: same left, right, top or bottom, centred, or just beside or under with a small gap. A faint line, fading at its ends, shows the match and fades out when you move on or let go.</li>
+          <li><b>Pin is explicit.</b> Moving no longer pins on its own. Snapping does, because a snapped window is placed on purpose.</li>
+          <li><b>Minimise folds, as today.</b> Any window, floating or snapped, folds to its bar and stays where it is; tap the bar's arrow or its dock button to unfold.</li>
+          <li><b>A group is a saved window.</b> A window's ⋯ has <b>Add to dock</b>: one tab adds that card, several add a group. There are no separate group settings.</li>
+          <li><b>Each space has its own layout.</b> Sculpt, Model and Render each keep their docks and windows; Render starts with the Look cards snapped.</li>
+        </ul>
+
+        <h3>New problems freedom brings, and the guardrail for each</h3>
+        <table>
+          <tr><td>Lost the way back</td><td>Menu and Search are locked: they can move between docks but never be removed, and Settings always has <b>Reset this space</b>.</td></tr>
+          <tr><td>Clutter</td><td>Docks snap to edges and to a grid when they float; a new dock starts empty and small; the starting layouts are good enough that most people never edit.</td></tr>
+          <tr><td>Covering the model</td><td>Floating windows are temporary unless pinned; a folded window is just its bar. Docks may float anywhere, middle included, because they are small and you put them there.</td></tr>
+          <tr><td>Accidental edits</td><td>Nothing moves outside edit mode except windows. Edit mode starts only with a hold on a dock or the Edit command, and Done or a tap on the view ends it.</td></tr>
+          <tr><td>Same card in many places</td><td>Buttons are shortcuts, so a card may have several. The card itself is only ever in one window: opening it elsewhere moves it.</td></tr>
+          <tr><td>Different screens</td><td>A layout stores edge positions as fractions, not pixels, so it survives a rotation or a bigger screen; phone-sized screens get their own starting layout.</td></tr>
+          <tr><td>Left-handed users</td><td>A <b>Mirror layout</b> command flips every dock and snapped window left to right.</td></tr>
+          <tr><td>Support and tests</td><td>Every button and window has a name; touch scenarios already tap by name, and Reset gives a known layout.</td></tr>
+        </table>
+
+        <h3>How I'd balance it</h3>
+        <ol>
+          <li><b>Free to place, hard to break.</b> Placement is free; removing the way back is impossible.</li>
+          <li><b>Snap, not pixels.</b> Edges, fractions along them, a grid for floating docks. Layouts stay tidy without effort.</li>
+          <li><b>Viewport first.</b> Anything that would cover the model is temporary unless you say otherwise.</li>
+          <li><b>One verb per job.</b> Tap opens, hold edits, drag moves, pin keeps. No second way to do the same thing.</li>
+          <li><b>Good defaults per space.</b> Freedom is for the people who want it; everybody else gets a layout that already works.</li>
+        </ol>
+
+        <h3>Decided with you</h3>
+        <ul>
+          <li>Floating docks exist, and a dock can float anywhere, the middle of the screen included.</li>
+          <li>Minimise is today's fold: the window folds to its bar, floating or snapped.</li>
+        </ul>
+      </div>
+
+      <div class="panel" data-panel="try" hidden>
+        <h2>Things to try</h2>
+        <ol>
+          <li><b>Tap</b> a card button: its window pops out beside the dock. Tap the view and it goes away.</li>
+          <li>Drag a window's bar or a tab: <b>guides</b> appear. The middle square joins a window as a tab; the side squares snap to that side. Drop elsewhere and it floats.</li>
+          <li><b>Snap</b> a window to a side: it fills that side beside the dock. Snap a second one: they stack.</li>
+          <li>Drag a card button or a window onto the <b>square below</b> another floating window: they stack. Add a few more and the stack scrolls; drag it by its grip; pull one out by its bar.</li>
+          <li>Pin two windows (or float two docks in edit mode), then drag one <b>under</b> or <b>beside</b> the other: near a match it lines up, with a faint line showing which edge.</li>
+          <li><b>Minimise</b> any window: it folds to its bar where it is. Tap the arrow, or its dock button, to unfold.</li>
+          <li>A window's <b>⋯</b> → <b>Add to dock</b> turns it into a button (a group if it has several tabs).</li>
+          <li><b>Hold</b> any dock button (or tap <b>Edit</b> on the top dock): every dock wiggles. Drag buttons between docks or off to remove; drag a dock by its handle to another edge or into the open; <b>+</b> adds; <b>⋯</b> sets rows, names, delete.</li>
+          <li>Switch to <b>Render</b>: a different layout. Back to <b>Sculpt</b>: yours is as you left it.</li>
+        </ol>
+      </div>
+      <div class="panel" data-panel="terms" hidden><h2>Words we use</h2><table id="terms"></table></div>
+      <div class="panel" data-panel="rules" hidden><h2>Hard rules</h2><ol id="rules"></ol></div>
+      <div class="panel" data-panel="saved" hidden>
+        <h2>How a layout is saved</h2>
+        <p>Per space: a dock line per dock (edge and fraction, or float and grid position), a button line per button, a window line per pinned or snapped window.</p>
+        <pre id="saved"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const W = 1280, H = 860, BTN = 48, GRID = 16;
+const P = 'fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"';
+const ICONS = {
+  brush: '<path d="M4 20c3 0 5-2 5-4l9-11 2 2-11 9c0 2-2 4-5 4z"/>',
+  sym: '<path d="M12 3v18M8 7l-4 5 4 5M16 7l4 5-4 5"/>',
+  layers: '<path d="M12 4l8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4"/>',
+  scene: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  look: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/>',
+  material: '<circle cx="12" cy="12" r="8"/><path d="M8 9a5 5 0 0 1 5-3"/>',
+  lights: '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c1 1 1.5 2 1.5 3h5c0-1 .5-2 1.5-3A6 6 0 0 0 12 3z"/>',
+  env: '<circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16"/>',
+  history: '<path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4M12 8v4l3 2"/>',
+  colors: '<circle cx="9" cy="9" r="5"/><circle cx="15" cy="9" r="5"/><circle cx="12" cy="15" r="5"/>',
+  stats: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
+  move: '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>',
+  draw: '<path d="M4 18c4-8 8-12 16-12"/><circle cx="4" cy="18" r="1.6" fill="currentColor"/>',
+  clay: '<path d="M4 16c2-6 6-8 8-8s6 2 8 8z"/>',
+  smooth: '<path d="M3 14c3-4 6-4 9 0s6 4 9 0"/>',
+  grab: '<path d="M8 12V6a2 2 0 0 1 4 0v5M12 11V5a2 2 0 0 1 4 0v7M16 12a2 2 0 0 1 4 0v2a7 7 0 0 1-7 7h-1a6 6 0 0 1-5-3l-3-5a2 2 0 0 1 3-2l1 2"/>',
+  mask: '<circle cx="12" cy="12" r="8"/><path d="M12 4v16"/><path d="M12 6a6 6 0 0 1 0 12" fill="currentColor"/>',
+  paint: '<path d="M14 4l6 6-7 7-6-6zM7 11l-3 9 9-3"/>',
+  inflate: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/>',
+  pinch: '<path d="M4 4l5 5M20 4l-5 5M4 20l5-5M20 20l-5-5M9 5v4H5M15 5v4h4M9 19v-4H5M15 19v-4h4"/>',
+  crease: '<path d="M5 19L19 5"/>',
+  flatten: '<path d="M7 9h10"/>',
+  remesh: '<circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c3 3 3 13 0 16M12 4c-3 3-3 13 0 16"/>',
+  rotate: '<path d="M20 12a8 8 0 1 1-3-6.2M20 4v4h-4"/>',
+  scale: '<rect x="4" y="10" width="10" height="10" rx="1.5"/><path d="M12 4h8v8M20 4l-8 8"/>',
+  all: '<rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/>',
+  undo: '<path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/>',
+  redo: '<path d="M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3"/>',
+  search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16zM13 7l4 4"/>',
+  mirror: '<path d="M12 3v18M8 8l-4 4 4 4M16 8l4 4-4 4"/>',
+  more: '<circle cx="6" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="18" cy="12" r="1.4" fill="currentColor"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  sep: '<path d="M5 12h14"/>',
+  pin: '<path d="M9 4h6l-1 6 3 3H7l3-3zM12 13v7"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  min: '<path d="M6 12h12"/>',
+  open: '<path d="M6 9l6 6 6-6"/>',
+  grip: '<circle cx="9" cy="6" r="1.3" fill="currentColor"/><circle cx="15" cy="6" r="1.3" fill="currentColor"/><circle cx="9" cy="12" r="1.3" fill="currentColor"/><circle cx="15" cy="12" r="1.3" fill="currentColor"/><circle cx="9" cy="18" r="1.3" fill="currentColor"/><circle cx="15" cy="18" r="1.3" fill="currentColor"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+};
+const svg = k => `<svg viewBox="0 0 24 24" ${P}>${ICONS[k]}</svg>`;
+
+// Cards: content only. Each says what it shows; a window decides where.
+const CARDS = {
+  brush: { name: 'Brush', rows: [['Size', .42], ['Strength', .6], ['Spacing', .2], ['Falloff', .7]] },
+  sym: { name: 'Symmetry', rows: [['X', 1], ['Y', 0], ['Z', 0], ['Radial', .1]] },
+  layers: { name: 'Layers', list: ['Detail', 'Wrinkles', 'Base'] },
+  scene: { name: 'Scene', list: ['Head', 'Eyes', 'Teeth', 'Hair guides'] },
+  material: { name: 'Material', rows: [['Roughness', .5], ['Metal', 0], ['Cavity', .35]] },
+  lights: { name: 'Lights', rows: [['Key', .8], ['Fill', .35], ['Rim', .55]] },
+  env: { name: 'Environment', rows: [['Exposure', .5], ['Rotation', .25], ['Blur', .1]] },
+  history: { name: 'History', list: ['Clay', 'Smooth', 'Clay', 'Mask'] },
+  colors: { name: 'Colours', rows: [['Hue', .08], ['Saturation', .4], ['Value', .8]] },
+  library: { name: 'Brush library', list: ['Clay Buildup', 'Dam Standard', 'Move Topological', 'Trim Dynamic', 'hPolish'] },
+  stats: { name: 'Stats', list: ['2,400,000 triangles', '0.8 ms GPU', '60 fps'] },
+};
+const TOOLS = ['paint', 'clay', 'draw', 'smooth', 'inflate', 'pinch', 'crease', 'grab', 'flatten', 'mask', 'remesh', 'move', 'rotate', 'scale'];
+const CMDS = { undo: 'Undo', redo: 'Redo', search: 'Search', menu: 'Menu', edit: 'Edit docks', mirror: 'Mirror layout' };
+const LOCKED = ['menu', 'search'];
+const tool = t => ({ kind: 'tool', id: t });
+const card = c => ({ kind: 'card', id: c });
+const cmd = c => ({ kind: 'cmd', id: c });
+const space = s => ({ kind: 'space', id: s });
+const look = () => ({ kind: 'group', id: 'g-look', name: 'Look', icon: 'look', cards: ['material', 'lights', 'env'] });
+
+function btnCards(b) { return b.kind === 'group' ? b.cards : b.kind === 'card' ? [b.id] : []; }
+function btnName(b) {
+  if (b.kind === 'group') return b.name;
+  if (b.kind === 'card') return b.id === 'library' ? 'All' : CARDS[b.id].name;
+  if (b.kind === 'cmd') return CMDS[b.id];
+  if (b.kind === 'tool') return b.id[0].toUpperCase() + b.id.slice(1);
+  if (b.kind === 'sep') return 'Separator';
+  return b.id;
+}
+function btnIcon(b) { return b.icon || (b.kind === 'card' && b.id === 'library' ? 'all' : b.id); }
+
+// Starting layouts, one per space. Edge docks store a fraction along their edge, floating docks a grid position.
+function preset(name) {
+  const top = { id: 'top', name: 'Top', edge: 'top', t: 0.5, lines: 1, buttons: [space('Sculpt'), space('Model'), space('Render'), { kind: 'sep' }, cmd('undo'), cmd('redo'), cmd('edit'), cmd('search'), cmd('menu')] };
+  if (name === 'Render') return {
+    docks: [top,
+      { id: 'cards', name: 'Cards', edge: 'right', t: 0, lines: 1, buttons: [card('material'), card('lights'), card('env'), card('stats')] }],
+    windows: [{ tabs: ['lights', 'env'], snap: 'right' }, { tabs: ['material'], snap: 'right' }],
+  };
+  return {
+    docks: [top,
+      { id: 'cards', name: 'Cards', edge: 'right', t: 0, lines: 2, buttons: [card('brush'), card('sym'), card('layers'), card('scene'), look(), card('history'), card('colors'), card('stats')] },
+      { id: 'tools', name: 'Tools', edge: 'left', t: 0.45, lines: 1, buttons: [tool('move'), tool('rotate'), tool('scale'), { kind: 'sep' }, tool('mask')] },
+      { id: 'shelf', name: 'Shelf', edge: 'bottom', t: 0.5, lines: 1, labels: true, page: 0, pages: [
+        { name: 'Brushes', buttons: [card('library'), { kind: 'sep' }, ...['paint', 'clay', 'draw', 'smooth', 'inflate', 'pinch', 'crease', 'grab', 'flatten', 'mask', 'remesh'].map(tool)] },
+        { name: 'Paint', buttons: ['paint', 'smooth', 'mask'].map(tool) },
+        { name: 'Move', buttons: ['move', 'grab', 'rotate', 'scale'].map(tool) },
+        { name: 'Curve', buttons: ['draw', 'crease', 'inflate'].map(tool) } ] }],
+    windows: [],
+  };
+}
+// A dock with pages shows one page's buttons; `buttons` is always the page shown.
+function dockButtons(d) { if (d.pages) d.buttons = d.pages[d.page].buttons; return d.buttons; }
+
+let S, L, zTop = 1, order = 1, nextWin = 1, nextDock = 1, nextStack = 1;
+function makeLayout(name) {
+  const p = preset(name);
+  p.docks.forEach(dockButtons);
+  const lay = { docks: p.docks, windows: [], stacks: [] };
+  for (const w of p.windows) lay.windows.push(winObj(w.tabs, 0, 0, true, null, w.snap));
+  return lay;
+}
+function winObj(tabs, x, y, pinned, source, snap) {
+  return { id: nextWin++, tabs: [...tabs], active: tabs[0], x, y, w: 300, h: 280, pinned, snap: snap || null, min: false, stack: null, order: order++, source, z: zTop++ };
+}
+function start() { S = { space: 'Sculpt', tool: 'draw', layouts: {}, edit: false }; S.layouts.Sculpt = makeLayout('Sculpt'); L = S.layouts.Sculpt; }
+start();
+
+const stage = document.getElementById('stage'), box = document.getElementById('box');
+let scale = 1;
+function fit() { scale = box.clientWidth / W; stage.style.transform = `scale(${scale})`; }
+new ResizeObserver(fit).observe(box);
+
+let toastTimer;
+function toast(msg) {
+  let t = stage.querySelector('.toast');
+  if (!t) { t = document.createElement('div'); t.className = 'toast'; stage.appendChild(t); }
+  t.textContent = msg; t.style.opacity = 1;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.opacity = 0, 2800);
+}
+
+// Docks: one kind. An edge dock sits at a fraction along its edge; a floating dock sits on the grid.
+const dockRect = {};
+function isVertical(d) { return d.edge === 'left' || d.edge === 'right' || (d.edge === 'float' && d.vertical); }
+function cardOpen(c) { return L.windows.find(w => w.tabs.includes(c)); }
+function renderDocks() {
+  stage.querySelectorAll('.dock, .dock-head, .pagestrip').forEach(n => n.remove());
+  stage.classList.toggle('editing', S.edit);
+  const strips = {};
+  for (const d of L.docks) {
+    dockButtons(d);
+    const el = document.createElement('div');
+    el.className = 'dock'; el.dataset.dock = d.id; el.dataset.edge = d.edge;
+    const vertical = isVertical(d), cell = d.labels ? 62 : BTN;
+    if (vertical) { el.style.gridTemplateColumns = `repeat(${d.lines}, ${d.labels ? 66 : BTN}px)`; el.style.gridAutoFlow = 'row'; }
+    else { el.style.gridTemplateRows = `repeat(${d.lines}, ${cell}px)`; el.style.gridAutoFlow = 'column'; }
+    d.buttons.forEach((b, i) => {
+      if (b.kind === 'sep') {
+        const n = document.createElement('div'); n.className = 'sep'; n.dataset.key = d.id + ':' + i;
+        if (vertical) { n.style.gridColumn = '1 / -1'; n.style.width = '70%'; n.style.height = S.edit ? '8px' : '2px'; }
+        else { n.style.gridRow = '1 / -1'; n.style.height = '70%'; n.style.width = S.edit ? '8px' : '2px'; }
+        el.appendChild(n); return;
+      }
+      const n = document.createElement('button');
+      n.className = 'item' + (b.kind === 'space' ? ' wide' : '') + (b.kind === 'group' ? ' group' : '') + (d.labels && b.kind !== 'space' ? ' labelled' : '');
+      n.dataset.key = d.id + ':' + i;
+      const cards = btnCards(b), open = cards.length && cards.every(c => cardOpen(c));
+      const lit = (b.kind === 'space' && S.space === b.id) || (b.kind === 'tool' && S.tool === b.id) || (open && cards.some(c => !cardOpen(c).min));
+      if (lit) n.classList.add('lit');
+      const name = btnName(b);
+      n.innerHTML = b.kind === 'space' ? name : svg(btnIcon(b)) + (d.labels ? `<span>${name}</span>` : `<span class="tip">${name}</span>`);
+      if (S.edit && b.kind === 'cmd' && LOCKED.includes(b.id)) n.innerHTML += `<i class="lock">${svg('lock')}</i>`;
+      n.setAttribute('aria-label', name);
+      el.appendChild(n);
+    });
+    if (!d.buttons.length) { const e = document.createElement('div'); e.style.cssText = 'width:48px;height:48px;border:1.5px dashed #5a5e66;border-radius:10px'; el.appendChild(e); }
+    // In edit mode each dock shows its head: handle to move it, its name, + to add, ⋯ for settings.
+    const head = document.createElement('div'); head.className = 'dock-head';
+    head.innerHTML = `<button class="dh handle" data-dockgrab="${d.id}" aria-label="Move dock">${svg('grip')}</button><span class="dname">${d.name}</span><button class="dh" data-dockadd="${d.id}" aria-label="Add to dock">${svg('plus')}</button><button class="dh" data-dockmenu="${d.id}" aria-label="Dock settings">${svg('more')}</button>`;
+    stage.appendChild(el); stage.appendChild(head);
+    let w = el.offsetWidth, h = el.offsetHeight;
+    // A dock longer than the room it has scrolls along its length rather than running off screen.
+    const vert = isVertical(d);
+    const lim = vert ? (d.edge === 'float' ? H - 12 - d.y : H - 12 - 78) : (d.edge === 'float' ? W - 12 - d.x : W - 24);
+    if ((vert ? h : w) > lim) {
+      if (vert) { el.style.maxHeight = lim + 'px'; el.style.overflowY = 'auto'; } else { el.style.maxWidth = lim + 'px'; el.style.overflowX = 'auto'; }
+      el.classList.add('scrolls'); w = el.offsetWidth; h = el.offsetHeight;
+    }
+    const strip = d.pages && d.pages.length > 1 ? 40 : 0;
+    let x, y;
+    const topBand = 78;
+    if (d.edge === 'top') { x = 12 + d.t * (W - 24 - w); y = 12; }
+    else if (d.edge === 'bottom') { x = 12 + d.t * (W - 24 - w); y = H - 12 - h - strip; }
+    else if (d.edge === 'left') { x = 12; y = topBand + d.t * (H - 12 - topBand - h); }
+    else if (d.edge === 'right') { x = W - 12 - w; y = topBand + d.t * (H - 12 - topBand - h); }
+    else { x = d.x; y = d.y; }
+    x = Math.max(4, Math.min(W - w - 4, x)); y = Math.max(4, Math.min(H - h - 4, y));
+    el.style.left = x + 'px'; el.style.top = y + 'px';
+    dockRect[d.id] = { x, y, w, h, edge: d.edge };
+    // The head sits on the side facing the screen's middle.
+    const hw = head.offsetWidth || 150;
+    Object.assign(head.style, { left: (d.edge === 'right' ? x + w - hw : x) + 'px', top: (d.edge === 'top' ? y + h + 6 : y - 36) + 'px' });
+    if (strip) {
+      const ps = document.createElement('div'); ps.className = 'pagestrip'; ps.dataset.pages = d.id;
+      ps.innerHTML = d.pages.map((p, i) => `<button class="${i === d.page ? 'on' : ''}" data-page="${i}">${p.name}</button>`).join('');
+      stage.appendChild(ps);
+      ps.style.left = (x + (w - ps.offsetWidth) / 2) + 'px'; ps.style.top = (y + h + 6) + 'px';
+    }
+  }
+}
+
+// The room left for the viewport and snapped columns, from the edge docks.
+function sideRoom() {
+  let left = 12, right = W - 12, top = 78, bottom = H - 12;
+  for (const d of L.docks) {
+    const r = dockRect[d.id]; if (!r) continue;
+    if (d.edge === 'left') left = Math.max(left, r.x + r.w + 10);
+    if (d.edge === 'right') right = Math.min(right, r.x - 10);
+    if (d.edge === 'bottom') bottom = Math.min(bottom, r.y - 10);
+  }
+  return { left, right, top, bottom };
+}
+const SNAP_W = 300, BAR = 40;
+function layoutSnapped() {
+  const room = sideRoom();
+  for (const edge of ['left', 'right']) {
+    const list = L.windows.filter(w => w.snap === edge).sort((a, b) => a.order - b.order);
+    if (!list.length) continue;
+    const x = edge === 'right' ? room.right - SNAP_W : room.left;
+    const gap = 8, mins = list.filter(w => w.min).length, open = list.length - mins;
+    const space = room.bottom - room.top - gap * (list.length - 1) - mins * BAR;
+    let y = room.top;
+    for (const w of list) { w.x = x; w.y = y; w.w = SNAP_W; w.h = w.min ? BAR : space / Math.max(open, 1); y += w.h + gap; }
+  }
+  // Snapped windows sit over the view; the model stays centred.
+  document.getElementById('model').style.left = (W / 2 - 210) + 'px';
+}
+
+// Soft alignment: within 10pt of a neighbour's edge, centre, or a small gap beside or under it,
+// a dragged window or floating dock takes that position, and a faint line that fades at its ends
+// shows which. Farther away it moves freely; on release the lines fade out.
+const ALIGN = 10, GAP = 8;
+let stackSkip = null;
+function alignTargets(winId, dockId) {
+  const out = [];
+  for (const w of L.windows) if (w.id !== winId && !w.stack) out.push({ x: w.x, y: w.y, w: w.w, h: w.min ? BAR : w.h });
+  for (const st of L.stacks) if (st.id !== stackSkip) { const el = stage.querySelector(`.stackcol[data-stack="${st.id}"]`); out.push({ x: st.x, y: st.y, w: st.w, h: el ? el.offsetHeight : 200 }); }
+  for (const d of L.docks) if (d.id !== dockId && dockRect[d.id]) out.push(dockRect[d.id]);
+  return out;
+}
+function softAlign(r, targets) {
+  let bx = null, by = null;
+  for (const t of targets) {
+    const xs = [[t.x, t.x], [t.x + t.w - r.w, t.x + t.w], [t.x + t.w / 2 - r.w / 2, t.x + t.w / 2], [t.x + t.w + GAP, t.x + t.w + GAP / 2], [t.x - GAP - r.w, t.x - GAP / 2]];
+    for (const [v, line] of xs) { const dd = Math.abs(v - r.x); if (dd < ALIGN && (!bx || dd < bx.dd)) bx = { v, line, dd, t }; }
+    const ys = [[t.y, t.y], [t.y + t.h - r.h, t.y + t.h], [t.y + t.h + GAP, t.y + t.h + GAP / 2], [t.y - GAP - r.h, t.y - GAP / 2]];
+    for (const [v, line] of ys) { const dd = Math.abs(v - r.y); if (dd < ALIGN && (!by || dd < by.dd)) by = { v, line, dd, t }; }
+  }
+  const x = bx ? bx.v : r.x, y = by ? by.v : r.y, lines = [];
+  if (bx) lines.push({ x: bx.line, y: Math.min(y, bx.t.y) - 6, w: 0, h: Math.max(y + r.h, bx.t.y + bx.t.h) - Math.min(y, bx.t.y) + 12 });
+  if (by) lines.push({ x: Math.min(x, by.t.x) - 6, y: by.line, w: Math.max(x + r.w, by.t.x + by.t.w) - Math.min(x, by.t.x) + 12, h: 0 });
+  return { x, y, lines };
+}
+// Lines that stop matching fade out rather than vanish.
+function fadeAlign(nodes) { nodes.forEach(n => { n.classList.add('out'); n.classList.remove('alignline'); n.classList.add('alignfade'); setTimeout(() => n.remove(), 500); }); }
+function drawAlign(lines) {
+  fadeAlign(stage.querySelectorAll('.alignline'));
+  for (const l of lines) {
+    const n = document.createElement('div'); n.className = 'alignline ' + (l.w ? 'h' : 'v');
+    Object.assign(n.style, { left: l.x + 'px', top: l.y + 'px', width: (l.w || 1.5) + 'px', height: (l.h || 1.5) + 'px' });
+    stage.appendChild(n);
+  }
+}
+
+function cardBody(id) {
+  const c = CARDS[id];
+  if (c.rows) return c.rows.map(([l, v]) => `<div class="slider"><span>${l}</span><div class="bar"><i style="width:${v * 100}%"></i></div></div>`).join('');
+  return c.list.map(l => `<div class="list-row">${l}</div>`).join('');
+}
+function renderWindows() {
+  stage.querySelectorAll('.win, .stackcol').forEach(n => n.remove());
+  layoutSnapped();
+  // Stacks: windows one under another in a floating column that moves by its grip and scrolls
+  // when taller than the room above the bottom dock.
+  for (const st of L.stacks) {
+    const col = document.createElement('div'); col.className = 'stackcol'; col.dataset.stack = st.id;
+    Object.assign(col.style, { left: st.x + 'px', top: st.y + 'px', width: st.w + 'px', maxHeight: (sideRoom().bottom - st.y) + 'px', zIndex: 10 + st.z });
+    col.innerHTML = '<div class="stackgrip" data-stackgrab="' + st.id + '" aria-label="Move stack"></div>';
+    stage.appendChild(col);
+    for (const id of st.wins) { const w = findWin(id); if (w) col.appendChild(winElement(w)); }
+  }
+  for (const w of L.windows) if (!w.stack) stage.appendChild(winElement(w));
+}
+function winElement(w) {
+  {
+    const el = document.createElement('div');
+    el.className = 'win' + (w.pinned ? ' pinned' : '') + (w.snap ? ' snapped' : '');
+    el.dataset.win = w.id;
+    Object.assign(el.style, { left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: (w.min ? BAR : w.h) + 'px', zIndex: 10 + w.z });
+    const one = w.tabs.length === 1;
+    const title = one || w.min ? w.tabs.map(c => CARDS[c].name).join(' · ') : '';
+    el.innerHTML = `<div class="win-top" data-grab="1"><span class="wgrip">${svg('grip')}</span><span class="wtitle">${title}</span>
+      <button class="hbtn" data-act="min" aria-label="${w.min ? 'Open' : 'Minimise'}">${svg(w.min ? 'open' : 'min')}</button>
+      ${w.snap ? '' : `<button class="hbtn${w.pinned ? ' on' : ''}" data-act="pin" aria-label="Pin">${svg('pin')}</button>`}
+      <button class="hbtn" data-act="options" aria-label="Window options">${svg('more')}</button>
+      <button class="hbtn" data-act="close" aria-label="Close">${svg('close')}</button></div>
+      ${w.min ? '' : `<div class="tabs" data-grab="1"${one ? ' hidden' : ''}>${w.tabs.map(t => `<button class="tab${t === w.active ? ' on' : ''}" data-tab="${t}">${CARDS[t].name}</button>`).join('')}</div>
+      <div class="win-body">${cardBody(w.active)}</div>`}
+      ${w.min || w.snap ? '' : '<div class="resize" data-resize="1"></div>'}`;
+    return el;
+  }
+}
+function stackOf(w) { return w && w.stack ? L.stacks.find(s => s.id === w.stack) : null; }
+// A window's rect on the stage, read from the page for stacked windows, whose place is the stack's.
+function winRect(w) {
+  if (!w.stack) return { x: w.x, y: w.y, w: w.w, h: w.min ? BAR : w.h };
+  const el = stage.querySelector(`.win[data-win="${w.id}"]`), sr = stage.getBoundingClientRect();
+  if (!el) return { x: w.x, y: w.y, w: w.w, h: w.h };
+  const r = el.getBoundingClientRect();
+  return { x: (r.left - sr.left) / scale, y: (r.top - sr.top) / scale, w: r.width / scale, h: r.height / scale };
+}
+function leaveStack(w) {
+  const st = stackOf(w); if (!st) return;
+  const r = winRect(w);
+  st.wins = st.wins.filter(id => id !== w.id); w.stack = null; w.x = r.x; w.y = r.y; w.w = st.w;
+  if (st.wins.length <= 1) {
+    // A stack of one is just a window again, where the stack stood.
+    const last = findWin(st.wins[0]);
+    if (last) { last.stack = null; last.x = st.x; last.y = st.y + 16; last.w = st.w; }
+    L.stacks = L.stacks.filter(x => x !== st);
+  }
+}
+function stackWith(target, w, zone) {
+  if (w.stack) leaveStack(w);
+  w.snap = null; w.pinned = true; w.min = false;
+  let st = stackOf(target);
+  if (!st) {
+    const r = winRect(target);
+    st = { id: nextStack++, x: r.x, y: Math.max(4, r.y - 16), w: r.w, wins: [target.id], z: zTop++ };
+    target.stack = st.id; target.pinned = true; L.stacks.push(st);
+  }
+  const at = st.wins.indexOf(target.id) + (zone === 'below' ? 1 : 0);
+  st.wins.splice(at, 0, w.id); w.stack = st.id; st.z = zTop++;
+  if (!L.windows.includes(w)) L.windows.push(w);
+}
+function dropWin(w) { if (w.stack) leaveStack(w); L.windows = L.windows.filter(x => x !== w); }
+
+function render() { renderDocks(); renderWindows(); renderEditBar(); renderSheet(); renderSaved(); }
+
+function findWin(id) { return L.windows.find(w => w.id == id); }
+function clampWin(w) { w.x = Math.max(0, Math.min(W - w.w, w.x)); w.y = Math.max(0, Math.min(H - 60, w.y)); }
+function closeUnpinned() { L.windows = L.windows.filter(w => w.pinned || w.snap || w.min); }
+function removeTab(w, t) {
+  w.tabs = w.tabs.filter(x => x !== t);
+  if (w.active === t) w.active = w.tabs[0];
+  if (!w.tabs.length) dropWin(w);
+  w.source = null;
+}
+// A card lives in one window at a time: opening it elsewhere takes it from where it was.
+function takeCard(t) { for (const w of [...L.windows]) if (w.tabs.includes(t)) removeTab(w, t); }
+function newWindow(tabs, x, y, pinned, source) { tabs.forEach(takeCard); const w = winObj(tabs, x, y, pinned, source, null); clampWin(w); L.windows.push(w); return w; }
+function snapWindow(w, edge) { w.snap = edge; w.pinned = true; w.min = false; w.order = order++; }
+
+function switchSpace(name) {
+  if (S.space === name) return;
+  S.space = name;
+  L = S.layouts[name] || (S.layouts[name] = makeLayout(name));
+  S.edit = false;
+  toast(`${name} space: its own docks and windows.`);
+}
+
+function tapDockButton(d, i, el) {
+  const b = d.buttons[i];
+  if (b.kind === 'space') { switchSpace(b.id); return; }
+  if (b.kind === 'tool') { S.tool = b.id; toast(`Tool: ${btnName(b)}`); return; }
+  if (b.kind === 'cmd') {
+    if (b.id === 'edit') { enterEdit(); return; }
+    if (b.id === 'mirror') { mirror(); return; }
+    toast(`${btnName(b)}: a command, no window.`); return;
+  }
+  const cards = btnCards(b);
+  const open = cards.every(c => cardOpen(c)) && cardOpen(cards[0]);
+  if (open && cards.every(c => cardOpen(c) === open)) {
+    if (open.min) { open.min = false; open.z = zTop++; toast(`${btnName(b)} unfolded.`); return; }
+    if (!open.pinned && !open.snap) { dropWin(open); return; }
+    open.z = zTop++; open.active = cards[0]; toast(`${btnName(b)} is already open: brought forward.`); return;
+  }
+  closeUnpinned();
+  const r = el.getBoundingClientRect(), sr = stage.getBoundingClientRect(), dr = dockRect[d.id];
+  const bx = (r.left - sr.left) / scale, by = (r.top - sr.top) / scale;
+  let x, y;
+  if (d.edge === 'right') { x = dr.x - 310; y = by - 8; }
+  else if (d.edge === 'left' || d.edge === 'float') { x = dr.x + dr.w + 10; y = by - 8; }
+  else if (d.edge === 'top') { x = bx - 120; y = dr.y + dr.h + 10; }
+  else { x = bx - 120; y = dr.y - 300; }
+  newWindow(cards, x, y, false, d.id + ':' + i);
+  toast(`${btnName(b)} popped out. Tap the view to put it away, or pin it.`);
+}
+
+// Edit mode: every dock wiggles; buttons and docks move; the picker adds.
+let pickerFor = null, pickerQuery = '', dockMenuFor = null;
+function enterEdit() { S.edit = true; closeUnpinned(); toast('Editing docks. Drag buttons and docks; Done when finished.'); }
+function exitEdit() { S.edit = false; pickerFor = null; dockMenuFor = null; pickerQuery = ''; toast('Docks saved for this space.'); }
+function renderEditBar() {
+  stage.querySelector('.editbar')?.remove();
+  if (!S.edit || pickerFor) return;
+  const bar = document.createElement('div'); bar.className = 'editbar';
+  bar.innerHTML = `<span>Editing docks in ${S.space}</span><button class="btn" data-edit="newdock">+ New dock</button><button class="btn" data-edit="mirror">Mirror</button><button class="btn" data-edit="reset">Reset space</button><button class="btn primary" data-edit="done">Done</button>`;
+  stage.appendChild(bar);
+}
+function mirror() {
+  const flip = { left: 'right', right: 'left' };
+  for (const d of L.docks) { if (flip[d.edge]) d.edge = flip[d.edge]; else if (d.edge === 'float') d.x = W - d.x - (dockRect[d.id]?.w || 60); else d.t = 1 - d.t; }
+  for (const w of L.windows) { if (w.snap) w.snap = flip[w.snap]; else w.x = W - w.x - w.w; }
+  toast('Mirrored: every dock and window flipped left to right.');
+}
+
+const TILES = [{ kind: 'sep', sec: 'General' }, ...Object.keys(CMDS).map(c => ({ ...cmd(c), sec: 'Commands' })), ...['Sculpt', 'Model', 'Render'].map(s => ({ ...space(s), sec: 'Spaces' })),
+  ...TOOLS.map(t => ({ ...tool(t), sec: 'Brushes and tools' })),
+  ...Object.keys(CARDS).map(c => ({ ...card(c), sec: 'Cards' })), { ...look(), sec: 'Groups' }];
+function tileWhere(t) {
+  if (t.kind === 'sep') return '';
+  const d = L.docks.find(d => (d.pages ? d.pages.flatMap(p => p.buttons) : d.buttons).some(b => b.kind === t.kind && b.id === t.id));
+  return d ? d.name : '';
+}
+function tilesHtml() {
+  const q = pickerQuery.trim().toLowerCase();
+  let html = '', sec = '';
+  TILES.forEach((t, i) => {
+    const name = btnName(t) || t.id;
+    if (q && !name.toLowerCase().includes(q) && !t.sec.toLowerCase().includes(q)) return;
+    if (t.sec !== sec) { sec = t.sec; html += `<h4>${sec}</h4>`; }
+    const where = tileWhere(t);
+    html += `<button class="tile" data-tile="${i}">${where ? `<span class="on">on ${where}</span>` : ''}${svg(t.kind === 'sep' ? 'sep' : t.kind === 'space' ? 'scene' : btnIcon(t))}<span>${name}</span></button>`;
+  });
+  return html || '<p>Nothing by that name.</p>';
+}
+function renderSheet() {
+  stage.querySelectorAll('.veil, .sheet, .menu').forEach(n => n.remove());
+  if (S.edit && pickerFor) {
+    const d = L.docks.find(x => x.id === pickerFor);
+    const veil = document.createElement('div'); veil.className = 'veil'; veil.dataset.closepicker = 1; stage.appendChild(veil);
+    const sh = document.createElement('div'); sh.className = 'sheet';
+    sh.innerHTML = `<div class="sheet-top"><h3>Add to ${d.name}${d.pages ? ' · ' + d.pages[d.page].name : ''}</h3><input type="search" id="pickSearch" placeholder="Search cards, tools, commands" value="${pickerQuery}"><button class="btn" data-closepicker="1">Done</button></div>
+      <p class="hint">Tap to add at the end of the dock. A button is a shortcut: the same card can be on several docks.</p>
+      <div class="tiles" id="tiles">${tilesHtml()}</div>`;
+    stage.appendChild(sh);
+    const s = sh.querySelector('#pickSearch');
+    s.oninput = () => { pickerQuery = s.value; sh.querySelector('#tiles').innerHTML = tilesHtml(); };
+  }
+  if (S.edit && dockMenuFor) {
+    const d = L.docks.find(x => x.id === dockMenuFor), r = dockRect[d.id];
+    const m = document.createElement('div'); m.className = 'menu';
+    const locked = d.buttons.some(b => b.kind === 'cmd' && LOCKED.includes(b.id));
+    m.innerHTML = `<div class="mrow"><span>${isVertical(d) ? 'Columns' : 'Rows'}</span><span class="step"><button data-dm="less">−</button><b>${d.lines}</b><button data-dm="more">+</button></span></div>
+      <button data-dm="names">${d.labels ? '✓ ' : ''}Names under icons</button>
+      ${d.edge === 'float' ? `<button data-dm="turn">Turn ${d.vertical ? 'across' : 'upright'}</button>` : ''}
+      <button data-dm="rename">Rename</button><hr>
+      <button class="danger" data-dm="delete">${locked ? 'Delete (moves Menu and Search to Top)' : 'Delete dock'}</button>`;
+    stage.appendChild(m);
+    const mx = d.edge === 'right' ? r.x - 220 : r.x + Math.min(r.w, 200) + 8;
+    const my = d.edge === 'bottom' ? r.y - 230 : r.y;
+    m.style.left = Math.max(8, Math.min(W - 230, mx)) + 'px'; m.style.top = Math.max(8, Math.min(H - 240, my)) + 'px';
+  }
+  if (winMenuFor) {
+    const w = findWin(winMenuFor); if (!w) { winMenuFor = null; return; }
+    const m = document.createElement('div'); m.className = 'menu';
+    m.innerHTML = `<button data-wm="add">Add to dock${w.tabs.length > 1 ? ' as a group' : ''}</button>
+      ${w.snap !== 'left' ? '<button data-wm="snap-left">Snap left</button>' : ''}${w.snap !== 'right' ? '<button data-wm="snap-right">Snap right</button>' : ''}
+      ${w.snap ? '<button data-wm="float">Float</button>' : ''}<button data-wm="help">Card help</button><hr><button class="danger" data-wm="close">Close</button>`;
+    stage.appendChild(m);
+    m.style.left = Math.max(8, Math.min(W - 230, w.x + w.w - 214)) + 'px'; m.style.top = (w.y + 40) + 'px';
+  }
+}
+let winMenuFor = null;
+
+function addToDock(d, b, at) {
+  dockButtons(d);
+  const nb = JSON.parse(JSON.stringify(b)); delete nb.sec;
+  d.buttons.splice(at ?? d.buttons.length, 0, nb);
+}
+function cardsDock() { return L.docks.find(d => d.id === 'cards') || L.docks.find(d => d.edge !== 'top') || L.docks[0]; }
+let groupCount = 1;
+
+// Guides: the middle square of a window joins it as a tab; the squares by the screen sides snap.
+let guideFor = null;
+function hitAt(e) {
+  const g = stage.querySelector('.ghost'); if (g) g.style.display = 'none';
+  const n = document.elementFromPoint(e.clientX, e.clientY); if (g) g.style.display = '';
+  return n;
+}
+function showGuides(e, except) {
+  const n = hitAt(e), hot = n && n.closest('.guide');
+  stage.querySelectorAll('.guide.hot').forEach(x => x.classList.remove('hot'));
+  stage.querySelector('.preview')?.remove();
+  if (hot) { hot.classList.add('hot'); preview(hot.dataset); return; }
+  const winEl = n && n.closest('.win');
+  let w = winEl ? findWin(winEl.dataset.win) : null; if (w === except) w = null;
+  const key = w ? String(w.id) : '-';
+  if (key === guideFor && stage.querySelector('.guides')) return;
+  stage.querySelectorAll('.guides').forEach(x => x.remove());
+  guideFor = key;
+  const room = sideRoom(), cy = (room.top + room.bottom) / 2;
+  const sq = (x, y, zone, win) => `<div class="guide" data-zone="${zone}" data-win="${win}" style="left:${x - 22}px;top:${y - 22}px"></div>`;
+  let html = sq(room.left + 40, cy, 'snap-left', '') + sq(room.right - 40, cy, 'snap-right', '');
+  if (w) {
+    const r = winRect(w), cx = r.x + r.w / 2, cy2 = r.y + Math.min(r.h, 200) / 2 + 20;
+    html += sq(cx, cy2, 'center', w.id);
+    // A floating window also stacks: the squares above and below put the card in a stack with it.
+    if (!w.snap) html += sq(cx, cy2 - 52, 'above', w.id) + sq(cx, cy2 + 52, 'below', w.id);
+  }
+  const layer = document.createElement('div'); layer.className = 'guides'; layer.innerHTML = html; stage.appendChild(layer);
+}
+function preview(z) {
+  let r;
+  const room = sideRoom();
+  if (z.zone === 'snap-left') r = { x: room.left, y: room.top, w: SNAP_W, h: room.bottom - room.top };
+  else if (z.zone === 'snap-right') r = { x: room.right - SNAP_W, y: room.top, w: SNAP_W, h: room.bottom - room.top };
+  else {
+    const w = findWin(z.win); if (!w) return; r = winRect(w);
+    if (z.zone === 'above') r = { x: r.x, y: r.y - 46, w: r.w, h: 40 };
+    if (z.zone === 'below') r = { x: r.x, y: r.y + r.h + 6, w: r.w, h: 40 };
+  }
+  const p = document.createElement('div'); p.className = 'preview';
+  Object.assign(p.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
+  stage.appendChild(p);
+}
+function guideAt(e) { const n = hitAt(e); const g = n && n.closest('.guide'); return g ? { zone: g.dataset.zone, win: findWin(g.dataset.win) } : null; }
+function clearDrag() { stage.querySelectorAll('.guides, .preview, .ghost, .edgeband').forEach(x => x.remove()); fadeAlign(stage.querySelectorAll('.alignline')); guideFor = null; stage.querySelectorAll('.dock.drop').forEach(n => n.classList.remove('drop')); }
+
+function pt(e) { const r = stage.getBoundingClientRect(); return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale }; }
+function overStage(e) { const r = box.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; }
+function ghost(text, p) {
+  let g = stage.querySelector('.ghost');
+  if (!g) { g = document.createElement('div'); g.className = 'ghost'; stage.appendChild(g); }
+  g.textContent = text; g.style.left = p.x + 12 + 'px'; g.style.top = p.y + 12 + 'px';
+}
+function dockAt(e) {
+  const n = hitAt(e), el = n && n.closest('.dock'); if (!el) return null;
+  const d = L.docks.find(x => x.id === el.dataset.dock);
+  const btn = n.closest('[data-key]'); const at = btn ? +btn.dataset.key.split(':')[1] : d.buttons.length;
+  return { d, at, el };
+}
+function dockHint(h) { stage.querySelectorAll('.dock.drop').forEach(n => n.classList.remove('drop')); if (h) h.el.classList.add('drop'); }
+
+// Where a dragged dock lands: an edge when it is near one, otherwise floating on the grid.
+const EDGE_NEAR = 70;
+function dockLanding(p, w, h) {
+  if (p.y < EDGE_NEAR) return { edge: 'top', t: clamp01((p.x - w / 2 - 12) / (W - 24 - w)) };
+  if (p.y > H - EDGE_NEAR) return { edge: 'bottom', t: clamp01((p.x - w / 2 - 12) / (W - 24 - w)) };
+  if (p.x < EDGE_NEAR) return { edge: 'left', t: clamp01((p.y - h / 2 - 78) / (H - 90 - h)) };
+  if (p.x > W - EDGE_NEAR) return { edge: 'right', t: clamp01((p.y - h / 2 - 78) / (H - 90 - h)) };
+  // Floating docks go anywhere, the middle included; the grid keeps them tidy.
+  return { edge: 'float', x: Math.round((p.x - w / 2) / GRID) * GRID, y: Math.round((p.y - 16) / GRID) * GRID };
+}
+const clamp01 = v => Math.max(0, Math.min(1, v));
+function edgeBand(land, w, h) {
+  stage.querySelector('.edgeband')?.remove();
+  const b = document.createElement('div'); b.className = 'edgeband';
+  const r = land.edge === 'top' ? { x: 12, y: 8, w: W - 24, h: h + 8 } : land.edge === 'bottom' ? { x: 12, y: H - h - 16, w: W - 24, h: h + 8 }
+    : land.edge === 'left' ? { x: 8, y: 78, w: w + 8, h: H - 90 } : land.edge === 'right' ? { x: W - w - 16, y: 78, w: w + 8, h: H - 90 } : { x: land.x, y: land.y, w, h };
+  Object.assign(b.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
+  stage.appendChild(b);
+}
+
+// One pointer handler for the whole stage.
+let drag = null, holdTimer = null;
+stage.addEventListener('pointerdown', e => {
+  const p = pt(e), t = e.target;
+  // Menus first: a tap inside acts, a tap outside closes them.
+  const dm = t.closest('[data-dm]'), wm = t.closest('[data-wm]');
+  if (dm) { dockMenuAct(dm.dataset.dm); render(); return; }
+  if (wm) { winMenuAct(wm.dataset.wm); render(); return; }
+  if (t.closest('.menu')) return;
+  if (dockMenuFor || winMenuFor) { dockMenuFor = null; winMenuFor = null; render(); return; }
+  if (S.edit && pickerFor) {
+    if (t.closest('[data-closepicker]')) { pickerFor = null; pickerQuery = ''; render(); return; }
+    const tile = t.closest('[data-tile]');
+    if (tile) { const d = L.docks.find(x => x.id === pickerFor); addToDock(d, TILES[+tile.dataset.tile]); toast(`${btnName(TILES[+tile.dataset.tile])} added to ${d.name}.`); renderDocks(); renderSaved(); document.getElementById('tiles').innerHTML = tilesHtml(); }
+    return;
+  }
+  const ed = t.closest('[data-edit]');
+  if (ed) {
+    const a = ed.dataset.edit;
+    if (a === 'done') exitEdit();
+    else if (a === 'mirror') mirror();
+    else if (a === 'reset') { S.layouts[S.space] = L = makeLayout(S.space); toast(`${S.space} back to its starting layout.`); }
+    else if (a === 'newdock') { const id = 'dock' + nextDock++; L.docks.push({ id, name: 'Dock ' + (nextDock - 1), edge: 'float', x: 112, y: 160, lines: 1, vertical: true, buttons: [] }); dockMenuFor = null; pickerFor = id; toast('New dock: add buttons, then drag it by its handle.'); }
+    render(); return;
+  }
+  const page = t.closest('[data-page]');
+  if (page) { const d = L.docks.find(x => x.id === page.parentElement.dataset.pages); d.page = +page.dataset.page; render(); return; }
+  if (S.edit) {
+    const dg = t.closest('[data-dockgrab]'), da = t.closest('[data-dockadd]'), dmn = t.closest('[data-dockmenu]');
+    if (da) { pickerFor = da.dataset.dockadd; render(); return; }
+    if (dmn) { dockMenuFor = dmn.dataset.dockmenu; render(); return; }
+    if (dg) { const r = dockRect[dg.dataset.dockgrab]; drag = { kind: 'dock', d: L.docks.find(x => x.id === dg.dataset.dockgrab), start: p, w: r.w, h: r.h, moved: false }; stage.setPointerCapture(e.pointerId); return; }
+    const key = t.closest('.dock [data-key]');
+    if (key) { const [id, i] = key.dataset.key.split(':'); drag = { kind: 'rearrange', d: L.docks.find(x => x.id === id), i: +i, start: p, moved: false }; stage.setPointerCapture(e.pointerId); return; }
+    if (t.closest('.dock') || t.closest('.editbar')) return;
+    if (!t.closest('.win')) { drag = { kind: 'endedit' }; return; }
+  }
+  const sg = t.closest('[data-stackgrab]');
+  if (sg) { const st = L.stacks.find(x => x.id == sg.dataset.stackgrab); st.z = zTop++; drag = { kind: 'stack', st, start: p, x0: st.x, y0: st.y }; stage.setPointerCapture(e.pointerId); return; }
+  const winEl = t.closest('.win');
+  if (winEl) {
+    const w = findWin(winEl.dataset.win); w.z = zTop++; if (!w.stack) winEl.style.zIndex = 10 + w.z; else { stackOf(w).z = zTop++; winEl.parentElement.style.zIndex = 10 + stackOf(w).z; }
+    const act = t.closest('[data-act]');
+    if (act) { drag = { kind: 'act', w, act: act.dataset.act }; return; }
+    const tab = t.closest('[data-tab]');
+    if (tab) { drag = { kind: 'tab', w, card: tab.dataset.tab, start: p, moved: false }; stage.setPointerCapture(e.pointerId); return; }
+    if (t.closest('[data-resize]')) { drag = { kind: 'resize', w, start: p, w0: w.w, h0: w.h }; stage.setPointerCapture(e.pointerId); return; }
+    if (t.closest('[data-grab]')) { drag = { kind: 'move', w, start: p, x0: w.x, y0: w.y, moved: false }; stage.setPointerCapture(e.pointerId); return; }
+    return;
+  }
+  const item = t.closest('.dock [data-key]');
+  if (item) {
+    const [id, i] = item.dataset.key.split(':');
+    drag = { kind: 'button', d: L.docks.find(x => x.id === id), i: +i, el: item, start: p, moved: false };
+    stage.setPointerCapture(e.pointerId);
+    // Holding a dock button starts edit mode, as holding an app icon does on iOS.
+    holdTimer = setTimeout(() => { if (drag && drag.kind === 'button' && !drag.moved) { drag = null; enterEdit(); render(); } }, 550);
+    return;
+  }
+  if (t.closest('.dock')) return;
+  drag = { kind: 'view' };
+});
+
+stage.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const p = pt(e);
+  const far = d => Math.hypot(p.x - d.start.x, p.y - d.start.y) > 8;
+  if (drag.kind === 'dock') {
+    if (!drag.moved && !far(drag)) return;
+    drag.moved = true;
+    const land = dockLanding(p, drag.w, drag.h);
+    if (land.edge === 'float') {
+      const al = softAlign({ x: p.x - drag.w / 2, y: p.y - 16, w: drag.w, h: drag.h }, alignTargets(null, drag.d.id));
+      if (al.lines.length) { land.x = al.x; land.y = al.y; }
+      drawAlign(al.lines);
+    } else drawAlign([]);
+    drag.land = land; edgeBand(land, drag.w, drag.h);
+    const el = stage.querySelector(`.dock[data-dock="${drag.d.id}"]`);
+    el.style.left = (land.edge === 'float' ? land.x : p.x - drag.w / 2) + 'px'; el.style.top = (land.edge === 'float' ? land.y : p.y - 16) + 'px';
+  } else if (drag.kind === 'stack') {
+    const st = drag.st, col = stage.querySelector(`.stackcol[data-stack="${st.id}"]`);
+    stackSkip = st.id;
+    const al = softAlign({ x: drag.x0 + p.x - drag.start.x, y: drag.y0 + p.y - drag.start.y, w: st.w, h: col.offsetHeight }, alignTargets(null, null));
+    stackSkip = null;
+    st.x = Math.max(0, Math.min(W - st.w, al.x)); st.y = Math.max(4, Math.min(H - 60, al.y)); drawAlign(al.lines);
+    Object.assign(col.style, { left: st.x + 'px', top: st.y + 'px', maxHeight: (sideRoom().bottom - st.y) + 'px' });
+  } else if (drag.kind === 'rearrange') {
+    if (!drag.moved && !far(drag)) return;
+    drag.moved = true; ghost(btnName(drag.d.buttons[drag.i]), p); dockHint(dockAt(e));
+  } else if (drag.kind === 'move') {
+    if (!drag.moved && !far(drag)) return;
+    if (!drag.moved) {
+      drag.moved = true;
+      // Pulling a snapped window off its side floats it again, under the finger.
+      if (drag.w.snap) { drag.w.snap = null; drag.w.h = 300; drag.w.pinned = true; drag.x0 = p.x - drag.w.w / 2; drag.y0 = p.y - 16; drag.start = p; }
+      // Pulling a window by its bar out of a stack floats it on its own.
+      if (drag.w.stack) { leaveStack(drag.w); drag.x0 = drag.w.x; drag.y0 = drag.w.y; renderWindows(); }
+    }
+    drag.w.x = drag.x0 + p.x - drag.start.x; drag.w.y = drag.y0 + p.y - drag.start.y; clampWin(drag.w);
+    const al = softAlign({ x: drag.w.x, y: drag.w.y, w: drag.w.w, h: drag.w.min ? BAR : drag.w.h }, alignTargets(drag.w.id, null));
+    drag.w.x = al.x; drag.w.y = al.y; drawAlign(al.lines);
+    const el = stage.querySelector(`.win[data-win="${drag.w.id}"]`);
+    el.classList.add('dragging'); Object.assign(el.style, { left: drag.w.x + 'px', top: drag.w.y + 'px', height: (drag.w.min ? BAR : drag.w.h) + 'px', width: drag.w.w + 'px' });
+    showGuides(e, drag.w);
+  } else if (drag.kind === 'resize') {
+    drag.w.w = Math.max(220, drag.w0 + p.x - drag.start.x); drag.w.h = Math.max(160, drag.h0 + p.y - drag.start.y);
+    const el = stage.querySelector(`.win[data-win="${drag.w.id}"]`); el.style.width = drag.w.w + 'px'; el.style.height = drag.w.h + 'px';
+    // In a stack the corner sets this window's height and the whole stack's width.
+    const st = stackOf(drag.w); if (st) { st.w = drag.w.w; el.parentElement.style.width = st.w + 'px'; }
+  } else if (drag.kind === 'tab') {
+    if (!drag.moved && !far(drag)) return;
+    drag.moved = true; ghost(CARDS[drag.card].name, p); showGuides(e, drag.w.tabs.length > 1 ? null : drag.w);
+  } else if (drag.kind === 'button') {
+    const b = drag.d.buttons[drag.i];
+    if (!drag.moved && !far(drag)) return;
+    if (!drag.moved) clearTimeout(holdTimer);
+    drag.moved = true;
+    if (!btnCards(b).length) return;
+    ghost(btnName(b), p); showGuides(e, null);
+  }
+});
+
+stage.addEventListener('pointerup', e => {
+  clearTimeout(holdTimer);
+  if (!drag) return;
+  const p = pt(e), d = drag; drag = null;
+  const g = d.moved ? guideAt(e) : null;
+  clearDrag();
+  if (d.kind === 'endedit') exitEdit();
+  else if (d.kind === 'dock') {
+    if (d.moved && d.land) {
+      // A dock keeps its direction when it leaves an edge: a side dock floats upright, a top or bottom one across.
+      if (d.land.edge === 'float' && d.d.edge !== 'float') d.d.vertical = d.d.edge === 'left' || d.d.edge === 'right';
+      Object.assign(d.d, d.land); if (d.land.edge !== 'float') { delete d.d.x; delete d.d.y; } toast(d.land.edge === 'float' ? `${d.d.name} floats.` : `${d.d.name} on the ${d.land.edge} edge.`); }
+  } else if (d.kind === 'rearrange') {
+    if (d.moved) {
+      const h = dockAt(e), b = d.d.buttons[d.i];
+      const locked = b.kind === 'cmd' && LOCKED.includes(b.id);
+      if (!h && locked) toast(`${btnName(b)} can move but not leave: it is how you get back.`);
+      else {
+        d.d.buttons.splice(d.i, 1);
+        if (h) { let at = h.at; if (h.d === d.d && at > d.i) at--; dockButtons(h.d); h.d.buttons.splice(at, 0, b); if (h.d !== d.d) toast(`${btnName(b)} moved to ${h.d.name}.`); }
+        else toast(`${btnName(b)} removed from ${d.d.name}.`);
+      }
+    }
+  } else if (d.kind === 'act') {
+    if (d.act === 'pin') { d.w.pinned = !d.w.pinned; toast(d.w.pinned ? 'Pinned: it stays when you tap elsewhere.' : 'Unpinned: a tap on the view puts it away.'); }
+    else if (d.act === 'min') {
+      d.w.min = !d.w.min;
+      if (d.w.min) { d.w.pinned = true; toast('Folded to its bar. The arrow unfolds it.'); }
+    }
+    else if (d.act === 'options') winMenuFor = d.w.id;
+    else dropWin(d.w);
+  } else if (d.kind === 'move') {
+    if (d.moved) {
+      if (g && g.zone.startsWith('snap')) { if (d.w.stack) leaveStack(d.w); snapWindow(d.w, g.zone.slice(5)); toast(`Snapped ${g.zone.slice(5)}.`); }
+      else if (g && g.win && (g.zone === 'above' || g.zone === 'below')) { stackWith(g.win, d.w, g.zone); toast(`Stacked ${g.zone}: the stack moves by its grip and scrolls when long.`); }
+      else if (g && g.win) { const cards = [...d.w.tabs]; L.windows = L.windows.filter(x => x !== d.w); cards.forEach(c => { g.win.tabs.push(c); }); g.win.active = cards[0]; g.win.min = false; toast('Joined as tabs.'); }
+    }
+  } else if (d.kind === 'tab') {
+    if (!d.moved) d.w.active = d.card;
+    else if (g && g.zone.startsWith('snap')) { const nw = newWindow([d.card], 0, 0, true, null); snapWindow(nw, g.zone.slice(5)); toast(`${CARDS[d.card].name} snapped ${g.zone.slice(5)}.`); }
+    else if (g && g.win && (g.zone === 'above' || g.zone === 'below') && !(g.win === d.w && d.w.tabs.length === 1)) { removeTab(d.w, d.card); const nw = winObj([d.card], 0, 0, true, null, null); stackWith(g.win, nw, g.zone); toast(`${CARDS[d.card].name} stacked ${g.zone}.`); }
+    else if (g && g.win && g.win !== d.w && g.zone === 'center') { removeTab(d.w, d.card); g.win.tabs.push(d.card); g.win.active = d.card; g.win.min = false; toast(`${CARDS[d.card].name} joined as a tab.`); }
+    else if (overStage(e) && d.w.tabs.length > 1) {
+      const inside = p.x >= d.w.x && p.x <= d.w.x + d.w.w && p.y >= d.w.y && p.y <= d.w.y + d.w.h;
+      if (!inside) { newWindow([d.card], p.x - 40, p.y - 20, true, null); toast(`${CARDS[d.card].name} floats in its own window.`); }
+    }
+  } else if (d.kind === 'button') {
+    const b = d.d.buttons[d.i], cards = btnCards(b);
+    if (!d.moved) tapDockButton(d.d, d.i, d.el);
+    else if (cards.length) {
+      if (g && g.zone.startsWith('snap')) { const nw = newWindow(cards, 0, 0, true, null); snapWindow(nw, g.zone.slice(5)); toast(`${btnName(b)} snapped ${g.zone.slice(5)}.`); }
+      else if (g && g.win && (g.zone === 'above' || g.zone === 'below')) { cards.forEach(takeCard); if (L.windows.includes(g.win)) { const nw = winObj(cards, 0, 0, true, null, null); stackWith(g.win, nw, g.zone); toast(`${btnName(b)} stacked ${g.zone}.`); } }
+      else if (g && g.win) { cards.forEach(takeCard); if (!L.windows.includes(g.win)) L.windows.push(g.win); cards.forEach(c => { if (!g.win.tabs.includes(c)) g.win.tabs.push(c); }); g.win.active = cards[0]; g.win.min = false; toast(`${btnName(b)} joined as ${cards.length > 1 ? 'tabs' : 'a tab'}.`); }
+      else if (overStage(e) && !hitAt(e)?.closest('.dock')) { newWindow(cards, p.x - 40, p.y - 20, true, null); toast(`${btnName(b)} pinned where you dropped it.`); }
+    }
+  } else if (d.kind === 'view') {
+    if (L.windows.some(w => !w.pinned && !w.snap && !w.min)) { closeUnpinned(); toast('Unpinned windows put away.'); }
+  }
+  render();
+});
+stage.addEventListener('pointercancel', () => { clearTimeout(holdTimer); drag = null; clearDrag(); render(); });
+
+function dockMenuAct(a) {
+  const d = L.docks.find(x => x.id === dockMenuFor); if (!d) return;
+  if (a === 'less') d.lines = Math.max(1, d.lines - 1);
+  else if (a === 'more') d.lines = Math.min(4, d.lines + 1);
+  else if (a === 'names') d.labels = !d.labels;
+  else if (a === 'turn') d.vertical = !d.vertical;
+  else if (a === 'rename') { const n = prompt('Dock name', d.name); if (n) d.name = n.slice(0, 24); }
+  else if (a === 'delete') {
+    // Locked buttons never disappear with their dock: they move to the first other dock.
+    const keep = (d.pages ? d.pages.flatMap(p => p.buttons) : d.buttons).filter(b => b.kind === 'cmd' && LOCKED.includes(b.id));
+    L.docks = L.docks.filter(x => x !== d);
+    if (!L.docks.length) L.docks.push({ id: 'top', name: 'Top', edge: 'top', t: 0.5, lines: 1, buttons: [] });
+    keep.forEach(b => addToDock(L.docks[0], b));
+    dockMenuFor = null; toast(`${d.name} deleted.${keep.length ? ' Menu and Search moved to ' + L.docks[0].name + '.' : ''}`);
+  }
+}
+function winMenuAct(a) {
+  const w = findWin(winMenuFor); winMenuFor = null; if (!w) return;
+  if (a === 'add') {
+    const dock = cardsDock();
+    const b = w.tabs.length > 1 ? { kind: 'group', id: 'g' + groupCount, name: 'Group ' + groupCount++, icon: 'look', cards: [...w.tabs] } : card(w.tabs[0]);
+    addToDock(dock, b); w.pinned = true; toast(`${btnName(b)} added to ${dock.name}.`);
+  } else if (a === 'snap-left' || a === 'snap-right') { snapWindow(w, a.slice(5)); }
+  else if (a === 'float') { w.snap = null; w.x = W / 2 - 150; w.y = 160; w.h = 300; w.pinned = true; }
+  else if (a === 'help') toast('Card help: what this card does, as today.');
+  else dropWin(w);
+}
+
+// Side panel.
+let side = 'proposal';
+document.getElementById('sideTabs').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  side = b.dataset.p;
+  document.querySelectorAll('#sideTabs button').forEach(x => x.setAttribute('aria-pressed', x === b));
+  document.querySelectorAll('[data-panel]').forEach(x => x.hidden = x.dataset.panel !== side);
+});
+
+const TERMS = [
+  ['Dock', 'The one container of buttons. Any edge or floating, rows or columns, names on or off, pages or not.', 'rail, shelf, tools strip, bars, islands, Dock 1-4'],
+  ['Button', 'A shortcut on a dock: a tool, a card, a group, a command or a space. The same thing can have buttons on several docks.', 'slot, bar item'],
+  ['Card', 'One piece of content: Brush, Layers, Lights. Never knows where it is shown.', 'panel, palette, section, Kit_Window'],
+  ['Window', 'The one frame for cards: bar with grip, title, minimise, pin, ⋯, close; tabs when it holds several.', 'popover, stack, column, float'],
+  ['Group', 'A saved window: a button that opens several cards as tabs.', 'rail group, stack group'],
+  ['Pop out', 'A tap on a card button opens its window beside the dock, until you tap elsewhere.', 'popover'],
+  ['Pin', 'Keeps a floating window open when you tap elsewhere.', 'float'],
+  ['Snap', 'A window on a screen side, full height beside the dock; snapped windows stack.', 'docked column, Stack_Place'],
+  ['Minimise', 'Folds a window to its bar, where it stands, floating or snapped; the arrow or its button unfolds it.', 'fold (today\'s)'],
+  ['Guides', 'While dragging: the middle square joins a window, the squares above and below stack, the screen-side squares snap.', 'none'],
+  ['Stack', 'Floating windows one under another, moved as one by the grip on top; scrolls when long.', 'panel stack, Lens_Stack'],
+  ['Edit mode', 'Hold a dock or tap Edit: docks wiggle, buttons and docks move, + adds, ⋯ sets.', 'Arrange mode, Customise sheet, Add panels'],
+  ['Page', 'A dock can hold pages of buttons; the names sit beside it.', 'shelf pages'],
+  ['Locked', 'Menu and Search: they move between docks but are never removed.', 'none'],
+  ['Space', 'Sculpt, Model, Render: each keeps its own docks and windows.', 'workspace'],
+];
+document.getElementById('terms').innerHTML = '<tr><td>Term</td><td>Meaning</td><td class="old">Replaces today</td></tr>' +
+  TERMS.map(([a, b, c]) => `<tr><td>${a}</td><td>${b}</td><td class="old">${c}</td></tr>`).join('');
+
+const RULES = [
+  'Three kinds of things on screen: Docks, Cards, Windows. Nothing else, ever.',
+  'A dock takes any button and goes on any edge or floats. Its look (rows, names, pages) is a setting, never a new kind.',
+  'A card is content only: it never draws its own frame and never knows which window shows it.',
+  'A window is the only frame, so every card looks and behaves the same everywhere.',
+  'A card is in at most one window. Buttons are shortcuts and may repeat.',
+  'Floating windows are temporary until pinned; snapped ones are placed.',
+  'Nothing but windows moves outside edit mode. Edit mode starts with a hold or the Edit command.',
+  'Menu and Search can never be removed; Reset this space is always in Settings.',
+  'Positions are snapped and stored as fractions of an edge or grid cells, never raw pixels; a dragged window or floating dock softly aligns to its neighbours.',
+  'Layout is data, one per space. Code never places a panel by hand.',
+];
+document.getElementById('rules').innerHTML = RULES.map(r => `<li>${r}</li>`).join('');
+
+function renderSaved() {
+  const out = [];
+  for (const [name, lay] of Object.entries(S.layouts)) {
+    out.push(`space ${name}${name === S.space ? '   (shown)' : ''}`);
+    for (const d of lay.docks) {
+      const where = d.edge === 'float' ? `float ${Math.round(d.x / GRID)} ${Math.round(d.y / GRID)}${d.vertical ? ' upright' : ''}` : `${d.edge} ${d.t.toFixed(2)}`;
+      out.push(`  dock "${d.name}" ${where} ${isVertical(d) ? 'columns' : 'rows'} ${d.lines}${d.labels ? ' names' : ''}`);
+      for (const pg of d.pages || [{ buttons: d.buttons }]) {
+        if (pg.name) out.push(`    page ${pg.name}`);
+        for (const b of pg.buttons) out.push((pg.name ? '  ' : '') + (b.kind === 'sep' ? '    separator' : `    button ${b.kind} ${b.kind === 'group' ? '"' + b.name + '" ' + b.cards.join(',') : b.id}`));
+      }
+    }
+    for (const st of lay.stacks || []) {
+      out.push(`  stack at ${(st.x / W).toFixed(2)} ${(st.y / H).toFixed(2)} width ${Math.round(st.w)}`);
+      for (const id of st.wins) { const w = lay.windows.find(x => x.id === id); if (w) out.push(`    window height ${Math.round(w.h)}${w.min ? ' min' : ''} tabs ${w.tabs.join(',')} on ${w.active}`); }
+    }
+    for (const w of lay.windows.filter(w => (w.pinned || w.snap) && !w.stack)) {
+      const where = w.snap ? `snap ${w.snap}` : `at ${(w.x / W).toFixed(2)} ${(w.y / H).toFixed(2)} size ${Math.round(w.w)} ${Math.round(w.h)}`;
+      out.push(`  window ${where}${w.min ? ' min' : ''} tabs ${w.tabs.join(',')} on ${w.active}`);
+    }
+  }
+  document.getElementById('saved').textContent = out.join('\n');
+}
+
+document.getElementById('reset').onclick = () => { start(); render(); toast('Back to the start.'); };
+fit(); render();
+</script>

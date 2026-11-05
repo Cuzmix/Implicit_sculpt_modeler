@@ -1,0 +1,370 @@
+<title>Uniform Study</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column of ranked feature rows; each row = what Uniform does | what we have | what we build; two live mocks inline. */
+:root{
+  --bg:#eef1f0; --panel:#ffffff; --ink:#15201d; --mute:#5b6a66; --line:#d5dcda;
+  --accent:#0f7d6c; --accent-soft:#d4ece7; --warn:#a35a00; --warn-soft:#fbead2; --have:#3b5b9a; --have-soft:#dfe6f5;
+  --display:"Schibsted Grotesk",system-ui,sans-serif; --body:"Schibsted Grotesk",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1413; --panel:#171e1c; --ink:#e3ebe8; --mute:#93a39f; --line:#2a3532;
+  --accent:#4fd1b5; --accent-soft:#163a33; --warn:#f0b35a; --warn-soft:#3a2b14; --have:#9db5ec; --have-soft:#1e2a44; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1413; --panel:#171e1c; --ink:#e3ebe8; --mute:#93a39f; --line:#2a3532;
+  --accent:#4fd1b5; --accent-soft:#163a33; --warn:#f0b35a; --warn-soft:#3a2b14; --have:#9db5ec; --have-soft:#1e2a44; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55}
+.wrap{max-width:980px;margin:0 auto;padding-block:28px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:28px}
+h1{font-family:var(--display);font-weight:800;font-size:clamp(28px,5vw,42px);line-height:1.1;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h2{font-family:var(--display);font-size:22px;margin:0;text-wrap:balance}
+h3{font-size:17px;margin:0;text-wrap:balance}
+p{margin:0;max-width:68ch}
+.lede{color:var(--mute);font-size:16px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+.pick{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.pick .box{display:flex;flex-direction:column;gap:6px}
+.pick b{font-size:15px}
+.pick small{color:var(--mute)}
+.tier{display:flex;flex-direction:column;gap:14px}
+.tierhead{display:flex;flex-direction:column;gap:4px;border-bottom:1px solid var(--line);padding-bottom:8px}
+.row{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.rowhead{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.rank{font-family:var(--mono);font-weight:600;color:var(--accent);font-size:14px;min-width:2.2em}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+.chip{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+.chip.cost{background:var(--warn-soft);color:var(--warn)}
+.chip.have{background:var(--have-soft);color:var(--have)}
+.cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+@media (max-width:760px){.cols{grid-template-columns:1fr}}
+.cols>div{min-width:0;display:flex;flex-direction:column;gap:4px}
+.lab{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+.cols p{font-size:14px}
+.wow{font-size:14px;border-left:3px solid var(--accent);padding-left:10px}
+.src{font-size:13px;color:var(--mute)}
+a{color:var(--accent)}
+.mock{display:grid;grid-template-columns:auto minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:640px){.mock{grid-template-columns:1fr}}
+.pad{position:relative;width:200px;height:200px;border-radius:8px;background:linear-gradient(135deg,var(--accent-soft),var(--have-soft));border:1px solid var(--line);touch-action:none;cursor:crosshair;max-width:100%}
+.pad .dot{position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);box-shadow:0 1px 4px rgba(0,0,0,.3);pointer-events:none}
+.pad span{position:absolute;font-family:var(--mono);font-size:10px;color:var(--mute)}
+.mockpair{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
+canvas{max-width:100%;border-radius:8px;border:1px solid var(--line);background:var(--bg)}
+.ctl{display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px}
+.ctl select,.ctl input{font:inherit;font-size:13px}
+.ctl label{display:flex;gap:6px;align-items:center}
+.readout{font-family:var(--mono);font-size:12px;color:var(--mute)}
+table{border-collapse:collapse;font-size:13.5px;width:100%}
+.tw{overflow-x:auto}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);font-weight:400}
+ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px;max-width:70ch}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+svg text{fill:var(--mute);font-family:var(--mono);font-size:10px}
+.quote{font-size:14px;color:var(--mute);border-left:3px solid var(--line);padding-left:10px;max-width:68ch}
+.verdict{background:var(--accent-soft);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.verdict b{color:var(--accent)}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+@media (max-width:700px){.two{grid-template-columns:1fr}}
+.two>div{min-width:0;display:flex;flex-direction:column;gap:6px}
+.swap td:first-child{white-space:nowrap}
+</style>
+
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:10px">
+  <div class="eyebrow">Study · round 2 · 2 Nov 2026</div>
+  <h1>What Uniform teaches us</h1>
+  <p class="lede">Round 1 listed Uniform features to copy. Bolt asked for something better: learn how Uniform found ideas Nomad doesn't have, find our own, check whether brush modulators matter in real work, and feel free to rewrite, replace or remove features. This round answers those questions, using what artists actually say about Uniform, Procreate, Krita, Photoshop and ZBrush brush packs.</p>
+</header>
+
+<section class="box" style="display:flex;flex-direction:column;gap:12px">
+  <h2>The short answer</h2>
+  <ul>
+    <li><b>Uniform's new ideas all come from one move:</b> a small set of tools that work on every kind of data, plus switches that change every tool at once. That is where its features no other app has come from.</li>
+    <li><b>The same move is why artists bounce off it.</b> The Nomad forum thread at launch is mostly "daunting", "no idea where to start" and one refund. Its App Store rating is 3.4 from 25 reviews.</li>
+    <li><b>Brush modulators pay off in real work only as presets.</b> Painters keep pressure on size and opacity and rarely touch the rest. In sculpting, the demand is for repeated detail (stitches, chains, scales), and today people buy that as brush packs. Uniform's own examples are rainbows and dashes.</li>
+    <li><b>So we copy the composition and hide the wiring.</b> Our original ideas are listed below: strokes you can re-tune afterwards, brushes that read the sculpt, a look that follows the tool, and one Physics switch. Each replaces something we have now, so the app gets simpler as well as stronger.</li>
+  </ul>
+</section>
+
+<section class="tier">
+  <div class="tierhead"><span class="eyebrow">Part 1</span><h2>How Uniform got ideas Nomad doesn't have</h2></div>
+  <div class="two">
+    <div class="box"><h3>One tool, every kind of data</h3><p>The same Move edits a sculpt, a curve, a low-poly cage, UVs and lights. One paint stroke crosses a high-poly sculpt and a UV-mapped low-poly model. Pablo Dobarro said at the reveal that it has "no sculpting mode", only displacement brushes and deformers that work everywhere.</p></div>
+    <div class="box"><h3>Switches that change every tool</h3><p>Its overrides add a behaviour to all tools at once: snap to the sculpt (retopology), physics, pixel snapping, stencils. Retopology, cloth and pixel art come from those switches rather than separate features, because the base tools already work on the data.</p></div>
+    <div class="box"><h3>Everything stays live</h3><p>Primitives, SDF volumes and curves keep their handles until you apply them. Painted displacement shows on a low-poly model as you paint ("no baking, no high poly meshes"). Instances update across scenes.</p></div>
+    <div class="box"><h3>One control for the whole look</h3><p>The Surface View chart replaces the shading menu with one square. Of all its features, this is the one press coverage singled out as new.</p></div>
+  </div>
+  <div class="box" style="display:flex;flex-direction:column;gap:8px">
+    <h3>What artists said</h3>
+    <p class="quote">"daunting" with "no documentation", from a beta tester · "not made for artists", from someone who asked for a refund after a few hours · "basic functions hidden under numerous tabs" · and from the same thread, praise for low-poly modelling, texture painting, displacement on low-poly models and several views of one model, all things Nomad lacks.</p>
+    <p class="src">Nomad forum, "Uniform 1.0 is now available" (May 2024); App Store listing; CG Channel's Uniform 1.0 review.</p>
+    <p><b>Lesson for us:</b> composition is the engine, and showing it to people is the problem. We keep tools that work on everything, switches that change every tool, and live objects. We drop the module editor, the gallery search as the main way in, and names like M0/M1, "Delta Deformer" and "Surface Process".</p>
+  </div>
+</section>
+
+<section class="tier" id="modulators">
+  <div class="tierhead"><span class="eyebrow">Part 2</span><h2>Do brush modulators pay off in real work?</h2></div>
+  <div class="two">
+    <div class="box" style="display:flex;flex-direction:column;gap:8px">
+      <h3>What the evidence says</h3>
+      <ul>
+        <li><b>Painters mostly use pressure.</b> Photoshop's usual setup is size and opacity on pen pressure; angle and roundness jitter are usually left at zero.</li>
+        <li><b>Variation lives in presets.</b> In Procreate, colour jitter and dynamics are mostly set by brush makers, and one artist on r/ProCreate says the heavy hitters stick with simple brushes. That is one opinion, not a survey.</li>
+        <li><b>Full sensor editors hit a ceiling.</b> Krita has drawing angle, distance, fade, speed and time sensors, each with a curve. Its forum asks for node graphs, and its bug tracker calls angle smoothing "a rework of our brush engine".</li>
+        <li><b>Sculptors buy repeated detail.</b> One ZBrush stitch pack sells 100 curve brushes, 100 one-at-a-time brushes and 100 alphas, because spacing, alternation and placement are hard to set up by hand.</li>
+        <li><b>Uniform's own examples are toys</b>: a dashed stroke and a rainbow, both on the paint brush.</li>
+      </ul>
+    </div>
+    <div class="verdict">
+      <b>Verdict</b>
+      <p>Worth building, but as an engine under named presets, not as a panel people have to wire. The value for a sculptor sits in three places:</p>
+      <ul>
+        <li><b>Rhythm:</b> stitches, chain links, rivets and scales, where every dab alternates, repeats or varies in a set pattern.</li>
+        <li><b>Variation:</b> size, turn and depth jitter so stamped pores, rocks and bark don't look tiled. We already have Spray and Random turn.</li>
+        <li><b>Reading the surface (our own idea):</b> strength or colour driven by cavity, curvature, facing or height, so wear, flush and grime land where they belong as you stroke.</li>
+      </ul>
+      <p>One <b>Variation</b> slider on every brush, with presets for the rest, and the full modulator list kept under More for people who make brushes.</p>
+    </div>
+  </div>
+  <div class="row">
+    <div class="rowhead"><h3>Try the presets</h3><span class="chips"><span class="chip">live mock</span></span></div>
+    <div class="mockpair">
+      <canvas id="strip" width="560" height="130" style="width:560px;height:130px"></canvas>
+      <div class="ctl" style="flex-direction:column;align-items:flex-start;gap:8px">
+        <label for="mPre">Preset <select id="mPre">
+          <option value="stitch">Stitches: alternate turn, gaps</option>
+          <option value="chain">Chain: alternate 90°</option>
+          <option value="scales">Scales: size and turn jitter</option>
+          <option value="taper">Speed taper: thin when fast</option>
+          <option value="dash">Uniform's dashes</option>
+          <option value="rainbow">Uniform's rainbow</option>
+        </select></label>
+        <label for="mPer">Spacing <input id="mPer" type="range" min="8" max="40" value="18"></label>
+        <label for="mVar">Variation <input id="mVar" type="range" min="0" max="100" value="40"></label>
+      </div>
+    </div>
+    <p class="src">Every preset here is the same engine: inputs (pressure, tilt, speed, distance, dab number, seeded random, and on the model the cavity, curvature, facing and height) mapped to outputs (size, strength, turn, which alpha, colour, spacing). The random numbers come from the stroke's seed as Spray's already do, so History replay stays exact.</p>
+  </div>
+</section>
+
+<section class="tier">
+  <div class="tierhead"><span class="eyebrow">Part 3</span><h2>Our own ideas, ranked</h2></div>
+
+  <article class="row">
+    <div class="rowhead"><span class="rank">1</span><h3>Live strokes: re-tune a stroke after you made it</h3>
+      <div class="chips"><span class="chip">nobody has this</span><span class="chip cost">L · design first</span></div></div>
+    <div class="cols">
+      <div><span class="lab">Idea</span><p>Pick any stroke on the History timeline, change its size, strength, brush or modulators, and the app replays it and every stroke after it. Fix the one Clay pass that was too strong an hour ago without redoing the rest.</p></div>
+      <div><span class="lab">Why we can</span><p>Our stroke replay is already bit-identical and seeded, and History already scrubs. Nomad 2.9 can only edit the last stroke; ZBrush and Blender can't edit one at all.</p></div>
+      <div><span class="lab">Cost and risk</span><p>Replay time grows with the strokes after the edit, so it needs checkpoints every N strokes and a background replay with a progress bar. It changes History, so it needs a design and an architect review before any code.</p></div>
+    </div>
+  </article>
+
+  <article class="row">
+    <div class="rowhead"><span class="rank">2</span><h3>Brushes that read the sculpt</h3>
+      <div class="chips"><span class="chip">wow</span><span class="chip cost">M</span></div></div>
+    <div class="cols">
+      <div><span class="lab">Idea</span><p>The modulator engine above, with surface inputs. Paint with "flush on ridges" and the colour reddens only on crests. Clay with "fill cavities" builds only in dents. Stamp pores that grow shallower toward flat areas.</p></div>
+      <div><span class="lab">Compared</span><p>ZBrush has cavity masking for a whole brush and Substance has smart masks for layers, but neither changes a dab as you stroke. Uniform's modulators read only the pen and the distance.</p></div>
+      <div><span class="lab">Replaces</span><p>Colour spray, Spray's scatter, Random turn and the two pressure curves become built-in modulators with the same behaviour and their old settings carried over. That's four controls folded into one system.</p></div>
+    </div>
+  </article>
+
+  <article class="row" id="lookpad">
+    <div class="rowhead"><span class="rank">3</span><h3>A look that follows the tool</h3>
+      <div class="chips"><span class="chip">wow</span><span class="chip cost">S–M</span></div></div>
+    <div class="cols">
+      <div><span class="lab">Idea</span><p>The Look pad (try it below), plus a remembered spot per kind of tool. Pick Paint and the view slides toward colour; pick Clay and it slides back to shape; open Lights and it rises to lit. One drag sets each spot.</p></div>
+      <div><span class="lab">Compared</span><p>Uniform's chart is manual. Nomad, ZBrush and Blender switch shading by menu. None of them move the look for you.</p></div>
+      <div><span class="lab">Replaces</span><p>The shading list with MatCap, Flat, Material Preview and Rendered. They become the pad's four corners, so nothing is lost. The mask draws as an outline once colour is on.</p></div>
+    </div>
+    <div class="mock">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div class="pad" id="padEl" role="slider" tabindex="0" aria-label="Look pad: drag to blend shape, colour and light">
+          <span style="left:6px;bottom:4px">shape</span><span style="right:6px;bottom:4px">unlit</span>
+          <span style="left:6px;top:4px">lights only</span><span style="right:6px;top:4px">full</span>
+          <div class="dot" id="padDot"></div>
+        </div>
+        <div class="ctl"><button id="tSculpt" type="button">Clay brush</button><button id="tPaint" type="button">Paint brush</button><button id="tLight" type="button">Lights</button></div>
+        <span class="readout" id="padRead"></span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;min-width:0">
+        <canvas id="ball" width="220" height="220" style="width:220px;height:220px"></canvas>
+        <p class="src">Drag the dot, or pick a tool and watch the look move to that tool's spot. The masked cap goes dark in shape looks and becomes a dotted outline once colour is on.</p>
+      </div>
+    </div>
+  </article>
+
+  <article class="row">
+    <div class="rowhead"><span class="rank">4</span><h3>One Physics switch for every move</h3>
+      <div class="chips"><span class="chip">wow</span><span class="chip cost">M</span></div></div>
+    <div class="cols">
+      <div><span class="lab">Idea</span><p>A Physics switch that works on Grab, the gizmo, Pose, curves and Pin. The part you move drags the rest along as cloth, with gravity and a floor. On a curve, it becomes a rope that collides with itself, so you can tie knots, and the result is written back to live curve points.</p></div>
+      <div><span class="lab">Compared</span><p>This is Uniform's simulation switch with our solver. Blender needs a whole simulation setup. ZBrush Dynamics is a separate mode. Nomad has nothing like it.</p></div>
+      <div><span class="lab">Replaces</span><p>The Cloth brush's Drag and Gravity modes. The Cloth brush becomes a preset, Grab with Physics on, and Pinch and Expand stay as its options.</p></div>
+    </div>
+  </article>
+
+  <article class="row">
+    <div class="rowhead"><span class="rank">5</span><h3>A row of switches that change every tool</h3>
+      <div class="chips"><span class="chip cost">M</span></div></div>
+    <div class="cols">
+      <div><span class="lab">Idea</span><p>Uniform's overrides, made visible: a row of chips in the context bar for Physics, Snap to sculpt, Stencil and Symmetry. Each lights up while it's on, and three saved sets swap between jobs such as retopo, cloth and print.</p></div>
+      <div><span class="lab">Fixes Uniform's flaw</span><p>In Uniform you load overrides from a gallery search and clear them by hand, so people forget they're on. Here they are always on screen.</p></div>
+      <div><span class="lab">Replaces</span><p>Per-tool copies of the same switch, such as the Model tools' own snapping and Front faces only, which is buried in Brush Options.</p></div>
+    </div>
+  </article>
+
+  <article class="row">
+    <div class="rowhead"><span class="rank">6</span><h3>Live bake: sculpt detail shows on the game model as you work</h3>
+      <div class="chips"><span class="chip">game artists</span><span class="chip cost">L</span></div></div>
+    <div class="cols">
+      <div><span class="lab">Idea</span><p>Pair a quad model with the sculpt it came from. As you sculpt, a background job re-bakes only the texels of the parts you changed, and the low-poly model in the second view shows the new normal map within a moment.</p></div>
+      <div><span class="lab">Compared</span><p>Uniform paints displacement onto the low-poly model directly. Ours keeps the full sculpt and still skips the bake step. Substance and Marmoset bake on demand only.</p></div>
+      <div><span class="lab">Builds on</span><p>Quad Remesh, our bake and dirty-node tracking. The Surface plan's texel tiles make the partial re-bake possible.</p></div>
+    </div>
+  </article>
+
+  <article class="row">
+    <div class="rowhead"><span class="rank">7</span><h3>Linked by default</h3>
+      <div class="chips"><span class="chip">perf</span><span class="chip cost">M</span></div></div>
+    <div class="cols">
+      <div><span class="lab">Idea</span><p>Insert and Duplicate make linked copies, one mesh with many placings drawn with GPU instancing, and Make unique breaks the link. Colours work the same way: linked swatches, and Colourways A, B and C to flip a whole palette.</p></div>
+      <div><span class="lab">Compared</span><p>Uniform needs separate scenes for instances. Blender links with Alt+D, which people often don't know about. Nomad has instances, but not linked colours.</p></div>
+      <div><span class="lab">Replaces</span><p>Copies as the default for Insert. A thousand rivets cost the same to draw as one.</p></div>
+    </div>
+  </article>
+
+  <article class="row">
+    <div class="rowhead"><span class="rank">8</span><h3>Live SDF shapes</h3>
+      <div class="chips"><span class="chip">biggest wow</span><span class="chip cost">L · design first</span></div></div>
+    <div class="cols">
+      <div><span class="lab">Idea</span><p>Shapes that stay live inside one voxel object, in the order they're listed. Each joins, cuts, intersects or only paints, with a blend radius. Drag a handle and the voxels update.</p></div>
+      <div><span class="lab">Better than Uniform</span><p>Uniform ray marches every pixel and warns that it's slow when a shape fills the screen. We evaluate into our brick band, so the frame cost stays a mesh's.</p></div>
+      <div><span class="lab">Replaces</span><p>One-shot voxel booleans become one live list, and the boolean preview code merges into it.</p></div>
+    </div>
+  </article>
+</section>
+
+<section class="tier">
+  <div class="tierhead"><span class="eyebrow">Part 4</span><h2>What to rewrite, replace or remove</h2></div>
+  <div class="box tw">
+    <table class="swap">
+      <thead><tr><th>Today</th><th>Becomes</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Colour spray, Spray scatter, Random turn, two pressure curves</td><td>Modulators with presets and one Variation slider</td><td>Four controls become one system, and old settings carry over.</td></tr>
+        <tr><td>Shading list (MatCap, Flat, Material, Rendered)</td><td>Look pad with each tool's remembered spot</td><td>One control instead of a list, and the four looks stay as its corners.</td></tr>
+        <tr><td>Cloth brush modes Drag and Gravity</td><td>Physics switch on every move</td><td>The same solver reaches Grab, the gizmo, Pose and curves.</td></tr>
+        <tr><td>Snapping and Front faces scattered per tool</td><td>Tool switches row in the context bar</td><td>One place that is always visible.</td></tr>
+        <tr><td>Insert and Duplicate make full copies</td><td>Linked copies, with Make unique</td><td>Speed and memory, and edit one to edit all.</td></tr>
+        <tr><td>One-shot voxel booleans and their preview</td><td>Live SDF list</td><td>One system instead of two, and it stays editable.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="src">Kept from round 1 as smaller jobs: Solo and Mute and power in stops for lights (fold into the waiting lights PRs), print bed outline and Measure, stencils, hair clumps, contour retopo, and the pixel-art preset in the Surface plan.</p>
+</section>
+
+<section class="tier">
+  <div class="tierhead"><span class="eyebrow">Order</span><h2>How I would build it</h2></div>
+  <ul>
+    <li><b>A. Modulator engine with presets and surface inputs</b>, which replaces the four controls. It's medium-sized and doesn't touch the file format beyond adding fields at the end of a brush. <b>Then the Look pad with each tool's spot.</b></li>
+    <li><b>B. Physics switch</b> on Grab, the gizmo and Pin, then rope curves, then the tool switches row.</li>
+    <li><b>C. Live strokes</b>, design and architect review first, because it touches History.</li>
+    <li><b>D. Linked copies, live bake, live SDF shapes</b>, each with its own design.</li>
+  </ul>
+  <p class="src">Sources: <a href="https://forum.nomadsculpt.com/t/uniform-1-0-is-now-available/15754" target="_blank" rel="noopener">Nomad forum on Uniform 1.0</a> · <a href="https://www.cgchannel.com/2024/05/uniform-is-an-intriguing-ipad-modeling-and-painting-app" target="_blank" rel="noopener">CG Channel review</a> · <a href="https://www.cgchannel.com/2023/11/sparseal-unveils-uniform/" target="_blank" rel="noopener">CG Channel reveal</a> · <a href="https://sparseal.com/uniform/" target="_blank" rel="noopener">Uniform site</a> and its 16 tutorials · <a href="https://apps.apple.com/app/id6472727759" target="_blank" rel="noopener">App Store listing</a> · <a href="https://help.procreate.com/procreate/handbook/brushes/brush-studio" target="_blank" rel="noopener">Procreate Brush Studio</a> · <a href="https://docs.krita.org/Parameters" target="_blank" rel="noopener">Krita sensors</a> and <a href="https://krita-artists.org/t/idea-new-brush-engine-sensors/37788" target="_blank" rel="noopener">forum</a> · <a href="https://www.photoshopessentials.com/?p=681" target="_blank" rel="noopener">Photoshop shape dynamics</a> · <a href="https://flippednormals.com/product/sewing-maker-360-zbrush-brushes-and-100-alphas-27402" target="_blank" rel="noopener">ZBrush stitch pack</a> · <a href="https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/painting/paint-tools/paint-brush" target="_blank" rel="noopener">Substance Painter jitter</a>. Our side comes from the README at commit 46f6c39. <a href="#round1">Round 1's list</a> is kept below for reference.</p>
+</section>
+
+<details class="box" id="round1">
+  <summary><b>Round 1 (1 Nov): the feature-by-feature comparison</b></summary>
+  <div class="tw" style="margin-top:10px">
+  <table>
+    <thead><tr><th>Uniform feature</th><th>We have</th><th>Gap</th></tr></thead>
+    <tbody>
+      <tr><td>Surface View chart</td><td>Four fixed looks with a dissolve</td><td>Continuous pad</td></tr>
+      <tr><td>Brush Overlays</td><td>Pressure, Spray, Colour spray, Random turn</td><td>General modulators</td></tr>
+      <tr><td>Light mixer</td><td>Lights, markers, handles, kelvin, size</td><td>Solo and Mute, power in stops, drag out a light</td></tr>
+      <tr><td>Print prep</td><td>Watertight, thin wall and bed checks, 3MF</td><td>Bed in the view, Measure</td></tr>
+      <tr><td>Simulation override, Pin</td><td>Cloth brush</td><td>Physics on the gizmo and Grab, floor</td></tr>
+      <tr><td>Rope simulation</td><td>Live curves, Tube</td><td>Rope with self-collision</td></tr>
+      <tr><td>Projection stencils</td><td>Brush alphas</td><td>Screen stencil</td></tr>
+      <tr><td>GeoCurve hair</td><td>Tube, 5 profiles, radius per point</td><td>Strands, clumps, brushes on curves</td></tr>
+      <tr><td>Scene instances</td><td>Copies, Insert</td><td>Linked copies</td></tr>
+      <tr><td>References</td><td>Palettes, materials</td><td>Linked swatches</td></tr>
+      <tr><td>SolidVolume SDF</td><td>Voxel clay, blended booleans</td><td>Live shapes</td></tr>
+      <tr><td>Canvas/colour layers</td><td>Sculpt layers only</td><td>Colour layers (Surface plan S3)</td></tr>
+      <tr><td>Pixel art</td><td>Planned Surface space</td><td>Pixel snap, pixel pencil, shared textures</td></tr>
+      <tr><td>Retopology override, contours</td><td>Topo pen, Quad Remesh</td><td>Snap to sculpt, contour strips</td></tr>
+    </tbody>
+  </table>
+  </div>
+</details>
+</div>
+
+<script>
+(function(){
+  var pad=document.getElementById('padEl'),dot=document.getElementById('padDot'),read=document.getElementById('padRead');
+  var cv=document.getElementById('ball'),g=cv.getContext('2d'),W=cv.width,H=cv.height;
+  var px=0.08,py=0.1,anim=null;
+  function sm(a,b,x){x=Math.min(1,Math.max(0,(x-a)/(b-a)));return x*x*(3-2*x)}
+  function bgc(){var c=getComputedStyle(document.body).backgroundColor.match(/\d+/g)||[238,241,240];return c.map(Number)}
+  function draw(){
+    var img=g.createImageData(W,H),d=img.data,c=sm(0,0.5,px),s=1-sm(0.5,1,px),e=py,bg=bgc();
+    for(var y=0;y<H;y++)for(var x=0;x<W;x++){
+      var i=(y*W+x)*4,nx=(x-W/2)/(W*0.44),ny=(y-H/2)/(H*0.44),r2=nx*nx+ny*ny;
+      if(r2>1){d[i]=bg[0];d[i+1]=bg[1];d[i+2]=bg[2];d[i+3]=255;continue}
+      var nz=Math.sqrt(1-r2),bump=0.12*Math.sin(nx*14)*Math.sin(ny*12),mx=nx+bump*0.5;
+      var key=Math.max(0,-0.5*mx-0.55*ny+0.67*nz),rim=Math.pow(1-nz,3)*0.6,shape=Math.min(1,0.12+0.95*key+rim);
+      var band=Math.floor((ny+1)*3.5)%3,alb=band==0?[0.85,0.42,0.33]:band==1?[0.93,0.82,0.6]:[0.35,0.55,0.75];
+      var grey=[0.78,0.78,0.8],out=[0,0,0];
+      var warm=Math.max(0,0.6*mx-0.5*ny+0.62*nz),cool=Math.max(0,-0.8*mx+0.2*ny+0.55*nz);
+      for(var k=0;k<3;k++){var b=grey[k]*(1-c)+alb[k]*c,low=b*(s*shape+(1-s)),lc=[1,0.85,0.7][k]*warm*1.1+[0.45,0.6,0.9][k]*cool*0.5;out[k]=low*(1-e)+b*lc*e}
+      if(ny<-0.55){ if(px<0.5){out=out.map(function(v){return v*0.45})} else if(Math.abs(ny+0.55)<0.025&&Math.floor(x/5)%2==0){out=[0.08,0.08,0.08]} }
+      d[i]=Math.min(255,out[0]*255);d[i+1]=Math.min(255,out[1]*255);d[i+2]=Math.min(255,out[2]*255);d[i+3]=255;
+    }
+    g.putImageData(img,0,0);
+    dot.style.left=(px*100)+'%';dot.style.top=((1-py)*100)+'%';
+    read.textContent='colour '+Math.round(c*100)+'% · shape '+Math.round(s*100)+'% · lights '+Math.round(e*100)+'%';
+  }
+  function set(ev){var r=pad.getBoundingClientRect();px=Math.min(1,Math.max(0,(ev.clientX-r.left)/r.width));py=Math.min(1,Math.max(0,1-(ev.clientY-r.top)/r.height));draw()}
+  var down=false;
+  pad.addEventListener('pointerdown',function(e){down=true;if(anim)cancelAnimationFrame(anim);try{pad.setPointerCapture(e.pointerId)}catch(_){}set(e)});
+  pad.addEventListener('pointermove',function(e){if(down)set(e)});
+  pad.addEventListener('pointerup',function(){down=false});
+  pad.addEventListener('keydown',function(e){var k={ArrowLeft:[-.05,0],ArrowRight:[.05,0],ArrowUp:[0,.05],ArrowDown:[0,-.05]}[e.key];if(k){e.preventDefault();px=Math.min(1,Math.max(0,px+k[0]));py=Math.min(1,Math.max(0,py+k[1]));draw()}});
+  function glide(tx,ty){if(anim)cancelAnimationFrame(anim);var sx=px,sy=py,t0=performance.now(),reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+    function step(t){var u=reduce?1:Math.min(1,(t-t0)/350);u=1-Math.pow(1-u,3);px=sx+(tx-sx)*u;py=sy+(ty-sy)*u;draw();if(u<1)anim=requestAnimationFrame(step)}anim=requestAnimationFrame(step)}
+  document.getElementById('tSculpt').onclick=function(){glide(0.08,0.1)};
+  document.getElementById('tPaint').onclick=function(){glide(0.78,0.12)};
+  document.getElementById('tLight').onclick=function(){glide(0.6,0.95)};
+
+  var sc=document.getElementById('strip'),sg=sc.getContext('2d'),mPre=document.getElementById('mPre'),mPer=document.getElementById('mPer'),mVar=document.getElementById('mVar');
+  function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;var t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+  function ink(){return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#0f7d6c'}
+  function strip(){
+    var w=sc.width,h=sc.height,r=rng(11),sp=+mPer.value,v=+mVar.value/100,p=mPre.value,col=ink();
+    sg.clearRect(0,0,w,h);
+    // Path and its direction, sampled at the preset's spacing along its length.
+    var pts=[],len=0,prev=null;
+    for(var x=14;x<w-14;x+=1){var y=h/2+24*Math.sin(x/75);if(prev)len+=Math.hypot(x-prev[0],y-prev[1]);pts.push([x,y,len]);prev=[x,y]}
+    var n=0,next=0;
+    for(var i=1;i<pts.length;i++){
+      if(pts[i][2]<next)continue;
+      var a=Math.atan2(pts[i][1]-pts[i-1][1],pts[i][0]-pts[i-1][0]),X=pts[i][0],Y=pts[i][1],t=pts[i][2]/len;
+      sg.save();sg.translate(X,Y);sg.rotate(a);sg.strokeStyle=col;sg.fillStyle=col;sg.lineCap='round';
+      if(p=='stitch'){sg.lineWidth=3.5;sg.rotate((n%2?0.6:-0.6)*(0.4+v));sg.beginPath();sg.moveTo(-sp*0.32,0);sg.lineTo(sp*0.32,0);sg.stroke();next+=sp}
+      else if(p=='chain'){sg.lineWidth=3;sg.beginPath();if(n%2)sg.ellipse(0,0,sp*0.62,sp*0.16+2,0,0,6.283);else sg.ellipse(0,0,sp*0.62,sp*0.36,0,0,6.283);sg.stroke();next+=sp*0.95}
+      else if(p=='scales'){var s=sp*0.5*(1+(r()-0.5)*v*1.2);sg.rotate((r()-0.5)*v*1.4);sg.globalAlpha=0.85;sg.beginPath();sg.arc(0,0,s,Math.PI*0.15,Math.PI*0.85+Math.PI);sg.lineWidth=2.5;sg.stroke();sg.globalAlpha=1;next+=sp*0.55}
+      else if(p=='taper'){var speed=0.5+0.5*Math.sin(t*9),rad=Math.max(1,(sp*0.45)*(1-v*speed*0.9));sg.beginPath();sg.arc(0,0,rad,0,6.283);sg.fill();next+=2}
+      else if(p=='dash'){var on=Math.floor(pts[i][2]/(sp*2))%2==0;if(on){sg.beginPath();sg.arc(0,0,7,0,6.283);sg.fill()}next+=2}
+      else {sg.fillStyle='hsl('+((pts[i][2]/(sp*12)*360)%360)+',65%,52%)';sg.beginPath();sg.arc(0,0,8,0,6.283);sg.fill();next+=2}
+      sg.restore();n++;
+    }
+  }
+  [mPre,mPer,mVar].forEach(function(el){el.addEventListener('input',strip)});
+  draw();strip();
+  try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',function(){draw();strip()})}catch(_){}
+})();
+</script>

@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bézier Curves Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* The app's own Graphite theme, so the mock reads as the app; the page around it is a plain plan on the same chrome. */
+:root {
+  --frame: #111214;
+  --line: #26272c;
+  --pane: #1b1c20;
+  --raised: #24252b;
+  --fill: #2d2e35;
+  --text: #ededf0;
+  --text2: #a1a1aa;
+  --text3: #71717a;
+  --accent: #5b8cff;
+  --accent-soft: rgba(91,140,255,.16);
+  --curve: #66d9ff;
+  --handle: #f2a93b;
+  --ok: #2fc07a;
+  --warn: #f2a93b;
+  --clay: #c9a68a;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  color-scheme: dark;
+  /* Layout: a narrow reading column for the plan, the mock full width above it. */
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--frame); color: var(--text); font: 15px/1.55 var(--body); }
+a { color: var(--accent); }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 64px; display: grid; gap: 40px; }
+header h1 { font: 600 34px/1.15 var(--display); margin: 0 0 8px; text-wrap: balance; letter-spacing: -.01em; }
+header p { margin: 0; color: var(--text2); max-width: 72ch; }
+h2 { font: 600 22px/1.2 var(--display); margin: 0 0 12px; text-wrap: balance; }
+h3 { font: 600 15px/1.3 var(--body); margin: 0 0 6px; }
+.lede { max-width: 72ch; color: var(--text2); margin: 0 0 14px; }
+.tag { display: inline-block; font: 500 11px/1 var(--mono); padding: 4px 6px; border-radius: 4px; background: var(--fill); color: var(--text2); vertical-align: 2px; }
+.tag.new { background: rgba(47,192,122,.16); color: var(--ok); }
+.tag.have { background: var(--accent-soft); color: #9db8ff; }
+
+/* ---------- state switcher ---------- */
+.states { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.states button { font: 500 13px var(--body); color: var(--text2); background: var(--pane); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+.states button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+.states button:focus-visible, .mock button:focus-visible { outline: 2px solid var(--curve); outline-offset: 2px; }
+.caption { color: var(--text2); font-size: 13.5px; margin: 10px 0 0; max-width: 90ch; min-height: 3em; }
+
+/* ---------- the app mock ---------- */
+.mock { position: relative; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #16171a; aspect-ratio: 16 / 10; min-height: 520px; user-select: none; }
+.mock canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+.island { position: absolute; display: flex; gap: 2px; padding: 4px; background: rgba(27,28,32,.94); border: 1px solid rgba(255,255,255,.07); border-radius: 12px; }
+.island button { font: 500 12px var(--body); color: var(--text2); background: transparent; border: 0; border-radius: 8px; padding: 6px 10px; cursor: pointer; white-space: nowrap; }
+.island button.on { background: var(--accent); color: #fff; }
+.island button.soft { background: var(--fill); color: var(--text); }
+.top-l { top: 10px; left: 10px; }
+.top-c { top: 10px; left: 50%; transform: translateX(-50%); }
+.top-r { top: 10px; right: 10px; }
+.shelf { position: absolute; left: 10px; top: 60px; display: grid; gap: 6px; padding: 6px; background: rgba(27,28,32,.94); border: 1px solid rgba(255,255,255,.07); border-radius: 12px; }
+.tile { width: 64px; height: 60px; border-radius: 9px; background: var(--raised); border: 1px solid transparent; display: grid; place-items: center; gap: 0; padding: 6px 2px 4px; color: var(--text2); font: 500 10.5px/1.1 var(--body); cursor: pointer; }
+.tile svg { width: 26px; height: 26px; }
+.tile.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.tile.new::after { content: "new"; position: absolute; }
+.shelf .sep { height: 1px; background: var(--line); margin: 2px 4px; }
+
+.card { position: absolute; right: 10px; top: 60px; bottom: 74px; width: 268px; overflow: auto; background: rgba(27,28,32,.96); border: 1px solid rgba(255,255,255,.07); border-radius: 14px; padding: 12px; display: grid; align-content: start; gap: 12px; font-size: 12.5px; }
+.card .head { display: flex; align-items: center; justify-content: space-between; }
+.card .head b { font: 600 14px var(--body); }
+.card .head span { color: var(--text3); font-size: 11.5px; }
+.row { display: grid; gap: 6px; }
+.row > label, .row > .lbl { color: var(--text2); font-size: 11.5px; display: flex; justify-content: space-between; }
+.row > label em, .row > .lbl em { font-style: normal; font-family: var(--mono); color: var(--text); }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--fill); border-radius: 8px; padding: 2px; gap: 2px; }
+.seg button { font: 500 11.5px var(--body); color: var(--text2); background: transparent; border: 0; border-radius: 6px; padding: 5px 2px; cursor: pointer; }
+.seg button.on { background: var(--raised); color: var(--text); box-shadow: 0 0 0 1px rgba(255,255,255,.08); }
+input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; }
+.profiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.profiles button { aspect-ratio: 1.3; background: var(--raised); border: 1px solid transparent; border-radius: 8px; color: var(--text2); font: 500 10.5px var(--body); display: grid; place-items: center; padding: 4px; cursor: pointer; }
+.profiles button svg { width: 30px; height: 22px; }
+.profiles button.on { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+.graph { background: var(--frame); border-radius: 8px; border: 1px solid var(--line); }
+.switch { display: flex; justify-content: space-between; align-items: center; color: var(--text2); font-size: 12px; }
+.knob { width: 32px; height: 18px; border-radius: 9px; background: var(--fill); position: relative; cursor: pointer; border: 0; padding: 0; }
+.knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .15s; }
+.knob.on { background: var(--accent); }
+.knob.on::after { left: 16px; }
+.btnrow { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.btn { font: 500 12px var(--body); border-radius: 8px; padding: 8px; border: 0; background: var(--fill); color: var(--text); cursor: pointer; }
+.btn.primary { background: var(--accent); color: #fff; }
+.note { color: var(--text3); font-size: 11.5px; line-height: 1.45; margin: 0; }
+
+.context { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 4px; align-items: center; padding: 5px; background: rgba(27,28,32,.96); border: 1px solid rgba(255,255,255,.08); border-radius: 14px; max-width: calc(100% - 20px); overflow-x: auto; }
+.context button { font: 500 12px var(--body); color: var(--text2); background: transparent; border: 0; border-radius: 9px; padding: 8px 10px; cursor: pointer; white-space: nowrap; display: flex; gap: 6px; align-items: center; }
+.context button.on { background: var(--fill); color: var(--text); }
+.context button.done { background: var(--accent); color: #fff; }
+.context .div { width: 1px; height: 22px; background: var(--line); margin: 0 2px; }
+.context .grp { display: flex; background: var(--frame); border-radius: 10px; padding: 2px; }
+.context .grp button { padding: 6px 9px; }
+.hint { position: absolute; left: 50%; bottom: 74px; transform: translateX(-50%); font: 500 12px var(--body); color: var(--text); background: rgba(17,18,20,.8); border-radius: 8px; padding: 6px 10px; pointer-events: none; white-space: nowrap; }
+
+/* ---------- plan sections ---------- */
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.box { background: var(--pane); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.box p { margin: 0 0 8px; color: var(--text2); }
+.box p:last-child { margin-bottom: 0; }
+.box ul { margin: 0; padding-left: 18px; color: var(--text2); }
+.box li { margin: 3px 0; }
+.box li b { color: var(--text); font-weight: 500; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 820px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+th { font: 600 12px var(--body); color: var(--text2); background: var(--pane); text-transform: uppercase; letter-spacing: .04em; }
+td { color: var(--text2); }
+td:first-child { color: var(--text); font-weight: 500; white-space: nowrap; }
+td.ours { color: var(--text); background: rgba(91,140,255,.06); }
+tr:last-child td { border-bottom: 0; }
+ol.prs { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; counter-reset: pr; }
+ol.prs li { counter-increment: pr; display: grid; grid-template-columns: 44px 1fr; gap: 12px; background: var(--pane); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+ol.prs li::before { content: counter(pr); font: 600 22px/1 var(--display); color: var(--accent); }
+ol.prs li p { margin: 4px 0 0; color: var(--text2); }
+ol.prs li .meta { font: 400 12px var(--mono); color: var(--text3); margin-top: 6px; }
+.q { display: grid; gap: 10px; }
+.q div { background: var(--pane); border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 10px; padding: 12px 14px; }
+.q b { display: block; margin-bottom: 2px; }
+.q span { color: var(--text2); }
+@media (max-width: 860px) {
+  .card { display: none; }
+  .mock { aspect-ratio: auto; height: 560px; }
+}
+@media (prefers-reduced-motion: reduce) { .knob::after { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>Bézier curves: editable strokes, stamps, tubes and Model mode</h1>
+  <p><b>Round 2, after your review:</b> your four defaults are now decisions, and the plan adds Nomad 2.9's hold-to-edit strokes, stamps you can edit before validating, and curves in Model mode (states 6 to 8 in the mock). This is a plan for editable curves after Nomad's Tube, Lathe and editable strokes, ZBrush's curve brushes and Blender's curve objects. Today a Curve drag makes a tube, stitches or a zipper the moment you lift, and it can never be edited again. With this plan a curve stays a live object with control points, handles and per-point radius until you press Bake. Nothing is built yet; this page is for your review.</p>
+</header>
+
+<section aria-labelledby="mock-h">
+  <h2 id="mock-h">The mock</h2>
+  <p class="lede">Pick a state. In the viewport you can drag the blue control points, the orange handles and the white radius dots. Double-click a point to switch it between smooth and corner. The cards and bars use the app's own Graphite theme and the three-island top bar.</p>
+  <div class="states" role="group" aria-label="Mock state">
+    <button data-state="draw">1 Draw</button>
+    <button data-state="tube" aria-pressed="true">2 Tube, editing</button>
+    <button data-state="lathe">3 Lathe</button>
+    <button data-state="along">4 Along a curve</button>
+    <button data-state="brush">5 Brush path</button>
+    <button data-state="stroke">6 Hold to edit a stroke</button>
+    <button data-state="stamp">7 Edit a stamp</button>
+    <button data-state="model">8 Curve in Model mode</button>
+  </div>
+
+  <div class="mock" id="mock">
+    <canvas id="cv" aria-label="Viewport with an editable curve"></canvas>
+
+    <div class="island top-l"><button>☰ File</button><button>Scene</button></div>
+    <div class="island top-c" aria-label="Work spaces">
+      <button>Sculpt</button><button>Paint</button><button>Move</button><button class="on">Curve</button><button>Model</button><button>Render</button>
+    </div>
+    <div class="island top-r"><button>↶</button><button>↷</button><button>⚙</button></div>
+
+    <nav class="shelf" aria-label="Curve shelf page">
+      <button class="tile" data-tool="tube"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 20 C 8 4, 18 24, 23 6" stroke-width="5" stroke-linecap="round" opacity=".45"/><path d="M3 20 C 8 4, 18 24, 23 6"/></svg>Tube</button>
+      <button class="tile" data-tool="lathe"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 3v20" stroke-dasharray="2 2"/><path d="M13 4c5 0 4 6 7 9s-2 8-7 9"/><path d="M13 4c-5 0-4 6-7 9s2 8 7 9" opacity=".4"/></svg>Lathe</button>
+      <button class="tile" data-tool="along"><svg viewBox="0 0 26 26" fill="currentColor"><circle cx="5" cy="19" r="2.5"/><circle cx="10" cy="12" r="2.5"/><circle cx="16" cy="11" r="2.5"/><circle cx="21" cy="6" r="2.5"/></svg>Along</button>
+      <button class="tile" data-tool="brush"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 18c6-10 12 6 20-8"/><circle cx="3" cy="18" r="2" fill="currentColor"/><circle cx="23" cy="10" r="2" fill="currentColor"/></svg>Brush path</button>
+      <div class="sep"></div>
+      <button class="tile"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="4" width="12" height="12" rx="2"/><path d="M4 21h18"/></svg>Insert</button>
+      <button class="tile"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 16c4-6 8 2 10-2s6-6 10 0"/></svg>Smooth</button>
+    </nav>
+
+    <aside class="card" id="card" aria-live="polite"></aside>
+    <div class="hint" id="hint"></div>
+    <div class="context" id="context"></div>
+  </div>
+  <p class="caption" id="caption"></p>
+</section>
+
+<section aria-labelledby="what-h">
+  <h2 id="what-h">What will exist</h2>
+  <div class="grid2">
+    <div class="box">
+      <h3>One curve object, four uses <span class="tag new">new</span></h3>
+      <p>A curve is its own kind of object in the scene list, with a curve icon. It holds cubic Bézier control points, each with two handles, a radius, a twist and a smooth or corner type. What it makes is a setting you can change at any time: <b>Tube</b>, <b>Lathe</b>, <b>Along</b> (copies along it) or <b>Brush path</b>. The mesh it makes is rebuilt live while you edit, in a job off the frame.</p>
+    </div>
+    <div class="box">
+      <h3>Hold to edit a stroke <span class="tag new">new</span></h3>
+      <p>As in Nomad 2.9: end any stroke and keep the pen still for about half a second. The stroke is fitted to a few points and stays live. Radius and intensity are each One or Each, so a stroke can start faint, swell and fade out. Tap a point to make it square, tap the curve to add one, drag a point onto its neighbour to merge, and Smoothness sets how many points the fit keeps. Every edit re-runs the stroke from the surface as it was before it, so the result is exactly what a perfect hand would have drawn. Validate makes it one undo step on the active layer, so layer strength can fade it later. Works for sculpt brushes, paint and the mask.</p>
+    </div>
+    <div class="box">
+      <h3>Edit a stamp before it lands <span class="tag new">new</span></h3>
+      <p>After a Rectangle or Drag dot stamp, the stamp stays live: drag its middle to slide it over the surface, the dot on the notched ring to turn it (it clicks to every 15° and the long notch marks 0°), the corner to size it and the green dot for intensity. Pressing elsewhere validates it and starts the next, so a row of stamps stays quick.</p>
+    </div>
+    <div class="box">
+      <h3>Curves in Model mode <span class="tag new">new</span></h3>
+      <ul>
+        <li><b>Pipe</b>: a quad tube cage, with a ring at each control point, segments between points and creased corner points, ready for Catmull-Clark levels.</li>
+        <li><b>Lathe</b> as a quad cage, and <b>Loft</b> between two or more curves.</li>
+        <li><b>Spine, Extrude and Knife</b> can follow a curve instead of a drawn path, for clean hard-surface shapes.</li>
+        <li><b>Edge loop to curve</b>: pick a loop on a cage and get a curve from it, like ZBrush's Frame mesh.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Drawing and editing</h3>
+      <ul>
+        <li><b>Drag</b> to draw freehand. On lift the stroke is fitted to as few Bézier points as keep it within a tolerance, so you get 5 points, not 200.</li>
+        <li><b>Tap, tap, tap</b> places points one by one (Nomad's path). Drag while placing to pull out handles (Illustrator and Blender's pen).</li>
+        <li>Points stick to the <b>surface</b> with an offset, or to the <b>view plane</b> through the first hit, or to a grid axis.</li>
+        <li><b>Tap the curve</b> to add a point there; drag a point off the curve and back to delete it, or use the context bar.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Shape of a tube</h3>
+      <ul>
+        <li><b>Radius</b> One, Ends or Each, as Nomad cycles it, plus a taper graph along the length (Blender's taper object, ZBrush's curve profile).</li>
+        <li><b>Profile</b> presets: round, square, ribbon, star, half round; or draw your own closed shape. Per-point profiles blend between points.</li>
+        <li><b>Twist</b> per point, <b>caps</b> flat, round or open, <b>closed</b> loop, sides and lengthwise density, mirror X live.</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>What happens to today's Curve tool <span class="tag have">exists</span></h3>
+      <p>Tube, Stitches and Zipper in <code>curve_tool.odin</code> become presets of the new curve: Tube is Tube with a round profile, Stitches and Zipper are Along with the built-in stitch and tooth parts. Their sweep and placement code in <code>geom/curve_mesh.odin</code> is reused, and the rotation-minimising frames get stronger for long curves. Lazy, Line and Join on brushes stay as they are; Brush path adds the precise version.</p>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="best-h">
+  <h2 id="best-h">Best of each app</h2>
+  <p class="lede">What each app does well, what it gets wrong, and what we take.</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Part</th><th>Nomad</th><th>ZBrush</th><th>Blender</th><th>3D-Coat and others</th><th>Ours</th></tr></thead>
+    <tbody>
+      <tr><td>Draw</td><td>Tap points or drag a path; points editable until Validate</td><td>Draw a curve with any curve brush; edit by dragging the curve itself, which pulls neighbours like a rope</td><td>Pen tool with click-drag handles; draw tool with fit; very precise, slow on a pen</td><td>3D-Coat: points snap to surface, good closed splines</td><td class="ours">Freehand with fitting, or tap points with drag-out handles; also ZBrush's rope pull on the curve when you grab between points</td></tr>
+      <tr><td>Radius</td><td>One, Ends, Each by repeated taps; handles hard to grab (forum complaint)</td><td>Brush size sets it; taper by the curve falloff</td><td>Per-point radius (Alt+S), taper curve object</td><td>Per-point rings in 3D-Coat</td><td class="ours">Nomad's One/Ends/Each, Blender's taper graph, and big radius dots on the pen side of the tube that are easy to grab</td></tr>
+      <tr><td>Profile</td><td>Presets and per-point profiles since 1.83; profile symmetry can't be turned off</td><td>Brush's mesh or the CurveTube profile</td><td>Bevel object of any curve, fully free</td><td>Spline tools with custom section in 3D-Coat</td><td class="ours">Presets plus a drawn profile, per-point blending, and a Symmetric switch for the profile</td></tr>
+      <tr><td>Edit later</td><td>Editable until you validate; then it is a mesh</td><td>Gone after the next stroke (Frame mesh brings a curve back from edges)</td><td>Stays a curve object forever, converts on demand</td><td>Spline layers stay editable</td><td class="ours">Stays a live curve, saved in the scene file, until Bake; Bake keeps a copy of the curve hidden so you can go back</td></tr>
+      <tr><td>Lathe</td><td>Lathe tool: profile spun round an axis, Path or Curve type</td><td>None as such (Spin in ZModeler)</td><td>Screw modifier</td><td>Shapr3D and Plasticity revolve</td><td class="ours">Lathe as a use of the same curve, axis on the view or an object's axis, angle under 360 for open shapes</td></tr>
+      <tr><td>Copies along</td><td>Not offered</td><td>Insert multi-mesh curve brushes (chains, zips, stitches)</td><td>Array plus curve modifier</td><td>3D-Coat curve with instanced models</td><td class="ours">Along: stitches, zipper, or any object in the scene, with spacing, alternate flip and scale by radius</td></tr>
+      <tr><td>Brush along</td><td>Curve stroke type for tools; validate applies</td><td>Stroke &gt; Curve mode: any brush runs along the curve when you tap it</td><td>Curve stroke method with editable curve</td><td></td><td class="ours">Brush path: the current brush runs along the curve on Apply, at its size and strength, repeatable and undoable; masks and paint too</td></tr>
+      <tr><td>Edit a stroke</td><td>2.9: hold at the end of a stroke; per-point radius and intensity, tap for square, drag to merge, Validate</td><td>Curve stroke, but the curve must be drawn first</td><td>Curve stroke method, set before the stroke</td><td></td><td class="ours">Nomad's hold, plus a Smoothness slider for the fit, mirror kept as the stroke was, and the stroke re-run exactly on each edit</td></tr>
+      <tr><td>Edit a stamp</td><td>2.9: move, size, intensity, turn on a notched ring before Validate</td><td>DragRect only while dragging</td><td>Stroke-based, no live edit</td><td></td><td class="ours">Nomad's ring with snaps you can set (5°, 15°, 45°, off) and pressing elsewhere validating so a row of stamps stays quick</td></tr>
+      <tr><td>Model mode</td><td>No poly modelling</td><td>ZModeler Extrude along a curve via curve tubes; Frame mesh makes curves from edges</td><td>Curve to mesh, Curve modifier, Bevel on curves</td><td>Plasticity and Shapr3D sweep and loft; 3D-Coat Spine</td><td class="ours">Pipe, Lathe and Loft cages with creased corners, Spine, Extrude and Knife following a curve, and Edge loop to curve</td></tr>
+      <tr><td>Pen use</td><td>Good on iPad</td><td>Pen-first</td><td>Mouse and keys first</td><td></td><td class="ours">Everything is a press-drag on the pen; touch hold on a point opens its menu (smooth, corner, delete, split)</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section aria-labelledby="pr-h">
+  <h2 id="pr-h">Build plan</h2>
+  <p class="lede">Thirteen pull requests into odin-sculpt, each through the quick gate and the full gate at the end. The editable stroke and stamp come first because they help every brush. PR 2 and PR 4 each get a design note for the architect review first: PR 2 changes how a stroke is undone, and PR 4 adds a scene object kind, a file chunk and undo entries.</p>
+  <ol class="prs">
+    <li><div><h3>Bézier curves in geom</h3><p>Cubic segments, length-even sampling, rotation-minimising frames with per-point twist, nearest point on a curve, and fitting a freehand stroke to few points within a tolerance. Tests for serial against parallel, closed loops and degenerate handles.</p><div class="meta">src/geom/bezier.odin · tests</div></div></li>
+    <li><div><h3>Hold to edit a stroke</h3><p>The stroke keeps its samples and the nodes it touched. A still pen at the end opens editing: the fit, per-point radius and intensity, square points, merge, add, Smoothness. Each edit restores the touched nodes and re-runs the stroke through apply_dab, mask_dab or paint, throttled so the pen stays smooth. Validate is one undo step on the active layer.</p><div class="meta">sculpt_tool.odin, stroke record, overlay · touch scenarios for the hold</div></div></li>
+    <li><div><h3>Edit a stamp</h3><p>Rectangle and Drag dot stamps stay live until validated: slide over the surface, turn on the notched ring with snaps, size and intensity handles, re-run from the saved nodes on each change.</p></div></li>
+    <li><div><h3>The curve object</h3><p>A new object kind beside meshes, voxels and cages, in the scene list, saved in a new <code>CURV</code> chunk that older apps step over, with undo entries for point edits. Draw by drag or by taps, on the surface, a view plane or an axis.</p><div class="meta">src/app/curve_object.odin · files.odin chunk · History</div></div></li>
+    <li><div><h3>Editing on the pen</h3><p>Points, handles and radius dots in the overlay, rope pull between points, add by tap, smooth or corner, delete, merge, mirror X, and the context bar. The stroke editor of PR 2 shares this code.</p></div></li>
+    <li><div><h3>Tube</h3><p>Radius One, Ends and Each, the taper graph, profile presets and a drawn profile, per-point profiles, twist, caps, sides and density. Rebuilt in a job while editing; Bake makes a sculptable mesh. Today's Tube becomes this.</p></div></li>
+    <li><div><h3>Lathe</h3><p>The curve spun round the view's vertical, world X, Y or Z, or the selected object's axis, with an angle and segment count.</p></div></li>
+    <li><div><h3>Along</h3><p>Stitches, zipper teeth, a primitive or any scene object placed along the curve. Today's Stitches and Zipper become presets of this.</p></div></li>
+    <li><div><h3>Brush path</h3><p>Apply runs the current brush, mask or paint along a curve object, as one stroke and one undo step, repeatable.</p></div></li>
+    <li><div><h3>Pipe and Lathe cages in Model mode</h3><p>Quad cages from a curve in src/poly: rings at control points, segments between, creases at corner points, caps, then the usual Catmull-Clark levels and Apply to sculpt.</p><div class="meta">src/poly · model_tool.odin</div></div></li>
+    <li><div><h3>Spine, Extrude and Knife along a curve, Edge loop to curve</h3><p>The existing Spine and Knife take a curve in place of a drawn path; Extrude gets a Follow curve choice; a picked edge loop becomes a curve object.</p></div></li>
+    <li><div><h3>Loft</h3><p>A quad cage bridged across two or more curves, matched by length, with a count of rings between them.</p></div></li>
+    <li><div><h3>Help, README and the full gate</h3><p>Help pages, README controls, screenshots of each use, and the full gate with touch scenarios.</p></div></li>
+  </ol>
+</section>
+
+<section aria-labelledby="q-h">
+  <h2 id="q-h">Decided, and new questions with defaults</h2>
+  <div class="q">
+    <div style="border-left-color: var(--ok)"><b>Decided in round 1</b><span>Curves stay live until Bake. A drag draws freehand and taps place points. A baked tube is its own object. Model mode curves are now part of the plan.</span></div>
+    <div><b>Should a mouse get hold to edit too?</b><span>Default: yes, holding the button still at the end works the same. A setting can make every stroke open for editing, off by default.</span></div>
+    <div><b>Should a held stroke be editable on dynamic-topology objects or voxel clay?</b><span>Default: no, as those strokes change the triangles; the hold does nothing there and the stroke stays as drawn.</span></div>
+    <div><b>Should Pipe, Lathe and Loft make a new cage, or join the selected cage?</b><span>Default: a new cage object; Weld and Bridge join it, as with other parts.</span></div>
+  </div>
+</section>
+
+</main>
+
+<script>
+(() => {
+  const cv = document.getElementById("cv");
+  const ctx = cv.getContext("2d");
+  const card = document.getElementById("card");
+  const context = document.getElementById("context");
+  const hint = document.getElementById("hint");
+  const caption = document.getElementById("caption");
+  let W = 0, H = 0, DPR = 1;
+
+  // Control points in a 1000 by 625 design space, scaled to the canvas.
+  const base = () => [
+    { p: [330, 430], h: [-60, 40], r: 26, corner: false },
+    { p: [470, 300], h: [-70, 50], r: 20, corner: false },
+    { p: [620, 330], h: [-40, -60], r: 16, corner: false },
+    { p: [700, 200], h: [-30, 40], r: 10, corner: false },
+  ];
+  const latheBase = () => [
+    { p: [520, 140], h: [0, 0], r: 0, corner: true },
+    { p: [575, 210], h: [-10, -30], r: 0, corner: false },
+    { p: [545, 330], h: [10, -40], r: 0, corner: false },
+    { p: [610, 450], h: [-40, -40], r: 0, corner: false },
+    { p: [520, 500], h: [40, 0], r: 0, corner: true },
+  ];
+  const strokeBase = () => [
+    { p: [300, 300], h: [-50, 10], r: 8, i: 0.2, corner: false },
+    { p: [450, 250], h: [-60, 0], r: 22, i: 0.9, corner: false },
+    { p: [600, 280], h: [-50, -20], r: 18, i: 0.7, corner: false },
+    { p: [720, 360], h: [-40, -30], r: 6, i: 0.1, corner: false },
+  ];
+  const sets = { tube: base(), lathe: latheBase(), stroke: strokeBase(), model: base() };
+  sets.model.forEach((q) => { q.r = 22; });
+  let pts = sets.tube;
+  // The stamp being placed: centre, size and turn in design units and degrees.
+  const stamp = { c: [500, 300], s: 110, a: -90, i: 0.6 };
+  let state = "tube";
+  let radiusMode = "Each";
+  let profile = "Round";
+
+  const states = {
+    draw: {
+      caption: "Draw: a drag lays a freehand path on the surface, shown as a thin line. On lift it is fitted to as few control points as stay within the fit tolerance, and the curve opens for editing. Taps instead place points one at a time, and a drag while placing pulls out handles.",
+      hint: "Lift to fit points · tap to place points instead",
+    },
+    tube: {
+      caption: "Tube, editing: the curve stays live. Blue squares are control points, orange dots are handles, white dots set each point's radius (Radius: Each). The context bar holds what you change most; the card holds the shape. Done closes editing and keeps the curve; Bake makes a sculptable mesh.",
+      hint: "Drag a point, handle or radius dot · double-click a point for corner",
+    },
+    lathe: {
+      caption: "Lathe: the same curve, used as a profile spun round the dashed axis. The axis is the view's vertical through the first point by default, or world X, Y, Z, or the selected object's axis. An angle under 360 degrees makes an open shell.",
+      hint: "Drag points to shape the profile · the axis is dashed",
+    },
+    along: {
+      caption: "Along: copies placed along the curve. Stitches and Zipper are presets of this, and any object in the scene can be the part. Spacing is a share of the part's length; Scale by radius lets the radius dots size the copies.",
+      hint: "Drag points: the copies follow",
+    },
+    brush: {
+      caption: "Brush path: the current brush (here Crease) is shown as a preview band along the curve. Apply runs it once along the whole curve as one stroke, so undo, symmetry and masks behave as for a hand stroke. Apply again repeats it; the curve stays for the next pass.",
+      hint: "Edit the path, then Apply · the brush's size shows as the band",
+    },
+    stroke: {
+      caption: "Hold to edit a stroke (Nomad 2.9): finish any stroke with Clay, Brush, Crease, a paint brush or the mask, then keep the pen still on the screen. The stroke turns into a curve. White dots set each point's radius and green dots its intensity, so a stroke can start faint, swell and fade out. Tap a point to make it square, tap the curve to add one, drag a point onto its neighbour to merge them. Validate keeps it as one undo step, on the active layer.",
+      hint: "Hold still at the end of a stroke to edit it · Validate keeps it",
+    },
+    stamp: {
+      caption: "Edit a stamp: after a Rectangle or Drag dot stamp, the stamp stays live. Drag its middle to slide it over the surface, the dot on the notched ring to turn it (it clicks to every 15° notch, the long notch is 0°), the corner to size it and the green dot for intensity. Validate keeps it.",
+      hint: "Drag the middle to move · the ring dot to turn · the corner to size",
+    },
+    model: {
+      caption: "Curve in Model mode: the same curve makes cage geometry. Here Pipe makes a quad tube cage with a ring at every control point and segments between them, corner points creased, ready for Catmull-Clark levels. Spine and Extrude can follow a curve instead of a drawn path, Lathe makes a quad cage, and Loft bridges two or more curves.",
+      hint: "Drag points: the cage follows · rings sit at the points",
+    },
+  };
+
+  function resize() {
+    const r = cv.getBoundingClientRect();
+    DPR = window.devicePixelRatio || 1;
+    W = r.width; H = r.height;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    draw();
+  }
+  const sx = () => W / 1000, sy = () => H / 625;
+  const toS = (p) => [p[0] * sx(), p[1] * sy()];
+  const toD = (p) => [p[0] / sx(), p[1] / sy()];
+
+  function cubic(a, b, c, d, t) {
+    const u = 1 - t;
+    return [
+      u*u*u*a[0] + 3*u*u*t*b[0] + 3*u*t*t*c[0] + t*t*t*d[0],
+      u*u*u*a[1] + 3*u*u*t*b[1] + 3*u*t*t*c[1] + t*t*t*d[1],
+    ];
+  }
+  // Handles: in = p + h, out = p - h for smooth points; corner points keep a short handle on each side.
+  const hin = (q) => [q.p[0] + q.h[0], q.p[1] + q.h[1]];
+  const hout = (q) => q.corner ? [q.p[0] - q.h[0] * 0.3, q.p[1] - q.h[1] * 0.3] : [q.p[0] - q.h[0], q.p[1] - q.h[1]];
+
+  function samples(list, per = 40) {
+    const out = [];
+    for (let i = 0; i < list.length - 1; i++) {
+      const a = list[i], b = list[i + 1];
+      for (let k = 0; k < per; k++) {
+        const t = k / per;
+        const p = cubic(a.p, hout(a), hin(b), b.p, t);
+        const s = t * t * (3 - 2 * t);
+        const ai = a.i ?? 1, bi = b.i ?? 1;
+        out.push({ p, r: a.r + (b.r - a.r) * s, i: ai + (bi - ai) * s, t: (i + t) / (list.length - 1) });
+      }
+    }
+    const l = list[list.length - 1];
+    out.push({ p: l.p.slice(), r: l.r, i: l.i ?? 1, t: 1 });
+    for (let i = 0; i < out.length; i++) {
+      const a = out[Math.max(0, i - 1)].p, b = out[Math.min(out.length - 1, i + 1)].p;
+      let dx = b[0] - a[0], dy = b[1] - a[1];
+      const len = Math.hypot(dx, dy) || 1;
+      out[i].n = [-dy / len, dx / len];
+    }
+    return out;
+  }
+  const radiusOf = (s) => {
+    if (state === "stroke" || state === "model") return s.r;
+    if (radiusMode === "One") return 18;
+    if (radiusMode === "Ends") return 26 + (10 - 26) * s.t;
+    return s.r;
+  };
+  const profileScale = () => state === "stroke" || state === "model" ? 1 : ({ Round: 1, Square: 1, Ribbon: 0.55, Star: 1, Half: 0.8, Drawn: 1 })[profile] || 1;
+
+  function background() {
+    const g = ctx.createRadialGradient(W * 0.5, H * 0.42, 20, W * 0.5, H * 0.5, Math.max(W, H) * 0.75);
+    g.addColorStop(0, "#2a2b31"); g.addColorStop(1, "#141518");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // A clay form to draw on: a broad shoulder-like blob.
+    ctx.save();
+    const cx = W * 0.52, cy = H * 0.6;
+    const bg = ctx.createRadialGradient(cx - W * 0.08, cy - H * 0.2, 10, cx, cy, W * 0.42);
+    bg.addColorStop(0, "#e2c4ab"); bg.addColorStop(0.55, "#b48d70"); bg.addColorStop(1, "#5a4436");
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + H * 0.05, W * 0.33, H * 0.42, -0.12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function strokePath(ss, color, width, dash) {
+    ctx.save();
+    ctx.beginPath();
+    ss.forEach((s, i) => { const q = toS(s.p); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    if (dash) ctx.setLineDash(dash);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function tube(ss) {
+    const k = profileScale(), sc = (sx() + sy()) / 2;
+    const left = [], right = [];
+    ss.forEach((s) => {
+      const r = radiusOf(s) * sc * k, q = toS(s.p);
+      left.push([q[0] + s.n[0] * r, q[1] + s.n[1] * r]);
+      right.push([q[0] - s.n[0] * r, q[1] - s.n[1] * r]);
+    });
+    ctx.save();
+    // Body.
+    ctx.beginPath();
+    left.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+    for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
+    ctx.closePath();
+    ctx.fillStyle = profile === "Square" ? "#a98a72" : "#b99579";
+    ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 14; ctx.shadowOffsetY = 6;
+    ctx.fill();
+    ctx.shadowColor = "transparent";
+    // Shading: dark edge on one side, a highlight band on the other, so the round profile reads.
+    const band = (f, color, w) => {
+      ctx.beginPath();
+      ss.forEach((s, i) => {
+        const r = radiusOf(s) * sc * k * f, q = toS(s.p);
+        const p = [q[0] + s.n[0] * r, q[1] + s.n[1] * r];
+        i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]);
+      });
+      ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = "round"; ctx.stroke();
+    };
+    if (profile === "Square") { band(-0.98, "rgba(60,40,30,.55)", 3); band(0.2, "rgba(255,240,225,.18)", 10 * sc); }
+    else if (profile === "Star") { for (const f of [-0.7, -0.2, 0.3, 0.75]) band(f, "rgba(70,50,38,.45)", 2); band(0.5, "rgba(255,240,225,.25)", 3); }
+    else { band(-0.75, "rgba(70,48,35,.45)", 6 * sc); band(0.45, "rgba(255,244,232,.35)", 5 * sc); }
+    // Caps as ellipses at the ends.
+    for (const s of [ss[0], ss[ss.length - 1]]) {
+      const r = radiusOf(s) * sc * k, q = toS(s.p);
+      ctx.beginPath();
+      ctx.ellipse(q[0], q[1], r, r * 0.55, Math.atan2(s.n[1], s.n[0]), 0, Math.PI * 2);
+      ctx.fillStyle = "#c7a387"; ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function lathe(ss) {
+    const ax = toS([520, 0])[0];
+    ctx.save();
+    // The revolved silhouette, mirrored across the axis and shaded left to right.
+    const g = ctx.createLinearGradient(ax - 120 * sx(), 0, ax + 120 * sx(), 0);
+    g.addColorStop(0, "#6c5243"); g.addColorStop(0.35, "#c9a68a"); g.addColorStop(0.6, "#e6cdb8"); g.addColorStop(1, "#7a5d4b");
+    ctx.beginPath();
+    ss.forEach((s, i) => { const q = toS(s.p); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+    for (let i = ss.length - 1; i >= 0; i--) { const q = toS(ss[i].p); ctx.lineTo(2 * ax - q[0], q[1]); }
+    ctx.closePath();
+    ctx.fillStyle = g; ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 18; ctx.shadowOffsetY = 8; ctx.fill();
+    ctx.shadowColor = "transparent";
+    // Rings across the body hint at the segments.
+    for (let i = 4; i < ss.length - 2; i += 12) {
+      const q = toS(ss[i].p), w = q[0] - ax;
+      ctx.beginPath(); ctx.ellipse(ax, q[1], Math.abs(w), Math.abs(w) * 0.16, 0, 0, Math.PI);
+      ctx.strokeStyle = "rgba(60,40,30,.35)"; ctx.lineWidth = 1; ctx.stroke();
+    }
+    // The axis.
+    ctx.beginPath(); ctx.moveTo(ax, toS([0, 90])[1]); ctx.lineTo(ax, toS([0, 560])[1]);
+    ctx.setLineDash([6, 6]); ctx.strokeStyle = "rgba(242,169,59,.9)"; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.restore();
+  }
+
+  function along(ss) {
+    const sc = (sx() + sy()) / 2;
+    let acc = 0, flip = false;
+    ctx.save();
+    for (let i = 1; i < ss.length; i++) {
+      const a = toS(ss[i - 1].p), b = toS(ss[i].p);
+      acc += Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (acc < 26 * sc) continue;
+      acc = 0; flip = !flip;
+      const s = ss[i], ang = Math.atan2(s.n[1], s.n[0]);
+      ctx.save(); ctx.translate(b[0], b[1]); ctx.rotate(ang + (flip ? 0.35 : -0.35));
+      const g = ctx.createLinearGradient(-20 * sc, 0, 20 * sc, 0);
+      g.addColorStop(0, "#5a6170"); g.addColorStop(0.5, "#d8dce4"); g.addColorStop(1, "#5a6170");
+      ctx.fillStyle = g; ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 6; ctx.shadowOffsetY = 3;
+      ctx.beginPath(); ctx.roundRect(-20 * sc, -4.5 * sc, 40 * sc, 9 * sc, 4.5 * sc); ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function brushBand(ss) {
+    const sc = (sx() + sy()) / 2;
+    ctx.save();
+    // The brush's footprint along the path, then a crease preview at its middle.
+    strokePath(ss, "rgba(91,140,255,.16)", 46 * sc);
+    strokePath(ss, "rgba(91,140,255,.45)", 1, [4, 6]);
+    ctx.translate(0, 2); strokePath(ss, "rgba(255,240,228,.35)", 3 * sc);
+    ctx.translate(0, -3); strokePath(ss, "rgba(50,32,24,.75)", 2.2 * sc);
+    ctx.restore();
+    // Dab rings at the brush spacing, at both ends and a few between.
+    const at = [0, 0.33, 0.66, 1].map((f) => ss[Math.round(f * (ss.length - 1))]);
+    at.forEach((s) => { const q = toS(s.p); ctx.beginPath(); ctx.arc(q[0], q[1], 23 * sc, 0, Math.PI * 2); ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.lineWidth = 1; ctx.stroke(); });
+  }
+
+  // A clay stroke whose width follows the radius and whose depth follows the intensity.
+  function strokeEdit(ss) {
+    const sc = (sx() + sy()) / 2;
+    ctx.save();
+    ctx.lineCap = "round";
+    for (let k = 1; k < ss.length; k++) {
+      const a = toS(ss[k - 1].p), b = toS(ss[k].p), s = ss[k];
+      const w = 2 * s.r * sc, d = s.i;
+      ctx.beginPath(); ctx.moveTo(a[0], a[1] + 2); ctx.lineTo(b[0], b[1] + 2);
+      ctx.strokeStyle = `rgba(70,46,32,${0.15 + 0.5 * d})`; ctx.lineWidth = w; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(a[0], a[1] - w * 0.18); ctx.lineTo(b[0], b[1] - w * 0.18);
+      ctx.strokeStyle = `rgba(255,236,218,${0.1 + 0.45 * d})`; ctx.lineWidth = w * 0.45; ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function stampDraw() {
+    const sc = (sx() + sy()) / 2, c = toS(stamp.c), s = stamp.s * sc, a = stamp.a * Math.PI / 180;
+    ctx.save();
+    ctx.translate(c[0], c[1]); ctx.rotate(a + Math.PI / 2);
+    // The alpha: a few forehead lines, darker with more intensity.
+    for (let k = -2; k <= 2; k++) {
+      ctx.beginPath();
+      ctx.moveTo(-s * 0.8, k * s * 0.16);
+      ctx.bezierCurveTo(-s * 0.3, k * s * 0.16 - s * 0.12, s * 0.3, k * s * 0.16 - s * 0.12, s * 0.8, k * s * 0.16);
+      ctx.strokeStyle = `rgba(70,46,32,${0.25 + 0.6 * stamp.i})`; ctx.lineWidth = 3 * sc; ctx.lineCap = "round"; ctx.stroke();
+      ctx.translate(0, -2); ctx.strokeStyle = `rgba(255,236,218,${0.15 + 0.35 * stamp.i})`; ctx.lineWidth = 1.5 * sc; ctx.stroke(); ctx.translate(0, 2);
+    }
+    ctx.strokeStyle = "rgba(102,217,255,.8)"; ctx.setLineDash([5, 5]); ctx.lineWidth = 1;
+    ctx.strokeRect(-s * 0.85, -s * 0.5, s * 1.7, s * 1.0); ctx.setLineDash([]);
+    ctx.restore();
+    // The notched ring: a notch every 15°, a long one at 0°.
+    const R = s * 1.05;
+    ctx.save(); ctx.translate(c[0], c[1]);
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = 1.5; ctx.stroke();
+    for (let d = 0; d < 360; d += 15) {
+      const r = d * Math.PI / 180 - Math.PI / 2, long = d === 0, mid = d % 90 === 0;
+      const l = long ? 14 : mid ? 9 : 5;
+      ctx.beginPath(); ctx.moveTo(Math.cos(r) * R, Math.sin(r) * R); ctx.lineTo(Math.cos(r) * (R - l), Math.sin(r) * (R - l));
+      ctx.strokeStyle = long ? "#f2a93b" : "rgba(255,255,255,.7)"; ctx.lineWidth = long ? 3 : 1.5; ctx.stroke();
+    }
+    const rd = toS(stampHandles().turn);
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(rd[0], rd[1], 8, 0, Math.PI * 2); ctx.fillStyle = "#66d9ff"; ctx.fill(); ctx.strokeStyle = "#0b2a36"; ctx.lineWidth = 2; ctx.stroke();
+    const sz = toS(stampHandles().size);
+    ctx.beginPath(); ctx.rect(sz[0] - 6, sz[1] - 6, 12, 12); ctx.fillStyle = "#fff"; ctx.fill(); ctx.stroke();
+    const it = toS(stampHandles().inten);
+    ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.lineTo(it[0], it[1]); ctx.strokeStyle = "rgba(47,192,122,.6)"; ctx.setLineDash([3, 3]); ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(it[0], it[1], 7, 0, Math.PI * 2); ctx.fillStyle = "#2fc07a"; ctx.fill(); ctx.strokeStyle = "#0b2a36"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.beginPath(); ctx.arc(c[0], c[1], 6, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill();
+    ctx.font = "500 12px IBM Plex Mono, monospace"; ctx.fillStyle = "#fff";
+    ctx.fillText(`${((stamp.a + 90) % 360 + 360) % 360}°`, c[0] + R + 10, c[1] - R + 10);
+  }
+  // Handle positions of the stamp in design units.
+  function stampHandles() {
+    const a = (stamp.a) * Math.PI / 180, R = stamp.s * 1.05;
+    return {
+      turn: [stamp.c[0] + Math.cos(a) * R, stamp.c[1] + Math.sin(a) * R],
+      size: [stamp.c[0] + stamp.s * 0.75, stamp.c[1] + stamp.s * 0.75],
+      inten: [stamp.c[0] - stamp.s * 0.75, stamp.c[1] + stamp.s * (0.3 + 0.5 * (1 - stamp.i))],
+    };
+  }
+
+  // A quad cage: a ring at each control point and segments between, drawn as wireframe over a grey cage body.
+  function modelCage(ss) {
+    const sc = (sx() + sy()) / 2;
+    ctx.save();
+    ctx.fillStyle = "#1c1d21"; ctx.fillRect(0, 0, W, H);
+    // Grid floor lines for Model mode.
+    ctx.strokeStyle = "rgba(255,255,255,.04)"; ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    const left = [], right = [];
+    ss.forEach((s) => { const q = toS(s.p), r = s.r * sc; left.push([q[0] + s.n[0] * r, q[1] + s.n[1] * r]); right.push([q[0] - s.n[0] * r, q[1] - s.n[1] * r]); });
+    ctx.beginPath(); left.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+    for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(0, toS([0, 150])[1], 0, toS([0, 480])[1]);
+    g.addColorStop(0, "#8d939e"); g.addColorStop(1, "#5c616b");
+    ctx.fillStyle = g; ctx.fill();
+    // Lengthwise edges (four of eight sides visible) and rings.
+    for (const f of [-1, -0.7, 0, 0.7, 1]) {
+      ctx.beginPath();
+      ss.forEach((s, i) => { const q = toS(s.p), r = s.r * sc * f; const p = [q[0] + s.n[0] * r, q[1] + s.n[1] * r]; i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
+      ctx.strokeStyle = "rgba(20,22,26,.8)"; ctx.lineWidth = 1; ctx.stroke();
+    }
+    ss.forEach((s, i) => {
+      if (i % 10) return;
+      const q = toS(s.p), r = s.r * sc, onPoint = i % 40 === 0;
+      ctx.beginPath(); ctx.ellipse(q[0], q[1], r, r * 0.35, Math.atan2(s.n[1], s.n[0]), 0, Math.PI * 2);
+      ctx.strokeStyle = onPoint ? "rgba(242,169,59,.95)" : "rgba(20,22,26,.8)"; ctx.lineWidth = onPoint ? 2 : 1; ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  function freehand() {
+    // A wobbly hand-drawn path with the fitted points ghosted over it.
+    const ss = samples(pts, 40);
+    ctx.save();
+    ctx.beginPath();
+    ss.forEach((s, i) => {
+      const w = Math.sin(i * 0.9) * 2.5 + Math.sin(i * 0.31) * 3;
+      const q = toS([s.p[0] + s.n[0] * w, s.p[1] + s.n[1] * w]);
+      i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]);
+    });
+    ctx.strokeStyle = "rgba(102,217,255,.95)"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
+    ctx.restore();
+    // The brush cursor at the pen.
+    const end = toS(pts[pts.length - 1].p);
+    ctx.beginPath(); ctx.arc(end[0], end[1], 16, 0, Math.PI * 2); ctx.strokeStyle = "rgba(255,255,255,.8)"; ctx.lineWidth = 1.5; ctx.stroke();
+    pts.forEach((q) => { const p = toS(q.p); ctx.beginPath(); ctx.arc(p[0], p[1], 4, 0, Math.PI * 2); ctx.fillStyle = "rgba(102,217,255,.4)"; ctx.fill(); });
+  }
+
+  function handlesAndPoints(withRadius) {
+    const sc = (sx() + sy()) / 2;
+    ctx.save();
+    pts.forEach((q, i) => {
+      const p = toS(q.p);
+      const hs = [];
+      if (i > 0) hs.push(toS(hin(q)));
+      if (i < pts.length - 1) hs.push(toS(hout(q)));
+      hs.forEach((h) => {
+        ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(h[0], h[1]);
+        ctx.strokeStyle = "rgba(242,169,59,.75)"; ctx.lineWidth = 1.2; ctx.stroke();
+        ctx.beginPath(); ctx.arc(h[0], h[1], 5, 0, Math.PI * 2); ctx.fillStyle = "#f2a93b"; ctx.fill();
+      });
+    });
+    if (withRadius && (radiusMode !== "One" || state === "stroke")) {
+      const ss = samples(pts, 40);
+      const idx = radiusMode === "Ends" && state !== "stroke" ? [0, pts.length - 1] : pts.map((_, i) => i);
+      idx.forEach((i) => {
+        const s = ss[Math.min(ss.length - 1, i * 40)];
+        const r = radiusOf(s) * sc * profileScale(), q = toS(s.p);
+        const d = [q[0] - s.n[0] * (r + 12), q[1] - s.n[1] * (r + 12)];
+        ctx.beginPath(); ctx.moveTo(q[0], q[1]); ctx.lineTo(d[0], d[1]);
+        ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.setLineDash([3, 3]); ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(d[0], d[1], 7, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill();
+        ctx.strokeStyle = "#111214"; ctx.lineWidth = 2; ctx.stroke();
+      });
+    }
+    if (state === "stroke") {
+      pts.forEach((q, i) => {
+        const d = toS(intenDot(i));
+        const p = toS(q.p);
+        ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(d[0], d[1]);
+        ctx.strokeStyle = "rgba(47,192,122,.6)"; ctx.setLineDash([3, 3]); ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(d[0], d[1], 7, 0, Math.PI * 2); ctx.fillStyle = "#2fc07a"; ctx.fill();
+        ctx.strokeStyle = "#111214"; ctx.lineWidth = 2; ctx.stroke();
+        ctx.font = "500 11px IBM Plex Mono, monospace"; ctx.fillStyle = "#cfe9dc";
+        ctx.fillText(Math.round(q.i * 100) + "%", d[0] + 10, d[1] + 4);
+      });
+    }
+    pts.forEach((q, i) => {
+      const p = toS(q.p);
+      ctx.beginPath();
+      if (q.corner) { ctx.moveTo(p[0], p[1] - 8); ctx.lineTo(p[0] + 8, p[1]); ctx.lineTo(p[0], p[1] + 8); ctx.lineTo(p[0] - 8, p[1]); ctx.closePath(); }
+      else ctx.rect(p[0] - 6.5, p[1] - 6.5, 13, 13);
+      ctx.fillStyle = i === sel ? "#ffffff" : "#66d9ff"; ctx.fill();
+      ctx.strokeStyle = "#0b2a36"; ctx.lineWidth = 2; ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  let sel = 1;
+  function draw() {
+    if (!W) return;
+    ctx.clearRect(0, 0, W, H);
+    background();
+    if (state === "draw") { freehand(); return; }
+    if (state === "stamp") { stampDraw(); return; }
+    const ss = samples(pts, 40);
+    if (state === "stroke") strokeEdit(ss);
+    if (state === "model") modelCage(ss);
+    if (state === "tube") tube(ss);
+    if (state === "lathe") lathe(ss);
+    if (state === "along") along(ss);
+    if (state === "brush") brushBand(ss);
+    strokePath(ss, "rgba(102,217,255,.95)", 1.6);
+    handlesAndPoints(state === "tube" || state === "along" || state === "stroke");
+  }
+
+  // ---------- dragging ----------
+  let drag = null;
+  function intenDot(i) {
+    const ss = samples(pts, 40), s = ss[Math.min(ss.length - 1, i * 40)];
+    const d = s.r + 16 + 60 * pts[i].i;
+    return [s.p[0] + s.n[0] * d, s.p[1] + s.n[1] * d];
+  }
+  function hit(m) {
+    const sc = (sx() + sy()) / 2;
+    const near = (p, r) => Math.hypot(p[0] - m[0], p[1] - m[1]) < r;
+    for (let i = 0; i < pts.length; i++) if (near(toS(pts[i].p), 12)) return { kind: "point", i };
+    for (let i = 0; i < pts.length; i++) {
+      if (i > 0 && near(toS(hin(pts[i])), 10)) return { kind: "in", i };
+      if (i < pts.length - 1 && near(toS(hout(pts[i])), 10)) return { kind: "out", i };
+    }
+    if (state === "stroke") for (let i = 0; i < pts.length; i++) if (near(toS(intenDot(i)), 11)) return { kind: "inten", i };
+    if (state === "stamp") {
+      const h = stampHandles();
+      if (near(toS(h.turn), 13)) return { kind: "turn" };
+      if (near(toS(h.size), 12)) return { kind: "size" };
+      if (near(toS(h.inten), 12)) return { kind: "sinten" };
+      if (near(toS(stamp.c), stamp.s * sc * 0.8)) return { kind: "move", off: [stamp.c[0] - toD(m)[0], stamp.c[1] - toD(m)[1]] };
+      return null;
+    }
+    if ((state === "tube" || state === "along" || state === "stroke") && (radiusMode === "Each" || state === "stroke")) {
+      const ss = samples(pts, 40);
+      for (let i = 0; i < pts.length; i++) {
+        const s = ss[Math.min(ss.length - 1, i * 40)];
+        const r = radiusOf(s) * sc * profileScale(), q = toS(s.p);
+        const d = [q[0] - s.n[0] * (r + 12), q[1] - s.n[1] * (r + 12)];
+        if (near(d, 12)) return { kind: "radius", i, n: s.n, q };
+      }
+    }
+    return null;
+  }
+  const mpos = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  cv.addEventListener("pointerdown", (e) => {
+    if (state === "draw") return;
+    const m = mpos(e), h = hit(m);
+    if (!h) return;
+    drag = h; if (h.kind === "point") sel = h.i;
+    if (h.kind === "radius" && state === "stroke") drag.q = toS(samples(pts, 40)[Math.min(40 * pts.length, h.i * 40)].p);
+    cv.setPointerCapture(e.pointerId); draw();
+  });
+  cv.addEventListener("pointermove", (e) => {
+    const m = mpos(e);
+    if (!drag) { cv.style.cursor = state !== "draw" && hit(m) ? "grab" : "crosshair"; return; }
+    const d = toD(m), q = pts[drag.i];
+    if (drag.kind === "move") stamp.c = [d[0] + drag.off[0], d[1] + drag.off[1]];
+    else if (drag.kind === "turn") {
+      let a = Math.atan2(d[1] - stamp.c[1], d[0] - stamp.c[0]) * 180 / Math.PI;
+      const snap = Math.round(a / 15) * 15;
+      if (Math.abs(a - snap) < 4) a = snap;
+      stamp.a = Math.round(a);
+    } else if (drag.kind === "size") stamp.s = Math.max(40, Math.min(220, (d[0] - stamp.c[0] + d[1] - stamp.c[1]) / 1.5));
+    else if (drag.kind === "sinten") stamp.i = Math.max(0, Math.min(1, 1 - ((d[1] - stamp.c[1]) / stamp.s - 0.3) / 0.5));
+    else if (drag.kind === "inten") {
+      const ss = samples(pts, 40), s = ss[Math.min(ss.length - 1, drag.i * 40)];
+      const along = (d[0] - s.p[0]) * s.n[0] + (d[1] - s.p[1]) * s.n[1];
+      q.i = Math.max(0, Math.min(1, (along - s.r - 16) / 60));
+    }
+    else if (drag.kind === "point") q.p = d;
+    else if (drag.kind === "in") q.h = [d[0] - q.p[0], d[1] - q.p[1]];
+    else if (drag.kind === "out") q.h = q.corner ? [(q.p[0] - d[0]) / 0.3, (q.p[1] - d[1]) / 0.3] : [q.p[0] - d[0], q.p[1] - d[1]];
+    else if (drag.kind === "radius") {
+      const sc = (sx() + sy()) / 2;
+      const along = -((m[0] - drag.q[0]) * drag.n[0] + (m[1] - drag.q[1]) * drag.n[1]);
+      q.r = Math.max(3, Math.min(60, (along - 12) / (sc * profileScale())));
+    }
+    draw();
+  });
+  const end = () => { drag = null; };
+  cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
+  cv.addEventListener("dblclick", (e) => {
+    const h = hit(mpos(e));
+    if (h && h.kind === "point") { pts[h.i].corner = !pts[h.i].corner; sel = h.i; draw(); renderUI(); }
+  });
+
+  // ---------- cards and bars ----------
+  const profIcons = {
+    Round: '<svg viewBox="0 0 30 22"><circle cx="15" cy="11" r="8" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+    Square: '<svg viewBox="0 0 30 22"><rect x="7" y="3" width="16" height="16" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+    Ribbon: '<svg viewBox="0 0 30 22"><rect x="3" y="8" width="24" height="6" rx="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+    Star: '<svg viewBox="0 0 30 22"><path d="M15 2l2.6 5.6 6 .6-4.5 4 1.3 6-5.4-3.1-5.4 3.1 1.3-6-4.5-4 6-.6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
+    Half: '<svg viewBox="0 0 30 22"><path d="M6 16a9 9 0 0 1 18 0z" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+    Drawn: '<svg viewBox="0 0 30 22"><path d="M6 14c2-9 8-11 12-8s6 9 2 11-12 3-14-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 2"/></svg>',
+  };
+  const seg = (id, opts, on) => `<div class="seg" role="group" aria-label="${id}">${opts.map((o) => `<button data-seg="${id}" data-v="${o}" class="${o === on ? "on" : ""}">${o}</button>`).join("")}</div>`;
+  const slider = (id, label, val, min, max, shown) => `<div class="row"><label for="${id}">${label}<em id="${id}-v">${shown}</em></label><input type="range" id="${id}" min="${min}" max="${max}" value="${val}"></div>`;
+  const sw = (label, on) => `<div class="switch"><span>${label}</span><button class="knob ${on ? "on" : ""}" aria-pressed="${on}" aria-label="${label}"></button></div>`;
+  const taper = `<div class="row"><div class="lbl">Taper along the length<em>graph</em></div>
+    <svg class="graph" viewBox="0 0 240 70" width="100%" height="70" aria-label="Taper graph from start to end">
+      <path d="M0 35H240M60 0V70M120 0V70M180 0V70" stroke="#26272c"/>
+      <path d="M8 18 C 70 10, 120 30, 232 56" fill="none" stroke="#5b8cff" stroke-width="2"/>
+      <circle cx="8" cy="18" r="4" fill="#fff"/><circle cx="120" cy="25" r="4" fill="#fff"/><circle cx="232" cy="56" r="4" fill="#fff"/>
+      <text x="6" y="66" fill="#71717a" font-size="9">start</text><text x="212" y="66" fill="#71717a" font-size="9">end</text>
+    </svg></div>`;
+
+  function cardHTML() {
+    if (state === "draw") return `
+      <div class="head"><b>New curve</b><span>Curve space</span></div>
+      <div class="row"><div class="lbl">Makes</div>${seg("makes", ["Tube", "Lathe", "Along", "Brush"], "Tube")}</div>
+      <div class="row"><div class="lbl">Points stick to</div>${seg("stick", ["Surface", "View", "Axis"], "Surface")}</div>
+      ${slider("off", "Offset from surface", 50, 0, 100, "0.5 r")}
+      ${slider("fit", "Fit tolerance", 30, 0, 100, "3 px")}
+      ${sw("Mirror X while drawing", true)}
+      <p class="note">A drag draws and fits. Taps place points; a drag while placing pulls out handles.</p>`;
+    if (state === "tube") return `
+      <div class="head"><b>Tube</b><span>Curve 1 · 4 points</span></div>
+      <div class="row"><div class="lbl">Profile</div><div class="profiles">${Object.keys(profIcons).map((k) => `<button data-prof="${k}" class="${k === profile ? "on" : ""}">${profIcons[k]}${k}</button>`).join("")}</div></div>
+      ${sw("Profile symmetric", true)}
+      <div class="row"><div class="lbl">Radius</div>${seg("radius", ["One", "Ends", "Each"], radiusMode)}</div>
+      ${taper}
+      ${slider("twist", "Twist", 0, -180, 180, "0°")}
+      ${slider("sides", "Sides", 16, 3, 64, "16")}
+      ${slider("dens", "Density along", 50, 0, 100, "1.0 x")}
+      <div class="row"><div class="lbl">Caps</div>${seg("caps", ["Round", "Flat", "Open"], "Round")}</div>
+      ${sw("Closed loop", false)}
+      <div class="btnrow"><button class="btn">Edit profile</button><button class="btn primary">Bake</button></div>
+      <p class="note">Bake makes a sculptable mesh and keeps the curve hidden beside it, so you can come back.</p>`;
+    if (state === "lathe") return `
+      <div class="head"><b>Lathe</b><span>Curve 1 · 5 points</span></div>
+      <div class="row"><div class="lbl">Axis</div>${seg("axis", ["View", "X", "Y", "Z", "Object"], "View")}</div>
+      ${slider("ang", "Angle", 360, 10, 360, "360°")}
+      ${slider("seg", "Segments", 48, 6, 128, "48")}
+      <div class="row"><div class="lbl">Where the profile meets the axis</div>${seg("meet", ["Close", "Open"], "Close")}</div>
+      ${slider("thick", "Shell thickness", 0, 0, 100, "solid")}
+      <div class="btnrow"><button class="btn">Flip side</button><button class="btn primary">Bake</button></div>`;
+    if (state === "along") return `
+      <div class="head"><b>Along</b><span>Curve 1 · 4 points</span></div>
+      <div class="row"><div class="lbl">Part</div>${seg("part", ["Stitch", "Tooth", "Sphere", "Object…"], "Stitch")}</div>
+      ${slider("spc", "Spacing", 40, 0, 100, "1.2 x part")}
+      ${slider("ps", "Part size", 50, 0, 100, "1.0 x radius")}
+      ${sw("Alternate flip", true)}
+      ${sw("Follow twist", true)}
+      ${sw("Scale by radius", true)}
+      <div class="row"><div class="lbl">Radius</div>${seg("radius", ["One", "Ends", "Each"], radiusMode)}</div>
+      <div class="btnrow"><button class="btn">Merge parts</button><button class="btn primary">Bake</button></div>`;
+    if (state === "stroke") {
+      const p = pts[sel] || pts[0];
+      return `
+      <div class="head"><b>Edit stroke</b><span>Clay · Layer 2</span></div>
+      <div class="row"><div class="lbl">Radius</div>${seg("sradius", ["One", "Each"], "Each")}</div>
+      <div class="row"><div class="lbl">Intensity</div>${seg("sinten", ["One", "Each"], "Each")}</div>
+      <div class="row"><div class="lbl">Point ${sel + 1}<em>${Math.round(p.r)} px · ${Math.round(p.i * 100)}%</em></div></div>
+      ${slider("smooth", "Smoothness", 60, 0, 100, "0.6")}
+      ${slider("hold", "Hold time to edit", 45, 20, 100, "0.45 s")}
+      ${sw("Mirror as the stroke was", true)}
+      ${sw("Show the stroke live while editing", true)}
+      <div class="btnrow"><button class="btn">Cancel</button><button class="btn primary">Validate</button></div>
+      <p class="note">Works for any brush that makes a stroke, paint and mask too. Layer strength fades it afterwards. Not offered under dynamic topology or on voxel clay, where the stroke changes the triangles.</p>`;
+    }
+    if (state === "stamp") return `
+      <div class="head"><b>Edit stamp</b><span>Forehead lines · Rectangle</span></div>
+      ${slider("sang", "Turn", 0, 0, 360, ((stamp.a + 90) % 360 + 360) % 360 + "°")}
+      <div class="row"><div class="lbl">Snap the turn to</div>${seg("snapang", ["Off", "5°", "15°", "45°"], "15°")}</div>
+      ${slider("ssize", "Size", 50, 0, 100, Math.round(stamp.s * 2) + " px")}
+      ${slider("sint", "Intensity", Math.round(stamp.i * 100), 0, 100, Math.round(stamp.i * 100) + "%")}
+      ${sw("Slide over the surface", true)}
+      ${sw("Flip the alpha", false)}
+      <div class="btnrow"><button class="btn">Cancel</button><button class="btn primary">Validate</button></div>
+      <p class="note">A new stamp waits until you validate it. Pressing the pen elsewhere on the model validates and starts the next one.</p>`;
+    if (state === "model") return `
+      <div class="head"><b>Curve in Model</b><span>Curve 2 · 4 points</span></div>
+      <div class="row"><div class="lbl">Makes</div>${seg("mmakes", ["Pipe", "Lathe", "Loft"], "Pipe")}</div>
+      ${slider("msides", "Sides", 8, 3, 32, "8")}
+      ${slider("mseg", "Segments between points", 4, 1, 16, "4")}
+      ${sw("Crease corner points", true)}
+      ${sw("Cap the ends", true)}
+      <div class="row"><div class="lbl">Preview level</div>${seg("mlev", ["Cage", "1", "2", "3"], "2")}</div>
+      <div class="row"><div class="lbl">Other actions that take a curve</div>
+        <p class="note">Spine and Extrude: press a face, then tap a curve to follow it. Knife: tap a curve to cut along it. Edge loop to curve: makes a curve from a picked loop.</p></div>
+      <div class="btnrow"><button class="btn">Edge loop to curve</button><button class="btn primary">Make cage</button></div>`;
+    return `
+      <div class="head"><b>Brush path</b><span>Crease · 46 px</span></div>
+      <div class="row"><div class="lbl">Runs</div>${seg("runs", ["Brush", "Mask", "Paint"], "Brush")}</div>
+      ${slider("str", "Strength along", 60, 0, 100, "0.60")}
+      ${taper}
+      ${sw("Pressure from taper graph", true)}
+      ${sw("Symmetry as set", true)}
+      <div class="btnrow"><button class="btn">Pick brush</button><button class="btn primary">Apply</button></div>
+      <p class="note">Apply is one stroke and one undo step. The curve stays, so Apply again deepens it.</p>`;
+  }
+
+  function contextHTML() {
+    if (state === "draw") return `<button class="on">Freehand</button><button>Points</button><div class="div"></div><button>Mirror X</button><div class="div"></div><button>Cancel</button>`;
+    const p = pts[sel] || pts[0];
+    const shared = `<div class="grp"><button class="${p.corner ? "" : "on"}" data-pt="smooth">Smooth</button><button class="${p.corner ? "on" : ""}" data-pt="corner">Corner</button></div>
+      <button>+ Point</button><button>Delete point</button><div class="div"></div>`;
+    if (state === "stroke") return `<button class="done">✓ Validate</button>${shared}<button>Radius: Each</button><button>Intensity: Each</button><div class="div"></div><button>Cancel</button>`;
+    if (state === "stamp") return `<button class="done">✓ Validate</button><div class="grp"><button class="on">Snap 15°</button><button>Free</button></div><button>0°</button><button>Flip</button><div class="div"></div><button>Cancel</button>`;
+    if (state === "model") return `<button class="done">✓ Done</button>${shared}<button>Crease</button><button>Mirror X</button><button>Snap: Cage</button><div class="div"></div><button>Make cage</button>`;
+    if (state === "brush") return `<button class="done">✓ Done</button>${shared}<button>Snap: Surface</button><button>Mirror X</button><div class="div"></div><button class="on">Apply</button>`;
+    if (state === "lathe") return `<button class="done">✓ Done</button>${shared}<button>Axis: View</button><button>Bake</button>`;
+    return `<button class="done">✓ Done</button>${shared}
+      <div class="grp">${["One", "Ends", "Each"].map((v) => `<button data-seg="radius" data-v="${v}" class="${v === radiusMode ? "on" : ""}">${v}</button>`).join("")}</div>
+      <button>Closed</button><button>Mirror X</button><button>Snap: Surface</button><div class="div"></div><button>Bake</button>`;
+  }
+
+  function renderUI() {
+    card.innerHTML = cardHTML();
+    context.innerHTML = contextHTML();
+    hint.textContent = states[state].hint;
+    caption.textContent = states[state].caption;
+    document.querySelectorAll(".states button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.state === state)));
+    const space = state === "stroke" || state === "stamp" ? "Sculpt" : state === "model" ? "Model" : "Curve";
+    document.querySelectorAll(".top-c button").forEach((b) => b.classList.toggle("on", b.textContent === space));
+    shelf.innerHTML = space === "Sculpt" ? sculptShelf : space === "Model" ? modelShelf : curveShelf;
+    shelf.querySelectorAll(".tile[data-tool]").forEach((t) => t.addEventListener("click", () => setState(t.dataset.tool)));
+    shelf.querySelectorAll(".tile").forEach((t) => t.classList.toggle("on", t.dataset.tool === (state === "draw" ? "tube" : state) || t.dataset.on === state));
+  }
+
+  function setState(s) {
+    state = s;
+    pts = sets[s] || sets.tube;
+    sel = Math.min(sel, pts.length - 1);
+    renderUI(); draw();
+  }
+
+  document.querySelectorAll(".states button").forEach((b) => b.addEventListener("click", () => setState(b.dataset.state)));
+  const shelf = document.querySelector(".shelf");
+  const curveShelf = shelf.innerHTML;
+  const tile = (name, on, svg) => `<button class="tile" data-on="${on || ""}"><svg viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2">${svg}</svg>${name}</button>`;
+  const sculptShelf = tile("Clay", "stroke", '<path d="M4 18c5-8 12-8 18 0" stroke-width="5" opacity=".5"/><path d="M4 18c5-8 12-8 18 0"/>')
+    + tile("Brush", "", '<path d="M4 17c6-6 12-6 18 0"/>') + tile("Crease", "", '<path d="M4 13h18M6 10l7 3-7 3"/>')
+    + tile("Stamp", "stamp", '<rect x="5" y="7" width="16" height="12" rx="2"/><path d="M8 11h10M8 15h10"/>')
+    + tile("Smooth", "", '<path d="M3 16c4-6 8 2 10-2s6-6 10 0"/>');
+  const modelShelf = tile("Extrude", "", '<rect x="6" y="12" width="14" height="10"/><path d="M13 12V3M10 6l3-3 3 3"/>')
+    + tile("Pipe", "model", '<path d="M3 20 C 8 4, 18 24, 23 6" stroke-width="5" opacity=".45"/><path d="M3 20 C 8 4, 18 24, 23 6"/>')
+    + tile("Spine", "", '<rect x="3" y="16" width="6" height="6"/><path d="M9 19c6 0 8-6 13-13"/>')
+    + tile("Lathe", "", '<path d="M13 3v20" stroke-dasharray="2 2"/><path d="M13 4c5 0 4 6 7 9s-2 8-7 9"/>')
+    + tile("Loft", "", '<path d="M4 6c5-3 13-3 18 0M4 20c5 3 13 3 18 0M4 6v14M22 6v14"/>');
+  document.getElementById("mock").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.seg === "radius") { radiusMode = b.dataset.v; renderUI(); draw(); return; }
+    if (b.dataset.seg) { b.parentElement.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); return; }
+    if (b.dataset.prof) { profile = b.dataset.prof; renderUI(); draw(); return; }
+    if (b.dataset.pt) { pts[sel].corner = b.dataset.pt === "corner"; renderUI(); draw(); return; }
+    if (b.classList.contains("knob")) { b.classList.toggle("on"); b.setAttribute("aria-pressed", String(b.classList.contains("on"))); }
+  });
+  card.addEventListener("input", (e) => {
+    const el = e.target, out = document.getElementById(el.id + "-v");
+    if (!out) return;
+    const v = +el.value;
+    if (el.id === "sang") { stamp.a = v - 90; draw(); }
+    if (el.id === "sint") { stamp.i = v / 100; draw(); }
+    const fmt = { sang: v + "°", sint: v + "%", ssize: (40 + v * 3) + " px", smooth: (v / 100).toFixed(1), hold: (v / 100).toFixed(2) + " s", msides: v, mseg: v, twist: v + "°", sides: v, ang: v + "°", seg: v, str: (v / 100).toFixed(2), off: (v / 100).toFixed(1) + " r", fit: Math.round(v / 10) + " px" };
+    out.textContent = fmt[el.id] !== undefined ? fmt[el.id] : (v / 50).toFixed(1) + " x";
+  });
+
+  new ResizeObserver(resize).observe(cv);
+  renderUI();
+  resize();
+})();
+</script>
+</body>
+</html>

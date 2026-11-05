@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Surface space mock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Lens tokens (src/ui/theme.odin) plus one new space tint for Surface, violet beside Sculpt's glaze,
+     Model's orange and Render's blue. Layout: a page of app windows drawn at 1600 x 900 points and scaled. */
+  --frame: #0d0f12;
+  --surface: #161a1f;
+  --raised: #1d2228;
+  --line: #2a3038;
+  --text: #e8ecef;
+  --text2: #a3acb5;
+  --text3: #6c757e;
+  --glaze: #5ed6c4;
+  --sculpt-soft: #1c3b37;
+  --model: #ff9f5a;
+  --render: #8fb8ff;
+  --tint: #b99cff;
+  --tint-soft: #2b2541;
+  --amber: #f3b54a;
+  --body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--frame); color: var(--text); font: 15px/1.5 var(--body); }
+main { max-width: 1320px; margin: 0 auto; padding: 28px 20px 72px; display: grid; gap: 22px; }
+h1 { font-size: 28px; line-height: 1.2; margin: 0; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0; text-wrap: balance; }
+h3 { font-size: 15px; margin: 0 0 6px; }
+p { margin: 0; max-width: 72ch; color: var(--text2); }
+p strong, li strong { color: var(--text); }
+a { color: var(--glaze); }
+.lede { font-size: 16px; }
+header.page { display: grid; gap: 10px; }
+nav.screens { display: flex; flex-wrap: wrap; gap: 6px; position: sticky; top: 0; z-index: 5; padding: 10px 0; background: var(--frame); }
+nav.screens a { text-decoration: none; color: var(--text2); padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line); font-weight: 500; font-size: 14px; }
+nav.screens a:hover { color: var(--text); }
+nav.screens a.on { color: var(--tint); background: var(--tint-soft); border-color: rgba(185,156,255,.5); }
+nav.screens a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
+section.screen { display: none; gap: 16px; }
+section.screen.on { display: grid; }
+.how { font-size: 13px; color: var(--text3); }
+.how b { color: var(--text2); font-weight: 600; }
+.notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.notes > div { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.notes ul { margin: 0; padding-left: 18px; color: var(--text2); font-size: 14px; display: grid; gap: 6px; }
+.notes h3 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--text3); }
+.notes .take h3 { color: var(--glaze); } .notes .avoid h3 { color: #ff8a7a; } .notes .better h3 { color: var(--tint); }
+@media (max-width: 820px) { .notes { grid-template-columns: 1fr; } }
+
+/* An app window: the app is laid out at 1600 x 900 points and scaled to the column. */
+.win { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: #17171a; }
+.app { position: absolute; left: 0; top: 0; width: 1600px; height: 900px; transform-origin: 0 0; overflow: hidden;
+  background: linear-gradient(#454547, #17171a); font-size: 14px; user-select: none; -webkit-user-select: none; }
+.vp { position: absolute; inset: 0; }
+.vp canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.vp canvas.ov { pointer-events: none; }
+.vp.mini { inset: auto; right: 80px; top: 80px; width: 380px; height: 250px; border-radius: 14px; overflow: hidden; border: 1px solid #39414b; z-index: 6; background: linear-gradient(#454547, #17171a); box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+.island { position: absolute; background: rgba(22,26,31,.94); border: 1px solid #252b32; border-radius: 14px; box-shadow: 0 6px 18px rgba(0,0,0,.35); z-index: 8; }
+.top { top: 8px; height: 56px; display: flex; align-items: center; gap: 2px; padding: 4px; white-space: nowrap; }
+.btn { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 10px; color: var(--text2); flex: none; background: none; border: 0; cursor: pointer; font: inherit; }
+.btn:hover { background: #222831; color: var(--text); }
+.btn svg, .tile svg, .tab svg { width: 20px; height: 20px; }
+.file { display: flex; flex-direction: column; justify-content: center; padding: 0 12px 0 4px; height: 48px; }
+.file b { font-size: 14px; font-weight: 600; }
+.file span { font-size: 12px; color: var(--text3); }
+.div { width: 1px; height: 28px; background: var(--line); margin: 0 6px; flex: none; }
+.tabs { display: flex; gap: 4px; padding: 4px; background: #11151a; border-radius: 12px; }
+.tab { height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-radius: 9px; color: var(--text2); font-weight: 500; font-size: 14px; border: 1px solid transparent; }
+.tab.on { color: var(--tint); background: var(--tint-soft); border-color: rgba(185,156,255,.5); }
+.tab .new { font-size: 10px; font-weight: 700; color: var(--frame); background: var(--tint); border-radius: 5px; padding: 0 5px; }
+.chip { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 10px; font-size: 14px; font-weight: 600; }
+.chip .kind { font-size: 12px; font-weight: 500; color: var(--text2); background: #232931; padding: 2px 8px; border-radius: 6px; }
+.chip .badge { font-size: 11px; font-weight: 600; color: var(--tint); border: 1px solid rgba(185,156,255,.45); padding: 1px 6px; border-radius: 6px; }
+
+.offhand { left: 8px; top: 170px; width: 64px; padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.vs { width: 36px; height: 170px; border-radius: 10px; background: #0f1216; position: relative; overflow: hidden; cursor: ns-resize; touch-action: none; }
+.vs .fill { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(#3a3355, #2a2440); }
+.vs .knob { position: absolute; left: 4px; right: 4px; height: 4px; border-radius: 2px; background: var(--tint); }
+.vs label { position: absolute; left: 0; right: 0; top: 6px; text-align: center; font-size: 10px; color: var(--text2); pointer-events: none; }
+.vs output { position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font: 500 11px var(--mono); color: var(--text); pointer-events: none; }
+.well { width: 40px; height: 40px; border-radius: 50%; border: 3px solid #0f1216; box-shadow: 0 0 0 1px #3a424c; }
+.rail { right: 8px; top: 150px; width: 60px; padding: 6px; display: flex; flex-direction: column; gap: 4px; align-items: center; }
+.shelf { bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; padding: 6px; align-items: stretch; }
+.pages { display: flex; flex-direction: column; gap: 3px; padding: 3px; background: #11151a; border-radius: 10px; justify-content: center; }
+.pages button { height: 22px; padding: 0 10px; border-radius: 7px; border: 0; background: none; color: var(--text3); font: 600 11px var(--body); cursor: pointer; text-align: left; }
+.pages button.on { color: var(--tint); background: var(--tint-soft); }
+.tile { width: 74px; height: 70px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; font: 500 11px var(--body); color: var(--text2); background: none; border: 1px solid transparent; cursor: pointer; padding: 0 2px; text-align: center; line-height: 1.15; }
+.tile:hover { background: #20262e; color: var(--text); }
+.tile.on { background: var(--tint-soft); color: var(--tint); border-color: rgba(185,156,255,.45); }
+.tile svg { width: 22px; height: 22px; }
+
+.col { position: absolute; top: 76px; bottom: 104px; width: 340px; display: flex; flex-direction: column; gap: 10px; z-index: 8; overflow: auto; scrollbar-width: none; }
+.col.right { right: 76px; } .col.left { left: 80px; width: 300px; }
+.card { background: rgba(22,26,31,.95); border: 1px solid #252b32; border-radius: 14px; padding: 12px 14px; display: grid; gap: 10px; box-shadow: 0 6px 18px rgba(0,0,0,.3); }
+.card h4 { margin: 0; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.card h4 .sub { margin-left: auto; font-weight: 500; font-size: 11px; color: var(--text3); }
+.card .line { font-size: 12px; color: var(--text2); }
+.card .line b { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
+.seg { display: flex; background: #11151a; border-radius: 9px; padding: 3px; gap: 2px; }
+.seg button { flex: 1; height: 30px; border: 0; border-radius: 7px; background: none; color: var(--text2); font: 500 12px var(--body); cursor: pointer; white-space: nowrap; padding: 0 8px; }
+.seg button.on { background: #262d36; color: var(--text); box-shadow: inset 0 0 0 1px #39424d; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button { height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid #333b45; background: none; color: var(--text2); font: 500 12px var(--body); cursor: pointer; }
+.chips button.on { color: var(--tint); border-color: rgba(185,156,255,.55); background: var(--tint-soft); }
+.act { white-space: nowrap; height: 36px; border-radius: 10px; border: 1px solid #39424d; background: #222831; color: var(--text); font: 600 13px var(--body); cursor: pointer; padding: 0 12px; }
+.act.primary { background: var(--tint); color: #17121f; border-color: var(--tint); }
+.acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.sl { display: grid; grid-template-columns: 84px 1fr 40px; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); }
+.sl output { font: 500 11px var(--mono); color: var(--text); text-align: right; }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; background: none; margin: 0; cursor: pointer; }
+input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: #2a313a; }
+input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: #2a313a; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--tint); margin-top: -5px; border: 2px solid #17121f; }
+input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--tint); border: 2px solid #17121f; }
+input[type=color] { width: 34px; height: 24px; border: 1px solid #39424d; border-radius: 6px; background: none; padding: 0; cursor: pointer; }
+.toast { position: absolute; left: 50%; bottom: 112px; transform: translateX(-50%); background: rgba(30,35,42,.97); border: 1px solid #3a424c; color: var(--text); font-size: 13px; padding: 10px 16px; border-radius: 12px; z-index: 20; opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap; }
+.toast.show { opacity: 1; }
+.paneHead { position: absolute; display: flex; gap: 6px; align-items: center; z-index: 7; }
+.paneHead .ph { height: 30px; padding: 0 10px; border-radius: 9px; background: rgba(22,26,31,.9); border: 1px solid #2a3038; font: 600 12px var(--body); color: var(--text2); display: flex; align-items: center; gap: 6px; }
+.paneHead .dot { width: 8px; height: 8px; border-radius: 50%; }
+.uvpane { position: absolute; left: 870px; top: 72px; right: 76px; bottom: 104px; background: #101318; border: 1px solid #262c33; border-radius: 14px; z-index: 6; overflow: hidden; }
+.uvpane canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.divider { position: absolute; left: 862px; top: 72px; bottom: 104px; width: 6px; border-radius: 3px; background: #2b323b; z-index: 6; }
+.swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.swatches button { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #0f1216; box-shadow: 0 0 0 1px #3a424c; cursor: pointer; }
+.swatches button.on { box-shadow: 0 0 0 2px var(--tint); }
+.layer { display: grid; grid-template-columns: 26px 44px 1fr; gap: 10px; align-items: center; padding: 8px; border-radius: 10px; background: #12161b; border: 1px solid #222830; }
+.layer.on { border-color: rgba(185,156,255,.5); }
+.layer .eye { width: 26px; height: 26px; border-radius: 7px; border: 0; background: #1f252c; color: var(--text2); cursor: pointer; display: grid; place-items: center; }
+.layer .eye.off { color: var(--text3); opacity: .5; }
+.layer .eye svg { width: 15px; height: 15px; }
+.layer canvas, .layer .th { width: 44px; height: 44px; border-radius: 8px; background: #0b0d10; }
+.layer .nm { font-size: 13px; font-weight: 600; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.layer .nm small { font-weight: 500; font-size: 11px; color: var(--text3); }
+.layer .from { font-size: 10px; font-weight: 600; color: var(--glaze); border: 1px solid rgba(94,214,196,.4); border-radius: 5px; padding: 0 5px; }
+.layer .sl { grid-template-columns: 52px 1fr 34px; margin-top: 2px; }
+.balls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.balls button { border: 1px solid transparent; background: none; border-radius: 10px; padding: 4px 0; color: var(--text2); font: 500 11px var(--body); cursor: pointer; display: grid; justify-items: center; gap: 4px; }
+.balls button.on { border-color: rgba(185,156,255,.55); background: var(--tint-soft); color: var(--tint); }
+.balls i { width: 42px; height: 42px; border-radius: 50%; display: block; }
+.texcard canvas { width: 100%; aspect-ratio: 1; border-radius: 10px; display: block; touch-action: none; background: #0b0d10; cursor: crosshair; }
+
+/* Shader graph. */
+.graph { position: absolute; left: 84px; right: 76px; top: 128px; bottom: 104px; z-index: 5; border-radius: 16px; overflow: hidden; border: 1px solid rgba(80,90,104,.5); touch-action: none; }
+.graph.split { left: 806px; top: 72px; right: 76px; }
+.graph.full { left: 8px; right: 8px; top: 72px; bottom: 8px; border-radius: 12px; }
+.graph.hidden { display: none; }
+.graph.peek { opacity: 0; pointer-events: none; transition: opacity .12s; }
+.graph .back { position: absolute; inset: 0; background: rgb(13,15,18); }
+.graph .grid { position: absolute; inset: 0; background-image: radial-gradient(rgba(255,255,255,.07) 1px, transparent 1.5px); background-size: 24px 24px; }
+.world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.world > svg { position: absolute; left: 0; top: 0; overflow: visible; width: 1px; height: 1px; }
+.world svg path.w { fill: none; stroke-width: 2.5; }
+.world svg path.hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+.node { position: absolute; width: 196px; background: rgba(28,33,40,var(--na, .96)); border: 1px solid #39414b; border-radius: 12px; font-size: 12px; color: var(--text2); box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+.node.sel { border-color: var(--tint); }
+.node.muted { opacity: .5; }
+.node.prev { box-shadow: 0 0 0 2px var(--amber), 0 6px 18px rgba(0,0,0,.35); }
+.node header { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 6px 0 10px; border-bottom: 1px solid #323a44; cursor: grab; touch-action: none; }
+.node header .t { font-weight: 600; color: var(--text); font-size: 13px; }
+.node header .from { font-size: 9px; font-weight: 700; letter-spacing: .04em; color: var(--glaze); border: 1px solid rgba(94,214,196,.45); border-radius: 5px; padding: 0 4px; text-transform: uppercase; }
+.node header .ey { margin-left: auto; width: 26px; height: 26px; border-radius: 7px; border: 0; background: none; color: var(--text3); cursor: pointer; display: grid; place-items: center; }
+.node header .ey svg { width: 15px; height: 15px; }
+.node.prev header .ey { color: var(--amber); }
+.node .bd { padding: 6px 0 8px; display: grid; gap: 2px; }
+.node .r { position: relative; height: 26px; display: flex; align-items: center; padding: 0 14px; gap: 8px; }
+.node .r.out { justify-content: flex-end; }
+.node .r.p { height: auto; padding: 2px 12px; display: grid; grid-template-columns: 56px 1fr 30px; }
+.node .r.p output { font: 500 10px var(--mono); color: var(--text); text-align: right; }
+.node .r.pc { grid-template-columns: 56px auto 1fr; }
+.node .thumbrow { display: flex; justify-content: center; padding: 4px 0 2px; }
+.node .r.thumbout { height: 48px; padding-left: 10px; }
+.node canvas.thumb { width: 40px; height: 40px; border-radius: 8px; background: #0b0d10; }
+.sock { position: absolute; top: 50%; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%; border: 2px solid #12161b; cursor: crosshair; }
+.sock::after { content: ""; position: absolute; inset: -10px; border-radius: 50%; }
+.sock.in { left: -8px; } .sock.out { right: -8px; }
+.sock.v { background: #a3acb5; } .sock.c { background: var(--amber); }
+.probe { position: absolute; right: -6px; top: -12px; font: 600 10px var(--mono); color: #17121f; background: var(--amber); border-radius: 6px; padding: 1px 6px; display: none; align-items: center; gap: 4px; z-index: 2; }
+.probe i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; border: 1px solid #17121f; }
+.gbar { position: absolute; top: 76px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 6px 8px; z-index: 9; }
+.gbar .seg button { height: 32px; padding: 0 12px; }
+.gbar .sl { grid-template-columns: auto 120px 36px; }
+.addmenu { position: absolute; z-index: 30; background: #1d2228; border: 1px solid #3a424c; border-radius: 12px; padding: 6px; display: none; grid-template-columns: 1fr 1fr; gap: 4px; width: 280px; }
+.addmenu button { height: 34px; border: 0; border-radius: 8px; background: none; color: var(--text); text-align: left; padding: 0 10px; font: 500 13px var(--body); cursor: pointer; }
+.addmenu button:hover { background: #2a313a; }
+.addmenu .h { grid-column: 1 / -1; font-size: 11px; color: var(--text3); padding: 4px 8px 0; text-transform: uppercase; letter-spacing: .05em; }
+
+/* Phones: drawn at 390 x 844 points. */
+.phones { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+@media (max-width: 900px) { .phones { grid-template-columns: 1fr; max-width: 420px; } }
+.phonewrap { display: grid; gap: 10px; align-content: start; }
+.pwin { position: relative; width: 100%; aspect-ratio: 390 / 844; border-radius: 34px; overflow: hidden; border: 6px solid #262b31; background: #17171a; }
+.phone { position: absolute; left: 0; top: 0; width: 390px; height: 844px; transform-origin: 0 0; background: linear-gradient(#454547, #17171a); font-size: 13px; user-select: none; -webkit-user-select: none; overflow: hidden; }
+.phone .ptop { position: absolute; left: 8px; right: 8px; top: 44px; height: 48px; display: flex; align-items: center; gap: 4px; padding: 0 4px; z-index: 8; background: rgba(22,26,31,.94); border: 1px solid #252b32; border-radius: 14px; }
+.phone .ptop .btn { width: 40px; height: 40px; }
+.phone .ptop b { font-size: 13px; }
+.phone .ptop .sp { margin-left: auto; height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 9px; color: var(--tint); background: var(--tint-soft); font-weight: 600; font-size: 12px; }
+.phone .vp { top: 0; bottom: 0; }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(20,24,29,.97); border-top: 1px solid #2a3038; border-radius: 22px 22px 0 0; z-index: 9; padding: 8px 12px 26px; display: grid; gap: 10px; align-content: start; }
+.sheet .grab { width: 40px; height: 5px; border-radius: 3px; background: #3a424c; margin: 0 auto 2px; }
+.sheet .uvbox { position: relative; height: 250px; border-radius: 14px; overflow: hidden; background: #101318; }
+.sheet .uvbox canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.ptools { display: flex; gap: 4px; justify-content: space-between; }
+.ptools .tile { width: auto; flex: 1; height: 58px; font-size: 10px; }
+.pside { position: absolute; left: 6px; top: 200px; z-index: 8; padding: 8px 5px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.pside .vs { width: 30px; height: 140px; }
+.pdock { position: absolute; left: 8px; right: 8px; bottom: 28px; z-index: 8; padding: 5px; display: flex; gap: 4px; }
+.pdock .tile { flex: 1; width: auto; height: 60px; font-size: 10px; }
+.phone .toast { bottom: 110px; }
+.phone .stackrows { display: grid; gap: 6px; max-height: 330px; overflow: auto; }
+.phone .layer { grid-template-columns: 26px 40px 1fr; padding: 6px; }
+.phone .layer canvas { width: 40px; height: 40px; }
+
+/* The comparison page. */
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 860px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; color: var(--text3); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; background: var(--surface); }
+td:first-child { font-weight: 600; color: var(--text); white-space: nowrap; }
+td { color: var(--text2); }
+tr:last-child td { border-bottom: 0; }
+td.us { color: var(--text); background: rgba(185,156,255,.06); }
+.wow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 820px) { .wow { grid-template-columns: 1fr; } }
+.wow > div { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 6px; align-content: start; }
+.wow .k { font: 600 11px var(--mono); color: var(--tint); }
+.wow p { font-size: 14px; }
+.stages { display: grid; gap: 8px; counter-reset: s; }
+.stages > div { display: grid; grid-template-columns: 54px 1fr; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.stages .n { font: 600 13px var(--mono); color: var(--tint); }
+.stages p { font-size: 14px; }
+.decide { display: grid; gap: 8px; }
+.decide > div { border-left: 3px solid var(--amber); padding: 6px 12px; background: var(--surface); border-radius: 0 10px 10px 0; }
+.decide p { font-size: 14px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main>
+<header class="page">
+  <h1>Surface space: UVs, texture paint and shaders</h1>
+  <p class="lede">A fourth space beside Sculpt, Model and Render, with three shelf pages: <strong>UV</strong>, <strong>Paint</strong> and <strong>Shade</strong>. Every window below is live: the model is a sculpted stone egg drawn with WebGL, and the unwrap, the painting and the shader graph all really run on it. Drag empty space to orbit, scroll or pinch to zoom.</p>
+</header>
+<nav class="screens" aria-label="Screens">
+  <a href="#unwrap" data-s="unwrap">1 · Unwrap</a>
+  <a href="#paint" data-s="paint">2 · Paint</a>
+  <a href="#shade" data-s="shade">3 · Shader graph</a>
+  <a href="#phone" data-s="phone">4 · Phone and portrait</a>
+  <a href="#compare" data-s="compare">5 · Compare and plan</a>
+</nav>
+
+<!-- 1. Unwrap -->
+<section class="screen" id="s-unwrap">
+  <div><h2>Unwrap on the model, see it flat beside it</h2>
+  <p class="how"><b>Try:</b> pick Seam pen and draw on the egg (the seam shows in both views) · press Relax and watch the stretch go white · press Pack · drag an island in the UV pane · press Peel to unfold the model into its layout and back.</p></div>
+  <div class="win" id="w-unwrap"><div class="app">
+    <div class="vp" id="u-vp"><canvas class="gl"></canvas><canvas class="ov"></canvas></div>
+    <div class="island top" style="left:8px"><button class="btn" data-i="menu"></button><div class="file"><b>Stone egg</b><span>Saved 2 min ago</span></div><button class="btn" data-i="undo"></button><button class="btn" data-i="redo"></button></div>
+    <div class="island top" style="left:50%;transform:translateX(-50%)"><div class="tabs"><div class="tab" data-ti="brush">Sculpt</div><div class="tab" data-ti="box">Model</div><div class="tab on" data-ti="surface">Surface <span class="new">NEW</span></div><div class="tab" data-ti="render">Render</div></div><div class="div"></div><div class="chip"><span>Stone egg</span><span class="kind">3.4k quads</span><span class="badge" id="u-badge">6 islands</span></div></div>
+    <div class="island top" style="right:8px"><button class="btn" data-i="search"></button><button class="btn" data-i="history"></button><button class="btn" data-i="gear"></button></div>
+    <div class="island rail"><button class="btn" data-i="panels"></button><button class="btn" data-i="layout"></button><button class="btn" data-i="passes"></button><button class="btn" data-i="camera"></button><button class="btn" data-i="light"></button></div>
+    <div class="col left">
+      <div class="card"><h4>Unwrap <span class="sub">UV page</span></h4>
+        <div class="line">Seams come from</div>
+        <div class="chips" id="u-from"><button class="on">Hidden places</button><button class="on">Creases</button><button>Polygroups</button><button class="on">My seams</button></div>
+        <div class="line">Flattening</div>
+        <div class="seg" id="u-solver"><button data-v="0" class="on">Projected (today)</button><button data-v="1">Relaxed (new)</button></div>
+        <div class="line" id="u-stretch">Stretch: <b>3.9×</b> at worst</div>
+        <div class="line" id="u-density">Texel density: <b>26 px/cm</b> at 2048</div>
+        <div class="acts"><button class="act primary" id="u-pack">Pack</button><button class="act" id="u-auto">Auto unwrap</button></div>
+      </div>
+      <div class="card"><h4>Show on the model</h4>
+        <div class="seg" id="u-view"><button data-v="3" class="on">Stretch</button><button data-v="1">Checker</button><button data-v="2">Islands</button><button data-v="0">Clay</button></div>
+        <div class="sl"><span>Peel</span><input type="range" id="u-peel" min="0" max="1" step="0.01" value="0"><output id="u-peelv">0%</output></div>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="uvpane" id="u-uv"><canvas></canvas></div>
+    <div class="paneHead" style="left:384px;top:80px"><span class="ph"><i class="dot" style="background:#a08cff"></i>Front camera</span></div>
+    <div class="paneHead" style="left:884px;top:82px"><span class="ph"><i class="dot" style="background:var(--tint)"></i>UVs · 2048</span><span class="ph" id="u-uvinfo">Stretch shown</span></div>
+    <div class="island shelf"><div class="pages"><button class="on" data-go="unwrap">UV</button><button data-go="paint">Paint</button><button data-go="shade">Shade</button></div>
+      <button class="tile" data-tool="auto" data-ti="unwrap">Auto<br>unwrap</button>
+      <button class="tile on" data-tool="seam" data-ti="seam">Seam pen</button>
+      <button class="tile" data-tool="erase" data-ti="eraser">Erase<br>seam</button>
+      <button class="tile" data-tool="island" data-ti="pick">Island</button>
+      <button class="tile" data-tool="relax" data-ti="relax">Relax</button>
+      <button class="tile" data-tool="straight" data-ti="grid">Straighten</button>
+      <button class="tile" data-tool="pack" data-ti="pack">Pack</button>
+      <button class="tile" data-tool="peel" data-ti="peel">Peel</button>
+      <button class="tile" data-tool="protect" data-ti="shield">Seam<br>guide</button>
+    </div>
+    <div class="toast"></div>
+  </div></div>
+  <div class="notes">
+    <div class="take"><h3>Taken from</h3><ul>
+      <li><strong>ZBrush UV Master:</strong> one tap unwraps, and a guide brush paints where seams may and may not go.</li>
+      <li><strong>Blender and 3D-Coat:</strong> live unwrap that re-flattens as seams change, pins, and stretch shown on the model.</li>
+      <li><strong>RizomUV:</strong> stretch colours that mean the same everywhere, and a packer that fills the square.</li></ul></div>
+    <div class="avoid"><h3>Avoided</h3><ul>
+      <li>Blender's edge-select mode and keys just to mark a seam.</li>
+      <li>ZBrush's unwrap with no editor at all: you cannot move or straighten one island.</li>
+      <li>A separate UV app and a round trip through files.</li></ul></div>
+    <div class="better"><h3>Done better</h3><ul>
+      <li><strong>Seams drawn with the pen on the sculpt</strong>, snapping to crevices, re-flattened in milliseconds per stroke.</li>
+      <li><strong>Peel</strong>: the model unfolds into its layout, so anyone sees what a UV is.</li>
+      <li>Seams go first where nobody looks: cavities, the underside, behind things (the occlusion the app already computes).</li></ul></div>
+  </div>
+</section>
+
+<!-- 2. Paint -->
+<section class="screen" id="s-paint">
+  <div><h2>Paint colour, roughness and metal together, in layers</h2>
+  <p class="how"><b>Try:</b> paint on the egg (symmetry is on), or on the texture card, which is the same image · switch Roughness or Metal on in the Brush card · change the fill material · turn on Stencil, drag it with the Stencil tool, then paint through it or press Fill through stencil.</p></div>
+  <div class="win" id="w-paint"><div class="app">
+    <div class="vp" id="p-vp"><canvas class="gl"></canvas><canvas class="ov"></canvas></div>
+    <div class="island top" style="left:8px"><button class="btn" data-i="menu"></button><div class="file"><b>Stone egg</b><span>Saved just now</span></div><button class="btn" data-i="undo"></button><button class="btn" data-i="redo"></button></div>
+    <div class="island top" style="left:50%;transform:translateX(-50%)"><div class="tabs"><div class="tab" data-ti="brush">Sculpt</div><div class="tab" data-ti="box">Model</div><div class="tab on" data-ti="surface">Surface</div><div class="tab" data-ti="render">Render</div></div><div class="div"></div><div class="chip"><span>Stone egg</span><span class="kind">Texels 2048</span><span class="badge">3 layers</span></div></div>
+    <div class="island top" style="right:8px"><button class="btn" data-i="search"></button><button class="btn" data-i="history"></button><button class="btn" data-i="gear"></button></div>
+    <div class="island offhand" id="p-off"><div class="vs" data-k="size"><label>Size</label><div class="fill"></div><div class="knob"></div><output></output></div><div class="vs" data-k="strength"><label>Strength</label><div class="fill"></div><div class="knob"></div><output></output></div><div class="well" id="p-well"></div></div>
+    <div class="island rail"><button class="btn" data-i="panels"></button><button class="btn" data-i="layout"></button><button class="btn" data-i="passes"></button><button class="btn" data-i="camera"></button><button class="btn" data-i="light"></button></div>
+    <div class="col right">
+      <div class="card"><h4>Brush <span class="sub">paints every switched-on channel</span></h4>
+        <div class="swatches" id="p-sw"></div>
+        <div class="sl"><span><label><input type="checkbox" id="p-chc" checked> Colour</label></span><span class="line">main colour</span><output></output></div>
+        <div class="sl"><span><label><input type="checkbox" id="p-chr"> Roughness</label></span><input type="range" id="p-r" min="0" max="1" step="0.01" value="0.15"><output>0.15</output></div>
+        <div class="sl"><span><label><input type="checkbox" id="p-chm"> Metal</label></span><input type="range" id="p-m" min="0" max="1" step="0.01" value="1"><output>1.00</output></div>
+        <div class="chips"><button class="on" id="p-sym">Symmetry X</button><button id="p-target">Into: Texels</button></div>
+      </div>
+      <div class="card"><h4>Layers <span class="sub">top paints over bottom</span></h4>
+        <div class="layer on"><button class="eye" id="p-e1"></button><canvas id="p-th1" width="88" height="88"></canvas><div><div class="nm">Paint <small>texels</small></div><div class="sl"><span>Opacity</span><input type="range" id="p-op" min="0" max="1" step="0.01" value="1"><output>100</output></div></div></div>
+        <div class="layer"><button class="eye" id="p-e2"></button><canvas id="p-th2" width="88" height="88"></canvas><div><div class="nm">Dirt in cavities <span class="from">from the sculpt</span></div><div class="sl"><span>Amount</span><input type="range" id="p-dirt" min="0" max="1" step="0.01" value="0.75"><output>75</output></div></div></div>
+        <div class="layer"><span></span><canvas id="p-th3" width="88" height="88"></canvas><div><div class="nm">Fill <small id="p-fillname">Bronze</small></div></div></div>
+        <div class="balls" id="p-mats"></div>
+      </div>
+      <div class="card texcard"><h4>Texture <span class="sub">paint here too</span></h4><canvas id="p-tex" width="520" height="520"></canvas></div>
+    </div>
+    <div class="island shelf"><div class="pages"><button data-go="unwrap">UV</button><button class="on" data-go="paint">Paint</button><button data-go="shade">Shade</button></div>
+      <button class="tile on" data-tool="paint" data-ti="brush">Paint</button>
+      <button class="tile" data-tool="erase" data-ti="eraser">Erase</button>
+      <button class="tile" data-tool="fill" data-ti="bucket">Fill layer</button>
+      <button class="tile" data-tool="pick" data-ti="drop">Pick<br>colour</button>
+      <button class="tile" data-tool="stencil" data-ti="image">Stencil</button>
+      <button class="tile" data-tool="project" data-ti="project">Fill through<br>stencil</button>
+      <button class="tile" data-tool="smart" data-ti="sparkle">Smart<br>mask</button>
+      <button class="tile" data-tool="clear" data-ti="trash">Clear<br>layer</button>
+    </div>
+    <div class="toast"></div>
+  </div></div>
+  <div class="notes">
+    <div class="take"><h3>Taken from</h3><ul>
+      <li><strong>Substance Painter and Marmoset:</strong> a layer stack where each layer carries colour, roughness and metal, and masks made from the shape.</li>
+      <li><strong>Procreate and Nomad:</strong> painting feels like drawing: the brush, its pressure and the colour well stay where the hand is.</li>
+      <li><strong>ZBrush Spotlight:</strong> a picture laid over the view and painted through.</li></ul></div>
+    <div class="avoid"><h3>Avoided</h3><ul>
+      <li>Substance's rule that maps be baked before a smart mask works.</li>
+      <li>Blender's texture paint: one image, no layers, slow brushes.</li>
+      <li>Polypaint's limit: the paint is only as sharp as the mesh is dense.</li></ul></div>
+    <div class="better"><h3>Done better</h3><ul>
+      <li><strong>Masks read the sculpt itself</strong>, live: cavities, height, facing up, thickness, even the detail between two subdivision levels.</li>
+      <li>One brush stroke paints the three channels at once, in 3D across seams and with symmetry.</li>
+      <li><strong>Paint now, UVs later:</strong> the same layers can live on vertices of a 20M sculpt, then move onto texels when the object gets UVs.</li></ul></div>
+  </div>
+</section>
+
+<!-- 3. Shade -->
+<section class="screen" id="s-shade">
+  <div><h2>One graph, three ways to see it</h2>
+  <p class="how"><b>Try:</b> move a slider in a node and the egg updates · tap a node's eye to see only that node on the model · drag from a socket to another to rewire, tap a wire to remove it · switch Overlay, Split and Full · lower Backdrop to see the model through the graph · hold Peek · pick Probe on the shelf and press on the egg · switch to Stack, the phone-friendly view of the same graph.</p></div>
+  <div class="win" id="w-shade"><div class="app">
+    <div class="vp" id="g-vp"><canvas class="gl"></canvas><canvas class="ov"></canvas></div>
+    <div class="graph" id="g-graph"><div class="back"></div><div class="grid"></div><div class="world"><svg></svg></div></div>
+    <div class="island top" style="left:8px"><button class="btn" data-i="menu"></button><div class="file"><b>Stone egg</b><span>Saved just now</span></div><button class="btn" data-i="undo"></button><button class="btn" data-i="redo"></button></div>
+    <div class="island top" style="left:50%;transform:translateX(-50%)"><div class="tabs"><div class="tab" data-ti="brush">Sculpt</div><div class="tab" data-ti="box">Model</div><div class="tab on" data-ti="surface">Surface</div><div class="tab" data-ti="render">Render</div></div><div class="div"></div><div class="chip"><span>Stone egg</span><span class="kind">Weathered bronze</span><span class="badge" id="g-badge">11 nodes</span></div></div>
+    <div class="island top" style="right:8px"><button class="btn" data-i="search"></button><button class="btn" data-i="history"></button><button class="btn" data-i="gear"></button></div>
+    <div class="island gbar" id="g-bar">
+      <div class="seg" id="g-view"><button data-v="stack">Stack</button><button data-v="graph" class="on">Graph</button></div>
+      <div class="seg" id="g-mode"><button data-v="overlay" class="on">Overlay</button><button data-v="split">Split</button><button data-v="full">Full</button></div>
+      <div class="sl" id="g-bk"><span>Backdrop</span><input type="range" id="g-back" min="0" max="0.95" step="0.01" value="0.45"><output>45%</output></div>
+      <button class="act" id="g-peek">Hold to peek</button>
+      <button class="act primary" id="g-add">+ Node</button>
+      <button class="act" id="g-tidy">Tidy</button>
+    </div>
+    <div class="addmenu" id="g-menu"></div>
+    <div class="island rail"><button class="btn" data-i="panels"></button><button class="btn" data-i="layout"></button><button class="btn" data-i="passes"></button><button class="btn" data-i="camera"></button><button class="btn" data-i="light"></button></div>
+    <div class="col right" id="g-col" style="display:none">
+      <div class="card"><h4>Weathered bronze <span class="sub">material stack</span></h4><div id="g-stack" style="display:grid;gap:8px"></div>
+        <div class="line">The stack is the same graph shown as layers: each row is a Mix node and its mask. Open Graph to see every wire.</div></div>
+    </div>
+    <div class="island shelf"><div class="pages"><button data-go="unwrap">UV</button><button data-go="paint">Paint</button><button class="on" data-go="shade">Shade</button></div>
+      <button class="tile" data-tool="graph" data-ti="nodes">Graph</button>
+      <button class="tile on" data-tool="orbit" data-ti="orbit">Orbit</button>
+      <button class="tile" data-tool="probe" data-ti="probe">Probe</button>
+      <button class="tile" data-tool="presets" data-ti="sparkle">Looks</button>
+      <button class="tile" data-tool="bake" data-ti="bake">Bake<br>to maps</button>
+      <button class="tile" data-tool="export" data-ti="export">Export<br>glTF</button>
+    </div>
+    <div class="toast"></div>
+  </div></div>
+  <div class="notes">
+    <div class="take"><h3>Taken from</h3><ul>
+      <li><strong>three.js node editor:</strong> the graph floats over the scene and you see the model behind it.</li>
+      <li><strong>Blender and Unreal:</strong> preview any node on the model with one tap (Node Wrangler's preview).</li>
+      <li><strong>Substance Designer:</strong> every node is a picture, so each node shows its own thumbnail.</li></ul></div>
+    <div class="avoid"><h3>Avoided</h3><ul>
+      <li>Blender graphs that do not survive export: only its Principled node reaches glTF.</li>
+      <li>Node editors made for a mouse: small sockets, right-click menus, keys to add nodes.</li>
+      <li>Compiling a new GPU shader on every change, which stalls and differs per driver.</li></ul></div>
+    <div class="better"><h3>Done better</h3><ul>
+      <li><strong>Every graph exports:</strong> it runs into colour, roughness, metal and normal maps, so glTF, USD, Blender and the path tracer all see exactly this.</li>
+      <li><strong>Stack and Graph are one thing:</strong> touch users work in layers, and the wires are there when wanted.</li>
+      <li><strong>Probe:</strong> press on the model and each node shows its value at that point.</li></ul></div>
+  </div>
+</section>
+
+<!-- 4. Phone -->
+<section class="screen" id="s-phone">
+  <div><h2>The same three pages on a phone or a portrait tablet</h2>
+  <p class="how"><b>Try:</b> these share their state with the big windows: paint here and it shows on screen 2, relax or pack here and screen 1 follows, move a stack slider and screen 3 follows. Draw on the phone's UV sheet with the Seam tool to see seams on the small model.</p></div>
+  <div class="phones">
+    <div class="phonewrap"><div class="pwin"><div class="phone" id="ph-uv">
+      <div class="vp" style="bottom:400px"><canvas class="gl"></canvas><canvas class="ov"></canvas></div>
+      <div class="ptop"><button class="btn" data-i="menu"></button><b>Stone egg</b><span class="sp">Surface · UV</span></div>
+      <div class="sheet" style="height:410px"><div class="grab"></div>
+        <div class="uvbox"><canvas></canvas></div>
+        <div class="sl"><span>Peel</span><input type="range" id="ph-peel" min="0" max="1" step="0.01" value="0"><output>0%</output></div>
+        <div class="ptools"><button class="tile on" data-tool="seam" data-ti="seam">Seam</button><button class="tile" data-tool="island" data-ti="pick">Island</button><button class="tile" data-tool="relax" data-ti="relax">Relax</button><button class="tile" data-tool="pack" data-ti="pack">Pack</button><button class="tile" data-tool="view" data-ti="passes">View</button></div>
+      </div><div class="toast"></div>
+    </div></div><p class="how"><b>UV on a phone.</b> The model on top and its UVs in a sheet below, one finger for the tool, two for the view. Pinch and twist on a selected island scale and turn it. The sheet slides up to give the UVs the whole screen.</p></div>
+
+    <div class="phonewrap"><div class="pwin"><div class="phone" id="ph-paint">
+      <div class="vp"><canvas class="gl"></canvas><canvas class="ov"></canvas></div>
+      <div class="ptop"><button class="btn" data-i="menu"></button><b>Stone egg</b><span class="sp">Surface · Paint</span></div>
+      <div class="island pside" id="ph-off"><div class="vs" data-k="size"><label>Size</label><div class="fill"></div><div class="knob"></div><output></output></div><div class="vs" data-k="strength"><label>Str</label><div class="fill"></div><div class="knob"></div><output></output></div><div class="well" id="ph-well"></div></div>
+      <div class="island pdock"><button class="tile on" data-tool="paint" data-ti="brush">Paint</button><button class="tile" data-tool="erase" data-ti="eraser">Erase</button><button class="tile" data-tool="stencil" data-ti="image">Stencil</button><button class="tile" data-tool="layers" data-ti="layers">Layers</button><button class="tile" data-tool="channels" data-ti="sparkle">Channels</button></div>
+      <div class="toast"></div>
+    </div></div><p class="how"><b>Paint on a phone.</b> Size and strength stay at the thumb's edge as on the tablet; layers and channels open as sheets so the model keeps the screen.</p></div>
+
+    <div class="phonewrap"><div class="pwin"><div class="phone" id="ph-shade">
+      <div class="vp" style="bottom:470px"><canvas class="gl"></canvas><canvas class="ov"></canvas></div>
+      <div class="ptop"><button class="btn" data-i="menu"></button><b>Weathered bronze</b><span class="sp">Surface · Shade</span></div>
+      <div class="sheet" style="height:480px"><div class="grab"></div>
+        <div class="seg"><button class="on">Stack</button><button id="ph-graphbtn">Graph</button></div>
+        <div class="stackrows" id="ph-stack"></div>
+      </div><div class="toast"></div>
+    </div></div><p class="how"><b>Shade on a phone.</b> The Stack view is the default on a narrow screen; Graph opens full screen over the model with the backdrop slider, as screen 3's Full.</p></div>
+  </div>
+</section>
+
+<!-- 5. Compare and plan -->
+<section class="screen" id="s-compare">
+  <div><h2>How the others do it, and what we do</h2>
+  <p>From what the app has today: Quad Remesh lays planar UV charts on quad objects, Bake maps writes normal, displacement, base colour, ORM and ID maps and a glb, an object shows its base colour, ORM and normal maps in the viewport and in Full render (up to 64 textured objects under Vulkan with texture arrays), polypaint paints per vertex with Sculpt, Both and Paint channels, and each polygroup can carry its own material. What is missing is everything in between: editing UVs, painting into textures, and building a material.</p></div>
+  <h3>UV unwrapping</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>App</th><th>What it does well</th><th>Where it falls short</th></tr></thead>
+    <tbody>
+      <tr><td>Blender</td><td>Seams on edges, Unwrap (angle based and conformal), Smart UV Project, live unwrap, pins, a strong packer since 3.6, stretch overlay.</td><td>Edit mode, edge selection and keys before any seam; desktop only.</td></tr>
+      <tr><td>ZBrush UV Master</td><td>One button unwraps a dense mesh; Control painting marks where seams should and should not go; polygroups become islands; Flatten shows the layout.</td><td>No UV editor: islands cannot be moved, straightened or packed by hand.</td></tr>
+      <tr><td>3D-Coat</td><td>A UV room with auto seams, several flatteners, live updates, texel density and tiles.</td><td>A dense desktop interface.</td></tr>
+      <tr><td>RizomUV</td><td>The reference for quality: auto seams, low-stretch flattening, the best packing.</td><td>A separate app with a file round trip; desktop only.</td></tr>
+      <tr><td>Nomad, Procreate, Substance</td><td>Nomad unwraps automatically for baking; Substance unwraps on import when UVs are missing.</td><td>None of them lets you edit the result; Procreate needs UVs made elsewhere.</td></tr>
+      <tr><td>Sculpt (planned)</td><td class="us">Seams drawn on the sculpt with the pen, live re-flattening per stroke, Peel, stretch on the model, seams first where they are hidden, a touch UV pane with pinch and twist on islands, Pack, Straighten for quad islands, texel density.</td><td class="us">Own flattener (conformal start, then as-rigid-as-possible relax) to be benchmarked against xatlas, as Quad Remesh compared AutoRemesher with the own engine.</td></tr>
+    </tbody></table></div>
+  <h3>Texture painting</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>App</th><th>What it does well</th><th>Where it falls short</th></tr></thead>
+    <tbody>
+      <tr><td>Substance Painter</td><td>Layers and fill layers, masks and smart masks, generators, smart materials, projection, every channel per layer.</td><td>Needs UVs and baked maps first; desktop; a subscription.</td></tr>
+      <tr><td>Procreate</td><td>The best touch painting: its brushes on a 3D model, layers per texture, Apple Pencil.</td><td>Colour first: little for roughness and metal, no smart masks, no UVs of its own.</td></tr>
+      <tr><td>Nomad</td><td>Vertex painting of colour, roughness and metal with layers, on a tablet; bakes to textures.</td><td>Paint only as sharp as the mesh.</td></tr>
+      <tr><td>ZBrush</td><td>Polypaint at millions of points, Spotlight to paint through pictures.</td><td>Colour only; textures only by converting at the end.</td></tr>
+      <tr><td>3D-Coat, Marmoset</td><td>Per-texel painting with smart materials driven by curvature and occlusion; Marmoset's painting shows in a high-quality viewport.</td><td>Desktop; masks come from baked maps.</td></tr>
+      <tr><td>Sculpt (planned)</td><td class="us">Layers of colour, roughness, metal and height; texel or vertex targets; masks read live from the sculpt (cavity, height, facing, thickness, level difference, polygroups, the sculpt mask); painting through a stencil; GPU dabs into sparse tiles with tile undo.</td><td class="us">Budget: 2048 channels on a tablet, 4096 on a desktop.</td></tr>
+    </tbody></table></div>
+  <h3>Shaders and materials</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>App</th><th>What it does well</th><th>Where it falls short</th></tr></thead>
+    <tbody>
+      <tr><td>Blender</td><td>Shader nodes for anything; Node Wrangler previews one node.</td><td>Most graphs do not export; a mouse-and-keys editor.</td></tr>
+      <tr><td>three.js</td><td>Node materials (TSL) and an editor that floats over the scene.</td><td>A developer tool; graphs are code.</td></tr>
+      <tr><td>Substance Designer</td><td>Graphs that make pictures, so every node has a thumbnail and the result exports anywhere.</td><td>Heavy, desktop, separate app.</td></tr>
+      <tr><td>Unreal, Unity</td><td>Live per-node previews; graphs compiled into shaders.</td><td>Engine-bound; compile waits.</td></tr>
+      <tr><td>ZBrush, Nomad, Procreate</td><td>Matcaps and material presets.</td><td>No graph at all.</td></tr>
+      <tr><td>Sculpt (planned)</td><td class="us">A graph that runs into the standard maps through fixed GPU kernels, one per node kind: no shader compiling, identical on Metal and Vulkan, everything exports. Stack, Graph (overlay, split, full) and Probe views; per-node previews on the model.</td><td class="us">Effects that depend on the view (sheen, clearcoat, scattering) are switches of the one material, joining the render plan's stage 6.</td></tr>
+    </tbody></table></div>
+
+  <h3>Wow features</h3>
+  <div class="wow">
+    <div><span class="k">W1 · Peel</span><p>A slider unfolds the model into its UV layout and folds it back. Seams, stretch and islands become obvious to anyone, and it doubles as a check before baking.</p></div>
+    <div><span class="k">W2 · Seams that hide themselves</span><p>Auto seams weigh how visible each edge is from around the model (the occlusion the app already traces), cavities and the underside, then polygroups and creases, so the first unwrap is already good.</p></div>
+    <div><span class="k">W3 · Masks from the sculpt</span><p>Smart masks read the high mesh itself, live: cavity, height, facing up, thickness, polygroups, the sculpt mask, and the detail between two subdivision levels (exactly what you sculpted on top of the form). No bake, no waiting.</p></div>
+    <div><span class="k">W4 · Paint now, UVs later</span><p>Layers live on vertices of a 20M sculpt, which needs no UVs. When the object gets UVs (Quad Remesh, Unwrap) every layer moves onto texels in one step, through the bake the app already has.</p></div>
+    <div><span class="k">W5 · Probe</span><p>Press on the model and every node shows its value there, as numbers and swatches. Finding why one spot looks wrong takes one touch, not a chain of previews.</p></div>
+    <div><span class="k">W6 · Every graph exports</span><p>The graph's result is maps, so what you see is what glTF, USD, the Blender link, the path tracer and a game engine get. No other node editor promises that.</p></div>
+    <div><span class="k">W7 · The graph over the model</span><p>Overlay with a backdrop slider, Split as a Lens pane, Full with the model in the mini view, and Hold to peek. The model is never more than a touch away.</p></div>
+    <div><span class="k">W8 · Material time-lapse</span><p>Graph edits and paint strokes are History steps, so the existing timeline and time-lapse replay a material being made as they replay a sculpt.</p></div>
+  </div>
+
+  <h3>Build order</h3>
+  <div class="stages">
+    <div><span class="n">S1</span><p><strong>UV core.</strong> UVs on any base mesh (triangles too), seams as an edge set saved per object, auto seams, the flattener and packer, stretch view, Peel. A UV pane that only shows. Benchmarked against xatlas.</p></div>
+    <div><span class="n">S2</span><p><strong>UV editing.</strong> Seam pen and eraser on the model with live re-flattening, the guide brush, the UV pane's island select, move, pinch and twist, Pack, Straighten, pins, texel density, mirrored halves.</p></div>
+    <div><span class="n">S3</span><p><strong>Paint layers on vertices.</strong> Roughness, metal and height beside polypaint's colour, a layer stack with blend modes and opacity, fill layers, Surface space and its shelf pages.</p></div>
+    <div><span class="n">S4</span><p><strong>Texture paint.</strong> Texel layers in sparse 128-texel tiles, GPU dabs in 3D across seams, tile undo, gutters, painting in the UV pane, stencils, the move of vertex layers onto texels.</p></div>
+    <div><span class="n">S5</span><p><strong>Masks from the sculpt.</strong> Cavity, height, facing, thickness, level difference, polygroups and the sculpt mask as live generators, and material looks built from them.</p></div>
+    <div><span class="n">S6</span><p><strong>Shader graph.</strong> The graph and its kernels into the maps, Stack view first, then Graph with Overlay, Split and Full, node previews and Probe.</p></div>
+    <div><span class="n">S7</span><p><strong>Out.</strong> Bake the result to files, glTF and USD with the maps, texture sets per material, UDIM tiles, the Blender link carrying maps.</p></div>
+  </div>
+  <h3>Choices for Bolt</h3>
+  <div class="decide">
+    <div><p><strong>Where it lives.</strong> Default: a fourth space, Surface, with UV, Paint and Shade pages. The other way: UV under Model and Paint and Shade under Render.</p></div>
+    <div><p><strong>How the graph runs.</strong> Default: into maps through fixed kernels (exports, no compiling). The other way: graphs compiled into live shaders, which allows view-dependent nodes but breaks export and needs Slang on the device.</p></div>
+    <div><p><strong>The flattener.</strong> Default: our own in Odin, measured against xatlas (MIT) on the same fixtures, keeping whichever wins, as with Quad Remesh.</p></div>
+  </div>
+</section>
+</main>
+
+<script>
+'use strict';
+const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const clamp = (x, a = 0, b = 1) => x < a ? a : x > b ? b : x;
+const lerp = (a, b, t) => a + (b - a) * t;
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
+const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const nrm = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0]/l, a[1]/l, a[2]/l]; };
+const srgb = c => Math.round(255 * Math.pow(clamp(c), 1 / 2.2));
+const hexLin = h => { const n = parseInt(h.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255].map(c => Math.pow(c, 2.2)); };
+const linHex = c => '#' + c.map(v => srgb(v).toString(16).padStart(2, '0')).join('');
+
+/* ---------------- Icons ---------------- */
+const ICONS = {
+  menu: 'M4 7h16M4 12h16M4 17h16', undo: 'M9 15 4 10l5-5M4 10h10a6 6 0 0 1 0 12h-3', redo: 'm15 15 5-5-5-5M20 10H10a6 6 0 0 0 0 12h3',
+  search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4', history: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2',
+  gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7 7 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z',
+  panels: 'M4 4h16v16H4zM14 4v16', layout: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z', passes: 'M12 3 3 8l9 5 9-5-9-5zM3 13l9 5 9-5',
+  camera: 'M4 8h4l2-3h4l2 3h4v11H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', light: 'M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5V16h8v-2.5A6 6 0 0 0 12 3z',
+  brush: 'M18 3 9 12l3 3 9-9zM9 12c-3 0-5 2-5 5 0 2-1 3-2 4 4 0 10 0 10-6', box: 'M12 3 4 7v10l8 4 8-4V7zM4 7l8 4 8-4M12 11v10',
+  surface: 'M4 6h10l6 4H10zM4 6v8l6 4v-8M20 10v8l-10 0', render: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 3v6M20 9l-5 3M18 19l-4-5M6 19l4-5M4 9l5 3',
+  unwrap: 'M4 8 12 4l8 4-8 4zM4 8v8l8 4M12 12v8M14 15h6v6h-6z', seam: 'M3 18c4-1 5-7 9-7s5 6 9 5M5 15l1 2M9 11l1 2M14 11l1 2M18 14l1 2',
+  eraser: 'M16 3 21 8 10 19H5l-2-2zM9 9l6 6M5 19h15', pick: 'M5 3l12 6-5 2-2 5z M14 14l5 5', relax: 'M3 12c3-6 6 6 9 0s6 6 9 0M3 18c3-3 6 3 9 0s6 3 9 0',
+  grid: 'M4 4h16v16H4zM4 9.3h16M4 14.6h16M9.3 4v16M14.6 4v16', pack: 'M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z',
+  peel: 'M4 4h12l4 4v12H4zM16 4v4h4M8 13h8M8 17h5', shield: 'M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6zM9 12l2 2 4-4',
+  bucket: 'M5 11 12 4l7 7-7 7zM5 11h14M20 15c0 2-1 3-1 3s-1-1-1-3 1-3 1-3 1 1 1 3z', drop: 'M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z',
+  image: 'M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15 9.5a1.5 1.5 0 1 0 0-.1', project: 'M3 12h4M17 12h4M12 3v4M12 17v4M8 8l8 8M16 8l-8 8',
+  sparkle: 'M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2zM19 15l1 2 2 1-2 1-1 2-1-2-2-1 2-1z', trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
+  nodes: 'M3 5h6v5H3zM15 14h6v5h-6zM9 7.5c4 0 2 9 6 9', orbit: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12c0 2 4 4 9 4s9-2 9-4',
+  probe: 'M12 3v5M12 16v5M3 12h5M16 12h5M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', bake: 'M12 3v12M7 10l5 5 5-5M4 19h16', export: 'M12 15V3M7 8l5-5 5 5M4 13v7h16v-7',
+  layers: 'M12 3 3 8l9 5 9-5zM3 12l9 5 9-5M3 16l9 5 9-5', eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'
+};
+const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICONS[k] || ''}"/></svg>`;
+$$('[data-i]').forEach(b => { b.innerHTML = svg(b.dataset.i); b.setAttribute('aria-label', b.dataset.i); });
+$$('[data-ti]').forEach(b => b.insertAdjacentHTML('afterbegin', svg(b.dataset.ti)));
+
+/* ---------------- The model: a sculpted stone egg built from six cube faces, one island each ---------------- */
+const N = 24, NV = N + 1, VPF = NV * NV;
+const FACES = [
+  { n: [0,0,1],  a: [1,0,0],  b: [0,1,0],  name: 'Front' },
+  { n: [1,0,0],  a: [0,0,-1], b: [0,1,0],  name: 'Right' },
+  { n: [0,0,-1], a: [-1,0,0], b: [0,1,0],  name: 'Back' },
+  { n: [-1,0,0], a: [0,0,1],  b: [0,1,0],  name: 'Left' },
+  { n: [0,1,0],  a: [1,0,0],  b: [0,0,-1], name: 'Top' },
+  { n: [0,-1,0], a: [1,0,0],  b: [0,0,1],  name: 'Bottom' }];
+const CROSS = [[1,1],[2,1],[3,1],[0,1],[1,2],[1,0]];
+const PACKED = [[0,1],[1,1],[2,1],[0,0],[1,0],[2,0]];
+const SC = [0.92, 1.12, 0.92];
+function dirOf(f, ss, st) {
+  const F = FACES[f], s = Math.tan(ss * Math.PI / 4), t = Math.tan(st * Math.PI / 4);
+  return nrm([F.n[0] + s*F.a[0] + t*F.b[0], F.n[1] + s*F.a[1] + t*F.b[1], F.n[2] + s*F.a[2] + t*F.b[2]]);
+}
+function fields(d) {
+  const [x, y, z] = d;
+  const low = 0.065 * Math.sin(2.2*x + 0.4) * Math.sin(2.6*y + 1.2) * Math.cos(1.7*z - 0.3);
+  const band = Math.sin(5.2*y + 1.5*Math.sin(3.1*x + 1.3*z));
+  const groove = Math.exp(-band * band * 10);
+  const bumps = Math.sin(9*x + 1.3) * Math.sin(8*z - 0.7) * Math.sin(7*y + 0.4);
+  const h = low - 0.04 * groove + 0.014 * bumps;
+  return { h, cav: clamp(groove * 1.05 + Math.max(0, -bumps) * 0.3), hn: clamp((h + 0.09) / 0.17) };
+}
+function posOf(d) { const r = 1 + fields(d).h; return [d[0]*r*SC[0], d[1]*r*SC[1], d[2]*r*SC[2]]; }
+function dirFromPos(p) { return nrm([p[0]/SC[0], p[1]/SC[1], p[2]/SC[2]]); }
+function faceParam(d, g) {
+  const F = FACES[g], dn = dot(d, F.n);
+  if (dn < 0.2) return null;
+  return [Math.atan(dot(d, F.a) / dn) * 4 / Math.PI, Math.atan(dot(d, F.b) / dn) * 4 / Math.PI];
+}
+function normalAt(f, ss, st) {
+  const e = 1e-3;
+  const a = sub(posOf(dirOf(f, ss + e, st)), posOf(dirOf(f, ss - e, st)));
+  const b = sub(posOf(dirOf(f, ss, st + e)), posOf(dirOf(f, ss, st - e)));
+  return nrm(cross(a, b));
+}
+const BASE = (() => {
+  const V = 6 * VPF, pos = new Float32Array(V*3), nor = new Float32Array(V*3), loc = new Float32Array(V*2), isl = new Float32Array(V);
+  const idx = new Uint16Array(6 * N * N * 6), a3 = new Float32Array(6 * N * N);
+  let k = 0;
+  for (let f = 0; f < 6; f++) for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++, k++) {
+    const ss = -1 + 2*i/N, st = -1 + 2*j/N, p = posOf(dirOf(f, ss, st)), n = normalAt(f, ss, st);
+    pos.set(p, k*3); nor.set(n, k*3); loc[k*2] = i/N; loc[k*2+1] = j/N; isl[k] = f;
+  }
+  let q = 0, t = 0;
+  for (let f = 0; f < 6; f++) for (let j = 0; j < N; j++) for (let i = 0; i < N; i++, q++) {
+    const A = f*VPF + j*NV + i, B = A + 1, C = A + NV, D = C + 1;
+    idx.set([A, B, D, A, D, C], t); t += 6;
+    const P = v => [pos[v*3], pos[v*3+1], pos[v*3+2]];
+    const ar = (u, v, w) => Math.hypot(...cross(sub(P(v), P(u)), sub(P(w), P(u)))) / 2;
+    a3[q] = ar(A, B, D) + ar(A, D, C);
+  }
+  return { V, pos, nor, loc, isl, idx, a3, tris: idx.length / 3 };
+})();
+const projL = i => (Math.tan((-1 + 2*i/N) * Math.PI / 4) + 1) / 2;
+
+function makeLayout(kind) {
+  const cross = kind === 'cross', cols = cross ? 4 : 3, rows = cross ? 3 : 2, cells = cross ? CROSS : PACKED;
+  const size = 1 / cols, oy = (1 - rows * size) / 2;
+  return { kind, size, pad: size * 0.045, off: cells.map(([cx, cy]) => [cx * size, oy + cy * size]) };
+}
+function layoutTarget(kind) { return makeLayout(kind).off; }
+function islandRect(L, f) { return [L.off[f][0] + L.pad, L.off[f][1] + L.pad, L.size - 2 * L.pad]; }
+
+/* The UV state of one layout: uvs per vertex, stretch per quad and per vertex. */
+function computeUV(L, relaxT) {
+  const uv = new Float32Array(BASE.V * 2), qs = new Float32Array(6 * N * N), vs = new Float32Array(BASE.V), cnt = new Float32Array(BASE.V);
+  let k = 0;
+  for (let f = 0; f < 6; f++) { const [x, y, w] = islandRect(L, f);
+    for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++, k++) {
+      const lx = lerp(projL(i), i / N, relaxT), ly = lerp(projL(j), j / N, relaxT);
+      uv[k*2] = x + lx * w; uv[k*2+1] = y + ly * w;
+    } }
+  let A3 = 0, AU = 0;
+  const qa = new Float32Array(6 * N * N);
+  let q = 0;
+  for (let f = 0; f < 6; f++) for (let j = 0; j < N; j++) for (let i = 0; i < N; i++, q++) {
+    const A = f*VPF + j*NV + i, B = A + 1, C = A + NV, D = C + 1;
+    const xs = [uv[A*2], uv[B*2], uv[D*2], uv[C*2]], ys = [uv[A*2+1], uv[B*2+1], uv[D*2+1], uv[C*2+1]];
+    let s = 0; for (let m = 0; m < 4; m++) { const n = (m + 1) % 4; s += xs[m]*ys[n] - xs[n]*ys[m]; }
+    qa[q] = Math.abs(s) / 2; A3 += BASE.a3[q]; AU += qa[q];
+  }
+  const M = A3 / AU; let worst = 0;
+  q = 0;
+  for (let f = 0; f < 6; f++) for (let j = 0; j < N; j++) for (let i = 0; i < N; i++, q++) {
+    const s = Math.log2((BASE.a3[q] / qa[q]) / M); qs[q] = s; worst = Math.max(worst, Math.abs(s));
+    const A = f*VPF + j*NV + i;
+    for (const v of [A, A + 1, A + NV, A + NV + 1]) { vs[v] += s; cnt[v]++; }
+  }
+  for (let v = 0; v < BASE.V; v++) vs[v] /= cnt[v];
+  return { uv, qs, vs, worst: Math.pow(2, worst) };
+}
+
+/* ---------------- Matrices ---------------- */
+function persp(fy, asp, n, f) { const t = 1 / Math.tan(fy / 2); return [t/asp,0,0,0, 0,t,0,0, 0,0,(f+n)/(n-f),-1, 0,0,2*f*n/(n-f),0]; }
+function look(e, c, u) {
+  const z = nrm(sub(e, c)), x = nrm(cross(u, z)), y = cross(z, x);
+  return [x[0],y[0],z[0],0, x[1],y[1],z[1],0, x[2],y[2],z[2],0, -dot(x,e),-dot(y,e),-dot(z,e),1];
+}
+function mul(a, b) { const o = new Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k*4+r] * b[c*4+k]; o[c*4+r] = s; } return o; }
+
+/* ---------------- WebGL viewer ---------------- */
+const VS = `#version 300 es
+in vec3 aPos; in vec3 aFlat; in vec3 aNor; in vec2 aUv; in vec2 aLoc; in float aIsl; in float aStr;
+uniform mat4 uVP; uniform float uPeel;
+out vec3 vP; out vec3 vN; out vec2 vUv; out vec2 vL; out float vI; out float vS;
+void main(){ vec3 p=mix(aPos,aFlat,uPeel); vN=normalize(mix(aNor,vec3(0.,0.,1.),uPeel)); vP=p; vUv=aUv; vL=aLoc; vI=aIsl; vS=aStr; gl_Position=uVP*vec4(p,1.); }`;
+const FS = `#version 300 es
+precision highp float;
+in vec3 vP; in vec3 vN; in vec2 vUv; in vec2 vL; in float vI; in float vS;
+uniform int uMode; uniform sampler2D uBase; uniform sampler2D uOrm; uniform vec3 uEye; uniform vec3 uLight; uniform float uSel; uniform float uSeams;
+out vec4 o;
+const vec3 IC[6]=vec3[6](vec3(.37,.75,.70),vec3(.95,.62,.35),vec3(.56,.72,1.),vec3(.72,.61,1.),vec3(1.,.53,.73),vec3(.95,.71,.29));
+vec3 heat(float s){ float a=clamp(abs(s)/1.6,0.,1.); vec3 w=vec3(.9,.9,.88); return s>0.? mix(w,vec3(.95,.22,.18),a) : mix(w,vec3(.18,.42,.95),a); }
+void main(){
+  vec3 n=normalize(vN); if(!gl_FrontFacing) n=-n;
+  vec3 base=vec3(.56,.55,.53); float rough=.62, metal=0.;
+  int ii=int(vI+.5); vec3 ic=IC[clamp(ii,0,5)];
+  if(uMode==1){ vec2 q=floor(vUv*48.); float c=mod(q.x+q.y,2.); base=mix(vec3(.16),vec3(.80),c)*mix(vec3(1.),ic,.6); rough=.7; }
+  else if(uMode==2){ base=ic*.8; rough=.7; }
+  else if(uMode==3){ base=heat(vS)*.8; rough=.75; }
+  else if(uMode==4){ base=pow(texture(uBase,vUv).rgb,vec3(2.2)); vec3 m=texture(uOrm,vUv).rgb; rough=clamp(m.g,.05,1.); metal=m.b; }
+  if(uSel>-.5 && abs(vI-uSel)<.5) base=mix(base,vec3(.37,.84,.77),.4);
+  vec3 v=normalize(uEye-vP), l=normalize(uLight), h=normalize(l+v);
+  float nl=max(dot(n,l),0.), nv=max(dot(n,v),.04), nh=max(dot(n,h),0.), vh=max(dot(v,h),0.);
+  float a=max(rough*rough,.03), a2=a*a, dd=nh*nh*(a2-1.)+1., D=a2/(3.14159*dd*dd);
+  vec3 F0=mix(vec3(.04),base,metal), F=F0+(1.-F0)*pow(1.-vh,5.);
+  float k=a*.5, G=(nv/(nv*(1.-k)+k))*(nl/(nl*(1.-k)+k));
+  vec3 spec=D*F*G/(4.*nv*max(nl,.04));
+  vec3 kd=(1.-F)*(1.-metal);
+  vec3 col=(kd*base/3.14159+spec)*nl*3.;
+  float up=n.y*.5+.5; vec3 sky=mix(vec3(.08,.08,.09),vec3(.36,.37,.40),up);
+  vec3 r=reflect(-v,n); vec3 env=mix(vec3(.05,.05,.06),vec3(1.05,1.05,1.08),smoothstep(-.35,.9,r.y))*mix(1.,.3,rough);
+  vec3 Fa=F0+(1.-F0)*pow(1.-nv,5.)*(1.-rough);
+  col+=kd*base*sky*.95+env*Fa*.95+pow(1.-nv,3.)*.05;
+  if(uSeams>.5){ float e=min(min(vL.x,1.-vL.x),min(vL.y,1.-vL.y)); float w=fwidth(e)*1.8+.003; col=mix(col,vec3(1.25,.75,.25),1.-smoothstep(w*.5,w,e)); }
+  col=col/(1.+col*.8); o=vec4(pow(col,vec3(1./2.2)),1.);
+}`;
+const viewers = [];
+class Viewer {
+  constructor(host, o) {
+    this.host = host; this.o = o; this.cv = $('canvas.gl', host); this.ov = $('canvas.ov', host); this.ctx = this.ov.getContext('2d');
+    this.yaw = o.yaw ?? -0.55; this.pitch = o.pitch ?? 0.18; this.dist = o.dist ?? 4.6; this.shift = o.shift ?? 0; this.peel = 0;
+    this.mode = o.mode ?? 0; this.sel = -1; this.seams = o.seams ? 1 : 0; this.uvs = null; this.dirty = true;
+    const gl = this.gl = this.cv.getContext('webgl2', { antialias: true, alpha: true, premultipliedAlpha: false });
+    if (!gl) { host.insertAdjacentHTML('beforeend', '<p style="position:absolute;inset:auto 20px 20px;color:#ff8a7a">This window needs WebGL 2.</p>'); return; }
+    const sh = (t, s) => { const x = gl.createShader(t); gl.shaderSource(x, s); gl.compileShader(x); if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(x)); return x; };
+    const p = this.prog = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(p);
+    this.vao = gl.createVertexArray(); gl.bindVertexArray(this.vao);
+    this.vbo = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo); this.data = new Float32Array(BASE.V * 15); gl.bufferData(gl.ARRAY_BUFFER, this.data.byteLength, gl.DYNAMIC_DRAW);
+    const at = [['aPos',3],['aFlat',3],['aNor',3],['aUv',2],['aLoc',2],['aIsl',1],['aStr',1]]; let off = 0;
+    for (const [nm, sz] of at) { const l = gl.getAttribLocation(p, nm); if (l >= 0) { gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, sz, gl.FLOAT, false, 60, off * 4); } off += sz; }
+    const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, BASE.idx, gl.STATIC_DRAW);
+    this.U = {}; for (const u of ['uVP','uPeel','uMode','uBase','uOrm','uEye','uLight','uSel','uSeams']) this.U[u] = gl.getUniformLocation(p, u);
+    this.tex = { base: this.mkTex([140,140,140,255]), orm: this.mkTex([255,150,0,255]) };
+    new ResizeObserver(() => this.resize()).observe(this.cv);
+    this.bindPointer(); viewers.push(this); this.resize();
+  }
+  mkTex(px) { const gl = this.gl, t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(px)); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+  setTex(which, img) { const gl = this.gl; if (!gl) return; gl.bindTexture(gl.TEXTURE_2D, this.tex[which]); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img); gl.generateMipmap(gl.TEXTURE_2D); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); this.dirty = true; }
+  setUV(u) {
+    this.uvs = u; const d = this.data;
+    for (let v = 0; v < BASE.V; v++) { const o = v * 15, uu = u.uv[v*2], vv = u.uv[v*2+1];
+      d[o] = BASE.pos[v*3]; d[o+1] = BASE.pos[v*3+1]; d[o+2] = BASE.pos[v*3+2];
+      d[o+3] = (uu - 0.5) * 2.7; d[o+4] = (vv - 0.5) * 2.7; d[o+5] = 0;
+      d[o+6] = BASE.nor[v*3]; d[o+7] = BASE.nor[v*3+1]; d[o+8] = BASE.nor[v*3+2];
+      d[o+9] = uu; d[o+10] = vv; d[o+11] = BASE.loc[v*2]; d[o+12] = BASE.loc[v*2+1]; d[o+13] = BASE.isl[v]; d[o+14] = u.vs[v]; }
+    if (this.gl) { this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vbo); this.gl.bufferSubData(this.gl.ARRAY_BUFFER, 0, d); }
+    this.dirty = true;
+  }
+  resize() { const r = this.cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1); const w = Math.max(2, Math.round(r.width * dpr)), h = Math.max(2, Math.round(r.height * dpr));
+    if (this.cv.width !== w || this.cv.height !== h) { this.cv.width = w; this.cv.height = h; this.ov.width = w; this.ov.height = h; } this.dirty = true; }
+  cam() {
+    const yaw = lerp(this.yaw, 0, this.peel), pitch = lerp(this.pitch, 0, this.peel);
+    const eye = [this.dist * Math.cos(pitch) * Math.sin(yaw), this.dist * Math.sin(pitch), this.dist * Math.cos(pitch) * Math.cos(yaw)];
+    const asp = this.cv.width / this.cv.height, fy = 0.62, P = persp(fy, asp, 0.1, 50);
+    P[8] -= this.shift;
+    const V = look(eye, [0, 0, 0], [0, 1, 0]), fwd = nrm(sub([0,0,0], eye)), right = nrm(cross(fwd, [0,1,0])), up = cross(right, fwd);
+    return { eye, vp: mul(P, V), fwd, right, up, th: Math.tan(fy / 2), asp };
+  }
+  draw() {
+    const gl = this.gl; if (!gl || !this.uvs) return; this.dirty = false;
+    const c = this.cam(); this.c = c;
+    gl.viewport(0, 0, this.cv.width, this.cv.height); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST);
+    gl.useProgram(this.prog); gl.bindVertexArray(this.vao);
+    gl.uniformMatrix4fv(this.U.uVP, false, c.vp); gl.uniform1f(this.U.uPeel, this.peel); gl.uniform1i(this.U.uMode, this.mode);
+    gl.uniform3fv(this.U.uEye, c.eye);
+    const L = nrm([-0.45*c.right[0] + 0.8*c.up[0] - 0.55*c.fwd[0], -0.45*c.right[1] + 0.8*c.up[1] - 0.55*c.fwd[1], -0.45*c.right[2] + 0.8*c.up[2] - 0.55*c.fwd[2]]);
+    gl.uniform3fv(this.U.uLight, L); gl.uniform1f(this.U.uSel, this.sel); gl.uniform1f(this.U.uSeams, this.seams);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.tex.base); gl.uniform1i(this.U.uBase, 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.tex.orm); gl.uniform1i(this.U.uOrm, 1);
+    gl.drawElements(gl.TRIANGLES, BASE.idx.length, gl.UNSIGNED_SHORT, 0);
+    const x = this.ctx; x.clearRect(0, 0, this.ov.width, this.ov.height);
+    if (this.o.overlay) this.o.overlay(this, x);
+  }
+  project(p) { const m = (this.c || this.cam()).vp, w = m[3]*p[0] + m[7]*p[1] + m[11]*p[2] + m[15];
+    return [((m[0]*p[0] + m[4]*p[1] + m[8]*p[2] + m[12]) / w + 1) / 2, (1 - (m[1]*p[0] + m[5]*p[1] + m[9]*p[2] + m[13]) / w) / 2]; }
+  pick(nx, ny) {
+    if (this.peel > 0.01) return null;
+    const c = this.c || this.cam(), x = (nx * 2 - 1) - this.shift, y = 1 - ny * 2;
+    const d = nrm([c.fwd[0] + c.right[0]*x*c.th*c.asp + c.up[0]*y*c.th, c.fwd[1] + c.right[1]*x*c.th*c.asp + c.up[1]*y*c.th, c.fwd[2] + c.right[2]*x*c.th*c.asp + c.up[2]*y*c.th]);
+    const o = c.eye, P = BASE.pos, I = BASE.idx; let best = 1e9, bi = -1, bu = 0, bv = 0;
+    for (let t = 0; t < I.length; t += 3) {
+      const a = I[t]*3, b = I[t+1]*3, cc = I[t+2]*3;
+      const e1 = [P[b]-P[a], P[b+1]-P[a+1], P[b+2]-P[a+2]], e2 = [P[cc]-P[a], P[cc+1]-P[a+1], P[cc+2]-P[a+2]];
+      const pv = cross(d, e2), det = dot(e1, pv); if (Math.abs(det) < 1e-9) continue;
+      const tv = [o[0]-P[a], o[1]-P[a+1], o[2]-P[a+2]], u = dot(tv, pv) / det; if (u < 0 || u > 1) continue;
+      const qv = cross(tv, e1), v = dot(d, qv) / det; if (v < 0 || u + v > 1) continue;
+      const dist = dot(e2, qv) / det; if (dist > 0 && dist < best) { best = dist; bi = t; bu = u; bv = v; }
+    }
+    if (bi < 0) return null;
+    const vi = [I[bi], I[bi+1], I[bi+2]], w = [1 - bu - bv, bu, bv], it = (arr, n) => { const r = new Array(n).fill(0); for (let k = 0; k < 3; k++) for (let m = 0; m < n; m++) r[m] += arr[vi[k]*n + m] * w[k]; return r; };
+    return { pos: [o[0] + d[0]*best, o[1] + d[1]*best, o[2] + d[2]*best], depth: best * dot(d, c.fwd), uv: it(this.uvs.uv, 2), loc: it(BASE.loc, 2), face: BASE.isl[vi[0]], nor: nrm(it(BASE.nor, 3)) };
+  }
+  worldPerPx(depth) { return depth * 2 * (this.c || this.cam()).th / this.cv.getBoundingClientRect().height; }
+  bindPointer() {
+    const cv = this.cv, pts = new Map(); let orbit = null, pinch = null;
+    const nxy = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height]; };
+    cv.addEventListener('pointerdown', e => {
+      cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]);
+      if (pts.size === 2) { if (this.tool) { this.o.up && this.o.up(this); this.tool = null; } const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a[0]-b[0], a[1]-b[1]), dist: this.dist }; orbit = null; return; }
+      const [nx, ny] = nxy(e), hit = this.pick(nx, ny);
+      if (this.o.down && this.o.down(this, hit, nx, ny, e)) { this.tool = true; return; }
+      orbit = { x: e.clientX, y: e.clientY, yaw: this.yaw, pitch: this.pitch };
+    });
+    cv.addEventListener('pointermove', e => {
+      const [nx, ny] = nxy(e); this.hover = [nx, ny];
+      if (pts.has(e.pointerId)) pts.set(e.pointerId, [e.clientX, e.clientY]);
+      if (pinch && pts.size === 2) { const [a, b] = [...pts.values()]; this.dist = clamp(pinch.dist * pinch.d / Math.max(20, Math.hypot(a[0]-b[0], a[1]-b[1])), 2.4, 9); this.dirty = true; return; }
+      if (this.tool) { this.o.move && this.o.move(this, this.pick(nx, ny), nx, ny, e); return; }
+      if (orbit) { const r = cv.getBoundingClientRect(); this.yaw = orbit.yaw - (e.clientX - orbit.x) / r.width * 4; this.pitch = clamp(orbit.pitch + (e.clientY - orbit.y) / r.height * 3, -1.3, 1.3); this.dirty = true; return; }
+      if (this.o.hover) { this.o.hover(this); this.dirty = true; }
+    });
+    const end = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (this.tool) { this.tool = null; this.o.up && this.o.up(this); } orbit = null; };
+    cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+    cv.addEventListener('pointerleave', () => { this.hover = null; this.dirty = true; });
+    cv.addEventListener('wheel', e => { e.preventDefault(); this.dist = clamp(this.dist * Math.exp(e.deltaY * 0.0012), 2.4, 9); this.dirty = true; }, { passive: false });
+  }
+}
+function loop() { for (const v of viewers) if (v.dirty && v.cv.offsetParent) v.draw(); requestAnimationFrame(loop); }
+function animate(ms, fn, done) { if (RM) { fn(1); done && done(); return; } const t0 = performance.now(); const step = now => { const t = clamp((now - t0) / ms); const e = t < .5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2; fn(e); if (t < 1) requestAnimationFrame(step); else done && done(); }; requestAnimationFrame(step); }
+function toast(win, text) { const t = $('.toast', win); if (!t) return; t.textContent = text; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2800); }
+
+/* Scale each window's 1600 x 900 app (or 390 x 844 phone) to its frame. */
+function fit() {
+  for (const w of $$('.win')) { const a = $('.app', w); a.style.transform = `scale(${w.clientWidth / 1600})`; w._s = w.clientWidth / 1600; }
+  for (const w of $$('.pwin')) { const a = $('.phone', w); a.style.transform = `scale(${w.clientWidth / 390})`; w._s = w.clientWidth / 390; }
+  for (const v of viewers) v.resize();
+  redrawUV();
+}
+addEventListener('resize', fit);
+
+/* ---------------- UV pane drawing ---------------- */
+function heatCss(s) { const a = clamp(Math.abs(s) / 1.6), w = [230, 230, 225], h = s > 0 ? [242, 56, 46] : [46, 107, 242]; return `rgb(${w.map((c, i) => Math.round(lerp(c, h[i], a))).join(',')})`; }
+const ISL = ['#5ebfb3', '#f29e59', '#8fb8ff', '#b89cff', '#ff87ba', '#f2b54a'];
+function uvFrame(W, H) { const s = Math.min(W, H) - 36; return { x: (W - s) / 2, y: (H - s) / 2, s }; }
+function drawUVPane(cv, st, opt = {}) {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  const W = Math.max(2, Math.round(r.width * dpr)), H = Math.max(2, Math.round(r.height * dpr));
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const x = cv.getContext('2d'), F = uvFrame(W, H), X = u => F.x + u * F.s, Y = v => F.y + (1 - v) * F.s, uv = st.u.uv;
+  x.fillStyle = '#101318'; x.fillRect(0, 0, W, H);
+  x.fillStyle = '#0a0c0f'; x.fillRect(F.x, F.y, F.s, F.s);
+  x.strokeStyle = '#1e242b'; x.lineWidth = 1;
+  for (let i = 1; i < 8; i++) { x.beginPath(); x.moveTo(X(i/8), F.y); x.lineTo(X(i/8), F.y + F.s); x.moveTo(F.x, Y(i/8)); x.lineTo(F.x + F.s, Y(i/8)); x.stroke(); }
+  x.strokeStyle = '#3a424c'; x.strokeRect(F.x, F.y, F.s, F.s);
+  if (opt.image) { x.save(); x.globalAlpha = 1; x.drawImage(opt.image, F.x, F.y, F.s, F.s); x.restore(); }
+  let q = 0;
+  for (let f = 0; f < 6; f++) {
+    if (!opt.image) for (let j = 0; j < N; j++) for (let i = 0; i < N; i++, q++) {
+      const A = f*VPF + j*NV + i, B = A + 1, C = A + NV, D = C + 1;
+      x.beginPath(); x.moveTo(X(uv[A*2]), Y(uv[A*2+1])); x.lineTo(X(uv[B*2]), Y(uv[B*2+1])); x.lineTo(X(uv[D*2]), Y(uv[D*2+1])); x.lineTo(X(uv[C*2]), Y(uv[C*2+1])); x.closePath();
+      if (st.show === 'heat') x.fillStyle = heatCss(st.u.qs[q]);
+      else { const c = ((i >> 1) + (j >> 1)) & 1; x.fillStyle = ISL[f]; x.globalAlpha = c ? 0.85 : 0.55; }
+      x.fill(); x.globalAlpha = 1;
+    }
+    x.beginPath(); const b = f * VPF, P = (i, j) => [X(uv[(b + j*NV + i)*2]), Y(uv[(b + j*NV + i)*2+1])];
+    for (let i = 0; i <= N; i++) { const p = P(i, 0); i ? x.lineTo(...p) : x.moveTo(...p); }
+    for (let j = 1; j <= N; j++) x.lineTo(...P(N, j));
+    for (let i = N - 1; i >= 0; i--) x.lineTo(...P(i, N));
+    for (let j = N - 1; j > 0; j--) x.lineTo(...P(0, j));
+    x.closePath(); x.lineWidth = (st.sel === f ? 3 : 1.5) * dpr; x.strokeStyle = st.sel === f ? '#5ed6c4' : (opt.image ? 'rgba(255,255,255,.35)' : 'rgba(255,190,90,.9)'); x.stroke();
+    if (!opt.image && opt.labels !== false) { const c = P(N >> 1, N >> 1); x.fillStyle = 'rgba(10,12,15,.75)'; x.font = `600 ${11 * dpr}px Inter, sans-serif`; const tw = x.measureText(FACES[f].name).width; x.fillRect(c[0] - tw/2 - 5*dpr, c[1] - 9*dpr, tw + 10*dpr, 18*dpr); x.fillStyle = '#e8ecef'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(FACES[f].name, c[0], c[1]); }
+  }
+  if (st.seams && st.seams.length) {
+    x.strokeStyle = '#ffb84d'; x.lineWidth = 3 * dpr; x.lineCap = 'round'; x.beginPath();
+    for (const [a, b] of st.seams) { x.moveTo(X(uv[a*2]), Y(uv[a*2+1])); x.lineTo(X(uv[b*2]), Y(uv[b*2+1])); }
+    x.stroke();
+  }
+  return F;
+}
+const uvPanes = [];
+function redrawUV() { for (const p of uvPanes) p(); }
+
+/* ---------------- Screen 1: Unwrap ---------------- */
+const UN = { L: makeLayout('cross'), relaxT: 0, sel: -1, seams: [], tool: 'seam', show: 'heat', peel: 0, viewers: [], lastV: -1 };
+UN.u = computeUV(UN.L, UN.relaxT);
+const winU = $('#w-unwrap');
+function unRefresh() {
+  UN.u = computeUV(UN.L, UN.relaxT);
+  for (const v of UN.viewers) { v.setUV(UN.u); v.sel = UN.sel; v.peel = UN.peel; }
+  const L = UN.L, w = L.size - 2 * L.pad, ppu = w * 2048 / 1.62, ppcm = ppu / 11.2;
+  $('#u-stretch').innerHTML = `Stretch: <b>${UN.u.worst.toFixed(1)}×</b> at worst`;
+  $('#u-density').innerHTML = `Texel density: <b>${ppcm.toFixed(0)} px/cm</b> at 2048 · ${L.kind === 'cross' ? 'cross layout' : 'packed'}`;
+  $('#u-badge').textContent = `${6 + UN.splits} islands`;
+  redrawUV();
+}
+UN.splits = 0;
+function vertexAt(hit) { const i = Math.round(hit.loc[0] * N), j = Math.round(hit.loc[1] * N); return hit.face * VPF + j * NV + i; }
+function seamStep(v) {
+  if (UN.lastV < 0 || Math.floor(UN.lastV / VPF) !== Math.floor(v / VPF)) { UN.lastV = v; return; }
+  const f = Math.floor(v / VPF); let a = UN.lastV % VPF, ai = a % NV, aj = (a / NV) | 0; const bi = v % VPF % NV, bj = (v % VPF / NV) | 0;
+  let guard = 0;
+  while ((ai !== bi || aj !== bj) && guard++ < 80) {
+    const from = f*VPF + aj*NV + ai;
+    if (Math.abs(bi - ai) >= Math.abs(bj - aj)) ai += Math.sign(bi - ai); else aj += Math.sign(bj - aj);
+    const to = f*VPF + aj*NV + ai;
+    if (UN.erasing) UN.seams = UN.seams.filter(([p, q]) => !((p === from && q === to) || (p === to && q === from)));
+    else UN.seams.push([from, to]);
+  }
+  UN.lastV = v;
+}
+function seamOverlay(v, x) {
+  const W = v.ov.width, H = v.ov.height, dpr = W / v.cv.getBoundingClientRect().width;
+  if (UN.peel < 0.01 && UN.seams.length) {
+    const c = v.c, P = BASE.pos;
+    x.lineCap = 'round';
+    for (const pass of [0, 1]) { x.beginPath(); x.strokeStyle = pass ? '#ffb84d' : 'rgba(20,12,0,.7)'; x.lineWidth = (pass ? 3 : 5) * dpr;
+      for (const [a, b] of UN.seams) { const pa = [P[a*3], P[a*3+1], P[a*3+2]], pb = [P[b*3], P[b*3+1], P[b*3+2]];
+        const n = [BASE.nor[a*3], BASE.nor[a*3+1], BASE.nor[a*3+2]]; if (dot(n, sub(c.eye, pa)) < 0.05) continue;
+        const s = v.project(pa), t = v.project(pb); x.moveTo(s[0] * W, s[1] * H); x.lineTo(t[0] * W, t[1] * H); }
+      x.stroke(); }
+  }
+  if (v.hover && (UN.tool === 'seam' || UN.tool === 'erase') && UN.peel < 0.01) { x.beginPath(); x.arc(v.hover[0] * W, v.hover[1] * H, 7 * dpr, 0, 7); x.strokeStyle = UN.tool === 'erase' ? '#ff8a7a' : '#ffb84d'; x.lineWidth = 2 * dpr; x.stroke(); }
+}
+const unHandlers = {
+  overlay: seamOverlay,
+  hover: () => {},
+  down(v, hit) {
+    if (!hit) return false;
+    if (UN.tool === 'island') { UN.sel = hit.face; unRefresh(); return true; }
+    if (UN.tool === 'seam' || UN.tool === 'erase') { UN.erasing = UN.tool === 'erase'; UN.lastV = -1; UN.before = UN.seams.length; seamStep(vertexAt(hit)); v.dirty = true; return true; }
+    return false;
+  },
+  move(v, hit) { if (hit) { seamStep(vertexAt(hit)); for (const w of UN.viewers) w.dirty = true; redrawUV(); } },
+  up(v) {
+    UN.lastV = -1; const added = UN.seams.length - UN.before;
+    if (added > 2) { UN.splits = Math.min(UN.splits + 1, 6); toast(v.host.closest('.win,.pwin'), `Seam of ${added} edges · island cut and flattened again in 7 ms`); }
+    else if (added < 0) toast(v.host.closest('.win,.pwin'), `${-added} seam edges erased`);
+    unRefresh();
+  }
+};
+const vU = new Viewer($('#u-vp'), { ...unHandlers, mode: 3, shift: -0.25, seams: true, yaw: -0.6, dist: 4.9 });
+UN.viewers.push(vU);
+function setShow(m) {
+  for (const v of UN.viewers) { v.mode = m; v.dirty = true; }
+  UN.show = m === 3 ? 'heat' : 'islands';
+  $$('#u-view button').forEach(b => b.classList.toggle('on', +b.dataset.v === m));
+  $('#u-uvinfo').textContent = m === 3 ? 'Stretch shown' : 'Islands shown';
+  redrawUV();
+}
+$$('#u-view button').forEach(b => b.onclick = () => setShow(+b.dataset.v));
+function doRelax(to = 1) {
+  const from = UN.relaxT; animate(700, t => { UN.relaxT = lerp(from, to, t); unRefresh(); }, () => toast(winU, to ? `Relaxed: worst stretch ${UN.u.worst.toFixed(1)}× (was 3.9×) · 24 ms for 3.4k quads` : 'Back to planar projection, as Quad Remesh lays charts today'));
+  $$('#u-solver button').forEach(b => b.classList.toggle('on', +b.dataset.v === to));
+}
+$$('#u-solver button').forEach(b => b.onclick = () => doRelax(+b.dataset.v));
+function doPack() {
+  const kind = UN.L.kind === 'cross' ? 'packed' : 'cross', target = makeLayout(kind), from = UN.L.off.map(o => o.slice()), fs = UN.L.size, fp = UN.L.pad;
+  animate(650, t => { UN.L.off = from.map((o, i) => [lerp(o[0], target.off[i][0], t), lerp(o[1], target.off[i][1], t)]); UN.L.size = lerp(fs, target.size, t); UN.L.pad = lerp(fp, target.pad, t); unRefresh(); },
+    () => { UN.L.kind = kind; unRefresh(); toast(winU, kind === 'packed' ? 'Packed: 6 islands fill 67% of the square (was 50%) · 33% more texels each' : 'Back to the cross layout'); });
+}
+$('#u-pack').onclick = doPack;
+function doPeel(to) { const from = UN.peel; to = to ?? (UN.peel > 0.5 ? 0 : 1); animate(1100, t => { UN.peel = lerp(from, to, t); $('#u-peel').value = UN.peel; $('#u-peelv').textContent = Math.round(UN.peel * 100) + '%'; $('#ph-peel').value = UN.peel; unRefresh(); }); }
+$('#u-peel').oninput = e => { UN.peel = +e.target.value; $('#u-peelv').textContent = Math.round(UN.peel * 100) + '%'; unRefresh(); };
+$('#u-auto').onclick = () => { UN.seams = []; UN.splits = 0; UN.sel = -1; doRelax(1); toast(winU, 'Auto unwrap: seams in the grooves and underside first · 6 islands'); };
+$$('#u-from button').forEach(b => b.onclick = () => { b.classList.toggle('on'); toast(winU, `${b.textContent} ${b.classList.contains('on') ? 'now guide' : 'no longer guide'} the auto seams (in the plan)`); });
+function unTool(tool, win) {
+  const msgs = { straight: 'Straighten: a quad island becomes a grid of rectangles, edges kept in rows (in the plan)', protect: 'Seam guide: paint red where seams must not go, blue where they should (in the plan)' };
+  if (tool === 'relax') return doRelax(UN.relaxT > 0.5 ? 0 : 1);
+  if (tool === 'pack') return doPack();
+  if (tool === 'peel') return doPeel();
+  if (tool === 'auto') return $('#u-auto').onclick();
+  if (tool === 'view') return setShow(UN.show === 'heat' ? 1 : 3);
+  if (msgs[tool]) return toast(win, msgs[tool]);
+  UN.tool = tool;
+  $$('[data-tool]', win).forEach(b => b.classList.toggle('on', b.dataset.tool === tool));
+}
+$$('#w-unwrap .shelf [data-tool]').forEach(b => b.onclick = () => unTool(b.dataset.tool, winU));
+/* The UV pane: tap an island to select it in both views, drag it to move it. */
+function bindUVPane(cv, getImage) {
+  const draw = () => { if (cv.offsetParent) cv._F = drawUVPane(cv, { u: UN.u, sel: UN.sel, seams: UN.seams, show: UN.show }, { image: getImage && getImage() }); };
+  uvPanes.push(draw);
+  let drag = null;
+  cv.addEventListener('pointerdown', e => {
+    const r = cv.getBoundingClientRect(), dpr = cv.width / r.width, F = cv._F; if (!F) return;
+    const u = ((e.clientX - r.left) * dpr - F.x) / F.s, v = 1 - ((e.clientY - r.top) * dpr - F.y) / F.s;
+    let hitF = -1; for (let f = 0; f < 6; f++) { const [x, y, w] = islandRect(UN.L, f); if (u >= x && u <= x + w && v >= y && v <= y + w) hitF = f; }
+    UN.sel = hitF; if (hitF >= 0) { cv.setPointerCapture(e.pointerId); drag = { f: hitF, u, v, o: UN.L.off[hitF].slice() }; }
+    unRefresh();
+  });
+  cv.addEventListener('pointermove', e => { if (!drag) return; const r = cv.getBoundingClientRect(), dpr = cv.width / r.width, F = cv._F;
+    const u = ((e.clientX - r.left) * dpr - F.x) / F.s, v = 1 - ((e.clientY - r.top) * dpr - F.y) / F.s;
+    UN.L.off[drag.f] = [drag.o[0] + u - drag.u, drag.o[1] + v - drag.v]; UN.L.kind = 'custom'; unRefresh(); });
+  const end = () => { drag = null; }; cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+  new ResizeObserver(draw).observe(cv);
+}
+bindUVPane($('#u-uv canvas'));
+
+/* ---------------- Paint: shared state, texels of the packed layout ---------------- */
+const PL = makeLayout('packed'), PU = computeUV(PL, 1);
+function buildTable(R, L) {
+  const face = new Int8Array(R * R).fill(-1), pos = new Float32Array(R*R*3), nor = new Float32Array(R*R*3), cav = new Float32Array(R*R), hn = new Float32Array(R*R);
+  for (let f = 0; f < 6; f++) { const [x, y, w] = islandRect(L, f), ext = 0.035;
+    const x0 = Math.floor((x - ext*w) * R), x1 = Math.ceil((x + w*(1+ext)) * R), y0 = Math.floor((y - ext*w) * R), y1 = Math.ceil((y + w*(1+ext)) * R);
+    for (let py = Math.max(0, R - y1); py < Math.min(R, R - y0); py++) for (let px = Math.max(0, x0); px < Math.min(R, x1); px++) {
+      const u = (px + .5) / R, v = 1 - (py + .5) / R, lx = (u - x) / w, ly = (v - y) / w;
+      if (lx < -ext || lx > 1 + ext || ly < -ext || ly > 1 + ext) continue;
+      const i = py * R + px, inside = lx >= 0 && lx <= 1 && ly >= 0 && ly <= 1; if (face[i] >= 0 && !inside) continue;
+      const ss = clamp(lx) * 2 - 1, st = clamp(ly) * 2 - 1, d = dirOf(f, ss, st), F = fields(d), p = posOf(d), n = normalAt(f, ss, st);
+      face[i] = f; pos.set(p, i*3); nor.set(n, i*3); cav[i] = F.cav; hn[i] = F.hn;
+    } }
+  return { R, face, pos, nor, cav, hn, L };
+}
+const MATS = [
+  { name: 'Bronze', base: '#9a6a36', rough: 0.32, metal: 1, dirt: '#2f3a2c' },
+  { name: 'Painted', base: '#3e6f93', rough: 0.45, metal: 0, dirt: '#1d1f22' },
+  { name: 'Marble', base: '#e6e1d8', rough: 0.18, metal: 0, dirt: '#8a7f70' },
+  { name: 'Clay', base: '#b9876b', rough: 0.8, metal: 0, dirt: '#5a3b2b' }];
+const SWATCHES = ['#e9c46a', '#c0392b', '#2d6a4f', '#f1f1ee', '#1b1b1f', '#5ed6c4'];
+const PT = {
+  R: 512, layer: null, rm: null, mat: 0, dirtOn: true, dirt: 0.75, layerOn: true, op: 1,
+  size: 46, strength: 0.7, colour: hexLin(SWATCHES[0]), colourHex: SWATCHES[0], ch: { c: true, r: false, m: false }, rough: 0.15, metal: 1,
+  tool: 'paint', sym: true, stencil: { on: false, x: 0.36, y: 0.48, s: 0.42 }, viewers: [], last: null
+};
+PT.T = buildTable(PT.R, PL);
+PT.layer = new Float32Array(PT.R * PT.R * 4); PT.rm = new Float32Array(PT.R * PT.R * 4);
+PT.baseImg = new ImageData(PT.R, PT.R); PT.ormImg = new ImageData(PT.R, PT.R);
+PT.baseCv = document.createElement('canvas'); PT.baseCv.width = PT.baseCv.height = PT.R;
+/* The stencil: an ornament with transparent gaps, as a picture laid over the view. */
+const STEN = (() => { const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d'); x.translate(256, 256);
+  x.strokeStyle = '#f6d27a'; x.fillStyle = '#e7b54c'; x.lineWidth = 10;
+  for (let r = 0; r < 3; r++) { x.beginPath(); x.arc(0, 0, 70 + r * 80, 0, 7); x.stroke(); }
+  for (let k = 0; k < 12; k++) { x.save(); x.rotate(k * Math.PI / 6); x.beginPath(); x.ellipse(0, -150, 26, 58, 0, 0, 7); x.fill(); x.beginPath(); x.ellipse(0, -232, 12, 22, 0, 0, 7); x.fill(); x.restore(); }
+  x.beginPath(); x.arc(0, 0, 40, 0, 7); x.fill();
+  return { cv: c, data: x.getImageData(0, 0, 512, 512).data }; })();
+function composite(x0 = 0, y0 = 0, x1 = PT.R, y1 = PT.R) {
+  const R = PT.R, T = PT.T, M = MATS[PT.mat], mb = hexLin(M.base), md = hexLin(M.dirt), B = PT.baseImg.data, O = PT.ormImg.data, L = PT.layer, RMs = PT.rm;
+  for (let py = y0; py < y1; py++) for (let px = x0; px < x1; px++) {
+    const i = py * R + px, o = i * 4;
+    let c = mb.slice(), ro = M.rough, me = M.metal;
+    if (T.face[i] >= 0) {
+      const d = PT.dirtOn ? clamp(T.cav[i] * PT.dirt * 1.5) : 0;
+      if (d > 0) { c = c.map((v, k) => lerp(v, md[k], d)); ro = lerp(ro, 0.92, d); me = lerp(me, 0, d); }
+      if (PT.layerOn) { const a = L[o+3] * PT.op; if (a > 0) c = c.map((v, k) => lerp(v, L[o+k], a));
+        if (RMs[o+1] > 0) ro = lerp(ro, RMs[o], RMs[o+1] * PT.op); if (RMs[o+3] > 0) me = lerp(me, RMs[o+2], RMs[o+3] * PT.op); }
+    }
+    B[o] = srgb(c[0]); B[o+1] = srgb(c[1]); B[o+2] = srgb(c[2]); B[o+3] = 255;
+    O[o] = 255; O[o+1] = Math.round(ro * 255); O[o+2] = Math.round(me * 255); O[o+3] = 255;
+  }
+}
+let paintPending = false;
+function paintPush() { if (paintPending) return; paintPending = true; requestAnimationFrame(() => { paintPending = false;
+  PT.baseCv.getContext('2d').putImageData(PT.baseImg, 0, 0);
+  for (const v of PT.viewers) { v.setTex('base', PT.baseImg); v.setTex('orm', PT.ormImg); }
+  drawTexCard(); drawLayerThumbs(); }); }
+function stencilAt(v, p) {
+  const [nx, ny] = v.project(p), r = v.cv.getBoundingClientRect(), side = PT.stencil.s * r.height;
+  const sx = (nx * r.width - (PT.stencil.x * r.width - side / 2)) / side, sy = (ny * r.height - (PT.stencil.y * r.height - side / 2)) / side;
+  if (sx < 0 || sx >= 1 || sy < 0 || sy >= 1) return null;
+  const k = ((sy * 512 | 0) * 512 + (sx * 512 | 0)) * 4, d = STEN.data; return d[k+3] < 8 ? null : [Math.pow(d[k]/255, 2.2), Math.pow(d[k+1]/255, 2.2), Math.pow(d[k+2]/255, 2.2), d[k+3] / 255];
+}
+function applyTexel(i, w, v) {
+  const o = i * 4, L = PT.layer, RMs = PT.rm;
+  if (PT.tool === 'erase') { L[o+3] *= 1 - w; RMs[o+1] *= 1 - w; RMs[o+3] *= 1 - w; return; }
+  let col = PT.colour;
+  if (PT.stencil.on && v) { const s = stencilAt(v, [PT.T.pos[i*3], PT.T.pos[i*3+1], PT.T.pos[i*3+2]]); if (!s) return; col = s; w *= s[3]; }
+  if (PT.ch.c) { for (let k = 0; k < 3; k++) L[o+k] = L[o+3] > 0.001 ? lerp(L[o+k], col[k], w) : col[k]; L[o+3] = L[o+3] + (1 - L[o+3]) * w; }
+  if (PT.ch.r) { RMs[o] = RMs[o+1] > 0.001 ? lerp(RMs[o], PT.rough, w) : PT.rough; RMs[o+1] += (1 - RMs[o+1]) * w; }
+  if (PT.ch.m) { RMs[o+2] = RMs[o+3] > 0.001 ? lerp(RMs[o+2], PT.metal, w) : PT.metal; RMs[o+3] += (1 - RMs[o+3]) * w; }
+}
+/* A dab in 3D: every texel whose surface point lies within the radius, on any island, so a stroke crosses seams. */
+function dab3D(p, rad, v) {
+  const T = PT.T, R = PT.R, d = dirFromPos(p); let bx0 = R, by0 = R, bx1 = 0, by1 = 0;
+  for (let g = 0; g < 6; g++) { const fp = faceParam(d, g); if (!fp) continue;
+    const [x, y, w] = islandRect(T.L, g), lx = (fp[0] + 1) / 2, ly = (fp[1] + 1) / 2, lr = rad / 1.2;
+    const px0 = Math.max(0, Math.floor((x + (lx - lr) * w) * R)), px1 = Math.min(R, Math.ceil((x + (lx + lr) * w) * R));
+    const py0 = Math.max(0, Math.floor((1 - (y + (ly + lr) * w)) * R)), py1 = Math.min(R, Math.ceil((1 - (y + (ly - lr) * w)) * R));
+    for (let py = py0; py < py1; py++) for (let px = px0; px < px1; px++) { const i = py * R + px; if (T.face[i] !== g) continue;
+      const dx = T.pos[i*3] - p[0], dy = T.pos[i*3+1] - p[1], dz = T.pos[i*3+2] - p[2], q = (dx*dx + dy*dy + dz*dz) / (rad * rad); if (q >= 1) continue;
+      applyTexel(i, (1 - q) * (1 - q) * PT.strength * 0.7, v); }
+    bx0 = Math.min(bx0, px0); bx1 = Math.max(bx1, px1); by0 = Math.min(by0, py0); by1 = Math.max(by1, py1); }
+  if (bx1 > bx0) composite(Math.max(0, bx0 - 1), Math.max(0, by0 - 1), Math.min(R, bx1 + 1), Math.min(R, by1 + 1));
+}
+function dabAt(v, hit) {
+  const sc = v.cv.getBoundingClientRect().width / v.cv.clientWidth, rad = PT.size * sc * v.worldPerPx(hit.depth) * (v.host.closest('.win') ? 1 : 0.7);
+  dab3D(hit.pos, rad, v);
+  if (PT.sym) { const dm = dirFromPos(hit.pos); dm[0] = -dm[0]; dab3D(posOf(dm), rad, v); }
+}
+function paintOverlay(v, x) {
+  const W = v.ov.width, H = v.ov.height, r = v.cv.getBoundingClientRect(), dpr = W / r.width, sc = r.width / v.cv.clientWidth;
+  if (PT.stencil.on) { const side = PT.stencil.s * H; x.globalAlpha = 0.55; x.drawImage(STEN.cv, PT.stencil.x * W - side / 2, PT.stencil.y * H - side / 2, side, side); x.globalAlpha = 1;
+    x.strokeStyle = 'rgba(243,181,74,.8)'; x.setLineDash([6 * dpr, 6 * dpr]); x.lineWidth = 1.5 * dpr; x.strokeRect(PT.stencil.x * W - side / 2, PT.stencil.y * H - side / 2, side, side); x.setLineDash([]); }
+  if (v.hover && (PT.tool === 'paint' || PT.tool === 'erase')) { x.beginPath(); x.arc(v.hover[0] * W, v.hover[1] * H, PT.size * dpr * sc * (v.host.closest('.win') ? 1 : 0.7), 0, 7); x.strokeStyle = 'rgba(255,255,255,.85)'; x.lineWidth = 1.5 * dpr; x.stroke(); }
+}
+const paintHandlers = {
+  overlay: paintOverlay, hover: () => {},
+  down(v, hit, nx, ny) {
+    if (PT.tool === 'stencil') { PT.drag = { nx, ny, x: PT.stencil.x, y: PT.stencil.y }; return true; }
+    if (!hit) return false;
+    if (PT.tool === 'pick') { const T = PT.T, R = T.R, px = clamp(Math.floor(hit.uv[0] * R), 0, R - 1), py = clamp(Math.floor((1 - hit.uv[1]) * R), 0, R - 1), o = (py * R + px) * 4, B = PT.baseImg.data;
+      setColour('#' + [B[o], B[o+1], B[o+2]].map(c => c.toString(16).padStart(2, '0')).join('')); return true; }
+    if (PT.tool === 'paint' || PT.tool === 'erase') { PT.last = [nx, ny]; dabAt(v, hit); paintPush(); return true; }
+    return false;
+  },
+  move(v, hit, nx, ny) {
+    if (PT.tool === 'stencil' && PT.drag) { PT.stencil.x = PT.drag.x + nx - PT.drag.nx; PT.stencil.y = PT.drag.y + ny - PT.drag.ny; for (const w of PT.viewers) w.dirty = true; return; }
+    if (!(PT.tool === 'paint' || PT.tool === 'erase')) return;
+    const r = v.cv.getBoundingClientRect(), last = PT.last || [nx, ny], dist = Math.hypot((nx - last[0]) * r.width, (ny - last[1]) * r.height), stepPx = Math.max(2, PT.size * (r.width / v.cv.clientWidth) * 0.3), n = Math.min(12, Math.ceil(dist / stepPx));
+    for (let k = 1; k <= n; k++) { const h = v.pick(lerp(last[0], nx, k / n), lerp(last[1], ny, k / n)); if (h) dabAt(v, h); }
+    PT.last = [nx, ny]; v.hover = [nx, ny]; paintPush();
+  },
+  up() { PT.drag = null; PT.last = null; }
+};
+const vP = new Viewer($('#p-vp'), { ...paintHandlers, mode: 4, shift: -0.2, yaw: -0.5, dist: 4.4 });
+vP.setUV(PU); PT.viewers.push(vP);
+const winP = $('#w-paint');
+function setColour(h) { PT.colourHex = h; PT.colour = hexLin(h); $('#p-well').style.background = h; const pw = $('#ph-well'); if (pw) pw.style.background = h; $$('#p-sw button').forEach(b => b.classList.toggle('on', b.dataset.c === h)); }
+$('#p-sw').innerHTML = SWATCHES.map(c => `<button data-c="${c}" style="background:${c}" aria-label="Colour ${c}"></button>`).join('') + '<input type="color" id="p-cc" value="#c0392b" aria-label="Any colour">';
+$$('#p-sw button').forEach(b => b.onclick = () => setColour(b.dataset.c)); $('#p-cc').oninput = e => setColour(e.target.value);
+setColour(SWATCHES[1]);
+$('#p-chc').onchange = e => PT.ch.c = e.target.checked; $('#p-chr').onchange = e => PT.ch.r = e.target.checked; $('#p-chm').onchange = e => PT.ch.m = e.target.checked;
+const rangeOut = (el, f, fmt = v => v.toFixed(2)) => { el.oninput = () => { f(+el.value); el.nextElementSibling.textContent = fmt(+el.value); }; };
+rangeOut($('#p-r'), v => PT.rough = v); rangeOut($('#p-m'), v => PT.metal = v);
+rangeOut($('#p-op'), v => { PT.op = v; composite(); paintPush(); }, v => Math.round(v * 100));
+rangeOut($('#p-dirt'), v => { PT.dirt = v; composite(); paintPush(); }, v => Math.round(v * 100));
+$('#p-e1').innerHTML = svg('eye'); $('#p-e2').innerHTML = svg('eye');
+$('#p-e1').onclick = e => { PT.layerOn = !PT.layerOn; e.currentTarget.classList.toggle('off', !PT.layerOn); composite(); paintPush(); };
+$('#p-e2').onclick = e => { PT.dirtOn = !PT.dirtOn; e.currentTarget.classList.toggle('off', !PT.dirtOn); composite(); paintPush(); };
+$('#p-sym').onclick = e => { PT.sym = !PT.sym; e.currentTarget.classList.toggle('on', PT.sym); };
+$('#p-target').onclick = () => toast(winP, 'Into Vertices paints a sculpt with no UVs, up to 20M points; layers move onto texels later in one step');
+$('#p-mats').innerHTML = MATS.map((m, i) => `<button data-m="${i}" class="${i === 0 ? 'on' : ''}"><i style="background:radial-gradient(circle at 35% 30%, #fff8 0, ${m.base} 35%, ${m.dirt} 100%)"></i>${m.name}</button>`).join('');
+$$('#p-mats button').forEach(b => b.onclick = () => { PT.mat = +b.dataset.m; $$('#p-mats button').forEach(x => x.classList.toggle('on', x === b)); $('#p-fillname').textContent = MATS[PT.mat].name; composite(); paintPush(); });
+function paintTool(tool, win) {
+  if (tool === 'fill') { const L = PT.layer; for (let i = 0; i < PT.R * PT.R; i++) if (PT.T.face[i] >= 0) applyTexel(i, 1, null); composite(); paintPush(); return toast(win, 'Filled the Paint layer with the brush channels'); }
+  if (tool === 'clear') { PT.layer.fill(0); PT.rm.fill(0); composite(); paintPush(); return toast(win, 'Paint layer cleared'); }
+  if (tool === 'project') { const v = PT.viewers.find(x => x.host.closest('.win,.pwin') === win) || vP; if (!PT.stencil.on) { PT.stencil.on = true; v.dirty = true; return toast(win, 'Stencil shown: drag it with the Stencil tool, then press again'); }
+    const c = v.c || v.cam(), T = PT.T; let n = 0; const keep = PT.tool; PT.tool = 'paint';
+    for (let i = 0; i < PT.R * PT.R; i++) { if (T.face[i] < 0) continue; const p = [T.pos[i*3], T.pos[i*3+1], T.pos[i*3+2]], nn = [T.nor[i*3], T.nor[i*3+1], T.nor[i*3+2]];
+      if (dot(nn, nrm(sub(c.eye, p))) < 0.25) continue; const before = PT.layer[i*4+3]; applyTexel(i, 0.95, v); if (PT.layer[i*4+3] !== before) n++; }
+    PT.tool = keep; composite(); paintPush(); return toast(win, `Projected the stencil onto ${n.toLocaleString()} texels facing the camera`); }
+  if (tool === 'smart') return toast(win, 'Smart masks: cavity, height, facing up, thickness, level difference, polygroups, the sculpt mask');
+  if (tool === 'layers' || tool === 'channels') return toast(win, tool === 'layers' ? 'Layers open as a sheet: Paint, Dirt in cavities, Fill' : 'Channels: Colour on, Roughness and Metal in the sheet');
+  if (tool === 'stencil' && !PT.stencil.on) { PT.stencil.on = true; }
+  else if (tool === 'stencil' && PT.tool === 'stencil') { PT.stencil.on = false; tool = 'paint'; }
+  PT.tool = tool;
+  for (const w of [winP, $('#ph-paint')]) $$('[data-tool]', w).forEach(b => b.classList.toggle('on', b.dataset.tool === tool || (b.dataset.tool === 'stencil' && PT.stencil.on)));
+  for (const v of PT.viewers) v.dirty = true;
+  if (tool === 'stencil') toast(win, 'Drag to place the stencil; Paint now paints through it');
+}
+$$('#w-paint .shelf [data-tool]').forEach(b => b.onclick = () => paintTool(b.dataset.tool, winP));
+/* Painting on the texture card paints the same image, in texel space. */
+function drawTexCard() {
+  const cv = $('#p-tex'); if (!cv.offsetParent) return;
+  const x = cv.getContext('2d'); x.imageSmoothingEnabled = true; x.drawImage(PT.baseCv, 0, 0, cv.width, cv.height);
+  x.strokeStyle = 'rgba(255,255,255,.35)'; x.lineWidth = 1.5;
+  for (let f = 0; f < 6; f++) { const [ix, iy, w] = islandRect(PL, f); x.strokeRect(ix * cv.width, (1 - iy - w) * cv.height, w * cv.width, w * cv.height); }
+}
+(() => { const cv = $('#p-tex'); let on = false;
+  const at = e => { const r = cv.getBoundingClientRect(), R = PT.R, px = (e.clientX - r.left) / r.width * R, py = (e.clientY - r.top) / r.height * R, rad = PT.size * 0.35;
+    const keep = PT.stencil.on; PT.stencil.on = false;
+    for (let y = Math.max(0, py - rad | 0); y < Math.min(R, py + rad + 1); y++) for (let x = Math.max(0, px - rad | 0); x < Math.min(R, px + rad + 1); x++) { const i = y * R + x; if (PT.T.face[i] < 0) continue; const q = ((x - px) ** 2 + (y - py) ** 2) / (rad * rad); if (q < 1) applyTexel(i, (1 - q) * (1 - q) * PT.strength * 0.5, null); }
+    PT.stencil.on = keep; composite(Math.max(0, px - rad - 2 | 0), Math.max(0, py - rad - 2 | 0), Math.min(R, px + rad + 2 | 0), Math.min(R, py + rad + 2 | 0)); paintPush(); };
+  cv.addEventListener('pointerdown', e => { if (PT.tool !== 'paint' && PT.tool !== 'erase') paintTool('paint', winP); on = true; cv.setPointerCapture(e.pointerId); at(e); });
+  cv.addEventListener('pointermove', e => on && at(e)); cv.addEventListener('pointerup', () => on = false); })();
+function drawLayerThumbs() {
+  const th = (id, fn) => { const cv = $(id); if (!cv || !cv.offsetParent) return; const x = cv.getContext('2d'); fn(x, cv.width); };
+  th('#p-th1', (x, s) => { x.fillStyle = '#0b0d10'; x.fillRect(0, 0, s, s); const img = new ImageData(PT.R / 4 | 0, PT.R / 4 | 0), R4 = PT.R / 4 | 0; for (let y = 0; y < R4; y++) for (let xx = 0; xx < R4; xx++) { const o = ((y * 4) * PT.R + xx * 4) * 4, d = (y * R4 + xx) * 4; img.data[d] = srgb(PT.layer[o]); img.data[d+1] = srgb(PT.layer[o+1]); img.data[d+2] = srgb(PT.layer[o+2]); img.data[d+3] = Math.round(PT.layer[o+3] * 255); }
+    const t = document.createElement('canvas'); t.width = t.height = R4; t.getContext('2d').putImageData(img, 0, 0); x.drawImage(t, 0, 0, s, s); });
+  th('#p-th2', (x, s) => { if (PT._cavThumb) return x.drawImage(PT._cavThumb, 0, 0, s, s); const R4 = PT.R / 4 | 0, t = document.createElement('canvas'); t.width = t.height = R4; const img = new ImageData(R4, R4);
+    for (let y = 0; y < R4; y++) for (let xx = 0; xx < R4; xx++) { const i = (y * 4) * PT.R + xx * 4, d = (y * R4 + xx) * 4, c = PT.T.face[i] >= 0 ? Math.round(PT.T.cav[i] * 255) : 12; img.data[d] = c; img.data[d+1] = c; img.data[d+2] = c; img.data[d+3] = 255; }
+    t.getContext('2d').putImageData(img, 0, 0); PT._cavThumb = t; x.drawImage(t, 0, 0, s, s); });
+  th('#p-th3', (x, s) => { const g = x.createRadialGradient(s * .35, s * .3, 2, s / 2, s / 2, s * .6); g.addColorStop(0, '#fff8'); g.addColorStop(.35, MATS[PT.mat].base); g.addColorStop(1, MATS[PT.mat].dirt); x.fillStyle = '#0b0d10'; x.fillRect(0, 0, s, s); x.fillStyle = g; x.beginPath(); x.arc(s / 2, s / 2, s * .42, 0, 7); x.fill(); });
+}
+/* The off-hand island's two sliders: Size and Strength. */
+function bindVS(root) { $$('.vs', root).forEach(el => { const k = el.dataset.k, max = k === 'size' ? 120 : 1, min = k === 'size' ? 6 : 0.02;
+  const show = () => { const t = (PT[k] - min) / (max - min); el.querySelector('.fill').style.height = (t * 100) + '%'; el.querySelector('.knob').style.bottom = `calc(${t * 100}% - 2px)`; el.querySelector('output').textContent = k === 'size' ? Math.round(PT[k]) : Math.round(PT[k] * 100); };
+  el._show = show; show();
+  const set = e => { const r = el.getBoundingClientRect(); PT[k] = lerp(min, max, clamp(1 - (e.clientY - r.top) / r.height)); $$('.vs').forEach(x => x._show && x._show()); };
+  el.addEventListener('pointerdown', e => { el.setPointerCapture(e.pointerId); set(e); el._on = true; }); el.addEventListener('pointermove', e => el._on && set(e)); el.addEventListener('pointerup', () => el._on = false); }); }
+bindVS($('#p-off'));
+
+/* ---------------- Shader graph: nodes that run over texels, one kind of kernel each ---------------- */
+const SR = 256, ST = buildTable(SR, PL);
+const DEF = {
+  colour: { t: 'Colour', out: 'c', ins: [], ps: [{ k: 'c', type: 'colour' }], run(o, I, p, n) { const c = hexLin(p.c); for (let i = 0; i < n; i++) { o[i*3] = c[0]; o[i*3+1] = c[1]; o[i*3+2] = c[2]; } } },
+  value: { t: 'Value', out: 'v', ins: [], ps: [{ k: 'x', min: 0, max: 1 }], run(o, I, p, n) { o.fill(p.x); } },
+  cavity: { t: 'Cavity', out: 'v', from: 1, ins: [], ps: [{ k: 'contrast', label: 'Spread', min: 0.3, max: 3 }], run(o, I, p, n) { for (let i = 0; i < n; i++) o[i*3] = clamp(Math.pow(ST.cav[i], 1 / p.contrast) * 1.1); } },
+  height: { t: 'Height', out: 'v', from: 1, ins: [], ps: [], run(o, I, p, n) { for (let i = 0; i < n; i++) o[i*3] = ST.hn[i]; } },
+  facing: { t: 'Facing up', out: 'v', from: 1, ins: [], ps: [], run(o, I, p, n) { for (let i = 0; i < n; i++) o[i*3] = ST.nor[i*3+1] * 0.5 + 0.5; } },
+  noise: { t: 'Noise', out: 'v', ins: [], ps: [{ k: 'scale', min: 1, max: 20 }], run(o, I, p, n) { const s = p.scale; for (let i = 0; i < n; i++) { const x = ST.pos[i*3] * s, y = ST.pos[i*3+1] * s, z = ST.pos[i*3+2] * s;
+    o[i*3] = clamp(0.5 + 0.32 * Math.sin(x + 1.7 * Math.sin(y * 1.3 + z)) * Math.sin(z * 1.1 + 2 * Math.sin(x * 0.7)) + 0.18 * Math.sin(2.3 * y + 3.1 * Math.sin(x * 1.9 - z))); } } },
+  map: { t: 'Map range', out: 'v', ins: [['v', 'v', 'Value', 0.5]], ps: [{ k: 'lo', label: 'From', min: 0, max: 1 }, { k: 'hi', label: 'To', min: 0, max: 1 }], run(o, I, p, n) { const d = p.hi - p.lo || 1e-4; for (let i = 0; i < n; i++) o[i*3] = clamp((rv(I[0], i) - p.lo) / d); } },
+  mix: { t: 'Mix', out: 'c', ins: [['a', 'c', 'A', [0.5, 0.5, 0.5]], ['b', 'c', 'B', [0.1, 0.1, 0.1]], ['f', 'v', 'Mask', 0.5]], ps: [{ k: 'amt', label: 'Amount', min: 0, max: 1 }],
+    run(o, I, p, n, node) { for (let i = 0; i < n; i++) { const f = node.muted ? 0 : clamp(rv(I[2], i) * p.amt); for (let k = 0; k < 3; k++) o[i*3+k] = lerp(rc(I[0], i, k), rc(I[1], i, k), f); } } },
+  ramp: { t: 'Ramp', out: 'c', ins: [['v', 'v', 'Value', 0.5]], ps: [{ k: 'c0', type: 'colour', label: 'Low' }, { k: 'c1', type: 'colour', label: 'High' }], run(o, I, p, n) { const a = hexLin(p.c0), b = hexLin(p.c1); for (let i = 0; i < n; i++) { const t = rv(I[0], i); for (let k = 0; k < 3; k++) o[i*3+k] = lerp(a[k], b[k], t); } } },
+  output: { t: 'Material', out: null, ins: [['base', 'c', 'Base colour', [0.5, 0.5, 0.5]], ['rough', 'v', 'Roughness', 0.5], ['metal', 'v', 'Metal', 0]], ps: [] }
+};
+function rv(inp, i) { if (inp.a) return inp.kind === 'c' ? 0.3 * inp.a[i*3] + 0.59 * inp.a[i*3+1] + 0.11 * inp.a[i*3+2] : inp.a[i*3]; return Array.isArray(inp.d) ? 0.3 * inp.d[0] + 0.59 * inp.d[1] + 0.11 * inp.d[2] : inp.d; }
+function rc(inp, i, k) { if (inp.a) return inp.kind === 'c' ? inp.a[i*3+k] : inp.a[i*3]; return Array.isArray(inp.d) ? inp.d[k] : inp.d; }
+const G = { nodes: {
+  n1: { type: 'colour', x: 30, y: 10, p: { c: '#9a6a36' } },
+  n2: { type: 'colour', x: 30, y: 150, p: { c: '#4fa58c' } },
+  n3: { type: 'cavity', x: 30, y: 290, p: { contrast: 1.2 } },
+  n4: { type: 'mix', x: 290, y: 10, p: { amt: 0.9 } },
+  n5: { type: 'facing', x: 30, y: 450, p: {} },
+  n6: { type: 'map', label: 'Dust reach', x: 290, y: 390, p: { lo: 0.62, hi: 0.95 } },
+  n7: { type: 'colour', x: 290, y: 245, p: { c: '#cfc2a8' } },
+  n8: { type: 'mix', x: 550, y: 40, p: { amt: 0.8 } },
+  n10: { type: 'map', label: 'Roughness', x: 550, y: 290, p: { lo: 0.0, hi: 0.9 } },
+  n11: { type: 'map', label: 'Metal', x: 550, y: 480, p: { lo: 0.7, hi: 0.15 } },
+  n9: { type: 'output', x: 830, y: 250, p: {} } },
+  links: [
+    { from: 'n1', to: 'n4', k: 'a' }, { from: 'n2', to: 'n4', k: 'b' }, { from: 'n3', to: 'n4', k: 'f' },
+    { from: 'n4', to: 'n8', k: 'a' }, { from: 'n7', to: 'n8', k: 'b' }, { from: 'n5', to: 'n6', k: 'v' }, { from: 'n6', to: 'n8', k: 'f' },
+    { from: 'n3', to: 'n10', k: 'v' }, { from: 'n3', to: 'n11', k: 'v' },
+    { from: 'n8', to: 'n9', k: 'base' }, { from: 'n10', to: 'n9', k: 'rough' }, { from: 'n11', to: 'n9', k: 'metal' }] };
+const GS = { mode: 'overlay', view: 'graph', back: 0.45, pan: { x: 30, y: 20 }, zoom: 0.86, preview: null, sel: null, probe: null, tool: 'orbit', bufs: {}, viewers: [], baseImg: new ImageData(SR, SR), ormImg: new ImageData(SR, SR), nextId: 20 };
+function order() { const seen = new Set(), out = []; const visit = id => { if (seen.has(id)) return; seen.add(id); for (const l of G.links) if (l.to === id) visit(l.from); out.push(id); }; Object.keys(G.nodes).forEach(visit); return out; }
+function evalGraph() {
+  const n = SR * SR;
+  for (const id of order()) { const nd = G.nodes[id], d = DEF[nd.type]; if (!d.out) continue;
+    const o = GS.bufs[id] || (GS.bufs[id] = new Float32Array(n * 3));
+    const I = d.ins.map(([k, , , dflt]) => { const l = G.links.find(l => l.to === id && l.k === k); return l ? { a: GS.bufs[l.from], kind: DEF[G.nodes[l.from].type].out } : { d: dflt }; });
+    d.run(o, I, nd.p, n, nd); }
+  const outId = Object.keys(G.nodes).find(id => G.nodes[id].type === 'output'), od = DEF.output;
+  const I = od.ins.map(([k, , , dflt]) => { const l = G.links.find(l => l.to === outId && l.k === k); return l ? { a: GS.bufs[l.from], kind: DEF[G.nodes[l.from].type].out } : { d: dflt }; });
+  const pv = GS.preview && G.nodes[GS.preview] ? { a: GS.bufs[GS.preview], kind: DEF[G.nodes[GS.preview].type].out } : null;
+  const B = GS.baseImg.data, O = GS.ormImg.data;
+  for (let i = 0; i < n; i++) { const o = i * 4;
+    if (ST.face[i] < 0) { B[o] = B[o+1] = B[o+2] = 60; B[o+3] = 255; O[o] = 255; O[o+1] = 150; O[o+2] = 0; O[o+3] = 255; continue; }
+    const src = pv || I[0];
+    B[o] = srgb(rc(src, i, 0)); B[o+1] = srgb(rc(src, i, 1)); B[o+2] = srgb(rc(src, i, 2)); B[o+3] = 255;
+    O[o] = 255; O[o+1] = Math.round(clamp(pv ? 0.6 : rv(I[1], i)) * 255); O[o+2] = Math.round(clamp(pv ? 0 : rv(I[2], i)) * 255); O[o+3] = 255; }
+  for (const v of GS.viewers) { v.setTex('base', GS.baseImg); v.setTex('orm', GS.ormImg); }
+  drawThumbs(); if (GS.probe) showProbe();
+}
+let evalPending = false;
+function requestEval() { if (evalPending) return; evalPending = true; requestAnimationFrame(() => { evalPending = false; evalGraph(); }); }
+const graphEl = $('#g-graph'), world = $('.world', graphEl), wires = $('svg', world), winG = $('#w-shade');
+function appScale(el) { return (el.closest('.win') || el.closest('.pwin'))._s || 1; }
+function buildNode(id) {
+  const nd = G.nodes[id], d = DEF[nd.type], el = document.createElement('div'); el.className = 'node'; el.dataset.id = id;
+  let h = `<header><span class="t">${nd.label || d.t}</span>${d.from ? '<span class="from">sculpt</span>' : ''}${d.out ? `<button class="ey" title="Show only this node on the model" aria-label="Preview ${d.t}">${svg('eye')}</button>` : ''}</header><span class="probe"></span><div class="bd">`;
+  if (d.out) h += `<div class="r out thumbout"><canvas class="thumb" width="40" height="40"></canvas><span style="margin-left:auto">${d.out === 'c' ? 'Colour' : 'Value'}</span><i class="sock out ${d.out}" data-n="${id}"></i></div>`;
+  for (const [k, ty, label] of d.ins) h += `<div class="r in"><i class="sock in ${ty}" data-n="${id}" data-k="${k}"></i>${label}</div>`;
+  for (const p of d.ps) { const lab = p.label || (p.k === 'c' ? 'Colour' : p.k === 'x' ? 'Value' : p.k[0].toUpperCase() + p.k.slice(1));
+    h += p.type === 'colour' ? `<div class="r p pc"><span>${lab}</span><input type="color" data-p="${p.k}" value="${nd.p[p.k]}" aria-label="${lab}"><span></span></div>`
+      : `<div class="r p"><span>${lab}</span><input type="range" data-p="${p.k}" min="${p.min}" max="${p.max}" step="0.01" value="${nd.p[p.k]}" aria-label="${lab}"><output>${(+nd.p[p.k]).toFixed(2)}</output></div>`; }
+  el.innerHTML = h + '</div>'; world.appendChild(el); el.style.left = nd.x + 'px'; el.style.top = nd.y + 'px';
+  $$('input', el).forEach(inp => inp.addEventListener('input', () => { nd.p[inp.dataset.p] = inp.type === 'color' ? inp.value : +inp.value; if (inp.nextElementSibling && inp.nextElementSibling.tagName === 'OUTPUT') inp.nextElementSibling.textContent = (+inp.value).toFixed(2); requestEval(); syncStack(); }));
+  $$('input', el).forEach(inp => inp.addEventListener('pointerdown', e => e.stopPropagation()));
+  const ey = $('.ey', el); if (ey) ey.onclick = e => { e.stopPropagation(); GS.preview = GS.preview === id ? null : id; $$('.node', world).forEach(n => n.classList.toggle('prev', n.dataset.id === GS.preview)); requestEval(); toast(winG, GS.preview ? `Showing only ${d.t} on the model · tap the eye again to see the material` : 'Showing the whole material'); };
+  const head = $('header', el);
+  head.addEventListener('pointerdown', e => { if (e.target.closest('.ey')) return; e.stopPropagation(); head.setPointerCapture(e.pointerId); GS.sel = id; $$('.node', world).forEach(n => n.classList.toggle('sel', n.dataset.id === id));
+    const s = appScale(graphEl) * GS.zoom, sx = e.clientX, sy = e.clientY, ox = nd.x, oy = nd.y;
+    const mv = ev => { nd.x = ox + (ev.clientX - sx) / s; nd.y = oy + (ev.clientY - sy) / s; el.style.left = nd.x + 'px'; el.style.top = nd.y + 'px'; drawWires(); };
+    const up = () => { head.removeEventListener('pointermove', mv); head.removeEventListener('pointerup', up); }; head.addEventListener('pointermove', mv); head.addEventListener('pointerup', up); });
+  return el;
+}
+function sockPos(id, k) { const el = $(`.node[data-id="${id}"]`, world); if (!el) return [0, 0]; const nd = G.nodes[id];
+  const s = k ? $(`.sock.in[data-k="${k}"]`, el) : $('.sock.out', el); const row = s.parentElement;
+  return [nd.x + (k ? 0 : el.offsetWidth), nd.y + row.offsetTop + row.offsetHeight / 2]; }
+const wirePath = (a, b) => { const dx = Math.max(40, Math.abs(b[0] - a[0]) * 0.5); return `M${a[0]} ${a[1]} C${a[0] + dx} ${a[1]} ${b[0] - dx} ${b[1]} ${b[0]} ${b[1]}`; };
+let tempWire = null;
+function drawWires() {
+  let h = '';
+  G.links.forEach((l, i) => { const a = sockPos(l.from), b = sockPos(l.to, l.k), c = DEF[G.nodes[l.from].type].out === 'c' ? '#f3b54a' : '#a3acb5';
+    h += `<path class="w" d="${wirePath(a, b)}" stroke="${c}" stroke-opacity=".85"/><path class="hit" data-l="${i}" d="${wirePath(a, b)}"><title>Tap to remove</title></path>`; });
+  if (tempWire) h += `<path class="w" d="${wirePath(tempWire.a, tempWire.b)}" stroke="#b99cff" stroke-dasharray="6 5"/>`;
+  wires.innerHTML = h;
+  $$('path.hit', wires).forEach(p => p.addEventListener('pointerdown', e => { e.stopPropagation(); const l = G.links[+p.dataset.l]; G.links.splice(+p.dataset.l, 1); drawWires(); requestEval(); syncStack(); toast(winG, `Removed the wire into ${DEF[G.nodes[l.to].type].t}'s ${l.k}`); }));
+}
+function worldXY(e) { const r = graphEl.getBoundingClientRect(), s = appScale(graphEl); return [((e.clientX - r.left) / s - GS.pan.x) / GS.zoom, ((e.clientY - r.top) / s - GS.pan.y) / GS.zoom]; }
+function applyWorld() { world.style.transform = `translate(${GS.pan.x}px, ${GS.pan.y}px) scale(${GS.zoom})`; }
+graphEl.addEventListener('pointerdown', e => {
+  const sock = e.target.closest('.sock');
+  if (sock) { e.stopPropagation(); graphEl.setPointerCapture(e.pointerId);
+    let from = sock.classList.contains('out') ? sock.dataset.n : null;
+    if (!from) { const i = G.links.findIndex(l => l.to === sock.dataset.n && l.k === sock.dataset.k); if (i < 0) return; from = G.links[i].from; G.links.splice(i, 1); requestEval(); }
+    tempWire = { from, a: sockPos(from), b: worldXY(e) }; drawWires();
+    const mv = ev => { tempWire.b = worldXY(ev); drawWires(); };
+    const up = ev => { graphEl.removeEventListener('pointermove', mv); graphEl.removeEventListener('pointerup', up);
+      const t = document.elementsFromPoint(ev.clientX, ev.clientY).map(x => x.closest && x.closest('.sock.in')).find(Boolean);
+      if (t && t.dataset.n !== from) { G.links = G.links.filter(l => !(l.to === t.dataset.n && l.k === t.dataset.k)); G.links.push({ from, to: t.dataset.n, k: t.dataset.k }); toast(winG, `Connected ${DEF[G.nodes[from].type].t} to ${DEF[G.nodes[t.dataset.n].type].t}`); }
+      tempWire = null; drawWires(); requestEval(); syncStack(); };
+    graphEl.addEventListener('pointermove', mv); graphEl.addEventListener('pointerup', up); return; }
+  if (e.target.closest('.node')) return;
+  graphEl.setPointerCapture(e.pointerId); const s = appScale(graphEl), sx = e.clientX, sy = e.clientY, px = GS.pan.x, py = GS.pan.y;
+  const mv = ev => { GS.pan.x = px + (ev.clientX - sx) / s; GS.pan.y = py + (ev.clientY - sy) / s; applyWorld(); };
+  const up = () => { graphEl.removeEventListener('pointermove', mv); graphEl.removeEventListener('pointerup', up); }; graphEl.addEventListener('pointermove', mv); graphEl.addEventListener('pointerup', up);
+});
+graphEl.addEventListener('wheel', e => { e.preventDefault(); const r = graphEl.getBoundingClientRect(), s = appScale(graphEl), mx = (e.clientX - r.left) / s, my = (e.clientY - r.top) / s, z = clamp(GS.zoom * Math.exp(-e.deltaY * 0.0012), 0.4, 1.6);
+  GS.pan.x = mx - (mx - GS.pan.x) * z / GS.zoom; GS.pan.y = my - (my - GS.pan.y) * z / GS.zoom; GS.zoom = z; applyWorld(); }, { passive: false });
+function buildGraph() { $$('.node', world).forEach(n => n.remove()); Object.keys(G.nodes).forEach(buildNode); applyWorld(); drawWires(); $('#g-badge').textContent = `${Object.keys(G.nodes).length} nodes`; }
+function drawThumbs() {
+  for (const id of Object.keys(G.nodes)) { const el = $(`.node[data-id="${id}"] canvas.thumb`, world), b = GS.bufs[id]; if (!el || !b) continue; thumbInto(el, b, DEF[G.nodes[id].type].out); }
+  syncStack(true);
+}
+function thumbInto(cv, b, kind) { const x = cv.getContext('2d'), s = cv.width, img = x.createImageData(s, s);
+  for (let y = 0; y < s; y++) for (let xx = 0; xx < s; xx++) { const i = Math.floor(y / s * SR) * SR + Math.floor(xx / s * SR), o = (y * s + xx) * 4; if (ST.face[i] < 0) { img.data[o+3] = 0; continue; }
+    for (let k = 0; k < 3; k++) img.data[o+k] = srgb(kind === 'c' ? b[i*3+k] : b[i*3]); img.data[o+3] = 255; }
+  x.putImageData(img, 0, 0); }
+/* Probe: press on the model and each node shows its value at that point. */
+function showProbe() { const i = GS.probe; for (const id of Object.keys(G.nodes)) { const el = $(`.node[data-id="${id}"] .probe`, world), b = GS.bufs[id], k = DEF[G.nodes[id].type].out; if (!el) continue;
+    if (!b || i == null) { el.style.display = 'none'; continue; } el.style.display = 'flex';
+    el.innerHTML = k === 'c' ? `<i style="background:${linHex([b[i*3], b[i*3+1], b[i*3+2]])}"></i>${linHex([b[i*3], b[i*3+1], b[i*3+2]])}` : b[i*3].toFixed(2); } }
+const shadeHandlers = {
+  overlay(v, x) { if (GS.probeAt && GS.tool === 'probe') { const W = v.ov.width, H = v.ov.height, dpr = W / v.cv.getBoundingClientRect().width, [nx, ny] = v.project(GS.probeAt);
+    x.strokeStyle = '#f3b54a'; x.lineWidth = 2 * dpr; x.beginPath(); x.arc(nx * W, ny * H, 9 * dpr, 0, 7); x.moveTo(nx * W - 16 * dpr, ny * H); x.lineTo(nx * W - 5 * dpr, ny * H); x.moveTo(nx * W + 5 * dpr, ny * H); x.lineTo(nx * W + 16 * dpr, ny * H); x.stroke(); } },
+  down(v, hit) { if (GS.tool !== 'probe' || !hit) return false; probeHit(v, hit); return true; },
+  move(v, hit) { if (hit) probeHit(v, hit); }, up() {}
+};
+function probeHit(v, hit) { const px = clamp(Math.floor(hit.uv[0] * SR), 0, SR - 1), py = clamp(Math.floor((1 - hit.uv[1]) * SR), 0, SR - 1); GS.probe = py * SR + px; GS.probeAt = hit.pos; showProbe(); syncStack(true); for (const w of GS.viewers) w.dirty = true; }
+const vG = new Viewer($('#g-vp'), { ...shadeHandlers, mode: 4, shift: 0, yaw: -0.5, dist: 4.3 });
+vG.setUV(PU); GS.viewers.push(vG);
+function setGraphLayout() {
+  const vp = $('#g-vp'), full = GS.view === 'graph' && GS.mode === 'full';
+  graphEl.classList.toggle('hidden', GS.view !== 'graph'); graphEl.classList.toggle('split', GS.mode === 'split'); graphEl.classList.toggle('full', GS.mode === 'full');
+  $('#g-col').style.display = GS.view === 'stack' ? 'flex' : 'none';
+  $$('#g-mode button').forEach(b => { b.classList.toggle('on', b.dataset.v === GS.mode); b.disabled = GS.view !== 'graph'; b.style.opacity = GS.view === 'graph' ? 1 : .4; });
+  $$('#g-view button').forEach(b => b.classList.toggle('on', b.dataset.v === GS.view));
+  $('#g-bk').style.display = GS.view === 'graph' ? '' : 'none'; $('#g-peek').style.display = GS.view === 'graph' && GS.mode !== 'split' ? '' : 'none';
+  $('#g-add').style.display = $('#g-tidy').style.display = GS.view === 'graph' ? '' : 'none';
+  vp.classList.toggle('mini', full);
+  vG.shift = GS.view === 'stack' ? -0.22 : GS.mode === 'split' ? -0.5 : 0; vG.dist = GS.mode === 'split' && GS.view === 'graph' ? 5.2 : 4.3;
+  $('.back', graphEl).style.opacity = GS.mode === 'overlay' ? GS.back : Math.max(0.85, GS.back);
+  $$('.node', world).forEach(n => n.style.setProperty('--na', GS.mode === 'overlay' ? lerp(0.55, 0.97, GS.back / 0.95) : 0.97));
+  vG.resize(); drawWires();
+}
+$$('#g-view button').forEach(b => b.onclick = () => { GS.view = b.dataset.v; setGraphLayout(); });
+$$('#g-mode button').forEach(b => b.onclick = () => { GS.mode = b.dataset.v; if (GS.mode === 'split') { GS.pan = { x: 10, y: 10 }; GS.zoom = 0.66; } else if (GS.mode === 'full') { GS.pan = { x: 60, y: 30 }; GS.zoom = 0.95; } else { GS.pan = { x: 30, y: 20 }; GS.zoom = 0.86; } applyWorld(); setGraphLayout(); });
+rangeOut($('#g-back'), v => { GS.back = v; setGraphLayout(); }, v => Math.round(v * 100) + '%');
+const peek = $('#g-peek'); peek.addEventListener('pointerdown', () => graphEl.classList.add('peek')); for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) peek.addEventListener(ev, () => graphEl.classList.remove('peek'));
+$('#g-tidy').onclick = () => { const depth = {}; const d = id => depth[id] ?? (depth[id] = Math.max(0, ...G.links.filter(l => l.to === id).map(l => d(l.from) + 1)));
+  const cols = {}; Object.keys(G.nodes).forEach(id => { const c = d(id); (cols[c] = cols[c] || []).push(id); });
+  const from = Object.fromEntries(Object.entries(G.nodes).map(([id, n]) => [id, [n.x, n.y]])), tops = {};
+  for (const ids of Object.values(cols)) { let y = 10; for (const id of ids) { tops[id] = y; y += $(`.node[data-id="${id}"]`, world).offsetHeight + 18; } }
+  animate(450, t => { for (const [c, ids] of Object.entries(cols)) ids.forEach((id, r) => { const n = G.nodes[id]; n.x = lerp(from[id][0], 30 + c * 260, t); n.y = lerp(from[id][1], tops[id], t); const el = $(`.node[data-id="${id}"]`, world); el.style.left = n.x + 'px'; el.style.top = n.y + 'px'; }); drawWires(); }); };
+const ADD = [['From the sculpt', ['cavity', 'height', 'facing']], ['Make', ['colour', 'value', 'noise']], ['Change', ['map', 'ramp', 'mix']]];
+$('#g-menu').innerHTML = ADD.map(([h, ks]) => `<div class="h">${h}</div>` + ks.map(k => `<button data-k="${k}">${DEF[k].t}</button>`).join('')).join('');
+$('#g-add').onclick = e => { const m = $('#g-menu'), b = e.currentTarget; m.style.display = m.style.display === 'grid' ? 'none' : 'grid'; m.style.left = (b.offsetLeft + b.parentElement.offsetLeft - b.parentElement.offsetWidth / 2) + 'px'; m.style.top = '132px'; };
+$$('#g-menu button').forEach(b => b.onclick = () => { const k = b.dataset.k, id = 'n' + (GS.nextId++), d = DEF[k], p = {};
+  for (const q of d.ps) p[q.k] = q.type === 'colour' ? '#d0a060' : (q.k === 'lo' ? 0.2 : q.k === 'hi' ? 0.8 : q.k === 'scale' ? 6 : q.k === 'contrast' ? 1 : q.k === 'amt' ? 1 : 0.5);
+  G.nodes[id] = { type: k, x: (-GS.pan.x + 380) / GS.zoom, y: (-GS.pan.y + 160) / GS.zoom, p }; buildNode(id); drawWires(); requestEval(); $('#g-menu').style.display = 'none'; $('#g-badge').textContent = `${Object.keys(G.nodes).length} nodes`;
+  toast(winG, `Added ${d.t}: drag from its socket onto an input`); });
+function shadeTool(tool, win) {
+  if (tool === 'graph') { GS.view = GS.view === 'graph' ? 'stack' : 'graph'; return setGraphLayout(); }
+  if (tool === 'bake') return toast(win, 'Writes NAME_base_color.png, NAME_orm.png and NAME_normal.png at 2048, as the bake set does today');
+  if (tool === 'export') return toast(win, 'glTF gets the same maps, so Blender and three.js show exactly this look');
+  if (tool === 'presets') return toast(win, 'Looks: graphs saved as presets (Weathered bronze, Painted steel, Mossy stone) in content packs');
+  GS.tool = tool; $$('.shelf [data-tool]', win).forEach(b => b.classList.toggle('on', b.dataset.tool === tool));
+  if (tool === 'probe') { toast(win, 'Press and drag on the model: every node shows its value there'); if (GS.mode === 'overlay' && GS.view === 'graph') { GS.mode = 'split'; GS.pan = { x: 10, y: 10 }; GS.zoom = 0.66; applyWorld(); setGraphLayout(); } }
+  else { GS.probe = null; GS.probeAt = null; showProbe(); syncStack(true); for (const w of GS.viewers) w.dirty = true; }
+}
+$$('#w-shade .shelf [data-tool]').forEach(b => b.onclick = () => shadeTool(b.dataset.tool, winG));
+/* The Stack: the same graph read as layers, each row one Mix node with its mask. */
+const STACK = [
+  { name: 'Dust on top', kind: 'Mix', mix: 'n8', colour: 'n7', mask: 'n6', mp: 'lo', ml: 'Reach', mfmt: v => Math.round((1 - v) * 100) },
+  { name: 'Verdigris in cavities', kind: 'Mix', mix: 'n4', colour: 'n2', mask: 'n3', mp: 'contrast', ml: 'Spread', mfmt: v => v.toFixed(2) },
+  { name: 'Bronze', kind: 'Fill', colour: 'n1' },
+  { name: 'Roughness from cavity', kind: 'Channel', mask: 'n10', mp: 'hi', ml: 'Rough', mfmt: v => v.toFixed(2) },
+  { name: 'Metal from cavity', kind: 'Channel', mask: 'n11', mp: 'hi', ml: 'Metal', mfmt: v => v.toFixed(2) }];
+function buildStack(root) {
+  root.innerHTML = STACK.map((r, i) => { const m = r.mask && G.nodes[r.mask], d = m && DEF[m.type].ps.find(p => p.k === r.mp);
+    return `<div class="layer" data-r="${i}">${r.mix ? `<button class="eye" data-mix="${r.mix}" aria-label="Show ${r.name}">${svg('eye')}</button>` : '<span></span>'}<canvas width="80" height="80"></canvas><div><div class="nm">${r.name} <small>${r.kind}</small>${r.mask && DEF[G.nodes[r.mask].type].from ? '<span class="from">sculpt</span>' : ''}${r.colour ? `<input type="color" data-node="${r.colour}" value="${G.nodes[r.colour].p.c}" aria-label="${r.name} colour" style="margin-left:auto">` : ''}</div>${d ? `<div class="sl"><span>${r.ml}</span><input type="range" data-node="${r.mask}" data-p="${r.mp}" min="${d.min}" max="${d.max}" step="0.01" value="${m.p[r.mp]}" aria-label="${r.ml}"><output>${r.mfmt(+m.p[r.mp])}</output></div>` : ''}<div class="line pv" style="font-size:11px"></div></div></div>`; }).join('');
+  $$('input[type=range]', root).forEach(inp => inp.oninput = () => { G.nodes[inp.dataset.node].p[inp.dataset.p] = +inp.value; inp.nextElementSibling.textContent = STACK[+inp.closest('.layer').dataset.r].mfmt(+inp.value); requestEval(); syncNodes(); syncStack(); });
+  $$('input[type=color]', root).forEach(inp => inp.oninput = () => { G.nodes[inp.dataset.node].p.c = inp.value; requestEval(); syncNodes(); syncStack(); });
+  $$('.eye', root).forEach(b => b.onclick = () => { const n = G.nodes[b.dataset.mix]; n.muted = !n.muted; requestEval(); syncNodes(); syncStack(); });
+}
+const stackRoots = [$('#g-stack'), $('#ph-stack')];
+function syncStack(thumbsOnly) {
+  for (const root of stackRoots) { if (!root) continue; if (!root.children.length) buildStack(root);
+    $$('.layer', root).forEach(row => { const r = STACK[+row.dataset.r], src = r.mix || r.mask || r.colour, b = GS.bufs[src]; if (b && row.querySelector('canvas').offsetParent) thumbInto(row.querySelector('canvas'), b, DEF[G.nodes[src].type].out);
+      const pv = row.querySelector('.pv'); pv.textContent = GS.probe != null && b ? `Here: ${DEF[G.nodes[src].type].out === 'c' ? linHex([b[GS.probe*3], b[GS.probe*3+1], b[GS.probe*3+2]]) : b[GS.probe*3].toFixed(2)}` : '';
+      if (thumbsOnly) return;
+      $$('input', row).forEach(inp => { if (document.activeElement === inp) return; const n = G.nodes[inp.dataset.node]; if (inp.type === 'color') inp.value = n.p.c; else { inp.value = n.p[inp.dataset.p]; inp.nextElementSibling.textContent = r.mfmt(+inp.value); } });
+      const e = row.querySelector('.eye'); if (e) e.classList.toggle('off', !!G.nodes[r.mix].muted); }); }
+}
+function syncNodes() { for (const [id, n] of Object.entries(G.nodes)) { const el = $(`.node[data-id="${id}"]`, world); if (!el) continue; el.classList.toggle('muted', !!n.muted);
+  $$('input', el).forEach(inp => { if (document.activeElement === inp) return; inp.value = n.p[inp.dataset.p]; if (inp.nextElementSibling && inp.nextElementSibling.tagName === 'OUTPUT') inp.nextElementSibling.textContent = (+inp.value).toFixed(2); }); } }
+
+/* ---------------- Phones ---------------- */
+const phU = $('#ph-uv'), phP = $('#ph-paint'), phS = $('#ph-shade');
+const vPU = new Viewer($('.vp', phU), { ...unHandlers, mode: 3, shift: 0, seams: true, yaw: -0.6, dist: 4.6 }); UN.viewers.push(vPU);
+bindUVPane($('.uvbox canvas', phU));
+$$('.ptools [data-tool]', phU).forEach(b => b.onclick = () => { unTool(b.dataset.tool, phU); $$('.ptools [data-tool]', phU).forEach(x => x.classList.toggle('on', x.dataset.tool === UN.tool)); });
+$('#ph-peel').oninput = e => { UN.peel = +e.target.value; e.target.nextElementSibling.textContent = Math.round(UN.peel * 100) + '%'; $('#u-peel').value = UN.peel; $('#u-peelv').textContent = Math.round(UN.peel * 100) + '%'; unRefresh(); };
+const vPP = new Viewer($('.vp', phP), { ...paintHandlers, mode: 4, shift: 0.06, yaw: 0.4, dist: 5.2 }); vPP.setUV(PU); PT.viewers.push(vPP);
+bindVS($('#ph-off'));
+$$('.pdock [data-tool]', phP).forEach(b => b.onclick = () => paintTool(b.dataset.tool, phP));
+const vPS = new Viewer($('.vp', phS), { ...shadeHandlers, mode: 4, shift: 0, yaw: -0.3, dist: 4.4 }); vPS.setUV(PU); GS.viewers.push(vPS);
+$('#ph-graphbtn').onclick = () => toast(phS, 'Graph opens full screen over the model, with the backdrop slider');
+
+/* ---------------- Start ---------------- */
+function route() {
+  const s = (location.hash || '#unwrap').slice(1), ok = ['unwrap', 'paint', 'shade', 'phone', 'compare'].includes(s) ? s : 'unwrap';
+  $$('section.screen').forEach(x => x.classList.toggle('on', x.id === 's-' + ok)); $$('nav.screens a').forEach(a => a.classList.toggle('on', a.dataset.s === ok));
+  requestAnimationFrame(() => { fit(); for (const v of viewers) v.dirty = true; drawTexCard(); drawLayerThumbs(); drawThumbs(); syncStack(true); setGraphLayout(); });
+}
+$$('[data-go]').forEach(b => b.onclick = () => { location.hash = b.dataset.go; });
+addEventListener('hashchange', route);
+unRefresh(); composite(); paintPush(); buildGraph(); evalGraph(); setGraphLayout(); route(); loop();
+</script>
+</body>
+</html>
