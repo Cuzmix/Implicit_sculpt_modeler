@@ -1518,6 +1518,19 @@ def curve_points_moved_by_g_along_x():
                                                           "undo_steps": near(1), "dabs": near(0)})
 
 
+@scenario
+def curve_grown_from_its_nub():
+    """Add › Curve's Bézier, Tab to Edit: a mouse press on the green ＋ past its last point adds
+    a point there and the drag places it, one undo step (look with --screens for the nubs)."""
+    s = Script()
+    s.wait(2)
+    s.press("Tab")
+    s.mouse_drag(line((912, 410), (990, 350), 6))
+    s.wait(2)
+    return s, ["--script=add_curve bezier"], camera_still({"curves": near(1), "curve_points": near(3), "curve_edits": near(1),
+                                                          "undo_steps": near(1), "dabs": near(0)})
+
+
 def tube_loop(s):
     """Three pen taps and a tap back on the first: a closed curve making a tube, then its
     second point dragged by pen, which makes the tube again."""

@@ -25,6 +25,7 @@ Curve_Handle :: enum u8 {
 	Out,
 	Radius,
 	Line, // the line between points: a drag pulls it, a tap adds a point
+	Nub,  // the ＋ past an open curve's end in the Edit tab: a press adds a point there
 }
 
 // A press on the selected curve: what it holds, of which point (or at which place `u` of
@@ -119,6 +120,11 @@ curve_hit :: proc(app: ^App, obj: ^Object, size, pos: [2]f32) -> (d: Curve_Drag)
 		if sc.ok do try(&d, &best, sc.point, pos, .Point, i)
 	}
 	if d.handle != .None do return
+	n := len(cp.points)
+	for last in ([2]bool{false, true}) {
+		if at, ok := curve_nub_screen(app, obj, view_proj, size, last); ok do try(&d, &best, at, pos, .Nub, n - 1 if last else 0)
+	}
+	if d.handle != .None do return
 	for i in 0 ..< len(cp.points) {
 		if !curve_handles_shown(app, cp, i) do continue
 		sc := curve_point_screen(app, obj, view_proj, size, i)
@@ -155,6 +161,21 @@ curve_edit_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 		if hit.handle == .None do return false
 		hit.from, hit.id = input.mouse_pos, obj.id
 		hit.before = history_snapshot(app, obj, "edit curve")
+		if hit.handle == .Nub {
+			// A new point past the end, which the rest of the press drags as a point.
+			index, ok := curve_grow(app, obj, hit.index > 0, input.mouse_pos, input.size)
+			if !ok {
+				history_snapshot_drop(hit.before)
+				return true
+			}
+			curve_select_none(obj.curve)
+			obj.curve.points[index].selected = true
+			hit.handle, hit.index, hit.moved = .Point, index, true
+			c.picked = index + 1
+			d^ = hit
+			curve_changed(app, obj)
+			return true
+		}
 		d^ = hit
 		if hit.handle == .Point {
 			// Shift adds the point to the picked ones or takes it away; a press on a point not
@@ -207,7 +228,7 @@ curve_drag_to :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 		return lo + ld * (linalg.dot(at - lo, facing) / den)
 	}
 	switch d.handle {
-	case .None:
+	case .None, .Nub:
 	case .Point:
 		p := &cp.points[d.index]
 		// Onto the surface under the pointer with Surface, else the Draw on plane through
@@ -466,6 +487,7 @@ draw_curve_edit :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		overlay_disc(o, sc.radius, 5.5 * o.scale, dark)
 		overlay_disc(o, sc.radius, 4 * o.scale, white)
 	}
+	draw_curve_nubs(app, o, obj, view_proj, size)
 	if b := app.curve.box; b.active do overlay_box(o, b.from, b.to, blue, overlay_color({0.4, 0.85, 1, 0.12}), 1 * o.scale)
 }
 
