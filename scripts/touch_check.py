@@ -1584,6 +1584,27 @@ def tube_profile_pad_edits_the_outline():
 
 
 @scenario
+def tube_width_pad_tapers_it():
+    """A tube curve's card scrolled down to Width along: Taper narrows the tube to its end
+    (one undo step) and a drag on the graph's last point lifts it again (one more, when it
+    lets go; look with --screens)."""
+    s = Script()
+    tube_loop(s)
+    s.ftap(UI["inspector"])
+    s.wait(10)
+    s.add("move:1374,500")
+    s.wait(1)
+    s.add("wheel:-12")
+    s.wait(6)
+    s.mouse_drag(line((1338, 343), (1338, 343), 1))
+    s.wait(3)
+    s.mouse_drag(line((1511, 455), (1511, 425), 6))
+    s.wait(3)
+    return s, ["--script=tool_curve; set curve tube"], camera_still({"curves": near(1), "curve_tubes": near(1), "undo_steps": near(4),
+                                                                    "dabs": near(0)})
+
+
+@scenario
 def tube_baked_from_the_palette_and_undone():
     """A tube curve baked by the palette's Bake curve becomes a mesh object in its place (the
     curve goes, one undo step), and Ctrl+Z brings the curve and its tube back."""

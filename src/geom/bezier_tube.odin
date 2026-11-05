@@ -37,9 +37,10 @@ Tube_Options :: struct {
 	sides:    int, // round the profile: 3 to TUBE_SIDES_MAX
 	density:  f32, // rings per radius of length: more is smoother along the curve (3 keeps a bend round)
 	caps:     Tube_Caps,
+	width:    Tube_Width, // the radius along the curve, start to end (tube_width.odin)
 }
 
-TUBE_DEFAULTS :: Tube_Options{profile = PROFILE_ROUND, radius = .Each, one = 0.05, sides = 16, density = 3, caps = .Round}
+TUBE_DEFAULTS :: Tube_Options{profile = PROFILE_ROUND, radius = .Each, one = 0.05, sides = 16, density = 3, caps = .Round, width = WIDTH_EVEN}
 TUBE_SIDES_MAX :: 64
 TUBE_RINGS_MAX :: 4096
 
@@ -107,6 +108,13 @@ bezier_tube :: proc(points: []Bezier_Point, closed: bool, o: Tube_Options, up: V
 	}
 	radii := make([]f32, rings, context.temp_allocator)
 	for s, i in samples do radii[i] = max(tube_radius_at(o, points, s, length), 0)
+	// The width along multiplies each ring's radius by the graph's height there, the
+	// samples in order so the lookup walks the table once.
+	if !width_is_even(o.width) {
+		table := width_table(o.width)
+		at := 0
+		for s, i in samples do radii[i] *= width_lookup(table, s.s / length, &at)
+	}
 	round := !closed && o.caps == .Round
 	// A round cap's rings before the first: the profile shrinking by a quarter circle,
 	// stepping back along the curve.
