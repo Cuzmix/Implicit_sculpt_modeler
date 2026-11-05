@@ -315,3 +315,36 @@ stack_export_bakes_unless_kept :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(object_mesh(obj).positions), n)
 	free_all(context.temp_allocator)
 }
+
+// The card's rows: what a sculpt can take (no cage rows), what each says folded, Add as
+// one undo step with its starting values, and a hidden row saying so.
+@(test)
+stack_card_rows_add_and_say :: proc(t: ^testing.T) {
+	app: App
+	defer stack_scene_free(&app)
+	obj := stack_scene(&app)
+	for r in Stack_Row do testing.expect(t, !stack_row_in(&app, obj, r))
+	stack_row_add(&app, obj, .Array)
+	stack_row_add(&app, obj, .Radial)
+	stack_row_add(&app, obj, .Mirror)
+	testing.expect_value(t, len(app.history.done), 3)
+	testing.expect(t, stack_row_in(&app, obj, .Array) && stack_row_in(&app, obj, .Radial) && stack_row_in(&app, obj, .Mirror))
+	testing.expect(t, !stack_row_in(&app, obj, .Smooth) && !stack_row_in(&app, obj, .Cage_Mirror))
+	testing.expect_value(t, stack_row_detail(&app, obj, .Array), "3, 2.20 apart")
+	testing.expect_value(t, stack_row_detail(&app, obj, .Radial), "6 round Y")
+	testing.expect_value(t, stack_row_detail(&app, obj, .Mirror), "X, keeps +")
+	stack_row_add(&app, obj, .Along)
+	testing.expect_value(t, stack_row_detail(&app, obj, .Along), "No curve picked")
+	s := obj.stack
+	s.radial.shown = false
+	stack_set(&app, obj, s, "Hide radial")
+	testing.expect_value(t, stack_row_detail(&app, obj, .Radial), "Hidden")
+	// Reset is Add again: the starting values, one more step.
+	s = obj.stack
+	s.array.count = 9
+	stack_set(&app, obj, s, "Array count")
+	stack_row_add(&app, obj, .Array)
+	testing.expect_value(t, obj.stack.array, STACK_ARRAY_DEFAULT)
+	history_undo(&app)
+	testing.expect_value(t, obj.stack.array.count, 9)
+}
