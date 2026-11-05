@@ -36,11 +36,16 @@ Ref_Image :: struct {
 	// Its grey copy, made only once a place shows it grey (Ref.grey), so the colour copy
 	// alone costs memory until then; grey_failed keeps a refused one from being tried again.
 	grey:        render.Texture,
+	grey_shown:  [2]int,
 	grey_failed: bool,
 	// A small copy on the CPU, REF_SAMPLE_SIDE on its long side at most, for the
 	// Eyedropper's picks on the board and over the view.
 	sample:      []u8,
 	sample_size: [2]int,
+	// When the interface last drew it (its context's time), and whether its GPU copy is
+	// only the small one the memory limit leaves (refs_memory).
+	seen:        f64,
+	small:       bool,
 	decode:  ^Ref_Decode,
 	failed:  string, // why it cannot be shown, owned; "" while it can
 	used:    bool, // refs_collect's mark
@@ -86,6 +91,16 @@ REF_OPACITY :: 0.5
 REF_OPACITY_MIN :: 0.05
 // The longest side of a picture's copy kept for the Eyedropper.
 REF_SAMPLE_SIDE :: 512
+// The memory limit's choices for the GPU copies, in MB; 0 is Automatic: a fourth of a
+// desktop's on a tablet, which shares its memory with the sculpt.
+REFS_MEMORY := [?]i32{0, 128, 256, 512, 1024, 2048}
+REFS_MEMORY_NAMES := [?]string{"Automatic", "128 MB", "256 MB", "512 MB", "1 GB", "2 GB"}
+#assert(len(REFS_MEMORY) == len(REFS_MEMORY_NAMES))
+REFS_MEMORY_AUTOMATIC_MB :: 256 when MOBILE else 1024
+// The long side of the copy a picture keeps past the limit, and how long a picture unseen
+// is before it is made small.
+REF_SMALL_SIDE :: 256
+REF_UNSEEN_SECONDS :: 2
 
 // The longest note, in bytes with its ending NUL: a label, not a document.
 REF_NOTE_MAX :: 96
@@ -164,34 +179,37 @@ ref_index :: proc(refs: ^References, id: u32) -> int {
 // again rather than kept twice. False with the reason when the scene is full.
 refs_add :: proc(app: ^App, name: string, bytes: []u8, at: [2]f32) -> (ref: Ref, why: string) {
 	refs := &app.scene.refs
-	sum := hash.crc32(bytes)
 	img: ^Ref_Image
-	for other in refs.images {
-		if len(other.bytes) == len(bytes) && hash.crc32(other.bytes) == sum && string(other.bytes) == string(bytes) {
-			img = other
-			delete(bytes)
-			break
-		}
-	}
-	if img == nil {
-		if len(refs.images) >= REF_IMAGES_MAX {
-			delete(bytes)
-			return {}, fmt.tprintf("the scene already holds %d pictures", REF_IMAGES_MAX)
-		}
-		refs.next_image += 1
-		img = new(Ref_Image)
-		img^ = {id = refs.next_image, name = strings.clone(name), bytes = bytes}
-		append(&refs.images, img)
-	}
-	if img.width == 0 {
-		// Its shape from the file's header, so it takes its place at once, not when decoded.
-		if w, h, ok := image_size_peek(img.bytes); ok do img.width, img.height = w, h
-	}
+	img, why = ref_image_keep(refs, name, bytes)
+	if img == nil do return
 	refs.next_ref += 1
 	ref = {id = refs.next_ref, image = img.id, at = at, size = REF_ADD_HEIGHT, crop_hi = 1, view_at = REF_VIEW_AT, view_w = REF_VIEW_W, opacity = REF_OPACITY}
 	if img.width > 0 do ref = ref_sized(ref, img)
 	append(&refs.refs, ref)
 	return ref, ""
+}
+
+// The picture of file `name` holding `bytes` (taken over): one already kept of the same
+// bytes, or a new one. Nil with the reason when the scene is full.
+ref_image_keep :: proc(refs: ^References, name: string, bytes: []u8) -> (img: ^Ref_Image, why: string) {
+	sum := hash.crc32(bytes)
+	for other in refs.images {
+		if len(other.bytes) == len(bytes) && hash.crc32(other.bytes) == sum && string(other.bytes) == string(bytes) {
+			delete(bytes)
+			return other, ""
+		}
+	}
+	if len(refs.images) >= REF_IMAGES_MAX {
+		delete(bytes)
+		return nil, fmt.tprintf("the scene already holds %d pictures", REF_IMAGES_MAX)
+	}
+	refs.next_image += 1
+	img = new(Ref_Image)
+	img^ = {id = refs.next_image, name = strings.clone(name), bytes = bytes}
+	append(&refs.images, img)
+	// Its shape from the file's header, so it takes its place at once, not when decoded.
+	if w, h, ok := image_size_peek(img.bytes); ok do img.width, img.height = w, h
+	return img, ""
 }
 
 // Place `r` given the shape of its picture (as cropped and turned) at its height.
@@ -263,6 +281,7 @@ ref_note_text :: proc(r: ^Ref) -> string {
 // as one undo step. The outcome becomes the file note.
 refs_add_file :: proc(app: ^App, path: string) -> bool {
 	name := filepath.base(path)
+	if strings.equal_fold(filepath.ext(path), ".sculpt") do return refs_copy_board(app, path)
 	data, err := file_read_any(path, context.allocator)
 	if err != nil {
 		file_note(app, true, "Cannot add %s to References: %v", name, err)
@@ -293,6 +312,76 @@ refs_add_bytes :: proc(app: ^App, name: string, data: []u8) -> bool {
 	board_show(app, ref.id)
 	file_note(app, false, "Added %s to References", name)
 	return true
+}
+
+// Copies the References board of scene file `path` onto this one, to the right of what is
+// there, picked, as one undo step: its pictures (one already here is not kept twice), its
+// places and notes as they stand there.
+refs_copy_board :: proc(app: ^App, path: string) -> bool {
+	name := filepath.base(path)
+	src, why := refs_scene_read(path)
+	defer refs_free(&src)
+	if why == "" && len(src.refs) == 0 do why = "its References board is empty"
+	if why != "" {
+		file_note(app, true, "Cannot copy the references of %s: %s", name, why)
+		return false
+	}
+	refs := &app.scene.refs
+	before := refs_clone(refs.refs[:])
+	ids := make(map[u32]u32, context.temp_allocator)
+	for img in src.images {
+		kept, full := ref_image_keep(refs, img.name, img.bytes)
+		img.bytes = nil
+		if kept == nil {
+			refs_set(app, before)
+			delete(before)
+			file_note(app, true, "Cannot copy the references of %s: %s", name, full)
+			refs_collect(app)
+			return false
+		}
+		ids[img.id] = kept.id
+	}
+	lo := src.refs[0].at
+	for r in src.refs do lo = {min(lo.x, r.at.x), min(lo.y, r.at.y)}
+	shift := board_drop_point(app) - lo if len(refs.refs) > 0 else -lo
+	b := &app.kit.board
+	clear(&b.selected)
+	for r in src.refs {
+		r := r
+		refs.next_ref += 1
+		r.id = refs.next_ref
+		if r.image != 0 do r.image = ids[r.image]
+		r.at += shift
+		append(&refs.refs, r)
+		append(&b.selected, r.id)
+	}
+	history_record_refs(app, before, "Copy board")
+	board_fit(app, b.room)
+	file_note(app, false, "Copied %d references of %s", len(src.refs), name)
+	return true
+}
+
+// The References of scene file `path` alone, read without its objects; why it cannot be
+// read when it cannot.
+refs_scene_read :: proc(path: string) -> (refs: References, why: string) {
+	data, err := file_read_any(path, context.allocator)
+	if err != nil do return {}, fmt.tprint(err)
+	defer delete(data)
+	r := geom.byte_reader(data)
+	magic: [len(SCENE_MAGIC)]u8
+	geom.byte_get_slice(&r, magic[:])
+	version := geom.byte_get(&r, u32)
+	if !r.ok || string(magic[:]) != SCENE_MAGIC || version != SCENE_VERSION do return {}, "it is not a scene this version of the app reads"
+	if !preview_block_skip(&r) do return {}, "it is damaged"
+	for {
+		tag, chunk, more := scene_chunk_next(&r)
+		if !more do return {}, "it is damaged"
+		if tag != CHUNK_REFS do continue
+		ok: bool
+		refs, ok = refs_get(&chunk)
+		if !ok do return {}, "its reference pictures are damaged"
+		return refs, ""
+	}
 }
 
 // Whether `data` starts as an image file the decoder reads.
@@ -493,17 +582,64 @@ refs_poll :: proc(app: ^App) {
 	// Grey copies after every colour one, for the pictures a place shows grey.
 	for img in refs.images {
 		if running >= REF_DECODES_MAX do break
-		if img.decode != nil || img.texture == 0 || img.grey != 0 || img.grey_failed do continue
+		if img.decode != nil || img.texture == 0 || img.small || img.grey != 0 || img.grey_failed do continue
 		wanted := false
 		for r in refs.refs do if r.image == img.id && r.grey do wanted = true
 		if !wanted do continue
 		ref_decode_start(img, grey = true)
 		running += 1
 	}
+	refs_memory(app, &running)
 	if app.kit.board.snap {
 		app.kit.board.snap = false
 		refs_snap_view(app)
 	}
+}
+
+// Holds the GPU copies to the memory limit: while they take more, the picture unseen the
+// longest is shown from a small copy made from its Eyedropper copy on the spot (no
+// decode), its grey copy dropped; a small one drawn again is decoded whole once it fits.
+@(private = "file")
+refs_memory :: proc(app: ^App, running: ^int) {
+	refs := &app.scene.refs
+	most := f64(app.refs_memory_mb if app.refs_memory_mb > 0 else REFS_MEMORY_AUTOMATIC_MB)
+	now := app.kit.ctx.time
+	for refs_gpu_mb(app) > most {
+		oldest: ^Ref_Image
+		for img in refs.images {
+			if img.texture == 0 || img.small || img.sample == nil || img.decode != nil || now - img.seen < REF_UNSEEN_SECONDS do continue
+			if oldest == nil || img.seen < oldest.seen do oldest = img
+		}
+		if oldest == nil do break
+		small, w, h := rgba_shrink(oldest.sample, oldest.sample_size.x, oldest.sample_size.y, REF_SMALL_SIDE, context.temp_allocator)
+		texture := render.picture_create(&app.renderer, small, w, h)
+		if texture == 0 do break
+		render.matcap_destroy(&app.renderer, &oldest.texture)
+		render.matcap_destroy(&app.renderer, &oldest.grey)
+		oldest.texture, oldest.shown, oldest.small, oldest.grey_failed = texture, {w, h}, true, false
+		app.refs_shrunk += 1
+	}
+	for img in refs.images {
+		if running^ >= REF_DECODES_MAX do break
+		if !img.small || img.decode != nil || now - img.seen > 0.5 do continue
+		if refs_gpu_mb(app) - texture_mb(img.shown) + texture_mb(ref_gpu_side(img)) > most do continue
+		ref_decode_start(img)
+		running^ += 1
+	}
+}
+
+// The size of picture `img`'s whole GPU copy: its size halved until it fits REF_GPU_SIDE.
+@(private = "file")
+ref_gpu_side :: proc(img: ^Ref_Image) -> [2]int {
+	w, h := max(img.width, 1), max(img.height, 1)
+	for max(w, h) > REF_GPU_SIDE && w > 1 && h > 1 do w, h = w / 2, h / 2
+	return {w, h}
+}
+
+// What an RGBA8 texture of `size` with its mips takes, in MB.
+@(private = "file")
+texture_mb :: proc(size: [2]int) -> f64 {
+	return f64(size.x * size.y * 4 * 4 / 3) / f64(1 << 20)
 }
 
 // Puts a picture of the viewport as the last frame drew it on the board, as one undo
@@ -618,6 +754,7 @@ ref_decode_take :: proc(app: ^App, img: ^Ref_Image) {
 	app.refs_decode_ms = max(app.refs_decode_ms, d.ms)
 	if d.grey {
 		if d.why == "" do img.grey = render.picture_create(&app.renderer, d.pixels, d.shown.x, d.shown.y)
+		img.grey_shown = d.shown
 		img.grey_failed = img.grey == 0
 		return
 	}
@@ -632,9 +769,15 @@ ref_decode_take :: proc(app: ^App, img: ^Ref_Image) {
 		app.scene_edits += 1
 	}
 	img.width, img.height = d.width, d.height
+	// Just made, it counts as seen, so the memory limit does not take it back at once.
+	img.seen = app.kit.ctx.time
+	delete(img.sample)
 	img.sample = make([]u8, len(d.sample))
 	copy(img.sample, d.sample)
 	img.sample_size = d.sample_size
+	// A whole copy in place of the small one the memory limit left.
+	render.matcap_destroy(&app.renderer, &img.texture)
+	img.small = false
 	img.texture = render.picture_create(&app.renderer, d.pixels, d.shown.x, d.shown.y)
 	img.shown = d.shown
 	if img.texture == 0 do img.failed = strings.clone(fmt.tprintf("the GPU refused a %d x %d picture", d.shown.x, d.shown.y))
@@ -655,6 +798,12 @@ refs_note_count :: proc(app: ^App) -> int {
 	return n
 }
 
+refs_small_count :: proc(app: ^App) -> int {
+	n := 0
+	for img in app.scene.refs.images do if img.small do n += 1
+	return n
+}
+
 refs_grey_count :: proc(app: ^App) -> int {
 	n := 0
 	for img in app.scene.refs.images do if img.grey != 0 do n += 1
@@ -666,7 +815,7 @@ refs_gpu_mb :: proc(app: ^App) -> f64 {
 	bytes := 0
 	for img in app.scene.refs.images {
 		if img.texture != 0 do bytes += img.shown.x * img.shown.y * 4 * 4 / 3
-		if img.grey != 0 do bytes += img.shown.x * img.shown.y * 4 * 4 / 3
+		if img.grey != 0 do bytes += img.grey_shown.x * img.grey_shown.y * 4 * 4 / 3
 	}
 	return f64(bytes) / f64(1 << 20)
 }
