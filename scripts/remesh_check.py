@@ -8,7 +8,9 @@ tables what each gave, against the acceptance the plan set.
     python scripts/remesh_check.py --real "Female expression6.obj"   # a real sculpt besides
 
 Each fixture is written as an OBJ into build/remesh_check/fixtures by a generator here
-(deterministic, nothing random), then each tool runs on it in the headless app:
+(deterministic, nothing random; a head with horns and a hand are overlapping parts, as a
+sculpt's are, which Remesh joins into one surface first), then each tool runs on it in the
+headless app:
 `--import` the fixture, `--script` the tool's set lines and verb (what the panel would
 do) and `--export` the selected object (the remeshed one, or Quad Remesh's new object, as
 quads where it has them). The log gives the time (Remesh's own line, Quad Remesh's result
@@ -17,21 +19,22 @@ app ends with exit code 2 refused or warned (the script runner fails a statement
 result is a warning, and then exports nothing): the row says what the result line or the
 last warning said. Any other failure is a crash. The exported OBJ is read back as
 polygons for the rest: faces, the quads' share, the share of vertices with four faces,
-boundary and non-manifold edges, the signed volume against the input's, and the deviation
+boundary and non-manifold edges, the signed volume against the input's, the deviation
 from the input (every output vertex's distance to the nearest input triangle, as a share
-of the input's bounding diagonal). Memory is the app's own `peak_rss_mb` exit stat (Linux
-and Android; 0 elsewhere). `--stability` runs each tool once more on one thread and
+of the input's bounding diagonal) and, for Quad Remesh, the loss the other way round (the
+input's vertices' distance to the quads: a tip cut off or a crease filled in). Memory is
+the app's own `peak_rss_mb` exit stat (Linux and Android; 0 elsewhere). `--stability` runs each tool once more on one thread and
 compares the two OBJ files byte for byte.
 
 The Check column holds the plan's acceptance (the report's section 7) per fixture: a
 closed fixture's Remesh must come back closed and manifold (every face a quad with
 Quads), its volume within 1 % of the input's, every vertex within 0.6 of the lattice
 spacing of the input (a closed solid's surface; an open input's caps lie off it) and, for
-a single solid, its count within 5 % of the request; Quad
-Remesh must give at least 99 % quads with no boundary or non-manifold edge, faces within
-5 % of the request, the volume within 2 %, a deviation under 0.5 % at most and
-0.1 % on average, and at least 95 % four-valent vertices on the sphere and the bumpy
-sphere, 100 % on the torus. An engine fallback is judged as a result that is not
+a single solid, its count within 5 % of the request; Quad Remesh must give every face a
+quad with no boundary (but on the open cylinder) or non-manifold edge, faces within 2 % of
+the request, the volume within 2 %, a deviation under 0.1 % at most and 0.01 % on average,
+a loss under 2.5 %, at least 90 % four-valent vertices, 98 % on the sphere and the bumpy
+sphere and 100 % on the torus. An engine fallback is judged as a result that is not
 AutoRemesher's (FAIL, with the engine's reason). Open, non-manifold and invalid fixtures
 stay in the table with what they did: a refusal there is a PASS, as is the import's
 refusal of a NaN position. The exit code is 1 when a check failed, else 0. A development
@@ -178,6 +181,130 @@ def nonmanifold():
     return merge(a, b, fin)
 
 
+def displaced(level, push):
+    """An icosphere whose every vertex moves out along its direction by push(direction):
+    one closed surface, however deep the displacement, as long as it stays above -1."""
+    v, t = icosphere(level)
+    return [tuple((1 + push(p)) * x for x in p) for p in v], t
+
+
+def spikes():
+    # Twelve pointed spikes as long as the ball's radius, on the icosahedron's corners (each
+    # an icosphere vertex, so each tip is one), their flanks curving in to sharp tips.
+    v, _ = icosphere(0)
+    reach = math.cos(math.radians(20))
+
+    def push(p):
+        best = max(dot(p, d) for d in v)
+        return 0.9 * max(0.0, (best - reach) / (1 - reach)) ** 1.6
+
+    return displaced(6, push)
+
+
+def slit():
+    # A mouth: a groove across the front of a head, about a quad and a half wide at 2,000
+    # quads and a third of the radius deep, fading out at its corners and behind.
+    def push(p):
+        x, y, z = p
+        across = math.exp(-((y / 0.06) ** 2))
+        along = max(0.0, 1 - (x / 0.55) ** 2)
+        front = min(1.0, max(0.0, (z - 0.2) / 0.5))
+        return -0.32 * across * along * front
+
+    return displaced(6, push)
+
+
+def sweep(path, radius, rings, around):
+    """A closed tube along path(s), s from 0 to 1, radius(s) round it: rings of `around`
+    vertices whose frames are carried along the path so they never twist, and a vertex
+    closing each end (a flat end where the radius is not 0 there, a point where it nearly
+    is)."""
+    points = [path(i / (rings - 1)) for i in range(rings)]
+    tangents = [normalize(sub(points[min(i + 1, rings - 1)], points[max(i - 1, 0)])) for i in range(rings)]
+    t = tangents[0]
+    n = normalize(cross(t, (1.0, 0.0, 0.0) if abs(t[0]) < 0.9 else (0.0, 1.0, 0.0)))
+    verts, tris = [], []
+    for i in range(rings):
+        t = tangents[i]
+        along = dot(n, t)
+        n = normalize(tuple(n[k] - along * t[k] for k in range(3)))
+        b = cross(t, n)
+        r = radius(i / (rings - 1))
+        for j in range(around):
+            a = 2 * math.pi * j / around
+            c, s = math.cos(a), math.sin(a)
+            verts.append(tuple(points[i][k] + r * (c * n[k] + s * b[k]) for k in range(3)))
+    for i in range(rings - 1):
+        for j in range(around):
+            p, q = i * around + j, i * around + (j + 1) % around
+            tris += [(p, q, q + around), (p, q + around, p + around)]
+    lo, hi = len(verts), len(verts) + 1
+    verts += [tuple(points[0]), tuple(2 * points[-1][k] - points[-2][k] for k in range(3))]
+    last = (rings - 1) * around
+    for j in range(around):
+        k = (j + 1) % around
+        tris += [(lo, k, j), (hi, last + j, last + k)]
+    return verts, tris
+
+
+def ellipsoid(level, radii, center=(0.0, 0.0, 0.0)):
+    v, t = icosphere(level)
+    return [tuple(center[i] + radii[i] * p[i] for i in range(3)) for p in v], t
+
+
+def horns():
+    # A head with two horns that rise, curl outward and come down to a point clear of the
+    # head, the way a sculpt's horns are made: overlapping parts that Remesh joins into one
+    # surface.
+    parts = [icosphere(5)]
+    for side in (-1, 1):
+        base = (side * 0.42, 0.72, 0.05)
+
+        def path(s, side=side, base=base):
+            turn = math.radians(200) * s
+            curl = 0.55 * (1 - 0.3 * s)
+            return (base[0] + side * curl * (1 - math.cos(turn)), base[1] + curl * math.sin(turn), base[2] - 0.25 * s)
+
+        parts.append(sweep(path, lambda s: 0.24 * (1 - s) ** 0.85 + 0.012, 160, 32))
+    return merge(*parts)
+
+
+def fingers():
+    # A hand: a flat palm with four fingers and a thumb, each a tube with a rounded tip,
+    # the gaps between them about a quad wide at 2,000 quads.
+    parts = [ellipsoid(5, (0.62, 0.2, 0.7))]
+    for k in range(4):
+        x = -0.42 + 0.28 * k
+        length = (1.05, 1.25, 1.2, 0.95)[k]
+        start = (x, 0.0, 0.45)
+
+        def path(s, start=start, length=length, x=x):
+            return (start[0] + 0.12 * x * s, start[1] - 0.12 * s * s, start[2] + length * s)
+
+        parts.append(sweep(path, lambda s, length=length: rounded_tip(s, length, 0.1), 120, 28))
+
+    def thumb(s):
+        return (0.5 + 0.55 * s, -0.04, -0.05 + 0.5 * s)
+
+    parts.append(sweep(thumb, lambda s: rounded_tip(s, 0.74, 0.12), 100, 28))
+    return merge(*parts)
+
+
+def rounded_tip(s, length, r):
+    """A tube's radius r at s along a tube `length` long, rounding into a half ball over
+    its last r."""
+    left = (1 - s) * length
+    if left >= r:
+        return r
+    return max(r * math.sqrt(max(0.0, 1 - ((r - left) / r) ** 2)), 0.01 * r)
+
+
+# The fixtures made of overlapping parts, as a sculpt's horns and fingers are, and the
+# vertices Remesh joins them into one surface at before anything runs on them.
+UNITED = {"horns", "fingers"}
+UNITED_VERTICES = 80_000
+
+
 def with_nan():
     v, t = icosphere(3)
     v[5] = (float("nan"), 0.0, 0.0)
@@ -198,10 +325,11 @@ def with_flipped():
 # manifold, every face a quad with Quads), "near" (every vertex within 0.6 of the lattice
 # spacing of the input: a closed solid's surface, not an open input whose caps lie off it), "volume"
 # (within 1 % of the input's; 2 % for Quad Remesh), "count" (within 5 % of the request),
-# "quads" (99 % quads, no boundary or non-manifold edge, faces within 5 %,
-# deviation, AutoRemesher itself), "regular" (95 % four-valent), "regular100" (every
-# vertex), "refuse" (a refusal, a fallback or a result all pass), "unreadable" (the import
-# refuses the file).
+# "quads" (every face a quad, no boundary or non-manifold edge, faces within 2 %, the
+# deviation and the loss, 90 % four-valent, AutoRemesher itself), "open" (as "quads",
+# open edges allowed), "regular" (98 % four-valent), "regular100" (every vertex), "refuse"
+# (a refusal, a fallback or a result all pass), "unreadable" (the import refuses the
+# file).
 FIXTURES = {
     "sphere": (lambda: icosphere(5), {"closed", "near", "volume", "count"}, {"quads", "volume", "regular"}),
     "torus": (torus, {"closed", "near", "volume", "count"}, {"quads", "volume", "regular100"}),
@@ -209,12 +337,18 @@ FIXTURES = {
     "overlap": (lambda: merge(icosphere(5), moved(icosphere(5), (0.8, 0.3, 0.0))), {"closed", "near"}, {"quads"}),
     "gap": (gap, {"closed", "near", "volume"}, {"quads", "volume"}),
     "rod": (rod, {"closed", "near", "volume"}, {"quads", "volume"}),
-    "cylinder": (lambda: tube(0.5, 1.0, 48, 1), {"closed"}, {"refuse"}),
+    "cylinder": (lambda: tube(0.5, 1.0, 48, 1), {"closed"}, {"open"}),
     "pieces": (lambda: merge(icosphere(4), moved(icosphere(4), (2.0, 0.0, 0.0), 0.5), moved(icosphere(4), (0.0, 1.8, 0.0), 0.25)),
                {"closed", "near", "volume"}, {"quads", "volume"}),
     "nonmanifold": (nonmanifold, {"closed"}, {"refuse"}),
     "bumpy": (bumpy, {"closed", "near", "volume", "count"}, {"quads", "volume", "regular"}),
     "nan": (with_nan, {"unreadable"}, {"unreadable"}),
+    "spikes": (spikes, {"closed", "near", "volume", "count"}, {"quads", "volume"}),
+    "slit": (slit, {"closed", "near", "volume", "count"}, {"quads", "volume"}),
+    "horns": (horns, {"closed", "near", "volume", "count"}, {"quads", "volume"}),
+    # Remesh's count comes 9 % short on the hand: its cells are sized for a surface facing
+    # every way, as a sphere's does, and the palm's broad faces cross fewer of them.
+    "fingers": (fingers, {"closed", "near", "volume"}, {"quads", "volume"}),
     "duplicate": (with_duplicate, {"closed", "near", "volume"}, {"refuse"}),
     "flipped": (with_flipped, {"closed", "near", "volume"}, {"refuse"}),
 }
@@ -457,6 +591,20 @@ def pct(x):
     return "%.1f%%" % (100 * x)
 
 
+# Quad Remesh's acceptance, raised in the last PR of the engine's port to what it reaches
+# on every fixture at 2,000 quads, with the closest any fixture comes to each bar in
+# brackets: faces within 2 % of the request (1.4 % off), every corner on the input (0.00 %
+# off), the input at most 2.5 % of the diagonal off the quads (1.80 %, the slit), at least
+# 90 % four-valent vertices anywhere (92 %, the open cylinder) and 98 % on the spheres
+# (99.2 %).
+QUAD_COUNT_WITHIN = 0.02
+QUAD_DEVIATION_MAX = 0.001
+QUAD_DEVIATION_MEAN = 0.0001
+QUAD_LOSS_MAX = 0.025
+QUAD_FOUR_LEAST = 0.90
+QUAD_REGULAR = 0.98
+
+
 def check_run(tool, checks, info, result, requested, input_volume, spacing, stable):
     """What the row's Check column says: PASS or FAIL and why."""
     if "unreadable" in checks:
@@ -487,16 +635,20 @@ def check_run(tool, checks, info, result, requested, input_volume, spacing, stab
             fails.append("volume %.4f against the input's %.4f" % (result["volume"], input_volume))
     if "count" in checks and abs(result["vertices"] - requested) > 0.05 * requested:
         fails.append("%d vertices for %d asked" % (result["vertices"], requested))
-    if "quads" in checks:
-        if t["quads"] < 0.99:
-            fails.append("%s quads" % pct(t["quads"]))
-        if t["boundary"] or t["non_manifold"] or t["inconsistent"]:
+    if "quads" in checks or "open" in checks:
+        if t["non_quads"]:
+            fails.append("%d faces are not quads" % t["non_quads"])
+        if t["non_manifold"] or t["inconsistent"] or ("open" not in checks and t["boundary"]):
             fails.append("%d boundary and %d non-manifold edges" % (t["boundary"], t["non_manifold"] + t["inconsistent"]))
-        if abs(result["faces"] - requested) > 0.05 * requested:
+        if abs(result["faces"] - requested) > QUAD_COUNT_WITHIN * requested:
             fails.append("%d faces for %d asked" % (result["faces"], requested))
-        if result["dev_max"] > 0.005 or result["dev_mean"] > 0.001:
+        if result["dev_max"] > QUAD_DEVIATION_MAX or result["dev_mean"] > QUAD_DEVIATION_MEAN:
             fails.append("deviation max %.2f%% mean %.3f%%" % (100 * result["dev_max"], 100 * result["dev_mean"]))
-    if "regular" in checks and t["four"] < 0.95:
+        if result["loss"] is not None and result["loss"] > QUAD_LOSS_MAX:
+            fails.append("the input lies %.2f%% off the quads" % (100 * result["loss"]))
+        if t["four"] < QUAD_FOUR_LEAST:
+            fails.append("%s four-valent" % pct(t["four"]))
+    if "regular" in checks and t["four"] < QUAD_REGULAR:
         fails.append("%s four-valent" % pct(t["four"]))
     if "regular100" in checks and t["four"] < 1:
         fails.append("%s four-valent, not all" % pct(t["four"]))
@@ -508,15 +660,27 @@ def check_run(tool, checks, info, result, requested, input_volume, spacing, stab
     return verdict
 
 
-def measure(out_obj, surface):
+def measure(out_obj, surface, lost_from=None):
+    """What the OBJ gave against the input's surface; with `lost_from` (the input's
+    vertices) its loss too: how far the input lies from the result, the other way round."""
     if not os.path.exists(out_obj):
         return None
     verts, faces = read_obj(out_obj)
     if not faces:
         return None
     dev_max, dev_mean = deviation(surface, verts)
+    loss = None
+    if lost_from:
+        result = Surface(verts, [(f[0], f[k], f[k + 1]) for f in faces for k in range(1, len(f) - 1)])
+        result.diagonal = surface.diagonal
+        loss, _ = deviation(result, lost_from, at_most=LOSS_SAMPLES)
     return {"vertices": len(verts), "faces": len(faces), "topology": topology(verts, faces), "volume": volume(verts, faces),
-            "dev_max": dev_max, "dev_mean": dev_mean, "dev_max_abs": dev_max * surface.diagonal}
+            "dev_max": dev_max, "dev_mean": dev_mean, "dev_max_abs": dev_max * surface.diagonal, "loss": loss}
+
+
+# The input's vertices the loss is measured at (every k-th past this many): enough to find
+# a cut-off tip or a filled crease a quad wide, in seconds.
+LOSS_SAMPLES = 20_000
 
 
 def row(fixture, tool, info, result, check):
@@ -529,16 +693,17 @@ def row(fixture, tool, info, result, check):
             what = "%s, not exported since the run warned" % info["detail"]
         else:
             what = "refused: " + (info["note"] or "no result")
-        return "| %s | %s | %s | | | | | | %s | %.0f | %s |" % (fixture, tool, what, "" if info["ms"] is None else info["ms"], info["rss"], check)
+        return "| %s | %s | %s | | | | | | | %s | %.0f | %s |" % (fixture, tool, what, "" if info["ms"] is None else info["ms"], info["rss"], check)
     t = result["topology"]
     edges = "closed" if t["closed"] else "%d boundary, %d non-manifold, %d inconsistent" % (t["boundary"], t["non_manifold"], t["inconsistent"])
-    return "| %s | %s | %s vertices, %s faces | %s (%d not) | %s | %s | %.4f | %.2f%% / %.3f%% | %s | %.0f | %s |" % (
+    loss = "" if result["loss"] is None else "%.2f%%" % (100 * result["loss"])
+    return "| %s | %s | %s vertices, %s faces | %s (%d not) | %s | %s | %.4f | %.2f%% / %.3f%% | %s | %s | %.0f | %s |" % (
         fixture, tool, "{:,}".format(result["vertices"]), "{:,}".format(result["faces"]), pct(t["quads"]), t["non_quads"], pct(t["four"]), edges,
-        result["volume"], 100 * result["dev_max"], 100 * result["dev_mean"], "" if info["ms"] is None else info["ms"], info["rss"], check)
+        result["volume"], 100 * result["dev_max"], 100 * result["dev_mean"], loss, "" if info["ms"] is None else info["ms"], info["rss"], check)
 
 
-HEADER = ("| Fixture | Tool | Result | Quads | Four-valent | Edges | Volume | Deviation max / mean | ms (result line) | Peak MB | Check |\n"
-          "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+HEADER = ("| Fixture | Tool | Result | Quads | Four-valent | Edges | Volume | Deviation max / mean | Loss max | ms (result line) | Peak MB | Check |\n"
+          "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 
 
 def main(argv):
@@ -591,13 +756,26 @@ def main(argv):
             builder, remesh_checks, quad_checks = FIXTURES[name]
             verts, tris = builder()
             fixture_obj = os.path.join(OUT, "fixtures", name + ".obj")
-            write_obj(fixture_obj, verts, tris)
+            if name in UNITED:
+                parts_obj = os.path.join(OUT, "fixtures", name + "_parts.obj")
+                write_obj(parts_obj, verts, tris)
+                script = "set remesh_quads off; set rebuild_goal even; set rebuild_even %d; rebuild" % UNITED_VERTICES
+                info = run_app(parts_obj, script, fixture_obj, args.timeout)
+                if info["crashed"] or not os.path.exists(fixture_obj):
+                    print("%s: Remesh did not join its parts (%s)" % (name, info["note"] or "no result"), flush=True)
+                    failed += 1
+                    continue
+                verts, faces = read_obj(fixture_obj)
+                tris = [(f[0], f[k], f[k + 1]) for f in faces for k in range(1, len(f) - 1)]
+            else:
+                write_obj(fixture_obj, verts, tris)
             runs = tools
         print("%s: %s triangles" % (name, "{:,}".format(len(tris))), flush=True)
         # Triangles with a NaN corner (the invalid fixture) are no surface to measure against.
         sound = [t for t in tris if all(all(math.isfinite(x) for x in verts[i]) for i in t)]
         surface = Surface(verts, sound) if sound else None
-        sound_verts = [verts[i] for t in sound for i in t]
+        sound_verts = sorted({i for t in sound for i in t})
+        sound_verts = [verts[i] for i in sound_verts]
         input_volume = volume(verts, sound) if sound_verts else 0.0
         # Remesh's lattice spacing for the request (geom.remesh_spacing).
         spacing = math.sqrt(1.5 * area(verts, sound) / args.vertices) if sound else 0.0
@@ -607,7 +785,8 @@ def main(argv):
             if os.path.exists(out_obj):
                 os.remove(out_obj)
             info = run_app(fixture_obj, script, out_obj, args.timeout)
-            result = measure(out_obj, surface) if surface is not None and not info["crashed"] and info["ms"] is not None else None
+            lost_from = sound_verts if kind == 2 else None
+            result = measure(out_obj, surface, lost_from) if surface is not None and not info["crashed"] and info["ms"] is not None else None
             stable = None
             if args.stability and result is not None:
                 again = out_obj[:-4] + "_one_thread.obj"

@@ -395,14 +395,16 @@ relax_patch :: proc(e: ^Odd_Edit, vertices: []u32, surface: geom.Mesh, bvh: ^geo
 // and its image then share both). Each is dissolved: the vertex goes and the two polygons
 // become one, the first's corners from the vertex's next round to its previous and the
 // second's between, which for two quads is a quad (across the seam, a quad lying over
-// it). A merge that would repeat a corner or leave fewer than three is not made. Rounds
-// repeat while a merge leaves another doublet, at most DOUBLET_ROUNDS. `planes` (one per
-// vertex, or nil) loses the dissolved vertices' entries as the positions do. Returns how
-// many were dissolved.
-DOUBLET_ROUNDS :: 4
-
+// it). A merge that would repeat a corner or leave fewer than three is not made. A merge
+// takes a corner from each of the two vertices beside the dissolved one, which can leave
+// one of them a doublet in turn, so rounds repeat until one dissolves none: each round
+// that goes on takes a vertex away, so they end. Four rounds were the limit once, and the
+// creature's mirrored halves at 2,000 quads needed five (22, 11, 4, 2, then the last two,
+// left as two quads over one another, an edge of four triangles that sent it to the
+// whole). `planes` (one per vertex, or nil) loses the dissolved vertices' entries as the
+// positions do. Returns how many were dissolved.
 dissolve_doublets :: proc(m: ^quadmesh.Polygon_Mesh, planes: ^[dynamic]u8) -> (dissolved: int) {
-	for _ in 0 ..< DOUBLET_ROUNDS {
+	for {
 		n := len(m.positions)
 		faces := len(m.first) - 1
 		count := make([]u32, n, context.temp_allocator)
