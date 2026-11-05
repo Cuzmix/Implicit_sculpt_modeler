@@ -17,14 +17,16 @@ import "../uv"
 // small islands, solved side by side). Per row: the time on the calling thread alone and
 // on the pool (the same bits, checked), Sander's L2 stretch, the worst singular value
 // ratio, the mean angle error, the flipped triangles, the islands ABF++ left to LSCM,
-// the share of the square the boxes fill and the row's peak memory.
+// the share of the square the boxes fill, then the stretch relax on the pool (its time,
+// the energy per unit of surface before and after, 4 being lengths kept, and the L2
+// stretch after) and the row's peak memory.
 
 uv_write_dir := ""
 uv_measure := ""
 
 uvs_header :: proc() {
-	fmt.println("| Fixture | Method | Triangles | Islands | 1 thread ms | Pool ms | Same bits | L2 stretch | Worst | Angle ° | Flips | Fallbacks | Filled | Peak RSS MB |")
-	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	fmt.println("| Fixture | Method | Triangles | Islands | 1 thread ms | Pool ms | Same bits | L2 stretch | Worst | Angle ° | Flips | Fallbacks | Filled | Relax ms | Energy | Relaxed L2 | Peak RSS MB |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 }
 
 run_uvs :: proc(target: int, pool: ^jobs.Pool) {
@@ -107,7 +109,12 @@ uv_row :: proc(fixture: UV_Fixture, method: uv.Method, target: int, pool: ^jobs.
 
 	if uv_write_dir != "" && method == .Abf do write_uv_obj(fmt.tprintf("%s/%v_%d.obj", uv_write_dir, fixture, triangles), m.positions[:], m.indices[:], one)
 	s := uv.stretch(one, m.positions[:], m.indices[:])
-	fmt.printfln("| %v | %v | %s | %d | %.0f | %.0f | %v | %.4f | %.3f | %.2f | %d | %d | %.2f | %.0f |", fixture, method, thousands(triangles), base.islands, serial_ms, pool_ms, "yes" if same else "NO", s.l2, s.worst, s.angle, r.flips, r.fallbacks, one.filled, peak_rss_mb())
+	t0 = time.tick_now()
+	rr := uv.relax(&pooled, m.positions[:], m.indices[:], faces, pool = pool)
+	relax_ms := time.duration_milliseconds(time.tick_since(t0))
+	free_all(context.temp_allocator)
+	sr := uv.stretch(pooled, m.positions[:], m.indices[:])
+	fmt.printfln("| %v | %v | %s | %d | %.0f | %.0f | %v | %.4f | %.3f | %.2f | %d | %d | %.2f | %.0f | %.4f to %.4f | %.4f | %.0f |", fixture, method, thousands(triangles), base.islands, serial_ms, pool_ms, "yes" if same else "NO", s.l2, s.worst, s.angle, r.flips, r.fallbacks, one.filled, relax_ms, rr.before, rr.after, sr.l2, peak_rss_mb())
 }
 
 // The mesh with a texture coordinate a corner as OBJ (v up, as OBJ keeps it), so the
@@ -149,7 +156,7 @@ measure_uvs :: proc(path: string, pool: ^jobs.Pool) {
 	free_all(context.temp_allocator)
 	triangles := len(m.indices) / 3
 	s := uv.stretch(file, m.positions[:], m.indices[:])
-	fmt.printfln("| %s | file | %s | %d | | | | %.4f | %.3f | %.2f | %d | | %.2f | |", path, thousands(triangles), file.islands, s.l2, s.worst, s.angle, s.flips, file.filled)
+	fmt.printfln("| %s | file | %s | %d | | | | %.4f | %.3f | %.2f | %d | | %.2f | | | | |", path, thousands(triangles), file.islands, s.l2, s.worst, s.angle, s.flips, file.filled)
 	for method in uv.Method {
 		ours := uv.clone(file)
 		defer uv.destroy(&ours)
@@ -158,6 +165,6 @@ measure_uvs :: proc(path: string, pool: ^jobs.Pool) {
 		ms := time.duration_milliseconds(time.tick_since(t0))
 		free_all(context.temp_allocator)
 		so := uv.stretch(ours, m.positions[:], m.indices[:])
-		fmt.printfln("| %s | %v | %s | %d | | %.0f | | %.4f | %.3f | %.2f | %d | %d | %.2f | %.0f |", path, method, thousands(triangles), ours.islands, ms, so.l2, so.worst, so.angle, r.flips, r.fallbacks, ours.filled, peak_rss_mb())
+		fmt.printfln("| %s | %v | %s | %d | | %.0f | | %.4f | %.3f | %.2f | %d | %d | %.2f | | | | %.0f |", path, method, thousands(triangles), ours.islands, ms, so.l2, so.worst, so.angle, r.flips, r.fallbacks, ours.filled, peak_rss_mb())
 	}
 }

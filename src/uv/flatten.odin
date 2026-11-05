@@ -62,22 +62,13 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 		faces:     geom.Vertex_Faces,
 		order:     []u32,
 		first:     []u32,
-		biggest:   []u32,
 		results:   []Island_Result,
 		method:    Method,
 	}
-	job := Job{u, positions, indices, faces, order, first, make([]u32, u.islands, context.temp_allocator), make([]Island_Result, u.islands, context.temp_allocator), method}
-	// Biggest first, so the big islands are a run at the start and the small ones are
-	// claimed largest first.
-	Size :: struct {
-		triangles, island: u32,
-	}
-	sizes := make([]Size, u.islands, context.temp_allocator)
-	for &s, i in sizes do s = {first[i + 1] - first[i], u32(i)}
-	slice.sort_by(sizes, proc(a, b: Size) -> bool {return a.triangles > b.triangles || (a.triangles == b.triangles && a.island < b.island)})
-	for s, i in sizes do job.biggest[i] = s.island
+	job := Job{u, positions, indices, faces, order, first, make([]Island_Result, u.islands, context.temp_allocator), method}
 	// One island, solved on the calling thread with `pool` (nil inside a job).
-	solve :: proc(job: ^Job, i: u32, pool: ^jobs.Pool) {
+	islands_run(first, &job, pool, proc(data: rawptr, i: u32, pool: ^jobs.Pool) {
+		job := cast(^Job)data
 		heap := runtime.heap_allocator()
 		context.allocator = heap
 		res := &job.results[i]
@@ -111,16 +102,6 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 			job.u.corner[t][k] = {f32(p.x), f32(p.y)}
 		}
 		for li in 0 ..< len(tris) do if signed_area(flat, island.wedge[3 * li:][:3]) < 0 do res.flips += 1
-	}
-	// The pool runs one job at a time, so the big islands go first, one by one, each with
-	// the pool inside its solve, and then the small ones side by side, one a thread.
-	big := 0
-	for big < len(sizes) && sizes[big].triangles >= BIG_ISLAND do big += 1
-	for i in job.biggest[:big] do solve(&job, i, pool)
-	job.biggest = job.biggest[big:]
-	jobs.parallel_for(pool, len(job.biggest), &job, proc(data: rawptr, n: int) {
-		job := cast(^Job)data
-		solve(job, job.biggest[n], nil)
 	})
 	place := make([]bool, u.islands, context.temp_allocator)
 	for res, i in job.results {
@@ -381,4 +362,33 @@ far_pair :: proc(positions: []geom.Vec3, m: ^Island_Mesh, one: int) -> (p, q: in
 @(private)
 finite :: proc(p: [2]f64) -> bool {
 	return !math.is_nan(p.x) && !math.is_nan(p.y) && !math.is_inf(p.x) && !math.is_inf(p.y)
+}
+
+// Runs `solve` once for each island (first: island_triangles' starts), biggest first. The
+// pool runs one job at a time, so the islands of BIG_ISLAND triangles or more go one by
+// one on the calling thread with the pool inside each solve, and then the others side by
+// side, one a thread, each given a nil pool. `solve` writes only its own island's results,
+// so nothing depends on the pool.
+@(private)
+islands_run :: proc(first: []u32, data: rawptr, pool: ^jobs.Pool, solve: proc(data: rawptr, island: u32, pool: ^jobs.Pool)) {
+	islands := len(first) - 1
+	Size :: struct {
+		triangles, island: u32,
+	}
+	sizes := make([]Size, islands, context.temp_allocator)
+	for &s, i in sizes do s = {first[i + 1] - first[i], u32(i)}
+	slice.sort_by(sizes, proc(a, b: Size) -> bool {return a.triangles > b.triangles || (a.triangles == b.triangles && a.island < b.island)})
+	big := 0
+	for big < islands && sizes[big].triangles >= BIG_ISLAND do big += 1
+	for s in sizes[:big] do solve(data, s.island, pool)
+	Small :: struct {
+		data:  rawptr,
+		solve: proc(data: rawptr, island: u32, pool: ^jobs.Pool),
+		sizes: []Size,
+	}
+	small := Small{data, solve, sizes[big:]}
+	jobs.parallel_for(pool, len(small.sizes), &small, proc(data: rawptr, n: int) {
+		small := cast(^Small)data
+		small.solve(small.data, small.sizes[n].island, nil)
+	})
 }

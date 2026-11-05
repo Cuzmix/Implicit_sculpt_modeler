@@ -220,3 +220,80 @@ abf_keeps_angles_better_than_lscm :: proc(t: ^testing.T) {
 	for w in 0 ..< island.wedges do if !island.on_edge[w] do worst = max(worst, abs(around[w] - 2 * math.PI))
 	testing.expectf(t, worst < 1e-6, "angle sums off by %v", worst)
 }
+
+// Relax leaves a map that keeps lengths as it is (energy 4, the least), lowers a dome's
+// LSCM energy without a flip, pulls a stretched grid back towards its lengths, holds
+// pins, skips a folded island and gives the same bits on any pool.
+@(test)
+relax_lowers_stretch_and_keeps_pins :: proc(t: ^testing.T) {
+	// The flat grid with its own coordinates.
+	{
+		positions, indices, faces, u := test_grid(6, same)
+		r := relax(&u, positions, indices, faces)
+		testing.expect_value(t, r.relaxed, 1)
+		testing.expectf(t, abs(r.before - 4) < 1e-9 && abs(r.after - 4) < 1e-9, "energy %v to %v", r.before, r.after)
+	}
+	// A dome flattened by LSCM.
+	{
+		positions, indices, faces, u := dome(12, 7)
+		_ = flatten(&u, positions, indices, faces, .Lscm)
+		r := relax(&u, positions, indices, faces)
+		testing.expect_value(t, r.relaxed, 1)
+		testing.expectf(t, r.after < r.before && r.after >= 4, "energy %v to %v", r.before, r.after)
+		testing.expect_value(t, stretch(u, positions, indices).flips, 0)
+	}
+	// A grid whose coordinates are stretched twice as wide: relax takes most of it out.
+	{
+		positions, indices, faces, u := test_grid(6, proc(p: geom.Vec3) -> [2]f32 {return {p.x * 2, p.y}})
+		r := relax(&u, positions, indices, faces, 30)
+		testing.expectf(t, r.before > 4.4 && r.after < 4.01, "energy %v to %v", r.before, r.after)
+		testing.expectf(t, stretch(u, positions, indices).l2 < 1.01, "stretch %v", stretch(u, positions, indices))
+	}
+	// Two pins hold still and keep the island where it is.
+	{
+		positions, indices, faces, u := dome(8, 6)
+		_ = flatten(&u, positions, indices, faces, .Lscm)
+		u.pins = []u32{0, 8}
+		held: [2][2]f32
+		for c, tri in u.corner do for k in 0 ..< 3 {
+			if indices[3 * tri + k] == 0 do held[0] = c[k]
+			if indices[3 * tri + k] == 8 do held[1] = c[k]
+		}
+		r := relax(&u, positions, indices, faces)
+		testing.expect_value(t, r.relaxed, 1)
+		for c, tri in u.corner do for k in 0 ..< 3 {
+			if indices[3 * tri + k] == 0 do testing.expect_value(t, c[k], held[0])
+			if indices[3 * tri + k] == 8 do testing.expect_value(t, c[k], held[1])
+		}
+	}
+	// A folded triangle: skipped and left as it was.
+	{
+		positions, indices, faces, u := test_grid(4, same)
+		for &c, tri in u.corner do for k in 0 ..< 3 do if indices[3 * tri + k] == 6 do c[k] = {3, 3}
+		before := slice.clone(u.corner, context.temp_allocator)
+		r := relax(&u, positions, indices, faces)
+		testing.expect_value(t, r.skipped, 1)
+		testing.expect(t, slice.equal(before, u.corner), "left as it was")
+	}
+	// The same on any pool, over many islands.
+	{
+		positions, indices, faces, base := dome(12, 7)
+		for i in 0 ..= 12 do for j in 0 ..< 12 do if i % 3 == 0 && i > 0 && i < 12 {
+			cut(&base, indices, u32(j * 13 + i), u32((j + 1) * 13 + i))
+			cut(&base, indices, u32(i * 13 + j), u32(i * 13 + j + 1))
+		}
+		islands_find(&base, indices, faces)
+		_ = flatten(&base, positions, indices, faces, .Lscm)
+		results: [3][][3][2]f32
+		for workers, i in ([3]int{0, 1, 3}) {
+			pool: jobs.Pool
+			jobs.pool_init(&pool, workers)
+			defer jobs.pool_destroy(&pool)
+			u := clone(base, context.temp_allocator)
+			r := relax(&u, positions, indices, faces, pool = &pool)
+			testing.expect_value(t, r.relaxed, base.islands)
+			results[i] = u.corner
+		}
+		testing.expect(t, slice.equal(results[0], results[1]) && slice.equal(results[0], results[2]), "the same on every pool")
+	}
+}
