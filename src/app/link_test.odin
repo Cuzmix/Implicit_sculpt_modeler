@@ -297,3 +297,42 @@ link_focus_waits_and_asks :: proc(t: ^testing.T) {
 	link_focus(&app)
 	testing.expect(t, !app.link.check)
 }
+
+// The link sends what the view shows, the live stack baked. The mesh Blender sends back
+// holds the copies, so a get plans a new mesh for the object (the level's own count says
+// nothing of the baked one), whose swap takes the shown rows out with it (link_apply).
+@(test)
+link_sends_the_stack_baked :: proc(t: ^testing.T) {
+	FOLDER :: "build/link_stack_test"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	app: App
+	defer link_test_free(&app)
+	link_init(&app, FOLDER, false)
+	obj := link_test_object(&app, 4)
+	obj.stack.array = STACK_ARRAY_DEFAULT
+	obj.stack.array.added, obj.stack.array.shown = true, true
+	n := len(object_mesh(obj).positions)
+
+	link_send(&app)
+	data, err := os.read_entire_file(FOLDER + "/4.ply", context.allocator)
+	testing.expect(t, err == nil)
+	sent, failed, _ := geom.mesh_read_ply(data, nil)
+	delete(data)
+	defer geom.mesh_destroy(&sent)
+	if !testing.expect_value(t, failed, geom.Mesh_File_Error.None) do return
+	testing.expect_value(t, len(sent.positions), STACK_ARRAY_DEFAULT.count * n)
+	testing.expect_value(t, app.stack_bakes, 1)
+
+	went := make([dynamic]Link_Object, context.temp_allocator)
+	append(&went, Link_Object{id = 4, level = 0, file = "4.ply", vertices = len(sent.positions), triangles = len(sent.indices) / 3})
+	manifest := Link_Manifest{token = app.scene.link_token, objects = went}
+	o := Link_Object{id = 4, level = 0, vertices = len(sent.positions), triangles = len(sent.indices) / 3, transform = obj.transform}
+	action, target, why := link_plan(&app, o, app.scene.link_token, sent, &manifest)
+	testing.expect_value(t, action, Link_Action.Swap)
+	testing.expect_value(t, why, Link_Why.Topology)
+	testing.expect(t, target == obj)
+	stack_take_shown(&app, obj)
+	testing.expect(t, !stack_shows(&app, obj), "a shown row stayed over its baked copies")
+	free_all(context.temp_allocator)
+}

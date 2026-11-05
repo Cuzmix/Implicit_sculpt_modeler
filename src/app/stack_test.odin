@@ -1,7 +1,9 @@
 package main
 
 import "core:math/linalg"
+import "core:os"
 import "core:slice"
+import "core:strings"
 import "core:testing"
 
 import "../geom"
@@ -241,5 +243,75 @@ stack_along_lays_copies_on_the_curve :: proc(t: ^testing.T) {
 	testing.expect(t, abs(w[0, 3] - 1) < 1e-3)
 	obj.stack.along.curve = 9
 	testing.expect_value(t, len(stack_placings(&app, obj)), 0)
+	free_all(context.temp_allocator)
+}
+
+// The bake is what the view shows: a mirror welds a closed whole whose every vertex comes
+// from the kept side, and Array's copies join it, each vertex's source carried over.
+@(test)
+stack_bake_welds_the_mirror_and_joins_the_copies :: proc(t: ^testing.T) {
+	app: App
+	defer stack_scene_free(&app)
+	obj := stack_scene(&app)
+	src := object_mesh(obj)^
+	_, none := stack_bake(&app, obj, src.positions[:], src.indices[:])
+	testing.expect(t, !none, "baked a stack with no rows")
+
+	obj.stack.mirror = {added = true, shown = true, axes = {.X}}
+	from: [dynamic]u32
+	defer delete(from)
+	half, ok := stack_bake(&app, obj, src.positions[:], src.indices[:], &from)
+	defer geom.mesh_destroy(&half)
+	if !testing.expect(t, ok) do return
+	r := geom.mesh_check(half)
+	testing.expect(t, r.closed, "the welded mirror is not closed")
+	testing.expect_value(t, len(from), len(half.positions))
+	wrong := 0
+	for v in from do if int(v) >= len(src.positions) || src.positions[v].x < -0.3 do wrong += 1
+	testing.expect_value(t, wrong, 0)
+
+	obj.stack.array = STACK_ARRAY_DEFAULT
+	obj.stack.array.added, obj.stack.array.shown = true, true
+	three, joined := stack_bake(&app, obj, src.positions[:], src.indices[:], &from)
+	defer geom.mesh_destroy(&three)
+	if !testing.expect(t, joined) do return
+	testing.expect_value(t, len(three.positions), 3 * len(half.positions))
+	testing.expect_value(t, len(three.indices), 3 * len(half.indices))
+	testing.expect_value(t, len(from), len(three.positions))
+	testing.expect_value(t, geom.mesh_check(three).boundary_edges, 0)
+	// The third copy sits two steps along X.
+	b := geom.mesh_check(three).bounds
+	testing.expect(t, b.hi.x > 2 * STACK_ARRAY_DEFAULT.offset.x + 0.9, "the last copy is not two steps along")
+	testing.expect_value(t, app.stack_bakes, 2)
+	free_all(context.temp_allocator)
+}
+
+// An export takes the stack baked unless the sheet keeps it out, and leaves the object
+// as it was.
+@(test)
+stack_export_bakes_unless_kept :: proc(t: ^testing.T) {
+	FOLDER :: "build/stack_export_test/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	app: App
+	defer stack_scene_free(&app)
+	obj := stack_scene(&app)
+	obj.stack.radial = STACK_RADIAL_DEFAULT
+	obj.stack.radial.added, obj.stack.radial.shown = true, true
+	n := len(object_mesh(obj).positions)
+	for keep in ([2]bool{false, true}) {
+		path := strings.concatenate({FOLDER, "kept.ply" if keep else "baked.ply"})
+		defer delete(path)
+		if !testing.expect(t, object_export(&app, obj, path, once = {keep_stack = keep})) do return
+		data, err := os.read_entire_file(path, context.allocator)
+		defer delete(data)
+		if !testing.expect(t, err == nil) do return
+		m, failed, _ := geom.mesh_read_ply(data, &app.pool)
+		defer geom.mesh_destroy(&m)
+		if !testing.expect_value(t, failed, geom.Mesh_File_Error.None) do return
+		testing.expect_value(t, len(m.positions), n if keep else STACK_RADIAL_DEFAULT.count * n)
+	}
+	testing.expect_value(t, len(object_mesh(obj).positions), n)
 	free_all(context.temp_allocator)
 }
