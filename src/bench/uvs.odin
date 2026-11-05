@@ -31,6 +31,36 @@ uvs_header :: proc() {
 
 run_uvs :: proc(target: int, pool: ^jobs.Pool) {
 	for fixture in UV_Fixture do for method in uv.Method do uv_row(fixture, method, target, pool)
+	unwrap_row(target, pool)
+}
+
+// A closed sphere of about `target` triangles through uv.unwrap (auto seams, ABF++, the
+// relax and the packing), on one thread and on the pool; its charts go in the Islands
+// column and the relax's time in Relax ms.
+@(private = "file")
+unwrap_row :: proc(target: int, pool: ^jobs.Pool) {
+	peak_rss_reset()
+	m := geom.geodesic_sphere(geom.geodesic_frequency_for(target / 2), pool)
+	defer geom.mesh_destroy(&m)
+	faces := geom.vertex_faces_build(m, pool)
+	defer geom.vertex_faces_destroy(&faces)
+	triangles := len(m.indices) / 3
+	one := uv.make_uvs(triangles)
+	defer uv.destroy(&one)
+	t0 := time.tick_now()
+	r := uv.unwrap(&one, m.positions[:], m.indices[:], faces)
+	serial_ms := time.duration_milliseconds(time.tick_since(t0))
+	free_all(context.temp_allocator)
+	pooled := uv.make_uvs(triangles)
+	defer uv.destroy(&pooled)
+	t0 = time.tick_now()
+	_ = uv.unwrap(&pooled, m.positions[:], m.indices[:], faces, pool = pool)
+	pool_ms := time.duration_milliseconds(time.tick_since(t0))
+	free_all(context.temp_allocator)
+	same := true
+	for c, t in one.corner do if c != pooled.corner[t] do same = false
+	s := uv.stretch(one, m.positions[:], m.indices[:])
+	fmt.printfln("| Sphere | Unwrap | %s | %d | %.0f | %.0f | %v | %.4f | %.3f | %.2f | %d | %d | %.2f | %.0f | %.4f to %.4f | | %.0f |", thousands(triangles), r.charts, serial_ms, pool_ms, "yes" if same else "NO", s.l2, s.worst, s.angle, s.flips, r.flatten.fallbacks, one.filled, r.relax.ms, r.relax.before, r.relax.after, peak_rss_mb())
 }
 
 @(private = "file")
