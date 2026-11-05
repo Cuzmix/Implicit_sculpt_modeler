@@ -65,10 +65,19 @@ lscm_unrolls_a_tube :: proc(t: ^testing.T) {
 	testing.expect_value(t, r.flips, 0)
 	s := stretch(u, positions, indices)
 	testing.expectf(t, abs(s.l2 - 1) < 1e-4 && s.worst < 1 + 1e-3, "stretch %v", s)
-	// The two sides of the cut at the first vertex lie the polygon's perimeter apart.
+	// The two sides of the cut at the first vertex lie the polygon's perimeter apart, in
+	// the scale the packing gave the island (its UV area over its surface area).
+	uv_area, surface: f64
+	for c, tri in u.corner {
+		e1, e2 := c[1] - c[0], c[2] - c[0]
+		uv_area += abs(f64(e1.x * e2.y - e1.y * e2.x)) * 0.5
+		p := positions[indices[3 * tri]]
+		surface += f64(linalg.length(linalg.cross(positions[indices[3 * tri + 1]] - p, positions[indices[3 * tri + 2]] - p))) * 0.5
+	}
+	scale := f32(math.sqrt(uv_area / surface))
 	ends := make([dynamic][2]f32, context.temp_allocator)
 	for c, tri in u.corner do for k in 0 ..< 3 do if indices[3 * tri + k] == 0 && !slice.contains(ends[:], c[k]) do append(&ends, c[k])
-	perimeter := f32(24 * 2 * math.sin(math.PI / 24))
+	perimeter := f32(24 * 2 * math.sin(math.PI / 24)) * scale
 	if testing.expect_value(t, len(ends), 2) {
 		d := linalg.length(ends[1] - ends[0])
 		testing.expectf(t, abs(d - perimeter) < 1e-3 * perimeter, "the cut's sides %v apart, perimeter %v", d, perimeter)
@@ -150,4 +159,34 @@ flatten_does_not_depend_on_the_pool :: proc(t: ^testing.T) {
 		results[i] = u.corner
 	}
 	testing.expect(t, slice.equal(results[0], results[1]) && slice.equal(results[0], results[2]), "the same on every pool")
+}
+
+// The packing puts every flattened island inside the unit square, no two boxes touching,
+// and covers most of it with like islands.
+@(test)
+flatten_packs_islands_apart :: proc(t: ^testing.T) {
+	positions, indices, faces, u := dome(12, 7)
+	for i in 0 ..= 12 do for j in 0 ..< 12 do if i % 3 == 0 && i > 0 && i < 12 {
+		cut(&u, indices, u32(j * 13 + i), u32((j + 1) * 13 + i))
+		cut(&u, indices, u32(i * 13 + j), u32(i * 13 + j + 1))
+	}
+	islands_find(&u, indices, faces)
+	r := flatten(&u, positions, indices, faces)
+	testing.expect_value(t, r.flattened, u.islands)
+	lo := make([][2]f32, u.islands, context.temp_allocator)
+	hi := make([][2]f32, u.islands, context.temp_allocator)
+	for &l in lo do l = {2, 2}
+	for &h in hi do h = {-1, -1}
+	for c, tri in u.corner do for p in c {
+		i := u.island[tri]
+		lo[i], hi[i] = {min(lo[i].x, p.x), min(lo[i].y, p.y)}, {max(hi[i].x, p.x), max(hi[i].y, p.y)}
+	}
+	for i in 0 ..< u.islands {
+		testing.expectf(t, lo[i].x >= 0 && lo[i].y >= 0 && hi[i].x <= 1 && hi[i].y <= 1, "island %d inside: %v %v", i, lo[i], hi[i])
+		for j in i + 1 ..< u.islands {
+			apart := hi[i].x < lo[j].x || hi[j].x < lo[i].x || hi[i].y < lo[j].y || hi[j].y < lo[i].y
+			testing.expectf(t, apart, "islands %d and %d apart", i, j)
+		}
+	}
+	testing.expectf(t, u.filled > 0.7, "filled %v", u.filled)
 }

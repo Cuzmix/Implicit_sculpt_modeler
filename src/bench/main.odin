@@ -20,6 +20,8 @@
 //   --brushes    instead, a stroke with each brush kind (see run_brushes)
 //   --remesh     instead, voxel remesh of a stretched sphere (see run_remesh)
 //   --quadremesh instead, Quad Remesh's engine on that sphere (see run_quadremesh)
+//   --uv         instead, UV flattening and packing; sizes are triangles, 100k and 1M by
+//                default (see run_uvs)
 //   --dyntopo    instead, dynamic topology strokes (see run_dyntopo)
 //   --files      instead, OBJ, PLY and scene files written and read (see run_files)
 //   --masks      instead, every mask command on a half-masked sphere (see run_masks)
@@ -71,6 +73,7 @@ dyntopo := false
 files := false
 masks := false
 voxels := false
+uvs := false
 profile := false
 sends := false
 
@@ -102,6 +105,8 @@ main :: proc() {
 			remesh = true
 		} else if arg == "--quadremesh" {
 			quadremesh = true
+		} else if arg == "--uv" {
+			uvs = true
 		} else if arg == "--dyntopo" {
 			dyntopo = true
 		} else if arg == "--files" {
@@ -133,6 +138,8 @@ main :: proc() {
 		for v in ([]int{50_000, 250_000, 1_000_000}) do append(&cases, Case{v, 1})
 	} else if sends && len(targets) == 0 {
 		for v in ([]int{1_000_000, 10_000_000, 25_000_000}) do append(&cases, Case{v, 1})
+	} else if uvs && len(targets) == 0 {
+		for v in ([]int{100_000, 1_000_000}) do append(&cases, Case{v, 1})
 	} else if voxels && len(targets) == 0 {
 		for v in ([]int{256, 512, 1024}) do append(&cases, Case{v, 1})
 	} else if len(targets) == 0 {
@@ -172,6 +179,11 @@ main :: proc() {
 		quadremesh_header()
 		for c in cases do if c.meshes == 1 do run_quadremesh(c.vertices, pool)
 		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
+		return
+	}
+	if uvs {
+		uvs_header()
+		for c in cases do if c.meshes == 1 do run_uvs(c.vertices, pool)
 		return
 	}
 	if dyntopo {

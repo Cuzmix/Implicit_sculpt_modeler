@@ -40,15 +40,17 @@ Flatten_Report :: struct {
 // longest side are held for the solve; with none, the two border vertices farthest apart
 // along that side. Big islands are solved one at a time with the pool working inside each
 // solve, then the others side by side, each with memory of its own; nothing depends on
-// the pool. Nothing happens without UVs.
+// the pool. The flattened islands that are not pinned are then placed side by side in
+// the unit square (shelf_pack). Nothing happens without UVs.
 flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, method: Method = .Lscm, pool: ^jobs.Pool = nil) -> (r: Flatten_Report) {
 	start := time.tick_now()
 	r.islands = u.islands
 	if !has(u^) || u.islands == 0 do return
 	order, first := island_triangles(u^, context.temp_allocator)
 	Island_Result :: struct {
-		state: enum u8 {Untouched, Flat, Closed, Failed},
-		flips: int,
+		state:  enum u8 {Untouched, Flat, Closed, Failed},
+		pinned: bool, // held where its pins are, so neither scaled nor placed
+		flips:  int,
 	}
 	Job :: struct {
 		u:         ^Uvs,
@@ -82,13 +84,13 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 			res.state = .Closed
 			return
 		}
-		flat, ok := lscm(job.u^, job.positions, &island, pool, heap)
+		flat, pinned, ok := lscm(job.u^, job.positions, &island, pool, heap)
 		defer delete(flat, heap)
 		if !ok {
 			res.state = .Failed
 			return
 		}
-		res.state = .Flat
+		res.state, res.pinned = .Flat, pinned
 		for t, li in tris do for k in 0 ..< 3 {
 			p := flat[island.wedge[3 * li + k]]
 			job.u.corner[t][k] = {f32(p.x), f32(p.y)}
@@ -105,16 +107,19 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 		job := cast(^Job)data
 		solve(job, job.biggest[n], nil)
 	})
-	for res in job.results {
+	place := make([]bool, u.islands, context.temp_allocator)
+	for res, i in job.results {
 		switch res.state {
 		case .Untouched:
 		case .Flat:
+			place[i] = !res.pinned
 			r.flattened += 1
 			r.flips += res.flips
 		case .Closed: r.closed += 1
 		case .Failed: r.failed += 1
 		}
 	}
+	shelf_pack(u, place)
 	u.filled = boxes_filled(u^)
 	r.ms = time.duration_milliseconds(time.tick_since(start))
 	return
@@ -124,7 +129,7 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 // when the solve breaks down, as a surface with non-finite positions
 // makes it.
 @(private)
-lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool, allocator: runtime.Allocator) -> (flat: [][2]f64, ok: bool) {
+lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool, allocator: runtime.Allocator) -> (flat: [][2]f64, pinned, ok: bool) {
 	a := allocator
 	corners := m.wedge
 	n := len(corners) / 3
@@ -146,7 +151,7 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool, 
 			if one < 0 do one = w
 		}
 	}
-	pinned := held >= 2
+	pinned = held >= 2
 	if pinned {
 		for c in 0 ..< len(corners) do if fixed[corners[c]] {
 			p := u.corner[m.tris[c / 3]][c % 3]
