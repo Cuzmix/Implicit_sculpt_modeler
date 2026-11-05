@@ -76,9 +76,10 @@ CARD_ICONS := [Card]rune {
 // numbers), so the card's body does not scroll them.
 OWN_BODY_CARDS :: bit_set[Card]{.Colours, .History, .Details, .References}
 
-// How wide card `c` is: the Colours card seven touch-sized swatches across, the History card
-// what its rows of controls need, every other card the same.
-card_width :: proc(c: Card) -> f32 {
+// How wide card `c` is at first, and at least: the Colours card seven touch-sized swatches
+// across, the History card what its rows of controls need, every other card the same. Its
+// corner makes it wider (card_width, card_size.odin).
+card_width_base :: proc(c: Card) -> f32 {
 	#partial switch c {
 	case .Colours: return COLORS_CARD_W
 	case .History: return KIT_HISTORY_CARD_W
@@ -238,6 +239,17 @@ Cards :: struct {
 	floats:        bit_set[Card],
 	windows:       [Card]ui.Window,
 	float_scrolls: [Card]f32,
+	// Each card's size as its corner set it (card_size.odin): its width, 0 for its own
+	// (card_width_base), and its body's height while it floats, 0 to fit the window.
+	sizes:         [Card][2]f32,
+	// The card whose corner is dragged, its size and the pointer at the press, a double tap
+	// on a corner, and the drags that changed a size, for the exit stats.
+	sizing:        Maybe(Card),
+	sizing_from:   [2]f32,
+	sizing_press:  [2]f32,
+	sizing_was:    [2]f32,
+	sizing_tap:    Handle_Tap,
+	resizes:       int,
 	opens:    int,
 	folds:    int,
 	pins:     int,

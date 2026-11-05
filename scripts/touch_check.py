@@ -8917,6 +8917,64 @@ def references_board_by_mouse():
     return s, ["--script=reference assets/icon/sculpt-1024.png"], camera_still({"refs_selected": near(1), "refs_grey": near(1), "refs_moves": near(0), "undo_steps": near(1), "dabs": near(0)})
 
 
+# The References card's resize corner at its own width, on its foot facing the model.
+CARD_CORNER = At("card corner References/Resize References", 1222, 784)
+
+
+@scenario
+def card_corner_widens_the_card():
+    """A picture added by a script opens the References card; a finger drags the card's
+    corner 100 points toward the model: the card is 410 points wide (in 10-point steps), one
+    resize, and nothing sculpts or turns; a double tap on the corner puts it back."""
+    s = Script()
+    s.wait(6)
+    s.add(f"fdown:0:{CARD_CORNER[0]},{CARD_CORNER[1]}")
+    for k in range(1, 11):
+        s.wait(1)
+        s.add(f"fmove:0:{CARD_CORNER[0] - 10 * k},{CARD_CORNER[1]}")
+    s.wait(1)
+    s.add("fup:0")
+    s.wait(6)
+    return s, ["--script=reference assets/icon/sculpt-1024.png"], camera_still({"card_sizes": is_text("References:410x0"), "card_resizes": near(1), "dabs": near(0)})
+
+
+@scenario
+def card_corner_sizes_a_floating_card():
+    """The References card torn out by its title to float, then its corner, at its bottom
+    right, dragged 100 points right and 60 up: it is 410 points wide and its body 60 points
+    shorter, one resize; nothing sculpts."""
+    s = Script()
+    s.wait(6)
+    s.fdrag([(1300 - 60 * k, 100 + 10 * k) for k in range(11)])
+    s.wait(10)
+    s.add(f"fdown:0:{FLOAT_CORNER[0]},{FLOAT_CORNER[1]}")
+    for k in range(1, 11):
+        s.wait(1)
+        s.add(f"fmove:0:{FLOAT_CORNER[0] + 10 * k},{FLOAT_CORNER[1] - 6 * k}")
+    s.wait(1)
+    s.add("fup:0")
+    s.wait(6)
+    return s, ["--script=reference assets/icon/sculpt-1024.png"], camera_still({"cards_float": is_text("References"), "card_sizes": lambda v: v.startswith("References:410x"), "card_resizes": near(1), "dabs": near(0)})
+
+
+# The floating References card's corner, after the tear in card_corner_sizes_a_floating_card.
+FLOAT_CORNER = (982, 845)
+
+
+@scenario
+def card_corner_double_tap_puts_it_back():
+    """The References card's corner dragged 100 points toward the model, then tapped twice:
+    the card is back at its own width, two resizes."""
+    s = Script()
+    s.wait(6)
+    s.fdrag([(CARD_CORNER[0] - 10 * k, CARD_CORNER[1]) for k in range(11)])
+    s.wait(6)
+    s.ftap(CARD_CORNER.name, gap=2)
+    s.ftap(CARD_CORNER.name)
+    s.wait(6)
+    return s, ["--script=reference assets/icon/sculpt-1024.png"], camera_still({"card_sizes": is_text("none"), "card_resizes": near(2), "dabs": near(0)})
+
+
 @scenario
 def tap_dab_waits_for_nothing_else():
     """A tap's dab then an Undo tap on the panel straight after: the dab plays first, so Undo takes it back."""
