@@ -13692,6 +13692,26 @@ def right_click_opens_the_object_or_scene_menu():
 
 
 @scenario
+def add_object_goes_where_the_menu_opened():
+    """Add object in the scene menu opened on empty space puts the new sphere's middle at
+    that point, at the depth the view turns about (up and to the left of the first, toward
+    the eye); Add object here in the object menu opened on the model puts it on the surface
+    there (a point of the unit sphere). Each one undo step."""
+    def run(at, row, placed):
+        s = Script()
+        right_click_at(s, *at)
+        s.wait(4)
+        click(s, At(row, 0, 0))
+        s.wait(8)
+        return s, [], camera_still({"objects": near(2), "undo_steps": near(1), "scene_menu": near(0), "object_menu": near(0), "transform": placed})
+    def numbers(v):
+        return [float(c) for c in v.split(",")]
+    off = lambda v: numbers(v)[0] < -1 and numbers(v)[1] > 0.3
+    on = lambda v: abs(sum(c * c for c in numbers(v)[:3]) ** 0.5 - 1) < 0.05 and numbers(v)[2] > 0.3
+    return Steps([run(EMPTY, "scene menu/Add object", off), run((800, 450), "object menu/Add object here", on)])
+
+
+@scenario
 def right_click_brush_pie_setting_brings_the_pie_back():
     """With Right click opens set to Brush pie, a right click on the model opens the brush pie, and with Shift the object menu."""
     def run(shift):
