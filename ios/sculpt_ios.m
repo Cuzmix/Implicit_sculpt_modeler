@@ -10,17 +10,20 @@
  * then for the folder it goes in (starting in the app's own Documents folder, which Files
  * shows as On My iPad > Sculpt), and the app writes there itself.
  *
- * The Apple Pencil's double-tap, squeeze, Pencil-only drawing and haptics follow, then the
+ * The photo picker for the References board follows (Photos beside Files), then the
+ * Apple Pencil's double-tap, squeeze, Pencil-only drawing and haptics, then the
  * Pencil's samples between frames, and at the end Scribble for the app's text fields.
  *
  * Built with ARC (-fobjc-arc) by `./build.sh ios`.
  */
 
 #import <GameController/GameController.h>
+#import <PhotosUI/PhotosUI.h>
 #import <UIKit/UIKit.h>
 #import <UIKit/UIGestureRecognizerSubclass.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/utsname.h>
 #include <SDL3/SDL.h>
@@ -290,6 +293,167 @@ bool sculpt_ios_writable_beside(const char *path)
 		if (is_under(folder, root)) return true;
 	}
 	return false;
+}
+
+/*
+ * Photos for the References board: the system's photo picker (PHPickerViewController), which
+ * runs outside the app, so it needs no access to the photo library and no permission asked.
+ * Several photos may be picked at once. Each is copied out of the picker's short-lived file
+ * into a folder of its own under the app's temporary folder, keeping its name, and the paths
+ * answer through the same SDL_DialogFileCallback as the file dialogs; the app reads each
+ * picture's bytes at once (refs_add_file), so the folder is emptied at the next pick. A JPEG
+ * or PNG representation is taken where the photo has one (the system makes a JPEG of a HEIC
+ * photo in its compatible mode); any other picture is drawn by UIKit and kept as a JPEG,
+ * since the board reads PNG, JPEG, BMP, TGA and QOI only.
+ */
+@interface SculptPhotos : NSObject <PHPickerViewControllerDelegate, UIAdaptivePresentationControllerDelegate>
+@property (nonatomic) SDL_DialogFileCallback callback;
+@property (nonatomic) void *userdata;
+@end
+
+/* The photo picker showing, held strongly for the same reason as `showing`; nil once answered. */
+static SculptPhotos *photos_showing;
+
+/* The quality a picture kept as a JPEG is written at: near the original, a fraction of a PNG's size. */
+#define PHOTO_JPEG_QUALITY 0.92
+
+/* The temporary folder the picked photos are copied into, emptied for each pick. */
+static NSURL *photos_folder(void)
+{
+	NSURL *folder = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:@"Sculpt photos"] isDirectory:YES];
+	[NSFileManager.defaultManager removeItemAtURL:folder error:NULL];
+	[NSFileManager.defaultManager createDirectoryAtURL:folder withIntermediateDirectories:YES attributes:nil error:NULL];
+	return folder;
+}
+
+/* Where photo `index` named `name` goes in `folder`: a folder of its own, so two photos of one name both keep it. */
+static NSURL *photo_destination(NSURL *folder, NSUInteger index, NSString *name)
+{
+	NSURL *own = [folder URLByAppendingPathComponent:[NSString stringWithFormat:@"%lu", (unsigned long)index] isDirectory:YES];
+	[NSFileManager.defaultManager createDirectoryAtURL:own withIntermediateDirectories:YES attributes:nil error:NULL];
+	return [own URLByAppendingPathComponent:name];
+}
+
+@implementation SculptPhotos
+
+- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results
+{
+	if (photos_showing != self) return;
+	SDL_DialogFileCallback callback = self.callback;
+	void *userdata = self.userdata;
+	photos_showing = nil;
+	[picker dismissViewControllerAnimated:YES completion:nil];
+	if (results.count == 0) {
+		answer_cancel(callback, userdata);
+		return;
+	}
+	NSURL *folder = photos_folder();
+	NSMutableArray *paths = [NSMutableArray arrayWithCapacity:results.count];
+	for (NSUInteger i = 0; i < results.count; i++) [paths addObject:NSNull.null];
+	__block NSString *failure = nil;
+	dispatch_group_t group = dispatch_group_create();
+	for (NSUInteger i = 0; i < results.count; i++) {
+		NSItemProvider *item = results[i].itemProvider;
+		NSString *stem = item.suggestedName.length > 0 ? item.suggestedName : [NSString stringWithFormat:@"Photo %lu", (unsigned long)(i + 1)];
+		/* The completion handlers run on the system's queues, several at once. */
+		void (^done)(NSString *, NSString *) = ^(NSString *path, NSString *why) {
+			@synchronized(paths) {
+				if (path) paths[i] = path;
+				else if (why && !failure) failure = why;
+			}
+			dispatch_group_leave(group);
+		};
+		dispatch_group_enter(group);
+		NSString *type = nil;
+		if ([item hasItemConformingToTypeIdentifier:UTTypeJPEG.identifier]) type = UTTypeJPEG.identifier;
+		else if ([item hasItemConformingToTypeIdentifier:UTTypePNG.identifier]) type = UTTypePNG.identifier;
+		if (type) {
+			[item loadFileRepresentationForTypeIdentifier:type completionHandler:^(NSURL *url, NSError *error) {
+				/* The picker's file is gone once this handler returns, so it is copied now. */
+				if (!url) {
+					done(nil, error.localizedDescription);
+					return;
+				}
+				NSString *ext = url.pathExtension.length > 0 ? url.pathExtension : ([type isEqualToString:UTTypePNG.identifier] ? @"png" : @"jpg");
+				NSURL *to = photo_destination(folder, i, [stem stringByAppendingPathExtension:ext]);
+				NSError *copied = nil;
+				if ([NSFileManager.defaultManager copyItemAtURL:url toURL:to error:&copied]) done(to.path, nil);
+				else done(nil, copied.localizedDescription);
+			}];
+		} else if ([item canLoadObjectOfClass:UIImage.class]) {
+			[item loadObjectOfClass:UIImage.class completionHandler:^(id<NSItemProviderReading> object, NSError *error) {
+				NSData *jpeg = [object isKindOfClass:UIImage.class] ? UIImageJPEGRepresentation((UIImage *)object, PHOTO_JPEG_QUALITY) : nil;
+				if (!jpeg) {
+					done(nil, error ? error.localizedDescription : @"the photo could not be read as a picture");
+					return;
+				}
+				NSURL *to = photo_destination(folder, i, [stem stringByAppendingPathExtension:@"jpg"]);
+				NSError *written = nil;
+				if ([jpeg writeToURL:to options:NSDataWritingAtomic error:&written]) done(to.path, nil);
+				else done(nil, written.localizedDescription);
+			}];
+		} else {
+			done(nil, @"the item picked is not a picture");
+		}
+	}
+	/* Every photo copied (or failed), the app is answered on the main thread, as the file dialogs answer. */
+	dispatch_group_notify(group, dispatch_get_main_queue(), ^{
+		NSMutableArray<NSString *> *picked = [NSMutableArray array];
+		for (id path in paths) {
+			if ([path isKindOfClass:NSString.class]) [picked addObject:path];
+		}
+		if (picked.count == 0) {
+			answer_failure(callback, userdata, failure ? failure.UTF8String : "no photo could be read");
+			return;
+		}
+		const char **list = calloc(picked.count + 1, sizeof(char *));
+		if (!list) {
+			answer_failure(callback, userdata, "out of memory");
+			return;
+		}
+		for (NSUInteger i = 0; i < picked.count; i++) list[i] = picked[i].fileSystemRepresentation;
+		callback(userdata, list, -1);
+		free(list);
+	});
+}
+
+/* The sheet dismissed without the picker's Cancel or Add: a cancel, answered once. */
+- (void)presentationControllerDidDismiss:(UIPresentationController *)presentationController
+{
+	(void)presentationController;
+	if (photos_showing != self) return;
+	SDL_DialogFileCallback callback = self.callback;
+	void *userdata = self.userdata;
+	photos_showing = nil;
+	answer_cancel(callback, userdata);
+}
+
+@end
+
+void sculpt_ios_open_photos_dialog(SDL_DialogFileCallback callback, void *userdata, SDL_Window *window)
+{
+	if (showing || photos_showing) {
+		answer_failure(callback, userdata, "another file dialog is showing");
+		return;
+	}
+	UIViewController *top = top_controller(window);
+	if (!top) {
+		answer_failure(callback, userdata, "the window has no view controller to show the photo picker from");
+		return;
+	}
+	PHPickerConfiguration *config = [PHPickerConfiguration new];
+	config.filter = PHPickerFilter.imagesFilter;
+	/* No limit: a board is filled several pictures at a time. */
+	config.selectionLimit = 0;
+	config.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCompatible;
+	PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config];
+	SculptPhotos *delegate = [SculptPhotos new];
+	delegate.callback = callback;
+	delegate.userdata = userdata;
+	photos_showing = delegate;
+	picker.delegate = delegate;
+	picker.presentationController.delegate = delegate;
+	[top presentViewController:picker animated:YES completion:nil];
 }
 
 /*

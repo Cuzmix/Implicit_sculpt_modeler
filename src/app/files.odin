@@ -281,6 +281,26 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	}
 }
 
+// The References board's Add from Photos: the system's photo picker on the iPad, answering
+// as a file dialog does with every photo picked; false where there is none (every other
+// platform's file dialog shows the photos the system keeps).
+file_dialog_photos :: proc(app: ^App) -> bool {
+	when ODIN_PLATFORM_SUBTARGET_IOS {
+		sync.lock(&pending.lock)
+		busy := pending.dialog
+		pending.dialog = true
+		sync.unlock(&pending.lock)
+		if busy do return true
+		sculpt_ios_open_photos_dialog(file_dialog_done, rawptr(uintptr(File_Kind.Reference)), app.window)
+		return true
+	} else {
+		return false
+	}
+}
+
+// Whether this platform has a photo picker of its own beside its file dialog (the iPad's).
+PHOTOS_PICKER :: ODIN_PLATFORM_SUBTARGET_IOS
+
 // SDL's answer to a dialog, on whichever thread SDL likes: a nil list is a failure, an
 // empty one a cancel. A name typed without an extension gets the one asked for.
 @(private = "file")
@@ -301,6 +321,18 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 	}
 	if filelist[0] == nil do return
 	path := string(filelist[0])
+	// Several pictures for the References board (the iPad's photo picker) go in one
+	// request, a path a line.
+	if kind == .Reference && filelist[1] != nil {
+		lines := strings.builder_make(heap)
+		for i := 0; filelist[i] != nil; i += 1 {
+			if i > 0 do strings.write_byte(&lines, '\n')
+			strings.write_string(&lines, string(filelist[i]))
+		}
+		delete(pending.req.path, heap)
+		pending.req = {kind, strings.to_string(lines), sheet}
+		return
+	}
 	suffix := ""
 	if filepath.ext(path) == "" {
 		#partial switch kind {
@@ -499,7 +531,7 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 	case .Environment:
 		_ = environment_load(app, req.path)
 	case .Reference:
-		_ = refs_add_file(app, req.path)
+		for path in strings.split_lines(req.path, context.temp_allocator) do if path != "" do _ = refs_add_file(app, path)
 	case .Base_Color_Map, .Orm_Map, .Normal_Map:
 		for kind, m in TEXTURE_FILE_KINDS do if kind == req.kind {
 			if why := texture_load(app, selected_object(app), m, req.path); why != "" do file_note(app, true, "%s", why)
