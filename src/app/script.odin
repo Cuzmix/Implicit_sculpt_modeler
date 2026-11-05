@@ -108,7 +108,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Export_Bary   = {"export_bary", "a .bary file to write the selected object's detail skin to, as an NVIDIA displacement micro-map"},
 	.Reference     = {"reference", "an image file (PNG, JPEG, BMP, TGA or QOI) to add to the References card's board"},
 	.Reference_Plane = {"reference_plane", "front, back, right, left, top, bottom or none: the view whose plane in the scene the newest picture stands on, and through to draw it over the model"},
-	.Stack         = {"stack", "mirror x (planes together as xz, -x for the - side), mirror off, show mirror, hide mirror or apply mirror: the selected object's live stack"},
+	.Stack         = {"stack", "the selected object's live stack: mirror x (planes together as xz, -x for the - side), array 4 2.2 0 0 (count and step, then turn x y z and size s), radial 6 y (count and axis), mirror off, show array, hide radial or apply stack"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only

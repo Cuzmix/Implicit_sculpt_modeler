@@ -1122,7 +1122,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			else do history_snapshot_drop(before)
 		}
 	case .Stack_Apply:
-		if obj := selected_object(app); obj != nil && !stack_apply_mirror(app, obj) {
+		if obj := selected_object(app); obj != nil && !stack_apply(app, obj) {
 			scene_delete_selected(app, undoable = false)
 			return false
 		}
@@ -1427,15 +1427,25 @@ next_free_position :: proc(app: ^App) -> Vec3 {
 // Nearest object a press can pick hit by a world-space ray (dir normalised). The hit is
 // in world space.
 scene_raycast :: proc(app: ^App, origin, dir: Vec3, only := -1) -> (index: int, hit: Vec3, ok: bool) {
+	index, hit, _, _, ok = scene_raycast_framed(app, origin, dir, only)
+	return
+}
+
+// scene_raycast over the live stack's copies too (stack_frames): `frame` is the transform
+// of the copy hit, `framed` false when it was the object itself.
+scene_raycast_framed :: proc(app: ^App, origin, dir: Vec3, only := -1) -> (index: int, hit: Vec3, frame: Transform, framed, ok: bool) {
 	best := max(f32)
 	for obj, i in app.scene.objects {
 		if (only >= 0 && i != only) || !object_pickable(app, obj) do continue
-		t := obj.transform
-		local_hit, _, local_ok := object_raycast_local(obj, to_local(t, origin), to_local_dir(t, dir))
-		if !local_ok do continue
-		world_hit := to_world(t, local_hit)
-		if d := linalg.length(world_hit - origin); d < best {
-			best, index, hit, ok = d, i, world_hit, true
+		frames := stack_frames(obj)
+		for k in -1 ..< len(frames) {
+			t := obj.transform if k < 0 else frames[k]
+			local_hit, _, local_ok := object_raycast_local(obj, to_local(t, origin), to_local_dir(t, dir))
+			if !local_ok do continue
+			world_hit := to_world(t, local_hit)
+			if d := linalg.length(world_hit - origin); d < best {
+				best, index, hit, frame, framed, ok = d, i, world_hit, t, k >= 0, true
+			}
 		}
 	}
 	return

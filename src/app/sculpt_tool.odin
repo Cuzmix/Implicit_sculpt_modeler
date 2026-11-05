@@ -245,6 +245,10 @@ Stroke :: struct {
 	frame_other_ms: f64,
 	skin:     bool, // the stroke writes into the object's detail skin (stroke_to_skin)
 	object:   int, // id of the object being sculpted
+	// The live stack's copy the stroke was pressed on (stack_frames), whose transform it
+	// sculpts the object through so every copy follows (stroke_frame); unset for the object.
+	frame:    Transform,
+	framed:   bool,
 	pos:      [2]f32, // viewport position the stroke has reached; trails the cursor with lazy mouse
 	pressure: f32, // pen pressure at pos
 	tilt:     [2]f32, // pen lean at pos
@@ -708,12 +712,13 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	// A deformer's Amount held by another finger owns the object's undo until let go.
 	if app.ui.deform.drag.active do return
 	only := -1 if app.nav.stroke_switches || selected_object(app) == nil else app.scene.selected
-	index, hit, ok := scene_raycast(app, origin, dir, only)
+	index, hit, frame, framed, ok := scene_raycast_framed(app, origin, dir, only)
 	// With Past the outline on, Grab takes hold from just past the silhouette too, as
 	// Nomad's Move does: the nearest point of the surface within the brush ring.
 	from := hit
 	if !ok && app.brush.grab_outline && .Grab in BRUSHES[stroke_brush(app, input)].flags && s.kind == .Press {
 		index, hit, ok = scene_grab_near(app, origin, dir, input.size, only)
+		framed = false
 		if ok {
 			facing := camera.orbit_toward(app.camera, hit)
 			if along := linalg.dot(dir, facing); abs(along) > 1e-6 do from = origin + dir * (linalg.dot(hit - origin, facing) / along)
@@ -723,6 +728,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	if !ok do return
 	app.scene.selected = index
 	obj := selected_object(app)
+	t_obj := frame if framed else obj.transform
 	// The Paint brush, or a sculpting brush held with the channel on Colour, only paints.
 	color_only := held_brush(input) && app.brush.channel == .Color && channel_brush(stroke_brush(app, input))
 	if (color_only || .Paint in BRUSHES[stroke_brush(app, input)].flags) && (object_in_hd(obj) || object_dynamic(obj)) {
@@ -743,7 +749,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	// detail to go into (skin_auto_add). Any start counts, not only a press: a stroke can
 	// begin mid-drag, where the pointer first reaches the object.
 	if obj.voxel == nil {
-		radius := brush_radius_px(app, s.pressure, s.tilt) * camera.orbit_world_per_px(app.camera, hit, input.size.y) / obj.transform.scale
+		radius := brush_radius_px(app, s.pressure, s.tilt) * camera.orbit_world_per_px(app.camera, hit, input.size.y) / t_obj.scale
 		_ = skin_auto_add(app, obj, stroke_brush(app, input), radius)
 	}
 	if !skin_stroke_allowed(app, obj, stroke_brush(app, input), say) do return
@@ -752,6 +758,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st := &app.stroke
 	st.skin = stroke_to_skin(app, obj, stroke_brush(app, input))
 	st.active, st.object = true, obj.id
+	st.frame, st.framed = t_obj, framed
 	st.kind, st.held = stroke_brush(app, input), held_brush(input)
 	st.blur = input.smooth && !input.mask && painting(app)
 	st.seed, st.step, st.turn = app.stroke_seed, 0, 0
@@ -775,15 +782,15 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	// A voxel dab has no alpha to lay along a tape and no stroke to put back and redo.
 	if obj.voxel != nil && (st.mode == .Drag_Rect || st.mode == .Roll || st.mode == .Drag_Dot) do st.mode = .Dots
 	st.rect = st.mode == .Drag_Rect || st.mode == .Drag_Dot
-	local := to_local(obj.transform, hit)
-	brush := brush_at(app, input, obj.transform, local, s.pressure, s.tilt)
+	local := to_local(t_obj, hit)
+	brush := brush_at(app, input, t_obj, local, s.pressure, s.tilt)
 	st.grab, st.hook, st.anchor, st.invert = .Grab in flags, .Hook in flags, hit, brush.invert
 	st.hook_dir = {}
 	st.grab_from, st.grab_normal, st.press_pressure = from, {}, s.pressure
 	st.grab_roll, st.grab_turned = input.pen_roll, 0
 	st.grab_gain = grab_gain(app, st.kind)
 	if st.grab && obj.voxel == nil {
-		t := obj.transform
+		t := t_obj
 		if n, found := sculpt.sculptor_area_normal(object_sculptor(obj), local, 0.5 * brush.radius, to_local_dir(t, camera.orbit_toward(app.camera, hit))); found {
 			st.grab_normal = linalg.normalize0(to_world_dir(t, n))
 		}
@@ -868,13 +875,13 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 	if abs(along) < 1e-6 do return
 	t := linalg.dot(st.anchor - origin, facing) / along
 	moved := grab_moved(app, input, origin + dir * t - st.grab_from, facing)
-	offset := to_local_dir(obj.transform, moved) * (st.grab_gain / obj.transform.scale)
+	offset := to_local_dir(stroke_frame(app, obj), moved) * (st.grab_gain / stroke_frame(app, obj).scale)
 	st.pos = pos
 	twist: sculpt.Grab_Twist
 	if angle := grab_twist_angle(app, input.pen_roll); angle != 0 {
 		// Clockwise seen from the pen's top turns what is held clockwise on screen: about
 		// the way the view looks at it, which a viewer looking along sees clockwise.
-		twist = {linalg.normalize0(to_local_dir(obj.transform, facing)), angle}
+		twist = {linalg.normalize0(to_local_dir(stroke_frame(app, obj), facing)), angle}
 	}
 	t1 := time.tick_now()
 	sculpt.sculptor_grab_move(object_sculptor(obj), offset, twist)
@@ -960,7 +967,7 @@ cloth_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos
 		st.active = false
 		return
 	}
-	t := obj.transform
+	t := stroke_frame(app, obj)
 	offset: Vec3
 	origin, dir := ray_through(inv, pos, input.size)
 	facing := camera.orbit_toward(app.camera, st.anchor)
@@ -997,7 +1004,7 @@ hook_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: I
 	facing := camera.orbit_toward(app.camera, st.anchor)
 	along := linalg.dot(dir, facing)
 	if abs(along) < 1e-6 do return
-	t := obj.transform
+	t := stroke_frame(app, obj)
 	offset := origin + dir * (linalg.dot(st.anchor - origin, facing) / along) - st.anchor
 	st.pos, st.pressure, st.tilt = s.pos, s.pressure, s.tilt
 	// The pressure of the press holds for the whole hook, as Grab's does: a pen easing
@@ -1041,7 +1048,7 @@ rect_follow :: proc(app: ^App, input: Viewport_Input, s: Input_Sample, res: ^Scu
 	length := linalg.length(d)
 	if length < 2 || s.pos == st.pos do return
 	st.pos, st.pressure, st.tilt = s.pos, s.pressure, s.tilt
-	t := obj.transform
+	t := stroke_frame(app, obj)
 	t1 := time.tick_now()
 	sculptor := object_sculptor(obj)
 	_ = sculpt.sculptor_stroke_restore(sculptor)
@@ -1074,7 +1081,7 @@ dot_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: In
 	}
 	if s.pos == st.pos do return
 	origin, dir := ray_through(inv, s.pos, input.size)
-	t := obj.transform
+	t := stroke_frame(app, obj)
 	t0 := time.tick_now()
 	_, _, ok := object_raycast_local(obj, to_local(t, origin), to_local_dir(t, dir))
 	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
@@ -1388,7 +1395,7 @@ Dab_Scatter :: struct {
 @(private = "file")
 stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4, 4]f32, pos: [2]f32, pressure: f32, tilt: [2]f32, res: ^Sculpt_Frame_Result, scatter := Dab_Scatter{size = 1, strength = 1}) {
 	origin, dir := ray_through(inv, pos, input.size)
-	t := obj.transform
+	t := stroke_frame(app, obj)
 	t0 := time.tick_now()
 	local_dir := to_local_dir(t, dir)
 	hit, normal, ok := object_raycast_local(obj, to_local(t, origin), local_dir)
@@ -1411,7 +1418,7 @@ Dab_Fixed :: struct {
 @(private = "file")
 stroke_dab_at :: proc(app: ^App, obj: ^Object, input: Viewport_Input, hit, normal: Vec3, pressure: f32, tilt: [2]f32, res: ^Sculpt_Frame_Result, scatter := Dab_Scatter{size = 1, strength = 1}, fixed: Maybe(Dab_Fixed) = nil) {
 	st := &app.stroke
-	t := obj.transform
+	t := stroke_frame(app, obj)
 	st.pivot_sum += hit
 	st.pivot_count += 1
 	t1 := time.tick_now()
