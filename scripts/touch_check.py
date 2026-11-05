@@ -8864,6 +8864,26 @@ def references_on_view_let_the_brush_through():
 
 
 @scenario
+def references_in_scene_by_finger():
+    """A picture added by a script opens the References card; a finger taps In scene, then
+    Front in its menu, Through the model, and drags the picked plane across the front view:
+    it stands on a plane drawn through the model, moved once, each of the three an undo step."""
+    s = Script()
+    s.wait(6)
+    s.ftap("card References/In scene")
+    s.wait(4)
+    s.ftap("refs plane menu/Front")
+    s.wait(4)
+    s.ftap("card References/In scene")
+    s.wait(4)
+    s.ftap("refs plane menu/Through the model")
+    s.wait(30)
+    s.fdrag([(700 + 8 * k, 450) for k in range(12)])
+    s.wait(6)
+    return s, ["--script=reference assets/icon/sculpt-1024.png; view_axis front"], {"ref_planes": near(1), "ref_planes_through": near(1), "refs_moves": near(1), "dabs": near(0), "undo_steps": near(3)}
+
+
+@scenario
 def tap_dab_waits_for_nothing_else():
     """A tap's dab then an Undo tap on the panel straight after: the dab plays first, so Undo takes it back."""
     s = Script()

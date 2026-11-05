@@ -82,6 +82,9 @@ Renderer :: struct {
 	floor:          Floor_Grid,
 	// What the viewport shows behind everything; set by the app each frame, as floor is.
 	background:     Background,
+	// The reference pictures on planes in the scene (ref_planes.odin); set by the app each
+	// frame, as floor is, from memory that lasts the frame.
+	ref_planes:     []Ref_Plane,
 	// The wireframe's colour, linear; zero for WIRE_COLOR. Set by the app each frame from
 	// the theme, and folded into the redraw keys only when set, so their values stay.
 	wire_color:     [4]f32,
@@ -190,6 +193,12 @@ Mesh_Pipelines :: struct {
 	// refused it, when the wireframe is drawn as lines through `wire`.
 	mesh_wire:      gpu.Graphics_Pipeline,
 	mesh_wire_made: bool,
+	// The reference planes' pipelines, behind the model and through it (ref_planes.odin),
+	// made the first time a plane is drawn; each nil until then or where the device
+	// refused it, when those planes are not drawn.
+	ref_behind:  gpu.Graphics_Pipeline,
+	ref_through: gpu.Graphics_Pipeline,
+	ref_made:    bool,
 	// The plain, see-through, textured and skinned pipelines clipped at Draw_Item.clip
 	// (*_clip.frag.slang), made the first time a clipped item is drawn (clip_pipelines),
 	// each nil until then or where the device refused it, when the item draws whole. A
@@ -796,6 +805,8 @@ mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
 	for pipeline in p.area do if pipeline != 0 do gpu.release_graphics_pipeline(pipeline)
 	for pipeline in p.clip do if pipeline != 0 do gpu.release_graphics_pipeline(pipeline)
 	if p.mesh_wire != 0 do gpu.release_graphics_pipeline(p.mesh_wire)
+	if p.ref_behind != 0 do gpu.release_graphics_pipeline(p.ref_behind)
+	if p.ref_through != 0 do gpu.release_graphics_pipeline(p.ref_through)
 	p^ = {}
 }
 
@@ -1531,7 +1542,7 @@ upload_index_ranges :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, buffe
 // damage boxes cover, or nothing at all when nothing changed.
 render_viewport :: proc(r: ^Renderer, cmd: gpu.Cmd, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, use_cache: bool) -> (stats: Viewport_Stats) {
 	debug_group(cmd, "Viewport", .Viewport)
-	key := frame_key(vt^, view, proj, items, r.lod_px, r.floor, r.background, environment_keyed(r), r.wire_color)
+	key := ref_planes_key(r.ref_planes, frame_key(vt^, view, proj, items, r.lod_px, r.floor, r.background, environment_keyed(r), r.wire_color))
 	defer {
 		vt.frame_key = key
 		for item in items do item.mesh.drawn_version = item.mesh.version
@@ -2322,19 +2333,23 @@ blended :: proc(pipes: ^Mesh_Pipelines, item: Draw_Item) -> bool {
 }
 
 // Draws the viewport's items whose `live` matches in the order blending needs: the opaque
-// ones, then the floor grid, then the see-through ones over both. In render_rect the opaque
+// ones, then the reference planes behind the model and the floor grid, then the
+// see-through ones over them, then the reference planes drawn through the model. In render_rect the opaque
 // ones are drawn a pixel past the rectangle (see there); everything blended stays inside
 // `inside`, as drawing it twice at the edge would blend it twice.
 @(private)
 draw_scene :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Mesh_Pipelines, view, proj: Mat4, items: []Draw_Item, live: Maybe(bool), stats: ^Viewport_Stats, inside: Maybe(Rect) = nil) {
 	draw_items(r, cmd, pass, pipes, view, proj, items, live, stats)
 	if rect, ok := inside.?; ok do gpu.set_scissor(pass, {rect.x, rect.y, rect.w, rect.h})
+	draw_ref_planes(r, cmd, pass, pipes, view, proj, through = false)
 	draw_floor(r, cmd, pass, pipes, view, proj)
-	if pipes.see == 0 && pipes.textured_see == 0 do return
-	for item in items do if blended(pipes, item) {
-		draw_items(r, cmd, pass, pipes, view, proj, items, live, stats, see = true)
-		break
+	if pipes.see != 0 || pipes.textured_see != 0 {
+		for item in items do if blended(pipes, item) {
+			draw_items(r, cmd, pass, pipes, view, proj, items, live, stats, see = true)
+			break
+		}
 	}
+	draw_ref_planes(r, cmd, pass, pipes, view, proj, through = true)
 }
 
 // Draws Renderer.floor's planes, each as a full-screen triangle whose pixels find where

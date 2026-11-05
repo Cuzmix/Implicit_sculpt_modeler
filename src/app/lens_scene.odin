@@ -44,6 +44,7 @@ SCENE_KIND_NAMES := [Scene_Kind]string{.All = "All", .Meshes = "Meshes", .Voxels
 Outliner :: struct {
 	kind:        Scene_Kind,
 	lights_open: bool,
+	refs_open:   bool, // the reference planes' row is unfolded
 	add:         bool,
 	add_at:      ui.Rect,
 	starters:    bool, // the Add menu's starter shapes are unfolded
@@ -123,6 +124,7 @@ kit_lens_scene :: proc(app: ^App) {
 		if scroll := card_scroll(k, .Scene); scroll != nil do kit_tree_drags(app, spots[:], {k.cards.bodies[.Scene].at, scroll, k.cards.bodies[.Scene].limit}, ui.THUMB_INDENT)
 	}
 	if kind == .All || kind == .Lights do scene_light_rows(app, query, kind == .Lights)
+	if kind == .All do scene_ref_rows(app, query)
 	switch {
 	case len(objects) == 0 && kind != .Lights:
 		ui.paragraph(ctx, "The scene is empty. Add a shape with Add, or open a scene from the menu.")

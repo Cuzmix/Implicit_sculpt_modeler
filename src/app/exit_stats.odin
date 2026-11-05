@@ -371,7 +371,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 				}
 				fmt.printfln("stack_rows=%d stack_mirror=%s stack_copies=%d", stack_rows, strings.join(strings.fields(mirror, context.temp_allocator), "_", context.temp_allocator), app.stats.stack_copies)
 			}
-			fmt.printfln("refs=%d ref_images=%d refs_shown=%d refs_gpu_mb=%.1f refs_decode_ms=%.0f refs_selected=%d refs_moves=%d ref_notes=%d refs_grey=%d refs_shrunk=%d refs_small=%d", len(app.scene.refs.refs), len(app.scene.refs.images), refs_shown_count(app), refs_gpu_mb(app), app.refs_decode_ms, len(app.kit.board.selected), app.kit.board.moves, refs_note_count(app), refs_grey_count(app), app.refs_shrunk, refs_small_count(app))
+			fmt.printfln("refs=%d ref_images=%d refs_shown=%d refs_gpu_mb=%.1f refs_decode_ms=%.0f refs_selected=%d refs_moves=%d ref_notes=%d refs_grey=%d refs_shrunk=%d refs_small=%d ref_planes=%d ref_planes_through=%d", len(app.scene.refs.refs), len(app.scene.refs.images), refs_shown_count(app), refs_gpu_mb(app), app.refs_decode_ms, len(app.kit.board.selected), app.kit.board.moves, refs_note_count(app), refs_grey_count(app), app.refs_shrunk, refs_small_count(app), refs_plane_count(app, false), refs_plane_count(app, true))
 			fmt.printfln("environment_turn=%.1f environment_tilt=%.1f environment_turns=%d environment_recent=%d environment_backdrop=%s", env.turn, env.tilt, env.turns, len(env.recent), strings.to_lower(fmt.tprint(environment_backdrop(&env)), context.temp_allocator))
 		}
 		{

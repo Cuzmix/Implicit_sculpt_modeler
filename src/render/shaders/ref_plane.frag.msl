@@ -1,0 +1,62 @@
+// slangc metal from ref_plane.frag.spv sha256 2d7585f7d9bca39e57929e8e13ce7d0c1c787417d8887c9f1508ce6f897740a7
+// slots s=0:0 rt= wt= rb= wb= u=0 a=
+#include <metal_stdlib>
+#include <metal_math>
+#include <metal_texture>
+using namespace metal;
+
+#line 90 "core"
+struct pixelOutput_0
+{
+    float4 output_0 [[color(0)]];
+};
+
+
+#line 90
+struct pixelInput_0
+{
+    float2 uv_0 [[user(TEXCOORD)]];
+};
+
+
+#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/ref_plane.frag.slang"
+struct SLANG_ParameterGroup_Ref_Plane_Look_0
+{
+    float4 look_0;
+};
+
+
+#line 9
+struct KernelContext_0
+{
+    texture2d<float, access::sample> picture_texture_0;
+    sampler picture_sampler_0;
+    SLANG_ParameterGroup_Ref_Plane_Look_0 constant* Ref_Plane_Look_0;
+};
+
+
+#line 13
+[[fragment]] pixelOutput_0 main_0(pixelInput_0 _S1 [[stage_in]], texture2d<float, access::sample> picture_texture_1 [[texture(0)]], sampler picture_sampler_1 [[sampler(0)]], SLANG_ParameterGroup_Ref_Plane_Look_0 constant* Ref_Plane_Look_1 [[buffer(0)]])
+{
+
+#line 13
+    thread KernelContext_0 kernelContext_0;
+
+#line 13
+    (&kernelContext_0)->picture_texture_0 = picture_texture_1;
+
+#line 13
+    (&kernelContext_0)->picture_sampler_0 = picture_sampler_1;
+
+#line 13
+    (&kernelContext_0)->Ref_Plane_Look_0 = Ref_Plane_Look_1;
+    ;
+
+#line 14
+    float4 _S2 = (((&kernelContext_0)->picture_texture_0).sample(((&kernelContext_0)->picture_sampler_0), (_S1.uv_0)));
+
+#line 14
+    pixelOutput_0 _S3 = { float4(_S2.xyz, _S2.w * (&kernelContext_0)->Ref_Plane_Look_0->look_0.x) };
+    return _S3;
+}
+

@@ -438,6 +438,33 @@ Ray_Query_Check_Comp_Buffers :: enum u32 {rays}
 Ray_Query_Check_Comp_Write_Buffers :: enum u32 {hits}
 Ray_Query_Check_Comp_Uniforms :: enum u32 {Params}
 
+// ref_plane.frag.spv sha256 2d7585f7d9bca39e57929e8e13ce7d0c1c787417d8887c9f1508ce6f897740a7
+REF_PLANE_FRAG :: gpu.Shader_Desc{
+	code = #load("shaders/ref_plane.frag" + SHADER_EXT, string),
+	entrypoint = SHADER_ENTRY,
+	format = SHADER_FORMAT,
+	stage = .Fragment,
+	num_samplers = 1,
+	num_storage_textures = 0,
+	num_storage_buffers = 0,
+	num_uniform_buffers = 1,
+}
+Ref_Plane_Frag_Samplers :: enum u32 {picture}
+Ref_Plane_Frag_Uniforms :: enum u32 {Ref_Plane_Look}
+
+// ref_plane.vert.spv sha256 23b3de9e44cf4d50b4150476d8f3787854776bc54327a7b1bd7c774f6db2c7bf
+REF_PLANE_VERT :: gpu.Shader_Desc{
+	code = #load("shaders/ref_plane.vert" + SHADER_EXT, string),
+	entrypoint = SHADER_ENTRY,
+	format = SHADER_FORMAT,
+	stage = .Vertex,
+	num_samplers = 0,
+	num_storage_textures = 0,
+	num_storage_buffers = 0,
+	num_uniform_buffers = 1,
+}
+Ref_Plane_Vert_Uniforms :: enum u32 {Ref_Plane_Uniforms}
+
 // render_atrous.frag.spv sha256 9925bb31d909c91dc08f7950dac7a8b7a5c8e0d39104c0cfa6b4bd88507e2204
 RENDER_ATROUS_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/render_atrous.frag" + SHADER_EXT, string),

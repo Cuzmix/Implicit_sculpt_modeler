@@ -1481,6 +1481,7 @@ kit_layout :: proc(app: ^App) {
 	kit_layout_menu(app)
 	kit_pass_menu(app)
 	kit_history_menu(app)
+	refs_plane_menu(app)
 	kit_layer_menu(app)
 	kit_scene_add_menu(app)
 	kit_scene_spaces_menu(app)

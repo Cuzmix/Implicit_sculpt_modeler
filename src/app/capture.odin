@@ -67,9 +67,10 @@ capture_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, draws
 		c.turntable = false
 		return
 	}
-	background, floor, lod_px, environment := r.background, r.floor, r.lod_px, r.environment_look.background
-	defer r.background, r.floor, r.lod_px, r.environment_look.background = background, floor, lod_px, environment
-	r.background, r.floor, r.lod_px, r.environment_look.background = {}, {}, 0, false
+	// The reference planes are for working, as the floor is: the picture shows the model alone.
+	background, floor, lod_px, environment, planes := r.background, r.floor, r.lod_px, r.environment_look.background, r.ref_planes
+	defer r.background, r.floor, r.lod_px, r.environment_look.background, r.ref_planes = background, floor, lod_px, environment, planes
+	r.background, r.floor, r.lod_px, r.environment_look.background, r.ref_planes = {}, {}, 0, false, nil
 	_ = render.render_viewport(r, cmd, &c.target, view, proj, draws, false)
 	c.frames += 1
 	if finish_wanted(app) {
