@@ -6,10 +6,10 @@ import "core:slice"
 // Sparse symmetric systems and their solvers: the matrix kept as its upper triangle by
 // columns, assembled from triplets (an entry added twice is summed); a fill-reducing order
 // (amd.odin, SuiteSparse's AMD); a sparse LDLᵀ whose symbolic pass is kept for refactoring
-// the same pattern with new numbers (ldlt.odin); and conjugate gradients with a Jacobi
-// preconditioner for a system the LDLᵀ cannot take (cg.odin). It knows nothing of meshes:
-// Quad Remesh's frame field and cover are its first users, and UV unwrapping and
-// deformers can use it as well. Everything runs serially in a fixed order, so a solve
+// the same pattern with new numbers (ldlt.odin); its complex twin for Hermitian systems
+// (hermitian.odin); and conjugate gradients with a Jacobi preconditioner for a system the
+// LDLᵀ cannot take (cg.odin). It knows nothing of meshes: Quad Remesh's frame field and
+// cover are its first users, and UV unwrapping and deformers can use it as well. Everything runs serially in a fixed order, so a solve
 // gives the same bits every time and on any machine that rounds the same way.
 
 // A symmetric n by n matrix as its upper triangle by columns (compressed sparse column):
@@ -61,39 +61,55 @@ triplets_add :: #force_inline proc(t: ^Triplets, i, j: int, value: f64) {
 symmetric_from_triplets :: proc(t: Triplets, slots: ^[]i32 = nil, allocator := context.allocator) -> (m: Symmetric, ok: bool) {
 	heap := runtime.heap_allocator()
 	n := t.n
-	count := len(t.values)
-	for k in 0 ..< count do if t.rows[k] < 0 || int(t.columns[k]) >= n do return {}, false
-	// A counting sort by row and then a stable one by column leaves the triplets in
-	// column order with ascending rows, ties in their own order.
-	by_row := counting_order(t.rows[:], nil, n, heap)
-	defer delete(by_row, heap)
-	order := counting_order(t.columns[:], by_row, n, heap)
-	defer delete(order, heap)
-
+	if !in_range(t.rows[:], t.columns[:], n) do return {}, false
 	m.n = n
 	m.first = make([]int, n + 1, allocator)
-	place := make([]i32, count, heap)
+	place, entries := compress(t.rows[:], t.columns[:], m.first)
 	defer delete(place, heap)
-	entries := 0
-	last_row, last_column := i32(-1), i32(-1)
-	for k in order {
-		r, c := t.rows[k], t.columns[k]
-		if r != last_row || c != last_column {
-			entries += 1
-			m.first[c + 1] += 1
-			last_row, last_column = r, c
-		}
-		place[k] = i32(entries - 1)
-	}
-	for j in 0 ..< n do m.first[j + 1] += m.first[j]
 	m.rows = make([]i32, entries, allocator)
 	m.values = make([]f64, entries, allocator)
-	for k in order {
+	for k in 0 ..< len(t.values) {
 		m.rows[place[k]] = t.rows[k]
 		m.values[place[k]] += t.values[k]
 	}
 	if slots != nil do slots^ = slice.clone(place[:], allocator)
 	return m, true
+}
+
+// Whether every (row, column) is inside an n by n matrix's upper triangle's range.
+@(private)
+in_range :: proc(rows, columns: []i32, n: int) -> bool {
+	for k in 0 ..< len(rows) do if rows[k] < 0 || int(columns[k]) >= n do return false
+	return true
+}
+
+// The compressed columns of the triplets' pattern (rows at or above their columns): fills
+// `first` (n + 1 entries, zero) and gives each triplet's place among the entries, the
+// duplicates of an entry sharing it, and how many entries there are. A counting sort by
+// row and then a stable one by column leaves the triplets in column order with ascending
+// rows, ties in their own order, so a sum over each entry's triplets in the triplets'
+// order is the same every time.
+@(private)
+compress :: proc(rows, columns: []i32, first: []int) -> (place: []i32, entries: int) {
+	heap := runtime.heap_allocator()
+	n := len(first) - 1
+	by_row := counting_order(rows, nil, n, heap)
+	defer delete(by_row, heap)
+	order := counting_order(columns, by_row, n, heap)
+	defer delete(order, heap)
+	place = make([]i32, len(rows), heap)
+	last_row, last_column := i32(-1), i32(-1)
+	for k in order {
+		r, c := rows[k], columns[k]
+		if r != last_row || c != last_column {
+			entries += 1
+			first[c + 1] += 1
+			last_row, last_column = r, c
+		}
+		place[k] = i32(entries - 1)
+	}
+	for j in 0 ..< n do first[j + 1] += first[j]
+	return
 }
 
 // Puts new numbers on a matrix made by symmetric_from_triplets: `values` holds one per

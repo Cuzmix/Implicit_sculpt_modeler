@@ -138,7 +138,7 @@ index 3e586d0..66e5dcc 100644
  }
  #endif
 diff --git a/src/AutoRemesher/parameterizer.cpp b/src/AutoRemesher/parameterizer.cpp
-index 03cc94a..56090ba 100644
+index 03cc94a..bd90e2d 100644
 --- a/src/AutoRemesher/parameterizer.cpp
 +++ b/src/AutoRemesher/parameterizer.cpp
 @@ -352,6 +352,16 @@ bool Parameterizer::parameterize()
@@ -184,7 +184,25 @@ index 03cc94a..56090ba 100644
          simplifier.simplify();
      }
  
-@@ -403,11 +418,20 @@ bool Parameterizer::parameterize()
+@@ -395,6 +410,17 @@ bool Parameterizer::parameterize()
+         computeFaceAnisotropyField(topology, field,
+             m_anisotropy, m_maxAspectRatio, &faceScalingU, &faceScalingV);
+     }
++    if (nullptr != m_fieldStage) {
++        m_fieldStage->field = field;
++        m_fieldStage->faceScaling = faceScalingField;
++        m_fieldStage->faceScalingU = faceScalingU;
++        m_fieldStage->faceScalingV = faceScalingV;
++        const bool simplified = m_singularitySimplification && vertexLogScale.empty();
++        m_fieldStage->singularBefore = simplified ? simplifier.singularityCountBefore() : simplifier.singularityCount();
++        m_fieldStage->singularAfter = simplified ? simplifier.singularityCountAfter() : m_fieldStage->singularBefore;
++        report(1.0f, "");
++        return true;
++    }
+     // The cover solve is the longest single step here, so it reports its own
+     // sub-steps from 0.28 onwards rather than going quiet until it finishes.
+     ProgressHandler coverProgress;
+@@ -403,11 +429,20 @@ bool Parameterizer::parameterize()
              m_progressHandler(0.28f + (0.99f - 0.28f) * fraction, name);
          };
      }
@@ -207,10 +225,10 @@ index 03cc94a..56090ba 100644
          return false;
      }
 diff --git a/src/AutoRemesher/parameterizer.h b/src/AutoRemesher/parameterizer.h
-index 9a6b98b..035fe4a 100644
+index 9a6b98b..445563b 100644
 --- a/src/AutoRemesher/parameterizer.h
 +++ b/src/AutoRemesher/parameterizer.h
-@@ -90,6 +90,31 @@ public:
+@@ -90,11 +90,51 @@ public:
          m_maximumSingularityPairDistance = faceHops;
      }
  
@@ -242,13 +260,34 @@ index 9a6b98b..035fe4a 100644
      void setProgressHandler(ProgressHandler progressHandler)
      {
          m_progressHandler = std::move(progressHandler);
-@@ -112,6 +137,9 @@ private:
+     }
+ 
++    // What parameterize() works out before the cover: the frame field once its
++    // singularities are simplified, each face's size, and its anisotropy's stretch along
++    // the field and across it, so another field can be checked against this one.
++    struct FieldStage {
++        std::vector<Vector3> field;
++        std::vector<double> faceScaling, faceScalingU, faceScalingV;
++        size_t singularBefore = 0, singularAfter = 0;
++    };
++
++    // With a FieldStage set, parameterize() fills it and stops before the cover.
++    void setFieldStageOnly(FieldStage* fieldStage)
++    {
++        m_fieldStage = fieldStage;
++    }
++
+     bool parameterize();
+ 
+ private:
+@@ -112,6 +152,10 @@ private:
      double m_maxAspectRatio = 2.3;
      bool m_singularitySimplification = true;
      size_t m_maximumSingularityPairDistance = 6;
 +    const std::vector<char>* m_cornerFeature = nullptr;
 +    const std::vector<double>* m_vertexScaling = nullptr;
 +    const std::vector<Vector3>* m_faceGuide = nullptr;
++    FieldStage* m_fieldStage = nullptr;
      ProgressHandler m_progressHandler;
  
      std::vector<double> computeFaceScalingField(const std::vector<Vector3>& vertices,

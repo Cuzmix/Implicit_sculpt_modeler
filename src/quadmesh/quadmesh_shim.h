@@ -124,6 +124,8 @@ typedef struct Qm_Mesh {
     const double* uvs;             /* 6 a triangle: the cover's UV at each corner (extract) */
     const uint32_t* singular;      /* the field's singular vertices (extract) */
     uint32_t singular_count;
+    const double* face_field;      /* 3 a triangle: the frame field's direction, given in place of the cover's own (cover) */
+    const double* face_sizes;      /* 3 a triangle: the quad size, and the stretch along the field and across it (cover, with face_field) */
 } Qm_Mesh;
 
 /* A stage's output, valid until qm_stage_free; each array NULL when the stage gave none. */
@@ -148,6 +150,10 @@ typedef struct Qm_Stage_View {
     uint32_t face_count;
     uint32_t added;                /* thin: vertices the unpinch made */
     int decimated;                 /* thin: whether the island was decimated */
+    const double* face_field;      /* field: 3 a triangle */
+    const double* face_sizes;      /* field: 3 a triangle */
+    uint32_t singular_solved;      /* field: the singular vertices as solved */
+    uint32_t singular_after;       /* field: and once simplified */
 } Qm_Stage_View;
 
 /* Feature chains under two quad edges dropped, an island far denser than its target
@@ -161,9 +167,14 @@ int qm_stage_isotropic(const Qm_Mesh* mesh, double voxel_size, double adaptivity
 /* The guide curves as a direction per triangle (none when no guide comes near). */
 int qm_stage_face_guides(const Qm_Mesh* mesh, double quad_edge, const float* guides, uint32_t guide_count,
                          float guide_strength, Qm_Stage** out, char* error, size_t error_size);
-/* One quad cover at `scaling`: frame field, singularity simplification, cover. QM_FAILED
- * with an empty `error` when the core gave up without an exception (qm_console_line then
- * holds its own line). */
+/* The frame field, its singularities simplified, and the sizes the cover is asked, which
+ * qm_stage_cover works out first: for checking another field against the core's. */
+int qm_stage_field(const Qm_Mesh* mesh, double adaptivity, double anisotropy, double sharp_degrees,
+                   const Qm_Stage_Run* run, Qm_Stage** out, char* error, size_t error_size);
+/* One quad cover at `scaling`: frame field, singularity simplification, cover, or the
+ * cover alone on the mesh's face_field and face_sizes when given. QM_FAILED with an empty
+ * `error` when the core gave up without an exception (qm_console_line then holds its own
+ * line). */
 int qm_stage_cover(const Qm_Mesh* mesh, double scaling, double adaptivity, double anisotropy, double sharp_degrees,
                    const Qm_Stage_Run* run, Qm_Stage** out, char* error, size_t error_size);
 /* The quads traced from the cover and cleaned up; none when the extractor gave none. */

@@ -572,3 +572,47 @@ flip_edge :: proc(m: ^Work_Mesh, h: u32) -> bool {
 	if m.corner[b] == nh do m.corner[b] = o
 	return true
 }
+
+// Each corner of a fixed triangle list's opposite: the one corner whose edge runs the other
+// way, or NONE where the edge is of one triangle, of three or more, or run twice the same
+// way (all counted as border). Corner c is corner c % 3 of triangle c / 3. Corners are
+// filed by their vertex, so each edge is found among its own vertex's corners alone.
+corner_opposites :: proc(vertex_count: int, triangles: [][3]u32, allocator: runtime.Allocator) -> []u32 {
+	corners := 3 * len(triangles)
+	opp := make([]u32, corners, allocator)
+	first := make([]u32, vertex_count + 1, allocator)
+	defer delete(first, allocator)
+	for t in triangles do for v in t do first[v + 1] += 1
+	for v in 0 ..< vertex_count do first[v + 1] += first[v]
+	cursor := make([]u32, vertex_count, allocator)
+	defer delete(cursor, allocator)
+	copy(cursor, first[:vertex_count])
+	filed := make([]u32, corners, allocator)
+	defer delete(filed, allocator)
+	for t, f in triangles do for k in 0 ..< 3 {
+		filed[cursor[t[k]]] = u32(3 * f + k)
+		cursor[t[k]] += 1
+	}
+	vertex :: #force_inline proc(triangles: [][3]u32, c: u32) -> u32 {
+		return triangles[c / 3][c % 3]
+	}
+	for c in 0 ..< u32(corners) {
+		a, b := vertex(triangles, c), vertex(triangles, corner_next(c))
+		same, reverse, found := 0, 0, NONE
+		for i in first[a] ..< first[a + 1] do if vertex(triangles, corner_next(filed[i])) == b do same += 1
+		for i in first[b] ..< first[b + 1] {
+			o := filed[i]
+			if vertex(triangles, corner_next(o)) == a {
+				reverse += 1
+				found = o
+			}
+		}
+		opp[c] = found if same == 1 && reverse == 1 else NONE
+	}
+	// An opposite must name this corner back (two edges one way and one the other do not).
+	for c in 0 ..< u32(corners) {
+		o := opp[c]
+		if o != NONE && opp[o] != c do opp[c] = NONE
+	}
+	return opp
+}

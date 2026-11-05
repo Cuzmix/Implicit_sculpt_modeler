@@ -139,12 +139,16 @@ cpp_face_guides :: proc(iso: Isotropic, quad_edge: f64, guides: []geom.Vec3, str
 // One quad cover at `scaling` in C++ (qm_stage_cover): the frame field, the singularity
 // simplification and the cover. Failed with an empty reason when the core gave up without
 // one of its own (qm_console_line then has its line).
-cpp_cover :: proc(iso: Isotropic, face_guides: [][3]f64, scaling, adaptivity, anisotropy, sharp_degrees: f64, run: ^Stage_Run, reason: ^Reason) -> (out: Cover, err: Stage_Error) {
+cpp_cover :: proc(iso: Isotropic, face_guides: [][3]f64, field: Field, scaling, adaptivity, anisotropy, sharp_degrees: f64, run: ^Stage_Run, reason: ^Reason) -> (out: Cover, err: Stage_Error) {
 	when AVAILABLE {
 		m := qm_mesh(iso.positions, iso.triangles)
 		m.vertex_scale = raw_data(iso.vertex_scale) if len(iso.vertex_scale) == len(iso.positions) else nil
 		m.corner_feature = raw_data(iso.corner_feature) if len(iso.corner_feature) == 3 * len(iso.triangles) else nil
 		m.face_guides = cast([^]f64)raw_data(face_guides) if len(face_guides) == len(iso.triangles) else nil
+		if len(field.directions) == len(iso.triangles) && len(field.sizes) == len(iso.triangles) {
+			m.face_field = cast([^]f64)raw_data(field.directions)
+			m.face_sizes = cast([^]f64)raw_data(field.sizes)
+		}
 		r := qm_run(run)
 		stage: ^Qm_Stage
 		if err = stage_code(qm_stage_cover(&m, scaling, adaptivity, anisotropy, sharp_degrees, &r, &stage, raw_data(reason.text[:]), REASON_MAX)); err != .None do return
@@ -153,6 +157,31 @@ cpp_cover :: proc(iso: Isotropic, face_guides: [][3]f64, scaling, adaptivity, an
 		qm_stage_view(stage, &v)
 		out.uvs = copy_out([3][2]f64, v.uvs, u32(len(iso.triangles)) if v.uvs != nil else 0)
 		out.singular = copy_out(u32, v.singular, v.singular_count)
+		return out, .None
+	} else {
+		return {}, .Unavailable
+	}
+}
+
+// The C++'s frame field and sizes (qm_stage_field), what its cover would work out for
+// itself: for checking the Odin field against it.
+cpp_field :: proc(iso: Isotropic, face_guides: [][3]f64, adaptivity, anisotropy, sharp_degrees: f64, run: ^Stage_Run, reason: ^Reason) -> (out: Field, err: Stage_Error) {
+	when AVAILABLE {
+		m := qm_mesh(iso.positions, iso.triangles)
+		m.vertex_scale = raw_data(iso.vertex_scale) if len(iso.vertex_scale) == len(iso.positions) else nil
+		m.corner_feature = raw_data(iso.corner_feature) if len(iso.corner_feature) == 3 * len(iso.triangles) else nil
+		m.face_guides = cast([^]f64)raw_data(face_guides) if len(face_guides) == len(iso.triangles) else nil
+		r := qm_run(run)
+		stage: ^Qm_Stage
+		if err = stage_code(qm_stage_field(&m, adaptivity, anisotropy, sharp_degrees, &r, &stage, raw_data(reason.text[:]), REASON_MAX)); err != .None do return
+		defer qm_stage_free(stage)
+		v: Qm_Stage_View
+		qm_stage_view(stage, &v)
+		n := u32(len(iso.triangles)) if v.face_field != nil && v.face_sizes != nil else 0
+		out.directions = copy_out([3]f64, v.face_field, n)
+		out.sizes = copy_out([3]f64, v.face_sizes, n)
+		out.singular_solved = int(v.singular_solved)
+		out.singular = int(v.singular_after)
 		return out, .None
 	} else {
 		return {}, .Unavailable
@@ -309,6 +338,8 @@ Qm_Mesh :: struct {
 	uvs:            [^]f64,
 	singular:       [^]u32,
 	singular_count: u32,
+	face_field:     [^]f64,
+	face_sizes:     [^]f64,
 }
 
 @(private = "file")
@@ -331,8 +362,12 @@ Qm_Stage_View :: struct {
 	first:          [^]u32,
 	corners:        [^]u32,
 	face_count:     u32,
-	added:          u32,
-	decimated:      c.int,
+	added:           u32,
+	decimated:       c.int,
+	face_field:      [^]f64,
+	face_sizes:      [^]f64,
+	singular_solved: u32,
+	singular_after:  u32,
 }
 
 @(private = "file")
@@ -362,6 +397,7 @@ when AVAILABLE {
 		qm_stage_thin :: proc(mesh: ^Qm_Mesh, voxel_size, quad_edge, sharp_degrees: f64, out: ^^Qm_Stage, error: [^]u8, error_size: c.size_t) -> c.int ---
 		qm_stage_isotropic :: proc(mesh: ^Qm_Mesh, voxel_size, adaptivity, sharp_degrees: f64, run: ^Qm_Stage_Run, out: ^^Qm_Stage, error: [^]u8, error_size: c.size_t) -> c.int ---
 		qm_stage_face_guides :: proc(mesh: ^Qm_Mesh, quad_edge: f64, guides: [^]f32, guide_count: u32, guide_strength: f32, out: ^^Qm_Stage, error: [^]u8, error_size: c.size_t) -> c.int ---
+		qm_stage_field :: proc(mesh: ^Qm_Mesh, adaptivity, anisotropy, sharp_degrees: f64, run: ^Qm_Stage_Run, out: ^^Qm_Stage, error: [^]u8, error_size: c.size_t) -> c.int ---
 		qm_stage_cover :: proc(mesh: ^Qm_Mesh, scaling, adaptivity, anisotropy, sharp_degrees: f64, run: ^Qm_Stage_Run, out: ^^Qm_Stage, error: [^]u8, error_size: c.size_t) -> c.int ---
 		qm_stage_extract :: proc(mesh: ^Qm_Mesh, run: ^Qm_Stage_Run, out: ^^Qm_Stage, error: [^]u8, error_size: c.size_t) -> c.int ---
 		qm_stage_view :: proc(stage: ^Qm_Stage, view: ^Qm_Stage_View) ---
