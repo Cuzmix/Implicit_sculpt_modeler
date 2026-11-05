@@ -202,8 +202,9 @@ textures_undo_and_redo :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 }
 
-// The preview draws only what it can show: off, other levels, hidden parts, polygroup
-// colours, a stroke on the object, and a view with nothing to show draw as clay.
+// The preview draws only what it can show: off, hidden parts, polygroup colours, a stroke
+// on the object, and a view with nothing to show draw as clay; a level above the base
+// shows through the UVs it takes from the base.
 @(test)
 object_textured_only_when_it_can :: proc(t: ^testing.T) {
 	app: App
@@ -228,7 +229,7 @@ object_textured_only_when_it_can :: proc(t: ^testing.T) {
 	testing.expect(t, !object_textured(&app, obj, lv))
 	app.stroke = {}
 	testing.expect(t, sculpt.levels_subdivide(&obj.levels))
-	testing.expect(t, !object_textured(&app, obj, sculpt.levels_current(&obj.levels)), "only the base level has the UVs")
+	testing.expect(t, object_textured(&app, obj, sculpt.levels_current(&obj.levels)), "a level above the base hides its UVs")
 	free_all(context.temp_allocator)
 }
 
@@ -475,5 +476,31 @@ levels_show_the_maps :: proc(t: ^testing.T) {
 	sculpt.levels_delete_lower(&obj.levels)
 	textures_settle(&app)
 	testing.expect(t, sculpt.levels_has_uvs(&obj.levels) && object_has_textures(obj), "Delete lower dropped the maps")
+	free_all(context.temp_allocator)
+}
+
+// Straighten gives a quad object's islands grids in one undo step, which puts the old
+// UVs back; an object without quads is refused with a note and no step.
+@(test)
+straighten_is_one_undo_step :: proc(t: ^testing.T) {
+	app: App
+	defer tree_free(&app)
+	objs := tree_scene(&app)
+	obj := objs[0]
+	defer textures_free(&obj.textures)
+	testing.expect(t, !command_enabled(&app, .Straighten), "Straighten is offered without quads")
+	object_straighten(&app, obj)
+	testing.expect_value(t, len(app.history.done), 0)
+	if !quad_object(t, obj) do return
+	testing.expect(t, command_enabled(&app, .Straighten))
+	layout := raw_data(obj.levels.uvs.corner)
+	object_straighten(&app, obj)
+	if !testing.expect_value(t, len(app.history.done), 1) do return
+	testing.expect_value(t, app.history.done[0].kind, History_Kind.Textures)
+	testing.expect(t, raw_data(obj.levels.uvs.corner) != layout)
+	_, folded := sculpt.levels_quad_uvs(&obj.levels)
+	testing.expect(t, folded, "Straighten broke the quads' UVs")
+	history_undo(&app)
+	testing.expect(t, raw_data(obj.levels.uvs.corner) == layout, "undo left the straightened UVs")
 	free_all(context.temp_allocator)
 }

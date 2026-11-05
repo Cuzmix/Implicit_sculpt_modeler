@@ -155,6 +155,7 @@ Command_Id :: enum u16 {
 	Delete_Half,
 	Retopologize,
 	Unwrap,
+	Straighten,
 	Make_Boolean,
 	Live_Boolean,
 	Extract_Masked,
@@ -1645,6 +1646,16 @@ COMMANDS := [Command_Id]Command {
 		icon = rune(0xe4ee),
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Unwrap, unwrap = unwrap_setup(app)}},
 		enabled = has_mesh_object,
+	},
+	.Straighten = {
+		label = "Straighten quad islands",
+		help = "Lays each of a quad object's islands out as a grid of rectangles, its rows and columns as long as on the model; islands that are not a clean grid of quads keep their shape.",
+		icon = rune(0xe4ee),
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Straighten}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel == nil && obj.curve == nil && obj.cage == nil && sculpt.levels_has_quad_uvs(&obj.levels)
+		},
 	},
 	.Make_Boolean = {
 		label = "Make boolean mesh",
