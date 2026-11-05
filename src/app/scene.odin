@@ -174,6 +174,9 @@ Scene :: struct {
 	print_mm: f32,
 	// The proportion guides (guides.odin), saved with the scene.
 	guides:   Guides,
+	// The reference pictures and their places on the board (references.odin), saved with
+	// the scene.
+	refs:     References,
 }
 
 // Changes to the object list or the selected object's levels requested by the UI,
@@ -252,6 +255,7 @@ Scene_Command :: struct {
 }
 
 scene_destroy :: proc(app: ^App) {
+	refs_destroy(app)
 	for obj in app.scene.objects do object_free(app, obj)
 	delete(app.scene.objects)
 	folders_clear(&app.scene.folders)
