@@ -79,16 +79,17 @@ card_float_draw :: proc(app: ^App, c: Card) -> (raised: bool) {
 	was_dragging := w.dragging
 	mark := ui.motion_mark(ctx)
 	PAD :: 10
-	width := card_width(c)
+	width := card_width(app, c)
 	p := panel_begin(app, c, "", .End, .Start, {kit_right(app) + CARD_GAP, kit_top()}, {direction = .Column, gap = ui.SPACE_S, padding = PAD, width = width, radius = t.radius_large, background = .Panel}, card = true)
 	inner := width - 2 * PAD
 	_ = card_head(app, c, true, inner, floating = true)
 	head := ctx.last_rect
-	height := max(min(p.room - head.h - 6 - 24, CARD_FLOAT_MAX_H), CARD_BODY_MIN)
+	height := card_float_body(app, c, p.room - head.h - 6 - 24, max(min(p.room - head.h - 6 - 24, CARD_FLOAT_MAX_H), CARD_BODY_MIN))
 	_, _ = card_content(app, c, inner, height, p.owner, &k.cards.float_scrolls[c])
 	panel_end(app, &p)
 	if w.dragging && !was_dragging do k.moving.lifts += 1
 	card_float_motion_end(app, c, mark, panel_rect(app, c), w.dragging)
+	if !w.dragging && !w.minimized do card_resize_corner(app, c, panel_rect(app, c), true, height, floating = true)
 	if c == .Colours do kit_colors_menus(app)
 	raised = p.raised
 	// A hold on the grip puts it back on the pen side; a drag let go at a side of the

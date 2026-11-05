@@ -270,7 +270,7 @@ kit_columns :: proc(app: ^App) {
 		first := 0 if columns_split(app) && !sheet else col.count - 1
 		// The column is as wide as its widest card; a narrower one keeps to its dock's side.
 		w: f32 = 0
-		for i in first ..< col.count do w = max(w, card_width(col.cards[i].card))
+		for i in first ..< col.count do w = max(w, card_width(app, col.cards[i].card))
 		x, y, room, align := column_place(app, s, &col, w)
 		shown := col.count - first
 		each := room if shown == 1 else (room - CARD_GAP) * 0.5
@@ -291,7 +291,7 @@ kit_columns :: proc(app: ^App) {
 				h := ui.prev_rect(&k.ctx, card_root_name(col.cards[i].card)).h
 				top = y + room - (h if h > 0 else room)
 			}
-			card_draw(app, s, &col, i, {x + (w - card_width(col.cards[i].card)) * align, top}, each, at, side)
+			card_draw(app, s, &col, i, {x + (w - card_width(app, col.cards[i].card)) * align, top}, each, at, side)
 			y += each + CARD_GAP
 		}
 		col.frame = k.frame
@@ -394,7 +394,7 @@ card_draw :: proc(app: ^App, s: Column_Side, col: ^Column, i: int, pos: [2]f32, 
 	owner := ui.hash_under(0, name)
 	fade := ui.tween(ctx, ui.salt(owner, 0x6a6465), PANEL_FADED if entry.faded else 1, t.hover_time)
 	mark := ui.motion_mark(ctx)
-	width := card_width(c)
+	width := card_width(app, c)
 	ui.begin_at(ctx, name, pos, {direction = .Column, gap = ui.SPACE_S, padding = PAD, width = width, radius = t.radius_large, background = .Panel})
 	inner := width - 2 * PAD
 	torn := card_head(app, c, entry.pinned, inner)
@@ -413,6 +413,9 @@ card_draw :: proc(app: ^App, s: Column_Side, col: ^Column, i: int, pos: [2]f32, 
 	col.rects[i] = ui.last_ended(ctx)
 	r := col.rects[i]
 	card_motion_end(app, s, c, mark, r, card_way(app, at, side, r.w, r.h), fade)
+	// Its corner faces the view's middle, as a toolbar's does.
+	area := ui.safe_area(ctx)
+	card_resize_corner(app, c, r, r.x + r.w * 0.5 < area.x + area.w * 0.5, height, floating = false)
 	if c == .Colours do kit_colors_menus(app)
 	// Its title dragged past the slop tears the card out of the column: it floats on under
 	// the pointer from the next frame (card_float.odin). The narrow window's sheet has no

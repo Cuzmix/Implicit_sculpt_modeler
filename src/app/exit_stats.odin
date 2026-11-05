@@ -516,7 +516,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// The cards in their columns (pinned ones marked *), the sections folded, and how
 		// often cards opened, folded, pinned and closed; the floating cards, and how many were
 		// torn out of a column and put back.
-		fmt.printfln("cards=%s cards_shut=%s card_opens=%d card_folds=%d card_pins=%d card_closes=%d cards_float=%s card_floated=%d card_returned=%d panel_menu=%d", columns_text(k), cards_shut_text(k), k.cards.opens, k.cards.folds, k.cards.pins, k.cards.closes, cards_float_text(k), k.cards.floated, k.cards.returned, int(k.panels.menu))
+		fmt.printfln("cards=%s cards_shut=%s card_opens=%d card_folds=%d card_pins=%d card_closes=%d cards_float=%s card_floated=%d card_returned=%d panel_menu=%d card_sizes=%s card_resizes=%d", columns_text(k), cards_shut_text(k), k.cards.opens, k.cards.folds, k.cards.pins, k.cards.closes, cards_float_text(k), k.cards.floated, k.cards.returned, int(k.panels.menu), cards_size_text(k), k.cards.resizes)
 		// Panels sliding (panel_motion.odin): cards and docks that slid in, that left from a
 		// copy of their drawing, and narrow-window sheets put away by a drag.
 		fmt.printfln("panel_slides=%d panel_leaves=%d sheet_pulls=%d card_glides=%d card_lifts=%d dock_glides=%d slot_moves=%d pills_in=%d pills_out=%d", k.moving.slides, k.moving.leaves, k.moving.pulled_away, k.moving.glides, k.moving.lifts, k.moving.dock_glides, k.moving.slot_moves, k.moving.popped, k.moving.unpopped)

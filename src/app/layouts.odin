@@ -100,6 +100,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	strings.write_string(&out, k.inspect.before if k.inspect.on else grid_layout_lines(k))
 	columns_save(k, &out)
 	cards_float_save(k, &out)
+	cards_size_save(k, &out)
 	// The docks, then the bars after a line that says the layout holds them.
 	docks_save(k, &out)
 	strings.write_string(&out, "bars\n")
@@ -118,6 +119,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	if !k.cards.set do cards_default(k)
 	k.cards.columns = {}
 	k.cards.floats = {}
+	k.cards.sizes = {}
 	k.hidden = {}
 	// Every dock as it comes, and none of the person's but those the layout names, with
 	// only the buttons it names.
@@ -147,6 +149,8 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 			columns_read(k, f)
 		case "card_float":
 			cards_float_read(k, f)
+		case "card_size":
+			cards_size_read(k, f)
 		case "bars":
 			bar_lists_reset(k)
 		case "bar_count", "bar", "bar_look":
