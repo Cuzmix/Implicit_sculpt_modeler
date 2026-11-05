@@ -367,9 +367,12 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("environment=%s environment_size=%dx%d environment_background=%d environment_mb=%.1f", "image" if env.kind == .Image && env.gpu.source != 0 else "built_in", env.gpu.width, env.gpu.height, int(env.background), f32(render.environment_bytes(env.gpu)) / (1024 * 1024))
 			{
 				sel := selected_object(app)
-				uv_islands, uv_filled := -1, f32(0)
-				if sel != nil && sel.voxel == nil && uv.has(sel.levels.uvs) do uv_islands, uv_filled = sel.levels.uvs.islands, sel.levels.uvs.filled
-				fmt.printfln("unwraps=%d unwrap_islands=%d unwrap_ms=%.1f uv_islands=%d uv_filled=%.3f", app.unwraps.runs, app.unwraps.islands, app.unwraps.ms, uv_islands, uv_filled)
+				uv_islands, uv_filled, uv_density := -1, f32(0), f64(0)
+				if sel != nil && sel.voxel == nil && uv.has(sel.levels.uvs) {
+					uv_islands, uv_filled = sel.levels.uvs.islands, sel.levels.uvs.filled
+					uv_density = uv_readout(app, sel).density
+				}
+				fmt.printfln("unwraps=%d unwrap_islands=%d unwrap_ms=%.1f uv_islands=%d uv_filled=%.3f uv_density=%.4f", app.unwraps.runs, app.unwraps.islands, app.unwraps.ms, uv_islands, uv_filled, uv_density)
 			}
 			{
 				sel := selected_object(app)
