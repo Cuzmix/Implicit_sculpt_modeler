@@ -115,9 +115,9 @@ CURVE_MIN_POINTS :: 2
 // Bytes a point takes in a scene file: three vectors, three numbers and the corner byte.
 CURVE_POINT_BYTES :: 3 * size_of(Vec3) + 3 * size_of(f32) + 1
 
-// Bytes the tube's options take after the points: profile, radius mode, one, sides,
-// density, caps, flatness.
-CURVE_TUBE_BYTES :: 4 + 3 * size_of(f32)
+// Bytes the tube's options take after the points: radius mode, one, sides, density, caps,
+// then the profile's count, Mirror and every slot of it.
+CURVE_TUBE_BYTES :: 3 + 2 * size_of(f32) + 2 + geom.PROFILE_POINTS_MAX * (6 * size_of(f32) + 1)
 
 // Bytes the lathe's options take after the tube's: axis, through, angle, segments, caps.
 CURVE_LATHE_BYTES :: size_of(Vec3) + 1 + size_of(f32) + size_of(u16) + 1
@@ -209,14 +209,14 @@ curve_rebuild :: proc(app: ^App, obj: ^Object) -> bool {
 	return ok
 }
 
-// A tube's options made safe to build: sides 3 to TUBE_SIDES_MAX, positive density and
-// flatness, a radius of no less than zero.
+// A tube's options made safe to build: sides 3 to TUBE_SIDES_MAX, positive density, a
+// radius of no less than zero, a profile of three points or more (the round one if not).
 curve_tube_clean :: proc(o: geom.Tube_Options) -> geom.Tube_Options {
 	c := o
 	c.sides = clamp(c.sides, 3, geom.TUBE_SIDES_MAX)
 	c.one = max(c.one, 0) if c.one == c.one else geom.TUBE_DEFAULTS.one
 	c.density = clamp(c.density, 0.05, 16) if c.density == c.density else 1
-	c.flatness = clamp(c.flatness, 0.01, 1) if c.flatness == c.flatness else geom.TUBE_DEFAULTS.flatness
+	if c.profile.count < 3 || c.profile.count > geom.PROFILE_POINTS_MAX do c.profile = geom.PROFILE_ROUND
 	return c
 }
 
@@ -372,13 +372,21 @@ curve_part_put :: proc(out: ^[dynamic]u8, cp: ^Curve_Part) {
 		geom.byte_put(out, u8(p.handles))
 	}
 	o := cp.tube
-	geom.byte_put(out, u8(o.profile))
 	geom.byte_put(out, u8(o.radius))
 	geom.byte_put(out, o.one)
 	geom.byte_put(out, u8(o.sides))
 	geom.byte_put(out, o.density)
 	geom.byte_put(out, u8(o.caps))
-	geom.byte_put(out, o.flatness)
+	// The profile: its count and Mirror, then every slot, used or not, so the block keeps
+	// one size.
+	geom.byte_put(out, u8(o.profile.count))
+	geom.byte_put(out, u8(o.profile.mirror))
+	for q in o.profile.points {
+		geom.byte_put(out, q.p)
+		geom.byte_put(out, q.h_in)
+		geom.byte_put(out, q.h_out)
+		geom.byte_put(out, u8(q.handles))
+	}
 	l := cp.lathe
 	geom.byte_put(out, l.axis)
 	geom.byte_put(out, u8(l.through))
@@ -426,14 +434,24 @@ curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, 
 	}
 	if !damaged {
 		o: geom.Tube_Options
-		profile, radius := geom.byte_get(r, u8), geom.byte_get(r, u8)
+		radius := geom.byte_get(r, u8)
 		o.one = geom.byte_get(r, f32)
 		o.sides = int(geom.byte_get(r, u8))
 		o.density = geom.byte_get(r, f32)
 		caps := geom.byte_get(r, u8)
-		o.flatness = geom.byte_get(r, f32)
-		damaged = !r.ok || int(profile) >= len(geom.Tube_Profile) || int(radius) >= len(geom.Tube_Radius) || int(caps) >= len(geom.Tube_Caps) || o.sides < 3 || o.sides > geom.TUBE_SIDES_MAX || !finite({o.one, o.density, o.flatness}) || o.one < 0 || o.density <= 0 || o.flatness <= 0
-		o.profile, o.radius, o.caps = geom.Tube_Profile(profile), geom.Tube_Radius(radius), geom.Tube_Caps(caps)
+		count, mirror := geom.byte_get(r, u8), geom.byte_get(r, u8)
+		bad_point := false
+		for &q in o.profile.points {
+			q.p = geom.byte_get(r, [2]f32)
+			q.h_in = geom.byte_get(r, [2]f32)
+			q.h_out = geom.byte_get(r, [2]f32)
+			handles := geom.byte_get(r, u8)
+			q.handles = geom.Handle_Type(handles)
+			if int(handles) >= len(geom.Handle_Type) || !finite({q.p.x, q.p.y, q.h_in.x}) || !finite({q.h_in.y, q.h_out.x, q.h_out.y}) do bad_point = true
+		}
+		o.profile.count, o.profile.mirror = int(count), mirror == 1
+		damaged = !r.ok || bad_point || count < 3 || int(count) > geom.PROFILE_POINTS_MAX || mirror > 1 || int(radius) >= len(geom.Tube_Radius) || int(caps) >= len(geom.Tube_Caps) || o.sides < 3 || o.sides > geom.TUBE_SIDES_MAX || !finite({o.one, o.density, 0}) || o.one < 0 || o.density <= 0
+		o.radius, o.caps = geom.Tube_Radius(radius), geom.Tube_Caps(caps)
 		cp.tube = o
 	}
 	if !damaged {

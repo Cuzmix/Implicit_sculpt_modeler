@@ -20,7 +20,7 @@ bezier_tube_is_closed_and_faces_out :: proc(t: ^testing.T) {
 		caps := [2]Tube_Caps{.Flat, .Round}
 		for cap in caps {
 			o := TUBE_DEFAULTS
-			o.profile, o.caps = profile, cap
+			o.profile, o.caps = profile_preset(profile), cap
 			m, ok := bezier_tube(pts[:], false, o, {0, 1, 0})
 			defer mesh_destroy(&m)
 			testing.expect(t, ok)
