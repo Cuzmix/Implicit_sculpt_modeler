@@ -118,6 +118,8 @@ memory_check_holds :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	free := app.memory_free_test << 20 if app.memory_free_test > 0 else memory_headroom()
 	need, fixed, per_vertex := memory_need(app, obj, cmd)
 	history, _ := history_memory(app)
+	// What is on disk already takes no memory, so freeing it gives none back.
+	history -= history_disk_bytes(&app.history)
 	room := int(MEMORY_MARGIN * f64(free))
 	room_freed := int(MEMORY_MARGIN * f64(free + history))
 	log.infof("memory: %v needs about %d MB; the system leaves %d MB, the history holds %d MB", cmd.kind, need >> 20, free >> 20, history >> 20)

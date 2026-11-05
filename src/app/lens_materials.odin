@@ -20,7 +20,7 @@ import "../ui"
 // interface: the Material card and the view rail open this card. Holding a sphere
 // (a long press, a right click or the pen's side button) adds it to the favourites or
 // takes it off, a star on its corner; Favourites over the grid shows only those, as the
-// brush browser's Favorites does, and settings.txt keeps them (material_favorite).
+// brush browser's Favourites does, and settings.txt keeps them (material_favorite).
 
 // Materials first: the Render space, where the card shows, lights its objects.
 Material_Tab :: enum u8 {

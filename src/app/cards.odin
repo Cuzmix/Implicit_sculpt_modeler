@@ -57,7 +57,7 @@ CARD_ICONS := [Card]rune {
 	.Layers   = ICON_LAYERS,
 	.Scene    = ui.ICON_SHAPES,
 	.Mesh     = ICON_SUBDIVIDE,
-	.Mask     = ICON_FILL,
+	.Mask     = ICON_MASK,
 	.Deform   = ui.ICON_WAND,
 	.Paint    = ui.ICON_PAINTBRUSH,
 	.Colours  = ICON_COLOUR,
@@ -334,7 +334,7 @@ SECTION_ICONS := [Section]rune {
 	.Booleans    = ICON_BOOLEAN,
 	.Extract     = ICON_SPLIT,
 	.Project     = rune(0xe0b6), // download
-	.Mask        = ICON_FILL,
+	.Mask        = ICON_MASK,
 	.Sets        = ui.ICON_TAG,
 	.Groups      = ui.ICON_GRID,
 	.Visibility  = ui.ICON_EYE,
@@ -367,6 +367,7 @@ ICON_REFERENCES :: rune(0xe5c9)
 ICON_LIVE_STACK :: rune(0xe52f)
 ICON_MINUS :: rune(0xe120)
 ICON_CIRCLE_DASHED :: rune(0xe4b5) // a hole's open border
+ICON_MASK :: rune(0xe2aa) // venetian-mask: the one glyph of masking, on the brush, the card and the history
 ICON_SCAN_EYE :: rune(0xe53b) // facing the eye: masking by angle, a step's tint
 
 // Whether card `c` shows section `sec` now: the brush's own sections while the brush is
@@ -636,11 +637,17 @@ card_body :: proc(app: ^App, c: Card, inner: f32, body_y: f32, scroll: f32) -> (
 			section_draw(app, sec, inner)
 			continue
 		}
-		// A group's caption stands in for the divider over its first section.
-		if group := section_group(sec); group != "" && (i == 0 || section_group(sections[i - 1]) != group) {
-			if i > 0 do ui.spacer(ctx, 6)
+		// A group's caption stands in for the divider over its first section, and inside
+		// a group the sections part by a little space alone, so the caption reads as
+		// heading all of them rather than the first.
+		group := section_group(sec)
+		switch {
+		case group != "" && (i == 0 || section_group(sections[i - 1]) != group):
+			if i > 0 do ui.spacer(ctx, ui.SPACE_S)
 			ui.caption(ctx, group)
-		} else if i > 0 {
+		case group != "":
+			ui.spacer(ctx, ui.SPACE_XS)
+		case i > 0:
 			ui.divider(ctx, inner, across = true)
 		}
 		if sec == .Brush {

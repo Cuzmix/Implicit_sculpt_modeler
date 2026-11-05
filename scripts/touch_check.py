@@ -3568,13 +3568,13 @@ def render_dial_places_a_highlight():
 
 @scenario
 def model_dial_picks_select():
-    """In Model the dial's left sector picks the Select action, and its sectors are Model's."""
+    """In Model the dial's left sector picks the Select action on a cage, and its sectors are Model's."""
     s = Script()
     s.ftap(SPACE_TABS["model"])
     s.wait(10)
     s.ftap(DIAL_LEFT)
     s.wait(6)
-    return s, [], camera_still({"dabs": near(0), "space": is_text("model"), "model_action": is_text("Select"),
+    return s, ["--script=add_cage cube; select 1; delete_object"], camera_still({"dabs": near(0), "space": is_text("model"), "model_action": is_text("Select"),
                                 "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Model_Action:Select")})
 
 
@@ -8864,6 +8864,26 @@ def references_on_view_let_the_brush_through():
 
 
 @scenario
+def references_in_scene_by_finger():
+    """A picture added by a script opens the References card; a finger taps In scene, then
+    Front in its menu, Through the model, and drags the picked plane across the front view:
+    it stands on a plane drawn through the model, moved once, each of the three an undo step."""
+    s = Script()
+    s.wait(6)
+    s.ftap("card References/In scene")
+    s.wait(4)
+    s.ftap("refs plane menu/Front")
+    s.wait(4)
+    s.ftap("card References/In scene")
+    s.wait(4)
+    s.ftap("refs plane menu/Through the model")
+    s.wait(30)
+    s.fdrag([(700 + 8 * k, 450) for k in range(12)])
+    s.wait(6)
+    return s, ["--script=reference assets/icon/sculpt-1024.png; view_axis front"], {"ref_planes": near(1), "ref_planes_through": near(1), "refs_moves": near(1), "dabs": near(0), "undo_steps": near(3)}
+
+
+@scenario
 def tap_dab_waits_for_nothing_else():
     """A tap's dab then an Undo tap on the panel straight after: the dab plays first, so Undo takes it back."""
     s = Script()
@@ -12344,9 +12364,9 @@ HISTORY_STRIP = ["--script=set history_view strip"]
 
 # The History list at 1600x900 with three strokes of one brush: the group's chevron, its
 # oldest stroke's row once opened, and the first row (where the History starts) closed.
-HISTORY_GROUP_OPEN, HISTORY_OLDEST_SUB, HISTORY_ROOT = (1554, 240), (1300, 366), (1300, 292)
-HISTORY_GROUP_ROW = (1300, 240)
-HISTORY_LIST_TAB = (1203, 150)
+HISTORY_GROUP_OPEN, HISTORY_OLDEST_SUB, HISTORY_ROOT = (1498, 240), (1244, 366), (1244, 292)
+HISTORY_GROUP_ROW = (1244, 240)
+HISTORY_LIST_TAB = (1147, 150)
 
 
 def history_three_strokes(s):
@@ -12388,7 +12408,7 @@ def history_list_groups_and_goes_to_a_step():
 
 
 # The step menu over the list's newest row (opened at HISTORY_GROUP_ROW): its rows.
-HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_SHOW, HISTORY_MENU_DELETE = (1400, 363), (1400, 407), (1400, 451), (1400, 584)
+HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_SHOW, HISTORY_MENU_DELETE = (1344, 363), (1344, 407), (1344, 451), (1344, 584)
 
 
 @scenario
@@ -12476,7 +12496,7 @@ def history_tint_shows_what_a_step_changed():
     return Steps([run(False), run(True)])
 
 
-HISTORY_GEAR = (1562, 150)
+HISTORY_GEAR = (1506, 150)
 
 
 @scenario

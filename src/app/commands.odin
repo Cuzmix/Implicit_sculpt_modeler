@@ -639,7 +639,10 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_SHAPES,
 		args = len(Model_Action),
 		run = proc(app: ^App, arg: int) {model_pick_action(app, Model_Action(arg))},
-		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Model && app.model.action == Model_Action(arg)},
+		// Only a cage (or a curve) takes the actions: on a sculpt mesh or voxel clay they
+		// stand dimmed, and the next steps offer the way to a cage.
+		enabled = proc(app: ^App, _: int) -> bool {return model_actions_apply(app)},
+		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Model && app.model.action == Model_Action(arg) && model_actions_apply(app)},
 	},
 	.Model_Target = {
 		label = "Model target",

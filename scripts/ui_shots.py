@@ -39,6 +39,8 @@ EXE = ROOT / "build" / ("sculpt.exe" if os.name == "nt" else "sculpt")
 # Window sizes in points: a desktop window, and an 11 inch iPad held landscape (the
 # M2 iPad Air's 1180 x 820 points), where the interface must fit as it ships.
 SIZES = {"desktop": (1600, 900), "tablet": (1180, 820)}
+# The tablet runs as a tablet with no keyboard does: no key hints, the dial's names shown.
+SIZE_FLAGS = {"desktop": [], "tablet": ["--no-keyboard"]}
 # A dark theme and a light one: Lens, the default, and Paper, whose low-emphasis colours
 # are the first to fail. Each is a settings file's `look` line.
 THEMES = {"lens": "Lens", "paper": "Paper"}
@@ -58,6 +60,7 @@ SCREENS = {
     "scene_card": ("The Scene card from the view rail", tap("view bar/Scene"), []),
     "mesh_card": ("The Mesh card from the view rail", tap("view bar/Mesh"), []),
     "mask_card": ("The Mask card from the view rail", tap("view bar/Mask"), []),
+    "stack_card": ("The Live stack card with a Mirror, an Array and a Radial row", tap("view bar/Live stack"), ["--script=stack mirror x; stack array 3 2.2 0 0; stack radial 6 y"]),
     "library": ("The brush Library from the shelf's All", tap("dock/All"), []),
     "menu": ("The main menu", tap("top bar/Menu"), []),
     "object_menu": ("The object chip's menu", tap("top bar/Object"), []),
@@ -81,7 +84,7 @@ def shot(screen, size, theme, out, exe):
         settings.write_text(f"look {THEMES[theme]}\n")
         dump = Path(tmp) / "screen.ppm"
         cmd = [str(exe), f"--width={w}", f"--height={h}", f"--frames={FRAMES}", "--ui-dt=0.016667",
-               f"--settings-file={settings}", f"--dump-screen={dump}", f"--ui-map={out / (key + '.map')}"] + extra
+               f"--settings-file={settings}", f"--dump-screen={dump}", f"--ui-map={out / (key + '.map')}"] + SIZE_FLAGS[size] + extra
         if events:
             cmd.append(f"--ui-events={events}")
         run = subprocess.run(headless.wrap(cmd), env=headless.env(), capture_output=True, text=True, timeout=600)

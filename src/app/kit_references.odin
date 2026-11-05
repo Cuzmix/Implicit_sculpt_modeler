@@ -51,6 +51,13 @@ Ref_Board :: struct {
 	view_drag: Ref_Drag,
 	view_id:   u32,
 	view_last: [2]f32,
+	// In the scene (refs_planes.odin): the drag under way on a picked plane, which, and
+	// where the pointer was; and the In scene menu, open beside its button.
+	plane_drag:    Ref_Drag,
+	plane_id:      u32,
+	plane_last:    [2]f32,
+	plane_menu:    bool,
+	plane_menu_at: ui.Rect,
 }
 
 CROP_LEFT :: 1
@@ -66,8 +73,9 @@ Ref_Drag :: enum u8 {
 	Crop,
 }
 
-// How wide the card is: room for a board two pictures across beside the model.
-REFS_CARD_W :: 420
+// How wide the card is: room for a board two pictures across beside the model, and for
+// the edit row's eight buttons.
+REFS_CARD_W :: 480
 // The board's zoom range, in screen points a board point.
 BOARD_ZOOM_MIN :: 0.05
 BOARD_ZOOM_MAX :: 8
@@ -297,20 +305,26 @@ refs_same_height :: proc(app: ^App) {
 // The edits of the picked places' row, each one undo step on the picked pictures (notes
 // pass them by): Flip, Grey and On view set every one as the first is not, Turn turns
 // the unlocked ones a quarter clockwise about their middles, Lock sets every picked
-// place (notes too) as the first is not.
+// place (notes too) as the first is not. The In scene menu's: Behind and Through draw
+// the picked planes behind or through the model, Plane_Any shows them from any side, or
+// only in their view, as the first is not.
 Ref_Edit :: enum u8 {
 	Flip,
 	Grey,
 	Turn,
 	Lock,
 	View,
+	Behind,
+	Through,
+	Plane_Any,
 }
 
 refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 	refs := &app.scene.refs
 	b := &app.kit.board
 	first: Maybe(Ref)
-	for r in refs.refs do if board_picked(b, r.id) && (r.image != 0 || edit == .Lock) {
+	planes := edit == .Behind || edit == .Through || edit == .Plane_Any
+	for r in refs.refs do if board_picked(b, r.id) && (r.image != 0 || edit == .Lock) && (!planes || r.plane != .None) {
 		first = r
 		break
 	}
@@ -318,7 +332,7 @@ refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 	if !ok do return
 	before := refs_clone(refs.refs[:])
 	for &r in refs.refs {
-		if !board_picked(b, r.id) || (r.image == 0 && edit != .Lock) do continue
+		if !board_picked(b, r.id) || (r.image == 0 && edit != .Lock) || (planes && r.plane == .None) do continue
 		switch edit {
 		case .Flip:
 			r.flip = !f.flip
@@ -328,6 +342,12 @@ refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 			r.locked = !f.locked
 		case .View:
 			r.view = !f.view
+		case .Behind:
+			r.through = false
+		case .Through:
+			r.through = true
+		case .Plane_Any:
+			r.plane_any = !f.plane_any
 		case .Turn:
 			if r.locked do continue
 			middle := r.at + r.size * 0.5
@@ -340,7 +360,7 @@ refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 		delete(before)
 		return
 	}
-	names := [Ref_Edit]string{.Flip = "Flip reference", .Grey = "Grey reference", .Turn = "Turn reference", .Lock = "Lock reference", .View = "Reference on view"}
+	names := [Ref_Edit]string{.Flip = "Flip reference", .Grey = "Grey reference", .Turn = "Turn reference", .Lock = "Lock reference", .View = "Reference on view", .Behind = "Reference behind the model", .Through = "Reference through the model", .Plane_Any = "Reference shown from any side"}
 	history_record_refs(app, before, names[edit])
 	if edit == .Turn || edit == .Lock do b.cropping = 0
 }
@@ -425,15 +445,20 @@ refs_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 		crop_ok := one != nil && one.image != 0 && !one.locked
 		if ui.icon_button(ctx, "Crop##refs", ICON_CROP, selected = b.cropping != 0, enabled = crop_ok) do b.cropping = 0 if b.cropping != 0 else one.id
 		if ui.icon_button(ctx, "On view##refs", ICON_ON_VIEW, selected = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.view}), enabled = pictures) do refs_edit(app, .View)
+		_, in_scene := refs_picked_plane(app)
+		if ui.icon_button(ctx, "In scene##refs", ICON_REF_PLANE, selected = in_scene || b.plane_menu, enabled = pictures) {
+			b.plane_menu, b.plane_menu_at = !b.plane_menu, ctx.last_rect
+		}
 	}
 	locked := refs_picked_all(app, proc(r: Ref) -> bool {return r.locked})
 	if ui.icon_button(ctx, "Unlock##refs" if locked else "Lock##refs", ICON_LOCK if locked else ICON_LOCK_OPEN, selected = locked, enabled = picked) do refs_edit(app, .Lock)
 	if ui.icon_button(ctx, "Delete##refs", ICON_TRASH_2, enabled = picked) do refs_delete_selected(app)
 	ui.end(ctx)
 	rows: f32 = 2
-	// The picked places over the view: their opacity, the first one's shown, set on all.
+	// The picked places over the view or in the scene: their opacity, the first one's
+	// shown, set on all.
 	viewed: ^Ref
-	for &r in refs.refs do if board_picked(b, r.id) && r.view && r.image != 0 {
+	for &r in refs.refs do if board_picked(b, r.id) && (r.view || r.plane != .None) && r.image != 0 {
 		viewed = &r
 		break
 	}
@@ -443,7 +468,7 @@ refs_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 		ui.begin(ctx, "refs view", {direction = .Row, width = inner, gap = t.gap, center = true})
 		if ui.slider(ctx, "Opacity##refs", &value, REF_OPACITY_MIN * 100, 100, .Linear, fmt.tprintf("%.0f%%", value)) {
 			if b.opacity_before == nil do b.opacity_before = refs_clone(refs.refs[:])
-			for &r in refs.refs do if board_picked(b, r.id) && r.view && r.image != 0 do r.opacity = value / 100
+			for &r in refs.refs do if board_picked(b, r.id) && (r.view || r.plane != .None) && r.image != 0 do r.opacity = value / 100
 			app.scene_edits += 1
 		}
 		ui.end(ctx)

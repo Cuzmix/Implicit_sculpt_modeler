@@ -1184,6 +1184,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	lattice_frame(app)
 	pose_physics_frame(app)
 	transform_drag_end(app)
+	stack_drag_end(app)
 	light_drag_end(app)
 	tree_column_send(app)
 	// Text input (and with it a tablet's on-screen keyboard) is on only while a text
@@ -1481,6 +1482,7 @@ kit_layout :: proc(app: ^App) {
 	kit_layout_menu(app)
 	kit_pass_menu(app)
 	kit_history_menu(app)
+	refs_plane_menu(app)
 	kit_layer_menu(app)
 	kit_scene_add_menu(app)
 	kit_scene_spaces_menu(app)

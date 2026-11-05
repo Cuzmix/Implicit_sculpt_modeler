@@ -101,7 +101,7 @@ curve_brush_run :: proc(app: ^App) -> bool {
 stroke_path_start :: proc(app: ^App, obj: ^Object) -> bool {
 	if !object_editable(app, obj, true) do return false
 	st := &app.stroke
-	st.active, st.object = true, obj.id
+	st.active, st.object, st.framed = true, obj.id, false
 	st.kind, st.held = app.brush.kind, false
 	st.blur = false
 	st.seed, st.step, st.turn = app.stroke_seed, 0, 0

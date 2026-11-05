@@ -378,6 +378,17 @@ object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 // levels when that many would be more, so each edit stays quick. Apply makes them all.
 CAGE_EDIT_TRIANGLES :: 2_000_000
 
+// Whether the Model tool's actions reach the selected object: a cage or a curve takes
+// them, and with nothing selected they stand ready for the next one.
+model_actions_apply :: proc(app: ^App) -> bool {
+	obj := selected_object(app)
+	if obj == nil do return true
+	#partial switch object_type(obj) {
+	case .Cage, .Curve: return true
+	}
+	return false
+}
+
 // Whether Edit cage can take a cage from `obj`: a mesh whose base level is polygons (from
 // Apply to sculpt) or quads (Retopologize), and not under dynamic topology.
 object_can_edit_cage :: proc(obj: ^Object) -> bool {

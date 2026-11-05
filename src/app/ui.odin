@@ -80,6 +80,7 @@ Ui_State :: struct {
 	deform:             Deform_Panel, // the Deformers section's choices and its Amount drag (deformers.odin)
 	reshape:            Reshape_Panel, // the Deformation section's choices and its Amount drag (reshape.odin)
 	transform_drag:     Transform_Drag, // the Transform section's values are being dragged: one undo step
+	stack_drag:         Stack_Drag, // the Live stack card's values are being dragged: one undo step
 	light_drag:         Light_Drag, // the Lights section's values are being changed: one undo step
 	light_press:        Light_Press, // a press on the lights in the viewport (light_markers.odin)
 	light_place:        bool, // Place highlight: a press on the model moves the picked light's highlight there

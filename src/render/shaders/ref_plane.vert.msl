@@ -1,0 +1,65 @@
+// slangc metal from ref_plane.vert.spv sha256 23b3de9e44cf4d50b4150476d8f3787854776bc54327a7b1bd7c774f6db2c7bf
+// slots s= rt= wt= rb= wb= u=0 a=
+#include <metal_stdlib>
+#include <metal_math>
+#include <metal_texture>
+using namespace metal;
+
+#line 10 "/home/user/Implicit_sculpt_modeler/src/render/shaders/ref_plane.vert.slang"
+struct main_Result_0
+{
+    float4 position_0 [[position]];
+    float2 uv_0 [[user(TEXCOORD)]];
+};
+
+struct SLANG_ParameterGroup_Ref_Plane_Uniforms_0
+{
+    matrix<float,int(4),int(4)>  view_proj_0;
+    float4 center_0;
+    float4 right_0;
+    float4 up_0;
+    float4 uv_top_0;
+    float4 uv_bottom_0;
+};
+
+
+#line 10
+struct Vertex_Out_0
+{
+    float4 position_1;
+    float2 uv_1;
+};
+
+
+#line 10
+[[vertex]] main_Result_0 main_0(uint vertex_0 [[vertex_id]], SLANG_ParameterGroup_Ref_Plane_Uniforms_0 constant* Ref_Plane_Uniforms_0 [[buffer(0)]])
+{
+
+#line 27
+    array<uint, int(6)> CORNER_0 = { { 0U, 1U, 2U, 0U, 2U, 3U } };
+    array<float2, int(4)> SIDE_0 = { { float2(-1.0f, 1.0f), float2(1.0f, 1.0f), float2(1.0f, -1.0f), float2(-1.0f, -1.0f) } };
+    uint _S1 = vertex_0 % 6U;
+
+    float3 p_0 = Ref_Plane_Uniforms_0->center_0.xyz + Ref_Plane_Uniforms_0->right_0.xyz * float3(SIDE_0[CORNER_0[_S1]].x)  + Ref_Plane_Uniforms_0->up_0.xyz * float3(SIDE_0[CORNER_0[_S1]].y) ;
+    array<float2, int(4)> uvs_0 = { { Ref_Plane_Uniforms_0->uv_top_0.xy, Ref_Plane_Uniforms_0->uv_top_0.zw, Ref_Plane_Uniforms_0->uv_bottom_0.xy, Ref_Plane_Uniforms_0->uv_bottom_0.zw } };
+    thread Vertex_Out_0 o_0;
+    (&o_0)->uv_1 = uvs_0[CORNER_0[_S1]];
+    float4 clip_0 = (((Ref_Plane_Uniforms_0->view_proj_0) * (float4(p_0, 1.0f))));
+    float _S2 = clip_0.w;
+
+#line 36
+    (&o_0)->position_1 = float4(clip_0.xy, _S2, _S2);
+
+#line 36
+    thread main_Result_0 _S3;
+
+#line 36
+    (&_S3)->position_0 = o_0.position_1;
+
+#line 36
+    (&_S3)->uv_0 = o_0.uv_1;
+
+#line 36
+    return _S3;
+}
+
