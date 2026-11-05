@@ -95,6 +95,14 @@ pose_move_and_scale_blend :: proc(t: ^testing.T) {
 		worst = max(worst, linalg.length(m.positions[v] - (Vec3{0, 1, 0} + (a - {0, 1, 0}) * (1 + w))))
 	}
 	testing.expectf(t, worst < 1e-5, "scaled %v wrongly", worst)
+	// A stretch along y: only the height above the pivot grows, by the same blend.
+	sculptor_pose_apply(s, {kind = .Scale, pivot = {0, 1, 0}, axis = {0, 1, 0}, factor = 2})
+	worst = 0
+	for a, v in before {
+		w := f32(255 - s.mask[v]) / 255
+		worst = max(worst, linalg.length(m.positions[v] - Vec3{a.x, 1 + (a.y - 1) * (1 + w), a.z}))
+	}
+	testing.expectf(t, worst < 1e-5, "stretched %v wrongly", worst)
 	testing.expect(t, sculptor_pose_end(s))
 }
 
