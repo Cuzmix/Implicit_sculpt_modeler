@@ -141,9 +141,6 @@ odin_cover_plan :: proc(iso: Isotropic, field: Field, face_guides: [][3]f64, sha
 		cover_plan_destroy(&plan)
 		return {}, .Cancelled
 	}
-	plan.mixed = cover_system(w)
-	plan.kernel = mixed_finalize(&plan.mixed)
-
 	singular := make([dynamic]u32)
 	for v in 0 ..< len(iso.positions) {
 		sum := 0
@@ -155,6 +152,8 @@ odin_cover_plan :: proc(iso: Isotropic, field: Field, face_guides: [][3]f64, sha
 		if !border && sum != 0 do append(&singular, u32(v))
 	}
 	plan.singular = singular[:]
+	plan.mixed = cover_system(w, cover_pin(w, plan.singular))
+	plan.kernel = mixed_finalize(&plan.mixed)
 	if !stage_report(run, 0.2) {
 		cover_plan_destroy(&plan)
 		return {}, .Cancelled
@@ -336,8 +335,13 @@ brush_along_tree :: proc(w: ^Cover_Work) {
 }
 
 // Whether corner c's edge is held along a line of the grid, and which (edgeConstraint): a
-// feature edge, the border or a crease sharper than `sharp_degrees` lying within
-// HOLD_DEGREES of one of the frame's directions and not of the other.
+// feature edge or a crease sharper than `sharp_degrees` lying within HOLD_DEGREES of one
+// of the frame's directions and not of the other, and a border edge always, along the
+// nearer. The C++ held a border as a crease, but it never saw one (AutoRemesher closes
+// holes, and its symmetric half went in capped); the Odin core's half goes in open, and
+// its cut must end on lines of the grid all round for the mirror to close: where the cut
+// turns sharply its triangle's frame follows one edge, the next lies 30 or 40 degrees off
+// it, and left free, the quads stopped short of the plane there.
 @(private = "file")
 edge_hold :: proc(w: ^Cover_Work, c: u32, sharp_degrees: f64, flagged: bool) -> Edge_Hold {
 	s := &w.s
@@ -346,6 +350,7 @@ edge_hold :: proc(w: ^Cover_Work, c: u32, sharp_degrees: f64, flagged: bool) -> 
 	edge := unit_else(surface_edge(s, c), {1, 0, 0})
 	b := unit_else(w.field[f], edge)
 	br := unit_else(cross3(w.normal[f], b), {0, 1, 0})
+	if s.opp[c] == NONE do return .V if abs(dot3(edge, b)) >= abs(dot3(edge, br)) else .U
 	limit := HOLD_DEGREES * math.PI / 180.0
 	along_b := math.acos(clamp(abs(dot3(edge, b)), -1, 1)) < limit
 	along_br := math.acos(clamp(abs(dot3(edge, br)), -1, 1)) < limit
@@ -523,17 +528,51 @@ cut_seam :: proc(w: ^Cover_Work) -> []bool {
 	return seam
 }
 
+// The corner whose UV is pinned at the origin. The pin only picks where the lattice starts
+// in the free solve, but the rounding counts from it and the held solve keeps it on a
+// lattice point, so its vertex lands a whole number of quads from every held edge's line.
+// The C++ pinned corner 0 wherever it lay: less than a quad from a held border, the strip
+// between was taken to nothing (a notch the mirror could not close) or stretched to a quad.
+// With an edge held, the pin goes where the cover has a lattice point anyway: at a
+// singular vertex, which the turned translations round it leave on one, else at a corner
+// whose two edges hold both its coordinates, else at a held corner, whose held coordinate
+// is an integer anyway. With none held, corner 0 stays: there is no line for it to pinch a
+// strip against, and over a sweep of spheres the two choices folded and filled as often.
+// The C++ is patched to pin the same corner.
+@(private = "file")
+cover_pin :: proc(w: ^Cover_Work, singular: []u32) -> int {
+	s := &w.s
+	held := false
+	for h in w.hold do if h != .None {
+		held = true
+		break
+	}
+	if !held do return 0
+	if len(singular) > 0 {
+		v := singular[0]
+		lowest := max(u32)
+		for c in s.corners[s.first[v]:s.first[v + 1]] do lowest = min(lowest, c)
+		return int(lowest)
+	}
+	for c in 0 ..< len(w.hold) {
+		p := corner_prev(u32(c))
+		if w.hold[c] != .None && w.hold[p] != .None && w.hold[c] != w.hold[p] do return c
+	}
+	for c in 0 ..< len(w.hold) do if w.hold[c] != .None do return c
+	return 0
+}
+
 // The cover's mixed integer least squares (solveQuadCover). Unknowns: two UVs a corner,
 // in its triangle's chart, then two translations a corner, of period 2, across its edge.
 // Each triangle's edges are fitted to its frame at its size, weighted by the quad's area
 // (cover_energy gives the numbers; the rows' pattern is the same at every scaling);
-// corner 0 is pinned at the origin; across an edge off the seam the translation is zero,
-// across the seam the two corners' translations are each other's turned back; each
-// corner's UV is the matching corner's across its edge, turned and translated; round a
-// vertex whose frames come back to themselves the translations sum to zero; and a held
-// edge keeps one coordinate along it, an integer.
+// corner `pin` (cover_pin) is pinned at the origin; across an edge off the seam the
+// translation is zero, across the seam the two corners' translations are each other's
+// turned back; each corner's UV is the matching corner's across its edge, turned and
+// translated; round a vertex whose frames come back to themselves the translations sum to
+// zero; and a held edge keeps one coordinate along it, an integer.
 @(private = "file")
-cover_system :: proc(w: ^Cover_Work) -> (m: Mixed) {
+cover_system :: proc(w: ^Cover_Work, pin: int) -> (m: Mixed) {
 	s := &w.s
 	corners := len(s.opp)
 	uv_count := 2 * corners
@@ -545,8 +584,8 @@ cover_system :: proc(w: ^Cover_Work) -> (m: Mixed) {
 		mixed_energy(&m, 2 * n, 1, 2 * c, -1, 0, 1)
 		mixed_energy(&m, 2 * n + 1, 1, 2 * c + 1, -1, 0, 1)
 	}
-	mixed_constraint(&m, {0, 1})
-	mixed_constraint(&m, {1, 1})
+	mixed_constraint(&m, {i32(2 * pin), 1})
+	mixed_constraint(&m, {i32(2 * pin + 1), 1})
 	for c in 0 ..< corners {
 		o := s.opp[c]
 		if o == NONE do continue

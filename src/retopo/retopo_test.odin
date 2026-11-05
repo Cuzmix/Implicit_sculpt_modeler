@@ -3,6 +3,7 @@ package retopo
 @(require) import "core:log" // used only where AutoRemesher is not built
 import "core:math"
 import "core:math/linalg"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 
@@ -124,13 +125,15 @@ quad_remesh_mirrors_one_half :: proc(t: ^testing.T) {
 	m := geom.icosphere(4)
 	defer geom.mesh_destroy(&m)
 	mirror := geom.Remesh_Mirror{axes = {true, false, false}}
-	r := compute(shape_view(&m), 1200, {engine = .Auto, mirror = mirror}, nil)
-	defer result_destroy(&r)
-	if !testing.expect(t, r.built, "nothing built") do return
-	testing.expect_value(t, r.engine, Engine.Auto)
-	testing.expect(t, r.mirrored, "not mirrored")
-	testing.expect(t, r.quads > 800 && r.quads == r.faces, "not every face a quad")
-	expect_mirrored(t, r.mesh, mirror, 16)
+	for core in quadmesh.Core {
+		r := compute(shape_view(&m), 1200, {engine = .Auto, mirror = mirror, core = core}, nil)
+		defer result_destroy(&r)
+		if !testing.expectf(t, r.built, "%v: nothing built", core) do continue
+		testing.expect_value(t, r.engine, Engine.Auto)
+		testing.expectf(t, r.mirrored, "%v: not mirrored (%s)", core, r.unmirrored)
+		testing.expectf(t, r.quads > 800 && r.quads == r.faces, "%v: %d quads of %d faces", core, r.quads, r.faces)
+		expect_mirrored(t, r.mesh, mirror, 16)
+	}
 }
 
 // Keep symmetry follows the brush's: two planes at once, through a centre off the
@@ -145,13 +148,15 @@ quad_remesh_keeps_two_planes_off_the_origin :: proc(t: ^testing.T) {
 		p += {0.4, -0.1, 0.25}
 	}
 	mirror := geom.Remesh_Mirror{axes = {true, false, true}, center = {0.4, -0.1, 0.25}}
-	for engine in Engine {
+	for engine in Engine do for core in quadmesh.Core {
 		when !quadmesh.AVAILABLE do if engine == .Auto do continue
-		r := compute(shape_view(&m), 1600, {engine = engine, mirror = mirror}, nil)
+		// The built-in engine has no core to pick.
+		if engine == .Own && core != .Cpp do continue
+		r := compute(shape_view(&m), 1600, {engine = engine, mirror = mirror, core = core}, nil)
 		defer result_destroy(&r)
-		if !testing.expectf(t, r.built, "%v: nothing built", engine) do continue
-		testing.expectf(t, r.mirrored, "%v: not mirrored (%s)", engine, r.unmirrored)
-		testing.expectf(t, r.quads == r.faces && r.quads > 400, "%v: %d quads of %d faces", engine, r.quads, r.faces)
+		if !testing.expectf(t, r.built, "%v %v: nothing built", engine, core) do continue
+		testing.expectf(t, r.mirrored, "%v %v: not mirrored (%s)", engine, core, r.unmirrored)
+		testing.expectf(t, r.quads == r.faces && r.quads > 400, "%v %v: %d quads of %d faces", engine, core, r.quads, r.faces)
 		expect_mirrored(t, r.mesh, mirror, 8)
 	}
 }
@@ -268,8 +273,10 @@ quad_remesh_adaptive_size_keeps_the_count :: proc(t: ^testing.T) {
 }
 
 // Use paint: a sphere painted red on its upper half gets about four times the quads per area
-// there, the count staying what was asked; off, the paint changes nothing. Use mask: the
-// masked half gets about twice as many. With the mirror on, the half goes in with its paint.
+// there, the count staying what was asked; off, the paint changes nothing, to the bit. Use
+// mask: the masked half gets about twice as many. With the mirror on, the half goes in with
+// its paint. The ratios are loose because a sphere's own layout is not even: a plain one's
+// quads come out up to a third larger on the side where its singular vertices crowd.
 @(test)
 quad_remesh_paint_and_mask_move_the_quads :: proc(t: ^testing.T) {
 	when !quadmesh.AVAILABLE {
@@ -298,24 +305,28 @@ quad_remesh_paint_and_mask_move_the_quads :: proc(t: ^testing.T) {
 		return f32(upper) / f32(max(lower, 1))
 	}
 	source := Source{paint = paint, mask = mask}
-	painted := compute(shape_view(&m), 2000, {engine = .Auto, use_paint = true}, nil, source = source)
-	defer result_destroy(&painted)
-	plain := compute(shape_view(&m), 2000, {engine = .Auto}, nil, source = source)
-	defer result_destroy(&plain)
-	masked := compute(shape_view(&m), 2000, {engine = .Auto, use_mask = true}, nil, source = source)
-	defer result_destroy(&masked)
-	mirrored := compute(shape_view(&m), 2000, {engine = .Auto, use_paint = true, mirror = {axes = {true, false, false}}}, nil, source = source)
-	defer result_destroy(&mirrored)
-	if !testing.expect(t, painted.built && plain.built && masked.built && mirrored.built, "nothing built") do return
-	log.infof("paint: %d faces, %.2f times above; plain %d, %.2f; mask %d, %.2f; mirrored paint %d, %.2f", painted.faces, halves(painted.mesh), plain.faces, halves(plain.mesh), masked.faces, halves(masked.mesh), mirrored.faces, halves(mirrored.mesh))
-	for r in ([4]^Result{&painted, &plain, &masked, &mirrored}) {
-		testing.expectf(t, r.faces >= 1900 && r.faces <= 2100, "%d faces for 2000 asked", r.faces)
-		testing.expectf(t, r.quads == r.faces, "%d of %d faces are quads", r.quads, r.faces)
+	for core in ([]quadmesh.Core{.Cpp, .Odin}) {
+		painted := compute(shape_view(&m), 2000, {engine = .Auto, use_paint = true, core = core}, nil, source = source)
+		defer result_destroy(&painted)
+		plain := compute(shape_view(&m), 2000, {engine = .Auto, core = core}, nil, source = source)
+		defer result_destroy(&plain)
+		none := compute(shape_view(&m), 2000, {engine = .Auto, core = core}, nil)
+		defer result_destroy(&none)
+		masked := compute(shape_view(&m), 2000, {engine = .Auto, use_mask = true, core = core}, nil, source = source)
+		defer result_destroy(&masked)
+		mirrored := compute(shape_view(&m), 2000, {engine = .Auto, use_paint = true, mirror = {axes = {true, false, false}}, core = core}, nil, source = source)
+		defer result_destroy(&mirrored)
+		if !testing.expectf(t, painted.built && plain.built && masked.built && mirrored.built, "%v: nothing built", core) do continue
+		log.infof("%v paint: %d faces, %.2f times above; plain %d, %.2f; mask %d, %.2f; mirrored paint %d, %.2f", core, painted.faces, halves(painted.mesh), plain.faces, halves(plain.mesh), masked.faces, halves(masked.mesh), mirrored.faces, halves(mirrored.mesh))
+		for r in ([4]^Result{&painted, &plain, &masked, &mirrored}) {
+			testing.expectf(t, r.faces >= 1900 && r.faces <= 2100, "%v: %d faces for 2000 asked", core, r.faces)
+			testing.expectf(t, r.quads == r.faces, "%v: %d of %d faces are quads", core, r.quads, r.faces)
+		}
+		testing.expectf(t, halves(painted.mesh) >= 2.5 && halves(painted.mesh) <= 5, "%v: red above gave %.2f times the quads", core, halves(painted.mesh))
+		testing.expectf(t, slice.equal(plain.mesh.positions[:], none.mesh.positions[:]) && slice.equal(plain.mesh.indices[:], none.mesh.indices[:]), "%v: paint not used changed the quads", core)
+		testing.expectf(t, halves(masked.mesh) >= 1.5 && halves(masked.mesh) <= 2.5, "%v: the mask above gave %.2f times the quads", core, halves(masked.mesh))
+		testing.expectf(t, halves(mirrored.mesh) >= 2.5 && halves(mirrored.mesh) <= 5, "%v: red above, mirrored, gave %.2f times the quads", core, halves(mirrored.mesh))
 	}
-	testing.expectf(t, halves(painted.mesh) >= 3 && halves(painted.mesh) <= 5, "red above gave %.2f times the quads", halves(painted.mesh))
-	testing.expectf(t, halves(plain.mesh) >= 0.85 && halves(plain.mesh) <= 1.15, "paint not used gave %.2f times the quads", halves(plain.mesh))
-	testing.expectf(t, halves(masked.mesh) >= 1.5 && halves(masked.mesh) <= 2.5, "the mask above gave %.2f times the quads", halves(masked.mesh))
-	testing.expectf(t, halves(mirrored.mesh) >= 3 && halves(mirrored.mesh) <= 5, "red above, mirrored, gave %.2f times the quads", halves(mirrored.mesh))
 }
 
 // Keep groups: a sphere whose top is one polygroup and the rest another hands the border

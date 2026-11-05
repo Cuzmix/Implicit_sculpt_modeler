@@ -157,6 +157,19 @@ diagonals_follow_the_triangles :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 }
 
+// A quad with a corner on the line between its neighbours (as an extracted quad has where
+// a vertex sits on the next quad's edge) is split on its longer diagonal, since the shorter
+// leaves a triangle with no area, which mesh_check would count as a hole.
+@(test)
+quad_split_leaves_no_flat_triangle :: proc(t: ^testing.T) {
+	// Corner 3 halfway from 2 to 0, and 0 to 2 the shorter diagonal.
+	positions := []Vec3{{0, 0, 0}, {0.5, -2, 0}, {1, 0, 0}, {0.5, 0, 0}}
+	split := quad_split(positions, {0, 1, 2, 3})
+	testing.expectf(t, split == [6]u32{0, 1, 3, 1, 2, 3}, "split %v", split)
+	check := mesh_check_indices(positions, split[:])
+	testing.expectf(t, check.degenerate_triangles == 0 && check.boundary_edges == 4, "%d flat triangles, %d border edges", check.degenerate_triangles, check.boundary_edges)
+}
+
 // The triangles over two quads, reordered and each started from another corner, still
 // find their quad's slots in their own corner order; a pillow of two quads over the same
 // four vertices, wound opposite ways, gives each triangle its own quad's slots; and a

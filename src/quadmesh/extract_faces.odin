@@ -99,6 +99,8 @@ extract_cycles :: proc(x: ^Extractor, target: []u32) -> (cy: Cycles) {
 	defer delete(cycle_slots)
 	at := make([dynamic][2]i32, 0, 8, x.heap)
 	defer delete(at)
+	bay := make([dynamic]u32, 0, 8, x.heap)
+	defer delete(bay)
 	for s0 in 0 ..< n {
 		if !matched[s0] || seen[s0] do continue
 		clear(&cycle)
@@ -113,7 +115,10 @@ extract_cycles :: proc(x: ^Extractor, target: []u32) -> (cy: Cycles) {
 			s = before[target[s]]
 			if s == u32(s0) do break
 		}
-		if on_border do continue
+		if on_border {
+			border_bays(x, &cy, cycle[:], cycle_slots[:], last, &bay)
+			continue
+		}
 		walked := len(cycle) > 4 && len(cycle) <= WALK_CORNERS && lattice_walk(x, cycle_slots[:], target, before, &at)
 		// Each vertex at one grid point, or the polygon is not walked.
 		if walked {
@@ -150,6 +155,56 @@ extract_cycles :: proc(x: ^Extractor, target: []u32) -> (cy: Cycles) {
 	append(&cy.first, u32(len(cy.corners)))
 	return
 }
+
+// A hole that reaches the border joins the border's cycle: each run of that cycle's slots
+// with no border on their left is the hole's side, from where it leaves the border to where
+// it comes back. Its polygon, closed by an edge from that end back to the start where the
+// border would run, is filled as any hole is (not walked: the closing edge is no traced
+// one), when it has at most BAY_CORNERS. Left open, the border makes a bay there: a fold of
+// the cover beside a mirrored half's cut, where the mirror then cannot close the seam.
+@(private = "file")
+border_bays :: proc(x: ^Extractor, cy: ^Cycles, cycle, cycle_slots: []u32, last: []i32, bay: ^[dynamic]u32) {
+	k := len(cycle)
+	start := -1
+	for s, j in cycle_slots do if x.slots[s].left == LEFT_BORDER {
+		start = j
+		break
+	}
+	if start < 0 do return
+	// Slot j runs from cycle[j] to cycle[j + 1]; the walk starts on the border.
+	off :: proc(x: ^Extractor, cycle_slots: []u32, j: int) -> bool {return x.slots[cycle_slots[j % len(cycle_slots)]].left != LEFT_BORDER}
+	for j := 0; j < k; {
+		if !off(x, cycle_slots, start + j) {
+			j += 1
+			continue
+		}
+		m := 0
+		for j + m < k && off(x, cycle_slots, start + j + m) do m += 1
+		clear(bay)
+		for i in 0 ..= m do append(bay, cycle[(start + j + i) % k])
+		j += m
+		collapse_spikes(bay)
+		if len(bay) < 3 || len(bay) > BAY_CORNERS do continue
+		x.bays += 1
+		p := i32(len(cy.walked))
+		append(&cy.first, u32(len(cy.corners)))
+		append(&cy.corners, ..bay[:])
+		for v in bay {
+			append(&cy.lattice, [2]i32{})
+			if last[v] != p {
+				last[v] = p
+				cy.uses[v] += 1
+			}
+		}
+		append(&cy.walked, false)
+	}
+}
+
+// The most corners a bay's polygon may have to be filled (border_bays): a fold beside the
+// border is a few quads across, and a longer run's closing edge would cut across the
+// border's own curve.
+@(private = "file")
+BAY_CORNERS :: 16
 
 // The most corners a hole's polygon may have to be walked in the grid.
 @(private = "file")

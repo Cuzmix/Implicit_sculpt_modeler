@@ -31,11 +31,19 @@ PARALLEL_PHASE_BEGIN :: f32(0.03)
 @(private = "file")
 PARALLEL_PHASE_END :: f32(0.95)
 
-// The landing's tolerance and the covers it may solve (remeshIsland's).
+// The landing's tolerance and the covers it may solve (remeshIsland's), and the Odin
+// core's: its later covers refill a kept plan and take a fraction of the first's time, so
+// it lands closer, within the 2 % a count is asked to land (a mirrored half's mending and
+// rounding take some of it), and may take a few more where the cells step (an open half's
+// rows between its border and its singular vertices are whole), closing in on the step.
 @(private = "file")
 LANDING_MISS :: 0.03
 @(private = "file")
 LANDING_COVERS :: 3
+@(private = "file")
+ODIN_LANDING_MISS :: 0.015
+@(private = "file")
+ODIN_LANDING_COVERS :: 8
 
 @(private = "file")
 Driver :: struct {
@@ -432,7 +440,9 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	defer cover_destroy(&cover)
 	defer cover_destroy(&best)
 	best_miss, under_scaling, under_cells, over_scaling, over_cells: f64
-	for pass in 0 ..< LANDING_COVERS {
+	landing_miss := ODIN_LANDING_MISS if params.core == .Odin else LANDING_MISS
+	landing_covers := ODIN_LANDING_COVERS if params.core == .Odin else LANDING_COVERS
+	for pass in 0 ..< landing_covers {
 		// The first cover takes the whole parameterize share of the bar; a later one the
 		// last third of it again, so the bar steps back a little rather than stalling.
 		tag = {d, i, cover_from if pass == 0 else cover_from + cover_span * 0.67, ISLAND_PARAMETERIZE_END}
@@ -462,12 +472,23 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 			best, cover = cover, {}
 			best_miss = miss
 		}
-		if best_miss <= LANDING_MISS || pass == LANDING_COVERS - 1 do break
+		if best_miss <= landing_miss || pass == landing_covers - 1 do break
 		// A cover a quarter of the ask or less, or four times it, came out folded up and
 		// says nothing of how the cells go with the scaling, so it bounds no bracket.
 		folded := cells * 4.0 <= cells_wanted || cells >= 4.0 * cells_wanted
-		if !folded && cells < cells_wanted && cells > under_cells do under_scaling, under_cells = scaling, cells
-		if !folded && cells > cells_wanted && (over_cells == 0 || cells < over_cells) do over_scaling, over_cells = scaling, cells
+		// The C++ moves an end of the bracket only to a cover nearer the ask. The Odin
+		// core moves the end on a cover's side to its scaling, which is closer in, even when
+		// its cells are no nearer: the cells go in steps, and not quite evenly (a cover
+		// nearer the step can have a cell or two more than one further off), so keeping the
+		// further end tried the same scaling again until the covers ran out; the next try is
+		// then between the two scalings nearest the step.
+		if params.core == .Odin {
+			if !folded && cells < cells_wanted do under_scaling, under_cells = scaling, cells
+			if !folded && cells > cells_wanted do over_scaling, over_cells = scaling, cells
+		} else {
+			if !folded && cells < cells_wanted && cells > under_cells do under_scaling, under_cells = scaling, cells
+			if !folded && cells > cells_wanted && (over_cells == 0 || cells < over_cells) do over_scaling, over_cells = scaling, cells
+		}
 		// Between a cover under the ask and one over it, the scaling is found between theirs
 		// as the cells go; otherwise the cells go as the scaling squared, inversely, a step
 		// held within a factor of 1.5 either way.

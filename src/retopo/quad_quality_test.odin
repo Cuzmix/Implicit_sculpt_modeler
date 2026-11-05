@@ -20,9 +20,13 @@ polygons_closed :: proc(m: quadmesh.Polygon_Mesh) -> bool {
 	return true
 }
 
-// Keep symmetry lands the count asked: the flat caps over the cut take none of it (they
-// took a third more than their area's share before), on one plane and on two, and every
-// face comes back a quad over a closed surface.
+// Keep symmetry lands the count asked, on one plane, two and three, and every face comes
+// back a quad over a closed surface with no fall back to the whole. Through the C++ core
+// the flat caps over the cut take none of the count (they took a third more than their
+// area's share before), within 5 %. Through the Odin core the half goes in open and lands
+// within 2 % from 4,000 quads; below that a hemisphere's cells go in steps (the rows
+// between its border and its singular vertices are whole, each a ring of quads, 9 % of
+// 1,000 at a time), and it lands within 5 %.
 @(test)
 quad_remesh_mirrored_lands_the_count :: proc(t: ^testing.T) {
 	when !quadmesh.AVAILABLE {
@@ -37,15 +41,25 @@ quad_remesh_mirrored_lands_the_count :: proc(t: ^testing.T) {
 		quads: int,
 		axes:  [3]bool,
 	}
-	for c in ([]Case{{1000, {true, false, false}}, {2000, {true, false, false}}, {4000, {true, false, false}}, {4000, {true, true, false}}}) {
-		r := compute(m, c.quads, {engine = .Auto, mirror = {axes = c.axes}}, nil)
+	cases := []Case {
+		{1000, {true, false, false}},
+		{2000, {true, false, false}},
+		{4000, {true, false, false}},
+		{4000, {true, true, false}},
+		{8000, {true, false, false}},
+		{8000, {true, true, false}},
+		{8000, {true, true, true}},
+	}
+	for core in ([]quadmesh.Core{.Cpp, .Odin}) do for c in cases {
+		r := compute(m, c.quads, {engine = .Auto, mirror = {axes = c.axes}, core = core}, nil)
 		defer result_destroy(&r)
 		check := geom.mesh_check(r.mesh)
-		log.infof("mirrored %v at %d: %d faces (%.1f %%), %d quads", c.axes, c.quads, r.faces, 100 * f32(r.faces) / f32(c.quads), r.quads)
-		testing.expectf(t, r.mirrored, "%v at %d was not mirrored: %s", c.axes, c.quads, r.unmirrored)
-		testing.expectf(t, abs(r.faces - c.quads) * 20 <= c.quads, "%v gave %d faces for %d asked", c.axes, r.faces, c.quads)
-		testing.expectf(t, r.quads == r.faces, "%v at %d: %d of %d faces are quads", c.axes, c.quads, r.quads, r.faces)
-		testing.expectf(t, check.closed && check.non_manifold_edges == 0, "%v at %d is not closed", c.axes, c.quads)
+		log.infof("%v mirrored %v at %d: %d faces (%.1f %%), %d quads, closed %v", core, c.axes, c.quads, r.faces, 100 * f32(r.faces) / f32(c.quads), r.quads, check.closed)
+		testing.expectf(t, r.mirrored, "%v %v at %d was not mirrored: %s", core, c.axes, c.quads, r.unmirrored)
+		within := 50 if core == .Odin && c.quads >= 4000 else 20
+		testing.expectf(t, abs(r.faces - c.quads) * within <= c.quads, "%v %v gave %d faces for %d asked", core, c.axes, r.faces, c.quads)
+		testing.expectf(t, r.quads == r.faces, "%v %v at %d: %d of %d faces are quads", core, c.axes, c.quads, r.quads, r.faces)
+		testing.expectf(t, check.closed && check.non_manifold_edges == 0, "%v %v at %d is not closed", core, c.axes, c.quads)
 	}
 }
 
