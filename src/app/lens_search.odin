@@ -54,10 +54,19 @@ palette_group :: proc(e: Palette_Entry) -> Palette_Group {
 }
 
 // The hits ordered by group, keeping their rank inside each, and the groups they hold.
-// In the temp allocator.
+// The groups come in the order of their best hits, so the best match ("smooth" finding
+// the Smooth brush) leads the list whatever group it is in. In the temp allocator.
 palette_group_hits :: proc(hits: []Palette_Hit, entries: []Palette_Entry) -> (out: []Palette_Hit, groups: bit_set[Palette_Group]) {
 	sorted := make([dynamic]Palette_Hit, 0, len(hits), context.temp_allocator)
-	for g in Palette_Group {
+	order := make([dynamic]Palette_Group, 0, len(Palette_Group), context.temp_allocator)
+	seen: bit_set[Palette_Group]
+	for h in hits {
+		g := palette_group(entries[h.entry])
+		if g in seen do continue
+		seen += {g}
+		append(&order, g)
+	}
+	for g in order {
 		for h in hits {
 			if palette_group(entries[h.entry]) != g do continue
 			append(&sorted, h)

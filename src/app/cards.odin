@@ -605,8 +605,13 @@ card_body :: proc(app: ^App, c: Card, inner: f32, body_y: f32, scroll: f32) -> (
 		ui.icon(ctx, ui.ICON_CHEVRON_DOWN if open else ui.ICON_CHEVRON_RIGHT, {g.rect.x + 8, y}, t.icon_small - 2, t.text_secondary)
 		ui.text(ctx, section_title(sec), g.rect.x + 22, y, t.text_size, t.text, .Semibold)
 		used := 22 + ui.text_width(ctx, section_title(sec), t.text_size, .Semibold) + 12
-		// The summary stands in for a folded section's controls; an open one shows them.
-		if line := section_summary(app, sec); !open && line != "" && g.rect.w - used > 24 {
+		// The summary stands in for a folded section's controls; an open one shows them. A
+		// colour's is its swatch, which reads at a glance where a hex code does not.
+		if sec == .Paint_Color && !open {
+			at := [2]f32{g.rect.x + g.rect.w - 6 - 7, y}
+			ui.fill_circle(ctx, at, 8, t.border_strong)
+			ui.fill_circle(ctx, at, 7, shade(app.brush.color))
+		} else if line := section_summary(app, sec); !open && line != "" && g.rect.w - used > 24 {
 			ui.text(ctx, ui.text_fit(ctx, line, t.small_size, g.rect.w - used - 6), g.rect.x + g.rect.w - 6, y, t.small_size, t.text_tertiary, align = .Right)
 		}
 		ui.tip(ctx, g.id, g.rect, "Fold" if open else "Unfold", label = false)
@@ -669,10 +674,10 @@ card_brush :: proc(app: ^App, inner: f32) {
 	_, favourite := brush_favorite(&k.brushes, key)
 	if ui.icon_button(ctx, "Favorite (on)##card" if favourite else "Favorite##card", ICON_HEART, selected = favourite) do brush_favorite_toggle(&k.brushes, key)
 	ui.end(ctx)
-	strength := brush_strength(app)
-	if island_has_size_strength(k) {
-		ui.label(ctx, fmt.tprintf("Size %.0f px · Strength %.2f", app.brush.radius_px, strength^), size = t.small_size, color = t.text_secondary)
-	} else {
+	// With the brush bar's sliders in sight the card leaves Size and Strength to them (its
+	// head already says the size); without them the card holds the sliders.
+	if !island_has_size_strength(k) {
+		strength := brush_strength(app)
 		_ = ui.slider(ctx, "Size##card", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px))
 		_ = ui.slider(ctx, "Strength##card", strength, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", strength^))
 	}

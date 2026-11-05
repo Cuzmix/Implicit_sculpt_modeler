@@ -6,6 +6,7 @@ import "core:slice"
 import "core:strings"
 
 import "../poly"
+import "../sculpt"
 import "../ui"
 
 // The command palette: every command the registry holds, and each Settings tab, found
@@ -240,7 +241,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.File_Chip        = "file name saved unsaved status chip",
 	.Space_Tabs       = "spaces tabs sculpt model render switch workspace",
 	.Object_Chip      = "object chip selected name subtool",
-	.Viewport_Readout = "hud overlay stats vertices memory gpu corner",
+	.Viewport_Readout = "hud overlay stats vertices memory corner",
+	.Readout_Gpu      = "hud overlay stats gpu frame time milliseconds performance",
 	.Reduce_Motion    = "animation accessibility",
 	.Left_Handed     = "left hand right hand mirror swap sides southpaw",
 }
@@ -450,9 +452,11 @@ Palette_Hit :: struct {
 	length:  int, // the label's length
 }
 
-// The entries that match `query`, best first: by tier, then recent first, then those
-// that can run now, then the tighter fuzzy match, then the shorter label, then the
-// table's order, so equal matches always come in the same order. With no query every
+// The entries that match `query`, best first: the exact and prefix matches, then the
+// others that can run now ahead of those that cannot (a greyed row a word or a synonym
+// matched is rarely what was meant), then by tier, then recent first, then those that can
+// run now, then the tighter fuzzy match, then the shorter label, then the table's order,
+// so equal matches always come in the same order. With no query every
 // entry matches, the favourites first in the order they were starred, then recent, then
 // those that can run, then in the table's order; a query ranks favourites as any other.
 // `enabled[i]` says whether entries[i] can run now. In the temp allocator.
@@ -463,6 +467,11 @@ palette_rank :: proc(query: string, entries: []Palette_Entry, recent: []Palette_
 	for e, i in entries {
 		label := fold(titles[i] if titles != nil else palette_label(e))
 		tier, score := palette_match(q, label, fold(palette_words_of(e)))
+		// A brush is also its bare name, so "smooth" is the Smooth brush exactly, ahead of
+		// Smooth all, which it only starts.
+		if e.kind == .Command && e.id == .Brush && e.arg >= 0 && e.arg < len(sculpt.Brush_Kind) {
+			if bare, _ := palette_match(q, fold(BRUSHES[sculpt.Brush_Kind(e.arg)].name), ""); bare == .Exact do tier, score = .Exact, 0
+		}
 		if tier == .None do continue
 		r := PALETTE_RECENT
 		for f, j in recent do if f == e {r = j; break}
@@ -473,6 +482,9 @@ palette_rank :: proc(query: string, entries: []Palette_Entry, recent: []Palette_
 		append(&hits, Palette_Hit{i, tier, score, star, r, enabled[i], 0 if q == "" else len(label)})
 	}
 	slice.sort_by(hits[:], proc(a, b: Palette_Hit) -> bool {
+		a_close, b_close := a.tier <= .Prefix, b.tier <= .Prefix
+		if a_close != b_close do return a_close
+		if !a_close && a.enabled != b.enabled do return a.enabled
 		if a.tier != b.tier do return a.tier < b.tier
 		if a.favourite != b.favourite do return a.favourite < b.favourite
 		if a.recent != b.recent do return a.recent < b.recent
@@ -721,7 +733,8 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	if n > 0 do pick = entries[hits[k.palette_pick].entry]
 	k.palette_picked = pick
 	if lens_palette_footer(app, pick, width, anchor) do shown = pick
-	if n > rows do ui.caption(ctx, fmt.tprintf("  %d-%d OF %d: TYPE MORE TO NARROW", k.palette_first + 1, min(k.palette_first + rows, n), n))
+	// A sentence, not a caption: the capitals are kept for the groups' names.
+	if n > rows do ui.label(ctx, fmt.tprintf("   %d–%d of %d. Type more to narrow.", k.palette_first + 1, min(k.palette_first + rows, n), n), ctx.theme.small_size, ctx.theme.text_tertiary)
 	enter := key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)
 	if k.palette && n > 0 && key_pressed(d, KEY_TAB) {
 		e := entries[hits[k.palette_pick].entry]

@@ -63,6 +63,7 @@ LENS_MENU_PLACE := #partial [Command_Id]Lens_Submenu {
 	.Macros                 = .More,
 	.Library                = .More,
 	.Viewport_Readout       = .More,
+	.Readout_Gpu            = .More,
 	.Reduce_Motion          = .More,
 	.Left_Handed            = .More,
 }
@@ -176,6 +177,7 @@ kit_submenu :: proc(app: ^App) {
 		if command_menu_item(app, .Macros) do pick = true
 		if command_menu_item(app, .Library) do pick = true
 		_ = command_menu_item(app, .Viewport_Readout)
+		_ = command_menu_item(app, .Readout_Gpu)
 		_ = command_menu_item(app, .Reduce_Motion)
 		_ = command_menu_item(app, .Left_Handed)
 	}

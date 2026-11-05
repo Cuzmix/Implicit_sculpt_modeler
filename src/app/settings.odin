@@ -372,6 +372,7 @@ SETTINGS := [?]Setting {
 	{"explain_all", K + offset_of(Kit_State, explain_all), bool, 0, 0},
 	{"search_field", K + offset_of(Kit_State, search_field), bool, 0, 0},
 	{"readout_hidden", K + offset_of(Kit_State, readout_hidden), bool, 0, 0},
+	{"readout_gpu", K + offset_of(Kit_State, readout_gpu), bool, 0, 0},
 	{"shelf_palm", K + offset_of(Kit_State, shelf_palm), bool, 0, 0},
 	{"scene_pictures", K + offset_of(Kit_State, scene_pictures), bool, 0, 0},
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},

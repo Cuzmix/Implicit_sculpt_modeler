@@ -28,8 +28,8 @@ palette_where_names_each_home :: proc(t: ^testing.T) {
 	testing.expect_value(t, palette_where(&a, cmd(.Front_Only)), "Tool card · Options")
 }
 
-// Grouping puts commands, then brushes, then panels and settings, each in the order it
-// ranked, and says which groups there are.
+// Grouping puts the groups in the order of their best hits (here brushes, then panels and
+// settings, then commands), each in the order it ranked, and says which groups there are.
 @(test)
 palette_groups_keep_rank_inside_each :: proc(t: ^testing.T) {
 	entries := []Palette_Entry{
@@ -43,7 +43,7 @@ palette_groups_keep_rank_inside_each :: proc(t: ^testing.T) {
 	out, groups := palette_group_hits(hits, entries)
 	order: [5]int
 	for h, i in out do order[i] = h.entry
-	testing.expect_value(t, order, [5]int{2, 4, 0, 3, 1})
+	testing.expect_value(t, order, [5]int{0, 3, 1, 2, 4})
 	testing.expect_value(t, groups, bit_set[Palette_Group]{.Commands, .Brushes, .Panels})
 }
 

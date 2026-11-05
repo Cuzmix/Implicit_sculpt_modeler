@@ -3678,11 +3678,11 @@ def bar_customise_drag_reorders_at_once():
 
 @scenario
 def bar_search_row_dragged_onto_the_rail():
-    """Search's first row for "remesh" dragged out and let go on the lower half of the rail's Focus goes on the rail after it, and Search closes."""
+    """Search's first row for "voxel remesh" dragged out and let go on the lower half of the rail's Focus goes on the rail after it, and Search closes."""
     s = Script()
     s.ftap(DRAG_SEARCH)
     s.wait(8)
-    s.type("remesh")
+    s.type("voxel remesh")
     s.wait(4)
     # The rail's grip stands its buttons 17 points lower than DRAG_RAIL's centres.
     s.fdrag(line(DRAG_ROW1, (DRAG_RAIL["focus"][0], DRAG_RAIL["focus"][1] + 27), 16))
@@ -3706,8 +3706,8 @@ def lens_search_icon_opens_the_palette():
     return Steps([first, (s, [], camera_still({"dabs": near(0), "palette": near(0)}))])
 
 
-# The command palette's rows at 1600 x 900 once "smooth" is typed: Smooth all, then Mask
-# by smoothness, each 40 points and a gap of 2 under the COMMANDS caption.
+# The command palette's rows at 1600 x 900 once "smooth" is typed: the Smooth brush, then
+# Smooth peaks, each 40 points and a gap of 2 under the BRUSHES caption.
 PALETTE_SMOOTH_ROW2 = (700, 200)
 
 
@@ -3723,7 +3723,7 @@ def palette_moving_pointer_picks_a_row():
     s.wait(2)
     s.add("move:{:g},{:g}".format(PALETTE_SMOOTH_ROW2[0] + 2, PALETTE_SMOOTH_ROW2[1] + 1))
     s.wait(4)
-    return s, [], camera_still({"dabs": near(0), "palette": near(1), "palette_runs": near(0), "palette_pick": is_text("Mask_By:Smoothness")})
+    return s, [], camera_still({"dabs": near(0), "palette": near(1), "palette_runs": near(0), "palette_pick": is_text("Brush_Preset:Smooth_peaks")})
 
 
 @scenario
@@ -3741,7 +3741,7 @@ def palette_resting_pointer_leaves_the_keys_pick():
     s.press("Down")
     s.press("Down")
     s.wait(4)
-    return s, [], camera_still({"dabs": near(0), "palette": near(1), "palette_runs": near(0), "palette_pick": is_text("Cage_Smooth:2")})
+    return s, [], camera_still({"dabs": near(0), "palette": near(1), "palette_runs": near(0), "palette_pick": is_text("Brush_Preset:Smooth_stronger")})
 
 
 @scenario
@@ -3755,7 +3755,7 @@ def palette_finger_press_picks_and_long_press_keeps_it():
     long_press(s, PALETTE_SMOOTH_ROW2)
     s.wait(4)
     return s, [], camera_still({"dabs": near(0), "undo_steps": near(0), "palette": near(1), "palette_runs": near(0),
-                                "palette_pick": is_text("Mask_By:Smoothness"), "card_section": is_text("none")})
+                                "palette_pick": is_text("Brush_Preset:Smooth_peaks"), "card_section": is_text("none")})
 
 
 @scenario
@@ -10105,13 +10105,13 @@ def palette_finds_other_apps_names():
 
 @scenario
 def palette_down_picks_the_second():
-    """"smooth" lists Smooth all then Mask by smoothness first among the commands; Down then Enter picks the second, which masks as one undo step."""
+    """"smooth" lists the Smooth brush then Smooth peaks first, under BRUSHES; Down then Enter picks the second, which takes that brush and adds no undo step."""
     s = Script()
     s.press("k", ("ctrl",))
     s.type("smooth")
     s.press("Down")
     s.press("Return")
-    return s, [], {"palette_last": is_text("Mask_By:Smoothness"), "undo_steps": near(1), "dabs": near(0)}
+    return s, [], {"palette_last": is_text("Brush_Preset:Smooth_peaks"), "undo_steps": near(0), "dabs": near(0)}
 
 
 @scenario

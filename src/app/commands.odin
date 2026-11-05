@@ -272,6 +272,7 @@ Command_Id :: enum u16 {
 	Space_Tabs,
 	Object_Chip,
 	Viewport_Readout,
+	Readout_Gpu,
 	Reduce_Motion,
 	Left_Handed,
 	Command_Palette,
@@ -2407,9 +2408,16 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Viewport_Readout = {
 		label = "Viewport readout",
-		help = "Shows or hides the readout in the view's corner: the camera and shading, which open their menus, then the vertices, the app's memory and the GPU's time a frame.",
+		help = "Shows or hides the readout in the view's corner: the camera and shading, which open their menus, then the vertices and the app's memory.",
 		run = proc(app: ^App, _: int) {app.kit.readout_hidden = !app.kit.readout_hidden},
 		checked = proc(app: ^App, _: int) -> bool {return !app.kit.readout_hidden},
+	},
+	.Readout_Gpu = {
+		label = "GPU time in the readout",
+		help = "Adds the GPU's typical time a frame to the readout, where the device measures it.",
+		run = proc(app: ^App, _: int) {app.kit.readout_gpu = !app.kit.readout_gpu},
+		checked = proc(app: ^App, _: int) -> bool {return app.kit.readout_gpu},
+		enabled = proc(app: ^App, _: int) -> bool {return !app.kit.readout_hidden},
 	},
 	.Reduce_Motion = {
 		label = "Reduce motion",

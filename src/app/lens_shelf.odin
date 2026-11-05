@@ -1071,7 +1071,7 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	field_w := clamp(free - import_w, 0, min(300, main_w * 0.36))
 	ui.begin(ctx, "brush sheet head", {direction = .Row, gap = GAP, center = true, width = head_w})
 	p.searching = true
-	_ = ui.text_field(ctx, "Search brushes", p.search[:], field_w, hold = p.search_focus, hint = fmt.tprintf("Search %d", len(all)))
+	_ = ui.text_field(ctx, "Search brushes", p.search[:], field_w, hold = p.search_focus, hint = "Search brushes and tools")
 	p.search_focus = false
 	names := make([]string, len(pages), context.temp_allocator)
 	for p, i in pages do names[i] = ui.text_fit(ctx, shelf_page_name(k, p), t.small_size, SHEET_TAB_W - 8)
