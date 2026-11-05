@@ -287,6 +287,12 @@ Kit_State :: struct {
 	// was last laid out (the Object menu command opens there off the view), and the scene
 	// menu, empty space's menu: open, and where.
 	object_menu_by: Menu_Opener,
+	// Where on the view the object or scene menu was opened, in the world, for Add object
+	// to put the new object there: the surface point under an object menu, the point at the
+	// depth the view turns about under the scene menu. Not set when a menu opened away
+	// from the view (the object chip, the Scene card).
+	menu_point:     Vec3,
+	menu_point_set: bool,
 	// The offer standing last frame (its fix, None for none) and the fixes tapped (offers.odin).
 	offer:          Command_Id,
 	offer_fixes:    int,

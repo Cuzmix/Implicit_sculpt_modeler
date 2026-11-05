@@ -8821,6 +8821,48 @@ def rail_panels_picker_adds_a_card():
                                 "view_rail": is_text("Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:References,Open_Card:Deform,Open_Card:Look")})
 
 
+# The References card from its rail button, its Add note, and its board (a drag's points
+# are offsets from the board's middle, where the board, fitted to a first note, shows it).
+REFS_RAIL = At("view bar/References", 1563, 373)
+REFS_ADD_NOTE = At("card References/Add note", 1300, 160)
+REFS_BOARD = "card References/board"
+
+
+@scenario
+def references_note_by_finger():
+    """A finger opens the References card from the rail, adds a note and drags it across
+    the board: one note, one move as one undo step; nothing sculpts or turns."""
+    s = Script()
+    s.ftap(REFS_RAIL)
+    s.wait(6)
+    s.ftap(REFS_ADD_NOTE)
+    s.wait(4)
+    s.add(f"fdown:0:@{REFS_BOARD}~0,0")
+    for k in range(1, 9):
+        s.wait(1)
+        s.add(f"fmove:0:@{REFS_BOARD}~{8 * k},{6 * k}")
+    s.wait(1)
+    s.add("fup:0")
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "ref_notes": near(1), "refs_moves": near(1), "undo_steps": near(2)})
+
+
+@scenario
+def references_on_view_let_the_brush_through():
+    """A picture added by a script opens the References card; a finger taps On view and the
+    card's Close, and a finger stroke over the picture standing over the view sculpts: with
+    the card shut it takes no touch."""
+    s = Script()
+    s.wait(6)
+    s.ftap("card References/On view")
+    s.wait(4)
+    s.ftap("card References/Close")
+    s.wait(6)
+    s.fdrag([(500 + 10 * k, 400 + 2 * k) for k in range(12)])
+    s.wait(6)
+    return s, ["--script=reference assets/icon/sculpt-1024.png"], camera_still({"dabs": lambda v: float(v) > 0, "refs": near(1)})
+
+
 @scenario
 def tap_dab_waits_for_nothing_else():
     """A tap's dab then an Undo tap on the panel straight after: the dab plays first, so Undo takes it back."""
@@ -13691,6 +13733,26 @@ def right_click_opens_the_object_or_scene_menu():
             return s, [], camera_still({"scene_menu": near(1), "object_menu": near(0), "pie_open": near(-1), "object_menu_opened_by": is_text("right"), "right_click": is_text("object_menu"), "dabs": near(0)})
         return s, [], camera_still({"object_menu": near(1), "object_menu_type": is_text("Sculpt_Mesh"), "scene_menu": near(0), "pie_open": near(-1), "object_menu_opened_by": is_text("right"), "dabs": near(0)})
     return Steps([run((800, 450)), run(EMPTY)])
+
+
+@scenario
+def add_object_goes_where_the_menu_opened():
+    """Add object in the scene menu opened on empty space puts the new sphere's middle at
+    that point, at the depth the view turns about (up and to the left of the first, toward
+    the eye); Add object here in the object menu opened on the model puts it on the surface
+    there (a point of the unit sphere). Each one undo step."""
+    def run(at, row, placed):
+        s = Script()
+        right_click_at(s, *at)
+        s.wait(4)
+        click(s, At(row, 0, 0))
+        s.wait(8)
+        return s, [], camera_still({"objects": near(2), "undo_steps": near(1), "scene_menu": near(0), "object_menu": near(0), "transform": placed})
+    def numbers(v):
+        return [float(c) for c in v.split(",")]
+    off = lambda v: numbers(v)[0] < -1 and numbers(v)[1] > 0.3
+    on = lambda v: abs(sum(c * c for c in numbers(v)[:3]) ** 0.5 - 1) < 0.05 and numbers(v)[2] > 0.3
+    return Steps([run(EMPTY, "scene menu/Add object", off), run((800, 450), "object menu/Add object here", on)])
 
 
 @scenario

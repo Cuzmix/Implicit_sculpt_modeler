@@ -309,6 +309,8 @@ refs_add_bytes :: proc(app: ^App, name: string, data: []u8) -> bool {
 	b := &app.kit.board
 	clear(&b.selected)
 	append(&b.selected, ref.id)
+	// A picture dropped or pasted from elsewhere shows where it went.
+	if !card_shown(app, .References) do card_open(app, .References)
 	board_show(app, ref.id)
 	file_note(app, false, "Added %s to References", name)
 	return true
