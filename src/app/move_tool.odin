@@ -65,8 +65,9 @@ Member_Start :: struct {
 // The pivot row's own icons (Lucide's crosshair and rotate-ccw).
 ICON_PIVOT_CENTER :: rune(0xe0b0)
 ICON_PIVOT_RESET :: rune(0xe14c)
-// The mask's own icon (contrast), as the wheel's Mask sector shows it.
-ICON_PIVOT_UNMASKED :: rune(0xe0a1)
+// A middle inside a dashed edge (circle-dot-dashed): the middle of what the mask leaves
+// free, a glyph of its own, as the mask's own glyph means masking.
+ICON_PIVOT_UNMASKED :: rune(0xe4b6)
 
 // Where turns and scales go about, when not the object's origin: a point in the object's
 // own space, so moving, turning or scaling the object carries it along, kept for that
