@@ -11,10 +11,13 @@ import "../ui"
 // PureRef's, inside a card, so it floats, pins and sits in a column as every card does
 // and the model stays in view beside it. A drag on a picture moves the picked ones, its
 // corner sizes it, a drag on the board's ground pans, the wheel or a pinch zooms about the
-// pointer, and a double tap on the ground fits everything. The top row adds (a file, the
-// clipboard, the view itself, a note) and tidies (Arrange, Same height, Fit all); the row
-// under it edits the picked places (Flip, Grey, Turn, Crop, Lock, Delete), or a picked
-// note's text. The pictures are drawn by the interface from their GPU copies
+// pointer, and a double tap on the ground fits everything; a mouse's left drag on the
+// ground boxes places, its middle button pans and its right opens the board's menu, as
+// PureRef's. The board fills the card: the head's Add and Tidy menus add (a file, the
+// clipboard, the view itself, a note) and tidy (Arrange, Same height, Fit all, the
+// ground), the edits float over the picked places (Flip, Grey, Turn, Crop, In scene, and
+// More with Lock and Delete), and under the board, only while something is picked, are
+// where the pictures show (On view, In scene, Behind or Through, Opacity) or a note's text. The pictures are drawn by the interface from their GPU copies
 // (references.odin), only where the board shows them.
 
 // The board as the card shows it: the board point at its top left and the screen points a
@@ -58,6 +61,23 @@ Ref_Board :: struct {
 	plane_last:    [2]f32,
 	plane_menu:    bool,
 	plane_menu_at: ui.Rect,
+	// The head's Add and Tidy menus, the floating edits' More, and the board's menu at the
+	// pointer (a right click), with where the open one hangs from.
+	add_menu:      bool,
+	tidy_menu:     bool,
+	more_menu:     bool,
+	board_menu:    bool,
+	menu_at:       ui.Rect,
+	// The board as laid out this frame for what is laid out after the cards: the frame it
+	// was (k.frame), the part of it in sight and where the picked places stand, in points.
+	board_frame:   int,
+	shown:         ui.Rect,
+	picked_at:     ui.Rect,
+	// A middle drag panning the board, and a box drag's corner where it began and the
+	// places picked before it (shift adds the box's to them).
+	middle_pan:    bool,
+	box_from:      [2]f32,
+	box_base:      [dynamic]u32,
 }
 
 CROP_LEFT :: 1
@@ -65,17 +85,32 @@ CROP_RIGHT :: 2
 CROP_TOP :: 4
 CROP_BOTTOM :: 8
 
+// What the board's ground shows under the pictures, as a canvas in React Flow or Figma
+// does: a dot at each grid point, the grid's lines, or nothing. The grid moves and scales
+// with the board, so it tells a pan and a zoom at a glance.
+Ref_Ground :: enum u8 {
+	Dots,
+	Lines,
+	Plain,
+}
+
+// The grid's step in board points, and the least gap on screen its dots or lines keep: a
+// board zoomed out far enough doubles the step until they are that far apart.
+BOARD_GRID_STEP :: 24
+BOARD_GRID_MIN :: 12
+
 Ref_Drag :: enum u8 {
 	None,
 	Pan,
 	Move,
 	Size,
 	Crop,
+	Box, // a mouse's left drag from the ground, picking what its box touches
 }
 
-// How wide the card is: room for a board two pictures across beside the model, and for
-// the edit row's eight buttons.
-REFS_CARD_W :: 480
+// How wide the card is: a board two pictures across beside the model, as every card is
+// wide; the edits float over the board, so no row of them sets the width.
+REFS_CARD_W :: CARD_W
 // The board's zoom range, in screen points a board point.
 BOARD_ZOOM_MIN :: 0.05
 BOARD_ZOOM_MAX :: 8
@@ -397,8 +432,11 @@ board_one :: proc(app: ^App) -> ^Ref {
 	return &app.scene.refs.refs[i] if i >= 0 else nil
 }
 
-// The References card's body, `inner` wide and at most `room` tall: the row that adds and
-// tidies, the row that edits the picked places, then the board.
+// The References card's body, `inner` wide and at most `room` tall: the board, filling
+// the card, and under it, only while something is picked, where the picked pictures show
+// (On view, In scene with its view, Behind or Through) and their Opacity, or a picked
+// note's text. Adding and tidying are the head's menus (refs_head_buttons) and the edits
+// float over the picked places (refs_float_bar).
 refs_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -409,52 +447,10 @@ refs_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 	for i := len(b.selected) - 1; i >= 0; i -= 1 do if ref_index(refs, b.selected[i]) < 0 do ordered_remove(&b.selected, i)
 	if b.cropping != 0 && (len(b.selected) != 1 || b.selected[0] != b.cropping) do b.cropping = 0
 	filled := len(refs.refs) > 0
-	ui.begin(ctx, "refs actions", {direction = .Row, width = inner, gap = t.gap, center = true})
-	if ui.icon_button(ctx, "Add pictures##refs", ICON_IMAGE_PLUS) do file_dialog(app, .Reference)
-	if ui.icon_button(ctx, "Paste picture##refs", ICON_CLIPBOARD_PASTE) do _ = refs_paste(app)
-	if ui.icon_button(ctx, "Snap view##refs", ICON_IMAGE_DOWN) do b.snap = true
-	if ui.icon_button(ctx, "Add note##refs", ICON_STICKY_NOTE) do refs_add_note(app)
-	if ui.icon_button(ctx, "Arrange##refs", ICON_LAYOUT_DASHBOARD, enabled = len(refs.refs) > 1) do refs_arrange(app)
-	if ui.icon_button(ctx, "Same height##refs", ICON_STRETCH_VERTICAL, enabled = len(refs.refs) > 1) do refs_same_height(app)
-	if ui.icon_button(ctx, "Fit all##refs", ICON_SCAN, enabled = filled) do board_fit(app, b.room)
-	ui.end(ctx)
 	one := board_one(app)
-	picked := len(b.selected) > 0
-	ui.begin(ctx, "refs edits", {direction = .Row, width = inner, gap = t.gap, center = true})
-	if one != nil && one.image == 0 {
-		// A note's text, typed in its own buffer and put on the note as it changes, one undo step a typing.
-		if b.note_id != one.id do refs_note_commit(app)
-		// Unless typing is under way, the field shows the note as it is, an undo's too.
-		if b.note_id != one.id || b.note_before == nil do b.note = one.text
-		b.note_id = one.id
-		field := inner - 2 * t.target - 2 * t.gap
-		if ui.text_field(ctx, "note text##refs", b.note[:REF_NOTE_MAX - 1], field, hint = "Note") {
-			if b.note_before == nil do b.note_before = refs_clone(refs.refs[:])
-			one.text = b.note
-			app.scene_edits += 1
-		}
-		if ctx.text_focus != ui.id_of(ctx, "note text##refs") do refs_note_commit(app)
-	} else {
-		refs_note_commit(app)
-		b.note_id = 0
-		pictures := false
-		for r in refs.refs do if board_picked(b, r.id) && r.image != 0 do pictures = true
-		if ui.icon_button(ctx, "Flip##refs", ICON_FLIP_PICTURE, selected = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.flip}), enabled = pictures) do refs_edit(app, .Flip)
-		if ui.icon_button(ctx, "Grey##refs", ICON_GREY, selected = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.grey}), enabled = pictures) do refs_edit(app, .Grey)
-		if ui.icon_button(ctx, "Turn##refs", ICON_TURN, enabled = pictures) do refs_edit(app, .Turn)
-		crop_ok := one != nil && one.image != 0 && !one.locked
-		if ui.icon_button(ctx, "Crop##refs", ICON_CROP, selected = b.cropping != 0, enabled = crop_ok) do b.cropping = 0 if b.cropping != 0 else one.id
-		if ui.icon_button(ctx, "On view##refs", ICON_ON_VIEW, selected = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.view}), enabled = pictures) do refs_edit(app, .View)
-		_, in_scene := refs_picked_plane(app)
-		if ui.icon_button(ctx, "In scene##refs", ICON_REF_PLANE, selected = in_scene || b.plane_menu, enabled = pictures) {
-			b.plane_menu, b.plane_menu_at = !b.plane_menu, ctx.last_rect
-		}
-	}
-	locked := refs_picked_all(app, proc(r: Ref) -> bool {return r.locked})
-	if ui.icon_button(ctx, "Unlock##refs" if locked else "Lock##refs", ICON_LOCK if locked else ICON_LOCK_OPEN, selected = locked, enabled = picked) do refs_edit(app, .Lock)
-	if ui.icon_button(ctx, "Delete##refs", ICON_TRASH_2, enabled = picked) do refs_delete_selected(app)
-	ui.end(ctx)
-	rows: f32 = 2
+	note := one != nil && one.image == 0
+	pictures := false
+	for r in refs.refs do if board_picked(b, r.id) && r.image != 0 do pictures = true
 	// The picked places over the view or in the scene: their opacity, the first one's
 	// shown, set on all.
 	viewed: ^Ref
@@ -462,23 +458,10 @@ refs_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 		viewed = &r
 		break
 	}
-	if viewed != nil {
-		rows += 1
-		value := viewed.opacity * 100
-		ui.begin(ctx, "refs view", {direction = .Row, width = inner, gap = t.gap, center = true})
-		if ui.slider(ctx, "Opacity##refs", &value, REF_OPACITY_MIN * 100, 100, .Linear, fmt.tprintf("%.0f%%", value)) {
-			if b.opacity_before == nil do b.opacity_before = refs_clone(refs.refs[:])
-			for &r in refs.refs do if board_picked(b, r.id) && (r.view || r.plane != .None) && r.image != 0 do r.opacity = value / 100
-			app.scene_edits += 1
-		}
-		ui.end(ctx)
-	}
-	if b.opacity_before != nil && .Left not_in ctx.input.down {
-		if slice.equal(b.opacity_before, refs.refs[:]) do delete(b.opacity_before)
-		else do history_record_refs(app, b.opacity_before, "Reference opacity")
-		b.opacity_before = nil
-	}
-	board_h := max(room - rows * t.target - rows * t.gap, BOARD_MIN_H)
+	rows: f32 = 0
+	if note || pictures do rows += 1
+	if !note && viewed != nil do rows += 1
+	board_h := max(room - rows * (t.target + t.gap), BOARD_MIN_H)
 	// Drawn inside its container, whose clip keeps a picture or note zoomed past the
 	// board's edge from spilling over the card and the view.
 	ui.begin(ctx, "refs board", {width = inner, height = board_h, clip = true, radius = t.radius_medium})
@@ -489,7 +472,303 @@ refs_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 	b.room = r
 	board_input(app, a)
 	board_draw(app, r)
+	// Where the floating edits go (refs_float_bar, after the cards): over the picked
+	// places as the board shows them, inside the part of the board in sight.
+	d := ctx.input.pixel_density
+	b.shown = ui.rect_intersect(r, {ctx.clip.x / d, ctx.clip.y / d, ctx.clip.w / d, ctx.clip.h / d})
+	b.picked_at = {}
+	for p in refs.refs do if board_picked(b, p.id) {
+		at := board_rect(b, r, p)
+		b.picked_at = at if b.picked_at.w <= 0 else ui.rect_union(b.picked_at, at)
+	}
+	b.board_frame = k.frame
 	ui.end(ctx)
+	if note {
+		// A note's text, typed in its own buffer and put on the note as it changes, one undo step a typing.
+		if b.note_id != one.id do refs_note_commit(app)
+		// Unless typing is under way, the field shows the note as it is, an undo's too.
+		if b.note_id != one.id || b.note_before == nil do b.note = one.text
+		b.note_id = one.id
+		ui.begin(ctx, "refs note", {direction = .Row, width = inner, gap = t.gap, center = true})
+		if ui.text_field(ctx, "note text##refs", b.note[:REF_NOTE_MAX - 1], inner, hint = "Note") {
+			if b.note_before == nil do b.note_before = refs_clone(refs.refs[:])
+			one.text = b.note
+			app.scene_edits += 1
+		}
+		ui.end(ctx)
+		if ctx.text_focus != ui.id_of(ctx, "note text##refs") do refs_note_commit(app)
+	} else {
+		refs_note_commit(app)
+		b.note_id = 0
+	}
+	if !note && pictures {
+		ui.begin(ctx, "refs places", {direction = .Row, width = inner, gap = t.gap, center = true})
+		on_view := refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.view})
+		if refs_chip(ctx, "On view##refs", ICON_ON_VIEW, "On view", on_view, false) do refs_edit(app, .View)
+		plane, in_scene := refs_picked_plane(app)
+		words := "In scene"
+		if in_scene do words = REF_PLANE_NAMES[plane] if plane != .None else "Mixed"
+		if refs_chip(ctx, "In scene##refs view", ICON_REF_PLANE, words, in_scene || b.plane_menu, true) {
+			b.plane_menu, b.plane_menu_at = !b.plane_menu, ctx.last_rect
+		}
+		if in_scene {
+			through := refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.plane == .None || r.through})
+			if refs_chip(ctx, "Behind or through##refs", 0, "Through" if through else "Behind", through, false) do refs_edit(app, .Behind if through else .Through)
+		}
+		ui.end(ctx)
+	}
+	if !note && viewed != nil {
+		value := viewed.opacity * 100
+		ui.begin(ctx, "refs view", {direction = .Row, width = inner, gap = t.gap, center = true})
+		if ui.slider(ctx, "Opacity##refs", &value, REF_OPACITY_MIN * 100, 100, .Linear, fmt.tprintf("%.0f%%", value)) {
+			if b.opacity_before == nil do b.opacity_before = refs_clone(refs.refs[:])
+			for &p in refs.refs do if board_picked(b, p.id) && (p.view || p.plane != .None) && p.image != 0 do p.opacity = value / 100
+			app.scene_edits += 1
+		}
+		ui.end(ctx)
+	}
+	if b.opacity_before != nil && .Left not_in ctx.input.down {
+		if slice.equal(b.opacity_before, refs.refs[:]) do delete(b.opacity_before)
+		else do history_record_refs(app, b.opacity_before, "Reference opacity")
+		b.opacity_before = nil
+	}
+}
+
+// A chip under the board: `glyph` (none for 0) and `words`, lit while `on`, with a
+// chevron after them when it opens a menu. `name` is its id and tooltip. Returns true
+// when tapped.
+@(private = "file")
+refs_chip :: proc(ctx: ^ui.Context, name: string, glyph: rune, words: string, on, menu: bool) -> bool {
+	t := ctx.theme
+	w := ui.text_width(ctx, words, t.small_size, .Semibold) + 2 * ui.SPACE_L
+	if glyph != 0 do w += t.icon_small + ui.SPACE_S
+	if menu do w += ui.SPACE_L
+	a := ui.area(ctx, name, {w, t.target}, drag = false)
+	vis := ui.Rect{a.rect.x, a.rect.y + (a.rect.h - t.control) * 0.5, a.rect.w, t.control}
+	ui.fill_rect(ctx, vis, t.radius_large, t.accent_soft if on else (t.fill_hover if a.hovered else t.fill))
+	ink := t.accent if on else t.text_secondary
+	x := vis.x + ui.SPACE_L
+	y := vis.y + vis.h * 0.5
+	if glyph != 0 {
+		ui.icon(ctx, glyph, {x + t.icon_small * 0.5, y}, t.icon_small, ink)
+		x += t.icon_small + ui.SPACE_S
+	}
+	ui.text(ctx, words, x, y, t.small_size, ink, .Semibold)
+	if menu do ui.more_chevron(ctx, {vis.x + vis.w - ui.SPACE_L, y}, ink)
+	ui.tip(ctx, a.id, vis, ui.label_text(name))
+	return a.clicked
+}
+
+// The References card's head buttons, before Pin and Close: Add, which opens the menu
+// that adds pictures, a pasted picture, the view itself or a note, and Tidy, which opens
+// Arrange, Same height and Fit all.
+refs_head_buttons :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	b := &app.kit.board
+	if ui.icon_button(ctx, "Add##refs", ui.ICON_PLUS, selected = b.add_menu, size = REFS_HEAD_BUTTON) do b.add_menu, b.menu_at = !b.add_menu, ctx.last_rect
+	if ui.icon_button(ctx, "Tidy##refs", ICON_LAYOUT_DASHBOARD, selected = b.tidy_menu, size = REFS_HEAD_BUTTON) do b.tidy_menu, b.menu_at = !b.tidy_menu, ctx.last_rect
+}
+
+// The head buttons' width, for the head to leave room for them.
+refs_head_width :: proc(ctx: ^ui.Context) -> f32 {
+	return 2 * REFS_HEAD_BUTTON
+}
+
+// How big each head button is: a touch target a little under the panels', so the title
+// still fits beside them, Pin and Close on a card of the usual width.
+REFS_HEAD_BUTTON :: 40
+
+// How big each of the floating edits' buttons is: a touch target, a little smaller than
+// the panels' so the row fits over a picture on the narrow card.
+REFS_FLOAT_BUTTON :: 44
+
+// The edits floating over the picked places, as a board in PureRef or a canvas in Figma
+// keeps them by what they act on: Flip, Grey, Turn, Crop and In scene for pictures, and
+// More, which holds Lock and Delete, for any place. Above the picked places where the
+// board has room, else under them, else at the board's top; hidden while a drag moves,
+// sizes or crops them, or two fingers zoom. Laid out after the cards, as its own panel
+// over the card, so a press on it is its own and never the board's.
+@(private = "file")
+refs_float_bar :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	b := &k.board
+	if b.board_frame != k.frame || len(b.selected) == 0 || b.picked_at.w <= 0 || b.shown.w <= 0 do return
+	if b.drag == .Move || b.drag == .Size || b.drag == .Crop || b.spread > 0 do return
+	if ui.rect_intersect(b.picked_at, b.shown).w <= 0 do return
+	one := board_one(app)
+	pictures := false
+	for r in app.scene.refs.refs do if board_picked(b, r.id) && r.image != 0 do pictures = true
+	count: f32 = 6 if pictures else 1
+	size := [2]f32{count * REFS_FLOAT_BUTTON + 2 * ui.SPACE_2XS, REFS_FLOAT_BUTTON + 2 * ui.SPACE_2XS}
+	s, p := b.shown, b.picked_at
+	pos := [2]f32{p.x, p.y - size.y - ui.SPACE_S}
+	if pos.y < s.y + ui.SPACE_XS do pos.y = p.y + p.h + ui.SPACE_S
+	if pos.y + size.y > s.y + s.h - ui.SPACE_XS do pos.y = s.y + ui.SPACE_XS
+	pos.x = clamp(pos.x, s.x + ui.SPACE_XS, max(s.x + s.w - size.x - ui.SPACE_XS, s.x + ui.SPACE_XS))
+	ui.begin_at(ctx, "refs edits", pos, {direction = .Row, gap = 0, padding = ui.SPACE_2XS, radius = t.radius_large, background = .Raised, center = true})
+	if pictures {
+		if ui.icon_button(ctx, "Flip##refs", ICON_FLIP_PICTURE, selected = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.flip}), size = REFS_FLOAT_BUTTON) do refs_edit(app, .Flip)
+		if ui.icon_button(ctx, "Grey##refs", ICON_GREY, selected = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.grey}), size = REFS_FLOAT_BUTTON) do refs_edit(app, .Grey)
+		if ui.icon_button(ctx, "Turn##refs", ICON_TURN, size = REFS_FLOAT_BUTTON) do refs_edit(app, .Turn)
+		crop_ok := one != nil && one.image != 0 && !one.locked
+		if ui.icon_button(ctx, "Crop##refs", ICON_CROP, selected = b.cropping != 0, enabled = crop_ok, size = REFS_FLOAT_BUTTON) do b.cropping = 0 if b.cropping != 0 else one.id
+		_, in_scene := refs_picked_plane(app)
+		if ui.icon_button(ctx, "In scene##refs", ICON_REF_PLANE, selected = in_scene, size = REFS_FLOAT_BUTTON) {
+			refs_plane_put(app, .None if in_scene else refs_plane_facing(app))
+		}
+	}
+	if ui.icon_button(ctx, "More##refs", ui.ICON_MORE, selected = b.more_menu, size = REFS_FLOAT_BUTTON) do b.more_menu, b.menu_at = !b.more_menu, ctx.last_rect
+	ui.end(ctx)
+}
+
+// The References card's floating edits and menus, laid out after the cards so they are
+// over them: the edits over the picked places, Add's and Tidy's menus from the head, More
+// from the edits and the In scene menu from its chip. All shut with the card.
+refs_card_menus :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	b := &k.board
+	if !card_shown(app, .References) {
+		b.add_menu, b.tidy_menu, b.more_menu, b.board_menu, b.plane_menu = false, false, false, false, false
+		return
+	}
+	refs_float_bar(app)
+	refs := &app.scene.refs
+	box := ui.Box{direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}
+	if ui.popover_begin(ctx, "refs add menu", &b.add_menu, b.menu_at, .Below_End, box) {
+		if ui.menu_item(ctx, "Add pictures##refs add", glyph = ICON_IMAGE_PLUS, hint = "Pictures from your files") {
+			file_dialog(app, .Reference)
+			b.add_menu = false
+		}
+		if ui.menu_item(ctx, "Paste picture##refs add", glyph = ICON_CLIPBOARD_PASTE, hint = "The picture on the clipboard") {
+			_ = refs_paste(app)
+			b.add_menu = false
+		}
+		if ui.menu_item(ctx, "Snap view##refs add", glyph = ICON_IMAGE_DOWN, hint = "The view as it is now, as a picture") {
+			b.snap = true
+			b.add_menu = false
+		}
+		if ui.menu_item(ctx, "Add note##refs add", glyph = ICON_STICKY_NOTE) {
+			refs_add_note(app)
+			b.add_menu = false
+		}
+		ui.popover_end(ctx)
+	}
+	if ui.popover_begin(ctx, "refs tidy menu", &b.tidy_menu, b.menu_at, .Below_End, box) {
+		if ui.menu_item(ctx, "Arrange##refs tidy", glyph = ICON_LAYOUT_DASHBOARD, enabled = len(refs.refs) > 1, hint = "Packed into rows, tallest first") {
+			refs_arrange(app)
+			b.tidy_menu = false
+		}
+		if ui.menu_item(ctx, "Same height##refs tidy", glyph = ICON_STRETCH_VERTICAL, enabled = len(refs.refs) > 1) {
+			refs_same_height(app)
+			b.tidy_menu = false
+		}
+		if ui.menu_item(ctx, "Fit all##refs tidy", glyph = ICON_SCAN, enabled = len(refs.refs) > 0) {
+			board_fit(app, b.room)
+			b.tidy_menu = false
+		}
+		ui.divider(ctx, across = true)
+		// The ground stays a choice of this device, as a canvas app's is, not the scene's.
+		grounds := [Ref_Ground]string{.Dots = "Dots##refs ground", .Lines = "Lines##refs ground", .Plain = "Plain##refs ground"}
+		for name, g in grounds {
+			if ui.menu_item(ctx, name, checked = k.refs_ground == g, hint = "The board's background" if g == .Dots else "") {
+				k.refs_ground = g
+				b.tidy_menu = false
+			}
+		}
+		ui.popover_end(ctx)
+	}
+	if ui.popover_begin(ctx, "refs more menu", &b.more_menu, b.menu_at, .Below_End, box) {
+		locked := refs_picked_all(app, proc(r: Ref) -> bool {return r.locked})
+		if ui.menu_item(ctx, "Unlock##refs more" if locked else "Lock##refs more", glyph = ICON_LOCK if locked else ICON_LOCK_OPEN, enabled = len(b.selected) > 0, hint = "" if locked else "Kept where it is: a drag on it pans") {
+			refs_edit(app, .Lock)
+			b.more_menu = false
+		}
+		if ui.menu_item(ctx, "Delete##refs more", glyph = ICON_TRASH_2, tone = .Danger, enabled = len(b.selected) > 0) {
+			refs_delete_selected(app)
+			b.more_menu = false
+		}
+		ui.popover_end(ctx)
+	}
+	refs_board_menu(app)
+	refs_plane_menu(app)
+}
+
+// The board's menu at the pointer, a right click's, as PureRef's: the picked places'
+// edits when some are picked, then what adds and what tidies.
+@(private = "file")
+refs_board_menu :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	b := &k.board
+	refs := &app.scene.refs
+	if !ui.popover_begin(ctx, "refs board menu", &b.board_menu, b.menu_at, .Pointer, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
+	defer ui.popover_end(ctx)
+	one := board_one(app)
+	pictures := false
+	for r in refs.refs do if board_picked(b, r.id) && r.image != 0 do pictures = true
+	if pictures {
+		if ui.menu_item(ctx, "Flip##refs board", glyph = ICON_FLIP_PICTURE, checked = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.flip})) {
+			refs_edit(app, .Flip)
+			b.board_menu = false
+		}
+		if ui.menu_item(ctx, "Grey##refs board", glyph = ICON_GREY, checked = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.grey})) {
+			refs_edit(app, .Grey)
+			b.board_menu = false
+		}
+		if ui.menu_item(ctx, "Turn##refs board", glyph = ICON_TURN) {
+			refs_edit(app, .Turn)
+			b.board_menu = false
+		}
+		if ui.menu_item(ctx, "Crop##refs board", glyph = ICON_CROP, checked = b.cropping != 0, enabled = one != nil && one.image != 0 && !one.locked) {
+			b.cropping = 0 if b.cropping != 0 else one.id
+			b.board_menu = false
+		}
+		if ui.menu_item(ctx, "On view##refs board", glyph = ICON_ON_VIEW, checked = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.view})) {
+			refs_edit(app, .View)
+			b.board_menu = false
+		}
+		_, in_scene := refs_picked_plane(app)
+		if ui.menu_item(ctx, "In scene##refs board", glyph = ICON_REF_PLANE, checked = in_scene, hint = "On a plane facing the view") {
+			refs_plane_put(app, .None if in_scene else refs_plane_facing(app))
+			b.board_menu = false
+		}
+	}
+	if len(b.selected) > 0 {
+		locked := refs_picked_all(app, proc(r: Ref) -> bool {return r.locked})
+		if ui.menu_item(ctx, "Unlock##refs board" if locked else "Lock##refs board", glyph = ICON_LOCK if locked else ICON_LOCK_OPEN) {
+			refs_edit(app, .Lock)
+			b.board_menu = false
+		}
+		if ui.menu_item(ctx, "Delete##refs board", glyph = ICON_TRASH_2, tone = .Danger) {
+			refs_delete_selected(app)
+			b.board_menu = false
+		}
+		ui.divider(ctx, across = true)
+	}
+	if ui.menu_item(ctx, "Add pictures##refs board", glyph = ICON_IMAGE_PLUS) {
+		file_dialog(app, .Reference)
+		b.board_menu = false
+	}
+	if ui.menu_item(ctx, "Paste picture##refs board", glyph = ICON_CLIPBOARD_PASTE) {
+		_ = refs_paste(app)
+		b.board_menu = false
+	}
+	if ui.menu_item(ctx, "Add note##refs board", glyph = ICON_STICKY_NOTE) {
+		refs_add_note(app)
+		b.board_menu = false
+	}
+	ui.divider(ctx, across = true)
+	if ui.menu_item(ctx, "Arrange##refs board", glyph = ICON_LAYOUT_DASHBOARD, enabled = len(refs.refs) > 1) {
+		refs_arrange(app)
+		b.board_menu = false
+	}
+	if ui.menu_item(ctx, "Fit all##refs board", glyph = ICON_SCAN, enabled = len(refs.refs) > 0) {
+		board_fit(app, b.room)
+		b.board_menu = false
+	}
 }
 
 // Draws picture place `p` at screen rect `at`, at opacity `alpha`: its GPU copy cropped,
@@ -523,6 +802,7 @@ board_draw :: proc(app: ^App, r: ui.Rect) {
 	t := ctx.theme
 	b := &k.board
 	ui.fill_rect(ctx, r, t.radius_medium, t.pane)
+	board_ground(app, r)
 	refs := &app.scene.refs
 	if len(refs.refs) == 0 {
 		ui.icon(ctx, ICON_REFERENCES, {r.x + r.w * 0.5, r.y + r.h * 0.5 - t.target * 0.5}, t.icon_small * 2, t.text_tertiary)
@@ -565,8 +845,42 @@ board_draw :: proc(app: ^App, r: ui.Rect) {
 			ui.fill_circle(ctx, {at.x + at.w, at.y + at.h}, board_corner(ctx) * 0.4, t.accent)
 		}
 	}
+	if b.drag == .Box {
+		box := board_box(b)
+		ui.fill_rect(ctx, box, 0, ui.color_fade(t.accent_soft, 0.5))
+		ui.stroke_rect(ctx, box, 0, t.accent, 1)
+	}
 	z := int(math.round(board_zoom(b) * 100))
 	ui.text(ctx, fmt.tprintf("%d%%", z), r.x + r.w - t.gap, r.y + r.h - t.gap, t.small_size, t.text_tertiary, .Regular, .Right)
+}
+
+// The board's ground at `r`: its grid's dots or lines, as Ref_Ground says, from the board
+// point at its top left, fainter than anything on it.
+@(private = "file")
+board_ground :: proc(app: ^App, r: ui.Rect) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	b := &k.board
+	if k.refs_ground == .Plain do return
+	z := board_zoom(b)
+	step := f32(BOARD_GRID_STEP)
+	for step * z < BOARD_GRID_MIN do step *= 2
+	gap := step * z
+	// The first grid line at or past each edge, in screen points.
+	first := [2]f32{r.x + (math.ceil(b.pan.x / step) * step - b.pan.x) * z, r.y + (math.ceil(b.pan.y / step) * step - b.pan.y) * z}
+	ink := ui.color_fade(t.text_tertiary, 0.35)
+	switch k.refs_ground {
+	case .Plain:
+	case .Dots:
+		for y := first.y; y < r.y + r.h; y += gap {
+			for x := first.x; x < r.x + r.w; x += gap do ui.fill_rect(ctx, {x - 0.75, y - 0.75, 1.5, 1.5}, 0, ink)
+		}
+	case .Lines:
+		ink = ui.color_fade(t.text_tertiary, 0.18)
+		for x := first.x; x < r.x + r.w; x += gap do ui.fill_rect(ctx, {x - 0.5, r.y, 1, r.h}, 0, ink)
+		for y := first.y; y < r.y + r.h; y += gap do ui.fill_rect(ctx, {r.x, y - 0.5, r.w, 1}, 0, ink)
+	}
 }
 
 // Picture place `p` on the board drawn at `r`, at opacity `alpha`.
@@ -626,16 +940,28 @@ board_input :: proc(app: ^App, a: ui.Area) {
 	}
 	b.spread = 0
 	if a.hovered && ctx.input.wheel != 0 do board_zoom_about(b, room, a.mouse, math.pow(f32(BOARD_WHEEL_STEP), ctx.input.wheel))
+	// The middle button pans wherever it goes down, on a picture too, as PureRef's does.
+	if a.hovered && .Middle in ctx.input.pressed && b.drag == .None do b.middle_pan, b.last = true, a.mouse
+	if b.middle_pan {
+		if .Middle not_in ctx.input.down || ctx.input.cancel do b.middle_pan = false
+		else {
+			b.pan -= (a.mouse - b.last) / board_zoom(b)
+			b.last = a.mouse
+		}
+		return
+	}
+	// A right click opens the board's menu at the pointer, picking the place under it
+	// first when that is not picked yet.
+	if ctx.right_on == a.id && a.hovered && .Right in ctx.input.released && b.drag == .None {
+		if i := board_hit(app, room, a.mouse); i >= 0 && !board_picked(b, refs.refs[i].id) {
+			clear(&b.selected)
+			append(&b.selected, refs.refs[i].id)
+		} else if i < 0 && !ctx.input.shift do clear(&b.selected)
+		b.board_menu, b.menu_at = true, {a.mouse.x, a.mouse.y, 0, 0}
+	}
 	if a.pressed {
 		b.last = a.mouse
-		hit := -1
-		for i := len(refs.refs) - 1; i >= 0; i -= 1 {
-			at := board_rect(b, room, refs.refs[i])
-			if a.mouse.x >= at.x && a.mouse.x < at.x + at.w && a.mouse.y >= at.y && a.mouse.y < at.y + at.h {
-				hit = i
-				break
-			}
-		}
+		hit := board_hit(app, room, a.mouse)
 		corner := false
 		b.edges = 0
 		if one := board_one(app); one != nil && !one.locked {
@@ -671,6 +997,14 @@ board_input :: proc(app: ^App, a: ui.Area) {
 				append(&b.selected, id)
 			}
 			b.drag = .Move if board_picked(b, id) && !refs.refs[hit].locked else .Pan
+		case ctx.input.pointer == .Mouse:
+			// A mouse's drag from the ground picks what its box touches, as PureRef's
+			// does; a finger's pans, as a finger expects.
+			if !ctx.input.shift do clear(&b.selected)
+			clear(&b.box_base)
+			append(&b.box_base, ..b.selected[:])
+			b.box_from = a.mouse
+			b.drag = .Box
 		case:
 			if !ctx.input.shift do clear(&b.selected)
 			b.drag = .Pan
@@ -698,6 +1032,15 @@ board_input :: proc(app: ^App, a: ui.Area) {
 			}
 		case .Crop:
 			if p := board_one(app); p != nil do board_crop_drag(p, board_point(b, room, a.mouse), b.edges)
+		case .Box:
+			b.last = a.mouse
+			box := board_box(b)
+			clear(&b.selected)
+			append(&b.selected, ..b.box_base[:])
+			for p in refs.refs {
+				at := board_rect(b, room, p)
+				if !board_picked(b, p.id) && ui.rect_intersect(at, box).w > 0 && ui.rect_intersect(at, box).h > 0 do append(&b.selected, p.id)
+			}
 		}
 		b.last = a.mouse
 	}
@@ -705,7 +1048,7 @@ board_input :: proc(app: ^App, a: ui.Area) {
 	if !a.held && b.drag != .None {
 		if (b.drag == .Move || b.drag == .Size || b.drag == .Crop) && b.before != nil {
 			if !slice.equal(b.before, refs.refs[:]) {
-				names := [Ref_Drag]string{.None = "", .Pan = "", .Move = "Move reference", .Size = "Size reference", .Crop = "Crop reference"}
+				names := [Ref_Drag]string{.None = "", .Pan = "", .Box = "", .Move = "Move reference", .Size = "Size reference", .Crop = "Crop reference"}
 				history_record_refs(app, b.before, names[b.drag])
 				b.moves += 1
 			} else do delete(b.before)
@@ -714,6 +1057,26 @@ board_input :: proc(app: ^App, a: ui.Area) {
 		b.drag = .None
 	}
 	if a.clicked && b.drag == .None && len(b.selected) == 0 && handle_double_tap(ctx, &b.tap, a.id) do board_fit(app, room)
+}
+
+// The index of the topmost place on the board drawn at `room` under `at`, or -1.
+@(private = "file")
+board_hit :: proc(app: ^App, room: ui.Rect, at: [2]f32) -> int {
+	b := &app.kit.board
+	refs := &app.scene.refs
+	for i := len(refs.refs) - 1; i >= 0; i -= 1 {
+		r := board_rect(b, room, refs.refs[i])
+		if at.x >= r.x && at.x < r.x + r.w && at.y >= r.y && at.y < r.y + r.h do return i
+	}
+	return -1
+}
+
+// The box a box drag spans, from where it began to the pointer, in points.
+@(private = "file")
+board_box :: proc(b: ^Ref_Board) -> ui.Rect {
+	lo := [2]f32{min(b.box_from.x, b.last.x), min(b.box_from.y, b.last.y)}
+	hi := [2]f32{max(b.box_from.x, b.last.x), max(b.box_from.y, b.last.y)}
+	return {lo.x, lo.y, hi.x - lo.x, hi.y - lo.y}
 }
 
 // board_crop_drag for the tests.
