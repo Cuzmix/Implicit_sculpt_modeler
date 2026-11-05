@@ -36,7 +36,9 @@ RELAX_ENOUGH :: 1e-3
 // An island's pinned vertices hold still, so it keeps its place and size; the other
 // islands come out at the surface's size and are packed again (shelf_pack). Big islands
 // one at a time with the pool in the factor, the others side by side, as flatten runs.
-relax :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, iterations := 10, pool: ^jobs.Pool = nil) -> (r: Relax_Report) {
+// With `symmetry` mirrored islands take their leaders' layouts reflected and islands
+// that are their own mirrors are made symmetric again after, as flatten does.
+relax :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, iterations := 10, pool: ^jobs.Pool = nil, symmetry: ^Symmetry = nil) -> (r: Relax_Report) {
 	start := time.tick_now()
 	r.islands = u.islands
 	if !has(u^) || u.islands == 0 do return
@@ -56,13 +58,17 @@ relax :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Verte
 		first:      []u32,
 		results:    []Result,
 		iterations: int,
+		mirror:     Mirror,
+		symmetric:  bool,
 	}
-	job := Job{u, positions, indices, faces, order, first, make([]Result, u.islands, context.temp_allocator), iterations}
+	job := Job{u, positions, indices, faces, order, first, make([]Result, u.islands, context.temp_allocator), iterations, {}, symmetry != nil}
+	if symmetry != nil do job.mirror = mirror_build(u^, positions, indices, faces, symmetry^, order, first)
 	islands_run(first, &job, pool, proc(data: rawptr, i: u32, pool: ^jobs.Pool) {
 		job := cast(^Job)data
 		heap := runtime.heap_allocator()
 		context.allocator = heap
 		res := &job.results[i]
+		if job.symmetric && job.mirror.leader[i] >= 0 do return
 		tris := job.order[job.first[i]:job.first[i + 1]]
 		island := island_mesh(job.u^, job.indices, job.faces, tris, heap)
 		defer island_mesh_free(&island, heap)
@@ -70,7 +76,21 @@ relax :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Verte
 		ok: bool
 		res.pinned, res.surface, res.before, res.after, ok = slim(job.u, job.positions, &island, job.iterations, pool)
 		res.state = .Relaxed if ok else .Skipped
+		if ok && !res.pinned && job.symmetric && job.mirror.self[i] {
+			mirrors := mirror_wedges(&island, job.mirror, heap)
+			defer delete(mirrors, heap)
+			symmetrize_corners(job.u, &island, mirrors, job.positions, job.mirror.axis)
+		}
 	})
+	leader: []i32
+	if symmetry != nil {
+		leader = job.mirror.leader
+		for l, i in leader do if l >= 0 do job.results[i] = job.results[l]
+		mirror_copy(u, job.mirror, proc(island: u32, data: rawptr) -> bool {
+			results := cast(^[]Result)data
+			return results[island].state == .Relaxed
+		}, &job.results)
+	}
 	place := make([]bool, u.islands, context.temp_allocator)
 	surface: f64
 	for res, i in job.results {
@@ -89,7 +109,7 @@ relax :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Verte
 		r.before /= surface
 		r.after /= surface
 	}
-	shelf_pack(u, place)
+	shelf_pack(u, place, leader)
 	u.filled = boxes_filled(u^)
 	r.ms = time.duration_milliseconds(time.tick_since(start))
 	return

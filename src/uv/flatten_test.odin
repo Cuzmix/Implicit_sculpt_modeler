@@ -297,3 +297,101 @@ relax_lowers_stretch_and_keeps_pins :: proc(t: ^testing.T) {
 		testing.expect(t, slice.equal(results[0], results[1]) && slice.equal(results[0], results[2]), "the same on every pool")
 	}
 }
+
+// A tube welded round, mirror symmetric across y = 0 (each square's diagonal turned to
+// match its mirror's), cut along x's line at angle 0 and, with `both`, at angle π too.
+@(private)
+mirror_tube :: proc(around, along: int, both: bool) -> (positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, u: Uvs) {
+	m: geom.Mesh
+	m.positions = make([dynamic]geom.Vec3, context.temp_allocator)
+	m.indices = make([dynamic]u32, context.temp_allocator)
+	for y in 0 ..= along do for x in 0 ..< around {
+		a := 2 * math.PI * f64(x) / f64(around)
+		append(&m.positions, geom.Vec3{f32(math.cos(a)) * 3, f32(math.sin(a)) * 3, f32(y)})
+	}
+	for &p in m.positions do if abs(p.y) < 1e-6 do p.y = 0
+	at :: proc(around, x, y: int) -> u32 {return u32(y * around + x % around)}
+	for y in 0 ..< along do for x in 0 ..< around {
+		if x < around / 2 {
+			append(&m.indices, at(around, x, y), at(around, x + 1, y), at(around, x + 1, y + 1))
+			append(&m.indices, at(around, x, y), at(around, x + 1, y + 1), at(around, x, y + 1))
+		} else {
+			append(&m.indices, at(around, x, y), at(around, x + 1, y), at(around, x, y + 1))
+			append(&m.indices, at(around, x + 1, y), at(around, x + 1, y + 1), at(around, x, y + 1))
+		}
+	}
+	positions, indices = m.positions[:], m.indices[:]
+	faces = geom.vertex_faces_build(m, nil, context.temp_allocator)
+	u = make_uvs(len(indices) / 3, context.temp_allocator)
+	for y in 0 ..< along {
+		cut(&u, indices, at(around, 0, y), at(around, 0, y + 1))
+		if both do cut(&u, indices, at(around, around / 2, y), at(around, around / 2, y + 1))
+	}
+	islands_find(&u, indices, faces)
+	return
+}
+
+// The worst difference between a UV edge and its mirror edge's length, over the mean
+// edge, for the triangles that have mirrors.
+@(private)
+mirror_mismatch :: proc(u: Uvs, r: Mirror) -> (worst: f32, mirrored: int) {
+	mean: f32 = 0
+	for c in u.corner do mean += linalg.length(c[1] - c[0])
+	mean /= f32(len(u.corner))
+	for c, t in u.corner {
+		o := r.tri[t]
+		if o < 0 do continue
+		mirrored += 1
+		for k in 0 ..< 3 {
+			a := linalg.length(c[(k + 1) % 3] - c[k])
+			mc := u.corner[o]
+			b := linalg.length(mc[r.at[t][(k + 1) % 3]] - mc[r.at[t][k]])
+			worst = max(worst, abs(a - b) / mean)
+		}
+	}
+	return
+}
+
+// Two mirrored halves: the second takes the first's layout reflected (same shapes, no
+// flips); one island across the plane comes out symmetric; and a vertex moved off its
+// mirror leaves its island to be laid out alone.
+@(test)
+symmetry_mirrors_islands :: proc(t: ^testing.T) {
+	sym := DEFAULT_SYMMETRY
+	sym.axis = 1
+	{
+		positions, indices, faces, u := mirror_tube(16, 4, true)
+		testing.expect_value(t, u.islands, 2)
+		order, first := island_triangles(u, context.temp_allocator)
+		m := mirror_build(u, positions, indices, faces, sym, order, first)
+		testing.expect(t, m.leader[1] == 0 && m.leader[0] == -1, "island 1 follows island 0")
+		r := flatten(&u, positions, indices, faces, .Abf, symmetry = &sym)
+		testing.expect_value(t, r.flattened, 2)
+		testing.expect_value(t, r.flips, 0)
+		testing.expect_value(t, stretch(u, positions, indices).flips, 0)
+		worst, mirrored := mirror_mismatch(u, m)
+		testing.expect_value(t, mirrored, len(indices) / 3)
+		testing.expectf(t, worst < 1e-5, "mirror edges differ by %v", worst)
+		_ = relax(&u, positions, indices, faces, symmetry = &sym)
+		worst, _ = mirror_mismatch(u, m)
+		testing.expectf(t, worst < 1e-5, "after relax, mirror edges differ by %v", worst)
+	}
+	{
+		positions, indices, faces, u := mirror_tube(16, 4, false)
+		testing.expect_value(t, u.islands, 1)
+		order, first := island_triangles(u, context.temp_allocator)
+		m := mirror_build(u, positions, indices, faces, sym, order, first)
+		testing.expect(t, m.self[0], "the island is its own mirror")
+		r := flatten(&u, positions, indices, faces, .Lscm, symmetry = &sym)
+		testing.expect_value(t, r.flips, 0)
+		worst, _ := mirror_mismatch(u, m)
+		testing.expectf(t, worst < 1e-5, "mirror edges differ by %v", worst)
+	}
+	{
+		positions, indices, faces, u := mirror_tube(16, 4, true)
+		positions[3].z += 0.3
+		order, first := island_triangles(u, context.temp_allocator)
+		m := mirror_build(u, positions, indices, faces, sym, order, first)
+		testing.expect(t, m.leader[1] == -1 && m.leader[0] == -1, "no island follows another")
+	}
+}

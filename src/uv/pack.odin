@@ -8,7 +8,8 @@ import "core:slice"
 // square, with a gap of PACK_GAP of the square between neighbours and at the edges. The
 // row width is tried at several widths about the square root of the boxes' area, and the
 // one whose rows make the smallest square is kept, so a set of like islands comes out
-// near square. Islands not asked for (pinned, closed, failed) keep their coordinates and
+// near square; with `leader` (mirrored islands), each follower turns the opposite way to
+// its leader. Islands not asked for (pinned, closed, failed) keep their coordinates and
 // may overlap the placed ones; the packers of the UV editor place round them.
 
 PACK_GAP :: f32(1) / 256
@@ -18,13 +19,13 @@ PACK_GAP :: f32(1) / 256
 PACK_TRIES :: 15
 
 @(private)
-shelf_pack :: proc(u: ^Uvs, place: []bool) {
+shelf_pack :: proc(u: ^Uvs, place: []bool, leader: []i32 = nil) {
 	assert(len(place) == u.islands)
 	Box :: struct {
 		lo, size: [2]f32,
 		island:   u32,
 	}
-	turn_to_smallest_box(u, place)
+	turn_to_smallest_box(u, place, leader)
 	lo := make([][2]f32, u.islands, context.temp_allocator)
 	hi := make([][2]f32, u.islands, context.temp_allocator)
 	for &l in lo do l = {math.F32_MAX, math.F32_MAX}
@@ -91,7 +92,7 @@ shelf_pack :: proc(u: ^Uvs, place: []bool) {
 // any turn gives (the box lies along an edge of the island's convex hull, as rotating
 // calipers find it) and no taller than wide.
 @(private = "file")
-turn_to_smallest_box :: proc(u: ^Uvs, place: []bool) {
+turn_to_smallest_box :: proc(u: ^Uvs, place: []bool, leader: []i32) {
 	// The corners grouped by island, in triangle order.
 	first := make([]u32, u.islands + 1, context.temp_allocator)
 	for i in u.island do if place[i] do first[i + 1] += 3
@@ -175,6 +176,8 @@ turn_to_smallest_box :: proc(u: ^Uvs, place: []bool) {
 		if !best_wide do c, s = -s, c
 		turn[i] = {c, s}
 	}
+	// A mirrored follower turns the other way from its leader, so it stays its reflection.
+	if leader != nil do for l, i in leader do if l >= 0 do turn[i] = {turn[l].x, -turn[l].y}
 	for &cs, t in u.corner do if i := u.island[t]; place[i] {
 		r := turn[i]
 		for &p in cs do p = {p.x * r.x - p.y * r.y, p.x * r.y + p.y * r.x}

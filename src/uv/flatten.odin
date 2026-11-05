@@ -43,17 +43,19 @@ Flatten_Report :: struct {
 // along that side. Big islands are solved one at a time with the pool working inside each
 // solve, then the others side by side, each with memory of its own; nothing depends on
 // the pool. The flattened islands that are not pinned are then placed side by side in
-// the unit square (shelf_pack). Nothing happens without UVs.
-flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, method: Method = .Abf, pool: ^jobs.Pool = nil) -> (r: Flatten_Report) {
+// the unit square (shelf_pack). With `symmetry`, an island whose mirror is another island
+// takes that island's layout reflected, and one that is its own mirror comes out
+// symmetric (symmetry.odin). Nothing happens without UVs.
+flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, method: Method = .Abf, pool: ^jobs.Pool = nil, symmetry: ^Symmetry = nil) -> (r: Flatten_Report) {
 	start := time.tick_now()
 	r.islands = u.islands
 	if !has(u^) || u.islands == 0 do return
 	order, first := island_triangles(u^, context.temp_allocator)
 	Island_Result :: struct {
-		state:  enum u8 {Untouched, Flat, Closed, Failed},
+		state:    enum u8 {Untouched, Flat, Closed, Failed},
 		pinned:   bool, // held where its pins are, so neither scaled nor placed
 		fallback: bool, // ABF++ did not reach its angles, so LSCM alone laid it flat
-		flips:  int,
+		flips:    int,
 	}
 	Job :: struct {
 		u:         ^Uvs,
@@ -64,14 +66,18 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 		first:     []u32,
 		results:   []Island_Result,
 		method:    Method,
+		mirror:    Mirror,
+		symmetric: bool,
 	}
-	job := Job{u, positions, indices, faces, order, first, make([]Island_Result, u.islands, context.temp_allocator), method}
+	job := Job{u, positions, indices, faces, order, first, make([]Island_Result, u.islands, context.temp_allocator), method, {}, symmetry != nil}
+	if symmetry != nil do job.mirror = mirror_build(u^, positions, indices, faces, symmetry^, order, first)
 	// One island, solved on the calling thread with `pool` (nil inside a job).
 	islands_run(first, &job, pool, proc(data: rawptr, i: u32, pool: ^jobs.Pool) {
 		job := cast(^Job)data
 		heap := runtime.heap_allocator()
 		context.allocator = heap
 		res := &job.results[i]
+		if job.symmetric && job.mirror.leader[i] >= 0 do return // laid out from its leader
 		tris := job.order[job.first[i]:job.first[i + 1]]
 		island := island_mesh(job.u^, job.indices, job.faces, tris, heap)
 		defer island_mesh_free(&island, heap)
@@ -79,6 +85,9 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 			res.state = .Closed
 			return
 		}
+		mirrors: []i32
+		defer delete(mirrors, heap)
+		if job.symmetric && job.mirror.self[i] do mirrors = mirror_wedges(&island, job.mirror, heap)
 		angles: []f64
 		defer delete(angles, heap)
 		if job.method == .Abf {
@@ -90,19 +99,30 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 				angles = nil
 			}
 		}
-		flat, pinned, ok := lscm(job.u^, job.positions, &island, pool, heap, angles)
+		flat, pinned, ok := lscm(job.u^, job.positions, &island, pool, heap, angles, mirrors, job.mirror.axis)
 		defer delete(flat, heap)
 		if !ok {
 			res.state = .Failed
 			return
 		}
 		res.state, res.pinned = .Flat, pinned
+		if mirrors != nil && !pinned do _ = symmetrize(flat, &island, mirrors, job.positions, job.mirror.axis)
 		for t, li in tris do for k in 0 ..< 3 {
 			p := flat[island.wedge[3 * li + k]]
 			job.u.corner[t][k] = {f32(p.x), f32(p.y)}
 		}
 		for li in 0 ..< len(tris) do if signed_area(flat, island.wedge[3 * li:][:3]) < 0 do res.flips += 1
 	})
+	// The followers take their leaders' results and layouts.
+	leader: []i32
+	if symmetry != nil {
+		leader = job.mirror.leader
+		for l, i in leader do if l >= 0 do job.results[i] = job.results[l]
+		mirror_copy(u, job.mirror, proc(island: u32, data: rawptr) -> bool {
+			results := cast(^[]Island_Result)data
+			return results[island].state == .Flat
+		}, &job.results)
+	}
 	place := make([]bool, u.islands, context.temp_allocator)
 	for res, i in job.results {
 		switch res.state {
@@ -116,7 +136,7 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 		case .Failed: r.failed += 1
 		}
 	}
-	shelf_pack(u, place)
+	shelf_pack(u, place, leader)
 	u.filled = boxes_filled(u^)
 	r.ms = time.duration_milliseconds(time.tick_since(start))
 	return
@@ -124,10 +144,11 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 
 // The conformal map of island `m`: a coordinate per wedge, made with `allocator`. With
 // `angles` (three per island triangle, from abf_angles) each triangle takes the shape
-// they give instead of its own. False when the solve breaks down, as a surface with
+// they give instead of its own; with `mirrors` (mirror_wedges, the island its own mirror
+// across `axis`) and no pins, a mirror pair is held. False when the solve breaks down, as a surface with
 // non-finite positions makes it.
 @(private)
-lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool, allocator: runtime.Allocator, angles: []f64 = nil) -> (flat: [][2]f64, pinned, ok: bool) {
+lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool, allocator: runtime.Allocator, angles: []f64 = nil, mirrors: []i32 = nil, axis := 0) -> (flat: [][2]f64, pinned, ok: bool) {
 	a := allocator
 	corners := m.wedge
 	n := len(corners) / 3
@@ -158,6 +179,10 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool, 
 	} else {
 		for &f in fixed do f = false
 		p, q := far_pair(positions, m, one)
+		// A self-mirrored island holds a mirror pair instead, so its solve is symmetric.
+		if mirrors != nil && held == 0 {
+			if mp, mq := mirror_pair(positions, m, mirrors, axis); mp >= 0 do p, q = mp, mq
+		}
 		if p == q do return
 		fixed[p], fixed[q] = true, true
 		flat[p] = {0, 0}
