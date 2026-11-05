@@ -1,6 +1,7 @@
 package render
 
 import "../gpu"
+import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:math/linalg"
@@ -91,6 +92,38 @@ ITEM_TEXTURED :: 8
 ITEM_SKINNED :: 16
 @(private = "file")
 ITEM_SKIN_SHIFT :: 8
+@(private = "file")
+ITEM_ALL :: ITEM_PAINT | ITEM_GROUPS | ITEM_SLOTS | ITEM_TEXTURED | ITEM_SKINNED
+
+// Which of render_trace.slang's features a run's scene uses, its RT_ constants: the item
+// flags any item carries, an image environment, the lens and lights with a place (traced
+// as spheres), with the kind of kernel it runs (ray queries or the own walk). A kernel
+// specialised to them folds every other branch away, which on a plain sculpt takes the
+// kernel from 128 registers a thread to 96 on an RDNA2 GPU (scripts/kernel_stats.py), so
+// more of it runs at once.
+Render_Features :: struct {
+	items:         u32,
+	env_image:     bool,
+	lens:          bool,
+	sphere_lights: bool,
+	rq:            bool,
+}
+
+// The most specialised kernels a path render keeps; past it the one used longest ago goes.
+@(private = "file")
+RENDER_VARIANTS :: 8
+
+// A kernel specialised to `features`: built off the frame (`build`), then `pipeline`, or
+// `failed` when the device refused it and the general kernel stays in use for them.
+@(private = "file")
+Path_Variant :: struct {
+	features: Render_Features,
+	build:    ^gpu.Compute_Build,
+	pipeline: gpu.Compute_Pipeline,
+	failed:   bool,
+	used:     u64, // the last sample that wanted it, by Path_Render.total_samples
+	taken:    bool, // the slot holds a variant
+}
 
 Path_Render :: struct {
 	// Its own pipelines for bringing the items' trees up to date, as the studio's.
@@ -184,6 +217,17 @@ Path_Render :: struct {
 	rq_samples:     int, // ...of them traced with ray queries
 	sample_started: time.Tick,
 	bytes:          int,
+	// The kernels specialised to the features scenes use (Render_Features), built off the
+	// frame, and this run's features; `kernel` is what the bands of the sample under way
+	// bind, 0 for the general kernel, which serves until the run's own is built. A run
+	// switches only between samples. For the exit stats: how many were built, and the
+	// features of the last specialised kernel used.
+	variants:       [RENDER_VARIANTS]Path_Variant,
+	features:       Render_Features,
+	kernel:         gpu.Compute_Pipeline,
+	kernel_features: Render_Features,
+	kernel_used:    bool,
+	variants_built: int,
 }
 
 @(private = "file")
@@ -316,6 +360,7 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport
 		pr.failed = true
 		return false
 	}
+	path_variants_poll(pr)
 	pr.linear_on = linear && path_linear_ensure(r, pr)
 	if !pr.linear_on do pr.linear_valid = false
 	now := time.tick_now()
@@ -360,7 +405,10 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport
 	if pr.rows == 0 do pr.rows = pr.height if !MOBILE else max(pr.height / 4, RENDER_ROWS_MIN)
 	if !pr.async && interval > RENDER_FRAME_SLOW do pr.rows = max(pr.rows / 2, RENDER_ROWS_MIN)
 	else if !pr.async && interval > 0 && interval < RENDER_FRAME_FAST do pr.rows = min(pr.rows * 2, pr.height)
-	if pr.row == 0 do pr.sample_started = now
+	if pr.row == 0 {
+		path_kernel_pick(r, pr)
+		pr.sample_started = time.tick_now() // a build waited for is not the sample's time
+	}
 
 	rows := min(pr.rows, pr.height - pr.row)
 	if pr.async {
@@ -406,12 +454,9 @@ path_band_record :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, rows: u32
 		.guide_normal = {texture = written[1]},
 	}
 	pass := begin_compute(cmd, &bindings)
-	if pr.rq {
-		gpu.bind_compute_pipeline(pass, pr.rq_pipeline)
-		gpu.bind_compute_accel(pass, pr.tracer.tlas)
-	} else {
-		gpu.bind_compute_pipeline(pass, pr.pipeline)
-	}
+	general := pr.rq_pipeline if pr.rq else pr.pipeline
+	gpu.bind_compute_pipeline(pass, pr.kernel if pr.kernel != 0 else general)
+	if pr.rq do gpu.bind_compute_accel(pass, pr.tracer.tlas)
 	// The image itself, not its prefiltered copy: the paths find its blur on their own,
 	// and the table is built over it.
 	env_map := r.environment.source if r.environment != nil else r.no_environment
@@ -530,6 +575,7 @@ path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 	pr.band_ticket = {}
 	if pr.pipeline != 0 do gpu.release_compute_pipeline(pr.pipeline)
 	if pr.rq_pipeline != 0 do gpu.release_compute_pipeline(pr.rq_pipeline)
+	for &v in pr.variants do path_variant_release(&v)
 	if pr.display != 0 do gpu.release_graphics_pipeline(pr.display)
 	if pr.display_linear != 0 do gpu.release_graphics_pipeline(pr.display_linear)
 	if pr.atrous != 0 do gpu.release_graphics_pipeline(pr.atrous)
@@ -539,7 +585,7 @@ path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
 	for b in pr.buffers do if b != 0 do gpu.release_buffer(b)
 	tracer_destroy(r, &pr.tracer)
 	// The counters outlive the device's objects, for the exit stats.
-	pr^ = {tracer = pr.tracer, failed = pr.failed, rq_failed = pr.rq_failed, total_samples = pr.total_samples, total_ms = pr.total_ms, rq_samples = pr.rq_samples, bytes = pr.bytes}
+	pr^ = {tracer = pr.tracer, failed = pr.failed, rq_failed = pr.rq_failed, total_samples = pr.total_samples, total_ms = pr.total_ms, rq_samples = pr.rq_samples, bytes = pr.bytes, kernel_features = pr.kernel_features, kernel_used = pr.kernel_used, variants_built = pr.variants_built}
 }
 
 // The lights as render mode takes them: `lights` (view space, as the viewport's) turned
@@ -1091,6 +1137,11 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^View
 	}
 	u.counts.w = paint_base / size_of(u32)
 	u.extra = {node_count, 1 if len(tlas) == 0 && !pr.rq else 0, 0, 0}
+	pr.features = {env_image = r.environment != nil, lens = pr.lens_on, rq = pr.rq}
+	for rec in records do pr.features.items |= rec.offs.y & ITEM_ALL
+	// The kernel's gates: a light is sampled and met only with a chance above 0, and is a
+	// sphere when its kind (pos.w) is not a sun's.
+	for i in 0 ..< LIGHT_COUNT do if u.lights.size[i].w > 0 && u.lights.pos[i].w >= 0.5 do pr.features.sphere_lights = true
 	pr.bytes = 0
 	for c in pr.capacity do pr.bytes += int(c)
 	return true
@@ -1212,4 +1263,103 @@ path_upload :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, which: Scene_B
 		return false
 	}
 	return true
+}
+
+// Takes the variants whose builds are over, so a build's thread is joined soon after it
+// ends; a refused one keeps its slot, marked, so it is not built again.
+@(private = "file")
+path_variants_poll :: proc(pr: ^Path_Render) {
+	for &v in pr.variants {
+		if v.build == nil || !gpu.compute_build_ready(v.build) do continue
+		path_variant_finish(pr, &v)
+	}
+}
+
+@(private = "file")
+path_variant_finish :: proc(pr: ^Path_Render, v: ^Path_Variant) {
+	v.pipeline = gpu.compute_build_finish(v.build)
+	v.build = nil
+	if v.pipeline == 0 {
+		log.warnf("render mode: a kernel for %v could not be made (%s); the general one serves", v.features, gpu.last_error())
+		v.failed = true
+		return
+	}
+	pr.variants_built += 1
+}
+
+@(private = "file")
+path_variant_release :: proc(v: ^Path_Variant) {
+	if v.build != nil do v.pipeline = gpu.compute_build_finish(v.build)
+	if v.pipeline != 0 do gpu.release_compute_pipeline(v.pipeline)
+	v^ = {}
+}
+
+// Picks the kernel the sample about to start binds: the one specialised to this run's
+// features when it is built, else the general one, starting its build when none is under
+// way. Under Renderer.kernel_builds_wait (a scripted run) the build is waited for, so the
+// run's images never depend on how long a compile took.
+@(private = "file")
+path_kernel_pick :: proc(r: ^Renderer, pr: ^Path_Render) {
+	pr.kernel = 0
+	f := pr.features
+	// The general kernel is already the one for a scene that uses everything, and WebGPU
+	// takes no constants.
+	if gpu.WEBGPU || !r.render_variants || f == {items = ITEM_ALL, env_image = true, lens = true, sphere_lights = true, rq = f.rq} do return
+	v: ^Path_Variant
+	oldest: ^Path_Variant
+	for &w in pr.variants {
+		if w.taken && w.features == f {
+			v = &w
+			break
+		}
+		if oldest == nil || !w.taken || oldest.taken && w.used < oldest.used do oldest = &w
+	}
+	if v == nil {
+		v = oldest
+		path_variant_release(v)
+		v.features, v.taken = f, true
+		desc, kind, capacity := path_variant_desc(pr, f.rq)
+		// Every render kernel declares the same constants (render_trace.slang).
+		constants := [Render_Trace_Comp_Constants]u32 {
+			.RT_ITEMS         = f.items,
+			.RT_ENV_IMAGE     = u32(f.env_image),
+			.RT_LENS          = u32(f.lens),
+			.RT_SPHERE_LIGHTS = u32(f.sphere_lights),
+		}
+		desc.constants = slice.enumerated_array(&constants)
+		v.build = gpu.compute_build_start(desc, kind, capacity, wait = r.kernel_builds_wait)
+		if v.build == nil {
+			log.warnf("render mode: a kernel for %v could not be started (%s); the general one serves", f, gpu.last_error())
+			v.failed = true
+		} else if r.kernel_builds_wait {
+			path_variant_finish(pr, v)
+		}
+	}
+	v.used = u64(pr.total_samples)
+	if v.pipeline != 0 do pr.kernel, pr.kernel_features, pr.kernel_used = v.pipeline, f, true
+}
+
+// The general kernel of the kind this view runs, which a variant specialises: as
+// path_ensure and path_rq_kernel chose it.
+@(private = "file")
+path_variant_desc :: proc(pr: ^Path_Render, rq: bool) -> (desc: gpu.Compute_Pipeline_Desc, kind: gpu.Compute_Kind, capacity: u32) {
+	desc, kind = RENDER_TRACE_RQ_COMP if rq else RENDER_TRACE_COMP, .Traced if rq else .Plain
+	// The array kind exists only under Vulkan (path_maps_pipeline).
+	when gpu.VULKAN {
+		if pr.maps_array {
+			desc = RENDER_TRACE_MAPS_RQ_COMP if rq else RENDER_TRACE_MAPS_COMP
+			kind = .Traced if rq else .Array
+			capacity = 3 * pr.textured_max
+		}
+	}
+	return
+}
+
+// The features of the last specialised kernel render mode used, for the exit stats, as
+// hex (the item flags, then the image environment, the lens and sphere lights from bit 5),
+// or "general" when it used none.
+render_variant_name :: proc(pr: ^Path_Render) -> string {
+	f := pr.kernel_features
+	if !pr.kernel_used do return "general"
+	return fmt.tprintf("%x", f.items | u32(f.env_image) << 5 | u32(f.lens) << 6 | u32(f.sphere_lights) << 7)
 }

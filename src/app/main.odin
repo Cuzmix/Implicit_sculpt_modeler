@@ -82,6 +82,7 @@ Options :: struct {
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M, 10M and 20M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
 	async_compute: bool `usage:"Run render mode's bands on a compute queue of their own for this run, as Settings > System > Graphics > Async compute does, even on a device with one queue, where nothing overlaps but the waits between the queues still run: for testing them."`,
+	no_render_variants: bool `usage:"Render with render mode's general kernel only for this run, never the kernels it builds for each scene's features (for comparison)."`,
 	no_ray_query: bool `usage:"Trace the studio render's and render mode's rays by walking the app's own trees for this run, as Settings > System > Graphics > Ray tracing hardware off does, even where the GPU offers ray queries (for comparison)."`,
 	cpu_smooth: bool `usage:"Start with the Deformation card's On the GPU off, so Smooth all runs on the CPU even where the GPU is offered."`,
 	gpu_sculpt: bool `usage:"Start with Stats > Drawing > Sculpt on the GPU on, where it is offered, and in a scripted run too, which otherwise sculpts on the CPU: kernels lay each stroke's dabs and recompute its vertex normals on the GPU and read them back (README \"Sculpt on the GPU\")."`,
@@ -819,6 +820,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.renderer.partial = !opts.no_partial
 	app.renderer.tile_msaa = opts.tile_msaa
 	app.renderer.trace = !opts.no_trace
+	app.renderer.render_variants = !opts.no_render_variants
+	app.renderer.kernel_builds_wait = unattended
 	app.simplify = !opts.no_simplify
 	app.simplify_px = 1
 	app.frame_rate = .Unlimited if opts.no_vsync || opts.gpubench != "" else .Match_Display
