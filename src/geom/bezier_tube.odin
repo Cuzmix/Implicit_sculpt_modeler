@@ -7,10 +7,11 @@ import "core:math/linalg"
 // the curve at even steps, a rotation-minimising frame at each with the points' twist,
 // and at each step a profile outline sized by the radius there.
 
+// The profile presets (profile_preset): starting shapes for a tube's own outline.
 Tube_Profile :: enum u8 {
 	Round,
 	Square,
-	Ribbon, // a flat band, `flatness` of its width thick
+	Ribbon, // a flat band, a quarter of its width thick
 	Star, // five points
 	Half_Round, // a D, its flat side toward -N
 }
@@ -30,49 +31,25 @@ Tube_Caps :: enum u8 {
 }
 
 Tube_Options :: struct {
-	profile:  Tube_Profile,
+	profile:  Tube_Outline, // the cross-section (tube_profile.odin)
 	radius:   Tube_Radius,
 	one:      f32, // the radius with One
 	sides:    int, // round the profile: 3 to TUBE_SIDES_MAX
 	density:  f32, // rings per radius of length: more is smoother along the curve (3 keeps a bend round)
 	caps:     Tube_Caps,
-	flatness: f32, // a Ribbon's thickness over its width
 }
 
-TUBE_DEFAULTS :: Tube_Options{profile = .Round, radius = .Each, one = 0.05, sides = 16, density = 3, caps = .Round, flatness = 0.25}
+TUBE_DEFAULTS :: Tube_Options{profile = PROFILE_ROUND, radius = .Each, one = 0.05, sides = 16, density = 3, caps = .Round}
 TUBE_SIDES_MAX :: 64
 TUBE_RINGS_MAX :: 4096
 
 // How many rings a round cap adds.
 TUBE_CAP_RINGS :: 4
 
-// The profile's outline: `sides` points round the origin, x across the curve and y out
-// from it, of radius about one.
+// The profile's outline: `sides` points or more round the origin (every profile point
+// among them), x across the curve and y out from it, of radius about one.
 tube_outline :: proc(o: Tube_Options, allocator := context.temp_allocator) -> [][2]f32 {
-	n := clamp(o.sides, 3, TUBE_SIDES_MAX)
-	out := make([][2]f32, n, allocator)
-	for k in 0 ..< n {
-		a := 2 * math.PI * f32(k) / f32(n)
-		c, s := math.cos(a), math.sin(a)
-		switch o.profile {
-		case .Round:
-			out[k] = {c, s}
-		case .Square:
-			// The circle pushed out onto the square round it.
-			m := max(abs(c), abs(s))
-			out[k] = {c / m, s / m}
-		case .Ribbon:
-			m := max(abs(c), abs(s) / max(o.flatness, 0.01))
-			out[k] = {c / m, s / m}
-		case .Star:
-			// Five points: the radius swings between one and two fifths of it.
-			r := 0.7 + 0.3 * math.cos(5 * a)
-			out[k] = {r * c, r * s}
-		case .Half_Round:
-			out[k] = {c, max(s, -0.15)}
-		}
-	}
-	return out
+	return profile_sample(o.profile, clamp(o.sides, 3, TUBE_SIDES_MAX), allocator)
 }
 
 // The radius at sample `s` of a curve `length` long.

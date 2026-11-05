@@ -76,6 +76,8 @@ Curve_Tool :: struct {
 	drag:    Curve_Drag,
 	picked:  int,
 	edits:   int,
+	// The tube's profile pad on the tool card (curve_profile_pad.odin).
+	pad: Profile_Pad,
 	// The Edit tab (Tab): a press on empty space drags a box that picks points rather than
 	// drawing a new curve. `box` is that drag; `tap` the last tap on a point, for a double
 	// tap; `all_handles` shows every point's handles rather than the picked points' and
@@ -614,9 +616,25 @@ kit_curve_look :: proc(app: ^App, obj: ^Object) {
 		cp := obj.curve
 		look := look
 		o := &look.tube
+		// The presets start the outline over; the pad below edits it point by point.
 		profiles := [len(geom.Tube_Profile)]string{"Round", "Square", "Ribbon", "Star", "Half"}
-		if picked := ui.tabs(ctx, "tube profile", profiles[:], int(o.profile)); picked >= 0 {
-			o.profile = geom.Tube_Profile(picked)
+		if picked := ui.tabs(ctx, "tube profile", profiles[:], -1); picked >= 0 {
+			o.profile = geom.profile_preset(geom.Tube_Profile(picked))
+			app.curve.pad.picked = 0
+			set(app, look)
+		}
+		if changed, dragging := kit_profile_pad(app, &o.profile); changed do set(app, look, dragging)
+		if ui.switch_row(ctx, "Mirror", &o.profile.mirror) {
+			if o.profile.mirror {
+				// Point 0 and its partners take the right half's shape.
+				for i in 0 ..= o.profile.count / 2 do geom.profile_mirror_from(&o.profile, i)
+				geom.profile_auto_handles(&o.profile)
+			}
+			set(app, look)
+		}
+		point := app.curve.pad.picked - 1
+		if ui.button(ctx, "Delete point", width = ui.fill_width(ctx), enabled = point >= 0) && geom.profile_delete(&o.profile, point) {
+			app.curve.pad.picked = 0
 			set(app, look)
 		}
 		radii := [len(geom.Tube_Radius)]string{"One radius", "Ends", "Each point"}
@@ -649,9 +667,6 @@ kit_curve_look :: proc(app: ^App, obj: ^Object) {
 				o.caps = geom.Tube_Caps(picked)
 				set(app, look)
 			}
-		}
-		if o.profile == .Ribbon {
-			if ui.slider(ctx, "Flatness", &o.flatness, 0.02, 1, .Linear, fmt.tprintf("%.2f", o.flatness)) do set(app, look, true)
 		}
 	}
 

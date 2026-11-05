@@ -269,7 +269,7 @@ curve_tube_options_read_back :: proc(t: ^testing.T) {
 	cp := Curve_Part{closed = true, look = CURVE_LOOK_DEFAULTS}
 	defer delete(cp.points)
 	append(&cp.points, geom.Bezier_Point{p = {0, 0, 0}, radius = 1}, geom.Bezier_Point{p = {1, 0, 0}, radius = 1}, geom.Bezier_Point{p = {0, 1, 0}, radius = 1})
-	cp.tube = {profile = .Star, radius = .One, one = 0.3, sides = 7, density = 2.5, caps = .Open, flatness = 0.4}
+	cp.tube = {profile = geom.profile_preset(.Star), radius = .One, one = 0.3, sides = 7, density = 2.5, caps = .Open}
 	cp.lathe = {axis = {0, 0, 1}, through = .End, angle = 270, segments = 200, caps = false}
 	cp.along = {part = .Tooth, opts = {gap = 0.7, alternate = true, lift = -0.3, up = {1, 0, 0}}}
 	bytes: [dynamic]u8
@@ -304,14 +304,14 @@ curve_tube_options_read_back :: proc(t: ^testing.T) {
 	testing.expect(t, !ok, "a lathe with no axis was read")
 	sides := make([]u8, len(bytes), context.temp_allocator)
 	copy(sides, bytes[:])
-	sides[6 + 3 * CURVE_POINT_BYTES + 6] = 2
+	sides[6 + 3 * CURVE_POINT_BYTES + 5] = 2
 	_, ok = read(sides)
 	testing.expect(t, !ok, "two sides were read")
 	profile := make([]u8, len(bytes), context.temp_allocator)
 	copy(profile, bytes[:])
-	profile[6 + 3 * CURVE_POINT_BYTES] = 9
+	profile[6 + 3 * CURVE_POINT_BYTES + 11] = 2
 	_, ok = read(profile)
-	testing.expect(t, !ok, "a profile past the last was read")
+	testing.expect(t, !ok, "a profile of two points was read")
 }
 
 // Choosing Lathe sets the axis to the view's vertical in the curve's space, through the
@@ -336,15 +336,17 @@ curve_lathe_takes_the_view_axis :: proc(t: ^testing.T) {
 	testing.expect(t, c.axis == geom.LATHE_DEFAULTS.axis && c.angle == 360 && c.segments == 3)
 }
 
-// Cleaning keeps a tube buildable: sides in range, density and flatness positive.
+// Cleaning keeps a tube buildable: sides in range, density positive, a profile of three
+// points or more.
 @(test)
 curve_tube_clean_bounds :: proc(t: ^testing.T) {
-	o := curve_tube_clean({sides = 1, density = 0, flatness = -1, one = -2})
+	o := curve_tube_clean({sides = 1, density = 0, one = -2})
 	testing.expect_value(t, o.sides, 3)
-	testing.expect(t, o.density > 0 && o.flatness > 0 && o.one == 0)
-	o = curve_tube_clean({sides = 999, density = 100, flatness = 0.5, one = 0.2})
+	testing.expect(t, o.density > 0 && o.one == 0)
+	testing.expect(t, o.profile == geom.PROFILE_ROUND, "an empty profile was kept")
+	o = curve_tube_clean({sides = 999, density = 100, one = 0.2, profile = geom.profile_preset(.Star)})
 	testing.expect_value(t, o.sides, geom.TUBE_SIDES_MAX)
-	testing.expect(t, o.density <= 16 && o.flatness == 0.5 && o.one == 0.2)
+	testing.expect(t, o.density <= 16 && o.one == 0.2 && o.profile.count == 10)
 }
 
 // A curve is its own type: the chip says Curve and its conversion is Bake, which needs a tube.

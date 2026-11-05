@@ -1565,6 +1565,25 @@ def tube_drawn_by_pen_follows_its_points():
 
 
 @scenario
+def tube_profile_pad_edits_the_outline():
+    """A tube curve's chip opens the Curve tool's card, whose profile pad shows the round
+    outline; a click on the outline adds a point and its mirror partner, and a mouse drag on
+    its right point pulls it out, its partner following (one undo step each; look with
+    --screens)."""
+    s = Script()
+    tube_loop(s)
+    s.ftap(UI["inspector"])
+    s.wait(10)
+    s.mouse_drag(line((1425, 657), (1425, 657), 1))
+    s.wait(3)
+    s.mouse_drag(line((1447, 708), (1490, 700), 6))
+    s.wait(3)
+    s.wait(3)
+    return s, ["--script=tool_curve; set curve tube"], camera_still({"curves": near(1), "curve_tubes": near(1), "undo_steps": near(4),
+                                                                    "dabs": near(0)})
+
+
+@scenario
 def tube_baked_from_the_palette_and_undone():
     """A tube curve baked by the palette's Bake curve becomes a mesh object in its place (the
     curve goes, one undo step), and Ctrl+Z brings the curve and its tube back."""
