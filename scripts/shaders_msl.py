@@ -148,7 +148,9 @@ def slots(source, metal, spirv):
     resources, writes, uniforms = SETS[stage]
     where = {p["name"]: p.get("binding", p.get("bindings")) for p in metal}
     kinds = {k: [] for k in ("s", "rt", "wt", "rb", "wb", "u", "a")}
-    for p in sorted(spirv, key=lambda p: (p["binding"].get("space", 0), p["binding"]["index"])):
+    # Specialization constants (Metal's function constants) take no slot.
+    bound = [p for p in spirv if p["binding"].get("kind") != "specializationConstant"]
+    for p in sorted(bound, key=lambda p: (p["binding"].get("space", 0), p["binding"]["index"])):
         space, t, m = p["binding"].get("space", 0), p["type"], where[p["name"]]
         if t["kind"] == "constantBuffer":
             if space == uniforms:

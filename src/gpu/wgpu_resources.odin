@@ -672,6 +672,12 @@ wgpu_release_graphics_pipeline :: proc(graphics_pipeline: rawptr) {
 // ---- Compute pipelines --------------------------------------------------------------
 
 wgpu_create_compute_pipeline :: proc(#by_ptr info: Compute_Pipeline_Desc) -> rawptr {
+	// slangc's WGSL has no pipeline-overridable constants for the kernels' specialization
+	// constants, so a kernel given values for them cannot be made here.
+	if len(info.constants) > 0 {
+		fail(.Unsupported, "WebGPU: kernels take no specialization constants")
+		return nil
+	}
 	code := info.code
 	if reason := wgpu_unavailable(code); reason != "" {
 		wgpu_fail("WebGPU: this kernel has no WGSL form (%s)", reason)

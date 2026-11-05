@@ -918,9 +918,22 @@ vk_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, array: u32, accel:
 	if module == 0 do return nil
 	defer vk.DestroyShaderModule(vk_state.device, module, nil)
 	entry := info.entrypoint if info.entrypoint != nil else "main"
+	// Constant i is the 32 bits at offset 4i, with constant_id i.
+	if len(info.constants) > COMPUTE_CONSTANTS_MAX {
+		fail(.Unsupported, "Vulkan: a kernel takes at most %d specialization constants", COMPUTE_CONSTANTS_MAX)
+		return nil
+	}
+	entries: [COMPUTE_CONSTANTS_MAX]vk.SpecializationMapEntry
+	for &e, i in entries[:len(info.constants)] do e = {constantID = u32(i), offset = u32(4 * i), size = 4}
+	special := vk.SpecializationInfo {
+		mapEntryCount = u32(len(info.constants)),
+		pMapEntries   = &entries[0],
+		dataSize      = 4 * len(info.constants),
+		pData         = raw_data(info.constants),
+	}
 	create := vk.ComputePipelineCreateInfo {
 		sType  = .COMPUTE_PIPELINE_CREATE_INFO,
-		stage  = {sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.COMPUTE}, module = module, pName = entry},
+		stage  = {sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.COMPUTE}, module = module, pName = entry, pSpecializationInfo = &special if len(info.constants) > 0 else nil},
 		layout = layout.layout,
 	}
 	p := new(Vk_Pipeline)
