@@ -43,6 +43,14 @@ Ref_Board :: struct {
 	note:     [REF_NOTE_MAX]u8,
 	note_id:  u32,
 	note_before: []Ref,
+	// The board before the Opacity slider began to move (owned), for its one undo step.
+	opacity_before: []Ref,
+	// Over the view (refs_view.odin): each place's fade under the pointer, the drag under
+	// way on one and which, and where the pointer was.
+	fades:     map[u32]f32,
+	view_drag: Ref_Drag,
+	view_id:   u32,
+	view_last: [2]f32,
 }
 
 CROP_LEFT :: 1
@@ -155,7 +163,6 @@ board_fit :: proc(app: ^App, room: ui.Rect) {
 }
 
 // Whether place `id` is picked.
-@(private = "file")
 board_picked :: proc(b: ^Ref_Board, id: u32) -> bool {
 	for s in b.selected do if s == id do return true
 	return false
@@ -188,7 +195,7 @@ refs_add_note :: proc(app: ^App) {
 	refs := &app.scene.refs
 	before := refs_clone(refs.refs[:])
 	refs.next_ref += 1
-	n := Ref{id = refs.next_ref, at = board_drop_point(app), size = REF_NOTE_SIZE, crop_hi = 1, sized = true}
+	n := Ref{id = refs.next_ref, at = board_drop_point(app), size = REF_NOTE_SIZE, crop_hi = 1, sized = true, view_at = REF_VIEW_AT, view_w = REF_VIEW_W, opacity = 1}
 	copy(n.text[:REF_NOTE_MAX - 1], "Note")
 	append(&refs.refs, n)
 	history_record_refs(app, before, "Add note")
@@ -286,14 +293,15 @@ refs_same_height :: proc(app: ^App) {
 }
 
 // The edits of the picked places' row, each one undo step on the picked pictures (notes
-// pass them by): Flip and Grey set every one as the first is not, Turn turns the
-// unlocked ones a quarter clockwise about their middles, Lock sets every picked place
-// (notes too) as the first is not.
+// pass them by): Flip, Grey and On view set every one as the first is not, Turn turns
+// the unlocked ones a quarter clockwise about their middles, Lock sets every picked
+// place (notes too) as the first is not.
 Ref_Edit :: enum u8 {
 	Flip,
 	Grey,
 	Turn,
 	Lock,
+	View,
 }
 
 refs_edit :: proc(app: ^App, edit: Ref_Edit) {
@@ -316,6 +324,8 @@ refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 			r.grey = !f.grey
 		case .Lock:
 			r.locked = !f.locked
+		case .View:
+			r.view = !f.view
 		case .Turn:
 			if r.locked do continue
 			middle := r.at + r.size * 0.5
@@ -328,7 +338,7 @@ refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 		delete(before)
 		return
 	}
-	names := [Ref_Edit]string{.Flip = "Flip reference", .Grey = "Grey reference", .Turn = "Turn reference", .Lock = "Lock reference"}
+	names := [Ref_Edit]string{.Flip = "Flip reference", .Grey = "Grey reference", .Turn = "Turn reference", .Lock = "Lock reference", .View = "Reference on view"}
 	history_record_refs(app, before, names[edit])
 	if edit == .Turn || edit == .Lock do b.cropping = 0
 }
@@ -412,12 +422,36 @@ refs_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 		if ui.icon_button(ctx, "Turn##refs", ICON_TURN, enabled = pictures) do refs_edit(app, .Turn)
 		crop_ok := one != nil && one.image != 0 && !one.locked
 		if ui.icon_button(ctx, "Crop##refs", ICON_CROP, selected = b.cropping != 0, enabled = crop_ok) do b.cropping = 0 if b.cropping != 0 else one.id
+		if ui.icon_button(ctx, "On view##refs", ICON_ON_VIEW, selected = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.view}), enabled = pictures) do refs_edit(app, .View)
 	}
 	locked := refs_picked_all(app, proc(r: Ref) -> bool {return r.locked})
 	if ui.icon_button(ctx, "Unlock##refs" if locked else "Lock##refs", ICON_LOCK if locked else ICON_LOCK_OPEN, selected = locked, enabled = picked) do refs_edit(app, .Lock)
 	if ui.icon_button(ctx, "Delete##refs", ICON_TRASH_2, enabled = picked) do refs_delete_selected(app)
 	ui.end(ctx)
-	board_h := max(room - 2 * t.target - 2 * t.gap, BOARD_MIN_H)
+	rows: f32 = 2
+	// The picked places over the view: their opacity, the first one's shown, set on all.
+	viewed: ^Ref
+	for &r in refs.refs do if board_picked(b, r.id) && r.view && r.image != 0 {
+		viewed = &r
+		break
+	}
+	if viewed != nil {
+		rows += 1
+		value := viewed.opacity * 100
+		ui.begin(ctx, "refs view", {direction = .Row, width = inner, gap = t.gap, center = true})
+		if ui.slider(ctx, "Opacity##refs", &value, REF_OPACITY_MIN * 100, 100, .Linear, fmt.tprintf("%.0f%%", value)) {
+			if b.opacity_before == nil do b.opacity_before = refs_clone(refs.refs[:])
+			for &r in refs.refs do if board_picked(b, r.id) && r.view && r.image != 0 do r.opacity = value / 100
+			app.scene_edits += 1
+		}
+		ui.end(ctx)
+	}
+	if b.opacity_before != nil && .Left not_in ctx.input.down {
+		if slice.equal(b.opacity_before, refs.refs[:]) do delete(b.opacity_before)
+		else do history_record_refs(app, b.opacity_before, "Reference opacity")
+		b.opacity_before = nil
+	}
+	board_h := max(room - rows * t.target - rows * t.gap, BOARD_MIN_H)
 	ui.begin(ctx, "refs board", {width = inner, height = board_h, clip = true, radius = t.radius_medium})
 	a := ui.area(ctx, "board", {inner, board_h})
 	ui.end(ctx)
@@ -427,6 +461,26 @@ refs_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 	b.room = r
 	board_input(app, a)
 	board_draw(app, r)
+}
+
+// Draws picture place `p` at screen rect `at`, at opacity `alpha`: its GPU copy cropped,
+// flipped and turned (the grey copy once made, when grey), or a box saying it loads or
+// why it cannot be shown.
+refs_picture_draw :: proc(app: ^App, at: ui.Rect, p: Ref, alpha: u8) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	refs := &app.scene.refs
+	slot := ref_image_slot(refs, p.image)
+	img := refs.images[slot]
+	if img.texture != 0 {
+		id := KIT_REF_IMAGE + u64(slot)
+		if p.grey && img.grey != 0 do id += REF_IMAGES_MAX
+		ui.image_corners(ctx, at, id, ref_corners(p), {255, 255, 255, alpha})
+		return
+	}
+	ui.fill_rect(ctx, at, 0, {t.fill.r, t.fill.g, t.fill.b, u8(u32(t.fill.a) * u32(alpha) / 255)})
+	note := "Loading" if img.failed == "" else fmt.tprintf("Cannot show %s: %s", img.name, img.failed)
+	ui.text(ctx, ui.text_fit(ctx, note, t.small_size, at.w - t.gap), at.x + at.w * 0.5, at.y + at.h * 0.5, t.small_size, t.text_tertiary, .Regular, .Center)
 }
 
 // The board's ground, its pictures and notes, and the picked ones' outlines and corner (or
@@ -485,30 +539,13 @@ board_draw :: proc(app: ^App, r: ui.Rect) {
 	ui.text(ctx, fmt.tprintf("%d%%", z), r.x + r.w - t.gap, r.y + r.h - t.gap, t.small_size, t.text_tertiary, .Regular, .Right)
 }
 
-// Picture place `p` on the board drawn at `r`, at opacity `alpha`: its GPU copy cropped,
-// flipped and turned (the grey copy once made, when grey), or a box saying it loads or
-// why it cannot be shown.
+// Picture place `p` on the board drawn at `r`, at opacity `alpha`.
 @(private = "file")
 board_picture :: proc(app: ^App, r: ui.Rect, p: Ref, alpha: u8) {
-	ctx := &app.kit.ctx
-	t := ctx.theme
-	refs := &app.scene.refs
-	at := board_rect(&app.kit.board, r, p)
-	slot := ref_image_slot(refs, p.image)
-	img := refs.images[slot]
-	if img.texture != 0 {
-		id := KIT_REF_IMAGE + u64(slot)
-		if p.grey && img.grey != 0 do id += REF_IMAGES_MAX
-		ui.image_corners(ctx, at, id, ref_corners(p), {255, 255, 255, alpha})
-		return
-	}
-	ui.fill_rect(ctx, at, 0, t.fill)
-	note := "Loading" if img.failed == "" else fmt.tprintf("Cannot show %s: %s", img.name, img.failed)
-	ui.text(ctx, ui.text_fit(ctx, note, t.small_size, at.w - t.gap), at.x + at.w * 0.5, at.y + at.h * 0.5, t.small_size, t.text_tertiary, .Regular, .Center)
+	refs_picture_draw(app, board_rect(&app.kit.board, r, p), p, alpha)
 }
 
 // The reach of a picked picture's corner, which sizes it: a finger's target.
-@(private = "file")
 board_corner :: proc(ctx: ^ui.Context) -> f32 {
 	return ctx.theme.target * 0.5
 }
@@ -581,6 +618,11 @@ board_input :: proc(app: ^App, a: ui.Area) {
 			}
 		}
 		switch {
+		case app.ui.eyedrop_armed && hit >= 0 && refs.refs[hit].image != 0:
+			// The Eyedropper waiting for its press takes the picture's colour.
+			app.ui.eyedrop_armed = false
+			refs_pick_color(app, refs.refs[hit], board_rect(b, room, refs.refs[hit]), a.mouse)
+			b.drag = .None
 		case b.edges != 0:
 			b.drag = .Crop
 		case corner:
@@ -629,6 +671,7 @@ board_input :: proc(app: ^App, a: ui.Area) {
 		}
 		b.last = a.mouse
 	}
+	if !a.held && b.drag == .Move && b.before != nil && board_pin_drop(app, room, a.mouse) do b.drag = .None
 	if !a.held && b.drag != .None {
 		if (b.drag == .Move || b.drag == .Size || b.drag == .Crop) && b.before != nil {
 			if !slice.equal(b.before, refs.refs[:]) {
@@ -646,6 +689,28 @@ board_input :: proc(app: ^App, a: ui.Area) {
 // board_crop_drag for the tests.
 board_crop_test_drag :: proc(p: ^Ref, at: [2]f32, edges: u8) {
 	board_crop_drag(p, at, edges)
+}
+
+// A picture dragged off the board and let go over the view stands there over the view,
+// its place on the board as it was: one undo step. False when the drop is not over the
+// view or more than one picture is dragged.
+@(private = "file")
+board_pin_drop :: proc(app: ^App, room: ui.Rect, at: [2]f32) -> bool {
+	k := &app.kit
+	main := k.grid.main
+	if ui.rect_contains(room, at) || !ui.rect_contains(main, at) || main.w <= 0 do return false
+	one := board_one(app)
+	if one == nil || one.image == 0 do return false
+	id := one.id
+	board_drag_cancel(app)
+	before := refs_clone(app.scene.refs.refs[:])
+	p := &app.scene.refs.refs[ref_index(&app.scene.refs, id)]
+	p.view = true
+	r := refs_view_rect(main, p^)
+	// Its middle where it was let go.
+	p.view_at = {(at.x - r.w * 0.5 - main.x) / main.w, (at.y - r.h * 0.5 - main.y) / main.h}
+	history_record_refs(app, before, "Reference on view")
+	return true
 }
 
 // Moves crop edges `edges` of place `p` to board point `at`, within the whole picture
@@ -694,3 +759,4 @@ ICON_FLIP_PICTURE :: rune(0xe361)
 ICON_GREY :: rune(0xe2b2)
 ICON_TURN :: rune(0xe5d6)
 ICON_CROP :: rune(0xe0af)
+ICON_ON_VIEW :: rune(0xe3b3) // picture-in-picture-2

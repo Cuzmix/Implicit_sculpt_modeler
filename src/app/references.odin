@@ -37,6 +37,10 @@ Ref_Image :: struct {
 	// alone costs memory until then; grey_failed keeps a refused one from being tried again.
 	grey:        render.Texture,
 	grey_failed: bool,
+	// A small copy on the CPU, REF_SAMPLE_SIDE on its long side at most, for the
+	// Eyedropper's picks on the board and over the view.
+	sample:      []u8,
+	sample_size: [2]int,
 	decode:  ^Ref_Decode,
 	failed:  string, // why it cannot be shown, owned; "" while it can
 	used:    bool, // refs_collect's mark
@@ -49,7 +53,10 @@ Ref_Image :: struct {
 // mirrored left to right when flipped, then turned a quarter clockwise `turn` times, in
 // grey when `grey`; none of it changes the picture's file. A locked place stays where it
 // is: it is picked but neither moved, sized, cropped nor turned. A place of image 0 is a
-// note, its text NUL-ended in `text`, drawn in its box at a size its height sets.
+// note, its text NUL-ended in `text`, drawn in its box at a size its height sets. A
+// picture's place can also stand over the view (`view`): its top left at `view_at` and
+// its width `view_w`, as parts of the main view's width (its height from its shape), at
+// `opacity`.
 Ref :: struct {
 	id:      u32,
 	image:   u32,
@@ -62,8 +69,23 @@ Ref :: struct {
 	grey:    bool,
 	locked:  bool,
 	sized:   bool,
+	view:    bool,
+	view_at: [2]f32,
+	view_w:  f32,
+	opacity: f32,
 	text:    [REF_NOTE_MAX]u8,
 }
+
+// How a picture first stands over the view: under a third of its width, by its top left (the
+// cards open on the pen side, at the right), at
+// half its strength, so the model still shows through it.
+REF_VIEW_W :: 0.3
+REF_VIEW_AT :: [2]f32{0.08, 0.16}
+REF_OPACITY :: 0.5
+// The least opacity a place over the view takes: below it, it is better hidden.
+REF_OPACITY_MIN :: 0.05
+// The longest side of a picture's copy kept for the Eyedropper.
+REF_SAMPLE_SIDE :: 512
 
 // The longest note, in bytes with its ending NUL: a label, not a document.
 REF_NOTE_MAX :: 96
@@ -76,6 +98,7 @@ References :: struct {
 	refs:       [dynamic]Ref,
 	next_image: u32,
 	next_ref:   u32,
+	view_off:   bool, // the places over the view are hidden (Show refs)
 }
 
 // The longest side of a picture's GPU copy: a tablet keeps a fourth of the texels a
@@ -105,6 +128,8 @@ Ref_Decode :: struct {
 	height:    int,
 	shown:     [2]int,
 	kept:      []u8,
+	sample:    []u8,
+	sample_size: [2]int,
 	why:       string,
 	ms:        f64,
 	grey:      bool, // the grey copy, in place of the colour one
@@ -163,7 +188,7 @@ refs_add :: proc(app: ^App, name: string, bytes: []u8, at: [2]f32) -> (ref: Ref,
 		if w, h, ok := image_size_peek(img.bytes); ok do img.width, img.height = w, h
 	}
 	refs.next_ref += 1
-	ref = {id = refs.next_ref, image = img.id, at = at, size = REF_ADD_HEIGHT, crop_hi = 1}
+	ref = {id = refs.next_ref, image = img.id, at = at, size = REF_ADD_HEIGHT, crop_hi = 1, view_at = REF_VIEW_AT, view_w = REF_VIEW_W, opacity = REF_OPACITY}
 	if img.width > 0 do ref = ref_sized(ref, img)
 	append(&refs.refs, ref)
 	return ref, ""
@@ -352,6 +377,7 @@ ref_image_free :: proc(app: ^App, img: ^Ref_Image) {
 	}
 	render.matcap_destroy(&app.renderer, &img.texture)
 	render.matcap_destroy(&app.renderer, &img.grey)
+	delete(img.sample)
 	delete(img.name)
 	delete(img.bytes)
 	delete(img.failed)
@@ -363,6 +389,7 @@ ref_decode_free :: proc(d: ^Ref_Decode) {
 	heap := runtime.heap_allocator()
 	delete(d.pixels, heap)
 	delete(d.kept, heap)
+	delete(d.sample, heap)
 	delete(d.why, heap)
 	free(d, heap)
 }
@@ -373,7 +400,7 @@ refs_clear :: proc(app: ^App) {
 	for img in refs.images do ref_image_free(app, img)
 	clear(&refs.images)
 	clear(&refs.refs)
-	refs.next_image, refs.next_ref = 0, 0
+	refs.next_image, refs.next_ref, refs.view_off = 0, 0, false
 	clear(&app.kit.board.selected)
 }
 
@@ -389,6 +416,10 @@ refs_destroy :: proc(app: ^App) {
 	app.kit.board.before = nil
 	delete(app.kit.board.note_before)
 	app.kit.board.note_before = nil
+	delete(app.kit.board.opacity_before)
+	app.kit.board.opacity_before = nil
+	delete(app.kit.board.fades)
+	app.kit.board.fades = nil
 }
 
 // Frees the pictures neither the board nor any step of the History places, once the
@@ -535,6 +566,12 @@ ref_decode :: proc(d: ^Ref_Decode) {
 		d.kept = png_write.encode(small, sw, sh, alpha = true)
 		d.width, d.height = sw, sh
 	}
+	if !d.grey {
+		small, sw, sh := rgba_shrink(rgba, w, h, REF_SAMPLE_SIDE, context.temp_allocator)
+		d.sample = make([]u8, len(small))
+		copy(d.sample, small)
+		d.sample_size = {sw, sh}
+	}
 	shown, gw, gh := rgba_shrink(rgba, w, h, d.side, context.temp_allocator)
 	d.pixels = make([]u8, len(shown))
 	copy(d.pixels, shown)
@@ -595,6 +632,9 @@ ref_decode_take :: proc(app: ^App, img: ^Ref_Image) {
 		app.scene_edits += 1
 	}
 	img.width, img.height = d.width, d.height
+	img.sample = make([]u8, len(d.sample))
+	copy(img.sample, d.sample)
+	img.sample_size = d.sample_size
 	img.texture = render.picture_create(&app.renderer, d.pixels, d.shown.x, d.shown.y)
 	img.shown = d.shown
 	if img.texture == 0 do img.failed = strings.clone(fmt.tprintf("the GPU refused a %d x %d picture", d.shown.x, d.shown.y))
@@ -640,6 +680,7 @@ refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {
 	defer scene_chunk_end(out, at)
 	geom.byte_put(out, refs.next_image)
 	geom.byte_put(out, refs.next_ref)
+	geom.byte_put(out, u8(refs.view_off))
 	geom.byte_put(out, u32(len(refs.images)))
 	for img in refs.images {
 		geom.byte_put(out, img.id)
@@ -658,7 +699,10 @@ refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {
 		geom.byte_put(out, r.crop_lo)
 		geom.byte_put(out, r.crop_hi)
 		geom.byte_put(out, r.turn)
-		geom.byte_put(out, u8(r.flip) | u8(r.grey) << 1 | u8(r.locked) << 2 | u8(r.sized) << 3)
+		geom.byte_put(out, u8(r.flip) | u8(r.grey) << 1 | u8(r.locked) << 2 | u8(r.sized) << 3 | u8(r.view) << 4)
+		geom.byte_put(out, r.view_at)
+		geom.byte_put(out, r.view_w)
+		geom.byte_put(out, r.opacity)
 		if r.image == 0 do geom.byte_put_string(out, ref_note_text(&r))
 	}
 }
@@ -670,8 +714,10 @@ refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {
 refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
 	refs.next_image = geom.byte_get(r, u32)
 	refs.next_ref = geom.byte_get(r, u32)
+	view_off := geom.byte_get(r, u8)
+	refs.view_off = view_off == 1
 	images := int(geom.byte_get(r, u32))
-	if !r.ok || images > REF_IMAGES_MAX do return {}, false
+	if !r.ok || images > REF_IMAGES_MAX || view_off > 1 do return {}, false
 	defer if !ok do refs_free(&refs)
 	for _ in 0 ..< images {
 		img := new(Ref_Image)
@@ -700,13 +746,19 @@ refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
 		p.crop_hi = geom.byte_get(r, [2]f32)
 		p.turn = geom.byte_get(r, u8)
 		bits := geom.byte_get(r, u8)
-		if !r.ok || bits > 15 || p.turn > 3 || p.id == 0 || p.id > refs.next_ref do return
+		p.view_at = geom.byte_get(r, [2]f32)
+		p.view_w = geom.byte_get(r, f32)
+		p.opacity = geom.byte_get(r, f32)
+		if !(abs(p.view_at.x) <= 4 && abs(p.view_at.y) <= 4 && p.view_w > 0 && p.view_w <= 4) do return
+		if !(p.opacity >= REF_OPACITY_MIN && p.opacity <= 1) do return
+		if !r.ok || bits > 31 || p.turn > 3 || p.id == 0 || p.id > refs.next_ref do return
 		if p.image != 0 && ref_image(&refs, p.image) == nil do return
 		if !(p.size.x > 0 && p.size.y > 0 && p.size.x < math.F32_MAX && p.size.y < math.F32_MAX) do return
 		if !(abs(p.at.x) < math.F32_MAX && abs(p.at.y) < math.F32_MAX) do return
 		if !(p.crop_lo.x >= 0 && p.crop_lo.y >= 0 && p.crop_hi.x <= 1 && p.crop_hi.y <= 1) do return
 		if !(p.crop_lo.x < p.crop_hi.x && p.crop_lo.y < p.crop_hi.y) do return
-		p.flip, p.grey, p.locked, p.sized = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0
+		p.flip, p.grey, p.locked, p.sized, p.view = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0, bits & 16 != 0
+		if p.view && p.image == 0 do return
 		if p.image == 0 {
 			text := geom.byte_get_string(r, context.temp_allocator)
 			if !r.ok || len(text) >= REF_NOTE_MAX do return
@@ -722,6 +774,7 @@ refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
 refs_free :: proc(refs: ^References) {
 	for img in refs.images {
 		delete(img.name)
+		delete(img.sample)
 		delete(img.bytes)
 		delete(img.failed)
 		free(img)
