@@ -71,6 +71,7 @@ Script_Verb :: enum u8 {
 	Reference,
 	Reference_Plane,
 	Stack,
+	Curve_Add,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -108,7 +109,8 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Export_Bary   = {"export_bary", "a .bary file to write the selected object's detail skin to, as an NVIDIA displacement micro-map"},
 	.Reference     = {"reference", "an image file (PNG, JPEG, BMP, TGA or QOI) to add to the References card's board"},
 	.Reference_Plane = {"reference_plane", "front, back, right, left, top, bottom or none: the view whose plane in the scene the newest picture stands on, and through to draw it over the model"},
-	.Stack         = {"stack", "the selected object's live stack: mirror x (planes together as xz, -x for the - side), array 4 2.2 0 0 (count and step, then turn x y z and size s), radial 6 y (count and axis), mirror off, show array, hide radial or apply stack"},
+	.Stack         = {"stack", "the selected object's live stack: mirror x (planes together as xz, -x for the - side), array 4 2.2 0 0 (count and step, then turn x y z and size s), radial 6 y (count and axis), along 8 x (count and the axis along the scene's curve), mirror off, show array, hide radial or apply stack"},
+	.Curve_Add     = {"curve_add", "two or more points, x y z each, of an open curve object to add, smooth through them (as the Curve tool lays one)"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -536,7 +538,7 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		n, ok := strconv.parse_int(args[0])
 		st.count = n
 		return ok && n >= 1
-	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack, .Environment, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference, .Stack:
+	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack, .Environment, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference, .Stack, .Curve_Add:
 		// A name or path may have spaces: it is the rest of the line.
 		if len(args) == 0 do return false
 		st.text = strings.join(args, " ")
@@ -616,6 +618,8 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		if st.flip do app.focus = nil
 		else do app.focus = st.numbers.xyz
 		return "", true
+	case .Curve_Add:
+		return script_curve_add(app, st.text), true
 	case .Stack:
 		// As the Live stack card's rows do, one undo step each.
 		if why := stack_script(app, obj, st.text); why != "" do return why, true
@@ -737,7 +741,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			if why := group_material_set(obj, u16(st.count), current_material(app), st.flip); why != "" do return why, true
 			app.scene_edits += 1
 			return "", true
-		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference, .Reference_Plane, .Stack:
+		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference, .Reference_Plane, .Stack, .Curve_Add:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true
@@ -1061,4 +1065,25 @@ script_finish :: proc(app: ^App) {
 	if app.saved_fp == r.fp do app.saved_fp = fp
 	stats_restart(&app.stats)
 	app.kit.events_offset = r.frames
+}
+
+// The script verb `curve_add`: an open curve object through the points `text` lists (x y z
+// each), smooth through them and as wide as the Curve tool's, one undo step. What went
+// wrong, or "" when it was added.
+@(private = "file")
+script_curve_add :: proc(app: ^App, text: string) -> string {
+	words := strings.fields(text, context.temp_allocator)
+	if len(words) < 3 * CURVE_MIN_POINTS || len(words) % 3 != 0 do return "curve_add takes two or more points, x y z each"
+	points := make([]geom.Bezier_Point, len(words) / 3, context.temp_allocator)
+	for &p, i in points {
+		for k in 0 ..< 3 {
+			v, ok := strconv.parse_f32(words[3 * i + k])
+			if !ok || !(abs(v) <= 1e4) do return fmt.tprintf("%q is not a number from -10000 to 10000", words[3 * i + k])
+			p.p[k] = v
+		}
+		p.radius, p.intensity = CURVE_LOOK_DEFAULTS.tube.one, 1
+	}
+	for i in 0 ..< len(points) do geom.bezier_make_smooth(points, false, i)
+	if !curve_object_add(app, points, false) do return "the curve could not be made"
+	return ""
 }
