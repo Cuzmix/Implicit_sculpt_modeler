@@ -19,9 +19,9 @@ import "../sparse"
 // of others, the one whose period times coefficient is least going (M2), which keeps the
 // integers as integers. Every unknown is then a combination of the remaining groups (its
 // kernel line), and the energy is rewritten over those. The least squares is solved over
-// the groups, every integer group rounded to its period at once, and solved again with
-// those held, as AutoRemesher's greedy rounding does when its threshold takes them all in its
-// first round. The solves go through src/sparse (AMD and the supernodal Cholesky) where
+// the groups, the integer groups rounded to their periods in rounds (mixed_solve says
+// why, where AutoRemesher's threshold took them all in its first round), and solved again
+// with those held. The solves go through src/sparse (AMD and the supernodal Cholesky) where
 // AutoRemesher used Eigen, and keep their orderings and structures (Least_System), so the
 // landing's later covers, whose rows have the same pattern and new numbers, only refill
 // and refactor.
@@ -54,6 +54,11 @@ TINY :: 1e-14
 // The ridge on a normal matrix, relative to its mean diagonal (ConstrainedLeastSquares's).
 @(private = "file")
 LEAST_RIDGE :: 1e-10
+
+// How stiffly an integer rounded in an earlier round is held during the later ones
+// (mixed_solve), as a multiple of the normal matrix's mean diagonal.
+@(private = "file")
+ROUNDING_STIFFNESS :: 1e4
 
 // An unknown M0 dropped.
 @(private = "file")
@@ -491,10 +496,16 @@ remove_column :: proc(m: ^Mixed, row: []Coeff, remove: int) {
 
 // The least squares over the kernel, every integer group then rounded to its period and
 // the least squares solved again with them held (solveIteration twice), `free` and `held`
-// the two solves' systems. False when a solve fails; `integers` is how many groups were
-// rounded.
+// the two solves' systems. With `rounds` above 1 the integers are rounded in that many
+// rounds, those nearest a multiple of their period first, each round's held near its
+// multiple by ROUNDING_STIFFNESS while the rest are solved again around them (CoMISo's
+// greedy rounding, a batch at a time), and only then all held exactly: two near-halfway
+// neighbours rounded at once can round apart and fold the cells between them, where in
+// rounds the later ones round where the earlier left them. The weight sits on the
+// diagonal, so a round only refactors the free system's numbers, but each is a
+// factorization. False when a solve fails; `integers` is how many groups were rounded.
 @(private)
-mixed_solve :: proc(m: ^Mixed, free, held_system: ^Least_System, pool: ^jobs.Pool, report: proc(data: rawptr, fraction: f32) -> bool = nil, data: rawptr = nil) -> (ok: bool, integers: int, cancelled: bool) {
+mixed_solve :: proc(m: ^Mixed, free, held_system: ^Least_System, pool: ^jobs.Pool, rounds := 1, report: proc(data: rawptr, fraction: f32) -> bool = nil, data: rawptr = nil) -> (ok: bool, integers: int, cancelled: bool) {
 	heap := runtime.heap_allocator()
 	if m.kernel_size == 0 do return
 	fixed := make([]bool, m.kernel_size, heap)
@@ -507,6 +518,34 @@ mixed_solve :: proc(m: ^Mixed, free, held_system: ^Least_System, pool: ^jobs.Poo
 	for p in m.period do if p > 0 do integers += 1
 	if integers == 0 do return true, 0, false
 	if report != nil && !report(data, 0.5) do return false, integers, true
+	steps := min(rounds, integers)
+	if steps > 1 {
+		penalty := make([]f64, m.kernel_size, heap)
+		defer delete(penalty, heap)
+		Nearness :: struct {
+			i:   int,
+			off: f64, // how far the value is from its multiple, in periods
+		}
+		order := make([dynamic]Nearness, 0, integers, heap)
+		defer delete(order)
+		for r in 0 ..< steps - 1 {
+			clear(&order)
+			for p, i in m.period do if p > 0 && penalty[i] == 0 {
+				q := m.values[i] / f64(p)
+				append(&order, Nearness{i, abs(q - math.round(q))})
+			}
+			if len(order) == 0 do break
+			slice.stable_sort_by(order[:], proc(a, b: Nearness) -> bool {return a.off < b.off})
+			take := (len(order) + (steps - r) - 1) / (steps - r)
+			for n in order[:take] {
+				p := f64(m.period[n.i])
+				held[n.i] = p * math.round(m.values[n.i] / p)
+				penalty[n.i] = ROUNDING_STIFFNESS
+			}
+			if !least_squares(free, &m.reduced, m.kernel_size, fixed, held, m.values, pool, penalty = penalty) do return
+			if report != nil && !report(data, 0.5 + 0.4 * f32(r + 1) / f32(steps)) do return false, integers, true
+		}
+	}
 	for p, i in m.period do if p > 0 {
 		fixed[i] = true
 		held[i] = f64(p) * math.round(m.values[i] / f64(p))
@@ -555,10 +594,12 @@ least_system_destroy :: proc(sys: ^Least_System) {
 // or, with `group` above 1, over groups of that many consecutive unknowns (each
 // triangle's three in the curl correction), whose members are eliminated together; a
 // later one must have rows of the same pattern and the same unknowns fixed, and refills
-// and refactors.
+// and refactors. With `penalty`, each free unknown u whose penalty[u] is above zero is
+// also drawn toward held[u], with that many times the mean diagonal as its weight, on
+// the diagonal's own entry, so the pattern stays the same.
 // Writes every unknown into x; false when the factor fails or the solution is not finite.
 @(private)
-least_squares :: proc(sys: ^Least_System, rows: ^Least_Rows, n: int, fixed: []bool, held: []f64, x: []f64, pool: ^jobs.Pool, group := 1) -> bool {
+least_squares :: proc(sys: ^Least_System, rows: ^Least_Rows, n: int, fixed: []bool, held: []f64, x: []f64, pool: ^jobs.Pool, group := 1, penalty: []f64 = nil) -> bool {
 	heap := runtime.heap_allocator()
 	if !sys.ready {
 		sys.free = make([]i32, n, heap)
@@ -623,7 +664,17 @@ least_squares :: proc(sys: ^Least_System, rows: ^Least_Rows, n: int, fixed: []bo
 			}
 		}
 	}
-	if !least_matrix(sys, &t, refill, k, diagonal, n, group) do return false
+	extra: []f64
+	defer delete(extra, heap)
+	if penalty != nil {
+		extra = make([]f64, count, heap)
+		mean := diagonal / f64(count) if diagonal > 0 else 1
+		for u in 0 ..< n do if free[u] != GONE && penalty[u] > 0 {
+			extra[free[u]] = penalty[u] * mean
+			b[free[u]] += penalty[u] * mean * held[u]
+		}
+	}
+	if !least_matrix(sys, &t, refill, k, diagonal, n, group, extra) do return false
 	// The triplets and the refill are in the matrix now; neither is held while it factors.
 	sparse.triplets_destroy(&t)
 	delete(refill, heap)
@@ -644,16 +695,17 @@ least_squares :: proc(sys: ^Least_System, rows: ^Least_Rows, n: int, fixed: []bo
 // `refill` on a later one), then the normal matrix made, ordered and analyzed, or its
 // numbers refilled.
 @(private = "file")
-least_matrix :: proc(sys: ^Least_System, t: ^sparse.Triplets, refill: []f64, made: int, diagonal: f64, n, group: int) -> bool {
+least_matrix :: proc(sys: ^Least_System, t: ^sparse.Triplets, refill: []f64, made: int, diagonal: f64, n, group: int, extra: []f64 = nil) -> bool {
 	heap := runtime.heap_allocator()
 	count := sys.columns
 	k := made
 	ridge := LEAST_RIDGE * diagonal / f64(count) if diagonal > 0 else LEAST_RIDGE
 	for i in 0 ..< count {
+		add := ridge + (extra[i] if extra != nil else 0)
 		if sys.ready {
-			refill[k] = ridge
+			refill[k] = add
 		} else {
-			sparse.triplets_add(t, i, i, ridge)
+			sparse.triplets_add(t, i, i, add)
 		}
 		k += 1
 	}

@@ -66,6 +66,7 @@ Island_Work :: struct {
 	island: Island,
 	quads:  Quads,
 	checks: Checks,
+	cells:  f64, // the island's share of the count: its area times its density over the whole's
 }
 
 // A stage's progress tag: the island and the share of its own bar the stage covers.
@@ -336,7 +337,11 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 		mean := iso.mean_edge
 		scaling = d.quad_edge / mean if mean > 0 else 1.0
 	}
-	// A face whose quads are s times the size covers 1 / s² as many cells.
+	// A face whose quads are s times the size covers 1 / s² as many cells. The landing aims
+	// at the island's share of the count as the input measured it (islands_fill), and the
+	// first cover's quads are sized so the isotropic mesh's scaled area holds that many: it
+	// is smoother than the island, so smaller, and where a density varies its coarse
+	// triangles weigh the densest vertices more than the input's did.
 	heap := runtime.heap_allocator()
 	scaled_area := f64(0)
 	scaled := len(iso.vertex_scale) == len(iso.positions)
@@ -345,16 +350,9 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 		s := (iso.vertex_scale[t[0]] + iso.vertex_scale[t[1]] + iso.vertex_scale[t[2]]) / 3.0 if scaled else 1.0
 		scaled_area += a / (s * s)
 	}
-	cells_wanted := scaled_area / (d.quad_edge * d.quad_edge)
-	// The isotropic mesh is smoother than the island, so smaller: the landing aims at the
-	// island's own share of the count, the first cover's quads that much smaller, rather
-	// than at the smaller area's share, a few percent short of it on a detailed mesh.
-	iso_area := f64(0)
-	for t in iso.triangles do iso_area += triangle_area(iso.positions[t[0]], iso.positions[t[1]], iso.positions[t[2]])
-	if iso_area > 0 && island_area > 0 {
-		cells_wanted *= island_area / iso_area
-		if landing do scaling *= math.sqrt(iso_area / island_area)
-	}
+	cells_wanted := w.cells
+	if cells_wanted <= 0 do cells_wanted = island_area / (d.quad_edge * d.quad_edge)
+	if landing && scaled_area > 0 && cells_wanted > 0 && iso.mean_edge > 0 do scaling = math.sqrt(scaled_area / cells_wanted) / iso.mean_edge
 	guided := odin_face_guides(iso, d.quad_edge, params.guides, params.guide_strength, heap)
 	defer delete(guided, heap)
 	anisotropy := f64(params.anisotropy) if params.anisotropy > 0 else 1.0
@@ -392,6 +390,7 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	defer cover_destroy(&cover)
 	defer cover_destroy(&best)
 	best_miss, under_scaling, under_cells, over_scaling, over_cells: f64
+	best_scaling := scaling
 	for pass in 0 ..< LANDING_COVERS {
 		// The first cover takes the whole parameterize share of the bar; a later one the
 		// last third of it again, so the bar steps back a little rather than stalling.
@@ -417,6 +416,7 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 			cover_destroy(&best)
 			best, cover = cover, {}
 			best_miss = miss
+			best_scaling = scaling
 		}
 		if best_miss <= LANDING_MISS || pass == LANDING_COVERS - 1 do break
 		// A cover a quarter of the ask or less, or four times it, came out folded up and
@@ -443,7 +443,35 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 		cover_destroy(&cover)
 		cover, best = best, {}
 	}
+	// The landing's covers round their integers all at once, which folds a cover where two
+	// near-halfway integers round apart; where the kept one folds more than ROUNDS_FOLDED of
+	// its triangles (a coarse count on a detailed mesh: 6 % on a creature at 1,000 quads,
+	// 1.2 % at 2,500, 0.3 % at 10,000, none on a sphere at 20,000), it is solved again at
+	// its scaling with the integers rounded in ROUNDING_ROUNDS rounds, and kept when that
+	// folds less. On the creature at 500 to 1,500 quads that took four-valent vertices from
+	// 74 % to 79 % on average, with a tenth fewer folded triangles; at 2,500 it gained under
+	// a point for a third more time, as each round is a factorization, so a count whose
+	// cover hardly folds does not pay for them.
+	rounds := 1
+	if folded := cover_flipped(cover); landing && len(cover.uvs) > 0 && f64(folded) > ROUNDS_FOLDED * f64(len(cover.uvs)) {
+		sync.atomic_add(&d.covers, 1)
+		w.checks.covers += 1
+		again: Cover
+		again, err = odin_cover_at(&plan, best_scaling, &run, &reason, &w.checks, ROUNDING_ROUNDS)
+		if err == .Cancelled {
+			driver_fail(d, err, &reason)
+			return
+		}
+		if err == .None && len(again.uvs) > 0 && cover_flipped(again) < folded {
+			cover_destroy(&cover)
+			cover, again = again, {}
+			rounds = ROUNDING_ROUNDS
+		}
+		cover_destroy(&again)
+		err = .None
+	}
 	add_ns(&d.parameterize_ns, t2)
+	before := w.checks
 	checks_cover(&w.checks, iso, cover, cells_wanted)
 	if !driver_report(d, i, ISLAND_PARAMETERIZE_END) do return
 
@@ -456,8 +484,116 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	}
 	add_ns(&d.extract_ns, t3)
 	checks_quads(&w.checks, w.quads)
+	// The extraction's quads against the island's share, less the doublets the finish
+	// dissolves (quads_kept): where the cover folded, the hole is filled with fewer, larger
+	// quads than its cells, which at a few hundred quads on a creature lost up to a tenth
+	// of the count (and a hole's fill can come out more). Up to
+	// EXTRACT_TRIES more covers, each with its cells asked short or over by as much as the
+	// last came out, and the quads nearest the share kept; on a dense count the extraction
+	// lands within EXTRACT_MISS and nothing is redone.
+	if landing && w.cells > 0 {
+		at := best_scaling
+		kept := quads_kept(w.quads)
+		got := kept
+		for _ in 0 ..< EXTRACT_TRIES {
+			if got <= 0 || abs(kept / w.cells - 1) <= EXTRACT_MISS do break
+			at *= math.sqrt(got / w.cells)
+			t4 := time.tick_now()
+			trial := before
+			trial.covers = w.checks.covers + 1
+			w.checks.covers += 1
+			sync.atomic_add(&d.covers, 1)
+			again: Cover
+			again, err = odin_cover_at(&plan, at, &run, &reason, &trial, rounds)
+			add_ns(&d.parameterize_ns, t4)
+			if err == .Cancelled {
+				cover_destroy(&again)
+				driver_fail(d, err, &reason)
+				return
+			}
+			if err != .None || len(again.uvs) == 0 {
+				cover_destroy(&again)
+				break
+			}
+			checks_cover(&trial, iso, again, cells_wanted)
+			t5 := time.tick_now()
+			redone: Quads
+			redone, err = odin_extract(iso, again, &run, &reason, &trial)
+			cover_destroy(&again)
+			add_ns(&d.extract_ns, t5)
+			if err == .Cancelled {
+				quads_destroy(&redone)
+				driver_fail(d, err, &reason)
+				return
+			}
+			got = quads_kept(redone) if err == .None else 0
+			if got > 0 && abs(got / w.cells - 1) < abs(kept / w.cells - 1) {
+				checks_quads(&trial, redone)
+				quads_destroy(&w.quads)
+				w.quads, w.checks = redone, trial
+				kept = got
+			} else {
+				quads_destroy(&redone)
+			}
+		}
+		err = .None
+	}
 	dump_quads(params.dump, i, w.quads, w.checks)
 	_ = driver_report(d, i, 1)
+}
+
+// How far the extraction's quads may miss the island's share before another cover is
+// tried, and how many more are (island_remesh).
+@(private = "file")
+EXTRACT_MISS :: 0.02
+@(private = "file")
+EXTRACT_TRIES :: 3
+
+// The share of a landed cover's triangles that may be folded before it is solved again
+// with its integers rounded in ROUNDING_ROUNDS rounds (island_remesh).
+@(private = "file")
+ROUNDS_FOLDED :: 0.02
+@(private = "file")
+ROUNDING_ROUNDS :: 16
+
+// The quads that stay once the finish dissolves the doublets (retopo's dissolve_doublets):
+// the faces less the vertices that just two faces meet at, sharing both of its edges,
+// each dissolve joining two quads into one.
+@(private = "file")
+quads_kept :: proc(q: Quads) -> f64 {
+	faces := len(q.first) - 1
+	if faces <= 0 do return 0
+	heap := runtime.heap_allocator()
+	count := make([]u32, len(q.positions), heap)
+	defer delete(count, heap)
+	for c in q.corners do count[c] += 1
+	// Per vertex of two faces: the neighbours before and after it in the first face.
+	ends := make([][2]u32, len(q.positions), heap)
+	defer delete(ends, heap)
+	seen := make([]bool, len(q.positions), heap)
+	defer delete(seen, heap)
+	doublets := 0
+	for f in 0 ..< faces {
+		c := q.corners[q.first[f]:q.first[f + 1]]
+		for v, k in c do if count[v] == 2 {
+			prev, next := c[(k + len(c) - 1) % len(c)], c[(k + 1) % len(c)]
+			if !seen[v] {
+				seen[v] = true
+				ends[v] = {prev, next}
+			} else if ends[v] == {next, prev} {
+				doublets += 1
+			}
+		}
+	}
+	return f64(faces - doublets)
+}
+
+// The triangles a cover turns over.
+@(private = "file")
+cover_flipped :: proc(c: Cover) -> int {
+	n := 0
+	for t in c.uvs do if (t[1][0] - t[0][0]) * (t[2][1] - t[0][1]) - (t[2][0] - t[0][0]) * (t[1][1] - t[0][1]) < 0 do n += 1
+	return n
 }
 
 // An island whose field or cover failed is left without quads, its reason kept for the
@@ -648,6 +784,27 @@ islands_fill :: proc(d: ^Driver, vertices: [][3]f64, faces: [][3]u32, order: []u
 			}
 		}
 	}
+	// Each island's share of the count, measured on the input as given: its area weighted
+	// by the density (as normalized above) over the whole's, so the count lands on what was
+	// asked however much the thinning and the isotropic remesh smooth away (a coarse
+	// remesh of a creature loses a sixth of its area at its spikes and fingers, where the
+	// thin parts ask the most).
+	{
+		weighted := make([]f64, len(d.islands), heap)
+		defer delete(weighted, heap)
+		total := f64(0)
+		for i in 0 ..< len(d.islands) do for f in order[starts[i]:starts[i + 1]] {
+			t := faces[f]
+			a := triangle_area(vertices[t[0]], vertices[t[1]], vertices[t[2]])
+			w := &d.islands[i]
+			if len(w.island.density) == len(w.island.positions) {
+				a *= (island_density(w, local, owner, u32(i), t[0]) + island_density(w, local, owner, u32(i), t[1]) + island_density(w, local, owner, u32(i), t[2])) / 3.0
+			}
+			weighted[i] += a
+			total += a
+		}
+		for &w, i in d.islands do w.cells = f64(u32(params.quads)) * weighted[i] / total if total > 0 else 0
+	}
 	// The refinement as given (clamped), each island its vertices' share; none when nothing
 	// is refined.
 	if len(params.refine) == len(vertices) {
@@ -688,6 +845,12 @@ islands_fill :: proc(d: ^Driver, vertices: [][3]f64, faces: [][3]u32, order: []u
 		copy(w.island.features, edges[i][:])
 		delete(edges[i])
 	}
+}
+
+// The density island `i` keeps at input vertex v, 1 where another island owns v.
+@(private = "file")
+island_density :: proc(w: ^Island_Work, local, owner: []u32, i: u32, v: u32) -> f64 {
+	return w.island.density[local[v]] if owner[v] == i else 1
 }
 
 // std::isfinite.

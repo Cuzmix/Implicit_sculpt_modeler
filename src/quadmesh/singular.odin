@@ -25,6 +25,11 @@ MAX_PAIR_HOPS :: 6
 MAX_ROUNDS :: 4
 @(private = "file")
 REGION_MARGIN :: 6
+// The most two singular vertices' sizes may differ in the log (about 16 %) for the pair to
+// be tried, when the field was solved in a scaled metric: a pair across a change of size
+// is what the change needs (odin_field gives the measures).
+@(private = "file")
+PAIR_SCALE_SPREAD :: 0.15
 
 @(private = "file")
 Simplifier :: struct {
@@ -54,9 +59,10 @@ Candidate :: struct {
 }
 
 // The field's singular vertices before and after the clean-up, which `simplify` runs; the
-// angles are those it leaves.
+// angles are those it leaves. With `log_scale` (per vertex, the field's metric's size in
+// the log) a pair is tried only between vertices of about one size (PAIR_SCALE_SPREAD).
 @(private)
-singular_simplify :: proc(s: ^Surface, angles: []f64, sharp_degrees: f64, features: []u8, simplify: bool) -> (before, after: int) {
+singular_simplify :: proc(s: ^Surface, angles: []f64, sharp_degrees: f64, features: []u8, simplify: bool, log_scale: []f64 = nil) -> (before, after: int) {
 	heap := runtime.heap_allocator()
 	context.allocator = heap
 	faces, vertices, corners := len(s.triangles), len(s.positions), len(s.opp)
@@ -156,15 +162,16 @@ singular_simplify :: proc(s: ^Surface, angles: []f64, sharp_degrees: f64, featur
 				}
 			}
 		}
-		consider :: proc(candidates: ^[dynamic]Candidate, seen: ^map[u64]struct{}, charges: []u8, singular: []u32, a, b, hops: int) {
+		consider :: proc(candidates: ^[dynamic]Candidate, seen: ^map[u64]struct{}, charges: []u8, singular: []u32, log_scale: []f64, a, b, hops: int) {
 			if a == b || hops > MAX_PAIR_HOPS || (int(charges[singular[a]]) + int(charges[singular[b]])) % 4 != 0 do return
+			if log_scale != nil && abs(log_scale[singular[a]] - log_scale[singular[b]]) > PAIR_SCALE_SPREAD do return
 			lo, hi := min(a, b), max(a, b)
 			key := u64(lo) << 32 | u64(hi)
 			if key in seen do return
 			seen[key] = {}
 			append(candidates, Candidate{lo, hi, hops})
 		}
-		for e in encounters do consider(&candidates, &seen, charges, singular[:], e[0], e[1], 0)
+		for e in encounters do consider(&candidates, &seen, charges, singular[:], log_scale, e[0], e[1], 0)
 		for head := 0; head < len(queue); head += 1 {
 			f := queue[head]
 			for c in 3 * f ..< 3 * f + 3 {
@@ -177,7 +184,7 @@ singular_simplify :: proc(s: ^Surface, angles: []f64, sharp_degrees: f64, featur
 					distance[g] = distance[f] + 1
 					append(&queue, g)
 				} else {
-					consider(&candidates, &seen, charges, singular[:], int(owner[f]), int(owner[g]), int(distance[f] + distance[g]))
+					consider(&candidates, &seen, charges, singular[:], log_scale, int(owner[f]), int(owner[g]), int(distance[f] + distance[g]))
 				}
 			}
 		}

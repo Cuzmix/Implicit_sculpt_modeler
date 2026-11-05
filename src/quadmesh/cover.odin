@@ -173,8 +173,9 @@ cover_plan_destroy :: proc(plan: ^Cover_Plan) {
 }
 
 // One cover on the plan at `scaling` (progress 0.2 to 1 of a cover): the curl correction,
-// then the fit and its integers: the cover at that scaling.
-odin_cover_at :: proc(plan: ^Cover_Plan, scaling: f64, run: ^Stage_Run, reason: ^Reason, checks: ^Checks) -> (out: Cover, err: Stage_Error) {
+// then the fit and its integers, rounded in `rounds` rounds (mixed_solve): the cover at
+// that scaling.
+odin_cover_at :: proc(plan: ^Cover_Plan, scaling: f64, run: ^Stage_Run, reason: ^Reason, checks: ^Checks, rounds := 1) -> (out: Cover, err: Stage_Error) {
 	heap := runtime.heap_allocator()
 	context.allocator = heap
 	w := &plan.w
@@ -201,7 +202,7 @@ odin_cover_at :: proc(plan: ^Cover_Plan, scaling: f64, run: ^Stage_Run, reason: 
 	correct_curl(plan, field, su, sv, scale)
 	if !stage_report(run, 0.35 + 0.63 * 0.3) do return {}, .Cancelled
 	cover_energy(plan, field, su, sv, scale)
-	solved, integers, stopped := mixed_solve(&plan.mixed, &plan.free, &plan.held, s.pool, report, run)
+	solved, integers, stopped := mixed_solve(&plan.mixed, &plan.free, &plan.held, s.pool, rounds, report, run)
 	if stopped do return {}, .Cancelled
 	if !solved {
 		reason_set(reason, "Quad cover solve failed")
