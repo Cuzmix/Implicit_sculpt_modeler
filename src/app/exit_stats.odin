@@ -356,7 +356,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			pane_finish_passes := 0
 			for pic in app.panes do pane_finish_passes += pic.finished.passes
 			fmt.printfln("finish=%d finish_curve=%v finish_passes=%d finish_failed=%d finish_bloomed=%d finish_bloom_levels=%d finish_sharpened=%d pane_finish_passes=%d", int(finish_wanted(app)), app.finish.curve, app.finished.passes, int(app.finished.failed), app.finished.bloomed, app.finished.levels, app.finished.sharpened, pane_finish_passes)
-			fmt.printfln("render=%d render_samples=%d render_ms=%.1f render_mb=%.1f render_failed=%d render_rq=%d render_variant=%s render_variants_built=%d", int(app.render_on), pr.total_samples, pr.total_ms / f64(max(pr.total_samples, 1)), f64(pr.bytes) / (1 << 20), int(pr.failed), pr.rq_samples, render.render_variant_name(&pr), pr.variants_built)
+			fmt.printfln("render=%d render_samples=%d render_ms=%.1f render_mb=%.1f render_failed=%d render_rq=%d render_variant=%s render_variants_built=%d render_unlit=%d", int(app.render_on), pr.total_samples, pr.total_ms / f64(max(pr.total_samples, 1)), f64(pr.bytes) / (1 << 20), int(pr.failed), pr.rq_samples, render.render_variant_name(&pr), pr.variants_built, int(pr.unlit))
 			// Depth of field, whether a point was picked to focus on and where the focus is,
 			// and whether Pick focus still waits for a press.
 			focus := focus_point(app)

@@ -494,7 +494,7 @@ picture_render :: proc(app: ^App, cmd: render.Cmd, pic: ^Picture, view, proj: re
 	lens := render_lens(app)
 	if lens.on && app.focus == nil do lens.focus = orbit.target
 	linear := render.finish_active(finish_look(app.finish))
-	_ = render.render_frame(&app.renderer, &pic.path, cmd, &pic.view.target, view, proj, items, changed, samples, bounces, lights, app.studio_softness, app.exposure, app.render_denoise, app.render_half, lens, &app.pool, linear = linear)
+	_ = render.render_frame(&app.renderer, &pic.path, cmd, &pic.view.target, view, proj, items, changed, samples, bounces, lights, app.studio_softness, app.exposure, app.render_denoise, app.render_half, lens, &app.pool, linear = linear, firefly = app.render_clamp)
 }
 
 // A drag on the picture turns the camera the view sees through once it passes the slop,

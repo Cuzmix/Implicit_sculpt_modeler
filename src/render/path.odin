@@ -48,6 +48,11 @@ RENDER_SAMPLES_DEFAULT :: 1024
 RENDER_SAMPLES_MAX :: 4096
 RENDER_BOUNCES_DEFAULT :: 6
 RENDER_BOUNCES_MAX :: 12
+// The firefly clamp: the most light, by luminance, that the bounces after the first
+// surface's own lighting may add to one sample (0 for no clamp); direct light is never
+// clamped, so highlights keep their energy.
+RENDER_CLAMP_DEFAULT :: 10
+RENDER_CLAMP_MAX :: 100
 
 // render_trace.comp.slang's STUDIO_BLUR: how blurred the built-in studio is where paths leave.
 @(private = "file")
@@ -203,6 +208,10 @@ Path_Render :: struct {
 	rows:           u32, // rows a band takes
 	bounces:        int,
 	softness:       f32, // the lights' size this view was started with
+	firefly:        f32, // ...and its firefly clamp
+	// Nothing lights this view's scene: every light off or black, and no environment
+	// light; render mode then says so rather than leave the image black.
+	unlit:          bool,
 	exposure:       f32, // what `shown` was laid out with
 	denoised:       bool, // ...and whether it was denoised
 	valid:          bool, // this still view started
@@ -352,7 +361,7 @@ Lights_World :: struct {
 // it, after which it never tries again. `half` traces a quarter of the pixels, half the
 // viewport's size each way, and lays them out over it smoothly: what tablets take. `lens`
 // gives depth of field; changing it starts over, as nothing in the viewport changes.
-render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, half := false, lens := Lens{}, pool: ^jobs.Pool = nil, linear := false, async := false) -> bool {
+render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, half := false, lens := Lens{}, pool: ^jobs.Pool = nil, linear := false, async := false, firefly: f32 = RENDER_CLAMP_DEFAULT) -> bool {
 	debug_group(cmd, "Render mode", .Render_Mode)
 	if pr.failed do return false
 	if !path_ensure(r, pr, vt, half) {
@@ -372,9 +381,9 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport
 	path_band_collect(r, pr, cmd, vt, exposure, denoise, interval)
 	// Ray tracing hardware turned on or off starts the view over the other way.
 	rq_on := r.ray_query && r.caps.ray_query
-	if changed || !pr.valid || bounces != pr.bounces || softness != pr.softness || lens != pr.lens || rq_on != pr.rq_on {
+	if changed || !pr.valid || bounces != pr.bounces || softness != pr.softness || lens != pr.lens || rq_on != pr.rq_on || firefly != pr.firefly {
 		path_render_reset(pr)
-		pr.valid, pr.bounces, pr.softness, pr.lens, pr.rq_on = true, bounces, softness, lens, rq_on
+		pr.valid, pr.bounces, pr.softness, pr.lens, pr.rq_on, pr.firefly = true, bounces, softness, lens, rq_on, firefly
 		return true
 	}
 	if pr.samples >= max_samples || pr.refused != "" {
@@ -566,7 +575,7 @@ path_linear_ensure :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
 // Makes the next render_frame start over.
 path_render_reset :: proc(pr: ^Path_Render) {
 	pr.samples, pr.row, pr.current = 0, 0, 0
-	pr.valid, pr.built, pr.refused, pr.lens_on = false, false, "", false
+	pr.valid, pr.built, pr.refused, pr.lens_on, pr.unlit = false, false, "", false, false
 	pr.generation += 1
 }
 
@@ -1136,7 +1145,10 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^View
 		}
 	}
 	u.counts.w = paint_base / size_of(u32)
-	u.extra = {node_count, 1 if len(tlas) == 0 && !pr.rq else 0, 0, 0}
+	u.extra = {node_count, 1 if len(tlas) == 0 && !pr.rq else 0, transmute(u32)max(pr.firefly, 0), 0}
+	// The environment lights through its strength, the studio through its ambient light.
+	env_lit := r.environment_look.strength > 0 if r.environment != nil else u.lights.rig[0].w > 0
+	pr.unlit = !env_lit && !slice.any_of_proc(u.lights.size[:], proc(s: [4]f32) -> bool {return s.w > 0})
 	pr.features = {env_image = r.environment != nil, lens = pr.lens_on, rq = pr.rq}
 	for rec in records do pr.features.items |= rec.offs.y & ITEM_ALL
 	// The kernel's gates: a light is sampled and met only with a chance above 0, and is a

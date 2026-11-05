@@ -62,7 +62,16 @@ render_mode_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, i
 	if !pass_shaded(app) do return
 	samples := int(clamp(app.render_samples, 1, render.RENDER_SAMPLES_MAX))
 	bounces := int(clamp(app.render_bounces, 1, render.RENDER_BOUNCES_MAX))
-	_ = render.render_frame(&app.renderer, &app.path, cmd, &app.target, view, proj, items, changed, samples, bounces, viewport_lights(app), app.studio_softness, app.exposure, app.render_denoise, app.render_half, render_lens(app), &app.pool, linear = finish_wanted(app), async = render_async(app))
+	_ = render.render_frame(&app.renderer, &app.path, cmd, &app.target, view, proj, items, changed, samples, bounces, viewport_lights(app), app.studio_softness, app.exposure, app.render_denoise, app.render_half, render_lens(app), &app.pool, linear = finish_wanted(app), async = render_async(app), firefly = app.render_clamp)
+	// A scene nothing lights would only render black; the toast says why, once until a
+	// light comes back (views of the same unlit scene restart without a word).
+	pr := &app.path
+	if pr.built && pr.unlit && !app.render_unlit_told {
+		app.render_unlit_told = true
+		report(app, Section.Render, {.Warning}, "Nothing lights the render. Turn on a light or the environment.")
+	} else if pr.built && !pr.unlit {
+		app.render_unlit_told = false
+	}
 }
 
 // Whether render mode's bands go to the compute queue: Async compute where the device has
@@ -133,6 +142,7 @@ kit_render_full :: proc(app: ^App) {
 	if ui.slider(ctx, "Samples", &samples, 16, render.RENDER_SAMPLES_MAX, .Logarithmic, fmt.tprintf("%d", app.render_samples)) do app.render_samples = i32(samples + 0.5)
 	bounces := f32(app.render_bounces)
 	if ui.slider(ctx, "Bounces", &bounces, 1, render.RENDER_BOUNCES_MAX, .Linear, fmt.tprintf("%d", app.render_bounces)) do app.render_bounces = i32(bounces + 0.5)
+	_ = ui.slider(ctx, "Firefly clamp", &app.render_clamp, 0, render.RENDER_CLAMP_MAX, .Linear, "Off" if app.render_clamp <= 0 else fmt.tprintf("%.1f", app.render_clamp))
 	_ = ui.switch_row(ctx, "Denoise", &app.render_denoise)
 	_ = ui.switch_row(ctx, "Half resolution", &app.render_half)
 	pr := &app.path
@@ -143,6 +153,8 @@ kit_render_full :: proc(app: ^App) {
 		ui.paragraph(ctx, pass_paused_note(app))
 	case render_running(app) && pr.refused != "":
 		ui.paragraph(ctx, pr.refused)
+	case render_running(app) && pr.built && pr.unlit:
+		ui.paragraph(ctx, "Nothing lights the render: every light is off and the environment gives no light.")
 	case render_running(app) && pr.samples > 0:
 		ms := pr.total_ms / f64(max(pr.total_samples, 1))
 		ui.paragraph(ctx, fmt.tprintf("Built up %d of %d samples, %.0f ms a sample.", pr.samples, app.render_samples, ms))
@@ -150,5 +162,5 @@ kit_render_full :: proc(app: ^App) {
 	if render_running(app) && pr.tex_left_out > 0 {
 		ui.paragraph(ctx, fmt.tprintf("Full shows the maps of %d textured objects; %d more show their material.", render.render_textured_max(pr), pr.tex_left_out))
 	}
-	ui.paragraph(ctx, fmt.tprintf("Full path traces the view while it stays still: the lights with soft shadows (their own size, or Fast's Shadow softness), the environment, materials, paint and texture maps, and light bounced between surfaces; a MatCap shows as its colour. Any change starts it over; see-through objects are left out. Denoise smooths the grain along the surfaces' edges, colours and normals, less as samples build up. Half resolution traces a quarter of the pixels, four times as fast, for tablets. Lens adds depth of field. %s", command_keys(app, .Render_Mode)))
+	ui.paragraph(ctx, fmt.tprintf("Full path traces the view while it stays still: the lights with soft shadows (their own size, or Fast's Shadow softness), the environment, materials, paint and texture maps, and light bounced between surfaces; a MatCap shows as its colour. Any change starts it over; see-through objects are left out. Denoise smooths the grain along the surfaces' edges, colours and normals, less as samples build up. Half resolution traces a quarter of the pixels, four times as fast, for tablets. Firefly clamp caps the light a sample gathers after its first bounce, which keeps rare bright specks out of the image without dimming highlights; Off keeps all of it. Lens adds depth of field. %s", command_keys(app, .Render_Mode)))
 }

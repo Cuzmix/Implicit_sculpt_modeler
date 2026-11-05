@@ -325,6 +325,8 @@ App :: struct {
 	render_quality: Render_Quality, // Scene > Render's Quality, which the switch turns on
 	render_samples: i32,
 	render_bounces: i32,
+	render_clamp:   f32, // the Render card's Firefly clamp (render.RENDER_CLAMP_DEFAULT), 0 off
+	render_unlit_told: bool, // the toast saying nothing lights the render went, and no light has come back since
 	render_denoise: bool,
 	render_half:    bool, // trace at half size each way: on by default on tablets
 	// Scene > Lens (lens.odin): depth of field and its Blur, remembered, and the point
@@ -839,6 +841,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.studio_softness = render.STUDIO_KEY_SOFTNESS
 	app.studio_samples, app.studio_ao, app.studio_shadow = STUDIO_SAMPLES_DEFAULT, STUDIO_AO_DEFAULT, STUDIO_SHADOW_DEFAULT
 	app.render_samples, app.render_bounces, app.render_denoise = render.RENDER_SAMPLES_DEFAULT, render.RENDER_BOUNCES_DEFAULT, true
+	app.render_clamp = render.RENDER_CLAMP_DEFAULT
 	app.render_half = MOBILE
 	app.render_blur = RENDER_BLUR_DEFAULT
 	app.finish = FINISH_DEFAULTS

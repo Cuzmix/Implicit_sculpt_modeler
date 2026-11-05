@@ -290,6 +290,7 @@ SETTINGS := [?]Setting {
 	{"render_quality", offset_of(App, render_quality), Render_Quality, 0, 0},
 	{"render_samples", offset_of(App, render_samples), i32, 1, render.RENDER_SAMPLES_MAX},
 	{"render_bounces", offset_of(App, render_bounces), i32, 1, render.RENDER_BOUNCES_MAX},
+	{"render_clamp", offset_of(App, render_clamp), f32, 0, render.RENDER_CLAMP_MAX},
 	{"render_denoise", offset_of(App, render_denoise), bool, 0, 0},
 	{"render_half", offset_of(App, render_half), bool, 0, 0},
 	{"render_dof", offset_of(App, render_dof), bool, 0, 0},

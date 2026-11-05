@@ -182,7 +182,9 @@ static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
 	float4 env;     // x: 1 while an image environment is bound, y: its strength, z: the chance a light sample takes the environment
 	float4 scene;   // xyz: the scene's centre, w: its radius
 	uint4 counts; // x: this sample, y: the first row of this band, z: bounces, w: where paint starts in `attributes`
-	uint4 extra;  // x: where the scene tree starts in `nodes`, y: 1 when it is empty
+	// x: where the scene tree starts in `nodes`, y: 1 when it is empty, z: the firefly
+	// clamp's bits as a float (0: off).
+	uint4 extra;
 	// Depth of field (render.Lens): the eye with the lens's radius in w (0: a pinhole),
 	// the camera's right with the focal plane's distance along its forward in w, its up,
 	// and its forward.
@@ -204,9 +206,6 @@ static const float FAR = 3.0e38;
 // How blurred the built-in studio is where paths leave the scene: its two narrow lobes
 // sharp would be found by a diffuse bounce too rarely to converge.
 static const float STUDIO_BLUR = 0.25;
-// The largest radiance one sample may add to a pixel: a rare path that finds a bright
-// light through a narrow gap would otherwise leave a white speck for hundreds of samples.
-static const float SAMPLE_CLAMP = 16.0;
 
 // PCG (O'Neill 2014), the state per invocation.
 static uint rng;
@@ -765,6 +764,17 @@ float3 direct_light(Surface s, float3 p, float3 ng, float3 n, float3 v) {
 	return f * radiance * (power_weight(pdf_light, pdf_bsdf) / pdf_light);
 }
 
+// The firefly clamp (Render_Uniforms.extra.z, 0 off) on light a path found after its
+// first surface's own lighting (`indirect`): a rare path that finds a bright light through
+// a narrow gap would otherwise leave a white speck for hundreds of samples. The light the
+// first surface gets straight from the lights and the environment is never clamped, so
+// sharp highlights keep their energy. Each find is clamped as it is added, which keeps no
+// running sum live across the bounces (registers, scripts/kernel_stats.py).
+float3 firefly_cap(float3 c, bool indirect) {
+	float firefly = asfloat(extra.z), lum = luminance(c);
+	return indirect && firefly > 0.0 && lum > firefly ? c * (firefly / lum) : c;
+}
+
 // The lights a ray picked by the BSDF meets before `t_hit` (suns only when it leaves the
 // scene), weighted against finding them by next-event estimation.
 float3 lights_met(float3 o, float3 d, float t_hit, bool escaped, float pdf_bsdf) {
@@ -851,12 +861,13 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 		Hit hit;
 		bool met = trace(o, d, FAR, false, hit);
 		// The camera never sees the lights, as in the viewport.
-		if (bounce > 0) radiance += weight * lights_met(o, d, met ? hit.t : FAR, !met, pdf_bsdf);
-		if (!met) {
+		if (bounce > 0) {
+			float3 found = lights_met(o, d, met ? hit.t : FAR, !met, pdf_bsdf);
 			// Weighed against the environment's own samples, when it has any.
-			if (bounce > 0) radiance += weight * environment(d) * (env.z > 0.0 ? power_weight(pdf_bsdf, env.z * env_pdf(d)) : 1.0);
-			break;
+			if (!met) found += environment(d) * (env.z > 0.0 ? power_weight(pdf_bsdf, env.z * env_pdf(d)) : 1.0);
+			radiance += firefly_cap(weight * found, bounce > 1);
 		}
+		if (!met) break;
 		if (bounce == 0) covered = 1.0;
 		if (bounce == bounces) break;
 
@@ -968,7 +979,7 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 		s.f0 = lerp(float3(0.04), albedo, metallic);
 		s.a = max(surf.y * surf.y, 1e-3);
 
-		radiance += weight * direct_light(s, p, ng, n, v);
+		radiance += firefly_cap(weight * direct_light(s, p, ng, n, v), bounce > 0);
 
 		float3 l;
 		if (!bsdf_sample(s, n, v, l) || dot(l, ng) <= 0.0) break;
@@ -984,8 +995,6 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 			weight /= q;
 		}
 	}
-	float lum = luminance(radiance);
-	if (lum > SAMPLE_CLAMP) radiance *= SAMPLE_CLAMP / lum;
 	float4 sum = first ? float4(0.0) : load_texel(prev, px);
 	next[px] = sum + float4(radiance, covered);
 	if (lens) {
