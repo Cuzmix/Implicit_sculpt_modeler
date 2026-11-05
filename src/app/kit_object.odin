@@ -22,7 +22,7 @@ OBJECT_SECTIONS := [?]Object_Section {
 	{.Levels, "Subdivision levels", kit_levels},
 	{.Hd, "HD detail", kit_hd},
 	{.Topology, "Dynamic topology", kit_dyntopo},
-	{.Remesh, "Rebuild", kit_rebuild},
+	{.Remesh, "Remesh and decimate", kit_rebuild},
 	{.Mirror, "Modify topology", proc(app: ^App, _: ^Object) {kit_topology(app)}},
 	{.Mask, "Mask", proc(app: ^App, _: ^Object) {kit_mask(app)}},
 	{.Sets, "Selection sets", kit_sets},
