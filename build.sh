@@ -377,12 +377,13 @@ case "$mode" in
 		rm -rf "$out/Payload"
 		mkdir -p "$app"
 		# SDL's pkg-config file names the libraries and frameworks it needs; the document
-		# picker's content types are one more.
+		# picker's content types are one more, and the keyboard's Delete key (sculpt_ios.m)
+		# another.
 		libs=$(PKG_CONFIG_PATH="$out/sdl/lib/pkgconfig" pkg-config --static --libs sdl3)
 		[ -n "$libs" ] || { echo "pkg-config gave no flags for SDL's static library"; exit 1; }
 		read -r -a sdl_libs <<< "$libs"
 		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/ufbx.o" "$out/sculpt_ios.o" "${sdl_libs[@]}" \
-			-framework UniformTypeIdentifiers -o "$app/Sculpt"
+			-framework UniformTypeIdentifiers -framework GameController -o "$app/Sculpt"
 		cp "$ROOT/ios/Info.plist" "$app/Info.plist"
 		plutil -replace MinimumOSVersion -string "$IOS_MIN" "$app/Info.plist"
 		plutil -replace CFBundleVersion -string "${BUILD_NUMBER:-1}" "$app/Info.plist"
