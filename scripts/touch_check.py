@@ -5350,7 +5350,7 @@ def lens_context_bar_extracts_the_mask():
 # Four views at 1440x900: the main pane's shading chip, Four views at the foot of its list's
 # INSPECT group, and Curvature in that group, under the shading modes and Solid's options,
 # while nothing is recent.
-LENS_INSPECT = {"pass_chip": At("readout/Shading", 165, 75), "inspect": At("pass menu/Four views", 305, 760), "curvature": (305, 540)}
+LENS_INSPECT = {"pass_chip": At("readout/Shading", 165, 75), "inspect": At("pass menu/Four views", 305, 760), "curvature": At("pass menu/Curvature", 305, 540)}
 
 
 @scenario
