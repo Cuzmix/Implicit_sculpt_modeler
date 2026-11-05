@@ -298,6 +298,10 @@ Kit_State :: struct {
 	readout: Readout, // the view corner's camera, shading and live numbers (readout.odin)
 	// The readout is hidden (Menu > More > Viewport readout).
 	readout_hidden: bool,
+	// No keyboard is attached (a tablet's own screen, or --no-keyboard), so key shortcuts
+	// are left out wherever they would show: they name keys nobody can press.
+	keyless:     bool,
+	no_keyboard: bool, // --no-keyboard
 	// The readout adds the GPU's time a frame (Menu > More > GPU time in the readout): a
 	// developer's number, so off unless asked for.
 	readout_gpu: bool,
@@ -990,6 +994,8 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	_ = sdl.GetWindowSizeInPixels(window, &pw, &ph)
 	scale := kit_content_scale(window) * k.ui_scale
 	k.frame += 1
+	// A desktop always has its keyboard; a tablet or phone may have one attached or not.
+	k.keyless = k.no_keyboard || (MOBILE && !sdl.HasKeyboard())
 	d := &app.device
 	in_ := ui.Input {
 		mouse         = d.mouse / scale,

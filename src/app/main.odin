@@ -26,6 +26,7 @@ Options :: struct {
 	settings_file: string `usage:"Read and write the remembered settings at this path instead of the per-user folder, scripted runs included (for testing that settings persist)."`,
 	coach: bool `usage:"Show the first-run tips from the first one, even in a scripted run (an interactive run shows them until they are done or skipped)."`,
 	tour: bool `usage:"Show the tour from its first step, even in a scripted run (an interactive run shows it after the first-run tips until it is done or skipped)."`,
+	no_keyboard: bool `usage:"Run as a tablet with no keyboard attached does: the interface leaves key shortcuts out of its menus, hints and sentences."`,
 	gpu_debug: bool `usage:"Create the GPU device in debug mode (enables validation where available)."`,
 	no_pre_rotate: bool `usage:"Leave turning the picture to the system on a turned Android tablet instead of drawing it turned (for comparing frame and GPU times)."`,
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
@@ -890,6 +891,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.coach do app.kit.coach = 0
 	app.kit.tour.run, app.kit.tour.since = (remember && opts.frames == 0) || opts.tour, -1
 	if opts.tour do app.kit.tour.step = 0
+	app.kit.no_keyboard = opts.no_keyboard
 	app.kit.fixed_dt = opts.ui_dt
 	// After the clock is chosen, which the session's times count on.
 	app.diag.allowed = DIAGNOSTICS || opts.input_diagnostics || opts.diag_test != "" || opts.diag_export != ""

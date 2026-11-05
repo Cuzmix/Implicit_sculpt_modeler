@@ -101,7 +101,7 @@ card_actions :: proc(app: ^App, inner: f32) {
 			_ = command_button(app, .Merge_Visible, width = inner)
 			ui.paragraph(ctx, "Each object merged in keeps polygroups of its own, so Groups split takes them apart again. Merge down drops the levels and layers of the selected object.")
 		case .Transpose:
-			ui.paragraph(ctx, fmt.tprintf("Select several objects (Ctrl or Shift and a tap, or Select several) and the Move tool's gizmo (%s) moves, turns and scales them together; to pose part of one object, mask the rest and use the gizmo.", command_keys(app, .Tool_Move)))
+			ui.paragraph(ctx, fmt.tprintf("Select several objects (Ctrl or Shift and a tap, or Select several) and the Move tool's gizmo%s moves, turns and scales them together; to pose part of one object, mask the rest and use the gizmo.", keys_paren(app, .Tool_Move)))
 		case .Boolean:
 			kit_boolean_section(app)
 		case .Align, .Distribute:

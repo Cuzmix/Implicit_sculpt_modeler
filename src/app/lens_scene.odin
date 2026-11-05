@@ -365,7 +365,7 @@ scene_notes :: proc(app: ^App) {
 	off, ghosts := scene_view_counts(app)
 	if off > 0 || app.scene.solo do _ = command_button(app, .Show_All_Objects, width = ui.fill_width(ctx), glyph = ui.ICON_EYE, variant = .Light)
 	if app.scene.solo {
-		ui.paragraph(ctx, fmt.tprintf("Solo shows only the selected object. %s turns it off.", command_keys(app, .Solo_Object)))
+		ui.paragraph(ctx, fmt.tprintf("Solo shows only the selected object. %s turns it off.", keys_or_name(app, .Solo_Object)))
 	} else if ghosts > 0 {
 		ui.paragraph(ctx, "Ghosts are dimmed and let presses through; their ghost icon makes them solid.")
 	}

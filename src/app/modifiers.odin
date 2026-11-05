@@ -479,9 +479,12 @@ WHEEL_SIZE_NAMES := [Wheel_Size]string {
 	.XL3    = "3XL",
 }
 
-// What the wheel's sectors show (Settings > Interface): their icons, the icons over their
-// names, or the names alone, for someone still learning which is which.
+// What the wheel's sectors show (Settings > Interface): as it comes (Auto) the icons over
+// their names on a touch screen, where no tooltip names them, and the icons alone with a
+// mouse; or always the icons, the icons over their names, or the names alone, for someone
+// still learning which is which.
 Wheel_Labels :: enum u8 {
+	Auto,
 	Icons,
 	Icons_And_Names,
 	Names,
@@ -625,6 +628,7 @@ kit_modifier_rail :: proc(app: ^App) {
 			sectors[i] = {name = name, glyph = MODIFIER_ICONS[v], caption = name, look = look, keys = MODIFIER_KEYS[v]}
 		}
 		switch k.wheel_labels {
+		case .Auto:            if !(MOBILE || k.keyless) do sectors[i].caption = ""
 		case .Icons:           sectors[i].caption = ""
 		case .Icons_And_Names:
 		case .Names:           sectors[i].glyph = 0
