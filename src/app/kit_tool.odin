@@ -544,6 +544,9 @@ kit_move_tab :: proc(app: ^App) {
 	if picked := ui.tabs(ctx, "gizmo mode", modes[:], int(app.move.mode), keys = hints[:]); picked >= 0 do command_run(app, .Gizmo, picked)
 	_ = ui.switch_row(ctx, "Snap", &app.move.snap)
 	kit_command_pair(app, .Gizmo_Pivot, .Gizmo_Pivot_Reset, label_a = "Set pivot", label_b = "Reset pivot")
+	kit_command_pair(app, .Gizmo_Pivot_Edit, .Gizmo_Pivot_Center, label_a = "Edit pivot", label_b = "Pivot to middle")
+	shown := !app.move.pivot_row_off
+	if ui.switch_row(ctx, "Pivot row over the gizmo", &shown) do app.move.pivot_row_off = !shown
 	ui.paragraph(ctx, fmt.tprintf("All moves on its arrows and plane squares, turns on its rings, stretches the mesh along an axis on the coloured knobs and scales evenly on the white knob on the view ring, with no switching. %s again steps through the four. Snap (or Ctrl for one drag) moves in steps of a grid that follows the zoom, turns 15° at a time and scales in steps of 0.1. Esc puts the object back mid-drag; %s undoes a drag. Tap a handle without moving it to type its value. Set pivot, then a tap on a surface, turns and scales about that point.", keys_or_name(app, .Tool_Move), keys_or_name(app, .Undo)))
 	// Posing changes what the handles do, so it says so while it is on.
 	if pose_mode(app) {

@@ -59,6 +59,9 @@ Command_Id :: enum u16 {
 	Gizmo_Snap,
 	Gizmo_Pivot,
 	Gizmo_Pivot_Reset,
+	Gizmo_Pivot_Edit,
+	Gizmo_Pivot_Center,
+	Gizmo_Pivot_Unmasked,
 	Brush, // the argument is the sculpt.Brush_Kind
 	Brush_Preset, // the argument is a preset: built-in, the person's own or a pack's (preset_slots.odin)
 	Mask_Shape_Pick, // the argument is the Mask_Shape_Kind
@@ -837,8 +840,37 @@ COMMANDS := [Command_Id]Command {
 	.Gizmo_Pivot_Reset = {
 		label = "Reset the pivot",
 		help = "Puts the gizmo back on the selected object's origin.",
+		icon = ICON_PIVOT_RESET,
 		run = proc(app: ^App, _: int) {app.move.pivot = {}},
 		enabled = proc(app: ^App, _: int) -> bool {return gizmo_pivot_set(app)},
+	},
+	.Gizmo_Pivot_Edit = {
+		label = "Edit the pivot",
+		help = "While on, the gizmo's arrows, plane squares and middle move the pivot itself, not the object, as ZBrush's unlocked gizmo and Nomad's Edit pivot do; turns and scales then go about where it was left.",
+		icon = ICON_LOCK_OPEN,
+		run = proc(app: ^App, _: int) {
+			app.tool = .Move
+			app.move.pivot_edit = !app.move.pivot_edit
+		},
+		enabled = has_object,
+		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Move && app.move.pivot_edit},
+	},
+	.Gizmo_Pivot_Center = {
+		label = "Pivot to the middle",
+		help = "Puts the gizmo in the middle of the selected object's bounds, so turns and scales go about its middle.",
+		icon = ICON_PIVOT_CENTER,
+		run = proc(app: ^App, _: int) {pivot_to_middle(app)},
+		enabled = has_object,
+	},
+	.Gizmo_Pivot_Unmasked = {
+		label = "Pivot to the unmasked middle",
+		help = "Puts the gizmo in the middle of what the mask leaves free, as ZBrush's Go to unmasked center does, so a pose turns about the free part.",
+		icon = ICON_PIVOT_UNMASKED,
+		run = proc(app: ^App, _: int) {pivot_to_unmasked(app)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel == nil && object_has_mask(app, obj)
+		},
 	},
 	.Brush = {
 		label = "Brush",

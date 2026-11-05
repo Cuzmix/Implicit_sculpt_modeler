@@ -13282,6 +13282,36 @@ def gizmo_chips_switch_the_mode():
 
 
 @scenario
+def gizmo_pivot_row_edits_the_pivot():
+    """The pivot row over the gizmo: Edit the pivot, then a drag of the X arm moves the
+    pivot along x and leaves the sphere where it was, with no undo step; Pivot to the
+    middle puts it in the middle of the sphere's bounds; and the row hides while a drag
+    goes."""
+    edit, middle, held = Script(), Script(), Script()
+    for sc in (edit, middle, held):
+        gizmo_mode(sc, 0)
+        sc.wait(3)
+    click(edit, At("pivot row/Edit the pivot", 0, 0))
+    edit.mouse_drag(line(GIZMO_X_ARM, (GIZMO_X_ARM[0] + 60, GIZMO_X_ARM[1] + 8), 6))
+    edit.wait(3)
+    click(middle, At("pivot row/Pivot to the middle", 0, 0))
+    held.add(f"move:{where(GIZMO_X_ARM)}")
+    held.wait(1)
+    held.add("down")
+    held.wait(1)
+    for i in range(1, 7):
+        held.add(f"move:{GIZMO_X_ARM[0] + 10 * i:g},{GIZMO_X_ARM[1]:g}")
+        held.wait(1)
+    home = is_text("0.0000,0.0000,0.0000,0.000,0.000,0.000,1.0000")
+    moved_x = lambda v: float(v.split(",")[0]) > 0.1 and abs(float(v.split(",")[1])) < 1e-3 and abs(float(v.split(",")[2])) < 1e-3
+    return Steps([
+        (edit, [], camera_still({"gizmo_pivot_edit": near(1), "gizmo_pivot": moved_x, "transform": home, "undo_steps": near(0), "pivot_row": near(1)})),
+        (middle, [], camera_still({"gizmo_pivot": lambda v: all(abs(float(c)) < 0.01 for c in v.split(",")), "transform": home, "pivot_row": near(1)})),
+        (held, [], camera_still({"pivot_row": near(0)})),
+    ])
+
+
+@scenario
 def gizmo_all_moves_turns_and_scales():
     """The All gizmo (W four times) does the three with no switching: the mouse on the X
     arrow moves the sphere along x only, a finger on the Y knob stretches the mesh along y
@@ -13678,13 +13708,13 @@ def object_menu_open(s):
 
 @scenario
 def object_menu_lists_the_verbs_of_the_type_and_space():
-    """The object menu shows a sculpt mesh's six Sculpt verbs and a cage's four Model verbs, each with the other space's main verb, the rows every object has and Delete."""
+    """The object menu shows a sculpt mesh's six Sculpt verbs and a cage's four Model verbs, each with the other space's main verb, the rows every object has, Add object here and Delete."""
     def run(what):
         s = Script()
         object_menu_open(s)
         if what == "mesh":
-            return s, [], camera_still({"object_menu": near(1), "object_menu_type": is_text("Sculpt_Mesh"), "object_menu_rows": near(11), "space": is_text("sculpt")})
-        return s, ["--script=add_cage cube"], camera_still({"object_menu": near(1), "object_menu_type": is_text("Cage"), "object_menu_rows": near(8), "space": is_text("model")})
+            return s, [], camera_still({"object_menu": near(1), "object_menu_type": is_text("Sculpt_Mesh"), "object_menu_rows": near(12), "space": is_text("sculpt")})
+        return s, ["--script=add_cage cube"], camera_still({"object_menu": near(1), "object_menu_type": is_text("Cage"), "object_menu_rows": near(9), "space": is_text("model")})
     return Steps([run("mesh"), run("cage")])
 
 
