@@ -623,7 +623,12 @@ least_squares :: proc(sys: ^Least_System, rows: ^Least_Rows, n: int, fixed: []bo
 			}
 		}
 	}
-	if !least_factor(sys, &t, refill, k, diagonal, n, group, pool) do return false
+	if !least_matrix(sys, &t, refill, k, diagonal, n, group) do return false
+	// The triplets and the refill are in the matrix now; neither is held while it factors.
+	sparse.triplets_destroy(&t)
+	delete(refill, heap)
+	refill = nil
+	if !sparse.supernodal_factor(&sys.factor, &sys.symbolic, sys.normal, pool, heap) do return false
 	y := make([]f64, count, heap)
 	defer delete(y, heap)
 	sparse.supernodal_solve(&sys.factor, b, y)
@@ -636,10 +641,10 @@ least_squares :: proc(sys: ^Least_System, rows: ^Least_Rows, n: int, fixed: []bo
 }
 
 // The ridge on the triplets made so far (`made` of them, in `t` on the first solve and
-// `refill` on a later one), then the normal matrix made (or its numbers refilled) and
-// factored.
+// `refill` on a later one), then the normal matrix made, ordered and analyzed, or its
+// numbers refilled.
 @(private = "file")
-least_factor :: proc(sys: ^Least_System, t: ^sparse.Triplets, refill: []f64, made: int, diagonal: f64, n, group: int, pool: ^jobs.Pool) -> bool {
+least_matrix :: proc(sys: ^Least_System, t: ^sparse.Triplets, refill: []f64, made: int, diagonal: f64, n, group: int) -> bool {
 	heap := runtime.heap_allocator()
 	count := sys.columns
 	k := made
@@ -665,7 +670,7 @@ least_factor :: proc(sys: ^Least_System, t: ^sparse.Triplets, refill: []f64, mad
 		sys.symbolic = sparse.supernodal_analyze(sys.normal, order, heap)
 		sys.ready = true
 	}
-	return sparse.supernodal_factor(&sys.factor, &sys.symbolic, sys.normal, pool, heap)
+	return true
 }
 
 // An order of the system's columns that keeps each group of `group` consecutive unknowns
