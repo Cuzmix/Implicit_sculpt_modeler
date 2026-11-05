@@ -642,6 +642,11 @@ refs_card_menus :: proc(app: ^App) {
 			file_dialog(app, .Reference)
 			b.add_menu = false
 		}
+		// The iPad keeps photos apart from files, so its own picker has a line of its own.
+		if PHOTOS_PICKER && ui.menu_item(ctx, "Add from Photos##refs add", glyph = ICON_IMAGES, hint = "Several photos at once") {
+			_ = file_dialog_photos(app)
+			b.add_menu = false
+		}
 		if ui.menu_item(ctx, "Paste picture##refs add", glyph = ICON_CLIPBOARD_PASTE, hint = "The picture on the clipboard") {
 			_ = refs_paste(app)
 			b.add_menu = false
@@ -750,6 +755,10 @@ refs_board_menu :: proc(app: ^App) {
 	}
 	if ui.menu_item(ctx, "Add pictures##refs board", glyph = ICON_IMAGE_PLUS) {
 		file_dialog(app, .Reference)
+		b.board_menu = false
+	}
+	if PHOTOS_PICKER && ui.menu_item(ctx, "Add from Photos##refs board", glyph = ICON_IMAGES) {
+		_ = file_dialog_photos(app)
 		b.board_menu = false
 	}
 	if ui.menu_item(ctx, "Paste picture##refs board", glyph = ICON_CLIPBOARD_PASTE) {
@@ -1141,6 +1150,8 @@ board_drag_cancel :: proc(app: ^App) {
 // layout-dashboard, stretch-vertical, flip-horizontal, sun-moon, rotate-cw-square and
 // crop, for the card's actions.
 ICON_IMAGE_PLUS :: rune(0xe1f7)
+// Lucide's images, for Add from Photos.
+ICON_IMAGES :: rune(0xe5c9)
 ICON_CLIPBOARD_PASTE :: rune(0xe3ec)
 ICON_SCAN :: rune(0xe257)
 ICON_TRASH_2 :: rune(0xe18e)

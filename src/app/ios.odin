@@ -37,6 +37,9 @@ when ODIN_PLATFORM_SUBTARGET_IOS {
 		sculpt_ios_save_file_dialog :: proc(callback: sdl.DialogFileCallback, userdata: rawptr, window: ^sdl.Window, filters: [^]sdl.DialogFileFilter, nfilters: c.int, default_location: cstring) ---
 		sculpt_ios_open_folder_dialog :: proc(callback: sdl.DialogFileCallback, userdata: rawptr, window: ^sdl.Window) ---
 		sculpt_ios_writable_beside :: proc(path: cstring) -> bool ---
+		// The photo picker, for Add from Photos on the References board: every photo picked,
+		// copied into the app's temporary folder, as the list of paths a file dialog answers.
+		sculpt_ios_open_photos_dialog :: proc(callback: sdl.DialogFileCallback, userdata: rawptr, window: ^sdl.Window) ---
 	}
 
 	// ios/sculpt_ios.m, the Apple Pencil's pieces SDL lacks (pencil.odin): the double-tap
