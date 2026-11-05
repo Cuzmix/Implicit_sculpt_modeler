@@ -496,6 +496,7 @@ App :: struct {
 	// The system warned that memory runs low; history_cap drops old steps at the next
 	// frame with nothing under way.
 	memory_low:          bool,
+	undo_disk:           Undo_Disk, // big undo copies on disk (undo_disk.odin)
 	memory_low_warnings: int,
 	versions:   [dynamic]Version_Row, // the scene file's earlier saves, newest first (versions_refresh)
 	saved_fp:   u64, // scene_fingerprint when the scene last matched its file (autosave_scene_saved)
@@ -671,6 +672,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer geom.mesh_destroy(&app.ui.boolean.preview_mesh)
 	defer boolean_coarse_drop(&app)
 	defer scene_destroy(&app)
+	// After the History, whose snapshots delete their files first.
+	defer undo_disk_destroy(&app)
 	defer history_destroy(&app.history)
 	// Before the history and the scene go: a job still running holds a snapshot and reads
 	// nothing of theirs, but its thread must end first.
@@ -928,6 +931,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.long_job.allowed, app.long_job.forced = interactive || opts.async_jobs, opts.async_jobs
 	app.memory_free_test = opts.memory_free
 	autosave_init(&app, interactive, f64(opts.autosave), opts.autosave_folder, f64(opts.autosave_rest), opts.check_autosave, opts.crash_after_autosave)
+	undo_disk_init(&app)
 	defer autosave_destroy(&app)
 	defer scene_preview_destroy(&app)
 	defer home_destroy(&app)
