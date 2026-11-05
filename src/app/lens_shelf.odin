@@ -535,7 +535,11 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 			continue
 		}
 		name := fmt.tprintf("%s##shelf %v %d", shelf_label(app, s), sh.page, i)
-		if ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), width = tile) {
+		// A command that cannot run now stands dimmed, as on any bar (Model's actions on a
+		// sculpt mesh); while pinning or arranging every tile takes the tap.
+		_, pin_on := sh.pinning.?
+		enabled := pin_on || dock_editing(k, .Shelf) || bar_enabled(app, s)
+		if ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled = enabled, width = tile) {
 			if pin, pinning := sh.pinning.?; pinning {
 				// Pinning to a full page: the tile tapped gives its place to the brush.
 				bar_list(app, which).slots[i] = pin

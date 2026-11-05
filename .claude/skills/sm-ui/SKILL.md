@@ -247,7 +247,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   a new token gets a value in every theme (`track`, `knob_off`/`knob_on`, `cursor_line`, `chosen`/`on_chosen`,
   `camera[4]` for the camera dots). Every `gap` and `padding` is a spacing step, `ui.SPACE_2XS` (2) to
   `ui.SPACE_XL` (16), or 0, and a line of text is `ui.line_height(size)` tall, never `size * 1.4`: the audit
-  (`scripts/ui_audit.py`) holds both at none.
+  (`scripts/ui_audit.py`) holds both at none. The accent means on and chosen only: `button(.Solid, .Accent)`, the
+  one primary action, draws in the text's ink (`t.text` fill, `t.surface` label), never in the accent.
 - Widgets (`widgets.odin`): `label`, `paragraph`, `caption`, `icon_button`, `button` (variant, tone, width, glyph,
   enabled, keys: a tooltip hint), `toggle_button`, `tabs` (segmented control; `chosen` -1 shows none; `keys` a hint per option), `switch_row`, `slider` (linear or
   logarithmic), `vslider`, `drag_value` (drag sideways, from the press value), `text_field` (a `[]u8` buffer),

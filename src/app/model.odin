@@ -378,11 +378,12 @@ object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 // levels when that many would be more, so each edit stays quick. Apply makes them all.
 CAGE_EDIT_TRIANGLES :: 2_000_000
 
-// Whether the Model tool's actions reach the selected object: a cage or a curve takes
-// them, and with nothing selected they stand ready for the next one.
-model_actions_apply :: proc(app: ^App) -> bool {
+// Whether Model action `a` reaches the selected object: a cage or a curve takes them, and
+// with nothing selected they stand ready for the next one. Topo draws a new cage over any
+// surface, so it takes a sculpt mesh too.
+model_actions_apply :: proc(app: ^App, a: Model_Action) -> bool {
 	obj := selected_object(app)
-	if obj == nil do return true
+	if obj == nil || a == .Topo do return true
 	#partial switch object_type(obj) {
 	case .Cage, .Curve: return true
 	}

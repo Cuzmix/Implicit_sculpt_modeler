@@ -214,7 +214,7 @@ chip :: proc(ctx: ^Context, name: string, parts: []Chip_Part, keys := "") -> boo
 
 // How a button is filled.
 Variant :: enum u8 {
-	Solid, // the tone's colour: the one primary action in view
+	Solid, // filled: the one primary action in view (Accent in the text's ink, as the accent means on)
 	Flat, // the tone, faint: secondary actions
 	Light, // nothing until hovered: actions in a row of many
 	Bordered, // a hairline: an action beside a solid one
@@ -254,8 +254,13 @@ button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.N
 	bg, fg: Color
 	switch variant {
 	case .Solid:
-		bg = t.fill if tone == .Neutral else tone_color
-		fg = t.text if tone == .Neutral else t.on_accent
+		// The accent means on and chosen, so the one primary action is drawn in the
+		// text's own ink, filled, which stands out as strongly without saying "on".
+		switch tone {
+		case .Neutral: bg, fg = t.fill, t.text
+		case .Accent:  bg, fg = t.text, t.surface
+		case .Danger:  bg, fg = tone_color, t.on_accent
+		}
 	case .Flat:
 		bg = t.fill if tone == .Neutral else color_fade(tone_color, 0.16)
 		fg = tone_color
