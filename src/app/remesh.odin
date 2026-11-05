@@ -1,11 +1,11 @@
 package main
 
-import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:math/linalg"
 import "core:slice"
 import "core:strings"
+import "core:time"
 
 import "../geom"
 import "../jobs"
@@ -130,6 +130,7 @@ remesh_base_count :: proc(vertices: int, setup: Remesh_Setup) -> int {
 // cancelled. On the frame thread or a long job's alike; `pool` is the levels'.
 remesh_build_levels :: proc(l: ^sculpt.Levels, source: geom.Mesh, setup: Remesh_Setup, cell: f32, pool: ^jobs.Pool, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) -> int {
 	made := 0
+	start := time.tick_now()
 	for made < setup.levels {
 		if jobs.progress_cancelled(progress) do return made
 		if !sculpt.levels_subdivide(l) do break
@@ -137,17 +138,19 @@ remesh_build_levels :: proc(l: ^sculpt.Levels, source: geom.Mesh, setup: Remesh_
 		jobs.progress_set(progress, 0, 1, share[0] + (share[1] - share[0]) * 0.8 * f32(made) / f32(setup.levels))
 	}
 	if made == 0 || len(source.indices) == 0 || jobs.progress_cancelled(progress) do return made
+	divided := time.tick_now()
 	top := sculpt.levels_current(l)
 	m := &top.mesh
-	bvh := geom.bvh_build_morton(source, pool = pool, allocator = runtime.heap_allocator())
+	bvh := geom.bvh_build_morton(source, pool = pool)
 	defer geom.bvh_destroy(&bvh)
-	next := make([]geom.Vec3, len(m.positions), runtime.heap_allocator())
-	defer delete(next, runtime.heap_allocator())
+	next := make([]geom.Vec3, len(m.positions))
+	defer delete(next)
 	_ = geom.project_along_normals(m.positions[:], m.normals[:], source, &bvh, 2 * cell, pool, next, nil)
 	remesh_keep_unfolded(m^, next)
 	sculpt.sculptor_place_all(&top.sculptor, next)
 	sculpt.sculptor_recompute_all(&top.sculptor)
 	jobs.progress_set(progress, 0, 1, share[1])
+	log.infof("remesh: %d levels built in %.0f ms, the top fitted in %.0f ms", made, time.duration_milliseconds(time.tick_diff(start, divided)), time.duration_milliseconds(time.tick_since(divided)))
 	return made
 }
 
