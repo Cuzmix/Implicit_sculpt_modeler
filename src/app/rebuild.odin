@@ -5,10 +5,9 @@ import "core:math"
 import "core:time"
 
 import "../geom"
-import "../quadmesh"
+import "../retopo"
 import "../sculpt"
 import "../ui"
-@(require) import "../retopo" // used only where AutoRemesher is built
 
 // Rebuild (Object > Shape): one section for the three ways to replace an object's
 // topology, by the goal rather than the algorithm (UX research 08): an Even mesh (voxel
@@ -247,36 +246,33 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 		// The engine, Adaptive size, Close first and Keep symmetry under the same fold, for the
 		// same reasons.
 		if kit_more(app, .Remesh) {
-			// Where only the built-in engine is compiled there is nothing to choose.
-			when quadmesh.AVAILABLE {
-				engines: [len(retopo.Engine)]string
-				for e in retopo.Engine do engines[int(e)] = retopo.ENGINE_NAMES[e]
-				if picked := ui.tabs(ctx, "quad engine", engines[:], int(app.ui.retopo_engine)); picked >= 0 do app.ui.retopo_engine = retopo.Engine(picked)
-				if app.ui.retopo_engine == .Auto {
-					a := app.ui.retopo_adaptivity
-					_ = ui.slider(ctx, "Adaptive size", &app.ui.retopo_adaptivity, 0, 1, .Linear, "Even" if a == 0 else fmt.tprintf("%.0f%%", 100 * a))
-					// Keep groups, Keep creases and Edge angle, as ZRemesher's KeepGroups,
-					// KeepCreases and its hard-edge detection: the quads' edges run along
-					// them. The object's own groups and creases decide what there is to keep.
-					groups, creases := quad_source_counts(obj)
-					_ = ui.switch_row(ctx, "Keep groups" if groups > 1 else "Keep groups (none)", &app.ui.retopo_keep_groups, enabled = groups > 1)
-					_ = ui.switch_row(ctx, "Keep creases" if creases > 0 else "Keep creases (none)", &app.ui.retopo_keep_creases, enabled = creases > 0)
-					d := app.ui.retopo_edge_degrees
-					_ = ui.slider(ctx, "Edge angle", &app.ui.retopo_edge_degrees, RETOPO_EDGE_DEGREES_MIN, 90, .Linear, "90° and sharper" if d >= 90 else fmt.tprintf("%.0f°", d))
-					app.ui.retopo_edge_degrees = math.round(app.ui.retopo_edge_degrees)
-					// Use paint and Use mask, as ZRemesher's Use PolyPaint: red asks more quads,
-					// blue fewer, a mask more. A dynamic layout's packing keeps no paint.
-					s := object_sculptor(obj)
-					painted := obj.voxel == nil && sculpt.sculptor_paint_shows(s)
-					masked := obj.voxel == nil && s.mask != nil
-					_ = ui.switch_row(ctx, "Use paint" if painted else "Use paint (none)", &app.ui.retopo_use_paint, enabled = painted && !object_dynamic(obj))
-					_ = ui.switch_row(ctx, "Use mask" if masked else "Use mask (none)", &app.ui.retopo_use_mask, enabled = masked)
-					// Guide strength, as ZRemesher's Curves Strength: how hard the Guide
-					// curves (a curve's use) pull the loops along them.
-					guides := quad_guide_count(app)
-					g := app.ui.retopo_guide_strength
-					_ = ui.slider(ctx, "Guide strength" if guides > 0 else "Guide strength (no guides)", &app.ui.retopo_guide_strength, 0, 1, .Linear, "Off" if g == 0 else fmt.tprintf("%.0f%%", 100 * g), enabled = guides > 0)
-				}
+			engines: [len(retopo.Engine)]string
+			for e in retopo.Engine do engines[int(e)] = retopo.ENGINE_NAMES[e]
+			if picked := ui.tabs(ctx, "quad engine", engines[:], int(app.ui.retopo_engine)); picked >= 0 do app.ui.retopo_engine = retopo.Engine(picked)
+			if app.ui.retopo_engine == .Auto {
+				a := app.ui.retopo_adaptivity
+				_ = ui.slider(ctx, "Adaptive size", &app.ui.retopo_adaptivity, 0, 1, .Linear, "Even" if a == 0 else fmt.tprintf("%.0f%%", 100 * a))
+				// Keep groups, Keep creases and Edge angle, as ZRemesher's KeepGroups,
+				// KeepCreases and its hard-edge detection: the quads' edges run along
+				// them. The object's own groups and creases decide what there is to keep.
+				groups, creases := quad_source_counts(obj)
+				_ = ui.switch_row(ctx, "Keep groups" if groups > 1 else "Keep groups (none)", &app.ui.retopo_keep_groups, enabled = groups > 1)
+				_ = ui.switch_row(ctx, "Keep creases" if creases > 0 else "Keep creases (none)", &app.ui.retopo_keep_creases, enabled = creases > 0)
+				d := app.ui.retopo_edge_degrees
+				_ = ui.slider(ctx, "Edge angle", &app.ui.retopo_edge_degrees, RETOPO_EDGE_DEGREES_MIN, 90, .Linear, "90° and sharper" if d >= 90 else fmt.tprintf("%.0f°", d))
+				app.ui.retopo_edge_degrees = math.round(app.ui.retopo_edge_degrees)
+				// Use paint and Use mask, as ZRemesher's Use PolyPaint: red asks more quads,
+				// blue fewer, a mask more. A dynamic layout's packing keeps no paint.
+				s := object_sculptor(obj)
+				painted := obj.voxel == nil && sculpt.sculptor_paint_shows(s)
+				masked := obj.voxel == nil && s.mask != nil
+				_ = ui.switch_row(ctx, "Use paint" if painted else "Use paint (none)", &app.ui.retopo_use_paint, enabled = painted && !object_dynamic(obj))
+				_ = ui.switch_row(ctx, "Use mask" if masked else "Use mask (none)", &app.ui.retopo_use_mask, enabled = masked)
+				// Guide strength, as ZRemesher's Curves Strength: how hard the Guide
+				// curves (a curve's use) pull the loops along them.
+				guides := quad_guide_count(app)
+				g := app.ui.retopo_guide_strength
+				_ = ui.slider(ctx, "Guide strength" if guides > 0 else "Guide strength (no guides)", &app.ui.retopo_guide_strength, 0, 1, .Linear, "Off" if g == 0 else fmt.tprintf("%.0f%%", 100 * g), enabled = guides > 0)
 			}
 			_ = ui.switch_row(ctx, "Close first", &app.ui.retopo_close_first)
 			kit_keep_symmetry(app, &app.ui.retopo_keep_symmetry)

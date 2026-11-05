@@ -1,6 +1,6 @@
 package retopo
 
-@(require) import "core:log" // used only where AutoRemesher is not built
+import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:slice"
@@ -8,7 +8,6 @@ import "core:strings"
 import "core:testing"
 
 import "../geom"
-import "../quadmesh"
 import "../sculpt"
 
 // A mesh as object_shape hands it to the engines: with normals of its own.
@@ -20,8 +19,7 @@ shape_view :: proc(m: ^geom.Mesh) -> geom.Mesh {
 }
 
 // AutoRemesher on a sphere gives every face a quad, the polygons over the triangles two a
-// quad in order, the quads with UVs, closed and outward; where it is not built, the own
-// engine stands in and the reason says so.
+// quad in order, the quads with UVs, closed and outward.
 @(test)
 quad_remesh_keeps_the_polygons :: proc(t: ^testing.T) {
 	m := geom.icosphere(4)
@@ -29,11 +27,6 @@ quad_remesh_keeps_the_polygons :: proc(t: ^testing.T) {
 	r := compute(shape_view(&m), 1500, {engine = .Auto}, nil)
 	defer result_destroy(&r)
 	if !testing.expect(t, r.built, "nothing built") do return
-	when !quadmesh.AVAILABLE {
-		testing.expect_value(t, r.engine, Engine.Own)
-		testing.expect(t, r.reason != "", "the own engine ran without saying why")
-		return
-	}
 	testing.expect_value(t, r.engine, Engine.Auto)
 	testing.expect_value(t, r.reason, "")
 	testing.expect(t, r.quads > 1000 && r.quads == r.faces, "not every face a quad")
@@ -118,22 +111,16 @@ quad_remesh_polygons_follow_the_renumbering :: proc(t: ^testing.T) {
 // plane, the seam lies on it to the bit, and the whole is closed and manifold.
 @(test)
 quad_remesh_mirrors_one_half :: proc(t: ^testing.T) {
-	when !quadmesh.AVAILABLE {
-		log.info("quad remesh symmetry: AutoRemesher is not built here, nothing to test")
-		return
-	}
 	m := geom.icosphere(4)
 	defer geom.mesh_destroy(&m)
 	mirror := geom.Remesh_Mirror{axes = {true, false, false}}
-	for core in quadmesh.Core {
-		r := compute(shape_view(&m), 1200, {engine = .Auto, mirror = mirror, core = core}, nil)
-		defer result_destroy(&r)
-		if !testing.expectf(t, r.built, "%v: nothing built", core) do continue
-		testing.expect_value(t, r.engine, Engine.Auto)
-		testing.expectf(t, r.mirrored, "%v: not mirrored (%s)", core, r.unmirrored)
-		testing.expectf(t, r.quads > 800 && r.quads == r.faces, "%v: %d quads of %d faces", core, r.quads, r.faces)
-		expect_mirrored(t, r.mesh, mirror, 16)
-	}
+	r := compute(shape_view(&m), 1200, {engine = .Auto, mirror = mirror}, nil)
+	defer result_destroy(&r)
+	if !testing.expectf(t, r.built, "nothing built") do return
+	testing.expect_value(t, r.engine, Engine.Auto)
+	testing.expectf(t, r.mirrored, "not mirrored (%s)", r.unmirrored)
+	testing.expectf(t, r.quads > 800 && r.quads == r.faces, "%d quads of %d faces", r.quads, r.faces)
+	expect_mirrored(t, r.mesh, mirror, 16)
 }
 
 // Keep symmetry follows the brush's: two planes at once, through a centre off the
@@ -148,15 +135,12 @@ quad_remesh_keeps_two_planes_off_the_origin :: proc(t: ^testing.T) {
 		p += {0.4, -0.1, 0.25}
 	}
 	mirror := geom.Remesh_Mirror{axes = {true, false, true}, center = {0.4, -0.1, 0.25}}
-	for engine in Engine do for core in quadmesh.Core {
-		when !quadmesh.AVAILABLE do if engine == .Auto do continue
-		// The built-in engine has no core to pick.
-		if engine == .Own && core != .Cpp do continue
-		r := compute(shape_view(&m), 1600, {engine = engine, mirror = mirror, core = core}, nil)
+	for engine in Engine {
+		r := compute(shape_view(&m), 1600, {engine = engine, mirror = mirror}, nil)
 		defer result_destroy(&r)
-		if !testing.expectf(t, r.built, "%v %v: nothing built", engine, core) do continue
-		testing.expectf(t, r.mirrored, "%v %v: not mirrored (%s)", engine, core, r.unmirrored)
-		testing.expectf(t, r.quads == r.faces && r.quads > 400, "%v %v: %d quads of %d faces", engine, core, r.quads, r.faces)
+		if !testing.expectf(t, r.built, "%v: nothing built", engine) do continue
+		testing.expectf(t, r.mirrored, "%v: not mirrored (%s)", engine, r.unmirrored)
+		testing.expectf(t, r.quads == r.faces && r.quads > 400, "%v: %d quads of %d faces", engine, r.quads, r.faces)
 		expect_mirrored(t, r.mesh, mirror, 8)
 	}
 }
@@ -226,10 +210,8 @@ quad_remesh_closes_an_open_mesh_first :: proc(t: ^testing.T) {
 	closed := compute(shape_view(&m), 2000, {engine = .Auto, close_first = true}, nil)
 	defer result_destroy(&closed)
 	if !testing.expect(t, open.built && closed.built, "nothing built") do return
-	when quadmesh.AVAILABLE {
-		testing.expect(t, geom.mesh_check(open.mesh).boundary_edges > 0, "AutoRemesher closed the hemisphere on its own")
-		testing.expect_value(t, open.closed, 0)
-	}
+	testing.expect(t, geom.mesh_check(open.mesh).boundary_edges > 0, "AutoRemesher closed the hemisphere on its own")
+	testing.expect_value(t, open.closed, 0)
 	testing.expect(t, closed.closed > 0, "Close first did not remesh")
 	after := geom.mesh_check(closed.mesh)
 	testing.expect(t, after.closed, "not closed after Close first")
@@ -241,10 +223,6 @@ quad_remesh_closes_an_open_mesh_first :: proc(t: ^testing.T) {
 // flat, and the count stays what was asked: the triangles' areas spread wider than at Even.
 @(test)
 quad_remesh_adaptive_size_keeps_the_count :: proc(t: ^testing.T) {
-	when !quadmesh.AVAILABLE {
-		log.info("quadmesh is not built on this platform")
-		return
-	}
 	m := geom.icosphere(5)
 	defer geom.mesh_destroy(&m)
 	// A bumpy sphere: the radius waves with the position.
@@ -279,10 +257,6 @@ quad_remesh_adaptive_size_keeps_the_count :: proc(t: ^testing.T) {
 // quads come out up to a third larger on the side where its singular vertices crowd.
 @(test)
 quad_remesh_paint_and_mask_move_the_quads :: proc(t: ^testing.T) {
-	when !quadmesh.AVAILABLE {
-		log.info("quadmesh is not built on this platform")
-		return
-	}
 	m := geom.icosphere(5)
 	defer geom.mesh_destroy(&m)
 	paint := make([]sculpt.Color, len(m.positions))
@@ -305,28 +279,26 @@ quad_remesh_paint_and_mask_move_the_quads :: proc(t: ^testing.T) {
 		return f32(upper) / f32(max(lower, 1))
 	}
 	source := Source{paint = paint, mask = mask}
-	for core in ([]quadmesh.Core{.Cpp, .Odin}) {
-		painted := compute(shape_view(&m), 2000, {engine = .Auto, use_paint = true, core = core}, nil, source = source)
-		defer result_destroy(&painted)
-		plain := compute(shape_view(&m), 2000, {engine = .Auto, core = core}, nil, source = source)
-		defer result_destroy(&plain)
-		none := compute(shape_view(&m), 2000, {engine = .Auto, core = core}, nil)
-		defer result_destroy(&none)
-		masked := compute(shape_view(&m), 2000, {engine = .Auto, use_mask = true, core = core}, nil, source = source)
-		defer result_destroy(&masked)
-		mirrored := compute(shape_view(&m), 2000, {engine = .Auto, use_paint = true, mirror = {axes = {true, false, false}}, core = core}, nil, source = source)
-		defer result_destroy(&mirrored)
-		if !testing.expectf(t, painted.built && plain.built && masked.built && mirrored.built, "%v: nothing built", core) do continue
-		log.infof("%v paint: %d faces, %.2f times above; plain %d, %.2f; mask %d, %.2f; mirrored paint %d, %.2f", core, painted.faces, halves(painted.mesh), plain.faces, halves(plain.mesh), masked.faces, halves(masked.mesh), mirrored.faces, halves(mirrored.mesh))
-		for r in ([4]^Result{&painted, &plain, &masked, &mirrored}) {
-			testing.expectf(t, r.faces >= 1900 && r.faces <= 2100, "%v: %d faces for 2000 asked", core, r.faces)
-			testing.expectf(t, r.quads == r.faces, "%v: %d of %d faces are quads", core, r.quads, r.faces)
-		}
-		testing.expectf(t, halves(painted.mesh) >= 2.5 && halves(painted.mesh) <= 5, "%v: red above gave %.2f times the quads", core, halves(painted.mesh))
-		testing.expectf(t, slice.equal(plain.mesh.positions[:], none.mesh.positions[:]) && slice.equal(plain.mesh.indices[:], none.mesh.indices[:]), "%v: paint not used changed the quads", core)
-		testing.expectf(t, halves(masked.mesh) >= 1.5 && halves(masked.mesh) <= 2.5, "%v: the mask above gave %.2f times the quads", core, halves(masked.mesh))
-		testing.expectf(t, halves(mirrored.mesh) >= 2.5 && halves(mirrored.mesh) <= 5, "%v: red above, mirrored, gave %.2f times the quads", core, halves(mirrored.mesh))
+	painted := compute(shape_view(&m), 2000, {engine = .Auto, use_paint = true}, nil, source = source)
+	defer result_destroy(&painted)
+	plain := compute(shape_view(&m), 2000, {engine = .Auto}, nil, source = source)
+	defer result_destroy(&plain)
+	none := compute(shape_view(&m), 2000, {engine = .Auto}, nil)
+	defer result_destroy(&none)
+	masked := compute(shape_view(&m), 2000, {engine = .Auto, use_mask = true}, nil, source = source)
+	defer result_destroy(&masked)
+	mirrored := compute(shape_view(&m), 2000, {engine = .Auto, use_paint = true, mirror = {axes = {true, false, false}}}, nil, source = source)
+	defer result_destroy(&mirrored)
+	if !testing.expectf(t, painted.built && plain.built && masked.built && mirrored.built, "nothing built") do return
+	log.infof("paint: %d faces, %.2f times above; plain %d, %.2f; mask %d, %.2f; mirrored paint %d, %.2f", painted.faces, halves(painted.mesh), plain.faces, halves(plain.mesh), masked.faces, halves(masked.mesh), mirrored.faces, halves(mirrored.mesh))
+	for r in ([4]^Result{&painted, &plain, &masked, &mirrored}) {
+		testing.expectf(t, r.faces >= 1900 && r.faces <= 2100, "%d faces for 2000 asked", r.faces)
+		testing.expectf(t, r.quads == r.faces, "%d of %d faces are quads", r.quads, r.faces)
 	}
+	testing.expectf(t, halves(painted.mesh) >= 2.5 && halves(painted.mesh) <= 5, "red above gave %.2f times the quads", halves(painted.mesh))
+	testing.expectf(t, slice.equal(plain.mesh.positions[:], none.mesh.positions[:]) && slice.equal(plain.mesh.indices[:], none.mesh.indices[:]), "paint not used changed the quads")
+	testing.expectf(t, halves(masked.mesh) >= 1.5 && halves(masked.mesh) <= 2.5, "the mask above gave %.2f times the quads", halves(masked.mesh))
+	testing.expectf(t, halves(mirrored.mesh) >= 2.5 && halves(mirrored.mesh) <= 5, "red above, mirrored, gave %.2f times the quads", halves(mirrored.mesh))
 }
 
 // Keep groups: a sphere whose top is one polygroup and the rest another hands the border
@@ -335,10 +307,6 @@ quad_remesh_paint_and_mask_move_the_quads :: proc(t: ^testing.T) {
 // groups, nothing is handed over.
 @(test)
 quad_remesh_keeps_group_borders :: proc(t: ^testing.T) {
-	when !quadmesh.AVAILABLE {
-		log.info("quadmesh is not built on this platform")
-		return
-	}
 	m := geom.icosphere(4)
 	defer geom.mesh_destroy(&m)
 	groups := make([]u16, len(m.indices) / 3)
@@ -423,13 +391,9 @@ guide_alignment :: proc(r: Result, line: []geom.Vec3, near: f32) -> (mean: f32, 
 // Guides: a circle drawn round a sphere 30 degrees off its pole pulls the quads' edges
 // along it (under 10 degrees on average at full strength, where with no guide they lie at
 // random to it, about 27); a circle across the bumpy sphere likewise; with the mirror on,
-// the same circle guides the half; the count stays what was asked. Through either core.
+// the same circle guides the half; the count stays what was asked, the mirrored half's too.
 @(test)
 quad_remesh_follows_guides :: proc(t: ^testing.T) {
-	when !quadmesh.AVAILABLE {
-		log.info("quadmesh is not built on this platform")
-		return
-	}
 	one :: proc(p: geom.Vec3) -> f32 {return 1}
 	bump :: proc(p: geom.Vec3) -> f32 {return 1 + 0.12 * math.sin(6 * p.x) * math.sin(6 * p.y) * math.sin(6 * p.z)}
 	m := geom.icosphere(5)
@@ -443,41 +407,34 @@ quad_remesh_follows_guides :: proc(t: ^testing.T) {
 	for &p in bumpy.positions do p *= bump(p)
 	across := guide_circle({0.3, 0.9, 0.3}, 70, 300, bump)
 	defer delete(across)
-	for core in ([]quadmesh.Core{.Cpp, .Odin}) {
-		plain := compute(shape_view(&m), 2000, {engine = .Auto, core = core}, nil)
-		defer result_destroy(&plain)
-		half := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 0.5, core = core}, nil, source = {guides = lines})
-		defer result_destroy(&half)
-		full := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 1, core = core}, nil, source = {guides = lines})
-		defer result_destroy(&full)
-		mirrored := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 1, mirror = {axes = {false, true, false}}, core = core}, nil, source = {guides = lines})
-		defer result_destroy(&mirrored)
-		bumpy_plain := compute(shape_view(&bumpy), 3000, {engine = .Auto, core = core}, nil)
-		defer result_destroy(&bumpy_plain)
-		bumpy_guided := compute(shape_view(&bumpy), 3000, {engine = .Auto, guide_strength = 1, core = core}, nil, source = {guides = {across}})
-		defer result_destroy(&bumpy_guided)
-		results := [?]^Result{&plain, &half, &full, &mirrored, &bumpy_plain, &bumpy_guided}
-		built := true
-		for r in results do built &&= r.built && r.q.quads != nil
-		if !testing.expectf(t, built, "%v: nothing built, or not all quads", core) do continue
-		a0, n0 := guide_alignment(plain, circle, near)
-		a1, n1 := guide_alignment(half, circle, near)
-		a2, n2 := guide_alignment(full, circle, near)
-		a3, n3 := guide_alignment(mirrored, circle, near)
-		near_bumpy := f32(math.sqrt(4 * math.PI / 3000)) / 2
-		b0, m0 := guide_alignment(bumpy_plain, across, near_bumpy)
-		b1, m1 := guide_alignment(bumpy_guided, across, near_bumpy)
-		log.infof("%v guides: none %.1f° (%d edges), half %.1f° (%d), full %.1f° (%d), mirrored %.1f° (%d); bumpy none %.1f° (%d), full %.1f° (%d); faces %d %d %d %d %d %d; guides %d %d %d",
-			core, a0, n0, a1, n1, a2, n2, a3, n3, b0, m0, b1, m1, plain.faces, half.faces, full.faces, mirrored.faces, bumpy_plain.faces, bumpy_guided.faces, half.guides, full.guides, mirrored.guides)
-		testing.expectf(t, full.guides == 1 && mirrored.guides == 1 && plain.guides == 0, "%v: guides kept: %d, %d mirrored, %d with none", core, full.guides, mirrored.guides, plain.guides)
-		testing.expectf(t, a2 < 10 && a3 < 10 && b1 < 10, "%v: at full strength the edges lie %.1f°, %.1f° mirrored and %.1f° on the bumpy sphere from the guide", core, a2, a3, b1)
-		testing.expectf(t, a1 < a0 && a2 <= a1 + 1 && a0 > 12 && b0 > 12, "%v: the edges lie %.1f° from the guide with none, %.1f° at half and %.1f° at full (bumpy: %.1f° with none)", core, a0, a1, a2, b0)
-		// Through the C++ the mirrored count runs short of the count asked with or without
-		// guides (the flat cap takes more than its share), so only the whole remeshes are
-		// held to it there; the Odin core's open half lands it too.
-		for r in results[1:4] do if r != &mirrored || core == .Odin {
-			testing.expectf(t, r.faces >= 1900 && r.faces <= 2100, "%v: %d faces for 2000 asked", core, r.faces)
-		}
-		testing.expectf(t, bumpy_guided.faces >= 2850 && bumpy_guided.faces <= 3150, "%v: %d faces for 3000 asked on the bumpy sphere", core, bumpy_guided.faces)
-	}
+	plain := compute(shape_view(&m), 2000, {engine = .Auto}, nil)
+	defer result_destroy(&plain)
+	half := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 0.5}, nil, source = {guides = lines})
+	defer result_destroy(&half)
+	full := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 1}, nil, source = {guides = lines})
+	defer result_destroy(&full)
+	mirrored := compute(shape_view(&m), 2000, {engine = .Auto, guide_strength = 1, mirror = {axes = {false, true, false}}}, nil, source = {guides = lines})
+	defer result_destroy(&mirrored)
+	bumpy_plain := compute(shape_view(&bumpy), 3000, {engine = .Auto}, nil)
+	defer result_destroy(&bumpy_plain)
+	bumpy_guided := compute(shape_view(&bumpy), 3000, {engine = .Auto, guide_strength = 1}, nil, source = {guides = {across}})
+	defer result_destroy(&bumpy_guided)
+	results := [?]^Result{&plain, &half, &full, &mirrored, &bumpy_plain, &bumpy_guided}
+	built := true
+	for r in results do built &&= r.built && r.q.quads != nil
+	if !testing.expectf(t, built, "nothing built, or not all quads") do return
+	a0, n0 := guide_alignment(plain, circle, near)
+	a1, n1 := guide_alignment(half, circle, near)
+	a2, n2 := guide_alignment(full, circle, near)
+	a3, n3 := guide_alignment(mirrored, circle, near)
+	near_bumpy := f32(math.sqrt(4 * math.PI / 3000)) / 2
+	b0, m0 := guide_alignment(bumpy_plain, across, near_bumpy)
+	b1, m1 := guide_alignment(bumpy_guided, across, near_bumpy)
+	log.infof("guides: none %.1f° (%d edges), half %.1f° (%d), full %.1f° (%d), mirrored %.1f° (%d); bumpy none %.1f° (%d), full %.1f° (%d); faces %d %d %d %d %d %d; guides %d %d %d",
+		a0, n0, a1, n1, a2, n2, a3, n3, b0, m0, b1, m1, plain.faces, half.faces, full.faces, mirrored.faces, bumpy_plain.faces, bumpy_guided.faces, half.guides, full.guides, mirrored.guides)
+	testing.expectf(t, full.guides == 1 && mirrored.guides == 1 && plain.guides == 0, "guides kept: %d, %d mirrored, %d with none", full.guides, mirrored.guides, plain.guides)
+	testing.expectf(t, a2 < 10 && a3 < 10 && b1 < 10, "at full strength the edges lie %.1f°, %.1f° mirrored and %.1f° on the bumpy sphere from the guide", a2, a3, b1)
+	testing.expectf(t, a1 < a0 && a2 <= a1 + 1 && a0 > 12 && b0 > 12, "the edges lie %.1f° from the guide with none, %.1f° at half and %.1f° at full (bumpy: %.1f° with none)", a0, a1, a2, b0)
+	for r in results[1:4] do testing.expectf(t, r.faces >= 1900 && r.faces <= 2100, "%d faces for 2000 asked", r.faces)
+	testing.expectf(t, bumpy_guided.faces >= 2850 && bumpy_guided.faces <= 3150, "%d faces for 3000 asked on the bumpy sphere", bumpy_guided.faces)
 }

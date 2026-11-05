@@ -1,3 +1,0 @@
-# The AutoRemesher patches hold CRLF and LF lines as the files they patch do, so git
-# must keep them byte for byte on every platform.
-src/quadmesh/patches/*.patch -text

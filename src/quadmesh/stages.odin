@@ -4,12 +4,10 @@ import "base:runtime"
 
 import "../jobs"
 
-// What the stages hand each other (driver.odin), whichever side runs a stage: an island
-// of the input, the isotropic mesh, a quad cover and the quads. Positions are f64, as the
-// C++ core keeps them, so a stage's output goes into the next unchanged and the driver's
-// result matches qm_remesh's bit for bit while every stage is the C++'s. Everything here
-// is made and freed with runtime.heap_allocator(), since islands run on threads of their
-// own.
+// What the stages hand each other (driver.odin): an island of the input, the isotropic
+// mesh, a quad cover and the quads. Positions are f64, as AutoRemesher keeps them, so a
+// stage's output goes into the next unchanged. Everything here is made and freed with
+// runtime.heap_allocator(), since islands run on threads of their own.
 
 // An island of the input: one connected piece, its vertices numbered from 0.
 Island :: struct {
@@ -83,7 +81,6 @@ Stage_Error :: enum u8 {
 	Cancelled,
 	Out_Of_Memory,
 	Failed, // `Reason` says why
-	Unavailable, // the stage is the C++'s, which this platform does not build
 }
 
 // A stage's reason for failing, kept in place so a thread of its own needs no allocator

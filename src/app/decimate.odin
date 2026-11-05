@@ -199,7 +199,7 @@ decimate_mirrored :: proc(src: Decimate_Source, vertices: int, setup: Decimate_S
 	mirror := setup.mirror
 	sources: geom.Slice_From
 	defer geom.slice_from_destroy(&sources)
-	half_mesh, cut := geom.mirror_cut(src.mesh, mirror, false, pool, from = &sources)
+	half_mesh, cut := geom.mirror_cut(src.mesh, mirror, pool, from = &sources)
 	if !cut do return {}, 0, {}, false, "the object does not cross the plane"
 	// The part's own paint, groups and mask, from the vertices and triangles it was cut
 	// from (a cut point takes its nearer end's).

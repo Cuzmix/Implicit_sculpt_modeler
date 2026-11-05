@@ -113,8 +113,6 @@ need_luau() {
 	# A shim changed since the library was built is compiled again (a library built from
 	# this shim and tag is kept, so this costs nothing most runs).
 	python3 "$ROOT/scripts/build_ufbx.py" > /dev/null || { echo "ufbx: src/fbx/fbx_shim.c changed and rebuilding deps/ufbx failed: run python3 scripts/build_ufbx.py"; exit 1; }
-	# And AutoRemesher's core for Quad Remesh, with its boundary (scripts/build_autoremesher.py).
-	[ -f "$DEPS/autoremesher/libautoremesher.a" ] || { echo "AutoRemesher missing: run scripts/setup_deps.sh, which builds deps/autoremesher"; exit 1; }
 }
 
 # The oldest iPadOS the iPad build runs on. From 17.4 Odin's thread waits use the public
@@ -448,15 +446,12 @@ case "$mode" in
 		mac_object
 		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_truetype.c" -o "$out/stb_truetype.o"
 		"${cc[@]}" -O2 -w -I"$DEPS/ufbx-src" -c "$ROOT/src/fbx/fbx_shim.c" -o "$out/ufbx.o"
-		# Quad Remesh is offered on the Mac (src/quadmesh), so AutoRemesher's core links in too,
-		# built for the same minimum macOS when it is missing.
-		[ -f "$DEPS/autoremesher/libautoremesher.a" ] || MACOSX_DEPLOYMENT_TARGET="$MAC_MIN" python3 "$ROOT/scripts/build_autoremesher.py" || exit 1
 		rm -rf "$app"
 		mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 		libs=$(PKG_CONFIG_PATH="$out/sdl/lib/pkgconfig" pkg-config --static --libs sdl3)
 		[ -n "$libs" ] || { echo "pkg-config gave no flags for SDL's static library"; exit 1; }
 		read -r -a sdl_libs <<< "$libs"
-		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/ufbx.o" "$DEPS/autoremesher/libautoremesher.a" -lc++ "${sdl_libs[@]}" -o "$app/Contents/MacOS/Sculpt"
+		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/ufbx.o" "${sdl_libs[@]}" -o "$app/Contents/MacOS/Sculpt"
 		plist="$app/Contents/Info.plist"
 		cp "$ROOT/mac/Info.plist" "$plist"
 		plutil -replace LSMinimumSystemVersion -string "$MAC_MIN" "$plist"

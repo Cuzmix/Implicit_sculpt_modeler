@@ -31,8 +31,6 @@ rem And ufbx for FBX import, with the app's shim round it (scripts\build_ufbx.py
 if not exist "%DEPS%\ufbx\ufbx.lib" ( echo ufbx missing: run scripts\setup_deps.bat, which builds deps\ufbx & exit /b 1 )
 rem A shim changed since the library was built is compiled again (cl must be on the PATH then).
 python "%ROOT%scripts\build_ufbx.py" >nul || ( echo ufbx: src\fbx\fbx_shim.c changed and rebuilding deps\ufbx failed: run python scripts\build_ufbx.py from a developer prompt & exit /b 1 )
-rem And AutoRemesher's core for Quad Remesh, with its boundary (scripts\build_autoremesher.py).
-if not exist "%DEPS%\autoremesher\autoremesher.lib" ( echo AutoRemesher missing: run scripts\setup_deps.bat, which builds deps\autoremesher & exit /b 1 )
 
 rem Recompile the Slang shaders when slangc is in deps\slang\bin or on the PATH (the Vulkan SDK
 rem installs it); otherwise use the committed .spv files. build.sh describes the rules.

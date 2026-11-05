@@ -3,9 +3,8 @@ package quadmesh
 import "base:runtime"
 import "core:math"
 
-// The quad cover in Odin (Core.Odin): AutoRemesher's QuadParameterizer (MIT, by Jeremy Hu),
-// whose steps and choices this follows, on the frame field and sizes the Odin field gave
-// (field.odin). Each triangle gets a UV per corner whose integer lines are the quads'
+// The quad cover: AutoRemesher's QuadParameterizer (MIT, by Jeremy Hu), whose steps and
+// choices this follows, on the frame field and sizes the field gave (field.odin). Each triangle gets a UV per corner whose integer lines are the quads'
 // edges. The field's four directions are first made to agree across a spanning tree of
 // the triangles (each turned by quarter turns to its parent's), so every edge says by how
 // many quarter turns its two triangles' frames differ. A face beside a sharp or feature
@@ -29,7 +28,7 @@ Edge_Hold :: enum i8 {
 	V,
 }
 
-// The quarter turns, as the C++'s quarterTurn table.
+// The quarter turns, as AutoRemesher's quarterTurn table.
 @(private = "file")
 QUARTER_TURN := [4][2][2]f64{{{1, 0}, {0, 1}}, {{0, 1}, {-1, 0}}, {{-1, 0}, {0, -1}}, {{0, -1}, {1, 0}}}
 
@@ -48,7 +47,7 @@ CURL_STRETCH_LIMIT :: 1.5
 @(private = "file")
 Cover_Work :: struct {
 	s:        Surface,
-	normal:   [][3]f64, // per triangle, the C++'s unit normal
+	normal:   [][3]f64, // per triangle, AutoRemesher's unit normal
 	field:    [][3]f64, // per triangle, its frame's direction
 	before:   [][3]f64, // and before the spanning tree turned it
 	rotation: []i8, // per corner: the quarter turns from the other triangle's frame to this one's
@@ -174,7 +173,7 @@ cover_plan_destroy :: proc(plan: ^Cover_Plan) {
 }
 
 // One cover on the plan at `scaling` (progress 0.2 to 1 of a cover): the curl correction,
-// then the fit and its integers: the C++'s cover at that scaling.
+// then the fit and its integers: the cover at that scaling.
 odin_cover_at :: proc(plan: ^Cover_Plan, scaling: f64, run: ^Stage_Run, reason: ^Reason, checks: ^Checks) -> (out: Cover, err: Stage_Error) {
 	heap := runtime.heap_allocator()
 	context.allocator = heap
@@ -246,7 +245,7 @@ cover_work_destroy :: proc(w: ^Cover_Work) {
 	w^ = {}
 }
 
-// `v` made unit, or `fallback` made unit when `v` is nearly zero (the C++'s unit()).
+// `v` made unit, or `fallback` made unit when `v` is nearly zero (AutoRemesher's unit()).
 @(private = "file")
 unit_else :: #force_inline proc(v, fallback: [3]f64) -> [3]f64 {
 	l := length3(v)
@@ -337,9 +336,9 @@ brush_along_tree :: proc(w: ^Cover_Work) {
 // Whether corner c's edge is held along a line of the grid, and which (edgeConstraint): a
 // feature edge or a crease sharper than `sharp_degrees` lying within HOLD_DEGREES of one
 // of the frame's directions and not of the other, and a border edge always, along the
-// nearer. The C++ held a border as a crease, but it never saw one (AutoRemesher closes
-// holes, and its symmetric half went in capped); the Odin core's half goes in open, and
-// its cut must end on lines of the grid all round for the mirror to close: where the cut
+// nearer. AutoRemesher held a border as a crease, but it never saw one (it closes holes
+// first); Keep symmetry's half goes in open, and its cut must end on lines of the grid all
+// round for the mirror to close: where the cut
 // turns sharply its triangle's frame follows one edge, the next lies 30 or 40 degrees off
 // it, and left free, the quads stopped short of the plane there.
 @(private = "file")
@@ -507,7 +506,7 @@ cut_seam :: proc(w: ^Cover_Work) -> []bool {
 	}
 	// A vertex with one seam edge is a loose end: its edge goes when its frames agree, and
 	// the vertex at the edge's other end may then be one. Taking the loose ends in any
-	// order leaves the same seam as the C++'s passes over the corners.
+	// order leaves the same seam as AutoRemesher's passes over the corners.
 	stack := make([dynamic]u32)
 	defer delete(stack)
 	for v in 0 ..< len(s.positions) do if degree[v] == 1 do append(&stack, u32(v))
@@ -531,14 +530,13 @@ cut_seam :: proc(w: ^Cover_Work) -> []bool {
 // The corner whose UV is pinned at the origin. The pin only picks where the lattice starts
 // in the free solve, but the rounding counts from it and the held solve keeps it on a
 // lattice point, so its vertex lands a whole number of quads from every held edge's line.
-// The C++ pinned corner 0 wherever it lay: less than a quad from a held border, the strip
+// AutoRemesher pinned corner 0 wherever it lay: less than a quad from a held border, the strip
 // between was taken to nothing (a notch the mirror could not close) or stretched to a quad.
 // With an edge held, the pin goes where the cover has a lattice point anyway: at a
 // singular vertex, which the turned translations round it leave on one, else at a corner
 // whose two edges hold both its coordinates, else at a held corner, whose held coordinate
 // is an integer anyway. With none held, corner 0 stays: there is no line for it to pinch a
 // strip against, and over a sweep of spheres the two choices folded and filled as often.
-// The C++ is patched to pin the same corner.
 @(private = "file")
 cover_pin :: proc(w: ^Cover_Work, singular: []u32) -> int {
 	s := &w.s

@@ -6,62 +6,47 @@ import "core:testing"
 
 import "../geom"
 
-// The Odin core against the driver (every stage the C++'s): every cell of the cover a
-// quad, nothing open, the surface's Euler characteristic kept, and the count asked within
-// 4 % (the Odin isotropic mesh is not the C++'s, so neither is its cover, and the two
-// counts land apart by a few quads either way).
+// The extraction through the whole remesh: every cell of the cover a quad, nothing open,
+// the surface's Euler characteristic kept, nothing gone round, filled or dropped, and the
+// count asked within 4 %.
 @(private = "file")
-odin_against_driver :: proc(t: ^testing.T, name: string, positions: []geom.Vec3, indices: []u32, params: Params, euler: int, loc := #caller_location) -> (odin_report: Report) {
-	p := params
-	p.core = .Driver
-	cpp, cpp_report, cpp_err, cpp_reason := remesh(positions, indices, p)
-	defer polygon_mesh_destroy(&cpp)
-	p.core = .Odin
-	odin, report, odin_err, odin_reason := remesh(positions, indices, p)
-	defer polygon_mesh_destroy(&odin)
-	if !testing.expectf(t, cpp_err == .None && odin_err == .None, "%s: driver %v %s, odin %v %s", name, cpp_err, cpp_reason, odin_err, odin_reason, loc = loc) do return
+every_cell_a_quad :: proc(t: ^testing.T, name: string, positions: []geom.Vec3, indices: []u32, params: Params, euler: int, loc := #caller_location) {
+	out, report, err, reason := remesh(positions, indices, params)
+	defer polygon_mesh_destroy(&out)
+	if !testing.expectf(t, err == .None, "%s: %v %s", name, err, reason, loc = loc) do return
 	c := report.checks
-	log.infof("%s: odin %d faces (%d quads) in %.0f ms (extraction %.0f ms), C++ extraction %d faces (%d quads, %.0f ms); %s", name, report.faces, report.quads, report.ms, report.extract_ms, cpp_report.faces, cpp_report.quads, cpp_report.extract_ms, checks_line(c))
+	log.infof("%s: %d faces (%d quads) in %.0f ms (extraction %.0f ms); %s", name, report.faces, report.quads, report.ms, report.extract_ms, checks_line(c))
 	testing.expectf(t, report.quads == report.faces, "%s: %d of %d faces are quads", name, report.quads, report.faces, loc = loc)
 	testing.expectf(t, c.quad_open_edges == 0 && c.quad_nonmanifold == 0, "%s: %d open and %d non-manifold edges", name, c.quad_open_edges, c.quad_nonmanifold, loc = loc)
 	testing.expectf(t, c.quad_euler == euler, "%s: Euler characteristic %d, the surface's %d", name, c.quad_euler, euler, loc = loc)
 	testing.expectf(t, c.extract_unmatched == 0 && c.extract_holes == 0 && c.extract_filled == 0 && c.extract_dropped == 0, "%s: %s", name, checks_line(c), loc = loc)
 	testing.expectf(t, f64(report.faces) == math.round(c.cover_cells_abs), "%s: %d quads for the cover's %.1f cells", name, report.faces, c.cover_cells_abs, loc = loc)
 	testing.expectf(t, abs(f64(report.faces - params.quads)) <= 0.04 * f64(params.quads), "%s: %d quads for the %d asked", name, report.faces, params.quads, loc = loc)
-	return report
 }
 
 // A sphere: every cell of a fold-free cover becomes a quad, about the count asked.
 @(test)
-odin_extraction_makes_every_cell_a_quad :: proc(t: ^testing.T) {
-	when !AVAILABLE {
-		log.info("quadmesh is not built on this platform")
-		return
-	}
+extraction_makes_every_cell_a_quad :: proc(t: ^testing.T) {
 	source := geom.icosphere(4)
 	defer geom.mesh_destroy(&source)
 	params := DEFAULT_PARAMS
 	params.quads = 1500
 	for threads in ([]int{1, 4}) {
 		params.threads = threads
-		odin_against_driver(t, "sphere", source.positions[:], source.indices[:], params, 2)
+		every_cell_a_quad(t, "sphere", source.positions[:], source.indices[:], params, 2)
 	}
 	params.adaptivity = 1
-	odin_against_driver(t, "sphere at full adaptivity", source.positions[:], source.indices[:], params, 2)
+	every_cell_a_quad(t, "sphere at full adaptivity", source.positions[:], source.indices[:], params, 2)
 }
 
 // A torus (Euler characteristic 0) and three spheres in one mesh (6).
 @(test)
-odin_extraction_keeps_the_topology :: proc(t: ^testing.T) {
-	when !AVAILABLE {
-		log.info("quadmesh is not built on this platform")
-		return
-	}
+extraction_keeps_the_topology :: proc(t: ^testing.T) {
 	torus := torus_mesh(96, 48, 1, 0.4)
 	defer geom.mesh_destroy(&torus)
 	params := DEFAULT_PARAMS
 	params.quads = 1500
-	odin_against_driver(t, "torus", torus.positions[:], torus.indices[:], params, 0)
+	every_cell_a_quad(t, "torus", torus.positions[:], torus.indices[:], params, 0)
 
 	source := geom.icosphere(3)
 	defer geom.mesh_destroy(&source)
@@ -75,7 +60,7 @@ odin_extraction_keeps_the_topology :: proc(t: ^testing.T) {
 	}
 	for k in 0 ..< 3 do for v, i in source.indices do indices[k * len(source.indices) + i] = v + u32(k * n)
 	params.quads = 1200
-	odin_against_driver(t, "three spheres", positions, indices, params, 6)
+	every_cell_a_quad(t, "three spheres", positions, indices, params, 6)
 }
 
 // A torus of nu by nv quads cut in two triangles each, wound outward.

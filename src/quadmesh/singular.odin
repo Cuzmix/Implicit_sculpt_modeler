@@ -4,7 +4,7 @@ import "base:runtime"
 import "core:math"
 import "core:slice"
 
-// The frame field's singular vertices and their clean-up in Odin (Core.Odin), the rules of
+// The frame field's singular vertices and their clean-up, the rules of
 // AutoRemesher's SingularitySimplifier (MIT, by Jeremy Hu). A vertex is singular when the
 // frames' quarter turns across the edges round it do not add up to whole turns; its charge
 // is that sum's remainder, and two singular vertices whose charges add up to whole turns
@@ -13,7 +13,7 @@ import "core:slice"
 // first: the frames of the triangles near both (those with no sharp, feature or border
 // edge) are relaxed toward their neighbours with that turn carried along the path, and the
 // change is kept only when both vertices come out regular and no new singular vertex
-// appears near them. Where the C++ works over the whole mesh for every pair it tries (its
+// appears near them. Where AutoRemesher works over the whole mesh for every pair it tries (its
 // charges, its regions' marks), this works over the pair's region alone, so the clean-up
 // costs what its pairs reach, whatever the mesh's size.
 
@@ -106,7 +106,7 @@ singular_simplify :: proc(s: ^Surface, angles: []f64, sharp_degrees: f64, featur
 	for c in 0 ..< corners {
 		x.length[c] = length3(surface_edge(s, u32(c)))
 		if s.opp[c] == NONE do continue
-		// A sharp edge either way round: the C++ takes the signed angle, which is negative
+		// A sharp edge either way round: AutoRemesher takes the signed angle, which is negative
 		// on a convex crease, so a singular vertex could cross a cube's edge there though
 		// the field locked the frames beside it.
 		x.sharp[c] = abs(s.dihedral[c]) >= sharp || (features != nil && features[c] != 0)

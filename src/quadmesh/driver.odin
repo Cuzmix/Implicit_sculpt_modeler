@@ -9,19 +9,16 @@ import "core:time"
 import "../geom"
 import "../jobs"
 
-// The Odin driver (Core.Odin): qm_remesh's pipeline (quadmesh_shim.cpp) run here, one stage
-// call at a time, so each stage can be replaced by an Odin one and checked against the
-// C++'s on the same input. While every stage is the C++'s the result is qm_remesh's bit
-// for bit: the input split into islands as MeshSeparator splits it, the island's values
-// given out in the same order, the quad size, the cap test and the count's landing in the
-// same arithmetic in the same order (the bracket's pow and log are the C library's, as
-// the C++'s are), and the islands joined in order. Islands run on threads of their own up
-// to the thread count, each whole on one thread, as qm_remesh's do; on the threads, the
-// stages' own loops stay serial. A stage's output is checked (checks.odin) and, when
-// Params.dump names a folder, written there (dump.odin).
+// The driver: the input split into islands (MeshSeparator's flood, as AutoRemesher splits
+// it), each island's values given out, the quad size worked out, each island through the
+// stages with its covers landing on its share of the count, and the islands' quads joined
+// in order. Islands run on threads of their own up to the thread count, each whole on one
+// thread; one island alone spreads its stages' loops over the threads instead. A stage's
+// output is checked (checks.odin) and, when Params.dump names a folder, written there
+// (dump.odin).
 
 // Where an island's own 0..1 progress splits across its stages, and the islands' share of
-// the whole bar, as qm_remesh splits them.
+// the whole bar.
 @(private = "file")
 ISLAND_RESAMPLE_END :: f32(0.17)
 @(private = "file")
@@ -31,19 +28,15 @@ PARALLEL_PHASE_BEGIN :: f32(0.03)
 @(private = "file")
 PARALLEL_PHASE_END :: f32(0.95)
 
-// The landing's tolerance and the covers it may solve (remeshIsland's), and the Odin
-// core's: its later covers refill a kept plan and take a fraction of the first's time, so
-// it lands closer, within the 2 % a count is asked to land (a mirrored half's mending and
-// rounding take some of it), and may take a few more where the cells step (an open half's
-// rows between its border and its singular vertices are whole), closing in on the step.
-@(private = "file")
-LANDING_MISS :: 0.03
-@(private = "file")
-LANDING_COVERS :: 3
-@(private = "file")
-ODIN_LANDING_MISS :: 0.015
-@(private = "file")
-ODIN_LANDING_COVERS :: 8
+// The landing's tolerance and the covers it may solve. A later cover refills the first's
+// plan and takes a fraction of its time, so the landing closes in to the 2 % a count is
+// asked to land within (a mirrored half's mending and rounding take some of it), and may
+// take a few covers where the cells step (an open half's rows between its border and its
+// singular vertices are whole).
+@(private)
+LANDING_MISS :: 0.015
+@(private)
+LANDING_COVERS :: 8
 
 @(private = "file")
 Driver :: struct {
@@ -53,12 +46,12 @@ Driver :: struct {
 	voxel_size:      f64,
 	quad_edge:       f64,
 	threads:         int,
-	pool:            ^jobs.Pool, // the Odin stages' loops, while the islands run one at a time
+	pool:            ^jobs.Pool, // the stages' loops, while the islands run one at a time
 	islands:         []Island_Work,
 	lock:            sync.Mutex, // over the progress, the cancel and the reasons
 	island_progress: []f32,
 	island_weight:   []f32,
-	cancelled:       bool, // sticky, as qm_remesh's handler's is
+	cancelled:       bool, // sticky: once cancelled, every island stops
 	failure:         Reason, // the last reason an island's cover gave for failing
 	fatal:           Stage_Error, // the first stage that failed the whole remesh
 	fatal_reason:    Reason,
@@ -83,27 +76,26 @@ Stage_Tag :: struct {
 	begin, end: f32,
 }
 
-// The remesh through the driver, as cpp_remesh is through qm_remesh.
+// The remesh `remesh` asks for, its checks summed over the islands.
 @(private)
-driver_remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, progress: ^jobs.Progress, share: [2]f32, allocator: runtime.Allocator) -> (out: Polygon_Mesh, times: Qm_Times, checks: Checks, err: Error, reason: string) {
-	start := time.tick_now()
+driver_remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, progress: ^jobs.Progress, share: [2]f32, allocator: runtime.Allocator) -> (out: Polygon_Mesh, times: Times, checks: Checks, err: Error, reason: string) {
 	heap := runtime.heap_allocator()
 	params := params
 	d := new(Driver, heap)
 	defer free(d, heap)
 	d.params, d.progress, d.share = &params, progress, share
 	if !driver_whole(d, 0, "Computing voxel size") do return {}, {}, {}, .Cancelled, ""
-	// The input in doubles, as the core keeps it, until the islands have their own copies.
+	// The input in doubles, as the stages keep it, until the islands have their own copies.
 	vertices := make([][3]f64, len(positions), heap)
 	vertices_kept := true
 	defer if vertices_kept do delete(vertices, heap)
 	for p, v in positions do vertices[v] = {f64(p.x), f64(p.y), f64(p.z)}
 	faces := (cast([^][3]u32)raw_data(indices))[:len(indices) / 3]
-	d.threads = clamp(params.threads, 1, MAX_THREADS)
-	// The core's isotropic target: a triangle of the area that twice the quads asked would
-	// give, as an equilateral; the quad edge wanted is the plain one. Under Keep symmetry
-	// the caps' area takes no quads: the count asked is the rest's.
-	area := counted_area(&params, vertices, faces)
+	// Where threads run inline (the web version), more than one would only wait on itself.
+	d.threads = clamp(params.threads, 1, MAX_THREADS) if thread.IS_SUPPORTED else 1
+	// The isotropic target: a triangle of the area that twice the quads asked would give,
+	// as an equilateral; the quad edge wanted is the plain one.
+	area := mesh_area(vertices, faces)
 	d.voxel_size = math.sqrt((area / (2.0 * f64(u32(params.quads)))) / EQUILATERAL_AREA)
 	d.quad_edge = math.sqrt(area / f64(u32(params.quads)))
 	if !(d.voxel_size > 0) || !(d.quad_edge > 0) do return {}, {}, {}, .Failed, "the mesh has no area"
@@ -137,9 +129,9 @@ driver_remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, pr
 
 	if !driver_whole(d, PARALLEL_PHASE_BEGIN, "Remeshing uniformly") do return {}, {}, {}, .Cancelled, ""
 	if count <= 1 || d.threads <= 1 {
-		// One island at a time: its Odin stages spread their loops over the threads.
+		// One island at a time: its stages spread their loops over the threads.
 		stage_pool: jobs.Pool
-		if params.core == .Odin && d.threads > 1 {
+		if d.threads > 1 {
 			jobs.pool_init(&stage_pool, d.threads - 1, heap)
 			d.pool = &stage_pool
 		}
@@ -171,7 +163,6 @@ driver_remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, pr
 	case .None:
 	case .Cancelled: return {}, {}, {}, .Cancelled, ""
 	case .Out_Of_Memory: return {}, {}, {}, .Failed, "out of memory"
-	case .Unavailable: return {}, {}, {}, .Unavailable, "Quad Remesh is not built for this platform"
 	case .Failed: return {}, {}, {}, .Failed, clone_reason(&d.fatal_reason)
 	}
 
@@ -185,13 +176,7 @@ driver_remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, pr
 		checks_add(&checks, w.checks)
 	}
 	if face_total == 0 {
-		why := reason_string(&d.failure)
-		if why == "" {
-			line: Reason
-			cpp_console_line(&line)
-			if reason_string(&line) != "" do return {}, {}, {}, .Failed, clone_reason(&line)
-			return {}, {}, {}, .Failed, "AutoRemesher gave no polygons"
-		}
+		if reason_string(&d.failure) == "" do return {}, {}, {}, .Failed, "the remesh gave no polygons"
 		return {}, {}, {}, .Failed, clone_reason(&d.failure)
 	}
 	out.positions = make([]geom.Vec3, vertex_total, allocator)
@@ -217,19 +202,18 @@ driver_remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, pr
 	}
 	out.first[f] = u32(n)
 	times = {
-		decimate_ms         = f32(f64(sync.atomic_load(&d.decimate_ns)) / 1e6),
-		isotropic_ms        = f32(f64(sync.atomic_load(&d.isotropic_ns)) / 1e6),
-		parameterize_ms     = f32(f64(sync.atomic_load(&d.parameterize_ns)) / 1e6),
-		extract_ms          = f32(f64(sync.atomic_load(&d.extract_ns)) / 1e6),
-		total_ms            = f32(time.duration_milliseconds(time.tick_since(start))),
-		isotropic_triangles = u32(min(sync.atomic_load(&d.isotropic_triangles), int(max(u32)))),
-		covers              = u32(sync.atomic_load(&d.covers)),
+		decimate_ms         = f64(sync.atomic_load(&d.decimate_ns)) / 1e6,
+		isotropic_ms        = f64(sync.atomic_load(&d.isotropic_ns)) / 1e6,
+		parameterize_ms     = f64(sync.atomic_load(&d.parameterize_ns)) / 1e6,
+		extract_ms          = f64(sync.atomic_load(&d.extract_ns)) / 1e6,
+		isotropic_triangles = sync.atomic_load(&d.isotropic_triangles),
+		covers              = sync.atomic_load(&d.covers),
 	}
 	_ = driver_whole(d, 1, "Done")
 	return out, times, checks, .None, ""
 }
 
-// The area of an equilateral triangle of unit edge, as the core writes it.
+// The area of an equilateral triangle of unit edge, as AutoRemesher writes it.
 @(private)
 EQUILATERAL_AREA :: f64(0.86602540378 * 0.5)
 
@@ -254,8 +238,8 @@ driver_whole :: proc(d: ^Driver, fraction: f32, stage: string) -> bool {
 	return !d.cancelled
 }
 
-// An island reports its own 0..1 and the bar gets the weighted whole, as qm_remesh's
-// handler does; false once cancelled.
+// An island reports its own 0..1 and the bar gets the islands' whole, each weighted by
+// its share of the triangles; false once cancelled.
 @(private = "file")
 driver_report :: proc(d: ^Driver, island: int, fraction: f32) -> bool {
 	sync.mutex_lock(&d.lock)
@@ -294,9 +278,9 @@ add_ns :: proc(to: ^i64, from: time.Tick) {
 	sync.atomic_add(to, i64(time.tick_since(from)))
 }
 
-// One island through the stages (remeshIsland's order): thinned, remeshed isotropically,
-// covered until the cells land on the count, its quads extracted. `serial` keeps the
-// stages' own loops on this thread.
+// One island through the stages (AutoRemesher's remeshIsland's order): thinned, remeshed
+// isotropically, covered until the cells land on the count, its quads extracted. `serial`
+// keeps the stages' own loops on this thread.
 @(private = "file")
 island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	w := &d.islands[i]
@@ -304,15 +288,7 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	reason: Reason
 	if !driver_report(d, i, 0) do return
 	t0 := time.tick_now()
-	thin: Island
-	decimated: bool
-	added: int
-	err: Stage_Error
-	if params.core == .Odin {
-		thin, decimated, err = odin_thin(w.island, d.voxel_size, d.quad_edge, f64(params.sharp_degrees), d.pool)
-	} else {
-		thin, decimated, added, err = cpp_thin(w.island, d.voxel_size, d.quad_edge, f64(params.sharp_degrees), &reason)
-	}
+	thin, decimated, err := odin_thin(w.island, d.voxel_size, d.quad_edge, f64(params.sharp_degrees), d.pool)
 	if err != .None {
 		driver_fail(d, err, &reason)
 		return
@@ -320,7 +296,6 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	w.checks.islands = 1
 	checks_thin(&w.checks, thin)
 	w.checks.thin_decimated = 1 if decimated else 0
-	w.checks.thin_unpinched = added
 	dump_thin(params.dump, i, w.island, thin)
 	island_destroy(&w.island)
 	w.island = thin
@@ -330,11 +305,7 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	tag := Stage_Tag{d, i, 0, ISLAND_RESAMPLE_END}
 	run := Stage_Run{d.threads, serial, driver_stage_progress, &tag, d.pool}
 	iso: Isotropic
-	if params.core == .Odin {
-		iso, err = odin_isotropic(w.island, d.voxel_size, f64(params.adaptivity), f64(params.sharp_degrees), &run, &reason, &w.checks)
-	} else {
-		iso, err = cpp_isotropic(w.island, d.voxel_size, f64(params.adaptivity), f64(params.sharp_degrees), &run, &reason)
-	}
+	iso, err = odin_isotropic(w.island, d.voxel_size, f64(params.adaptivity), f64(params.sharp_degrees), &run, &reason, &w.checks)
 	if err != .None {
 		driver_fail(d, err, &reason)
 		return
@@ -342,7 +313,7 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	defer isotropic_destroy(&iso)
 	// The rest of the stages work on the isotropic mesh alone, but for the area the count
 	// was asked of.
-	island_area := counted_area(params, w.island.positions, w.island.triangles)
+	island_area := mesh_area(w.island.positions, w.island.triangles)
 	island_destroy(&w.island)
 	add_ns(&d.isotropic_ns, t1)
 	sync.atomic_add(&d.isotropic_triangles, len(iso.triangles))
@@ -356,8 +327,8 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 
 	// The cover multiplies its scaling by the isotropic mesh's mean edge, so the quad edge
 	// wanted divided by that mean asks for it; the cover's own area in cells then says how
-	// far off the count will be, and up to two more covers correct the scaling by it
-	// (remeshIsland says why). A count Params.scaling fixed is left alone.
+	// far off the count will be, and more covers correct the scaling by it, up to
+	// LANDING_COVERS in all. A count Params.scaling fixed is left alone.
 	t2 := time.tick_now()
 	landing := params.scaling <= 0
 	scaling := f64(params.scaling)
@@ -365,98 +336,69 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 		mean := iso.mean_edge
 		scaling = d.quad_edge / mean if mean > 0 else 1.0
 	}
-	// A face whose quads are s times the size covers 1 / s² as many cells; a face on a cap
-	// plane counts for none, here and in the cells measured below.
+	// A face whose quads are s times the size covers 1 / s² as many cells.
 	heap := runtime.heap_allocator()
-	cap_face := make([]bool, len(iso.triangles), heap)
-	defer delete(cap_face, heap)
-	within := max(f64(params.cap_snap), 0.05 * d.voxel_size)
-	for t, f in iso.triangles do cap_face[f] = on_cap(params, iso.positions[t[0]], iso.positions[t[1]], iso.positions[t[2]], within)
 	scaled_area := f64(0)
 	scaled := len(iso.vertex_scale) == len(iso.positions)
-	for t, f in iso.triangles {
-		if cap_face[f] do continue
+	for t in iso.triangles {
 		a := triangle_area(iso.positions[t[0]], iso.positions[t[1]], iso.positions[t[2]])
 		s := (iso.vertex_scale[t[0]] + iso.vertex_scale[t[1]] + iso.vertex_scale[t[2]]) / 3.0 if scaled else 1.0
 		scaled_area += a / (s * s)
 	}
 	cells_wanted := scaled_area / (d.quad_edge * d.quad_edge)
-	// The isotropic mesh is smoother than the island, so smaller, and the core lands on
-	// that smaller area's share of the count, a few percent short of it on a detailed
-	// mesh; the Odin core lands on the count itself, the island's own share of it, its
-	// first cover's quads that much smaller.
-	if params.core == .Odin {
-		iso_area := f64(0)
-		for t, f in iso.triangles do if !cap_face[f] do iso_area += triangle_area(iso.positions[t[0]], iso.positions[t[1]], iso.positions[t[2]])
-		if iso_area > 0 && island_area > 0 {
-			cells_wanted *= island_area / iso_area
-			if landing do scaling *= math.sqrt(iso_area / island_area)
-		}
+	// The isotropic mesh is smoother than the island, so smaller: the landing aims at the
+	// island's own share of the count, the first cover's quads that much smaller, rather
+	// than at the smaller area's share, a few percent short of it on a detailed mesh.
+	iso_area := f64(0)
+	for t in iso.triangles do iso_area += triangle_area(iso.positions[t[0]], iso.positions[t[1]], iso.positions[t[2]])
+	if iso_area > 0 && island_area > 0 {
+		cells_wanted *= island_area / iso_area
+		if landing do scaling *= math.sqrt(iso_area / island_area)
 	}
-	guided: [][3]f64
+	guided := odin_face_guides(iso, d.quad_edge, params.guides, params.guide_strength, heap)
 	defer delete(guided, heap)
-	if params.core == .Odin {
-		guided = odin_face_guides(iso, d.quad_edge, params.guides, params.guide_strength, heap)
-	} else {
-		guided, err = cpp_face_guides(iso, d.quad_edge, params.guides, params.guide_strength, &reason)
+	anisotropy := f64(params.anisotropy) if params.anisotropy > 0 else 1.0
+	// The field is solved once for all the island's covers, as none of it depends on the
+	// scaling.
+	cover_span := ISLAND_PARAMETERIZE_END - ISLAND_RESAMPLE_END
+	tag = {d, i, ISLAND_RESAMPLE_END, ISLAND_RESAMPLE_END + cover_span * FIELD_SHARE}
+	field: Field
+	field, err = odin_field(iso, guided, f64(params.adaptivity), anisotropy, f64(params.sharp_degrees), &run, &reason, &w.checks)
+	defer field_destroy(&field)
+	if err == .Failed {
+		fail_island(d, i, &reason, t2)
+		return
 	}
 	if err != .None {
 		driver_fail(d, err, &reason)
 		return
 	}
-	anisotropy := f64(params.anisotropy) if params.anisotropy > 0 else 1.0
-	// The Odin field is solved once for all the island's covers, as none of it depends on
-	// the scaling; the C++ cover solves its own each time.
-	field: Field
-	defer field_destroy(&field)
-	cover_from := ISLAND_RESAMPLE_END
-	cover_span := ISLAND_PARAMETERIZE_END - ISLAND_RESAMPLE_END
-	if params.core == .Odin {
-		tag = {d, i, ISLAND_RESAMPLE_END, ISLAND_RESAMPLE_END + cover_span * FIELD_SHARE}
-		field, err = odin_field(iso, guided, f64(params.adaptivity), anisotropy, f64(params.sharp_degrees), &run, &reason, &w.checks)
-		if err == .Failed {
-			fail_island(d, i, &reason, t2)
-			return
-		}
-		if err != .None {
-			driver_fail(d, err, &reason)
-			return
-		}
-		cover_from += cover_span * FIELD_SHARE
-		cover_span -= cover_span * FIELD_SHARE
-	}
-	// The Odin cover's work that does not depend on the scaling, once for all the covers.
+	cover_from := ISLAND_RESAMPLE_END + cover_span * FIELD_SHARE
+	cover_span -= cover_span * FIELD_SHARE
+	// The cover's work that does not depend on the scaling, once for all the covers.
+	tag = {d, i, cover_from, ISLAND_PARAMETERIZE_END}
 	plan: Cover_Plan
+	plan, err = odin_cover_plan(iso, field, guided, f64(params.sharp_degrees), &run, &reason)
 	defer cover_plan_destroy(&plan)
-	if params.core == .Odin {
-		tag = {d, i, cover_from, ISLAND_PARAMETERIZE_END}
-		plan, err = odin_cover_plan(iso, field, guided, f64(params.sharp_degrees), &run, &reason)
-		if err == .Failed {
-			fail_island(d, i, &reason, t2)
-			return
-		}
-		if err != .None {
-			driver_fail(d, err, &reason)
-			return
-		}
+	if err == .Failed {
+		fail_island(d, i, &reason, t2)
+		return
+	}
+	if err != .None {
+		driver_fail(d, err, &reason)
+		return
 	}
 	cover, best: Cover
 	defer cover_destroy(&cover)
 	defer cover_destroy(&best)
 	best_miss, under_scaling, under_cells, over_scaling, over_cells: f64
-	landing_miss := ODIN_LANDING_MISS if params.core == .Odin else LANDING_MISS
-	landing_covers := ODIN_LANDING_COVERS if params.core == .Odin else LANDING_COVERS
-	for pass in 0 ..< landing_covers {
+	for pass in 0 ..< LANDING_COVERS {
 		// The first cover takes the whole parameterize share of the bar; a later one the
 		// last third of it again, so the bar steps back a little rather than stalling.
 		tag = {d, i, cover_from if pass == 0 else cover_from + cover_span * 0.67, ISLAND_PARAMETERIZE_END}
 		sync.atomic_add(&d.covers, 1)
 		cover_destroy(&cover)
-		if params.core == .Odin {
-			cover, err = odin_cover_at(&plan, scaling, &run, &reason, &w.checks)
-		} else {
-			cover, err = cpp_cover(iso, guided, field, scaling, f64(params.adaptivity), anisotropy, f64(params.sharp_degrees), &run, &reason)
-		}
+		cover, err = odin_cover_at(&plan, scaling, &run, &reason, &w.checks)
 		w.checks.covers += 1
 		if err == .Failed {
 			fail_island(d, i, &reason, t2)
@@ -466,7 +408,7 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 			driver_fail(d, err, &reason)
 			return
 		}
-		cells := cover_cells(cover, cap_face)
+		cells := cover_cells(cover)
 		dump_cover(params.dump, i, pass, iso, cover, scaling, cells, cells_wanted)
 		if !landing || len(cover.uvs) == 0 do break
 		if cells <= 0 || cells_wanted <= 0 do break
@@ -476,28 +418,23 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 			best, cover = cover, {}
 			best_miss = miss
 		}
-		if best_miss <= landing_miss || pass == landing_covers - 1 do break
+		if best_miss <= LANDING_MISS || pass == LANDING_COVERS - 1 do break
 		// A cover a quarter of the ask or less, or four times it, came out folded up and
 		// says nothing of how the cells go with the scaling, so it bounds no bracket.
 		folded := cells * 4.0 <= cells_wanted || cells >= 4.0 * cells_wanted
-		// The C++ moves an end of the bracket only to a cover nearer the ask. The Odin
-		// core moves the end on a cover's side to its scaling, which is closer in, even when
-		// its cells are no nearer: the cells go in steps, and not quite evenly (a cover
-		// nearer the step can have a cell or two more than one further off), so keeping the
-		// further end tried the same scaling again until the covers ran out; the next try is
-		// then between the two scalings nearest the step.
-		if params.core == .Odin {
-			if !folded && cells < cells_wanted do under_scaling, under_cells = scaling, cells
-			if !folded && cells > cells_wanted do over_scaling, over_cells = scaling, cells
-		} else {
-			if !folded && cells < cells_wanted && cells > under_cells do under_scaling, under_cells = scaling, cells
-			if !folded && cells > cells_wanted && (over_cells == 0 || cells < over_cells) do over_scaling, over_cells = scaling, cells
-		}
+		// The end of the bracket on a cover's side moves to its scaling, which is closer in,
+		// even when its cells are no nearer (AutoRemesher moves an end only to a cover nearer
+		// the ask): the cells go in steps, and not quite evenly (a cover nearer the step can
+		// have a cell or two more than one further off), so keeping the further end tried the
+		// same scaling again until the covers ran out; the next try is then between the two
+		// scalings nearest the step.
+		if !folded && cells < cells_wanted do under_scaling, under_cells = scaling, cells
+		if !folded && cells > cells_wanted do over_scaling, over_cells = scaling, cells
 		// Between a cover under the ask and one over it, the scaling is found between theirs
 		// as the cells go; otherwise the cells go as the scaling squared, inversely, a step
 		// held within a factor of 1.5 either way.
 		if under_cells > 0 && over_cells > 0 {
-			scaling = under_scaling * libm_pow(over_scaling / under_scaling, libm_log(cells_wanted / under_cells) / libm_log(over_cells / under_cells))
+			scaling = under_scaling * math.pow(over_scaling / under_scaling, math.ln(cells_wanted / under_cells) / math.ln(over_cells / under_cells))
 		} else {
 			scaling *= max(STEP_LEAST, min(1.5, math.sqrt(cells / cells_wanted)))
 		}
@@ -512,11 +449,7 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 
 	t3 := time.tick_now()
 	tag = {d, i, ISLAND_PARAMETERIZE_END, 1}
-	if params.core == .Odin {
-		w.quads, err = odin_extract(iso, cover, &run, &reason, &w.checks)
-	} else {
-		w.quads, err = cpp_extract(iso, cover, &run, &reason)
-	}
+	w.quads, err = odin_extract(iso, cover, &run, &reason, &w.checks)
 	if err != .None {
 		driver_fail(d, err, &reason)
 		return
@@ -528,7 +461,7 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 }
 
 // An island whose field or cover failed is left without quads, its reason kept for the
-// report, as the core does.
+// report, as AutoRemesher leaves it.
 @(private = "file")
 fail_island :: proc(d: ^Driver, i: int, reason: ^Reason, from: time.Tick) {
 	if reason_string(reason) != "" {
@@ -540,27 +473,25 @@ fail_island :: proc(d: ^Driver, i: int, reason: ^Reason, from: time.Tick) {
 	_ = driver_report(d, i, 1)
 }
 
-// The share of the parameterize bar the Odin field takes before the covers (the C++ cover
-// reports its own field in about that share).
+// The share of the parameterize bar the field takes before the covers.
 @(private = "file")
 FIELD_SHARE :: 0.25
 
-// The landing's smallest step down, 1 / 1.5 as the C++ divides it.
+// The landing's smallest step down, 1 / 1.5 as AutoRemesher divides it.
 @(private = "file")
 STEP_LEAST :: f64(1.0 / 1.5)
 
-// The cover's area in cells over the triangles off the caps (coverCells).
+// The cover's area in cells (AutoRemesher's coverCells).
 @(private = "file")
-cover_cells :: proc(c: Cover, cap_face: []bool) -> f64 {
+cover_cells :: proc(c: Cover) -> f64 {
 	cells := f64(0)
-	for t, f in c.uvs {
-		if f < len(cap_face) && cap_face[f] do continue
+	for t in c.uvs {
 		cells += 0.5 * abs((t[1][0] - t[0][0]) * (t[2][1] - t[0][1]) - (t[2][0] - t[0][0]) * (t[1][1] - t[0][1]))
 	}
 	return cells
 }
 
-// The triangle's area as the core's Vector3::area takes it.
+// The triangle's area as AutoRemesher's Vector3::area takes it.
 @(private)
 triangle_area :: proc(a, b, c: [3]f64) -> f64 {
 	ab, ac := b - a, c - a
@@ -570,38 +501,11 @@ triangle_area :: proc(a, b, c: [3]f64) -> f64 {
 	return 0.5 * math.sqrt(x * x + y * y + z * z)
 }
 
-// Whether the triangle lies on one of the caller's cap planes (onCap): every corner within
-// `within` of it and the triangle square to its axis.
+// The input's area.
 @(private = "file")
-on_cap :: proc(params: ^Params, a, b, c: [3]f64, within: f64) -> bool {
-	if cap_axes(params.cap) == 0 do return false
-	ab, ac := b - a, c - a
-	n := [3]f64{ab.y * ac.z - ab.z * ac.y, ab.z * ac.x - ab.x * ac.z, ab.x * ac.y - ab.y * ac.x}
-	length := math.sqrt(n.x * n.x + n.y * n.y + n.z * n.z)
-	// Vector3::normalized: a normal of no length is zero.
-	normal := [3]f64{n.x / length, n.y / length, n.z / length} if abs(length) > EPSILON else {}
-	for k in 0 ..< 3 {
-		if !params.cap.axes[k] do continue
-		o := f64(params.cap.center[k])
-		if abs(a[k] - o) <= within && abs(b[k] - o) <= within && abs(c[k] - o) <= within && abs(normal[k]) >= 0.995 do return true
-	}
-	return false
-}
-
-// The core's Double::isZero bound: the f64 epsilon.
-@(private = "file")
-EPSILON :: math.F64_EPSILON
-
-// The input's area over the triangles off the caps (meshArea over countedTriangles).
-@(private = "file")
-counted_area :: proc(params: ^Params, vertices: [][3]f64, faces: [][3]u32) -> f64 {
+mesh_area :: proc(vertices: [][3]f64, faces: [][3]u32) -> f64 {
 	area := f64(0)
-	snap := f64(params.cap_snap)
-	for t in faces {
-		a, b, c := vertices[t[0]], vertices[t[1]], vertices[t[2]]
-		if on_cap(params, a, b, c, snap) do continue
-		area += triangle_area(a, b, c)
-	}
+	for t in faces do area += triangle_area(vertices[t[0]], vertices[t[1]], vertices[t[2]])
 	return area
 }
 
@@ -611,7 +515,7 @@ counted_area :: proc(params: ^Params, vertices: [][3]f64, faces: [][3]u32) -> f6
 // in the order the flood takes them. Island i is order[starts[i]:starts[i + 1]]. The
 // directed edges are filed by their first vertex, in triangle order (a count, a prefix sum
 // and a fill, linear where sorting three million edges took a third of a second), so the
-// last match in a vertex's few is the core's last triangle.
+// last match in a vertex's few is the last triangle, as AutoRemesher takes it.
 @(private = "file")
 islands_split :: proc(faces: [][3]u32, vertex_count: int, allocator: runtime.Allocator) -> (order: []u32, starts: []int) {
 	edges := Edge_File {
@@ -670,7 +574,7 @@ Edge_File :: struct {
 	first, to, face: []u32,
 }
 
-// The last triangle that runs from `from` to `to`, as the core's findFaceOfDirectedEdge
+// The last triangle that runs from `from` to `to`, as AutoRemesher's findFaceOfDirectedEdge
 // takes it.
 @(private = "file")
 opposite_face :: proc(edges: Edge_File, from, to: u32) -> (face: u32, ok: bool) {
@@ -681,7 +585,7 @@ opposite_face :: proc(edges: Edge_File, from, to: u32) -> (face: u32, ok: bool) 
 }
 
 // Each island's own vertices (numbered as its triangles meet them), triangles, feature
-// edges, density and refinement, as qm_remesh gives them out. A vertex two islands share
+// edges, density and refinement. A vertex two islands share
 // (they touch at a point) belongs, for its values, to the last island that met it.
 @(private = "file")
 islands_fill :: proc(d: ^Driver, vertices: [][3]f64, faces: [][3]u32, order: []u32, starts: []int, area: f64) {
@@ -724,12 +628,7 @@ islands_fill :: proc(d: ^Driver, vertices: [][3]f64, faces: [][3]u32, order: []u
 			density[v] = max(1.0 / 16.0, min(16.0, x)) if finite(x) else 1.0
 		}
 		weighted := f64(0)
-		snap := f64(params.cap_snap)
-		for t in faces {
-			a, b, c := vertices[t[0]], vertices[t[1]], vertices[t[2]]
-			if on_cap(params, a, b, c, snap) do continue
-			weighted += triangle_area(a, b, c) * (density[t[0]] + density[t[1]] + density[t[2]]) / 3.0
-		}
+		for t in faces do weighted += triangle_area(vertices[t[0]], vertices[t[1]], vertices[t[2]]) * (density[t[0]] + density[t[1]] + density[t[2]]) / 3.0
 		mean := weighted / area
 		if mean > 0 do for &x in density do x /= mean
 		least, most := density[0], density[0]

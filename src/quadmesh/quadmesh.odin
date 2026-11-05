@@ -6,25 +6,18 @@ import "core:time"
 import "../geom"
 import "../jobs"
 
-// Quad remeshing through AutoRemesher's core (deps/autoremesher-src at AUTOREMESHER_COMMIT
-// in scripts/versions.env, MIT; built with the app's C boundary quadmesh_shim.cpp by
-// scripts/build_autoremesher.py): a triangle mesh in, a polygon mesh of nearly all quads
-// out, following the surface's curvature as ZBrush's ZRemesher does. Knows nothing of the
+// Quad remeshing, AutoRemesher's pipeline ported to Odin (AutoRemesher by the Dust3D
+// project, MIT, and its isotropic remesher, MIT: their notices are in assets/licenses): a
+// triangle mesh in, a polygon mesh of quads out, following the surface's curvature as
+// ZBrush's ZRemesher does. The driver (driver.odin) splits the mesh into islands, sizes and
+// lands the quad count and gathers the quads; each island goes through the stages in turn,
+// the thinning (thin.odin), the isotropic remesh (isotropic.odin), the frame field
+// (field.odin), the quad cover (cover.odin) and the extraction (extract.odin), each checked
+// as it hands on (checks.odin) and written out when asked (dump.odin). Knows nothing of the
 // app, rendering or the interface; the caller validates what it sends (the remesh takes
-// seconds and hundreds of megabytes on a million triangles, and never ends on some
-// non-manifold input) and what it gets back (a few polygons may be triangles or pentagons,
-// and an edge may come back non-manifold on thin parts).
-//
-// Two sides run the pipeline (Params.core): the boundary's qm_remesh whole (cpp.odin), or
-// the Odin driver (driver.odin), which splits the mesh into islands, sizes and lands the
-// quad count and gathers the quads itself and calls the boundary's stage calls for the
-// rest, one at a time, checking what each gave (checks.odin) and writing it out when asked
-// (dump.odin). The stages move to Odin one by one behind the same seams, each checked
-// against the C++'s, which the driver matches byte for byte while every stage is the C++'s.
-
-// Built on the desktops only for now: Android's and the iPad's builds do not compile the
-// C++ yet, and the proc then refuses with .Unavailable (the Odin side compiles everywhere).
-AVAILABLE :: (ODIN_OS == .Windows || ODIN_OS == .Linux || ODIN_OS == .Darwin) && ODIN_PLATFORM_SUBTARGET != .Android && ODIN_PLATFORM_SUBTARGET != .iPhone
+// seconds and hundreds of megabytes on a million triangles) and what it gets back (an edge
+// may come back open or non-manifold on thin parts, and a polygon may have other than four
+// corners where the cover folds).
 
 // What a remesh is asked for.
 Params :: struct {
@@ -53,43 +46,15 @@ Params :: struct {
 	// the field can follow), as ZRemesher's Curves and Curves Strength. Nil for none.
 	guides:         []geom.Vec3,
 	guide_strength: f32,
-	// Keep symmetry's caps: the planes of `cap` the caller drops the polygons on after the
-	// remesh. A triangle lying on one (every corner within `cap_snap`) counts for none of
-	// the quads asked, which go to the rest. None by default.
-	cap:      geom.Remesh_Mirror,
-	cap_snap: f32,
-	// Which side runs the pipeline: the C++ core whole, or the Odin driver a stage at a
-	// time (driver.odin), with every stage the C++'s or with the stages ported so far in
-	// Odin, each checked against the C++'s.
-	core: Core,
-	// A folder each stage's output is written to (dump.odin; the driver only), or "".
-	dump: string,
-}
-
-// Who runs the pipeline (Params.core).
-Core :: enum u8 {
-	Cpp, // qm_remesh: AutoRemesher's stages as the C++ boundary drives them
-	Driver, // the Odin driver with every stage the C++'s: qm_remesh's result bit for bit
-	Odin, // the Odin driver with every stage in Odin: no C++ runs
-}
-
-CORE_NAMES := [Core]string {
-	.Cpp    = "cpp",
-	.Driver = "driver",
-	.Odin   = "odin",
-}
-
-// What a result line says of who ran the pipeline: nothing for the C++ core.
-CORE_LABELS := [Core]string {
-	.Cpp    = "",
-	.Driver = "through the Odin driver",
-	.Odin   = "with the stages ported to Odin",
+	// A folder each stage's output is written to (dump.odin), or "".
+	dump:           string,
 }
 
 // AutoRemesher's own values.
 DEFAULT_PARAMS :: Params{quads = 4000, adaptivity = 0, sharp_degrees = 90, threads = 1}
 
-// The shim's parallel_for cuts a range into at most this many threads.
+// The most threads a remesh takes: islands each on a thread of their own, or one island's
+// stages' loops spread over them.
 MAX_THREADS :: 16
 
 // The polygons a remesh gives: polygon p's corners are corners[first[p]:first[p + 1]],
@@ -105,19 +70,18 @@ Report :: struct {
 	ms:                                                    f64,
 	decimate_ms, isotropic_ms, parameterize_ms, extract_ms: f64, // the stages, summed over the islands (so over the threads)
 	isotropic_triangles:                                    int, // the isotropic meshes' triangles, over the islands
-	covers:                                                 int, // the quad covers solved, over the islands (up to three each)
-	checks:                                                 Checks, // what each stage gave (the Odin driver only)
+	covers:                                                 int, // the quad covers solved, over the islands (up to LANDING_COVERS each)
+	checks:                                                 Checks, // what each stage gave
 }
 
 Error :: enum u8 {
 	None,
-	Unavailable, // not built on this platform
 	Refused, // the input cannot be remeshed: `reason` says why
 	Cancelled, // the progress was cancelled
-	Failed, // AutoRemesher gave up: `reason` is its own message
+	Failed, // the remesh gave up: `reason` says why
 }
 
-// The longest reason the boundary passes back.
+// The longest reason a stage keeps.
 @(private)
 REASON_MAX :: 256
 
@@ -151,23 +115,25 @@ remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, progress:
 	for i in indices do if int(i) >= len(positions) do return {}, {}, .Refused, "a triangle names a vertex the mesh does not have"
 	if params.quads <= 0 do return {}, {}, .Refused, "no quads asked for"
 	start := time.tick_now()
-	times: Qm_Times
-	switch params.core {
-	case .Cpp:
-		out, times, err, reason = cpp_remesh(positions, indices, params, progress, share, allocator)
-	case .Driver, .Odin:
-		if params.dump != "" do _ = os.make_directory_all(params.dump)
-		out, times, report.checks, err, reason = driver_remesh(positions, indices, params, progress, share, allocator)
-	}
+	if params.dump != "" do _ = os.make_directory_all(params.dump)
+	times: Times
+	out, times, report.checks, err, reason = driver_remesh(positions, indices, params, progress, share, allocator)
 	if err != .None do return {}, {}, err, reason
 	report.faces = len(out.first) - 1
 	report.quads, report.triangles, report.ngons = polygon_share(out)
-	report.decimate_ms = f64(times.decimate_ms)
-	report.isotropic_ms = f64(times.isotropic_ms)
-	report.parameterize_ms = f64(times.parameterize_ms)
-	report.extract_ms = f64(times.extract_ms)
-	report.isotropic_triangles = int(times.isotropic_triangles)
-	report.covers = int(times.covers)
+	report.decimate_ms = times.decimate_ms
+	report.isotropic_ms = times.isotropic_ms
+	report.parameterize_ms = times.parameterize_ms
+	report.extract_ms = times.extract_ms
+	report.isotropic_triangles = times.isotropic_triangles
+	report.covers = times.covers
 	report.ms = time.duration_milliseconds(time.tick_since(start))
 	return out, report, .None, ""
+}
+
+// The stages' times, summed over the islands, and what they made.
+@(private)
+Times :: struct {
+	decimate_ms, isotropic_ms, parameterize_ms, extract_ms: f64,
+	isotropic_triangles, covers:                            int,
 }

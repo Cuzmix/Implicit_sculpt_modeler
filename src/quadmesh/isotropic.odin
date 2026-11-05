@@ -7,16 +7,16 @@ import "core:slice"
 import "../geom"
 import "../jobs"
 
-// The isotropic remesh in Odin (Core.Odin), the stage qm_stage_isotropic runs in C++
-// (AutoRemesher's isotropicremesher, MIT, by Jeremy Hu, whose rules this follows): the
+// The isotropic remesh (AutoRemesher's isotropicremesher, MIT, by Jeremy Hu, whose rules
+// this follows): the
 // island remeshed to triangles of about the stage's edge length, or each vertex's own, by
 // Botsch and Kobbelt's loop of splitting the long edges, collapsing the short ones,
 // flipping toward valence six, relaxing each vertex in its tangent plane and projecting it
-// back onto the island. Where the core moves a vertex to its neighbours' mean once a
+// back onto the island. Where AutoRemesher moves a vertex to its neighbours' mean once a
 // round, this moves it to its cell's centre three times (Lloyd's steps, which even the
 // triangles' areas), then turns the obtuse pairs left and opens the sharpest angles
-// (isotropic_lift), so the smallest angle and the spread of the edges come out better
-// than the core's on every fixture the tests compare (isotropic_test.odin), in less time.
+// (isotropic_lift), so the smallest angle and the spread of the edges came out better than
+// AutoRemesher's on every fixture the tests hold (isotropic_test.odin), in less time.
 // It runs over a corner table (mesh.odin), so a pinch, a torn edge
 // or a repeated corner is split or cut where the mesh is built instead of hanging a walk
 // round a vertex; every collapse keeps the link condition and three edges at the far
@@ -28,10 +28,10 @@ import "../jobs"
 // edges sharper than the stage's angle and borders stay where they are, and the density's
 // edge factor rides the vertices as a payload, which the cover's sizes come from.
 
-// Rounds of split, collapse, flip, relax and project (the core's three), and the steps of
-// relaxing and projecting in each, where the core takes one: each step moves a vertex
+// Rounds of split, collapse, flip, relax and project (AutoRemesher's three), and the steps of
+// relaxing and projecting in each, where AutoRemesher takes one: each step moves a vertex
 // part of the way to its cell's centre, and three bring the smallest angles and the
-// spread of the edges well past the core's for about a third of its time.
+// spread of the edges well past AutoRemesher's for about a third of its time.
 @(private = "file")
 ISOTROPIC_ROUNDS :: 3
 @(private = "file")
@@ -133,7 +133,7 @@ odin_isotropic :: proc(island: Island, voxel_size, adaptivity, sharp_degrees: f6
 
 	// What the vertices are projected back onto: the island (its triangles in f32 for the
 	// tree, the points taken in f64 from its own positions), and the caller's feature
-	// polylines, eased as the C++ eases them.
+	// polylines, eased as AutoRemesher eases them.
 	source := geom.Mesh {
 		positions = make([dynamic]geom.Vec3, n, heap),
 		indices   = make([dynamic]u32, 0, 3 * len(island.triangles), heap),
@@ -150,9 +150,9 @@ odin_isotropic :: proc(island: Island, voxel_size, adaptivity, sharp_degrees: f6
 	for t in targets do longest_target = max(longest_target, t)
 	// The creases (the island's edges sharper than the stage's angle, which the judge below
 	// finds again on the split edges) as polylines of their own, which a vertex on one is
-	// put back onto after its relax, so a curved crease keeps its curve; the C++ leaves it
+	// put back onto after its relax, so a curved crease keeps its curve; AutoRemesher leaves it
 	// where the relax took it, a little inside the curve. The caller's features are eased
-	// as the C++ eases them, except where they cross a crease.
+	// as AutoRemesher eases them, except where they cross a crease.
 	creases: [][2]u32
 	defer delete(creases, heap)
 	if sharp_degrees > 0 do creases = sharp_edges(island.positions, island.triangles, sharp_degrees * math.PI / 180)
@@ -229,7 +229,7 @@ odin_isotropic :: proc(island: Island, voxel_size, adaptivity, sharp_degrees: f6
 			if !stage_report(run, 0.25 + 0.75 * pass / passes) do return {}, .Cancelled
 		}
 	}
-	// What the core does not do: the obtuse pairs the valence flips left turned, and the
+	// What AutoRemesher does not do: the obtuse pairs the valence flips left turned, and the
 	// sharpest angles opened where a vertex can move.
 	isotropic_delaunay(&work)
 	isotropic_lift(&work)
@@ -350,7 +350,7 @@ in_one_plane :: proc(m: ^Work_Mesh, c: u32) -> bool {
 // The collapsed triangles taken out, then every triangle in turn, the ones the splits add
 // included, splits its longest edge while one is too long, until none is or the cap is
 // reached. The longest first, as Rivara's bisection takes it, halves a long thin
-// triangle across its length; the C++ splits a triangle's first long edge in its own
+// triangle across its length; AutoRemesher splits a triangle's first long edge in its own
 // order, which on a coarse input of long slivers (an open cylinder of 96 triangles) cuts
 // one side again and again into a fan of slivers round the far corner, and those split
 // on into seven times the triangles asked. With `delaunay` (the first split), each split
@@ -556,7 +556,7 @@ vertex_normal :: proc(m: ^Work_Mesh, v: u32) -> [3]f64 {
 // The centre of the cell a free vertex owns: each of its triangles' middles weighted by
 // the triangle's area over the square of its corners' mean target. Moving there evens the
 // triangles' areas against the sizes asked (a step of Lloyd's toward a centroidal
-// tessellation), where the plain mean of the neighbours, which the C++ takes, evens only
+// tessellation), where the plain mean of the neighbours, which AutoRemesher takes, evens only
 // their distances and leaves slivers beside a vertex of odd valence.
 @(private = "file")
 free_centre :: proc(m: ^Work_Mesh, v: u32) -> (centre: [3]f64, ok: bool) {
@@ -832,7 +832,7 @@ isotropic_output :: proc(m: ^Work_Mesh, flags, dense: bool) -> (out: Isotropic) 
 }
 
 // The quad size per vertex blurred in the log over `rounds` rounds of half toward the
-// ring's mean, as the C++ blurs it: the field the size steers turns across the band a
+// ring's mean, as AutoRemesher blurs it: the field the size steers turns across the band a
 // change is spread over, and a step one triangle wide asks it to turn on the spot, which
 // it cannot, so a few pentagons came out there. Each triangle lists its other two corners
 // in a vertex's ring, so an inner neighbour counts twice, as it did there.

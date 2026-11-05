@@ -9,7 +9,7 @@ import "../sparse"
 
 // The cover's mixed integer least squares (cover.odin), from AutoRemesher's
 // MixedIntegerLeastSquares and ConstrainedLeastSquares (MIT, by Jeremy Hu), whose steps and
-// choices this keeps so the Odin cover lands on the C++'s integers. The unknowns are tied
+// choices this keeps, so the cover lands on AutoRemesher's integers. The unknowns are tied
 // by homogeneous linear constraints, some are integers of a period (2 for a seam's
 // translation, 1 for a feature's coordinate), and an energy of weighted rows is minimized
 // over what the constraints leave free. The constraints are eliminated by substitution in
@@ -20,9 +20,9 @@ import "../sparse"
 // integers as integers. Every unknown is then a combination of the remaining groups (its
 // kernel line), and the energy is rewritten over those. The least squares is solved over
 // the groups, every integer group rounded to its period at once, and solved again with
-// those held, as the C++'s greedy rounding does when its threshold takes them all in its
+// those held, as AutoRemesher's greedy rounding does when its threshold takes them all in its
 // first round. The solves go through src/sparse (AMD and the supernodal Cholesky) where
-// the C++ used Eigen, and keep their orderings and structures (Least_System), so the
+// AutoRemesher used Eigen, and keep their orderings and structures (Least_System), so the
 // landing's later covers, whose rows have the same pattern and new numbers, only refill
 // and refactor.
 

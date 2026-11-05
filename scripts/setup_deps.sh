@@ -72,7 +72,4 @@ python3 "$ROOT/scripts/build_luau.py"
 # ufbx, the FBX reader Import uses, with the app's shim round it (scripts/build_ufbx.py)
 python3 "$ROOT/scripts/build_ufbx.py"
 
-# AutoRemesher's core, the Quad Remesh engine, with the app's boundary (scripts/build_autoremesher.py)
-python3 "$ROOT/scripts/build_autoremesher.py"
-
 echo "Dependencies ready in $DEPS"

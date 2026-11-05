@@ -1,6 +1,6 @@
 package retopo
 
-@(require) import "core:log" // used only where AutoRemesher is not built
+import "core:log"
 import "core:math"
 import "core:testing"
 
@@ -21,18 +21,12 @@ polygons_closed :: proc(m: quadmesh.Polygon_Mesh) -> bool {
 }
 
 // Keep symmetry lands the count asked, on one plane, two and three, and every face comes
-// back a quad over a closed surface with no fall back to the whole. Through the C++ core
-// the flat caps over the cut take none of the count (they took a third more than their
-// area's share before), within 5 %. Through the Odin core the half goes in open and lands
-// within 2 % from 4,000 quads; below that a hemisphere's cells go in steps (the rows
-// between its border and its singular vertices are whole, each a ring of quads, 9 % of
-// 1,000 at a time), and it lands within 5 %.
+// back a quad over a closed surface with no fall back to the whole: the half goes in open
+// and lands within 2 % from 4,000 quads; below that a hemisphere's cells go in steps (the
+// rows between its border and its singular vertices are whole, each a ring of quads, 9 %
+// of 1,000 at a time), and it lands within 5 %.
 @(test)
 quad_remesh_mirrored_lands_the_count :: proc(t: ^testing.T) {
-	when !quadmesh.AVAILABLE {
-		log.info("quadmesh is not built on this platform")
-		return
-	}
 	m := geom.icosphere(5)
 	defer geom.mesh_destroy(&m)
 	resize(&m.normals, len(m.positions))
@@ -50,16 +44,16 @@ quad_remesh_mirrored_lands_the_count :: proc(t: ^testing.T) {
 		{8000, {true, true, false}},
 		{8000, {true, true, true}},
 	}
-	for core in ([]quadmesh.Core{.Cpp, .Odin}) do for c in cases {
-		r := compute(m, c.quads, {engine = .Auto, mirror = {axes = c.axes}, core = core}, nil)
+	for c in cases {
+		r := compute(m, c.quads, {engine = .Auto, mirror = {axes = c.axes}}, nil)
 		defer result_destroy(&r)
 		check := geom.mesh_check(r.mesh)
-		log.infof("%v mirrored %v at %d: %d faces (%.1f %%), %d quads, closed %v", core, c.axes, c.quads, r.faces, 100 * f32(r.faces) / f32(c.quads), r.quads, check.closed)
-		testing.expectf(t, r.mirrored, "%v %v at %d was not mirrored: %s", core, c.axes, c.quads, r.unmirrored)
-		within := 50 if core == .Odin && c.quads >= 4000 else 20
-		testing.expectf(t, abs(r.faces - c.quads) * within <= c.quads, "%v %v gave %d faces for %d asked", core, c.axes, r.faces, c.quads)
-		testing.expectf(t, r.quads == r.faces, "%v %v at %d: %d of %d faces are quads", core, c.axes, c.quads, r.quads, r.faces)
-		testing.expectf(t, check.closed && check.non_manifold_edges == 0, "%v %v at %d is not closed", core, c.axes, c.quads)
+		log.infof("mirrored %v at %d: %d faces (%.1f %%), %d quads, closed %v", c.axes, c.quads, r.faces, 100 * f32(r.faces) / f32(c.quads), r.quads, check.closed)
+		testing.expectf(t, r.mirrored, "%v at %d was not mirrored: %s", c.axes, c.quads, r.unmirrored)
+		within := 50 if c.quads >= 4000 else 20
+		testing.expectf(t, abs(r.faces - c.quads) * within <= c.quads, "%v gave %d faces for %d asked", c.axes, r.faces, c.quads)
+		testing.expectf(t, r.quads == r.faces, "%v at %d: %d of %d faces are quads", c.axes, c.quads, r.quads, r.faces)
+		testing.expectf(t, check.closed && check.non_manifold_edges == 0, "%v at %d is not closed", c.axes, c.quads)
 	}
 }
 
@@ -68,10 +62,6 @@ quad_remesh_mirrored_lands_the_count :: proc(t: ^testing.T) {
 // closed, with a few quads more for the path cut between the two.
 @(test)
 quad_fill_odd_joins_two_triangles :: proc(t: ^testing.T) {
-	when !quadmesh.AVAILABLE {
-		log.info("quadmesh is not built on this platform")
-		return
-	}
 	s := geom.icosphere(4)
 	defer geom.mesh_destroy(&s)
 	m, _, err, _ := quadmesh.remesh(s.positions[:], s.indices[:], {quads = 600, sharp_degrees = 90, threads = 1})
@@ -142,10 +132,6 @@ add_rod :: proc(m: ^geom.Mesh, radius, reach: f32, around, rings: int) {
 // to both ends, its vertices on its surface, with the count kept and every face a quad.
 @(test)
 quad_remesh_keeps_thin_parts :: proc(t: ^testing.T) {
-	when !quadmesh.AVAILABLE {
-		log.info("quadmesh is not built on this platform")
-		return
-	}
 	m := geom.icosphere(5)
 	defer geom.mesh_destroy(&m)
 	add_rod(&m, 0.03, 1.3, 24, 61)
