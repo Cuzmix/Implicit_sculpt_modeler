@@ -188,6 +188,7 @@ Command_Id :: enum u16 {
 	Curve_Corner,
 	Curve_Close,
 	Curve_Select_All,
+	Curve_Handles,
 	Curve_Bake,
 	Curve_Use,
 	Curve_Brush_Run,
@@ -1703,7 +1704,7 @@ COMMANDS := [Command_Id]Command {
 		},
 		checked = proc(app: ^App, _: int) -> bool {
 			obj := selected_curve(app)
-			return obj != nil && app.curve.picked >= 1 && app.curve.picked <= len(obj.curve.points) && obj.curve.points[app.curve.picked - 1].corner
+			return obj != nil && app.curve.picked >= 1 && app.curve.picked <= len(obj.curve.points) && geom.bezier_is_corner(obj.curve.points[app.curve.picked - 1])
 		},
 	},
 	.Curve_Select_All = {
@@ -1714,6 +1715,20 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, _: int) -> bool {
 			obj := selected_curve(app)
 			return obj != nil && curve_selected_count(obj.curve) == len(obj.curve.points)
+		},
+	},
+	.Curve_Handles = {
+		label = "Curve handles",
+		help = "Sets how the handles of the points picked on the selected curve behave, as Blender's handle types: Aligned keeps the two in one line (a drawn curve's points), Auto sets them from the neighbours and follows them as points move, Vector points each at its neighbour and follows too (a corner), Free lets each turn on its own (a corner). Dragging an Auto handle makes the point Aligned, a Vector one Free. One undo step.",
+		args = len(geom.Handle_Type),
+		run = proc(app: ^App, arg: int) {curve_set_handles(app, geom.Handle_Type(arg))},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && len(curve_targets(app, obj.curve)) > 0
+		},
+		checked = proc(app: ^App, arg: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && app.curve.picked >= 1 && app.curve.picked <= len(obj.curve.points) && obj.curve.points[app.curve.picked - 1].handles == geom.Handle_Type(arg)
 		},
 	},
 	.Curve_Close = {
@@ -2949,6 +2964,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Space: %s", SPACE_NAMES[Space(arg)])
 	case .Gizmo_Orient:
 		return fmt.tprintf("Gizmo orientation: %s", GIZMO_ORIENT_NAMES[Gizmo_Orient(arg)])
+	case .Curve_Handles:
+		return fmt.tprintf("Curve handles: %v", geom.Handle_Type(arg))
 	case .Gizmo:
 		if gizmo.Mode(arg) == .All do return "Move, turn and scale gizmo"
 		return fmt.tprintf("%v gizmo", gizmo.Mode(arg))

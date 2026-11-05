@@ -6,6 +6,7 @@ import "core:strconv"
 import "core:strings"
 
 import "../camera"
+import "../geom"
 import "../gizmo"
 import "../render"
 import "../poly"
@@ -231,6 +232,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Brush_Value: return fmt.tprint(Brush_Value(arg))
 	case .Add_Cage:  return fmt.tprint(poly.Primitive(arg))
 	case .Add_Curve: return fmt.tprint(Curve_Shape(arg + 1))
+	case .Curve_Handles: return fmt.tprint(geom.Handle_Type(arg))
 	case .Model_Action: return fmt.tprint(Model_Action(arg))
 	case .Model_Target: return fmt.tprint(Model_Target(arg))
 	case .Tidy_Cage: return fmt.tprint(Cage_Tidy(arg))

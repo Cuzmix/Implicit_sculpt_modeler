@@ -369,7 +369,7 @@ curve_part_put :: proc(out: ^[dynamic]u8, cp: ^Curve_Part) {
 		geom.byte_put(out, p.radius)
 		geom.byte_put(out, p.intensity)
 		geom.byte_put(out, p.twist)
-		geom.byte_put(out, u8(p.corner))
+		geom.byte_put(out, u8(p.handles))
 	}
 	o := cp.tube
 	geom.byte_put(out, u8(o.profile))
@@ -416,9 +416,9 @@ curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, 
 		p.radius = geom.byte_get(r, f32)
 		p.intensity = geom.byte_get(r, f32)
 		p.twist = geom.byte_get(r, f32)
-		corner := geom.byte_get(r, u8)
-		p.corner = corner == 1
-		if !r.ok || corner > 1 || !finite(p.p) || !finite(p.h_in) || !finite(p.h_out) || !finite({p.radius, p.intensity, p.twist}) {
+		handles := geom.byte_get(r, u8)
+		p.handles = geom.Handle_Type(handles)
+		if !r.ok || int(handles) >= len(geom.Handle_Type) || !finite(p.p) || !finite(p.h_in) || !finite(p.h_out) || !finite({p.radius, p.intensity, p.twist}) {
 			damaged = true
 			break
 		}

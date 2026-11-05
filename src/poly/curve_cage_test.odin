@@ -8,7 +8,7 @@ import "../geom"
 cage_curve :: proc() -> [3]geom.Bezier_Point {
 	return {
 		{p = {0, 0, 0}, h_out = {0.3, 0, 0}, radius = 0.1},
-		{p = {1, 0.3, 0}, h_in = {-0.3, 0, 0}, h_out = {0.3, 0, 0}, radius = 0.2, corner = true},
+		{p = {1, 0.3, 0}, h_in = {-0.3, 0, 0}, h_out = {0.3, 0, 0}, radius = 0.2, handles = .Free},
 		{p = {2, 0, 0.2}, h_in = {-0.3, 0, 0}, radius = 0.05},
 	}
 }
@@ -89,7 +89,7 @@ lathe_cage_is_a_closed_ball :: proc(t: ^testing.T) {
 // two rings makes two fans that meet at a point; a partial turn's corner ring is creased.
 @(test)
 lathe_cage_on_the_axis :: proc(t: ^testing.T) {
-	section := [4]geom.Bezier_Point{{p = {0, 1, 0}, corner = true}, {p = {1, 1, 0}, corner = true}, {p = {1, -1, 0}, corner = true}, {p = {0, -1, 0}, corner = true}}
+	section := [4]geom.Bezier_Point{{p = {0, 1, 0}, handles = .Free}, {p = {1, 1, 0}, handles = .Free}, {p = {1, -1, 0}, handles = .Free}, {p = {0, -1, 0}, handles = .Free}}
 	l := geom.LATHE_DEFAULTS
 	l.through = .Middle
 	m, err := lathe_cage(section[:], true, l, CURVE_CAGE_DEFAULTS)

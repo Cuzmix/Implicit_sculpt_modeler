@@ -91,7 +91,7 @@ pipe_cage :: proc(points: []geom.Bezier_Point, closed: bool, o: Curve_Cage_Optio
 	}
 	m, err = mesh_from_polygons(positions, sizes[:], corners[:], allocator = allocator)
 	if err != .None do return
-	for p, i in points do if p.corner && (closed || (i > 0 && i < len(points) - 1)) do crease_ring(&m, i * steps * around, around)
+	for p, i in points do if geom.bezier_is_corner(p) && (closed || (i > 0 && i < len(points) - 1)) do crease_ring(&m, i * steps * around, around)
 	return
 }
 
@@ -204,7 +204,7 @@ lathe_cage :: proc(points: []geom.Bezier_Point, closed: bool, lathe: geom.Lathe_
 	if err != .None do return
 	for p, i in points {
 		row := i * steps
-		if !p.corner || row >= rows || pole[row] do continue
+		if !geom.bezier_is_corner(p) || row >= rows || pole[row] do continue
 		if !closed && (i == 0 || i == len(points) - 1) do continue
 		crease_ring(&m, int(start_in[row]), around, wrap = full)
 	}

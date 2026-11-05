@@ -140,7 +140,7 @@ held_stroke_follows_its_points :: proc(t: ^testing.T) {
 	at, _ = gizmo_project(view_proj, e.points[1].p, EDIT_SIZE)
 	edit_frame(&app, at, true, true)
 	edit_frame(&app, at, false, false)
-	testing.expect(t, e.points[1].corner, "a tap did not make a corner")
+	testing.expect(t, geom.bezier_is_corner(e.points[1]), "a tap did not make a corner")
 	edit_frame(&app, {100, 100}, true, true)
 	testing.expect(t, !e.open, "a press away did not keep it")
 	testing.expect_value(t, len(app.history.done), 1)

@@ -9,7 +9,7 @@ import "../geom"
 import "../gizmo"
 
 // Editing a selected curve object with the pen, in the Curve tool: its points, their
-// orange handles and white radius dots are drawn over the model and can be dragged, and
+// handles (coloured by type) and white radius dots are drawn over the model and can be dragged, and
 // the line between points pulls like a rope, as ZBrush's curves do. A tap on a point picks
 // it (Shift adds it to the picked points, and in the Edit tab a box dragged over empty space
 // picks those inside, as Blender's edit mode does), and the picked points move together; a
@@ -356,7 +356,7 @@ curve_handles_shown :: proc(app: ^App, cp: ^Curve_Part, i: int) -> bool {
 // Turns the picked points (and `at`) into corners, or all back into smooth ones when `at`
 // is a corner already.
 curve_corners_flip :: proc(cp: ^Curve_Part, at: int) {
-	smooth := cp.points[at].corner
+	smooth := geom.bezier_is_corner(cp.points[at])
 	for p, i in cp.points {
 		if i != at && !p.selected do continue
 		if smooth do geom.bezier_make_smooth(cp.points[:], cp.closed, i)
@@ -401,6 +401,19 @@ curve_toggle_corner :: proc(app: ^App) {
 	curve_changed(app, obj)
 }
 
+// Sets the picked points' handle type (or the last picked one's), as one undo step.
+curve_set_handles :: proc(app: ^App, kind: geom.Handle_Type) {
+	obj := selected_curve(app)
+	if obj == nil do return
+	if len(curve_targets(app, obj.curve)) == 0 do return
+	// The snapshot first: it may use the frame's scratch memory the targets live in.
+	before := history_snapshot(app, obj, "curve handles")
+	for i in curve_targets(app, obj.curve) do geom.bezier_set_handles(obj.curve.points[:], obj.curve.closed, i, kind)
+	history_record_swap(app, obj.id, before, kind = .Curve)
+	app.curve.edits += 1
+	curve_changed(app, obj)
+}
+
 // Closes the selected curve into a loop, or opens it, as one undo step; a loop needs three
 // points.
 curve_toggle_closed :: proc(app: ^App) {
@@ -413,14 +426,23 @@ curve_toggle_closed :: proc(app: ^App) {
 	curve_changed(app, obj)
 }
 
-// Draws the selected curve's editing handles: orange handles on lines to their point, a
+// Each handle type's colour, so a point's kind reads at a glance as in Blender: Aligned
+// orange (as every handle was), Auto yellow, Vector green, Free red.
+@(rodata)
+CURVE_HANDLE_COLORS := [geom.Handle_Type][4]f32 {
+	.Aligned = {0.95, 0.66, 0.23, 1},
+	.Auto    = {0.98, 0.9, 0.3, 1},
+	.Vector  = {0.45, 0.85, 0.4, 1},
+	.Free    = {0.95, 0.4, 0.4, 1},
+}
+
+// Draws the selected curve's editing handles: handles in their type's colour on lines to their point, a
 // white radius dot per point, the picked point ringed.
 draw_curve_edit :: proc(app: ^App, o: Overlay, size: [2]f32) {
 	obj := selected_curve(app)
 	if obj == nil do return
 	cp := obj.curve
 	view_proj := edit_view_proj(app, size)
-	orange := overlay_color({0.95, 0.66, 0.23, 1})
 	white := overlay_color({1, 1, 1, 1})
 	dark := overlay_color({0.04, 0.06, 0.08, 0.8})
 	blue := overlay_color({0.4, 0.85, 1, 1})
@@ -435,9 +457,10 @@ draw_curve_edit :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		for out in ways {
 			if !curve_has_handle(cp, i, out) do continue
 			h := sc.h_out if out else sc.h_in
-			overlay_line(o, sc.point, h, orange, 1 * o.scale)
+			color := overlay_color(CURVE_HANDLE_COLORS[cp.points[i].handles])
+			overlay_line(o, sc.point, h, color, 1 * o.scale)
 			overlay_disc(o, h, 5 * o.scale, dark)
-			overlay_disc(o, h, 3.5 * o.scale, orange)
+			overlay_disc(o, h, 3.5 * o.scale, color)
 		}
 		overlay_line(o, sc.point, sc.radius, overlay_color({1, 1, 1, 0.35}), 1 * o.scale)
 		overlay_disc(o, sc.radius, 5.5 * o.scale, dark)
@@ -475,7 +498,10 @@ draw_lathe_axis :: proc(app: ^App, o: Overlay, obj: ^Object, view_proj: matrix[4
 // Makes the selected curve's tube or lathe again after an edit, when it makes one. A GPU failure
 // leaves the curve with an empty level, drawn as its line, and says so in the log.
 curve_changed :: proc(app: ^App, obj: ^Object) {
-	if obj.curve == nil || obj.curve.use == .None || obj.curve.use == .Guide do return
+	if obj.curve == nil do return
+	// Auto and Vector points follow the points round them.
+	geom.bezier_auto_handles(obj.curve.points[:], obj.curve.closed)
+	if obj.curve.use == .None || obj.curve.use == .Guide do return
 	if !curve_rebuild(app, obj) do log.errorf("curve: could not make the tube of %s on the GPU", object_label(obj))
 }
 
