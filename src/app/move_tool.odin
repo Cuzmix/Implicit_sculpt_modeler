@@ -34,6 +34,8 @@ Move_Tool :: struct {
 	pivot_edit: bool,
 	// Whether the pivot row over the gizmo shows (Settings > Interface, remembered).
 	pivot_row_off: bool,
+	// Which way the gizmo's arms point (remembered).
+	orient: Gizmo_Orient,
 	// The drags that changed an object, and the handle of the last, for the exit stats.
 	drags: int,
 	last:  gizmo.Handle,
@@ -120,6 +122,8 @@ Move_Drag :: struct {
 	// Edit pivot's drag: the move handles move the pivot, from `pivot` where it began,
 	// and the object stays.
 	pivot_only:   bool,
+	// The gizmo's arms as the drag went live, so a View orientation holds still through it.
+	axes:         [3]Vec3,
 }
 
 // What the drag does, for the undo button and the History panel.
@@ -143,6 +147,52 @@ GIZMO_MODE_NAMES := [gizmo.Mode]string {
 // The colours of the x, y and z handles, and of the one under the pointer or dragged.
 GIZMO_AXIS_COLORS :: [3][4]f32{{0.95, 0.3, 0.3, 1}, {0.4, 0.85, 0.35, 1}, {0.35, 0.55, 1, 1}}
 GIZMO_HIGHLIGHT :: [4]f32{1, 0.85, 0.3, 1}
+
+// Which way the gizmo's arms point, as Blender's transform orientations and ZBrush's
+// gizmo alignment: along the world's axes, the object's own (turned with it), the surface
+// where Set pivot put the pivot (its normal as z; the object's own until a tap has put it
+// on a surface), or the view (x right, y up, z toward the eye, its arm then seen end on).
+Gizmo_Orient :: enum u8 {
+	World,
+	Object,
+	Surface,
+	View,
+}
+
+@(rodata)
+GIZMO_ORIENT_NAMES := [Gizmo_Orient]string {
+	.World   = "World",
+	.Object  = "Object",
+	.Surface = "Surface",
+	.View    = "View",
+}
+
+// Each orientation's icon on the pivot row (Lucide's globe, box, arrow-up-from-dot and
+// scan-eye).
+@(rodata)
+GIZMO_ORIENT_ICONS := [Gizmo_Orient]rune {
+	.World   = rune(0xe0eb),
+	.Object  = rune(0xe065),
+	.Surface = rune(0xe453),
+	.View    = rune(0xe53b),
+}
+
+// The gizmo's arms on `obj` in the orientation chosen: unit, at right angles, right-handed.
+gizmo_axes :: proc(app: ^App, obj: ^Object) -> [3]Vec3 {
+	switch app.move.orient {
+	case .World:
+	case .Surface:
+		if p := obj.pivot; p.set && p.normal != {} do return gizmo.axes_from_normal(to_world_dir(obj.transform, p.normal))
+		fallthrough
+	case .Object:
+		t := obj.transform
+		return {linalg.normalize0(to_world_dir(t, {1, 0, 0})), linalg.normalize0(to_world_dir(t, {0, 1, 0})), linalg.normalize0(to_world_dir(t, {0, 0, 1}))}
+	case .View:
+		right, up, back := camera.orbit_basis(app.camera)
+		return {right, up, back}
+	}
+	return gizmo.AXES
+}
 
 // Where the gizmo sits on the object: the pivot a tap placed, or its origin.
 gizmo_center :: proc(app: ^App, obj: ^Object) -> Vec3 {
@@ -177,7 +227,7 @@ gizmo_screen :: proc(app: ^App, size: [2]f32) -> (s: gizmo.Screen) {
 	center := gizmo_center(app, obj)
 	arm_px := gizmo.ARM_PX * gizmo_scale(app)
 	arm := arm_px * camera.orbit_world_per_px(app.camera, center, size.y)
-	return gizmo.screen(view_proj, center, arm, -camera.orbit_toward(app.camera, center), size, arm_px, gizmo_mode_now(app))
+	return gizmo.screen(view_proj, center, arm, -camera.orbit_toward(app.camera, center), size, arm_px, gizmo_mode_now(app), gizmo_axes(app, obj))
 }
 
 // What the gizmo's handles are now: its mode's, or Move's while Edit pivot is on, whose
@@ -318,7 +368,7 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 	origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
 	#partial switch drag.handle {
 	case .X, .Y, .Z:
-		axis := gizmo.AXES[int(drag.handle) - int(gizmo.Handle.X)]
+		axis := drag.axes[int(drag.handle) - int(gizmo.Handle.X)]
 		s, ok := gizmo.closest_on_axis(drag.start.position, axis, origin, dir)
 		if !ok do return
 		drag.amount = s - drag.axis_start
@@ -329,10 +379,16 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		if !ok do return
 		delta := hit - drag.grab
 		if drag.handle != .View {
-			// Exactly in the plane, whatever the rounding.
-			delta[int(drag.handle) - int(gizmo.Handle.YZ)] = 0
+			// Along the plane's two arms, exactly in the plane whatever the rounding, and
+			// snapped along them.
+			c: Vec3
+			for k in 0 ..< 3 do c[k] = linalg.dot(delta, drag.axes[k])
+			c[int(drag.handle) - int(gizmo.Handle.YZ)] = 0
+			if drag.snapped do for &d in c do d = gizmo.snap(d, drag.step)
+			delta = drag.axes[0] * c.x + drag.axes[1] * c.y + drag.axes[2] * c.z
+		} else if drag.snapped {
+			for &d in delta do d = gizmo.snap(d, drag.step)
 		}
-		if drag.snapped do for &d in delta do d = gizmo.snap(d, drag.step)
 		drag.offset = delta
 		t.position += delta
 	case .Turn_X, .Turn_Y, .Turn_Z, .Turn_View:
@@ -368,7 +424,7 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 			return
 		}
 		if i := gizmo.stretch_axis(drag.handle); i >= 0 {
-			pose_set(app, obj, stretch_pose(drag.start, drag.pivot, i, drag.amount))
+			pose_set(app, obj, stretch_pose(drag.start, drag.pivot, drag.axes[i], drag.amount))
 			return
 		}
 		pose_set(app, obj, pose_of(drag.handle, drag.start, t, drag.pivot, drag.axis, drag.amount))
@@ -504,18 +560,19 @@ move_go_live :: proc(app: ^App, obj: ^Object, input: Viewport_Input) -> bool {
 	drag.live = true
 	drag.press, drag.center, drag.arm_px = input.mouse_pos, sc.center, sc.arm_px
 	drag.pivot = gizmo_center(app, obj)
+	drag.axes = gizmo_axes(app, obj)
 	drag.step = gizmo.grid_step(camera.orbit_world_per_px(app.camera, drag.pivot, input.size.y) * gizmo_scale(app))
 	switch drag.handle {
 	case .None:
 		return false
 	case .X, .Y, .Z:
-		axis := gizmo.AXES[int(drag.handle) - int(gizmo.Handle.X)]
+		axis := drag.axes[int(drag.handle) - int(gizmo.Handle.X)]
 		drag.axis_start = gizmo.closest_on_axis(drag.start.position, axis, origin, dir) or_return
 	case .View, .YZ, .XZ, .XY:
 		if drag.handle == .View {
 			drag.plane_normal = -camera.orbit_toward(app.camera, app.camera.target)
 		} else {
-			drag.plane_normal = gizmo.AXES[int(drag.handle) - int(gizmo.Handle.YZ)]
+			drag.plane_normal = drag.axes[int(drag.handle) - int(gizmo.Handle.YZ)]
 			drag.grab = drag.pivot
 		}
 		// A lattice point follows the pointer from where it was pressed, the travel past
@@ -524,7 +581,7 @@ move_go_live :: proc(app: ^App, obj: ^Object, input: Viewport_Input) -> bool {
 		drag.grab = gizmo.ray_plane(origin, dir, drag.grab, drag.plane_normal) or_return
 	case .Turn_X, .Turn_Y, .Turn_Z, .Turn_View:
 		i := int(drag.handle) - int(gizmo.Handle.Turn_X)
-		drag.axis = gizmo.AXES[i] if i < 3 else -camera.orbit_toward(app.camera, drag.pivot)
+		drag.axis = drag.axes[i] if i < 3 else -camera.orbit_toward(app.camera, drag.pivot)
 		// Seen nearly edge on, the ray meets the ring's plane far from the ring, and a
 		// small move swings the angle wildly: the drag along the ring on screen turns it.
 		hit, ok := gizmo.ray_plane(origin, dir, drag.pivot, drag.axis)
@@ -544,10 +601,10 @@ move_go_live :: proc(app: ^App, obj: ^Object, input: Viewport_Input) -> bool {
 MIN_STRETCH :: 0.02
 MAX_STRETCH :: 50
 
-// The pose that stretches `from`'s mesh by `factor` along world axis `i` (0 x, 1 y, 2 z)
-// about the world point `pivot`, in the mesh's own space.
-stretch_pose :: proc(from: Transform, pivot: Vec3, i: int, factor: f32) -> sculpt.Pose {
-	axis := linalg.normalize0(to_local_dir(from, gizmo.AXES[i]))
+// The pose that stretches `from`'s mesh by `factor` along the world direction `along`
+// (a gizmo arm) about the world point `pivot`, in the mesh's own space.
+stretch_pose :: proc(from: Transform, pivot, along: Vec3, factor: f32) -> sculpt.Pose {
+	axis := linalg.normalize0(to_local_dir(from, along))
 	return {kind = .Scale, pivot = to_local(from, pivot), axis = axis, factor = factor}
 }
 
@@ -793,16 +850,23 @@ gizmo_entry_apply :: proc(app: ^App, obj: ^Object, handle: gizmo.Handle, text: s
 	pivot := gizmo_center(app, obj)
 	#partial switch handle {
 	case .X, .Y, .Z:
-		i := int(handle) - int(gizmo.Handle.X)
+		// Along the arm: `+` adds, a number sets the position measured along it (the
+		// world coordinate in the World orientation).
+		axis := gizmo_axes(app, obj)[int(handle) - int(gizmo.Handle.X)]
 		switch op {
-		case '+': t.position[i] += v
-		case 0:   t.position[i] = v
+		case '+': t.position += axis * v
+		case 0:
+			if i := int(handle) - int(gizmo.Handle.X); axis == gizmo.AXES[i] {
+				t.position[i] = v
+			} else {
+				t.position += axis * (v - linalg.dot(t.position, axis))
+			}
 		case:     return false
 		}
 	case .Turn_X ..= .Turn_View:
 		if op != 0 && op != '+' do return false
 		i := int(handle) - int(gizmo.Handle.Turn_X)
-		axis := gizmo.AXES[i] if i < 3 else -camera.orbit_toward(app.camera, pivot)
+		axis := gizmo_axes(app, obj)[i] if i < 3 else -camera.orbit_toward(app.camera, pivot)
 		t = turn_about(t, pivot, axis, v)
 	case .Scale:
 		target: f32
@@ -852,7 +916,7 @@ kit_gizmo_entry :: proc(app: ^App) {
 		}
 	} else if obj != nil {
 		#partial switch e.handle {
-		case .X, .Y, .Z: hint = fmt.tprintf("Now %.3f", obj.transform.position[int(e.handle) - int(gizmo.Handle.X)])
+		case .X, .Y, .Z: hint = fmt.tprintf("Now %.3f", linalg.dot(obj.transform.position, gizmo_axes(app, obj)[int(e.handle) - int(gizmo.Handle.X)]))
 		case .Scale:     hint = fmt.tprintf("Now %.3f", obj.transform.scale)
 		}
 	}

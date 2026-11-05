@@ -542,6 +542,11 @@ kit_move_tab :: proc(app: ^App) {
 	hints: [len(gizmo.Mode)]string
 	for &h, i in hints do h = command_hint(app, .Gizmo, i)
 	if picked := ui.tabs(ctx, "gizmo mode", modes[:], int(app.move.mode), keys = hints[:]); picked >= 0 do command_run(app, .Gizmo, picked)
+	orients: [len(Gizmo_Orient)]string
+	for name, o in GIZMO_ORIENT_NAMES do orients[int(o)] = name
+	orient_hints: [len(Gizmo_Orient)]string
+	for &h, i in orient_hints do h = command_hint(app, .Gizmo_Orient, i)
+	if picked := ui.tabs(ctx, "gizmo orientation", orients[:], int(app.move.orient), keys = orient_hints[:]); picked >= 0 do command_run(app, .Gizmo_Orient, picked)
 	_ = ui.switch_row(ctx, "Snap", &app.move.snap)
 	kit_command_pair(app, .Gizmo_Pivot, .Gizmo_Pivot_Reset, label_a = "Set pivot", label_b = "Reset pivot")
 	kit_command_pair(app, .Gizmo_Pivot_Edit, .Gizmo_Pivot_Center, label_a = "Edit pivot", label_b = "Pivot to middle")
