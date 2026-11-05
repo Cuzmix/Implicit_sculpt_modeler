@@ -88,6 +88,7 @@ Ui_State :: struct {
 	retopo_adaptivity:  f32,  // ...with smaller quads where the surface bends (AutoRemesher)
 	retopo_keep_symmetry: bool, // ...the brush's symmetry kept: one part remeshed and mirrored
 	retopo_close_first: bool, // ...an open or unsound mesh voxel remeshed first
+	retopo_keep_borders: bool, // ...an open mesh's border kept as it is (AutoRemesher)
 	retopo_keep_groups: bool, // ...polygroup borders kept as quad edges (AutoRemesher)
 	retopo_keep_creases: bool, // ...creased edges kept as quad edges (AutoRemesher)
 	retopo_edge_degrees: f32, // ...and edges sharper than this kept (AutoRemesher; 90 keeps right angles and sharper)

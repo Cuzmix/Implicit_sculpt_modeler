@@ -248,6 +248,7 @@ SETTINGS := [?]Setting {
 	{"retopo_adaptivity", U + offset_of(Ui_State, retopo_adaptivity), f32, 0, 1},
 	{"retopo_keep_symmetry", U + offset_of(Ui_State, retopo_keep_symmetry), bool, 0, 0},
 	{"retopo_close_first", U + offset_of(Ui_State, retopo_close_first), bool, 0, 0},
+	{"retopo_keep_borders", U + offset_of(Ui_State, retopo_keep_borders), bool, 0, 0},
 	{"retopo_keep_groups", U + offset_of(Ui_State, retopo_keep_groups), bool, 0, 0},
 	{"retopo_keep_creases", U + offset_of(Ui_State, retopo_keep_creases), bool, 0, 0},
 	{"retopo_edge_degrees", U + offset_of(Ui_State, retopo_edge_degrees), f32, RETOPO_EDGE_DEGREES_MIN, 90},

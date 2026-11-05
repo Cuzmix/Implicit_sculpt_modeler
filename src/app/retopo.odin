@@ -84,7 +84,7 @@ object_shape :: proc(obj: ^Object, top: bool, mask: ^[]u8 = nil) -> (view: geom.
 // The options as the Rebuild section has them set.
 quad_options :: proc(app: ^App) -> retopo.Options {
 	mirror := symmetry_planes(app, selected_object(app)) if app.ui.retopo_keep_symmetry else {}
-	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, mirror, app.ui.retopo_close_first, app.ui.retopo_keep_groups, app.ui.retopo_keep_creases, app.ui.retopo_edge_degrees, app.ui.retopo_use_paint, app.ui.retopo_use_mask, app.ui.retopo_guide_strength, app.quadmesh_dump}
+	return {app.ui.retopo_engine, app.ui.retopo_adaptivity, mirror, app.ui.retopo_close_first, app.ui.retopo_keep_borders, app.ui.retopo_keep_groups, app.ui.retopo_keep_creases, app.ui.retopo_edge_degrees, app.ui.retopo_use_paint, app.ui.retopo_use_mask, app.ui.retopo_guide_strength, app.quadmesh_dump}
 }
 
 // The Edge angle slider's floor: lower would keep nearly every edge of a sculpt.
@@ -161,7 +161,7 @@ quad_guide_count :: proc(app: ^App) -> (n: int) {
 // command kept some, and is left as it is when there was none to keep.
 quad_options_set :: proc(app: ^App, o: retopo.Options) {
 	app.ui.retopo_engine, app.ui.retopo_adaptivity, app.ui.retopo_close_first = o.engine, o.adaptivity, o.close_first
-	app.ui.retopo_keep_groups, app.ui.retopo_keep_creases = o.keep_groups, o.keep_creases
+	app.ui.retopo_keep_groups, app.ui.retopo_keep_creases, app.ui.retopo_keep_borders = o.keep_groups, o.keep_creases, o.keep_borders
 	app.ui.retopo_edge_degrees = o.edge_degrees if o.edge_degrees > 0 else retopo.EDGE_DEGREES_DEFAULT
 	app.ui.retopo_use_paint, app.ui.retopo_use_mask = o.use_paint, o.use_mask
 	app.ui.retopo_guide_strength = o.guide_strength
@@ -234,6 +234,7 @@ retopo_apply :: proc(app: ^App, obj: ^Object, r: ^retopo.Result, start: time.Tic
 	if res.mirrored do engine = fmt.tprintf("%s, mirrored across %s", engine, planes_label(res.mirror))
 	if res.unmirrored != "" do engine = fmt.tprintf("%s, not mirrored since %s", engine, res.unmirrored)
 	if res.closed > 0 do engine = fmt.tprintf("%s, closed first", engine)
+	if res.borders > 0 do engine = fmt.tprintf("%s, %s border vertices kept", engine, thousands(res.borders))
 	if res.features > 0 do engine = fmt.tprintf("%s, %s group and crease edges kept", engine, thousands(res.features))
 	if res.guides > 0 do engine = fmt.tprintf("%s, guided by %d curve%s", engine, res.guides, "" if res.guides == 1 else "s")
 	if res.thin > 0 do engine = fmt.tprintf("%s, %s vertices on thin parts", engine, thousands(res.thin))

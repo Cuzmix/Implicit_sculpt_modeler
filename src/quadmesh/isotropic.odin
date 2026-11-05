@@ -25,8 +25,9 @@ import "../jobs"
 // projection work out every vertex's move from the same positions on the thread pool
 // (Stage_Run.pool) and apply them in vertex order, so any thread count gives the same
 // mesh, bit for bit. The caller's feature edges stay edges on the caller's polyline,
-// edges sharper than the stage's angle and borders stay where they are, and the density's
-// edge factor rides the vertices as a payload, which the cover's sizes come from.
+// edges sharper than the stage's angle and borders stay where they are (a frozen border's,
+// Params.frozen, never split or collapsed either), and the density's edge factor rides
+// the vertices as a payload, which the cover's sizes come from.
 
 // Rounds of split, collapse, flip, relax and project (AutoRemesher's three), and the steps of
 // relaxing and projecting in each, where AutoRemesher takes one: each step moves a vertex
@@ -124,7 +125,7 @@ odin_isotropic :: proc(island: Island, voxel_size, adaptivity, sharp_degrees: f6
 		for &t, v in targets do t *= island.refine[v]
 	}
 
-	m, fans, torn, dropped := work_mesh_build(island.positions, island.triangles, island.features, targets, edge_factor)
+	m, fans, torn, dropped := work_mesh_build(island.positions, island.triangles, island.features, targets, edge_factor, island.frozen)
 	defer work_mesh_destroy(&m)
 	checks.iso_split_fans += fans
 	checks.iso_torn_edges += torn
@@ -288,7 +289,7 @@ isotropic_cut_edges :: proc(w: ^Isotropic_Work) {
 	ends := make([dynamic][2]u32, heap)
 	defer delete(ends)
 	for c in 0 ..< u32(len(m.vert)) {
-		if m.dead[c / 3] do continue
+		if m.dead[c / 3] || m.state[c] == FROZEN do continue
 		a, b := m.vert[c], m.vert[corner_next(c)]
 		if m.twin[c] != NONE && (a > b || in_one_plane(m, c)) do continue
 		append(&ends, [2]u32{a, b})
@@ -372,6 +373,7 @@ isotropic_split :: proc(w: ^Isotropic_Work, delaunay: bool) {
 			if !m.dead[f] {
 				for k in 0 ..< 3 {
 					c := u32(3 * f + k)
+					if m.state[c] == FROZEN do continue
 					a, b := m.vert[c], m.vert[corner_next(c)]
 					_, hi := edge_limits(w, a, b)
 					d := m.pos[b] - m.pos[a]
@@ -449,6 +451,8 @@ isotropic_collapse :: proc(w: ^Isotropic_Work) {
 			if !(dot3(d, d) < lo) do continue
 			if m.twin[h] == NONE {
 				if m.corner[a] != h || work_feature_edges(m, a) != 2 do continue
+				// A frozen border keeps its vertices, the ends of its frozen run too.
+				if m.state[h] == FROZEN || m.state[corner_prev(ring_last(m, a))] == FROZEN do continue
 				// How far the border strays at a from the line between its neighbours.
 				before := m.pos[m.vert[corner_prev(ring_last(m, a))]]
 				chord := m.pos[b] - before
@@ -809,6 +813,12 @@ isotropic_output :: proc(m: ^Work_Mesh, flags, dense: bool) -> (out: Isotropic) 
 		if dense do payload[renumber[v]] = m.payload[v]
 	}
 	if flags do out.corner_feature = make([]u8, 3 * faces, heap)
+	frozen := false
+	for c in 0 ..< len(m.vert) do if !m.dead[c / 3] && m.state[c] == FROZEN {
+		frozen = true
+		break
+	}
+	if frozen do out.corner_frozen = make([]bool, 3 * faces, heap)
 	f := 0
 	sum, count := f64(0), 0
 	for d, g in m.dead {
@@ -817,6 +827,7 @@ isotropic_output :: proc(m: ^Work_Mesh, flags, dense: bool) -> (out: Isotropic) 
 			c := u32(3 * g + k)
 			out.triangles[f][k] = renumber[m.vert[c]]
 			if flags && m.state[c] >= SHARP do out.corner_feature[3 * f + k] = 1
+			if frozen do out.corner_frozen[3 * f + k] = m.state[c] == FROZEN
 			// Each edge once: a border edge, or an inner one from its lower corner.
 			if t := m.twin[c]; t == NONE || t > c {
 				e := m.pos[m.vert[corner_next(c)]] - m.pos[m.vert[c]]

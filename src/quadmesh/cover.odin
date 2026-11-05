@@ -36,6 +36,11 @@ QUARTER_TURN := [4][2][2]f64{{{1, 0}, {0, 1}}, {{0, 1}, {-1, 0}}, {{-1, 0}, {0, 
 @(private = "file")
 HOLD_DEGREES :: 10.0
 
+// How much more firmly a frozen border edge asks its one step than an edge its fit
+// (cover_energy).
+@(private = "file")
+FROZEN_WEIGHT :: 100.0
+
 // The curl correction's regularization, and how far it may turn (radians) and stretch.
 @(private = "file")
 CURL_REGULARIZATION :: 1e-4
@@ -56,6 +61,7 @@ Cover_Work :: struct {
 	su, sv:   []f64, // per triangle: the stretch along the frame and across it
 	sizes:    []f64, // per triangle: the quad size
 	features: []u8,
+	frozen:   []bool, // per corner: its edge is a border kept as it is (Isotropic.corner_frozen), or nil
 }
 
 // What the landing's covers share: everything of the cover that does not depend on the
@@ -71,6 +77,10 @@ Cover_Plan :: struct {
 	curl:        Least_System,
 	free:        Least_System,
 	held:        Least_System,
+	// A frozen border's band (frozen.odin), or nil: each cover's sizes graded again from
+	// the border's edge length to its scaling's (frozen_regrade), so the border's quads
+	// stay its edges' length as the landing scales.
+	band:        ^Frozen_Band,
 }
 
 // One quad cover of the isotropic mesh at `scaling` times its mean edge, on `field`;
@@ -99,6 +109,7 @@ odin_cover_plan :: proc(iso: Isotropic, field: Field, face_guides: [][3]f64, sha
 	s := &w.s
 	corners := 3 * faces
 	w.features = iso.corner_feature if len(iso.corner_feature) == corners else nil
+	w.frozen = iso.corner_frozen if len(iso.corner_frozen) == corners else nil
 	plan.mean_edge = mean_edge_length(s)
 
 	w.normal = make([][3]f64, faces)
@@ -198,10 +209,16 @@ odin_cover_at :: proc(plan: ^Cover_Plan, scaling: f64, run: ^Stage_Run, reason: 
 	sv := make([]f64, faces)
 	defer delete(sv)
 	copy(sv, w.sv)
+	sizes := w.sizes
+	if plan.band != nil {
+		sizes = make([]f64, faces)
+		frozen_regrade(plan.band, s.triangles, w.sizes, scale, sizes)
+	}
+	defer if plan.band != nil do delete(sizes)
 	if !stage_report(run, 0.2) do return {}, .Cancelled
-	correct_curl(plan, field, su, sv, scale)
+	correct_curl(plan, field, su, sv, sizes, scale)
 	if !stage_report(run, 0.35 + 0.63 * 0.3) do return {}, .Cancelled
-	cover_energy(plan, field, su, sv, scale)
+	cover_energy(plan, field, su, sv, sizes, scale)
 	solved, integers, stopped := mixed_solve(&plan.mixed, &plan.free, &plan.held, s.pool, rounds, report, run)
 	if stopped do return {}, .Cancelled
 	if !solved {
@@ -365,7 +382,7 @@ edge_hold :: proc(w: ^Cover_Work, c: u32, sharp_degrees: f64, flagged: bool) -> 
 // CURL_TURN_LIMIT radians and the stretches within CURL_STRETCH_LIMIT, and the stretches
 // are then scaled together so the cover's area in cells stays as it was.
 @(private = "file")
-correct_curl :: proc(plan: ^Cover_Plan, field: [][3]f64, w_su, w_sv: []f64, scale: f64) {
+correct_curl :: proc(plan: ^Cover_Plan, field: [][3]f64, w_su, w_sv, sizes: []f64, scale: f64) {
 	w := &plan.w
 	turn_weight := plan.turn_weight
 	s := &w.s
@@ -377,7 +394,7 @@ correct_curl :: proc(plan: ^Cover_Plan, field: [][3]f64, w_su, w_sv: []f64, scal
 	across := make([][3]f64, faces)
 	defer delete(across)
 	for f in 0 ..< faces {
-		size := max(1e-12, w.sizes[f])
+		size := max(1e-12, sizes[f])
 		su[f] = scale * size * max(1e-12, w_su[f])
 		sv[f] = scale * size * max(1e-12, w_sv[f])
 		across[f] = unit_else(cross3(w.normal[f], field[f]), surface_edge(s, u32(3 * f)))
@@ -440,18 +457,44 @@ correct_curl :: proc(plan: ^Cover_Plan, field: [][3]f64, w_su, w_sv: []f64, scal
 	defer delete(correction)
 	held := make([]f64, 3 * faces)
 	defer delete(held)
+	// A frozen border edge is one step of the grid (cover_energy), so its triangle's
+	// stretch along it is held at what makes it one, whatever the sizes ask there: the
+	// correction then takes the curl that leaves out of the triangles inside, rather than
+	// stretching the border's steps short (by a fifth on a disc whose border is finer than
+	// its quads), which the rounding gave as every fourth border edge with no step.
+	if w.frozen != nil {
+		ends := make([]u8, 3 * faces)
+		defer delete(ends)
+		for c in 0 ..< len(w.frozen) {
+			if !w.frozen[c] || w.hold[c] == .None do continue
+			f := c / 3
+			along := 0 if w.hold[c] == .V else 1
+			step := abs(dot3(field[f] if along == 0 else across[f], surface_edge(s, u32(c))))
+			size := su[f] if along == 0 else sv[f]
+			if !(step > 0) || !(size > 0) do continue
+			k := 3 * f + 1 + along
+			held[k] += math.ln(step / size)
+			ends[k] += 1
+			fixed[k] = true
+		}
+		for &h, k in held do if ends[k] > 1 do h /= f64(ends[k])
+	}
 	if !least_squares(&plan.curl, &rows, 3 * faces, fixed, held, correction, s.pool, 3) do return
 
 	stretch_limit := math.ln(f64(CURL_STRETCH_LIMIT))
 	for f in 0 ..< faces {
 		angle := max(-CURL_TURN_LIMIT, min(CURL_TURN_LIMIT, correction[3 * f]))
 		field[f] = unit_else(math.cos(angle) * field[f] + math.sin(angle) * across[f], field[f])
-		w_su[f] *= math.exp(max(-stretch_limit, min(stretch_limit, correction[3 * f + 1])))
-		w_sv[f] *= math.exp(max(-stretch_limit, min(stretch_limit, correction[3 * f + 2])))
+		for k in 1 ..< 3 {
+			x := correction[3 * f + k]
+			if !fixed[3 * f + k] do x = max(-stretch_limit, min(stretch_limit, x))
+			if k == 1 do w_su[f] *= math.exp(x)
+			else do w_sv[f] *= math.exp(x)
+		}
 	}
 	area_before, area_after := f64(0), f64(0)
 	for f in 0 ..< faces {
-		size := max(1e-12, w.sizes[f])
+		size := max(1e-12, sizes[f])
 		area := length3(cross3(surface_edge(s, u32(3 * f)), -surface_edge(s, u32(3 * f + 2))))
 		area_before += area / (su[f] * sv[f])
 		su[f] = scale * size * max(1e-12, w_su[f])
@@ -461,8 +504,8 @@ correct_curl :: proc(plan: ^Cover_Plan, field: [][3]f64, w_su, w_sv: []f64, scal
 	if area_before > 0 && area_after > 0 {
 		factor := math.sqrt(area_after / area_before)
 		for f in 0 ..< faces {
-			w_su[f] *= factor
-			w_sv[f] *= factor
+			if !fixed[3 * f + 1] do w_su[f] *= factor
+			if !fixed[3 * f + 2] do w_sv[f] *= factor
 		}
 	}
 }
@@ -685,6 +728,14 @@ cover_system :: proc(w: ^Cover_Work, pin: int) -> (m: Mixed) {
 			mixed_constraint(&m, {i32(2 * c), 1}, {i32(2 * n), -1})
 		case .None:
 		}
+		// A frozen border's vertices are each a point of the lattice, its other coordinate
+		// an integer too, so the quads' corners land on them (cover_energy asks one step
+		// along the line from each to the next).
+		if w.frozen != nil && w.frozen[c] && w.hold[c] != .None {
+			along := 0 if w.hold[c] == .V else 1
+			mixed_set_period(&m, 2 * c + along, 1)
+			mixed_set_period(&m, 2 * n + along, 1)
+		}
 	}
 	return m
 }
@@ -692,7 +743,7 @@ cover_system :: proc(w: ^Cover_Work, pin: int) -> (m: Mixed) {
 // The fit's numbers at a scaling: each corner's edge in its triangle's frame over the
 // quad's size there, weighted by the quad's area, into the reduced rows they became.
 @(private = "file")
-cover_energy :: proc(plan: ^Cover_Plan, field: [][3]f64, su, sv: []f64, scale: f64) {
+cover_energy :: proc(plan: ^Cover_Plan, field: [][3]f64, su, sv, sizes: []f64, scale: f64) {
 	w := &plan.w
 	s := &w.s
 	faces := len(s.triangles)
@@ -703,7 +754,7 @@ cover_energy :: proc(plan: ^Cover_Plan, field: [][3]f64, su, sv: []f64, scale: f
 	for f in 0 ..< faces {
 		u := field[f]
 		v := unit_else(cross3(w.normal[f], u), surface_edge(s, u32(3 * f)))
-		size := max(1e-12, w.sizes[f])
+		size := max(1e-12, sizes[f])
 		fu := scale * size * max(1e-12, su[f])
 		fv := scale * size * max(1e-12, sv[f])
 		for l in 0 ..< 3 {
@@ -712,6 +763,14 @@ cover_energy :: proc(plan: ^Cover_Plan, field: [][3]f64, su, sv: []f64, scale: f
 			rhs[2 * c] = dot3(u, e) / fu
 			rhs[2 * c + 1] = dot3(v, e) / fv
 			weight[c] = fu * fv
+			// A frozen border edge is one quad edge, whatever its length against the quad
+			// size there: one step along its line, asked FROZEN_WEIGHT times as firmly as an
+			// edge's fit, so the cover gives way around it rather than along it.
+			if w.frozen != nil && w.frozen[c] && w.hold[c] != .None {
+				along := 0 if w.hold[c] == .V else 1
+				rhs[2 * c + along] = 1 if rhs[2 * c + along] >= 0 else -1
+				weight[c] *= FROZEN_WEIGHT
+			}
 		}
 	}
 	m := &plan.mixed

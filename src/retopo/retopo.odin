@@ -44,6 +44,12 @@ Options :: struct {
 	// match quad for quad along the seam, with either engine.
 	mirror:      geom.Remesh_Mirror,
 	close_first: bool, // an open or unsound mesh is voxel remeshed first, whichever engine runs
+	// AutoRemesher: an open mesh's border kept as it is, as ZRemesher's FreezeBorder: its
+	// vertices stay where they are, one quad edge between each two, so the result welds
+	// back onto what it was cut from (quadmesh.Params.frozen). The border comes first and
+	// the count second: the quads beside it are its edges' size. A symmetric half's cut
+	// is remeshed as before, and Close first leaves no border to keep.
+	keep_borders: bool,
 	// AutoRemesher's feature edges, as ZRemesher's KeepGroups and KeepCreases: the
 	// borders between the polygroups and the creased edges of `Source` are kept as quad
 	// edges, so the loops run along them; and an edge whose faces meet sharper than
@@ -202,6 +208,7 @@ Result :: struct {
 	features:  int, // AutoRemesher: polygroup borders and creased edges handed to it as feature edges
 	guides:    int, // AutoRemesher: guide curves that came within a quad's width of the surface
 	thin:      int, // AutoRemesher: vertices on parts too thin for THIN_AROUND quads round, given smaller quads (thin_density)
+	borders:   int, // AutoRemesher, Keep borders: the border vertices kept where they were
 	mirrored:  bool, // one part remeshed and mirrored, as the symmetry asked...
 	mirror:    geom.Remesh_Mirror, // ...across these planes
 	unmirrored: string, // symmetry asked but not kept: why (a literal, not owned)
@@ -365,6 +372,44 @@ Quad_Outcome :: enum u8 {
 	Built,
 	Cancelled, // nothing kept
 	Fallback, // only `reason` kept: the own engine runs instead
+}
+
+// The vertices of `m` on its border (an edge of one triangle), as quadmesh.Params.frozen
+// takes them, or nil when it has none.
+@(private = "file")
+mesh_border :: proc(m: geom.Mesh) -> []bool {
+	triangles := len(m.indices) / 3
+	keys := make([]u64, 3 * triangles, context.temp_allocator)
+	defer delete(keys, context.temp_allocator)
+	for t in 0 ..< triangles do for k in 0 ..< 3 {
+		a, b := m.indices[3 * t + k], m.indices[3 * t + (k + 1) % 3]
+		keys[3 * t + k] = u64(min(a, b)) << 32 | u64(max(a, b))
+	}
+	slice.sort(keys)
+	out: []bool
+	for i := 0; i < len(keys); {
+		j := i + 1
+		for j < len(keys) && keys[j] == keys[i] do j += 1
+		if j - i == 1 {
+			if out == nil do out = make([]bool, len(m.positions))
+			out[keys[i] >> 32], out[keys[i] & 0xffff_ffff] = true, true
+		}
+		i = j
+	}
+	return out
+}
+
+// The vertices of a symmetric half on the whole's border (mesh_border), through the
+// cut's origins: the cut itself, whose vertices are new or the whole's inner ones, is
+// remeshed and mirrored as before. Nil when the whole has no border.
+@(private = "file")
+half_border :: proc(half: geom.Mesh, whole: geom.Mesh, origins: geom.Slice_From) -> []bool {
+	border := mesh_border(whole)
+	defer delete(border)
+	if border == nil || len(origins.vertex) != len(half.positions) do return nil
+	out := make([]bool, len(half.positions))
+	for o, v in origins.vertex do out[v] = o != geom.SLICE_NONE && border[o]
+	return out
 }
 
 // A value per vertex of the whole (the density of Use paint and Use mask, or thin_density's
@@ -618,6 +663,8 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 	defer delete(half_creases)
 	half_density: []f32
 	defer delete(half_density)
+	half_frozen: []bool
+	defer delete(half_frozen)
 	mirror := options.mirror
 	snap: f32
 	asked := quads
@@ -631,6 +678,7 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 			half_density = half_values(half, input, origins, density)
 			half_thin = half_values(half, input, origins, whole_thin)
 			half_refine = half_values(half, input, origins, whole_refine)
+			if options.keep_borders do half_frozen = half_border(half, input, origins)
 			extent := c.bounds.hi - c.bounds.lo
 			snap = max(extent.x, extent.y, extent.z) * QUAD_SEAM_SNAP
 			parts := 0
@@ -657,6 +705,8 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 	density_used, refine: []f32
 	defer delete(density_used)
 	defer delete(refine)
+	frozen: []bool
+	defer delete(frozen)
 	out: quadmesh.Polygon_Mesh
 	defer quadmesh.polygon_mesh_destroy(&out)
 	seam: [dynamic]bool
@@ -708,6 +758,13 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		}
 		params.guides = guides
 		params.guide_strength = clamp(options.guide_strength, 0, 1)
+		// Keep borders: the border of what goes in, but a half's cut.
+		delete(frozen)
+		frozen = nil
+		if options.keep_borders do frozen = slice.clone(half_frozen) if r.mirrored else mesh_border(input)
+		params.frozen = frozen
+		r.borders = 0
+		for f in frozen do if f do r.borders += 1
 		err: quadmesh.Error
 		reason: string
 		out, report, err, reason = quadmesh.remesh(input.positions[:], input.indices[:], params, progress, {QUAD_SHARE_CHECKED, QUAD_SHARE_REMESHED})
@@ -733,7 +790,7 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 			if moved > 0 do log.infof("quad remesh: %d seam vertices the extraction left beside the plane put on it", moved)
 			slivers := open_seam_slivers(out, mirror, QUAD_SEAM_REACH * quad_edge, drop)
 			if slivers > 0 do log.infof("quad remesh: %d polygons in patches lying on the symmetry plane went", slivers)
-			mended, left = quad_fill_odd(&out, &drop, &planes, half, &bvh, pool)
+			mended, left = quad_fill_odd(&out, &drop, &planes, half, &bvh, pool, r.borders > 0)
 			geom.bvh_destroy(&bvh)
 			dropped := polygon_mesh_mirror(&out, mirror, drop, &planes)
 			delete(drop)
@@ -744,7 +801,11 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 			if dropped > 0 do log.infof("quad remesh: %d polygons lay on the symmetry plane and went", dropped)
 		} else {
 			doublets = dissolve_doublets(&out, nil)
-			mended, left = quad_fill_odd(&out, nil, nil, input, nil, pool)
+			mended, left = quad_fill_odd(&out, nil, nil, input, nil, pool, r.borders > 0)
+			// A path's cut round a corner beside another can leave a vertex of two quads
+			// that share both its edges (more often when a kept border turns the paths
+			// inward), which goes as the extraction's did.
+			if mended > 0 do doublets += dissolve_doublets(&out, nil)
 		}
 		if doublets > 0 do log.infof("quad remesh: %d vertices of two faces dissolved", doublets)
 		if mended > 0 || left > 0 do log.infof("quad remesh: %d faces with an odd number of sides mended, %d left", mended, left)
