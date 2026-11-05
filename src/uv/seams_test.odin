@@ -92,3 +92,42 @@ triangle_normal :: proc(positions: []geom.Vec3, indices: []u32, t: u32) -> [3]i8
 	n = {e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z, e1.x * e2.y - e1.y * e2.x}
 	return {i8(math.sign(n.x)), i8(math.sign(n.y)), i8(math.sign(n.z))}
 }
+
+// The skyline packs a mixed set (a sphere's charts) apart, inside the square or inside
+// its tiles with none crossing a tile's wall, and fills more than the shelf rows do.
+@(test)
+skyline_packs_tiles :: proc(t: ^testing.T) {
+	m := geom.icosphere(4, allocator = context.temp_allocator)
+	faces := geom.vertex_faces_build(m, nil, context.temp_allocator)
+	base := make_uvs(len(m.indices) / 3, context.temp_allocator)
+	opts := DEFAULT_UNWRAP
+	opts.seams.cone = 30 // more, smaller charts
+	_ = unwrap(&base, m.positions[:], m.indices[:], faces, options = opts)
+	testing.expect(t, base.islands > 10)
+	fill: [2]f32
+	for method, mi in ([2]Pack_Method{.Shelf, .Skyline}) {
+		for tiles in ([2]int{1, 3}) {
+			u := clone(base, context.temp_allocator)
+			filled := pack(&u, m.indices[:], {method, tiles})
+			if tiles == 1 do fill[mi] = filled
+			lo := make([][2]f32, u.islands, context.temp_allocator)
+			hi := make([][2]f32, u.islands, context.temp_allocator)
+			for &l in lo do l = {1e9, 1e9}
+			for &h in hi do h = {-1e9, -1e9}
+			for c, tri in u.corner do for p in c {
+				i := u.island[tri]
+				lo[i], hi[i] = {min(lo[i].x, p.x), min(lo[i].y, p.y)}, {max(hi[i].x, p.x), max(hi[i].y, p.y)}
+			}
+			width := f32(tiles) if method == .Skyline else 1
+			for i in 0 ..< u.islands {
+				testing.expectf(t, lo[i].x >= 0 && lo[i].y >= 0 && hi[i].x <= width && hi[i].y <= 1, "%v tiles %d: island %d inside", method, tiles, i)
+				testing.expectf(t, math.floor(lo[i].x) == math.floor(hi[i].x) || hi[i].x == math.floor(hi[i].x), "%v: island %d crosses a tile wall", method, i)
+				for j in i + 1 ..< u.islands {
+					apart := hi[i].x < lo[j].x || hi[j].x < lo[i].x || hi[i].y < lo[j].y || hi[j].y < lo[i].y
+					testing.expectf(t, apart, "%v: islands %d and %d apart", method, i, j)
+				}
+			}
+		}
+	}
+	testing.expectf(t, fill[1] > fill[0] && fill[1] > 0.7, "skyline %v, shelf %v", fill[1], fill[0])
+}

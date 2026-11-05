@@ -43,7 +43,7 @@ Flatten_Report :: struct {
 // along that side. Big islands are solved one at a time with the pool working inside each
 // solve, then the others side by side, each with memory of its own; nothing depends on
 // the pool. The flattened islands that are not pinned are then placed side by side in
-// the unit square (shelf_pack). With `symmetry`, an island whose mirror is another island
+// the unit square (the skyline packer, skyline.odin). With `symmetry`, an island whose mirror is another island
 // takes that island's layout reflected, and one that is its own mirror comes out
 // symmetric (symmetry.odin). Nothing happens without UVs.
 flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, method: Method = .Abf, pool: ^jobs.Pool = nil, symmetry: ^Symmetry = nil) -> (r: Flatten_Report) {
@@ -136,7 +136,7 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 		case .Failed: r.failed += 1
 		}
 	}
-	shelf_pack(u, place, leader)
+	_ = pack_islands(u, place, leader, DEFAULT_PACK)
 	u.filled = boxes_filled(u^)
 	r.ms = time.duration_milliseconds(time.tick_since(start))
 	return

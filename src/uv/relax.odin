@@ -34,7 +34,7 @@ RELAX_ENOUGH :: 1e-3
 // Relaxes every flattened island of `u` (a border, every triangle facing up) for up to
 // `iterations` steps, in place, for the mesh `positions` and `indices` (with `faces`).
 // An island's pinned vertices hold still, so it keeps its place and size; the other
-// islands come out at the surface's size and are packed again (shelf_pack). Big islands
+// islands come out at the surface's size and are packed again (skyline.odin). Big islands
 // one at a time with the pool in the factor, the others side by side, as flatten runs.
 // With `symmetry` mirrored islands take their leaders' layouts reflected and islands
 // that are their own mirrors are made symmetric again after, as flatten does.
@@ -109,7 +109,7 @@ relax :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Verte
 		r.before /= surface
 		r.after /= surface
 	}
-	shelf_pack(u, place, leader)
+	_ = pack_islands(u, place, leader, DEFAULT_PACK)
 	u.filled = boxes_filled(u^)
 	r.ms = time.duration_milliseconds(time.tick_since(start))
 	return

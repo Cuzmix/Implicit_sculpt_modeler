@@ -91,7 +91,7 @@ shelf_pack :: proc(u: ^Uvs, place: []bool, leader: []i32 = nil) {
 // Turns each island asked for about its box's corner so that its box is the smallest
 // any turn gives (the box lies along an edge of the island's convex hull, as rotating
 // calipers find it) and no taller than wide.
-@(private = "file")
+@(private)
 turn_to_smallest_box :: proc(u: ^Uvs, place: []bool, leader: []i32) {
 	// The corners grouped by island, in triangle order.
 	first := make([]u32, u.islands + 1, context.temp_allocator)
