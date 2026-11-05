@@ -116,7 +116,8 @@ boolean_result :: proc(app: ^App, base: ^Object, vertices: int, project: bool) -
 	out = shape_in(base, base.transform)
 	for obj in app.scene.objects {
 		if obj.boolean == .None do continue
-		other := shape_in(obj, base.transform)
+		// A marked object's copies each take part, as the view shows them.
+		other := stack_shape_in(app, obj, base.transform)
 		next, made := geom.mesh_boolean(out, other, BOOLEAN_OPS[obj.boolean], vertices, project, &app.pool)
 		geom.mesh_destroy(&other)
 		geom.mesh_destroy(&out)
@@ -140,13 +141,14 @@ boolean_apply :: proc(app: ^App, base: ^Object, c: ^voxel.Clay) -> bool {
 		if obj.boolean == .None do continue
 		op := CLAY_OPS[obj.boolean]
 		kept: bool
-		if obj.voxel != nil {
+		if obj.voxel != nil && !stack_shows(app, obj) {
 			// A point of the base's space into the mark's, through the world; one of the
 			// mark's units is this many of the base's.
 			to_other := linalg.inverse(transform_matrix(obj.transform)) * base_world
 			kept = voxel.clay_combine(c, &obj.voxel.clay.volume, to_other, obj.transform.scale / base.transform.scale, op, blend)
 		} else {
-			mesh := shape_in(obj, base.transform)
+			// A mesh mark, or a voxel one with a live stack, as the view shows it.
+			mesh := stack_shape_in(app, obj, base.transform)
 			other: voxel.Clay
 			built := voxel.clay_from_mesh(&other, mesh, c.volume.voxel, &app.pool)
 			geom.mesh_destroy(&mesh)
@@ -213,6 +215,12 @@ boolean_stamp :: proc(app: ^App) -> u64 {
 		mix(&h, u64(len(s.history.done)) << 32 | u64(len(s.history.undone)))
 		mix(&h, u64(obj.levels.current) << 32 | u64(object_vertex_count(obj)))
 		if obj.voxel != nil do mix(&h, obj.voxel.edits)
+		// A mark's copies take part, so a row tuned, or the curve Along follows moved,
+		// changes the result.
+		if obj.boolean != .None && stack_shows(app, obj) {
+			for c in stack_clip(obj) do mix(&h, u64(transmute(u32)c))
+			for m in stack_placings(app, obj) do for x in transmute([16]f32)m do mix(&h, u64(transmute(u32)x))
+		}
 	}
 	mix(&h, u64(app.ui.boolean.live_vertices))
 	mix(&h, u64(transmute(u32)app.ui.boolean.blend))

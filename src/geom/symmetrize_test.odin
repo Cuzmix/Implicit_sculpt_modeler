@@ -189,3 +189,33 @@ symmetrize_cuts_quads_when_the_seam_would_flatten_one :: proc(t: ^testing.T) {
 	// Four edges along x, each cut at the plane and mirrored.
 	testing.expectf(t, len(kept.creases.edges) == 8, "%d creased edges, not 8", len(kept.creases.edges))
 }
+
+// Each result vertex's source is a vertex of the kept side (or the plane, or the kept end
+// of a cut edge), at the vertex's place or its mirror image's, within the snap and the
+// cut's reach, so data by vertex follows the welded mesh.
+@(test)
+symmetrize_gives_each_vertex_its_source :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	m := icosphere(3)
+	defer mesh_destroy(&m)
+	for &p in m.positions do p += {0.13, 0, 0}
+	from: [dynamic]u32
+	defer delete(from)
+	out, ok := mesh_symmetrize(m, 0, true, &pool, out_from = &from)
+	defer mesh_destroy(&out)
+	if !testing.expect(t, ok) do return
+	if !testing.expect_value(t, len(from), len(out.positions)) do return
+	far, wrong_side := 0, 0
+	for p, v in out.positions {
+		s := m.positions[from[v]]
+		if s.x < -0.02 do wrong_side += 1
+		q := Vec3{abs(p.x), p.y, p.z}
+		d := q - s
+		if d.x * d.x + d.y * d.y + d.z * d.z > 0.2 * 0.2 do far += 1
+	}
+	testing.expect_value(t, wrong_side, 0)
+	testing.expect_value(t, far, 0)
+	free_all(context.temp_allocator)
+}
