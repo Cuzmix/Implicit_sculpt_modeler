@@ -199,9 +199,17 @@ dock_named :: proc(app: ^App, d: Dock_Id) -> bool {
 	switch k.docks[d].names {
 	case .Off:    return false
 	case .Always: return true
-	// The rail's buttons are named on a touch screen too, as no tooltip shows there.
-	case .Wide:   return ui.safe_area(&k.ctx).w >= DOCK_NAMES_WIDE || (d == .Rail && (MOBILE || k.keyless))
+	// The rail's buttons are named on a touch screen too, as no tooltip shows there, but
+	// not while a card stands in a column: the card's title names what it opened, and the
+	// names' width is the clay's (a named rail and a card took over a third of a tablet).
+	case .Wide:   return ui.safe_area(&k.ctx).w >= DOCK_NAMES_WIDE || (d == .Rail && (MOBILE || k.keyless) && !cards_in_columns(k))
 	}
+	return false
+}
+
+// Whether a card stands in either column now.
+cards_in_columns :: proc(k: ^Kit_State) -> bool {
+	for col in k.cards.columns do if col.count > 0 do return true
 	return false
 }
 
