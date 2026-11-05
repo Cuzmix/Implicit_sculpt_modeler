@@ -12971,11 +12971,10 @@ def shape_clip_line_waits():
 REBUILD_GOALS = {k: At(f"rebuild goal/{k.capitalize()}", *in_section(on_card(v, "object"), "remesh"))
                  for k, v in {"even": (1283, 287), "fewer": (1378, 287), "quads": (1472, 287)}.items()}
 REBUILD_DENSITY = in_section(on_card((1406, 346), "object"), "remesh")
-# The button, by the verb it shows for each goal, since what stands above it differs;
-# Even's by its place, as its More options row is named after Remesh too.
+# The button, by the verb it shows for each goal, since what stands above it differs.
 REBUILD_APPLY = {k: At(f"card Mesh/{verb}", *in_section(on_card((1377, 504), "object"), "remesh"))
                  for k, verb in {"fewer": "Decimate", "quads": "Quad Remesh (new object)"}.items()}
-REBUILD_APPLY["even"] = (1377, 444)
+REBUILD_APPLY["even"] = At("card Mesh/Voxel remesh", 1377, 400)
 
 
 def open_rebuild(s, goal=None, tap=click):
