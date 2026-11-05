@@ -16,6 +16,7 @@ import "../sparse"
 // open (auto seams cut them).
 
 Method :: enum u8 {
+	Abf,  // ABF++'s angles (abf.odin), then LSCM in the shapes they give: Blender's default
 	Lscm, // least squares conformal maps (Lévy et al. 2002), straight from the surface
 }
 
@@ -29,6 +30,7 @@ Flatten_Report :: struct {
 	flattened: int, // laid flat
 	closed:    int, // left as they were, having no border to open them along
 	failed:    int, // left as they were: the solve broke down (a damaged surface)
+	fallbacks: int, // asked for ABF++ but laid flat by LSCM alone, its angles not reached
 	flips:     int, // flattened triangles facing the other way from their island
 	ms:        f64,
 }
@@ -42,14 +44,15 @@ Flatten_Report :: struct {
 // solve, then the others side by side, each with memory of its own; nothing depends on
 // the pool. The flattened islands that are not pinned are then placed side by side in
 // the unit square (shelf_pack). Nothing happens without UVs.
-flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, method: Method = .Lscm, pool: ^jobs.Pool = nil) -> (r: Flatten_Report) {
+flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, method: Method = .Abf, pool: ^jobs.Pool = nil) -> (r: Flatten_Report) {
 	start := time.tick_now()
 	r.islands = u.islands
 	if !has(u^) || u.islands == 0 do return
 	order, first := island_triangles(u^, context.temp_allocator)
 	Island_Result :: struct {
 		state:  enum u8 {Untouched, Flat, Closed, Failed},
-		pinned: bool, // held where its pins are, so neither scaled nor placed
+		pinned:   bool, // held where its pins are, so neither scaled nor placed
+		fallback: bool, // ABF++ did not reach its angles, so LSCM alone laid it flat
 		flips:  int,
 	}
 	Job :: struct {
@@ -61,8 +64,9 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 		first:     []u32,
 		biggest:   []u32,
 		results:   []Island_Result,
+		method:    Method,
 	}
-	job := Job{u, positions, indices, faces, order, first, make([]u32, u.islands, context.temp_allocator), make([]Island_Result, u.islands, context.temp_allocator)}
+	job := Job{u, positions, indices, faces, order, first, make([]u32, u.islands, context.temp_allocator), make([]Island_Result, u.islands, context.temp_allocator), method}
 	// Biggest first, so the big islands are a run at the start and the small ones are
 	// claimed largest first.
 	Size :: struct {
@@ -84,7 +88,18 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 			res.state = .Closed
 			return
 		}
-		flat, pinned, ok := lscm(job.u^, job.positions, &island, pool, heap)
+		angles: []f64
+		defer delete(angles, heap)
+		if job.method == .Abf {
+			reached: bool
+			angles, reached = abf_angles(job.positions, &island, pool)
+			if !reached {
+				res.fallback = true
+				delete(angles, heap)
+				angles = nil
+			}
+		}
+		flat, pinned, ok := lscm(job.u^, job.positions, &island, pool, heap, angles)
 		defer delete(flat, heap)
 		if !ok {
 			res.state = .Failed
@@ -114,6 +129,7 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 		case .Flat:
 			place[i] = !res.pinned
 			r.flattened += 1
+			if res.fallback do r.fallbacks += 1
 			r.flips += res.flips
 		case .Closed: r.closed += 1
 		case .Failed: r.failed += 1
@@ -125,11 +141,12 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 	return
 }
 
-// The conformal map of island `m`: a coordinate per wedge, made with `allocator`. False
-// when the solve breaks down, as a surface with non-finite positions
-// makes it.
+// The conformal map of island `m`: a coordinate per wedge, made with `allocator`. With
+// `angles` (three per island triangle, from abf_angles) each triangle takes the shape
+// they give instead of its own. False when the solve breaks down, as a surface with
+// non-finite positions makes it.
 @(private)
-lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool, allocator: runtime.Allocator) -> (flat: [][2]f64, pinned, ok: bool) {
+lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool, allocator: runtime.Allocator, angles: []f64 = nil) -> (flat: [][2]f64, pinned, ok: bool) {
 	a := allocator
 	corners := m.wedge
 	n := len(corners) / 3
@@ -185,6 +202,14 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool, 
 	for t in 0 ..< n {
 		s, area := triangle_frame(positions, m.vertex, corners[3 * t:][:3])
 		area_sum += area
+		if angles != nil && area > 0 {
+			// The shape ABF++ found: the first side as long as on the surface, the
+			// second by the sines' rule, at the first corner's angle to it.
+			a := angles[3 * t:][:3]
+			l := s[1].x * math.sin(a[1]) / math.sin(a[2])
+			s[2] = {l * math.cos(a[0]), l * math.sin(a[0])}
+			area = s[1].x * s[2].y * 0.5
+		}
 		weight := 1.0
 		if !(area > 1e-14 * max(linalg.length2(s[1]), linalg.length2(s[2]), 1e-30)) {
 			// A sliver: an equilateral stand-in at a tenth of the weight, as Blender treats
@@ -270,9 +295,9 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool, 
 		}
 	}
 
-	// The system on the shared sparse solver: the upper triangle once (each diagonal
-	// block's upper half and each neighbour pair from its lower numbered wedge), unknown c
-	// of wedge i being 2i + c.
+	// The system as pairs (pairs.odin): the upper triangle once (each diagonal block's
+	// upper half and each neighbour pair from its lower numbered wedge), unknown c of
+	// wedge i being 2i + c.
 	heap := runtime.heap_allocator()
 	t := sparse.triplets_make(2 * free, 3 * free + 4 * int(next[free]), heap)
 	defer sparse.triplets_destroy(&t)
@@ -282,34 +307,12 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool, 
 			for r in 0 ..< 2 do for c in 0 ..< 2 do sparse.triplets_add(&t, 2 * i + r, 2 * j + c, off[x][r][c])
 		}
 	}
-	system, built := sparse.symmetric_from_triplets(t, nil, heap)
+	system, built := pair_system_make(t)
 	if !built do return
-	defer sparse.symmetric_destroy(&system, heap)
-
-	// AMD over the wedges' graph, each wedge's two unknowns kept together, so the
-	// supernodes come in whole blocks.
-	g := sparse.triplets_make(free, free + int(next[free]), heap)
-	defer sparse.triplets_destroy(&g)
-	for i in 0 ..< free {
-		sparse.triplets_add(&g, i, i, 1)
-		for x in next[i] ..< ends[i] do if j := int(neighbour[x]); j > i do sparse.triplets_add(&g, i, j, 1)
-	}
-	graph, _ := sparse.symmetric_from_triplets(g, nil, heap)
-	defer sparse.symmetric_destroy(&graph, heap)
-	by_wedge, inverse := sparse.amd_order(graph, heap)
-	delete(inverse, heap)
-	order := make([]i32, 2 * free, heap)
-	for w, k in by_wedge do order[2 * k], order[2 * k + 1] = 2 * w, 2 * w + 1
-	delete(by_wedge, heap)
-	symbolic := sparse.supernodal_analyze(system, order, heap)
-	delete(order, heap)
-	defer sparse.supernodal_symbolic_destroy(&symbolic, heap)
-	factor: sparse.Supernodal_Factor
-	if !sparse.supernodal_factor(&factor, &symbolic, system, pool, heap) do return
-	defer sparse.supernodal_factor_destroy(&factor, heap)
+	defer pair_system_destroy(&system)
 	x := make([]f64, 2 * free, heap)
 	defer delete(x, heap)
-	sparse.supernodal_solve(&factor, rhs, x)
+	if !pair_system_solve(&system, pool, rhs, x) do return
 	for w in 0 ..< m.wedges do if c := column[w]; c >= 0 do flat[w] = {x[2 * c], x[2 * c + 1]}
 	for p in flat do if !finite(p) do return
 

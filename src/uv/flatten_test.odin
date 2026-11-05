@@ -1,5 +1,6 @@
 package uv
 
+import "base:runtime"
 import "core:math"
 import "core:math/linalg"
 import "core:slice"
@@ -189,4 +190,33 @@ flatten_packs_islands_apart :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expectf(t, u.filled > 0.7, "filled %v", u.filled)
+}
+
+// ABF++ reaches its angles on a dome (no fallback): every triangle's angles sum to π and
+// round each inner vertex to 2π, and the island keeps the surface's angles better than
+// LSCM alone does, with no flips.
+@(test)
+abf_keeps_angles_better_than_lscm :: proc(t: ^testing.T) {
+	positions, indices, faces, base := dome(16, 9)
+	abf := clone(base, context.temp_allocator)
+	r := flatten(&abf, positions, indices, faces, .Abf)
+	testing.expect_value(t, r.flattened, 1)
+	testing.expect_value(t, r.fallbacks, 0)
+	testing.expect_value(t, r.flips, 0)
+	lscm := clone(base, context.temp_allocator)
+	_ = flatten(&lscm, positions, indices, faces, .Lscm)
+	sa, sl := stretch(abf, positions, indices), stretch(lscm, positions, indices)
+	testing.expectf(t, sa.angle < sl.angle, "angle error ABF++ %v, LSCM %v", sa.angle, sl.angle)
+
+	order, first := island_triangles(base, context.temp_allocator)
+	island := island_mesh(base, indices, faces, order[first[0]:first[1]], context.temp_allocator)
+	angles, ok := abf_angles(positions, &island, nil)
+	defer delete(angles, runtime.heap_allocator())
+	if !testing.expect(t, ok) do return
+	worst := 0.0
+	for k in 0 ..< len(angles) / 3 do worst = max(worst, abs(angles[3 * k] + angles[3 * k + 1] + angles[3 * k + 2] - math.PI))
+	around := make([]f64, island.wedges, context.temp_allocator)
+	for a, c in angles do around[island.wedge[c]] += a
+	for w in 0 ..< island.wedges do if !island.on_edge[w] do worst = max(worst, abs(around[w] - 2 * math.PI))
+	testing.expectf(t, worst < 1e-6, "angle sums off by %v", worst)
 }

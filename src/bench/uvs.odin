@@ -8,33 +8,33 @@ import "../geom"
 import "../jobs"
 import "../uv"
 
-// --uv: UV flattening (src/uv's least squares conformal maps and the shelf packing) on
-// three fixtures at each size, sizes being triangles: a tube welded round and cut open
-// along one line by a seam (one big island, a strip), a hemisphere (one island, its rim
-// the border) and the same hemisphere cut by seams into about nine by nine tiles (many small islands,
-// solved side by side). Per row: the time on the calling thread alone and on the pool
-// (the same bits, checked), Sander's L2 stretch, the worst singular value ratio, the mean
-// angle error, the flipped triangles, the share of the square the boxes fill and the
-// row's peak memory.
+// --uv: UV flattening (src/uv's ABF++ and least squares conformal maps, and the shelf
+// packing) on three fixtures at each size, sizes being triangles: a tube welded round
+// and cut open along one line by a seam (one big island, a strip), a dome (one island,
+// its rim the border) and the same dome cut by seams into about nine by nine tiles (many
+// small islands, solved side by side). Per row: the time on the calling thread alone and
+// on the pool (the same bits, checked), Sander's L2 stretch, the worst singular value
+// ratio, the mean angle error, the flipped triangles, the islands ABF++ left to LSCM,
+// the share of the square the boxes fill and the row's peak memory.
 
 uvs_header :: proc() {
-	fmt.println("| Fixture | Triangles | Islands | 1 thread ms | Pool ms | Same bits | L2 stretch | Worst | Angle ° | Flips | Filled | Peak RSS MB |")
-	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	fmt.println("| Fixture | Method | Triangles | Islands | 1 thread ms | Pool ms | Same bits | L2 stretch | Worst | Angle ° | Flips | Fallbacks | Filled | Peak RSS MB |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 }
 
 run_uvs :: proc(target: int, pool: ^jobs.Pool) {
-	for fixture in UV_Fixture do uv_row(fixture, target, pool)
+	for fixture in UV_Fixture do for method in uv.Method do uv_row(fixture, method, target, pool)
 }
 
 @(private = "file")
 UV_Fixture :: enum {
 	Tube,
-	Hemisphere,
+	Dome,
 	Tiles,
 }
 
 @(private = "file")
-uv_row :: proc(fixture: UV_Fixture, target: int, pool: ^jobs.Pool) {
+uv_row :: proc(fixture: UV_Fixture, method: uv.Method, target: int, pool: ^jobs.Pool) {
 	peak_rss_reset()
 	m: geom.Mesh
 	defer geom.mesh_destroy(&m)
@@ -50,13 +50,12 @@ uv_row :: proc(fixture: UV_Fixture, target: int, pool: ^jobs.Pool) {
 			a := 2 * math.PI * f64(x) / f64(across)
 			r := f64(across) / (2 * math.PI)
 			append(&m.positions, geom.Vec3{f32(r * math.cos(a)), f32(r * math.sin(a)), f32(y)})
-		case .Hemisphere, .Tiles:
-			// The grid laid on the upper half of a sphere by its angles from the pole.
-			u, v := f64(x) / f64(across) * 2 - 1, f64(y) / f64(along) * 2 - 1
-			l := max(abs(u), abs(v))
-			a := math.atan2(v, u)
-			polar := l * math.PI * 0.45
-			append(&m.positions, geom.Vec3{f32(math.sin(polar) * math.cos(a)), f32(math.sin(polar) * math.sin(a)), f32(math.cos(polar))})
+		case .Dome, .Tiles:
+			// The grid twice as wide as it is away from a sphere's middle, pushed out onto
+			// it: a dome whose corners reach 70° from its top, no triangle a sliver.
+			p := [3]f64{(f64(x) / f64(across) * 2 - 1) * 2, (f64(y) / f64(along) * 2 - 1) * 2, 1}
+			p /= math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z)
+			append(&m.positions, geom.Vec3{f32(p.x), f32(p.y), f32(p.z)})
 		}
 	}
 	at :: proc(columns, x, y: int) -> u32 {return u32(y * columns + x % columns)}
@@ -78,7 +77,7 @@ uv_row :: proc(fixture: UV_Fixture, target: int, pool: ^jobs.Pool) {
 		cut := false
 		switch fixture {
 		case .Tube: cut = px == 0 && qx == 0
-		case .Hemisphere:
+		case .Dome:
 		case .Tiles: cut = (px == qx && px % tiles == 0) || (py == qy && py % tiles == 0)
 		}
 		if cut do base.seam[t] += {k}
@@ -89,18 +88,18 @@ uv_row :: proc(fixture: UV_Fixture, target: int, pool: ^jobs.Pool) {
 	one := uv.clone(base)
 	defer uv.destroy(&one)
 	t0 := time.tick_now()
-	r := uv.flatten(&one, m.positions[:], m.indices[:], faces)
+	r := uv.flatten(&one, m.positions[:], m.indices[:], faces, method)
 	serial_ms := time.duration_milliseconds(time.tick_since(t0))
 	free_all(context.temp_allocator)
 	pooled := uv.clone(base)
 	defer uv.destroy(&pooled)
 	t0 = time.tick_now()
-	_ = uv.flatten(&pooled, m.positions[:], m.indices[:], faces, pool = pool)
+	_ = uv.flatten(&pooled, m.positions[:], m.indices[:], faces, method, pool)
 	pool_ms := time.duration_milliseconds(time.tick_since(t0))
 	free_all(context.temp_allocator)
 	same := true
 	for c, t in one.corner do if c != pooled.corner[t] do same = false
 
 	s := uv.stretch(one, m.positions[:], m.indices[:])
-	fmt.printfln("| %v | %s | %d | %.0f | %.0f | %v | %.4f | %.3f | %.2f | %d | %.2f | %.0f |", fixture, thousands(triangles), base.islands, serial_ms, pool_ms, "yes" if same else "NO", s.l2, s.worst, s.angle, r.flips, one.filled, peak_rss_mb())
+	fmt.printfln("| %v | %v | %s | %d | %.0f | %.0f | %v | %.4f | %.3f | %.2f | %d | %d | %.2f | %.0f |", fixture, method, thousands(triangles), base.islands, serial_ms, pool_ms, "yes" if same else "NO", s.l2, s.worst, s.angle, r.flips, r.fallbacks, one.filled, peak_rss_mb())
 }
