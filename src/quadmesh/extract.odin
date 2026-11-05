@@ -119,6 +119,8 @@ Extractor :: struct {
 	unmatched:   int, // slots whose trace found no partner
 	filled:      int, // faces of more than four sides filled with quads
 	dropped:     int, // cycles a walk there and back emptied, dropped
+	twins:       int, // edges taken away where two joined one pair of vertices (extract_twins)
+	bridges:     int, // pieces joined back to the rest across a hole round a part (extract_bridges)
 	bays:        int, // holes reaching the border, closed along it and filled (border_bays)
 	bad_cuts:    int, // faces no cut could fill without joining a corner to itself twice
 	largest_cut: int, // the most sides a face cut into quads had
@@ -171,6 +173,8 @@ odin_extract :: proc(iso: Isotropic, cover: Cover, run: ^Stage_Run, reason: ^Rea
 	checks.extract_unmatched = x.unmatched
 	checks.extract_filled = x.filled
 	checks.extract_dropped = x.dropped
+	checks.extract_twins = x.twins
+	checks.extract_bridges = x.bridges
 	checks.extract_bays = x.bays
 	checks.extract_bad_cuts = x.bad_cuts
 	checks.extract_largest_cut = x.largest_cut

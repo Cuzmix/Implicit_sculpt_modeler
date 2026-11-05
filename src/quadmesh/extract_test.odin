@@ -81,3 +81,99 @@ torus_mesh :: proc(nu, nv: int, big, small: f32) -> (m: geom.Mesh) {
 	}
 	return
 }
+
+// A ball with fins far thinner than a quad at a low count: across a fin the cover's grid
+// closes after two edges or folds over a stretch of it, which left an edge of four faces
+// (two traced edges between one pair of vertices) or a fin's tip a piece of its own, the
+// hole round the fin capped at both ends. Every count comes back one closed manifold piece
+// with the ball's Euler characteristic, on one thread or four alike.
+@(test)
+extraction_keeps_thin_parts_whole :: proc(t: ^testing.T) {
+	ball := finned_ball()
+	defer geom.mesh_destroy(&ball)
+	params := DEFAULT_PARAMS
+	twins, bridges := 0, 0
+	for quads in ([]int{60, 100, 150, 200, 300}) {
+		faces: [2]int
+		for threads, k in ([]int{1, 4}) {
+			params.quads, params.threads = quads, threads
+			out, report, err, reason := remesh(ball.positions[:], ball.indices[:], params)
+			defer polygon_mesh_destroy(&out)
+			if !testing.expectf(t, err == .None, "%d quads: %v %s", quads, err, reason) do continue
+			c := report.checks
+			log.infof("finned ball at %d quads, %d threads: %d faces; %s", quads, threads, report.faces, checks_line(c))
+			testing.expectf(t, c.quad_open_edges == 0 && c.quad_nonmanifold == 0, "%d quads: %d open and %d non-manifold edges", quads, c.quad_open_edges, c.quad_nonmanifold)
+			testing.expectf(t, c.quad_euler == 2, "%d quads: Euler characteristic %d", quads, c.quad_euler)
+			pieces := polygon_pieces(out)
+			testing.expectf(t, pieces == 1, "%d quads: %d pieces", quads, pieces)
+			faces[k] = report.faces
+			if threads == 1 {
+				twins += c.extract_twins
+				bridges += c.extract_bridges
+			}
+		}
+		testing.expectf(t, faces[0] == faces[1], "%d quads: %d faces on one thread, %d on four", quads, faces[0], faces[1])
+	}
+	log.infof("finned ball: %d twin edges parted, %d pieces bridged", twins, bridges)
+	testing.expectf(t, twins > 0 && bridges > 0, "the fins no longer reach either: %d twin edges, %d bridges", twins, bridges)
+}
+
+// The pieces a polygon mesh falls into through its polygons' corners.
+@(private = "file")
+polygon_pieces :: proc(m: Polygon_Mesh) -> int {
+	set := make([]int, len(m.positions), context.temp_allocator)
+	for &v, i in set do v = i
+	root :: proc(set: []int, v: int) -> int {
+		r := v
+		for set[r] != r do r = set[r]
+		return r
+	}
+	used := make([]bool, len(m.positions), context.temp_allocator)
+	for f in 0 ..< len(m.first) - 1 {
+		c := m.corners[m.first[f]:m.first[f + 1]]
+		for v in c {
+			used[v] = true
+			a, b := root(set, int(v)), root(set, int(c[0]))
+			if a != b do set[max(a, b)] = min(a, b)
+		}
+	}
+	pieces := 0
+	for v in 0 ..< len(set) do if used[v] && root(set, v) == v do pieces += 1
+	return pieces
+}
+
+// A unit ball with six fins grown smoothly out of it, each reaching three times the ball's
+// radius past it, FIN_WIDTH radians wide at its root one way and a fifth of that the other.
+@(private = "file")
+finned_ball :: proc() -> geom.Mesh {
+	m := geom.icosphere(5)
+	directions := [6]geom.Vec3{{1, 0, 0}, {-0.6, 0.8, 0}, {-0.6, -0.8, 0}, {0, 0.3, 0.95}, {0.2, -0.4, -0.9}, {0.7, 0.7, 0.1}}
+	for &p in m.positions {
+		r := f32(1)
+		for d in directions {
+			axis := d / math.sqrt(d.x * d.x + d.y * d.y + d.z * d.z)
+			along := p.x * axis.x + p.y * axis.y + p.z * axis.z
+			if along <= 0 do continue
+			// Across the fin: its width one way, and five times as steep the other.
+			wide := geom.Vec3{axis.y, -axis.x, 0} if abs(axis.z) < 0.9 else geom.Vec3{1, 0, 0}
+			wide /= math.sqrt(wide.x * wide.x + wide.y * wide.y + wide.z * wide.z)
+			off := p - along * axis
+			a := off.x * wide.x + off.y * wide.y + off.z * wide.z
+			rest := off - a * wide
+			b := math.sqrt(rest.x * rest.x + rest.y * rest.y + rest.z * rest.z) / FIN_FLAT
+			angle := math.atan2(math.sqrt(a * a + b * b), along)
+			if angle < FIN_WIDTH do r = max(r, 1 + FIN_LENGTH * (1 - angle / FIN_WIDTH) * (1 - angle / FIN_WIDTH))
+		}
+		p *= r
+	}
+	return m
+}
+
+// A fin's width at its root in radians, how much thinner it is the other way, and how far
+// past the ball it reaches.
+@(private = "file")
+FIN_WIDTH :: f32(0.1)
+@(private = "file")
+FIN_FLAT :: f32(0.2)
+@(private = "file")
+FIN_LENGTH :: f32(3)
