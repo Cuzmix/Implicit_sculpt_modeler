@@ -167,6 +167,16 @@ QUAD_REMESH_MAX_PIECES :: 256
 // on the plane, so they are near it but not on it to the bit.
 @(private = "file")
 QUAD_SEAM_SNAP :: f32(1e-4)
+// How far from the plane, in quad edges, a closed sculpt's open half may leave a seam vertex
+// and still have it put on the plane (open_seam_planes): a fin lying along the plane folds
+// the cover, and the border there wanders out most of a quad and back.
+@(private = "file")
+QUAD_SEAM_REACH :: f32(1)
+// The most polygons a patch of an open half lying within QUAD_SEAM_REACH of the plane may
+// have and go as a sliver (open_seam_slivers); a larger one is a part of the sculpt as thin
+// as a quad along the plane, and stays.
+@(private = "file")
+QUAD_SEAM_SLIVER_FACES :: 16
 // The rim between a half and its flat cap meets at 90 degrees on a smooth sculpt; kept as
 // a sharp edge from this angle, so the quads line up with the seam.
 @(private = "file")
@@ -650,13 +660,17 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		return {}, .Cancelled
 	}
 	// Symmetry: the part on the + side of every plane alone goes in and comes back
-	// mirrored. It goes in closed, its cut capped flat on each plane, since AutoRemesher
-	// fills a small hole of its own accord and smooths a larger one's rim off the plane;
-	// the caps' polygons lie on the planes and are dropped after. AutoRemesher is told
-	// where the caps are (Params.cap), so the count asked goes to the rest whatever share
-	// the flat caps take (more than their area's: a third of a sphere's capped half by
-	// area took 43 % of the quads); the rim goes in as feature edges (cap_rim_edges) so
-	// the quads line up with the seam. A plane the mesh does not cross leaves it whole.
+	// mirrored. Through the Odin core it goes in open: its cut is a border, which the
+	// frame field follows and the cover holds on a line of the grid as it holds every
+	// border, so the quads end in an edge loop on the plane that the mirror closes, and
+	// nothing is counted out or dropped. Through the C++ core it goes in closed, its cut
+	// capped flat on each plane, since AutoRemesher fills a small hole of its own accord
+	// and smooths a larger one's rim off the plane; the caps' polygons lie on the planes
+	// and are dropped after. AutoRemesher is told where the caps are (Params.cap), so the
+	// count asked goes to the rest whatever share the flat caps take (more than their
+	// area's: a third of a sphere's capped half by area took 43 % of the quads); the rim
+	// goes in as feature edges (cap_rim_edges) so the quads line up with the seam. A plane
+	// the mesh does not cross leaves it whole.
 	//
 	// Thin parts (thin_density) are measured on the whole before the cut: a part the plane
 	// halves, a spike along the midline, is thin only across both halves, and a ray from
@@ -684,11 +698,12 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 	mirror := options.mirror
 	snap: f32
 	asked := quads
+	open_cut := options.core == .Odin
 	if mirror.axes != {} {
 		ok: bool
 		origins: geom.Slice_From
 		defer geom.slice_from_destroy(&origins)
-		half, ok = geom.mirror_cut(input, mirror, true, pool, from = &origins)
+		half, ok = geom.mirror_cut(input, mirror, !open_cut, pool, from = &origins)
 		if ok {
 			// The caps are the half's triangles that come from none of the whole's.
 			half_cap = make([]bool, len(half.indices) / 3)
@@ -734,11 +749,13 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 	polys: sculpt.Polys
 	check: geom.Mesh_Report
 	report: quadmesh.Report
+	whole_dump: string
+	defer delete(whole_dump)
 	// The mirrored result must close along its seam; when it does not (a cap AutoRemesher
 	// laid across the cut that the plane did not catch), the whole mesh is remeshed instead.
 	for {
 		params.quads = asked
-		params.sharp_degrees = min(QUAD_SEAM_SHARP_DEGREES, edge_degrees) if r.mirrored else edge_degrees
+		params.sharp_degrees = min(QUAD_SEAM_SHARP_DEGREES, edge_degrees) if r.mirrored && !open_cut else edge_degrees
 		delete(features)
 		features = feature_edges(input, groups, creases)
 		r.features = len(features) / 2
@@ -746,7 +763,7 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		// than the shim's, which leaves them out).
 		area, _ := geom.mesh_area_bounds(input, pool)
 		quad_edge := f32(math.sqrt(area / f64(max(asked, 1))))
-		if r.mirrored do cap_rim_edges(input, half_cap, quad_edge, &features)
+		if r.mirrored && !open_cut do cap_rim_edges(input, half_cap, quad_edge, &features)
 		params.features = features
 		// Thin parts ask for smaller quads over finer triangles, on top of paint and mask.
 		delete(density_used)
@@ -776,7 +793,7 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		params.guides = guides
 		params.guide_strength = clamp(options.guide_strength, 0, 1)
 		// The caps' polygons are dropped after, so they take none of the count.
-		params.cap, params.cap_snap = mirror if r.mirrored else {}, snap
+		params.cap, params.cap_snap = mirror if r.mirrored && !open_cut else {}, snap
 		err: quadmesh.Error
 		reason: string
 		out, report, err, reason = quadmesh.remesh(input.positions[:], input.indices[:], params, progress, {QUAD_SHARE_CHECKED, QUAD_SHARE_REMESHED})
@@ -797,7 +814,16 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		if r.mirrored {
 			bvh := geom.bvh_build_morton(half, geom.BVH_LEAF_SIZE, pool)
 			cap: []bool
-			cap, planes = quad_seam_classify(out, half, &bvh, mirror, snap)
+			if open_cut {
+				cap = make([]bool, len(out.first) - 1)
+				moved: int
+				planes, moved = open_seam_planes(out, mirror, snap, c.closed, QUAD_SEAM_REACH * quad_edge)
+				if moved > 0 do log.infof("quad remesh: %d seam vertices the extraction left beside the plane put on it", moved)
+				slivers := open_seam_slivers(out, mirror, QUAD_SEAM_REACH * quad_edge, cap)
+				if slivers > 0 do log.infof("quad remesh: %d polygons in patches lying on the symmetry plane went", slivers)
+			} else {
+				cap, planes = quad_seam_classify(out, half, &bvh, mirror, snap)
+			}
 			mended, left = quad_fill_odd(&out, &cap, &planes, half, &bvh, pool)
 			geom.bvh_destroy(&bvh)
 			dropped := polygon_mesh_mirror(&out, mirror, cap, &planes)
@@ -847,6 +873,12 @@ quad_remesh_compute :: proc(view: geom.Mesh, quads: int, options: Options, pool:
 		planes = nil
 		r.mirrored, r.unmirrored = false, "the seam did not close"
 		input, asked = whole_input, quads
+		// The whole's stages go into a folder of their own in the dump, so the half's stay
+		// to be looked at.
+		if options.dump != "" && whole_dump == "" {
+			whole_dump = strings.concatenate({options.dump, "/whole"})
+			params.dump = whole_dump
+		}
 		groups, creases, input_density = whole_groups, whole_creases, density
 		if jobs.progress_cancelled(progress) do return {}, .Cancelled
 	}
@@ -1142,6 +1174,110 @@ quad_seam_classify :: proc(m: quadmesh.Polygon_Mesh, half: geom.Mesh, bvh: ^geom
 		}
 		if went == 0 do break
 		draw_seam(m, dropped, cap_of, in_kept, touches, planes[:])
+	}
+	return
+}
+
+// The seam of a half that went in open: each vertex on the polygons' border within `snap`
+// of a plane of `mirror` gets that plane's bit (0 elsewhere), for the mirror to put it on
+// the plane and share it. On a closed sculpt every border vertex is the cut's, so one the
+// extraction landed beside the planes (where the cover folds over a fin lying along the
+// plane, the border runs out a little way and back) gets its nearest plane's bit when that
+// is within `reach`, and the seam still closes; on an open sculpt a border vertex off the
+// planes is the sculpt's own border, and stays.
+@(private = "file")
+open_seam_planes :: proc(m: quadmesh.Polygon_Mesh, mirror: geom.Remesh_Mirror, snap: f32, closed: bool, reach: f32, allocator := context.allocator) -> (planes: [dynamic]u8, moved: int) {
+	planes = make([dynamic]u8, len(m.positions), allocator)
+	// An edge is border when it is walked one way only.
+	walked := make(map[[2]u32]bool, context.temp_allocator)
+	defer delete(walked)
+	for f in 0 ..< len(m.first) - 1 {
+		corners := m.corners[m.first[f]:m.first[f + 1]]
+		for c, k in corners do walked[{c, corners[(k + 1) % len(corners)]}] = true
+	}
+	border := make([]bool, len(m.positions), context.temp_allocator)
+	defer delete(border, context.temp_allocator)
+	for f in 0 ..< len(m.first) - 1 {
+		corners := m.corners[m.first[f]:m.first[f + 1]]
+		for c, k in corners {
+			d := corners[(k + 1) % len(corners)]
+			if ([2]u32{d, c}) not_in walked do border[c], border[d] = true, true
+		}
+	}
+	for on, v in border {
+		if !on do continue
+		nearest, nearest_axis := reach, -1
+		for x in 0 ..< 3 {
+			if !mirror.axes[x] do continue
+			d := abs(m.positions[v][x] - mirror.center[x])
+			if d <= snap do planes[v] |= 1 << u8(x)
+			if d <= nearest do nearest, nearest_axis = d, x
+		}
+		if planes[v] == 0 && closed && nearest_axis >= 0 {
+			planes[v] = 1 << u8(nearest_axis)
+			moved += 1
+		}
+	}
+	return
+}
+
+// The patches of a half that went in open lying all but on the plane: an island of the
+// polygons (joined across their edges) of at most QUAD_SEAM_SLIVER_FACES with every vertex
+// within `reach` of a plane of `mirror` (a bump of a fin along the plane poking across it,
+// which the cut leaves as a patch of its own) would come back with its image as a closed
+// sliver thinner than a quad, touching the rest at a vertex; so its polygons are marked in
+// `drop`, to go with the mirror. Returns how many.
+@(private = "file")
+open_seam_slivers :: proc(m: quadmesh.Polygon_Mesh, mirror: geom.Remesh_Mirror, reach: f32, drop: []bool) -> (dropped: int) {
+	faces := len(m.first) - 1
+	root := make([]u32, faces, context.temp_allocator)
+	defer delete(root, context.temp_allocator)
+	for &r, f in root do r = u32(f)
+	find :: proc(root: []u32, f: u32) -> u32 {
+		f := f
+		for root[f] != f {
+			root[f] = root[root[f]]
+			f = root[f]
+		}
+		return f
+	}
+	// The faces joined across each edge, whichever way round; the islands that result do
+	// not depend on the map's order.
+	by_edge := make(map[[2]u32]u32, context.temp_allocator)
+	defer delete(by_edge)
+	for f in 0 ..< faces {
+		corners := m.corners[m.first[f]:m.first[f + 1]]
+		for c, k in corners {
+			d := corners[(k + 1) % len(corners)]
+			key := [2]u32{min(c, d), max(c, d)}
+			if g, ok := by_edge[key]; ok {
+				a, b := find(root, u32(f)), find(root, g)
+				root[max(a, b)] = min(a, b)
+			} else {
+				by_edge[key] = u32(f)
+			}
+		}
+	}
+	size := make([]u32, faces, context.temp_allocator)
+	defer delete(size, context.temp_allocator)
+	near := make([]bool, faces, context.temp_allocator)
+	defer delete(near, context.temp_allocator)
+	for &n in near do n = true
+	for f in 0 ..< faces {
+		r := find(root, u32(f))
+		size[r] += 1
+		for v in m.corners[m.first[f]:m.first[f + 1]] {
+			on := false
+			for x in 0 ..< 3 do if mirror.axes[x] && abs(m.positions[v][x] - mirror.center[x]) <= reach do on = true
+			near[r] &&= on
+		}
+	}
+	for f in 0 ..< faces {
+		r := find(root, u32(f))
+		if near[r] && size[r] <= QUAD_SEAM_SLIVER_FACES && !drop[f] {
+			drop[f] = true
+			dropped += 1
+		}
 	}
 	return
 }

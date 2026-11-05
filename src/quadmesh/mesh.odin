@@ -477,6 +477,79 @@ work_collapse :: proc(m: ^Work_Mesh, h: u32, to: [3]f64, longest: f64) -> bool {
 	return true
 }
 
+// Collapses corner h's border edge, its start going into its end, which stays where it
+// is, if the mesh stays sound: the start is on the border with one fan, the ends share
+// only the triangle's far corner (the link condition), which keeps at least three edges,
+// no neighbour is left farther than `longest` (squared) from the end, and no triangle
+// left round the start turns over or flattens. Where the triangle is the start's only one
+// (an ear, its edge before the start on the border too), the ear goes instead and its
+// third edge becomes the border, if both its ends keep three edges. Either way the border
+// loses the start's vertex and runs straight from the vertex before it to the end, every
+// vertex left on it one it had. The caller decides where the border is straight enough
+// (isotropic.odin). Returns whether it collapsed.
+work_collapse_border :: proc(m: ^Work_Mesh, h: u32, longest: f64) -> bool {
+	if m.twin[h] != NONE do return false
+	nh, ph := corner_next(h), corner_prev(h)
+	a, b, x := m.vert[h], m.vert[nh], m.vert[ph]
+	if m.corner[a] != h do return false
+	t1, t2 := m.twin[ph], m.twin[nh]
+	if t2 == NONE do return false
+	if t1 == NONE {
+		if work_valence(m, x) < 4 || work_valence(m, b) < 4 do return false
+		// The ear's inner edge, seen from the triangle beyond, is the border now, and the
+		// vertex before the start goes out along it.
+		m.twin[t2] = NONE
+		m.state[t2] = max(m.state[t2], SHARP)
+		for k in ([3]u32{h, nh, ph}) do m.twin[k] = NONE
+		m.corner[x] = t2
+		m.corner[a] = NONE
+		m.dead[h / 3] = true
+		return true
+	}
+	if work_shared_neighbours(m, a, b) > 1 do return false
+	if work_valence(m, x) <= 3 do return false
+	to := m.pos[b]
+	start := h
+	last := start
+	for c := start; c != NONE; c = ring_step(m, start, c) {
+		p := m.pos[m.vert[corner_next(c)]] - to
+		if dot3(p, p) > longest do return false
+		last = c
+	}
+	{
+		p := m.pos[m.vert[corner_prev(last)]] - to
+		if dot3(p, p) > longest do return false
+	}
+	f := h / 3
+	for c := start; c != NONE; c = ring_step(m, start, c) {
+		if c / 3 == f do continue
+		corners := [3]u32{c, corner_next(c), corner_prev(c)}
+		before, after: [3][3]f64
+		for k in 0 ..< 3 {
+			w := m.vert[corners[k]]
+			before[k] = m.pos[w]
+			after[k] = to if w == a else m.pos[w]
+		}
+		if degenerate(after[0], after[1], after[2]) do return false
+		n0 := cross3(before[1] - before[0], before[2] - before[0])
+		if dot3(n0, n0) > 0 && dot3(n0, cross3(after[1] - after[0], after[2] - after[0])) <= 0 do return false
+	}
+
+	x_border := work_border(m, x)
+	for c := start; c != NONE; c = ring_step(m, start, c) do m.vert[c] = b
+	// The triangle's two inner edges become one, with the stronger feature state.
+	s := max(m.state[ph], m.state[nh])
+	if s >= SHARP do m.state[t1], m.state[t2] = s, s
+	m.twin[t1], m.twin[t2] = t2, t1
+	for k in ([3]u32{h, nh, ph}) do m.twin[k] = NONE
+	// The end keeps its own first corner, on its outgoing border edge; its walk now runs on
+	// through the start's old fan to the border edge that came into the start.
+	if !x_border do m.corner[x] = t2
+	m.corner[a] = NONE
+	m.dead[f] = true
+	return true
+}
+
 // Flips corner h's edge to join the two far corners, if that brings the four corners'
 // valences nearer six (four on a border), keeps the ends at three edges or more, adds no
 // second edge between two vertices, and neither new triangle flattens or turns against

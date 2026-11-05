@@ -459,7 +459,7 @@ index 1420098..f06602d 100644
      std::map<std::pair<size_t, size_t>, ConnectionInfo> m_connectionInfos;
      std::set<std::pair<size_t, size_t>> m_addedConnections;
 diff --git a/src/AutoRemesher/quadparameterizer.cpp b/src/AutoRemesher/quadparameterizer.cpp
-index cabf5c7..bddf9fc 100644
+index cabf5c7..3067f68 100644
 --- a/src/AutoRemesher/quadparameterizer.cpp
 +++ b/src/AutoRemesher/quadparameterizer.cpp
 @@ -78,9 +78,9 @@ namespace {
@@ -512,7 +512,67 @@ index cabf5c7..bddf9fc 100644
              system.addEnergy({ { 3 * f + 1, 1.0 } }, 0.0, regularization);
              system.addEnergy({ { 3 * f + 2, 1.0 } }, 0.0, regularization);
          }
-@@ -647,7 +651,9 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
+@@ -444,6 +448,47 @@ namespace {
+         }
+     }
+ 
++    // The corner whose UV is pinned at the origin (the app's patch; cover.odin's cover_pin
++    // gives the reasons). The pin only picks where the lattice starts, but the rounding
++    // counts from it and the held solve keeps it on a lattice point, a whole number of
++    // quads from every held edge's line. With an edge held it goes where the cover has a
++    // lattice point anyway: the first singular vertex's lowest corner, else a corner whose
++    // two edges hold both its coordinates, else a held corner; with none, corner 0.
++    size_t coverPin(const SurfaceMesh& mesh, const std::vector<int>& rotation,
++        const std::vector<signed char>& cornerConstraints)
++    {
++        const size_t corners = mesh.cornerCount();
++        bool held = false;
++        for (size_t c = 0; c < corners && !held; ++c)
++            held = cornerConstraints[c] != ConstraintNone;
++        if (!held)
++            return 0;
++        for (size_t vertex = 0; vertex < mesh.vertexCount(); ++vertex) {
++            const auto& fan = mesh.cornersAroundVertex(vertex);
++            int sum = 0;
++            bool boundary = false;
++            size_t lowest = SurfaceMesh::npos;
++            for (size_t c : fan) {
++                sum = (sum + rotation[c]) % 4;
++                if (mesh.oppositeCorner(c) == SurfaceMesh::npos)
++                    boundary = true;
++                lowest = std::min(lowest, c);
++            }
++            if (!boundary && sum != 0 && lowest != SurfaceMesh::npos)
++                return lowest;
++        }
++        for (size_t c = 0; c < corners; ++c) {
++            const size_t p = 3 * (c / 3) + (c + 2) % 3;
++            if (cornerConstraints[c] != ConstraintNone && cornerConstraints[p] != ConstraintNone
++                && cornerConstraints[c] != cornerConstraints[p])
++                return c;
++        }
++        for (size_t c = 0; c < corners; ++c)
++            if (cornerConstraints[c] != ConstraintNone)
++                return c;
++        return 0;
++    }
++
+     bool solveQuadCover(const CoverContext& ctx, std::vector<double>* values,
+         const ProgressHandler* progressHandler)
+     {
+@@ -485,8 +530,9 @@ namespace {
+                 s.addEnergy(2 * n + 1, 1, 2 * c + 1, -1, Vector3::dotProduct(v, e) / sv, weight);
+             }
+         }
+-        s.addConstraint(0, 1);
+-        s.addConstraint(1, 1);
++        const size_t pin = coverPin(mesh, rotation, cornerConstraints);
++        s.addConstraint(2 * pin, 1);
++        s.addConstraint(2 * pin + 1, 1);
+         size_t hardCoordinateCount = 0;
+         for (size_t c = 0; c < corners; ++c) {
+             size_t oc = mesh.oppositeCorner(c);
+@@ -647,7 +693,9 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
      const std::vector<double>* faceScaling,
      const std::vector<double>* faceScalingU,
      const std::vector<double>* faceScalingV,
@@ -523,7 +583,7 @@ index cabf5c7..bddf9fc 100644
  {
      const auto report = [progressHandler](float fraction, const char* name) {
          if (nullptr != progressHandler && *progressHandler)
-@@ -685,13 +691,13 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
+@@ -685,13 +733,13 @@ bool QuadParameterizer::parameterize(const std::vector<Vector3>& vertices,
      const std::vector<int> rotation = computeCornerRotations(mesh, result->field, normals);
      result->cornerRotations = rotation;
      const std::vector<signed char> cornerConstraints = computeCornerConstraints(mesh, result->field,

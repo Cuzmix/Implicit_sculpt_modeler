@@ -37,6 +37,13 @@ ISOTROPIC_ROUNDS :: 3
 @(private = "file")
 RELAX_STEPS :: 3
 
+// How far (in targets) a border vertex may lie from the line between its neighbours and
+// still collapse along the border (isotropic_collapse): a wiggle smaller than the quads
+// goes, as the rest of the surface's detail below their size does, and a corner of the
+// border's own, a target or more across, stays.
+@(private = "file")
+BORDER_WANDER :: 0.25
+
 // An edge is split above 4/3 of its target and collapsed below 4/5 (Botsch and Kobbelt).
 @(private = "file")
 SPLIT_ABOVE :: 4.0 / 3.0
@@ -422,9 +429,13 @@ isotropic_judge :: proc(m: ^Work_Mesh, radians: f64) {
 // Every triangle in turn collapses its first edge that is too short, if it may: a free
 // vertex into the middle of the edge; a vertex inside a feature line only along the line,
 // into the neighbour it keeps; a free vertex onto a vertex of the caller's features
-// (inside the mesh), which takes the sliver beside such a feature away. A border vertex
-// never goes, and a free one never goes onto a border or a feature found by angle, or
-// across a feature.
+// (inside the mesh), which takes the sliver beside such a feature away; a border vertex
+// only along the border, into the neighbour it keeps, where it lies within BORDER_WANDER
+// of the line between its neighbours and no other feature meets it. So a border as fine
+// as the input (a symmetric half's cut, taken from the whole at its own density) comes
+// to the target's length, every vertex left on it one it had and so on the plane of a
+// cut, rather than keeping slivers along it. A border vertex never goes inward, and a
+// free one never goes onto a border or a feature found by angle, or across a feature.
 @(private = "file")
 isotropic_collapse :: proc(w: ^Isotropic_Work) {
 	m := w.m
@@ -436,7 +447,19 @@ isotropic_collapse :: proc(w: ^Isotropic_Work) {
 			lo, hi := edge_limits(w, a, b)
 			d := m.pos[b] - m.pos[a]
 			if !(dot3(d, d) < lo) do continue
-			if m.twin[h] == NONE || work_border(m, a) do continue
+			if m.twin[h] == NONE {
+				if m.corner[a] != h || work_feature_edges(m, a) != 2 do continue
+				// How far the border strays at a from the line between its neighbours.
+				before := m.pos[m.vert[corner_prev(ring_last(m, a))]]
+				chord := m.pos[b] - before
+				along := dot3(m.pos[a] - before, chord) / max(dot3(chord, chord), 1e-300)
+				off := m.pos[a] - (before + clamp(along, 0, 1) * chord)
+				wander := BORDER_WANDER * math.sqrt(lo) / COLLAPSE_BELOW
+				if dot3(off, off) > wander * wander do continue
+				if work_collapse_border(m, h, hi) do break
+				continue
+			}
+			if work_border(m, a) do continue
 			along := m.state[h] >= SHARP && m.featured[a] && m.featured[b] && work_feature_edges(m, a) == 2
 			onto := !m.featured[a] && m.featured[b] && !work_border(m, b) && work_on_caller(m, b)
 			if !along && !onto && (m.featured[a] || m.featured[b]) do continue
