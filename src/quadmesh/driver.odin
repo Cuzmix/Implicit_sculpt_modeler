@@ -38,12 +38,32 @@ LANDING_MISS :: 0.015
 @(private)
 LANDING_COVERS :: 8
 
+// The fewest triangles the isotropic mesh is sized for, and the most times finer than the
+// plain size (about two triangles a quad) a low count's edge may be for them (the count
+// Quad Remesh asks of it stays what it was): at the plain size a part a few quads round
+// is a tube of three or four triangles round it, too coarse for the cover to wrap, which
+// folds it flat for the extraction to cap off. A creature's tail at 1,200 quads was a
+// tube of four, its cover folded on 245 of its triangles and the tail cut off at its root
+// (36 % of the creature's size missing); half the edge kept it, and its ears and
+// feet, at every count from 500 to 3,000 (the most missing 2 to 6 %). Counts of 4,000 and
+// up are sized as before. The mesh is never asked for more than half the input's
+// triangles, as an input that coarse has no detail finer than its own triangles, and a
+// mesh finer than them sees their facets as curvature: three spheres of 1,280 triangles
+// at 1,200 quads got 336 singular vertices and a cover folded in six places. An island
+// with a frozen border keeps the plain size, which its border's band (frozen.odin) is
+// graded at.
+@(private)
+ISOTROPIC_LEAST :: 8000.0
+@(private)
+ISOTROPIC_FINEST :: 2.0
+
 @(private = "file")
 Driver :: struct {
 	params:          ^Params,
 	progress:        ^jobs.Progress,
 	share:           [2]f32,
-	voxel_size:      f64,
+	voxel_size:      f64, // the isotropic edge, finer than the plain one at a low count
+	voxel_plain:     f64, // the plain one, about two triangles a quad
 	quad_edge:       f64,
 	threads:         int,
 	pool:            ^jobs.Pool, // the stages' loops, while the islands run one at a time
@@ -95,9 +115,12 @@ driver_remesh :: proc(positions: []geom.Vec3, indices: []u32, params: Params, pr
 	// Where threads run inline (the web version), more than one would only wait on itself.
 	d.threads = clamp(params.threads, 1, MAX_THREADS) if thread.IS_SUPPORTED else 1
 	// The isotropic target: a triangle of the area that twice the quads asked would give,
-	// as an equilateral; the quad edge wanted is the plain one.
+	// as an equilateral, finer at a low count for ISOTROPIC_LEAST triangles in all, up to
+	// ISOTROPIC_FINEST times; the quad edge wanted is the plain one.
 	area := mesh_area(vertices, faces)
-	d.voxel_size = math.sqrt((area / (2.0 * f64(u32(params.quads)))) / EQUILATERAL_AREA)
+	d.voxel_plain = math.sqrt((area / (2.0 * f64(u32(params.quads)))) / EQUILATERAL_AREA)
+	least := min(ISOTROPIC_LEAST, f64(len(faces)) / 2)
+	d.voxel_size = d.voxel_plain / clamp(d.voxel_plain / math.sqrt((area / least) / EQUILATERAL_AREA), 1, ISOTROPIC_FINEST)
 	d.quad_edge = math.sqrt(area / f64(u32(params.quads)))
 	if !(d.voxel_size > 0) || !(d.quad_edge > 0) do return {}, {}, {}, .Failed, "the mesh has no area"
 	if !driver_whole(d, 0.01, "Splitting mesh into islands") do return {}, {}, {}, .Cancelled, ""
@@ -289,7 +312,8 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	reason: Reason
 	if !driver_report(d, i, 0) do return
 	t0 := time.tick_now()
-	thin, decimated, err := odin_thin(w.island, d.voxel_size, d.quad_edge, f64(params.sharp_degrees), d.pool)
+	voxel_size := d.voxel_plain if len(w.island.frozen) == len(w.island.positions) else d.voxel_size
+	thin, decimated, err := odin_thin(w.island, voxel_size, d.quad_edge, f64(params.sharp_degrees), d.pool)
 	if err != .None {
 		driver_fail(d, err, &reason)
 		return
@@ -313,7 +337,7 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	tag := Stage_Tag{d, i, 0, ISLAND_RESAMPLE_END}
 	run := Stage_Run{d.threads, serial, driver_stage_progress, &tag, d.pool}
 	iso: Isotropic
-	iso, err = odin_isotropic(w.island, d.voxel_size, f64(params.adaptivity), f64(params.sharp_degrees), &run, &reason, &w.checks)
+	iso, err = odin_isotropic(w.island, voxel_size, f64(params.adaptivity), f64(params.sharp_degrees), &run, &reason, &w.checks)
 	if err != .None {
 		driver_fail(d, err, &reason)
 		return
