@@ -472,6 +472,7 @@ refs_picture_draw :: proc(app: ^App, at: ui.Rect, p: Ref, alpha: u8) {
 	refs := &app.scene.refs
 	slot := ref_image_slot(refs, p.image)
 	img := refs.images[slot]
+	img.seen = ctx.time
 	if img.texture != 0 {
 		id := KIT_REF_IMAGE + u64(slot)
 		if p.grey && img.grey != 0 do id += REF_IMAGES_MAX

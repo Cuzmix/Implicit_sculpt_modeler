@@ -131,6 +131,9 @@ SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 PNG_FILTERS := [?]sdl.DialogFileFilter{{"PNG image", "png"}}
 @(private = "file")
 IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "png;jpg;jpeg;bmp;tga;qoi"}}
+// Add pictures takes another scene too, whose References board it copies in.
+@(private = "file")
+REFERENCE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI) or a scene's references", "png;jpg;jpeg;bmp;tga;qoi;sculpt"}}
 @(private = "file")
 EXR_FILTERS := [?]sdl.DialogFileFilter{{"OpenEXR vector displacement map", "exr"}}
 BARY_FILTERS := [?]sdl.DialogFileFilter{{"NVIDIA displacement micro-map", "bary"}}
@@ -261,7 +264,8 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Save, .Save_Copy:                                      dialog_save(app, userdata, SCENE_FILTERS[:])
 	case .Open:                                                  dialog_open(app, userdata, SCENE_FILTERS[:])
 	case .Alpha, .Skin_Map:                                      dialog_open(app, userdata, ALPHA_FILTERS[:])
-	case .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map, .Reference: dialog_open(app, userdata, IMAGE_FILTERS[:])
+	case .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map:       dialog_open(app, userdata, IMAGE_FILTERS[:])
+	case .Reference:                                             dialog_open(app, userdata, REFERENCE_FILTERS[:])
 	case .Environment:                                           dialog_open(app, userdata, ENVIRONMENT_FILTERS[:])
 	case .Screenshot:                                            dialog_save(app, userdata, PNG_FILTERS[:])
 	case .Save_Strokes:                                          dialog_save(app, userdata, STROKES_FILTERS[:])

@@ -146,4 +146,11 @@ kit_mesh_size :: proc(app: ^App) {
 	pick(ctx, "Largest subdivision level", &app.subdivide_most, fmt.tprintf("Automatic (up to %s)", bytes_label(mesh_bytes_most())))
 	device := fmt.tprintf("this device's %s", bytes_label(ram)) if ram > 0 else "this device's memory"
 	ui.paragraph(ctx, fmt.tprintf("Automatic sizes both from %s, so a remesh and the copy the History keeps of the mesh before it fit together. A remesh past the limit is made at the limit, with a note; Rebuild's Density slider stops there. Before a step the memory check still asks when what is left would not hold it.", device))
+	chosen := 0
+	for v, i in REFS_MEMORY do if v == app.refs_memory_mb do chosen = i
+	names := REFS_MEMORY_NAMES
+	names[0] = fmt.tprintf("Automatic (%d MB here)", REFS_MEMORY_AUTOMATIC_MB)
+	ui.label(ctx, "Reference pictures may use")
+	if picked := ui.select(ctx, "Reference pictures may use", names[:], chosen); picked >= 0 do app.refs_memory_mb = REFS_MEMORY[picked]
+	ui.paragraph(ctx, "Past it, the pictures on the References board and over the view not seen for a while are shown from a small copy until they are looked at again, so a board of many photos never takes the sculpt's memory.")
 }
