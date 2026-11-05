@@ -539,7 +539,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 		// sculpt mesh); while pinning or arranging every tile takes the tap.
 		_, pin_on := sh.pinning.?
 		enabled := pin_on || dock_editing(k, .Shelf) || bar_enabled(app, s)
-		if ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled = enabled, width = tile) {
+		if ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled = enabled, width = tile, picture = shelf_picture(app, s)) {
 			if pin, pinning := sh.pinning.?; pinning {
 				// Pinning to a full page: the tile tapped gives its place to the brush.
 				bar_list(app, which).slots[i] = pin
@@ -869,6 +869,23 @@ lens_shelf_pages :: proc(app: ^App, x, y: ui.Anchor, at: [2]f32) {
 		dock_more_hold(app, .Shelf)
 	}
 	ui.end(ctx)
+}
+
+// A brush's or a preset's stroke picture for its shelf tile, if the atlas has it yet.
+shelf_picture :: proc(app: ^App, s: Bar_Slot) -> ui.Picture {
+	slot: Dock_Slot
+	#partial switch s.id {
+	case .Brush:
+		if s.arg < 0 || s.arg >= len(sculpt.Brush_Kind) do return {}
+		slot.kind = sculpt.Brush_Kind(s.arg)
+	case .Brush_Preset:
+		slot.preset = s.arg
+	case:
+		return {}
+	}
+	brush_previews_first(app)
+	pic, _ := brush_preview_picture(app, brush_item_key(app, {what = .Slot, slot = slot}))
+	return pic
 }
 
 // The widest a page's name shows under the shelf; a longer one is cut.
