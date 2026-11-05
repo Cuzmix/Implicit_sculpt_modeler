@@ -247,6 +247,8 @@ Kit_State :: struct {
 	scene_filter:   [48]u8,
 	// The Scene card's rows as tall pictures (the Objects card's) rather than compact ones.
 	scene_pictures: bool,
+	// The References board's ground: dots, lines or plain (refs_background in the settings).
+	refs_ground:    Ref_Ground,
 	scene_query:    bool,
 	scene_rows:     int,
 	outliner:       Outliner, // the Scene card's chips, lights' row and Add menu (lens_scene.odin)
@@ -1486,7 +1488,7 @@ kit_layout :: proc(app: ^App) {
 	kit_layout_menu(app)
 	kit_pass_menu(app)
 	kit_history_menu(app)
-	refs_plane_menu(app)
+	refs_card_menus(app)
 	kit_layer_menu(app)
 	kit_scene_add_menu(app)
 	kit_scene_spaces_menu(app)

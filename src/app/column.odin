@@ -465,6 +465,7 @@ card_head :: proc(app: ^App, c: Card, pinned: bool, inner: f32, floating := fals
 	ui.begin(ctx, "card head", {direction = .Row, width = inner, center = true})
 	extras: f32 = 2 * t.target
 	if c == .Symmetry do extras += 3 * CHIP + 4
+	if c == .References do extras += refs_head_width(ctx)
 	head := ui.area(ctx, "card title", {max(inner - extras, t.target), t.target})
 	if head.pressed && !floating do _ = ui.claim_drag(ctx, -1)
 	torn = !floating && head.held && linalg.length(ctx.input.mouse - ctx.press_mouse) > t.slop
@@ -494,6 +495,7 @@ card_head :: proc(app: ^App, c: Card, pinned: bool, inner: f32, floating := fals
 		}
 		ui.spacer(ctx, 4)
 	}
+	if c == .References do refs_head_buttons(app)
 	if floating {
 		if ui.icon_button(ctx, "Put back beside the toolbar##dock", ui.ICON_PANEL) do card_float_return(app, c, .Right)
 	} else if ui.icon_button(ctx, "Unpin##pin" if pinned else "Pin: keep it open while you sculpt##pin", ICON_PIN, selected = pinned) {

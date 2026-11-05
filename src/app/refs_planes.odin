@@ -277,17 +277,13 @@ refs_plane_input :: proc(app: ^App, p: ^Ref, a: ui.Area, r: ui.Rect) {
 	}
 }
 
-// The In scene menu's items: each axis view, Not in scene, then Behind or Through and
-// Only in its view for the picked planes, each one undo step.
+// The In scene menu's items: each axis view, Not in scene, then Only in its view for
+// the picked planes, each one undo step (Behind or Through is the chip beside it).
 refs_plane_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	b := &k.board
 	if !b.plane_menu do return
-	if !card_shown(app, .References) {
-		b.plane_menu = false
-		return
-	}
 	if !ui.popover_begin(ctx, "refs plane menu", &b.plane_menu, b.plane_menu_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	shared, on := refs_picked_plane(app)
@@ -302,20 +298,23 @@ refs_plane_menu :: proc(app: ^App) {
 		b.plane_menu = false
 	}
 	ui.divider(ctx, across = true)
-	through := refs_picked_all_planes(app, proc(r: Ref) -> bool {return r.through})
-	if ui.menu_item(ctx, "Behind the model##refs plane", checked = on && !through, enabled = on, hint = "The model hides it where the model is in front") {
-		refs_edit(app, .Behind)
-		b.plane_menu = false
-	}
-	if ui.menu_item(ctx, "Through the model##refs plane", checked = on && through, enabled = on, hint = "Drawn over the model, to check the silhouette") {
-		refs_edit(app, .Through)
-		b.plane_menu = false
-	}
 	only := !refs_picked_all_planes(app, proc(r: Ref) -> bool {return r.plane_any})
 	if ui.menu_item(ctx, "Only in its view##refs plane", checked = on && only, enabled = on, hint = "Shown while the camera looks along its axis") {
 		refs_edit(app, .Plane_Any)
 		b.plane_menu = false
 	}
+}
+
+// The axis view whose plane faces the camera most nearly, where In scene puts a picture
+// first: the one the eye looks most straight at.
+refs_plane_facing :: proc(app: ^App) -> Ref_Plane {
+	forward := render.view_forward(camera.orbit_view(app.camera))
+	best, most := Ref_Plane.Front, f32(-2)
+	for plane in Ref_Plane.Front ..= Ref_Plane.Bottom {
+		_, _, facing := refs_plane_axes(plane)
+		if d := -linalg.dot(forward, facing); d > most do best, most = plane, d
+	}
+	return best
 }
 
 // Whether every picked place on a plane is as `pick` says, false when none stands on one.

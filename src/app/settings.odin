@@ -378,6 +378,7 @@ SETTINGS := [?]Setting {
 	{"readout_gpu", K + offset_of(Kit_State, readout_gpu), bool, 0, 0},
 	{"shelf_palm", K + offset_of(Kit_State, shelf_palm), bool, 0, 0},
 	{"scene_pictures", K + offset_of(Kit_State, scene_pictures), bool, 0, 0},
+	{"refs_background", K + offset_of(Kit_State, refs_ground), Ref_Ground, 0, 0},
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
 	{"tour", K + offset_of(Kit_State, tour) + offset_of(Tour, step), i32, 0, f32(TOUR_DONE)},
 	{"stats_advanced", K + offset_of(Kit_State, stats_advanced), bool, 0, 0},

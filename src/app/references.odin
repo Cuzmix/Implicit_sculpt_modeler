@@ -511,6 +511,8 @@ refs_destroy :: proc(app: ^App) {
 	delete(app.scene.refs.refs)
 	app.scene.refs = {}
 	delete(app.kit.board.selected)
+	delete(app.kit.board.box_base)
+	app.kit.board.box_base = nil
 	app.kit.board.selected = nil
 	delete(app.kit.board.before)
 	app.kit.board.before = nil

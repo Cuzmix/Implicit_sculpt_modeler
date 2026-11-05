@@ -8824,16 +8824,19 @@ def rail_panels_picker_adds_a_card():
 # The References card from its rail button, its Add note, and its board (a drag's points
 # are offsets from the board's middle, where the board, fitted to a first note, shows it).
 REFS_RAIL = At("view bar/References", 1563, 373)
-REFS_ADD_NOTE = At("card References/Add note", 1300, 160)
+REFS_ADD = At("card References/Add", 1355, 101)
+REFS_ADD_NOTE = At("refs add menu/Add note", 1300, 160)
 REFS_BOARD = "card References/board"
 
 
 @scenario
 def references_note_by_finger():
-    """A finger opens the References card from the rail, adds a note and drags it across
+    """A finger opens the References card from the rail, adds a note from its Add menu and drags it across
     the board: one note, one move as one undo step; nothing sculpts or turns."""
     s = Script()
     s.ftap(REFS_RAIL)
+    s.wait(6)
+    s.ftap(REFS_ADD)
     s.wait(6)
     s.ftap(REFS_ADD_NOTE)
     s.wait(4)
@@ -8865,18 +8868,15 @@ def references_on_view_let_the_brush_through():
 
 @scenario
 def references_in_scene_by_finger():
-    """A picture added by a script opens the References card; a finger taps In scene, then
-    Front in its menu, Through the model, and drags the picked plane across the front view:
-    it stands on a plane drawn through the model, moved once, each of the three an undo step."""
+    """A picture added by a script opens the References card; a finger taps In scene over
+    the picked picture, which puts it on the plane facing the front view, then Behind under
+    the board, which makes it Through, and drags the picked plane across the front view: it
+    stands on a plane drawn through the model, moved once, each of the three an undo step."""
     s = Script()
     s.wait(6)
-    s.ftap("card References/In scene")
+    s.ftap("refs edits/In scene")
     s.wait(4)
-    s.ftap("refs plane menu/Front")
-    s.wait(4)
-    s.ftap("card References/In scene")
-    s.wait(4)
-    s.ftap("refs plane menu/Through the model")
+    s.ftap("card References/Behind or through")
     s.wait(30)
     s.fdrag([(700 + 8 * k, 450) for k in range(12)])
     s.wait(6)
@@ -8894,6 +8894,27 @@ def references_board_zoom_stays_inside():
     s.fingers([(1270, 560), (1330, 560)], [(-160, -120), (160, 120)], 16)
     s.wait(6)
     return s, ["--script=reference assets/icon/sculpt-1024.png"], camera_still({"refs": near(1), "dabs": near(0)})
+
+
+@scenario
+def references_board_by_mouse():
+    """A picture added by a script opens the References card; on its board the mouse works
+    as PureRef's: a middle drag over the picture pans and moves nothing, a click on the
+    ground lets go of the picture, a left drag from the ground boxes it and picks it, and a
+    right click on it opens the board's menu, whose Grey makes it grey: one undo step, and
+    nothing sculpts or turns."""
+    s = Script()
+    s.wait(6)
+    s.mouse_drag([(1375 + 4 * k, 430 + 2 * k) for k in range(11)], button="middle")
+    s.mouse_drag([(1300, 700), (1300, 700)])
+    s.wait(4)
+    s.mouse_drag([(1250 + 7 * k, 150 + 20 * k) for k in range(11)])
+    s.wait(4)
+    s.mouse_drag([(1420, 480), (1420, 480)], button="right")
+    s.wait(6)
+    s.ftap("refs board menu/Grey")
+    s.wait(6)
+    return s, ["--script=reference assets/icon/sculpt-1024.png"], camera_still({"refs_selected": near(1), "refs_grey": near(1), "refs_moves": near(0), "undo_steps": near(1), "dabs": near(0)})
 
 
 @scenario
