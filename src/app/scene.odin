@@ -62,6 +62,9 @@ Object :: struct {
 	// exported to): imports are moved and scaled to the size the app works at, and
 	// this puts them back. The identity for spheres.
 	file:      Transform,
+	// Where its gizmo sits and turns and scales go about, when not its origin (Set pivot,
+	// the pivot row); saved with it.
+	pivot:     Gizmo_Pivot,
 	levels:    sculpt.Levels,
 	// Per level, made the first time the level is shown and kept while it exists. A
 	// level's buffers catch up with what changed while it was not current when it is

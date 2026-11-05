@@ -150,7 +150,7 @@ solo_follows_the_selection_and_keeps_the_eyes :: proc(t: ^testing.T) {
 
 // The scene file keeps each object's eye and ghost from version 8, its polypaint left
 // out from version 11, its lock from version 25 and the spaces it is left out of from
-// version 33, reads older files with everything in view and unlocked, and refuses flags it
+// version 33 and its pivot, reads older files with everything in view and unlocked, and refuses flags it
 // does not know.
 @(test)
 view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
@@ -159,6 +159,7 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 	objs := tree_scene(&app)
 	objs[0].off, objs[1].ghost, objs[2].locked = true, true, true
 	objs[1].remesh_cell = 0.025
+	objs[1].pivot = {set = true, at = {0.25, -0.5, 1}, normal = {0, 1, 0}}
 	objs[2].stack.mirror = {added = true, axes = {.X}, minus = true}
 	for obj in objs {
 		out: [dynamic]u8
@@ -173,6 +174,7 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		testing.expect_value(t, back.ghost, obj.ghost)
 		testing.expect_value(t, back.locked, obj.locked)
 		testing.expect_value(t, back.transform, obj.transform)
+		testing.expect_value(t, back.pivot, obj.pivot)
 
 		testing.expect_value(t, back.remesh_cell, obj.remesh_cell)
 		testing.expect_value(t, back.stack, obj.stack)

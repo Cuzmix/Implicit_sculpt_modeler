@@ -347,7 +347,7 @@ gizmo_pivot_rides_with_the_object :: proc(t: ^testing.T) {
 	obj := gizmo_object(&app, 1)
 	app.camera = camera.orbit_default()
 	testing.expect(t, !gizmo_pivot_set(&app))
-	app.move.pivot = {set = true, id = obj.id, at = {1, 0, 0}}
+	obj.pivot = {set = true, at = {1, 0, 0}}
 	testing.expect(t, gizmo_pivot_set(&app))
 	testing.expect_value(t, gizmo_center(&app, obj), Vec3{1, 0, 0})
 	testing.expect(t, gizmo_entry_apply(&app, obj, .Turn_Y, "180"))
