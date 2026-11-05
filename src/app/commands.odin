@@ -674,7 +674,7 @@ COMMANDS := [Command_Id]Command {
 		args = len(Model_Target),
 		run = proc(app: ^App, arg: int) {model_pick_target(app, Model_Target(arg))},
 		checked = proc(app: ^App, arg: int) -> bool {return model_target(&app.model, app.model.action) == Model_Target(arg)},
-		enabled = proc(app: ^App, arg: int) -> bool {return Model_Target(arg) in MODEL_ACTION_TARGETS[app.model.action]},
+		enabled = proc(app: ^App, arg: int) -> bool {return Model_Target(arg) in model_targets(&app.model, app.model.action)},
 	},
 	.Tidy_Cage = {
 		label = "Tidy cage",
@@ -686,10 +686,10 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Select_Cage = {
 		label = "Cage selection",
-		help = "Changes the selected cage's selection, the faces the Selected target works on: All, None, Invert, Grow (adds the faces beside the selection) or Shrink (drops its edge). Each is one undo step.",
+		help = "Changes the selected cage's selection as Select picks it, its faces (which the Selected target works on) or its points and edges (which the gizmo moves): All, None (faces and points both), Invert, Grow (adds what lies beside the selection) or Shrink (drops its edge). Each is one undo step.",
 		icon = ui.ICON_GRID,
 		args = len(poly.Select_Op),
-		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Select_Cage, select = poly.Select_Op(arg)}},
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Select_Cage, select = poly.Select_Op(arg), pick = app.model.pick}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
 	},
 	.Cage_Smooth = {
@@ -3141,10 +3141,13 @@ chord_down :: proc(d: ^Device, c: Chord) -> bool {
 // while a text field has the keys.
 commands_handle_keys :: proc(app: ^App) {
 	if typing(app) do return
-	if !app.kit.home && !app.diag.open do curve_keys(app)
+	if !app.kit.home && !app.diag.open {
+		curve_keys(app)
+		model_keys(app)
+	}
 	for b in keymap(app) {
 		if !chord_down(&app.device, b.chord) do continue
-		if curve_key_taken(app, b.chord) do continue
+		if curve_key_taken(app, b.chord) || model_key_taken(app, b.chord) do continue
 		// Home stands in for the panels and the scene: only its own keys and opening a file
 		// reach past it.
 		if app.kit.home && b.command != .Home && b.command != .Open_Scene do continue

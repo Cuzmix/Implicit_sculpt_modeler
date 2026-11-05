@@ -167,6 +167,16 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		}
 		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d cage_smooth=%d cage_creases=%d cage_corners=%d cage_live_faces=%d cage_live_broken=%d cage_mirrored=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces, live_broken, mirrored, app.tool)
 		fmt.printfln("model_action=%v model_target=%v model_done=%d model_refused=%d model_follows=%d model_loop_curves=%d", app.model.action, model_target(&app.model, app.model.action), app.model.done, app.model.refused, app.model.follows, app.model.loop_curves)
+		// The picked points, the gizmo's drags of the selection, and the selected cage's
+		// bounds in its own space, which those drags change.
+		picked: int
+		for obj in app.scene.objects do if obj.cage != nil do for x in obj.cage.mesh.picked do picked += int(x)
+		lo, hi: Vec3
+		if obj := selected_object(app); obj != nil && obj.cage != nil {
+			b := poly.mesh_bounds(&obj.cage.mesh)
+			lo, hi = b.lo, b.hi
+		}
+		fmt.printfln("cage_picked=%d model_pick=%v model_falloff=%.2f model_xforms=%d cage_lo=%.4f,%.4f,%.4f cage_hi=%.4f,%.4f,%.4f", picked, app.model.pick, app.model.falloff, app.model.xforms, lo.x, lo.y, lo.z, hi.x, hi.y, hi.z)
 		// Where the selected object sits, which Align parts moves a whole cage to.
 		at: Vec3
 		if obj := selected_object(app); obj != nil do at = obj.transform.position
