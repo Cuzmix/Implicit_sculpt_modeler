@@ -4,8 +4,11 @@ import "base:runtime"
 import "core:log"
 import "core:math"
 import "core:math/rand"
+import "core:slice"
 import "core:testing"
 import "core:time"
+
+import "../jobs"
 
 // A grid's five-point Laplacian, `shift` added to its diagonal: positive definite for any
 // shift above zero, and the kind of pattern a mesh's systems have.
@@ -465,4 +468,114 @@ hermitian_speed :: proc(t: ^testing.T) {
 	t5 := time.tick_now()
 	ms :: proc(a, b: time.Tick) -> f64 {return time.duration_milliseconds(time.tick_diff(a, b))}
 	log.infof("Hermitian %d unknowns: fill %d, analyze %.1f ms, factor %.1f ms, solve %.1f ms, residual %.2g; the real system's %d: fill %d, analyze %.1f ms, factor %.1f ms", h.n, symbolic_fill(s), ms(t0, t1), ms(t1, t2), ms(t2, t3), residual, m.n, symbolic_fill(rs), ms(t3, t4), ms(t4, t5))
+}
+
+// The supernodal factor against the up-looking LDLᵀ: the same solution to the rounding on
+// grids, connection Laplacians and random systems with dense rows, its own fill no smaller
+// than the exact fill (the merged supernodes hold explicit zeros), the same bits on one
+// thread and four, and a refactor on the same symbolic pass the same as a fresh factor.
+@(test)
+supernodal_matches_the_ldlt :: proc(t: ^testing.T) {
+	heap := runtime.heap_allocator()
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	Case :: struct {
+		name: string,
+		m:    Symmetric,
+	}
+	cases := [?]Case {
+		{"grid 7 by 5", grid_laplacian(7, 5, 1e-3)},
+		{"grid 120 by 90", grid_laplacian(120, 90, 1e-6)},
+		{"connection 80 by 70", grid_connection(80, 70, 1e-6, 3)},
+		{"random 3000, 5 dense rows", random_system(3000, 3, 5, 9)},
+		{"random 6000", random_system(6000, 2, 0, 4)},
+	}
+	for &c in cases {
+		defer symmetric_destroy(&c.m, heap)
+		b := right_side(c.m.n, 2)
+		defer delete(b, heap)
+		s := ldlt_analyze(c.m, allocator = heap)
+		defer symbolic_destroy(&s, heap)
+		f: Factor
+		defer factor_destroy(&f, heap)
+		if !testing.expect(t, ldlt_factor(&f, &s, c.m, heap)) do continue
+		x := make([]f64, c.m.n, heap)
+		defer delete(x, heap)
+		ldlt_solve(&f, b, x)
+
+		ss := supernodal_analyze(c.m, allocator = heap)
+		defer supernodal_symbolic_destroy(&ss, heap)
+		testing.expectf(t, is_permutation(ss.order, ss.inverse), "%s: the order is not a permutation", c.name)
+		testing.expectf(t, supernodal_fill(ss) >= symbolic_fill(s), "%s: fill %d under the exact %d", c.name, supernodal_fill(ss), symbolic_fill(s))
+		one, four: Supernodal_Factor
+		defer supernodal_factor_destroy(&one, heap)
+		defer supernodal_factor_destroy(&four, heap)
+		if !testing.expectf(t, supernodal_factor(&one, &ss, c.m, nil, heap), "%s: the supernodal factor failed", c.name) do continue
+		if !testing.expect(t, supernodal_factor(&four, &ss, c.m, &pool, heap)) do continue
+		testing.expectf(t, slice.equal(one.values, four.values), "%s: one thread and four differ", c.name)
+		y := make([]f64, c.m.n, heap)
+		defer delete(y, heap)
+		supernodal_solve(&one, b, y)
+		residual := relative_residual(c.m, y, b)
+		worst := f64(0)
+		size := f64(0)
+		for v, i in x {
+			worst = max(worst, abs(v - y[i]))
+			size = max(size, abs(v))
+		}
+		testing.expectf(t, residual < 1e-10, "%s: residual %g", c.name, residual)
+		testing.expectf(t, worst <= 1e-8 * max(size, 1), "%s: %g from the LDLᵀ's solution", c.name, worst)
+		log.infof("%s: %d unknowns, %d supernodes in %d pieces, fill %d against %d exact, residual %.2g, %.2g from the LDLᵀ", c.name, c.m.n, ss.supers, ss.split, supernodal_fill(ss), symbolic_fill(s), residual, worst)
+		// A refactor on the same pass.
+		again := slice.clone(one.values, heap)
+		defer delete(again, heap)
+		testing.expect(t, supernodal_factor(&one, &ss, c.m, &pool, heap) && slice.equal(one.values, again), "a refactor differs")
+	}
+	// Not positive definite: a zero matrix fails.
+	zero := triplets_make(4, 0, heap)
+	defer triplets_destroy(&zero)
+	for i in 0 ..< 4 do triplets_add(&zero, i, i, 0)
+	z, _ := symmetric_from_triplets(zero, allocator = heap)
+	defer symmetric_destroy(&z, heap)
+	zs := supernodal_analyze(z, allocator = heap)
+	defer supernodal_symbolic_destroy(&zs, heap)
+	zf: Supernodal_Factor
+	defer supernodal_factor_destroy(&zf, heap)
+	testing.expect(t, !supernodal_factor(&zf, &zs, z, nil, heap), "a zero matrix factored")
+}
+
+@(test)
+supernodal_speed :: proc(t: ^testing.T) {
+	heap := runtime.heap_allocator()
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	Case :: struct {
+		name: string,
+		m:    Symmetric,
+	}
+	cases := [?]Case{{"connection 200 by 200", grid_connection(200, 200, 1e-6, 5)}, {"grid 300 by 300", grid_laplacian(300, 300, 1e-3)}}
+	for &c in cases {
+		defer symmetric_destroy(&c.m, heap)
+		b := right_side(c.m.n, 1)
+		defer delete(b, heap)
+		t0 := time.tick_now()
+		s := supernodal_analyze(c.m, allocator = heap)
+		defer supernodal_symbolic_destroy(&s, heap)
+		t1 := time.tick_now()
+		f: Supernodal_Factor
+		defer supernodal_factor_destroy(&f, heap)
+		testing.expect(t, supernodal_factor(&f, &s, c.m, nil, heap))
+		t2 := time.tick_now()
+		testing.expect(t, supernodal_factor(&f, &s, c.m, &pool, heap))
+		t3 := time.tick_now()
+		x := make([]f64, c.m.n, heap)
+		defer delete(x, heap)
+		supernodal_solve(&f, b, x)
+		t4 := time.tick_now()
+		residual := relative_residual(c.m, x, b)
+		testing.expectf(t, residual < 1e-10, "%s: residual %g", c.name, residual)
+		log.infof("%s: %d unknowns, %d supernodes, largest front %d, fill %d, analyze %.1f ms, factor %.1f ms on one thread and %.1f on four, solve %.1f ms, residual %.2g", c.name, c.m.n, s.supers, s.largest, supernodal_fill(s), time.duration_milliseconds(time.tick_diff(t0, t1)), time.duration_milliseconds(time.tick_diff(t1, t2)), time.duration_milliseconds(time.tick_diff(t2, t3)), time.duration_milliseconds(time.tick_diff(t3, t4)), residual)
+	}
 }
