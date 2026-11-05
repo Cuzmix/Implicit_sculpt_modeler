@@ -1038,71 +1038,84 @@ kit_model_tab :: proc(app: ^App) {
 	ui.paragraph(ctx, fmt.tprintf("%s: %d points, %d edges, %d faces (%d quads, %d triangles, %d polygons), %d creased edges, %d corners, %d poles, %d open edges", object_label(obj), c.vertices, c.edges, c.faces, c.quads, c.triangles, c.ngons, creased, corners, c.poles, c.border_edges))
 }
 
-// A cage's rows in the Live stack card (kit_stack): the live surface (Smooth, as ZBrush's
-// Dynamic Subdivision: steps of smoothing drawn over the cage, which keeps its edges and is
-// what every action works on; and Flat), Mirror's axes, then Thickness and Bevel creases,
-// each a width slider (a share of the cage's size, one undo step a drag) with its
-// segments, and the shell's side. These change the cage's polygons, which it is small
-// enough to build again after every edit, where a sculpt's rows only make copies.
-kit_cage_live :: proc(app: ^App, obj: ^Object) {
+// A cage's rows in the Live stack card (kit_stack), each the body of its folded row: the
+// live surface (Smooth, as ZBrush's Dynamic Subdivision: steps of smoothing drawn over the
+// cage, which keeps its edges and is what every action works on; and Flat), Mirror's
+// axes, then Thickness and Bevel creases, each a width slider (a share of the cage's size,
+// one undo step a drag) with its segments, and the shell's side. These change the cage's
+// polygons, which it is small enough to build again after every edit, where a sculpt's
+// rows only make copies.
+kit_cage_smooth :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	cp := obj.cage
-	ui.caption(ctx, "SMOOTH")
 	steps := [poly.SUBDIVIDE_MAX + 1]string{"Off", "1", "2", "3", "4"}
 	step_hints: [poly.SUBDIVIDE_MAX + 1]string
 	for &h, i in step_hints do h = command_hint(app, .Cage_Smooth, i)
 	if picked := ui.tabs(ctx, "cage smooth", steps[:], cp.look.smooth, keys = step_hints[:]); picked >= 0 do command_run(app, .Cage_Smooth, picked)
 	flat := cp.look.flat
-	if ui.switch_row(ctx, "Flat", &flat, keys = command_hint(app, .Cage_Flat)) do command_run(app, .Cage_Flat)
-	size := cage_size(cp)
+	if ui.switch_row(ctx, "Flat corners", &flat, keys = command_hint(app, .Cage_Flat)) do command_run(app, .Cage_Flat)
+}
+
+kit_cage_mirror :: proc(app: ^App, obj: ^Object) {
+	ctx := &app.kit.ctx
+	cp := obj.cage
 	live := cp.look.live
-	drag :: proc(app: ^App, look: Cage_Look) {app.ui.scene_command = {kind = .Cage_Look, look = look, look_drag = true}}
-	SEGMENTS :: [?]string{"1", "2", "3", "4", "5", "6"}
-	segments := SEGMENTS
-	ui.caption(ctx, "MIRROR")
 	ui.begin(ctx, "cage mirror axes", {direction = .Row, gap = ui.SPACE_XS})
 	for axis in poly.Mirror_Axis {
 		if ui.toggle_button(ctx, fmt.tprint(axis), axis in live.mirror, 48, command_hint(app, .Cage_Mirror, int(axis)), fmt.tprintf("Mirror the cage across %v", axis)) do command_run(app, .Cage_Mirror, int(axis))
 	}
 	ui.end(ctx)
-	if live.mirror != {} {
-		_ = command_button(app, .Tidy_Cage, int(Cage_Tidy.Apply_Mirror), "Apply mirror", width = ui.fill_width(ctx))
-		if cp.live.mirror_refused do ui.paragraph(ctx, "A face lies across the mirror plane, so the halves would overlap: the mirror is off until it is cut there (Insert loop) or moved off.")
-	}
-	ui.caption(ctx, "THICKNESS")
+	if cp.live.mirror_refused do ui.paragraph(ctx, "A face lies across the mirror plane, so the halves would overlap: the mirror is off until it is cut there (Insert loop) or moved off.")
+}
+
+@(private = "file")
+cage_look_drag :: proc(app: ^App, look: Cage_Look) {app.ui.scene_command = {kind = .Cage_Look, look = look, look_drag = true}}
+
+@(private = "file")
+CAGE_SEGMENT_NAMES := [?]string{"1", "2", "3", "4", "5", "6"}
+
+kit_cage_thickness :: proc(app: ^App, obj: ^Object) {
+	ctx := &app.kit.ctx
+	cp := obj.cage
+	size := cage_size(cp)
+	live := cp.look.live
 	thick := 100 * live.thickness / size
 	if ui.slider(ctx, "Thickness", &thick, 0, CAGE_LIVE_PERCENT_MAX, .Linear, "Off" if thick <= 0 else fmt.tprintf("%.1f%%", thick)) {
 		look := cp.look
 		look.live.thickness = thick / 100 * size
-		drag(app, look)
+		cage_look_drag(app, look)
 	}
-	if live.thickness > 0 {
-		{
-			hints: [poly.LIVE_THICKNESS_SEGMENTS_MAX]string
-			for &h, i in hints do h = command_hint(app, .Cage_Thickness_Segments, i)
-			if picked := ui.tabs(ctx, "thickness segments", segments[:poly.LIVE_THICKNESS_SEGMENTS_MAX], live.thickness_segments - 1, keys = hints[:]); picked >= 0 do command_run(app, .Cage_Thickness_Segments, picked)
-		}
-		sides := [len(poly.Thickness_Side)]string{"Out", "In", "Centre"}
-		hints: [len(poly.Thickness_Side)]string
-		for &h, i in hints do h = command_hint(app, .Cage_Thickness_Side, i)
-		if picked := ui.tabs(ctx, "thickness side", sides[:], int(live.side), keys = hints[:]); picked >= 0 do command_run(app, .Cage_Thickness_Side, picked)
+	if live.thickness <= 0 do return
+	{
+		hints: [poly.LIVE_THICKNESS_SEGMENTS_MAX]string
+		for &h, i in hints do h = command_hint(app, .Cage_Thickness_Segments, i)
+		if picked := ui.tabs(ctx, "thickness segments", CAGE_SEGMENT_NAMES[:poly.LIVE_THICKNESS_SEGMENTS_MAX], live.thickness_segments - 1, keys = hints[:]); picked >= 0 do command_run(app, .Cage_Thickness_Segments, picked)
 	}
-	ui.caption(ctx, "BEVEL CREASES")
+	sides := [len(poly.Thickness_Side)]string{"Out", "In", "Centre"}
+	hints: [len(poly.Thickness_Side)]string
+	for &h, i in hints do h = command_hint(app, .Cage_Thickness_Side, i)
+	if picked := ui.tabs(ctx, "thickness side", sides[:], int(live.side), keys = hints[:]); picked >= 0 do command_run(app, .Cage_Thickness_Side, picked)
+}
+
+kit_cage_bevel :: proc(app: ^App, obj: ^Object) {
+	ctx := &app.kit.ctx
+	cp := obj.cage
+	size := cage_size(cp)
+	live := cp.look.live
 	width := 100 * live.bevel / size
 	if ui.slider(ctx, "Width", &width, 0, CAGE_LIVE_PERCENT_MAX, .Linear, "Off" if width <= 0 else fmt.tprintf("%.1f%%", width)) {
 		look := cp.look
 		look.live.bevel = width / 100 * size
-		drag(app, look)
+		cage_look_drag(app, look)
 	}
-	if live.bevel > 0 {
-		hints: [CAGE_BEVEL_SEGMENTS_SHOWN]string
-		for &h, i in hints do h = command_hint(app, .Cage_Bevel_Segments, i)
-		if picked := ui.tabs(ctx, "bevel segments", segments[:CAGE_BEVEL_SEGMENTS_SHOWN], live.bevel_segments - 1, keys = hints[:]); picked >= 0 do command_run(app, .Cage_Bevel_Segments, picked)
-		creased, _ := poly.crease_count(&cp.mesh)
-		switch {
-		case cp.live.bevel_refused: ui.paragraph(ctx, "A creased edge reaches a point with only two edges, which cannot be rounded, so the bevel is off.")
-		// A shell's rim edges are creased by Thickness, so a plate bevels with no crease of its own.
-		case creased == 0 && live.thickness <= 0: ui.paragraph(ctx, "Crease edges (Crease, or By angle above) to bevel them.")
-		}
+	if live.bevel <= 0 do return
+	hints: [CAGE_BEVEL_SEGMENTS_SHOWN]string
+	for &h, i in hints do h = command_hint(app, .Cage_Bevel_Segments, i)
+	if picked := ui.tabs(ctx, "bevel segments", CAGE_SEGMENT_NAMES[:CAGE_BEVEL_SEGMENTS_SHOWN], live.bevel_segments - 1, keys = hints[:]); picked >= 0 do command_run(app, .Cage_Bevel_Segments, picked)
+	creased, _ := poly.crease_count(&cp.mesh)
+	switch {
+	case cp.live.bevel_refused: ui.paragraph(ctx, "A creased edge reaches a point with only two edges, which cannot be rounded, so the bevel is off.")
+	// A shell's rim edges are creased by Thickness, so a plate bevels with no crease of its own.
+	case creased == 0 && live.thickness <= 0: ui.paragraph(ctx, "Crease edges (Crease, or By angle above) to bevel them.")
 	}
 }

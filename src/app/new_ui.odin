@@ -252,6 +252,7 @@ Kit_State :: struct {
 	scene_query:    bool,
 	scene_rows:     int,
 	outliner:       Outliner, // the Scene card's chips, lights' row and Add menu (lens_scene.odin)
+	stack:          Stack_Card, // the Live stack card's open row and its menus (stack.odin)
 	material_card:  Material_Card, // the Material card's tab and scrub (lens_materials.odin)
 	layer_rows:     int,
 	layer_panel:    Layer_Panel, // the Layers panel's state between frames (lens_layers.odin)
@@ -1491,6 +1492,7 @@ kit_layout :: proc(app: ^App) {
 	refs_card_menus(app)
 	kit_layer_menu(app)
 	kit_scene_add_menu(app)
+	kit_stack_menus(app)
 	kit_scene_spaces_menu(app)
 	quick_scrub_frame(app)
 	kit_quick_scrub(app)

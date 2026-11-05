@@ -404,180 +404,488 @@ vec_finite :: proc(v: Vec3) -> bool {
 	return true
 }
 
-// The Live stack card (Card.Stack): the selected object's rows in their order, each with
-// its eye, its settings and Remove, then what can be added and Apply, which bakes them.
+// The Live stack card (Card.Stack), drawn as folded rows as the Scene card draws objects:
+// a line per row with its icon, its name, what it does now, its eye and its ⋯, one row
+// open at a time under its line. A cage's own rows (SHAPE) come before the copies, as they
+// change what the copies copy. One Add opens a menu of what the object can take, so the
+// card never grows a row of buttons wider than itself; Remove and Reset are in each row's
+// menu, and Apply stays in the foot.
+Stack_Row :: enum u8 {
+	Smooth,
+	Cage_Mirror,
+	Thickness,
+	Bevel,
+	Mirror,
+	Array,
+	Radial,
+	Along,
+}
+
+STACK_ROW_NAMES := [Stack_Row]string {
+	.Smooth      = "Smooth",
+	.Cage_Mirror = "Mirror",
+	.Thickness   = "Thickness",
+	.Bevel       = "Bevel",
+	.Mirror      = "Mirror",
+	.Array       = "Array",
+	.Radial      = "Radial",
+	.Along       = "Along a curve",
+}
+
+STACK_ROW_GLYPHS := [Stack_Row]rune {
+	.Smooth      = ICON_SUBDIVIDE,
+	.Cage_Mirror = ICON_SYMMETRY,
+	.Thickness   = ICON_STRETCH_VERTICAL,
+	.Bevel       = ui.ICON_SHAPES,
+	.Mirror      = ICON_SYMMETRY,
+	.Array       = ui.ICON_COPY,
+	.Radial      = ICON_TURN,
+	.Along       = ui.ICON_SPLINE,
+}
+
+// The card's own state between frames, which holds no sculpt state: which object's row is
+// open, and the Add and row menus with where they open from.
+Stack_Card :: struct {
+	object:    int, // the object `open` is of; another selection shows every row folded
+	open:      Stack_Row,
+	opened:    bool,
+	add:       bool,
+	add_at:    ui.Rect,
+	menu:      bool,
+	menu_at:   ui.Rect,
+	menu_row:  Stack_Row,
+	menu_side: ui.Side,
+}
+
+// Whether a cage's row `r` is the one open, which keeps it in the card while its value is
+// dragged down to Off, so a drag through zero does not fold it away under the finger.
+@(private = "file")
+stack_row_held :: proc(app: ^App, obj: ^Object, r: Stack_Row) -> bool {
+	c := &app.kit.stack
+	return c.opened && c.object == obj.id && c.open == r
+}
+
+// Whether the object's stack holds row `r`: a cage's own rows while they change its
+// polygons, the copies' rows while added.
+stack_row_in :: proc(app: ^App, obj: ^Object, r: Stack_Row) -> bool {
+	cp := obj.cage
+	switch r {
+	case .Smooth: return cp != nil && (cp.look.smooth > 0 || stack_row_held(app, obj, r))
+	case .Cage_Mirror: return cp != nil && (cp.look.live.mirror != {} || stack_row_held(app, obj, r))
+	case .Thickness: return cp != nil && (cp.look.live.thickness > 0 || stack_row_held(app, obj, r))
+	case .Bevel: return cp != nil && (cp.look.live.bevel > 0 || stack_row_held(app, obj, r))
+	case .Mirror: return cp == nil && obj.stack.mirror.added
+	case .Array: return obj.stack.array.added
+	case .Radial: return obj.stack.radial.added
+	case .Along: return obj.stack.along.added
+	}
+	return false
+}
+
+// A cage's own rows, which change its polygons and have no eye.
+stack_row_cage :: proc(r: Stack_Row) -> bool {return r <= .Bevel}
+
+// Whether the object can take row `r` at all: a cage's rows only on a cage, Mirror's
+// copies only on a sculpt (a cage mirrors its polygons instead).
+@(private = "file")
+stack_row_fits :: proc(obj: ^Object, r: Stack_Row) -> bool {
+	if stack_row_cage(r) do return obj.cage != nil
+	return r != .Mirror || obj.cage == nil
+}
+
+@(private = "file")
+row_shown :: proc(s: ^Stack, r: Stack_Row) -> ^bool {
+	#partial switch r {
+	case .Array: return &s.array.shown
+	case .Radial: return &s.radial.shown
+	case .Along: return &s.along.shown
+	}
+	return &s.mirror.shown
+}
+
+// The dimmer line under a row's name: what the row does now, in a few words.
+stack_row_detail :: proc(app: ^App, obj: ^Object, r: Stack_Row) -> string {
+	s := &obj.stack
+	if !stack_row_cage(r) && !row_shown(s, r)^ do return "Hidden"
+	switch r {
+	case .Smooth:
+		n := obj.cage.look.smooth
+		line := "Off" if n <= 0 else fmt.tprintf("%d step%s", n, "" if n == 1 else "s")
+		return fmt.tprintf("%s, flat corners", line) if obj.cage.look.flat else line
+	case .Cage_Mirror:
+		if obj.cage.live.mirror_refused do return "Off: a face crosses the plane"
+		axes: sculpt.Symmetry
+		for a in poly.Mirror_Axis do if a in obj.cage.look.live.mirror do axes += {sculpt.Axis(int(a))}
+		return "No plane" if axes == {} else stack_axes_label(axes)
+	case .Thickness:
+		l := obj.cage.look.live
+		if l.thickness <= 0 do return "Off"
+		sides := [poly.Thickness_Side]string{.Out = "out", .In = "in", .Centre = "both ways"}
+		return fmt.tprintf("%.1f%%, %s", 100 * l.thickness / cage_size(obj.cage), sides[l.side])
+	case .Bevel:
+		l := obj.cage.look.live
+		if l.bevel <= 0 do return "Off"
+		return fmt.tprintf("%.1f%%, %d segment%s", 100 * l.bevel / cage_size(obj.cage), l.bevel_segments, "" if l.bevel_segments == 1 else "s")
+	case .Mirror:
+		m := s.mirror
+		if m.axes == {} do return "No plane"
+		return fmt.tprintf("%s, keeps %s", stack_axes_label(m.axes), "−" if m.minus else "+")
+	case .Array:
+		a := s.array
+		return fmt.tprintf("%d, %.2f apart", a.count, linalg.length(a.offset))
+	case .Radial:
+		return fmt.tprintf("%d round %v", s.radial.count, s.radial.axis)
+	case .Along:
+		curve := object_by_id(app, s.along.curve)
+		if curve == nil || curve.curve == nil do return "No curve picked"
+		return fmt.tprintf("%d along %s", s.along.count, stack_curve_label(app, curve))
+	}
+	return ""
+}
+
 kit_stack :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
-	if obj.cage != nil {
-		// A cage's own rows change its polygons (cage_look_apply); Array, Radial and Along
-		// copy what they make, as on a sculpt.
-		kit_cage_live(app, obj)
-	} else if obj.voxel == nil && object_draws_triangles(obj) == false {
+	c := &app.kit.stack
+	if obj.cage == nil && obj.voxel == nil && !object_draws_triangles(obj) {
 		ui.paragraph(ctx, "A curve shows no surface to copy.")
 		return
 	}
-	if !stack_has_rows(obj.stack) {
+	if c.object != obj.id do c.opened = false
+	has := false
+	for r in Stack_Row do if stack_row_in(app, obj, r) do has = true
+	if !has {
 		ui.paragraph(ctx, "Rows here change how the object is shown, not what it holds: switch them off, tune them or apply them at any time. Copies cost a stroke nothing, and a stroke on any copy sculpts them all.")
 	}
-	if obj.stack.mirror.added && obj.cage == nil do kit_stack_mirror(app, obj)
-	if obj.stack.array.added do kit_stack_array(app, obj)
-	if obj.stack.radial.added do kit_stack_radial(app, obj)
-	if obj.stack.along.added do kit_stack_along(app, obj)
-	if stack_has_rows(obj.stack) do ui.divider(ctx, across = true)
-	kit_stack_add(app, obj)
-	if obj.cage != nil {
-		if stack_has_rows(obj.stack) do ui.paragraph(ctx, "A cage's copies are drawn only: Apply to sculpt (Model palette) makes it a mesh, whose stack then applies.")
-	} else if stack_has_rows(obj.stack) {
-		can := obj.voxel == nil && !app.stroke.active && (stack_mirror_on(obj) || stack_array_on(obj) || stack_radial_on(obj) || stack_along_on(app, obj))
-		if ui.button(ctx, "Apply the stack", enabled = can, reason = "Needs a shown row on a mesh object") {
-			app.ui.scene_command = {kind = .Stack_Apply}
-		}
-	}
+	shape := false
+	for r in Stack_Row.Smooth ..= Stack_Row.Bevel do if stack_row_in(app, obj, r) do shape = true
+	copies := false
+	for r in Stack_Row.Mirror ..= Stack_Row.Along do if stack_row_in(app, obj, r) do copies = true
+	if shape do ui.caption(ctx, "SHAPE")
+	for r in Stack_Row.Smooth ..= Stack_Row.Bevel do if stack_row_in(app, obj, r) do kit_stack_row(app, obj, r)
+	if shape && copies do ui.caption(ctx, "COPIES")
+	for r in Stack_Row.Mirror ..= Stack_Row.Along do if stack_row_in(app, obj, r) do kit_stack_row(app, obj, r)
+	kit_stack_foot(app, obj, has)
 	kit_last_result(app, .Stack)
 }
 
-// The buttons for the rows not yet in the stack.
+// Row `r`'s line and, open, its body. A tap on the line or its chevron opens it and
+// folds the others; the eye shows or hides a row of copies (an undo step), and the ⋯ or a
+// long press opens its menu.
 @(private = "file")
-kit_stack_add :: proc(app: ^App, obj: ^Object) {
+kit_stack_row :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
 	ctx := &app.kit.ctx
-	s := obj.stack
-	if (s.mirror.added || obj.cage != nil) && s.array.added && s.radial.added && s.along.added do return
-	ui.begin(ctx, "stack add", {direction = .Row})
-	if !s.mirror.added && obj.cage == nil && ui.button(ctx, "Mirror##add", glyph = ICON_SYMMETRY, tone = .Accent) {
-		s.mirror = {added = true, shown = true, axes = {.X}}
-		stack_set(app, obj, s, "Add mirror")
+	c := &app.kit.stack
+	name := STACK_ROW_NAMES[r]
+	is_open := c.opened && c.object == obj.id && c.open == r
+	open := is_open
+	shown := stack_row_cage(r) || row_shown(&obj.stack, r)^
+	toggles := make([dynamic]ui.Row_Toggle, 0, 2, context.temp_allocator)
+	if !stack_row_cage(r) {
+		append(&toggles, ui.Row_Toggle{name = fmt.tprintf("%s %s", "Hide" if shown else "Show", strings.to_lower(name, context.temp_allocator)), glyph = ui.ICON_EYE if shown else ui.ICON_EYE_OFF, faint = !shown})
 	}
-	if !s.array.added && ui.button(ctx, "Array##add", glyph = ui.ICON_PLUS, tone = .Accent) {
-		s.array = STACK_ARRAY_DEFAULT
-		stack_set(app, obj, s, "Add array")
+	append(&toggles, ui.Row_Toggle{name = fmt.tprintf("%s's menu", name), glyph = ui.ICON_MORE})
+	parts := ui.Thumb_Row{glyph = STACK_ROW_GLYPHS[r], count = -1, compact = true, detail = stack_row_detail(app, obj, r), open = &open}
+	row := ui.thumb_row(ctx, fmt.tprintf("%s##stack row %v", name, r), parts, selected = is_open, dim = !shown, all_toggles = toggles[:])
+	if row.clicked do open = !open
+	if open != is_open {
+		c.object, c.open, c.opened = obj.id, r, open
 	}
-	if !s.radial.added && ui.button(ctx, "Radial##add", glyph = ui.ICON_PLUS, tone = .Accent) {
-		s.radial = STACK_RADIAL_DEFAULT
-		stack_set(app, obj, s, "Add radial")
+	more := len(toggles) - 1
+	switch {
+	case row.toggled == 0 && more == 1:
+		s := obj.stack
+		row_shown(&s, r)^ = !shown
+		stack_set(app, obj, s, fmt.tprintf("%s %s", "Hide" if shown else "Show", strings.to_lower(name, context.temp_allocator)))
+	case row.toggled == more:
+		c.menu, c.menu_row, c.menu_at, c.menu_side, c.object = true, r, row_toggle_rect(ctx, row.rect, more, len(toggles)), .Below_End, obj.id
+	case row.menu:
+		c.menu, c.menu_row, c.menu_at, c.menu_side, c.object = true, r, {ctx.input.mouse.x, ctx.input.mouse.y, 0, 0}, .Pointer, obj.id
 	}
-	if !s.along.added && ui.button(ctx, "Along##add", glyph = ui.ICON_SPLINE, tone = .Accent) {
-		s.along = {added = true, shown = true, count = 6, curve = stack_first_curve(app, obj)}
-		stack_set(app, obj, s, "Add along a curve")
+	if !(c.opened && c.object == obj.id && c.open == r) do return
+	w := ui.fill_width(ctx)
+	ui.begin(ctx, fmt.tprintf("stack body %v", r), {direction = .Column, gap = ui.SPACE_S, width = w})
+	defer ui.end(ctx)
+	switch r {
+	case .Smooth: kit_cage_smooth(app, obj)
+	case .Cage_Mirror: kit_cage_mirror(app, obj)
+	case .Thickness: kit_cage_thickness(app, obj)
+	case .Bevel: kit_cage_bevel(app, obj)
+	case .Mirror: kit_stack_mirror(app, obj)
+	case .Array: kit_stack_array(app, obj)
+	case .Radial: kit_stack_radial(app, obj)
+	case .Along: kit_stack_along(app, obj)
+	}
+}
+
+// The card's foot: Add, which opens the menu of rows, and Apply, which bakes them (a
+// cage's Apply to sculpt, as a cage's copies are drawn only); then how many copies draw.
+@(private = "file")
+kit_stack_foot :: proc(app: ^App, obj: ^Object, has: bool) {
+	ctx := &app.kit.ctx
+	c := &app.kit.stack
+	w := ui.fill_width(ctx)
+	half := (w - ui.SPACE_S) * 0.5
+	ui.begin(ctx, "stack foot", {direction = .Row, gap = ui.SPACE_S, width = w})
+	if ui.button(ctx, "Add##stack", variant = .Bordered, width = half if has else w, glyph = ui.ICON_PLUS) {
+		c.add, c.add_at, c.object = !c.add, ctx.last_rect, obj.id
+	}
+	if has {
+		if obj.cage != nil {
+			_ = command_button(app, .Apply_Cage, label = "Apply to sculpt", variant = .Solid, tone = .Accent, width = half)
+		} else {
+			can := obj.voxel == nil && !app.stroke.active && stack_shows(app, obj)
+			if ui.button(ctx, "Apply stack", variant = .Solid, tone = .Accent, width = half, enabled = can, reason = "Needs a shown row on a mesh object") {
+				app.ui.scene_command = {kind = .Stack_Apply}
+			}
+		}
 	}
 	ui.end(ctx)
+	if !has do return
+	if n := len(stack_placings(app, obj)); n > 0 {
+		line := fmt.tprintf("%d cop%s drawn. A stroke on any copy sculpts them all, at no extra cost.", n, "y" if n == 1 else "ies")
+		if obj.cage != nil do line = fmt.tprintf("%d cop%s drawn. Apply to sculpt makes the cage a mesh, whose copies then apply.", n, "y" if n == 1 else "ies")
+		ui.paragraph(ctx, line, color = ctx.theme.text_tertiary)
+	}
 }
 
-// A row's head: its name and its eye.
+// The Add menu and a row's menu, drawn over everything after the cards (new_ui.odin),
+// each acting on the object it was opened on while it is still the selected one.
+kit_stack_menus :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	c := &app.kit.stack
+	obj := selected_object(app)
+	if obj == nil || obj.id != c.object {
+		c.add, c.menu = false, false
+		return
+	}
+	if c.add && ui.popover_begin(ctx, "stack add menu", &c.add, c.add_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) {
+		kit_stack_add_menu(app, obj)
+		ui.popover_end(ctx)
+	}
+	if c.menu && ui.popover_begin(ctx, "stack row menu", &c.menu, c.menu_at, c.menu_side, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) {
+		kit_stack_row_menu(app, obj, c.menu_row)
+		ui.popover_end(ctx)
+	}
+}
+
+// Every row the object can take, grouped as the card groups them; one it already holds
+// is ticked and opens it instead, as each kind is in the stack once.
 @(private = "file")
-kit_stack_head :: proc(app: ^App, obj: ^Object, name: string, shown: bool) {
+kit_stack_add_menu :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
-	ui.divider(ctx, across = true)
-	ui.label(ctx, name, t.text_size, t.text, .Semibold)
-	eye := shown
-	if ui.switch_row(ctx, fmt.tprintf("Show##%s", name), &eye) {
-		s := obj.stack
-		row_shown(&s, name)^ = eye
-		stack_set(app, obj, s, fmt.tprintf("%s %s", "Show" if eye else "Hide", strings.to_lower(name, context.temp_allocator)))
+	c := &app.kit.stack
+	hints := [Stack_Row]string {
+		.Smooth      = "Steps of smoothing over the cage",
+		.Cage_Mirror = "The cage mirrored across X",
+		.Thickness   = "A shell of the cage's faces",
+		.Bevel       = "Creased edges rounded",
+		.Mirror      = "The other half, clipped at the plane",
+		.Array       = "Copies a step apart",
+		.Radial      = "Copies turned round an axis",
+		.Along       = "Copies laid along a curve object",
+	}
+	for group in 0 ..< 2 {
+		if obj.cage != nil do ui.label(ctx, "SHAPE" if group == 0 else "COPIES", t.caption_size, t.text_tertiary, .Semibold)
+		for r in Stack_Row {
+			if stack_row_cage(r) != (group == 0) || !stack_row_fits(obj, r) do continue
+			held := stack_row_in(app, obj, r)
+			curves := r != .Along || stack_first_curve(app, obj) != 0
+			if !ui.menu_item(ctx, fmt.tprintf("%s##stack add", STACK_ROW_NAMES[r]), glyph = STACK_ROW_GLYPHS[r], checked = held, enabled = held || curves, hint = hints[r], reason = "Draw a curve object first") do continue
+			if !held do stack_row_add(app, obj, r)
+			c.object, c.open, c.opened, c.add = obj.id, r, true, false
+		}
 	}
 }
 
-// A row's foot: Remove, quiet as it is in a row of many; Undo brings the row back.
-@(private = "file")
-kit_stack_remove :: proc(app: ^App, obj: ^Object, name: string) {
-	if !ui.button(&app.kit.ctx, fmt.tprintf("Remove %s##stack", strings.to_lower(name, context.temp_allocator)), variant = .Light, tone = .Danger) do return
+// Adds row `r` with its starting values, one undo step (a cage's as a Cage_Look command).
+stack_row_add :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
+	if stack_row_cage(r) {
+		look := obj.cage.look
+		size := cage_size(obj.cage)
+		#partial switch r {
+		case .Smooth: look.smooth = 1
+		case .Cage_Mirror: look.live.mirror = {.X}
+		case .Thickness: look.live.thickness, look.live.thickness_segments = 0.05 * size, max(look.live.thickness_segments, 1)
+		case .Bevel: look.live.bevel, look.live.bevel_segments = 0.02 * size, max(look.live.bevel_segments, 1)
+		}
+		app.ui.scene_command = {kind = .Cage_Look, look = look}
+		return
+	}
 	s := obj.stack
-	switch name {
-	case "Mirror": s.mirror = {}
-	case "Array": s.array = {}
-	case "Radial": s.radial = {}
-	case "Along": s.along = {}
+	#partial switch r {
+	case .Mirror: s.mirror = {added = true, shown = true, axes = {.X}}
+	case .Array: s.array = STACK_ARRAY_DEFAULT
+	case .Radial: s.radial = STACK_RADIAL_DEFAULT
+	case .Along: s.along = {added = true, shown = true, count = 6, curve = stack_first_curve(app, obj)}
 	}
-	stack_set(app, obj, s, fmt.tprintf("Remove %s", strings.to_lower(name, context.temp_allocator)))
+	stack_set(app, obj, s, fmt.tprintf("Add %s", strings.to_lower(STACK_ROW_NAMES[r], context.temp_allocator)))
 }
 
+// A row's menu: Apply mirror on a cage's Mirror (its halves made real polygons), Reset to
+// the starting values on a row of copies, and Remove; each an undo step.
 @(private = "file")
-row_shown :: proc(s: ^Stack, name: string) -> ^bool {
-	switch name {
-	case "Array": return &s.array.shown
-	case "Radial": return &s.radial.shown
-	case "Along": return &s.along.shown
+kit_stack_row_menu :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
+	ctx := &app.kit.ctx
+	c := &app.kit.stack
+	if !stack_row_in(app, obj, r) {
+		c.menu = false
+		return
 	}
-	return &s.mirror.shown
+	lower := strings.to_lower(STACK_ROW_NAMES[r], context.temp_allocator)
+	if r == .Cage_Mirror && obj.cage.look.live.mirror != {} {
+		if ui.menu_item(ctx, "Apply mirror##stack menu", glyph = ICON_SYMMETRY, keys = command_hint(app, .Tidy_Cage, int(Cage_Tidy.Apply_Mirror)), hint = "The mirrored half becomes the cage's own") {
+			_ = command_run(app, .Tidy_Cage, int(Cage_Tidy.Apply_Mirror))
+			c.menu = false
+		}
+	}
+	if !stack_row_cage(r) && ui.menu_item(ctx, "Reset values##stack menu", glyph = ui.ICON_UNDO) {
+		stack_row_add(app, obj, r)
+		c.menu = false
+	}
+	if ui.menu_item(ctx, fmt.tprintf("Remove %s##stack menu", lower), glyph = ui.ICON_TRASH, tone = .Danger) {
+		if stack_row_cage(r) {
+			look := obj.cage.look
+			#partial switch r {
+			case .Smooth: look.smooth = 0
+			case .Cage_Mirror: look.live.mirror = {}
+			case .Thickness: look.live.thickness = 0
+			case .Bevel: look.live.bevel = 0
+			}
+			app.ui.scene_command = {kind = .Cage_Look, look = look}
+		} else {
+			s := obj.stack
+			#partial switch r {
+			case .Mirror: s.mirror = {}
+			case .Array: s.array = {}
+			case .Radial: s.radial = {}
+			case .Along: s.along = {}
+			}
+			stack_set(app, obj, s, fmt.tprintf("Remove %s", lower))
+		}
+		if c.open == r do c.opened = false
+		c.menu = false
+	}
+}
+
+// One undo step for a body's change: a tap (`what`) at once, a drag at its release.
+@(private = "file")
+stack_body_changed :: proc(app: ^App, obj: ^Object, before: Stack, tapped: string) {
+	if obj.stack == before do return
+	if tapped == "" {
+		stack_drag_changed(app, obj, before)
+		return
+	}
+	now := obj.stack
+	obj.stack = before
+	stack_set(app, obj, now, tapped)
+}
+
+// A count as a drag value between − and +, each tap one more or one fewer. Returns the
+// undo step's name for a tap, "" for a drag or nothing.
+@(private = "file")
+kit_stack_count :: proc(app: ^App, key: string, count: ^int, lo: int) -> (tapped: string) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	w := ui.fill_width(ctx)
+	ui.begin(ctx, fmt.tprintf("stack count %s", key), {direction = .Row, gap = ui.SPACE_XS, width = w})
+	defer ui.end(ctx)
+	ui.begin(ctx, fmt.tprintf("stack count value %s", key), {direction = .Column, width = w - 2 * (t.target + ui.SPACE_XS)})
+	v := f32(count^)
+	if ui.drag_value(ctx, fmt.tprintf("Count##%s", key), &v, 0.05, f32(lo), STACK_COUNT_MAX, fmt.tprintf("%d", count^)) do count^ = int(math.round(v))
+	ui.end(ctx)
+	if ui.button(ctx, fmt.tprintf("Fewer##%s", key), width = t.target, glyph = ICON_MINUS, icon_only = true, enabled = count^ > lo) {
+		count^ -= 1
+		tapped = "Fewer copies"
+	}
+	if ui.button(ctx, fmt.tprintf("More##%s", key), width = t.target, glyph = ui.ICON_PLUS, icon_only = true, enabled = count^ < STACK_COUNT_MAX) {
+		count^ += 1
+		tapped = "More copies"
+	}
+	return
+}
+
+// X, Y and Z of `v` on one line, each a drag value a third of the width.
+@(private = "file")
+kit_stack_xyz :: proc(app: ^App, key: string, v: ^Vec3, per_point, lo, hi: f32, format: string) {
+	ctx := &app.kit.ctx
+	w := ui.fill_width(ctx)
+	third := (w - 2 * ui.SPACE_XS) / 3
+	ui.begin(ctx, fmt.tprintf("stack xyz %s", key), {direction = .Row, gap = ui.SPACE_XS, width = w})
+	defer ui.end(ctx)
+	axes := [3]string{"X", "Y", "Z"}
+	for axis, i in axes {
+		ui.begin(ctx, fmt.tprintf("stack xyz %s %d", key, i), {direction = .Column, width = third})
+		_ = ui.drag_value(ctx, fmt.tprintf("%s##%s", axis, key), &v[i], per_point, lo, hi, fmt.tprintf(format, v[i]))
+		ui.end(ctx)
+	}
+}
+
+// Three axis buttons in a row, the picked one lit; returns the one tapped.
+@(private = "file")
+kit_stack_axis :: proc(app: ^App, key: string, on: sculpt.Symmetry, tip: string) -> (tapped: sculpt.Axis, ok: bool) {
+	ctx := &app.kit.ctx
+	w := ui.fill_width(ctx)
+	third := (w - 2 * ui.SPACE_XS) / 3
+	ui.begin(ctx, fmt.tprintf("stack axis %s", key), {direction = .Row, gap = ui.SPACE_XS, width = w})
+	defer ui.end(ctx)
+	for a in sculpt.Axis {
+		if ui.toggle_button(ctx, fmt.tprintf("%v##%s", a, key), a in on, third, tooltip = fmt.tprintf(tip, a)) do tapped, ok = a, true
+	}
+	return
 }
 
 @(private = "file")
 kit_stack_mirror :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
-	kit_stack_head(app, obj, "Mirror", obj.stack.mirror.shown)
-	defer kit_stack_remove(app, obj, "Mirror")
-	s := obj.stack
-	m := &s.mirror
-	ui.begin(ctx, "stack mirror axes", {direction = .Row})
-	for a in sculpt.Axis {
-		if ui.toggle_button(ctx, fmt.tprintf("%v##mirror", a), a in m.axes, 48, tooltip = fmt.tprintf("Mirror across the object's own %v plane", a)) {
-			m.axes ~= {a}
-			stack_set(app, obj, s, "Mirror planes")
-			s = obj.stack
-		}
+	ui.caption(ctx, "PLANES")
+	if a, ok := kit_stack_axis(app, "mirror", obj.stack.mirror.axes, "Mirror across the object's own %v plane"); ok {
+		s := obj.stack
+		s.mirror.axes ~= {a}
+		stack_set(app, obj, s, "Mirror planes")
 	}
-	ui.end(ctx)
-	minus := m.minus
-	if ui.switch_row(ctx, "Keep the - side##mirror", &minus) {
-		m.minus = minus
+	minus := obj.stack.mirror.minus
+	if ui.switch_row(ctx, "Keep the − side##mirror", &minus) {
+		s := obj.stack
+		s.mirror.minus = minus
 		stack_set(app, obj, s, "Mirror side")
 	}
 	if stack_mirror_on(obj) {
-		ui.paragraph(ctx, fmt.tprintf("Symmetry across %s stays on for this object while the mirror shows, so the hidden half follows every stroke.", stack_axes_label(obj.stack.mirror.axes)))
+		ui.paragraph(ctx, fmt.tprintf("Symmetry across %s stays on for this object while the mirror shows, so the hidden half follows every stroke.", stack_axes_label(obj.stack.mirror.axes)), color = ctx.theme.text_tertiary)
 	}
 }
 
 @(private = "file")
 kit_stack_array :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
-	kit_stack_head(app, obj, "Array", obj.stack.array.shown)
-	defer kit_stack_remove(app, obj, "Array")
-	a := &obj.stack.array
 	before := obj.stack
-	count := f32(a.count)
-	if ui.drag_value(ctx, "Count##array", &count, 0.05, 2, STACK_COUNT_MAX, fmt.tprintf("%d", a.count)) do a.count = int(math.round(count))
-	axes := [3]string{"X", "Y", "Z"}
-	for axis, i in axes {
-		_ = ui.drag_value(ctx, fmt.tprintf("Step %s##array", axis), &a.offset[i], 0.01, -100, 100, fmt.tprintf("%.2f", a.offset[i]))
-	}
+	a := &obj.stack.array
+	tapped := kit_stack_count(app, "array", &a.count, 2)
+	ui.caption(ctx, "EACH STEP MOVES")
+	kit_stack_xyz(app, "array step", &a.offset, 0.01, -100, 100, "%.2f")
 	if kit_more(app, .Stack) {
-		for axis, i in axes {
-			_ = ui.drag_value(ctx, fmt.tprintf("Turn about %s##array", axis), &a.turn[i], 0.5, -360, 360, fmt.tprintf("%.1f°", a.turn[i]))
-		}
-		_ = ui.drag_value(ctx, "Size each step##array", &a.grow, 0.002, 0.05, STACK_GROW_MAX, fmt.tprintf("%.3f", a.grow))
+		ui.caption(ctx, "EACH STEP TURNS")
+		kit_stack_xyz(app, "array turn", &a.turn, 0.5, -360, 360, "%.0f°")
+		_ = ui.drag_value(ctx, "Size each step##array", &a.grow, 0.002, STACK_GROW_MIN, STACK_GROW_MAX, fmt.tprintf("%.3f", a.grow))
 		kit_more_end(app)
 	}
-	if obj.stack != before do stack_drag_changed(app, obj, before)
+	stack_body_changed(app, obj, before, tapped)
 }
 
 @(private = "file")
 kit_stack_radial :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
-	kit_stack_head(app, obj, "Radial", obj.stack.radial.shown)
-	defer kit_stack_remove(app, obj, "Radial")
-	r := &obj.stack.radial
 	before := obj.stack
-	count := f32(r.count)
-	if ui.drag_value(ctx, "Count##radial", &count, 0.05, 2, STACK_COUNT_MAX, fmt.tprintf("%d", r.count)) do r.count = int(math.round(count))
-	ui.begin(ctx, "stack radial axis", {direction = .Row})
-	for a in sculpt.Axis {
-		if ui.toggle_button(ctx, fmt.tprintf("%v##radial", a), r.axis == a, 48, tooltip = fmt.tprintf("Turn the copies about the object's own %v axis", a)) do r.axis = a
+	r := &obj.stack.radial
+	tapped := kit_stack_count(app, "radial", &r.count, 2)
+	ui.caption(ctx, "TURNS ROUND")
+	if a, ok := kit_stack_axis(app, "radial", {r.axis}, "Turn the copies about the object's own %v axis"); ok && a != r.axis {
+		r.axis = a
+		tapped = "Radial axis"
 	}
-	ui.end(ctx)
-	axes := [3]string{"X", "Y", "Z"}
-	for axis, i in axes {
-		_ = ui.drag_value(ctx, fmt.tprintf("Pivot %s##radial", axis), &r.pivot[i], 0.01, -100, 100, fmt.tprintf("%.2f", r.pivot[i]))
-	}
-	if obj.stack != before {
-		// The axis is a tap, its own undo step; the values are drags.
-		if obj.stack.radial.axis != before.radial.axis {
-			now := obj.stack
-			obj.stack = before
-			stack_set(app, obj, now, "Radial axis")
-		} else {
-			stack_drag_changed(app, obj, before)
-		}
-	}
+	ui.caption(ctx, "ABOUT THE POINT")
+	kit_stack_xyz(app, "radial pivot", &r.pivot, 0.01, -100, 100, "%.2f")
+	stack_body_changed(app, obj, before, tapped)
 }
 
 // The first curve object of the scene other than `obj`, by id; 0 for none.
@@ -603,8 +911,6 @@ stack_curve_label :: proc(app: ^App, curve: ^Object) -> string {
 @(private = "file")
 kit_stack_along :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
-	kit_stack_head(app, obj, "Along", obj.stack.along.shown)
-	defer kit_stack_remove(app, obj, "Along")
 	curves := make([dynamic]^Object, 0, 4, context.temp_allocator)
 	names := make([dynamic]string, 0, 4, context.temp_allocator)
 	chosen := -1
@@ -624,20 +930,15 @@ kit_stack_along :: proc(app: ^App, obj: ^Object) {
 		s.along.curve = curves[pick].id
 		stack_set(app, obj, s, "Along curve")
 	}
-	l := &obj.stack.along
 	before := obj.stack
-	count := f32(l.count)
-	if ui.drag_value(ctx, "Count##along", &count, 0.05, 1, STACK_COUNT_MAX, fmt.tprintf("%d", l.count)) do l.count = int(math.round(count))
-	if obj.stack != before do stack_drag_changed(app, obj, before)
-	ui.begin(ctx, "stack along axis", {direction = .Row})
-	for a in sculpt.Axis {
-		if ui.toggle_button(ctx, fmt.tprintf("%v##along", a), obj.stack.along.axis == a, 48, tooltip = fmt.tprintf("The object's own %v axis runs along the curve", a)) {
-			s := obj.stack
-			s.along.axis = a
-			stack_set(app, obj, s, "Along axis")
-		}
+	l := &obj.stack.along
+	tapped := kit_stack_count(app, "along", &l.count, 1)
+	ui.caption(ctx, "RUNS ALONG THE CURVE")
+	if a, ok := kit_stack_axis(app, "along", {l.axis}, "The object's own %v axis runs along the curve"); ok && a != l.axis {
+		l.axis = a
+		tapped = "Along axis"
 	}
-	ui.end(ctx)
+	stack_body_changed(app, obj, before, tapped)
 }
 
 // "X", "X and Z", "X, Y and Z".
