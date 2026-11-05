@@ -76,7 +76,7 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
   `mesh_retopo(source, bvh, wanted, pool)` = `mesh_decimate` to 0.45·wanted triangles → `pair_triangles` (greedy by corner
   squareness + fold, sorted so runs match) → `cut_into_quads` (Catmull-Clark topology, middles) → `relax_onto` (tangential
   relax + rays both ways along the normal onto the source, per-thread stacks). `quad_mesh_triangulate` gives triangles 2k,
-  2k+1 per quad; `quad_mesh_write_obj` writes quads with per-corner `vt`. `bvh_raycast_with(b, m, o, d, limit, stack)` is
+  2k+1 per quad; `faces_write_obj` writes quads or triangles with per-corner `vt`. `bvh_raycast_with(b, m, o, d, limit, stack)` is
   the thread-safe raycast. UVs (`uv_unwrap.odin`): charts grown from a seed within `UV_CHART_DEGREES` of its normal,
   planar projection (no flips), min-area turn, shelf packing at the largest common scale; `Uv_Layout{uvs per quad corner,
   chart, charts, filled}`. Baking (`bake.odin`): `bake_maps(low, uvs, Bake_Source{mesh, bvh, paint, groups, slots,

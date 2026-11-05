@@ -91,10 +91,31 @@ bake_maps_destroy :: proc(b: ^Bake_Maps) {
 	b^ = {}
 }
 
+// The surface a bake lays its texels on: triangles over vertices that each carry one
+// coordinate, with the smooth normal and the tangent frame (xyz, w the bitangent's sign) a
+// reader of the exported mesh builds its normal map's frame from. A quad mesh's is its
+// split (quad_mesh_split_uvs, two triangles a quad); any other mesh's is its triangles
+// split at their seams.
+Bake_Low :: struct {
+	positions: []Vec3,
+	normals:   []Vec3,
+	uvs:       [][2]f32,
+	tangents:  [][4]f32,
+	indices:   []u32, // three a triangle
+}
+
 // Bakes `src` into maps of `size` texels square on the quad mesh `low` laid out by
-// `uvs`: normal and displacement always, the others in `kinds`. Rays reach `reach`
-// either way.
+// `uvs` (bake_low_maps on its split, with the frame its .glb carries).
 bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, reach: f32, kinds: bit_set[Bake_Kind], pool: ^jobs.Pool, allocator := context.allocator, options: Bake_Options = {}) -> (b: Bake_Maps) {
+	normals := quad_mesh_normals(low, context.temp_allocator)
+	frame := quad_mesh_tangents(low, uvs, normals, context.temp_allocator)
+	positions, split_normals, texcoords, indices := quad_mesh_split_uvs(low, uvs, normals, frame, context.temp_allocator)
+	return bake_low_maps({positions, split_normals, texcoords, frame.tangents, indices}, src, size, reach, kinds, pool, allocator, options)
+}
+
+// Bakes `src` into maps of `size` texels square on `low`: normal and displacement
+// always, the others in `kinds`. Rays reach `reach` either way.
+bake_low_maps :: proc(low: Bake_Low, src: Bake_Source, size: int, reach: f32, kinds: bit_set[Bake_Kind], pool: ^jobs.Pool, allocator := context.allocator, options: Bake_Options = {}) -> (b: Bake_Maps) {
 	b.size = size
 	texels := size * size
 	b.normal = make([]u8, 4 * texels, allocator)
@@ -104,21 +125,19 @@ bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, r
 	if .Id in kinds do b.id = make([]u8, 4 * texels, allocator)
 	if .Vector in kinds do b.vector = make([][3]f32, texels, allocator)
 	source, bvh := src.mesh, src.bvh
-	normals := quad_mesh_normals(low, context.temp_allocator)
-	frame := quad_mesh_tangents(low, uvs, normals, context.temp_allocator)
 
-	// Which triangle (quad * 2 + half) covers each texel centre, and where in it.
+	// Which triangle covers each texel centre, and where in it.
 	owner := make([]u32, texels, context.temp_allocator)
 	where_ := make([][2]f32, texels, context.temp_allocator)
 	NOBODY :: max(u32)
 	for &o in owner do o = NOBODY
 	fsize := f32(size)
-	for i in 0 ..< len(low.quads) {
-		for half, h in quad_halves(low, i) {
+	for i in 0 ..< len(low.indices) / 3 {
+		{
 			// Texel (x, y) has its centre at u = (x + 0.5) / size, v = 1 - (y + 0.5) / size.
 			c: [3][2]f32
 			for k in 0 ..< 3 {
-				t := uvs.uvs[i][half[k]]
+				t := low.uvs[low.indices[3 * i + k]]
 				c[k] = {t.x * fsize - 0.5, (1 - t.y) * fsize - 0.5}
 			}
 			area := (c[1].x - c[0].x) * (c[2].y - c[0].y) - (c[2].x - c[0].x) * (c[1].y - c[0].y)
@@ -134,7 +153,7 @@ bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, r
 					w2 := ((c[1].x - c[0].x) * (p.y - c[0].y) - (p.x - c[0].x) * (c[1].y - c[0].y)) / area
 					EDGE :: -1e-4
 					if w1 < EDGE || w2 < EDGE || 1 - w1 - w2 < EDGE do continue
-					owner[y * size + x] = u32(2 * i + h)
+					owner[y * size + x] = u32(i)
 					where_[y * size + x] = {w1, w2}
 				}
 			}
@@ -143,9 +162,7 @@ bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, r
 
 	Job :: struct {
 		b:           ^Bake_Maps,
-		low:         Quad_Mesh,
-		normals:     []Vec3,
-		frame:       Quad_Tangents,
+		low:         Bake_Low,
 		owner:       []u32,
 		where_:      [][2]f32,
 		source:      Mesh,
@@ -162,8 +179,6 @@ bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, r
 	job := Job {
 		b        = &b,
 		low      = low,
-		normals  = normals,
-		frame    = frame,
 		owner    = owner,
 		where_   = where_,
 		source   = source,
@@ -188,9 +203,6 @@ bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, r
 				o := job.owner[at]
 				if o == max(u32) do continue
 				job.filled[at] = true
-				quad := o / 2
-				half := quad_halves(job.low, int(quad))[o % 2]
-				f := job.low.quads[quad]
 				w := [3]f32{1 - job.where_[at].x - job.where_[at].y, job.where_[at].x, job.where_[at].y}
 				// The frame a reader of the exported tangents builds at this point, as
 				// MikkTSpace's pixel shader does: normal and tangent blended unnormalized,
@@ -198,10 +210,10 @@ bake_maps :: proc(low: Quad_Mesh, uvs: Uv_Layout, src: Bake_Source, size: int, r
 				p, vn, vt: Vec3
 				handed: f32
 				for k in 0 ..< 3 {
-					v := f[half[k]]
+					v := job.low.indices[3 * o + u32(k)]
 					p += w[k] * job.low.positions[v]
-					vn += w[k] * job.normals[v]
-					t := job.frame.tangents[job.frame.corner_slot[quad][half[k]]]
+					vn += w[k] * job.low.normals[v]
+					t := job.low.tangents[v]
 					vt += w[k] * t.xyz
 					handed += w[k] * t.w
 				}
