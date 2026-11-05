@@ -1,0 +1,20 @@
+---
+name: gpu-sculpt-facts
+description: Sculpt on the GPU implementation facts and gotchas (P2 #533, #539, #544, 2026-11-03): takes, refusals, kernels, margin, A/B method and numbers at 500k and 25M
+metadata:
+  type: project
+---
+
+Part of [[gpu-sculpt-plan]].
+
+**P2 (#533):** `Gpu_Take {None, Normals, Dabs}`; `dab_once` records a `Gpu_Dab` after the leaf query and `record_hit`. Kinds Draw, Inflate, Clay, Flatten, Pinch, Crease, Smooth (plain); Accumulate off kept as a GPU `heights` buffer (uint2 stroke+height, 8 B/vertex, read back into `Sculptor.layer`). Refused on the sculpt side: alpha, falloff_shape, lock_plane, stabilize, connected, paint channel, skin, Smooth Polish/Stable, mask, fade (HD), dyn, layer recording; app side: HD window, Drag rect/dot, line strokes. Kernels chain in ONE compute pass (vk barrier after every dispatch); dab kernels bind 6 RO + 5 RW buffers (the pipeline's counts must match or SwiftShader segfaults in JIT code). Gotcha: slices into a `[dynamic]` arena taken before later appends (reserve first).
+
+**P3 groundwork (#539):** the BVH stays exact (a tree grown by the dab's reach made raycast+cursor 60 ms at 25M); instead the leaf query and chunk bounds reach `gpu_query_margin` further = per-kind once-bound (Clay/Flatten half a radius, Draw/Inflate with Accumulate off one dab's height) + per-dab bound × dabs whose flush has not landed (`gpu_flush_dabs`). Readback apply split into 4096-vertex pieces for parallel_for.
+
+**#544 positions-only readback:** mid-stroke (Dabs take) flushes read back positions+heights only; nodes marked owed (`gpu_owed`), normals come back after the stroke 262k vertices a frame (`sculptor_gpu_back`, called by the frame after its flush) or by a blocking read at any exact sync with normals (LOD syncs `normals = false`). Unpacking normals was ~95% of the readback cost. 25M CPU/frame 23.7 -> 16.5 ms (CPU path 40). Tried fusing leaf bounds into the readback copy: no net gain, reverted. Remaining: landing refit 2.9 ms, ui 4 ms; container CPU timings are inflated by SwiftShader using the cores, so real-PC numbers decide next steps.
+
+**A/B method:** fixed clock `--ui-dt=0.016667` (else the 10 ms dab budget makes dab counts differ run to run); compare `--export=x.ply` with a numpy diff (scratch plycmp.py), never viewport dumps; `--gpu-sculpt-sync` for exactness. Within a frame the raycast hits the mirror (frame-start surface), by design. Numbers: one dab 4e-7; 98-dab strokes Smooth 2e-7, Flatten 7e-6, Pinch 6e-5, Draw/Clay/Inflate/Crease ≤2e-3 (91 dabs in 40 frames: 7e-3) because the kernels read 12-bit packed normals; the margin does not change the result (same diff old vs new margin).
+
+**#563 lookup upload:** the 667 MB lookup (25M) goes up a slice a frame for the selected object (`render.sculpt_gpu_prepare`, ~2 ms of copying a frame, 4-16 MB, adaptive rate) before any stroke; begin returns false until ready (stroke on CPU, logged); unused lookups of deselected objects released; `--bench-stroke` waits (not under sync, so sync A/B stays bit-identical). First-stroke brush p99 3189 -> 3 ms. Bolt's PC first run showed the hitch (frame p99 2432 ms); GPU path cpu 2.79 vs CPU path 4.06 ms/frame at 25M. Bolt's 2nd PC run (old build by mistake, 15:46): upload 115 ms, frame p99 218 / brush p99 122 ms, median frame 13.4, cpu 3.0, gpu_sculpt 1.1 ms; the first run's 2.4 s was likely first-run kernel compile + upload. Check the log line ("over N frames" = new build). New build on PC (15:52): 681 MB over 44 frames/0.9 s, 1.3 ms CPU a frame; brush p99 1.2 ms, latency p99 65 ms, median frame 10.8, cpu 2.4, gpu_sculpt 1.1; one 289 ms frame outside the stroke, likely first-prepare kernel compile (offered a background compile, Bolt undecided). Don't pass --frames with --bench-stroke at 25M (waiting frames count against --frames).
+
+**How to apply:** fake GPU in `stroke_gpu_test.odin` lays records in plain Odin (1e-5) and is the test oracle; profile at 25M with `--gpu-sculpt --ui-dt=0.016667 --bench-stroke=40 --vertices=25000000` (no --frames) (~10 min in the container), watch `gpu_sculpt_kb` and `gpu_sculpt_apply_ms`.

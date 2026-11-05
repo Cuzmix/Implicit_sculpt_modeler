@@ -1,0 +1,183 @@
+<title>Card Buttons: Pop Out or Dock</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: two live app frames side by side (stacked on phones), each a scaled-down Lens screen with the view rail on the right and a dock on the left. Single dark look, as the app is. */
+:root {
+  --ground: #101215; --app: #1b1e22; --panel: #23272c; --panel2: #2b3036; --line: #353b42;
+  --text: #e7eaee; --dim: #8c949e; --accent: #5fd6c0; --accent-ink: #0d2a25; --warn: #f0b45a;
+  --font-ui: "Inter Tight", "Inter", system-ui, sans-serif; --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  color-scheme: dark;
+}
+body { background: var(--ground); color: var(--text); font-family: var(--font-ui); margin: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px 40px; }
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 20px; }
+h1 { font-size: 22px; margin: 0; text-wrap: balance; font-weight: 650; }
+.lede { color: var(--dim); margin: 6px 0 0; max-width: 70ch; line-height: 1.5; font-size: 14px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 900px) { .pair { grid-template-columns: 1fr; } }
+.col { display: grid; gap: 10px; min-width: 0; }
+.head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.head h2 { font-size: 16px; margin: 0; }
+.tag { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; padding: 3px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--dim); }
+.tag.rec { color: var(--accent); border-color: var(--accent); }
+.how { color: var(--dim); font-size: 13px; line-height: 1.5; margin: 0; }
+.how b { color: var(--text); font-weight: 600; }
+
+/* The app frame */
+.frame { position: relative; aspect-ratio: 16 / 10; max-width: 100%; background: radial-gradient(120% 90% at 40% 45%, #2a2e33 0%, #17191c 70%); border-radius: 14px; overflow: hidden; border: 1px solid var(--line); user-select: none; }
+.sphere { position: absolute; left: 14%; top: 14%; width: 46%; aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #e2c7b6 0%, #b79583 45%, #6e574b 100%); }
+.topbar { position: absolute; left: 8px; right: 8px; top: 8px; height: 26px; display: flex; justify-content: space-between; }
+.island { background: var(--app); border-radius: 8px; height: 26px; display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 10px; color: var(--dim); }
+.island b { color: var(--text); font-weight: 600; }
+.rail { position: absolute; right: 8px; top: 42px; width: 30px; background: var(--app); border-radius: 9px; padding: 4px 0; display: grid; gap: 3px; justify-items: center; }
+.ldock { position: absolute; left: 8px; top: 42px; width: 30px; background: var(--app); border-radius: 9px; padding: 4px 0; display: grid; gap: 3px; justify-items: center; }
+.btn { width: 24px; height: 24px; border-radius: 6px; border: 0; background: transparent; color: var(--dim); cursor: pointer; display: grid; place-items: center; font-size: 13px; padding: 0; position: relative; }
+.btn:hover { background: var(--panel2); color: var(--text); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.btn.lit { background: var(--accent-ink); color: var(--accent); }
+.btn .tip { display: none; }
+.sep { width: 16px; height: 1px; background: var(--line); margin: 2px 0; }
+
+/* The stack column (Main) */
+.stack { position: absolute; right: 44px; top: 42px; width: 31%; bottom: 10px; display: grid; align-content: start; gap: 4px; overflow: hidden; transition: opacity .15s; }
+.stack[hidden] { display: none !important; }
+.card { background: var(--app); border-radius: 8px; padding: 6px 8px; font-size: 10px; }
+.card .ttl { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 10.5px; }
+.card .ttl .sum { margin-left: auto; color: var(--dim); font-weight: 400; font-size: 9px; }
+.card .body { margin-top: 6px; display: grid; gap: 4px; }
+.row { height: 14px; border-radius: 4px; background: var(--panel2); }
+.row.a { width: 70%; } .row.b { width: 90%; } .row.c { width: 55%; }
+.card.flash { outline: 1.5px solid var(--accent); }
+
+/* A popped-out window */
+.pop { position: absolute; width: 31%; background: color-mix(in srgb, var(--app) 94%, transparent); backdrop-filter: blur(6px); border-radius: 10px; border: 1px solid var(--line); padding: 6px 8px 8px; box-shadow: 0 10px 30px rgba(0,0,0,.45); font-size: 10px; }
+.pop .grip { width: 22px; height: 3px; border-radius: 2px; background: var(--line); margin: 0 auto 5px; }
+.pop .ttl { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 10.5px; }
+.pop .ttl .x { margin-left: auto; color: var(--dim); cursor: pointer; border: 0; background: none; font-size: 11px; padding: 0 2px; }
+.pop .body { margin-top: 6px; display: grid; gap: 4px; }
+
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--dim); }
+.log { font-family: var(--font-mono); font-size: 11.5px; color: var(--dim); min-height: 1.4em; }
+.log b { color: var(--accent); font-weight: 500; }
+.verdict { background: var(--app); border-radius: 12px; padding: 14px 16px; display: grid; gap: 6px; font-size: 13.5px; line-height: 1.5; }
+.verdict h3 { margin: 0; font-size: 14px; }
+.verdict ul { margin: 0; padding-left: 18px; color: var(--dim); }
+.verdict li b { color: var(--text); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;600;650&family=JetBrains+Mono&display=swap">
+
+<div class="wrap">
+  <header>
+    <h1>What a card button does, everywhere</h1>
+    <p class="lede">Both frames are live: tap the buttons on the right rail (Main, Scene, Layers, Material, Symmetry, Lights) and the Brush button on the left dock. Today the rail docks and every other bar pops out. The cleanup picks one of these for every bar.</p>
+  </header>
+
+  <div class="pair">
+    <section class="col" data-mode="pop" aria-label="Pop out everywhere">
+      <div class="head"><h2>Pop out everywhere</h2><span class="tag rec">Recommended</span></div>
+      <p class="how">A card button opens <b>its card as a window beside the button</b>, over the view. Main still shows or hides the whole stack. Tap the button again, or ✕, to put it away.</p>
+      <div class="frame"></div>
+      <div class="log" aria-live="polite"></div>
+    </section>
+    <section class="col" data-mode="dock" aria-label="Dock in the column everywhere">
+      <div class="head"><h2>Dock in the column everywhere</h2><span class="tag">Today's rail, on every bar</span></div>
+      <p class="how">A card button <b>swaps the right column to just that card</b>, wherever the button is. Main swaps the column back to the whole stack. Tap the lit button to put the column away.</p>
+      <div class="frame"></div>
+      <div class="log" aria-live="polite"></div>
+    </section>
+  </div>
+
+  <div class="verdict">
+    <h3>How they differ</h3>
+    <ul>
+      <li><b>Pop out</b> keeps the stack where it is and lays one card over it, next to your thumb. It matches Affinity, and what you picked for the docks redesign. A Brush button on the left opens the Brush card on the left.</li>
+      <li><b>Dock</b> keeps the view clear, because every card lands in the same right-hand column. But the column stops showing the stack, and a button on the left dock opens its card on the far side of the screen.</li>
+      <li>Both keep <b>Main</b> as the button for the whole stack. In both, cards are grouped in the stack only, since the rail's own groups are already gone (C1).</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+const CARDS = {
+  Main: { icon: "▤" }, Scene: { icon: "◇", sum: "1 object" }, Layers: { icon: "≋", sum: "Sphere 1" },
+  Material: { icon: "◐", sum: "Clay" }, Symmetry: { icon: "⇹", sum: "X" }, Lights: { icon: "☼", sum: "4 lights" },
+  Brush: { icon: "✎", sum: "Draw · 60 px" }
+};
+// The stack (Main) shows these cards; Lights and Material are left out of it, as in a fresh layout.
+const STACK = ["Brush", "Symmetry", "Layers", "Scene", "Tools"];
+CARDS.Tools = { icon: "⬚", sum: "Mask" };
+const RAIL = ["Main", "Scene", "Layers", "Material", "Symmetry", "Lights"];
+
+function card(name, open) {
+  const c = CARDS[name];
+  return `<div class="card" data-card="${name}"><div class="ttl"><span>${c.icon}</span>${name}<span class="sum">${c.sum || ""}</span></div>` +
+    (open ? `<div class="body"><div class="row a"></div><div class="row b"></div><div class="row c"></div></div>` : "") + `</div>`;
+}
+
+function build(section) {
+  const mode = section.dataset.mode;
+  const frame = section.querySelector(".frame");
+  const log = section.querySelector(".log");
+  const st = { stack: true, column: "Main", pop: null, popSide: null };
+
+  frame.innerHTML = `
+    <div class="sphere"></div>
+    <div class="topbar"><div class="island"><b>Untitled</b> · Save · Undo</div><div class="island"><b>Sculpt</b> Model Render</div><div class="island">Search · History</div></div>
+    <div class="ldock"><button class="btn" data-b="Brush" data-side="left" aria-label="Brush card">${CARDS.Brush.icon}</button><div class="sep"></div><button class="btn" aria-label="Size" tabindex="-1">◯</button></div>
+    <div class="rail">${RAIL.map((n, i) => (i === 1 ? '<div class="sep"></div>' : "") + `<button class="btn" data-b="${n}" data-side="right" aria-label="${n}">${CARDS[n].icon}</button>`).join("")}</div>
+    <div class="stack"></div>
+    <div class="pop" hidden></div>`;
+  const stackEl = frame.querySelector(".stack");
+  const popEl = frame.querySelector(".pop");
+
+  function say(t) { log.innerHTML = t; }
+
+  function render() {
+    // The column.
+    stackEl.hidden = !st.stack;
+    if (st.column === "Main") stackEl.innerHTML = STACK.map((n, i) => card(n, n === "Layers")).join("");
+    else stackEl.innerHTML = card(st.column, true).replace('class="card"', 'class="card" style="min-height:60%"');
+    // The popped window.
+    if (st.pop) {
+      popEl.hidden = false;
+      const btn = frame.querySelector(`[data-b="${st.pop}"]`);
+      const fr = frame.getBoundingClientRect(), br = btn.getBoundingClientRect();
+      const top = Math.max(8, br.top - fr.top - 8);
+      popEl.style.top = Math.min(top, fr.height * 0.42) + "px";
+      if (st.popSide === "right") { popEl.style.right = "44px"; popEl.style.left = "auto"; }
+      else { popEl.style.left = "44px"; popEl.style.right = "auto"; }
+      popEl.innerHTML = `<div class="grip"></div><div class="ttl"><span>${CARDS[st.pop].icon}</span>${st.pop}<button class="x" aria-label="Close">✕</button></div><div class="body"><div class="row a"></div><div class="row b"></div><div class="row c"></div><div class="row b"></div></div>`;
+      popEl.querySelector(".x").onclick = () => { st.pop = null; say("Closed the window."); render(); };
+    } else popEl.hidden = true;
+    // Lit buttons.
+    frame.querySelectorAll(".btn[data-b]").forEach(b => {
+      const n = b.dataset.b;
+      let lit = false;
+      if (mode === "pop") lit = n === "Main" ? st.stack : st.pop === n;
+      else lit = st.stack && st.column === n;
+      b.classList.toggle("lit", lit);
+    });
+  }
+
+  frame.addEventListener("click", e => {
+    const b = e.target.closest(".btn[data-b]");
+    if (!b) return;
+    const n = b.dataset.b;
+    if (mode === "pop") {
+      if (n === "Main") { st.stack = !st.stack; say(st.stack ? "<b>Main</b> shows the stack." : "<b>Main</b> hides the stack."); }
+      else if (st.pop === n) { st.pop = null; say(`Tapped <b>${n}</b> again: its window goes away.`); }
+      else { st.pop = n; st.popSide = b.dataset.side; say(`<b>${n}</b> pops out beside its button${STACK.includes(n) && st.stack ? " (in the app, a card the stack shows already unfolds there instead)" : ""}.`); }
+    } else {
+      if (st.stack && st.column === n) { st.stack = false; say(`Tapped lit <b>${n}</b>: the column goes away.`); }
+      else { st.stack = true; st.column = n; say(n === "Main" ? "The column shows the whole stack." : `The column swaps to <b>${n}</b> alone${b.dataset.side === "left" ? ", on the far side from the button" : ""}.`); }
+    }
+    render();
+  });
+  say(mode === "pop" ? "Tap Lights on the rail, then Brush on the left." : "Tap Lights on the rail, then Brush on the left.");
+  render();
+  window.addEventListener("resize", render);
+}
+document.querySelectorAll("section[data-mode]").forEach(build);
+</script>

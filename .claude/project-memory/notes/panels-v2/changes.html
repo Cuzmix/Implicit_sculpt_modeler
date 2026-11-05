@@ -1,0 +1,279 @@
+<title>Panels v2 changes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one row per change, a before/after sketch of the iPad screen beside what changes and where it stands.
+   One dark world on purpose, the app's own (Lens), as the v7 mock is. */
+:root{
+  --frame:#0D0F12; --surface:#161A1F; --raised:#1E242B; --line:#2A3139; --text:#E7ECF0; --dim:#8C98A4; --faint:#56616C;
+  --glaze:#5ED6C4; --glaze-ink:#06201C; --warn:#F3B54A; --gone:#F07A6E; --zone:#FF86B9; --plan:#9AA8FF;
+  --page:#0A0C0F; --page-text:#D9E0E6;
+  --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{background:var(--page);color:var(--page-text);font-family:var(--sans)}
+body{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 48px}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit}
+button:focus-visible{outline:2px solid var(--glaze);outline-offset:2px}
+.wrap{max-width:1240px;margin:0 auto}
+header.page{display:flex;flex-wrap:wrap;gap:16px 32px;align-items:flex-end;justify-content:space-between;margin-bottom:24px}
+header.page h1{font-size:24px;margin:0;letter-spacing:-.01em;text-wrap:balance}
+header.page p{margin:6px 0 0;color:var(--dim);max-width:68ch;line-height:1.5}
+.legend{display:flex;flex-wrap:wrap;gap:8px;font-size:12.5px;color:var(--dim)}
+.seg{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px}
+.seg button{background:none;border:0;padding:6px 12px;border-radius:7px;cursor:pointer;color:var(--dim);font-size:13px}
+.seg button.on{background:var(--raised);color:var(--text)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;border-radius:999px;padding:3px 9px;border:1px solid var(--line);white-space:nowrap}
+.pill i{width:7px;height:7px;border-radius:50%;display:inline-block}
+.pill.merged{color:var(--glaze);border-color:rgba(94,214,196,.4)} .pill.merged i{background:var(--glaze)}
+.pill.building{color:var(--warn);border-color:rgba(243,181,74,.4)} .pill.building i{background:var(--warn)}
+.pill.planned{color:var(--plan);border-color:rgba(154,168,255,.4)} .pill.planned i{background:var(--plan)}
+.pill.ask{color:var(--zone);border-color:rgba(255,134,185,.45)} .pill.ask i{background:var(--zone)}
+
+.change{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:24px;align-items:start;padding-block:28px;border-top:1px solid var(--line)}
+@media (max-width:900px){.change{grid-template-columns:minmax(0,1fr)}}
+.change h2{margin:0 0 4px;font-size:18px;letter-spacing:-.005em;text-wrap:balance;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.change h2 .tag{font-family:var(--mono);font-size:12px;color:var(--dim);font-weight:500}
+.text{min-width:0;font-size:14px;line-height:1.55}
+.text p{margin:8px 0;max-width:62ch}
+.text ul{margin:8px 0;padding-left:18px;display:grid;gap:4px;color:var(--dim)}
+.text ul b{color:var(--text);font-weight:600}
+.text .out{color:var(--gone)}
+.text .ask{border:1px solid rgba(255,134,185,.35);background:rgba(255,134,185,.06);border-radius:10px;padding:10px 12px;margin-top:12px}
+.text .ask b{color:var(--zone)}
+.shots{min-width:0;display:grid;gap:8px}
+.shotbar{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.shotbar .cap{font-size:12px;color:var(--dim);font-family:var(--mono)}
+
+/* ---------- The sketch: the iPad screen at 1180 x 820 points, in percentages ---------- */
+.dev{position:relative;width:100%;aspect-ratio:1180/820;max-width:100%;border-radius:12px;border:1px solid var(--line);overflow:hidden;
+  background:radial-gradient(120% 90% at 50% 40%,#232A31 0%,#14181D 60%,#0D0F12 100%);container-type:inline-size}
+.dev.narrow{aspect-ratio:680/820;width:48%}
+.dev.desk{aspect-ratio:1920/1080}
+.x{position:absolute;box-sizing:border-box}
+.model{border-radius:50%;background:radial-gradient(circle at 38% 32%,#F2E6DC 0%,#D8C2B0 30%,#A88C78 70%,#6E5A4C 100%);box-shadow:0 2cqw 5cqw rgba(0,0,0,.45)}
+.isl{background:rgba(22,26,31,.94);border:1px solid var(--line);border-radius:1.1cqw;display:flex;align-items:center;justify-content:space-evenly;gap:.3cqw;padding:.3cqw}
+.isl.v{flex-direction:column}
+.ic{width:2.1cqw;height:2.1cqw;border-radius:.6cqw;background:#2B333C}
+.ic.on{background:rgba(94,214,196,.55)}
+.lab{font-size:1.15cqw;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card{background:rgba(22,26,31,.97);border:1px solid var(--line);border-radius:1.1cqw;padding:.9cqw;display:flex;flex-direction:column;gap:.6cqw;overflow:hidden;box-shadow:0 1.2cqw 3cqw rgba(0,0,0,.45)}
+.card .hd{display:flex;align-items:center;gap:.6cqw;font-size:1.35cqw;font-weight:600;color:var(--text);white-space:nowrap}
+.card .hd .sp{flex:1}
+.card .hd .pin{width:1.3cqw;height:1.3cqw;border-radius:.3cqw;border:1px solid var(--faint)}
+.card .hd .pin.on{background:var(--glaze);border-color:var(--glaze)}
+.row{height:1.9cqw;border-radius:.5cqw;background:#232A31;flex:none}
+.row.s{width:70%}
+.row.acc{background:linear-gradient(90deg,rgba(94,214,196,.55) 55%,#232A31 55%)}
+.sec{font-size:1cqw;letter-spacing:.08em;color:var(--faint);text-transform:uppercase;flex:none}
+.sheet{background:rgba(22,26,31,.98);border:1px solid var(--line);border-radius:1.3cqw;padding:1.2cqw;box-shadow:0 2cqw 5cqw rgba(0,0,0,.55);display:flex;flex-direction:column;gap:.8cqw;overflow:hidden}
+.sheet .hd{display:flex;align-items:center;gap:.6cqw;font-size:1.7cqw;font-weight:600}
+.sheet .hd .sp{flex:1}
+.sheet .hd .cl{font-size:1.4cqw;color:var(--dim)}
+.win .tb{display:flex;align-items:center;gap:.5cqw;font-size:1.2cqw;color:var(--dim);border-bottom:1px solid var(--line);padding-bottom:.5cqw}
+.ghost{border:1.5px dashed var(--gone);border-radius:1.1cqw;background:rgba(240,122,110,.07);display:flex;align-items:center;justify-content:center;text-align:center;padding:.4cqw}
+.ghost span{font-size:1.2cqw;color:var(--gone);font-family:var(--mono)}
+.zone{background:repeating-linear-gradient(135deg,rgba(255,134,185,.12) 0 .6cqw,transparent .6cqw 1.2cqw);border-top:1.5px dashed var(--zone)}
+.zone span,.note{font-size:1.15cqw;color:var(--zone);font-family:var(--mono)}
+.note{background:rgba(10,12,15,.85);border:1px solid rgba(255,134,185,.5);border-radius:.6cqw;padding:.3cqw .6cqw;white-space:nowrap}
+.note.g{color:var(--glaze);border-color:rgba(94,214,196,.5)}
+.grip{height:.45cqw;border-radius:1cqw;background:rgba(231,236,240,.25)}
+.corner{width:1.4cqw;height:1.4cqw;border-right:2px solid rgba(231,236,240,.35);border-bottom:2px solid rgba(231,236,240,.35);border-bottom-right-radius:.5cqw}
+.dots{background-image:radial-gradient(rgba(94,214,196,.35) 1px,transparent 1.4px);background-size:2.2cqw 2.2cqw}
+.arrow{height:0;border-top:2px dashed var(--glaze)}
+.shelf{display:flex;gap:.5cqw;align-items:center;justify-content:center}
+.tile{width:4.2cqw;height:3.8cqw;border-radius:.7cqw;background:#232A31;display:flex;align-items:flex-end;justify-content:center;font-size:.95cqw;color:var(--dim);padding-bottom:.3cqw}
+.tile.on{background:rgba(94,214,196,.25);color:var(--text)}
+.pane-split{background:var(--line)}
+.dim{background:rgba(0,0,0,.28)}
+.devs{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
+@media (prefers-reduced-motion:no-preference){.dev .x{transition:opacity .2s}}
+</style>
+
+<div class="wrap">
+<header class="page">
+  <div>
+    <h1>Panels v2 changes</h1>
+    <p>Every change in the redesign, as the iPad screen looks before and after it. The model is the one you approved in mock v7.2: docks hold buttons, cards hold controls, sheets are opened and put away. Each row says whether it is merged, being built now, or still planned.</p>
+  </div>
+  <div style="display:grid;gap:10px;justify-items:end">
+    <div class="seg" role="group" aria-label="Show every sketch">
+      <button id="allBefore" data-all="before">All before</button>
+      <button id="allAfter" data-all="after" class="on">All after</button>
+    </div>
+    <div class="legend">
+      <span class="pill merged"><i></i>merged</span>
+      <span class="pill building"><i></i>building now</span>
+      <span class="pill planned"><i></i>planned</span>
+      <span class="pill ask"><i></i>your call</span>
+    </div>
+  </div>
+</header>
+
+<div id="list"></div>
+</div>
+
+<script>
+// Each sketch is a list of boxes in the iPad's own points (1180 x 820), drawn in percentages.
+const W = 1180, H = 820;
+const box = (x, y, w, h, cls, html = '', style = '') => ({x, y, w, h, cls, html, style});
+const icons = (n, on = -1) => Array.from({length: n}, (_, i) => `<div class="ic${i === on ? ' on' : ''}"></div>`).join('');
+const rows = (n, acc = 1) => Array.from({length: n}, (_, i) => `<div class="row${i === acc ? ' acc' : i % 3 === 2 ? ' s' : ''}"></div>`).join('');
+const cardHtml = (title, n, pin = false, sec = '') => `<div class="hd">${title}<span class="sp"></span><span class="pin${pin ? ' on' : ''}"></span></div>${sec ? `<div class="sec">${sec}</div>` : ''}${rows(n)}`;
+
+// What every screen shares: the model, the top bar's three islands, the off-hand island and the shelf.
+function base({shelf = true, pen = true, model = true} = {}) {
+  const b = [];
+  if (model) b.push(box(400, 170, 380, 380, 'model'));
+  b.push(box(8, 8, 300, 44, 'isl', icons(5)));
+  b.push(box(400, 8, 380, 44, 'isl', `<span class="lab" style="color:var(--glaze)">Sculpt</span><span class="lab">Model</span><span class="lab">Render</span><span class="lab">Sphere 1</span>`));
+  b.push(box(1030, 8, 142, 44, 'isl', icons(3)));
+  b.push(box(12, 250, 50, 300, 'isl v', icons(4, 0)));
+  if (pen) b.push(box(1124, 80, 48, 330, 'isl v', icons(7)));
+  if (shelf) b.push(box(300, 730, 580, 68, 'isl shelf', ['All', 'Clay', 'Draw', 'Smooth', 'Move', 'Pinch', 'Inflate', 'Mask'].map((t, i) => `<div class="tile${i === 1 ? ' on' : ''}">${t}</div>`).join('')));
+  return b;
+}
+
+const CHANGES = [
+  {
+    id: 'cards', tag: 'PR A · #607', status: 'merged', title: 'Cards replace the palettes, the stack and the tray',
+    text: `<p>A dock button opens its card beside the dock. There are 12 cards (Tool, Layers, Scene, Mesh, Mask, Deform, Paint, Colours, Symmetry, Look, Render, History). The 42 palette sections are folds inside them.</p>
+      <ul><li><b>Tap</b> opens a card and a second tap closes it. A press on the model closes it without sculpting.</li>
+      <li><b>Pin</b> keeps a card resting in its column. On a tablet one card shows at a time, and the pinned one comes back when the other closes.</li>
+      <li><b>Palm zone:</b> with the pen, the column stops above the lower 42% on the pen side.</li>
+      <li><b>Show where</b> opens the card on its section and marks the control.</li>
+      <li class="out">Gone: the three palettes, the stack and its groups, the tray, the Inspector ("Main palette"), and the Objects window.</li></ul>`,
+    before: () => [...base(),
+      box(800, 64, 312, 210, 'ghost', '<span>Tool palette</span>'), box(800, 282, 312, 170, 'ghost', '<span>Object palette</span>'),
+      box(800, 460, 312, 120, 'ghost', '<span>Scene palette</span>'), box(800, 588, 312, 70, 'ghost', '<span>tray</span>')],
+    after: () => [...base(),
+      box(800, 64, 312, 400, 'card', cardHtml('Tool', 9, false, 'Stroke')),
+      box(800, 478, 324, 240, 'zone', '<span style="position:absolute;left:8px;top:6px">palm zone · lower 42%</span>'),
+      box(1060, 92, 60, 26, 'note g', 'tap')],
+  },
+  {
+    id: 'float', tag: 'PR B · #608', status: 'merged', title: 'Drag a card out to float it',
+    text: `<p>Drag a card's title off its column and it floats where you drop it. Floating cards keep their place in the layout. Drop one back on its column and it rests there pinned. A tap on its dock button closes it.</p>`,
+    before: () => [...base(), box(800, 64, 312, 400, 'card', cardHtml('Tool', 9))],
+    after: () => [...base(), box(110, 140, 312, 380, 'card', cardHtml('Tool', 8)), box(430, 100, 360, 2, 'arrow'), box(560, 70, 120, 24, 'note g', 'drag the title')],
+  },
+  {
+    id: 'cards2', tag: 'PR C1 · #609', status: 'merged', title: 'History and Colours become cards',
+    text: `<p>The History and Colours windows are now cards like the rest. They open from the History button in the top bar, from Search, or from a dock button. They can be pinned and floated.</p>
+      <p class="out">Gone: the History and Colours windows, and the commands that opened them.</p>`,
+    before: () => [...base(), box(70, 70, 300, 300, 'card win', `<div class="tb">History ▾ — ✕</div>${rows(6)}`), box(800, 380, 312, 300, 'card win', `<div class="tb">Colours — ✕</div><div class="x" style="position:static;height:45%;border-radius:.6cqw;background:conic-gradient(from 0deg,#f66,#fd6,#6f6,#6ff,#66f,#f6f,#f66)"></div>${rows(2, -1)}`)],
+    after: () => [...base(), box(732, 64, 380, 400, 'card', cardHtml('History', 9, true, 'Steps')), box(1050, 30, 60, 24, 'note g', 'History')],
+  },
+  {
+    id: 'sheets', tag: 'PR C2', status: 'building', title: 'Settings, Help and Macros become sheets',
+    text: `<p>Settings, Help and Macros now open the way the Export sheet does. The sheet comes down centred under the top bar with Close (Esc), and a press anywhere outside puts it away without sculpting. Only one is open at a time. Settings keeps its two columns when there is room and drills down on a narrow window.</p>
+      <ul><li class="out">Gone: their windows on the right (moving, minimising, the shared side-panel place) and the room other bars kept clear for them.</li></ul>
+      <div class="ask"><b>Your call: Stats.</b> The plan made Stats a "Details" sheet. I'd rather make it a <b>Details card</b>: you can pin it and it stays live while you sculpt, which a sheet can't. I'm keeping Stats as a window in this PR and will make it a card unless you say sheet.</div>`,
+    before: () => [...base({pen: false}), box(760, 64, 400, 640, 'card win', `<div class="tb">Settings — ✕</div><div class="row"></div>${rows(10, -1)}`)],
+    after: () => [...base(), box(200, 76, 780, 600, 'sheet', `<div class="hd">⚙ Settings<span class="sp"></span><span class="cl">✕</span></div>
+      <div style="display:flex;gap:1.4cqw;flex:1"><div style="width:24%;display:flex;flex-direction:column;gap:.6cqw">${['Interface','Camera','Touch','Pen','Dial','Performance','Frame rate','Bars','Files','Shortcuts'].map((t,i)=>`<div class="lab" style="padding:.3cqw .6cqw;border-radius:.5cqw;${i===0?'background:rgba(94,214,196,.18);color:var(--text)':''}">${t}</div>`).join('')}</div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:.6cqw"><div class="sec">Look</div>${rows(11)}</div></div>`),
+      box(900, 690, 200, 24, 'note', 'press outside: closes')],
+  },
+  {
+    id: 'docks', tag: 'PR D', status: 'planned', title: 'Docks go anywhere, the shelf too',
+    text: `<p>This is what you asked for: docks move like Affinity's, and the shelf moves too.</p>
+      <ul><li><b>Faint grip</b> on a dock's end moves it. It snaps to any edge or floats, and keeps the soft grid alignment you have now.</li>
+      <li><b>Top or bottom edge</b> makes a dock a row. A left or right edge makes it a column.</li>
+      <li><b>Faint corner handle</b> sets 1 to 3 lines of buttons.</li>
+      <li>A card opens beside its dock on the side facing the middle. From a row it opens below when the dock is high and above when it is low.</li></ul>`,
+    before: () => [...base()],
+    after: () => {
+      const b = base({shelf: false, pen: false});
+      b.unshift(box(80, 60, 1020, 700, 'dots'));
+      b.push(box(12, 570, 50, 200, 'ghost', '<span>was</span>'));
+      b.push(box(1070, 70, 102, 260, 'isl', `<div style="display:grid;grid-template-columns:auto auto;gap:.4cqw">${icons(10)}</div>`));
+      b.push(box(1100, 74, 46, 4, 'grip'), box(1150, 310, 18, 18, 'corner'));
+      b.push(box(250, 64, 680, 50, 'isl', icons(12, 2)), box(560, 68, 60, 4, 'grip'));
+      b.push(box(6, 590, 90, 220, 'isl v', ['Clay','Draw','Move'].map((t,i)=>`<div class="tile${i===0?' on':''}">${t}</div>`).join('')), box(30, 594, 40, 4, 'grip'));
+      b.push(box(944, 340, 160, 24, 'note g', 'corner: 2 lines'), box(290, 120, 190, 24, 'note g', 'top edge: a row'), box(104, 700, 160, 24, 'note g', 'shelf on the left'));
+      return b;
+    },
+  },
+  {
+    id: 'layouts', tag: 'PR E', status: 'planned', title: 'One layout per space',
+    text: `<p>Sculpt, Model and Render each remember their own layout: docks, pinned and floating cards. Change it and it is kept, with an amber dot on the tab until saved. <b>Reset layout</b> puts the space's layout back as it ships.</p>
+      <p class="out">Gone: named workspaces, the Workspaces menu and its Save as, Rename, Revert, Export and Import.</p>`,
+    before: () => [...base(), box(400, 60, 280, 250, 'card', `<div class="sec">Workspaces</div>${['Sculpt default ✓','My sculpt 2','Paint setup','Retopo','Save as…','Export…'].map(t=>`<div class="lab" style="font-size:1.25cqw">${t}</div>`).join('')}`)],
+    after: () => [...base(), box(470, 30, 10, 10, 'x', '', 'border-radius:50%;background:var(--warn)'),
+      box(400, 60, 280, 120, 'card', `<div class="sec">Sculpt layout</div><div class="lab" style="font-size:1.25cqw;color:var(--text)">Keep changes</div><div class="lab" style="font-size:1.25cqw;color:var(--text)">Reset layout</div>`),
+      box(500, 190, 220, 24, 'note g', 'each space its own')],
+  },
+  {
+    id: 'platforms', tag: 'PR F', status: 'planned', title: 'Phones, mice and Android edges',
+    text: `<ul><li><b>Under 900 points wide</b>, a card opens as a bottom sheet that covers the lower half and drags taller.</li>
+      <li><b>With a mouse</b>, cards use compact 32-point rows and a column holds two cards: the pinned one above the one opened under it.</li>
+      <li><b>Android</b>: docks on the side edges ask the system to leave their strip to the app, so the back gesture doesn't steal a drag.</li></ul>`,
+    multi: true,
+    before: () => null,
+    after: () => null,
+  },
+  {
+    id: 'pane', tag: 'PR G', status: 'planned', title: 'The second view becomes a pane',
+    text: `<p>The Thumbnail window goes. A second view is a pane of the view grid, with its own camera and pass, which you size with the divider. The touch suite and the README are brought in line, and the last of the old window code goes.</p>
+      <p class="out">Gone: the Thumbnail window, and with it the last windows except Stats (see the Stats question above).</p>`,
+    before: () => [...base(), box(900, 520, 210, 190, 'card win', `<div class="tb">Thumbnail — ✕</div><div class="x" style="position:static;flex:1;border-radius:.6cqw;background:radial-gradient(circle at 50% 50%,#bbb 0 30%,#333 31%)"></div>`)],
+    after: () => {
+      const b = base({model: false});
+      b.unshift(box(200, 200, 300, 300, 'model'), box(800, 250, 200, 200, 'model', '', 'filter:grayscale(1) brightness(.8)'), box(700, 60, 3, 660, 'pane-split'));
+      b.push(box(720, 70, 150, 24, 'note g', 'Side · Normals'), box(600, 380, 200, 24, 'note g', 'drag the divider'));
+      return b;
+    },
+  },
+];
+
+// The Phones, mice and Android row draws three screens of its own.
+function platformShots(after) {
+  const narrow = [box(8, 8, 664, 44, 'isl', icons(6)), box(190, 220, 300, 300, 'model'), box(8, 300, 46, 220, 'isl v', icons(4, 0)),
+    after ? box(0, 420, 680, 400, 'card', `<div style="align-self:center;width:8cqw;height:.8cqw;border-radius:1cqw;background:var(--faint)"></div>${cardHtml('Tool', 8)}`)
+          : box(330, 64, 340, 600, 'ghost', '<span>card covers the model</span>')];
+  const desk = [box(8, 8, 420, 44, 'isl', icons(6)), box(740, 230, 440, 440, 'model'), box(1860, 80, 52, 400, 'isl v', icons(8)),
+    after ? box(1540, 64, 312, 440, 'card', `${cardHtml('Look', 12, true)}`) : box(1540, 64, 312, 700, 'card', cardHtml('Tool', 14)),
+    ...(after ? [box(1540, 516, 312, 440, 'card', cardHtml('Tool', 12))] : [])];
+  const android = [...base(), ...(after ? [box(0, 60, 24, 700, 'zone', '', 'border-top:0;border-right:1.5px dashed var(--zone)'), box(1156, 60, 24, 700, 'zone', '', 'border-top:0;border-left:1.5px dashed var(--zone)'), box(900, 440, 220, 24, 'note', 'kept from the back gesture')] : [])];
+  return [{label: 'Narrow 680×820', w: 680, h: 820, cls: 'narrow', boxes: narrow}, {label: 'Mouse 1920×1080', w: 1920, h: 1080, cls: 'desk', boxes: desk}, {label: 'Android tablet', w: W, h: H, cls: '', boxes: android}];
+}
+
+function devHtml(boxes, w = W, h = H, cls = '') {
+  return `<div class="dev ${cls}">${boxes.map(b => `<div class="x ${b.cls}" style="left:${b.x / w * 100}%;top:${b.y / h * 100}%;width:${b.w / w * 100}%;height:${b.h / h * 100}%;${b.style}">${b.html}</div>`).join('')}</div>`;
+}
+
+const state = {};
+function render() {
+  document.getElementById('list').innerHTML = CHANGES.map(c => {
+    const side = state[c.id] || 'after';
+    let shots;
+    if (c.multi) {
+      const p = platformShots(side === 'after');
+      shots = `<div class="devs">${p.map(s => `<div style="flex:${s.cls === 'narrow' ? '0 0 28%' : '1 1 34%'};min-width:0;display:grid;gap:4px"><span class="cap" style="font-size:11px;color:var(--dim);font-family:var(--mono)">${s.label}</span>${devHtml(s.boxes, s.w, s.h, s.cls === 'narrow' ? '' : s.cls).replace('class="dev ', `style="aspect-ratio:${s.w}/${s.h}" class="dev `)}</div>`).join('')}</div>`;
+    } else shots = devHtml(c[side]());
+    return `<section class="change" id="${c.id}">
+      <div class="shots">
+        <div class="shotbar"><span class="cap">${side === 'after' ? 'after' : 'before'}</span>
+          <div class="seg" role="group" aria-label="Before or after"><button data-id="${c.id}" data-side="before" class="${side === 'before' ? 'on' : ''}">Before</button><button data-id="${c.id}" data-side="after" class="${side === 'after' ? 'on' : ''}">After</button></div></div>
+        ${shots}
+      </div>
+      <div class="text"><h2>${c.title}<span class="pill ${c.status}"><i></i>${c.status === 'building' ? 'building now' : c.status}</span></h2><div class="tag" style="font-family:var(--mono);font-size:12px;color:var(--dim)">${c.tag}</div>${c.text}</div>
+    </section>`;
+  }).join('');
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.id) { state[b.dataset.id] = b.dataset.side; render(); }
+  if (b.dataset.all) {
+    for (const c of CHANGES) state[c.id] = b.dataset.all;
+    document.querySelectorAll('[data-all]').forEach(x => x.classList.toggle('on', x === b));
+    render();
+  }
+});
+render();
+</script>

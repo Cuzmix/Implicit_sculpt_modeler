@@ -1,0 +1,489 @@
+<title>Panels v2: D1 to G</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one row per change, a before/after sketch of the iPad screen beside what changes and where it stands.
+   One dark world on purpose, the app's own (Lens), as the v7 mock is. */
+:root{
+  --frame:#0D0F12; --surface:#161A1F; --raised:#1E242B; --line:#2A3139; --text:#E7ECF0; --dim:#8C98A4; --faint:#56616C;
+  --glaze:#5ED6C4; --glaze-ink:#06201C; --warn:#F3B54A; --gone:#F07A6E; --zone:#FF86B9; --plan:#9AA8FF;
+  --page:#0A0C0F; --page-text:#D9E0E6;
+  --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{background:var(--page);color:var(--page-text);font-family:var(--sans)}
+body{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 48px}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit}
+button:focus-visible{outline:2px solid var(--glaze);outline-offset:2px}
+.wrap{max-width:1240px;margin:0 auto}
+header.page{display:flex;flex-wrap:wrap;gap:16px 32px;align-items:flex-end;justify-content:space-between;margin-bottom:24px}
+header.page h1{font-size:24px;margin:0;letter-spacing:-.01em;text-wrap:balance}
+header.page p{margin:6px 0 0;color:var(--dim);max-width:68ch;line-height:1.5}
+.legend{display:flex;flex-wrap:wrap;gap:8px;font-size:12.5px;color:var(--dim)}
+.seg{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px}
+.seg button{background:none;border:0;padding:6px 12px;border-radius:7px;cursor:pointer;color:var(--dim);font-size:13px}
+.seg button.on{background:var(--raised);color:var(--text)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;border-radius:999px;padding:3px 9px;border:1px solid var(--line);white-space:nowrap}
+.pill i{width:7px;height:7px;border-radius:50%;display:inline-block}
+.pill.merged{color:var(--glaze);border-color:rgba(94,214,196,.4)} .pill.merged i{background:var(--glaze)}
+.pill.building{color:var(--warn);border-color:rgba(243,181,74,.4)} .pill.building i{background:var(--warn)}
+.pill.planned{color:var(--plan);border-color:rgba(154,168,255,.4)} .pill.planned i{background:var(--plan)}
+.pill.ask{color:var(--zone);border-color:rgba(255,134,185,.45)} .pill.ask i{background:var(--zone)}
+
+.change{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:24px;align-items:start;padding-block:28px;border-top:1px solid var(--line)}
+@media (max-width:900px){.change{grid-template-columns:minmax(0,1fr)}}
+.change h2{margin:0 0 4px;font-size:18px;letter-spacing:-.005em;text-wrap:balance;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.change h2 .tag{font-family:var(--mono);font-size:12px;color:var(--dim);font-weight:500}
+.text{min-width:0;font-size:14px;line-height:1.55}
+.text p{margin:8px 0;max-width:62ch}
+.text ul{margin:8px 0;padding-left:18px;display:grid;gap:4px;color:var(--dim)}
+.text ul b{color:var(--text);font-weight:600}
+.text .out{color:var(--gone)}
+.text .ask{border:1px solid rgba(255,134,185,.35);background:rgba(255,134,185,.06);border-radius:10px;padding:10px 12px;margin-top:12px}
+.text .ask b{color:var(--zone)}
+.shots{min-width:0;display:grid;gap:8px}
+.shotbar{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.shotbar .cap{font-size:12px;color:var(--dim);font-family:var(--mono)}
+
+/* ---------- The sketch: the iPad screen at 1180 x 820 points, in percentages ---------- */
+.dev{position:relative;width:100%;aspect-ratio:1180/820;max-width:100%;border-radius:12px;border:1px solid var(--line);overflow:hidden;
+  background:radial-gradient(120% 90% at 50% 40%,#232A31 0%,#14181D 60%,#0D0F12 100%);container-type:inline-size}
+.dev.narrow{aspect-ratio:680/820;width:48%}
+.dev.desk{aspect-ratio:1920/1080}
+.x{position:absolute;box-sizing:border-box}
+.model{border-radius:50%;background:radial-gradient(circle at 38% 32%,#F2E6DC 0%,#D8C2B0 30%,#A88C78 70%,#6E5A4C 100%);box-shadow:0 2cqw 5cqw rgba(0,0,0,.45)}
+.isl{background:rgba(22,26,31,.94);border:1px solid var(--line);border-radius:1.1cqw;display:flex;align-items:center;justify-content:space-evenly;gap:.3cqw;padding:.3cqw}
+.isl.v{flex-direction:column}
+.ic{width:2.1cqw;height:2.1cqw;border-radius:.6cqw;background:#2B333C}
+.ic.on{background:rgba(94,214,196,.55)}
+.lab{font-size:1.15cqw;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card{background:rgba(22,26,31,.97);border:1px solid var(--line);border-radius:1.1cqw;padding:.9cqw;display:flex;flex-direction:column;gap:.6cqw;overflow:hidden;box-shadow:0 1.2cqw 3cqw rgba(0,0,0,.45)}
+.card .hd{display:flex;align-items:center;gap:.6cqw;font-size:1.35cqw;font-weight:600;color:var(--text);white-space:nowrap}
+.card .hd .sp{flex:1}
+.card .hd .pin{width:1.3cqw;height:1.3cqw;border-radius:.3cqw;border:1px solid var(--faint)}
+.card .hd .pin.on{background:var(--glaze);border-color:var(--glaze)}
+.row{height:1.9cqw;border-radius:.5cqw;background:#232A31;flex:none}
+.row.s{width:70%}
+.row.acc{background:linear-gradient(90deg,rgba(94,214,196,.55) 55%,#232A31 55%)}
+.sec{font-size:1cqw;letter-spacing:.08em;color:var(--faint);text-transform:uppercase;flex:none}
+.sheet{background:rgba(22,26,31,.98);border:1px solid var(--line);border-radius:1.3cqw;padding:1.2cqw;box-shadow:0 2cqw 5cqw rgba(0,0,0,.55);display:flex;flex-direction:column;gap:.8cqw;overflow:hidden}
+.sheet .hd{display:flex;align-items:center;gap:.6cqw;font-size:1.7cqw;font-weight:600}
+.sheet .hd .sp{flex:1}
+.sheet .hd .cl{font-size:1.4cqw;color:var(--dim)}
+.win .tb{display:flex;align-items:center;gap:.5cqw;font-size:1.2cqw;color:var(--dim);border-bottom:1px solid var(--line);padding-bottom:.5cqw}
+.ghost{border:1.5px dashed var(--gone);border-radius:1.1cqw;background:rgba(240,122,110,.07);display:flex;align-items:center;justify-content:center;text-align:center;padding:.4cqw}
+.ghost span{font-size:1.2cqw;color:var(--gone);font-family:var(--mono)}
+.zone{background:repeating-linear-gradient(135deg,rgba(255,134,185,.12) 0 .6cqw,transparent .6cqw 1.2cqw);border-top:1.5px dashed var(--zone)}
+.zone span,.note{font-size:1.15cqw;color:var(--zone);font-family:var(--mono)}
+.note{background:rgba(10,12,15,.85);border:1px solid rgba(255,134,185,.5);border-radius:.6cqw;padding:.3cqw .6cqw;white-space:nowrap}
+.note.g{color:var(--glaze);border-color:rgba(94,214,196,.5)}
+.grip{height:.45cqw;border-radius:1cqw;background:rgba(231,236,240,.25)}
+.corner{width:1.4cqw;height:1.4cqw;border-right:2px solid rgba(231,236,240,.35);border-bottom:2px solid rgba(231,236,240,.35);border-bottom-right-radius:.5cqw}
+.dots{background-image:radial-gradient(rgba(94,214,196,.35) 1px,transparent 1.4px);background-size:2.2cqw 2.2cqw}
+.arrow{height:0;border-top:2px dashed var(--glaze)}
+.shelf{display:flex;gap:.5cqw;align-items:center;justify-content:center}
+.tile{width:4.2cqw;height:3.8cqw;border-radius:.7cqw;background:#232A31;display:flex;align-items:flex-end;justify-content:center;font-size:.95cqw;color:var(--dim);padding-bottom:.3cqw}
+.tile.on{background:rgba(94,214,196,.25);color:var(--text)}
+.pane-split{background:var(--line)}
+.dim{background:rgba(0,0,0,.28)}
+.devs{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
+@media (prefers-reduced-motion:no-preference){.dev .x{transition:opacity .2s}}
+</style>
+
+<div class="wrap">
+<header class="page">
+<style>
+/* The playground: the same iPad screen, but its docks really move. */
+.play{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:24px;align-items:start;padding-block:24px 28px;border-top:1px solid var(--line)}
+@media (max-width:900px){.play{grid-template-columns:minmax(0,1fr)}}
+#stage{touch-action:none;user-select:none;-webkit-user-select:none}
+#stage .dk{position:absolute;background:rgba(22,26,31,.95);border:1px solid var(--line);border-radius:1.1cqw;display:grid;gap:.35cqw;padding:.35cqw;align-content:start;justify-content:start}
+#stage .dk.carry{opacity:.85;box-shadow:0 0 0 2px var(--glaze);z-index:5}
+#stage .dk .b{width:3.4cqw;height:3.4cqw;border-radius:.7cqw;background:#2B333C}
+#stage .dk .b.on{background:rgba(94,214,196,.5)}
+#stage .dk .t{width:5.2cqw;height:4.6cqw;border-radius:.7cqw;background:#232A31;display:flex;align-items:flex-end;justify-content:center;font-size:.95cqw;color:var(--dim);padding-bottom:.3cqw}
+#stage .dk .t.on{background:rgba(94,214,196,.25);color:var(--text)}
+#stage .gr{position:absolute;cursor:grab;display:flex;align-items:center;justify-content:center}
+#stage .gr::after{content:"";border-radius:1cqw;background:rgba(231,236,240,.28);transition:background .15s}
+#stage .gr.col::after{width:3cqw;height:.45cqw}
+#stage .gr.row::after{width:.45cqw;height:3cqw}
+#stage .gr:hover::after,#stage .dk.carry .gr::after{background:rgba(231,236,240,.85)}
+#stage .cn{position:absolute;width:2.4cqw;height:2.4cqw;cursor:nwse-resize}
+#stage .cn::after{content:"";position:absolute;inset:.5cqw;border:0 solid rgba(231,236,240,.3);border-right-width:2px;border-bottom-width:2px;border-bottom-right-radius:.5cqw}
+#stage .cn:hover::after{border-color:var(--glaze)}
+#stage .cn.flip::after{border-right-width:0;border-left-width:2px;border-bottom-right-radius:0;border-bottom-left-radius:.5cqw}
+#stage .cn.up::after{border-bottom-width:0;border-top-width:2px;border-bottom-right-radius:0;border-top-right-radius:.5cqw}
+#stage .edge{position:absolute;background:rgba(94,214,196,.10);border:1.5px dashed rgba(94,214,196,.45);border-radius:1cqw;opacity:0;transition:opacity .15s;pointer-events:none}
+#stage.carrying .edge.ok{opacity:1}
+#stage .edge.hot{background:rgba(94,214,196,.28);border-color:var(--glaze)}
+#stage .dotsbg{position:absolute;inset:0;opacity:0;transition:opacity .15s;pointer-events:none}
+#stage.carrying .dotsbg{opacity:1}
+#stage .menu{position:absolute;z-index:9;background:rgba(30,36,43,.98);border:1px solid var(--line);border-radius:1cqw;padding:.5cqw;display:grid;gap:.15cqw;min-width:17cqw;box-shadow:0 1.5cqw 4cqw rgba(0,0,0,.5)}
+#stage .menu div{font-size:1.25cqw;padding:.45cqw .7cqw;border-radius:.6cqw;color:var(--text);display:flex;justify-content:space-between;gap:1cqw;cursor:pointer}
+#stage .menu div:hover{background:var(--raised)}
+#stage .menu div em{font-style:normal;color:var(--dim)}
+#stage .menu .h{color:var(--faint);font-size:1cqw;letter-spacing:.08em;text-transform:uppercase;cursor:default}
+#stage .menu .h:hover{background:none}
+#stage .tag{position:absolute;font-family:var(--mono);font-size:1.05cqw;color:var(--glaze);background:rgba(10,12,15,.85);border:1px solid rgba(94,214,196,.5);border-radius:.5cqw;padding:.2cqw .5cqw;white-space:nowrap;pointer-events:none;z-index:6}
+.readout{font-family:var(--mono);font-size:12px;color:var(--dim);display:flex;flex-wrap:wrap;gap:6px 14px}
+.readout b{color:var(--text);font-weight:500}
+.try{display:grid;gap:6px;margin:10px 0;padding:0;list-style:none}
+.try li{display:flex;gap:10px;align-items:baseline;color:var(--dim)}
+.try li span{flex:none;font-family:var(--mono);font-size:11px;color:var(--glaze);border:1px solid rgba(94,214,196,.4);border-radius:6px;padding:1px 6px}
+.steps{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
+.steps a{text-decoration:none;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:13px;display:grid;gap:2px;min-width:0}
+.steps a small{color:var(--dim);font-size:11.5px}
+.steps a:hover{border-color:var(--glaze)}
+.tally{font-family:var(--mono);font-size:12px;color:var(--gone)}
+.text .keep{color:var(--glaze)}
+</style>
+
+<div class="wrap">
+<header class="page">
+  <div>
+    <h1>Panels v2, D1 to G</h1>
+    <p>What the last five PRs of the redesign do, as the iPad screen looks before and after each. The first part is a playground: its docks move and size the way D1 and D2 will make them. Every step also says what it deletes, since the aim is fewer things that each work one way.</p>
+  </div>
+  <div style="display:grid;gap:10px;justify-items:end">
+    <div class="seg" role="group" aria-label="Show every sketch">
+      <button data-all="before">All before</button>
+      <button data-all="after" class="on">All after</button>
+    </div>
+    <div class="legend">
+      <span class="pill building"><i></i>next</span>
+      <span class="pill planned"><i></i>planned</span>
+      <span class="pill ask"><i></i>your call</span>
+    </div>
+  </div>
+</header>
+
+<nav class="steps" aria-label="Steps">
+  <a href="#play">D1 + D2 playground<small>drag the docks</small></a>
+  <a href="#d1">D1 · grip and corner<small>no Edit docks to move</small></a>
+  <a href="#d2">D2 · any edge<small>top rows, shelf moves</small></a>
+  <a href="#e">E · one layout per space<small>no named workspaces</small></a>
+  <a href="#f">F · phones, mice, Android<small>bottom sheet, compact rows</small></a>
+  <a href="#g">G · second view as a pane<small>last window goes</small></a>
+</nav>
+
+<section class="play" id="play">
+  <div class="shots">
+    <div class="shotbar">
+      <span class="cap" id="modeCap">D2: any edge</span>
+      <div class="seg" role="group" aria-label="Which PR">
+        <button data-mode="d1">After D1</button>
+        <button data-mode="d2" class="on">After D2</button>
+      </div>
+    </div>
+    <div class="dev" id="stage"></div>
+    <div class="readout" id="readout"></div>
+  </div>
+  <div class="text">
+    <h2>Playground <span class="pill building"><i></i>D1 next</span></h2>
+    <p>Every dock carries a faint grip at its start and a faint corner on the side facing the middle. They are there all the time, not only in Edit docks.</p>
+    <ul class="try">
+      <li><span>drag grip</span>Carry the dock. Edge strips light up. Drop near an edge to dock there, or anywhere else to float on the soft grid.</li>
+      <li><span>tap grip</span>The dock's menu: lines, names, Edit buttons, Reset place.</li>
+      <li><span>drag corner</span>Away from the edge for more lines of buttons (1 to 3), back for fewer.</li>
+      <li><span>D1 vs D2</span>After D1, columns take the left and right edges or float, and the shelf stays at the bottom. After D2, a top or bottom edge turns any dock into a row, and the shelf moves too.</li>
+    </ul>
+    <p>Two docks on one edge swap places when one is dropped on the other, as Arrange does today.</p>
+  </div>
+</section>
+
+<div id="list"></div>
+</div>
+
+<script>
+/* ---------------- The playground ---------------- */
+const W = 1180, H = 820, TOP = 60, M = 12, BTN = 40, GAP = 4, PAD = 4, GRIP = 14, SNAP = 80, GRID = 26;
+const stage = document.getElementById('stage');
+let mode = 'd2';
+const START = () => [
+  {id: 'rail', name: 'View bar', n: 5, edge: 'left', along: .5, lines: 1, x: 0, y: 0, on: 0},
+  {id: 'brush', name: 'Brush bar', n: 8, edge: 'right', along: .32, lines: 1, x: 0, y: 0, on: -1},
+  {id: 'shelf', name: 'Shelf', n: 8, edge: 'bottom', along: .5, lines: 1, x: 0, y: 0, on: 1, tiles: ['All', 'Clay', 'Draw', 'Smooth', 'Move', 'Pinch', 'Inflate', 'Mask']},
+];
+let docks = START();
+let menu = null, drag = null;
+
+const isRow = d => d.edge === 'top' || d.edge === 'bottom' || (d.edge === 'float' && d.floatRow);
+function cell(d) { return d.tiles ? {w: 60, h: 54} : {w: BTN, h: BTN}; }
+function size(d) {
+  const c = cell(d), per = Math.ceil(d.n / d.lines);
+  if (isRow(d)) return {w: GRIP + PAD * 2 + per * c.w + (per - 1) * GAP, h: PAD * 2 + d.lines * c.h + (d.lines - 1) * GAP};
+  return {w: PAD * 2 + d.lines * c.w + (d.lines - 1) * GAP, h: GRIP + PAD * 2 + per * c.h + (per - 1) * GAP};
+}
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function place(d) {
+  const s = size(d);
+  // A top dock stands under the top bar; columns start under it and stop above a bottom one.
+  const topRow = docks.filter(o => o !== d && o.edge === 'top' && mode === 'd2').reduce((m, o) => Math.max(m, size(o).h + 8), 0);
+  const botRow = docks.filter(o => o !== d && o.edge === 'bottom').reduce((m, o) => Math.max(m, size(o).h + 8), 0);
+  switch (d.edge) {
+    case 'left': return {x: M, y: clamp(d.along * H - s.h / 2, TOP + topRow, H - M - botRow - s.h), ...s};
+    case 'right': return {x: W - M - s.w, y: clamp(d.along * H - s.h / 2, TOP + topRow, H - M - botRow - s.h), ...s};
+    case 'top': return {x: clamp(d.along * W - s.w / 2, M + 70, W - M - 70 - s.w), y: TOP, ...s};
+    case 'bottom': return {x: clamp(d.along * W - s.w / 2, M + 70, W - M - 70 - s.w), y: H - M - s.h, ...s};
+    default: return {x: clamp(d.x, 0, W - s.w), y: clamp(d.y, TOP, H - s.h), ...s};
+  }
+}
+function edgesFor(d) {
+  if (mode === 'd1') return d.id === 'shelf' ? [] : ['left', 'right', 'float'];
+  return ['left', 'right', 'top', 'bottom', 'float'];
+}
+const pct = (v, of) => `${v / of * 100}%`;
+function boxStyle(x, y, w, h) { return `left:${pct(x, W)};top:${pct(y, H)};width:${pct(w, W)};height:${pct(h, H)}`; }
+
+function draw() {
+  const carrying = drag && drag.kind === 'move' && drag.moved;
+  stage.className = 'dev' + (carrying ? ' carrying' : '');
+  let html = `<div class="dotsbg dots"></div>`;
+  // The model and the top bar's three islands, as in every sketch.
+  html += `<div class="x model" style="${boxStyle(410, 200, 360, 360)}"></div>`;
+  html += `<div class="x isl" style="${boxStyle(8, 8, 300, 44)}">${'<div class="ic"></div>'.repeat(5)}</div>`;
+  html += `<div class="x isl" style="${boxStyle(400, 8, 380, 44)}"><span class="lab" style="color:var(--glaze)">Sculpt</span><span class="lab">Model</span><span class="lab">Render</span><span class="lab">Sphere 1</span></div>`;
+  html += `<div class="x isl" style="${boxStyle(1030, 8, 142, 44)}">${'<div class="ic"></div>'.repeat(3)}</div>`;
+  // The edge strips a carried dock can take.
+  if (drag && drag.kind === 'move') {
+    const ok = edgesFor(drag.d), hot = drag.target;
+    const strips = {left: [0, TOP, 70, H - TOP], right: [W - 70, TOP, 70, H - TOP], top: [70, TOP - 4, W - 140, 64], bottom: [70, H - 70, W - 140, 70]};
+    for (const [e, r] of Object.entries(strips)) html += `<div class="edge${ok.includes(e) ? ' ok' : ''}${hot === e ? ' hot' : ''}" style="${boxStyle(...r)}"></div>`;
+  }
+  for (const d of docks) {
+    const p = drag && drag.d === d && drag.kind === 'move' && drag.moved ? {...size(d), x: drag.x, y: drag.y} : place(d);
+    const row = isRow(d), c = cell(d), per = Math.ceil(d.n / d.lines);
+    const cols = row ? per : d.lines;
+    const items = Array.from({length: d.n}, (_, i) => d.tiles ? `<div class="t${i === d.on ? ' on' : ''}">${d.tiles[i]}</div>` : `<div class="b${i === d.on ? ' on' : ''}"></div>`);
+    // Rows fill along the dock, lines across it.
+    const order = row ? items : items;
+    const grid = `grid-template-columns:repeat(${cols},${c.w / W * 100}cqw);grid-auto-rows:${c.h / W * 100}cqw;` +
+      (row ? `padding-left:${(GRIP + PAD) / W * 100}cqw` : `padding-top:${(GRIP + PAD) / W * 100}cqw`);
+    const canMove = edgesFor(d).length > 0;
+    const facing = d.edge === 'right' || (d.edge === 'float' && p.x + p.w / 2 > W / 2) ? 'flip' : '';
+    const up = d.edge === 'bottom' ? 'up' : '';
+    let cn = '';
+    if (canMove || d.id !== 'shelf') {
+      const cx = facing ? -2 : p.w - 22, cy = up ? -2 : p.h - 22;
+      cn = `<div class="cn ${facing} ${up}" data-corner="${d.id}" style="left:${pct(cx, p.w)};top:${pct(cy, p.h)}" title="Drag for more lines"></div>`;
+    }
+    const gr = canMove ? `<div class="gr ${row ? 'row' : 'col'}" data-grip="${d.id}" style="${row ? `left:0;top:0;bottom:0;width:${pct(GRIP + PAD, p.w)}` : `left:0;right:0;top:0;height:${pct(GRIP + PAD, p.h)}`}" title="Drag to move, tap for the menu"></div>` : '';
+    html += `<div class="dk${drag && drag.d === d && drag.moved ? ' carry' : ''}" style="${boxStyle(p.x, p.y, p.w, p.h)};${grid}">${order.join('')}${gr}${cn}</div>`;
+  }
+  if (drag && drag.kind === 'move' && drag.moved) html += `<div class="tag" style="left:${pct(drag.x, W)};top:${pct(Math.max(drag.y - 28, TOP), H)}">${drag.target === 'float' ? 'float' : drag.target + ' edge'}${drag.target === 'top' || drag.target === 'bottom' ? ': a row' : ''}</div>`;
+  if (drag && drag.kind === 'corner') html += `<div class="tag" style="left:${pct(drag.px + 12, W)};top:${pct(drag.py + 12, H)}">${drag.d.lines} line${drag.d.lines > 1 ? 's' : ''}</div>`;
+  if (menu) {
+    const d = docks.find(o => o.id === menu.id), p = place(d);
+    const mx = clamp(d.edge === 'right' ? p.x - 210 : p.x + p.w + 8, 4, W - 210), my = clamp(p.y, TOP, H - 230);
+    html += `<div class="menu" style="left:${pct(mx, W)};top:${pct(my, H)}">
+      <div class="h">${d.name}</div>
+      ${[1, 2, 3].map(n => `<div data-lines="${n}">${n} line${n > 1 ? 's' : ''}<em>${d.lines === n ? '✓' : ''}</em></div>`).join('')}
+      ${d.tiles ? '' : '<div>Names<em></em></div>'}
+      <div>Edit buttons<em>+ and rings</em></div>
+      <div data-reset="1">Reset place<em></em></div></div>`;
+  }
+  stage.innerHTML = html;
+  document.getElementById('readout').innerHTML = docks.map(d => `<span>${d.name}: <b>${d.edge}</b>, ${d.lines} line${d.lines > 1 ? 's' : ''}</span>`).join('');
+}
+function toPts(e) { const r = stage.getBoundingClientRect(); return {x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H}; }
+function targetAt(d, x, y) {
+  const ok = edgesFor(d);
+  const near = [['left', x], ['right', W - x], ['top', y - TOP], ['bottom', H - y]].filter(([e]) => ok.includes(e)).sort((a, b) => a[1] - b[1])[0];
+  return near && near[1] < SNAP ? near[0] : 'float';
+}
+stage.addEventListener('pointerdown', e => {
+  const t = e.target, p = toPts(e);
+  if (t.dataset.lines) { const d = docks.find(o => o.id === menu.id); d.lines = +t.dataset.lines; menu = null; draw(); return; }
+  if (t.closest('.menu')) { if (t.dataset.reset) { const s = START().find(o => o.id === menu.id); Object.assign(docks.find(o => o.id === menu.id), s); } menu = null; draw(); return; }
+  menu = null;
+  if (t.dataset.grip) {
+    const d = docks.find(o => o.id === t.dataset.grip), q = place(d);
+    drag = {kind: 'move', d, ox: p.x - q.x, oy: p.y - q.y, sx: p.x, sy: p.y, x: q.x, y: q.y, moved: false, target: d.edge};
+  } else if (t.dataset.corner) {
+    const d = docks.find(o => o.id === t.dataset.corner);
+    drag = {kind: 'corner', d, sx: p.x, sy: p.y, start: d.lines, px: p.x, py: p.y};
+  } else { draw(); return; }
+  stage.setPointerCapture(e.pointerId);
+  e.preventDefault();
+  draw();
+});
+stage.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const p = toPts(e);
+  if (drag.kind === 'move') {
+    if (!drag.moved && Math.hypot(p.x - drag.sx, p.y - drag.sy) < 6) return;
+    drag.moved = true;
+    drag.target = targetAt(drag.d, p.x, p.y);
+    drag.d.floatRow = isRow(drag.d);
+    // Floating docks keep to the soft grid, as Arrange's alignment does now.
+    drag.x = p.x - drag.ox; drag.y = p.y - drag.oy;
+    if (drag.target === 'float') { drag.x = Math.round(drag.x / GRID) * GRID; drag.y = Math.round(drag.y / GRID) * GRID; }
+  } else {
+    const d = drag.d, row = isRow(d);
+    const q = place(d);
+    // More lines grow away from the edge, toward the middle.
+    let delta = row ? p.y - drag.sy : p.x - drag.sx;
+    if (d.edge === 'right' || d.edge === 'bottom' || (d.edge === 'float' && (row ? q.y + q.h / 2 > H / 2 : q.x + q.w / 2 > W / 2))) delta = -delta;
+    d.lines = clamp(drag.start + Math.round(delta / (cell(d).w + GAP)), 1, 3);
+    drag.px = p.x; drag.py = p.y;
+  }
+  draw();
+});
+function finish(e) {
+  if (!drag) return;
+  const d = drag.d;
+  if (drag.kind === 'move') {
+    if (!drag.moved) menu = {id: d.id};
+    else {
+      const p = toPts(e), was = d.edge, to = drag.target;
+      // Dropping on another dock's edge swaps their places along it.
+      const other = docks.find(o => o !== d && o.edge === to && to !== 'float');
+      if (other && was !== 'float' && edgesFor(other).includes(was) && Math.abs((to === 'top' || to === 'bottom' ? p.x / W : p.y / H) - other.along) < .2) {
+        other.edge = was; other.along = d.along; d.along = (to === 'top' || to === 'bottom') ? p.x / W : p.y / H;
+      } else d.along = (to === 'top' || to === 'bottom') ? p.x / W : p.y / H;
+      d.floatRow = to === 'float' ? isRow(d) : false;
+      d.edge = to;
+      if (to === 'float') { d.x = drag.x; d.y = drag.y; }
+    }
+  }
+  drag = null;
+  draw();
+}
+stage.addEventListener('pointerup', finish);
+stage.addEventListener('pointercancel', finish);
+document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
+  mode = b.dataset.mode;
+  document.querySelectorAll('[data-mode]').forEach(x => x.classList.toggle('on', x === b));
+  document.getElementById('modeCap').textContent = mode === 'd1' ? 'D1: left, right or float' : 'D2: any edge';
+  // After D1 alone the shelf is at the bottom and nothing takes the top.
+  if (mode === 'd1') for (const d of docks) {
+    if (d.id === 'shelf') Object.assign(d, START().find(o => o.id === 'shelf'));
+    else if (d.edge === 'top' || d.edge === 'bottom') { d.edge = 'float'; d.x = 300; d.y = 140; d.floatRow = false; }
+  }
+  menu = null; draw();
+}));
+draw();
+
+/* ---------------- The before/after sketches ---------------- */
+const box = (x, y, w, h, cls, html = '', style = '') => ({x, y, w, h, cls, html, style});
+const icons = (n, on = -1) => Array.from({length: n}, (_, i) => `<div class="ic${i === on ? ' on' : ''}"></div>`).join('');
+const rows = (n, acc = 1) => Array.from({length: n}, (_, i) => `<div class="row${i === acc ? ' acc' : i % 3 === 2 ? ' s' : ''}"></div>`).join('');
+const cardHtml = (title, n, pin = false, sec = '') => `<div class="hd">${title}<span class="sp"></span><span class="pin${pin ? ' on' : ''}"></span></div>${sec ? `<div class="sec">${sec}</div>` : ''}${rows(n)}`;
+const tabs = (cur, dot = -1) => ['Sculpt', 'Model', 'Render'].map((t, i) => `<span class="lab" style="${i === cur ? 'color:var(--glaze)' : ''}">${t}${i === dot ? ' <b style="color:var(--warn)">●</b>' : ''}</span>`).join('') + '<span class="lab">Sphere 1</span>';
+function base({shelf = true, pen = true, model = true, cur = 0, dot = -1, grips = false} = {}) {
+  const b = [];
+  if (model) b.push(box(400, 170, 380, 380, 'model'));
+  b.push(box(8, 8, 300, 44, 'isl', icons(5)));
+  b.push(box(400, 8, 380, 44, 'isl', tabs(cur, dot)));
+  b.push(box(1030, 8, 142, 44, 'isl', icons(3)));
+  b.push(box(12, 250, 50, 300, 'isl v', icons(4, 0)));
+  if (pen) b.push(box(1124, 80, 48, 330, 'isl v', icons(7)));
+  if (shelf) b.push(box(300, 730, 580, 68, 'isl shelf', ['All', 'Clay', 'Draw', 'Smooth', 'Move', 'Pinch', 'Inflate', 'Mask'].map((t, i) => `<div class="tile${i === 1 ? ' on' : ''}">${t}</div>`).join('')));
+  if (grips) {
+    b.push(box(22, 256, 30, 4, 'grip'), box(1133, 86, 30, 4, 'grip'));
+    b.push(box(50, 538, 16, 16, 'corner'), box(1112, 398, 16, 16, 'corner', '', 'transform:scaleX(-1)'));
+  }
+  return b;
+}
+
+const SECTIONS = [
+  {
+    id: 'd1', tag: 'PR D1', status: 'building', title: 'A faint grip and corner on every dock',
+    text: `<p>Moving or sizing a dock no longer needs Edit docks. Each dock has a faint grip at its start (a short pill, brighter on hover or press) and a faint corner facing the middle. The grip carries the dock exactly as Arrange's head does today, with the outline, the edge strips, soft alignment and swapping. The corner sets 1 to 3 lines of buttons. A tap on the grip opens the dock's menu.</p>
+      <ul><li><b>Where:</b> the view bar, the brush bar and your own docks. The shelf waits for D2, because its tiles scroll sideways and a grip there needs the row layout.</li>
+      <li><b>Cost:</b> each column gets about 14 points taller for its grip. Nothing on the sculpting path changes.</li>
+      <li class="out">Gone: Arrange's separate head tag and its own corner. There is one way to move a dock.</li></ul>
+      <div class="ask"><b>Your call: Edit docks.</b> With moving and sizing always there, Edit docks only adds the + and the remove rings. I'd rename it <b>Edit buttons</b>, open it from a dock's menu (the top bar's docks included) for that dock alone, and drop the global mode from the main menu. Say if you'd rather keep the global mode.</div>`,
+    before: () => [...base(), box(70, 236, 130, 24, 'note', 'Edit docks to move')],
+    after: () => [...base({grips: true}), box(66, 236, 120, 24, 'note g', 'grip: move'), box(74, 560, 140, 24, 'note g', 'corner: lines')],
+  },
+  {
+    id: 'd2', tag: 'PR D2', status: 'planned', title: 'Any dock on any edge, the shelf too',
+    text: `<p>A new top edge joins left, right, bottom and float. A top or bottom edge lays a dock's buttons in a row, and its lines become rows. The shelf gets its grip and can go to the top, the bottom or float. A top dock stands under the top bar, and the columns start under it and stop above a bottom one.</p>
+      <ul><li><b>Cards</b> open beside their dock, facing the middle. From a top row they open below it, from a bottom row above it.</li>
+      <li><b>Left-handed</b> mirrors left and right as it does now. Top and bottom stay where they are.</li>
+      <li class="out">Gone: the shelf's fixed place and the special case that kept it out of Arrange. The dock code has one path for rows and columns instead of a shelf of its own.</li></ul>`,
+    before: () => [...base({grips: true})],
+    after: () => {
+      const b = base({shelf: false, pen: false});
+      b.push(box(250, 64, 680, 50, 'isl', icons(12, 2)), box(262, 70, 4, 38, 'grip'));
+      b.push(box(1070, 130, 102, 260, 'isl', `<div style="display:grid;grid-template-columns:auto auto;gap:.4cqw">${icons(10)}</div>`), box(1106, 136, 30, 4, 'grip'));
+      b.push(box(6, 590, 90, 220, 'isl v', ['Clay', 'Draw', 'Move'].map((t, i) => `<div class="tile${i === 0 ? ' on' : ''}">${t}</div>`).join('')), box(36, 596, 30, 4, 'grip'));
+      b.push(box(290, 120, 230, 24, 'note g', 'brush bar on top: a row'), box(944, 400, 160, 24, 'note g', 'corner: 2 lines'), box(104, 700, 160, 24, 'note g', 'shelf, floated'));
+      return b;
+    },
+  },
+  {
+    id: 'e', tag: 'PR E', status: 'planned', title: 'One layout per space',
+    text: `<p>Sculpt, Model and Render each keep their own layout: where the docks are, their lines, and the pinned and floating cards. Whatever you change is simply kept; there is no Save step. An amber dot on a space's tab means its layout differs from how it ships. The tab's menu has one item, <b>Reset layout</b>, which puts that space back as it ships. You saw this in the <a href="https://claude.ai/artifact/Ey62rp6pqLzYJcNq9N7vHP" style="color:var(--glaze)">layouts demo</a>.</p>
+      <ul><li><b>Kept:</b> each space's layout in settings.txt, written as it is now.</li>
+      <li class="out">Gone: named workspaces and the eight own slots, the Workspaces menu with Save, Save as new, Rename, Revert, Delete, Export and Import, the workspace file format, and their tests and touch scenarios.</li></ul>`,
+    before: () => [...base({dot: 0}), box(400, 60, 290, 280, 'card', `<div class="sec">Workspaces</div>${['Sculpt ✓', 'Detail pass', 'Paint setup', 'Save', 'Save as new…', 'Rename…', 'Revert', 'Export…', 'Import…'].map(t => `<div class="lab" style="font-size:1.25cqw">${t}</div>`).join('')}`), box(700, 60, 220, 24, 'note', 'dot: not saved yet')],
+    after: () => [...base({dot: 0}), box(400, 60, 240, 90, 'card', `<div class="sec">Sculpt</div><div class="lab" style="font-size:1.25cqw;color:var(--text)">Reset layout</div>`), box(650, 60, 270, 24, 'note g', 'dot: differs from how it ships')],
+  },
+  {
+    id: 'f', tag: 'PR F', status: 'planned', title: 'Phones, mice and Android edges',
+    text: `<ul><li><b>Under 900 points wide</b> (an iPad in Split View, a phone), a card opens as a bottom sheet over the lower half, with a handle that drags it taller. Today the card covers the model.</li>
+      <li><b>With a mouse or trackpad</b>, cards use compact 32-point rows instead of 44, and a column holds two cards: the pinned one above the one just opened.</li>
+      <li><b>Android</b>: a dock on a side edge asks the system to leave that strip to the app, so the back gesture doesn't take a drag that starts on the dock.</li></ul>
+      <p class="keep">Nothing is removed here; it makes the one card work on every screen instead of adding a phone layout.</p>`,
+    multi: true,
+  },
+  {
+    id: 'g', tag: 'PR G', status: 'planned', title: 'The second view becomes a pane',
+    text: `<p>The Thumbnail window goes. A second view is a pane of the view grid that already exists, with its own camera and pass, sized by the divider. <b>Second view</b> (the same command as now) splits the view and a second tap joins it again.</p>
+      <ul><li class="out">Gone: the Thumbnail window, and with it the last floating window. That deletes the window kind, moving, minimising, the window lines in layouts and settings, the left-handed window mirroring, and the side panel place the windows shared.</li>
+      <li><b>Then:</b> the README and the skills say docks, cards, sheets and panes and nothing else, and the touch suite drops every window scenario.</li></ul>`,
+    before: () => [...base(), box(900, 520, 210, 190, 'card win', `<div class="tb">Thumbnail — ✕</div><div class="x" style="position:static;flex:1;border-radius:.6cqw;background:radial-gradient(circle at 50% 50%,#bbb 0 30%,#333 31%)"></div>`)],
+    after: () => {
+      const b = base({model: false});
+      b.unshift(box(200, 200, 300, 300, 'model'), box(820, 250, 200, 200, 'model', '', 'filter:grayscale(1) brightness(.8)'), box(700, 60, 3, 660, 'pane-split'));
+      b.push(box(720, 70, 150, 24, 'note g', 'Side · Normals'), box(600, 380, 200, 24, 'note g', 'drag the divider'));
+      return b;
+    },
+  },
+];
+
+function platformShots(after) {
+  const narrow = [box(8, 8, 664, 44, 'isl', icons(6)), box(190, 220, 300, 300, 'model'), box(8, 300, 46, 220, 'isl v', icons(4, 0)),
+    after ? box(0, 420, 680, 400, 'card', `<div style="align-self:center;width:8cqw;height:.8cqw;border-radius:1cqw;background:var(--faint)"></div>${cardHtml('Tool', 8)}`)
+          : box(330, 64, 340, 600, 'ghost', '<span>card covers the model</span>')];
+  const desk = [box(8, 8, 420, 44, 'isl', icons(6)), box(740, 230, 440, 440, 'model'), box(1860, 80, 52, 400, 'isl v', icons(8)),
+    after ? box(1540, 64, 312, 440, 'card', cardHtml('Look', 12, true)) : box(1540, 64, 312, 700, 'card', cardHtml('Tool', 14)),
+    ...(after ? [box(1540, 516, 312, 440, 'card', cardHtml('Tool', 12))] : [])];
+  const android = [...base(), ...(after ? [box(0, 60, 24, 700, 'zone', '', 'border-top:0;border-right:1.5px dashed var(--zone)'), box(1156, 60, 24, 700, 'zone', '', 'border-top:0;border-left:1.5px dashed var(--zone)'), box(880, 440, 240, 24, 'note', 'kept from the back gesture')] : [])];
+  return [{label: 'Narrow 680×820', w: 680, h: 820, boxes: narrow, flex: '0 0 28%'}, {label: 'Mouse 1920×1080', w: 1920, h: 1080, boxes: desk, flex: '1 1 34%'}, {label: 'Android tablet', w: W, h: H, boxes: android, flex: '1 1 34%'}];
+}
+function devHtml(boxes, w = W, h = H) {
+  return `<div class="dev" style="aspect-ratio:${w}/${h}">${boxes.map(b => `<div class="x ${b.cls}" style="left:${b.x / w * 100}%;top:${b.y / h * 100}%;width:${b.w / w * 100}%;height:${b.h / h * 100}%;${b.style}">${b.html}</div>`).join('')}</div>`;
+}
+const side = {};
+function render() {
+  document.getElementById('list').innerHTML = SECTIONS.map(c => {
+    const s = side[c.id] || 'after';
+    const shots = c.multi
+      ? `<div class="devs">${platformShots(s === 'after').map(p => `<div style="flex:${p.flex};min-width:0;display:grid;gap:4px"><span style="font-size:11px;color:var(--dim);font-family:var(--mono)">${p.label}</span>${devHtml(p.boxes, p.w, p.h)}</div>`).join('')}</div>`
+      : devHtml(c[s]());
+    return `<section class="change" id="${c.id}">
+      <div class="shots"><div class="shotbar"><span class="cap">${s}</span>
+        <div class="seg" role="group" aria-label="Before or after"><button data-id="${c.id}" data-side="before" class="${s === 'before' ? 'on' : ''}">Before</button><button data-id="${c.id}" data-side="after" class="${s === 'after' ? 'on' : ''}">After</button></div></div>
+        ${shots}</div>
+      <div class="text"><h2>${c.title}<span class="pill ${c.status}"><i></i>${c.status === 'building' ? 'next' : c.status}</span></h2><div class="tag" style="font-family:var(--mono);font-size:12px;color:var(--dim)">${c.tag}</div>${c.text}</div>
+    </section>`;
+  }).join('');
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.id) { side[b.dataset.id] = b.dataset.side; render(); }
+  if (b.dataset.all) {
+    for (const c of SECTIONS) side[c.id] = b.dataset.all;
+    document.querySelectorAll('[data-all]').forEach(x => x.classList.toggle('on', x === b));
+    render();
+  }
+});
+render();
+</script>

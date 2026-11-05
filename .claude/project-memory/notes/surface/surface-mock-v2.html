@@ -1,0 +1,503 @@
+<title>Surface space mock</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one scaled 1280x860 stage (the iPad landscape frame) with the screen picked by tabs, notes beside it. Dark-first, the app's own look (docks and cards mock v6); Surface is the violet space. */
+:root {
+  color-scheme: dark;
+  --ground: #121316; --stage: #2a2c31; --surface: #1c1d21; --card: #24262b; --card-2: #2e3036;
+  --line: #3a3d44; --text: #e9e9ec; --text-2: #a9acb4; --text-3: #7f838c;
+  --accent: #40c4b2; --accent-ink: #0d2421; --violet: #b99cff; --violet-ink: #231a3a; --warn: #e6795f; --seam: #ff5a5a;
+  --ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --ground: #e9e8ee; --text: #16171a; --text-2: #4b4f58; --text-3: #6d717b; color-scheme: light; } }
+:root[data-theme="light"] { --ground: #e9e8ee; --text: #16171a; --text-2: #4b4f58; --text-3: #6d717b; color-scheme: light; }
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--ground); color: var(--text); font-family: var(--ui); font-size: 14px; }
+.page { display: flex; flex-direction: column; gap: 14px; padding-block: 16px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+header.top h1 { margin: 0; font-size: 20px; font-weight: 600; }
+.badge { font: 500 12px var(--mono); color: var(--violet-ink); background: var(--violet); border-radius: 5px; padding: 2px 7px; }
+header.top p { margin: 0; color: var(--text-2); flex: 1 1 320px; line-height: 1.45; max-width: 70ch; }
+nav.screens { display: flex; flex-wrap: wrap; gap: 6px; }
+nav.screens button { font: 500 13px var(--ui); color: var(--text-2); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; min-height: 36px; }
+nav.screens button[aria-selected="true"] { background: var(--violet); color: var(--violet-ink); border-color: var(--violet); font-weight: 600; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.layout { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.stage-wrap { flex: 999 1 640px; min-width: 0; }
+.side { flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 12px; color: var(--text-2); line-height: 1.5; }
+.side h2 { margin: 0 0 4px; font-size: 15px; color: var(--text); }
+.side ul { margin: 0; padding-left: 18px; } .side li { margin: 4px 0; }
+.side b { color: var(--text); font-weight: 600; }
+.stage-box { position: relative; width: 100%; max-width: 100%; aspect-ratio: 1280 / 860; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); touch-action: none; user-select: none; -webkit-user-select: none; background: var(--stage); }
+.stage { position: absolute; left: 0; top: 0; width: 1280px; height: 860px; transform-origin: 0 0; background: radial-gradient(ellipse at 50% 42%, #36383e 0%, #2a2c31 60%, #222327 100%); color: #e9e9ec; font-family: var(--ui); }
+.stage canvas { position: absolute; left: 0; top: 0; }
+
+/* docks */
+.dock { position: absolute; z-index: 20; display: flex; gap: 4px; padding: 5px; background: #1c1d21; border: 1px solid #2b2d33; border-radius: 14px; box-shadow: 0 6px 18px rgba(0,0,0,0.3); }
+.dock.col { flex-direction: column; }
+.item { position: relative; display: flex; align-items: center; justify-content: center; gap: 6px; width: 44px; height: 44px; border: 0; background: transparent; color: #a9acb4; font: 500 13px var(--ui); border-radius: 10px; cursor: pointer; padding: 0; }
+.item:hover { background: #2a2c32; color: #e9e9ec; }
+.item.lit { background: rgba(64,196,178,0.16); color: #40c4b2; }
+.item.vlit { background: rgba(185,156,255,0.18); color: #b99cff; }
+.item.wide { width: auto; padding: 0 12px; }
+.item.labelled { flex-direction: column; gap: 2px; width: 62px; height: 56px; font-size: 11.5px; }
+.item svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.item.vs { width: 44px; height: 150px; flex-direction: column; gap: 4px; padding: 8px 0 6px; background: #202227; }
+.vs .trk { position: relative; flex: 1; width: 9px; border-radius: 5px; background: #3a3d44; overflow: hidden; }
+.vs .trk i { position: absolute; left: 0; right: 0; bottom: 0; background: #40c4b2; border-radius: 5px; }
+.vs b { font: 600 12px var(--ui); color: #e9e9ec; } .vs small { font: 500 10px var(--ui); color: #7f838c; }
+.swatch { width: 30px; height: 30px; border-radius: 50%; border: 2px solid #fff; background: #b8562f; }
+.spaces { gap: 2px; } .spaces .item.wide { font-size: 13px; height: 40px; }
+.readout { position: absolute; left: 50%; top: 68px; transform: translateX(-50%); font: 500 12px var(--mono); color: #a9acb4; background: rgba(28,29,33,0.7); padding: 4px 10px; border-radius: 8px; z-index: 15; }
+
+/* cards */
+.card { position: absolute; z-index: 30; width: 320px; background: #24262b; border: 1px solid #3a3d44; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.4); color: #e9e9ec; overflow: hidden; }
+.card .head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #3a3d44; }
+.card .head b { font-size: 14px; font-weight: 600; flex: 1; }
+.tabs { display: inline-flex; background: #1c1d21; border-radius: 8px; padding: 2px; gap: 2px; }
+.tabs button { font: 500 12px var(--ui); color: #a9acb4; background: transparent; border: 0; border-radius: 6px; padding: 4px 10px; cursor: pointer; min-height: 28px; }
+.tabs button[aria-pressed="true"] { background: #2e3036; color: #e9e9ec; }
+.tabs.violet button[aria-pressed="true"] { background: rgba(185,156,255,0.22); color: #b99cff; }
+.dots { color: #7f838c; font-weight: 600; letter-spacing: 1px; }
+.row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #2e3036; }
+.row.pick { background: rgba(185,156,255,0.1); }
+.thumb { width: 36px; height: 36px; border-radius: 8px; flex: none; border: 1px solid #3a3d44; }
+.row .nm { flex: 1; min-width: 0; } .row .nm b { display: block; font-weight: 600; font-size: 13px; } .row .nm small { color: #7f838c; font-size: 11px; }
+.eye { width: 28px; height: 28px; border-radius: 6px; border: 0; background: transparent; color: #a9acb4; cursor: pointer; }
+.chan { display: flex; gap: 3px; } .chan i { width: 8px; height: 8px; border-radius: 2px; background: #3a3d44; } .chan i.on { background: #b99cff; }
+.ctl { display: grid; grid-template-columns: 76px 1fr auto; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12.5px; color: #a9acb4; }
+.ctl .val { font: 500 12px var(--mono); color: #e9e9ec; min-width: 36px; text-align: right; }
+.slider { position: relative; height: 8px; border-radius: 4px; background: #3a3d44; } .slider i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: #b99cff; }
+input[type=range] { width: 100%; accent-color: #b99cff; }
+.foot { display: flex; gap: 6px; padding: 8px 12px; flex-wrap: wrap; }
+.foot .btn, .bar .btn { font: 500 12.5px var(--ui); color: #e9e9ec; background: #2e3036; border: 1px solid #3a3d44; border-radius: 8px; padding: 6px 10px; cursor: pointer; min-height: 32px; }
+.btn.violet { background: rgba(185,156,255,0.2); color: #b99cff; border-color: transparent; }
+.note { position: absolute; z-index: 40; font: 500 12px var(--ui); color: #231a3a; background: #b99cff; padding: 5px 9px; border-radius: 8px; max-width: 260px; line-height: 1.35; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+.note::before { content: ""; position: absolute; width: 10px; height: 10px; background: inherit; transform: rotate(45deg); left: -4px; top: 12px; }
+.note.up::before { left: 18px; top: -4px; }
+
+/* shelf */
+.shelf { position: absolute; z-index: 20; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 6px; background: #1c1d21; border: 1px solid #2b2d33; border-radius: 16px; box-shadow: 0 6px 18px rgba(0,0,0,0.3); }
+.pages { display: flex; gap: 2px; padding-right: 8px; border-right: 1px solid #3a3d44; }
+.pages button { font: 600 13px var(--ui); color: #a9acb4; background: transparent; border: 0; border-radius: 9px; padding: 0 12px; height: 56px; cursor: pointer; }
+.pages button[aria-pressed="true"] { background: rgba(185,156,255,0.18); color: #b99cff; }
+.tile { width: 62px; height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font: 500 11.5px var(--ui); color: #a9acb4; background: transparent; border: 0; border-radius: 10px; cursor: pointer; }
+.tile.lit { background: rgba(185,156,255,0.18); color: #b99cff; }
+.tile svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.bar { position: absolute; z-index: 20; display: flex; gap: 6px; padding: 6px; background: #1c1d21; border: 1px solid #2b2d33; border-radius: 12px; }
+
+/* frames (docking) */
+.frame { position: absolute; z-index: 10; border: 1px solid #3a3d44; border-radius: 12px; overflow: hidden; background: #1c1d21; }
+.frame.focus { border-color: #b99cff; }
+.tabbar { display: flex; align-items: center; gap: 2px; height: 34px; padding: 3px 6px; background: #1c1d21; border-bottom: 1px solid #2b2d33; font: 500 12.5px var(--ui); }
+.tabbar .tab { color: #a9acb4; padding: 4px 10px; border-radius: 7px; background: transparent; border: 0; font: inherit; cursor: pointer; min-height: 28px; }
+.tabbar .tab[aria-pressed="true"] { background: #2e3036; color: #e9e9ec; }
+.tabbar .sp { flex: 1; } .tabbar .sm { color: #7f838c; font-family: var(--mono); font-size: 11.5px; }
+.frame.float { box-shadow: 0 16px 40px rgba(0,0,0,0.5); z-index: 35; }
+.divider { position: absolute; z-index: 12; width: 6px; border-radius: 3px; background: #3a3d44; cursor: ew-resize; touch-action: none; }
+.divider:hover, .divider.live { background: #b99cff; }
+.grip { position: absolute; right: 2px; bottom: 2px; width: 22px; height: 22px; cursor: nwse-resize; touch-action: none; z-index: 5; border-radius: 6px; }
+.grip::after { content: ""; position: absolute; right: 5px; bottom: 5px; width: 9px; height: 9px; border-right: 2px solid #7f838c; border-bottom: 2px solid #7f838c; border-radius: 0 0 3px 0; }
+.grip:hover::after, .frame.live .grip::after { border-color: #b99cff; }
+.frame.live { border-color: #b99cff; }
+.tabbar { cursor: grab; touch-action: none; }
+.frame .size { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); font: 500 12px var(--mono); color: #231a3a; background: #b99cff; padding: 4px 8px; border-radius: 6px; pointer-events: none; }
+.uvsvg { position: absolute; left: 0; top: 34px; right: 0; bottom: 0; }
+.uvsvg text { font: 500 11px var(--mono); fill: #a9acb4; }
+
+/* graph */
+.graph { position: absolute; inset: 34px 0 0 0; }
+.graph .node rect { fill: #24262b; stroke: #3a3d44; stroke-width: 1.2; }
+.graph .node.out rect { stroke: #b99cff; stroke-width: 1.6; }
+.graph .node text { font: 500 11.5px var(--ui); fill: #e9e9ec; }
+.graph .node text.k { fill: #7f838c; font-size: 10.5px; }
+.graph .node text.v { font-family: var(--mono); fill: #b99cff; font-size: 10.5px; }
+.graph .wire { fill: none; stroke: #7f838c; stroke-width: 1.5; }
+.graph .wire.c { stroke: #e0b36a; } .graph .wire.f { stroke: #9aa7c7; }
+.graph circle.s { fill: #1c1d21; stroke: #a9acb4; stroke-width: 1.2; }
+.graph .node .pv { stroke: #3a3d44; }
+
+/* phone */
+.phone { position: absolute; left: 445px; top: 8px; width: 390px; height: 844px; border-radius: 40px; border: 6px solid #0d0e10; background: #121316; overflow: hidden; z-index: 10; }
+.phone .ptop { position: absolute; left: 0; right: 0; top: 0; height: 54px; display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 0; font: 600 13px var(--ui); color: #a9acb4; }
+.phone .ptop .sp { color: #b99cff; }
+.phone .pview { position: absolute; left: 0; right: 0; top: 54px; height: 330px; background: radial-gradient(ellipse at 50% 45%, #36383e 0%, #2a2c31 65%, #222327 100%); }
+.phone .sheet { position: absolute; left: 0; right: 0; top: 384px; bottom: 0; background: #1c1d21; border-radius: 18px 18px 0 0; border-top: 1px solid #3a3d44; }
+.phone .grip { width: 40px; height: 4px; border-radius: 2px; background: #3a3d44; margin: 8px auto 4px; }
+.phone .stabs { display: flex; gap: 2px; padding: 4px 12px; } .phone .stabs button { flex: 1; font: 600 12px var(--ui); color: #a9acb4; background: transparent; border: 0; border-radius: 8px; padding: 8px 0; min-height: 36px; cursor: pointer; }
+.phone .stabs button[aria-pressed="true"] { background: rgba(185,156,255,0.18); color: #b99cff; }
+.phone .row { padding: 8px 14px; }
+.phone .pbar { position: absolute; left: 12px; right: 12px; bottom: 10px; display: flex; gap: 6px; }
+.phone .pbar button { flex: 1; font: 600 12px var(--ui); color: #e9e9ec; background: #2e3036; border: 1px solid #3a3d44; border-radius: 10px; min-height: 40px; cursor: pointer; }
+.phone .pbar button.v { background: rgba(185,156,255,0.2); color: #b99cff; border-color: transparent; }
+.phone canvas { left: 0; top: 54px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="page">
+  <header class="top">
+    <h1>Surface space mock</h1><span class="badge">plan v2 · 2026-11-03</span>
+    <p>How UVs, texture paint and the shader graph look in the app: the fourth space, its three shelf pages, the Layers card's Paint tab with the three targets, the UVs tab beside the model with Peel, and the graph as a see-through frame over the model. Press and drag on the model; the controls are live.</p>
+  </header>
+  <nav class="screens" aria-label="Screens">
+    <button data-screen="paint" aria-selected="true">1 Paint</button>
+    <button data-screen="uv" aria-selected="false">2 UV</button>
+    <button data-screen="shade" aria-selected="false">3 Shade</button>
+    <button data-screen="phone" aria-selected="false">4 Phone</button>
+  </nav>
+  <div class="layout">
+    <div class="stage-wrap"><div class="stage-box" id="box"><div class="stage" id="stage"></div></div></div>
+    <aside class="side" id="side"></aside>
+  </div>
+</div>
+
+<script>
+(() => {
+const stage = document.getElementById('stage'), box = document.getElementById('box'), side = document.getElementById('side');
+const fit = () => { stage.style.transform = `scale(${box.clientWidth / 1280})`; };
+addEventListener('resize', fit); fit();
+
+// ---------- the model: a lat-long sphere drawn as shaded quads, with paint ----------
+const NU = 72, NV = 36;
+const hash = (x, y) => { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); };
+const noise = (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1); return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; };
+const fbm = (x, y) => 0.5 * noise(x, y) + 0.25 * noise(x * 2.1, y * 2.1) + 0.125 * noise(x * 4.3, y * 4.3);
+// Paint of the layer stack at (u, v): base steel, rust noise, edge wear from cavity (a dent band near the equator), painted colour strokes.
+function paintAt(u, v, L) {
+  let r = 0.62, g = 0.64, b = 0.68; // steel
+  const ns = L.noiseScale || 9, nv = fbm(u * ns, v * ns * 0.78);
+  if (L.solo === 'noise') return [nv, nv, nv]; // a node's eye: that node alone on the model
+  if (L.solo === 'cavity') { const c = Math.exp(-Math.pow((v - 0.48) * 18, 2)); return [c, c, c]; }
+  const rust = nv > 0.55 ? Math.min(1, (nv - 0.55) * 5) : 0;
+  if (L.rust) { r = r * (1 - rust) + 0.55 * rust; g = g * (1 - rust) + 0.28 * rust; b = b * (1 - rust) + 0.16 * rust; }
+  const cav = Math.exp(-Math.pow((v - 0.48) * 18, 2)) * (0.5 + 0.5 * fbm(u * 14, 3));
+  if (L.wear) { const w = Math.min(1, cav * L.wearOp); r = r * (1 - w) + 0.22 * w; g = g * (1 - w) + 0.19 * w; b = b * (1 - w) + 0.17 * w; }
+  if (L.colour) { const s = Math.exp(-Math.pow((u - 0.3) * 6, 2) - Math.pow((v - 0.3) * 8, 2)) + Math.exp(-Math.pow((u - 0.72) * 7, 2) - Math.pow((v - 0.62) * 8, 2)); const w = Math.min(1, s * 1.3); r = r * (1 - w) + 0.72 * w; g = g * (1 - w) + 0.34 * w; b = b * (1 - w) + 0.18 * w; }
+  if (L.stencil) { // Fill through stencil: a hex pattern laid over the front of the model
+    const hx = u * 22, hy = v * 13 + (Math.floor(hx) % 2) * 0.5, fx = hx - Math.floor(hx) - 0.5, fy = hy - Math.floor(hy) - 0.5;
+    const inHex = Math.abs(fx) < 0.36 && Math.abs(fy) < 0.36 && Math.abs(fx) + Math.abs(fy) < 0.55, front = Math.abs(u - 0.5) < 0.22 && Math.abs(v - 0.5) < 0.3;
+    if (inHex && front) { r = 0.16; g = 0.17; b = 0.2; } }
+  return [r, g, b];
+}
+// A chart layout: six islands (two caps, four sides) packed in the UV square; each cell (i, j) belongs to one chart and has a flat position.
+function chartOf(i, j) { const v = j / NV; if (v < 0.17) return 0; if (v > 0.83) return 1; return 2 + Math.floor((i / NU) * 4) % 4; }
+const PACK_FAST = [ [0.03, 0.03, 0.30, 0.30], [0.36, 0.03, 0.30, 0.30], [0.03, 0.40, 0.22, 0.56], [0.28, 0.40, 0.22, 0.56], [0.53, 0.40, 0.22, 0.56], [0.78, 0.40, 0.19, 0.56] ];
+const PACK_TIGHT = [ [0.02, 0.02, 0.34, 0.34], [0.64, 0.02, 0.34, 0.34], [0.02, 0.38, 0.235, 0.6], [0.265, 0.38, 0.235, 0.6], [0.51, 0.38, 0.235, 0.6], [0.755, 0.38, 0.235, 0.6] ];
+let packs = PACK_FAST.map(p => p.slice());
+function flatPos(i, j, c) { // in the unit square, v up; c is the chart of the cell the corner belongs to
+  const p = packs[c], u = i / NU, v = j / NV;
+  if (c < 2) { const a = u * Math.PI * 2, rr = c === 0 ? v / 0.17 : (1 - v) / 0.17; return [p[0] + p[2] / 2 + Math.cos(a) * rr * p[2] / 2, p[1] + p[3] / 2 + Math.sin(a) * rr * p[3] / 2]; }
+  const s = c - 2, lu = (u - s * 0.25) / 0.25, lv = (v - 0.17) / 0.66; return [p[0] + lu * p[2], p[1] + lv * p[3]];
+}
+function makeModel(canvas, opts) {
+  const ctx = canvas.getContext('2d'), W = canvas.width, H = canvas.height;
+  const st = Object.assign({ cx: W / 2, cy: H / 2, R: Math.min(W, H) * 0.33, yaw: 0.6, peel: 0, target: 'texels', seams: false, probe: null, L: { rust: true, wear: true, wearOp: 0.8, colour: true } }, opts);
+  const light = [-0.5, -0.6, 0.63];
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    const quads = [];
+    const res = st.target === 'vertices' ? 6 : st.target === 'skin' ? 2 : 1; // paint resolution: cells per sample
+    for (let j = 0; j < NV; j++) for (let i = 0; i < NU; i++) {
+      const pts = [], flat = [], cc = chartOf(i, j);
+      for (const [di, dj] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
+        const th = ((i + di) / NU) * Math.PI * 2 + st.yaw, ph = ((j + dj) / NV) * Math.PI;
+        const x = Math.sin(ph) * Math.cos(th), y = -Math.cos(ph), z = Math.sin(ph) * Math.sin(th);
+        pts.push([x, y, z]);
+        const f = flatPos(i + di, j + dj, cc); flat.push(f);
+      }
+      const n = [(pts[0][0] + pts[2][0]) / 2, (pts[0][1] + pts[2][1]) / 2, (pts[0][2] + pts[2][2]) / 2];
+      if (st.peel < 0.999 && n[2] < -0.02 && st.peel < 0.3) continue; // back faces at rest
+      const ui = Math.floor(i / res) * res / NU + 0.5 * res / NU, vj = Math.floor(j / res) * res / NV + 0.5 * res / NV;
+      const [r, g, b] = paintAt(ui, vj, st.L);
+      let lam = Math.max(0.15, n[0] * light[0] + n[1] * light[1] + n[2] * light[2]); lam = 0.25 + 0.75 * lam;
+      const spec = Math.pow(Math.max(0, n[2] * 0.7 + n[1] * -0.5 + n[0] * -0.3), 24) * 0.5;
+      const sc = [];
+      for (let k = 0; k < 4; k++) {
+        const p = pts[k], sx = st.cx + p[0] * st.R * 1.0, sy = st.cy + p[1] * st.R * 0.95 + p[2] * 0 ;
+        const fx = st.fx + flat[k][0] * st.fw, fy = st.fy + (1 - flat[k][1]) * st.fh;
+        sc.push([sx + (fx - sx) * st.peel, sy + (fy - sy) * st.peel]);
+      }
+      // Shading modes light the same paint: Clay is the diffuse lighting alone, Material adds the environment's reflection by the painted metal and roughness, Rendered adds the sky's tint and a stronger key.
+      let shade = st.peel > 0.5 ? 0.85 : lam, env = 0;
+      if (st.mode === 'material' || st.mode === 'rendered') { const metal = (r > 0.5 && Math.abs(r - g) < 0.08) ? 1 : 0.1; env = Math.pow(Math.max(0, n[2]), 1.5) * 0.22 * metal + spec * 0.6; }
+      if (st.mode === 'rendered') { shade *= 1.08; }
+      shade += env;
+      quads.push({ z: st.peel > 0.5 ? 0 : n[2], sc, col: `rgb(${Math.round(255 * Math.min(1, r * shade + spec))},${Math.round(255 * Math.min(1, g * shade + spec))},${Math.round(255 * Math.min(1, b * shade + spec))})`, i, j });
+    }
+    quads.sort((a, b) => a.z - b.z);
+    for (const q of quads) { ctx.fillStyle = q.col; ctx.strokeStyle = q.col; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.moveTo(q.sc[0][0], q.sc[0][1]); for (let k = 1; k < 4; k++) ctx.lineTo(q.sc[k][0], q.sc[k][1]); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    if (st.seams) { // chart borders by their source (the Seams come from switches), and the seams drawn by hand
+      ctx.lineWidth = 2.2; const S = st.seamSet || { hidden: true, groups: true, mine: true };
+      for (const q of quads) { const ni = (q.i + 1) % NU, nj = q.j + 1, c = chartOf(q.i, q.j); const edges = [];
+        if (S.groups && chartOf(ni, q.j) !== c) edges.push([1, 2, '#ff5a5a']);
+        if (S.hidden && nj < NV && chartOf(q.i, nj) !== c) edges.push([2, 3, '#ff5a5a']);
+        if (S.mine && st.marks && st.marks.has(q.i + ',' + q.j)) edges.push([0, 1, '#ffd166'], [1, 2, '#ffd166']);
+        for (const [a, b, col] of edges) { ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(q.sc[a][0], q.sc[a][1]); ctx.lineTo(q.sc[b][0], q.sc[b][1]); ctx.stroke(); } }
+    }
+    if (st.probe) { ctx.strokeStyle = '#b99cff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(st.probe[0], st.probe[1], 9, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.arc(st.probe[0], st.probe[1], 2, 0, 7); ctx.fillStyle = '#b99cff'; ctx.fill(); }
+    if (st.brush) { ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(st.brush[0], st.brush[1], st.R * 0.18, 0, 7); ctx.stroke(); }
+  }
+  // The cell under a screen point (front side), for the seam pen and the probe.
+  st.cellAt = (x, y) => { const dx = (x - st.cx) / st.R, dy = (y - st.cy) / (st.R * 0.95); if (dx * dx + dy * dy > 1) return null; const z = Math.sqrt(1 - dx * dx - dy * dy);
+    const th = Math.atan2(z, dx) - st.yaw, ph = Math.acos(-dy); let i = Math.round(((th / (Math.PI * 2)) % 1 + 1) % 1 * NU) % NU, j = Math.min(NV - 1, Math.max(0, Math.round(ph / Math.PI * NV))); return [i, j]; };
+  st.draw = draw; draw(); return st;
+}
+function dragOrbit(canvas, m, onDrag) {
+  let down = null;
+  canvas.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY, m.yaw]; canvas.setPointerCapture(e.pointerId); if (onDrag) onDrag(e, true); });
+  canvas.addEventListener('pointermove', e => { if (!down) return; if (onDrag && onDrag(e, false)) return; m.yaw = down[2] + (e.clientX - down[0]) / (box.clientWidth / 1280) * 0.01; m.draw(); });
+  canvas.addEventListener('pointerup', () => { down = null; });
+}
+const icon = d => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+// A frame of the docking: its tab bar drags it (a float), its corner grip resizes it, and while either runs it shows its size, as the app's docking will.
+const S = () => 1280 / box.clientWidth;
+function frameLive(frame, onChange) {
+  const grip = document.createElement('div'); grip.className = 'grip'; grip.title = 'Resize'; frame.appendChild(grip);
+  const tag = document.createElement('div'); tag.className = 'size'; tag.hidden = true; frame.appendChild(tag);
+  const say = () => { tag.textContent = `${Math.round(frame.offsetWidth)} × ${Math.round(frame.offsetHeight)}`; };
+  let d = null;
+  const start = (e, kind) => { d = { kind, x: e.clientX, y: e.clientY, l: frame.offsetLeft, t: frame.offsetTop, w: frame.offsetWidth, h: frame.offsetHeight }; frame.classList.add('live'); tag.hidden = false; say(); e.currentTarget.setPointerCapture(e.pointerId); e.preventDefault(); };
+  const move = e => { if (!d) return; const dx = (e.clientX - d.x) * S(), dy = (e.clientY - d.y) * S();
+    if (d.kind === 'move') { frame.style.left = Math.max(0, Math.min(1280 - d.w, d.l + dx)) + 'px'; frame.style.top = Math.max(0, Math.min(860 - d.h, d.t + dy)) + 'px'; }
+    else { frame.style.width = Math.max(320, Math.min(1280 - d.l, d.w + dx)) + 'px'; frame.style.height = Math.max(220, Math.min(860 - d.t, d.h + dy)) + 'px'; }
+    say(); if (onChange) onChange(); };
+  const end = () => { d = null; frame.classList.remove('live'); tag.hidden = true; };
+  const bar = frame.querySelector('.tabbar');
+  bar.addEventListener('pointerdown', e => { if (e.target.closest('button, input')) return; start(e, 'move'); });
+  grip.addEventListener('pointerdown', e => start(e, 'size'));
+  for (const el of [bar, grip]) { el.addEventListener('pointermove', move); el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end); }
+}
+// The divider between two docked frames: drag it and both sides follow.
+function dividerLive(div, onDrag) {
+  let d = null;
+  div.addEventListener('pointerdown', e => { d = { x: e.clientX, l: div.offsetLeft }; div.classList.add('live'); div.setPointerCapture(e.pointerId); });
+  div.addEventListener('pointermove', e => { if (!d) return; const x = Math.max(300, Math.min(980, d.l + (e.clientX - d.x) * S())); div.style.left = x + 'px'; onDrag(x); });
+  const end = () => { d = null; div.classList.remove('live'); }; div.addEventListener('pointerup', end); div.addEventListener('pointercancel', end);
+}
+const I = { brush: 'M4 20c2-1 2-4 4-5l8-8 3 3-8 8c-1 2-4 2-5 4zM15 6l3 3', erase: 'M3 17l9-9 5 5-6 6H7zM13 9l5 5', blur: 'M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z', fill: 'M5 12l7-7 7 7-7 7zM19 15c1 2 1 3 0 4', clone: 'M8 8h12v12H8zM4 16V4h12', stencil: 'M3 3h18v18H3zM8 8h8v8H8', decal: 'M4 4h16v12H4zM8 20h8M4 10l5-4 5 6 3-3 3 3', grad: 'M4 4h16v16H4zM4 12h16', seam: 'M4 18c4-8 12-8 16 0M12 4v16', eraser: 'M3 17l9-9 5 5-6 6H7z', guide: 'M4 20l16-16M9 4h11v11', pin: 'M12 3v9M8 12h8l-1 4H9zM12 16v5', island: 'M5 5h6v6H5zM13 13h6v6h-6zM13 5h6v6h-6', stack: 'M4 7h16M4 12h16M4 17h16', graph: 'M5 7h5v4H5zM14 13h5v4h-5zM10 9h4l0 6', probe: 'M12 4v4M12 16v4M4 12h4M16 12h4M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0', layers: 'M12 4l8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4', material: 'M12 12m-8 0a8 8 0 1 0 16 0a8 8 0 1 0-16 0M12 4v16', textures: 'M4 4h16v16H4zM4 12h16M12 4v16', scene: 'M4 20h16M6 20V9l6-5 6 5v11', mask: 'M4 6h16v12H4zM8 10h3M13 14h3', undo: 'M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10', redo: 'M15 7l5 5-5 5M20 12H9a5 5 0 0 0 0 10', menu: 'M4 7h16M4 12h16M4 17h16', render: 'M12 3v2M12 19v2M3 12h2M19 12h2M12 12m-5 0a5 5 0 1 0 10 0a5 5 0 1 0-10 0', stats: 'M4 20V10M10 20V4M16 20v-8M22 20H2', layout: 'M4 4h16v16H4zM12 4v16M4 12h8', unwrap: 'M12 4a8 8 0 0 1 0 16M12 4v16M4 12h16', pack: 'M4 4h7v7H4zM13 4h7v4h-7zM4 13h7v7H4zM13 10h7v10h-7', straight: 'M4 4h16v16H4zM4 10h16M4 16h16M10 4v16M16 4v16', peel: 'M12 4a8 8 0 0 1 8 8M4 12a8 8 0 0 1 8-8M4 20h16M4 16h16' };
+
+// ---------- chrome shared by the tablet screens ----------
+function chrome(space, page, tools, extra) {
+  const spaces = ['Sculpt', 'Model', 'Render', 'Surface'].map(s => `<button class="item wide ${s === 'Surface' ? 'vlit' : ''}">${s}</button>`).join('');
+  return `
+  <canvas id="c3d" width="1280" height="860"></canvas>
+  <div class="dock" style="left:14px;top:14px"><button class="item">${icon(I.menu)}</button><button class="item wide" style="font-family:var(--mono);font-size:12px">helmet.sculpt</button><button class="item">${icon(I.undo)}</button><button class="item">${icon(I.redo)}</button></div>
+  <div class="dock spaces" style="left:50%;top:14px;transform:translateX(-50%)">${spaces}<button class="item wide" style="margin-left:6px;color:#7f838c">${icon(I.layout)}<span>${extra.layout || '1 frame'}</span></button></div>
+  <div class="dock" style="right:14px;top:14px"><button class="item ${extra.render ? 'lit' : ''}">${icon(I.render)}</button><button class="item">${icon(I.stats)}</button></div>
+  <div class="readout">${extra.readout || '1,208,330 points · level 4 of 4 · Surface'}</div>
+  <div class="dock col" style="left:14px;top:120px"><button class="item vs"><small>Size</small><span class="trk"><i style="height:42%"></i></span><b>42</b></button><button class="item vs"><small>Str</small><span class="trk"><i style="height:65%"></i></span><b>65</b></button><button class="item"><span class="swatch"></span></button></div>
+  <div class="dock col" style="right:14px;top:120px">${['layers', 'material', 'textures', 'mask', 'scene'].map(k => `<button class="item labelled ${k === extra.card ? 'vlit' : ''}">${icon(I[k])}<span>${k[0].toUpperCase() + k.slice(1)}</span></button>`).join('')}</div>
+  <div class="shelf"><div class="pages">${['UV', 'Paint', 'Shade'].map(p => `<button aria-pressed="${p === page}" data-page="${p}">${p}</button>`).join('')}</div>${tools.map(([k, n, lit]) => `<button class="tile ${lit ? 'lit' : ''}">${icon(I[k])}<span>${n}</span></button>`).join('')}</div>`;
+}
+const pageSwitch = () => stage.querySelectorAll('[data-page]').forEach(b => b.onclick = () => show({ UV: 'uv', Paint: 'paint', Shade: 'shade' }[b.dataset.page]));
+
+// ---------- screen 1: Paint ----------
+function screenPaint() {
+  stage.innerHTML = chrome('Surface', 'Paint', [['brush', 'Paint', true], ['erase', 'Erase'], ['blur', 'Blur'], ['clone', 'Clone'], ['fill', 'Fill'], ['stencil', 'Stencil'], ['decal', 'Decal'], ['grad', 'Gradient']], { card: 'layers' }) + `
+  <svg id="stencil" hidden style="position:absolute;left:330px;top:250px;width:420px;height:380px;z-index:12;opacity:0.55;cursor:move;touch-action:none" viewBox="0 0 420 380"><defs><pattern id="hex" width="38" height="33" patternUnits="userSpaceOnUse"><polygon points="19,2 36,11 36,24 19,33 2,24 2,11" fill="none" stroke="#fff" stroke-width="3"/></pattern></defs><rect width="420" height="380" fill="url(#hex)"/><rect width="420" height="380" fill="none" stroke="#b99cff" stroke-width="2" stroke-dasharray="6 4"/></svg>
+  <div class="bar" id="stencilbar" hidden style="left:84px;bottom:96px"><button class="btn violet" id="fillstencil">Fill through stencil</button><button class="btn">Flip</button><button class="btn" id="stenciloff">Hide stencil</button></div>
+  <div class="card" id="layers" style="right:92px;top:120px">
+    <div class="head"><b>Layers</b><div class="tabs violet"><button aria-pressed="false">Sculpt</button><button aria-pressed="true">Paint</button></div><span class="dots">···</span></div>
+    <div class="ctl" style="padding-top:10px"><span>Target</span><div class="tabs violet" id="target"><button data-t="vertices" aria-pressed="false">Vertices</button><button data-t="skin" aria-pressed="false">Skin</button><button data-t="texels" aria-pressed="true">Texels</button></div><span class="val" id="tinfo">2048²</span></div>
+    <div class="row pick"><span class="thumb" style="background:linear-gradient(135deg,#3a3d44,#1c1d21 60%,#2a1a14)"></span><div class="nm"><b>Edge wear</b><small>Multiply · mask Cavity (live)</small></div><div class="chan"><i class="on"></i><i class="on"></i><i></i><i class="on"></i></div><button class="eye" data-l="wear" aria-pressed="true">◉</button></div>
+    <div class="row"><span class="thumb" style="background:radial-gradient(circle at 30% 30%,#8c4728,#3a2416 70%)"></span><div class="nm"><b>Rust</b><small>Mix 80% · fill: Noise graph</small></div><div class="chan"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div><button class="eye" data-l="rust" aria-pressed="true">◉</button></div>
+    <div class="row"><span class="thumb" style="background:linear-gradient(135deg,#b8562f,#24262b 55%)"></span><div class="nm"><b>Painted colour</b><small>Mix · painted · symmetry X</small></div><div class="chan"><i class="on"></i><i></i><i></i><i></i></div><button class="eye" data-l="colour" aria-pressed="true">◉</button></div>
+    <div class="row"><span class="thumb" style="background:linear-gradient(135deg,#9ea2aa,#5c6069)"></span><div class="nm"><b>Steel</b><small>Base · fill: Steel look</small></div><div class="chan"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div><button class="eye">◉</button></div>
+    <div class="ctl"><span>Opacity</span><input type="range" id="wearop" min="0" max="100" value="80"><span class="val" id="wearv">80%</span></div>
+    <div class="ctl"><span>Mask</span><div class="tabs"><button aria-pressed="true">Cavity</button><button>Painted</button></div><button class="eye" title="Show mask">◐</button></div>
+    <div class="foot"><button class="btn violet">New layer</button><button class="btn">Fill layer</button><button class="btn">Move to…</button></div>
+  </div>
+  <div class="bar" style="left:84px;top:108px;align-items:center"><span style="font:500 12.5px var(--ui);color:#a9acb4;padding:0 6px">Shading</span><div class="tabs" id="modes"><button data-m="clay" aria-pressed="true">Clay</button><button data-m="material" aria-pressed="false">Material</button><button data-m="rendered" aria-pressed="false">Rendered</button></div></div>
+  <div class="note" style="left:84px;top:164px;max-width:300px" id="mrgbnote">Every shading mode reads the same paint: switch Shading and the light changes, the paint does not. A layer's channel dots say whether a stroke also lays roughness, metal or height.</div>
+  <div class="note" style="right:430px;top:136px">Target: where the paint lives. Vertices for a 20M sculpt, Skin for the detail skin's samples (no UVs, no seams), Texels for maps that export.</div>
+  <div class="note up" style="left:470px;bottom:96px">The dab is the same on every target: 3D falloff, alpha, symmetry, mask, hiding. On texels it runs on the GPU over the tiles the brush touches.</div>`;
+  const c = stage.querySelector('#c3d');
+  const m = makeModel(c, { cx: 560, cy: 440, R: 250, fx: 0, fy: 0, fw: 0, fh: 0 });
+  dragOrbit(c, m, (e, first) => { const r = box.getBoundingClientRect(), s = 1280 / r.width; m.brush = [(e.clientX - r.left) * s, (e.clientY - r.top) * s]; if (!first) { m.draw(); } return e.shiftKey ? false : (first ? false : false); });
+  const info = { vertices: '1.2M pts', skin: '8 seg · 1.5M', texels: '2048²' };
+  stage.querySelectorAll('#target button').forEach(b => b.onclick = () => { stage.querySelectorAll('#target button').forEach(x => x.setAttribute('aria-pressed', x === b)); m.target = b.dataset.t; stage.querySelector('#tinfo').textContent = info[m.target]; m.draw(); });
+  stage.querySelectorAll('.eye[data-l]').forEach(b => b.onclick = () => { const on = b.getAttribute('aria-pressed') !== 'true'; b.setAttribute('aria-pressed', on); b.textContent = on ? '◉' : '○'; m.L[b.dataset.l] = on; m.draw(); });
+  stage.querySelectorAll('#modes button').forEach(b => b.onclick = () => { stage.querySelectorAll('#modes button').forEach(x => x.setAttribute('aria-pressed', x === b)); m.mode = b.dataset.m; m.draw(); });
+  const op = stage.querySelector('#wearop'); op.oninput = () => { m.L.wearOp = op.value / 100; stage.querySelector('#wearv').textContent = op.value + '%'; m.draw(); };
+  // Stencil: the tile shows a picture over the view, draggable; Fill through stencil paints where it is.
+  const sten = stage.querySelector('#stencil'), stenbar = stage.querySelector('#stencilbar'), tiles = stage.querySelectorAll('.shelf .tile');
+  tiles.forEach((t, k) => t.onclick = () => { tiles.forEach(x => x.classList.remove('lit')); t.classList.add('lit'); const on = k === 5; sten.hidden = !on; stenbar.hidden = !on; });
+  let sd = null; sten.addEventListener('pointerdown', e => { sd = { x: e.clientX, y: e.clientY, l: sten.offsetLeft, t: sten.offsetTop }; sten.setPointerCapture(e.pointerId); });
+  sten.addEventListener('pointermove', e => { if (!sd) return; sten.style.left = sd.l + (e.clientX - sd.x) * S() + 'px'; sten.style.top = sd.t + (e.clientY - sd.y) * S() + 'px'; });
+  sten.addEventListener('pointerup', () => { sd = null; });
+  stage.querySelector('#fillstencil').onclick = () => { m.L.stencil = !m.L.stencil; m.draw(); };
+  stage.querySelector('#stenciloff').onclick = () => { sten.hidden = true; stenbar.hidden = true; };
+  pageSwitch();
+  side.innerHTML = `<h2>Paint page</h2><ul>
+  <li><b>One Layers card</b>, two tabs: Sculpt layers as today, Paint layers here. A paint layer has channels (the four dots: colour, roughness, metal, height), a blend, an opacity and a mask.</li>
+  <li><b>Target chip</b>: switch it and the paint's grain changes on the model. Vertices is polypaint's store; Skin paints the detail skin's samples; Texels is sparse tiles over the UVs.</li>
+  <li><b>Masks are live</b>: Edge wear's mask is the cavity of the sculpt itself, recomputed when the sculpt changes, no bake. Drag Opacity to see the wear dial.</li>
+  <li><b>The eye</b> hides a layer; the composite is one map set that the viewport and Full render already read.</li>
+  <li><b>Move to…</b> bakes a layer from Vertices or Skin onto Texels through the UVs, or samples it back.</li>
+  <li><b>Stencil</b> (shelf): a picture over the view, dragged with a finger; Fill through stencil paints it onto the model, as ZBrush's Spotlight and ArmorPaint's stencil do.</li>
+  <li>Drag on the model to orbit; the brush ring follows the pointer.</li>
+  <li><b>Taken from</b>: Substance's layer stack and smart masks, Procreate's and Nomad's touch painting, Spotlight. <b>Done better</b>: masks read the sculpt live, one stroke paints across seams with symmetry, paint now and get UVs later.</li></ul>`;
+}
+
+// ---------- screen 2: UV ----------
+function screenUV() {
+  stage.innerHTML = chrome('Surface', 'UV', [['seam', 'Seam', true], ['eraser', 'Erase seam'], ['guide', 'Protect'], ['guide', 'Attract'], ['pin', 'Pin'], ['island', 'Island']], { card: 'textures', layout: '2 frames', readout: '48,212 quads · 6 islands · stretch 1.04' }) + `
+  <div class="frame focus" style="left:688px;top:72px;width:500px;height:700px">
+    <div class="tabbar"><button class="tab" aria-pressed="true">UVs</button><button class="tab">Texture</button><button class="tab">Graph</button><span class="sp"></span><span class="sm" id="uvinfo">2048 · 8 px gutter · fill 74%</span></div>
+    <svg class="uvsvg" id="uvsvg" viewBox="0 0 1 1" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="bar" style="left:10px;bottom:10px"><button class="btn">Select</button><button class="btn">Move</button><button class="btn">Turn</button><button class="btn violet">Pack</button><button class="btn">Straighten</button><button class="btn">Mirror halves</button></div>
+  </div>
+  <div class="divider" style="left:679px;top:72px;height:700px"></div>
+  <div class="bar" style="left:84px;top:108px"><button class="btn violet" id="unwrap">Unwrap</button><button class="btn" id="relax">Relax</button><button class="btn" id="pack">Pack tight</button><button class="btn">Symmetry X</button></div>
+  <div class="card" id="uvcard" style="left:84px;top:160px;width:250px">
+    <div class="head"><b>UVs</b><span class="dots">···</span></div>
+    <div class="ctl" style="grid-template-columns:1fr auto"><span>Seams come from</span><span></span></div>
+    <div class="row" style="padding:4px 12px;gap:6px;flex-wrap:wrap;border:0" id="seamset"><button class="btn violet" data-s="hidden" aria-pressed="true">Hidden places</button><button class="btn" data-s="creases" aria-pressed="false">Creases</button><button class="btn violet" data-s="groups" aria-pressed="true">Polygroups</button><button class="btn violet" data-s="mine" aria-pressed="true">My seams</button></div>
+    <div class="ctl"><span>Flatten</span><div class="tabs violet" id="flat"><button aria-pressed="true">Conformal</button><button aria-pressed="false">Min stretch</button></div><span></span></div>
+    <div class="ctl"><span>Stretch</span><span class="val" id="stretchv" style="text-align:left">1.04 mean · 1.21 worst</span><span></span></div>
+    <div class="ctl"><span>Density</span><span class="val" id="densv" style="text-align:left">26 px/cm at 2048</span><span></span></div>
+    <div class="ctl"><span>On model</span><div class="tabs" id="onmodel"><button aria-pressed="true">Seams</button><button aria-pressed="false">Stretch</button><button aria-pressed="false">Checker</button></div><span></span></div>
+  </div>
+  <div class="bar" style="left:84px;bottom:96px;align-items:center;gap:10px;padding:8px 12px"><span style="font:500 12.5px var(--ui);color:#a9acb4">Peel</span><input type="range" id="peel" min="0" max="100" value="0" style="width:220px"><span class="val" id="peelv" style="font:500 12px var(--mono)">0%</span></div>
+  <div class="note" style="left:400px;top:124px;max-width:240px">With the Seam tool lit, draw on the model: your seam (yellow) shows here and in the UVs tab. Islands re-solve while the pen is down. With Island lit, drag to orbit.</div>
+  <div class="note" style="left:400px;bottom:110px;max-width:300px">Blue is no stretch, red is stretched; the number is the island's. Pins hold a vertex, Pack is Fast or Tight, Mirror halves copies the + side across the symmetry plane.</div>`;
+  const c = stage.querySelector('#c3d');
+  const m = makeModel(c, { cx: 370, cy: 440, R: 215, seams: true, fx: 120, fy: 190, fw: 500, fh: 500, marks: new Set(), seamSet: { hidden: true, creases: false, groups: true, mine: true } });
+  let tool = 'seam', relaxed = false;
+  stage.querySelectorAll('.shelf .tile').forEach((t, k) => t.onclick = () => { stage.querySelectorAll('.shelf .tile').forEach(x => x.classList.remove('lit')); t.classList.add('lit'); tool = k === 0 ? 'seam' : k === 1 ? 'erase' : 'orbit'; });
+  dragOrbit(c, m, (e) => { if (tool === 'orbit') return false; const r = box.getBoundingClientRect(), s = 1280 / r.width, cell = m.cellAt((e.clientX - r.left) * s, (e.clientY - r.top) * s); if (!cell) return true;
+    const key = cell[0] + ',' + cell[1]; if (tool === 'seam') m.marks.add(key); else m.marks.delete(key); m.draw(); drawUV(); return true; });
+  stage.querySelectorAll('#seamset button').forEach(b => b.onclick = () => { const on = b.getAttribute('aria-pressed') !== 'true'; b.setAttribute('aria-pressed', on); b.classList.toggle('violet', on); m.seamSet[b.dataset.s] = on; m.draw(); drawUV(); });
+  stage.querySelector('#relax').onclick = () => { relaxed = !relaxed; stage.querySelector('#stretchv').textContent = relaxed ? '1.01 mean · 1.06 worst' : '1.04 mean · 1.21 worst'; stage.querySelectorAll('#flat button').forEach((x, k) => x.setAttribute('aria-pressed', k === (relaxed ? 1 : 0))); drawUV(); };
+  stage.querySelector('#pack').onclick = (e) => { const tight = e.currentTarget.textContent === 'Pack tight'; packs = (tight ? PACK_TIGHT : PACK_FAST).map(p => p.slice()); e.currentTarget.textContent = tight ? 'Pack fast' : 'Pack tight'; stage.querySelector('#uvinfo').textContent = tight ? '2048 · 8 px gutter · fill 86%' : '2048 · 8 px gutter · fill 74%'; stage.querySelector('#densv').textContent = tight ? '28 px/cm at 2048' : '26 px/cm at 2048'; m.draw(); drawUV(); };
+  stage.querySelector('#unwrap').onclick = () => { m.marks.clear(); relaxed = false; packs = PACK_FAST.map(p => p.slice()); m.draw(); drawUV(); };
+  const uvFrame = stage.querySelector('.frame.focus');
+  frameLive(uvFrame);
+  dividerLive(stage.querySelector('.divider'), x => { uvFrame.style.left = (x + 9) + 'px'; uvFrame.style.width = Math.max(240, 1188 - (x + 9)) + 'px'; m.cx = Math.round(x / 2 + 30); m.R = Math.min(215, x * 0.3); m.draw(); });
+  const pe = stage.querySelector('#peel'); pe.oninput = () => { m.peel = pe.value / 100; stage.querySelector('#peelv').textContent = pe.value + '%'; m.draw(); };
+  // the UVs tab: islands as polygons from the chart layout, coloured by stretch; drag an island to move it
+  const svg = stage.querySelector('#uvsvg');
+  function drawUV() {
+    let s = `<rect x="0" y="0" width="1" height="1" fill="#15161a"/>`;
+    for (let k = 1; k < 8; k++) s += `<line x1="${k / 8}" y1="0" x2="${k / 8}" y2="1" stroke="#23252a" stroke-width="0.002"/><line y1="${k / 8}" x1="0" y2="${k / 8}" x2="1" stroke="#23252a" stroke-width="0.002"/>`;
+    for (let j = 0; j < NV; j++) for (let i = 0; i < NU; i++) {
+      const c = chartOf(i, j), pts = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([di, dj]) => flatPos(i + di, j + dj, c));
+      let st = c < 2 ? Math.min(1, Math.abs(j / NV - (c === 0 ? 0.08 : 0.92)) * 6) : Math.min(1, Math.abs(j / NV - 0.5) * 1.6); if (relaxed) st *= 0.25;
+      const col = `rgb(${Math.round(70 + st * 170)},${Math.round(110 - st * 60)},${Math.round(220 - st * 150)})`;
+      s += `<polygon data-c="${c}" points="${pts.map(p => p[0].toFixed(4) + ',' + (1 - p[1]).toFixed(4)).join(' ')}" fill="${col}" fill-opacity="0.55" stroke="${col}" stroke-width="0.0012"/>`;
+      if (m.seamSet.mine && m.marks.has(i + ',' + j)) s += `<polyline points="${[pts[0], pts[1], pts[2]].map(p => p[0].toFixed(4) + ',' + (1 - p[1]).toFixed(4)).join(' ')}" fill="none" stroke="#ffd166" stroke-width="0.004"/>`;
+    }
+    const names = ['Top', 'Bottom', 'Front', 'Right', 'Back', 'Left'], stv = relaxed ? ['1.01', '1.01', '1.02', '1.01', '1.02', '1.01'] : ['1.02', '1.02', '1.06', '1.04', '1.06', '1.03'];
+    packs.forEach((p, k) => { s += `<text x="${p[0] + 0.012}" y="${1 - p[1] - p[3] + 0.03}" font-size="0.022">${names[k]} ${stv[k]}</text>`; });
+    s += `<circle cx="${packs[2][0] + packs[2][2] / 2}" cy="${1 - packs[2][1] - packs[2][3] / 2}" r="0.009" fill="#b99cff" stroke="#fff" stroke-width="0.002"/>`;
+    svg.innerHTML = s;
+  }
+  drawUV();
+  let isl = null;
+  svg.addEventListener('pointerdown', e => { const t = e.target.closest('[data-c]'); if (!t) return; isl = { c: +t.dataset.c, x: e.clientX, y: e.clientY, p: packs[+t.dataset.c].slice() }; svg.setPointerCapture(e.pointerId); });
+  svg.addEventListener('pointermove', e => { if (!isl) return; const r = svg.getBoundingClientRect(), k = Math.min(r.width, r.height); packs[isl.c][0] = isl.p[0] + (e.clientX - isl.x) / k; packs[isl.c][1] = isl.p[1] - (e.clientY - isl.y) / k; drawUV(); m.draw(); });
+  svg.addEventListener('pointerup', () => { isl = null; }); svg.addEventListener('pointercancel', () => { isl = null; });
+  pageSwitch();
+  side.innerHTML = `<h2>UV page</h2><ul>
+  <li><b>Two frames</b> of the docking: the model on the left, the UVs tab on the right (Texture and Graph are its other tabs). Drag the divider between them to give either side more room; drag the tab bar to pop the UVs out as a float and its corner to resize it. The violet border is the focused frame; the shelf follows it.</li>
+  <li><b>Seam pen</b> on the model (red lines are the seams; here the six auto seams of the sphere). Unwrap is one tap: auto seams scored by visibility, cavity, polygroups and creases, then ABF++ and LSCM per island.</li>
+  <li><b>UVs card</b> (the rail's one card for UVs): Seams come from (Hidden places, Creases, Polygroups, My seams; switch them and the red seams follow), Flatten (Conformal or Min stretch), stretch and density readouts, what the model shows.</li>
+  <li><b>Relax</b> runs the stretch relax: the islands go blue and the numbers drop. <b>Pack tight</b> swaps the fast layout for the tight one. <b>Peel</b> morphs the model into its layout and back.</li>
+  <li><b>Drag an island</b> in the UVs tab to move it; the dot is a pin.</li>
+  <li><b>Taken from</b>: UV Master's one tap and guide painting, Blender's live unwrap, pins and packers, RizomUV's stretch colours. <b>Done better</b>: the seam pen on the sculpt, Peel, seams first where nobody looks, a touch UV tab.</li></ul>`;
+}
+
+// ---------- screen 3: Shade ----------
+function screenShade() {
+  stage.innerHTML = chrome('Surface', 'Shade', [['stack', 'Stack', true], ['graph', 'Graph'], ['probe', 'Probe'], ['material', 'Looks']], { card: 'material', layout: '1 frame + float', render: true, readout: 'Steel, worn · 14 nodes · 2048² · 3.1 ms' }) + `
+  <div class="card" id="stack" style="left:84px;top:72px;width:300px">
+    <div class="head"><b>Material</b><div class="tabs violet"><button aria-pressed="true">Stack</button><button aria-pressed="false">Looks</button></div><span class="dots">···</span></div>
+    <div class="row pick"><span class="thumb" style="background:linear-gradient(135deg,#3a3d44,#1c1d21 60%,#2a1a14)"></span><div class="nm"><b>Edge wear</b><small>Mix · mask: Cavity → Levels → Noise</small></div><span class="val" id="pv1" style="font:500 11px var(--mono);color:#b99cff"></span></div>
+    <div class="row"><span class="thumb" style="background:radial-gradient(circle at 30% 30%,#8c4728,#3a2416 70%)"></span><div class="nm"><b>Rust</b><small>Mix 80% · Noise 9 → Colour ramp</small></div><span class="val" id="pv2" style="font:500 11px var(--mono);color:#b99cff"></span></div>
+    <div class="row"><span class="thumb" style="background:linear-gradient(135deg,#b8562f,#24262b 55%)"></span><div class="nm"><b>Painted colour</b><small>Layer: Painted colour</small></div></div>
+    <div class="row"><span class="thumb" style="background:linear-gradient(135deg,#9ea2aa,#5c6069)"></span><div class="nm"><b>Steel</b><small>Colour 0.62 · rough 0.35 · metal 1</small></div></div>
+    <div class="ctl"><span>Probe</span><span style="font-size:12px;color:#a9acb4" id="probetxt">Press on the model</span><span></span></div>
+    <div class="foot"><button class="btn violet">Add node</button><button class="btn">Open graph</button><button class="btn">Bake to files…</button></div>
+  </div>
+  <div class="frame float" id="gframe" style="left:540px;top:84px;width:640px;height:520px;opacity:0.92">
+    <div class="tabbar"><button class="tab" aria-pressed="true">Graph</button><button class="tab">UVs</button><span class="sp"></span><button class="tab" id="tidy">Tidy</button><button class="tab" id="peek">Hold to peek</button><span class="sm">See-through</span><input type="range" id="seethru" min="30" max="100" value="92" style="width:110px;margin:0 8px"><button class="tab" title="Dock">⇲</button></div>
+    <svg class="graph" id="graph" viewBox="0 0 690 486" preserveAspectRatio="xMinYMin meet"></svg>
+    <input type="range" id="nscale" min="3" max="20" value="9" style="position:absolute;left:62px;top:488px;width:96px;height:14px;accent-color:#b99cff" title="Noise scale">
+    <button class="eye" id="eye-noise" style="position:absolute;left:138px;top:462px;width:24px;height:22px;font-size:12px" title="Show this node on the model">◉</button>
+    <button class="eye" id="eye-cav" style="position:absolute;left:138px;top:336px;width:24px;height:22px;font-size:12px" title="Show this node on the model">◉</button>
+  </div>
+  <div class="note" style="left:400px;top:600px;max-width:260px">The float is see-through over the model; hold its bar to peek. The same graph is the Stack's rows, so either view edits one material.</div>
+  <div class="note up" style="left:560px;bottom:96px;max-width:300px">The graph compiles to bytecode that one committed kernel runs per texel; no shader compiles on the device, and the result is the maps every exporter reads.</div>`;
+  const c = stage.querySelector('#c3d');
+  const m = makeModel(c, { cx: 470, cy: 470, R: 230, fx: 0, fy: 0, fw: 0, fh: 0 });
+  const probe = (e) => { const r = box.getBoundingClientRect(), s = 1280 / r.width, x = (e.clientX - r.left) * s, y = (e.clientY - r.top) * s; const dx = (x - m.cx) / m.R, dy = (y - m.cy) / (m.R * 0.95); if (dx * dx + dy * dy > 1) return false; m.probe = [x, y]; m.draw();
+    const v = 0.5 + dy * 0.5, u = 0.5 + dx * 0.3; const cav = Math.exp(-Math.pow((v - 0.48) * 18, 2)); const rust = fbm(u * 9, v * 7);
+    stage.querySelector('#pv1').textContent = 'mask ' + cav.toFixed(2); stage.querySelector('#pv2').textContent = 'noise ' + rust.toFixed(2);
+    stage.querySelector('#probetxt').textContent = `u ${u.toFixed(2)} v ${v.toFixed(2)} · cavity ${cav.toFixed(2)} · noise ${rust.toFixed(2)}`;
+    stage.querySelector('#gv-cav').textContent = cav.toFixed(2); stage.querySelector('#gv-noise').textContent = rust.toFixed(2); stage.querySelector('#gv-ramp').textContent = rust > 0.55 ? 'rust' : 'steel'; return true; };
+  dragOrbit(c, m, (e, first) => probe(e));
+  const st = stage.querySelector('#seethru'); st.oninput = () => { stage.querySelector('#gframe').style.opacity = st.value / 100; };
+  frameLive(stage.querySelector('#gframe'));
+  // Live nodes: the Noise node's scale slider changes the rust on the model; a node's eye shows that node alone; Hold to peek hides the frame while held.
+  const ns = stage.querySelector('#nscale'); ns.oninput = () => { m.L.noiseScale = +ns.value; stage.querySelector('#graph').querySelector('[data-k="scale"]').textContent = (+ns.value).toFixed(1); m.draw(); };
+  const solo = (k) => { m.L.solo = m.L.solo === k ? null : k; stage.querySelector('#eye-noise').style.color = m.L.solo === 'noise' ? '#b99cff' : ''; stage.querySelector('#eye-cav').style.color = m.L.solo === 'cavity' ? '#b99cff' : ''; m.draw(); };
+  stage.querySelector('#eye-noise').onclick = () => solo('noise'); stage.querySelector('#eye-cav').onclick = () => solo('cavity');
+  const gf = stage.querySelector('#gframe'), pk = stage.querySelector('#peek'); const peekOn = e => { gf.style.opacity = 0.08; pk.setPointerCapture(e.pointerId); }, peekOff = () => { gf.style.opacity = st.value / 100; };
+  pk.addEventListener('pointerdown', peekOn); pk.addEventListener('pointerup', peekOff); pk.addEventListener('pointercancel', peekOff);
+  stage.querySelector('#tidy').onclick = () => { gf.style.left = '540px'; gf.style.top = '84px'; gf.style.width = '640px'; gf.style.height = '520px'; };
+  // the graph
+  const node = (x, y, w, name, rows, cls, pvid) => `<g class="node ${cls || ''}" transform="translate(${x},${y})"><rect width="${w}" height="${26 + rows.length * 17 + (pvid ? 46 : 0)}" rx="8"/><text x="10" y="17">${name}</text>${rows.map(([k, v], i) => `<text class="k" x="10" y="${38 + i * 17}">${k}</text><text class="v" data-k="${k}" x="${w - 10}" y="${38 + i * 17}" text-anchor="end" ${v.startsWith('#') ? `id="${v.slice(1)}"` : ''}>${v.startsWith('#') ? '–' : v}</text>`).join('')}${pvid ? `<rect class="pv" x="10" y="${30 + rows.length * 17}" width="${w - 20}" height="38" rx="5" fill="${pvid}"/>` : ''}${rows.map((r, i) => `<circle class="s" cx="0" cy="${34 + i * 17}" r="4"/>`).join('')}<circle class="s" cx="${w}" cy="17" r="4"/></g>`;
+  const wire = (x1, y1, x2, y2, cls) => `<path class="wire ${cls || ''}" d="M${x1} ${y1} C ${x1 + 40} ${y1}, ${x2 - 40} ${y2}, ${x2} ${y2}"/>`;
+  stage.querySelector('#graph').innerHTML = `
+    ${wire(150, 61, 190, 78)}${wire(150, 61, 330, 95, 'f')}${wire(310, 78, 330, 112, 'f')}${wire(150, 215, 190, 232)}${wire(310, 232, 330, 129, 'c')}${wire(150, 340, 330, 146, 'c')}${wire(450, 95, 500, 112, 'c')}${wire(450, 112, 500, 129, 'f')}${wire(450, 129, 500, 146, 'f')}${wire(150, 340, 500, 163, 'f')}
+    ${node(30, 44, 120, 'Geometry', [['cavity', '#gv-cav'], ['occlusion', '0.91'], ['thickness', '0.40']])}
+    ${node(190, 61, 120, 'Levels', [['low', '0.20'], ['high', '0.70']])}
+    ${node(30, 198, 120, 'Noise', [['scale', '9.0'], ['detail', '3'], ['value', '#gv-noise']])}
+    ${node(190, 215, 120, 'Colour ramp', [['pos 0.55', 'steel'], ['pos 0.70', '#gv-ramp']], '', 'url(#rg)')}
+    ${node(30, 323, 120, 'Layer', [['Painted colour', 'RGBA'], ['coverage', 'A']])}
+    ${node(330, 78, 120, 'Mix', [['fac', 'mask'], ['a', 'Steel'], ['b', 'Rust'], ['mode', 'Mix']], '', 'url(#mg)')}
+    ${node(500, 95, 150, 'Output', [['base colour', ''], ['roughness', '0.35'], ['metal', '1.0'], ['height', 'wear'], ['normal', 'from height']], 'out')}
+    <defs><linearGradient id="rg"><stop offset="0" stop-color="#9ea2aa"/><stop offset="0.55" stop-color="#9ea2aa"/><stop offset="0.7" stop-color="#8c4728"/><stop offset="1" stop-color="#3a2416"/></linearGradient><linearGradient id="mg"><stop offset="0" stop-color="#5c6069"/><stop offset="1" stop-color="#8c4728"/></linearGradient></defs>
+    <text x="30" y="470" font-size="11" fill="#7f838c" font-family="IBM Plex Sans, sans-serif">Sockets are 48 pt on touch; tap a socket then another to wire, tap a wire to insert a node, two fingers to pan and zoom.</text>`;
+  pageSwitch();
+  side.innerHTML = `<h2>Shade page</h2><ul>
+  <li><b>Stack</b> (the Material card) is the default: each row is a Mix node of the graph with its mask chain; Looks holds the smart materials from content packs.</li>
+  <li><b>Graph</b> is a docking frame floating over the model: drag its tab bar to move it, its bottom-right corner to resize it, the slider for see-through; the corner button docks it. On a phone the Stack is the whole page.</li>
+  <li><b>Probe</b>: press on the model. Every node shows its value at that point (cavity, noise, which ramp stop), in the graph and in the Stack's rows.</li>
+  <li>Geometry inputs (cavity, occlusion, thickness, level difference) are the live generators of the Paint page, so a material follows the sculpt with no bake.</li>
+  <li><b>Live nodes</b>: drag the Noise node's scale slider and the rust changes on the model; a node's eye shows that node alone on the model (Blender's Node Wrangler preview, one tap); Tidy puts the frame back; Hold to peek hides it while pressed.</li>
+  <li>Bake to files writes the stack at any size, UDIM tiles and texture sets, with glTF and USD carrying the maps.</li>
+  <li><b>Taken from</b>: three.js's graph over the scene, Blender's and Unreal's per-node preview, Substance Designer's node thumbnails. <b>Done better</b>: every graph exports as maps, Stack and Graph are one thing, Probe.</li></ul>`;
+}
+
+// ---------- screen 4: phone ----------
+function screenPhone() {
+  stage.innerHTML = `<div class="phone">
+    <div class="ptop"><span>helmet</span><span class="sp">Surface · Shade</span><span>···</span></div>
+    <div class="pview"></div><canvas id="cph" width="390" height="330" style="position:absolute"></canvas>
+    <div class="sheet"><div class="grip"></div>
+      <div class="stabs"><button aria-pressed="false">UV</button><button aria-pressed="false">Paint</button><button aria-pressed="true">Stack</button></div>
+      <div class="row pick"><span class="thumb" style="background:linear-gradient(135deg,#3a3d44,#1c1d21 60%,#2a1a14)"></span><div class="nm"><b>Edge wear</b><small>Mix · mask Cavity</small></div><button class="eye">◉</button></div>
+      <div class="row"><span class="thumb" style="background:radial-gradient(circle at 30% 30%,#8c4728,#3a2416 70%)"></span><div class="nm"><b>Rust</b><small>Mix 80% · Noise</small></div><button class="eye">◉</button></div>
+      <div class="row"><span class="thumb" style="background:linear-gradient(135deg,#b8562f,#24262b 55%)"></span><div class="nm"><b>Painted colour</b><small>painted</small></div><button class="eye">◉</button></div>
+      <div class="row"><span class="thumb" style="background:linear-gradient(135deg,#9ea2aa,#5c6069)"></span><div class="nm"><b>Steel</b><small>base</small></div><button class="eye">◉</button></div>
+      <div class="ctl" style="grid-template-columns:60px 1fr auto"><span>Opacity</span><div class="slider"><i style="width:80%"></i></div><span class="val">80%</span></div>
+      <div class="pbar"><button class="v">Add</button><button>Probe</button><button>Unwrap</button><button>Bake…</button></div>
+    </div></div>
+    <div class="note" style="left:860px;top:120px;max-width:280px">On a phone or a portrait tablet the Stack is the whole Shade page and the UVs tab is a sheet; Unwrap, Peel and Bake are one-tap commands. The graph is a desktop and landscape view.</div>
+    <div class="note" style="left:120px;top:300px;max-width:280px">The sheet has two heights: a swipe up shows the whole stack, a swipe down leaves the model with the pages as tabs.</div>`;
+  const c = stage.querySelector('#cph'); const m = makeModel(c, { cx: 195, cy: 160, R: 120, fx: 0, fy: 0, fw: 0, fh: 0 }); dragOrbit(c, m);
+  side.innerHTML = `<h2>Phone</h2><ul><li><b>Same three pages</b>, as a sheet under the model.</li><li>Stack rows are the whole material; the graph stays for landscape and desktop.</li><li>Every control keeps the 48 pt touch target the app already uses.</li></ul>`;
+}
+
+const screens = { paint: screenPaint, uv: screenUV, shade: screenShade, phone: screenPhone };
+function show(k) { document.querySelectorAll('nav.screens button').forEach(b => b.setAttribute('aria-selected', b.dataset.screen === k)); screens[k](); try { if (location.hash !== '#' + k) history.replaceState(null, '', '#' + k); } catch (e) {} }
+document.querySelectorAll('nav.screens button').forEach(b => b.onclick = () => show(b.dataset.screen));
+addEventListener('hashchange', () => { const k = location.hash.slice(1); if (screens[k]) show(k); });
+show(screens[location.hash.slice(1)] ? location.hash.slice(1) : 'paint');
+})();
+</script>

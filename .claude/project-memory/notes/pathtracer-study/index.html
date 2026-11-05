@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pelz Pathtracer Study</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  /* Layout: one reading column, wide tables allowed to scroll on their own. Beam-in-haze palette. */
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --ink: #1a1f2b;
+  --muted: #5a6273;
+  --line: #d9dde5;
+  --accent: #b5650d;
+  --stated: #1f6f4a;
+  --stated-bg: #e3f3ea;
+  --inferred: #7a4b00;
+  --inferred-bg: #fbefd9;
+  --ours: #23508f;
+  --ours-bg: #e4ecf8;
+  --display: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --body: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151c; --surface: #1a1e28; --ink: #e6e8ee; --muted: #9aa2b4; --line: #2c3240;
+    --accent: #f0a447; --stated: #7fd6a6; --stated-bg: #173226; --inferred: #f3c982; --inferred-bg: #3a2b12;
+    --ours: #9dbcf0; --ours-bg: #1b2a44; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151c; --surface: #1a1e28; --ink: #e6e8ee; --muted: #9aa2b4; --line: #2c3240;
+  --accent: #f0a447; --stated: #7fd6a6; --stated-bg: #173226; --inferred: #f3c982; --inferred-bg: #3a2b12;
+  --ours: #9dbcf0; --ours-bg: #1b2a44; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--body); }
+main { max-width: 980px; margin: 0 auto; padding: 40px 20px 80px; display: flex; flex-direction: column; gap: 28px; }
+.prose { max-width: 68ch; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: 2.1rem; font-weight: 800; }
+h2 { font-size: 1.45rem; font-weight: 800; padding-top: 12px; border-top: 2px solid var(--accent); }
+h3 { font-size: 1.1rem; font-weight: 600; }
+p { margin: 0; }
+section { display: flex; flex-direction: column; gap: 14px; }
+.sub { color: var(--muted); }
+code, .mono { font-family: var(--mono); font-size: 0.88em; }
+a { color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; }
+ol.big { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 10px; }
+ol.big li::marker { color: var(--accent); font-weight: 800; }
+ul { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; }
+.chip { display: inline-block; font: 500 0.72rem/1 var(--mono); padding: 4px 6px; border-radius: 4px; white-space: nowrap; vertical-align: 1px; }
+.s { color: var(--stated); background: var(--stated-bg); }
+.i { color: var(--inferred); background: var(--inferred-bg); }
+.o { color: var(--ours); background: var(--ours-bg); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--muted); font-size: 0.9rem; }
+.tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; min-width: 760px; font-size: 0.92rem; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+tr:last-child td { border-bottom: 0; }
+td:first-child { font-weight: 600; width: 17%; }
+.verdict { font-weight: 600; }
+.adopt { color: var(--stated); } .later { color: var(--inferred); } .skip { color: var(--muted); }
+.rank { display: grid; grid-template-columns: 2.4rem 1fr; gap: 6px 12px; align-items: start; }
+.rank .n { font: 800 1.4rem/1 var(--display); color: var(--accent); }
+.rank .body { display: flex; flex-direction: column; gap: 4px; }
+.meta { color: var(--muted); font-size: 0.88rem; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+@media (max-width: 420px) { h1 { font-size: 1.7rem; } }
+</style>
+</head>
+<body>
+<main>
+
+<header class="prose" style="display:flex;flex-direction:column;gap:10px">
+  <h1>What makes Josef Pelz's Pathtracer fast, and what we can take</h1>
+  <p class="sub">A study of Pathtracer 3.0.1 for TouchDesigner (MIT, by Josef Pelz), read from all 18 pages of its documentation, set against our own render mode in <code>src/render</code> as of <code>odin-sculpt</code> at #439. Research only; no code changed. 31 October 2026.</p>
+</header>
+
+<section>
+  <h2>The short answer</h2>
+  <p class="prose">It is fast mostly for three reasons, and special for two more. None of them is a secret trick: it is a careful, modern real-time path tracer that leans hard on the GPU vendor's hardware and denoiser.</p>
+  <div class="card">
+    <ol class="big">
+      <li><strong>It traces far fewer pixels than it shows.</strong> The default denoiser is NVIDIA DLSS Ray Reconstruction at Balanced quality, which traces a little under 60% of the width and height (about a third of the pixels), one path per pixel per frame, and lets a neural network denoise and upscale to full size. This is the single largest speed factor, and it is the one we cannot copy: it is neural, NVIDIA-only and under NVIDIA's own licence.</li>
+      <li><strong>Rays run on ray-tracing hardware.</strong> TouchDesigner 2025 builds a driver acceleration structure for a POP and exposes Vulkan ray queries to GLSL, and the Pathtracer uses it. On a Mac, where TouchDesigner has no hardware ray tracing through MoltenVK, it walks its own tree in software. We already do both, and on Apple we go further with Metal ray tracing.</li>
+      <li><strong>The kernel only contains what the scene uses.</strong> "Optimize" compiles a trace specialised to the current settings (no environment code without an environment, no haze, sheen, thin film, dispersion or see-through tests unless something uses them). Until you press it, a flexible trace that handles every setting stands in, so changing a setting never pauses. We have one kernel with every branch in it. This is the best idea here for us, and it is cheap.</li>
+      <li><strong>Its light sampling is tuned so noise stays low at 1 sample.</strong> Lights of every kind are normalised to give the same light at the same Strength, the environment is always importance sampled, a glowing surface can be told not to light the scene, and a firefly clamp limits only indirect light. "Glass Shadows" traces caustics through smooth glass directly.</li>
+      <li><strong>It does a lot that sculpt renderers usually skip:</strong> a full layered material (clear coat, sheen, thin film, transmission with absorption and dispersion, opacity and cutout), seven light kinds including any mesh made to glow, and haze with beams, drifting noise, 3D-texture density and multiple scattering.</li>
+    </ol>
+  </div>
+  <div class="legend"><span><span class="chip s">stated</span> said in his documentation</span><span><span class="chip i">inferred</span> my reading of what the documentation implies; his shaders were not available to confirm</span><span><span class="chip o">ours</span> what our render mode does today</span></div>
+</section>
+
+<section>
+  <h2>What I could and could not read</h2>
+  <div class="grid2">
+    <div class="card"><h3>Read in full</h3><ul>
+      <li>Home, Getting started, Components, License, Troubleshooting</li>
+      <li>The four component pages: Pathtracer, PT GEO, PT MAT, PT LIGHT</li>
+      <li>All eight guide pages: scene, materials, lights, haze, camera, denoising, optimize, outputs, and Moving from 2.1</li>
+      <li>Derivative's own pages on TouchDesigner's hardware ray tracing (Ray POP, GLSL POP collisions), for what the Pathtracer stands on</li>
+    </ul></div>
+    <div class="card"><h3>Could not read</h3><ul>
+      <li><strong>The video</strong> ("Pathtracer 3.0 | Everything just works."): YouTube sends this container to its bot check. Bolt pasted the transcript later; see "What the video adds".</li>
+      <li><strong>Patreon</strong> (his page, and a separate beta "PTE, Path Tracing Engine" built on Vulkan ray query with an SVGF denoiser): behind Cloudflare's check, which I did not try to get past.</li>
+      <li><strong>josefpelz.com</strong> is a WebGL animation with no text.</li>
+      <li><strong>The shaders themselves</strong>: the download is for patrons only.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section>
+  <h2>Technique by technique</h2>
+
+  <h3>Acceleration and the trace</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Technique</th><th>His Pathtracer</th><th>Ours today</th><th>Take it?</th></tr>
+    <tr><td>Hardware ray tracing</td><td><span class="chip s">stated</span> Needs a ray-tracing GPU on Windows. <span class="chip i">inferred</span> Through TouchDesigner's GLSL POP collisions: the driver builds the acceleration structure and the shader runs ray queries, with a fast-build mode for moving geometry and fast-trace for still.</td><td><span class="chip o">ours</span> Vulkan ray query in studio and render mode (#404 to #409), Metal ray tracing off by default (#430), BLAS refit on sculpt (<code>vk_accel.odin</code>, <code>ALLOW_UPDATE | PREFER_FAST_TRACE</code>).</td><td class="verdict adopt">Have it. One idea: choose fast-build for an object being sculpted and fast-trace for the rest.</td></tr>
+    <tr><td>Software fallback</td><td><span class="chip s">stated</span> On a Mac it "traces in software, by itself"; same image, slower.</td><td><span class="chip o">ours</span> Our own two-level chunk BVH walk in <code>render_trace.slang</code> on every GPU.</td><td class="verdict adopt">Have it.</td></tr>
+    <tr><td>Specialised kernels ("Optimize")</td><td><span class="chip s">stated</span> A trace compiled for the current settings, leaving out what the scene does not use. A flexible trace that handles anything runs meanwhile, "a little slower". The triggers: environment image, first points or lines, haze and its variants, first light of a kind, dispersion, first see-through material, sheen or thin film, DLSS and Stable Planes. Compiled shaders are cached per operator, so a reopened project is fast at once.</td><td><span class="chip o">ours</span> One kernel per backend and binding style (named maps, map array, each with ray query). Every feature is a runtime branch. No specialization constants anywhere in <code>src/render</code>.</td><td class="verdict adopt">Yes, first. Do it automatically, not by a button (see ranking).</td></tr>
+    <tr><td>Lock Input</td><td><span class="chip s">stated</span> Freezes geometry so heavy still scenes stop re-uploading.</td><td><span class="chip o">ours</span> Render mode already copies the scene once per still view and starts over only on change.</td><td class="verdict skip">Not needed.</td></tr>
+    <tr><td>Points and lines as spheres and tubes</td><td><span class="chip s">stated</span> Point primitives render as spheres, lines as round tubes that meet spheres flush. <span class="chip i">inferred</span> Analytic intersection of procedural primitives, not tessellated meshes.</td><td>None.</td><td class="verdict skip">Not for sculpting. Maybe for curve brushes or point clouds one day.</td></tr>
+  </table></div>
+
+  <h3>Sampling</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Technique</th><th>His Pathtracer</th><th>Ours today</th><th>Take it?</th></tr>
+    <tr><td>Light sampling (NEE)</td><td><span class="chip i">inferred</span> Next-event estimation toward PT LIGHTs, glowing materials and the environment, as any modern tracer at 1 spp must. Larger lights are documented as less noisy.</td><td><span class="chip o">ours</span> NEE with lights picked by strength, MIS with the power heuristic.</td><td class="verdict adopt">Have it.</td></tr>
+    <tr><td>Environment importance sampling</td><td><span class="chip s">stated</span> Always on in 3.0 ("bright parts of the environment are always sampled well"); 2.1 had it behind an "MIS HDRI Map" switch.</td><td><span class="chip o">ours</span> Always on (<code>env_sample.odin</code>, #193).</td><td class="verdict adopt">Have it.</td></tr>
+    <tr><td>Light units</td><td><span class="chip s">stated</span> Every light Type at the same Strength lights a surface a few units in front about equally; a Sun matches a Rectangle 4 units away. Switching Type keeps the brightness. Strength is the total output, so a bigger light is softer, not brighter.</td><td>Sun, point and spot with their own strengths.</td><td class="verdict adopt">Yes, when we add area lights. A small rule with a large effect on how lighting feels.</td></tr>
+    <tr><td>Emitters that do not light</td><td><span class="chip s">stated</span> A glowing material can turn off Light the Scene (still visible, in mirrors too) or Visible to Camera, to avoid the noise of tiny bright emitters.</td><td>No emissive materials yet.</td><td class="verdict later">With emission.</td></tr>
+    <tr><td>Firefly clamp</td><td><span class="chip s">stated</span> Limits very bright <em>indirect</em> light; default 10, user-set, 0 off.</td><td><span class="chip o">ours</span> A fixed cap on the radiance a whole sample may add (<code>render_trace.slang</code>), direct light included.</td><td class="verdict adopt">Yes, small: clamp indirect only, so direct highlights keep their energy.</td></tr>
+    <tr><td>Caustics through glass ("Glass Shadows")</td><td><span class="chip s">stated</span> Light from PT LIGHTs through smooth glass, bent and focused, for smooth glass only (no roughness, dispersion or normal map); curved glass made of triangles shows the triangles under a small light. <span class="chip i">inferred</span> Those limits match manifold next-event estimation (Hanika et al. 2015): a Newton search for a refracted path to the light across the glass's surface.</td><td>No glass.</td><td class="verdict skip">Only after transmission, and only if Bolt wants glass renders.</td></tr>
+    <tr><td>Russian roulette, bounces</td><td><span class="chip s">stated</span> Bounces 8 by default, up to 64, raised for stacked glass and mirrors.</td><td><span class="chip o">ours</span> Roulette from the third bounce, Bounces 6 default, 12 max.</td><td class="verdict adopt">Have it.</td></tr>
+    <tr><td>Depth of field</td><td><span class="chip s">stated</span> Thin lens in the trace, correct in reflections and through glass.</td><td><span class="chip o">ours</span> Thin lens with a concentric disc map (#200).</td><td class="verdict adopt">Have it.</td></tr>
+  </table></div>
+
+  <h3>Denoising</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Technique</th><th>His Pathtracer</th><th>Ours today</th><th>Take it?</th></tr>
+    <tr><td>DLSS Ray Reconstruction</td><td><span class="chip s">stated</span> Default. Denoises every frame and follows motion, upscales from DLAA (full size) to Ultra Performance (a third), Responsivity sliders, per-object velocity for meshes rebuilt each frame.</td><td>None, by Bolt's rule: nothing neural, nothing proprietary.</td><td class="verdict skip">No. The ideas around it still apply: trace small and upscale while moving, feed the denoiser motion and guides.</td></tr>
+    <tr><td>Stable Planes</td><td><span class="chip s">stated</span> Guides DLSS with what is seen through glass and in mirrors so it stays sharp; Refraction Motion gives motion vectors for what is seen through glass. <span class="chip i">inferred</span> NVIDIA's RTX path tracing sample's "stable planes": the denoiser's guides (albedo, normal, depth, motion) come from the first non-mirror surface along a path of perfect reflections and refractions, not from the mirror or glass itself.</td><td><span class="chip o">ours</span> Guides from the first surface only.</td><td class="verdict later">Yes once we have mirror-like or glass materials: cheap, and it keeps reflections sharp under our own filter too.</td></tr>
+    <tr><td>Accumulate</td><td><span class="chip s">stated</span> Averages frames while nothing changes; any change starts over; Max Samples stops it.</td><td><span class="chip o">ours</span> The same, plus an edge-avoiding À-Trous filter over the mean whose passes shrink as samples grow (<code>render_atrous.frag.slang</code>).</td><td class="verdict adopt">Ours is ahead for stills.</td></tr>
+    <tr><td>SVGF and OptiX (2.1)</td><td><span class="chip s">stated</span> Both removed in 3.0: "Use DLSS for motion, Accumulate for stills." The separate PTE beta on Patreon still uses SVGF.</td><td><span class="chip o">ours</span> Fast mode keeps samples while orbiting (studio reprojection, #258); render mode starts over on any change.</td><td class="verdict adopt">The lesson: a hand-written temporal denoiser (SVGF) was not good enough for him in motion. Ours should be stronger than plain SVGF; see the ranking.</td></tr>
+  </table></div>
+
+  <h3>Materials, lights, haze</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Area</th><th>His Pathtracer</th><th>Ours today</th><th>Take it?</th></tr>
+    <tr><td>Material layers</td><td><span class="chip s">stated</span> Base colour, metallic, roughness, IOR; transmission with Beer absorption (colour reached at a distance) and dispersion; clear coat with roughness and tint; sheen; thin film (thickness in nm, its own IOR); opacity and cutout; emission with normalise by area. Reads glTF's transmission, volume, clear coat, sheen, iridescence and dispersion. Sheen and thin film cost the whole render, so the kernel leaves them out when unused. <span class="chip i">inferred</span> Close to glTF's PBR extensions or OpenPBR.</td><td><span class="chip o">ours</span> Lambert plus GGX with visible-normal sampling, per-group colour, metal and roughness, base colour, ORM and normal maps.</td><td class="verdict adopt">Yes: clear coat and sheen first (sculpt presentation: lacquer, skin, cloth), then transmission. This is stage 6 of our render plan; add thin film there. Subsurface, which he lacks, matters more to us than dispersion.</td></tr>
+    <tr><td>Light kinds</td><td><span class="chip s">stated</span> Point and spot with a radius, rectangle, disk, sphere, sun with an angle, and any mesh made to glow; two-sided; a spot projects an image; Affects Haze per light.</td><td><span class="chip o">ours</span> Sun, point, spot, up to 8 (<code>Light_Kind</code>).</td><td class="verdict adopt">Yes: rectangle and disk (soft boxes are what sculpt renders use), sizes for point and sun. Mesh lights later; they need a light tree or a power-weighted triangle list.</td></tr>
+    <tr><td>Haze</td><td><span class="chip s">stated</span> Density, colour, anisotropy (default 0.3, forward), Haze Samples points lit along each view ray, a box or the scene's bounds, noise variation with drift, 3D-texture density, optional multiple scattering. "Textured haze renders at the pace of its densest spot." <span class="chip i">inferred</span> Single scattering with a Henyey-Greenstein phase lit at a few points per ray; the densest-spot remark means one majorant for the whole box (delta or ratio tracking).</td><td>None.</td><td class="verdict skip">Not for now. It is a showpiece for stage renders, not for sculpting. If wanted: single-scatter haze in a box, equiangular sampling for spot beams.</td></tr>
+  </table></div>
+
+  <h3>Outputs and workflow</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Technique</th><th>His Pathtracer</th><th>Ours today</th><th>Take it?</th></tr>
+    <tr><td>Views (AOVs)</td><td><span class="chip s">stated</span> Up to eight outputs: shaded, albedo, normal, depth, motion, roughness, material id, emission; averaged under Accumulate so edges are smooth.</td><td><span class="chip o">ours</span> Albedo, normal and depth exist as denoiser guides; not shown.</td><td class="verdict adopt">Yes, small: show the guides as passes (stage 7 "passes" of our plan).</td></tr>
+    <tr><td>sRGB and dither</td><td><span class="chip s">stated</span> sRGB encode and a dither that keeps black black.</td><td><span class="chip o">ours</span> Tone curves (Neutral, AgX, ACES), grade, grain and dither (#250, #256).</td><td class="verdict adopt">Ours is ahead.</td></tr>
+    <tr><td>Messages instead of an image</td><td><span class="chip s">stated</span> "Nothing to render", "No light", "DLSS could not start" drawn on the image.</td><td>Falls back to the viewport.</td><td class="verdict later">Nice touch for render mode with every light off.</td></tr>
+    <tr><td>Right-click opens the material</td><td><span class="chip s">stated</span> In the render, right-click a surface to open its material; Ctrl opens its object or light.</td><td>Picking exists in the viewport.</td><td class="verdict later">Cheap, if render mode's guides carry a material id.</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>What the video adds</h2>
+  <p class="prose">From the 3.0 tutorial's transcript (thanks to Bolt). It confirms the reading above and gives the only timings he shows.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Topic</th><th>What he says or shows</th><th>What it tells us</th></tr>
+    <tr><td>Upscaling is the speed</td><td>An animated glTF forest at 4K runs at 53 fps on DLSS Balanced; Performance or Ultra Performance brings it back to 60 fps "while we barely see a difference". The leaves are alpha-masked cards, so rays go "on and on" through them.</td><td>Confirms point 1: tracing fewer pixels and reconstructing is where his frame rate comes from. Also a warning for us: see-through cards are expensive for any tracer (each hit must be tested), which matters if we ever render alpha-masked foliage or hair cards.</td></tr>
+    <tr><td>Optimize, in his words</td><td>"The path tracing is getting more and more expensive because it is compiling those features even if they're not used." Optimize uses "a different set of GLSL files, specifically only those that are relevant". A scene then renders in 5 ms. Glass Shadows took it to about 10 ms; optimizing again brought it to 6 or 7 ms.</td><td>Confirms point 3 with numbers: about a third of the frame went to features the scene did not need. Ours carries every branch the same way, so the same kind of gain is plausible. He does it by a button; we can do it automatically.</td></tr>
+    <tr><td>Compile pauses</td><td>Creating the Pathtracer "will freeze your machine for a second because it's compiling a lot of code"; adding a second output freezes TouchDesigner again, "this actually took quite some time".</td><td>The cost of his approach. Ours should compile variants on a worker thread with a pipeline cache and never stall the frame.</td></tr>
+    <tr><td>Light size and brightness</td><td>Shrinking a light sharpens the shadow, growing it softens it, and "the overall light that is emitted by a light source is now constant", so only the shadow changes. A negative size does "funky stuff".</td><td>Confirms the normalised-strength rule for our area lights, and to clamp size at 0.</td></tr>
+    <tr><td>Points and lines</td><td>Point primitives render "efficiently and as a perfect sphere", round however close you get; line strips as tubes whose segments show when thin.</td><td>Confirms analytic spheres and tubes, not meshes.</td></tr>
+    <tr><td>Haze</td><td>A spot's volumetric cone with volumetric shadows "works at 60 FPS". By default the haze is clipped to the scene's size "because that makes rendering more effective". Multiple scattering "does introduce quite a lot of flickering".</td><td>Tight bounds are how he keeps haze cheap. Multiple scattering is noisy even under DLSS, so single scattering is the part worth having if we ever add haze.</td></tr>
+    <tr><td>Depth of field under DLSS</td><td>Works "quite well", with "some noise around edges, especially if these edges are leaking into the background".</td><td>A known weak spot of denoising defocus at 1 sample. Our accumulate path does not have it; a moving-camera denoiser of ours would.</td></tr>
+    <tr><td>Stable Planes</td><td>Turning it off makes what is behind a glass sphere (a shadow line, the wood) much noisier; Refraction Motion off makes it worse again.</td><td>Confirms guides taken through glass are what keep it clean. Applies to us once glass exists.</td></tr>
+    <tr><td>Workflow touches</td><td>Right-click opens a surface's material, Ctrl+right-click its object; Alt over any parameter shows a short help text; the image says what is missing ("nothing to render", no light, unknown camera).</td><td>Small, cheap ideas for render mode: pick a material from the render, and say why it is black.</td></tr>
+  </table></div>
+  <p class="prose">Still unsettled: the video does not say how Glass Shadows finds caustics or how the haze is stepped, so those two remain inferences.</p>
+</section>
+
+<section>
+  <h2>What changed from 2.1</h2>
+  <div class="card prose"><ul>
+    <li>A rebuild, not an update: 2.1 scenes are rebuilt with the new components.</li>
+    <li>Denoising narrowed to two methods: SVGF and OptiX removed; DLSS for motion, Accumulate for stills. Plain averaging renamed Accumulate.</li>
+    <li>Optimize: specialised traces, so changing a setting no longer pauses TouchDesigner.</li>
+    <li>Lights gained direction and size (2.1 had rectangle, circle, point shining both ways); a mesh light replaced "a shape wired into the light"; Strength is always the total output.</li>
+    <li>Haze, points and lines, glTF and FBX straight from their COMPs, TouchDesigner's own geometry and lights as a Render TOP sees them.</li>
+    <li>Materials: "Transparency" became Transmission with Absorption Colour and Distance; attributes (Color, Roughness, Metallic, Transmission, Emit) always read; one material per PT GEO.</li>
+    <li>macOS support (software trace, Accumulate only), sRGB and dither, Exposure, Max Samples, eight views.</li>
+    <li>Environment importance sampling no longer a switch.</li>
+  </ul></div>
+</section>
+
+<section>
+  <h2>What we should adopt, in order</h2>
+  <div class="card" style="display:flex;flex-direction:column;gap:18px">
+    <div class="rank"><div class="n">1</div><div class="body"><strong>Specialised render kernels, chosen automatically</strong><p>Turn render mode's feature branches (image environment, maps, depth of field, paint, textured items, ray query) into Vulkan specialization constants and Metal function constants on the same compiled shader. When the scene's features change, compile the matching variant on a worker thread with the pipeline cache, and keep tracing with the general kernel until it is ready, as his flexible trace does. No button: we know what the scene uses. Measure ms per sample before and after on the 3060 Ti and the iPad; expect most gain where registers limit occupancy.</p><p class="meta">Effort: 2 PRs. Touches shaders, so a design first (AGENTS.md section 2). Fits under Metal and Vulkan alike.</p></div></div>
+    <div class="rank"><div class="n">2</div><div class="body"><strong>Render mode that stays clean while moving, without a neural network</strong><p>His answer is DLSS. Ours, already planned as stage 4 of the render plan: trace at reduced size while the camera moves (we have half resolution), reproject the history as Fast mode does, ReSTIR for direct light, and a temporal-plus-spatial denoiser split by signal (diffuse and specular apart) with motion, roughness and hit-distance guides. His dropping SVGF says plain SVGF smears; separating signals and using hit distance for specular is what the open designs that followed SVGF do.</p><p class="meta">Effort: the largest item, several PRs. Biggest effect on how the app feels.</p></div></div>
+    <div class="rank"><div class="n">3</div><div class="body"><strong>Area lights with normalised strength</strong><p>Rectangle and disk lights, a radius for point and spot, an angle for the sun, and his rule that every kind at the same Strength lights a nearby surface equally, so switching kind keeps the brightness. Soft shadows on a sculpt are what studio renders are judged by.</p><p class="meta">Effort: 1 to 2 PRs. The lights belong to the lights work; the scene file takes new fields at the end of its chunk.</p></div></div>
+    <div class="rank"><div class="n">4</div><div class="body"><strong>Clear coat and sheen, then transmission</strong><p>His layer set is a good checklist for our stage 6. Add thin film there cheaply, keep subsurface (which he lacks) for skin, and leave each layer out of the kernel when no material uses it, which item 1 makes free.</p></div></div>
+    <div class="rank"><div class="n">5</div><div class="body"><strong>Small things</strong><p>Clamp only indirect light, and let the user set the clamp. Show albedo, normal, depth and material id as passes. Draw "No light" on the render instead of falling back silently. Stable Planes style guides once mirrors or glass exist.</p></div></div>
+    <div class="rank"><div class="n">–</div><div class="body"><strong>Not for us</strong><p>DLSS (neural, NVIDIA-only, proprietary), haze and glass caustics (showpieces, not sculpting needs), spheres and tubes for points and lines, Lock Input.</p></div></div>
+  </div>
+</section>
+
+<section>
+  <h2>What the licence allows</h2>
+  <div class="card prose" style="display:flex;flex-direction:column;gap:10px">
+    <p>The Pathtracer, PT GEO, PT MAT and PT LIGHT components and the DLSS plugin's own code are MIT (Copyright 2026 Josef Pelz). MIT lets us use, copy, change and ship any of it, in a paid app and on the App Store and Google Play, as long as the copyright and permission notice go with the copies. It gives no warranty.</p>
+    <p>Not covered by MIT: NVIDIA's DLSS runtime inside <code>DlssTOP.dll</code> (NVIDIA's licence, and out by Bolt's rule anyway), and TDFam, which turns the components into an operator family (dotsimulate and Function Store's own licence).</p>
+    <p>In practice we would port ideas, not files: his code is GLSL for TouchDesigner's GLSL POP, ours is Slang under our own backends. Ideas need no licence. If we ever lift a shader function close to verbatim, we add his MIT notice beside it and to the app's licences screen.</p>
+  </div>
+</section>
+
+<section>
+  <h2>To confirm the inferred parts</h2>
+  <p class="prose">Two readings above are still inferences after the video: manifold sampling for Glass Shadows and the haze's majorant tracking (the video confirms what Stable Planes does). If you are a patron, uploading <code>Pathtracer.zip</code> to the project lets me read the shaders in the <code>.tox</code> and settle them, which the MIT licence allows.</p>
+</section>
+
+<footer class="meta">Sources: <a href="https://pathtracer.josefpelz.com/">pathtracer.josefpelz.com</a> (all guide, component, licence and troubleshooting pages), <a href="https://docs.derivative.ca/Hardware_Ray_Tracing">Derivative: Hardware Ray Tracing</a>, <a href="https://docs.derivative.ca/GLSL_POP">Derivative: GLSL POP</a>, <a href="https://www.youtube.com/watch?v=E4zUpBiYQqE">the 3.0 video</a> (transcript pasted by Bolt). Ours: <code>src/render/path.odin</code>, <code>shaders/render_trace.slang</code>, <code>shaders/render_atrous.frag.slang</code>, <code>vk_accel.odin</code>, <code>studio.odin</code>, <code>app/lights.odin</code>.</footer>
+</main>
+</body>
+</html>

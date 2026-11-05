@@ -1,0 +1,397 @@
+<title>Look Pad Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a plan page around one live mock; the mock is the app's dark viewport, the page follows the viewer's theme. */
+:root {
+  --bg: #f3f4f6; --panel: #ffffff; --ink: #1b1d22; --muted: #5b6070; --line: #d9dce3;
+  --accent: #2f7d6d; --accent-ink: #ffffff; --warn: #9a5b12;
+  --app: #1d1f24; --app-2: #26292f; --app-3: #33373f; --app-ink: #e6e8ec; --app-dim: #9aa0ab; --app-acc: #5fd0b4;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121418; --panel: #1a1d22; --ink: #e8eaee; --muted: #9aa1ad; --line: #2c3038; --accent: #5fd0b4; --accent-ink: #0d1512; --warn: #e0a65a; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #121418; --panel: #1a1d22; --ink: #e8eaee; --muted: #9aa1ad; --line: #2c3038; --accent: #5fd0b4; --accent-ink: #0d1512; --warn: #e0a65a; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px }
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 36px }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.15 }
+h1 { font-size: clamp(28px, 4vw, 40px) }
+h2 { font-size: 24px }
+h3 { font-size: 17px }
+p { margin: 0; max-width: 68ch }
+.eyebrow { font: 500 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted) }
+.lede { display: grid; gap: 12px }
+.lede p { font-size: 16.5px }
+section { display: grid; gap: 14px }
+.rec { border-left: 3px solid var(--accent); padding: 4px 0 4px 16px; display: grid; gap: 8px }
+code, .mono { font-family: var(--mono); font-size: .92em }
+ul, ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-width: 72ch }
+.tablebox { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel) }
+table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 14px }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line) }
+th { font: 600 12px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted) }
+tr:last-child td { border-bottom: 0 }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px }
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: grid; gap: 8px; min-width: 0; align-content: start }
+.tag { display: inline-block; font: 500 11px var(--mono); padding: 2px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted) }
+.tag.go { color: var(--accent); border-color: var(--accent) }
+
+/* The mock: the app's own dark look whatever the page's theme. */
+.mock { background: var(--app); color: var(--app-ink); border-radius: 12px; padding: 14px; display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) 300px; font-size: 13px; user-select: none; -webkit-user-select: none }
+@media (max-width: 860px) { .mock { grid-template-columns: minmax(0, 1fr) } }
+.view { position: relative; border-radius: 8px; overflow: hidden; background: #2a2c31; aspect-ratio: 1 / 1; max-width: 100%; touch-action: none }
+.view canvas { width: 100%; height: 100%; display: block }
+.chip { position: absolute; top: 10px; right: 10px; display: flex; align-items: center; gap: 8px; background: rgba(30,32,37,.92); border: 1px solid var(--app-3); color: var(--app-ink); border-radius: 99px; padding: 5px 12px 5px 6px; font: 500 12px var(--body); cursor: pointer; touch-action: none }
+.chip canvas { width: 26px; height: 26px; border-radius: 6px }
+.toast { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); background: rgba(20,22,26,.9); border: 1px solid var(--app-3); border-radius: 99px; padding: 5px 14px; font: 500 12px var(--body); pointer-events: none; transition: opacity .25s; white-space: nowrap }
+.tools { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 6px; flex-wrap: wrap }
+.tools button, .seg button, .pins button, .mini { background: var(--app-2); color: var(--app-ink); border: 1px solid var(--app-3); border-radius: 8px; padding: 6px 10px; font: 500 12px var(--body); cursor: pointer }
+.tools button[aria-pressed="true"], .seg button[aria-pressed="true"] { background: var(--app-acc); color: #0d1512; border-color: var(--app-acc) }
+button:focus-visible, .pad:focus-visible { outline: 2px solid var(--app-acc); outline-offset: 2px }
+.quick { position: absolute; width: 150px; height: 150px; border-radius: 12px; border: 1px solid var(--app-3); background: rgba(24,26,30,.88); pointer-events: none; display: none }
+.quick .qd { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--app-acc); box-shadow: 0 0 0 3px rgba(0,0,0,.5) }
+.card { background: var(--app-2); border: 1px solid var(--app-3); border-radius: 10px; padding: 12px; display: grid; gap: 12px; align-content: start; min-width: 0 }
+.card h4 { margin: 0; font: 600 11px var(--mono); letter-spacing: .08em; color: var(--app-dim); text-transform: uppercase; display: flex; justify-content: space-between; align-items: center }
+.padbox { position: relative; aspect-ratio: 1/1; max-width: 100% }
+.pad { position: absolute; inset: 0; border-radius: 8px; cursor: crosshair; touch-action: none; outline: none }
+.pad canvas { width: 100%; height: 100%; display: block; border-radius: 8px }
+.axis { display: flex; justify-content: space-between; font: 400 11px var(--mono); color: var(--app-dim) }
+.read { display: flex; justify-content: space-between; gap: 8px; font: 500 12px var(--body) }
+.read b { color: var(--app-acc); font-weight: 600 }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap }
+.seg { display: inline-flex; gap: 4px }
+.sw { display: inline-flex; align-items: center; gap: 8px; cursor: pointer }
+.sw input { accent-color: var(--app-acc) }
+.pins { display: flex; gap: 6px; flex-wrap: wrap }
+.rig { display: grid; grid-template-columns: 110px 1fr; gap: 10px; align-items: center }
+.disc { width: 110px; height: 110px; border-radius: 50%; background: radial-gradient(circle at 50% 45%, #4a4e57, #24272c 70%); border: 1px solid var(--app-3); position: relative; touch-action: none }
+.dot { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; border: 2px solid #fff; cursor: grab }
+.dot.off { opacity: .35 }
+.sl { display: grid; gap: 2px; font: 400 11.5px var(--body); color: var(--app-dim) }
+.sl input { width: 100%; accent-color: var(--app-acc) }
+.hint { color: var(--app-dim); font-size: 12px; line-height: 1.45 }
+kbd { font: 500 11px var(--mono); border: 1px solid var(--app-3); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--app-3) }
+@media (prefers-reduced-motion: reduce) { .toast { transition: none } }
+</style>
+
+<div class="wrap">
+  <header class="lede">
+    <div class="eyebrow">Viewport shading · plan · 4 Nov 2026</div>
+    <h1>One Look pad instead of a list of shading modes</h1>
+    <p>Uniform's Surface View chart lets you slide from clay to colour to lit by dragging a dot in a square. We take that idea and fix what holds it back: our pad never goes black without lights, its spots have names and snap, it remembers a spot per tool, saved looks are pins on the same square instead of a second system, and the Render switch sits in its full corner. It replaces today's Shading menu list and the Solid options under it, so it adds no twin.</p>
+  </header>
+
+  <section aria-labelledby="try">
+    <h2 id="try">Try it</h2>
+    <p>Drag the dot in the pad. Switch between Clay, Paint and Lights to see the look follow the tool. Hold <kbd>1</kbd> over the view (or press and hold the chip at the top right) and move the pointer to use the quick pad, then let go. The model is painted so the colour side shows something.</p>
+    <div class="mock" id="mock">
+      <div class="view" id="view">
+        <canvas id="vc" width="440" height="440" aria-label="Viewport preview of a painted sculpt"></canvas>
+        <div class="toast" id="toast" style="opacity:0">Clay</div>
+        <button class="chip" id="chip" type="button" aria-label="Shading: press to open, hold to use the quick pad"><canvas id="chipc" width="52" height="52"></canvas><span id="chiplab">Clay</span></button>
+        <div class="tools" role="group" aria-label="Tool">
+          <button type="button" data-tool="clay" aria-pressed="true">Clay</button>
+          <button type="button" data-tool="paint" aria-pressed="false">Paint</button>
+          <button type="button" data-tool="lights" aria-pressed="false">Lights</button>
+        </div>
+        <div class="quick" id="quick"><div class="qd" id="qd"></div></div>
+      </div>
+      <div class="card" aria-label="Look card, Shading section">
+        <h4><span>Look · Shading</span><span id="xy" class="mono">0.00 · 0.00</span></h4>
+        <div class="padbox">
+          <div class="pad" id="pad" tabindex="0" role="slider" aria-label="Look pad: left is shape, right is colour, up is scene light" aria-valuetext="Clay"><canvas id="pc" width="540" height="540"></canvas></div>
+        </div>
+        <div class="axis"><span>← shape</span><span>colour →</span></div>
+        <div class="read"><span>Look: <b id="name">Clay</b></span><span id="desc" style="color:var(--app-dim)">view light, no colour</span></div>
+        <div class="row">
+          <span>Saved looks</span>
+          <div class="pins" id="pins"><button type="button" id="save">+ Save</button></div>
+        </div>
+        <div class="row"><span>Colour from</span>
+          <div class="seg" role="group" aria-label="Colour from">
+            <button type="button" data-col="mat" aria-pressed="true">Material</button>
+            <button type="button" data-col="obj" aria-pressed="false">Object</button>
+          </div></div>
+        <div class="row">
+          <label class="sw"><input type="checkbox" id="follow" checked> Follows the tool</label>
+          <label class="sw"><input type="checkbox" id="wire"> Wireframe</label>
+          <label class="sw" title="Only in the Full corner"><input type="checkbox" id="render"> Render</label>
+        </div>
+        <h4>View light <span style="font-weight:400;text-transform:none;letter-spacing:0">the pad's lower edge</span></h4>
+        <div class="rig">
+          <div class="disc" id="disc" aria-label="View light positions: drag a dot, tap it to switch it"></div>
+          <div style="display:grid;gap:6px">
+            <label class="sl">Base brightness<input type="range" id="base" min="0" max="1" step="0.01" value="0.32"></label>
+            <label class="sl">Rim<input type="range" id="rim" min="0" max="1" step="0.01" value="0.35"></label>
+            <label class="sl">Contrast<input type="range" id="con" min="0" max="1" step="0.01" value="0.6"></label>
+          </div>
+        </div>
+        <p class="hint">Drag a dot to move a light that follows the camera; tap it to turn it off. The pad's top edge uses the scene's own lights (Look card, Lights), or the studio set when the scene has none.</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="map">
+    <h2 id="map">What the two axes do</h2>
+    <div class="cols">
+      <div class="box"><h3>Across: shape to colour</h3><p>Left is clay: no colour and extra cavity contrast, for sculpting. Colour comes in toward the middle while the form stays lit. Past the middle the shading fades, so on the right edge you see flat, unlit colour for painting.</p></div>
+      <div class="box"><h3>Up: view light to scene light</h3><p>The bottom edge is lit by the view light, which turns with the camera like a MatCap and never changes as you orbit. The top edge is lit by the scene's lights and environment. In between the two blend. Along the top, shading never fades, so the top right corner is the full look.</p></div>
+      <div class="box"><h3>Today's modes are points on it</h3><p>Solid with MatCap and Single colour is the bottom left. Solid with Studio light is the top left. Material Preview is the top right, and the Render switch is that corner's toggle. Solid with Flat light and Material colour is the bottom right. Nothing that exists is lost.</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="better">
+    <h2 id="better">What we take, what we avoid, what we do better</h2>
+    <div class="tablebox"><table>
+      <thead><tr><th>Taken from</th><th>Why it still holds</th><th>Avoided</th><th>Done better here</th></tr></thead>
+      <tbody>
+        <tr><td>Uniform's chart (shape to colour, light energy)</td><td>One drag reaches every useful look on a tablet, with no menu.</td><td>The view goes completely black when the scene has no lights, and the square has no labels.</td><td>The bottom edge is the view light, so it is never dark. Nine snap spots with names, shown in the viewport while you drag.</td></tr>
+        <tr><td>Uniform's Static views (4 lights plus environment)</td><td>Fixed, reliable sculpting light matters.</td><td>A second kind of view picked from a gallery, with its own editor.</td><td>Up to 4 saved looks as numbered pins on the same pad. The view light editor is part of the pad's section.</td></tr>
+        <tr><td>Blender's Solid lighting and colour, World space lighting</td><td>Lights that follow the view keep the form readable while orbiting.</td><td>Three dropdowns plus four modes, and a Wireframe mode that duplicates the Wireframe overlay.</td><td>One axis replaces the lighting dropdown. Wireframe is only the overlay. Colour from Material or Object stays as one row.</td></tr>
+        <tr><td>ZBrush MatCaps and Flat Color, Nomad's MatCap, PBR and Unlit</td><td>Artists keep favourite MatCaps.</td><td>Switching between unrelated modes to check colour against form.</td><td>A MatCap can be the view light (View light: Lights or MatCap), so it blends into colour like everything else.</td></tr>
+        <tr><td>Substance and Procreate: the look changes with the task</td><td>Painting wants flat colour, sculpting wants clay.</td><td>Making the artist switch by hand every time.</td><td>Each tool kind remembers its own spot. Pick Paint and the dot slides to your painting look. One switch turns this off.</td></tr>
+        <tr><td>Our own panes and view windows</td><td>Comparing two looks side by side.</td><td>A single global look.</td><td>Each view keeps its own spot (it already keeps its own shading), so clay on the left and paint on the right works.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section aria-labelledby="cost">
+    <h2 id="cost">Cost to sculpting and orbit</h2>
+    <ul>
+      <li>The pad sends four numbers to the shader (colour, shape, scene light, contrast), 16 bytes added to the uniforms the mesh shader already reads. No new pass, buffer or texture.</li>
+      <li>On the edges and corners, where nearly everyone works, the shader runs only one of the two light paths, picked by a uniform branch, so those spots cost the same as today. Inside the pad it runs both, about 10 to 20 percent more fragment shading. I will measure that with <code>gpubench</code> at 10M before merging the shader PR.</li>
+      <li>Corners match today's modes pixel for pixel; <code>ppm.py diff</code> against the base build checks that in the first PR.</li>
+      <li>Dragging the dot only redraws the frame, the same as moving a slider in Look. Nothing touches the sculpt data, strokes or undo.</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="remove">
+    <h2 id="remove">What goes away</h2>
+    <ul>
+      <li>The four Shading modes in the Shading menu (Wireframe, Solid, Material Preview, Rendered) and the <code>Shading_Mode</code> enum.</li>
+      <li>Solid's Lighting choice (Studio, MatCap, Flat) and the Single colour choice. Colour from keeps Material and Object.</li>
+      <li>The Wireframe shading mode, a twin of the Wireframe overlay.</li>
+      <li>Flat shading is renamed Facets, so it no longer reads like Flat colour.</li>
+      <li>Scene, settings and layout lines store the spot instead of the mode. As usual before release, old lines are passed over and not converted.</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="prs">
+    <h2 id="prs">Build plan, four PRs</h2>
+    <div class="cols">
+      <div class="box"><span class="tag go">PR 1 · shader</span><h3>Blend in the mesh shader</h3><p><code>View_Shading</code> becomes a spot plus Colour from and the view light. The shader takes the four weights; corners checked against today's modes, and <code>gpubench</code> numbers inside the pad. Settings and layout lines replaced.</p></div>
+      <div class="box"><span class="tag go">PR 2 · interface</span><h3>The pad</h3><p>A <code>ui.pad</code> widget with snap spots and names. The Shading chip opens the Look card's Shading section, the same proc drawn in both places. The mode list goes, Wireframe stays an overlay, Render sits in the full corner. README and touch scenarios.</p></div>
+      <div class="box"><span class="tag go">PR 3 · speed</span><h3>Quick pad and follow the tool</h3><p>Hold <kbd>1</kbd> or hold the chip with the pen: a small pad under the pointer with relative movement. Each tool kind remembers its spot. Saved in settings.</p></div>
+      <div class="box"><span class="tag go">PR 4 · looks</span><h3>Saved looks and the view light</h3><p>Up to 4 pins on the pad, saved with the scene. The view light editor: 3 lights on a disc, base brightness, rim, contrast, or a MatCap in their place.</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="decide" class="rec">
+    <h2 id="decide">Your call, with my picks</h2>
+    <ol>
+      <li><b>Replace the mode list with the pad.</b> My pick is yes, since every mode we have is a point on it, and keeping both would be two UIs for one thing.</li>
+      <li><b>Look follows the tool, on by default.</b> My pick is on, with the switch beside the pad for people who want one fixed look.</li>
+      <li><b>Saved looks as pins, at most 4.</b> My pick is yes. Uniform's Static views become pins, so there is one system instead of two.</li>
+    </ol>
+    <p>If you agree with all three, I build the four PRs in order, each checked and merged before the next.</p>
+  </section>
+</div>
+
+<script>
+(() => {
+  const S = 440, vc = document.getElementById('vc'), vx = vc.getContext('2d');
+  const N = S * S;
+  // Precomputed surface: normal, object id, albedo, cavity, grid coordinate.
+  const nx = new Float32Array(N), ny = new Float32Array(N), nz = new Float32Array(N), id = new Uint8Array(N);
+  const ar = new Float32Array(N), ag = new Float32Array(N), ab = new Float32Array(N), cav = new Float32Array(N), wire = new Uint8Array(N), bgv = new Float32Array(N);
+  const H = new Float32Array(N);
+  const g = (x, y, cx, cy, s, a) => a * Math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * s * s));
+  function height(x, y) {
+    const r2 = x * x + y * y; if (r2 >= 0.72 * 0.72) return -1;
+    let h = Math.sqrt(0.72 * 0.72 - r2);
+    h += g(x, y, -0.18, -0.12, 0.09, 0.07) + g(x, y, 0.18, -0.12, 0.09, 0.07); // brows
+    h -= g(x, y, -0.2, -0.02, 0.07, 0.05) + g(x, y, 0.2, -0.02, 0.07, 0.05);    // sockets
+    h += g(x, y, 0, 0.1, 0.06, 0.1);                                            // nose
+    h += g(x, y, 0, 0.32, 0.12, 0.03) - g(x, y, 0, 0.3, 0.1, 0.012);            // mouth
+    h += 0.006 * Math.sin(40 * x + 9 * y) * Math.max(0, -y - 0.3);              // ridges on the crown
+    return h;
+  }
+  function height2(x, y) { const dx = x - 0.62, dy = y - 0.6; const r2 = dx * dx + dy * dy; return r2 < 0.16 * 0.16 ? Math.sqrt(0.16 * 0.16 - r2) : -1; }
+  for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
+    const k = j * S + i, x = (i / S) * 2 - 1, y = (j / S) * 2 - 1;
+    bgv[k] = 0.055 - 0.03 * (j / S);
+    let h = height(x, y), o = 1, f = height;
+    const h2 = height2(x, y); if (h2 > 0 && (h < 0 || h2 > h - 0.3)) { h = h2; o = 2; f = height2; }
+    if (h < 0) { id[k] = 0; continue; }
+    id[k] = o; H[k] = h;
+    const e = 1.5 / S, hx = (f(x + e, y) - f(x - e, y)) / (2 * e), hy = (f(x, y + e) - f(x, y - e)) / (2 * e);
+    let a = -hx, b = -hy, c = 1, l = Math.hypot(a, b, c); nx[k] = a / l; ny[k] = -b / l; nz[k] = c / l;
+    // Paint: skin base, red cheeks, blue band, dark lips; the ball is ochre.
+    let R = 0.80, G = 0.56, B = 0.45;
+    if (o === 1) {
+      const ch = g(x, y, -0.3, 0.12, 0.08, 1) + g(x, y, 0.3, 0.12, 0.08, 1); R = R + (0.85 - R) * ch; G = G + (0.28 - G) * ch; B = B + (0.3 - B) * ch;
+      if (y < -0.38 && y > -0.5) { R = 0.22; G = 0.42; B = 0.78; }
+      const lp = g(x, y, 0, 0.32, 0.07, 1); R = R + (0.5 - R) * lp; G = G + (0.12 - G) * lp; B = B + (0.15 - B) * lp;
+      if (Math.abs(x) < 0.03 && y > -0.38 && y < -0.1) { R = 0.95; G = 0.85; B = 0.3; }
+    } else { R = 0.78; G = 0.6; B = 0.2; }
+    ar[k] = R; ag[k] = G; ab[k] = B;
+    // Grid lines on the surface for the wireframe overlay.
+    const u = Math.atan2(x, h) * 12, v = y * 14;
+    wire[k] = (Math.abs(u - Math.round(u)) < 0.06 || Math.abs(v - Math.round(v)) < 0.06) ? 1 : 0;
+  }
+  // Cavity from the height's Laplacian.
+  for (let j = 2; j < S - 2; j++) for (let i = 2; i < S - 2; i++) {
+    const k = j * S + i; if (!id[k]) continue;
+    const q = (dk) => id[k + dk] === id[k] ? H[k + dk] : H[k];
+    const lap = q(-2) + q(2) + q(-2 * S) + q(2 * S) - 4 * H[k];
+    cav[k] = Math.max(0, Math.min(1, lap * 420));
+  }
+  const OBJ = [[0, 0, 0], [0.55, 0.62, 0.78], [0.86, 0.5, 0.35]];
+
+  const st = { x: 0, y: 0, col: 'mat', wire: false, render: false, base: 0.32, rim: 0.35, con: 0.6, tool: 'clay', follow: true,
+    spots: { clay: [0, 0], paint: [0.5, 0.5], lights: [0.08, 1] }, pins: [],
+    rig: [{ x: -0.45, y: -0.45, on: true, p: 1 }, { x: 0.55, y: -0.1, on: true, p: 0.35 }, { x: 0.1, y: 0.6, on: false, p: 0.25 }] };
+  const SPOTS = [
+    [0, 0, 'Clay', 'view light, no colour'], [0.5, 0, 'Colour clay', 'colour under the view light'], [1, 0, 'Flat colour', 'unlit colour, for painting'],
+    [0, 0.5, 'Clay, half lit', 'view and scene light mixed'], [0.5, 0.5, 'Paint', 'colour with soft form'], [1, 0.5, 'Toon', 'unlit colour over the full look'],
+    [0, 1, 'Light check', 'scene lights on clay'], [0.5, 1, 'Lit colour', 'scene lights, colour, no materials'], [1, 1, 'Full', 'materials, scene lights, environment']];
+  const nearest = (x, y) => { let b = SPOTS[0], d = 9; for (const s of SPOTS) { const e = Math.hypot(s[0] - x, s[1] - y); if (e < d) { d = e; b = s; } } return [b, d]; };
+
+  function shadeOne(n, alb, cv, x, y, R) {
+    const c = Math.min(1, 2 * x), sb = Math.min(1, 2 * (1 - x)), s = sb + (1 - sb) * y, k = (1 - x) * (1 - y) * st.con;
+    const clay = 0.56;
+    const a0 = clay + (alb[0] - clay) * c, a1 = clay + (alb[1] - clay) * c, a2 = clay + (alb[2] - clay) * c;
+    // View light: lights on the disc in view space, base brightness and rim.
+    let fl = st.base * 0.6, fs = 0;
+    for (const L of st.rig) { if (!L.on) continue; const lz = Math.sqrt(Math.max(0, 1 - L.x * L.x - L.y * L.y)); const d = n[0] * L.x + n[1] * -L.y + n[2] * lz;
+      fl += L.p * Math.max(0, d); const hz = lz + 1, hl = Math.hypot(L.x, L.y, hz); const nh = Math.max(0, (n[0] * L.x - n[1] * L.y + n[2] * hz) / hl); fs += L.p * 0.25 * Math.pow(nh, 40); }
+    fl += st.rim * Math.pow(1 - n[2], 3) * 1.2;
+    // Scene light: warm key upper left, cool fill right, sky environment.
+    const kd = Math.max(0, n[0] * -0.55 + n[1] * 0.6 + n[2] * 0.58), fd = Math.max(0, n[0] * 0.8 + n[1] * 0.1 + n[2] * 0.59);
+    const sky = 0.5 + 0.5 * n[1];
+    let s0 = 1.15 * kd * 1.0 + 0.35 * fd * 0.55 + 0.25 * (0.55 + 0.25 * sky), s1 = 1.15 * kd * 0.88 + 0.35 * fd * 0.7 + 0.25 * (0.6 + 0.3 * sky), s2 = 1.15 * kd * 0.72 + 0.35 * fd * 1.0 + 0.25 * (0.7 + 0.4 * sky);
+    const hk = Math.max(0, (n[0] * -0.55 + n[1] * 0.6 + n[2] * 1.58) / Math.hypot(0.55, 0.6, 1.58)); const ss = 0.35 * Math.pow(hk, 60) * c + 0.04 * Math.pow(1 - n[2], 4);
+    const l0 = fl + (s0 - fl) * y, l1 = fl + (s1 - fl) * y, l2 = fl + (s2 - fl) * y, sp = fs + (ss - fs) * y;
+    let occ = 1 - cv * (0.35 + 0.65 * k); if (R) occ *= 0.92 - 0.25 * cv;
+    const r0 = (a0 * l0 + sp) * occ, r1 = (a1 * l1 + sp) * occ, r2 = (a2 * l2 + sp) * occ;
+    return [a0 + (r0 - a0) * s, a1 + (r1 - a1) * s, a2 + (r2 - a2) * s];
+  }
+  const img = vx.createImageData(S, S);
+  const tm = (v) => Math.max(0, Math.min(255, Math.round(255 * Math.pow(0.8 * v / (1 + v * 0.35), 1 / 2.2))));
+  function drawView() {
+    const d = img.data, x = st.x, y = st.y, R = st.render && x > 0.97 && y > 0.97, n = [0, 0, 0], al = [0, 0, 0];
+    for (let k = 0; k < N; k++) {
+      const p = k * 4, o = id[k];
+      if (!o) { let b = bgv[k]; if (R) { const j = (k / S) | 0, i = k % S; const sh = Math.exp(-(((i - 225) / 170) ** 2 + ((j - 400) / 22) ** 2)); b *= 1 - 0.5 * sh; } const v = tm(b); d[p] = v; d[p + 1] = v; d[p + 2] = Math.min(255, v + 4); d[p + 3] = 255; continue; }
+      n[0] = nx[k]; n[1] = ny[k]; n[2] = nz[k];
+      if (st.col === 'obj') { al[0] = OBJ[o][0]; al[1] = OBJ[o][1]; al[2] = OBJ[o][2]; } else { al[0] = ar[k]; al[1] = ag[k]; al[2] = ab[k]; }
+      let c = shadeOne(n, al, cav[k], x, y, R);
+      if (st.wire && wire[k]) c = [c[0] * 0.5 + 0.05, c[1] * 0.5 + 0.05, c[2] * 0.5 + 0.06];
+      d[p] = tm(c[0]); d[p + 1] = tm(c[1]); d[p + 2] = tm(c[2]); d[p + 3] = 255;
+    }
+    vx.putImageData(img, 0, 0);
+  }
+  // A small sphere lit by the same blend, for the pad's spots and the chip.
+  const ball = (ctx, cx, cy, r, x, y) => {
+    const im = ctx.getImageData(cx - r, cy - r, 2 * r, 2 * r), d = im.data;
+    for (let j = 0; j < 2 * r; j++) for (let i = 0; i < 2 * r; i++) {
+      const u = (i + 0.5 - r) / r, v = (j + 0.5 - r) / r, q = u * u + v * v; if (q > 1) continue;
+      const n = [u, -v, Math.sqrt(1 - q)], half = u > 0.15 * Math.sin(v * 9) ? 1 : 0;
+      const al = half ? [0.85, 0.3, 0.3] : [0.25, 0.45, 0.8];
+      const c = shadeOne(n, al, 0, x, y, false), p = (j * 2 * r + i) * 4;
+      d[p] = tm(c[0]); d[p + 1] = tm(c[1]); d[p + 2] = tm(c[2]); d[p + 3] = 255;
+    }
+    ctx.putImageData(im, cx - r, cy - r);
+  };
+  const pc = document.getElementById('pc'), px = pc.getContext('2d'), P = 540, M = 44;
+  const toPad = (x, y) => [M + x * (P - 2 * M), P - M - y * (P - 2 * M)];
+  function drawPad() {
+    px.fillStyle = '#1b1d22'; px.fillRect(0, 0, P, P);
+    px.strokeStyle = '#3a3e47'; px.lineWidth = 2; px.strokeRect(M, M, P - 2 * M, P - 2 * M);
+    px.setLineDash([4, 6]); px.beginPath(); px.moveTo(P / 2, M); px.lineTo(P / 2, P - M); px.moveTo(M, P / 2); px.lineTo(P - M, P / 2); px.stroke(); px.setLineDash([]);
+    for (const s of SPOTS) { const [a, b] = toPad(s[0], s[1]); ball(px, Math.round(a), Math.round(b), 22, s[0], s[1]); }
+    px.font = '500 19px "IBM Plex Sans", system-ui, sans-serif'; px.fillStyle = '#9aa0ab'; px.textAlign = 'center';
+    px.fillText('scene light ↑', P / 2, 28); px.fillText('view light', P / 2, P - 12);
+    st.pins.forEach((pn, i) => { const [a, b] = toPad(pn.x, pn.y); px.fillStyle = '#e6e8ec'; px.beginPath(); px.arc(a + 20, b - 20, 13, 0, 7); px.fill(); px.fillStyle = '#1b1d22'; px.fillText(String(i + 1), a + 20, b - 13); });
+    if (st.follow) for (const t in st.spots) { if (t === st.tool) continue; const [a, b] = toPad(...st.spots[t]); px.strokeStyle = '#6b7280'; px.lineWidth = 2; px.beginPath(); px.arc(a, b, 9, 0, 7); px.stroke(); px.fillStyle = '#6b7280'; px.font = '500 15px "IBM Plex Sans", sans-serif'; px.fillText(t, a, b + 26); }
+    const [a, b] = toPad(st.x, st.y);
+    px.fillStyle = '#5fd0b4'; px.strokeStyle = '#0d1512'; px.lineWidth = 4; px.beginPath(); px.arc(a, b, 14, 0, 7); px.fill(); px.stroke();
+    if (st.render && st.x > 0.97 && st.y > 0.97) { px.fillStyle = '#5fd0b4'; px.font = '600 16px "IBM Plex Sans", sans-serif'; px.fillText('Render on', a - 50, b + 36); }
+  }
+  const cc = document.getElementById('chipc').getContext('2d');
+  function drawChip() { cc.fillStyle = '#1b1d22'; cc.fillRect(0, 0, 52, 52); ball(cc, 26, 26, 22, st.x, st.y); }
+  let toastT = 0; const toast = document.getElementById('toast');
+  function update(showToast) {
+    const [s, d] = nearest(st.x, st.y), named = d < 0.08;
+    const nm = named ? s[2] : 'Custom'; document.getElementById('name').textContent = nm; document.getElementById('chiplab').textContent = nm;
+    document.getElementById('desc').textContent = named ? s[3] : 'between spots';
+    document.getElementById('xy').textContent = st.x.toFixed(2) + ' · ' + st.y.toFixed(2);
+    document.getElementById('pad').setAttribute('aria-valuetext', nm);
+    if (showToast) { toast.textContent = nm; toast.style.opacity = 1; clearTimeout(toastT); toastT = setTimeout(() => toast.style.opacity = 0, 900); }
+    drawPad(); drawChip(); requestDraw();
+  }
+  let pending = false; const requestDraw = () => { if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; drawView(); }); } };
+  const snap = (x, y) => { const [s, d] = nearest(x, y); return d < 0.06 ? [s[0], s[1]] : [x, y]; };
+  const setSpot = (x, y, t) => { [st.x, st.y] = snap(Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y))); if (st.follow) st.spots[st.tool] = [st.x, st.y]; update(t); };
+
+  // The pad.
+  const pad = document.getElementById('pad');
+  const padAt = (e) => { const r = pad.getBoundingClientRect(), m = M / P; return [((e.clientX - r.left) / r.width - m) / (1 - 2 * m), 1 - ((e.clientY - r.top) / r.height - m) / (1 - 2 * m)]; };
+  pad.addEventListener('pointerdown', (e) => { pad.setPointerCapture(e.pointerId); const [x, y] = padAt(e); const hit = st.pins.findIndex(p => Math.hypot(p.x - x, p.y - y) < 0.07); if (hit >= 0) { applyPin(hit); return; } setSpot(x, y, true); });
+  pad.addEventListener('pointermove', (e) => { if (pad.hasPointerCapture(e.pointerId)) { const [x, y] = padAt(e); setSpot(x, y, true); } });
+  pad.addEventListener('keydown', (e) => { const s = e.shiftKey ? 0.1 : 0.5, m = { ArrowLeft: [-s, 0], ArrowRight: [s, 0], ArrowUp: [0, s], ArrowDown: [0, -s] }[e.key]; if (m) { e.preventDefault(); setSpot(st.x + m[0], st.y + m[1], true); } });
+
+  // Tools: each remembers its spot.
+  const toolBtns = document.querySelectorAll('[data-tool]');
+  let anim = 0;
+  function glide(to) { cancelAnimationFrame(anim); const from = [st.x, st.y], t0 = performance.now(), reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const step = (t) => { const u = reduce ? 1 : Math.min(1, (t - t0) / 260), e = 1 - Math.pow(1 - u, 3); st.x = from[0] + (to[0] - from[0]) * e; st.y = from[1] + (to[1] - from[1]) * e; update(u === 1); if (u < 1) anim = requestAnimationFrame(step); }; anim = requestAnimationFrame(step); }
+  toolBtns.forEach(b => b.addEventListener('click', () => { st.tool = b.dataset.tool; toolBtns.forEach(o => o.setAttribute('aria-pressed', o === b)); if (st.follow) glide(st.spots[st.tool]); else update(false); }));
+  document.getElementById('follow').addEventListener('change', (e) => { st.follow = e.target.checked; if (st.follow) st.spots[st.tool] = [st.x, st.y]; update(false); });
+
+  // Options.
+  document.querySelectorAll('[data-col]').forEach(b => b.addEventListener('click', () => { st.col = b.dataset.col; document.querySelectorAll('[data-col]').forEach(o => o.setAttribute('aria-pressed', o === b)); update(false); }));
+  document.getElementById('wire').addEventListener('change', (e) => { st.wire = e.target.checked; requestDraw(); });
+  document.getElementById('render').addEventListener('change', (e) => { st.render = e.target.checked; if (st.render) glide([1, 1]); else update(false); });
+  for (const k of ['base', 'rim', 'con']) document.getElementById(k).addEventListener('input', (e) => { st[k] = +e.target.value; update(false); });
+
+  // Saved looks.
+  const pinsEl = document.getElementById('pins'), save = document.getElementById('save');
+  function drawPins() { pinsEl.querySelectorAll('.pin').forEach(n => n.remove()); st.pins.forEach((p, i) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'pin'; b.textContent = (i + 1) + ' ' + p.name; b.addEventListener('click', () => applyPin(i)); pinsEl.insertBefore(b, save); }); save.hidden = st.pins.length >= 4; }
+  function applyPin(i) { const p = st.pins[i]; st.col = p.col; st.base = p.base; st.rim = p.rim; st.con = p.con; st.rig = JSON.parse(p.rig);
+    document.querySelectorAll('[data-col]').forEach(o => o.setAttribute('aria-pressed', o.dataset.col === st.col)); for (const k of ['base', 'rim', 'con']) document.getElementById(k).value = st[k]; drawDisc(); glide([p.x, p.y]); }
+  save.addEventListener('click', () => { if (st.pins.length >= 4) return; const [s, d] = nearest(st.x, st.y); st.pins.push({ x: st.x, y: st.y, col: st.col, base: st.base, rim: st.rim, con: st.con, rig: JSON.stringify(st.rig), name: d < 0.08 ? s[2] : 'Look' }); drawPins(); update(false); });
+
+  // The view light disc.
+  const disc = document.getElementById('disc'), COLS = ['#ffffff', '#ffd27a', '#8fc7ff'];
+  function drawDisc() { disc.innerHTML = ''; st.rig.forEach((L, i) => { const d = document.createElement('div'); d.className = 'dot' + (L.on ? '' : ' off'); d.style.background = COLS[i]; d.style.left = (50 + L.x * 50) + '%'; d.style.top = (50 + L.y * 50) + '%'; d.setAttribute('aria-label', 'View light ' + (i + 1));
+    let moved = false;
+    d.addEventListener('pointerdown', (e) => { e.stopPropagation(); d.setPointerCapture(e.pointerId); moved = false; });
+    d.addEventListener('pointermove', (e) => { if (!d.hasPointerCapture(e.pointerId)) return; const r = disc.getBoundingClientRect(); let x = ((e.clientX - r.left) / r.width - 0.5) * 2, y = ((e.clientY - r.top) / r.height - 0.5) * 2; const l = Math.hypot(x, y); if (l > 0.95) { x *= 0.95 / l; y *= 0.95 / l; } L.x = x; L.y = y; moved = true; d.style.left = (50 + x * 50) + '%'; d.style.top = (50 + y * 50) + '%'; update(false); });
+    d.addEventListener('pointerup', () => { if (!moved) { L.on = !L.on; d.classList.toggle('off', !L.on); update(false); } });
+    disc.appendChild(d); }); }
+
+  // The quick pad: hold 1 over the view, or hold the chip; movement is relative, so the pen needs no aim.
+  const view = document.getElementById('view'), quick = document.getElementById('quick'), qd = document.getElementById('qd');
+  let q = null, last = null;
+  const qShow = (cx, cy) => { const r = view.getBoundingClientRect(); let l = cx - r.left - 75, t = cy - r.top - 75; l = Math.max(4, Math.min(r.width - 154, l)); t = Math.max(4, Math.min(r.height - 154, t)); quick.style.left = l + 'px'; quick.style.top = t + 'px'; quick.style.display = 'block'; q = { x0: cx, y0: cy, sx: st.x, sy: st.y }; qDot(); };
+  const qDot = () => { qd.style.left = (8 + st.x * 134) + 'px'; qd.style.top = (8 + (1 - st.y) * 134) + 'px'; };
+  const qMove = (cx, cy) => { if (!q) return; setSpot(q.sx + (cx - q.x0) / 160, q.sy - (cy - q.y0) / 160, true); qDot(); };
+  const qEnd = () => { q = null; quick.style.display = 'none'; };
+  view.addEventListener('pointermove', (e) => { last = [e.clientX, e.clientY]; qMove(e.clientX, e.clientY); });
+  let keyDown = false;
+  addEventListener('keydown', (e) => { if (e.key === '1' && !keyDown && last) { keyDown = true; qShow(last[0], last[1]); } });
+  addEventListener('keyup', (e) => { if (e.key === '1') { keyDown = false; qEnd(); } });
+  const chip = document.getElementById('chip'); let holdT = 0, held = false;
+  chip.addEventListener('pointerdown', (e) => { chip.setPointerCapture(e.pointerId); held = false; const cx = e.clientX, cy = e.clientY; holdT = setTimeout(() => { held = true; qShow(cx, cy + 90); }, 300); });
+  chip.addEventListener('pointermove', (e) => { if (held) qMove(e.clientX, e.clientY + 90); });
+  chip.addEventListener('pointerup', () => { clearTimeout(holdT); if (held) qEnd(); else pad.focus(); });
+
+  drawDisc(); drawPins(); update(false);
+})();
+</script>

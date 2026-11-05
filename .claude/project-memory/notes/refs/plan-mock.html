@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference images plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the live mock of the iPad screen first, then the comparison, our design, the budget, the PRs and the picks.
+   One dark world on purpose, the app's own (Lens), as the panels v2 mocks are. */
+:root{
+  --frame:#0D0F12; --surface:#161A1F; --raised:#1E242B; --line:#2A3139; --text:#E7ECF0; --dim:#8C98A4; --faint:#56616C;
+  --glaze:#5ED6C4; --glaze-ink:#06201C; --warn:#F3B54A; --gone:#F07A6E; --zone:#FF86B9; --plan:#9AA8FF;
+  --page:#0A0C0F; --page-text:#D9E0E6;
+  --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{background:var(--page);color:var(--page-text);font-family:var(--sans);margin:0}
+body{padding:24px max(16px,env(safe-area-inset-left,0px)) 56px}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--glaze);outline-offset:2px}
+.wrap{max-width:1240px;margin:0 auto}
+h1{font-size:26px;margin:0;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:19px;margin:0 0 10px;text-wrap:balance}
+h3{font-size:15px;margin:18px 0 6px}
+p,li{line-height:1.55;font-size:14px}
+p{max-width:72ch;margin:8px 0}
+.lede{color:var(--dim);max-width:78ch}
+section{border-top:1px solid var(--line);padding-block:28px}
+.pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;border-radius:999px;padding:3px 9px;border:1px solid var(--line);white-space:nowrap}
+.pill.plan{color:var(--plan);border-color:rgba(154,168,255,.4)}
+.pill.ask{color:var(--zone);border-color:rgba(255,134,185,.45)}
+.pill.park{color:var(--faint)}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:860px}
+th,td{padding:9px 11px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);line-height:1.45}
+th{background:var(--surface);color:var(--dim);font-weight:600;font-size:12px;position:sticky;top:0}
+td:first-child{color:var(--text);font-weight:600;white-space:nowrap}
+td.ours{color:var(--glaze)}
+.no{color:var(--faint)}
+tr:last-child td{border-bottom:0}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.box h3{margin-top:0}
+.box ul{margin:6px 0;padding-left:18px;color:var(--dim)}
+.box ul b{color:var(--text)}
+.pr{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:6px 16px;padding:12px 0;border-bottom:1px solid var(--line);align-items:start}
+.pr:last-child{border-bottom:0}
+.pr .id{font-family:var(--mono);color:var(--glaze);font-weight:500}
+.pr p{margin:2px 0;color:var(--dim)}
+.pr b{color:var(--text)}
+.pick{border:1px solid rgba(255,134,185,.35);background:rgba(255,134,185,.05);border-radius:12px;padding:12px 14px}
+.pick b{color:var(--zone)}
+code{font-family:var(--mono);font-size:12.5px;color:var(--text)}
+
+/* ---------------- The mock: the iPad screen at 1180 x 820 points ---------------- */
+.mockbar{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between;margin:18px 0 10px}
+.tryit{font-size:13px;color:var(--dim);display:flex;flex-wrap:wrap;gap:6px 14px}
+.tryit span::before{content:"→ ";color:var(--glaze)}
+.dev{position:relative;width:100%;aspect-ratio:1180/820;border-radius:14px;border:1px solid var(--line);overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:none;
+  background:radial-gradient(120% 90% at 50% 40%,#232A31 0%,#14181D 60%,#0D0F12 100%);container-type:inline-size;font-size:1.15cqw}
+.x{position:absolute}
+.isl{z-index:10;background:rgba(22,26,31,.94);border:1px solid var(--line);border-radius:1cqw;display:flex;align-items:center;gap:.35cqw;padding:.35cqw}
+.isl.v{flex-direction:column}
+.ib{width:3.1cqw;height:3.1cqw;border-radius:.7cqw;border:0;background:#242B33;color:var(--dim);display:grid;place-items:center;font-size:1.3cqw;padding:0;position:relative}
+.ib.on{background:rgba(94,214,196,.22);color:var(--glaze)}
+.ib .t{position:absolute;right:120%;white-space:nowrap;font-size:1cqw;color:var(--faint);pointer-events:none}
+.word{font-size:1.1cqw;color:var(--dim);padding:0 .6cqw}
+.readout{z-index:10;left:7cqw;top:5.6cqw;font-size:1.05cqw;color:var(--faint);display:flex;gap:.8cqw;align-items:center}
+.readout button{background:none;border:0;color:var(--dim);padding:.2cqw .4cqw;border-radius:.4cqw;font-size:1.05cqw}
+.readout button.on{color:var(--glaze);background:rgba(94,214,196,.12)}
+#view{left:0;top:0;width:100%;height:100%}
+#stage{position:absolute;inset:0;perspective:90cqw;pointer-events:none}
+.plane{position:absolute;left:50%;top:50%;transform-style:preserve-3d;border-radius:.3cqw;overflow:hidden;transition:opacity .2s}
+.plane img,.ov img,.bimg img{width:100%;height:100%;display:block;pointer-events:none}
+.model{position:absolute;left:50%;top:52%;width:22cqw;height:28cqw;transform:translate(-50%,-50%);pointer-events:none;transition:opacity .2s}
+.ov{position:absolute;border-radius:.4cqw;transition:opacity .12s;pointer-events:none}
+.ov .hd{display:none}
+.dev.editing .ov{outline:1px dashed rgba(94,214,196,.6);pointer-events:auto}
+.dev.editing .ov .hd{display:flex;position:absolute;left:0;top:-2.3cqw;height:2.1cqw;padding:0 .6cqw;border-radius:.5cqw .5cqw 0 0;background:rgba(22,26,31,.95);border:1px solid var(--line);color:var(--dim);font-size:.95cqw;align-items:center;gap:.5cqw;cursor:grab;white-space:nowrap}
+.ov .rz{display:none}
+.dev.editing .ov .rz{display:block;position:absolute;right:-.7cqw;bottom:-.7cqw;width:1.6cqw;height:1.6cqw;border-right:.25cqw solid var(--glaze);border-bottom:.25cqw solid var(--glaze);border-radius:0 0 .6cqw 0;cursor:nwse-resize}
+.ring{position:absolute;width:6cqw;height:6cqw;border:.18cqw solid rgba(255,255,255,.75);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;display:none}
+.card{z-index:20;background:rgba(22,26,31,.97);border:1px solid var(--line);border-radius:1.1cqw;box-shadow:0 1.2cqw 3cqw rgba(0,0,0,.5);display:flex;flex-direction:column;overflow:hidden}
+.card .bar{display:flex;align-items:center;gap:.6cqw;padding:.6cqw .8cqw;border-bottom:1px solid var(--line);cursor:grab}
+.card .bar .grip{width:2.4cqw;height:.35cqw;border-radius:9px;background:var(--faint);opacity:.6}
+.card .bar b{font-size:1.2cqw;color:var(--text);font-weight:600}
+.card .bar .sp{flex:1}
+.card .bar button{background:none;border:0;color:var(--dim);font-size:1.2cqw;padding:.1cqw .4cqw}
+.tools{display:flex;flex-wrap:wrap;gap:.35cqw;padding:.55cqw .7cqw;border-bottom:1px solid var(--line)}
+.tb{border:0;background:#242B33;color:var(--dim);border-radius:.6cqw;padding:.45cqw .7cqw;font-size:1cqw;white-space:nowrap}
+.tb.on{background:rgba(94,214,196,.22);color:var(--glaze)}
+.tb:disabled{opacity:.35;cursor:default}
+#board{position:relative;flex:1;overflow:hidden;background:
+  radial-gradient(circle,rgba(255,255,255,.05) 1px,transparent 1.2px) 0 0/1.6cqw 1.6cqw,#101317;cursor:default}
+#bworld{position:absolute;left:0;top:0;transform-origin:0 0}
+.bimg{position:absolute;border-radius:.25cqw;box-shadow:0 .3cqw .9cqw rgba(0,0,0,.5);cursor:move}
+.bimg.sel{outline:.18cqw solid var(--glaze);outline-offset:.15cqw}
+.bimg .tags{position:absolute;left:.3cqw;bottom:.3cqw;display:flex;gap:.25cqw;pointer-events:none}
+.bimg .tags i{font-style:normal;font-size:.8cqw;background:rgba(10,12,15,.85);color:var(--glaze);border-radius:.35cqw;padding:.05cqw .35cqw}
+.note{position:absolute;background:#2A2F1E;color:#E9E7C9;border-radius:.4cqw;padding:.6cqw .8cqw;font-size:1.05cqw;min-width:9cqw;line-height:1.35;cursor:move;box-shadow:0 .3cqw .9cqw rgba(0,0,0,.5)}
+.note.sel{outline:.18cqw solid var(--glaze)}
+.ctx{padding:.6cqw .8cqw;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:.45cqw .9cqw;align-items:center;font-size:1cqw;color:var(--dim);min-height:3.6cqw}
+.ctx label{display:flex;align-items:center;gap:.5cqw}
+.ctx input[type=range]{width:9cqw;accent-color:var(--glaze)}
+.ctx .grp{display:flex;gap:.3cqw;align-items:center}
+.zoomlab{position:absolute;right:.6cqw;bottom:.5cqw;font-family:var(--mono);font-size:.9cqw;color:var(--faint)}
+.toast{z-index:60;position:absolute;left:50%;bottom:8.5cqw;transform:translateX(-50%);background:rgba(22,26,31,.96);border:1px solid var(--line);border-radius:999px;padding:.5cqw 1.2cqw;font-size:1.05cqw;color:var(--text);opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1}
+.swatch{width:2cqw;height:2cqw;border-radius:50%;border:.15cqw solid var(--line)}
+.dropzone{position:absolute;inset:0;border:.3cqw dashed var(--glaze);border-radius:14px;background:rgba(94,214,196,.06);display:none;place-items:center;color:var(--glaze);font-size:1.6cqw;pointer-events:none}
+.dev.dragover .dropzone{display:grid}
+.ghost{position:absolute;pointer-events:none;opacity:.7;border-radius:.3cqw;z-index:50}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Reference images: one board, three places</h1>
+  <p class="lede">A plan for reference images that takes PureRef's board, ZBrush's Spotlight and image planes, Nomad's overlay and Blender's view-only planes, and fixes what each gets wrong. Nothing is built yet: the picks at the bottom decide the build. The mock below is live; it is a sketch of the iPad screen, so everything is approximate except the behaviour.</p>
+</header>
+
+<div class="mockbar">
+  <span class="pill plan">Live mock · iPad 1180 × 820</span>
+  <div class="tryit">
+    <span>Drag an image from the board onto the view</span>
+    <span>Drag on the view to sculpt: refs fade under the brush</span>
+    <span>Front / Side in the readout shows the planes</span>
+    <span>Drop or paste your own picture</span>
+  </div>
+</div>
+
+<div class="dev editing" id="dev">
+  <div class="x" id="view"></div>
+  <div id="stage"></div>
+  <svg class="model" id="model" viewBox="0 0 220 280" aria-hidden="true">
+    <defs><radialGradient id="clay" cx="38%" cy="30%" r="75%"><stop offset="0" stop-color="#F2E6DC"/><stop offset=".35" stop-color="#D8C2B0"/><stop offset=".75" stop-color="#A88C78"/><stop offset="1" stop-color="#6E5A4C"/></radialGradient></defs>
+    <g id="modelFront"><ellipse cx="110" cy="120" rx="72" ry="96" fill="url(#clay)"/><rect x="80" y="200" width="60" height="70" rx="20" fill="url(#clay)"/><ellipse cx="85" cy="118" rx="12" ry="6" fill="#8E7462" opacity=".6"/><ellipse cx="135" cy="118" rx="12" ry="6" fill="#8E7462" opacity=".6"/><path d="M110 125 L102 160 L118 160" fill="none" stroke="#8E7462" stroke-width="3" opacity=".6"/><path d="M95 182 Q110 190 125 182" fill="none" stroke="#8E7462" stroke-width="3" opacity=".6"/></g>
+    <g id="modelSide" style="display:none"><path d="M60 40 Q140 10 165 80 Q170 105 182 120 L170 132 Q178 150 168 160 Q172 178 158 190 Q140 214 110 210 L108 270 L60 270 L62 200 Q40 160 45 110 Q48 60 60 40Z" fill="url(#clay)"/><ellipse cx="88" cy="120" rx="10" ry="16" fill="#8E7462" opacity=".5"/></g>
+  </svg>
+  <div class="ring" id="ring"></div>
+
+  <!-- top bar: the three docks of today -->
+  <div class="x isl" style="left:1.2cqw;top:1.2cqw;height:3.8cqw"><button class="ib" aria-label="Menu">☰</button><span class="word">Bust.sculpt</span><button class="ib" aria-label="Undo">↶</button><button class="ib" aria-label="Redo">↷</button></div>
+  <div class="x isl" style="left:50%;transform:translateX(-50%);top:1.2cqw;height:3.8cqw"><span class="word" style="color:var(--text)">Sculpt</span><span class="word">Model</span><span class="word">Surface</span><span class="word">Render</span></div>
+  <div class="x isl" style="right:1.2cqw;top:1.2cqw;height:3.8cqw"><button class="ib" aria-label="Search">⌕</button><button class="ib" aria-label="History">◷</button><button class="ib" aria-label="Settings">⚙</button></div>
+  <div class="x readout" id="readout">
+    <button data-cam="persp" class="on">Persp</button><button data-cam="front">Front</button><button data-cam="side">Side</button><span>· Solid ▾ · 2.4 M</span>
+  </div>
+  <!-- left dock: brushes -->
+  <div class="x isl v" style="left:1.2cqw;top:22%;width:3.8cqw"><button class="ib on">●</button><button class="ib">◐</button><button class="ib">≈</button><button class="ib">✋</button><button class="ib">◌</button></div>
+  <!-- right rail: cards -->
+  <div class="x isl v" style="right:1.2cqw;top:18%;width:3.8cqw" id="rail">
+    <button class="ib" aria-label="Layers">▤</button>
+    <button class="ib" aria-label="Scene">◫</button>
+    <button class="ib" aria-label="Look">◑</button>
+    <button class="ib" aria-label="Colours" id="colBtn"><span class="swatch" id="sw" style="background:#C9A28A"></span></button>
+    <button class="ib on" id="refsBtn" aria-label="Refs card">▣<span class="t">Refs</span></button>
+    <button class="ib on" id="eyeBtn" aria-label="Show references">◉<span class="t">Show refs</span></button>
+  </div>
+  <!-- bottom shelf -->
+  <div class="x isl" style="left:50%;transform:translateX(-50%);bottom:1.2cqw;height:4cqw"><span class="word">Size 42</span><span class="word">Strength 0.5</span><button class="ib on">●</button><button class="ib">◐</button><button class="ib">≈</button><button class="ib">◌</button><button class="ib">✂</button></div>
+
+  <!-- The Refs card, floating like any card -->
+  <div class="x card" id="card" style="left:6.5cqw;top:9cqw;width:40cqw;height:47cqw">
+    <div class="bar" id="cardBar"><span class="grip"></span><b>Refs</b><span class="word" id="count" style="padding:0"></span><span class="sp"></span><button title="Pin">⌖</button><button title="Close" id="cardClose">✕</button></div>
+    <div class="tools">
+      <button class="tb" id="tAdd">+ Add</button>
+      <button class="tb" id="tPaste">Paste</button>
+      <button class="tb" id="tSnap">Snap view</button>
+      <button class="tb" id="tArrange">Arrange</button>
+      <button class="tb" id="tNorm">Same height</button>
+      <button class="tb" id="tFit">Fit all</button>
+      <button class="tb" id="tNote">Note</button>
+      <button class="tb" id="tPick">Pick colour</button>
+    </div>
+    <div id="board"><div id="bworld"></div><span class="zoomlab" id="zoomlab">100 %</span></div>
+    <div class="ctx" id="ctx"></div>
+  </div>
+  <input type="file" id="file" accept="image/*" multiple hidden>
+  <div class="dropzone">Drop to add to Refs</div>
+  <div class="toast" id="toast"></div>
+</div>
+
+<section style="border-top:0;padding-top:20px">
+  <h2>What the mock shows</h2>
+  <div class="grid2">
+    <div class="box"><h3>One board in one card</h3><ul>
+      <li><b>Refs</b> is a card like Look or Layers: it floats, pins or sits in a column, and a rail button opens it. Inside is a PureRef board: pan with one finger on empty space, pinch or wheel to zoom, drag images, tap to select.</li>
+      <li><b>Add</b> opens Photos or Files, <b>Paste</b> takes the clipboard, dropping files works anywhere, and <b>Snap view</b> puts a picture of the viewport on the board, for before and after.</li>
+      <li><b>Arrange</b> packs everything without gaps, <b>Same height</b> normalizes, <b>Note</b> adds text. Flip, Grey, Crop and Rotate sit on the selection's row; none of them changes the file you added.</li></ul></div>
+    <div class="box"><h3>The same image in three places</h3><ul>
+      <li><b>On the board</b>, always. That is its home.</li>
+      <li><b>On view</b>: pinned over the viewport at an opacity, like ZBrush's Spotlight in Reference mode and Nomad's overlay. It never takes a touch while you sculpt; it fades under the brush so it never hides what you sculpt.</li>
+      <li><b>In scene</b>: a plane facing Front, Side or Top, shown only when the camera looks down its axis (Blender), behind or through the model.</li>
+      <li>While the Refs card is open, overlays show a tab to move them and a corner to size them. Close the card and they are just pictures: no edit mode to remember.</li></ul></div>
+  </div>
+</section>
+
+<section id="compare">
+  <h2>The apps side by side</h2>
+  <p class="lede">What each app does for reference images today. PureRef is the best at collecting and tidying, ZBrush the best at using an image on the model, Blender the best at planes that line up with views, Nomad the simplest overlay on a tablet.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Part</th><th>PureRef 2.1</th><th>ZBrush (desktop and iPad)</th><th>Nomad</th><th>Blender</th><th>Ours</th></tr></thead>
+    <tbody>
+      <tr><td>Collect</td><td>Drop, paste, URLs, screenshots</td><td>Spotlight: Add from five sources on iPad, Add To Spotlight from the Alpha and Texture pickers</td><td>Pick one image from Photos or Files</td><td>File browser or drag a file onto the view</td><td class="ours">Photos, Files, paste, drop (desktop, iPad, Android), Snap view</td></tr>
+      <tr><td>Board</td><td>Infinite canvas, the whole app is the board</td><td class="no">None; images sit on the canvas itself</td><td class="no">None</td><td class="no">None (an Image editor in another area)</td><td class="ours">A board inside the Refs card</td></tr>
+      <tr><td>Tidy</td><td>Arrange by order, path, optimal, random; Normalize; Fit; align</td><td>Spotlight dial: move, scale, rotate, tile</td><td class="no">Move and scale one image</td><td>Transform the empty</td><td class="ours">Arrange (packed), Same height, Fit all, multi-select</td></tr>
+      <tr><td>Edit</td><td>Crop with aspect lock, flip, grey, rotate</td><td>Flip, contrast, saturation, hue, fill</td><td>Opacity, flip</td><td>Opacity, flip by negative scale</td><td class="ours">Crop, Flip, Grey, Rotate, Opacity; the original kept</td></tr>
+      <tr><td>Notes and marks</td><td>Rich-text notes, lines and drawings (2.1), grids</td><td class="no">None</td><td class="no">None</td><td>Annotate pencil in the view</td><td class="ours">Text notes; drawing parked</td></tr>
+      <tr><td>Over the view</td><td>Its own always-on-top window over any app, click-through, opacity</td><td>Spotlight Reference mode: images stay on screen and never project; Edit Spotlight mode to arrange (Z key)</td><td>One screen-fixed image behind or over the model</td><td class="no">Only by aligning the view to an empty</td><td class="ours">On view: many images, opacity, fade under the brush, handles only while the card is open</td></tr>
+      <tr><td>In the scene</td><td class="no">None</td><td>Image planes per axis (ImagePlane plug-in on desktop)</td><td>Workaround: a textured plane with an unlit material</td><td>Reference and Background empties; Show only in orthographic or axis-aligned views; front or back</td><td class="ours">In scene planes for Front, Side, Top or free; only in its view; Behind or Through</td></tr>
+      <tr><td>Use on the model</td><td class="no">None</td><td>Spotlight Projection: paint and sculpt the image onto the model</td><td class="no">None</td><td>Texture paint projection from an image</td><td class="ours">Pick colour into Colours; projection paint parked for Paint layers</td></tr>
+      <tr><td>Saved</td><td>.pur board file, images inside</td><td>Spotlight files, separate from the model</td><td>With the project</td><td>Packed or linked in the .blend</td><td class="ours">Inside the .sculpt, originals unchanged; Copy board from another scene</td></tr>
+      <tr><td>Touch</td><td class="no">Desktop only</td><td>iPad: touch dial</td><td>Touch first</td><td class="no">Mouse first</td><td class="ours">Touch first, same card on the desktop</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="design">
+  <h2>Our design: what we take, what we avoid, what we do better</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Part</th><th>Taken from</th><th>Why it still holds</th><th>Avoided</th><th>Done better</th></tr></thead>
+    <tbody>
+      <tr><td>Board</td><td>PureRef</td><td>Sculptors collect 10 to 50 pictures per model; a free canvas beats a list for comparing them.</td><td>PureRef's separate app and window: on an iPad there is no always-on-top window, and switching apps breaks the stroke rhythm.</td><td>The board is a card, so it floats, pins and docks like every other card (one UI per thing). Same card on desktop and tablet.</td></tr>
+      <tr><td>On view</td><td>ZBrush Spotlight Reference, Nomad overlay</td><td>Matching a silhouette means seeing the picture and the model together.</td><td>Spotlight's Edit mode (a hidden state with its own Z key) and Nomad's single image.</td><td>Many overlays; handles appear only while the Refs card is open; overlays never take a touch while sculpting and fade under the brush ring.</td></tr>
+      <tr><td>In scene</td><td>Blender empties, ZBrush image planes</td><td>Front and side photos must line up with the model in 3D, not on the screen.</td><td>Nomad's plane-with-unlit-material workaround, which is a mesh you can sculpt by mistake and which costs a material.</td><td>Planes are not objects: no mesh, never sculpted, one textured quad each. Shown only when the camera looks down their axis, so the 3D view stays clean.</td></tr>
+      <tr><td>One image, three places</td><td>Ours</td><td>The same photo is needed on the board and over the view.</td><td>Copies of the same image in two systems (ZBrush keeps Spotlight apart from textures and alphas).</td><td>One image id with a board place, an optional view place and optional planes; bytes stored once.</td></tr>
+      <tr><td>Line up</td><td>Our Proportion guides</td><td>Likeness work starts by matching brow, nose and chin heights between front and side.</td><td>Scaling planes by eye (every app above).</td><td>On a plane, drag its Brow and Chin marks onto the photo; the plane scales and moves so they meet the scene's guides. Front and side line up in two drags.</td></tr>
+      <tr><td>Colour</td><td>PureRef's picker, ZBrush's sampling</td><td>Skin and material colours come from photos.</td><td>A picker that copies a hex code you then type elsewhere.</td><td>Pick colour on the board or an overlay sets the paint colour in the Colours card directly.</td></tr>
+      <tr><td>Saving</td><td>PureRef .pur, Blender packing</td><td>A scene sent to the tablet must bring its pictures.</td><td>ZBrush's separate Spotlight files, which get lost.</td><td>Stored in the .sculpt as their original bytes (no re-encoding), so Send to tablet's chunks carry them and dedupe them.</td></tr>
+      <tr><td>Undo</td><td>PureRef</td><td>A wrong Arrange must come back.</td><td>Undo steps that copy pixels.</td><td>Refs steps in History hold only places and looks (bytes, not megabytes).</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Not taken, and why</h3>
+  <div class="grid2">
+    <div class="box"><ul>
+      <li><b>PureRef's window over other apps</b> (always on top, click-through): an OS window trick from the desktop. iPadOS cannot do it, and our refs already sit over our own view, where they are needed.</li>
+      <li><b>Images from a web address</b>: needs the network permission and a privacy note for the stores (sm-store) for something paste already covers.</li>
+      <li><b>Drawing on the board</b> (PureRef 2.1 lines): parked until someone asks; notes cover labelling.</li></ul></div>
+    <div class="box"><ul>
+      <li><b>Spotlight Projection</b> (painting or sculpting the image onto the model): a real need, but it belongs to Paint layers and alphas (stencil painting), not to references. A later plan can use a ref as the stencil's image.</li>
+      <li><b>Image to mesh</b> (Spotlight's mesh from images): a modelling tool, not a reference; out of scope.</li>
+      <li><b>Tiling and hue tweaks</b> from the Spotlight dial: tools for painting with an image, not for looking at one.</li></ul></div>
+  </div>
+</section>
+
+<section id="budget">
+  <h2>Budget: no hitch on a stroke</h2>
+  <div class="grid2">
+    <div class="box"><h3>Never on the stroke path</h3><ul>
+      <li>Decoding runs on a worker, as environment panoramas do; a picture shows a grey box with a spinner until it is ready, never stalling a frame.</li>
+      <li>Overlays are drawn with the interface, after the viewport, so the idle cache and partial redraw of the mesh are untouched: <b>0 ms</b> added to sculpt passes. Planes add one textured quad each to the viewport pass (under 0.05 ms for ten on the 3060 Ti, to measure on the Mali).</li>
+      <li>Fade under the brush is one alpha per overlay per frame on the CPU.</li>
+      <li>Timing to prove it: stroke press, release and undo with 20 refs shown, against none.</li></ul></div>
+    <div class="box"><h3>Memory</h3><ul>
+      <li>The GPU copy is at most 2048 px on its long edge on tablets and 4096 on the desktop, with mips; the original stays in the file. Twenty 12-megapixel photos cost about 420 MB at full size, about 110 MB this way.</li>
+      <li>A Refs memory limit (256 MB on tablets by default, in Settings next to Mesh size limits) drops the GPU copies of refs not seen lately to 256 px thumbnails.</li>
+      <li>Exit stats: <code>refs=</code>, <code>refs_gpu_mb=</code>, <code>refs_decode_ms=</code>.</li></ul></div>
+  </div>
+</section>
+
+<section id="prs">
+  <h2>The build in six PRs</h2>
+  <p class="lede">Each PR ships something usable and deletes nothing that is still needed. R1 to R3 give the PureRef board and overlays; R4 the planes; R5 and R6 the finish.</p>
+  <div class="box">
+    <div class="pr"><span class="id">R1</span><div><b>Refs store, file and board.</b><p>The scene's refs (image bytes, board place), a <code>REFS</code> chunk in the .sculpt (scene version bump, no old reader), decoding on a worker, GPU copies with mips through <code>ui.image</code>; the Refs card with pan, zoom, move, scale, select and delete; Add, Paste and drop on the desktop; exit stats.</p></div><span class="pill plan">~700 lines</span></div>
+    <div class="pr"><span class="id">R2</span><div><b>Tidy and edit.</b><p>Arrange (packed), Same height, Fit all, multi-select, Flip, Grey, Rotate, Crop (non-destructive), notes, lock, Snap view; Refs steps in History.</p></div><span class="pill plan">~600 lines</span></div>
+    <div class="pr"><span class="id">R3</span><div><b>On view.</b><p>Drag a ref onto the view to pin it; opacity; tab and corner handles while the card is open; Show refs dock button; fade under the brush; Pick colour into the Colours card.</p></div><span class="pill plan">~500 lines</span></div>
+    <div class="pr"><span class="id">R4</span><div><b>In scene.</b><p>Planes for Front, Back, Side, Top or free; only in its view; Behind or Through; one new textured-quad shader with its committed .spv, .msl and .wgsl; the planes listed in the Scene card with show and lock. Needs a design note first (new shader).</p></div><span class="pill plan">~650 lines</span></div>
+    <div class="pr"><span class="id">R5</span><div><b>Line up.</b><p>Brow and Chin marks on a plane that meet the Proportion guides; Copy board from another scene; the Refs memory limit in Settings.</p></div><span class="pill plan">~400 lines</span></div>
+    <div class="pr"><span class="id">R6</span><div><b>Platforms and docs.</b><p>Drop from Safari and Photos on the iPad (a drop handler in <code>sculpt_ios.m</code>), Share to Sculpt on Android, paste on the web; README; touch scenarios for the board and handles; screenshots for the UI corpus.</p></div><span class="pill plan">~450 lines</span></div>
+    <div class="pr"><span class="id" style="color:var(--faint)">later</span><div><b>Projection paint from a ref</b><p>Parked: a separate plan inside Paint layers, using a ref as a stencil.</p></div><span class="pill park">parked</span></div>
+  </div>
+</section>
+
+<section id="picks">
+  <h2>Your picks before the build</h2>
+  <div class="grid2">
+    <div class="pick"><b>1. Where the board lives</b><p>Recommended: a Refs card (floats, pins, docks, as in the mock). The other choice is a fifth space tab, Refs, with the board full screen; it gives more room but hides the model while you tidy.</p></div>
+    <div class="pick"><b>2. Refs per scene or for the app</b><p>Recommended: per scene, inside the .sculpt, with Copy board from another scene. The other choice is one app-wide library of refs shared by every scene, which Send to tablet would not carry.</p></div>
+    <div class="pick"><b>3. Original size kept</b><p>Recommended: keep the original bytes up to 8192 px and shrink anything larger once on adding. The other choice keeps everything as is, which can make scene files hundreds of megabytes bigger.</p></div>
+    <div class="pick"><b>4. Projection paint</b><p>Recommended: parked for a Paint layers plan. The other choice adds it as R7 now.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Sources</h2>
+  <p class="lede" style="font-size:13px">
+    <a href="https://pureref.com/handbook/2.0/features/" style="color:var(--plan)">PureRef 2 handbook: features</a> ·
+    <a href="https://www.cgchannel.com/2026/02/pureref-2-1-is-out/" style="color:var(--plan)">PureRef 2.1 release (CG Channel)</a> ·
+    <a href="https://help.maxon.net/zbp/en-us/Content/html/5_sculpting-modeling-painting_spotlight.html" style="color:var(--plan)">ZBrush for iPad: Spotlight</a> ·
+    <a href="https://help.maxon.net/zbp/en-us/Content/html/0_ZBrush-ipad-whats-new.html" style="color:var(--plan)">ZBrush for iPad: what's new</a> ·
+    <a href="https://forum.nomadsculpt.com/t/reference-images-instead-as-scene-objects/3962" style="color:var(--plan)">Nomad forum: references as scene objects</a> ·
+    <a href="https://forum.nomadsculpt.com/t/3-nomad-sculpt-create-reference-image-on-plane-unlit-material-opacity-x-ray-mode-selected/24190" style="color:var(--plan)">Nomad forum: image on a plane</a> ·
+    Blender manual, Image empties (Reference and Background, Show in orthographic or axis-aligned views).
+  </p>
+</section>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const dev = $('dev'), board = $('board'), bworld = $('bworld'), ctx = $('ctx'), stage = $('stage');
+  const cq = () => dev.clientWidth / 100; // one cqw in px
+
+  // ---------- Example pictures, drawn here since a page cannot load remote images ----------
+  function paint(w, h, fn) { const c = document.createElement('canvas'); c.width = w; c.height = h; fn(c.getContext('2d'), w, h); return c.toDataURL('image/jpeg', .85); }
+  function bg(g, w, h, a, b) { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, a); gr.addColorStop(1, b); g.fillStyle = gr; g.fillRect(0, 0, w, h); }
+  const pics = {
+    front: paint(300, 400, (g, w, h) => { bg(g, w, h, '#C7CDD3', '#8A939B');
+      g.fillStyle = '#5A4334'; g.beginPath(); g.ellipse(150, 150, 98, 112, 0, Math.PI, 0); g.fill();
+      const s = g.createRadialGradient(130, 170, 10, 150, 200, 130); s.addColorStop(0, '#E8C3A6'); s.addColorStop(1, '#A8775A');
+      g.fillStyle = s; g.beginPath(); g.ellipse(150, 205, 82, 108, 0, 0, 7); g.fill(); g.fillRect(118, 290, 64, 110);
+      g.fillStyle = '#3B2A22'; [[118, 190], [182, 190]].forEach(([x, y]) => { g.beginPath(); g.ellipse(x, y, 11, 6, 0, 0, 7); g.fill(); });
+      g.strokeStyle = '#8B5E47'; g.lineWidth = 3; g.beginPath(); g.moveTo(150, 200); g.lineTo(140, 245); g.lineTo(158, 248); g.stroke();
+      g.strokeStyle = '#9C4F45'; g.lineWidth = 5; g.beginPath(); g.moveTo(126, 272); g.quadraticCurveTo(150, 282, 174, 272); g.stroke(); }),
+    side: paint(300, 400, (g, w, h) => { bg(g, w, h, '#D4CFC6', '#9C968C');
+      g.fillStyle = '#4A372C'; g.beginPath(); g.ellipse(130, 150, 100, 95, 0, 0, 7); g.fill();
+      const s = g.createLinearGradient(60, 0, 240, 0); s.addColorStop(0, '#9E6E52'); s.addColorStop(1, '#E2BB9C'); g.fillStyle = s;
+      g.beginPath(); g.moveTo(90, 120); g.quadraticCurveTo(210, 100, 222, 190); g.lineTo(240, 210); g.lineTo(224, 222); g.quadraticCurveTo(232, 240, 220, 252); g.quadraticCurveTo(228, 280, 205, 300); g.quadraticCurveTo(170, 320, 150, 312); g.lineTo(150, 400); g.lineTo(80, 400); g.lineTo(84, 300); g.quadraticCurveTo(60, 240, 70, 180); g.closePath(); g.fill();
+      g.fillStyle = '#8C5D45'; g.beginPath(); g.ellipse(112, 200, 13, 22, 0, 0, 7); g.fill(); }),
+    ear: paint(320, 240, (g, w, h) => { bg(g, w, h, '#B9AFA4', '#7D746B');
+      g.strokeStyle = '#5B4334'; g.lineWidth = 9; g.beginPath(); g.ellipse(160, 120, 62, 92, .2, -1.2, 3.6); g.stroke();
+      g.lineWidth = 6; g.beginPath(); g.ellipse(166, 118, 34, 55, .2, -1, 3.2); g.stroke();
+      g.fillStyle = '#C79A7D'; g.beginPath(); g.ellipse(168, 150, 14, 18, 0, 0, 7); g.fill(); }),
+    bronze: paint(280, 280, (g, w, h) => { bg(g, w, h, '#1C1D20', '#08090A');
+      const s = g.createRadialGradient(110, 100, 6, 140, 150, 130); s.addColorStop(0, '#F7D58C'); s.addColorStop(.35, '#B9853C'); s.addColorStop(1, '#3A2610');
+      g.fillStyle = s; g.beginPath(); g.ellipse(140, 135, 82, 100, 0, 0, 7); g.fill(); g.fillRect(105, 220, 70, 60); }),
+    hands: paint(360, 240, (g, w, h) => { bg(g, w, h, '#EDE8DF', '#DCD4C7'); g.strokeStyle = '#3A3530'; g.lineWidth = 2.2;
+      for (let i = 0; i < 5; i++) { g.beginPath(); g.moveTo(80 + i * 22, 190); g.quadraticCurveTo(70 + i * 26, 110 - i * 6, 90 + i * 24, 60 + Math.abs(2 - i) * 18); g.stroke(); }
+      g.beginPath(); g.ellipse(250, 140, 50, 70, .5, 0, 7); g.stroke(); g.beginPath(); g.moveTo(230, 90); g.lineTo(290, 170); g.stroke(); })
+  };
+
+  // ---------- The store: one image, a board place, an optional view place and optional plane ----------
+  let nextId = 1;
+  const refs = [], notes = [];
+  function addRef(src, name, x, y, hgt, aspect) {
+    const r = { id: nextId++, src, name, x, y, w: hgt * aspect, h: hgt, flip: false, grey: false, crop: false, rot: 0, opacity: .55,
+      view: null, plane: null, onlyAxis: true, through: false };
+    refs.push(r); return r;
+  }
+  addRef(pics.front, 'Front.jpg', 30, 30, 200, .75);
+  addRef(pics.side, 'Side.jpg', 190, 30, 200, .75);
+  addRef(pics.ear, 'Ear study.jpg', 30, 250, 110, 4 / 3);
+  addRef(pics.bronze, 'Bronze.jpg', 190, 250, 130, 1);
+  addRef(pics.hands, 'Gesture.png', 340, 120, 120, 1.5);
+  notes.push({ id: nextId++, x: 340, y: 30, text: 'Brow ridge softer than photo' });
+  refs[0].plane = 'front'; refs[1].plane = 'side';
+  refs[0].view = { x: 64, y: 14, w: 15 }; refs[0].opacity = .5;
+
+  let sel = new Set([refs[0].id]);
+  let cam = 'persp', showRefs = true, picking = false;
+  const vb = { x: 0, y: 0, z: 1 }; // board pan and zoom
+
+  // ---------- Board ----------
+  function drawBoard() {
+    const k = cq() / 11.8 * vb.z; // board units to px: the board fits about 40 cqw wide at zoom 1
+    bworld.style.transform = `translate(${vb.x}px,${vb.y}px)`;
+    bworld.innerHTML = '';
+    for (const r of refs) {
+      const d = document.createElement('div'); d.className = 'bimg' + (sel.has(r.id) ? ' sel' : ''); d.dataset.id = r.id;
+      Object.assign(d.style, { left: r.x * k + 'px', top: r.y * k + 'px', width: r.w * k + 'px', height: r.h * k + 'px' });
+      d.appendChild(img(r));
+      const tags = document.createElement('div'); tags.className = 'tags';
+      if (r.view) tags.innerHTML += '<i>On view</i>'; if (r.plane) tags.innerHTML += `<i>${r.plane === 'front' ? 'Front' : r.plane === 'side' ? 'Side' : 'Top'}</i>`;
+      d.appendChild(tags); bworld.appendChild(d);
+    }
+    for (const n of notes) {
+      const d = document.createElement('div'); d.className = 'note' + (sel.has(n.id) ? ' sel' : ''); d.dataset.id = n.id; d.dataset.note = 1;
+      Object.assign(d.style, { left: n.x * k + 'px', top: n.y * k + 'px', fontSize: 1.05 * vb.z + 'cqw', maxWidth: 140 * k + 'px' });
+      d.textContent = n.text; bworld.appendChild(d);
+    }
+    $('zoomlab').textContent = Math.round(vb.z * 100) + ' %';
+    $('count').textContent = '· ' + refs.length + ' images';
+  }
+  function img(r) {
+    const i = document.createElement('img'); i.src = r.src; i.alt = r.name; i.draggable = false;
+    i.style.transform = `scaleX(${r.flip ? -1 : 1}) rotate(${r.rot}deg)`;
+    i.style.filter = r.grey ? 'grayscale(1)' : 'none';
+    i.style.clipPath = r.crop ? 'inset(8% 12% 10% 12%)' : 'none';
+    i.style.objectFit = 'cover';
+    return i;
+  }
+  const byId = id => refs.find(r => r.id === +id) || notes.find(n => n.id === +id);
+  const first = () => refs.find(r => sel.has(r.id));
+
+  // ---------- Selection row ----------
+  function drawCtx() {
+    const r = first();
+    const n = notes.find(n => sel.has(n.id));
+    if (!r && n) { ctx.innerHTML = `<span>Note</span><button class="tb" data-a="delnote">Delete</button>`; return; }
+    if (!r) { ctx.innerHTML = '<span>Tap an image to edit it. Drag one onto the view to pin it there.</span>'; return; }
+    const many = sel.size > 1 ? ` (${sel.size} selected)` : '';
+    ctx.innerHTML = `
+      <span style="color:var(--text)">${r.name}${many}</span>
+      <span class="grp"><button class="tb ${r.flip ? 'on' : ''}" data-a="flip">Flip</button><button class="tb ${r.grey ? 'on' : ''}" data-a="grey">Grey</button><button class="tb ${r.crop ? 'on' : ''}" data-a="crop">Crop</button><button class="tb" data-a="rot">Rotate</button></span>
+      <span class="grp"><button class="tb ${r.view ? 'on' : ''}" data-a="view">On view</button>
+        <button class="tb ${r.plane === 'front' ? 'on' : ''}" data-a="pfront">Front</button><button class="tb ${r.plane === 'side' ? 'on' : ''}" data-a="pside">Side</button><button class="tb ${r.plane === 'top' ? 'on' : ''}" data-a="ptop">Top</button></span>
+      <label>Opacity <input type="range" id="op" min="10" max="100" value="${Math.round(r.opacity * 100)}"></label>
+      ${r.plane ? `<span class="grp"><button class="tb ${r.onlyAxis ? 'on' : ''}" data-a="axis">Only in its view</button><button class="tb ${r.through ? 'on' : ''}" data-a="through">${r.through ? 'Through model' : 'Behind model'}</button></span>` : ''}
+      <button class="tb" data-a="del">Delete</button>`;
+    $('op').oninput = e => { for (const x of refs) if (sel.has(x.id)) x.opacity = e.target.value / 100; drawView(); };
+  }
+  ctx.addEventListener('click', e => {
+    const a = e.target.dataset.a; if (!a) return;
+    const list = refs.filter(r => sel.has(r.id));
+    for (const r of list) {
+      if (a === 'flip') r.flip = !r.flip; if (a === 'grey') r.grey = !r.grey; if (a === 'crop') r.crop = !r.crop; if (a === 'rot') r.rot = (r.rot + 90) % 360;
+      if (a === 'view') r.view = r.view ? null : { x: 62, y: 12 + 4 * list.indexOf(r), w: 14 };
+      if (a[0] === 'p') { const p = a.slice(1); r.plane = r.plane === p ? null : p; }
+      if (a === 'axis') r.onlyAxis = !r.onlyAxis; if (a === 'through') r.through = !r.through;
+    }
+    if (a === 'del') { for (const r of list) refs.splice(refs.indexOf(r), 1); sel.clear(); toast('Deleted: Undo brings it back'); }
+    if (a === 'delnote') { for (const n of notes.filter(n => sel.has(n.id))) notes.splice(notes.indexOf(n), 1); sel.clear(); }
+    if (a === 'crop' && list[0]?.crop) toast('Crop keeps the original: tap Crop again to undo it');
+    if (a[0] === 'p' && list[0]?.plane && cam === 'persp' && list[0].onlyAxis) toast('Placed. Look from ' + (list[0].plane === 'top' ? 'Top' : list[0].plane === 'front' ? 'Front' : 'Side') + ' to see it');
+    redraw();
+  });
+
+  // ---------- Viewport: planes and overlays ----------
+  function drawView() {
+    $('modelFront').style.display = cam === 'side' ? 'none' : '';
+    $('modelSide').style.display = cam === 'side' ? '' : 'none';
+    stage.innerHTML = '';
+    const c = cq();
+    let modelSeeThrough = false;
+    for (const r of refs) {
+      if (!r.plane || !showRefs) continue;
+      const matches = (cam === 'front' && r.plane === 'front') || (cam === 'side' && r.plane === 'side');
+      if (r.onlyAxis && !matches) continue;
+      if (cam !== 'persp' && !matches) continue;
+      const d = document.createElement('div'); d.className = 'plane';
+      const H = 34 * c, W = H * r.w / r.h;
+      let t = `translate(-50%,-50%)`;
+      if (cam === 'persp') t += r.plane === 'front' ? ' translateZ(-20cqw) rotateY(-24deg)' : r.plane === 'side' ? ' translateX(14cqw) rotateY(62deg)' : ' translateY(14cqw) rotateX(80deg)';
+      Object.assign(d.style, { width: W + 'px', height: H + 'px', transform: t, opacity: r.opacity, zIndex: r.through ? 3 : 0 });
+      d.appendChild(img(r)); stage.appendChild(d);
+      if (r.through && matches) modelSeeThrough = true;
+    }
+    $('model').style.opacity = modelSeeThrough ? .55 : 1;
+    $('model').style.zIndex = 1;
+    dev.querySelectorAll('.ov').forEach(o => o.remove());
+    for (const r of refs) {
+      if (!r.view || !showRefs) continue;
+      const o = document.createElement('div'); o.className = 'ov'; o.dataset.id = r.id;
+      Object.assign(o.style, { left: r.view.x + 'cqw', top: r.view.y + 'cqw', width: r.view.w + 'cqw', height: r.view.w * r.h / r.w + 'cqw', opacity: r.opacity, zIndex: 5 });
+      o.innerHTML = `<div class="hd">⠿ ${r.name}<span style="opacity:.6">· ${Math.round(r.opacity * 100)} %</span></div><div class="rz"></div>`;
+      o.appendChild(img(r));
+      dev.insertBefore(o, $('ring'));
+    }
+  }
+  function redraw() { drawBoard(); drawCtx(); drawView(); }
+
+  // ---------- Board gestures: select, move, drag out to the view, pan, zoom ----------
+  let drag = null;
+  board.addEventListener('pointerdown', e => {
+    board.setPointerCapture(e.pointerId);
+    const el = e.target.closest('.bimg,.note');
+    if (picking && el && !el.dataset.note) { pickAt(e, el); return; }
+    if (el) {
+      const id = +el.dataset.id;
+      if (e.shiftKey || e.metaKey) { sel.has(id) ? sel.delete(id) : sel.add(id); }
+      else if (!sel.has(id)) { sel.clear(); sel.add(id); }
+      drag = { kind: 'move', sx: e.clientX, sy: e.clientY, start: [...sel].map(i => { const o = byId(i); return [o, o.x, o.y]; }), el };
+      redraw();
+    } else {
+      sel.clear(); redraw();
+      drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, x: vb.x, y: vb.y };
+    }
+  });
+  board.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    if (drag.kind === 'pan') { vb.x = drag.x + dx; vb.y = drag.y + dy; drawBoard(); return; }
+    const k = cq() / 11.8 * vb.z;
+    for (const [o, x, y] of drag.start) { o.x = x + dx / k; o.y = y + dy / k; }
+    drawBoard();
+    // Outside the card means "to the view": show a ghost there.
+    const cr = $('card').getBoundingClientRect();
+    const out = e.clientX > cr.right || e.clientX < cr.left || e.clientY < cr.top || e.clientY > cr.bottom;
+    const r = first();
+    if (out && r) {
+      if (!drag.ghost) { drag.ghost = document.createElement('div'); drag.ghost.className = 'ghost'; drag.ghost.appendChild(img(r)); dev.appendChild(drag.ghost); }
+      const dr = dev.getBoundingClientRect(), w = 14 * cq();
+      Object.assign(drag.ghost.style, { left: e.clientX - dr.left - w / 2 + 'px', top: e.clientY - dr.top - 20 + 'px', width: w + 'px', height: w * r.h / r.w + 'px' });
+    } else if (drag.ghost) { drag.ghost.remove(); drag.ghost = null; }
+  });
+  board.addEventListener('pointerup', e => {
+    if (drag?.ghost) {
+      const r = first(); const dr = dev.getBoundingClientRect(), c = cq();
+      for (const [o, x, y] of drag.start) { o.x = x; o.y = y; }
+      r.view = { x: (e.clientX - dr.left) / c - 7, y: (e.clientY - dr.top) / c - 1, w: 14 };
+      drag.ghost.remove(); toast(r.name + ' pinned on the view. Close the card and it stops taking touches');
+    }
+    drag = null; redraw();
+  });
+  board.addEventListener('wheel', e => {
+    e.preventDefault();
+    const br = board.getBoundingClientRect(), mx = e.clientX - br.left, my = e.clientY - br.top;
+    const z0 = vb.z, z1 = Math.min(4, Math.max(.25, z0 * Math.exp(-e.deltaY * .0015)));
+    vb.x = mx - (mx - vb.x) * z1 / z0; vb.y = my - (my - vb.y) * z1 / z0; vb.z = z1; drawBoard();
+  }, { passive: false });
+
+  // ---------- Overlay handles (only while the card is open) and the stroke ----------
+  let ovDrag = null, stroke = null;
+  dev.addEventListener('pointerdown', e => {
+    const ov = e.target.closest('.ov');
+    if (ov && dev.classList.contains('editing') && (e.target.closest('.hd') || e.target.closest('.rz'))) {
+      const r = byId(ov.dataset.id); sel.clear(); sel.add(r.id); drawBoard(); drawCtx();
+      ovDrag = { r, rz: !!e.target.closest('.rz'), sx: e.clientX, sy: e.clientY, x: r.view.x, y: r.view.y, w: r.view.w };
+      dev.setPointerCapture(e.pointerId); return;
+    }
+    if (picking && ov) { pickAt(e, ov); return; }
+    if (e.target.closest('.card,.isl,.readout,.ov')) return;
+    stroke = true; dev.setPointerCapture(e.pointerId); moveRing(e);
+  });
+  dev.addEventListener('pointermove', e => {
+    if (ovDrag) {
+      const c = cq(), dx = (e.clientX - ovDrag.sx) / c, dy = (e.clientY - ovDrag.sy) / c;
+      if (ovDrag.rz) ovDrag.r.view.w = Math.max(6, ovDrag.w + dx); else { ovDrag.r.view.x = ovDrag.x + dx; ovDrag.r.view.y = ovDrag.y + dy; }
+      drawView(); return;
+    }
+    if (stroke) moveRing(e);
+  });
+  dev.addEventListener('pointerup', () => {
+    ovDrag = null;
+    if (stroke) { stroke = null; $('ring').style.display = 'none'; dev.querySelectorAll('.ov').forEach(o => o.style.opacity = byId(o.dataset.id).opacity); }
+  });
+  function moveRing(e) {
+    const dr = dev.getBoundingClientRect(), ring = $('ring');
+    ring.style.display = 'block'; ring.style.left = e.clientX - dr.left + 'px'; ring.style.top = e.clientY - dr.top + 'px';
+    const rr = 3 * cq();
+    dev.querySelectorAll('.ov').forEach(o => {
+      const b = o.getBoundingClientRect();
+      const near = e.clientX > b.left - rr && e.clientX < b.right + rr && e.clientY > b.top - rr && e.clientY < b.bottom + rr;
+      o.style.opacity = near ? .12 : byId(o.dataset.id).opacity;
+    });
+  }
+
+  // ---------- Colour picking ----------
+  function pickAt(e, el) {
+    const r = byId(el.dataset.id); const im = new Image(); im.src = r.src;
+    const b = el.getBoundingClientRect();
+    const c = document.createElement('canvas'); c.width = im.naturalWidth || 300; c.height = im.naturalHeight || 400;
+    const g = c.getContext('2d'); g.drawImage(im, 0, 0);
+    let u = (e.clientX - b.left) / b.width; if (r.flip) u = 1 - u;
+    const p = g.getImageData(Math.floor(u * c.width), Math.floor((e.clientY - b.top) / b.height * c.height), 1, 1).data;
+    const hex = '#' + [p[0], p[1], p[2]].map(v => v.toString(16).padStart(2, '0')).join('');
+    $('sw').style.background = hex; picking = false; $('tPick').classList.remove('on');
+    toast('Paint colour set to ' + hex.toUpperCase() + ' in Colours');
+  }
+
+  // ---------- Tools ----------
+  $('tPick').onclick = () => { picking = !picking; $('tPick').classList.toggle('on', picking); if (picking) toast('Tap a picture on the board or the view'); };
+  $('tArrange').onclick = () => { // Pack by rows, tallest first, within the board's width: what PureRef's optimal arrange gives.
+    const k = cq() / 11.8 * vb.z, maxW = board.clientWidth / k - 20; let x = 10, y = 10, row = 0;
+    [...refs].sort((a, b) => b.h - a.h).forEach(r => { if (x + r.w > maxW && x > 10) { x = 10; y += row + 8; row = 0; } r.x = x; r.y = y; x += r.w + 8; row = Math.max(row, r.h); });
+    let nx = 10; y += row + 8; for (const n of notes) { n.x = nx; n.y = y; nx += 150; }
+    vb.x = vb.y = 0; redraw(); toast('Arranged. Undo puts them back');
+  };
+  $('tNorm').onclick = () => { const list = sel.size > 1 ? refs.filter(r => sel.has(r.id)) : refs; for (const r of list) { const a = r.w / r.h; r.h = 150; r.w = 150 * a; } redraw(); toast(list.length + ' images set to the same height'); };
+  $('tFit').onclick = () => { // Fit all: zoom and pan so every item shows.
+    const items = [...refs, ...notes.map(n => ({ x: n.x, y: n.y, w: 140, h: 40 }))];
+    const x0 = Math.min(...items.map(i => i.x)), y0 = Math.min(...items.map(i => i.y)), x1 = Math.max(...items.map(i => i.x + i.w)), y1 = Math.max(...items.map(i => i.y + i.h));
+    const base = cq() / 11.8; vb.z = Math.min(4, Math.max(.25, Math.min(board.clientWidth / ((x1 - x0 + 20) * base), board.clientHeight / ((y1 - y0 + 20) * base))));
+    const k = base * vb.z; vb.x = -(x0 - 10) * k; vb.y = -(y0 - 10) * k; drawBoard();
+  };
+  $('tNote').onclick = () => { const n = { id: nextId++, x: 20, y: 20, text: 'New note: double-click in the app to type' }; notes.push(n); sel.clear(); sel.add(n.id); redraw(); };
+  $('tSnap').onclick = () => {
+    const src = paint(400, 280, (g, w, h) => { const gr = g.createRadialGradient(200, 120, 10, 200, 140, 260); gr.addColorStop(0, '#232A31'); gr.addColorStop(1, '#0D0F12'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      const s = g.createRadialGradient(185, 110, 5, 200, 140, 90); s.addColorStop(0, '#F2E6DC'); s.addColorStop(1, '#6E5A4C'); g.fillStyle = s; g.beginPath(); g.ellipse(200, 130, 60, 80, 0, 0, 7); g.fill(); g.fillRect(175, 200, 50, 80);
+      g.fillStyle = '#8C98A4'; g.font = '14px sans-serif'; g.fillText('View ' + new Date().toTimeString().slice(0, 5), 12, 22); });
+    const r = addRef(src, 'View ' + new Date().toTimeString().slice(0, 5), 30, 400, 110, 400 / 280); sel.clear(); sel.add(r.id); $('tFit').onclick(); redraw(); toast('A picture of the view is on the board');
+  };
+  $('tAdd').onclick = () => $('file').click();
+  $('file').onchange = e => addFiles(e.target.files);
+  $('tPaste').onclick = () => toast('In the app Paste takes the clipboard. Here, press Ctrl+V or ⌘V with a picture copied');
+  document.addEventListener('paste', e => { const f = [...e.clipboardData.files]; if (f.length) addFiles(f); });
+  dev.addEventListener('dragover', e => { e.preventDefault(); dev.classList.add('dragover'); });
+  dev.addEventListener('dragleave', e => { if (e.target === dev) dev.classList.remove('dragover'); });
+  dev.addEventListener('drop', e => { e.preventDefault(); dev.classList.remove('dragover'); addFiles(e.dataTransfer.files); });
+  function addFiles(files) {
+    [...files].filter(f => f.type.startsWith('image/')).forEach((f, i) => {
+      const rd = new FileReader();
+      rd.onload = () => { const im = new Image(); im.onload = () => { const r = addRef(rd.result, f.name, 20 + i * 30, 20 + i * 30, 160, im.width / im.height); sel.clear(); sel.add(r.id); redraw(); toast(f.name + ' added'); }; im.src = rd.result; };
+      rd.readAsDataURL(f);
+    });
+  }
+
+  // ---------- Card, rail and camera ----------
+  function setCard(open) { $('card').style.display = open ? '' : 'none'; $('refsBtn').classList.toggle('on', open); dev.classList.toggle('editing', open); drawView(); }
+  $('refsBtn').onclick = () => setCard($('card').style.display === 'none');
+  $('cardClose').onclick = () => setCard(false);
+  $('eyeBtn').onclick = () => { showRefs = !showRefs; $('eyeBtn').classList.toggle('on', showRefs); drawView(); toast(showRefs ? 'References shown' : 'References hidden'); };
+  $('readout').addEventListener('click', e => { const c = e.target.dataset.cam; if (!c) return; cam = c; $('readout').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.cam === c)); drawView(); });
+  let cd = null; // move the card by its bar
+  $('cardBar').addEventListener('pointerdown', e => { if (e.target.closest('button')) return; const c = $('card'); cd = { sx: e.clientX, sy: e.clientY, x: c.offsetLeft, y: c.offsetTop }; $('cardBar').setPointerCapture(e.pointerId); });
+  $('cardBar').addEventListener('pointermove', e => { if (!cd) return; const c = $('card'); c.style.left = cd.x + e.clientX - cd.sx + 'px'; c.style.top = cd.y + e.clientY - cd.sy + 'px'; });
+  $('cardBar').addEventListener('pointerup', () => cd = null);
+
+  let tt; function toast(s) { const t = $('toast'); t.textContent = s; t.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('show'), 2400); }
+  addEventListener('resize', redraw);
+  redraw();
+})();
+</script>
+</body>
+</html>

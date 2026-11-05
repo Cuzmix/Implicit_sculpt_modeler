@@ -1,0 +1,23 @@
+---
+name: ui-modes-brainstorm
+description: 2026-10-29 Bolt's ask to rethink modes (sculpt/model/paint/render), object types and dockable palette groups; brainstorm doc link, proposal and defaults
+metadata:
+  type: project
+  modified: 2026-10-29T09:15:29.494Z
+---
+
+Bolt 2026-10-29 09:05 (thread after the Lens round 2 build): Lens needs refinement; plan ahead seriously for working spaces (sculpt, model, later texture/paint, render) and "mesh types" where UI elements change. Brainstorm first, no building.
+Then (09:09) Bolt's idea: palette groups that behave like dock items on any side; a fully customisable rail+shelf hybrid so no fixed off-hand rail. (09:17) also a dedicated right-click context menu on objects (doc section: menu by type x space; right click on object = object menu, brush pie keeps Space/dial/Search, setting restores right-click pie). (09:13) asked brush/tool-driven (ZBrush) vs room/mode types (Blender, Maxon Forger); "don't think it matters too much".
+
+Brainstorm doc (Claude Doc): https://claude.ai/artifact/AdNY9KYVfEXXPeDtgc7xwz
+Proposal in it: three axes, Space (Sculpt, Model, Paint, Render; later UV, Pose) / Object type chip (Sculpt mesh, Voxel clay, Cage, Light, Group) / Layout saved per space (Focus, Inspect become view toggles; Studio becomes Render). Rule: the active tool decides the space and the space is always shown (tabs in the top bar); selection never switches. Mismatch = "offer" the conversion in the context bar, never a bare refusal. One "Dock" type (icons/tiles/panels densities) replaces rails, shelf and columns; palette groups as dock items; docks you make are shared by every space. Dial stays its own thing in a bottom corner. Classic unchanged. Next: Bolt's comments, then round 3 mocks on the round 2 artifact, architect design note, build order.
+
+Forger docs readable: https://help.maxon.net/fgr/en-us/ (MadCap, 23 pages, same TOC trick as [[maxon-docs-access]]). Forger = 2 app contexts (Model orange / Sculpt blue), same placement, selection icon shows type, Toolbox docks to any edge, detachable shortcuts panel.
+
+2026-10-29 09:43 Bolt decided: Paint is a TOGGLE inside Sculpt (spaces = Sculpt, Model, Render; Texture space later); REMOVE Classic entirely (coordinator started thread "Remove the Classic UI layout"); remove the top bar, each top section its own island styled like the dock; "use this time to overhaul the app"; asked for a Figma mock. Figma Starter limit hit again 2026-10-29 after 2 calls, so round 3 is HTML: https://claude.ai/artifact/WVaWC8riMYVtzkU1xpqsjq (sources /mnt/project-files/ui-direction/round3/: screens3.js, body3.html, build3.py, lib.js = round 2 icons/images/helpers). 10-PR overhaul list in the doc and the page; nothing built until Bolt approves the screens.
+2026-10-29 10:14 Bolt: screens "so far looks good"; asked to see one big chip bar vs islands for the top. Added tab 9 (#topbar) with both; recommended B one chip bar (a dock of groups; sections can be dragged out into islands in Arrange). 10:27 Bolt chose B (one chip bar; all screens now use it, chipbar() in screens3.js) and asked for more animations (motion tab 11: kit tokens press/hover/popover/panel/indicator/toast_time + ui tween eases; Reduce_Motion command exists) and palette group examples. Palette groups design (tab 10): drop icon on icon in a dock + 0.3 s hold = Android-style folder (2x2 preview, opens as one tab set); drop on an OPEN group shows ImGui targets: middle = tab, top/bottom = stack above/below; open group = scrolling stack of tab sets with collapsible sections; tabs drag out to float or onto a dock.
+10:39 Bolt liked the space switch, asked what else to animate. Motion tab grew a second round (v4): demos for brush pie unfold, Frame/Focus camera ease (commands may ease; gestures never), pass cross-fade + progress ring on long jobs, plus a 13-row table (undo flash, mask wipe, selection outline, Home→scene grow, pane split slide, Arrange outline, save tick, tooltips, left-handed slide).
+
+11:32 Bolt: palette group drop targets also left and right (side by side, group widens to columns; falls back to below without room) — mock tab 10 screen 4b. 11:27 Bolt: revamp History like Nomad but better; mock tab 12 (List default + Strip view, grouped strokes, bookmarks, step menu, tint of what a step changed, MB limit/include switches/camera follows, quick scrub); build order H1-H6 in notes/overhaul/design.md section 7; awaiting Bolt's comments.
+
+**Why:** Bolt wants the structure settled before more UI building. **How to apply:** build nothing from this until Bolt approves; keep [[best-of-all-worlds]]; follows [[ui-screens-round2]].
