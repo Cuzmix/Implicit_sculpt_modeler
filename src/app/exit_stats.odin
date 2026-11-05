@@ -121,7 +121,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	for _, slot in app.plugins.slots do plugin_commands += int(plugin_slot_loaded(app, slot))
 	fmt.printfln("plugins=%d plugin_commands=%d plugin_errors=%d plugin_runs=%d plugin_steps=%d", len(app.plugins.plugins) - plugins_failed(app), plugin_commands, app.plugins.errors, app.plugins.runs, app.plugins.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", loop.frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
-	fmt.printfln("one_taps=%d tap_switches=%d", app.one_taps, app.tap_switches)
+	fmt.printfln("one_taps=%d tap_switches=%d alt_switches=%d", app.one_taps, app.tap_switches, app.alt_switches)
 	diag_stats(app)
 	{
 		// The voxel objects: how many, their bricks, and what their fields, surfaces and undo

@@ -108,7 +108,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Touch_Strength   = "touch strength finger",
 	.Hold             = "press and hold delay long press",
 	.Pen_Empty        = "pen mouse empty space waits for the model",
-	.Pen_Objects      = "pen pencil stroke switch object mesh subtool select another lock selected only",
+	.Pen_Objects      = "pen pencil stroke switch pick object mesh subtool select another active lock selected only alt click",
 	.Pen_Tips         = "pen hover names tooltips",
 	.Pen_Predict      = "predict the cursor brush ring ahead latency lag pen",
 	.Pen_Buttons      = "pen barrel eraser end flip",
@@ -340,8 +340,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		if picked := ui.tabs(ctx, "Mouse on empty space", empty[:], int(n.empty_drag[.Mouse])); picked >= 0 do n.empty_drag[.Mouse] = Empty_Drag(picked)
 		ui.paragraph(ctx, "Waits for the model: a stroke that starts off the model begins once it reaches it.")
 	case .Pen_Objects:
-		_ = ui.switch_row(ctx, "A stroke on another object switches to it", &n.stroke_switches)
-		ui.paragraph(ctx, "On, a stroke that starts on an object other than the selected one selects it and sculpts it. Off, the pen, the mouse and a sculpting finger work on the selected object alone, even through another object in front of it, as ZBrush's active subtool does; change objects from the Scene card, the object chip, or a finger's tap when Tap another object is on.")
+		_ = ui.switch_row(ctx, "The pen picks the object it strokes", &n.stroke_picks)
+		ui.paragraph(ctx, "Off, the pen, the mouse and a sculpting finger work on the selected object alone, even through another object in front of it, as ZBrush's active subtool does: change objects with a finger's tap (Tap another object), an Alt click, the Scene card or the object chip. On, a stroke that starts on another object selects it and sculpts it, as a finger's touch does.")
 	case .Pen_Tips:
 		ui.label(ctx, "Names while the pen hovers")
 		tips := [len(Pen_Tips)]string{"Always", "With a keyboard", "Never"}
@@ -530,7 +530,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Touch_Strength:  n.touch_strength = d.touch_strength
 	case .Hold:            n.hold_delay = d.hold_delay
 	case .Pen_Empty:       n.empty_drag = d.empty_drag
-	case .Pen_Objects:     n.stroke_switches = d.stroke_switches
+	case .Pen_Objects:     n.stroke_picks = d.stroke_picks
 	case .Pen_Tips:        n.pen_tips = d.pen_tips
 	case .Pen_Predict:     n.predict_cursor = d.predict_cursor
 	case .Pen_Buttons:     n.eraser = d.eraser

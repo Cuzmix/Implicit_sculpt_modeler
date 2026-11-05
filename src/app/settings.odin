@@ -431,7 +431,7 @@ SETTINGS := [?]Setting {
 	{"palm_rejection", N + offset_of(Nav_Prefs, palm_rejection), bool, 0, 0},
 	{"double_tap", N + offset_of(Nav_Prefs, double_tap), bool, 0, 0},
 	{"tap_switches", N + offset_of(Nav_Prefs, tap_switches), bool, 0, 0},
-	{"stroke_switches", N + offset_of(Nav_Prefs, stroke_switches), bool, 0, 0},
+	{"stroke_picks", N + offset_of(Nav_Prefs, stroke_picks), bool, 0, 0},
 	{"lift_one_orbit", N + offset_of(Nav_Prefs, lift_one_orbit), bool, 0, 0},
 	{"orbit_pivot", N + offset_of(Nav_Prefs, pivot), Orbit_Pivot, 0, 0},
 	{"air_pivot", N + offset_of(Nav_Prefs, air_pivot), bool, 0, 0},

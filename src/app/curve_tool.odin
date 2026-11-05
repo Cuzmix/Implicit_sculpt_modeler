@@ -90,11 +90,11 @@ curve_tool_destroy :: proc(c: ^Curve_Tool) {
 
 // The nearest surface along the ray, with the triangle's normal there, in world space.
 // With `skip_curves`, a curve's tube is passed through, so a curve drawn or edited never
-// lands on a tube, its own above all.
-scene_raycast_surface :: proc(app: ^App, origin, dir: Vec3, skip_curves := false) -> (index: int, hit, normal: Vec3, ok: bool) {
+// lands on a tube, its own above all. With `only`, that object alone is looked for.
+scene_raycast_surface :: proc(app: ^App, origin, dir: Vec3, skip_curves := false, only := -1) -> (index: int, hit, normal: Vec3, ok: bool) {
 	best := max(f32)
 	for obj, i in app.scene.objects {
-		if !object_pickable(app, obj) || (skip_curves && obj.curve != nil) do continue
+		if (only >= 0 && i != only) || !object_pickable(app, obj) || (skip_curves && obj.curve != nil) do continue
 		t := obj.transform
 		s := object_sculptor(obj)
 		lo, ld := to_local(t, origin), to_local_dir(t, dir)
