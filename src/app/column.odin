@@ -333,6 +333,14 @@ column_place :: proc(app: ^App, s: Column_Side, col: ^Column, w: f32) -> (x, y, 
 		bottom = at.y - CARD_GAP
 	}
 	x = clamp(x, area.x + t.edge, max(area.x + area.w - t.edge - w, area.x + t.edge))
+	// A card opened under or over a button (the top bar's History) keeps clear of the
+	// toolbars standing on the sides, as a card opened beside one does, where the window
+	// has the room.
+	if side != .Left && side != .Right {
+		left, right := kit_left(app), kit_right(app)
+		if ctx.mirror do left, right = right, left
+		if area.w - left - right >= w do x = clamp(x, area.x + left, area.x + area.w - right - w)
+	}
 	// Clear of the shelf where they would meet across.
 	if side != .Above_Center {
 		lo, hi := shelf_bottom_span(app)

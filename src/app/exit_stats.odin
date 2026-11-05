@@ -221,6 +221,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// how many times Arrange opened (its outlines drawing in each time).
 		fmt.printfln("pie_unfold=%.2f hand_slide=%.2f pane_fades=%d pane_grows=%d arrange_openings=%d", pie_unfolded(app), app.kit.ctx.mirror_slide, app.kit.grid.fades, app.kit.grid.grows, app.kit.arrange.openings)
 		fmt.printfln("long_job_running=%d long_jobs=%d long_job_cancels=%d long_job_ms=%.0f long_job_progress=%.2f long_job_holds=%d", int(app.long_job.on), app.long_job.runs, app.long_job.cancels, app.long_job.ms, long_job_progress(app), app.long_job.holds)
+		d := app.undo_disk
+		fmt.printfln("undo_disk=%d undo_disk_written=%d undo_disk_reads=%d undo_disk_failed=%d undo_disk_mb=%.1f undo_disk_write_ms=%.0f undo_disk_read_ms=%.0f", int(d.folder != ""), d.written, d.reads, d.failed, f64(history_disk_bytes(&app.history)) / (1 << 20), d.write_ms, d.read_ms)
 		fmt.printfln("cross_fading=%d look_fades=%d mesh_fades=%d view_holds=%d", int(app.cross_fade.on), app.cross_fade.looks, app.cross_fade.meshes, app.cross_fade.holds)
 		fmt.printfln("flashing=%d undo_flashes=%d mask_wipes=%d selection_outlines=%d save_ticks=%d", int(flashing(app)), app.flashes.undos, app.flashes.masks, app.flashes.selections, app.flashes.saves)
 		tw := app.pen_twist
@@ -246,7 +248,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 				pivot = fmt.tprintf("%.3f,%.3f,%.3f", at.x, at.y, at.z)
 			}
 			e := app.kit.gizmo_entry
-			fmt.printfln("gizmo_pivot=%s gizmo_pivot_latch=%d gizmo_entry=%s", pivot, int(m.pivot_latch), lower(e.handle) if e.open else "none")
+			fmt.printfln("gizmo_pivot=%s gizmo_pivot_latch=%d gizmo_pivot_edit=%d pivot_row=%d gizmo_entry=%s", pivot, int(m.pivot_latch), int(m.pivot_edit), int(pivot_row_shown(app)), lower(e.handle) if e.open else "none")
 			// The sum of the selected object's coordinates, so a scenario can tell a mesh that
 			// moved from one put back exactly.
 			mesh_sum: f64
@@ -372,7 +374,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 				}
 				fmt.printfln("stack_rows=%d stack_mirror=%s stack_array=%d stack_radial=%d stack_copies=%d", stack_rows, strings.join(strings.fields(mirror, context.temp_allocator), "_", context.temp_allocator), array, radial, app.stats.stack_copies)
 			}
-			fmt.printfln("refs=%d ref_images=%d refs_shown=%d refs_gpu_mb=%.1f refs_decode_ms=%.0f refs_selected=%d refs_moves=%d ref_notes=%d refs_grey=%d refs_shrunk=%d refs_small=%d", len(app.scene.refs.refs), len(app.scene.refs.images), refs_shown_count(app), refs_gpu_mb(app), app.refs_decode_ms, len(app.kit.board.selected), app.kit.board.moves, refs_note_count(app), refs_grey_count(app), app.refs_shrunk, refs_small_count(app))
+			fmt.printfln("refs=%d ref_images=%d refs_shown=%d refs_gpu_mb=%.1f refs_decode_ms=%.0f refs_selected=%d refs_moves=%d ref_notes=%d refs_grey=%d refs_shrunk=%d refs_small=%d ref_planes=%d ref_planes_through=%d", len(app.scene.refs.refs), len(app.scene.refs.images), refs_shown_count(app), refs_gpu_mb(app), app.refs_decode_ms, len(app.kit.board.selected), app.kit.board.moves, refs_note_count(app), refs_grey_count(app), app.refs_shrunk, refs_small_count(app), refs_plane_count(app, false), refs_plane_count(app, true))
 			fmt.printfln("environment_turn=%.1f environment_tilt=%.1f environment_turns=%d environment_recent=%d environment_backdrop=%s", env.turn, env.tilt, env.turns, len(env.recent), strings.to_lower(fmt.tprint(environment_backdrop(&env)), context.temp_allocator))
 		}
 		{

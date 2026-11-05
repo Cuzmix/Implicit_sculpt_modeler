@@ -3,8 +3,10 @@ package main
 import "core:slice"
 import "core:testing"
 
+import "../camera"
 import "../geom"
 import "../png_write"
+import "../render"
 import "../ui"
 
 // A small picture's file, as a PNG of `w` by `h` grey pixels of `shade`.
@@ -42,6 +44,8 @@ references_read_back_as_written :: proc(t: ^testing.T) {
 	app.scene.refs.refs[1].turn, app.scene.refs.refs[1].flip, app.scene.refs.refs[1].locked = 3, true, true
 	app.scene.refs.refs[1].crop_lo, app.scene.refs.refs[1].crop_hi = {0.25, 0}, {1, 0.5}
 	app.scene.refs.refs[0].view, app.scene.refs.refs[0].view_at, app.scene.refs.refs[0].view_w, app.scene.refs.refs[0].opacity = true, {0.5, -0.25}, 0.4, 0.75
+	app.scene.refs.refs[1].plane, app.scene.refs.refs[1].plane_at, app.scene.refs.refs[1].plane_h = .Right, {0.5, 1, -2}, 1.75
+	app.scene.refs.refs[1].through, app.scene.refs.refs[1].plane_off = true, true
 	app.scene.refs.view_off = true
 	refs_add_note(&app)
 	app.scene.refs.refs[2].text = {}
@@ -84,6 +88,8 @@ references_refuse_damage :: proc(t: ^testing.T) {
 		proc(refs: ^References) {refs.refs[0].crop_hi = {1.5, 1}},
 		proc(refs: ^References) {refs.refs[0].opacity = 0},
 		proc(refs: ^References) {refs.refs[0].view_w = -1},
+		proc(refs: ^References) {refs.refs[0].plane = .Top; refs.refs[0].plane_h = 0},
+		proc(refs: ^References) {refs.refs[0].plane_at = {2e6, 0, 0}},
 	}
 	for spoil in cases {
 		saved := app.scene.refs.refs[0]
@@ -319,4 +325,65 @@ references_pick_colour_where_shown :: proc(t: ^testing.T) {
 	p.flip = true
 	rgb, ok = refs_color_at(&app, p, r, {10, 25})
 	testing.expect(t, ok && rgb == {0, 0, 1})
+}
+
+// Each plane's right, up and facing are the screen's right and up and the way toward the
+// eye in the axis view it is for, so its picture shows upright and unmirrored there.
+@(test)
+reference_planes_face_their_views :: proc(t: ^testing.T) {
+	views := [Ref_Plane]camera.Axis_View{.None = .Front, .Front = .Front, .Back = .Back, .Right = .Right, .Left = .Left, .Top = .Top, .Bottom = .Bottom}
+	for plane in Ref_Plane.Front ..= Ref_Plane.Bottom {
+		c := camera.Orbit{distance = 5}
+		camera.orbit_axis_view(&c, views[plane])
+		v := camera.orbit_view(c)
+		right, up, facing := refs_plane_axes(plane)
+		for i in 0 ..< 3 {
+			testing.expectf(t, abs(v[0, i] - right[i]) < 1e-5, "%v right %v", plane, right)
+			testing.expectf(t, abs(v[1, i] - up[i]) < 1e-5, "%v up %v", plane, up)
+			testing.expectf(t, abs(v[2, i] - facing[i]) < 1e-5, "%v facing %v", plane, facing)
+		}
+		testing.expect(t, render.ref_plane_shown({texture = 1, facing = facing, opacity = 1}, render.view_forward(v)), "shown in its own view")
+		// Twenty degrees off its axis, it no longer shows, unless shown from any side.
+		switch plane {
+		case .Top:    c.pitch -= 0.35
+		case .Bottom: c.pitch += 0.35
+		case .None, .Front, .Back, .Right, .Left: c.yaw += 0.35
+		}
+		off := render.view_forward(camera.orbit_view(c))
+		testing.expect(t, !render.ref_plane_shown({texture = 1, facing = facing, opacity = 1}, off), "hidden off its axis")
+		testing.expect(t, render.ref_plane_shown({texture = 1, facing = facing, opacity = 1, always = true}, off), "shown from any side")
+	}
+}
+
+// A picture put in the scene stands through the scene's middle, as tall as the box
+// measured, its width from its place's shape; In scene again with another view turns
+// it, Not in scene takes it out, each one undo step.
+@(test)
+reference_planes_stand_behind_the_scene :: proc(t: ^testing.T) {
+	app: App
+	defer test_refs_free(&app)
+	_, _ = refs_add(&app, "a.png", test_png(4, 2, 1), {})
+	_, _ = refs_add(&app, "b.png", test_png(4, 2, 2), {})
+	refs := &app.scene.refs
+	refs.refs[0].size, refs.refs[1].size = {200, 100}, {100, 100}
+	b := &app.kit.board
+	append(&b.selected, refs.refs[0].id, refs.refs[1].id)
+	refs_plane_put(&app, .Front)
+	p, q := refs.refs[0], refs.refs[1]
+	testing.expect_value(t, p.plane, Ref_Plane.Front)
+	testing.expect_value(t, p.plane_h, REF_PLANE_DEFAULT_H)
+	testing.expect_value(t, refs_plane_size(p), [2]f32{2 * REF_PLANE_DEFAULT_H, REF_PLANE_DEFAULT_H})
+	// Through the default box's middle, side by side across it.
+	testing.expect(t, p.plane_at.z == 0 && q.plane_at.z == 0 && p.plane_at.y == 0)
+	testing.expect_value(t, p.plane_at.x + refs_plane_size(p).x * 0.5, q.plane_at.x - refs_plane_size(q).x * 0.5)
+	testing.expect_value(t, p.plane_at.x - refs_plane_size(p).x * 0.5, -(q.plane_at.x + refs_plane_size(q).x * 0.5))
+	got, any := refs_picked_plane(&app)
+	testing.expect(t, any && got == .Front)
+	refs_edit(&app, .Through)
+	testing.expect(t, refs.refs[0].through && refs.refs[1].through)
+	refs_plane_put(&app, .Right)
+	testing.expect(t, refs.refs[0].plane == .Right && refs.refs[0].plane_at.x == 0)
+	refs_plane_put(&app, .None)
+	testing.expect(t, refs.refs[0].plane == .None && refs.refs[1].plane == .None)
+	testing.expect_value(t, len(app.history.done), 4)
 }

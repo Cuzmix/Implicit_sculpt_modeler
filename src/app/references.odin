@@ -61,7 +61,10 @@ Ref_Image :: struct {
 // note, its text NUL-ended in `text`, drawn in its box at a size its height sets. A
 // picture's place can also stand over the view (`view`): its top left at `view_at` and
 // its width `view_w`, as parts of the main view's width (its height from its shape), at
-// `opacity`.
+// `opacity`. And it can stand on a plane in the scene (`plane`, refs_planes.odin), facing
+// that axis view: its middle at `plane_at` in the world, `plane_h` tall (its width from
+// its shape), drawn over the model when `through`, shown from any side when `plane_any`
+// and hidden while `plane_off`; it shares the opacity with the view's.
 Ref :: struct {
 	id:      u32,
 	image:   u32,
@@ -78,6 +81,12 @@ Ref :: struct {
 	view_at: [2]f32,
 	view_w:  f32,
 	opacity: f32,
+	plane:     Ref_Plane,
+	plane_at:  [3]f32,
+	plane_h:   f32,
+	through:   bool,
+	plane_any: bool,
+	plane_off: bool,
 	text:    [REF_NOTE_MAX]u8,
 }
 
@@ -854,6 +863,10 @@ refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {
 		geom.byte_put(out, r.view_at)
 		geom.byte_put(out, r.view_w)
 		geom.byte_put(out, r.opacity)
+		geom.byte_put(out, u8(r.plane))
+		geom.byte_put(out, u8(r.through) | u8(r.plane_any) << 1 | u8(r.plane_off) << 2)
+		geom.byte_put(out, r.plane_at)
+		geom.byte_put(out, r.plane_h)
 		if r.image == 0 do geom.byte_put_string(out, ref_note_text(&r))
 	}
 }
@@ -861,7 +874,8 @@ refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {
 // The references as refs_put wrote them; ok is false when the chunk is damaged: a count
 // past what it holds, a picture's id twice or past the next one, a place of a picture it
 // does not hold, a size that is not a positive finite number, a crop outside the picture
-// or turned inside out, a turn past three quarters, a note's text too long.
+// or turned inside out, a turn past three quarters, a note's text too long, a plane of no
+// view, out in the far distance or of a note.
 refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
 	refs.next_image = geom.byte_get(r, u32)
 	refs.next_ref = geom.byte_get(r, u32)
@@ -900,6 +914,16 @@ refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
 		p.view_at = geom.byte_get(r, [2]f32)
 		p.view_w = geom.byte_get(r, f32)
 		p.opacity = geom.byte_get(r, f32)
+		plane := geom.byte_get(r, u8)
+		plane_bits := geom.byte_get(r, u8)
+		p.plane_at = geom.byte_get(r, [3]f32)
+		p.plane_h = geom.byte_get(r, f32)
+		if plane > u8(max(Ref_Plane)) || plane_bits > 7 do return
+		p.plane = Ref_Plane(plane)
+		p.through, p.plane_any, p.plane_off = plane_bits & 1 != 0, plane_bits & 2 != 0, plane_bits & 4 != 0
+		if !(abs(p.plane_at.x) < REF_PLANE_FAR && abs(p.plane_at.y) < REF_PLANE_FAR && abs(p.plane_at.z) < REF_PLANE_FAR) do return
+		if p.plane != .None && !(p.plane_h > 0 && p.plane_h < REF_PLANE_FAR) do return
+		if p.plane != .None && p.image == 0 do return
 		if !(abs(p.view_at.x) <= 4 && abs(p.view_at.y) <= 4 && p.view_w > 0 && p.view_w <= 4) do return
 		if !(p.opacity >= REF_OPACITY_MIN && p.opacity <= 1) do return
 		if !r.ok || bits > 31 || p.turn > 3 || p.id == 0 || p.id > refs.next_ref do return

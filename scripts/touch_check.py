@@ -3568,13 +3568,13 @@ def render_dial_places_a_highlight():
 
 @scenario
 def model_dial_picks_select():
-    """In Model the dial's left sector picks the Select action, and its sectors are Model's."""
+    """In Model the dial's left sector picks the Select action on a cage, and its sectors are Model's."""
     s = Script()
     s.ftap(SPACE_TABS["model"])
     s.wait(10)
     s.ftap(DIAL_LEFT)
     s.wait(6)
-    return s, [], camera_still({"dabs": near(0), "space": is_text("model"), "model_action": is_text("Select"),
+    return s, ["--script=add_cage cube; select 1; delete_object"], camera_still({"dabs": near(0), "space": is_text("model"), "model_action": is_text("Select"),
                                 "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Model_Action:Select")})
 
 
@@ -8864,6 +8864,26 @@ def references_on_view_let_the_brush_through():
 
 
 @scenario
+def references_in_scene_by_finger():
+    """A picture added by a script opens the References card; a finger taps In scene, then
+    Front in its menu, Through the model, and drags the picked plane across the front view:
+    it stands on a plane drawn through the model, moved once, each of the three an undo step."""
+    s = Script()
+    s.wait(6)
+    s.ftap("card References/In scene")
+    s.wait(4)
+    s.ftap("refs plane menu/Front")
+    s.wait(4)
+    s.ftap("card References/In scene")
+    s.wait(4)
+    s.ftap("refs plane menu/Through the model")
+    s.wait(30)
+    s.fdrag([(700 + 8 * k, 450) for k in range(12)])
+    s.wait(6)
+    return s, ["--script=reference assets/icon/sculpt-1024.png; view_axis front"], {"ref_planes": near(1), "ref_planes_through": near(1), "refs_moves": near(1), "dabs": near(0), "undo_steps": near(3)}
+
+
+@scenario
 def tap_dab_waits_for_nothing_else():
     """A tap's dab then an Undo tap on the panel straight after: the dab plays first, so Undo takes it back."""
     s = Script()
@@ -12344,9 +12364,9 @@ HISTORY_STRIP = ["--script=set history_view strip"]
 
 # The History list at 1600x900 with three strokes of one brush: the group's chevron, its
 # oldest stroke's row once opened, and the first row (where the History starts) closed.
-HISTORY_GROUP_OPEN, HISTORY_OLDEST_SUB, HISTORY_ROOT = (1554, 240), (1300, 366), (1300, 292)
-HISTORY_GROUP_ROW = (1300, 240)
-HISTORY_LIST_TAB = (1203, 150)
+HISTORY_GROUP_OPEN, HISTORY_OLDEST_SUB, HISTORY_ROOT = (1498, 240), (1244, 366), (1244, 292)
+HISTORY_GROUP_ROW = (1244, 240)
+HISTORY_LIST_TAB = (1147, 150)
 
 
 def history_three_strokes(s):
@@ -12388,7 +12408,7 @@ def history_list_groups_and_goes_to_a_step():
 
 
 # The step menu over the list's newest row (opened at HISTORY_GROUP_ROW): its rows.
-HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_SHOW, HISTORY_MENU_DELETE = (1400, 363), (1400, 407), (1400, 451), (1400, 584)
+HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_SHOW, HISTORY_MENU_DELETE = (1344, 363), (1344, 407), (1344, 451), (1344, 584)
 
 
 @scenario
@@ -12476,7 +12496,7 @@ def history_tint_shows_what_a_step_changed():
     return Steps([run(False), run(True)])
 
 
-HISTORY_GEAR = (1562, 150)
+HISTORY_GEAR = (1506, 150)
 
 
 @scenario
@@ -13282,6 +13302,36 @@ def gizmo_chips_switch_the_mode():
 
 
 @scenario
+def gizmo_pivot_row_edits_the_pivot():
+    """The pivot row over the gizmo: Edit the pivot, then a drag of the X arm moves the
+    pivot along x and leaves the sphere where it was, with no undo step; Pivot to the
+    middle puts it in the middle of the sphere's bounds; and the row hides while a drag
+    goes."""
+    edit, middle, held = Script(), Script(), Script()
+    for sc in (edit, middle, held):
+        gizmo_mode(sc, 0)
+        sc.wait(3)
+    click(edit, At("pivot row/Edit the pivot", 0, 0))
+    edit.mouse_drag(line(GIZMO_X_ARM, (GIZMO_X_ARM[0] + 60, GIZMO_X_ARM[1] + 8), 6))
+    edit.wait(3)
+    click(middle, At("pivot row/Pivot to the middle", 0, 0))
+    held.add(f"move:{where(GIZMO_X_ARM)}")
+    held.wait(1)
+    held.add("down")
+    held.wait(1)
+    for i in range(1, 7):
+        held.add(f"move:{GIZMO_X_ARM[0] + 10 * i:g},{GIZMO_X_ARM[1]:g}")
+        held.wait(1)
+    home = is_text("0.0000,0.0000,0.0000,0.000,0.000,0.000,1.0000")
+    moved_x = lambda v: float(v.split(",")[0]) > 0.1 and abs(float(v.split(",")[1])) < 1e-3 and abs(float(v.split(",")[2])) < 1e-3
+    return Steps([
+        (edit, [], camera_still({"gizmo_pivot_edit": near(1), "gizmo_pivot": moved_x, "transform": home, "undo_steps": near(0), "pivot_row": near(1)})),
+        (middle, [], camera_still({"gizmo_pivot": lambda v: all(abs(float(c)) < 0.01 for c in v.split(",")), "transform": home, "pivot_row": near(1)})),
+        (held, [], camera_still({"pivot_row": near(0)})),
+    ])
+
+
+@scenario
 def gizmo_all_moves_turns_and_scales():
     """The All gizmo (W four times) does the three with no switching: the mouse on the X
     arrow moves the sphere along x only, a finger on the Y knob stretches the mesh along y
@@ -13678,13 +13728,13 @@ def object_menu_open(s):
 
 @scenario
 def object_menu_lists_the_verbs_of_the_type_and_space():
-    """The object menu shows a sculpt mesh's six Sculpt verbs and a cage's four Model verbs, each with the other space's main verb, the rows every object has and Delete."""
+    """The object menu shows a sculpt mesh's six Sculpt verbs and a cage's four Model verbs, each with the other space's main verb, the rows every object has, Add object here and Delete."""
     def run(what):
         s = Script()
         object_menu_open(s)
         if what == "mesh":
-            return s, [], camera_still({"object_menu": near(1), "object_menu_type": is_text("Sculpt_Mesh"), "object_menu_rows": near(11), "space": is_text("sculpt")})
-        return s, ["--script=add_cage cube"], camera_still({"object_menu": near(1), "object_menu_type": is_text("Cage"), "object_menu_rows": near(8), "space": is_text("model")})
+            return s, [], camera_still({"object_menu": near(1), "object_menu_type": is_text("Sculpt_Mesh"), "object_menu_rows": near(12), "space": is_text("sculpt")})
+        return s, ["--script=add_cage cube"], camera_still({"object_menu": near(1), "object_menu_type": is_text("Cage"), "object_menu_rows": near(9), "space": is_text("model")})
     return Steps([run("mesh"), run("cage")])
 
 

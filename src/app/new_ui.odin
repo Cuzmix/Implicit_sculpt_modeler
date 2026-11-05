@@ -1482,6 +1482,7 @@ kit_layout :: proc(app: ^App) {
 	kit_layout_menu(app)
 	kit_pass_menu(app)
 	kit_history_menu(app)
+	refs_plane_menu(app)
 	kit_layer_menu(app)
 	kit_scene_add_menu(app)
 	kit_scene_spaces_menu(app)
@@ -1498,6 +1499,7 @@ kit_layout :: proc(app: ^App) {
 	// After every bar and Search, which lift what it carries.
 	bar_carry_update(app)
 	kit_action_popover(app)
+	kit_pivot_row(app)
 	kit_gizmo_entry(app)
 	kit_adjust_popover(app)
 	kit_bind_popover(app)

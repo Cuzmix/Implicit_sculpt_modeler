@@ -69,6 +69,7 @@ Script_Verb :: enum u8 {
 	Export_Vdm,
 	Export_Bary,
 	Reference,
+	Reference_Plane,
 	Stack,
 }
 
@@ -106,6 +107,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Export_Vdm    = {"export_vdm", "an .exr file to write the brush's VDM stamp to, laid out for the app vdm_axes names"},
 	.Export_Bary   = {"export_bary", "a .bary file to write the selected object's detail skin to, as an NVIDIA displacement micro-map"},
 	.Reference     = {"reference", "an image file (PNG, JPEG, BMP, TGA or QOI) to add to the References card's board"},
+	.Reference_Plane = {"reference_plane", "front, back, right, left, top, bottom or none: the view whose plane in the scene the newest picture stands on, and through to draw it over the model"},
 	.Stack         = {"stack", "the selected object's live stack: mirror x (planes together as xz, -x for the - side), array 4 2.2 0 0 (count and step, then turn x y z and size s), radial 6 y (count and axis), mirror off, show array, hide radial or apply stack"},
 }
 
@@ -552,6 +554,11 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		st.count = n
 		st.flip = len(args) == 2
 		return ok && n >= 1 && n <= int(max(u16)) && (len(args) == 1 || script_name(args[1]) == "off")
+	case .Reference_Plane:
+		if len(args) < 1 || len(args) > 2 do return false
+		st.arg = choice(args[0], reflect.enum_field_names(Ref_Plane))
+		st.flip = len(args) == 2
+		return st.arg >= 0 && (len(args) == 1 || script_name(args[1]) == "through")
 	case .Layer:
 		if len(args) < 2 || len(args) > 3 do return false
 		n, ok := strconv.parse_int(args[0])
@@ -617,6 +624,18 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		// As Add does, the decode waited for so the next line (a dump, say) sees it.
 		if !refs_add_file(app, st.text) do return fmt.tprintf("no image could be read at %q", st.text), true
 		refs_finish(app)
+		return "", true
+	case .Reference_Plane:
+		// As In scene does, on the newest picture picked alone.
+		b := &app.kit.board
+		clear(&b.selected)
+		#reverse for p in app.scene.refs.refs do if p.image != 0 {
+			append(&b.selected, p.id)
+			break
+		}
+		if len(b.selected) == 0 do return "there is no picture on the board", true
+		refs_plane_put(app, Ref_Plane(st.arg))
+		if st.flip do refs_edit(app, .Through)
 		return "", true
 	case .Environment:
 		// Waited for, so the next line (a dump, say) sees it.
@@ -718,7 +737,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			if why := group_material_set(obj, u16(st.count), current_material(app), st.flip); why != "" do return why, true
 			app.scene_edits += 1
 			return "", true
-		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference, .Stack:
+		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference, .Reference_Plane, .Stack:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true

@@ -7,6 +7,7 @@ import "core:strconv"
 import "core:strings"
 
 import "../camera"
+import "../geom"
 import "../gizmo"
 import "../sculpt"
 import "../ui"
@@ -29,6 +30,11 @@ Move_Tool :: struct {
 	// selecting or moving, and lets go.
 	pivot_latch: bool,
 	pivot: Gizmo_Pivot,
+	// Edit pivot: the move handles move the pivot instead of the object (remembered while
+	// the app runs).
+	pivot_edit: bool,
+	// Whether the pivot row over the gizmo shows (Settings > Interface, remembered).
+	pivot_row_off: bool,
 	// The drags that changed an object, and the handle of the last, for the exit stats.
 	drags: int,
 	last:  gizmo.Handle,
@@ -55,6 +61,13 @@ Member_Start :: struct {
 	id:    int,
 	start: Transform,
 }
+
+// The pivot row's own icons (Lucide's crosshair and rotate-ccw).
+ICON_PIVOT_CENTER :: rune(0xe0b0)
+ICON_PIVOT_RESET :: rune(0xe14c)
+// A middle inside a dashed edge (circle-dot-dashed): the middle of what the mask leaves
+// free, a glyph of its own, as the mask's own glyph means masking.
+ICON_PIVOT_UNMASKED :: rune(0xe4b6)
 
 // Where turns and scales go about, when not the object's origin: a point in the object's
 // own space, so moving, turning or scaling the object carries it along, kept for that
@@ -103,6 +116,9 @@ Move_Drag :: struct {
 	// A drag of a lattice point (lattice.odin), from 1: it poses as a move of the view
 	// plane handle does, through the point.
 	lattice:      int,
+	// Edit pivot's drag: the move handles move the pivot, from `pivot` where it began,
+	// and the object stays.
+	pivot_only:   bool,
 }
 
 // What the drag does, for the undo button and the History panel.
@@ -160,7 +176,13 @@ gizmo_screen :: proc(app: ^App, size: [2]f32) -> (s: gizmo.Screen) {
 	center := gizmo_center(app, obj)
 	arm_px := gizmo.ARM_PX * gizmo_scale(app)
 	arm := arm_px * camera.orbit_world_per_px(app.camera, center, size.y)
-	return gizmo.screen(view_proj, center, arm, -camera.orbit_toward(app.camera, center), size, arm_px, app.move.mode)
+	return gizmo.screen(view_proj, center, arm, -camera.orbit_toward(app.camera, center), size, arm_px, gizmo_mode_now(app))
+}
+
+// What the gizmo's handles are now: its mode's, or Move's while Edit pivot is on, whose
+// handles move the pivot.
+gizmo_mode_now :: proc(app: ^App) -> gizmo.Mode {
+	return .Move if app.move.pivot_edit else app.move.mode
 }
 
 // The handle under `at`, for the pointer in use. A stretch knob of a selection that cannot
@@ -168,7 +190,7 @@ gizmo_screen :: proc(app: ^App, size: [2]f32) -> (s: gizmo.Screen) {
 gizmo_pick :: proc(app: ^App, at, size: [2]f32) -> gizmo.Handle {
 	// A lattice's cage stands in for the gizmo.
 	if selected_object(app) == nil || lattice_shown(app) != nil do return .None
-	h := gizmo.pick(gizmo_screen(app, size), app.move.mode, at, gizmo_radius(app))
+	h := gizmo.pick(gizmo_screen(app, size), gizmo_mode_now(app), at, gizmo_radius(app))
 	if gizmo.stretch_axis(h) >= 0 && !gizmo_stretches(app) do h = .Scale
 	return h
 }
@@ -262,6 +284,11 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 			grab = gizmo_center(app, selected_object(app))
 		}
 		obj := selected_object(app)
+		// Edit pivot: a handle moves the pivot, and the object stays.
+		if on_handle && m.pivot_edit {
+			m.drag = {handle = handle, on_handle = true, down = input.mouse_pos, id = obj.id, start = obj.transform, grab = grab, pivot_only = true, pivot_from = m.pivot, placed_from = m.placed.at}
+			return
+		}
 		// In pose mode the handles pose the mesh; the body still moves the object.
 		// A stretch knob stretches the mesh itself, through the pose too, mask or none.
 		posed := on_handle && (pose_mode(app) || gizmo.stretch_axis(handle) >= 0)
@@ -330,6 +357,10 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		t = scale_about(drag.start, drag.pivot, selection_scale_clamp(f, drag.start.scale, m.members[:]))
 		drag.amount = t.scale / drag.start.scale
 	}
+	if drag.pivot_only {
+		m.pivot = {set = true, id = obj.id, at = to_local(obj.transform, drag.pivot + (t.position - drag.start.position))}
+		return
+	}
 	if drag.posed {
 		if drag.lattice > 0 {
 			lattice_pose_set(app, obj, lattice_pose_of(app, drag.lattice, drag.start, drag.offset))
@@ -346,9 +377,39 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 	members_follow(app, m.members[:], drag.start, t)
 }
 
-// Whether the drag has changed anything yet: the object's place, or in pose mode its mesh.
+// Whether the drag has changed anything yet: the object's place, or in pose mode its mesh;
+// Edit pivot's drag changes the pivot alone, never anything to type a value for.
 drag_changed :: proc(obj: ^Object, d: Move_Drag) -> bool {
+	if d.pivot_only do return true
 	return d.applied && !pose_is_still(d.pose) if d.posed else obj.transform != d.start
+}
+
+// Puts the pivot in the middle of the selected object's bounds, in its own space.
+pivot_to_middle :: proc(app: ^App) {
+	obj := selected_object(app)
+	if obj == nil do return
+	local := geom.AABB_EMPTY
+	if obj.curve != nil {
+		app.move.pivot = {set = true, id = obj.id, at = {}}
+		return
+	}
+	for p in object_mesh(obj).positions do geom.aabb_grow(&local, p)
+	if local.lo.x > local.hi.x do return
+	app.move.pivot = {set = true, id = obj.id, at = (local.lo + local.hi) * 0.5}
+}
+
+// Puts the pivot in the middle of what the mask leaves free on the selected object, each
+// vertex weighed by how free it is (shown and unmasked), as ZBrush's Go to unmasked center.
+// Nothing changes when everything is masked.
+pivot_to_unmasked :: proc(app: ^App) {
+	obj := selected_object(app)
+	if obj == nil || obj.voxel != nil do return
+	at, ok := sculpt.sculptor_free_middle(object_sculptor(obj))
+	if !ok {
+		report(app, Section.Transform, {.Warning}, "Nothing is free: the mask covers all that is shown")
+		return
+	}
+	app.move.pivot = {set = true, id = obj.id, at = at}
 }
 
 // `factor` kept to what the primary (at scale `from`) and each of `list` can take, so a
@@ -495,6 +556,8 @@ move_end :: proc(app: ^App) {
 	drag := app.move.drag
 	app.move.drag = {}
 	obj := object_by_id(app, drag.id)
+	// The pivot is no undo step (it is not saved): its drag is done once let go.
+	if drag.pivot_only do return
 	if drag.posed {
 		// A click, or a drag that came back to where it began, leaves no step.
 		if obj != nil && drag_changed(obj, drag) {
@@ -520,6 +583,10 @@ move_cancel :: proc(app: ^App) {
 	drag := app.move.drag
 	app.move.drag = {}
 	if drag.handle == .None do return
+	if drag.pivot_only {
+		app.move.pivot = drag.pivot_from
+		return
+	}
 	if drag.posed {
 		if obj := object_by_id(app, drag.id); obj != nil do sculpt.sculptor_pose_cancel(object_sculptor(obj))
 		app.move.pivot, app.move.placed.at = drag.pivot_from, drag.placed_from
@@ -560,7 +627,7 @@ move_readout :: proc(app: ^App) -> string {
 		if drag.handle >= .X && drag.handle <= .Z {
 			text = fmt.tprintf("%v %+.3f", drag.handle, drag.amount)
 		} else {
-			d := drag.offset if drag.posed else obj.transform.position - drag.start.position
+			d := drag.offset if drag.posed || drag.pivot_only else obj.transform.position - drag.start.position
 			text = fmt.tprintf("Move %+.3f, %+.3f, %+.3f", d.x, d.y, d.z)
 		}
 		snap = fmt.tprintf("snap %g", drag.step)
@@ -575,6 +642,7 @@ move_readout :: proc(app: ^App) -> string {
 	case .All: // drag_mode never gives it: each handle does one of the three
 	}
 	if drag.posed do text = fmt.tprintf("%s: %s", "Lattice" if drag.lattice > 0 else "Pose", text)
+	if drag.pivot_only do text = fmt.tprintf("Pivot: %s", text)
 	if drag.snapped do return fmt.tprintf("%s (%s)", text, snap)
 	return text
 }

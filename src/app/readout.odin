@@ -119,11 +119,13 @@ readout_line :: proc(ctx: ^ui.Context, text: string) {
 // The readout's inks, its words' and its faint lines'. It stands on the view itself, not
 // on a panel, and the view's ground is dark under every theme, so a light theme's dark
 // inks would sink into it: there they are taken from its light surfaces instead, at
-// about the steps a dark theme's labels and hints stand from its text.
+// about the steps a dark theme's labels and hints stand from its text. The faint lines
+// stand only a little below the words, as they are read over a busy model, where the
+// theme's own hint ink fell under 3:1.
 @(private = "file")
 readout_inks :: proc(t: ui.Theme) -> (ink, faint: ui.Color) {
-	if ui.color_luminance(t.text) > ui.color_luminance(t.surface) do return t.text_secondary, t.text_tertiary
-	return ui.color_mix(t.surface_raised, t.text, 0.25), ui.color_mix(t.surface_raised, t.text, 0.42)
+	if ui.color_luminance(t.text) > ui.color_luminance(t.surface) do return t.text_secondary, ui.color_mix(t.text_secondary, t.text_tertiary, 0.4)
+	return ui.color_mix(t.surface_raised, t.text, 0.25), ui.color_mix(t.surface_raised, t.text, 0.33)
 }
 
 // The GPU's typical time a frame: the 3D drawing while the GPU is timed, else the frame's
