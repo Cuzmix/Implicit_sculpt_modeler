@@ -35,8 +35,9 @@ set(SDL_TESTS OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
 add_subdirectory("${DEPS}/sdl3-src" SDL3)
 
-# stb_truetype (and stb_rect_pack, which its source file includes) for vendor:fontstash.
-add_library(stb STATIC "${DEPS}/odin/vendor/stb/src/stb_truetype.c")
+# stb_truetype (and stb_rect_pack, which its source file includes) for vendor:fontstash, and
+# stb_image for the pictures Odin's own readers leave out (progressive JPEGs).
+add_library(stb STATIC "${DEPS}/odin/vendor/stb/src/stb_truetype.c" "${DEPS}/odin/vendor/stb/src/stb_image.c")
 target_compile_options(stb PRIVATE -O2)
 
 # ufbx, the FBX reader, with the app's shim round it (src/fbx/fbx_shim.c includes ufbx.c).

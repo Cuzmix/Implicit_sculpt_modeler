@@ -371,6 +371,8 @@ case "$mode" in
 			ios_object
 		fi
 		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_truetype.c" -o "$out/stb_truetype.o"
+		# stb_image, for the pictures Odin's own readers leave out (progressive JPEGs).
+		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_image.c" -o "$out/stb_image.o"
 		# ufbx with the app's shim round it, for FBX import (src/fbx).
 		"${cc[@]}" -O2 -w -I"$DEPS/ufbx-src" -c "$ROOT/src/fbx/fbx_shim.c" -o "$out/ufbx.o"
 		"${cc[@]}" -O2 -Wall -fobjc-arc -I"$out/sdl/include" -c "$ROOT/ios/sculpt_ios.m" -o "$out/sculpt_ios.o"
@@ -382,7 +384,7 @@ case "$mode" in
 		libs=$(PKG_CONFIG_PATH="$out/sdl/lib/pkgconfig" pkg-config --static --libs sdl3)
 		[ -n "$libs" ] || { echo "pkg-config gave no flags for SDL's static library"; exit 1; }
 		read -r -a sdl_libs <<< "$libs"
-		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/ufbx.o" "$out/sculpt_ios.o" "${sdl_libs[@]}" \
+		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/stb_image.o" "$out/ufbx.o" "$out/sculpt_ios.o" "${sdl_libs[@]}" \
 			-framework UniformTypeIdentifiers -framework GameController -framework PhotosUI -o "$app/Sculpt"
 		cp "$ROOT/ios/Info.plist" "$app/Info.plist"
 		plutil -replace MinimumOSVersion -string "$IOS_MIN" "$app/Info.plist"
@@ -446,13 +448,15 @@ case "$mode" in
 		metal_check macosx mac
 		mac_object
 		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_truetype.c" -o "$out/stb_truetype.o"
+		# stb_image, for the pictures Odin's own readers leave out (progressive JPEGs).
+		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_image.c" -o "$out/stb_image.o"
 		"${cc[@]}" -O2 -w -I"$DEPS/ufbx-src" -c "$ROOT/src/fbx/fbx_shim.c" -o "$out/ufbx.o"
 		rm -rf "$app"
 		mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 		libs=$(PKG_CONFIG_PATH="$out/sdl/lib/pkgconfig" pkg-config --static --libs sdl3)
 		[ -n "$libs" ] || { echo "pkg-config gave no flags for SDL's static library"; exit 1; }
 		read -r -a sdl_libs <<< "$libs"
-		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/ufbx.o" "${sdl_libs[@]}" -o "$app/Contents/MacOS/Sculpt"
+		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/stb_image.o" "$out/ufbx.o" "${sdl_libs[@]}" -o "$app/Contents/MacOS/Sculpt"
 		plist="$app/Contents/Info.plist"
 		cp "$ROOT/mac/Info.plist" "$plist"
 		plutil -replace LSMinimumSystemVersion -string "$MAC_MIN" "$plist"
