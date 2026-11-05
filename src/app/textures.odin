@@ -117,7 +117,7 @@ texture_image_check :: proc(data: []u8) -> string {
 // materials_settle.
 textures_settle :: proc(app: ^App) {
 	for obj in app.scene.objects {
-		if !object_has_textures(obj) || sculpt.levels_has_quad_uvs(&obj.levels) do continue
+		if !object_has_textures(obj) || sculpt.levels_has_uvs(&obj.levels) do continue
 		autosave_settle(app)
 		textures_free(&obj.textures)
 		obj.textures.stamp += 1
@@ -189,12 +189,11 @@ TEXTURE_LOAD_LABELS := [render.Texture_Map]string {
 }
 
 // Why `obj` cannot take maps ("" when it can): they are drawn and exported through the
-// UVs of a quad object's base level.
+// UVs of its base level, which Unwrap gives any sculpt.
 texture_target_check :: proc(obj: ^Object) -> string {
 	if obj == nil do return "Select an object with UVs first"
-	if obj.voxel != nil || !sculpt.levels_has_quad_uvs(&obj.levels) {
-		return fmt.tprintf("%s has no UVs: Shape > Rebuild > Quads makes an object with them", object_label(obj))
-	}
+	if obj.voxel != nil || obj.curve != nil || obj.cage != nil do return fmt.tprintf("%s takes no maps: it has no sculpt surface", object_label(obj))
+	if !sculpt.levels_has_uvs(&obj.levels) do return fmt.tprintf("%s has no UVs: Unwrap in the Mesh card's UVs section gives it some", object_label(obj))
 	return ""
 }
 
@@ -227,13 +226,13 @@ texture_remove :: proc(app: ^App, obj: ^Object) {
 }
 
 // Whether `obj` draws through its textured preview this frame, with `lv` the level shown:
-// a view is on, the object is on its base level with quads and UVs, sculpted in no other
+// a view is on, the object is on its base level with UVs, sculpted in no other
 // way that the preview cannot show (dynamic topology, HD, hidden parts, polygroup colours,
 // a stroke on it right now) and the view has something to show.
 object_textured :: proc(app: ^App, obj: ^Object, lv: ^sculpt.Level) -> bool {
 	view := texture_view_shown(app)
 	if view == .Off || obj.voxel != nil || obj.levels.current != 0 || object_in_hd(obj) || object_dynamic(obj) do return false
-	if !sculpt.levels_has_quad_uvs(&obj.levels) do return false
+	if !sculpt.levels_has_uvs(&obj.levels) do return false
 	if sculpt.sculptor_hidden_units(&lv.sculptor) != nil || app.show_groups do return false
 	if app.stroke.active && app.stroke.object == obj.id do return false
 	maps := obj.preview.mesh.maps
@@ -271,36 +270,65 @@ texture_preview_frame :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, gpu: ^re
 	return &p.mesh
 }
 
-// The preview's vertices: the base level's quads split where the UVs are, with the same
-// smooth normals and tangents the bake read its normal map with and the `.glb` carries
-// (geom.quad_mesh_split_uvs), so the map reads back as baked; each with its vertex's mask.
-// And for render mode, which traces the base level's own triangles, the slot each of their
-// corners takes; nil, said in the log, if they cannot all be matched to the quads. Temp
-// memory.
-textured_vertices :: proc(obj: ^Object) -> (vertices: []render.Textured_Vertex, indices: []u32, corners: []u32) {
-	quads := sculpt.levels_quad_mesh(&obj.levels)
-	uvs, _ := sculpt.levels_quad_uvs(&obj.levels)
-	normals := geom.quad_mesh_normals(quads, context.temp_allocator)
-	frame := geom.quad_mesh_tangents(quads, uvs, normals, context.temp_allocator)
-	positions, split_normals, uv_coords, split_indices := geom.quad_mesh_split_uvs(quads, uvs, normals, frame, context.temp_allocator)
-	indices = split_indices
+// The object's base level split where its UVs are, as the textured preview draws it and
+// a textured `.glb` carries it: per slot its vertex, position, smooth normal, coordinate and
+// tangent, the triangles by slot, and for render mode, which traces the base level's own
+// triangles, the slot each of their corners takes (nil, said in the log, when they cannot
+// all be matched). A quad object splits its quads (geom.quad_mesh_split_uvs), with the
+// normals and tangents the bake read its normal map with, so the map reads back as baked;
+// any other mesh its triangles (uv.split), with the level's own normals. Temp memory.
+Textured_Split :: struct {
+	vertex:    []u32,
+	positions: []geom.Vec3,
+	normals:   []geom.Vec3,
+	uv:        [][2]f32,
+	tangents:  [][4]f32,
+	indices:   []u32,
+	corners:   []u32,
+}
+
+textured_split :: proc(obj: ^Object) -> (s: Textured_Split) {
 	base := obj.levels.levels[0]
-	matched: bool
-	corners, matched = geom.quad_mesh_triangle_corners(quads, split_indices, base.mesh.indices[:], base.sculptor.faces, context.temp_allocator)
-	if !matched {
-		log.warnf("%s: its triangles are not all halves of its quads; render mode shows it without its maps", object_label(obj))
-		corners = nil
+	if layout, ok := sculpt.levels_quad_uvs(&obj.levels); ok {
+		quads := sculpt.levels_quad_mesh(&obj.levels)
+		normals := geom.quad_mesh_normals(quads, context.temp_allocator)
+		frame := geom.quad_mesh_tangents(quads, layout, normals, context.temp_allocator)
+		s.positions, s.normals, s.uv, s.indices = geom.quad_mesh_split_uvs(quads, layout, normals, frame, context.temp_allocator)
+		s.vertex, s.tangents = frame.vertex, frame.tangents
+		matched: bool
+		s.corners, matched = geom.quad_mesh_triangle_corners(quads, s.indices, base.mesh.indices[:], base.sculptor.faces, context.temp_allocator)
+		if !matched {
+			log.warnf("%s: its triangles are not all halves of its quads; render mode shows it without its maps", object_label(obj))
+			s.corners = nil
+		}
+		return
 	}
+	positions := base.mesh.positions[:]
+	normals := base.mesh.normals[:]
+	sp := uv.split(obj.levels.uvs, positions, base.mesh.indices[:], normals, context.temp_allocator)
+	s.vertex, s.uv, s.tangents, s.indices = sp.vertex, sp.uv, sp.tangents, sp.indices
+	s.positions = make([]geom.Vec3, len(sp.vertex), context.temp_allocator)
+	s.normals = make([]geom.Vec3, len(sp.vertex), context.temp_allocator)
+	for v, slot in sp.vertex do s.positions[slot], s.normals[slot] = positions[v], normals[v]
+	// The split keeps the level's triangles in their order, so each corner's slot is its own.
+	s.corners = sp.indices
+	return
+}
+
+// The preview's vertices (textured_split), each with its vertex's mask. Temp memory.
+textured_vertices :: proc(obj: ^Object) -> (vertices: []render.Textured_Vertex, indices: []u32, corners: []u32) {
+	s := textured_split(obj)
+	indices, corners = s.indices, s.corners
 	mask := sculpt.levels_current(&obj.levels).sculptor.mask
-	vertices = make([]render.Textured_Vertex, len(positions), context.temp_allocator)
+	vertices = make([]render.Textured_Vertex, len(s.positions), context.temp_allocator)
 	for &v, slot in vertices {
-		m: u8 = mask[frame.vertex[slot]] if mask != nil else 0
-		t := frame.tangents[slot]
+		m: u8 = mask[s.vertex[slot]] if mask != nil else 0
+		t := s.tangents[slot]
 		v = {
-			position = positions[slot],
-			normal   = render.pack_normal(split_normals[slot], m),
+			position = s.positions[slot],
+			normal   = render.pack_normal(s.normals[slot], m),
 			tangent  = {snorm16(t.x), snorm16(t.y), snorm16(t.z), snorm16(t.w)},
-			uv       = uv_coords[slot],
+			uv       = s.uv[slot],
 		}
 	}
 	return
@@ -410,12 +438,12 @@ kit_textures_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	obj := selected_object(app)
 	kit_last_result(app, .Textures)
-	if obj != nil && obj.voxel == nil && sculpt.levels_has_quads(&obj.levels) && !sculpt.levels_has_uvs(&obj.levels) {
+	if obj != nil && obj.voxel == nil && obj.curve == nil && obj.cage == nil && !sculpt.levels_has_uvs(&obj.levels) {
 		kit_uvs_ask(app, "This object has no UVs. Texture maps need them.")
 		return
 	}
 	if texture_target_check(obj) != "" {
-		ui.paragraph(ctx, "Shows and loads texture maps on a quad object with UVs: make one with Shape > Rebuild > Quads, then bake onto it under Bake or load maps here.")
+		ui.paragraph(ctx, "Shows and loads texture maps on a sculpt with UVs: select one, or give one UVs with Unwrap.")
 		return
 	}
 	views := [len(render.Texture_View)]string{"Clay", "Maps", "Normal", "Checker"}

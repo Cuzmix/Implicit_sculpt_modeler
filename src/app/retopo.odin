@@ -372,7 +372,7 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 	defer delete(glb)
 	// glTF reads a tangent-space normal map with green up only.
 	glb_normal := normal_png if !set.object_space && set.target != .Unreal else nil
-	bake_glb(&glb, low, quads, source, object_label(low), glb_normal, pngs[0], pngs[1], set.occlusion_rays > 0)
+	bake_glb(&glb, low, source, object_label(low), glb_normal, pngs[0], pngs[1], set.occlusion_rays > 0)
 	if !write_file_safely(app, path(folder, base, ".glb"), glb[:], "bake") do return
 	append(&written, ".glb")
 	// The maps stay on the object, shown through its UVs (textures.odin): the first bake of
@@ -397,11 +397,11 @@ bake_to_folder :: proc(app: ^App, folder: string) {
 }
 
 // The baked quad object `low` as a binary glTF, ready to look at in another program
-// (quad_object_glb), with the maps just written (`base_color` and `orm` nil when not
+// (textured_object_glb), with the maps just written (`base_color` and `orm` nil when not
 // baked). Without a base colour map the material takes the source's own colour, and
 // without an ORM map its roughness and metal; `occlusion` says whether the ORM map's red
 // is baked occlusion.
-bake_glb :: proc(out: ^[dynamic]u8, low: ^Object, quads: geom.Quad_Mesh, src: geom.Bake_Source, name: string, normal, base_color, orm: []u8, occlusion: bool) {
+bake_glb :: proc(out: ^[dynamic]u8, low: ^Object, src: geom.Bake_Source, name: string, normal, base_color, orm: []u8, occlusion: bool) {
 	own := src.surfaces[0] if len(src.surfaces) > 0 else geom.Bake_Surface{base = 0.6, roughness = 0.5}
 	mat := geom.Export_Material {
 		name      = fmt.tprintf("%s baked", name),
@@ -409,29 +409,27 @@ bake_glb :: proc(out: ^[dynamic]u8, low: ^Object, quads: geom.Quad_Mesh, src: ge
 		metallic  = own.metallic,
 		roughness = own.roughness,
 	}
-	_, _ = quad_object_glb(out, low, quads, name, {.Base_Color = base_color, .Orm = orm, .Normal = normal}, mat, occlusion)
+	_, _ = textured_object_glb(out, low, name, {.Base_Color = base_color, .Orm = orm, .Normal = normal}, mat, occlusion)
 }
 
-// Quad object `obj` (`quads`, its base level) as a binary glTF: its quads as triangles,
-// split where the UVs are, with normals, UVs and the tangents the normal map was baked
-// in, and material `mat` with `maps` (nil for none) embedded as its textures: a base
+// Object `obj`'s base level as a binary glTF, split where the UVs are (textured_split):
+// a quad object's quads as triangles with the normals and tangents the normal map was
+// baked in, any other mesh its own triangles, and material `mat` with `maps` (nil for none) embedded as its textures: a base
 // colour map stands for the material's colour, and an ORM map for its roughness and metal
 // and, with `occlusion`, its occlusion. A map that is neither PNG nor JPEG, the two glTF
 // reads, goes as PNG. `morphs` are the base level's layers and `colors` its vertex colours
 // (nil for none), carried onto the split vertices, and `lights` go beside the mesh.
 // Returns how many vertices were
 // written; false when the file would pass glTF's 4 GB.
-quad_object_glb :: proc(out: ^[dynamic]u8, obj: ^Object, quads: geom.Quad_Mesh, name: string, maps: [render.Texture_Map][]u8, mat: geom.Export_Material, occlusion: bool, morphs: []geom.Morph_Target = nil, colors: [][3]u8 = nil, lights: []geom.Export_Light = nil) -> (vertices: int, ok: bool) {
+textured_object_glb :: proc(out: ^[dynamic]u8, obj: ^Object, name: string, maps: [render.Texture_Map][]u8, mat: geom.Export_Material, occlusion: bool, morphs: []geom.Morph_Target = nil, colors: [][3]u8 = nil, lights: []geom.Export_Light = nil) -> (vertices: int, ok: bool) {
 	maps := maps
 	for &img in maps {
 		if img == nil || geom.image_mime(img) == "image/jpeg" || (len(img) >= 4 && string(img[:4]) == "\x89PNG") do continue
 		pixels, w, h, failed := matcap_pixels(img, context.temp_allocator)
 		img = png_write.encode(pixels, w, h, false, context.temp_allocator) if failed == "" else nil
 	}
-	uvs, _ := sculpt.levels_quad_uvs(&obj.levels)
-	normals := geom.quad_mesh_normals(quads, context.temp_allocator)
-	frame := geom.quad_mesh_tangents(quads, uvs, normals, context.temp_allocator)
-	positions, split_normals, texcoords, indices := geom.quad_mesh_split_uvs(quads, uvs, normals, frame, context.temp_allocator)
+	frame := textured_split(obj)
+	positions, split_normals, texcoords, indices := frame.positions, frame.normals, frame.uv, frame.indices
 	images := make([dynamic]geom.Export_Image, context.temp_allocator)
 	mat := mat
 	if img := maps[.Base_Color]; img != nil {
@@ -449,7 +447,7 @@ quad_object_glb :: proc(out: ^[dynamic]u8, obj: ^Object, quads: geom.Quad_Mesh, 
 	}
 	// A layer moves a vertex, and so every slot the split made of it.
 	split := make([]geom.Morph_Target, len(morphs), context.temp_allocator)
-	at := make([]i32, len(quads.positions), context.temp_allocator)
+	at := make([]i32, len(obj.levels.levels[0].mesh.positions), context.temp_allocator)
 	for m, k in morphs {
 		slice.fill(at, -1)
 		for v, i in m.vertices do at[v] = i32(i)

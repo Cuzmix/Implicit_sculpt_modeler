@@ -1,6 +1,7 @@
 package uv
 
 import "core:math"
+import "core:math/linalg"
 import "core:testing"
 
 import "../geom"
@@ -130,4 +131,27 @@ skyline_packs_tiles :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expectf(t, fill[1] > fill[0] && fill[1] > 0.7, "skyline %v, shelf %v", fill[1], fill[0])
+}
+
+// A mesh with UVs split for drawing: each corner's slot holds its vertex and coordinate,
+// a seam splits its vertices (more slots than vertices), and each tangent is a unit
+// direction square to the normal.
+@(test)
+split_follows_the_seams :: proc(t: ^testing.T) {
+	m := geom.icosphere(3, allocator = context.temp_allocator)
+	faces := geom.vertex_faces_build(m, nil, context.temp_allocator)
+	u := make_uvs(len(m.indices) / 3, context.temp_allocator)
+	_ = unwrap(&u, m.positions[:], m.indices[:], faces)
+	normals := make([]geom.Vec3, len(m.positions), context.temp_allocator)
+	for p, v in m.positions do normals[v] = linalg.normalize(p)
+	s := split(u, m.positions[:], m.indices[:], normals, context.temp_allocator)
+	testing.expectf(t, len(s.vertex) > len(m.positions), "slots %d for %d vertices", len(s.vertex), len(m.positions))
+	for c in 0 ..< len(m.indices) {
+		slot := s.indices[c]
+		testing.expect(t, s.vertex[slot] == m.indices[c] && s.uv[slot] == u.corner[c / 3][c % 3])
+	}
+	for tan, slot in s.tangents {
+		d := linalg.dot(tan.xyz, normals[s.vertex[slot]])
+		testing.expectf(t, abs(linalg.length(tan.xyz) - 1) < 1e-4 && abs(d) < 1e-4 && abs(tan.w) == 1, "tangent %v", tan)
+	}
 }

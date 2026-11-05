@@ -1257,10 +1257,9 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 			// where the UVs are, as a bake's own .glb has them (retopo.odin), with the
 			// polypaint unless a base colour map stands for it (glTF would multiply the
 			// two); polygroup materials stay out, since the maps give one material.
-			q := sculpt.levels_quad_mesh(&obj.levels)
 			paint := colors if obj.textures.image[.Base_Color] == nil else nil
 			written: bool
-			vertices, written = quad_object_glb(&out, obj, q, object_label(obj), obj.textures.image, material, true, morphs, paint, export_lights(app, obj.transform))
+			vertices, written = textured_object_glb(&out, obj, object_label(obj), obj.textures.image, material, true, morphs, paint, export_lights(app, obj.transform))
 			if !written {
 				free_all(context.temp_allocator)
 				file_note(app, true, "Cannot export %s: a glTF file holds at most 4 GB", name)
@@ -2244,7 +2243,7 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source 
 			free_all(context.temp_allocator)
 			return obj, true, made
 		}
-	} else if fields_ok && sculpt.levels_read(&obj.levels, r, &app.pool) && (sculpt.levels_has_quad_uvs(&obj.levels) || !object_has_textures(obj)) {
+	} else if fields_ok && sculpt.levels_read(&obj.levels, r, &app.pool) && (sculpt.levels_has_uvs(&obj.levels) || !object_has_textures(obj)) {
 		// A damaged skin is left out, and the object opens without it.
 		if sculpt.levels_skin_follows(r) && !sculpt.levels_skin_read(&obj.levels, r) {
 			report(app, Section.Hd, {.Warning}, "The detail skin of %s is damaged: it opens without it", obj.name)
