@@ -298,6 +298,9 @@ Kit_State :: struct {
 	readout: Readout, // the view corner's camera, shading and live numbers (readout.odin)
 	// The readout is hidden (Menu > More > Viewport readout).
 	readout_hidden: bool,
+	// The readout adds the GPU's time a frame (Menu > More > GPU time in the readout): a
+	// developer's number, so off unless asked for.
+	readout_gpu: bool,
 	// A folder's menu in the Scene card, the rename field over a row, and how many rows
 	// the tree drew last (for the exit stats).
 	folder_menu:    bool,

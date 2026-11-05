@@ -58,15 +58,16 @@ palette_finds_other_apps_names :: proc(t: ^testing.T) {
 	testing.expect_value(t, best("qqqqq"), "")
 }
 
-// Among equal matches the recent one comes first, then one that can run now; and with
+// A brush is its bare name exactly, so "smooth" is the Smooth brush ahead of Smooth all;
+// among equal matches the recent one comes first, then one that can run now; and with
 // no query the recents lead, in the order they were run.
 @(test)
 palette_recent_then_enabled_first :: proc(t: ^testing.T) {
 	entries := palette_entries()
 	enabled := make([]bool, len(entries), context.temp_allocator)
 	for &e in enabled do e = true
-	testing.expect_value(t, best("smooth"), "Smooth all")
-	testing.expect_value(t, best("smooth", {cmd(.Brush, 1)}), "Smooth brush")
+	testing.expect_value(t, best("smooth"), "Smooth brush")
+	testing.expect_value(t, best("cage smooth", {cmd(.Cage_Smooth, 2)}), palette_label(cmd(.Cage_Smooth, 2)))
 	// Disabled loses to enabled within a tier, but not across tiers.
 	for e, i in entries do if e == cmd(.Smooth_All) do enabled[i] = false
 	hits := palette_rank("smooth", entries, nil, enabled)

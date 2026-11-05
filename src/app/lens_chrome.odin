@@ -140,6 +140,8 @@ lens_nav_offset :: proc(app: ^App) -> f32 {
 	for i in 0 ..< USER_DOCKS do if user_dock_shown(k, i) do take(ui.prev_rect(ctx, DOCK_ROOTS[user_dock_id(i)]), area, mid, near_top, ctx.mirror, &reach)
 	for s in Column_Side do take(column_rest_rect(app, s), area, mid, near_top, ctx.mirror, &reach)
 	for s in k.panels.seen do if s.frame >= k.frame - 1 do take(s.rect, area, mid, near_top, ctx.mirror, &reach)
+	// A card a rail button opened is no panel, but it covers the head just the same.
+	for c in Card do if card_shown(app, c) do take(ui.prev_rect(ctx, card_root_name(c)), area, mid, near_top, ctx.mirror, &reach)
 	return reach
 }
 

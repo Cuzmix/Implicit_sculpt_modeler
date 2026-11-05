@@ -83,7 +83,9 @@ kit_readout :: proc(app: ^App) {
 		}
 		ui.text(ctx, text, bar.x + bar.w + 6, line.y + line.h * 0.5, t.small_size, faint)
 	}
-	if ms, ok := readout_gpu_ms(app); ok do readout_line(ctx, fmt.tprintf("GPU %.1f ms", ms))
+	if k.readout_gpu {
+		if ms, ok := readout_gpu_ms(app); ok do readout_line(ctx, fmt.tprintf("GPU %.1f ms", ms))
+	}
 	ui.end(ctx)
 	ui.end(ctx)
 }
