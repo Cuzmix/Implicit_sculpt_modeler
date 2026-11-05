@@ -1140,6 +1140,45 @@ def light_gizmo_arm_moves_the_light_along_x():
                                                     "light1_at": lambda v: at(v)[0] > 0.9 and abs(at(v)[1] - 0.51) < 0.015 and abs(at(v)[2] - 1.16) < 0.015})
 
 
+def window_point(p, width=1600, height=900, fov=math.radians(40)):
+    """Where scene point `p` shows in the window with the default camera (on_screen's
+    tangents), the view's middle drawn at MIDDLE as sphere_normal_under has it."""
+    x, y = on_screen(None, p)
+    t = math.tan(fov / 2)
+    return ((x / (t * width / height) + 1) * width / 2 + MIDDLE[0] - width / 2, (1 - y / t) * height / 2 + MIDDLE[1] - height / 2)
+
+
+@scenario
+def stack_array_tip_dragged_in_the_view():
+    """With the Live stack card open on an Array stepping 0.8 up, a finger drag on the arrow's tip in the view moves the step across the view (right: along the view's right, +x and -z) at the tip's depth; one undo step, nothing sculpted, the camera stays and the card stays open."""
+    s = Script()
+    tip = window_point((0, 0.8, 0))
+    s.fdrag(line(tip, (tip[0] + 120, tip[1]), 16))
+    s.wait(4)
+    return s, ["--script=stack array 3 0 0.8 0; stack open array; wait 2"], camera_still({"dabs": near(0), "undo_steps": near(1), "stack_handle_moves": near(1),
+                                                                                       "stack_step": lambda v: float(v.split(",")[0]) > 0.15 and float(v.split(",")[2]) < 0 and abs(float(v.split(",")[1]) - 0.8) < 0.1})
+
+
+@scenario
+def stack_radial_pivot_dragged_in_the_view():
+    """With the Live stack card open on a Radial turning about a pivot 0.6 left of the object, a finger drag on the pivot's dot moves the pivot up the view; one undo step, nothing sculpted, the camera stays."""
+    s = Script()
+    dot = window_point((-0.6, 0, 0))
+    s.fdrag(line(dot, (dot[0], dot[1] - 100), 16))
+    s.wait(4)
+    return s, ["--script=stack radial 6 y pivot -0.6 0 0; stack open radial; wait 2"], camera_still({"dabs": near(0), "undo_steps": near(1), "stack_handle_moves": near(1),
+                                                                                                   "stack_pivot": lambda v: float(v.split(",")[1]) > 0.2})
+
+
+@scenario
+def stack_mirror_chip_tap_keeps_the_other_side():
+    """With the Live stack card open on a Mirror across X, a finger tap on the plane's chip in the view (halfway up the plane) keeps the - side; one undo step, nothing sculpted, the camera stays."""
+    s = Script()
+    s.ftap(*window_point((0, 0.575, 0)))
+    s.wait(4)
+    return s, ["--script=stack mirror x; stack open mirror; wait 2"], camera_still({"dabs": near(0), "undo_steps": near(1), "stack_minus": near(1), "stack_handle_moves": near(1)})
+
+
 @scenario
 def place_highlight_lights_where_the_finger_taps():
     """In Scene: Lights, with Place highlight switched on a tap in the middle of the sphere turns the first light to shine from the camera, so its highlight lands there; one undo step, nothing sculpted, the camera stays."""

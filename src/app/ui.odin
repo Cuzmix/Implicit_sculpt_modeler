@@ -83,6 +83,7 @@ Ui_State :: struct {
 	stack_drag:         Stack_Drag, // the Live stack card's values are being dragged: one undo step
 	light_drag:         Light_Drag, // the Lights section's values are being changed: one undo step
 	light_press:        Light_Press, // a press on the lights in the viewport (light_markers.odin)
+	stack_press:        Stack_Press, // a press on the Live stack's handles in the view (stack_handles.odin)
 	light_place:        bool, // Place highlight: a press on the model moves the picked light's highlight there
 	retopo_quads:       i32,  // quads Quad Remesh asks for
 	retopo_engine:      retopo.Engine, // ...and from which engine (retopo.odin)...

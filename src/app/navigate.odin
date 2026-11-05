@@ -431,7 +431,7 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		g.moving = d.pointer == .Mouse
 		// A finger's press the lights take (a marker, or the model with Place highlight on)
 		// or Pick focus waits for acts as it lands, never waiting to see whether it is a tap.
-		g.pending = g.owner == .Tool && d.pointer == .Finger && app.tool == .Brush && !lights_take_press(app, mouse, input.size) && !app.ui.focus_armed
+		g.pending = g.owner == .Tool && d.pointer == .Finger && app.tool == .Brush && !lights_take_press(app, mouse, input.size) && !stack_handles_take_press(app, mouse, input.size) && !app.ui.focus_armed
 		// Not the presses that go to the mask and hide shapes or a clip, nor during a replay.
 		g.defer_tap = g.pending && app.nav.double_tap && !d.shift && !d.ctrl && !d.alt && !rail_keeps_empty_space(app.rail.press.mods) && !replay_busy(app)
 		if owner == .Tool && app.tool == .Brush && !d.shift && (input.mask || input.mask_shape) && !replay_busy(app) {
@@ -667,6 +667,8 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 	if app.tool == .Move && lattice_pick(app, mouse, input.size) > 0 do return .Tool, false
 	// And a light's marker, while the Lights section shows them, for any tool.
 	if light_marker_pressed(app, mouse, input.size) do return .Tool, false
+	// And the open Live stack row's handle, while its card shows it.
+	if stack_handles_take_press(app, mouse, input.size) do return .Tool, false
 	// Render is for looking: a press there turns the view, so no stroke lands while the
 	// light or the look is being set; picking focus and the lights' own presses stay.
 	if app.kit.spaces.current == .Render && !app.ui.focus_armed && !lights_take_press(app, mouse, input.size) do return .Orbit, false

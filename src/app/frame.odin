@@ -151,7 +151,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		brush_stroke_finish(app)
 		// The memory check's autosave says so in its own popup.
 		if input.press && long_job_busy(app) do long_job_refuse(app)
-	} else if group_pick_frame(app, input) || eyedropper_frame(app, input) || focus_pick_frame(app, input) || lights_viewport_frame(app, input) {
+	} else if group_pick_frame(app, input) || eyedropper_frame(app, input) || focus_pick_frame(app, input) || lights_viewport_frame(app, input) || stack_handles_frame(app, input) {
 		brush_stroke_finish(app)
 	} else {
 		// A drag the tool changed under ends as it stands, one undo step.
