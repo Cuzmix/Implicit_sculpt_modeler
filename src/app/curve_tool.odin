@@ -76,8 +76,9 @@ Curve_Tool :: struct {
 	drag:    Curve_Drag,
 	picked:  int,
 	edits:   int,
-	// The tube's profile pad on the tool card (curve_profile_pad.odin).
-	pad: Profile_Pad,
+	// The tube's profile and width pads on the tool card (curve_profile_pad.odin).
+	pad:       Profile_Pad,
+	width_pad: Profile_Pad,
 	// The Edit tab (Tab): a press on empty space drags a box that picks points rather than
 	// drawing a new curve. `box` is that drag; `tap` the last tap on a point, for a double
 	// tap; `all_handles` shows every point's handles rather than the picked points' and
@@ -623,7 +624,7 @@ kit_curve_look :: proc(app: ^App, obj: ^Object) {
 			app.curve.pad.picked = 0
 			set(app, look)
 		}
-		if changed, dragging := kit_profile_pad(app, &o.profile); changed do set(app, look, dragging)
+		if changed, dragging := kit_curve_pad(app, &app.curve.pad, "profile pad", &o.profile); changed do set(app, look, dragging)
 		if ui.switch_row(ctx, "Mirror", &o.profile.mirror) {
 			if o.profile.mirror {
 				// Point 0 and its partners take the right half's shape.
@@ -633,7 +634,7 @@ kit_curve_look :: proc(app: ^App, obj: ^Object) {
 			set(app, look)
 		}
 		point := app.curve.pad.picked - 1
-		if ui.button(ctx, "Delete point", width = ui.fill_width(ctx), enabled = point >= 0) && geom.profile_delete(&o.profile, point) {
+		if ui.button(ctx, "Delete point##profile", width = ui.fill_width(ctx), enabled = point >= 0) && geom.profile_delete(&o.profile, point) {
 			app.curve.pad.picked = 0
 			set(app, look)
 		}
@@ -667,6 +668,20 @@ kit_curve_look :: proc(app: ^App, obj: ^Object) {
 				o.caps = geom.Tube_Caps(picked)
 				set(app, look)
 			}
+		}
+		// The width along: the radius from the curve's start to its end, as Blender's taper.
+		ui.label(ctx, "Width along")
+		widths := [len(geom.Width_Preset)]string{"Even", "Taper", "Both ends", "Bulge"}
+		if picked := ui.tabs(ctx, "tube width", widths[:], -1); picked >= 0 {
+			o.width = geom.width_preset(geom.Width_Preset(picked))
+			app.curve.width_pad.picked = 0
+			set(app, look)
+		}
+		if changed, dragging := kit_curve_pad(app, &app.curve.width_pad, "width pad", &o.width); changed do set(app, look, dragging)
+		inner := app.curve.width_pad.picked - 1
+		if ui.button(ctx, "Delete point##width", width = ui.fill_width(ctx), enabled = inner > 0 && inner < o.width.count - 1) && geom.width_delete(&o.width, inner) {
+			app.curve.width_pad.picked = 0
+			set(app, look)
 		}
 	}
 

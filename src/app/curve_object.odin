@@ -116,8 +116,9 @@ CURVE_MIN_POINTS :: 2
 CURVE_POINT_BYTES :: 3 * size_of(Vec3) + 3 * size_of(f32) + 1
 
 // Bytes the tube's options take after the points: radius mode, one, sides, density, caps,
-// then the profile's count, Mirror and every slot of it.
-CURVE_TUBE_BYTES :: 3 + 2 * size_of(f32) + 2 + geom.PROFILE_POINTS_MAX * (6 * size_of(f32) + 1)
+// then the profile's count, Mirror and every slot of it, then the width along's count and
+// every slot of it.
+CURVE_TUBE_BYTES :: 3 + 2 * size_of(f32) + 2 + geom.PROFILE_POINTS_MAX * (6 * size_of(f32) + 1) + 1 + geom.PROFILE_POINTS_MAX * (6 * size_of(f32) + 1)
 
 // Bytes the lathe's options take after the tube's: axis, through, angle, segments, caps.
 CURVE_LATHE_BYTES :: size_of(Vec3) + 1 + size_of(f32) + size_of(u16) + 1
@@ -210,13 +211,16 @@ curve_rebuild :: proc(app: ^App, obj: ^Object) -> bool {
 }
 
 // A tube's options made safe to build: sides 3 to TUBE_SIDES_MAX, positive density, a
-// radius of no less than zero, a profile of three points or more (the round one if not).
+// radius of no less than zero, a profile of three points or more (the round one if not), a
+// width along of two points or more (Even if not) with its points in their places.
 curve_tube_clean :: proc(o: geom.Tube_Options) -> geom.Tube_Options {
 	c := o
 	c.sides = clamp(c.sides, 3, geom.TUBE_SIDES_MAX)
 	c.one = max(c.one, 0) if c.one == c.one else geom.TUBE_DEFAULTS.one
 	c.density = clamp(c.density, 0.05, 16) if c.density == c.density else 1
 	if c.profile.count < 3 || c.profile.count > geom.PROFILE_POINTS_MAX do c.profile = geom.PROFILE_ROUND
+	if c.width.count < geom.WIDTH_POINTS_MIN || c.width.count > geom.PROFILE_POINTS_MAX do c.width = geom.WIDTH_EVEN
+	for i in 0 ..< c.width.count do geom.width_hold(&c.width, i)
 	return c
 }
 
@@ -387,6 +391,13 @@ curve_part_put :: proc(out: ^[dynamic]u8, cp: ^Curve_Part) {
 		geom.byte_put(out, q.h_out)
 		geom.byte_put(out, u8(q.handles))
 	}
+	geom.byte_put(out, u8(o.width.count))
+	for q in o.width.points {
+		geom.byte_put(out, q.p)
+		geom.byte_put(out, q.h_in)
+		geom.byte_put(out, q.h_out)
+		geom.byte_put(out, u8(q.handles))
+	}
 	l := cp.lathe
 	geom.byte_put(out, l.axis)
 	geom.byte_put(out, u8(l.through))
@@ -450,6 +461,17 @@ curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, 
 			if int(handles) >= len(geom.Handle_Type) || !finite({q.p.x, q.p.y, q.h_in.x}) || !finite({q.h_in.y, q.h_out.x, q.h_out.y}) do bad_point = true
 		}
 		o.profile.count, o.profile.mirror = int(count), mirror == 1
+		width_count := geom.byte_get(r, u8)
+		for &q in o.width.points {
+			q.p = geom.byte_get(r, [2]f32)
+			q.h_in = geom.byte_get(r, [2]f32)
+			q.h_out = geom.byte_get(r, [2]f32)
+			handles := geom.byte_get(r, u8)
+			q.handles = geom.Handle_Type(handles)
+			if int(handles) >= len(geom.Handle_Type) || !finite({q.p.x, q.p.y, q.h_in.x}) || !finite({q.h_in.y, q.h_out.x, q.h_out.y}) do bad_point = true
+		}
+		o.width.count = int(width_count)
+		bad_point ||= int(width_count) < geom.WIDTH_POINTS_MIN || int(width_count) > geom.PROFILE_POINTS_MAX
 		damaged = !r.ok || bad_point || count < 3 || int(count) > geom.PROFILE_POINTS_MAX || mirror > 1 || int(radius) >= len(geom.Tube_Radius) || int(caps) >= len(geom.Tube_Caps) || o.sides < 3 || o.sides > geom.TUBE_SIDES_MAX || !finite({o.one, o.density, 0}) || o.one < 0 || o.density <= 0
 		o.radius, o.caps = geom.Tube_Radius(radius), geom.Tube_Caps(caps)
 		cp.tube = o
