@@ -4,12 +4,15 @@ import "base:runtime"
 import "core:fmt"
 import "core:image"
 import "core:log"
+import "core:math/linalg"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:thread"
 
 import "../geom"
+import "../jobs"
 import "../render"
 import "../sculpt"
 import "../uv"
@@ -52,6 +55,31 @@ Texture_Preview :: struct {
 	// The GPU refused the textured mesh, so the object draws as clay (said once) until
 	// its shape or layout changes.
 	broken:     bool,
+	topology:   Split_Topology,
+}
+
+// How a level of triangles splits where its UVs are (textured_split), kept while its
+// triangles and UVs stay: finding the slots reads every corner through a hash, about a
+// third of a second for a million triangles, so a sculpt edit reuses them and only
+// gathers each slot's position and normal again and squares its tangent to the new
+// normal. Owned with the heap allocator; empty for a quad object's base level, whose split
+// follows the bake's own frame and is made each time.
+Split_Topology :: struct {
+	index_version: u64, // the level's Mesh_Buffers.index_version the slots were made for
+	layout:        u32, // the Object_Textures.layout they were made with
+	vertex:        []u32,
+	uv:            [][2]f32,
+	tangents:      [][4]f32,
+	indices:       []u32,
+}
+
+split_topology_free :: proc(t: ^Split_Topology) {
+	h := runtime.heap_allocator()
+	delete(t.vertex, h)
+	delete(t.uv, h)
+	delete(t.tangents, h)
+	delete(t.indices, h)
+	t^ = {}
 }
 
 // A thread turning an object's images into RGBA8 pixels: it works on copies, so the
@@ -231,7 +259,7 @@ texture_remove :: proc(app: ^App, obj: ^Object) {
 // a stroke on it right now) and the view has something to show.
 object_textured :: proc(app: ^App, obj: ^Object, lv: ^sculpt.Level) -> bool {
 	view := texture_view_shown(app)
-	if view == .Off || obj.voxel != nil || obj.levels.current != 0 || object_in_hd(obj) || object_dynamic(obj) do return false
+	if view == .Off || obj.voxel != nil || object_in_hd(obj) || object_dynamic(obj) do return false
 	if !sculpt.levels_has_uvs(&obj.levels) do return false
 	if sculpt.sculptor_hidden_units(&lv.sculptor) != nil || app.show_groups do return false
 	if app.stroke.active && app.stroke.object == obj.id do return false
@@ -259,7 +287,7 @@ texture_preview_frame :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, gpu: ^re
 	current := p.shape == gpu.version && p.layout == obj.textures.layout
 	if p.broken && current do return nil
 	if !current || p.mesh.index_count == 0 {
-		vertices, indices, corners := textured_vertices(obj)
+		vertices, indices, corners := textured_vertices(obj, gpu, &p.topology, &app.pool)
 		p.shape, p.layout = gpu.version, obj.textures.layout
 		p.broken = !render.textured_mesh_upload(&app.renderer, cmd, &p.mesh, vertices, indices, corners)
 		if p.broken {
@@ -270,13 +298,14 @@ texture_preview_frame :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, gpu: ^re
 	return &p.mesh
 }
 
-// The object's base level split where its UVs are, as the textured preview draws it and
-// a textured `.glb` carries it: per slot its vertex, position, smooth normal, coordinate and
-// tangent, the triangles by slot, and for render mode, which traces the base level's own
-// triangles, the slot each of their corners takes (nil, said in the log, when they cannot
-// all be matched). A quad object splits its quads (geom.quad_mesh_split_uvs), with the
-// normals and tangents the bake read its normal map with, so the map reads back as baked;
-// any other mesh its triangles (uv.split), with the level's own normals. Temp memory.
+// Level `level` of the object split where its UVs are, as the textured preview draws it
+// and a textured `.glb` carries it: per slot its vertex, position, smooth normal,
+// coordinate and tangent, the triangles by slot, and for render mode, which traces the
+// level's own triangles, the slot each of their corners takes (nil, said in the log, when
+// they cannot all be matched). A quad object's base level splits its quads
+// (geom.quad_mesh_split_uvs), with the normals and tangents the bake read its normal map
+// with, so the map reads back as baked; any other level its triangles (uv.split), with its
+// own normals and the UVs it takes from the base (sculpt.levels_uvs_at). Temp memory.
 Textured_Split :: struct {
 	vertex:    []u32,
 	positions: []geom.Vec3,
@@ -287,9 +316,9 @@ Textured_Split :: struct {
 	corners:   []u32,
 }
 
-textured_split :: proc(obj: ^Object) -> (s: Textured_Split) {
+textured_split :: proc(obj: ^Object, level: int) -> (s: Textured_Split) {
 	base := obj.levels.levels[0]
-	if layout, ok := sculpt.levels_quad_uvs(&obj.levels); ok {
+	if layout, ok := sculpt.levels_quad_uvs(&obj.levels); ok && level == 0 {
 		quads := sculpt.levels_quad_mesh(&obj.levels)
 		normals := geom.quad_mesh_normals(quads, context.temp_allocator)
 		frame := geom.quad_mesh_tangents(quads, layout, normals, context.temp_allocator)
@@ -303,9 +332,12 @@ textured_split :: proc(obj: ^Object) -> (s: Textured_Split) {
 		}
 		return
 	}
-	positions := base.mesh.positions[:]
-	normals := base.mesh.normals[:]
-	sp := uv.split(obj.levels.uvs, positions, base.mesh.indices[:], normals, context.temp_allocator)
+	lv := obj.levels.levels[level]
+	positions := lv.mesh.positions[:]
+	normals := lv.mesh.normals[:]
+	u, ok := sculpt.levels_uvs_at(&obj.levels, level, context.temp_allocator)
+	if !ok do return
+	sp := uv.split(u, positions, lv.mesh.indices[:], normals, context.temp_allocator)
 	s.vertex, s.uv, s.tangents, s.indices = sp.vertex, sp.uv, sp.tangents, sp.indices
 	s.positions = make([]geom.Vec3, len(sp.vertex), context.temp_allocator)
 	s.normals = make([]geom.Vec3, len(sp.vertex), context.temp_allocator)
@@ -315,22 +347,69 @@ textured_split :: proc(obj: ^Object) -> (s: Textured_Split) {
 	return
 }
 
-// The preview's vertices (textured_split), each with its vertex's mask. Temp memory.
-textured_vertices :: proc(obj: ^Object) -> (vertices: []render.Textured_Vertex, indices: []u32, corners: []u32) {
-	s := textured_split(obj)
-	indices, corners = s.indices, s.corners
-	mask := sculpt.levels_current(&obj.levels).sculptor.mask
-	vertices = make([]render.Textured_Vertex, len(s.positions), context.temp_allocator)
-	for &v, slot in vertices {
-		m: u8 = mask[s.vertex[slot]] if mask != nil else 0
-		t := s.tangents[slot]
-		v = {
-			position = s.positions[slot],
-			normal   = render.pack_normal(s.normals[slot], m),
-			tangent  = {snorm16(t.x), snorm16(t.y), snorm16(t.z), snorm16(t.w)},
-			uv       = s.uv[slot],
-		}
+// The preview's vertices (textured_split), each with its vertex's mask, for the level
+// shown, whose buffers are `gpu`; a level of triangles keeps its split in `topology`
+// (Split_Topology) and reuses it while it fits. Temp memory.
+textured_vertices :: proc(obj: ^Object, gpu: ^render.Mesh_Buffers, topology: ^Split_Topology, pool: ^jobs.Pool) -> (vertices: []render.Textured_Vertex, indices: []u32, corners: []u32) {
+	level := obj.levels.current
+	lv := sculpt.levels_current(&obj.levels)
+	Job :: struct {
+		vertices:  []render.Textured_Vertex,
+		vertex:    []u32,
+		positions: []geom.Vec3,
+		normals:   []geom.Vec3,
+		tangents:  [][4]f32,
+		uv:        [][2]f32,
+		mask:      []u8,
+		gather:    bool, // positions and normals by vertex, tangents squared to them
 	}
+	job := Job{mask = lv.sculptor.mask}
+	if level == 0 && sculpt.levels_has_quad_uvs(&obj.levels) {
+		split_topology_free(topology)
+		s := textured_split(obj, level)
+		indices, corners = s.indices, s.corners
+		job.vertex, job.positions, job.normals, job.tangents, job.uv = s.vertex, s.positions, s.normals, s.tangents, s.uv
+	} else {
+		if topology.vertex == nil || topology.index_version != gpu.index_version || topology.layout != obj.textures.layout {
+			split_topology_free(topology)
+			s := textured_split(obj, level)
+			if s.vertex == nil do return
+			h := runtime.heap_allocator()
+			topology^ = {gpu.index_version, obj.textures.layout, slice.clone(s.vertex, h), slice.clone(s.uv, h), slice.clone(s.tangents, h), slice.clone(s.indices, h)}
+		}
+		// The split keeps the level's triangles in their order, so each corner's slot is its own.
+		indices, corners = topology.indices, topology.indices
+		job.vertex, job.positions, job.normals, job.tangents, job.uv = topology.vertex, lv.mesh.positions[:], lv.mesh.normals[:], topology.tangents, topology.uv
+		job.gather = true
+	}
+	job.vertices = make([]render.Textured_Vertex, len(job.vertex), context.temp_allocator)
+	jobs.parallel_ranges(pool, len(job.vertices), &job, proc(data: rawptr, lo, hi: int) {
+		job := cast(^Job)data
+		for slot in lo ..< hi {
+			v := job.vertex[slot]
+			m: u8 = job.mask[v] if job.mask != nil else 0
+			t := job.tangents[slot]
+			p, n := job.positions[v], job.normals[v]
+			if job.gather {
+				// The tangent kept from the split, squared to the normal as it is now: a
+				// sculpt edit turns the surface a little, which the preview need not
+				// follow more closely than this.
+				d := geom.Vec3{t.x, t.y, t.z}
+				d = linalg.normalize0(d - linalg.dot(d, n) * n)
+				if d == {} do d, _ = geom.perpendicular_pair(n)
+				t.xyz = d
+			} else {
+				p, n = job.positions[slot], job.normals[slot]
+			}
+			job.vertices[slot] = {
+				position = p,
+				normal   = render.pack_normal(n, m),
+				tangent  = {snorm16(t.x), snorm16(t.y), snorm16(t.z), snorm16(t.w)},
+				uv       = job.uv[slot],
+			}
+		}
+	}, geom.RANGE_GRAIN)
+	vertices = job.vertices
 	return
 }
 
@@ -512,6 +591,7 @@ texture_halve_to :: proc(pixels: []u8, width, height, side: int) -> (out: []u8, 
 texture_preview_release :: proc(app: ^App, obj: ^Object) {
 	texture_decoder_poll(app, obj, wait = true)
 	render.textured_mesh_destroy(&app.renderer, &obj.preview.mesh)
+	split_topology_free(&obj.preview.topology)
 	obj.preview = {}
 }
 
