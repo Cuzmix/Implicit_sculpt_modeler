@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:math/linalg"
 import "core:strings"
 import "core:time"
@@ -544,4 +545,114 @@ curve_counts :: proc(app: ^App) -> (curves, points: int) {
 		points += len(cp.points)
 	}
 	return
+}
+
+// The curves Add › Curve makes, as Blender's Add › Curve and Nomad's curve primitives: a
+// start for a curve that is not drawn on anything.
+Curve_Shape :: enum u8 {
+	None, // not a curve: Add makes the mesh shape
+	Line,
+	Bezier,
+	Circle,
+	Spiral,
+	Helix,
+}
+
+@(rodata)
+CURVE_SHAPE_NAMES := [Curve_Shape]string {
+	.None   = "",
+	.Line   = "Line",
+	.Bezier = "Bézier",
+	.Circle = "Circle",
+	.Spiral = "Spiral",
+	.Helix  = "Helix",
+}
+
+// The length of a quarter turn's handles on a circle of radius 1, so four smooth points make
+// a circle to within 0.03 % (4/3 · tan(π/8)).
+CURVE_CIRCLE_HANDLE :: 0.5522847
+
+// Turns, and points a turn, of the spiral and the helix.
+CURVE_SPIRAL_TURNS :: 2
+CURVE_HELIX_TURNS :: 3
+CURVE_TURN_POINTS :: 4
+
+// The points of `shape` round `middle`, `size` from its middle to its edge, laid in the
+// plane of `right` and `up` (the helix rising along `up`, turning toward `back`), each smooth
+// with `radius`. A spiral and a helix take each handle along the curve's derivative there,
+// a third of the step, as a cubic through samples of a smooth curve does.
+curve_shape_points :: proc(shape: Curve_Shape, middle, right, up, back: Vec3, size, radius: f32, allocator := context.temp_allocator) -> (points: []geom.Bezier_Point, closed: bool) {
+	at :: proc(middle, right, up: Vec3, size, x, y: f32) -> Vec3 {return middle + (right * x + up * y) * size}
+	switch shape {
+	case .None:
+		return nil, false
+	case .Line:
+		points = make([]geom.Bezier_Point, 2, allocator)
+		points[0] = {p = at(middle, right, up, size, -1, 0), h_out = right * (2 * size / 3)}
+		points[1] = {p = at(middle, right, up, size, 1, 0), h_in = -right * (2 * size / 3)}
+		points[0].h_in, points[1].h_out = -points[0].h_out, -points[1].h_in
+	case .Bezier:
+		// Blender's default: two points with handles leaning the same way, an S.
+		lean := (right + up) * (size / 2)
+		points = make([]geom.Bezier_Point, 2, allocator)
+		points[0] = {p = at(middle, right, up, size, -1, 0), h_in = -lean, h_out = lean}
+		points[1] = {p = at(middle, right, up, size, 1, 0), h_in = -lean, h_out = lean}
+	case .Circle:
+		closed = true
+		points = make([]geom.Bezier_Point, 4, allocator)
+		for &p, i in points {
+			a := f32(i) * math.PI / 2
+			c, s := math.cos(a), math.sin(a)
+			tangent := (-right * s + up * c) * (CURVE_CIRCLE_HANDLE * size)
+			p = {p = at(middle, right, up, size, c, s), h_in = -tangent, h_out = tangent}
+		}
+	case .Spiral:
+		// Archimedean, from a tenth of the size out to all of it.
+		n := CURVE_SPIRAL_TURNS * CURVE_TURN_POINTS + 1
+		step := f32(2 * math.PI / CURVE_TURN_POINTS)
+		grow := f32(0.9 / (CURVE_SPIRAL_TURNS * 2 * math.PI))
+		points = make([]geom.Bezier_Point, n, allocator)
+		for &p, i in points {
+			a := f32(i) * step
+			r := 0.1 + grow * a
+			c, s := math.cos(a), math.sin(a)
+			d := (right * (grow * c - r * s) + up * (grow * s + r * c)) * (size * step / 3)
+			p = {p = at(middle, right, up, size, r * c, r * s), h_in = -d, h_out = d}
+		}
+	case .Helix:
+		// Round `up`, rising from the bottom to the top at three fifths of the size across.
+		n := CURVE_HELIX_TURNS * CURVE_TURN_POINTS + 1
+		step := f32(2 * math.PI / CURVE_TURN_POINTS)
+		wide: f32 = 0.6
+		rise := f32(2 / (CURVE_HELIX_TURNS * 2 * math.PI))
+		points = make([]geom.Bezier_Point, n, allocator)
+		for &p, i in points {
+			a := f32(i) * step
+			c, s := math.cos(a), math.sin(a)
+			pos := middle + (right * (wide * c) + back * (wide * s) + up * (rise * a - 1)) * size
+			d := (right * (-wide * s) + back * (wide * c) + up * rise) * (size * step / 3)
+			p = {p = pos, h_in = -d, h_out = d}
+		}
+	}
+	for &p in points do p.radius, p.intensity = radius, 1
+	return
+}
+
+// Half the size, in pixels on screen, of a curve Add › Curve makes: a fifth of the view's
+// height across.
+CURVE_SHAPE_PX :: 0.1
+
+// Adds `shape` as a curve object round `at` (world space), facing the view and sized to it,
+// selected, as one undo step; the Curve tool picks its last point to edit. False only when
+// it could not be made.
+curve_shape_add :: proc(app: ^App, shape: Curve_Shape, at: Vec3) -> bool {
+	right, up, back := camera.orbit_basis(app.camera)
+	size := app.ui.viewport_size
+	per_px := camera.orbit_world_per_px(app.camera, at, max(size.y, 1))
+	half := CURVE_SHAPE_PX * max(size.y, 1) * per_px
+	radius := app.brush.radius_px * per_px * app.curve.size
+	points, closed := curve_shape_points(shape, at, right, up, back, half, radius)
+	if !curve_object_add(app, points, closed) do return false
+	app.curve.picked = 1 if closed else len(points)
+	return true
 }

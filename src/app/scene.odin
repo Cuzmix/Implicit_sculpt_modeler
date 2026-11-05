@@ -215,6 +215,7 @@ Scene_Command :: struct {
 	remesh:   Remesh_Setup, // Remesh: Smooth, Keep detail and Groups (remesh.odin)
 	decimate: Decimate_Setup, // Decimate: the share to keep and what to keep besides the shape (decimate.odin)
 	shape:    geom.Primitive, // Add, New: what to add
+	curve_shape: Curve_Shape, // Add: a curve of this shape instead (at `point` when placed, else the view's centre)
 	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh); New: a voxel block this many across; Mesh_To_Voxels: voxels across the object's longest side; Voxel_Resample: the voxel object's new resolution, twice or half its own
 	// Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side; Delete_Others:
@@ -966,6 +967,10 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	switch cmd.kind {
 	case .None:
 	case .Add:
+		if cmd.curve_shape != .None {
+			if !curve_shape_add(app, cmd.curve_shape, cmd.point if cmd.placed else app.camera.target) do report(app, nil, {.Warning}, "the %s curve could not be made", CURVE_SHAPE_NAMES[cmd.curve_shape])
+			break
+		}
 		before := len(app.scene.objects)
 		sel := selected_object(app)
 		at := Transform{position = next_free_position(app), scale = 1}
