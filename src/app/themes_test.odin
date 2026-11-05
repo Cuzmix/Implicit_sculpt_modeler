@@ -82,6 +82,7 @@ themes_read_back_from_the_settings :: proc(t: ^testing.T) {
 	testing.expect(t, theme_keep(&a.kit))
 	theme_choose(&a.kit, {.Paper, -1})
 	a.kit.themes.seed.contrast = 0.75
+	a.kit.themes.seed.shadow = 0.37
 	a.kit.themes.match = true
 	testing.expect(t, settings_save(&a, path))
 
@@ -98,7 +99,7 @@ themes_read_back_from_the_settings :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.kit.themes.day, Theme_Ref{.Paper, -1})
 	testing.expect_value(t, b.kit.themes.night, Theme_Ref{.Lens, 0})
 
-	words := []string{"light", "hue=400", "opacity=0.2", "contrast=75", "accent=#123", "sparkle=9", "corners=round"}
+	words := []string{"light", "hue=400", "opacity=0.2", "contrast=75", "accent=#123", "sparkle=9", "corners=round", "shadow=80"}
 	s, _, ok := theme_seed_parse(words, LOOK_SEEDS[.Lens])
 	testing.expect(t, ok)
 	testing.expect_value(t, s.mode, ui.Theme_Mode.Light)
@@ -107,6 +108,7 @@ themes_read_back_from_the_settings :: proc(t: ^testing.T) {
 	testing.expect_value(t, s.contrast, 0.75)
 	testing.expect_value(t, s.accent, ui.Color{0x11, 0x22, 0x33, 0xff})
 	testing.expect_value(t, s.corners, ui.Theme_Corners.Round)
+	testing.expect_value(t, s.shadow, 0.8)
 	free_all(context.temp_allocator)
 }
 
