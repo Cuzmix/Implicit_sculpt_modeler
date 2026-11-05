@@ -154,6 +154,7 @@ Command_Id :: enum u16 {
 	Fix_Mesh,
 	Delete_Half,
 	Retopologize,
+	Unwrap,
 	Make_Boolean,
 	Live_Boolean,
 	Extract_Masked,
@@ -1637,6 +1638,13 @@ COMMANDS := [Command_Id]Command {
 		help = "Makes a new object of quads lying on the selected one, with UVs when every face is a quad; Flow or Fast, as Rebuild's Quads is set.",
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), quad = quad_options(app)}},
 		enabled = has_object,
+	},
+	.Unwrap = {
+		label = "Unwrap",
+		help = "Gives the selected object new UVs: seams along creases and polygroup borders, each piece laid flat, relaxed as the UVs section's Relax says and packed in the square; a quad object keeps its quads whole.",
+		icon = rune(0xe4ee),
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Unwrap, unwrap = unwrap_setup(app)}},
+		enabled = has_mesh_object,
 	},
 	.Make_Boolean = {
 		label = "Make boolean mesh",

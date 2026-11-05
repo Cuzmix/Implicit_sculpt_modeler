@@ -10,6 +10,7 @@ import "core:time"
 import "../geom"
 import "../poly"
 import "../render"
+import "../uv"
 import "../sculpt"
 import "../ui"
 import "../voxel"
@@ -364,6 +365,12 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("render_dof=%d render_blur=%.2f focus_picked=%d focus=%.3f,%.3f,%.3f focus_armed=%d", int(app.render_dof), app.render_blur, int(picked), focus.x, focus.y, focus.z, int(app.ui.focus_armed))
 			env := app.env
 			fmt.printfln("environment=%s environment_size=%dx%d environment_background=%d environment_mb=%.1f", "image" if env.kind == .Image && env.gpu.source != 0 else "built_in", env.gpu.width, env.gpu.height, int(env.background), f32(render.environment_bytes(env.gpu)) / (1024 * 1024))
+			{
+				sel := selected_object(app)
+				uv_islands, uv_filled := -1, f32(0)
+				if sel != nil && sel.voxel == nil && uv.has(sel.levels.uvs) do uv_islands, uv_filled = sel.levels.uvs.islands, sel.levels.uvs.filled
+				fmt.printfln("unwraps=%d unwrap_islands=%d unwrap_ms=%.1f uv_islands=%d uv_filled=%.3f", app.unwraps.runs, app.unwraps.islands, app.unwraps.ms, uv_islands, uv_filled)
+			}
 			{
 				sel := selected_object(app)
 				stack_rows, mirror, array, radial, along := 0, "none", 0, 0, 0

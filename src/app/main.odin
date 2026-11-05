@@ -288,6 +288,7 @@ App :: struct {
 	turntable_frames: i32, // how many frames it takes, remembered
 	print_unit:    Print_Unit, // Scene > 3D print's unit, remembered
 	print_exports: int, // files exported for printing, for the exit stats
+	unwraps:     Unwrap_Stats, // Unwrap's runs (unwrap.odin), for the exit stats
 	stack_bakes: int, // exports, link sends and boolean marks that took a live stack baked (stack_bake), for the exit stats
 	print_bed:     [3]f32, // the printer's bed in millimetres (Settings > Files > 3D printer); 0 for the default
 	print_wall:    f32, // the least wall a print should have, in millimetres; 0 for the default

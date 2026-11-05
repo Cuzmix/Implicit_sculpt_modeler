@@ -127,6 +127,7 @@ Section :: enum u8 {
 	Booleans,
 	Extract,
 	Mirror,
+	Uvs,
 	Retopo,
 	Project,
 	// Mask.
@@ -183,7 +184,7 @@ section_card :: proc(sec: Section) -> Card {
 }
 
 // The group a long card's section `sec` belongs to, named over the first of its sections
-// shown, or "" for a section in none. The Tool card's are Common and More; the Mesh card's ten sections fall into what changes
+// shown, or "" for a section in none. The Tool card's are Common and More; the Mesh card's eleven sections fall into what changes
 // the mesh's resolution, what rebuilds it, what joins or splits it and what lays a surface
 // over it.
 section_group :: proc(sec: Section) -> string {
@@ -196,7 +197,7 @@ section_group :: proc(sec: Section) -> string {
 	case .Levels, .Hd, .Topology:        return "RESOLUTION"
 	case .Remesh, .Voxels:               return "REBUILD"
 	case .Booleans, .Extract, .Mirror:   return "COMBINE"
-	case .Retopo, .Project:              return "SURFACE"
+	case .Uvs, .Retopo, .Project:        return "SURFACE"
 	}
 	return ""
 }
@@ -205,7 +206,7 @@ section_group :: proc(sec: Section) -> string {
 // opens short and says how the rest are set.
 CARDS_SHUT_DEFAULT :: bit_set[Section]{
 	.Preset, .Paint_Color, .Samples, .Pen, .Options, .Recorder,
-	.Hd, .Topology, .Remesh, .Mirror, .Voxels, .Retopo, .Booleans, .Extract, .Project,
+	.Hd, .Topology, .Remesh, .Mirror, .Voxels, .Uvs, .Retopo, .Booleans, .Extract, .Project,
 	.Sets, .Groups, .Visibility,
 	.Morph, .Deform, .Deformers,
 	.Textures,
@@ -342,6 +343,7 @@ SECTION_ICONS := [Section]rune {
 	.Remesh      = ICON_REMESH,
 	.Mirror      = ICON_SYMMETRY,
 	.Voxels      = ICON_VOXEL_CLAY,
+	.Uvs         = rune(0xe4ee), // scissors-line-dashed: seams
 	.Retopo      = ICON_RETOPO,
 	.Booleans    = ICON_BOOLEAN,
 	.Extract     = ICON_SPLIT,
@@ -436,6 +438,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Section) {
 	.Check_Mesh            = .Mirror,
 	.Fix_Mesh              = .Mirror,
 	.Delete_Half           = .Mirror,
+	.Unwrap                = .Uvs,
 	.Mask                  = .Mask,
 	.Store_Selection_Set   = .Sets,
 	.Group                 = .Groups,
@@ -621,6 +624,8 @@ section_summary :: proc(app: ^App, sec: Section) -> string {
 		return fmt.tprintf("%g mm a unit", print_scale(app))
 	case .Floor:
 		return "Grid on" if app.floor.on else "Grid off"
+	case .Uvs:
+		return uvs_summary(obj)
 	}
 	return ""
 }

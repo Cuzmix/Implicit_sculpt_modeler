@@ -14,20 +14,19 @@ import "../render"
 import "../sculpt"
 import "../uv"
 import "../ui"
-import "../retopo"
 
 // Texture maps on a retopologized object (stage 3.3, notes/rendering/textured-preview-
 // design.md): the bake leaves its base colour, ORM and normal maps on the quad object it
 // baked onto, the scene file keeps them, and the viewport shows them through the object's
 // UVs in place of its clay (render/textured.odin) while View > Textures says so. The maps
 // follow the UV layout they were made on: they live while the object's quads and UVs do
-// (textures_settle) and go with New UVs in the same undo step.
+// (textures_settle) and go with Unwrap in the same undo step.
 
 // An object's maps as image files (PNG from a bake), owned; nil for none.
 Object_Textures :: struct {
 	image: [render.Texture_Map][]u8,
 	stamp: u32, // changes on every change, for the GPU copy (Texture_Preview.maps_stamp)
-	// Changes when a .Textures step replaces the object's UV layout (New UVs, its undo
+	// Changes when a .Textures step replaces the object's UV layout (Unwrap, its undo
 	// and redo), for the preview's vertices (Texture_Preview.layout); not saved, and kept
 	// when the maps are replaced.
 	layout: u32,
@@ -144,7 +143,7 @@ textures_replace :: proc(app: ^App, obj: ^Object, t: Object_Textures, what: stri
 	app.scene_edits += 1
 }
 
-// What a .Textures undo step keeps: the object's maps (and, for New UVs, its UVs)
+// What a .Textures undo step keeps: the object's maps (and, for Unwrap, its UVs)
 // on the other side of the change. Undo and redo swap them with the object's, so the same
 // step goes back and forth.
 Texture_Step :: struct {
@@ -179,23 +178,6 @@ texture_step_swap :: proc(obj: ^Object, step: ^Texture_Step) {
 		obj.levels.uvs, step.uvs = step.uvs, obj.levels.uvs
 		obj.textures.layout += 1
 	}
-}
-
-// New UVs as a scene command: lays the selected quad object's UVs out again and drops its
-// maps, which followed the old layout, in one undo step.
-object_layout_uvs :: proc(app: ^App, obj: ^Object) {
-	if !sculpt.levels_has_quads(&obj.levels) do return
-	sculpt.levels_sync(&obj.levels)
-	layout := geom.quad_uv_unwrap(sculpt.levels_quad_mesh(&obj.levels), retopo.UV_PADDING, context.temp_allocator)
-	next, folded := sculpt.levels_uvs_from_layout(&obj.levels, layout, obj.levels.allocator)
-	if !folded {
-		report(app, Section.Retopo, {}, "New UVs on %s failed: its triangles are not all halves of its quads", object_label(obj))
-		return
-	}
-	had := object_has_textures(obj)
-	textures_replace(app, obj, {}, "new UVs", next)
-	note := ", its maps removed (they followed the old UVs)" if had else ""
-	report(app, Section.Retopo, {}, "New UVs on %s: %d charts filling %.0f%%%s", object_label(obj), layout.charts, 100 * layout.filled, note)
 }
 
 // What a .Textures step that loads map `m` is called in the History (constants: the
@@ -428,8 +410,12 @@ kit_textures_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	obj := selected_object(app)
 	kit_last_result(app, .Textures)
+	if obj != nil && obj.voxel == nil && sculpt.levels_has_quads(&obj.levels) && !sculpt.levels_has_uvs(&obj.levels) {
+		kit_uvs_ask(app, "This object has no UVs. Texture maps need them.")
+		return
+	}
 	if texture_target_check(obj) != "" {
-		ui.paragraph(ctx, "Shows and loads texture maps on an object with UVs: make one with Shape > Rebuild > Quads, then bake onto it under UVs and baking or load maps here.")
+		ui.paragraph(ctx, "Shows and loads texture maps on a quad object with UVs: make one with Shape > Rebuild > Quads, then bake onto it under Bake or load maps here.")
 		return
 	}
 	views := [len(render.Texture_View)]string{"Clay", "Maps", "Normal", "Checker"}

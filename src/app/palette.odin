@@ -179,6 +179,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Fix_Mesh         = "fix mesh integrity repair normals flipped faces recalculate outside duplicates",
 	.Delete_Half      = "delete by symmetry remove side cut half mirror",
 	.Retopologize     = "zremesher quadriflow quads retopo quad retopologize autoremesher",
+	.Unwrap           = "uv master smart uv project auto seams unwrap uvs layout texture coordinates flatten new uvs",
 	.Make_Boolean     = "live boolean subtract union intersect",
 	.Live_Boolean     = "preview subtract union intersect",
 	.Extract_Masked   = "extract shell",

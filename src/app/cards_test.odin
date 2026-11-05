@@ -16,7 +16,7 @@ every_section_has_one_card :: proc(t: ^testing.T) {
 		testing.expectf(t, found && (draw != nil || obj_draw != nil), "%v has nothing that draws it", sec)
 	}
 	for n, c in held do testing.expectf(t, n >= 1, "%v holds no section", c)
-	testing.expect_value(t, card_sections_count(.Mesh), 10)
+	testing.expect_value(t, card_sections_count(.Mesh), 11)
 	for c in Card {
 		got, ok := card_from_word(card_word(c))
 		testing.expect(t, ok && got == c)

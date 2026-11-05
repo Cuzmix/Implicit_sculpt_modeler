@@ -42,7 +42,7 @@ levels_set_uvs :: proc(l: ^Levels, layout: geom.Uv_Layout) -> bool {
 }
 
 // `layout` (one entry per quad, not taken) folded onto the base level's triangles, made
-// with `allocator`, for a caller that swaps it in itself (New UVs' undo step). False when
+// with `allocator`, for a caller that swaps it in itself (Unwrap's undo step). False when
 // a base triangle is no half of a quad.
 levels_uvs_from_layout :: proc(l: ^Levels, layout: geom.Uv_Layout, allocator := context.allocator) -> (uv.Uvs, bool) {
 	assert(len(layout.uvs) == len(l.faces.quads))

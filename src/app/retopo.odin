@@ -514,13 +514,18 @@ bake_source_of :: proc(app: ^App, src: ^Object, view: geom.Mesh, bvh: ^geom.Bvh)
 	return
 }
 
-// The interface's UVs and baking section: Quad Remesh itself is Shape > Rebuild's Quads.
+// The interface's Bake section: Quad Remesh itself is Shape > Rebuild's Quads, and the UVs
+// it bakes through are the UVs section's (unwrap.odin).
 kit_retopo_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	obj := selected_object(app)
 	kit_last_result(app, .Retopo)
-	if obj == nil || !sculpt.levels_has_quad_uvs(&obj.levels) {
-		ui.paragraph(ctx, "Bakes onto an object with UVs: make one with Shape > Rebuild > Quads, then select it here.")
+	if obj == nil || !sculpt.levels_has_quads(&obj.levels) {
+		ui.paragraph(ctx, "Bakes onto a quad object with UVs: make one with Shape > Rebuild > Quads, then select it here.")
+		return
+	}
+	if !sculpt.levels_has_uvs(&obj.levels) {
+		kit_uvs_ask(app, "This object has no UVs. Bakes need them.")
 		return
 	}
 	src := bake_source(app, obj)
@@ -536,9 +541,7 @@ kit_retopo_section :: proc(app: ^App) {
 		append(&ids, other.id)
 	}
 	if picked := ui.select(ctx, "bake from", names[:], chosen); picked >= 0 do app.ui.bake.source = ids[picked]
-	bake, uvs := kit_button_pair(ctx, "Bake maps...", "New UVs")
-	if bake do file_dialog(app, .Bake)
-	if uvs do app.ui.scene_command = {kind = .Layout_Uvs}
+	if ui.button(ctx, "Bake maps...", .Bordered) do file_dialog(app, .Bake)
 	ui.paragraph(ctx, "Bakes the source's detail (its top level) into normal and displacement maps on this object's UVs, with its colour and the other maps chosen under More options, and writes them with the quads as OBJ into a folder.")
 	if kit_more(app, .Retopo) {
 		sizes: [len(BAKE_SIZES)]string
