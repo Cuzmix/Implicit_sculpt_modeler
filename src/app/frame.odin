@@ -749,6 +749,10 @@ frame_events :: proc(app: ^App, loop: ^Frame_Loop, setting_up: bool) {
 				continue
 			}
 		}
+		// The Mask key (M unless rebound) holds Mask while down and latches it on a tap
+		// (modifiers.odin), so its going down never runs the command as well; once it went
+		// down outside typing, its release is the rail's too.
+		if (e.type == .KEY_DOWN || e.type == .KEY_UP) && mask_key_event(app, &e) do continue
 		if help_labels_key(app, &e) do continue
 		if e.type == .WINDOW_FOCUS_LOST do app.kit.passes.key_held, app.kit.labels.key_held = false, false
 		if pencil_event(app, &e) || pen_samples_event(app, &e) do continue
@@ -848,4 +852,27 @@ lod_budget :: proc(app: ^App, frame_start: time.Tick) -> time.Duration {
 	if hz <= 0 do return sculpt.LOD_FRAME_BUDGET
 	left := time.Duration(1e9 / f64(hz)) - time.tick_since(frame_start) - LOD_SLACK
 	return clamp(left, 0, sculpt.LOD_FRAME_BUDGET)
+}
+
+// Takes a key event that is the Mask key's (Mask_Key's binding, M as it comes) for the
+// dial's rail: down outside typing, with exactly its modifiers, it holds Mask; up, once it
+// went down so, it lets go, latching on a tap. True when the event was the rail's.
+mask_key_event :: proc(app: ^App, e: ^sdl.Event) -> bool {
+	key := key_of(e.key.key)
+	r := &app.rail
+	if e.type == .KEY_UP {
+		if !r.key.held || key != r.key_code do return false
+		rail_key(r, false, input_clock(app))
+		return true
+	}
+	if typing(app) do return false
+	for b in keymap(app) {
+		if b.command != .Mask_Key || b.chord.key != key || b.chord.mods != key_mods(e.key.mod) do continue
+		if !e.key.repeat {
+			r.key_code = key
+			rail_key(r, true, input_clock(app))
+		}
+		return true
+	}
+	return false
 }
