@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:math/linalg"
 import "core:strings"
 import "core:time"
@@ -28,8 +29,31 @@ Curve_Kind :: enum u8 {
 	Zipper, // a curve whose use is Along, alternate teeth
 }
 
+// Where the Curve tool's points land, as Blender's Draw tool's depth and the drawing planes
+// of Feather and Gravity Sketch: a pen on glass has no depth, so the plane gives it one.
+// Each plane but Surface passes through an anchor: the view's centre for a curve's first
+// point (on the floor grid's height for Floor), then the point before, so a curve stays on
+// one plane; dragging a point moves it on the plane through where it is.
+Curve_Plane :: enum u8 {
+	Surface, // on the model under the pen, else the plane facing the view
+	View, // facing the view
+	Floor, // level, square to Y
+	Front, // upright, square to Z
+	Side, // upright, square to X
+}
+
+@(rodata)
+CURVE_PLANE_NAMES := [Curve_Plane]string {
+	.Surface = "Surface",
+	.View    = "View",
+	.Floor   = "Floor",
+	.Front   = "Front",
+	.Side    = "Side",
+}
+
 Curve_Tool :: struct {
 	kind:   Curve_Kind,
+	plane:  Curve_Plane,
 	size:   f32, // the tube's width, or the stitches' or zipper's, over the brush's diameter
 	lift:   f32, // the tube's middle out from the surface, over its radius (1 rests on it)
 	sides:  i32, // round the tube
@@ -122,6 +146,72 @@ scene_raycast_surface :: proc(app: ^App, origin, dir: Vec3, skip_curves := false
 	return
 }
 
+// How near to edge on, as the cosine between the eye's ray and a plane, a plane may be
+// seen and still take points: nearer, a point would land far off, so it lands on the plane
+// facing the view through the anchor instead.
+CURVE_PLANE_GRAZE :: 0.05
+
+// The plane `plane` through `anchor` (world space): a point on it and its normal, turned
+// toward the viewer. Surface's plane, for points off the model, faces the view: square to
+// the view's direction, so it lies flat to the screen wherever the anchor is.
+curve_plane_at :: proc(app: ^App, plane: Curve_Plane, anchor: Vec3) -> (at, normal: Vec3) {
+	toward := camera.orbit_toward(app.camera, app.camera.target)
+	at = anchor
+	switch plane {
+	case .Surface, .View:
+		normal = -toward
+	case .Floor:
+		normal = {0, 1, 0}
+	case .Front:
+		normal = {0, 0, 1}
+	case .Side:
+		normal = {1, 0, 0}
+	}
+	if linalg.dot(normal, toward) > 0 do normal = -normal
+	return
+}
+
+// Where the ray from `origin` along `dir` meets `plane` through `anchor`, with the plane's
+// normal toward the viewer. A plane seen edge on gives way to the one facing the view
+// through the anchor; false only when the ray runs away from that too.
+curve_plane_hit :: proc(app: ^App, origin, dir: Vec3, plane: Curve_Plane, anchor: Vec3) -> (p, normal: Vec3, ok: bool) {
+	at, n := curve_plane_at(app, plane, anchor)
+	if abs(linalg.dot(dir, n)) < CURVE_PLANE_GRAZE do at, n = curve_plane_at(app, .View, anchor)
+	den := linalg.dot(dir, n)
+	if abs(den) < 1e-6 do return
+	t := linalg.dot(at - origin, n) / den
+	if t <= 0 do return
+	return origin + dir * t, n, true
+}
+
+// The anchor of a curve's first point: the view's centre, on the floor grid's height for
+// Floor, so a first point lands where the grid shows.
+curve_first_anchor :: proc(app: ^App) -> Vec3 {
+	at := app.camera.target
+	if app.curve.plane == .Floor {
+		bounds := app.floor_state.bounds if app.floor_state.key != 0 else floor_scene_bounds(app)
+		at.y = floor_grid_place(bounds, camera.orbit_eye(app.camera), app.floor).at[1]
+	}
+	return at
+}
+
+// The anchor of the next point placed by taps: the last one placed, or the first anchor.
+curve_next_anchor :: proc(app: ^App) -> Vec3 {
+	c := &app.curve
+	return c.placing[len(c.placing) - 1] if len(c.placing) > 0 else curve_first_anchor(app)
+}
+
+// Where a point of the Curve tool lands under `pos` (a viewport point): on the model under
+// it with Surface, else on the Draw on plane through `anchor`; with the surface's normal
+// there, or the plane's toward the viewer.
+curve_land :: proc(app: ^App, pos, size: [2]f32, anchor: Vec3) -> (p, normal: Vec3, ok: bool) {
+	origin, dir := mouse_ray(app.camera, pos, size)
+	if app.curve.plane == .Surface {
+		if _, hit, n, on := scene_raycast_surface(app, origin, dir, skip_curves = true); on do return hit, n, true
+	}
+	return curve_plane_hit(app, origin, dir, app.curve.plane, anchor)
+}
+
 // Follows a Curve drag; on release makes its object. Returns false only on a GPU failure.
 curve_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	c := &app.curve
@@ -204,20 +294,10 @@ curve_drawn :: proc(app: ^App, pos, size: [2]f32) {
 			return
 		}
 	}
-	origin, dir := mouse_ray(app.camera, pos, size)
-	if _, hit, n, ok := scene_raycast_surface(app, origin, dir, skip_curves = true); ok {
+	if hit, n, ok := curve_land(app, pos, size, curve_next_anchor(app)); ok {
 		if len(c.placing) == 0 do c.radius = app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, size.y)
 		append(&c.placing, hit)
 		append(&c.placing_n, n)
-	} else if len(c.placing) > 0 {
-		// Off the model, on the plane facing the view through the last point, lifted toward
-		// the viewer.
-		last := c.placing[len(c.placing) - 1]
-		facing := camera.orbit_toward(app.camera, last)
-		if den := linalg.dot(dir, facing); abs(den) > 1e-6 {
-			append(&c.placing, origin + dir * (linalg.dot(last - origin, facing) / den))
-			append(&c.placing_n, -facing)
-		}
 	}
 }
 
@@ -242,12 +322,12 @@ curve_place_finish :: proc(app: ^App, closed: bool) {
 	curve_kind_add(app, points, c.placing_n[:], closed)
 }
 
-// Adds the surface point under `pos` (a viewport point) to the path, when there is one
-// far enough from the last.
+// Adds the point under `pos` (a viewport point) to the path, where it lands (curve_land),
+// when it is far enough from the last. A drag keeps to the plane through its first point.
 curve_add_point :: proc(app: ^App, pos, size: [2]f32) {
 	c := &app.curve
-	origin, dir := mouse_ray(app.camera, pos, size)
-	_, hit, n, ok := scene_raycast_surface(app, origin, dir, skip_curves = true)
+	anchor := c.points[0].p if len(c.points) > 0 else curve_next_anchor(app)
+	hit, n, ok := curve_land(app, pos, size, anchor)
 	if !ok do return
 	if len(c.points) == 0 do c.radius = app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, size.y)
 	if len(c.points) > 0 && linalg.length(hit - c.points[len(c.points) - 1].p) < 0.05 * c.radius do return
@@ -365,6 +445,39 @@ draw_curve_overlay :: proc(app: ^App, o: Overlay) {
 		for at, i in line do overlay_disc(o, at, (6 if i == 0 else 4) * o.scale, color)
 	}
 	if s := &app.insert; s.active do overlay_circle(o, s.start, s.px, color, 1.5)
+	if app.tool == .Curve && app.curve.plane != .Surface do draw_curve_plane(app, o)
+}
+
+// About how far apart, in pixels, the drawing plane's grid lines are, and how many cells
+// the grid reaches each way from its middle.
+CURVE_GRID_PX :: 48
+CURVE_GRID_CELLS :: 6
+
+// The Draw on plane while the Curve tool is on, as a faint grid round where the next point
+// lands (the drag's first point while drawing), ringed there, so the depth a point takes
+// shows before it lands. An axis plane's lines keep to the world's grid of that cell size.
+@(private = "file")
+draw_curve_plane :: proc(app: ^App, o: Overlay) {
+	c := &app.curve
+	size := app.ui.viewport_size
+	anchor := c.points[0].p if c.active && len(c.points) > 0 else curve_next_anchor(app)
+	at, n := curve_plane_at(app, c.plane, anchor)
+	cell := floor_cell_fit(camera.orbit_world_per_px(app.camera, at, size.y) * CURVE_GRID_PX * 8)
+	u := linalg.normalize(linalg.cross(n, Vec3{1, 0, 0} if abs(n.y) > 0.9 else Vec3{0, 1, 0}))
+	v := linalg.cross(n, u)
+	if c.plane != .View do for i in 0 ..< 3 do if abs(n[i]) < 0.5 do at[i] = math.round(at[i] / cell) * cell
+	view_proj := edit_view_proj(app, size)
+	color := overlay_color({0.4, 0.85, 1, 0.18})
+	reach := f32(CURVE_GRID_CELLS) * cell
+	for i in -CURVE_GRID_CELLS ..= CURVE_GRID_CELLS {
+		off := f32(i) * cell
+		for pair in ([2][2]Vec3{{u, v}, {v, u}}) {
+			a, ok_a := gizmo.project(view_proj, at + pair[0] * off - pair[1] * reach, size)
+			b, ok_b := gizmo.project(view_proj, at + pair[0] * off + pair[1] * reach, size)
+			if ok_a && ok_b do overlay_line(o, a, b, color, 1)
+		}
+	}
+	if mid, ok := gizmo.project(view_proj, anchor, size); ok do overlay_circle(o, mid, 5 * o.scale, overlay_color({0.4, 0.85, 1, 0.6}), 1)
 }
 
 // The Curve tool's settings in the interface.
@@ -374,6 +487,10 @@ kit_curve_settings :: proc(app: ^App) {
 	kinds: [len(Curve_Kind)]string
 	for kind, i in Curve_Kind do kinds[i] = fmt.tprint(kind)
 	if picked := ui.tabs(ctx, "curve kind", kinds[:], int(c.kind)); picked >= 0 do c.kind = Curve_Kind(picked)
+	ui.label(ctx, "Draw on", ctx.theme.small_size)
+	planes: [len(Curve_Plane)]string
+	for name, plane in CURVE_PLANE_NAMES do planes[int(plane)] = name
+	if picked := ui.tabs(ctx, "curve plane", planes[:], int(c.plane)); picked >= 0 do c.plane = Curve_Plane(picked)
 	_ = ui.slider(ctx, "Width", &c.size, 0.05, 2, .Logarithmic, fmt.tprintf("%.2f x brush", c.size))
 	if c.kind == .Tube {
 		_ = ui.slider(ctx, "Lift", &c.lift, -1, 2, .Linear, fmt.tprintf("%.2f radius", c.lift))

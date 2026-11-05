@@ -1403,6 +1403,38 @@ def curve_drawn_by_pen_undone_and_redone():
 
 
 @scenario
+def curve_drawn_on_the_floor_of_an_empty_scene():
+    """With Draw on Floor and nothing in the scene, a pen drag makes a curve lying on the floor
+    grid's height, one undo step; the plane's grid shows while the tool is on (look with
+    --screens)."""
+    s = Script()
+    pen_stroke(s, [(600, 600), (650, 560), (720, 545), (790, 560), (860, 600), (930, 640), (1000, 650)])
+    s.wait(3)
+    return s, ["--script=select 1; delete_object; tool_curve; set curve curve; set curve_plane floor"], camera_still(
+        {"objects": near(1), "curves": near(1), "curves_made": near(1), "curve_points": lambda v: 2 <= int(v) <= 12,
+         "undo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
+def curve_tapped_off_the_model_from_its_first_point():
+    """With Draw on Surface, taps that all miss the model still place points (the first on the
+    plane facing the view through its centre), and Enter makes them a curve of three points,
+    one undo step."""
+    s = Script()
+    for x, y in [(160, 220), (300, 160), (420, 260)]:
+        s.add("pnear")
+        s.add(f"pdown:{x},{y}")
+        s.wait(1)
+        s.add("pup")
+        s.add("pfar")
+        s.wait(2)
+    s.press("return")
+    s.wait(3)
+    return s, ["--script=tool_curve; set curve curve"], camera_still({"curves": near(1), "curve_points": near(3), "curve_placing": near(0),
+                                                                     "undo_steps": near(1)})
+
+
+@scenario
 def curve_placed_by_taps_shows_its_line():
     """Three pen taps on the model and a tap back on the first close a curve, drawn over the
     model as a line with its points while selected (look with --screens)."""
