@@ -533,6 +533,7 @@ kit_curve_settings :: proc(app: ^App) {
 			hints: [len(geom.Handle_Type)]string
 			for &h, i in hints do h = command_hint(app, .Curve_Handles, i)
 			if picked := ui.tabs(ctx, "curve handles", types[:], shown, keys = hints[:]); picked >= 0 do command_run(app, .Curve_Handles, picked)
+			kit_curve_point_section(app, obj)
 		}
 		if selected_curve(app) != nil {
 			// The run of points: Join, Split and Reverse, a third of the width each.
@@ -670,7 +671,7 @@ kit_curve_look :: proc(app: ^App, obj: ^Object) {
 			}
 		}
 		// The width along: the radius from the curve's start to its end, as Blender's taper.
-		ui.label(ctx, "Width along")
+		ui.label(ctx, "Width along", ctx.theme.small_size)
 		widths := [len(geom.Width_Preset)]string{"Even", "Taper", "Both ends", "Bulge"}
 		if picked := ui.tabs(ctx, "tube width", widths[:], -1); picked >= 0 {
 			o.width = geom.width_preset(geom.Width_Preset(picked))

@@ -197,7 +197,7 @@ Surface :: struct {
 	mask:   []u8,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Bake_Curve, Curve_Cage, Skin_Apply, Squeeze, Stack_Apply}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Curve_Points, Bake_Curve, Curve_Cage, Skin_Apply, Squeeze, Stack_Apply}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
@@ -260,6 +260,7 @@ Scene_Command :: struct {
 	look_drag: bool, // Cage_Look: from a slider being dragged, one undo step when it lets go
 	crease:   Cage_Crease, // Crease_Cage: which
 	curve:    Curve_Look, // Curve_Look: what the selected curve makes and its options (look_drag as Cage_Look's)
+	points:   Curve_Point_Values, // Curve_Points: the picked points' middle, radius and tilt wanted (look_drag too)
 	// Remesh, Subdivide: the memory check before it passed or was answered (memory_check.odin).
 	checked:  bool,
 }
@@ -946,7 +947,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		inspector_drags_end(app)
 		// A look slider's own commands carry on its drag.
 		if cmd.kind != .Cage_Look || !cmd.look_drag do cage_look_drag_end(app, force = true)
-		if cmd.kind != .Curve_Look || !cmd.look_drag do curve_look_drag_end(app, force = true)
+		if (cmd.kind != .Curve_Look && cmd.kind != .Curve_Points) || !cmd.look_drag do curve_look_drag_end(app, force = true)
 	}
 	if obj := selected_object(app); obj != nil && obj.voxel != nil && cmd.kind in MESH_ONLY_COMMANDS {
 		report(app, Section.Voxels, {.Warning}, "%v needs a mesh: convert %s to a mesh first (Voxels card)", cmd.kind, object_label(obj))
@@ -1018,6 +1019,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_crease_cage(app, obj, cmd.crease)
 	case .Curve_Look:
 		if obj := selected_object(app); obj != nil && obj.curve != nil do return object_set_curve_look(app, obj, cmd.curve, cmd.look_drag)
+	case .Curve_Points:
+		if obj := selected_object(app); obj != nil && obj.curve != nil do return curve_set_point_values(app, obj, cmd.points, cmd.look_drag)
 	case .Bake_Curve:
 		if obj := selected_object(app); obj != nil && obj.curve != nil do return curve_bake(app, obj)
 	case .Skin_Apply:
