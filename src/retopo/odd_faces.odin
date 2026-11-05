@@ -110,9 +110,10 @@ onto :: proc(surface: geom.Mesh, bvh: ^geom.Bvh, p: geom.Vec3, hint: ^u32) -> ge
 // they stay as they are, out of every path, and their edges are border. `planes` (per vertex, or nil) is
 // the seam's: a vertex put on a seam edge gets the planes both its ends share, and a seam
 // vertex stays where it is. New vertices go onto `surface` through `bvh`, or through a
-// tree built here when that is nil. Returns how many odd faces were mended and how many
-// are left.
-quad_fill_odd :: proc(m: ^quadmesh.Polygon_Mesh, dropped: ^[]bool, planes: ^[dynamic]u8, surface: geom.Mesh, bvh: ^geom.Bvh, pool: ^jobs.Pool) -> (mended, left: int) {
+// tree built here when that is nil. With `keep_border` (Keep borders) a path ends at the
+// seam alone, never at the mesh's own border, which then keeps its vertices and edges as
+// they are. Returns how many odd faces were mended and how many are left.
+quad_fill_odd :: proc(m: ^quadmesh.Polygon_Mesh, dropped: ^[]bool, planes: ^[dynamic]u8, surface: geom.Mesh, bvh: ^geom.Bvh, pool: ^jobs.Pool, keep_border := false) -> (mended, left: int) {
 	faces := len(m.first) - 1
 	odd_faces := make([dynamic]i32, context.temp_allocator)
 	for f in 0 ..< faces {
@@ -156,6 +157,9 @@ quad_fill_odd :: proc(m: ^quadmesh.Polygon_Mesh, dropped: ^[]bool, planes: ^[dyn
 	touched := make([dynamic]u32, context.temp_allocator)
 	hint := geom.BVH_NONE
 
+	// A kept border takes no path, so an odd face beside it may have to go further for a
+	// partner, and a seam of halved quads is then worth it.
+	reach := i32(ODD_PATH_MAX * (2 if keep_border else 1))
 	for s in odd_faces {
 		if e.gone[s] || (e.first[s + 1] - e.first[s]) % 2 == 0 do continue
 		// Breadth first over the quads from s, to the first odd face or border edge. The
@@ -182,6 +186,7 @@ quad_fill_odd :: proc(m: ^quadmesh.Polygon_Mesh, dropped: ^[]bool, planes: ^[dyn
 				key := edge_key(c, corners[(k + 1) % len(corners)])
 				at := e.edges[key]
 				if at.count == 1 {
+					if keep_border && (planes == nil || planes[key[0]] & planes[key[1]] == 0) do continue
 					end_face, end_edge, end_border = f, key, true
 					break search
 				}
@@ -196,7 +201,7 @@ quad_fill_odd :: proc(m: ^quadmesh.Polygon_Mesh, dropped: ^[]bool, planes: ^[dyn
 					end_face, end_edge = g, key
 					break search
 				}
-				if n != 4 || hops[f] + 1 > ODD_PATH_MAX do continue
+				if n != 4 || hops[f] + 1 > reach do continue
 				parent[g] = f
 				via[g] = key
 				hops[g] = hops[f] + 1

@@ -300,6 +300,13 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	dump_thin(params.dump, i, w.island, thin)
 	island_destroy(&w.island)
 	w.island = thin
+	// The frozen border, which the thinning kept as it was and every stage after keeps, and
+	// the isotropic edge graded from it, which may ask more quads than the island's share
+	// when the border alone needs them (frozen.odin).
+	border := frozen_border(w.island)
+	defer frozen_border_destroy(&border)
+	away := d.quad_edge
+	if len(border.points) > 0 do w.cells, away = frozen_grade(&w.island, border, d.quad_edge, w.cells)
 	add_ns(&d.decimate_ns, t0)
 
 	t1 := time.tick_now()
@@ -318,6 +325,12 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	island_destroy(&w.island)
 	add_ns(&d.isotropic_ns, t1)
 	sync.atomic_add(&d.isotropic_triangles, len(iso.triangles))
+	// The frozen border's band on the isotropic mesh: the field turns by its sizes and the
+	// landing's first cover is sized by them, and each cover grades them again at its own
+	// scaling (frozen_regrade).
+	band: Frozen_Band
+	defer frozen_band_destroy(&band)
+	if len(border.points) > 0 do band = frozen_band(&iso, away, d.quad_edge)
 	checks_isotropic(&w.checks, iso)
 	dump_isotropic(params.dump, i, iso)
 	if !driver_report(d, i, ISLAND_RESAMPLE_END) do return
@@ -378,6 +391,7 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	plan: Cover_Plan
 	plan, err = odin_cover_plan(iso, field, guided, f64(params.sharp_degrees), &run, &reason)
 	defer cover_plan_destroy(&plan)
+	if len(band.distance) > 0 do plan.band = &band
 	if err == .Failed {
 		fail_island(d, i, &reason, t2)
 		return
@@ -390,6 +404,9 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	defer cover_destroy(&cover)
 	defer cover_destroy(&best)
 	best_miss, under_scaling, under_cells, over_scaling, over_cells: f64
+	best_misses := 0
+	last_cells := f64(-1)
+	border_holds := false
 	best_scaling := scaling
 	for pass in 0 ..< LANDING_COVERS {
 		// The first cover takes the whole parameterize share of the bar; a later one the
@@ -412,13 +429,26 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 		if !landing || len(cover.uvs) == 0 do break
 		if cells <= 0 || cells_wanted <= 0 do break
 		miss := abs(cells / cells_wanted - 1.0)
-		if pass == 0 || miss < best_miss {
+		// With a frozen border, the cover that keeps more of its edges one step each wins
+		// before the count: the border's quads are set by its edges, and a scaling the
+		// count asks that they cannot follow squeezes them into steps of none.
+		misses := frozen_misses(cover, iso.corner_frozen) if len(border.points) > 0 else 0
+		if pass == 0 || misses < best_misses || (misses == best_misses && miss < best_miss) {
 			cover_destroy(&best)
 			best, cover = cover, {}
 			best_miss = miss
+			best_misses = misses
 			best_scaling = scaling
 		}
 		if best_miss <= LANDING_MISS || pass == LANDING_COVERS - 1 do break
+		// A frozen border sets the count near it, and where it sets the whole island's, a
+		// new scaling gives the cells of one before: the landing has nowhere to go, nor
+		// has the extraction's.
+		if len(border.points) > 0 && pass > 0 && abs(cells - last_cells) < 0.5 {
+			border_holds = true
+			break
+		}
+		last_cells = cells
 		// A cover a quarter of the ask or less, or four times it, came out folded up and
 		// says nothing of how the cells go with the scaling, so it bounds no bracket.
 		folded := cells * 4.0 <= cells_wanted || cells >= 4.0 * cells_wanted
@@ -491,7 +521,7 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 	// EXTRACT_TRIES more covers, each with its cells asked short or over by as much as the
 	// last came out, and the quads nearest the share kept; on a dense count the extraction
 	// lands within EXTRACT_MISS and nothing is redone.
-	if landing && w.cells > 0 {
+	if landing && !border_holds && w.cells > 0 {
 		at := best_scaling
 		kept := quads_kept(w.quads)
 		got := kept
@@ -537,6 +567,10 @@ island_remesh :: proc(d: ^Driver, i: int, serial: bool) {
 			}
 		}
 		err = .None
+	}
+	if len(border.points) > 0 {
+		frozen_mend(&w.quads, border, &w.checks)
+		checks_quads(&w.checks, w.quads)
 	}
 	dump_quads(params.dump, i, w.quads, w.checks)
 	_ = driver_report(d, i, 1)
@@ -824,6 +858,15 @@ islands_fill :: proc(d: ^Driver, vertices: [][3]f64, faces: [][3]u32, order: []u
 				}
 				w.island.refine[local[v]] = clamped(r)
 			}
+		}
+	}
+	// The frozen border, each island its vertices' share; none where nothing is marked.
+	if len(params.frozen) == len(vertices) {
+		for frozen, v in params.frozen {
+			if !frozen || owner[v] == NONE do continue
+			w := &d.islands[owner[v]]
+			if len(w.island.frozen) != len(w.island.positions) do w.island.frozen = make([]bool, len(w.island.positions), heap)
+			w.island.frozen[local[v]] = true
 		}
 	}
 	// A feature edge goes to the island of its ends, in that island's numbers.

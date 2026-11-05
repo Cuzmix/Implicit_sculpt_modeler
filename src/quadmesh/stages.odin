@@ -16,6 +16,7 @@ Island :: struct {
 	features:  [][2]u32, // feature edges, two vertex indices each (Params.features)
 	density:   []f64, // quads per area relative to the mean, one a vertex, or nil (Params.density)
 	refine:    []f64, // the isotropic edge's share, one a vertex, or nil (Params.refine)
+	frozen:    []bool, // border vertices kept as they are, one a vertex, or nil (Params.frozen)
 }
 
 // The isotropic remesh of an island: the triangles the cover is solved on.
@@ -24,6 +25,7 @@ Isotropic :: struct {
 	triangles:      [][3]u32,
 	vertex_scale:   []f64, // the quad size the density asks, one a vertex, or nil
 	corner_feature: []u8, // three a triangle: 1 where the edge from that corner to the next is a feature edge; nil for none
+	corner_frozen:  []bool, // three a triangle: where the edge from that corner to the next is a border kept as it is; nil for none
 	mean_edge:      f64, // the mean edge length, which the cover's scaling multiplies
 }
 
@@ -48,6 +50,7 @@ island_destroy :: proc(m: ^Island) {
 	delete(m.features, a)
 	delete(m.density, a)
 	delete(m.refine, a)
+	delete(m.frozen, a)
 	m^ = {}
 }
 
@@ -57,6 +60,7 @@ isotropic_destroy :: proc(m: ^Isotropic) {
 	delete(m.triangles, a)
 	delete(m.vertex_scale, a)
 	delete(m.corner_feature, a)
+	delete(m.corner_frozen, a)
 	m^ = {}
 }
 

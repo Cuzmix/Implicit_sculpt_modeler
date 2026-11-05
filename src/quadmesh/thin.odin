@@ -44,6 +44,7 @@ odin_thin :: proc(island: Island, voxel_size, quad_edge, sharp_degrees: f64, poo
 	out.triangles = slice.clone(island.triangles, heap)
 	if len(island.density) == len(island.positions) do out.density = slice.clone(island.density, heap)
 	if len(island.refine) == len(island.positions) do out.refine = slice.clone(island.refine, heap)
+	if len(island.frozen) == len(island.positions) do out.frozen = slice.clone(island.frozen, heap)
 	if len(out.positions) == 0 || len(out.triangles) == 0 || !(voxel_size > 0) do return out, false, .None
 
 	// Where the density asks for smaller quads, or the refinement for finer triangles, the
@@ -113,11 +114,19 @@ odin_thin :: proc(island: Island, voxel_size, quad_edge, sharp_degrees: f64, poo
 		return out
 	}
 	density, refine := carry(out.density, from[:], heap), carry(out.refine, from[:], heap)
+	// The decimation keeps every vertex of an open edge where it is (Simplify_Guide's zero
+	// value), so a frozen border comes through it whole.
+	frozen: []bool
+	if out.frozen != nil {
+		frozen = make([]bool, len(from), heap)
+		for v, i in from do frozen[i] = out.frozen[v]
+	}
 	delete(out.positions, heap)
 	delete(out.triangles, heap)
 	delete(out.density, heap)
 	delete(out.refine, heap)
-	out.positions, out.triangles, out.density, out.refine = positions, triangles, density, refine
+	delete(out.frozen, heap)
+	out.positions, out.triangles, out.density, out.refine, out.frozen = positions, triangles, density, refine, frozen
 	return out, true, .None
 }
 

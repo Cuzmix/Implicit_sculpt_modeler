@@ -219,6 +219,47 @@ quad_remesh_closes_an_open_mesh_first :: proc(t: ^testing.T) {
 	testing.expectf(t, after.volume > 1.4 && after.volume < 2.8, "volume %.2f is not a half ball's", after.volume)
 }
 
+// Keep borders: an open hemisphere comes back with every vertex of its rim where it was
+// and one quad edge between each two, all quads (the finish pairs the triangles the
+// extraction left by paths inside, never through the rim), whole or as a mirrored half.
+@(test)
+quad_remesh_keeps_the_border :: proc(t: ^testing.T) {
+	m := geom.icosphere(4)
+	defer geom.mesh_destroy(&m)
+	kept := make([dynamic]u32, 0, len(m.indices))
+	defer delete(kept)
+	for k := 0; k < len(m.indices); k += 3 {
+		a, b, c := m.indices[k], m.indices[k + 1], m.indices[k + 2]
+		if (m.positions[a].z + m.positions[b].z + m.positions[c].z) > 0 do append(&kept, a, b, c)
+	}
+	resize(&m.indices, len(kept))
+	copy(m.indices[:], kept[:])
+	rim := geom.mesh_check(m).boundary_edges
+	// The rim's vertices: those on an edge of one triangle.
+	uses := make(map[[2]u32]int, len(m.indices), context.temp_allocator)
+	for k := 0; k < len(m.indices); k += 3 do for j in 0 ..< 3 {
+		a, b := m.indices[k + j], m.indices[k + (j + 1) % 3]
+		uses[{min(a, b), max(a, b)}] += 1
+	}
+	border := make(map[geom.Vec3]bool, 2 * rim, context.temp_allocator)
+	for e, n in uses do if n == 1 do border[m.positions[e[0]]], border[m.positions[e[1]]] = true, true
+	for mirror in ([2]geom.Remesh_Mirror{{}, {axes = {true, false, false}}}) {
+		r := compute(shape_view(&m), 600, {engine = .Auto, keep_borders = true, mirror = mirror}, nil)
+		defer result_destroy(&r)
+		if !testing.expectf(t, r.built && r.engine == .Auto, "mirror %v: nothing built by AutoRemesher (%s)", mirror.axes, r.reason) do continue
+		testing.expectf(t, r.mirrored == (mirror.axes != {}), "mirror %v: mirrored %v (%s)", mirror.axes, r.mirrored, r.unmirrored)
+		at := make(map[geom.Vec3]bool, len(r.mesh.positions), context.temp_allocator)
+		for p in r.mesh.positions do at[p] = true
+		missing := 0
+		for p in border do if !at[p] do missing += 1
+		check := geom.mesh_check(r.mesh)
+		log.infof("keep borders, mirror %v: %d quads of %d faces, %d of %d rim vertices kept, %d boundary edges for %d, %d border vertices held", mirror.axes, r.quads, r.faces, len(border) - missing, len(border), check.boundary_edges, rim, r.borders)
+		testing.expectf(t, missing == 0, "mirror %v: %d of %d rim vertices moved", mirror.axes, missing, len(border))
+		testing.expectf(t, check.boundary_edges == rim && check.non_manifold_edges == 0, "mirror %v: %d boundary edges for %d, %d non-manifold", mirror.axes, check.boundary_edges, rim, check.non_manifold_edges)
+		testing.expectf(t, r.faces - r.quads <= 1, "mirror %v: %d quads of %d faces", mirror.axes, r.quads, r.faces)
+	}
+}
+
 // Adaptive size puts smaller quads where the surface bends and larger ones where it is
 // flat, and the count stays what was asked: the triangles' areas spread wider than at Even.
 @(test)

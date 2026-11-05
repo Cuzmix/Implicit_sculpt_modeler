@@ -36,6 +36,7 @@ UNJUDGED :: i8(-1) // not looked at by angle (every edge made after the first sp
 SMOOTH :: i8(0)
 SHARP :: i8(1) // sharper than the stage's angle, or a border
 CALLER :: i8(2) // one of the caller's feature edges, held on its polyline
+FROZEN :: i8(3) // a border kept as it is (Params.frozen): never split or collapsed, its vertices never moved
 
 work_mesh_destroy :: proc(m: ^Work_Mesh) {
 	delete(m.pos)
@@ -53,10 +54,11 @@ work_mesh_destroy :: proc(m: ^Work_Mesh) {
 }
 
 // The working mesh of an island: its triangles but those that repeat a vertex, the
-// caller's feature edges marked, torn edges cut, and pinches split. `target` and
+// caller's feature edges marked, the border edges both of whose ends are `frozen` (one a
+// vertex, or nil) marked FROZEN, torn edges cut, and pinches split. `target` and
 // `payload` (one a vertex, or nil) come along with the vertices. Returns how many vertices
 // the pinches added, how many edges were torn and how many triangles were dropped.
-work_mesh_build :: proc(positions: [][3]f64, triangles: [][3]u32, features: [][2]u32, target, payload: []f64) -> (m: Work_Mesh, fans_split, torn, dropped: int) {
+work_mesh_build :: proc(positions: [][3]f64, triangles: [][3]u32, features: [][2]u32, target, payload: []f64, frozen: []bool = nil) -> (m: Work_Mesh, fans_split, torn, dropped: int) {
 	heap := runtime.heap_allocator()
 	n := len(positions)
 	m.pos = make([dynamic][3]f64, n, heap)
@@ -137,6 +139,14 @@ work_mesh_build :: proc(positions: [][3]f64, triangles: [][3]u32, features: [][2
 		for c in filed[first[lo]:first[lo + 1]] do if other(&m, c, lo) == hi {
 			m.state[c] = CALLER
 			m.featured[lo], m.featured[hi] = true, true
+		}
+	}
+	if len(frozen) == n {
+		for c in 0 ..< corners {
+			a, b := m.vert[c], m.vert[corner_next(u32(c))]
+			if m.twin[c] != NONE || !frozen[a] || !frozen[b] do continue
+			m.state[c] = FROZEN
+			m.featured[a], m.featured[b] = true, true
 		}
 	}
 

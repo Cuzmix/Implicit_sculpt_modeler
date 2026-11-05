@@ -275,6 +275,10 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 				_ = ui.slider(ctx, "Guide strength" if guides > 0 else "Guide strength (no guides)", &app.ui.retopo_guide_strength, 0, 1, .Linear, "Off" if g == 0 else fmt.tprintf("%.0f%%", 100 * g), enabled = guides > 0)
 			}
 			_ = ui.switch_row(ctx, "Close first", &app.ui.retopo_close_first)
+			// Keep borders, as ZRemesher's FreezeBorder: an open mesh's border comes back
+			// as it was, so the result welds onto what it was cut from. Close first leaves
+			// no border to keep.
+			if app.ui.retopo_engine == .Auto do _ = ui.switch_row(ctx, "Keep borders", &app.ui.retopo_keep_borders, enabled = !app.ui.retopo_close_first)
 			kit_keep_symmetry(app, &app.ui.retopo_keep_symmetry)
 			kit_more_end(app)
 		}

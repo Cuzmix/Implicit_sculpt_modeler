@@ -46,6 +46,13 @@ Params :: struct {
 	// the field can follow), as ZRemesher's Curves and Curves Strength. Nil for none.
 	guides:         []geom.Vec3,
 	guide_strength: f32,
+	// Border vertices kept as they are (one per position, or nil), as ZRemesher's
+	// FreezeBorder: a border edge whose two ends are marked comes back as one quad edge
+	// between the same two points, so the result welds back onto what it was cut from,
+	// and the quads beside it take its length and grow to the quad size away from it
+	// (frozen.odin). The rest of a border (a symmetric half's cut) is remeshed along a
+	// line of the grid as before.
+	frozen:         []bool,
 	// A folder each stage's output is written to (dump.odin), or "".
 	dump:           string,
 }
