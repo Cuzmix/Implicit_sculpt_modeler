@@ -223,6 +223,7 @@ SETTINGS := [?]Setting {
 	{"show_groups", offset_of(App, show_groups), bool, 0, 0},
 	{"gizmo_mode", offset_of(App, move) + offset_of(Move_Tool, mode), gizmo.Mode, 0, 0},
 	{"gizmo_snap", offset_of(App, move) + offset_of(Move_Tool, snap), bool, 0, 0},
+	{"gizmo_pivot_row_off", offset_of(App, move) + offset_of(Move_Tool, pivot_row_off), bool, 0, 0},
 	{"crease_degrees", U + offset_of(Ui_State, crease_degrees), f32, 1, 90},
 	{"rebuild_goal", U + offset_of(Ui_State, rebuild_goal), Rebuild_Goal, 0, 0},
 	{"rebuild_even", U + offset_of(Ui_State, rebuild_even), i32, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES},
@@ -338,7 +339,7 @@ SETTINGS := [?]Setting {
 	// Settings > Interface, Camera, Touch and Performance.
 	{"surface_ring", K + offset_of(Kit_State, surface_ring), bool, 0, 0},
 	{"symmetry_line", K + offset_of(Kit_State, symmetry_line), bool, 0, 0},
-	{"clean_view_dial", K + offset_of(Kit_State, clean_dial), bool, 0, 0},
+	{"clean_view_keeps", K + offset_of(Kit_State, clean_keep), Clean_Keep, 0, 0},
 	{"panes_work", K + offset_of(Kit_State, panes_work), bool, 0, 0},
 	{"new_panes", K + offset_of(Kit_State, new_panes), New_Panes, 0, 0},
 	{"action_bar", K + offset_of(Kit_State, action_bar), bool, 0, 0},

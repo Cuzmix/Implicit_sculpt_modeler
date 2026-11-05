@@ -73,6 +73,10 @@ Wgpu_Group :: struct {
 
 Wgpu_Pipeline :: struct {
 	pipeline:   wgpu.RenderPipeline,
+	// The same pipeline with the other winding, for a pass drawing reflected
+	// (set_front_face), since WebGPU has no dynamic front face; nil for one that culls
+	// nothing, where the winding changes nothing.
+	flipped:    wgpu.RenderPipeline,
 	layout:     wgpu.PipelineLayout,
 	vertex:     Wgpu_Group, // group 0
 	fragment:   Wgpu_Group, // group 2
@@ -633,15 +637,20 @@ wgpu_create_graphics_pipeline :: proc(#by_ptr info: Graphics_Pipeline_Desc) -> r
 		module = fs.module, entryPoint = "main",
 		targetCount = uint(len(targets)), targets = raw_data(targets),
 	}
-	p.pipeline = wgpu.DeviceCreateRenderPipeline(wgpu_state.device, &{
+	desc := wgpu.RenderPipelineDescriptor {
 		layout = p.layout,
 		vertex = {module = vs.module, entryPoint = "main", bufferCount = uint(len(buffers)), buffers = raw_data(buffers)},
 		primitive = primitive,
 		depthStencil = &ds if has_depth else nil,
 		multisample = {count = wgpu_samples(info.multisample_state.sample_count), mask = max(u32)},
 		fragment = &fragment,
-	})
-	if p.pipeline == nil {
+	}
+	p.pipeline = wgpu.DeviceCreateRenderPipeline(wgpu_state.device, &desc)
+	if p.pipeline != nil && cull != .None {
+		desc.primitive.frontFace = .CCW if primitive.frontFace == .CW else .CW
+		p.flipped = wgpu.DeviceCreateRenderPipeline(wgpu_state.device, &desc)
+	}
+	if p.pipeline == nil || cull != .None && p.flipped == nil {
 		wgpu_release_graphics_pipeline(p)
 		wgpu_fail("WebGPU: the graphics pipeline could not be made")
 		return nil
@@ -653,6 +662,7 @@ wgpu_release_graphics_pipeline :: proc(graphics_pipeline: rawptr) {
 	p := (^Wgpu_Pipeline)(graphics_pipeline)
 	if p == nil do return
 	if p.pipeline != nil do wgpu.RenderPipelineRelease(p.pipeline)
+	if p.flipped != nil do wgpu.RenderPipelineRelease(p.flipped)
 	if p.layout != nil do wgpu.PipelineLayoutRelease(p.layout)
 	wgpu_group_free(&p.vertex)
 	wgpu_group_free(&p.fragment)

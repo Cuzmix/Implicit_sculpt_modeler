@@ -499,7 +499,7 @@ settings_look :: proc(app: ^App) {
 	draft := theme_draft(k)
 	name := theme_ref_name(k, theme_ref(k))
 	ui.paragraph(ctx, fmt.tprintf("%s, edited: keep it as a theme of your own, or undo.", name) if draft else "Pick a theme, or change anything below to make one of your own.")
-	ui.begin(ctx, "look draft", {direction = .Row, gap = 8})
+	ui.begin(ctx, "look draft", {direction = .Row, gap = ui.SPACE_M})
 	if ui.button(ctx, "Undo##look draft", .Bordered, enabled = draft, reason = "Nothing has changed") do theme_choose(k, theme_ref(k))
 	keep_name := "Keep##look draft" if ts.user >= 0 else "Keep as new##look draft"
 	keep_room := ts.user >= 0 || ts.count < USER_THEMES
@@ -614,7 +614,7 @@ settings_look :: proc(app: ^App) {
 		for token in ui.Theme_Token {
 			set := token in ts.over.set
 			c := ts.over.colors[token] if set else ui.theme_token(&made, token)^
-			ui.begin(ctx, fmt.tprintf("look every %v", token), {direction = .Row, gap = 8})
+			ui.begin(ctx, fmt.tprintf("look every %v", token), {direction = .Row, gap = ui.SPACE_M})
 			ui.begin(ctx, fmt.tprintf("look every name %v", token), {direction = .Column, width = max(ui.fill_width(ctx) - 120, 80)})
 			ui.label(ctx, ui.THEME_TOKEN_NAMES[token], t.text_size, t.text if set else t.text_secondary)
 			ui.end(ctx)
@@ -644,7 +644,7 @@ theme_color_well :: proc(app: ^App, name: string, rgb: ^[3]f32) -> (changed: boo
 	c := &app.kit.colors
 	hex_w: f32 = 104
 	well_w := max(ui.fill_width(ctx) - hex_w - 8, 28)
-	ui.begin(ctx, fmt.tprintf("well row##%s", name), {direction = .Row, gap = 8})
+	ui.begin(ctx, fmt.tprintf("well row##%s", name), {direction = .Row, gap = ui.SPACE_M})
 	well := fmt.tprintf("%s##%s well", name, name)
 	id := ui.id_of(ctx, well)
 	open := c.pop && c.pop_of == id
@@ -793,7 +793,7 @@ kit_theme_menus :: proc(app: ^App) {
 	// Opened low on the screen (Share code at the page's foot), it opens upward, so the
 	// field and its buttons stay on screen.
 	side := ui.Side.Above if c.at.y > ctx.input.window.y * 0.5 else .Below
-	if ui.popover_begin(ctx, "theme code", &c.open, c.at, side, {direction = .Column, gap = 6, padding = ui.POPOVER_PAD, width = ui.POPOVER_WIDE_W}) {
+	if ui.popover_begin(ctx, "theme code", &c.open, c.at, side, {direction = .Column, gap = ui.SPACE_S, padding = ui.POPOVER_PAD, width = ui.POPOVER_WIDE_W}) {
 		defer ui.popover_end(ctx)
 		ui.caption(ctx, "IMPORT A THEME" if c.importing else "SHARE THIS THEME")
 		ui.paragraph(ctx, "Paste a theme code; Import adds it to your themes and shows it." if c.importing else "Copy this code and paste it into Import code on any device. It is plain text, so it fits in a message.")

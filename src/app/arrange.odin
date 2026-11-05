@@ -14,10 +14,10 @@ import "../ui"
 // The bars as the Library's Show chips name them, in the order it lists them.
 @(rodata)
 ZONE_NAMES := [Zone]string {
-	.Brush_Bar  = "Off-hand island",
-	.View_Bar   = "View rail",
+	.Brush_Bar  = "Brush toolbar",
+	.View_Bar   = "View toolbar",
 	.Dock       = "Shelf",
-	.Wheel      = "Wheel",
+	.Wheel      = "Dial",
 	.Action_Bar = "Next steps",
 }
 
@@ -26,7 +26,7 @@ arrange_show_chips :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	ui.begin(ctx, "arrange zones", {direction = .Row, gap = 4, center = true})
+	ui.begin(ctx, "arrange zones", {direction = .Row, gap = ui.SPACE_XS, center = true})
 	ui.label(ctx, "Show", t.small_size, t.text_secondary)
 	for z in Zone {
 		shown := z not_in k.hidden

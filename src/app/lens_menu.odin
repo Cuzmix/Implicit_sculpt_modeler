@@ -77,7 +77,7 @@ kit_menu_lens :: proc(app: ^App, anchor: ui.Rect) {
 	ctx := &k.ctx
 	if !k.menu do k.menu_sub = .None
 	owner := ui.id_of(ctx, "menu")
-	if !ui.popover_begin(ctx, "menu", &k.menu, anchor, .Below, {direction = .Column, padding = 6, width = ui.MENU_W}) do return
+	if !ui.popover_begin(ctx, "menu", &k.menu, anchor, .Below, {direction = .Column, padding = ui.SPACE_S, width = ui.MENU_W}) do return
 	// On a short window the list scrolls rather than running off the bottom.
 	area := ui.safe_area(ctx)
 	room := max(area.y + area.h - (anchor.y + anchor.h + 6) - 4 - 2 * 6, 4 * ctx.theme.target)
@@ -154,7 +154,7 @@ kit_submenu :: proc(app: ^App) {
 	if k.menu_sub == .None || k.menu_sub == .Main do return
 	open := true
 	sub := k.menu_sub
-	if !ui.popover_begin(ctx, fmt.tprintf("menu sub %v", sub), &open, k.menu_sub_at, .Right, {direction = .Column, padding = 6, width = ui.MENU_W}) do return
+	if !ui.popover_begin(ctx, fmt.tprintf("menu sub %v", sub), &open, k.menu_sub_at, .Right, {direction = .Column, padding = ui.SPACE_S, width = ui.MENU_W}) do return
 	pick := false
 	switch sub {
 	case .None, .Main:

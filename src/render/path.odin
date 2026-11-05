@@ -881,6 +881,14 @@ Path_Item :: struct {
 // rendered.
 @(private = "file")
 path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, lights: Lights, softness: f32, pool: ^jobs.Pool) -> bool {
+	// Copies (Draw_Item.copy) are left out: the path render merges every item's vertices,
+	// triangles and trees into one set of buffers, so a copy would cost the whole mesh again.
+	items := items
+	if slice.any_of_proc(items, proc(item: Draw_Item) -> bool {return item.copy > 0}) {
+		own := make([dynamic]Draw_Item, 0, len(items), context.temp_allocator)
+		for item in items do if item.copy == 0 do append(&own, item)
+		items = own[:]
+	}
 	if !trace_prepare(r, &pr.tracer, cmd, vt, items, pool, ray_query = path_rq_kernel(r, pr)) {
 		pr.refused = "Render mode cannot trace this scene on this device; the log says why."
 		return false

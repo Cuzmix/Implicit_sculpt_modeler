@@ -81,7 +81,7 @@ kit_color :: proc(app: ^App, name: string, rgb: ^[3]f32, linear := false) -> (ch
 	if linear do for &c in shown do c = geom.srgb_encode(c)
 	hex_w: f32 = 104
 	swatch_w := max(ui.fill_width(ctx) - hex_w - 8, 28)
-	ui.begin(ctx, fmt.tprintf("swatch##%s", name), {direction = .Row, gap = 8})
+	ui.begin(ctx, fmt.tprintf("swatch##%s", name), {direction = .Row, gap = ui.SPACE_M})
 	// The well is a whole touch target: a tap opens the colour popover on this colour (a
 	// second tap puts it away), as Procreate's colour well does. What the popover set last
 	// frame is taken here, so the caller sees it as this field's change.
@@ -188,7 +188,7 @@ kit_command_pair :: proc(app: ^App, a: Command_Id, b: Command_Id, arg_a := 0, ar
 	half := (ui.fill_width(ctx) - 8) * 0.5
 	text_a := label_a if label_a != "" else command_label(a, arg_a)
 	text_b := label_b if label_b != "" else command_label(b, arg_b)
-	ui.begin(ctx, fmt.tprintf("%s|%s", text_a, text_b), {direction = .Row, gap = 8})
+	ui.begin(ctx, fmt.tprintf("%s|%s", text_a, text_b), {direction = .Row, gap = ui.SPACE_M})
 	_ = command_button(app, a, arg_a, text_a, tone = tone_a, width = half, enabled = enabled_a)
 	_ = command_button(app, b, arg_b, text_b, tone = tone_b, width = half, enabled = enabled_b)
 	ui.end(ctx)
@@ -199,7 +199,7 @@ kit_command_pair :: proc(app: ^App, a: Command_Id, b: Command_Id, arg_a := 0, ar
 // Returns which was clicked.
 kit_button_pair :: proc(ctx: ^ui.Context, a, b: string, enabled_a := true, enabled_b := true, tone_a := ui.Tone.Neutral, tone_b := ui.Tone.Neutral) -> (clicked_a, clicked_b: bool) {
 	half := (ui.fill_width(ctx) - 8) * 0.5
-	ui.begin(ctx, fmt.tprintf("%s|%s", a, b), {direction = .Row, gap = 8})
+	ui.begin(ctx, fmt.tprintf("%s|%s", a, b), {direction = .Row, gap = ui.SPACE_M})
 	clicked_a = ui.button(ctx, a, .Flat, tone_a, width = half, enabled = enabled_a)
 	clicked_b = ui.button(ctx, b, .Flat, tone_b, width = half, enabled = enabled_b)
 	ui.end(ctx)

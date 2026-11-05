@@ -132,13 +132,13 @@ kit_coach :: proc(app: ^App) {
 	k.coach_shown, k.coach_last = true, step
 	glyph, text := coach_text(app, step)
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "coach", .Center, .Start, {shift, top}, {direction = .Row, gap = 10, padding = 10, width = w, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "coach", .Center, .Start, {shift, top}, {direction = .Row, gap = ui.SPACE_M, padding = ui.SPACE_L, width = w, radius = t.radius_large + 4, background = .Panel, center = true})
 	ui.begin(ctx, "coach badge", {width = 36, height = 36, radius = t.radius_medium, background = .Track})
 	ui.end(ctx)
 	r := ctx.last_rect
 	ui.icon(ctx, glyph, {r.x + 18, r.y + 18}, t.icon_size, t.accent)
 	skip_w := ui.text_width(ctx, "Skip tips", t.text_size, .Semibold) + 28
-	ui.begin(ctx, "coach words", {direction = .Column, gap = 2, width = w - 2 * 10 - 36 - 2 * 10 - skip_w})
+	ui.begin(ctx, "coach words", {direction = .Column, gap = ui.SPACE_2XS, width = w - 2 * 10 - 36 - 2 * 10 - skip_w})
 	ui.label(ctx, fmt.tprintf("TIP %d OF %d", int(step) + 1, len(Coach_Step)), t.caption_size, t.text_tertiary, .Semibold)
 	ui.paragraph(ctx, text, color = t.text)
 	ui.end(ctx)

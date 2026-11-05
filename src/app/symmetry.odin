@@ -27,7 +27,8 @@ Symmetry_Center :: struct {
 // Where the selected brush's symmetry turns about on `obj`, in its own space: the origin,
 // or with Local the middle of its shown surface.
 symmetry_center :: proc(app: ^App, obj: ^Object) -> Vec3 {
-	if !app.brush.sym_local || obj == nil do return {}
+	// A Mirror row's planes pass through the object's origin, and the brush's with them.
+	if !app.brush.sym_local || obj == nil || stack_symmetry(obj) != {} do return {}
 	c := &app.sym_center
 	if c.object == obj.id && c.level == obj.levels.current && c.serial == app.history.serial do return c.center
 	c^ = {obj.id, obj.levels.current, app.history.serial, object_local_middle(obj)}
@@ -40,7 +41,8 @@ symmetry_center :: proc(app: ^App, obj: ^Object) -> Vec3 {
 // symmetric strokes. Radial symmetry asks nothing of them. None without an object.
 symmetry_planes :: proc(app: ^App, obj: ^Object) -> (mirror: geom.Remesh_Mirror) {
 	if obj == nil do return
-	for a in sculpt.Axis do mirror.axes[int(a)] = a in app.brush.symmetry
+	planes := app.brush.symmetry + stack_symmetry(obj)
+	for a in sculpt.Axis do mirror.axes[int(a)] = a in planes
 	if mirror.axes != {} do mirror.center = symmetry_center(app, obj)
 	return
 }
@@ -67,7 +69,8 @@ planes_label :: proc(mirror: geom.Remesh_Mirror) -> string {
 brush_symmetry :: proc(app: ^App, obj: ^Object) -> sculpt.Brush {
 	b := app.brush
 	return {
-		symmetry    = b.symmetry,
+		// A Mirror row holds its planes on while it shows, so the half it hides follows.
+		symmetry    = b.symmetry + stack_symmetry(obj),
 		radial      = u8(clamp(b.radial_count, RADIAL_MIN, sculpt.RADIAL_MAX)) if b.radial_on else 0,
 		radial_axis = b.radial_axis,
 		sym_center  = symmetry_center(app, obj),
@@ -103,7 +106,7 @@ symmetry_label :: proc(app: ^App) -> string {
 
 // Whether the selected brush has any symmetry on: a mirror plane or radial copies.
 symmetry_on :: proc(app: ^App) -> bool {
-	return app.brush.symmetry != {} || app.brush.radial_on
+	return app.brush.symmetry != {} || app.brush.radial_on || stack_symmetry(selected_object(app)) != {}
 }
 
 // Where the selected brush's mirror planes cut the selected object, in its own space, as

@@ -137,8 +137,8 @@ GESTURE_SLOT_NAMES := [Gesture_Slot]string {
 	.Pen_Squeeze_Panels      = "Pencil squeeze on a panel",
 	.Pen_Double_Tap_History  = "Pencil double-tap on Undo, Redo or History",
 	.Pen_Squeeze_History     = "Pencil squeeze on Undo, Redo or History",
-	.Pen_Double_Tap_Nav_Head = "Pencil double-tap on the navigation head",
-	.Pen_Squeeze_Nav_Head    = "Pencil squeeze on the navigation head",
+	.Pen_Double_Tap_Nav_Head = "Pencil double-tap on the view gizmo",
+	.Pen_Squeeze_Nav_Head    = "Pencil squeeze on the view gizmo",
 	.Pen_Double_Tap_Colors   = "Pencil double-tap on the colour Disc",
 	.Pen_Squeeze_Colors      = "Pencil squeeze on the colour Disc",
 	.Pen_Button_Empty        = "Pen side button on empty space",
@@ -146,7 +146,7 @@ GESTURE_SLOT_NAMES := [Gesture_Slot]string {
 	.Pen_Button_2_Shelf      = "Pen second button on the shelf",
 	.Pen_Button_2_Panels     = "Pen second button on a panel",
 	.Pen_Button_2_History    = "Pen second button on Undo, Redo or History",
-	.Pen_Button_2_Nav_Head   = "Pen second button on the navigation head",
+	.Pen_Button_2_Nav_Head   = "Pen second button on the view gizmo",
 	.Pen_Button_2_Colors     = "Pen second button on the colour Disc",
 }
 

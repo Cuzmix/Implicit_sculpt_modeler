@@ -159,6 +159,7 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 	objs := tree_scene(&app)
 	objs[0].off, objs[1].ghost, objs[2].locked = true, true, true
 	objs[1].remesh_cell = 0.025
+	objs[2].stack.mirror = {added = true, axes = {.X}, minus = true}
 	for obj in objs {
 		out: [dynamic]u8
 		defer delete(out)
@@ -174,10 +175,11 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		testing.expect_value(t, back.transform, obj.transform)
 
 		testing.expect_value(t, back.remesh_cell, obj.remesh_cell)
+		testing.expect_value(t, back.stack, obj.stack)
 
-		// The flags byte sits ten bytes before the end of the head: the flags, the folder,
-		// the stored eyes and the last remesh's cell.
-		flags := r.at - 10
+		// The flags byte sits twelve bytes before the end of the head: the flags, the
+		// folder, the stored eyes, the last remesh's cell and the live stack.
+		flags := r.at - 12
 
 		// Each known bit reads back; one past them is damage.
 		out[flags] = 4

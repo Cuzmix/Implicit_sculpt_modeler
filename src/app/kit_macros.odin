@@ -27,7 +27,7 @@ kit_macros :: proc(app: ^App) {
 	defer sheet_end(app)
 	m := &app.macro
 	half := (inner - 8) * 0.5
-	ui.begin(ctx, "macros head", {direction = .Row, gap = 8, width = inner})
+	ui.begin(ctx, "macros head", {direction = .Row, gap = ui.SPACE_M, width = inner})
 	if m.recording {
 		_ = command_button(app, .Macro_Record, label = "Stop recording", variant = .Solid, tone = .Danger, width = half, glyph = ui.ICON_STOP)
 	} else {
@@ -43,7 +43,7 @@ kit_macros :: proc(app: ^App) {
 	foot := "This run keeps no files: its macros last until the app closes, and it loads no plugins." if m.folder == "" else fmt.tprintf("Each macro is a script file (macro-01.cmd and on) in the folder %s beside the settings file, to edit there or share; Run script runs any such file.", filepath.base(m.folder))
 	if app.plugins.folder != "" do foot = fmt.tprintf("%s Plugins are .luau files in the folder %s beside it.", foot, filepath.base(app.plugins.folder))
 	_, foot_size := ui.prev_layout(ctx, "macros foot")
-	body_h := max(room - 3 * 8 - t.target - t.caption_size * 1.4 - foot_size.y, 120)
+	body_h := max(room - 3 * 8 - t.target - ui.CAPTION_H - foot_size.y, 120)
 	scroll := kit_scroll_begin(ctx, "macros body", &k.macros_scroll, id, inner, body_h, 4)
 	if kept == 0 do ui.paragraph(ctx, "None yet. Tap Record macro, run the commands to repeat (by key, button, menu, pie or Search), then Stop and name it. Strokes and view changes are not recorded.")
 	for s, slot in m.slots do if s.name != "" do kit_macro_row(app, slot, inner)

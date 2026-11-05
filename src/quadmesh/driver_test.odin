@@ -85,3 +85,87 @@ driver_takes_every_input :: proc(t: ^testing.T) {
 	params.guides, params.guide_strength = guides[:], 0.5
 	sound_remesh(t, "every input", source.positions[:], source.indices[:], params, 2)
 }
+
+// A ball with a tail about two quads round at a few hundred quads: at the plain isotropic
+// size the tail was a tube of two or three triangles round, whose cover folded flat, and a
+// fifth to a third of it came back missing (its tip two to three quad edges from the
+// quads); on the finer mesh a low count gets (ISOTROPIC_LEAST), the tip is reached within
+// half a quad edge, and the ball comes back closed.
+@(test)
+driver_keeps_thin_parts_at_low_counts :: proc(t: ^testing.T) {
+	ball := tailed_ball()
+	defer geom.mesh_destroy(&ball)
+	tip := geom.Vec3{0, 0, 1 + TAIL_LENGTH + TAIL_RADIUS}
+	params := DEFAULT_PARAMS
+	for quads in ([]int{150, 200, 250, 300}) {
+		params.quads = quads
+		out, report, err, reason := remesh(ball.positions[:], ball.indices[:], params)
+		defer polygon_mesh_destroy(&out)
+		if !testing.expectf(t, err == .None, "%d quads: %v %s", quads, err, reason) do continue
+		miss := f32(math.INF_F32)
+		for f in 0 ..< len(out.first) - 1 {
+			c := out.corners[out.first[f]:out.first[f + 1]]
+			for k in 1 ..< len(c) - 1 {
+				q, _ := geom.closest_on_triangle(tip, out.positions[c[0]], out.positions[c[k]], out.positions[c[k + 1]])
+				d := q - tip
+				miss = min(miss, math.sqrt(d.x * d.x + d.y * d.y + d.z * d.z))
+			}
+		}
+		quad_edge := math.sqrt(mesh_area_of(ball) / f32(quads))
+		log.infof("tailed ball at %d quads: %d faces, the tip %.3f from the quads (a quad edge %.3f); %s", quads, report.faces, miss, quad_edge, checks_line(report.checks))
+		testing.expectf(t, miss < quad_edge / 2, "%d quads: the tail's tip is %.3f from the quads, a quad edge %.3f", quads, miss, quad_edge)
+		testing.expectf(t, report.checks.quad_open_edges == 0 && report.checks.quad_nonmanifold == 0 && report.checks.quad_euler == 2, "%d quads: %s", quads, checks_line(report.checks))
+	}
+}
+
+// A mesh's area.
+@(private = "file")
+mesh_area_of :: proc(m: geom.Mesh) -> f32 {
+	area := f32(0)
+	for i := 0; i + 2 < len(m.indices); i += 3 {
+		a, b, c := m.positions[m.indices[i]], m.positions[m.indices[i + 1]], m.positions[m.indices[i + 2]]
+		u, v := b - a, c - a
+		n := geom.Vec3{u.y * v.z - u.z * v.y, u.z * v.x - u.x * v.z, u.x * v.y - u.y * v.x}
+		area += math.sqrt(n.x * n.x + n.y * n.y + n.z * n.z) / 2
+	}
+	return area
+}
+
+// The tail's radius and how far past the ball it reaches.
+@(private = "file")
+TAIL_RADIUS :: f32(0.08)
+@(private = "file")
+TAIL_LENGTH :: f32(2.5)
+
+// A unit ball with a round-tipped tail along +z: a surface of revolution whose profile is
+// the smooth larger of the ball's and the tail's, in TAIL_RINGS rings of TAIL_AROUND.
+@(private = "file")
+tailed_ball :: proc() -> (m: geom.Mesh) {
+	TAIL_RINGS :: 600
+	TAIL_AROUND :: 64
+	bottom, top := f32(-1), 1 + TAIL_LENGTH + TAIL_RADIUS
+	append(&m.positions, geom.Vec3{0, 0, bottom})
+	for i in 1 ..< TAIL_RINGS {
+		z := bottom + (top - bottom) * f32(i) / TAIL_RINGS
+		ball := math.sqrt(max(0, 1 - z * z))
+		end := 1 + TAIL_LENGTH
+		tail := f32(0)
+		if z >= 0 && z <= end do tail = TAIL_RADIUS
+		else if z > end do tail = math.sqrt(max(0, TAIL_RADIUS * TAIL_RADIUS - (z - end) * (z - end)))
+		r := math.pow(math.pow(ball, 6) + math.pow(tail, 6), 1.0 / 6)
+		for j in 0 ..< TAIL_AROUND {
+			a := 2 * math.PI * f32(j) / TAIL_AROUND
+			append(&m.positions, geom.Vec3{r * math.cos(a), r * math.sin(a), z})
+		}
+	}
+	append(&m.positions, geom.Vec3{0, 0, top})
+	at :: proc(i, j: int) -> u32 {return u32(1 + (i - 1) * TAIL_AROUND + j % TAIL_AROUND)}
+	last := u32(len(m.positions) - 1)
+	for j in 0 ..< TAIL_AROUND do append(&m.indices, 0, at(1, j + 1), at(1, j))
+	for i in 1 ..< TAIL_RINGS - 1 do for j in 0 ..< TAIL_AROUND {
+		a, b, c, d := at(i, j), at(i, j + 1), at(i + 1, j + 1), at(i + 1, j)
+		append(&m.indices, a, b, c, a, c, d)
+	}
+	for j in 0 ..< TAIL_AROUND do append(&m.indices, at(TAIL_RINGS - 1, j), at(TAIL_RINGS - 1, j + 1), last)
+	return
+}

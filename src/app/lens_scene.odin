@@ -76,7 +76,7 @@ kit_lens_scene :: proc(app: ^App) {
 	lights := int(app.scene.lights.count)
 	// Find, Add, Pictures and More, the field taking what the buttons leave.
 	t := ctx.theme
-	ui.begin(ctx, "scene head", {direction = .Row, gap = 8, width = ui.fill_width(ctx), center = true})
+	ui.begin(ctx, "scene head", {direction = .Row, gap = ui.SPACE_M, width = ui.fill_width(ctx), center = true})
 	_ = ui.text_field(ctx, "Find an object##scene", k.scene_filter[:], width = ui.row_room(ctx) - 3 * t.target - 24, hint = "Find an object")
 	if ui.icon_button(ctx, "Add##scene add", ui.ICON_PLUS, ol.add) {
 		ol.add, ol.add_at = !ol.add, ctx.last_rect
@@ -164,14 +164,14 @@ scene_kind_chips :: proc(app: ^App, lights: int) {
 	ui.begin(ctx, "scene kinds", {direction = .Column, gap = 0, width = width})
 	defer ui.end(ctx)
 	row := 0
-	ui.begin(ctx, "scene kinds 0", {direction = .Row, gap = 6, width = width})
+	ui.begin(ctx, "scene kinds 0", {direction = .Row, gap = ui.SPACE_S, width = width})
 	for c, kind in counts {
 		if c == 0 do continue
 		name, sub := SCENE_KIND_NAMES[kind], fmt.tprint(c)
 		if ui.row_room(ctx) < lens_chip_width(ctx, name, sub) {
 			ui.end(ctx)
 			row += 1
-			ui.begin(ctx, fmt.tprintf("scene kinds %d", row), {direction = .Row, gap = 6, width = width})
+			ui.begin(ctx, fmt.tprintf("scene kinds %d", row), {direction = .Row, gap = ui.SPACE_S, width = width})
 		}
 		if lens_chip(ctx, fmt.tprintf("Show %s##scene kind", strings.to_lower(name, context.temp_allocator)), name, sub, lit = ol.kind == kind).clicked {
 			ol.kind = kind
@@ -347,7 +347,7 @@ scene_foot :: proc(app: ^App) {
 	if len(app.scene.objects) == 0 do return
 	width := ui.fill_width(ctx)
 	each := (width - 2 * 6) / 3
-	ui.begin(ctx, "scene foot", {direction = .Row, gap = 6, width = width})
+	ui.begin(ctx, "scene foot", {direction = .Row, gap = ui.SPACE_S, width = width})
 	_ = command_button(app, .New_Folder, label = "Group", glyph = ui.ICON_FOLDER_PLUS, width = each, variant = .Light)
 	_ = command_button(app, .Duplicate_Object, width = each, variant = .Light)
 	_ = command_button(app, .Delete_Object, width = each, variant = .Light, tone = .Danger)

@@ -118,6 +118,8 @@ memory_check_holds :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	free := app.memory_free_test << 20 if app.memory_free_test > 0 else memory_headroom()
 	need, fixed, per_vertex := memory_need(app, obj, cmd)
 	history, _ := history_memory(app)
+	// What is on disk already takes no memory, so freeing it gives none back.
+	history -= history_disk_bytes(&app.history)
 	room := int(MEMORY_MARGIN * f64(free))
 	room_freed := int(MEMORY_MARGIN * f64(free + history))
 	log.infof("memory: %v needs about %d MB; the system leaves %d MB, the history holds %d MB", cmd.kind, need >> 20, free >> 20, history >> 20)
@@ -271,7 +273,7 @@ memory_bar :: proc(ctx: ^ui.Context, width: f32, need, free, history: int) {
 	ui.fill_rect(ctx, {r.x + r.w * f32(free) / whole, r.y, r.w * f32(history) / whole, r.h}, 0, t.warning)
 	mark := r.x + r.w * f32(need) / whole
 	ui.fill_rect(ctx, {mark - 1, r.y - 4, 2, r.h + 8}, 1, t.text)
-	line := ui.place(ctx, {width, t.small_size + 4})
+	line := ui.place(ctx, {width, ui.line_height(t.small_size)})
 	ui.text(ctx, fmt.tprintf("free %s · history %s", bytes_label(free), bytes_label(history)), line.x, line.y + line.h * 0.5, t.small_size, t.text_secondary)
 	ui.text(ctx, fmt.tprintf("needs %s", bytes_label(need)), line.x + line.w, line.y + line.h * 0.5, t.small_size, t.text_secondary, .Regular, .Right)
 }

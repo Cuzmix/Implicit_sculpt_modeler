@@ -103,14 +103,14 @@ arrange_top_controls :: proc(app: ^App) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	ui.begin(ctx, "arrange top bar", {direction = .Row, gap = 6, center = true})
+	ui.begin(ctx, "arrange top bar", {direction = .Row, gap = ui.SPACE_S, center = true})
 	start := ctx.last_rect.x
 	title := arrange_title(app)
 	r := ui.place(ctx, {ui.text_width(ctx, title, t.text_size, .Semibold) + 18, t.target})
 	ui.text(ctx, title, r.x, r.y + r.h * 0.5, t.text_size, t.accent, .Semibold)
 	if k.layouts.modified do ui.fill_circle(ctx, {r.x + r.w - 6, r.y + r.h * 0.5}, 3, t.warning)
 	labels := ARRANGE_TOP_LABELS
-	_ = command_button(app, .New_Dock, label = "New dock", variant = .Bordered, width = arrange_button_width(ctx, labels[0]))
+	_ = command_button(app, .New_Dock, label = "New toolbar", variant = .Bordered, width = arrange_button_width(ctx, labels[0]))
 	_ = command_button(app, .Left_Handed, label = "Mirror", variant = .Bordered, width = arrange_button_width(ctx, labels[1]))
 	_ = command_button(app, .Layout_Reset, label = "Reset layout", variant = .Bordered, width = arrange_button_width(ctx, labels[2]))
 	if ui.button(ctx, "Done##arrange", .Solid, .Accent, width = arrange_button_width(ctx, labels[3])) do k.bars_edit = false
@@ -120,7 +120,7 @@ arrange_top_controls :: proc(app: ^App) -> f32 {
 }
 
 @(private = "file")
-ARRANGE_TOP_LABELS := [4]string{"New dock", "Mirror", "Reset layout", "Done"}
+ARRANGE_TOP_LABELS := [4]string{"New toolbar", "Mirror", "Reset layout", "Done"}
 
 @(private = "file")
 arrange_title :: proc(app: ^App) -> string {
@@ -350,7 +350,7 @@ dial_sector_rows :: proc(app: ^App, width: f32) {
 	dial := dial_of(k)
 	ui.caption(ctx, fmt.tprintf("%s DIAL SECTORS (CLOCKWISE FROM THE TOP)", strings.to_upper(SPACE_NAMES[space], context.temp_allocator)))
 	for place, i in DIAL_PLACES {
-		ui.begin(ctx, fmt.tprintf("dial sector %d", i), {direction = .Row, center = true, gap = 8, width = width})
+		ui.begin(ctx, fmt.tprintf("dial sector %d", i), {direction = .Row, center = true, gap = ui.SPACE_M, width = width})
 		r := ui.place(ctx, {110, t.target})
 		ui.text(ctx, place, r.x, r.y + r.h * 0.5, t.text_size, t.text)
 		options := make([dynamic]string, 0, 8, context.temp_allocator)

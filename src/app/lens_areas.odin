@@ -349,6 +349,9 @@ lens_pane_corners :: proc(app: ^App, cells: [GRID_PANES]ui.Rect, n: int) {
 			if !on && !mine do continue
 			p, s := at[c], inward[c]
 			hit := ui.Rect{p.x if s.x > 0 else p.x - GRID_CORNER_HIT, p.y if s.y > 0 else p.y - GRID_CORNER_HIT, GRID_CORNER_HIT, GRID_CORNER_HIT}
+			// A card over the corner takes it: its mark would stand as a stray bracket on
+			// the card's edge, and a press there is the card's.
+			if !mine && corner_under_card(k, hit) do continue
 			ui.begin_at(ctx, fmt.tprintf("pane corner %d %d", i, c), {hit.x, hit.y}, {width = hit.w, height = hit.h})
 			a := ui.area(ctx, "corner", {hit.w, hit.h})
 			ui.end(ctx)
@@ -372,6 +375,18 @@ lens_pane_corners :: proc(app: ^App, cells: [GRID_PANES]ui.Rect, n: int) {
 			else do corner_release(app, n)
 		}
 	}
+}
+
+// Whether a card shown in a column covers corner handle `hit`.
+@(private = "file")
+corner_under_card :: proc(k: ^Kit_State, hit: ui.Rect) -> bool {
+	for &col in k.cards.columns {
+		for r in col.rects[:col.count] {
+			in_both := ui.rect_intersect(r, hit)
+			if in_both.w > 0 && in_both.h > 0 do return true
+		}
+	}
+	return false
 }
 
 // The corner gesture as the finger moves to `m`: back at the corner it waits, inward it

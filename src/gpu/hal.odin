@@ -151,6 +151,16 @@ bind_graphics_pipeline :: proc(render_pass: Render_Pass, graphics_pipeline: Grap
 	else do vk_bind_graphics_pipeline(render_pass, graphics_pipeline)
 }
 
+// Turns the front face over for what the render pass draws next, against each pipeline's
+// own winding, until it is turned back or the pass ends: a reflected item (a mirror image,
+// whose model has a negative determinant) then culls and faces as the item itself does.
+// Sticky across binds; every pass starts unflipped.
+set_front_face :: proc(render_pass: Render_Pass, flipped: bool) {
+	when METAL do mtl_set_front_face(render_pass, flipped)
+	else when WEBGPU do wgpu_set_front_face(render_pass, flipped)
+	else do vk_set_front_face(render_pass, flipped)
+}
+
 bind_index_buffer :: proc(render_pass: Render_Pass, #by_ptr binding: Buffer_Binding, index_element_size: Index_Size) {
 	when METAL do mtl_bind_index_buffer(render_pass, binding, index_element_size)
 	else when WEBGPU do wgpu_bind_index_buffer(render_pass, binding, index_element_size)

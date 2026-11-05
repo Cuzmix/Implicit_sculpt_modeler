@@ -11,7 +11,7 @@ import "../ui"
 // kit_brush_sheet in lens_shelf.odin). Everything it lists is a Brush_Item: a brush, a
 // preset (built-in, yours or a pack's), the Curve and Insert tools, a mask, hide or cut
 // tool, or any other button a dock can hold (a card, a slider, a command). The categories,
-// Recent and Favorites are the interface's: settings.txt remembers them (brush_category,
+// Recent and Favourites are the interface's: settings.txt remembers them (brush_category,
 // brush_recent, brush_favorite).
 
 BRUSH_RECENT :: 12
@@ -22,7 +22,7 @@ BRUSH_KEY :: 80
 ICON_HEART :: rune(0xe0f5)
 
 // All comes first so a fresh install opens on it; the column lists them in
-// BRUSH_CATEGORY_ORDER, ZBrush's, with Recent and Favorites above All, then the buttons
+// BRUSH_CATEGORY_ORDER, ZBrush's, with Recent and Favourites above All, then the buttons
 // that are not brushes: cards, sliders and every other command.
 Brush_Category :: enum u8 {
 	All,
@@ -51,7 +51,7 @@ BRUSH_CATEGORY_ORDER := [?]Brush_Category{.Recent, .Favorites, .All, .Clay, .Cre
 @(rodata)
 BRUSH_CATEGORY_NAMES := [Brush_Category]string {
 	.Recent       = "Recent",
-	.Favorites    = "Favorites",
+	.Favorites    = "Favourites",
 	.All          = "All",
 	.Clay         = "Clay",
 	.Crease       = "Crease",
@@ -116,7 +116,7 @@ Brush_Palette :: struct {
 	picks:          int, // picks and settings opened from the browser, for the exit stats
 }
 
-// A Brush_Item's name as Recent and Favorites keep it (brush_item_key), up to the first
+// A Brush_Item's name as Recent and Favourites keep it (brush_item_key), up to the first
 // zero byte.
 Brush_Key :: [BRUSH_KEY]u8
 
@@ -163,7 +163,7 @@ brush_item_name :: proc(app: ^App, it: Brush_Item) -> string {
 	return ""
 }
 
-// What Recent and Favorites remember an item by: its kind and name, which outlive a
+// What Recent and Favourites remember an item by: its kind and name, which outlive a
 // preset deleted before it or a pack installed after it, as indices would not.
 brush_item_key :: proc(app: ^App, it: Brush_Item) -> string {
 	switch it.what {
@@ -244,8 +244,8 @@ brush_item_hint :: proc(app: ^App, it: Brush_Item) -> string {
 		if arg, ok := preset_slot_of(it.slot.preset); ok do return command_hint(app, .Brush_Preset, arg)
 		return ""
 	case .Tool:       return command_hint(app, TOOL_COMMANDS[it.tool])
-	case .Mask_Shape: return "Ctrl + drag on empty space, or Mask on the wheel"
-	case .Gesture:    return "Ctrl + Shift + drag, or Hide on the wheel"
+	case .Mask_Shape: return "Ctrl + drag on empty space, or Mask on the dial"
+	case .Gesture:    return "Ctrl + Shift + drag, or Hide on the dial"
 	}
 	return ""
 }
@@ -426,7 +426,7 @@ brush_palette_categories :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, h
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	W :: 200
-	ui.begin(ctx, "brush sheet categories", {direction = .Column, gap = 0, padding = 8, width = W, height = height})
+	ui.begin(ctx, "brush sheet categories", {direction = .Column, gap = 0, padding = ui.SPACE_M, width = W, height = height})
 	brush_category_rows(app, owner, all, W - 16, height - 16)
 	ui.end(ctx)
 	if r := ui.prev_rect(ctx, "brush sheet categories"); r.w > 0 do ui.fill_rect(ctx, {r.x + r.w - 1, r.y, 1, r.h}, 0, t.border)

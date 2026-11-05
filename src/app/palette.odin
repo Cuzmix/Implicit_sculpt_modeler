@@ -96,6 +96,9 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Gizmo_Snap       = "grid increment step snapping",
 	.Gizmo_Pivot      = "origin center centre anchor transform point",
 	.Gizmo_Pivot_Reset = "origin center centre anchor",
+	.Gizmo_Pivot_Edit = "unlock origin anchor move pivot only affect origins",
+	.Gizmo_Pivot_Center = "origin center centre bounds anchor geometry",
+	.Gizmo_Pivot_Unmasked = "origin center centre mask free unmasked anchor",
 	.Reset_Transform  = "clear transform origin zero identity unrotate",
 	.Symmetry_X       = "mirror",
 	.Local_Symmetry   = "mirror centre center own middle",
@@ -232,7 +235,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Render_Preview   = "render preview pane path trace rendered view beside split",
 	.View_Window      = "window monitor second screen display detach tear off pop out view",
 	.View_Windows_Close = "close view windows monitor second screen",
-	.Clean_View       = "clean view hide interface chrome controls zen distraction free fullscreen tab",
+	.Clean_View       = "clean view hide interface chrome controls zen distraction free fullscreen tab focus mode",
+	.Inspect_Mode     = "four views inspect form check curvature normals silhouette shaded grid",
 	.Brush_Picker     = "brush picker browser library all brushes cards stroke preview choose shelf",
 	.View_Layout_Menu = "view layout grid split panes quad four single preset menu",
 	.Pass_Menu        = "passes pass menu normals depth curvature silhouette occlusion ao matcap wipe",
@@ -628,7 +632,7 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	width := min(f32(LENS_SEARCH_W), area.w - 2 * t.edge)
 	anchor, side := lens_search_anchor(app, search, width)
 	was := k.palette
-	if !ui.popover_begin(ctx, "palette", &k.palette, anchor, side, {direction = .Column, gap = 2, padding = 8, width = width}) do return
+	if !ui.popover_begin(ctx, "palette", &k.palette, anchor, side, {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_M, width = width}) do return
 	defer ui.popover_end(ctx)
 	// A press outside closed it: give the keys back.
 	if was && !k.palette do ctx.text_focus = 0

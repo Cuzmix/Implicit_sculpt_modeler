@@ -99,7 +99,7 @@ UI = {
     # The view rail down the right edge: a fresh rail's first button, the Tool card's; then
     # where eight_rail() puts them the view tools a rail can hold.
     "inspector": At("view bar/Tool", 1563, 85), "view_layout": At("view bar/View layout", 1563, 85),
-    "passes": At("view bar/Passes", 1563, 133), "camera": At("view bar/Camera", 1563, 181),
+    "passes": At("view bar/Shading modes", 1563, 133), "camera": At("view bar/Camera", 1563, 181),
     "frame": At("view bar/Focus selected", 1563, 229), "sym_x": At("view bar/Symmetry across X", 1563, 277),
     "wireframe": At("view bar/Wireframe", 1563, 325), "lights": At("view bar/Lights", 1563, 373),
     "second": At("view bar/Second view", 1563, 421),
@@ -3411,29 +3411,31 @@ def floating_card_closes_from_its_dock_button():
 # The top bar's space tabs at 1600 x 900 (spaces.odin): Sculpt, lit at the start, whose tap
 # opens its layouts, Model, Render and the chevron after them; and the rows of the menu:
 # Sculpt's built-in layout, then Save, Save as new, Export, Import, Revert and Reset, then
-# the views Focus mode and Inspect.
+# Reset layout.
 # The space tabs centred in the top bar's middle island, by name (and where each was at 1600 x 900).
 SPACE_TABS = {"sculpt": At("top bar/Spaces/Sculpt", 584, 26), "model": At("top bar/Spaces/Model", 673, 26),
               "render": At("top bar/Spaces/Render", 765, 26), "chevron": At("top bar/space tabs/Layouts", 834, 26)}
 LAYOUT_CHIP = SPACE_TABS["sculpt"]
-# The layout menu's rows under the lit tab: the three spaces, Reset layout, Focus and Inspect.
+# The layout menu's rows under the lit tab: the three spaces and Reset layout.
 LAYOUT_ROWS = {"sculpt": At("layout menu/Sculpt##layout menu", 669, 99), "model": At("layout menu/Model##layout menu", 669, 143),
-               "render": At("layout menu/Render##layout menu", 669, 187), "reset": At("layout menu/Reset layout", 669, 232),
-               "focus": At("layout menu/Focus mode", 669, 277), "inspect": At("layout menu/Inspect", 669, 321)}
+               "render": At("layout menu/Render##layout menu", 669, 187), "reset": At("layout menu/Reset layout", 669, 232)}
 # In Focus the off-hand island holds Menu, Undo and Redo, and the right island Search.
 TOP_UNDO, TOP_SEARCH = (150, 33), At("app dock/Search commands", 1336, 30)
 
 
 @scenario
-def layout_menu_turns_focus_on():
-    """The lit tab's menu, then Focus mode: the side bars and the action bar go and the menu with them, and the layout is unchanged."""
-    s = Script()
-    s.ftap(LAYOUT_CHIP)
-    s.wait(10)
-    s.ftap(LAYOUT_ROWS["focus"])
-    s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "space": is_text("sculpt"), "focus_mode": near(1), "zones_hidden": is_text("brush_bar,view_bar,action_bar"),
-                                "layout_menu": near(0), "layout_modified": near(0)})
+def clean_view_keeping_the_shelf_hides_the_sides():
+    """With Clean view set to keep the shelf and dial, Tab hides only the side toolbars and the next steps, the layout unchanged; Tab again brings them back."""
+    def run(again):
+        s = Script()
+        s.press("Tab")
+        s.wait(10)
+        if again:
+            s.press("Tab")
+            s.wait(10)
+        return s, ["--script=set clean_view_keeps shelf"], camera_still({"dabs": near(0), "space": is_text("sculpt"), "focus_mode": near(0 if again else 1), "clean_view": near(0),
+                                                                         "zones_hidden": is_text("none" if again else "brush_bar,view_bar,action_bar"), "layout_modified": near(0)})
+    return Steps([run(False), run(True)])
 
 
 @scenario
@@ -3472,7 +3474,7 @@ def focus_moves_undo_and_search_to_the_top_bar():
     s.wait(4)
     s.ftap(TOP_SEARCH)
     s.wait(10)
-    return s, ["--script=focus_mode on"], {"undo_steps": near(0), "redo_steps": near(1), "palette": near(1), "space": is_text("sculpt"), "focus_mode": near(1)}
+    return s, ["--script=set clean_view_keeps shelf; clean_view on"], {"undo_steps": near(0), "redo_steps": near(1), "palette": near(1), "space": is_text("sculpt"), "focus_mode": near(1)}
 
 
 # The Lens top bar at 1600 x 900 (kit_top_lens.odin): Menu, Undo and Redo at the left, the
@@ -3566,13 +3568,13 @@ def render_dial_places_a_highlight():
 
 @scenario
 def model_dial_picks_select():
-    """In Model the dial's left sector picks the Select action, and its sectors are Model's."""
+    """In Model the dial's left sector picks the Select action on a cage, and its sectors are Model's."""
     s = Script()
     s.ftap(SPACE_TABS["model"])
     s.wait(10)
     s.ftap(DIAL_LEFT)
     s.wait(6)
-    return s, [], camera_still({"dabs": near(0), "space": is_text("model"), "model_action": is_text("Select"),
+    return s, ["--script=add_cage cube; select 1; delete_object"], camera_still({"dabs": near(0), "space": is_text("model"), "model_action": is_text("Select"),
                                 "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Model_Action:Select")})
 
 
@@ -3873,7 +3875,7 @@ def lens_rail_holds_the_view_tools():
     """Lens shows the off-hand island at the left, the readout over the view's top-left corner and the view rail's cards; nothing moves the camera."""
     s = Script()
     s.wait(10)
-    rail = "Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:References"
+    rail = "Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:Stack,Open_Card:References"
     return s, LENS_1440, camera_still({"view_rail": is_text(rail), "island": rect_x(8, 16), "chips": lambda v: float(v.split(",")[0]) < 20})
 
 
@@ -3917,7 +3919,7 @@ def readout_opens_the_camera_menu():
 def lens_rail_names_its_buttons_on_a_wide_window():
     """On a window as wide as a large desktop display's the rail names its buttons beside their icons, and Passes still opens its menu; at 1440 it keeps to its icons."""
     s = Script()
-    s.ftap(At("view bar/Passes", 1820, 181))
+    s.ftap(At("view bar/Shading modes", 1820, 181))
     s.wait(10)
     narrow = Script()
     narrow.wait(10)
@@ -4973,21 +4975,21 @@ def lens_shift_moves_lined_up_dividers():
 
 
 # Focus in Lens at 1600 x 900, the three-island top bar: the middle island's space chip
-# and X symmetry chip, and the right island's View layout and Passes.
+# and X symmetry chip, and the right island's View layout and Shading.
 LENS_FOCUS = {"space": At("spaces dock/Space##chip", 770, 30), "symmetry": At("spaces dock/Symmetry X", 838, 30),
-              "layout": At("app dock/View layout", 1342, 30), "passes": At("app dock/Passes", 1392, 30)}
+              "layout": At("app dock/View layout", 1342, 30), "passes": At("app dock/Shading modes", 1392, 30)}
 
 
 @scenario
 def lens_focus_draws_islands():
-    """Focus in Lens: the top bar becomes islands, X symmetry is a chip there, and Passes opens its menu."""
+    """Clean view keeping the shelf in Lens: the top bar becomes islands, X symmetry is a chip there, and Shading modes opens its list."""
     s = Script()
     s.wait(6)
     s.ftap(LENS_FOCUS["symmetry"])
     s.wait(4)
     s.ftap(LENS_FOCUS["passes"])
     s.wait(6)
-    return s, ["--script=focus_mode on"], camera_still({"space": is_text("sculpt"), "focus_mode": near(1), "lens_focus": near(1), "symmetry": is_text("x"), "pass_menu": near(1), "dabs": near(0)})
+    return s, ["--script=set clean_view_keeps shelf; clean_view on"], camera_still({"space": is_text("sculpt"), "focus_mode": near(1), "lens_focus": near(1), "symmetry": is_text("x"), "pass_menu": near(1), "dabs": near(0)})
 
 
 # The Lens menu's button and its rows at 1600 x 900 that open submenus, and the first row
@@ -5345,18 +5347,18 @@ def lens_context_bar_extracts_the_mask():
     return s, LENS_1440 + ["--script=mask fill"], camera_still({"objects": near(2), "dabs": near(0)})
 
 
-# Inspect at 1440x900: the lit Sculpt tab and Inspect in its menu, the main pane's pass
-# chip, and Curvature in the popover's INSPECT group, under the shading modes and Solid's
-# options, while nothing is recent.
-LENS_INSPECT = {"tab": (504, 26), "inspect": At("layout menu/Inspect", 504, 321), "pass_chip": At("readout/Shading", 165, 75), "curvature": (305, 540)}
+# Four views at 1440x900: the main pane's shading chip, Four views at the foot of its list's
+# INSPECT group, and Curvature in that group, under the shading modes and Solid's options,
+# while nothing is recent.
+LENS_INSPECT = {"pass_chip": At("readout/Shading", 165, 75), "inspect": At("pass menu/Four views", 305, 760), "curvature": At("pass menu/Curvature", 305, 540)}
 
 
 @scenario
 def lens_pass_popover_groups_the_passes():
-    """Inspect from the lit tab's menu, then the main pane's pass chip: its popover picks Curvature from DIAGNOSTICS."""
+    """Four views from the shading chip's list, then the chip again: its list picks Curvature from INSPECT."""
     s = Script()
-    s.ftap(LENS_INSPECT["tab"])
-    s.wait(10)
+    s.ftap(LENS_INSPECT["pass_chip"])
+    s.wait(8)
     s.ftap(LENS_INSPECT["inspect"])
     s.wait(12)
     s.ftap(LENS_INSPECT["pass_chip"])
@@ -5759,7 +5761,7 @@ def export_sheet_checks_a_print():
 # head, the dial's top sector, and a dock menu's Put back as it comes and Delete dock.
 LENS_ARRANGE = {"done": At("arrange top bar/Done", 1014, 30),
                 "rail_tag": (1404, 67), "dial_top": (78, 778), "dock_reset": At("dock menu/Put back as it comes", 400, 500),
-                "dock_delete": At("dock menu/Delete dock", 400, 544)}
+                "dock_delete": At("dock menu/Delete toolbar", 400, 544)}
 
 
 # Settings > Dial's sector rows at 1440x900, found by Search settings: the Top and Bottom
@@ -5926,7 +5928,7 @@ def lens_arrange_floats_the_island():
     def run(reset):
         s = Script()
         s.wait(6)
-        tag = At("brush bar/Move Brush bar", 39, 343)
+        tag = At("brush bar/Move Brush toolbar", 39, 343)
         s.mouse_drag(line(tag, ARRANGE_MIDDLE, 30))
         s.wait(6)
         if not reset:
@@ -5984,7 +5986,7 @@ def lens_arrange_pen_slides_the_shelf_left_handed():
 
 # The top bar's New dock while editing at 1440x900. A new dock floats in the view's
 # middle: its first button (or, while empty, its +) is there.
-DOCK_NEW = At("arrange top bar/New dock", 650, 30)
+DOCK_NEW = At("arrange top bar/New toolbar", 650, 30)
 DOCK_ONE_ADD = (721, 417)
 
 
@@ -6048,7 +6050,7 @@ def dock_lines_then_delete():
             return s, LENS_1440 + ["--script=customise_bars"], camera_still({"user_docks": is_text("1:0"), "dock_looks": lambda v: ",dock1:2:" in v, "bar_pop": is_text("dock_menu"), "dabs": near(0)})
         s.press("escape")
         s.wait(4)
-        s.ftap(At("user dock 1/Move Dock 1", 848, 386))
+        s.ftap(At("user dock 1/Move Toolbar 1", 848, 386))
         s.wait(6)
         s.ftap(LENS_ARRANGE["dock_delete"])
         s.wait(6)
@@ -6078,8 +6080,8 @@ def dock_corner_adds_lines():
 
 
 # The view rail's grip and the brush bar's faint corner at 1440x900, there without Edit docks.
-RAIL_GRIP = At("view bar/Move View rail", 1403, 68)
-OFFHAND_CORNER_NAMED = At("dock corner Offhand/Resize Brush bar", 65, 659)
+RAIL_GRIP = At("view bar/Move View toolbar", 1403, 68)
+OFFHAND_CORNER_NAMED = At("dock corner Offhand/Resize Brush toolbar", 65, 659)
 
 
 @scenario
@@ -8816,7 +8818,7 @@ def rail_panels_picker_adds_a_card():
     s.ftap(RAIL_DEFORM)
     s.wait(10)
     return s, [], camera_still({"dabs": near(0), "card_front": is_text("deform"), "library_puts": near(2),
-                                "view_rail": is_text("Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:References,Open_Card:Deform,Open_Card:Look")})
+                                "view_rail": is_text("Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:Stack,Open_Card:References,Open_Card:Deform,Open_Card:Look")})
 
 
 # The References card from its rail button, its Add note, and its board (a drag's points
@@ -12362,9 +12364,9 @@ HISTORY_STRIP = ["--script=set history_view strip"]
 
 # The History list at 1600x900 with three strokes of one brush: the group's chevron, its
 # oldest stroke's row once opened, and the first row (where the History starts) closed.
-HISTORY_GROUP_OPEN, HISTORY_OLDEST_SUB, HISTORY_ROOT = (1554, 240), (1300, 366), (1300, 292)
-HISTORY_GROUP_ROW = (1300, 240)
-HISTORY_LIST_TAB = (1203, 150)
+HISTORY_GROUP_OPEN, HISTORY_OLDEST_SUB, HISTORY_ROOT = (1498, 240), (1244, 366), (1244, 292)
+HISTORY_GROUP_ROW = (1244, 240)
+HISTORY_LIST_TAB = (1147, 150)
 
 
 def history_three_strokes(s):
@@ -12406,7 +12408,7 @@ def history_list_groups_and_goes_to_a_step():
 
 
 # The step menu over the list's newest row (opened at HISTORY_GROUP_ROW): its rows.
-HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_SHOW, HISTORY_MENU_DELETE = (1400, 363), (1400, 407), (1400, 451), (1400, 584)
+HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_SHOW, HISTORY_MENU_DELETE = (1344, 363), (1344, 407), (1344, 451), (1344, 584)
 
 
 @scenario
@@ -12494,7 +12496,7 @@ def history_tint_shows_what_a_step_changed():
     return Steps([run(False), run(True)])
 
 
-HISTORY_GEAR = (1562, 150)
+HISTORY_GEAR = (1506, 150)
 
 
 @scenario
@@ -13300,6 +13302,36 @@ def gizmo_chips_switch_the_mode():
 
 
 @scenario
+def gizmo_pivot_row_edits_the_pivot():
+    """The pivot row over the gizmo: Edit the pivot, then a drag of the X arm moves the
+    pivot along x and leaves the sphere where it was, with no undo step; Pivot to the
+    middle puts it in the middle of the sphere's bounds; and the row hides while a drag
+    goes."""
+    edit, middle, held = Script(), Script(), Script()
+    for sc in (edit, middle, held):
+        gizmo_mode(sc, 0)
+        sc.wait(3)
+    click(edit, At("pivot row/Edit the pivot", 0, 0))
+    edit.mouse_drag(line(GIZMO_X_ARM, (GIZMO_X_ARM[0] + 60, GIZMO_X_ARM[1] + 8), 6))
+    edit.wait(3)
+    click(middle, At("pivot row/Pivot to the middle", 0, 0))
+    held.add(f"move:{where(GIZMO_X_ARM)}")
+    held.wait(1)
+    held.add("down")
+    held.wait(1)
+    for i in range(1, 7):
+        held.add(f"move:{GIZMO_X_ARM[0] + 10 * i:g},{GIZMO_X_ARM[1]:g}")
+        held.wait(1)
+    home = is_text("0.0000,0.0000,0.0000,0.000,0.000,0.000,1.0000")
+    moved_x = lambda v: float(v.split(",")[0]) > 0.1 and abs(float(v.split(",")[1])) < 1e-3 and abs(float(v.split(",")[2])) < 1e-3
+    return Steps([
+        (edit, [], camera_still({"gizmo_pivot_edit": near(1), "gizmo_pivot": moved_x, "transform": home, "undo_steps": near(0), "pivot_row": near(1)})),
+        (middle, [], camera_still({"gizmo_pivot": lambda v: all(abs(float(c)) < 0.01 for c in v.split(",")), "transform": home, "pivot_row": near(1)})),
+        (held, [], camera_still({"pivot_row": near(0)})),
+    ])
+
+
+@scenario
 def gizmo_all_moves_turns_and_scales():
     """The All gizmo (W four times) does the three with no switching: the mouse on the X
     arrow moves the sphere along x only, a finger on the Y knob stretches the mesh along y
@@ -13696,13 +13728,13 @@ def object_menu_open(s):
 
 @scenario
 def object_menu_lists_the_verbs_of_the_type_and_space():
-    """The object menu shows a sculpt mesh's six Sculpt verbs and a cage's four Model verbs, each with the other space's main verb, the rows every object has and Delete."""
+    """The object menu shows a sculpt mesh's six Sculpt verbs and a cage's four Model verbs, each with the other space's main verb, the rows every object has, Add object here and Delete."""
     def run(what):
         s = Script()
         object_menu_open(s)
         if what == "mesh":
-            return s, [], camera_still({"object_menu": near(1), "object_menu_type": is_text("Sculpt_Mesh"), "object_menu_rows": near(11), "space": is_text("sculpt")})
-        return s, ["--script=add_cage cube"], camera_still({"object_menu": near(1), "object_menu_type": is_text("Cage"), "object_menu_rows": near(8), "space": is_text("model")})
+            return s, [], camera_still({"object_menu": near(1), "object_menu_type": is_text("Sculpt_Mesh"), "object_menu_rows": near(12), "space": is_text("sculpt")})
+        return s, ["--script=add_cage cube"], camera_still({"object_menu": near(1), "object_menu_type": is_text("Cage"), "object_menu_rows": near(9), "space": is_text("model")})
     return Steps([run("mesh"), run("cage")])
 
 
@@ -13751,6 +13783,26 @@ def right_click_opens_the_object_or_scene_menu():
             return s, [], camera_still({"scene_menu": near(1), "object_menu": near(0), "pie_open": near(-1), "object_menu_opened_by": is_text("right"), "right_click": is_text("object_menu"), "dabs": near(0)})
         return s, [], camera_still({"object_menu": near(1), "object_menu_type": is_text("Sculpt_Mesh"), "scene_menu": near(0), "pie_open": near(-1), "object_menu_opened_by": is_text("right"), "dabs": near(0)})
     return Steps([run((800, 450)), run(EMPTY)])
+
+
+@scenario
+def add_object_goes_where_the_menu_opened():
+    """Add object in the scene menu opened on empty space puts the new sphere's middle at
+    that point, at the depth the view turns about (up and to the left of the first, toward
+    the eye); Add object here in the object menu opened on the model puts it on the surface
+    there (a point of the unit sphere). Each one undo step."""
+    def run(at, row, placed):
+        s = Script()
+        right_click_at(s, *at)
+        s.wait(4)
+        click(s, At(row, 0, 0))
+        s.wait(8)
+        return s, [], camera_still({"objects": near(2), "undo_steps": near(1), "scene_menu": near(0), "object_menu": near(0), "transform": placed})
+    def numbers(v):
+        return [float(c) for c in v.split(",")]
+    off = lambda v: numbers(v)[0] < -1 and numbers(v)[1] > 0.3
+    on = lambda v: abs(sum(c * c for c in numbers(v)[:3]) ** 0.5 - 1) < 0.05 and numbers(v)[2] > 0.3
+    return Steps([run(EMPTY, "scene menu/Add object", off), run((800, 450), "object menu/Add object here", on)])
 
 
 @scenario

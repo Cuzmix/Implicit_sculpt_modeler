@@ -20,7 +20,7 @@ import "../ui"
 // interface: the Material card and the view rail open this card. Holding a sphere
 // (a long press, a right click or the pen's side button) adds it to the favourites or
 // takes it off, a star on its corner; Favourites over the grid shows only those, as the
-// brush browser's Favorites does, and settings.txt keeps them (material_favorite).
+// brush browser's Favourites does, and settings.txt keeps them (material_favorite).
 
 // Materials first: the Render space, where the card shows, lights its objects.
 Material_Tab :: enum u8 {
@@ -100,7 +100,7 @@ kit_lens_material :: proc(app: ^App) {
 	m := object_material(app, sel) if sel != nil else current_material(app)
 	balls := material_balls(app, mc.tab)
 	// The head: Favourites or All, and on Matcaps, Import.
-	ui.begin(ctx, "material card head", {direction = .Row, gap = 6, center = true, width = width})
+	ui.begin(ctx, "material card head", {direction = .Row, gap = ui.SPACE_S, center = true, width = width})
 	shows := [2]string{"Favourites", "All"}
 	shown_w := ui.row_room(ctx) - (100 + 6 if mc.tab == .Matcaps else 0)
 	if picked := ui.tabs(ctx, "material card shows", shows[:], 1 if !mc.only_favorites else 0, item_width = (shown_w - 8) / 2); picked >= 0 do mc.only_favorites = picked == 0

@@ -169,7 +169,7 @@ settings_columns :: proc(app: ^App, id: ui.Id, inner, height: f32) {
 	ui.end(ctx)
 
 	// The section: its name, then its blocks in a scroll.
-	ui.begin(ctx, "settings section", {direction = .Column, gap = 8, width = body_w, height = height})
+	ui.begin(ctx, "settings section", {direction = .Column, gap = ui.SPACE_M, width = body_w, height = height})
 	head := ui.place(ctx, {body_w, t.target})
 	ui.text(ctx, SETTINGS_SECTION_NAMES[k.settings_section], head.x, head.y + head.h * 0.5, t.heading_size, t.text, .Semibold)
 	scroll := kit_scroll_begin(ctx, "settings body", &k.settings_scroll, id, body_w, height - t.target - 8, 4)

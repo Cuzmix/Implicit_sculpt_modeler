@@ -30,12 +30,12 @@ kit_diag :: proc(app: ^App) {
 	ui.fill_rect(ctx, {0, 0, win.x, win.y}, 0, t.frame)
 	ui.spacer(ctx, area.x + PAD)
 	width := area.w - 2 * PAD
-	ui.begin(ctx, "diag page", {direction = .Column, gap = 10, width = width, height = area.y + area.h})
+	ui.begin(ctx, "diag page", {direction = .Column, gap = ui.SPACE_M, width = width, height = area.y + area.h})
 	ui.spacer(ctx, area.y + 8)
 	wide := width >= DIAG_WIDE
 
 	// The heading: the title and session, the test picker on a narrow window, Export and Close.
-	ui.begin(ctx, "diag head", {direction = .Row, center = true, gap = 10, width = width, height = t.target})
+	ui.begin(ctx, "diag head", {direction = .Row, center = true, gap = ui.SPACE_M, width = width, height = t.target})
 	actions: f32 = 160 + t.target + 2 * 10
 	picker: f32 = 0 if wide else min(260, width * 0.4)
 	title := ui.place(ctx, {width - actions - picker - (10 if picker > 0 else 0), t.target})
@@ -132,7 +132,7 @@ kit_diag_card :: proc(app: ^App, width: f32) {
 	ui.paragraph(ctx, test.expected, width, t.text_secondary)
 
 	ran := diag_last_run(d, d.test) != nil
-	ui.begin(ctx, "diag run buttons", {direction = .Row, gap = 8})
+	ui.begin(ctx, "diag run buttons", {direction = .Row, gap = ui.SPACE_M})
 	if ui.button(ctx, "Repeat" if ran else "Start", .Solid, .Accent, width = 120) do diag_run_start(app, d.test)
 	if ui.button(ctx, "Skip", .Bordered, width = 90) {
 		if !d.run_open do diag_run_start(app, d.test)
@@ -203,8 +203,8 @@ kit_diag_probes :: proc(app: ^App, owner: ui.Id, width, height: f32) {
 	d := &app.diag
 	t := ctx.theme
 	ring := DIAG_TESTS[d.test].probe
-	ui.begin(ctx, "diag probes", {direction = .Column, gap = 8, width = width, height = height})
-	ui.begin(ctx, "diag pad row", {direction = .Row, gap = 12})
+	ui.begin(ctx, "diag probes", {direction = .Column, gap = ui.SPACE_M, width = width, height = height})
+	ui.begin(ctx, "diag pad row", {direction = .Row, gap = ui.SPACE_L})
 	pad_h := DIAG_VTRACK + 80
 	pad := ui.area(ctx, "diag pad", {width - t.target - 12, pad_h})
 	diag_probe(app, .Pad, pad.hovered, pad.held, pad.clicked, 0, 0)
@@ -223,7 +223,7 @@ kit_diag_probes :: proc(app: ^App, owner: ui.Id, width, height: f32) {
 	diag_probe(app, .Slider, ctx.hot == ctx.last_id, ctx.active == ctx.last_id, false, before, d.slider)
 	d.rects[.Slider] = ctx.last_rect
 	if ring == .Slider do ui.stroke_rect(ctx, ctx.last_rect, t.radius_medium, t.accent, 2)
-	ui.begin(ctx, "diag button row", {direction = .Row, gap = 8})
+	ui.begin(ctx, "diag button row", {direction = .Row, gap = ui.SPACE_M})
 	half := (width - 10 - 8) / 2
 	clicked := ui.button(ctx, "Diagnostic button", .Flat, width = half)
 	diag_probe(app, .Button, ctx.hot == ctx.last_id, ctx.active == ctx.last_id, clicked, 0, 0)

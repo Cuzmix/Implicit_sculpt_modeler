@@ -59,6 +59,9 @@ Command_Id :: enum u16 {
 	Gizmo_Snap,
 	Gizmo_Pivot,
 	Gizmo_Pivot_Reset,
+	Gizmo_Pivot_Edit,
+	Gizmo_Pivot_Center,
+	Gizmo_Pivot_Unmasked,
 	Brush, // the argument is the sculpt.Brush_Kind
 	Brush_Preset, // the argument is a preset: built-in, the person's own or a pack's (preset_slots.odin)
 	Mask_Shape_Pick, // the argument is the Mask_Shape_Kind
@@ -247,7 +250,6 @@ Command_Id :: enum u16 {
 	Panels_Reset,
 	Layout_Reset, // layouts.odin
 	Space_Switch, // the argument is the Space (spaces.odin)
-	Focus_Mode,
 	Inspect_Mode,
 	View_Pass, // the argument is the render.View_Pass (passes.odin)
 	View_Pass_Last,
@@ -637,7 +639,10 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_SHAPES,
 		args = len(Model_Action),
 		run = proc(app: ^App, arg: int) {model_pick_action(app, Model_Action(arg))},
-		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Model && app.model.action == Model_Action(arg)},
+		// Only a cage (or a curve) takes the actions: on a sculpt mesh or voxel clay they
+		// stand dimmed, and the next steps offer the way to a cage.
+		enabled = proc(app: ^App, _: int) -> bool {return model_actions_apply(app)},
+		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Model && app.model.action == Model_Action(arg) && model_actions_apply(app)},
 	},
 	.Model_Target = {
 		label = "Model target",
@@ -838,8 +843,37 @@ COMMANDS := [Command_Id]Command {
 	.Gizmo_Pivot_Reset = {
 		label = "Reset the pivot",
 		help = "Puts the gizmo back on the selected object's origin.",
+		icon = ICON_PIVOT_RESET,
 		run = proc(app: ^App, _: int) {app.move.pivot = {}},
 		enabled = proc(app: ^App, _: int) -> bool {return gizmo_pivot_set(app)},
+	},
+	.Gizmo_Pivot_Edit = {
+		label = "Edit the pivot",
+		help = "While on, the gizmo's arrows, plane squares and middle move the pivot itself, not the object, as ZBrush's unlocked gizmo and Nomad's Edit pivot do; turns and scales then go about where it was left.",
+		icon = ICON_LOCK_OPEN,
+		run = proc(app: ^App, _: int) {
+			app.tool = .Move
+			app.move.pivot_edit = !app.move.pivot_edit
+		},
+		enabled = has_object,
+		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Move && app.move.pivot_edit},
+	},
+	.Gizmo_Pivot_Center = {
+		label = "Pivot to the middle",
+		help = "Puts the gizmo in the middle of the selected object's bounds, so turns and scales go about its middle.",
+		icon = ICON_PIVOT_CENTER,
+		run = proc(app: ^App, _: int) {pivot_to_middle(app)},
+		enabled = has_object,
+	},
+	.Gizmo_Pivot_Unmasked = {
+		label = "Pivot to the unmasked middle",
+		help = "Puts the gizmo in the middle of what the mask leaves free, as ZBrush's Go to unmasked center does, so a pose turns about the free part.",
+		icon = ICON_PIVOT_UNMASKED,
+		run = proc(app: ^App, _: int) {pivot_to_unmasked(app)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel == nil && object_has_mask(app, obj)
+		},
 	},
 	.Brush = {
 		label = "Brush",
@@ -873,7 +907,7 @@ COMMANDS := [Command_Id]Command {
 	// The mask and hide shapes the modifiers draw, as the brush picker picks them.
 	.Mask_Shape_Pick = {
 		label = "Mask shape",
-		help = "Makes Ctrl + drag on empty space (and Mask on the wheel) mask this shape.",
+		help = "Makes Ctrl + drag on empty space (and Mask on the dial) mask this shape.",
 		icon = ui.ICON_BRUSH,
 		args = len(Mask_Shape_Kind),
 		run = proc(app: ^App, arg: int) {shape_tool_pick(app, Mask_Shape_Kind(arg))},
@@ -881,7 +915,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Hide_Gesture_Pick = {
 		label = "Hide shape",
-		help = "Makes Ctrl + Shift + drag (and Hide on the wheel) run this shape: hide, clip, slice or knife.",
+		help = "Makes Ctrl + Shift + drag (and Hide on the dial) run this shape: hide, clip, slice or knife.",
 		icon = ui.ICON_BRUSH,
 		args = len(Gesture_Tool),
 		run = proc(app: ^App, arg: int) {shape_tool_pick(app, Gesture_Tool(arg))},
@@ -920,7 +954,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Brush_Subtract = {
 		label = "Subtract",
-		help = "Brushes work the other way until Add is chosen: Draw digs, Clay carves (as with Ctrl held, or the wheel's Invert latched).",
+		help = "Brushes work the other way until Add is chosen: Draw digs, Clay carves (as with Ctrl held, or the dial's Invert latched).",
 		icon = ICON_SUBTRACT,
 		run = proc(app: ^App, _: int) {app.rail.latched += {.Invert}},
 		checked = proc(app: ^App, _: int) -> bool {return .Invert in app.rail.latched},
@@ -2091,7 +2125,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Second_View = {
 		label = "Second view",
-		help = "Splits the view in two: the view you sculpt in and a pane with its own camera and pass (following the camera or from the front, side or top, as a silhouette, shaded or a pass), to judge the whole form as if from across the room. Again joins them.",
+		help = "Splits the view in two: the view you sculpt in and a pane with its own camera and shading (following the camera or from the front, side or top, as a silhouette, shaded or a pass), to judge the whole form as if from across the room. Again joins them.",
 		icon = rune(0xe3b2), // picture-in-picture
 		run = proc(app: ^App, _: int) {grid_choose(app, .Single if grid_panes(&app.kit.grid) > 1 else .Side_By_Side)},
 		checked = proc(app: ^App, _: int) -> bool {return grid_panes(&app.kit.grid) > 1},
@@ -2207,7 +2241,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Layout_Reset = {
 		label = "Reset layout",
-		help = "Puts this space's layout (its docks, cards, view grid and pass) back as it ships.",
+		help = "Puts this space's layout (its toolbars, cards, view grid and shading) back as it ships.",
 		icon = ui.ICON_HISTORY,
 		run = proc(app: ^App, _: int) {layout_reset(&app.kit)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.kit.layouts.modified},
@@ -2220,23 +2254,16 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, arg: int) {space_switch(app, Space(arg))},
 		checked = proc(app: ^App, arg: int) -> bool {return app.kit.spaces.current == Space(arg)},
 	},
-	.Focus_Mode = {
-		label = "Focus mode",
-		help = "Hides the side bars and the next steps, leaving the model, the dock and the dial; again brings them back. The layout stays as it is.",
-		icon = ui.ICON_FOCUS,
-		run = proc(app: ^App, _: int) {app.kit.focus_mode = !app.kit.focus_mode},
-		checked = proc(app: ^App, _: int) -> bool {return app.kit.focus_mode},
-	},
 	.Inspect_Mode = {
-		label = "Inspect",
-		help = "Shows the form four ways (shaded, curvature, normals and a front silhouette) with the brush bar and the dock aside; again puts the view back.",
+		label = "Four views",
+		help = "Shows the form four ways (shaded, curvature, normals and a front silhouette) with the brush toolbar and the view toolbar aside; again puts the view back.",
 		icon = ui.ICON_GRID,
 		run = proc(app: ^App, _: int) {inspect_set(&app.kit, !app.kit.inspect.on)},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.inspect.on},
 	},
 	.View_Pass = {
-		label = "Pass",
-		help = "Shows the viewport in this pass: its shading mode, or the normals, depth, curvature, occlusion or silhouette alone, to check the form, or what the detail skin holds as normal-map colours.",
+		label = "Shading",
+		help = "Shows the viewport in this shading: its mode, or the normals, depth, curvature, occlusion or silhouette alone, to check the form, or what the detail skin holds as normal-map colours.",
 		icon = ui.ICON_EYE,
 		// The shading modes' own passes are the modes', not picked here.
 		args = PASS_PICKED,
@@ -2247,15 +2274,15 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, arg: int) -> bool {return app.kit.passes.pass == render.View_Pass(arg)},
 	},
 	.View_Pass_Last = {
-		label = "Last pass",
-		help = "Goes back to the pass shown before this one, so one key flips between two.",
+		label = "Last shading",
+		help = "Goes back to the shading shown before this one, so one key flips between two.",
 		icon = ui.ICON_UNDO,
 		run = proc(app: ^App, _: int) {pass_back(&app.kit)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.kit.passes.last != app.kit.passes.pass},
 	},
 	.View_Grid = {
 		label = "View grid",
-		help = "Splits the viewport into panes: the main view, where you sculpt, and views beside it from the front, the side or the top, each with its own camera and pass, drawn again once a stroke is over.",
+		help = "Splits the viewport into panes: the main view, where you sculpt, and views beside it from the front, the side or the top, each with its own camera and shading, drawn again once a stroke is over.",
 		icon = ui.ICON_GRID,
 		args = len(Grid_Preset),
 		run = proc(app: ^App, arg: int) {grid_choose(app, Grid_Preset(arg))},
@@ -2268,7 +2295,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.View_Wipe = {
 		label = "Wipe compare",
-		help = "Splits the main view by a line you drag: the pass picked on its left, the last other pass on its right, to compare the two on the same form.",
+		help = "Splits the main view by a line you drag: the shading picked on its left, the last other one on its right, to compare the two on the same form.",
 		icon = ICON_WIPE,
 		run = proc(app: ^App, _: int) {wipe_toggle(&app.kit)},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.passes.wipe},
@@ -2297,7 +2324,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.View_Window = {
 		label = "New view window",
-		help = "Opens a view in a window of its own, to move to another monitor: the first view pane's camera and pass, else the main camera shaded, with its own head to change them. Up to three; desktop only.",
+		help = "Opens a view in a window of its own, to move to another monitor: the first view pane's camera and shading, else the main camera shaded, with its own head to change them. Up to three; desktop only.",
 		icon = ICON_VIEW_WINDOW,
 		run = proc(app: ^App, _: int) {view_window_request(app, view_window_default(app))},
 		// With three open it still runs, to say why no fourth opens.
@@ -2305,7 +2332,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Pane_Tab_New = {
 		label = "New tab",
-		help = "Adds a tab to the view pane you used last, from an angle none of its tabs shows, and shows it; the pane keeps every tab's camera and pass.",
+		help = "Adds a tab to the view pane you used last, from an angle none of its tabs shows, and shows it; the pane keeps every tab's camera and shading.",
 		icon = ui.ICON_PLUS,
 		run = proc(app: ^App, _: int) {pane_tab_command(app, 0, .Pane_Tab_New)},
 		enabled = proc(app: ^App, _: int) -> bool {return pane_tab_command_enabled(app, 0, .Pane_Tab_New)},
@@ -2340,10 +2367,10 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Clean_View = {
 		label = "Clean view",
-		help = "Hides every control so you can judge the form, keeping only the dial unless Settings > Interface says otherwise; again, Escape or a four-finger tap brings them back.",
+		help = "Hides the controls so you can judge the form, keeping the dial, nothing, or the shelf and dial as Settings > Dial says; again, Escape or a four-finger tap brings them back.",
 		icon = ICON_CLEAN_VIEW,
-		run = proc(app: ^App, _: int) {clean_view_set(app, !app.kit.clean)},
-		checked = proc(app: ^App, _: int) -> bool {return app.kit.clean},
+		run = proc(app: ^App, _: int) {clean_view_set(app, !clean_view_on(&app.kit))},
+		checked = proc(app: ^App, _: int) -> bool {return clean_view_on(&app.kit)},
 	},
 	.View_Layout_Menu = {
 		label = "View layout",
@@ -2353,8 +2380,8 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, _: int) -> bool {return bar_pop_showing(app, .View_Layout)},
 	},
 	.Pass_Menu = {
-		label = "Passes",
-		help = "Opens the shading list beside its button: the shading modes with Solid's lighting, MatCap and colour, the passes that check the form, and wipe compare.",
+		label = "Shading modes",
+		help = "Opens the shading list beside its button: the shading modes with Solid's lighting, MatCap and colour, the form checks with Four views, and wipe compare.",
 		icon = ICON_PASSES,
 		run = proc(app: ^App, _: int) {pass_menu_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.passes.menu},
@@ -2415,14 +2442,14 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {command_run(app, .Object_Menu)},
 	},
 	.Viewport_Readout = {
-		label = "Viewport readout",
-		help = "Shows or hides the readout in the view's corner: the camera and shading, which open their menus, then the vertices and the app's memory.",
+		label = "View info",
+		help = "Shows or hides the view info in the view's corner: the camera and shading, which open their menus, then the vertices and the app's memory.",
 		run = proc(app: ^App, _: int) {app.kit.readout_hidden = !app.kit.readout_hidden},
 		checked = proc(app: ^App, _: int) -> bool {return !app.kit.readout_hidden},
 	},
 	.Readout_Gpu = {
-		label = "GPU time in the readout",
-		help = "Adds the GPU's typical time a frame to the readout, where the device measures it.",
+		label = "GPU time in the view info",
+		help = "Adds the GPU's typical time a frame to the view info, where the device measures it.",
 		run = proc(app: ^App, _: int) {app.kit.readout_gpu = !app.kit.readout_gpu},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.readout_gpu},
 		enabled = proc(app: ^App, _: int) -> bool {return !app.kit.readout_hidden},
@@ -2438,7 +2465,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Left_Handed = {
 		label = "Left-handed",
-		help = "Swaps the layout's sides for a pen in the left hand: the panels, the view rail and the shelf's tools go left, the off-hand island and the dial right (Settings > Interface has it too); again, back. They slide across as they go.",
+		help = "Swaps the layout's sides for a pen in the left hand: the cards, the view toolbar and the shelf's tools go left, the brush toolbar and the dial right (Settings > Interface has it too); again, back. They slide across as they go.",
 		run = proc(app: ^App, _: int) {app.kit.ctx.mirror = !app.kit.ctx.mirror},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.ctx.mirror},
 	},
@@ -2449,8 +2476,8 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {palette_open(app)},
 	},
 	.Customise_Bars = {
-		label = "Edit docks",
-		help = "Edits the docks in place (or hold any dock's ⋯): a tap on a ringed button moves, removes or changes it and + adds one; a dock's head carries it to an edge or anywhere and opens its menu; its curved corner gives it more or fewer lines; the Library chooses which bars show and where each panel goes; Done ends it.",
+		label = "Edit toolbars",
+		help = "Edits the toolbars in place (or hold any toolbar's ⋯): a tap on a ringed button moves, removes or changes it and + adds one; a toolbar's head carries it to an edge or anywhere and opens its menu; its curved corner gives it more or fewer lines; the Library chooses which bars show and where each panel goes; Done ends it.",
 		icon = ICON_CUSTOMISE,
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
@@ -2462,8 +2489,8 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.bars_edit && app.kit.edit_dock == nil},
 	},
 	.New_Dock = {
-		label = "New dock",
-		help = "Makes a dock of your own, a column of any commands and brush values, floating in the view, and turns on Arrange to fill it: its + adds a button, and its tag carries it to an edge.",
+		label = "New toolbar",
+		help = "Makes a toolbar of your own, a column of any commands and brush values, floating in the view, and turns on Arrange to fill it: its + adds a button, and its tag carries it to an edge.",
 		icon = ui.ICON_PLUS,
 		run = proc(app: ^App, _: int) {_ = user_dock_new(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return user_docks_used(&app.kit) < USER_DOCKS},
@@ -2853,7 +2880,7 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		sec := Section(arg)
 		return fmt.tprintf("%s card: %s", card_title(section_card(sec)), section_title(sec))
 	case .View_Pass:
-		return "Pass: Shading mode" if render.View_Pass(arg) == .Shaded else fmt.tprintf("Pass: %s", PASS_LABELS[render.View_Pass(arg)])
+		return "Shading: Mode" if render.View_Pass(arg) == .Shaded else fmt.tprintf("Shading: %s", PASS_LABELS[render.View_Pass(arg)])
 	case .View_Grid:
 		return fmt.tprintf("Grid: %s", GRID_NAMES[Grid_Preset(arg)])
 	case .Space_Switch:
@@ -2913,9 +2940,9 @@ command_gesture :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 	case .Frame_All:
 		if n.double_tap && empty_taps do builtin = "Double tap empty space, nothing selected"
 	case .Size_Up, .Size_Down:
-		builtin = "Three fingers up or down" if n.three_finger else "Drag the island's Size up or down, or a Size chip across"
+		builtin = "Three fingers up or down" if n.three_finger else "Drag the brush toolbar's Size up or down, or a Size chip across"
 	case .Strength_Up, .Strength_Down:
-		builtin = "Drag the island's Strength up or down, or a Strength chip across"
+		builtin = "Drag the brush toolbar's Strength up or down, or a Strength chip across"
 	case .Mask:
 		// The mask taps are the Sculpt tool's (mask_tap_act), and only the modifier
 		// buttons' Mask turns them on: with the buttons off there is no way to do them.

@@ -186,7 +186,7 @@ ICON_FILE :: rune(0xe0c4)
 @(rodata)
 KIND_GLYPHS := [History_Kind]rune {
 	.Stroke    = ui.ICON_BRUSH,
-	.Mask      = ICON_CIRCLE_DASHED,
+	.Mask      = ICON_MASK,
 	.Hide      = ui.ICON_EYE_OFF,
 	.Deform    = ui.ICON_WAND,
 	.Rebuild   = ICON_REMESH,
@@ -199,6 +199,7 @@ KIND_GLYPHS := [History_Kind]rune {
 	.Model     = ICON_CAGE,
 	.Curve     = ui.ICON_SPLINE,
 	.References = ICON_REFERENCES,
+	.Stack     = ICON_LIVE_STACK,
 }
 
 // One row: a tap goes to its step (a group's newest), a long press, a right click or the

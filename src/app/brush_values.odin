@@ -374,9 +374,9 @@ kit_value_pop :: proc(app: ^App) {
 	t := ctx.theme
 	p := &k.bar_pop
 	v := p.value
-	if !ui.popover_begin(ctx, "bar value", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = 12, width = ui.POPOVER_W}) do return
+	if !ui.popover_begin(ctx, "bar value", &p.open, p.at, p.side, {direction = .Column, gap = ui.SPACE_S, padding = ui.SPACE_L, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
-	ui.begin(ctx, "value head", {direction = .Row, center = true, gap = 8})
+	ui.begin(ctx, "value head", {direction = .Row, center = true, gap = ui.SPACE_M})
 	g := ui.area(ctx, "value glyph", {t.icon_small, t.target}, drag = false)
 	ui.icon(ctx, BRUSH_VALUE_ICONS[v], {g.rect.x + g.rect.w * 0.5, g.rect.y + g.rect.h * 0.5}, t.icon_small, t.accent)
 	ui.label(ctx, BRUSH_VALUE_NAMES[v], t.text_size, t.text, .Semibold)
@@ -394,7 +394,7 @@ kit_value_pop :: proc(app: ^App) {
 	if ui.slider(ctx, fmt.tprintf("##value pop %v", v), &x, lo, hi, scale, "", enabled) do value_set(app, v, x)
 	steps := value_steps(v)
 	if len(steps) == 0 do return
-	ui.begin(ctx, "value steps", {direction = .Row, gap = 6})
+	ui.begin(ctx, "value steps", {direction = .Row, gap = ui.SPACE_S})
 	w := (ui.POPOVER_W - 24 - 6 * f32(len(steps) - 1)) / f32(len(steps))
 	for s in steps {
 		on := abs(value_get(app, v) - s) < 1e-3 * max(1, abs(s))

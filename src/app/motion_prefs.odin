@@ -58,10 +58,10 @@ MOTION_KIND_NAMES := [Motion_Kind]string {
 	.Mask_Wipe   = "Mask commands",
 	.Selection   = "Selection outline",
 	.Save_Tick   = "Save tick",
-	.Look_Fade   = "Pass and look changes",
+	.Look_Fade   = "Shading and look changes",
 	.Mesh_Fade   = "New mesh after a rebuild",
 	.Cards       = "Cards sliding",
-	.Docks       = "Docks sliding",
+	.Docks       = "Toolbars sliding",
 	.Spaces      = "Switching space",
 	.Pills       = "Pills and chips",
 }

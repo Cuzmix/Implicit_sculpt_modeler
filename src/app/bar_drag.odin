@@ -93,7 +93,7 @@ bar_takes :: proc(which: Bar_Which, s: Bar_Slot) -> (ok: bool, why: string) {
 	if (s.id == .File_Chip || s.id == .Space_Tabs || s.id == .Object_Chip) && !top do return false, "it stays in the top bar"
 	_, page := shelf_page_of(which)
 	_, dock := user_dock_of(which)
-	if (s.id == .Brush || s.id == .Brush_Preset) && !page && !dock do return false, "brushes go on the shelf or a dock"
+	if (s.id == .Brush || s.id == .Brush_Preset) && !page && !dock do return false, "brushes go on the shelf or a toolbar"
 	return true, ""
 }
 

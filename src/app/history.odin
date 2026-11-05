@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:log"
 import "core:math/linalg"
+import "core:os"
 import "core:time"
 
 import "../camera"
@@ -96,6 +97,8 @@ History_Entry :: struct {
 	lights: ^Light_Step,
 	// A .References entry's board before the change and after it (references.odin), owned.
 	refs: ^Refs_Step,
+	// A .Stack entry's live stack before the change and after it (stack.odin), owned.
+	stack: ^Stack_Step,
 }
 
 Arrange_Step :: struct {
@@ -108,6 +111,7 @@ Arrange_Step :: struct {
 entry_free :: proc(h: ^History, e: History_Entry) {
 	delete(e.bookmark)
 	free(e.lights)
+	free(e.stack)
 	if e.refs != nil {
 		refs_step_free(e.refs)
 		h.refs_dropped = true
@@ -118,7 +122,7 @@ entry_free :: proc(h: ^History, e: History_Entry) {
 		texture_step_free(e.textures)
 	}
 	if e.swap != nil {
-		h.swap_bytes -= len(e.swap.bytes)
+		h.swap_bytes -= e.swap.size
 		snapshot_free(e.swap)
 	}
 	if e.arrange != nil {
@@ -144,6 +148,7 @@ History_Kind :: enum u8 {
 	Model,    // a swap entry of Model mode: a cage edited or applied
 	Curve,    // a swap entry of a curve object: drawn, edited or removed
 	References, // the reference pictures added, moved or removed
+	Stack,      // the object's live stack changed: a row added, set, shown or removed
 }
 
 // An object as object_put writes it, or that it did not exist. Undoing or redoing a swap
@@ -152,7 +157,10 @@ History_Kind :: enum u8 {
 Object_Snapshot :: struct {
 	exists: bool,
 	index:  int, // where in the scene's list the object was
-	bytes:  [dynamic]u8,
+	bytes:  [dynamic]u8, // nil while the copy is on disk
+	size:   int, // the copy's bytes, in memory or on disk
+	file:   string, // owned: where the copy is on disk (undo_disk.odin), "" while in memory
+	disk:   ^Undo_Disk_Write, // the copy being written there
 	what:   string, // the change, for the log and the undo and redo buttons' tooltips (not owned)
 }
 
@@ -185,6 +193,11 @@ history_clear :: proc(h: ^History) {
 @(private = "file")
 snapshot_free :: proc(snap: ^Object_Snapshot) {
 	if snap == nil do return
+	undo_disk_settle(snap)
+	if snap.file != "" {
+		_ = os.remove(snap.file)
+		delete(snap.file)
+	}
 	delete(snap.bytes)
 	free(snap)
 }
@@ -201,6 +214,7 @@ history_snapshot :: proc(app: ^App, obj: ^Object, what: string) -> ^Object_Snaps
 	// The copy takes the normals as the GPU last left them.
 	object_gpu_sync(obj)
 	object_put(app, &snap.bytes, obj)
+	snap.size = len(snap.bytes)
 	return snap
 }
 
@@ -215,8 +229,8 @@ history_record_swap :: proc(app: ^App, id: int, before: ^Object_Snapshot, chain 
 	history_forget_strokes(app, id)
 	app.history.serial += 1
 	app.history.edits += 1
-	append(&app.history.done, History_Entry{id = id, swap = before, chain = chain && len(app.history.done) > 0, kind = kind, what = before.what, at = time.tick_now(), bytes = len(before.bytes), view = camera_view_of(app.camera)})
-	app.history.swap_bytes += len(before.bytes)
+	append(&app.history.done, History_Entry{id = id, swap = before, chain = chain && len(app.history.done) > 0, kind = kind, what = before.what, at = time.tick_now(), bytes = before.size, view = camera_view_of(app.camera)})
+	app.history.swap_bytes += before.size
 	history_trim(app)
 }
 
@@ -281,6 +295,7 @@ HISTORY_LIMITS_NAMES := [?]string{"Automatic", "256 MB", "512 MB", "1 GB", "2 GB
 // bookmarked step: the limit waits there and a note says so once, since a bookmark is a
 // step kept on purpose.
 history_cap :: proc(app: ^App) {
+	undo_disk_frame(app)
 	if history_busy(app) || timeline_busy(app) do return
 	if app.memory_low do history_low_memory(app)
 	history_limits_apply(app)
@@ -420,7 +435,7 @@ history_next_label :: proc(list: []History_Entry) -> string {
 	if len(list) == 0 do return "stroke"
 	e := list[len(list) - 1]
 	if e.swap != nil do return e.swap.what
-	if e.kind == .Transform || e.kind == .Arrange || e.kind == .Textures || e.kind == .Lights || e.kind == .References do return e.what
+	if e.kind == .Transform || e.kind == .Arrange || e.kind == .Textures || e.kind == .Lights || e.kind == .References || e.kind == .Stack do return e.what
 	return "stroke"
 }
 
@@ -859,7 +874,7 @@ history_push :: proc(app: ^App, e: History_Entry) {
 @(private = "file")
 history_drop_redo :: proc(app: ^App) {
 	for e in app.history.undone {
-		if e.swap != nil || e.arrange != nil || e.lights != nil || e.refs != nil || e.kind == .Transform || e.kind == .Textures {
+		if e.swap != nil || e.arrange != nil || e.lights != nil || e.refs != nil || e.stack != nil || e.kind == .Transform || e.kind == .Textures {
 			// Nothing of it is kept anywhere else.
 		} else if obj := object_by_id(app, e.id); obj != nil && obj.voxel != nil {
 			voxel.clay_clear_redo(&obj.voxel.clay)
@@ -913,7 +928,7 @@ history_redo :: proc(app: ^App) {
 history_flash :: proc(app: ^App, to: []History_Entry) {
 	if len(to) == 0 do return
 	e := to[len(to) - 1]
-	if e.lights != nil || e.arrange != nil || e.refs != nil || object_by_id(app, e.id) == nil do return
+	if e.lights != nil || e.arrange != nil || e.refs != nil || e.stack != nil || object_by_id(app, e.id) == nil do return
 	flash_undo_begin(app, e.id)
 }
 
@@ -965,6 +980,18 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 			texture_step_swap(obj, e.textures)
 			app.history.swap_bytes += texture_step_bytes(e.textures)
 			app.scene_edits += 1
+			append(to, e)
+			return true
+		}
+		if e.stack != nil {
+			// The stack changes how the object is drawn, no level and no sculptor; an
+			// object that is gone takes the step with it.
+			obj := object_by_id(app, e.id)
+			if obj == nil {
+				entry_free(&app.history, e)
+				continue
+			}
+			stack_step_apply(app, obj, e.stack, from == &app.history.done)
 			append(to, e)
 			return true
 		}
@@ -1045,6 +1072,11 @@ history_swap :: proc(app: ^App, e: History_Entry) -> bool {
 	app.move.drag = {}
 	// A press on a curve's point is forgotten; its curve may be the one coming back.
 	curve_drag_drop(app)
+	// A copy on disk comes back first; without it there is nothing to go back to.
+	if !undo_disk_load(app, snap) {
+		report(app, nil, {.Warning}, "Could not read the copy of %s back from disk; this step cannot be undone", snap.what)
+		return true
+	}
 	obj := object_by_id(app, e.id)
 	live := history_snapshot(app, obj, snap.what)
 	defer snapshot_free(live)
@@ -1082,9 +1114,10 @@ history_swap :: proc(app: ^App, e: History_Entry) -> bool {
 	}
 	scene_folders_normalize(app)
 	scene_selection_fix(app)
-	app.history.swap_bytes += len(live.bytes) - len(snap.bytes)
+	app.history.swap_bytes += live.size - snap.size
 	snap.exists, snap.index = live.exists, live.index
 	snap.bytes, live.bytes = live.bytes, snap.bytes
+	snap.size, live.size = live.size, snap.size
 	render.viewport_invalidate(&app.target)
 	log.infof("swap: %s on object %d in %.0f ms", snap.what, e.id, time.duration_milliseconds(time.tick_since(start)))
 	return true
@@ -1103,7 +1136,7 @@ history_forget_strokes :: proc(app: ^App, id: int) {
 	for list in ([2]^[dynamic]History_Entry{&app.history.done, &app.history.undone}) {
 		kept := 0
 		for e in list {
-			if e.id != id || e.swap != nil || e.arrange != nil || e.lights != nil || e.kind == .Transform || e.kind == .Textures {
+			if e.id != id || e.swap != nil || e.arrange != nil || e.lights != nil || e.stack != nil || e.kind == .Transform || e.kind == .Textures {
 				list[kept] = e
 				kept += 1
 			} else {
@@ -1123,7 +1156,7 @@ history_forget_level :: proc(app: ^App, id: int, level: Maybe(int)) {
 		kept := 0
 		for e in list {
 			only, one := level.?
-			if e.id != id || e.arrange != nil || e.lights != nil || (one && (e.level != only || e.swap != nil || e.kind == .Transform || e.kind == .Textures)) {
+			if e.id != id || e.arrange != nil || e.lights != nil || (one && (e.level != only || e.swap != nil || e.stack != nil || e.kind == .Transform || e.kind == .Textures)) {
 				list[kept] = e
 				kept += 1
 			} else {

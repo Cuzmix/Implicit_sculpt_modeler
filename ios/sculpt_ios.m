@@ -16,6 +16,7 @@
  * Built with ARC (-fobjc-arc) by `./build.sh ios`.
  */
 
+#import <GameController/GameController.h>
 #import <UIKit/UIKit.h>
 #import <UIKit/UIGestureRecognizerSubclass.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
@@ -631,6 +632,70 @@ static void scribble_answer_with(UIResponder<UITextInput> *input)
 
 @end
 
+/*
+ * Deletions the on-screen keys make while a hardware keyboard is connected. SDL 3.4's text
+ * field (SDL_uikitviewcontroller.m, textFieldTextDidChange) turns text that went from its
+ * field into Backspace only when no hardware keyboard is attached, taking every deletion
+ * then to be the hardware Delete key's, which it sends itself. The Pencil's keyboard bar,
+ * the shortcut bar's delete and Scribble's scratch-out delete through the field instead, so
+ * with a keyboard connected they deleted nothing. This watches the same field: text that
+ * went while the hardware Delete key is not down is sent as Backspace, once per character.
+ */
+static NSUInteger delete_seen;  /* the field's length after the last change seen */
+static SDL_WindowID delete_window;
+static id delete_changed, delete_began;
+
+/* Whether the hardware keyboard's Delete key is down now (the Game Controller framework's
+ * view of the keyboard, which SDL reads its keys from too). */
+static bool hardware_delete_down(void)
+{
+	GCKeyboardInput *keys = GCKeyboard.coalescedKeyboard.keyboardInput;
+	return keys && [keys buttonForKeyCode:GCKeyCodeDeleteOrBackspace].pressed;
+}
+
+static void send_backspace(void)
+{
+	SDL_Event e;
+	SDL_zero(e);
+	e.key.type = SDL_EVENT_KEY_DOWN;
+	e.key.timestamp = SDL_GetTicksNS();
+	e.key.windowID = delete_window;
+	e.key.scancode = SDL_SCANCODE_BACKSPACE;
+	e.key.key = SDLK_BACKSPACE;
+	e.key.down = true;
+	SDL_PushEvent(&e);
+	e.key.type = SDL_EVENT_KEY_UP;
+	e.key.down = false;
+	SDL_PushEvent(&e);
+}
+
+static void deletes_watch(UIView *view, SDL_Window *window)
+{
+	delete_window = SDL_GetWindowID(window);
+	NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+	/* SDL fills its field with spaces whenever text input starts, so what is there then is
+	 * where deletions count from. */
+	delete_began = [center addObserverForName:UITextFieldTextDidBeginEditingNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+		UITextField *field = note.object;
+		if ([field isKindOfClass:UITextField.class] && [field isDescendantOfView:view]) delete_seen = field.text.length;
+	}];
+	delete_changed = [center addObserverForName:UITextFieldTextDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+		UITextField *field = note.object;
+		if (![field isKindOfClass:UITextField.class] || ![field isDescendantOfView:view]) return;
+		NSUInteger was = delete_seen, now = field.text.length;
+		delete_seen = now;
+		/* Without a hardware keyboard SDL sends the Backspace itself, and the hardware Delete
+		 * key's own press is SDL's to send; text still being composed is not yet a change. */
+		if (field.markedTextRange != nil || !SDL_HasKeyboard() || hardware_delete_down()) return;
+		NSUInteger gone = 0;
+		if (now < was) gone = was - now;
+		/* SDL refills a field shorter than 16 with 64 spaces just before a deletion lands
+		 * (its resetTextState), so a field that held under 16 and now holds 63 lost one. */
+		else if (was < 16 && now == 63) gone = 1;
+		for (NSUInteger i = 0; i < gone; i++) send_backspace();
+	}];
+}
+
 void sculpt_ios_scribble_start(SDL_Window *window)
 {
 	SDL_PropertiesID props = SDL_GetWindowProperties(window);
@@ -641,6 +706,7 @@ void sculpt_ios_scribble_start(SDL_Window *window)
 	scribble_interaction = [[UIIndirectScribbleInteraction alloc] initWithDelegate:scribble];
 	[view addInteraction:scribble_interaction];
 	scribble_view = view;
+	deletes_watch(view, window);
 }
 
 /* The frame's fields, `count` of them: their ids and where they show (x, y, width and height

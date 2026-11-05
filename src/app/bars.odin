@@ -106,11 +106,11 @@ Bar_List :: struct {
 }
 
 // What a fresh install has. The view rail holds the cards a sculptor reaches for, each
-// opening beside its button: Tool, Layers, Scene, Mesh, Mask, Symmetry and References. The view's own
+// opening beside its button: Tool, Layers, Scene, Mesh, Mask, Symmetry, Live stack and References. The view's own
 // settings are the readout's menus (readout.odin).
 VIEW_RAIL_DEFAULT :: [?]Bar_Slot {
 	{.Open_Card, int(Card.Tool)}, {.Open_Card, int(Card.Layers)}, {.Open_Card, int(Card.Scene)}, {.Open_Card, int(Card.Mesh)},
-	{.Open_Card, int(Card.Mask)}, {.Open_Card, int(Card.Symmetry)}, {.Open_Card, int(Card.References)},
+	{.Open_Card, int(Card.Mask)}, {.Open_Card, int(Card.Symmetry)}, {.Open_Card, int(Card.Stack)}, {.Open_Card, int(Card.References)},
 }
 
 // The top bar's docks as they come: the menu, the file chip, Save, Undo and Redo; the space
@@ -338,15 +338,15 @@ bar_put :: proc(app: ^App, pick: Bar_Pick, s: Bar_Slot) {
 // "The view rail", for notes.
 bar_title :: proc(app: ^App, which: Bar_Which) -> string {
 	switch which {
-	case .View_Rail: return "The view rail"
+	case .View_Rail: return "The view toolbar"
 	case .Shelf_Sculpt, .Shelf_Paint, .Shelf_Move, .Shelf_Curve, .Shelf_Model, .Shelf_Render, .Shelf_Extra_1, .Shelf_Extra_2, .Shelf_Extra_3, .Shelf_Extra_4, .Shelf_Extra_5, .Shelf_Extra_6:
 		page, _ := shelf_page_of(which)
 		return fmt.tprintf("The shelf's %s page", shelf_page_name(&app.kit, page))
 	case .Brush_Pie:    return "The brush pie"
-	case .Offhand:      return "The brush bar"
-	case .Top_File:     return "The top bar's File dock"
-	case .Top_Spaces:   return "The top bar's Spaces dock"
-	case .Top_App:      return "The top bar's App dock"
+	case .Offhand:      return "The brush toolbar"
+	case .Top_File:     return "The top bar's File toolbar"
+	case .Top_Spaces:   return "The top bar's Spaces toolbar"
+	case .Top_App:      return "The top bar's App toolbar"
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 		d, _ := dock_of_bar(which)
 		return DOCK_TITLES[d]
@@ -681,7 +681,7 @@ kit_bar_slot_menu :: proc(app: ^App) {
 	m := &k.bar_slot
 	used := bar_used(app, m.which)
 	if m.slot >= len(used) do m.open = false
-	if !ui.popover_begin(ctx, "bar slot", &m.open, m.at, bar_side(app, m.which), {direction = .Column, gap = 4, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
+	if !ui.popover_begin(ctx, "bar slot", &m.open, m.at, bar_side(app, m.which), {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
 	s := used[m.slot]
 	ui.begin(ctx, "bar slot head", {direction = .Row, center = true})
@@ -690,7 +690,7 @@ kit_bar_slot_menu :: proc(app: ^App) {
 	ui.end(ctx)
 	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do m.open = false
 	ui.end(ctx)
-	ui.begin(ctx, "bar slot moves", {direction = .Row, gap = 4})
+	ui.begin(ctx, "bar slot moves", {direction = .Row, gap = ui.SPACE_XS})
 	if bar_slot_actions(app, m.which, m.slot) do m.open = false
 	ui.end(ctx)
 	ui.paragraph(ctx, COMMANDS[s.id].help)

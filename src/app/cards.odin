@@ -29,6 +29,7 @@ Card :: enum u8 {
 	History,
 	Details,
 	References,
+	Stack,
 }
 
 @(rodata)
@@ -47,6 +48,7 @@ CARD_NAMES := [Card]string {
 	.History  = "History",
 	.Details  = "Details",
 	.References = "References",
+	.Stack    = "Live stack",
 }
 
 @(rodata)
@@ -55,7 +57,7 @@ CARD_ICONS := [Card]rune {
 	.Layers   = ICON_LAYERS,
 	.Scene    = ui.ICON_SHAPES,
 	.Mesh     = ICON_SUBDIVIDE,
-	.Mask     = ICON_FILL,
+	.Mask     = ICON_MASK,
 	.Deform   = ui.ICON_WAND,
 	.Paint    = ui.ICON_PAINTBRUSH,
 	.Colours  = ICON_COLOUR,
@@ -65,6 +67,7 @@ CARD_ICONS := [Card]rune {
 	.History  = ui.ICON_HISTORY,
 	.Details  = ui.ICON_ACTIVITY,
 	.References = ICON_REFERENCES,
+	.Stack    = ICON_LIVE_STACK,
 }
 
 // The cards that draw their whole body themselves, each with a scroll and controls of its
@@ -87,7 +90,7 @@ card_width :: proc(c: Card) -> f32 {
 
 // The cards whose every section works on the selected object, which say so once at their
 // top while none is selected.
-OBJECT_CARDS :: bit_set[Card]{.Mesh, .Mask, .Deform, .Paint}
+OBJECT_CARDS :: bit_set[Card]{.Mesh, .Mask, .Deform, .Paint, .Stack}
 
 // Every section, grouped by the card that holds it and in the order it shows there
 // (section_card). Files and scripts name a section by its name, never by number.
@@ -113,6 +116,7 @@ Section :: enum u8 {
 	History,
 	Details,
 	References,
+	Stack,
 	// Mesh, in four groups (section_group): Resolution, Rebuild, Combine and Surface.
 	Levels,
 	Hd,
@@ -166,6 +170,7 @@ section_card :: proc(sec: Section) -> Card {
 	case .History:                 return .History
 	case .Details:                 return .Details
 	case .References:              return .References
+	case .Stack:                   return .Stack
 	case .Levels ..= .Project:     return .Mesh
 	case .Mask ..= .Visibility:    return .Mask
 	case .Transform ..= .Deformers: return .Deform
@@ -318,6 +323,7 @@ SECTION_ICONS := [Section]rune {
 	.History     = ui.ICON_HISTORY,
 	.Details     = ui.ICON_ACTIVITY,
 	.References  = ICON_REFERENCES,
+	.Stack       = ICON_LIVE_STACK,
 	.Levels      = ICON_SUBDIVIDE,
 	.Hd          = ui.ICON_ZOOM_IN,
 	.Topology    = ICON_DYNTOPO,
@@ -328,7 +334,7 @@ SECTION_ICONS := [Section]rune {
 	.Booleans    = ICON_BOOLEAN,
 	.Extract     = ICON_SPLIT,
 	.Project     = rune(0xe0b6), // download
-	.Mask        = ICON_FILL,
+	.Mask        = ICON_MASK,
 	.Sets        = ui.ICON_TAG,
 	.Groups      = ui.ICON_GRID,
 	.Visibility  = ui.ICON_EYE,
@@ -357,8 +363,11 @@ ICON_CONTRAST :: rune(0xe0a1) // half filled: inverting
 ICON_SPARKLES :: rune(0xe417)
 // Lucide's images: the References card, a stack of pictures.
 ICON_REFERENCES :: rune(0xe5c9)
+// Lucide's layers-3: the Live stack card, rows over the object.
+ICON_LIVE_STACK :: rune(0xe52f)
 ICON_MINUS :: rune(0xe120)
 ICON_CIRCLE_DASHED :: rune(0xe4b5) // a hole's open border
+ICON_MASK :: rune(0xe2aa) // venetian-mask: the one glyph of masking, on the brush, the card and the history
 ICON_SCAN_EYE :: rune(0xe53b) // facing the eye: masking by angle, a step's tint
 
 // Whether card `c` shows section `sec` now: the brush's own sections while the brush is
@@ -515,6 +524,8 @@ card_summary :: proc(app: ^App, c: Card) -> string {
 	case .Symmetry:
 		if app.brush.radial_on do return fmt.tprintf("radial %d", app.brush.radial_count)
 		return "Local" if app.brush.sym_local else ""
+	case .Stack:
+		return stack_summary(selected_object(app))
 	case .Mesh, .Mask, .Deform, .Paint:
 		obj := selected_object(app)
 		if obj == nil do return ""
@@ -626,11 +637,17 @@ card_body :: proc(app: ^App, c: Card, inner: f32, body_y: f32, scroll: f32) -> (
 			section_draw(app, sec, inner)
 			continue
 		}
-		// A group's caption stands in for the divider over its first section.
-		if group := section_group(sec); group != "" && (i == 0 || section_group(sections[i - 1]) != group) {
-			if i > 0 do ui.spacer(ctx, 6)
+		// A group's caption stands in for the divider over its first section, and inside
+		// a group the sections part by a little space alone, so the caption reads as
+		// heading all of them rather than the first.
+		group := section_group(sec)
+		switch {
+		case group != "" && (i == 0 || section_group(sections[i - 1]) != group):
+			if i > 0 do ui.spacer(ctx, ui.SPACE_S)
 			ui.caption(ctx, group)
-		} else if i > 0 {
+		case group != "":
+			ui.spacer(ctx, ui.SPACE_XS)
+		case i > 0:
 			ui.divider(ctx, inner, across = true)
 		}
 		if sec == .Brush {
@@ -700,7 +717,7 @@ card_brush :: proc(app: ^App, inner: f32) {
 	t := ctx.theme
 	cur := brush_item_current(app)
 	key := brush_item_key(app, cur)
-	ui.begin(ctx, "card brush", {direction = .Row, gap = 10, center = true, width = inner})
+	ui.begin(ctx, "card brush", {direction = .Row, gap = ui.SPACE_M, center = true, width = inner})
 	r := ui.place(ctx, {44, 44})
 	lens_stroke_preview(ctx, r, cur, app)
 	// The picture, the name and the heart with the row's two gaps between them.

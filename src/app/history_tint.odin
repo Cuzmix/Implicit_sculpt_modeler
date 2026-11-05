@@ -45,7 +45,7 @@ history_tint_step :: proc(app: ^App) -> time.Tick {
 // is gone.
 history_tint_box :: proc(app: ^App, head, last: int) -> (id: int, box: geom.Aabb, whole, ok: bool) {
 	e := history_entry_at(app, head)
-	if e.kind == .Lights || e.kind == .Arrange || e.kind == .References do return
+	if e.kind == .Lights || e.kind == .Arrange || e.kind == .References || e.kind == .Stack do return
 	obj := object_by_id(app, e.id)
 	if obj == nil do return
 	local := geom.AABB_EMPTY

@@ -122,6 +122,9 @@ Vk_Pipeline_Layout :: struct {
 
 Vk_Pipeline :: struct {
 	pipeline: vk.Pipeline,
+	// Its own winding (Rasterizer_State.front_face), which every bind sets again since the
+	// front face is dynamic state, turned over while the pass draws reflected (set_front_face).
+	clockwise: bool,
 	layout:   ^Vk_Pipeline_Layout,
 	compute:  bool,
 	refs:     i32,
@@ -833,8 +836,10 @@ vk_create_graphics_pipeline :: proc(#by_ptr info: Graphics_Pipeline_Desc) -> raw
 		pAttachments    = raw_data(blends),
 		blendConstants  = {1, 1, 1, 1},
 	}
-	dynamic_states := [2]vk.DynamicState{.VIEWPORT, .SCISSOR}
-	dynamics := vk.PipelineDynamicStateCreateInfo{sType = .PIPELINE_DYNAMIC_STATE_CREATE_INFO, dynamicStateCount = 2, pDynamicStates = &dynamic_states[0]}
+	// The front face is dynamic (core in Vulkan 1.3) so a reflected item can turn it over
+	// without a second pipeline (set_front_face).
+	dynamic_states := [3]vk.DynamicState{.VIEWPORT, .SCISSOR, .FRONT_FACE}
+	dynamics := vk.PipelineDynamicStateCreateInfo{sType = .PIPELINE_DYNAMIC_STATE_CREATE_INFO, dynamicStateCount = len(dynamic_states), pDynamicStates = &dynamic_states[0]}
 	rendering := vk.PipelineRenderingCreateInfo {
 		sType                   = .PIPELINE_RENDERING_CREATE_INFO,
 		colorAttachmentCount    = u32(len(ti.color_targets)),
@@ -861,6 +866,7 @@ vk_create_graphics_pipeline :: proc(#by_ptr info: Graphics_Pipeline_Desc) -> raw
 	}
 	p := new(Vk_Pipeline)
 	p.layout = layout
+	p.clockwise = rs.front_face == .Clockwise
 	if r := vk.CreateGraphicsPipelines(vk_state.device, 0, 1, &create, nil, &p.pipeline); r != .SUCCESS {
 		log.errorf("Vulkan: vkCreateGraphicsPipelines failed: %v", r)
 		free(p)

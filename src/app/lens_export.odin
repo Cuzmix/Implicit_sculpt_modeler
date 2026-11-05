@@ -464,7 +464,7 @@ kit_export_sheet :: proc(app: ^App) {
 	s := &k.export
 	// The sheet (sheet.odin), its head naming what ran last.
 	last := export_last_label(s.last_preset, s.last_format) if s.ran else ""
-	inner, _, shown := sheet_begin(app, "export sheet", "Export", ICON_DOWNLOAD, &s.open, EXPORT_SHEET_W, last, gap = 12)
+	inner, _, shown := sheet_begin(app, "export sheet", "Export", ICON_DOWNLOAD, &s.open, EXPORT_SHEET_W, last, gap = ui.SPACE_L)
 	if !shown do return
 	defer sheet_end(app)
 	export_settle(s)
@@ -486,7 +486,7 @@ kit_export_sheet :: proc(app: ^App) {
 	COLUMNS_GAP :: 22
 	options_w := math.floor((inner - COLUMNS_GAP) * 0.54)
 	ui.begin(ctx, "export body", {direction = .Row, gap = COLUMNS_GAP, width = inner, height = EXPORT_BODY_H})
-	ui.begin(ctx, "export options", {direction = .Column, gap = 8, width = options_w})
+	ui.begin(ctx, "export options", {direction = .Column, gap = ui.SPACE_M, width = options_w})
 	ui.caption(ctx, "OPTIONS")
 	formats := export_preset_formats(s.preset)
 	if len(formats) > 1 {
@@ -505,7 +505,7 @@ kit_export_sheet :: proc(app: ^App) {
 
 	// The foot: what Export does to the scene, then Cancel and Export.
 	ui.divider(ctx, across = true)
-	ui.begin(ctx, "export foot", {direction = .Row, center = true, gap = 8, width = inner})
+	ui.begin(ctx, "export foot", {direction = .Row, center = true, gap = ui.SPACE_M, width = inner})
 	buttons: f32 = 2 * 100 + 8
 	r := ui.place(ctx, {inner - buttons - 8, t.target})
 	note := ui.text_fit(ctx, export_foot_note(s.format, s.copy), t.small_size, r.w, .Regular)
@@ -541,11 +541,12 @@ export_preset_card :: proc(ctx: ^ui.Context, p: Export_Preset, w: f32, lit: bool
 	x := r.x + INSET
 	y := r.y + INSET + t.icon_size * 0.5
 	ui.icon(ctx, EXPORT_PRESET_ICONS[p], {x + t.icon_size * 0.5, y}, t.icon_size, t.accent if lit else t.text_secondary)
-	y += t.icon_size * 0.5 + 8 + t.text_size * 0.6
+	name_h := ui.line_height(t.text_size)
+	y += t.icon_size * 0.5 + 8 + name_h * 0.5
 	room := r.w - 2 * INSET
 	ui.text(ctx, ui.text_fit(ctx, EXPORT_PRESET_NAMES[p], t.text_size, room, .Semibold), x, y, t.text_size, t.text, .Semibold)
-	line_h := math.ceil(t.small_size * 1.4)
-	y += t.text_size * 0.6 + 4 + line_h * 0.5
+	line_h := ui.line_height(t.small_size)
+	y += name_h * 0.5 + 4 + line_h * 0.5
 	first, second := export_two_lines(ctx, EXPORT_PRESET_DETAIL[p], t.small_size, room)
 	ui.text(ctx, first, x, y, t.small_size, t.text_secondary)
 	if second != "" do ui.text(ctx, second, x, y + line_h, t.small_size, t.text_secondary)
@@ -576,8 +577,8 @@ export_preview :: proc(app: ^App, f: Export_Format, w: f32) {
 	ctx := &k.ctx
 	t := ctx.theme
 	obj := selected_object(app)
-	ui.begin(ctx, "export preview", {direction = .Column, gap = 10, width = w})
-	ui.begin(ctx, "export preview head", {direction = .Row, gap = 12, width = w})
+	ui.begin(ctx, "export preview", {direction = .Column, gap = ui.SPACE_M, width = w})
+	ui.begin(ctx, "export preview head", {direction = .Row, gap = ui.SPACE_L, width = w})
 	pic := ui.place(ctx, {EXPORT_PICTURE, EXPORT_PICTURE})
 	ui.fill_rect(ctx, pic, t.radius_medium, t.fill)
 	drawn := false
@@ -597,7 +598,7 @@ export_preview :: proc(app: ^App, f: Export_Format, w: f32) {
 	}
 	if !drawn do ui.icon(ctx, EXPORT_PRESET_ICONS[app.kit.export.preset], {pic.x + pic.w * 0.5, pic.y + pic.h * 0.5}, t.icon_size * 2, t.text_tertiary)
 	lines_w := w - EXPORT_PICTURE - 12
-	ui.begin(ctx, "export preview lines", {direction = .Column, gap = 2, width = lines_w})
+	ui.begin(ctx, "export preview lines", {direction = .Column, gap = ui.SPACE_2XS, width = lines_w})
 	ui.label(ctx, ui.text_fit(ctx, export_file_name(app, f), t.text_size, lines_w, .Semibold), t.text_size, t.text, .Semibold)
 	for line in export_preview_lines(app, f) do ui.label(ctx, ui.text_fit(ctx, line, t.small_size, lines_w), t.small_size, t.text_secondary)
 	ui.end(ctx)
@@ -754,7 +755,7 @@ export_print_options :: proc(app: ^App) {
 	t := ctx.theme
 	UNITS_W :: 132
 	row_w := ui.fill_width(ctx)
-	ui.begin(ctx, "export print height", {direction = .Row, center = true, gap = 8, width = row_w})
+	ui.begin(ctx, "export print height", {direction = .Row, center = true, gap = ui.SPACE_M, width = row_w})
 	ui.begin(ctx, "export print height value", {direction = .Column, width = row_w - UNITS_W - 8})
 	unit := PRINT_UNIT_MM[app.print_unit]
 	b := print_bounds_of(objs)
@@ -770,7 +771,7 @@ export_print_options :: proc(app: ^App) {
 	ui.end(ctx)
 	export_decimate_rows(app, k.export.format)
 	// Hollow for this file only, with its wall to drag beside it on the same row while on.
-	ui.begin(ctx, "export print hollow", {direction = .Row, center = true, gap = 8, width = row_w})
+	ui.begin(ctx, "export print hollow", {direction = .Row, center = true, gap = ui.SPACE_M, width = row_w})
 	ui.begin(ctx, "export print hollow switch", {direction = .Column, width = row_w - UNITS_W - 8 if s.hollow else row_w})
 	_ = ui.switch_row(ctx, "Hollow for this file only", &s.hollow)
 	ui.end(ctx)

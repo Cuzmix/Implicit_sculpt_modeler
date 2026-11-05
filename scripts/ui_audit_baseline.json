@@ -1,8 +1,8 @@
 {
  "contrast_fails": 0,
  "popover_widths": 9,
- "literal_spacing": 170,
- "type_arithmetic": 10,
+ "literal_spacing": 0,
+ "type_arithmetic": 0,
  "color_literals": 2,
- "shared_icons": 29
+ "shared_icons": 28
 }

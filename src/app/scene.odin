@@ -71,6 +71,8 @@ Object :: struct {
 	// Per level, the polygons whose edges its buffers hold for the wireframe (poly_edges.odin).
 	poly_edges: [sculpt.MAX_LEVELS]sculpt.Polygon_Source,
 	boolean:   Boolean_Mode, // how it applies to the base in a boolean (app/boolean.odin)
+	// Its live stack (stack.odin): rows that change how it is shown, its copies and mirror.
+	stack:     Stack,
 	// The lattice spacing of its last remesh, in its mesh space, which Remesh again keeps
 	// (remesh_again_setup); 0 when no remesh made its mesh or another rebuild came after.
 	remesh_cell: f32,
@@ -191,12 +193,12 @@ Surface :: struct {
 	mask:   []u8,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Bake_Curve, Curve_Cage, Skin_Apply, Squeeze}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Bake_Curve, Curve_Cage, Skin_Apply, Squeeze, Stack_Apply}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
 // either kind.
-MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Knife, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Split, .Merge, .Group_Material, .Layout_Uvs, .Remove_Textures, .Repair, .Skin_Apply, .Squeeze}
+MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Stack_Apply, .Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Knife, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Split, .Merge, .Group_Material, .Layout_Uvs, .Remove_Textures, .Repair, .Skin_Apply, .Squeeze}
 
 // The commands a curve object refuses: everything that works on a surface, as a voxel
 // object's or a cage's do; placing, copying, listing, showing and deleting work on it.
@@ -218,13 +220,16 @@ Scene_Command :: struct {
 	// Repair: Close holes leaves the largest open, Delete half keeps the + side; New: an
 	// empty scene, with no object.
 	on:       bool,
+	// Add: put the new object's middle at `point` (in the world here), where a menu was
+	// opened on the view, rather than at the next free place.
+	placed:   bool,
 	axis:     int, // Symmetrize, Align, Distribute, Repair's Delete half: 0 x, 1 y, 2 z; Curve_Cage: the Curve_Cage_Kind
 	edge:     int, // Align, Distribute: 0 each object's low side, 1 its middle, 2 its high side
 	split:    Split_Mode, // Split: what becomes objects of their own
 	level:    int, // Set_Level; HD steps for Hd_Steps
 	at:       [2]f32, // Hd_Enter: the viewport point to open the window around
 	size:     [2]f32, // ...in a viewport of this size
-	point:    Vec3, // Slice, Knife: a point of the plane, in the selected object's space
+	point:    Vec3, // Slice, Knife: a point of the plane, in the selected object's space; Add: where it goes, placed
 	normal:   Vec3, // ...and the way to the part that becomes a new object (Slice) or goes (Knife)
 	// Runs the command again in place of the last one of its kind, from before it
 	// (adjust_last.odin): Remesh, Decimate, Symmetrize, Retopo and Extract.
@@ -948,6 +953,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			if !scene_add_voxel_sphere(app, cmd.voxels, at) do return false
 		} else if !scene_add_primitive(app, cmd.shape, cmd.vertices, at) do return false
 		if len(app.scene.objects) > before {
+			if cmd.placed do selected_object(app).transform.position = cmd.point
 			// Inserted below the selection, in its folder, rather than at the end.
 			if cmd.on && sel != nil {
 				added := selected_object(app)
@@ -1114,6 +1120,11 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			}
 			if changed do history_record_swap(app, obj.id, before)
 			else do history_snapshot_drop(before)
+		}
+	case .Stack_Apply:
+		if obj := selected_object(app); obj != nil && !stack_apply_mirror(app, obj) {
+			scene_delete_selected(app, undoable = false)
+			return false
 		}
 	case .Knife:
 		if obj := selected_object(app); obj != nil {
