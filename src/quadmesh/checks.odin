@@ -54,6 +54,8 @@ Checks :: struct {
 	extract_filled:      int, // faces of more than four sides filled with quads
 	extract_patched:     int, // of those, the ones filled with their own grid cells (the rest cut in a ladder or a fan)
 	extract_dropped:     int, // cycles of no area (an edge walked there and back) dropped
+	extract_twins:       int, // edges taken away where two joined one pair of vertices with faces between them
+	extract_bridges:     int, // pieces of the faces joined back by a tube across a hole round a part
 	extract_bays:        int, // holes reaching the border, closed along it and filled
 	extract_bad_cuts:    int, // faces no cut could fill without joining a corner to itself twice
 	extract_largest_cut: int, // the most sides a face cut into quads had (the largest over the islands)
@@ -108,6 +110,8 @@ checks_add :: proc(to: ^Checks, c: Checks) {
 	to.extract_filled += c.extract_filled
 	to.extract_patched += c.extract_patched
 	to.extract_dropped += c.extract_dropped
+	to.extract_twins += c.extract_twins
+	to.extract_bridges += c.extract_bridges
 	to.extract_bays += c.extract_bays
 	to.extract_bad_cuts += c.extract_bad_cuts
 	to.extract_largest_cut = max(to.extract_largest_cut, c.extract_largest_cut)
@@ -125,13 +129,13 @@ checks_line :: proc(c: Checks) -> string {
 	vertices := 0
 	for n in c.quad_valence do vertices += n
 	regular := 100 * f64(c.quad_valence[4]) / f64(vertices) if vertices > 0 else 0
-	return fmt.tprintf("islands=%d thin_triangles=%d thin_decimated=%d thin_open=%d thin_nonmanifold=%d iso_triangles=%d iso_open=%d iso_nonmanifold=%d iso_euler=%d iso_split_fans=%d iso_torn_edges=%d iso_dropped=%d iso_capped=%d iso_min_angle=%.2f iso_edge_spread=%.3f field_singular_solved=%d field_singular=%d field_smoothness=%.4f covers=%d cover_singular=%d cover_flipped=%d cover_cells=%.1f cover_cells_abs=%.1f cover_cells_wanted=%.1f cover_seam=%d cover_unknowns=%d cover_integers=%d quad_faces=%d quad_quads=%d quad_triangles=%d quad_ngons=%d quad_open=%d quad_nonmanifold=%d quad_valence=%d,%d,%d,%d,%d,%d quad_regular=%.1f%% quad_euler=%d cells_lost=%.1f%% extract_points=%d extract_holes=%d extract_open_seams=%d extract_unmatched=%d extract_filled=%d extract_patched=%d extract_dropped=%d extract_bays=%d extract_bad_cuts=%d extract_largest_cut=%d frozen_vertices=%d frozen_kept=%d frozen_mended=%d",
+	return fmt.tprintf("islands=%d thin_triangles=%d thin_decimated=%d thin_open=%d thin_nonmanifold=%d iso_triangles=%d iso_open=%d iso_nonmanifold=%d iso_euler=%d iso_split_fans=%d iso_torn_edges=%d iso_dropped=%d iso_capped=%d iso_min_angle=%.2f iso_edge_spread=%.3f field_singular_solved=%d field_singular=%d field_smoothness=%.4f covers=%d cover_singular=%d cover_flipped=%d cover_cells=%.1f cover_cells_abs=%.1f cover_cells_wanted=%.1f cover_seam=%d cover_unknowns=%d cover_integers=%d quad_faces=%d quad_quads=%d quad_triangles=%d quad_ngons=%d quad_open=%d quad_nonmanifold=%d quad_valence=%d,%d,%d,%d,%d,%d quad_regular=%.1f%% quad_euler=%d cells_lost=%.1f%% extract_points=%d extract_holes=%d extract_open_seams=%d extract_unmatched=%d extract_filled=%d extract_patched=%d extract_dropped=%d extract_twins=%d extract_bridges=%d extract_bays=%d extract_bad_cuts=%d extract_largest_cut=%d frozen_vertices=%d frozen_kept=%d frozen_mended=%d",
 		c.islands, c.thin_triangles, c.thin_decimated, c.thin_open_edges, c.thin_nonmanifold, c.iso_triangles, c.iso_open_edges, c.iso_nonmanifold, c.iso_euler, c.iso_split_fans, c.iso_torn_edges, c.iso_dropped, c.iso_capped, c.iso_min_angle, c.iso_edge_spread,
 		c.field_singular_solved, c.field_singular, c.field_smoothness,
 		c.covers, c.cover_singular, c.cover_flipped, c.cover_cells, c.cover_cells_abs, c.cover_cells_wanted, c.cover_seam, c.cover_unknowns, c.cover_integers,
 		c.quad_faces, c.quad_quads, c.quad_triangles, c.quad_ngons, c.quad_open_edges, c.quad_nonmanifold,
 		c.quad_valence[1], c.quad_valence[2], c.quad_valence[3], c.quad_valence[4], c.quad_valence[5], c.quad_valence[6], regular, c.quad_euler, lost,
-		c.extract_points, c.extract_holes, c.extract_open_seams, c.extract_unmatched, c.extract_filled, c.extract_patched, c.extract_dropped, c.extract_bays, c.extract_bad_cuts, c.extract_largest_cut,
+		c.extract_points, c.extract_holes, c.extract_open_seams, c.extract_unmatched, c.extract_filled, c.extract_patched, c.extract_dropped, c.extract_twins, c.extract_bridges, c.extract_bays, c.extract_bad_cuts, c.extract_largest_cut,
 		c.frozen_vertices, c.frozen_kept, c.frozen_mended)
 }
 

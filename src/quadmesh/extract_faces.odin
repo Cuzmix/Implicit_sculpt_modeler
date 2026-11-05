@@ -22,6 +22,7 @@ import "../geom"
 Cycles :: struct {
 	first:   [dynamic]u32, // polygon p's corners are corners[first[p]:first[p + 1]]
 	corners: [dynamic]u32,
+	sides:   [dynamic]u32, // per corner: the traced edge from it to the next, as the lesser of its two slots (NONE for a bay's closing edge)
 	lattice: [dynamic][2]i32, // per corner: its grid point, when the polygon is walked
 	walked:  [dynamic]bool, // per polygon: its walk closed, each corner at one grid point
 	uses:    []u32, // per quad vertex: the polygons it is a corner of
@@ -31,6 +32,7 @@ Cycles :: struct {
 cycles_destroy :: proc(c: ^Cycles, heap: runtime.Allocator) {
 	delete(c.first)
 	delete(c.corners)
+	delete(c.sides)
 	delete(c.lattice)
 	delete(c.walked)
 	delete(c.uses, heap)
@@ -42,16 +44,20 @@ cycles_destroy :: proc(c: ^Cycles, heap: runtime.Allocator) {
 extract_faces :: proc(x: ^Extractor, target: []u32) -> (out: Quads) {
 	cy := extract_cycles(x, target)
 	defer cycles_destroy(&cy, x.heap)
+	extract_twins(x, &cy)
+	bridges, bridged := extract_bridges(x, &cy)
+	defer delete(bridges)
+	defer delete(bridged, x.heap)
 	disabled := make([]bool, len(cy.walked), x.heap)
 	defer delete(disabled, x.heap)
 	for _ in 0 ..< PATCH_TRIES {
 		torn: bool
-		out, torn = extract_emit(x, &cy, disabled)
+		out, torn = extract_emit(x, &cy, disabled, bridges[:], bridged)
 		if !torn do return
 	}
 	// Still torn: no patches, which cannot tear.
 	for &d in disabled do d = true
-	out, _ = extract_emit(x, &cy, disabled)
+	out, _ = extract_emit(x, &cy, disabled, bridges[:], bridged)
 	return
 }
 
@@ -87,6 +93,7 @@ extract_cycles :: proc(x: ^Extractor, target: []u32) -> (cy: Cycles) {
 	defer delete(seen, x.heap)
 	cy.first = make([dynamic]u32, 0, n / 4 + 2, x.heap)
 	cy.corners = make([dynamic]u32, 0, n, x.heap)
+	cy.sides = make([dynamic]u32, 0, n, x.heap)
 	cy.lattice = make([dynamic][2]i32, 0, n, x.heap)
 	cy.walked = make([dynamic]bool, 0, n / 4 + 1, x.heap)
 	cy.uses = make([]u32, len(x.vertices), x.heap)
@@ -97,26 +104,32 @@ extract_cycles :: proc(x: ^Extractor, target: []u32) -> (cy: Cycles) {
 	defer delete(cycle)
 	cycle_slots := make([dynamic]u32, 0, 8, x.heap)
 	defer delete(cycle_slots)
+	cycle_sides := make([dynamic]u32, 0, 8, x.heap)
+	defer delete(cycle_sides)
 	at := make([dynamic][2]i32, 0, 8, x.heap)
 	defer delete(at)
 	bay := make([dynamic]u32, 0, 8, x.heap)
 	defer delete(bay)
+	bay_sides := make([dynamic]u32, 0, 8, x.heap)
+	defer delete(bay_sides)
 	for s0 in 0 ..< n {
 		if !matched[s0] || seen[s0] do continue
 		clear(&cycle)
 		clear(&cycle_slots)
+		clear(&cycle_sides)
 		on_border := false
 		s := u32(s0)
 		for _ in 0 ..< n {
 			seen[s] = true
 			append(&cycle, x.slots[s].vertex)
 			append(&cycle_slots, s)
+			append(&cycle_sides, min(s, target[s]))
 			on_border ||= x.slots[s].left == LEFT_BORDER
 			s = before[target[s]]
 			if s == u32(s0) do break
 		}
 		if on_border {
-			border_bays(x, &cy, cycle[:], cycle_slots[:], last, &bay)
+			border_bays(x, &cy, cycle[:], cycle_slots[:], cycle_sides[:], last, &bay, &bay_sides)
 			continue
 		}
 		walked := len(cycle) > 4 && len(cycle) <= WALK_CORNERS && lattice_walk(x, cycle_slots[:], target, before, &at)
@@ -130,7 +143,7 @@ extract_cycles :: proc(x: ^Extractor, target: []u32) -> (cy: Cycles) {
 			}
 		}
 		raw := len(cycle)
-		collapse_spikes(&cycle)
+		collapse_spikes(&cycle, &cycle_sides)
 		if len(cycle) < 3 {
 			x.dropped += 1
 			continue
@@ -138,6 +151,7 @@ extract_cycles :: proc(x: ^Extractor, target: []u32) -> (cy: Cycles) {
 		p := i32(len(cy.walked))
 		append(&cy.first, u32(len(cy.corners)))
 		append(&cy.corners, ..cycle[:])
+		append(&cy.sides, ..cycle_sides[:])
 		for v in cycle {
 			point: [2]i32
 			if walked do for j in 0 ..< raw do if x.slots[cycle_slots[j]].vertex == v {
@@ -163,7 +177,7 @@ extract_cycles :: proc(x: ^Extractor, target: []u32) -> (cy: Cycles) {
 // one), when it has at most BAY_CORNERS. Left open, the border makes a bay there: a fold of
 // the cover beside a mirrored half's cut, where the mirror then cannot close the seam.
 @(private = "file")
-border_bays :: proc(x: ^Extractor, cy: ^Cycles, cycle, cycle_slots: []u32, last: []i32, bay: ^[dynamic]u32) {
+border_bays :: proc(x: ^Extractor, cy: ^Cycles, cycle, cycle_slots, cycle_sides: []u32, last: []i32, bay, bay_sides: ^[dynamic]u32) {
 	k := len(cycle)
 	start := -1
 	for s, j in cycle_slots do if x.slots[s].left == LEFT_BORDER {
@@ -181,14 +195,20 @@ border_bays :: proc(x: ^Extractor, cy: ^Cycles, cycle, cycle_slots: []u32, last:
 		m := 0
 		for j + m < k && off(x, cycle_slots, start + j + m) do m += 1
 		clear(bay)
-		for i in 0 ..= m do append(bay, cycle[(start + j + i) % k])
+		clear(bay_sides)
+		for i in 0 ..= m {
+			append(bay, cycle[(start + j + i) % k])
+			// The last corner's side is the closing edge back to the first, which no trace made.
+			append(bay_sides, cycle_sides[(start + j + i) % k] if i < m else NONE)
+		}
 		j += m
-		collapse_spikes(bay)
+		collapse_spikes(bay, bay_sides)
 		if len(bay) < 3 || len(bay) > BAY_CORNERS do continue
 		x.bays += 1
 		p := i32(len(cy.walked))
 		append(&cy.first, u32(len(cy.corners)))
 		append(&cy.corners, ..bay[:])
+		append(&cy.sides, ..bay_sides[:])
 		for v in bay {
 			append(&cy.lattice, [2]i32{})
 			if last[v] != p {
@@ -198,6 +218,237 @@ border_bays :: proc(x: ^Extractor, cy: ^Cycles, cycle, cycle_slots: []u32, last:
 		}
 		append(&cy.walked, false)
 	}
+}
+
+// ---- Twin edges ------------------------------------------------------------------------
+
+// Two traced edges can join one pair of quad vertices with faces, not nothing, between them
+// on both sides: across a part too thin for the cover's grid (a fin's tip, an ear's), the
+// grid's lines round it close after two edges, so the part is a strip of quads two round,
+// each ring of it two edges between the same two vertices. Over vertices the two are one
+// edge of four faces, which is not manifold and makes the Euler characteristic one more
+// than the surface's (the creature's ear at 700 quads). Each such pair is parted by taking
+// one of its edges away: the two faces beside it become one polygon, filled as any hole is
+// (a ladder or a fan, whose new edges never run where an edge already is), and the other
+// edge stays with its two faces. Of the edges a pair offers, the one whose two faces make
+// the smaller polygon goes; a pair whose every edge has one face on both sides is left.
+@(private = "file")
+extract_twins :: proc(x: ^Extractor, cy: ^Cycles) {
+	polygons := len(cy.walked)
+	heap := x.heap
+	// Each side filed under its lesser vertex with its greater, so a key of more than two
+	// sides is found among a vertex's few sides rather than by sorting them all.
+	n := len(cy.uses)
+	start := make([]u32, n + 1, heap)
+	defer delete(start, heap)
+	for p in 0 ..< polygons {
+		from, to := int(cy.first[p]), int(cy.first[p + 1])
+		for k in from ..< to do start[min(cy.corners[k], cy.corners[k + 1 if k + 1 < to else from]) + 1] += 1
+	}
+	for v in 0 ..< n do start[v + 1] += start[v]
+	cursor := make([]u32, n, heap)
+	defer delete(cursor, heap)
+	copy(cursor, start[:n])
+	greater := make([]u32, len(cy.corners), heap)
+	defer delete(greater, heap)
+	for p in 0 ..< polygons {
+		from, to := int(cy.first[p]), int(cy.first[p + 1])
+		for k in from ..< to {
+			a, b := cy.corners[k], cy.corners[k + 1 if k + 1 < to else from]
+			greater[cursor[min(a, b)]] = max(a, b)
+			cursor[min(a, b)] += 1
+		}
+	}
+	twins := make([dynamic]u64, 0, 4, heap) // the keys of more than two sides, in order
+	defer delete(twins)
+	for v in 0 ..< n {
+		filed := greater[start[v]:start[v + 1]]
+		for w, i in filed {
+			seen, sides := false, 0
+			for o, j in filed {
+				if o != w do continue
+				if j < i do seen = true
+				sides += 1
+			}
+			if !seen && sides > 2 do append(&twins, edge_key(u32(v), w))
+		}
+	}
+	if len(twins) == 0 do return
+	slice.sort(twins[:])
+	// The polygons on each twin key, and those merged.
+	merged := make([dynamic]Twin_Polygon, 0, 4, heap)
+	defer {
+		for &m in merged {
+			delete(m.corners)
+			delete(m.sides)
+		}
+		delete(merged)
+	}
+	store := make([]i32, polygons, heap) // per polygon: its merged storage, or -1
+	defer delete(store, heap)
+	for &v in store do v = -1
+	into := make([]u32, polygons, heap) // per polygon: the polygon it was merged into, or itself
+	defer delete(into, heap)
+	for &v, p in into do v = u32(p)
+	on := make([dynamic][2]u32, 0, 4 * len(twins), heap) // (twin index, polygon) per side on a twin key
+	defer delete(on)
+	for p in 0 ..< polygons {
+		from, to := int(cy.first[p]), int(cy.first[p + 1])
+		for k in from ..< to {
+			t, found := slice.binary_search(twins[:], edge_key(cy.corners[k], cy.corners[k + 1 if k + 1 < to else from]))
+			if found do append(&on, [2]u32{u32(t), u32(p)})
+		}
+	}
+	slice.sort_by(on[:], proc(a, b: [2]u32) -> bool {return a[0] < b[0] || (a[0] == b[0] && a[1] < b[1])})
+	Side :: struct {
+		polygon: u32,
+		edge:    u32,
+	}
+	found := make([dynamic]Side, 0, 8, heap)
+	defer delete(found)
+	changed := false
+	for i := 0; i < len(on); {
+		j := i
+		for j < len(on) && on[j][0] == on[i][0] do j += 1
+		key := twins[on[i][0]]
+		for {
+			// The sides on the key now, in the polygons its first ones were merged into.
+			clear(&found)
+			for e in on[i:j] {
+				p := find(into, e[1])
+				already := false
+				for f in found do already ||= f.polygon == p
+				if already do continue
+				c, sd := view(cy, merged[:], store, p)
+				for v, k in c do if edge_key(v, c[(k + 1) % len(c)]) == key do append(&found, Side{p, sd[k]})
+			}
+			if len(found) <= 2 do break
+			// The edge whose two sides lie in two polygons making the smallest merged one.
+			best, best_size := NONE, max(int)
+			first_of: Side
+			second_of: Side
+			for a, ai in found do for b in found[ai + 1:] {
+				if a.edge != b.edge || a.edge == NONE || a.polygon == b.polygon do continue
+				ca, _ := view(cy, merged[:], store, a.polygon)
+				cb, _ := view(cy, merged[:], store, b.polygon)
+				size := len(ca) + len(cb) - 2
+				if size < best_size || (size == best_size && a.edge < best) {
+					best, best_size = a.edge, size
+					first_of, second_of = a, b
+				}
+			}
+			if best == NONE do break
+			if !twins_merge(cy, &merged, store, into, first_of.polygon, second_of.polygon, best, heap) do break
+			x.twins += 1
+			changed = true
+		}
+		i = j
+	}
+	if !changed do return
+	// The cycles again: each merged polygon where the first of its own was, unwalked, the
+	// polygons merged into it gone.
+	first := make([dynamic]u32, 0, polygons + 1, heap)
+	corners := make([dynamic]u32, 0, len(cy.corners), heap)
+	sides := make([dynamic]u32, 0, len(cy.corners), heap)
+	lattice := make([dynamic][2]i32, 0, len(cy.corners), heap)
+	walked := make([dynamic]bool, 0, polygons, heap)
+	for p in 0 ..< polygons {
+		if into[p] != u32(p) do continue
+		append(&first, u32(len(corners)))
+		c, sd := view(cy, merged[:], store, u32(p))
+		if len(c) < 3 {
+			pop(&first)
+			x.dropped += 1
+			continue
+		}
+		append(&corners, ..c)
+		append(&sides, ..sd)
+		if store[p] >= 0 {
+			for _ in c do append(&lattice, [2]i32{})
+			append(&walked, false)
+		} else {
+			append(&lattice, ..cy.lattice[cy.first[p]:cy.first[p + 1]])
+			append(&walked, cy.walked[p])
+		}
+	}
+	append(&first, u32(len(corners)))
+	delete(cy.first)
+	delete(cy.corners)
+	delete(cy.sides)
+	delete(cy.lattice)
+	delete(cy.walked)
+	cy.first, cy.corners, cy.sides, cy.lattice, cy.walked = first, corners, sides, lattice, walked
+	// Each vertex's polygons, counted again.
+	for &u in cy.uses do u = 0
+	last := make([]i32, len(cy.uses), heap)
+	defer delete(last, heap)
+	for &l in last do l = -1
+	for p in 0 ..< len(cy.walked) {
+		for v in cy.corners[cy.first[p]:cy.first[p + 1]] {
+			if last[v] == i32(p) do continue
+			last[v] = i32(p)
+			cy.uses[v] += 1
+		}
+	}
+}
+
+// A polygon extract_twins merged, with its own corners and sides; every other's are the
+// cycles'.
+@(private = "file")
+Twin_Polygon :: struct {
+	corners, sides: [dynamic]u32,
+}
+
+@(private = "file")
+view :: proc(cy: ^Cycles, merged: []Twin_Polygon, store: []i32, p: u32) -> (corners, sides: []u32) {
+	if store[p] >= 0 do return merged[store[p]].corners[:], merged[store[p]].sides[:]
+	return cy.corners[cy.first[p]:cy.first[p + 1]], cy.sides[cy.first[p]:cy.first[p + 1]]
+}
+
+// Polygon `q` merged into `p` across traced edge `edge`, which runs one way round p and the
+// other round q: p's corners from the edge's far end round to its near one, then q's past
+// the edge's two, spikes taken out. False, and nothing merged, when the edge runs the same
+// way round both (the two faces turned against each other).
+@(private = "file")
+twins_merge :: proc(cy: ^Cycles, merged: ^[dynamic]Twin_Polygon, store: []i32, into: []u32, p, q, edge: u32, heap: runtime.Allocator) -> bool {
+	pc, ps := view(cy, merged[:], store, p)
+	qc, qs := view(cy, merged[:], store, q)
+	i, j := -1, -1
+	for e, k in ps do if e == edge do i = k
+	for e, k in qs do if e == edge do j = k
+	if i < 0 || j < 0 do return false
+	np, nq := len(pc), len(qc)
+	if qc[j] != pc[(i + 1) % np] || qc[(j + 1) % nq] != pc[i] do return false
+	m := Twin_Polygon {
+		corners = make([dynamic]u32, 0, np + nq, heap),
+		sides   = make([dynamic]u32, 0, np + nq, heap),
+	}
+	for k in 1 ..= np {
+		append(&m.corners, pc[(i + k) % np])
+		append(&m.sides, ps[(i + k) % np] if k < np else qs[(j + 1) % nq])
+	}
+	for k in 2 ..< nq {
+		append(&m.corners, qc[(j + k) % nq])
+		append(&m.sides, qs[(j + k) % nq])
+	}
+	collapse_spikes(&m.corners, &m.sides)
+	if store[p] >= 0 {
+		old := &merged[store[p]]
+		delete(old.corners)
+		delete(old.sides)
+		old^ = m
+	} else {
+		store[p] = i32(len(merged))
+		append(merged, m)
+	}
+	if store[q] >= 0 {
+		old := &merged[store[q]]
+		delete(old.corners)
+		delete(old.sides)
+		old^ = {}
+	}
+	into[q] = p
+	return true
 }
 
 // The most corners a bay's polygon may have to be filled (border_bays): a fold beside the
@@ -282,7 +533,7 @@ add_point :: proc(e: ^Emit, p: [3]f64, owner: i32) -> u32 {
 // a face with a corner twice, at a patch's point marks that patch (every one it finds),
 // and `torn` says to emit again without them.
 @(private = "file")
-extract_emit :: proc(x: ^Extractor, cy: ^Cycles, disabled: []bool) -> (out: Quads, torn: bool) {
+extract_emit :: proc(x: ^Extractor, cy: ^Cycles, disabled: []bool, bridges: []Bridge, bridged: []bool) -> (out: Quads, torn: bool) {
 	x.filled, x.patched, x.bad_cuts, x.largest_cut = 0, 0, 0, 0
 	e := Emit {
 		pos     = make([dynamic][3]f64, 0, len(x.vertices) + 64, x.heap),
@@ -311,6 +562,7 @@ extract_emit :: proc(x: ^Extractor, cy: ^Cycles, disabled: []bool) -> (out: Quad
 	patched := make([]bool, polygons, x.heap)
 	defer delete(patched, x.heap)
 	for p in 0 ..< polygons {
+		if bridged[p] do continue
 		c := cy.corners[cy.first[p]:cy.first[p + 1]]
 		if len(c) <= 4 {
 			append(&e.first, u32(len(e.corners)))
@@ -324,9 +576,10 @@ extract_emit :: proc(x: ^Extractor, cy: ^Cycles, disabled: []bool) -> (out: Quad
 			patched[p] = true
 		}
 	}
+	for b in bridges do bridge_emit(x, &e, cy, b)
 	for p in 0 ..< polygons {
 		c := cy.corners[cy.first[p]:cy.first[p + 1]]
-		if len(c) <= 4 || patched[p] do continue
+		if len(c) <= 4 || patched[p] || bridged[p] do continue
 		// Else the squarer of a ladder and a fan round a centre on the surface.
 		r, ladder_quality := ladder_plan(&e, c)
 		centre: [3]f64
@@ -392,6 +645,390 @@ extract_emit :: proc(x: ^Extractor, cy: ^Cycles, disabled: []bool) -> (out: Quad
 	corners := make([dynamic]u32, 0, len(e.corners), x.heap)
 	append(&corners, ..e.corners[:])
 	return Quads{positions = positions[:], first = first[:], corners = corners[:]}, false
+}
+
+// ---- Bridges ---------------------------------------------------------------------------
+
+// A hole can run all the way round a part: where the cover folded over a stretch of a limb
+// (half an ear at 1,000 quads on the creature, an ankle at 400), the faces stop on both
+// sides of it, and the hole is an annulus with a cycle at each end. Filled as two caps,
+// each cycle a disc, the part beyond comes away as a piece of its own (the ear's tip, the
+// foot) and the Euler characteristic gains two. Each piece the faces fall into past the
+// largest is joined back by a bridge: a tube of quads from one of its cycles to one of the
+// rest's, across the hole, in rings about a quad apart set on the surface, so the part
+// keeps its length and the mesh its topology. The two cycles are those that lie nearest
+// each other, corner against corner by their length round: of the piece, its holes (any of
+// its polygons when it has none, as a tip two quads big has not); of the rest, its holes.
+// Neither may be walked, since a walked hole is a fold inside the grid's own chart, a disc
+// and never one end of an annulus.
+@(private = "file")
+Bridge :: struct {
+	near, far: u32, // the polygons bridged: the rest's cycle and the piece's
+	start:     int, // the far cycle's corner the near one's first is joined to
+	layers:    int, // the tube's rings of quads (the rings of new points between, plus one)
+}
+
+// The most corners a cycle may have to be bridged, and how many of the rest's nearest holes
+// each of a piece's cycles is measured against.
+@(private = "file")
+BRIDGE_CORNERS :: 64
+@(private = "file")
+BRIDGE_NEAREST :: 8
+
+// The rounds a bridge's rings are evened out in.
+@(private = "file")
+BRIDGE_RELAX :: 4
+
+// The bridges that join every piece of the faces to the largest, and per polygon whether a
+// bridge takes its place.
+@(private = "file")
+extract_bridges :: proc(x: ^Extractor, cy: ^Cycles) -> (bridges: [dynamic]Bridge, bridged: []bool) {
+	heap := x.heap
+	polygons := len(cy.walked)
+	bridges = make([dynamic]Bridge, 0, 0, heap)
+	bridged = make([]bool, polygons, heap)
+	if polygons == 0 do return
+	root :: proc(set: []u32, v: u32) -> u32 {
+		r := v
+		for set[r] != r {
+			set[r] = set[set[r]]
+			r = set[r]
+		}
+		return r
+	}
+	join :: proc(set: []u32, a, b: u32) {
+		ra, rb := root(set, a), root(set, b)
+		if ra != rb do set[max(ra, rb)] = min(ra, rb)
+	}
+	// The pieces: the polygons joined through their corners.
+	piece := make([]u32, len(x.vertices), heap)
+	defer delete(piece, heap)
+	for &v, i in piece do v = u32(i)
+	for p in 0 ..< polygons {
+		c := cy.corners[cy.first[p]:cy.first[p + 1]]
+		for v in c[1:] do join(piece, v, c[0])
+	}
+	of := make([]u32, polygons, heap) // per polygon: its piece, as its root vertex
+	defer delete(of, heap)
+	size := make([]int, len(x.vertices), heap)
+	defer delete(size, heap)
+	for p in 0 ..< polygons {
+		of[p] = root(piece, cy.corners[cy.first[p]])
+		size[of[p]] += 1
+	}
+	// The pieces past the largest, largest first (the lower root breaking ties).
+	Piece :: struct {
+		root:     u32,
+		polygons: int,
+	}
+	pieces := make([dynamic]Piece, 0, 4, heap)
+	defer delete(pieces)
+	for p in 0 ..< polygons {
+		r := of[p]
+		if size[r] <= 0 do continue
+		append(&pieces, Piece{r, size[r]})
+		size[r] = 0 // listed once
+	}
+	if len(pieces) < 2 do return
+	slice.sort_by(pieces[:], proc(a, b: Piece) -> bool {return a.polygons > b.polygons || (a.polygons == b.polygons && a.root < b.root)})
+	others := pieces[1:]
+	// The mean side, which sets how far apart the bridge's rings are.
+	side, sides := f64(0), 0
+	for p in 0 ..< polygons {
+		c := cy.corners[cy.first[p]:cy.first[p + 1]]
+		for v, i in c {
+			d := x.quad_pos[c[(i + 1) % len(c)]] - x.quad_pos[v]
+			side += math.sqrt(dot3(d, d))
+			sides += 1
+		}
+	}
+	side /= f64(max(sides, 1))
+	bridgeable :: proc(cy: ^Cycles, bridged: []bool, p: int) -> bool {
+		c := cy.corners[cy.first[p]:cy.first[p + 1]]
+		return !cy.walked[p] && !bridged[p] && len(c) >= 3 && len(c) <= BRIDGE_CORNERS && !repeats(c)
+	}
+	centre :: proc(x: ^Extractor, c: []u32) -> (m: [3]f64) {
+		for v in c do m += x.quad_pos[v]
+		return m / f64(len(c))
+	}
+	// The pieces joined so far, by their roots.
+	joined := make([]u32, len(x.vertices), heap)
+	defer delete(joined, heap)
+	for &v, i in joined do v = u32(i)
+	Near :: struct {
+		polygon:  int,
+		distance: f64,
+	}
+	near := make([dynamic]Near, 0, 64, heap)
+	defer delete(near)
+	a := make([dynamic][3]f64, 0, BRIDGE_CORNERS, heap)
+	defer delete(a)
+	b := make([dynamic][3]f64, 0, BRIDGE_CORNERS, heap)
+	defer delete(b)
+	for piece_of in others {
+		r := piece_of.root
+		holes := false
+		for p in 0 ..< polygons do if of[p] == r && bridgeable(cy, bridged, p) && cy.first[p + 1] - cy.first[p] > 4 do holes = true
+		best := Bridge{near = NONE}
+		best_gap := math.INF_F64
+		for f in 0 ..< polygons {
+			if of[f] != r || !bridgeable(cy, bridged, f) do continue
+			fc := cy.corners[cy.first[f]:cy.first[f + 1]]
+			if holes && len(fc) <= 4 do continue
+			// The rest's holes nearest this cycle.
+			clear(&near)
+			here := centre(x, fc)
+			for p in 0 ..< polygons {
+				if root(joined, of[p]) == root(joined, r) || !bridgeable(cy, bridged, p) || cy.first[p + 1] - cy.first[p] <= 4 do continue
+				d := centre(x, cy.corners[cy.first[p]:cy.first[p + 1]]) - here
+				append(&near, Near{p, dot3(d, d)})
+			}
+			slice.sort_by(near[:], proc(a, b: Near) -> bool {return a.distance < b.distance || (a.distance == b.distance && a.polygon < b.polygon)})
+			for n in near[:min(len(near), BRIDGE_NEAREST)] {
+				nc := cy.corners[cy.first[n.polygon]:cy.first[n.polygon + 1]]
+				clear(&a)
+				clear(&b)
+				for v in nc do append(&a, x.quad_pos[v])
+				for v in fc do append(&b, x.quad_pos[v])
+				start, gap := bridge_align(a[:], b[:])
+				if gap < best_gap {
+					best_gap = gap
+					best = Bridge{u32(n.polygon), u32(f), start, max(1, int(math.round(gap / max(side, 1e-12))))}
+				}
+			}
+		}
+		if best.near == NONE do continue
+		append(&bridges, best)
+		bridged[best.near], bridged[best.far] = true, true
+		join(joined, root(joined, r), root(joined, of[best.near]))
+		x.bridges += 1
+	}
+	return
+}
+
+// The corner of ring `b` (round the other way) that ring `a`'s first lies across from, and
+// how far apart the two lie there: each corner of `a` against the point of `b` as far round
+// `b` by length, backwards from that corner, as it is round `a` from its first; the mean of
+// those distances, least over `b`'s corners.
+@(private = "file")
+bridge_align :: proc(a, b: [][3]f64) -> (start: int, gap: f64) {
+	gap = math.INF_F64
+	m, n := len(a), len(b)
+	length :: proc(r: [][3]f64) -> (total: f64) {
+		for p, i in r {
+			d := r[(i + 1) % len(r)] - p
+			total += math.sqrt(dot3(d, d))
+		}
+		return
+	}
+	la, lb := length(a), length(b)
+	if !(la > 0) || !(lb > 0) do return 0, math.INF_F64
+	for s in 0 ..< n {
+		sum := f64(0)
+		along := f64(0) // round a, as a share of its length
+		j, walked := 0, f64(0) // b's corners passed backwards from s, and their length as a share
+		for k in 0 ..< m {
+			if k > 0 {
+				d := a[k] - a[k - 1]
+				along += math.sqrt(dot3(d, d)) / la
+			}
+			q := bridge_point(b, s, along, lb, &j, &walked)
+			d := a[k] - q
+			sum += math.sqrt(dot3(d, d))
+		}
+		if sum / f64(m) < gap do start, gap = s, sum / f64(m)
+	}
+	return
+}
+
+// The point of ring `b` a share `along` of its length `total` round it backwards from corner
+// `s`; `j` and `walked` carry the corners passed and their share from one call to the next,
+// `along` never going back.
+@(private = "file")
+bridge_point :: proc(b: [][3]f64, s: int, along, total: f64, j: ^int, walked: ^f64) -> [3]f64 {
+	n := len(b)
+	at :: proc(b: [][3]f64, s, j: int) -> [3]f64 {
+		n := len(b)
+		return b[((s - j) % n + n) % n]
+	}
+	for j^ < n {
+		d := at(b, s, j^ + 1) - at(b, s, j^)
+		step := math.sqrt(dot3(d, d)) / total
+		if walked^ + step >= along || j^ == n - 1 {
+			t := clamp((along - walked^) / step, 0, 1) if step > 0 else 0
+			return at(b, s, j^) + t * d
+		}
+		walked^ += step
+		j^ += 1
+	}
+	return at(b, s, 0)
+}
+
+// A bridge's faces: rings of new points across the hole, each a share of the way from the
+// near cycle's corners to the points they lie across from on the far one, set on the
+// surface; quads between them; and the strip from the last ring to the far cycle, as
+// bridge_strip cuts it.
+@(private = "file")
+bridge_emit :: proc(x: ^Extractor, e: ^Emit, cy: ^Cycles, b: Bridge) {
+	heap := x.heap
+	nc := cy.corners[cy.first[b.near]:cy.first[b.near + 1]]
+	fc := cy.corners[cy.first[b.far]:cy.first[b.far + 1]]
+	m, n := len(nc), len(fc)
+	pos :: proc(e: ^Emit, v: u32) -> [3]f64 {return e.pos[find(e.alias[:], v)]}
+	near := make([][3]f64, m, heap)
+	defer delete(near, heap)
+	far := make([][3]f64, n, heap)
+	defer delete(far, heap)
+	for v, k in nc do near[k] = pos(e, v)
+	for v, k in fc do far[k] = pos(e, v)
+	ring := make([dynamic]u32, 0, m, heap)
+	defer delete(ring)
+	append(&ring, ..nc)
+	if b.layers > 1 {
+		// Where each near corner goes on the far cycle.
+		across := make([][3]f64, m, heap)
+		defer delete(across, heap)
+		length := f64(0)
+		for p, k in near {
+			d := near[(k + 1) % m] - p
+			length += math.sqrt(dot3(d, d))
+		}
+		total := f64(0)
+		for p, k in far {
+			d := far[(k + 1) % n] - p
+			total += math.sqrt(dot3(d, d))
+		}
+		along := f64(0)
+		j, walked := 0, f64(0)
+		for k in 0 ..< m {
+			if k > 0 {
+				d := near[k] - near[k - 1]
+				along += math.sqrt(dot3(d, d)) / length
+			}
+			across[k] = bridge_point(far, b.start, along, total, &j, &walked)
+		}
+		if !e.grid.built do surface_grid_build(&e.grid, x.positions, x.triangles, heap)
+		// The rings' points, row l (1 to layers - 1) at l * m + k, and each row's middle, which
+		// a point is set on the surface outward from, so a ring stays round the limb where
+		// the straight way across cuts inside it.
+		layers := b.layers
+		inner := make([][3]f64, (layers + 1) * m, heap)
+		defer delete(inner, heap)
+		middle := make([][3]f64, layers + 1, heap)
+		defer delete(middle, heap)
+		near_middle, far_middle: [3]f64
+		for k in 0 ..< m do near_middle += near[k] / f64(m)
+		for k in 0 ..< m do far_middle += across[k] / f64(m)
+		for l in 0 ..= layers {
+			t := f64(l) / f64(layers)
+			middle[l] = near_middle + t * (far_middle - near_middle)
+			for k in 0 ..< m do inner[l * m + k] = near[k] + t * (across[k] - near[k])
+		}
+		for l in 1 ..< layers do for k in 0 ..< m {
+			inner[l * m + k] = surface_grid_closest(&e.grid, x.positions, x.triangles, inner[l * m + k], middle[l], true)
+		}
+		// Evened out: each point to its four neighbours' mean, then back on the surface.
+		for _ in 0 ..< BRIDGE_RELAX {
+			for l in 1 ..< layers do for k in 0 ..< m {
+				q := inner[l * m + (k + 1) % m] + inner[l * m + (k + m - 1) % m] + inner[(l - 1) * m + k] + inner[(l + 1) * m + k]
+				inner[l * m + k] = surface_grid_closest(&e.grid, x.positions, x.triangles, q / 4, middle[l], true)
+			}
+		}
+		next := make([dynamic]u32, 0, m, heap)
+		defer delete(next)
+		for l in 1 ..< layers {
+			clear(&next)
+			for k in 0 ..< m do append(&next, add_point(e, inner[l * m + k], -1))
+			for k in 0 ..< m {
+				append(&e.first, u32(len(e.corners)))
+				append(&e.corners, ring[k], ring[(k + 1) % m], next[(k + 1) % m], next[k])
+			}
+			clear(&ring)
+			append(&ring, ..next[:])
+		}
+	}
+	// The last strip, from the ring to the far cycle.
+	last := make([][3]f64, m, heap)
+	defer delete(last, heap)
+	for v, k in ring do last[k] = pos(e, v)
+	moves := make([dynamic]u8, 0, m + n, heap)
+	defer delete(moves)
+	bridge_strip(last, far, b.start, &moves, heap)
+	i, j := 0, 0
+	at :: proc(c: []u32, s, j: int) -> u32 {
+		n := len(c)
+		return c[((s - j) % n + n) % n]
+	}
+	for mv in moves {
+		append(&e.first, u32(len(e.corners)))
+		a0, a1, a2 := ring[i % m], ring[(i + 1) % m], ring[(i + 2) % m]
+		b0, b1, b2 := at(fc, b.start, j), at(fc, b.start, j + 1), at(fc, b.start, j + 2)
+		switch mv {
+		case 0:
+			append(&e.corners, a0, a1, b1, b0)
+			i, j = i + 1, j + 1
+		case 1:
+			append(&e.corners, a0, a1, a2, b0)
+			i += 2
+		case 2:
+			append(&e.corners, a0, b2, b1, b0)
+			j += 2
+		case 3:
+			append(&e.corners, a0, a1, b0)
+			i += 1
+		case:
+			append(&e.corners, a0, b1, b0)
+			j += 1
+		}
+	}
+}
+
+// The strip of faces between ring `a` (round one way from its first corner) and ring `b`
+// (round the other way from corner `start`), as the moves from rung to rung that make the
+// fewest triangles and, of those, the shortest rungs: 0 a quad taking one corner of each, 1
+// a quad taking two of a, 2 two of b, 3 a triangle taking one of a, 4 one of b. Each rung
+// is used once, so the strip ends with a quad of one corner of each.
+@(private = "file")
+bridge_strip :: proc(a, b: [][3]f64, start: int, moves: ^[dynamic]u8, heap: runtime.Allocator) {
+	m, n := len(a), len(b)
+	w := n + 1
+	cost := make([]f64, (m + 1) * w, heap)
+	defer delete(cost, heap)
+	triangles := make([]int, (m + 1) * w, heap)
+	defer delete(triangles, heap)
+	from := make([]u8, (m + 1) * w, heap)
+	defer delete(from, heap)
+	for &c in cost do c = math.INF_F64
+	for &t in triangles do t = max(int)
+	cost[0], triangles[0] = 0, 0
+	steps := [5][3]int{{1, 1, 0}, {2, 0, 0}, {0, 2, 0}, {1, 0, 1}, {0, 1, 1}}
+	for i in 0 ..= m do for j in 0 ..= n {
+		here := i * w + j
+		if triangles[here] == max(int) do continue
+		for step, k in steps {
+			ni, nj := i + step[0], j + step[1]
+			// The far sides of the grid are its near sides again (a rung from a's first
+			// corner, or to b's start), so only their meeting is reached there: a strip
+			// that came back along one would join two corners a second time.
+			if ni > m || nj > n || (ni == m && nj < n) || (nj == n && ni < m) do continue
+			d := a[ni % m] - b[((start - nj) % n + n) % n]
+			c := cost[here] + math.sqrt(dot3(d, d))
+			t := triangles[here] + step[2]
+			there := ni * w + nj
+			if t < triangles[there] || (t == triangles[there] && c < cost[there]) {
+				cost[there], triangles[there], from[there] = c, t, u8(k)
+			}
+		}
+	}
+	clear(moves)
+	i, j := m, n
+	for i > 0 || j > 0 {
+		k := from[i * w + j]
+		append(moves, k)
+		step := steps[k]
+		i, j = i - step[0], j - step[1]
+	}
+	slice.reverse(moves[:])
 }
 
 // ---- Lattice patches -------------------------------------------------------------------
@@ -669,12 +1306,15 @@ surface_grid_build :: proc(g: ^Surface_Grid, positions: [][3]f64, triangles: [][
 }
 
 // The nearest point of the triangles filed within a cell of `p`'s (two when none is), or
-// `p` itself when none is filed there.
+// `p` itself when none is filed there. With `outward`, of those the nearest that lies on
+// p's side of `middle` on a triangle facing away from it, when one does: a ring's point
+// set on the limb it goes round, never on the limb's near side when the ring cuts inside.
 @(private = "file")
-surface_grid_closest :: proc(g: ^Surface_Grid, positions: [][3]f64, triangles: [][3]u32, p: [3]f64) -> [3]f64 {
+surface_grid_closest :: proc(g: ^Surface_Grid, positions: [][3]f64, triangles: [][3]u32, p: [3]f64, middle := [3]f64{}, outward := false) -> [3]f64 {
 	if len(g.entries) == 0 do return p
 	centre := grid_cell(g, p)
 	best, best_d := p, math.INF_F64
+	facing, facing_d := p, math.INF_F64
 	for reach in 1 ..= 2 {
 		r := i64(reach)
 		for i in -r ..= r do for j in -r ..= r do for k in -r ..= r {
@@ -690,9 +1330,14 @@ surface_grid_closest :: proc(g: ^Surface_Grid, positions: [][3]f64, triangles: [
 				d := qd - p
 				dd := d.x * d.x + d.y * d.y + d.z * d.z
 				if dd < best_d do best, best_d = qd, dd
+				if outward && dd < facing_d {
+					a, b, c := positions[t[0]], positions[t[1]], positions[t[2]]
+					if dot3(cross3(b - a, c - a), qd - middle) > 0 && dot3(qd - middle, p - middle) > 0 do facing, facing_d = qd, dd
+				}
 			}
 		}
-		if best_d < math.INF_F64 do break
+		if outward && facing_d < math.INF_F64 do return facing
+		if !outward && best_d < math.INF_F64 do break
 	}
 	return best
 }
@@ -704,35 +1349,51 @@ edge_key :: #force_inline proc(a, b: u32) -> u64 {
 }
 
 // Takes out of cycle `c` every walk along an edge and straight back (a, b, a becomes a) and
-// every vertex repeated in a row, round the cycle's end too, until none is left.
+// every vertex repeated in a row, round the cycle's end too, until none is left. `sides`
+// (each corner's edge to the next) goes with it: a corner kept where its repeat is taken
+// out leaves by the repeat's edge.
 @(private = "file")
-collapse_spikes :: proc(c: ^[dynamic]u32) {
+collapse_spikes :: proc(c, sides: ^[dynamic]u32) {
 	n := 0
-	for v in c {
-		if n >= 1 && c[n - 1] == v do continue
-		if n >= 2 && c[n - 2] == v {
-			n -= 1
+	for i in 0 ..< len(c) {
+		v, side := c[i], sides[i]
+		if n >= 1 && c[n - 1] == v {
+			sides[n - 1] = side
 			continue
 		}
-		c[n] = v
+		if n >= 2 && c[n - 2] == v {
+			n -= 1
+			sides[n - 1] = side
+			continue
+		}
+		c[n], sides[n] = v, side
 		n += 1
 	}
 	resize(c, n)
+	resize(sides, n)
 	// Round the end: the cycle's last vertices against its first.
 	for len(c) >= 2 {
 		m := len(c)
 		if c[m - 1] == c[0] {
 			resize(c, m - 1)
+			resize(sides, m - 1)
 		} else if m >= 3 && c[m - 2] == c[0] {
 			resize(c, m - 2)
+			resize(sides, m - 2)
 		} else if m >= 3 && c[m - 1] == c[1] {
+			sides[m - 1] = sides[1]
 			ordered_remove(c, 0)
 			ordered_remove(c, 0)
+			ordered_remove(sides, 0)
+			ordered_remove(sides, 0)
 		} else {
 			break
 		}
 	}
-	if len(c) == 2 do clear(c)
+	if len(c) == 2 {
+		clear(c)
+		clear(sides)
+	}
 }
 
 // Whether quad or triangle `q` has a corner twice.
