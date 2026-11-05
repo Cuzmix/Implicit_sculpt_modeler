@@ -876,73 +876,112 @@ vk_create_graphics_pipeline :: proc(#by_ptr info: Graphics_Pipeline_Desc) -> raw
 }
 
 vk_create_compute_pipeline :: proc(#by_ptr info: Compute_Pipeline_Desc) -> rawptr {
-	return vk_compute_pipeline_make(info, 0, false)
+	return vk_compute_pipeline_make(info, .Plain, 0)
 }
 
 // A kernel that traces rays against the acceleration structure at set 3, binding 0
 // (bind_compute_accel), and reads an array of up to `capacity` sampled textures at
 // binding 1 when capacity is not 0.
 vk_create_compute_pipeline_traced :: proc(#by_ptr info: Compute_Pipeline_Desc, capacity: u32) -> rawptr {
-	if !vk_state.ray_query {
-		fail(.Unsupported, "Vulkan: this device has no ray queries")
-		return nil
-	}
-	if capacity > vk_state.texture_arrays {
-		fail(.Unsupported, "Vulkan: this device cannot bind an array of %d textures", capacity)
-		return nil
-	}
-	return vk_compute_pipeline_make(info, capacity, true)
+	return vk_compute_pipeline_make(info, .Traced, capacity)
 }
 
 // A kernel that also reads an array of up to `capacity` sampled textures from set 3,
 // binding 0 (create_compute_pipeline_array).
 vk_create_compute_pipeline_array :: proc(#by_ptr info: Compute_Pipeline_Desc, capacity: u32) -> rawptr {
-	if capacity == 0 || capacity > vk_state.texture_arrays {
-		fail(.Unsupported, "Vulkan: this device cannot bind an array of %d textures", capacity)
-		return nil
-	}
-	return vk_compute_pipeline_make(info, capacity, false)
+	return vk_compute_pipeline_make(info, .Array, capacity)
 }
 
 @(private = "file")
-vk_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, array: u32, accel: bool) -> rawptr {
-	if info.format != .Spirv do return nil
+vk_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, kind: Compute_Kind, capacity: u32) -> rawptr {
+	b: Vk_Compute_Build
+	if !vk_compute_prepare(info, kind, capacity, &b) do return nil
+	vk_compute_compile(&b)
+	return vk_compute_wrap(&b)
+}
+
+// A compute pipeline on its way (compute_build_start): what vkCreateComputePipelines reads,
+// laid out on the main thread, and what it made. The create info points into the struct
+// itself, so it stays where it was prepared until it is wrapped.
+Vk_Compute_Build :: struct {
+	layout:  ^Vk_Pipeline_Layout,
+	module:  vk.ShaderModule,
+	entries: [COMPUTE_CONSTANTS_MAX]vk.SpecializationMapEntry,
+	special: vk.SpecializationInfo,
+	create:  vk.ComputePipelineCreateInfo,
+	result:  vk.Result,
+	pipeline: vk.Pipeline,
+}
+
+// Checks the kernel against the device and makes its layout and module, on the main
+// thread (the layout cache is not shared); false, with last_error, when it cannot be made.
+// `info.constants` and `info.entrypoint` are read again by vk_compute_compile.
+vk_compute_prepare :: proc(info: Compute_Pipeline_Desc, kind: Compute_Kind, capacity: u32, b: ^Vk_Compute_Build) -> bool {
+	switch kind {
+	case .Plain:
+	case .Traced:
+		if !vk_state.ray_query {
+			fail(.Unsupported, "Vulkan: this device has no ray queries")
+			return false
+		}
+		if capacity > vk_state.texture_arrays {
+			fail(.Unsupported, "Vulkan: this device cannot bind an array of %d textures", capacity)
+			return false
+		}
+	case .Array:
+		if capacity == 0 || capacity > vk_state.texture_arrays {
+			fail(.Unsupported, "Vulkan: this device cannot bind an array of %d textures", capacity)
+			return false
+		}
+	}
+	if info.format != .Spirv do return false
 	// The command buffer holds that many read-only buffers' bindings (Vk_Cmd.compute_storage).
 	if info.num_readonly_storage_buffers > VK_COMPUTE_STORAGE_BUFFERS {
 		fail(.Unsupported, "Vulkan: a kernel binds more than %d read-only storage buffers", VK_COMPUTE_STORAGE_BUFFERS)
-		return nil
+		return false
 	}
-	layout := vk_compute_layout(info, array, accel)
-	if layout == nil do return nil
-	module := vk_module(transmute([]u8)info.code)
-	if module == 0 do return nil
-	defer vk.DestroyShaderModule(vk_state.device, module, nil)
-	entry := info.entrypoint if info.entrypoint != nil else "main"
-	// Constant i is the 32 bits at offset 4i, with constant_id i.
 	if len(info.constants) > COMPUTE_CONSTANTS_MAX {
 		fail(.Unsupported, "Vulkan: a kernel takes at most %d specialization constants", COMPUTE_CONSTANTS_MAX)
-		return nil
+		return false
 	}
-	entries: [COMPUTE_CONSTANTS_MAX]vk.SpecializationMapEntry
-	for &e, i in entries[:len(info.constants)] do e = {constantID = u32(i), offset = u32(4 * i), size = 4}
-	special := vk.SpecializationInfo {
+	b.layout = vk_compute_layout(info, capacity, kind == .Traced)
+	if b.layout == nil do return false
+	b.module = vk_module(transmute([]u8)info.code)
+	if b.module == 0 do return false
+	// Constant i is the 32 bits at offset 4i, with constant_id i.
+	for &e, i in b.entries[:len(info.constants)] do e = {constantID = u32(i), offset = u32(4 * i), size = 4}
+	b.special = {
 		mapEntryCount = u32(len(info.constants)),
-		pMapEntries   = &entries[0],
+		pMapEntries   = &b.entries[0],
 		dataSize      = 4 * len(info.constants),
 		pData         = raw_data(info.constants),
 	}
-	create := vk.ComputePipelineCreateInfo {
+	entry := info.entrypoint if info.entrypoint != nil else "main"
+	b.create = {
 		sType  = .COMPUTE_PIPELINE_CREATE_INFO,
-		stage  = {sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.COMPUTE}, module = module, pName = entry, pSpecializationInfo = &special if len(info.constants) > 0 else nil},
-		layout = layout.layout,
+		stage  = {sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.COMPUTE}, module = b.module, pName = entry, pSpecializationInfo = &b.special if len(info.constants) > 0 else nil},
+		layout = b.layout.layout,
 	}
-	p := new(Vk_Pipeline)
-	p.layout, p.compute = layout, true
-	if r := vk.CreateComputePipelines(vk_state.device, 0, 1, &create, nil, &p.pipeline); r != .SUCCESS {
-		log.errorf("Vulkan: vkCreateComputePipelines failed: %v", r)
-		free(p)
+	return true
+}
+
+// The driver's compile alone, which Vulkan allows on any thread: it touches nothing of
+// ours but `b`, allocates nothing and reports nothing, so it may run off the main thread.
+vk_compute_compile :: proc(b: ^Vk_Compute_Build) {
+	b.result = vk.CreateComputePipelines(vk_state.device, 0, 1, &b.create, nil, &b.pipeline)
+}
+
+// The compiled pipeline as the backend's object, on the main thread; nil with last_error
+// when the driver refused it.
+vk_compute_wrap :: proc(b: ^Vk_Compute_Build) -> rawptr {
+	vk.DestroyShaderModule(vk_state.device, b.module, nil)
+	if b.result != .SUCCESS {
+		log.errorf("Vulkan: vkCreateComputePipelines failed: %v", b.result)
+		fail(.Refused, "Vulkan: a compute pipeline could not be made")
 		return nil
 	}
+	p := new(Vk_Pipeline)
+	p.layout, p.compute, p.pipeline = b.layout, true, b.pipeline
 	return p
 }
 

@@ -445,20 +445,26 @@ mtl_release_sampler :: proc(sampler: rawptr) {
 // IEEE 754's, as SPIR-V's are under `-fp-mode precise` (create_compute_pipeline_exact).
 @(private = "file")
 mtl_compile :: proc(code: string, entrypoint: cstring, exact: bool, constants: []u32 = nil) -> (^MTL.Library, ^MTL.Function) {
+	library, function, err, step := mtl_compile_quiet(code, entrypoint, exact, constants)
+	if function != nil do return library, function
+	log.errorf("Metal: %s: %s", step, mtl_error_text(err))
+	fail(.Refused, "Metal: %s", step)
+	return nil, nil
+}
+
+// mtl_compile without a word: the step that failed and Metal's error instead, so that it
+// may run off the main thread (mtl_compute_compile), where nothing of ours is touched.
+@(private = "file")
+mtl_compile_quiet :: proc(code: string, entrypoint: cstring, exact: bool, constants: []u32) -> (library: ^MTL.Library, function: ^MTL.Function, err: ^NS.Error, step: string) {
 	options: ^MTL.CompileOptions
 	if exact {
 		options = MTL.CompileOptions_init(MTL.CompileOptions_alloc())
 		MTL.CompileOptions_setFastMathEnabled(options, false)
 	}
 	defer if options != nil do NS.release(options)
-	library, err := MTL.Device_newLibraryWithSource(mtl_state.device, mtl_string(code), options)
-	if library == nil {
-		log.errorf("Metal: a shader did not compile: %s", mtl_error_text(err))
-		fail(.Refused, "Metal: a shader did not compile")
-		return nil, nil
-	}
+	library, err = MTL.Device_newLibraryWithSource(mtl_state.device, mtl_string(code), options)
+	if library == nil do return nil, nil, err, "a shader did not compile"
 	entry := string(entrypoint) if entrypoint != nil else "main_0"
-	function: ^MTL.Function
 	if len(constants) == 0 {
 		function = MTL.Library_newFunctionWithName(library, mtl_string(entry))
 	} else {
@@ -466,18 +472,14 @@ mtl_compile :: proc(code: string, entrypoint: cstring, exact: bool, constants: [
 		// constant's index (Compute_Pipeline_Desc.constants), every one a uint here.
 		values := MTL.FunctionConstantValues_init(MTL.FunctionConstantValues_alloc())
 		defer NS.release(values)
-		for &c, i in constants do MTL.FunctionConstantValues_setConstantValue(values, &c, .UInt, NS.UInteger(i))
-		constants_err: ^NS.Error
-		function, constants_err = MTL.Library_newFunctionWithConstantValues(library, mtl_string(entry), values)
-		if function == nil do log.errorf("Metal: %s with its constants: %s", entry, mtl_error_text(constants_err))
+		for i in 0 ..< len(constants) do MTL.FunctionConstantValues_setConstantValue(values, &constants[i], .UInt, NS.UInteger(i))
+		function, err = MTL.Library_newFunctionWithConstantValues(library, mtl_string(entry), values)
 	}
 	if function == nil {
 		NS.release(library)
-		log.errorf("Metal: the shader has no function %s", entry)
-		fail(.Refused, "Metal: the shader's entry point is missing")
-		return nil, nil
+		return nil, nil, err, "the shader's entry point is missing or its constants do not fit"
 	}
-	return library, function
+	return library, function, nil, ""
 }
 
 mtl_create_shader :: proc(#by_ptr info: Shader_Desc) -> rawptr {
@@ -732,29 +734,81 @@ mtl_release_graphics_pipeline :: proc(pipeline: rawptr) {
 
 // Keeps the counts and the slot table its bindings go to (Mtl_Slots).
 mtl_create_compute_pipeline :: proc(#by_ptr info: Compute_Pipeline_Desc) -> rawptr {
-	return mtl_compute_pipeline_make(info, false)
+	return mtl_compute_pipeline_make(info, .Plain, false)
 }
 
 // The same with fast maths off, for kernels whose result must equal the CPU's.
 mtl_create_compute_pipeline_exact :: proc(#by_ptr info: Compute_Pipeline_Desc) -> rawptr {
-	return mtl_compute_pipeline_make(info, true)
+	return mtl_compute_pipeline_make(info, .Plain, true)
+}
+
+// A traced kernel's pipeline: one whose slot table (scripts/shaders_msl.py) names the
+// acceleration structure it traces against.
+mtl_create_compute_pipeline_traced :: proc(#by_ptr info: Compute_Pipeline_Desc) -> rawptr {
+	return mtl_compute_pipeline_make(info, .Traced, false)
 }
 
 @(private = "file")
-mtl_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, exact: bool) -> rawptr {
-	NS.scoped_autoreleasepool()
+mtl_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, kind: Compute_Kind, exact: bool) -> rawptr {
+	b: Mtl_Compute_Build
+	if !mtl_compute_prepare(info, kind, 0, exact, &b) do return nil
+	mtl_compute_compile(&b)
+	return mtl_compute_wrap(&b)
+}
+
+// A compute pipeline on its way (compute_build_start): the description and slot table read
+// on the main thread, and the pipeline state the compile made, or the step that failed.
+Mtl_Compute_Build :: struct {
+	info:  Compute_Pipeline_Desc,
+	exact: bool,
+	slots: Mtl_Slots,
+	state: ^MTL.ComputePipelineState,
+	step:  string,
+}
+
+// Checks the kernel against the backend and reads its slot table, on the main thread; false,
+// with last_error, when it cannot be made. `info.code`, `info.entrypoint` and
+// `info.constants` are read again by mtl_compute_compile.
+mtl_compute_prepare :: proc(info: Compute_Pipeline_Desc, kind: Compute_Kind, capacity: u32, exact: bool, b: ^Mtl_Compute_Build) -> bool {
 	if info.format != .Msl {
 		fail(.Invalid, "Metal: shaders must be Metal source")
-		return nil
+		return false
 	}
 	if info.num_readwrite_storage_textures > MTL_COMPUTE_WRITES || info.num_readwrite_storage_buffers > MTL_COMPUTE_WRITES || info.num_readonly_storage_buffers > MTL_STORAGE_BUFFERS || info.num_samplers > MTL_SAMPLERS || info.num_uniform_buffers > 4 {
 		fail(.Unsupported, "Metal: a compute pipeline binds more than the Metal backend binds")
-		return nil
+		return false
+	}
+	switch kind {
+	case .Plain:
+	case .Array:
+		fail(.Unsupported, "texture arrays need the own Vulkan backend")
+		return false
+	case .Traced:
+		if !mtl_ray_query_offered() || capacity != 0 {
+			fail(.Unsupported, "ray queries need the own Vulkan or Metal backend on a GPU that offers them")
+			return false
+		}
+		if slots, ok := mtl_slots_parse(info.code); !ok || slots.accel < 0 {
+			fail(.Invalid, "Metal: a traced kernel's slot table names no acceleration structure")
+			return false
+		}
 	}
 	slots, ok := mtl_slots_for(info.code, {info.num_samplers, info.num_readonly_storage_textures, info.num_readwrite_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers, info.num_uniform_buffers})
-	if !ok do return nil
-	library, function := mtl_compile(info.code, info.entrypoint, exact, info.constants)
-	if function == nil do return nil
+	if !ok do return false
+	b.info, b.exact, b.slots = info, exact, slots
+	return true
+}
+
+// Metal's compile alone, which a Metal device allows on any thread, in its own autorelease
+// pool: it touches nothing of ours but `b` and reports nothing, so it may run off the main
+// thread.
+mtl_compute_compile :: proc(b: ^Mtl_Compute_Build) {
+	NS.scoped_autoreleasepool()
+	library, function, _, step := mtl_compile_quiet(b.info.code, b.info.entrypoint, b.exact, b.info.constants)
+	if function == nil {
+		b.step = step
+		return
+	}
 	defer {
 		NS.release(function)
 		NS.release(library)
@@ -762,27 +816,35 @@ mtl_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, exact: bool) -> r
 	desc := MTL.ComputePipelineDescriptor_init(MTL.ComputePipelineDescriptor_alloc())
 	defer NS.release(desc)
 	MTL.ComputePipelineDescriptor_setComputeFunction(desc, function)
-	state, err := MTL.Device_newComputePipelineStateWithDescriptorWithReflection(mtl_state.device, desc, {}, nil)
-	if state == nil {
-		log.errorf("Metal: a compute pipeline could not be made: %s", mtl_error_text(err))
-		fail(.Refused, "Metal: a compute pipeline could not be made")
+	state, _ := MTL.Device_newComputePipelineStateWithDescriptorWithReflection(mtl_state.device, desc, {}, nil)
+	if state == nil do b.step = "a compute pipeline could not be made"
+	b.state = state
+}
+
+// The compiled pipeline as the backend's object, on the main thread; nil with last_error
+// when Metal refused it.
+mtl_compute_wrap :: proc(b: ^Mtl_Compute_Build) -> rawptr {
+	info := b.info
+	if b.state == nil {
+		log.errorf("Metal: %s", b.step)
+		fail(.Refused, "Metal: %s", b.step)
 		return nil
 	}
 	// A dispatch of more threads a group than the kernel can run is dropped by Metal, so a
 	// pipeline that asks for them is refused here and its feature stays off.
 	threads := info.threadcount_x * info.threadcount_y * info.threadcount_z
-	if NS.UInteger(threads) > MTL.ComputePipelineState_maxTotalThreadsPerThreadgroup(state) {
-		NS.release(state)
+	if NS.UInteger(threads) > MTL.ComputePipelineState_maxTotalThreadsPerThreadgroup(b.state) {
+		NS.release(b.state)
 		log.errorf("Metal: a compute kernel cannot run %d threads a group", threads)
 		fail(.Unsupported, "Metal: too many threads a group for this kernel")
 		return nil
 	}
 	p := new(Mtl_Compute_Pipeline)
-	p.state = state
+	p.state = b.state
 	p.samplers, p.readonly_textures, p.readwrite_textures = info.num_samplers, info.num_readonly_storage_textures, info.num_readwrite_storage_textures
 	p.uniforms, p.readonly_buffers, p.readwrite_buffers = info.num_uniform_buffers, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers
 	p.threads = {NS.Integer(info.threadcount_x), NS.Integer(info.threadcount_y), NS.Integer(info.threadcount_z)}
-	p.slots = slots
+	p.slots = b.slots
 	return p
 }
 

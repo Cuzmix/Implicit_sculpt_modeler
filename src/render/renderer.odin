@@ -72,6 +72,13 @@ Renderer :: struct {
 	// Those rays use ray queries against the driver's acceleration structures where
 	// Gpu_Caps.ray_query is true (Settings > System > Graphics: Ray tracing hardware).
 	ray_query:      bool,
+	// Render mode builds kernels specialised to each scene's features off the frame and
+	// switches to them between samples (path.odin, Render_Features); off, it keeps the
+	// general kernel (--no-render-variants, for comparison). With kernel_builds_wait, as
+	// scripted runs set it, a build is waited for, so a run's images never depend on how
+	// long a compile took.
+	render_variants: bool,
+	kernel_builds_wait: bool,
 	present_mode:   gpu.Present_Mode, // how frames reach the screen; see renderer_set_vsync
 	// How far, in pixels, a full redraw may draw a group of chunks from its simplified
 	// copy instead (see Draw_Item.lod); 0 draws everything at full detail. The app
