@@ -71,7 +71,7 @@ description: The src/geom package — the structure-of-arrays geom.Mesh and its 
 - Many tree lookups in a row (Keep paint's `bvh_closest`, `project_along_normals`) go in `points_morton_order` order (`bvh.odin`):
   twice as fast as the remesh's slab order at 10M. A tree built for one lookup a vertex uses `LOOKUP_LEAF` (16) triangles a
   leaf: the Morton build's serial topology is most of its time, and leaves of 16 halve it at the same lookup cost.
-- Quad Remesh's engine is `src/quadmesh` (AutoRemesher behind a C boundary, `quadmesh.remesh` → `Polygon_Mesh{positions, first, corners}` of nearly all quads, 95 %+ regular vertices on our fixtures); the own retopology below stays as the fallback and the comparison.
+- Quad Remesh's engine is `src/quadmesh` (AutoRemesher's pipeline ported to Odin, on every platform, `quadmesh.remesh` → `Polygon_Mesh{positions, first, corners}` of quads, 95 %+ regular vertices on our fixtures; sm-cad has its stages); the own retopology below stays as the fallback and the comparison.
 - Retopology (`src/geom/retopo.odin`, README "Retopology, UVs and baking"): `Quad_Mesh{positions, quads: [][4]u32}`;
   `mesh_retopo(source, bvh, wanted, pool)` = `mesh_decimate` to 0.45·wanted triangles → `pair_triangles` (greedy by corner
   squareness + fold, sorted so runs match) → `cut_into_quads` (Catmull-Clark topology, middles) → `relax_onto` (tangential

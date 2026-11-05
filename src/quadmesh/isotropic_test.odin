@@ -11,9 +11,10 @@ import "core:time"
 import "../geom"
 import "../jobs"
 
-// The Odin isotropic remesh on its own: against the C++ stage on the same island (the
-// smallest angle and the spread of the edges no worse), on borders, hard edges, pinches
-// and damaged input, serial against parallel, and cancelled.
+// The isotropic remesh on its own, held to what a remesh must be (the smallest angle and
+// the spread of the edges, the island's topology, about the triangles its edge asks for),
+// on borders, hard edges, pinches and damaged input, serial against parallel, and
+// cancelled.
 
 // An island of a mesh, from the heap as the stages' are.
 @(private)
@@ -51,39 +52,55 @@ thin_share :: proc(iso: Isotropic) -> f64 {
 	return 100 * f64(thin) / f64(max(len(iso.triangles), 1))
 }
 
-// Both stages on the island; the Odin one's smallest angle no smaller and its edges no
-// more spread (both to a hair), its surface as closed and its Euler characteristic the
-// island's, and with `same_count` its triangles within a tenth of the C++'s. Returns the
-// Odin stage's checks.
+// What the remesh of a fixture must give: its smallest angle at least, the spread of its
+// edges (their standard deviation over their mean) at most, both set a little past what
+// the stage gives, which is past AutoRemesher's isotropic remesher on every one of these
+// (its smallest angles were 10 to 35 degrees, and its spreads up to 0.27); and its
+// triangles within a fifth of what the edge asks of the area (`count`, off where a
+// density or refinement asks for more).
 @(private = "file")
-against_cpp :: proc(t: ^testing.T, name: string, island: Island, edge, adaptivity, sharp: f64, pool: ^jobs.Pool = nil, same_count := true, loc := #caller_location) -> (odin: Checks) {
+Iso_Want :: struct {
+	angle:  f64,
+	spread: f64,
+	count:  bool,
+}
+
+// The stage on the island, held to `want`, its surface as closed as the island and of the
+// island's Euler characteristic. Returns its checks.
+@(private = "file")
+isotropic_holds :: proc(t: ^testing.T, name: string, island: Island, edge, adaptivity, sharp: f64, want: Iso_Want, pool: ^jobs.Pool = nil, loc := #caller_location) -> (c: Checks) {
 	run := Stage_Run{threads = 4, pool = pool}
 	reason: Reason
 	t0 := time.tick_now()
-	ours, err := odin_isotropic(island, edge, adaptivity, sharp, &run, &reason, &odin)
-	odin_ms := time.duration_milliseconds(time.tick_since(t0))
-	defer isotropic_destroy(&ours)
-	if !testing.expectf(t, err == .None, "%s: the Odin stage failed: %v %s", name, err, reason_string(&reason), loc = loc) do return
-	checks_isotropic(&odin, ours)
-	when AVAILABLE {
-		t1 := time.tick_now()
-		theirs, cpp_err := cpp_isotropic(island, edge, adaptivity, sharp, &run, &reason)
-		cpp_ms := time.duration_milliseconds(time.tick_since(t1))
-		defer isotropic_destroy(&theirs)
-		if !testing.expectf(t, cpp_err == .None, "%s: the C++ stage failed: %v %s", name, cpp_err, reason_string(&reason), loc = loc) do return
-		cpp: Checks
-		checks_isotropic(&cpp, theirs)
-		log.infof("%s: Odin %d triangles, smallest angle %.2f, spread %.3f, %.1f%% under 30 degrees, mean edge %.4f, %.0f ms; C++ %d, %.2f, %.3f, %.1f%%, %.4f, %.0f ms", name, odin.iso_triangles, odin.iso_min_angle, odin.iso_edge_spread, thin_share(ours), ours.mean_edge, odin_ms, cpp.iso_triangles, cpp.iso_min_angle, cpp.iso_edge_spread, thin_share(theirs), theirs.mean_edge, cpp_ms)
-		testing.expectf(t, odin.iso_min_angle >= cpp.iso_min_angle - 0.01, "%s: smallest angle %.2f, the C++'s %.2f", name, odin.iso_min_angle, cpp.iso_min_angle, loc = loc)
-		testing.expectf(t, odin.iso_edge_spread <= cpp.iso_edge_spread + 0.002, "%s: edge spread %.3f, the C++'s %.3f", name, odin.iso_edge_spread, cpp.iso_edge_spread, loc = loc)
-		testing.expectf(t, odin.iso_open_edges <= cpp.iso_open_edges && odin.iso_nonmanifold == 0, "%s: %d open and %d non-manifold edges, the C++'s %d and %d", name, odin.iso_open_edges, odin.iso_nonmanifold, cpp.iso_open_edges, cpp.iso_nonmanifold, loc = loc)
-		testing.expectf(t, odin.iso_euler == cpp.iso_euler, "%s: Euler characteristic %d, the C++'s %d", name, odin.iso_euler, cpp.iso_euler, loc = loc)
-		ratio := f64(odin.iso_triangles) / f64(max(cpp.iso_triangles, 1))
-		testing.expectf(t, !same_count || (ratio > 0.9 && ratio < 1.1), "%s: %d triangles, the C++ %d", name, odin.iso_triangles, cpp.iso_triangles, loc = loc)
-	} else {
-		log.infof("%s: Odin %d triangles, smallest angle %.2f, spread %.3f, %.0f ms", name, odin.iso_triangles, odin.iso_min_angle, odin.iso_edge_spread, odin_ms)
-	}
+	iso, err := odin_isotropic(island, edge, adaptivity, sharp, &run, &reason, &c)
+	ms := time.duration_milliseconds(time.tick_since(t0))
+	defer isotropic_destroy(&iso)
+	if !testing.expectf(t, err == .None, "%s: the stage failed: %v %s", name, err, reason_string(&reason), loc = loc) do return
+	checks_isotropic(&c, iso)
+	area := f64(0)
+	for tri in island.triangles do area += triangle_area(island.positions[tri[0]], island.positions[tri[1]], island.positions[tri[2]])
+	asked := area / (EQUILATERAL_AREA * edge * edge)
+	euler := island_euler(island)
+	log.infof("%s: %d triangles for %.0f asked, smallest angle %.2f, spread %.3f, %.1f%% under 30 degrees, mean edge %.4f, %.0f ms", name, c.iso_triangles, asked, c.iso_min_angle, c.iso_edge_spread, thin_share(iso), iso.mean_edge, ms)
+	testing.expectf(t, c.iso_min_angle >= want.angle, "%s: smallest angle %.2f, at least %.2f expected", name, c.iso_min_angle, want.angle, loc = loc)
+	testing.expectf(t, c.iso_edge_spread <= want.spread, "%s: edge spread %.3f, at most %.3f expected", name, c.iso_edge_spread, want.spread, loc = loc)
+	testing.expectf(t, c.iso_nonmanifold == 0 && c.iso_euler == euler, "%s: %d non-manifold edges, Euler characteristic %d for the island's %d", name, c.iso_nonmanifold, c.iso_euler, euler, loc = loc)
+	ratio := f64(c.iso_triangles) / asked
+	testing.expectf(t, !want.count || (ratio > 0.8 && ratio < 1.2), "%s: %d triangles where the edge asks for %.0f", name, c.iso_triangles, asked, loc = loc)
 	return
+}
+
+// The island's vertices less its edges plus its triangles.
+@(private = "file")
+island_euler :: proc(m: Island) -> int {
+	heap := runtime.heap_allocator()
+	keys := make([]u64, 3 * len(m.triangles), heap)
+	defer delete(keys, heap)
+	for tri, f in m.triangles do for k in 0 ..< 3 do keys[3 * f + k] = edge_key(tri[k], tri[(k + 1) % 3])
+	slice.sort(keys)
+	edges := 0
+	for key, i in keys do if i == 0 || key != keys[i - 1] do edges += 1
+	return len(m.positions) - edges + len(m.triangles)
 }
 
 // A torus of nu by nv quads cut in two triangles each, wound outward.
@@ -158,21 +175,21 @@ cube_island :: proc(n: int) -> (m: Island) {
 }
 
 @(test)
-isotropic_matches_the_cpp_on_smooth_shapes :: proc(t: ^testing.T) {
+isotropic_holds_on_smooth_shapes :: proc(t: ^testing.T) {
 	source := geom.icosphere(4)
 	defer geom.mesh_destroy(&source)
 	sphere := island_of(source.positions[:], source.indices[:])
 	defer island_destroy(&sphere)
 	edge := edge_for(sphere, 1500)
-	c := against_cpp(t, "sphere", sphere, edge, 0, 90)
+	c := isotropic_holds(t, "sphere", sphere, edge, 0, 90, {38, 0.09, true})
 	testing.expectf(t, c.iso_open_edges == 0 && c.iso_euler == 2, "sphere: %s", checks_line(c))
-	_ = against_cpp(t, "sphere at full adaptivity", sphere, edge, 1, 90)
-	_ = against_cpp(t, "sphere, coarse", sphere, edge_for(sphere, 300), 0, 90)
-	_ = against_cpp(t, "sphere, fine", sphere, edge_for(sphere, 6000), 0, 90)
+	_ = isotropic_holds(t, "sphere at full adaptivity", sphere, edge, 1, 90, {38, 0.09, true})
+	_ = isotropic_holds(t, "sphere, coarse", sphere, edge_for(sphere, 300), 0, 90, {38, 0.095, true})
+	_ = isotropic_holds(t, "sphere, fine", sphere, edge_for(sphere, 6000), 0, 90, {38, 0.08, true})
 
 	torus := torus_island(96, 48, 1, 0.4)
 	defer island_destroy(&torus)
-	c = against_cpp(t, "torus", torus, edge_for(torus, 1500), 0, 90)
+	c = isotropic_holds(t, "torus", torus, edge_for(torus, 1500), 0, 90, {34, 0.14, true})
 	testing.expectf(t, c.iso_euler == 0, "torus: Euler characteristic %d", c.iso_euler)
 }
 
@@ -188,7 +205,7 @@ isotropic_follows_density_and_refinement :: proc(t: ^testing.T) {
 	sphere.density = make([]f64, len(sphere.positions), heap)
 	for p, v in sphere.positions do sphere.density[v] = 4 if p.z > 0 else 1
 	edge := edge_for(sphere, 2000)
-	_ = against_cpp(t, "density 4 above", sphere, edge, 0, 90)
+	_ = isotropic_holds(t, "density 4 above", sphere, edge, 0, 90, {35, 0.39, false})
 	run := Stage_Run{}
 	reason: Reason
 	checks: Checks
@@ -214,7 +231,7 @@ isotropic_follows_density_and_refinement :: proc(t: ^testing.T) {
 
 	sphere.refine = make([]f64, len(sphere.positions), heap)
 	for p, v in sphere.positions do sphere.refine[v] = 0.5 if p.z > 0 else 1
-	_ = against_cpp(t, "refined above", sphere, edge, 0, 90)
+	_ = isotropic_holds(t, "refined above", sphere, edge, 0, 90, {35, 0.39, false})
 }
 
 // A hard-edged cube keeps its edges and corners (sharp by angle), every vertex stays on
@@ -225,7 +242,7 @@ isotropic_keeps_hard_edges_and_features :: proc(t: ^testing.T) {
 	cube := cube_island(30)
 	defer island_destroy(&cube)
 	edge := edge_for(cube, 600)
-	_ = against_cpp(t, "cube", cube, edge, 0, 60)
+	_ = isotropic_holds(t, "cube", cube, edge, 0, 60, {18, 0.15, true})
 	run := Stage_Run{}
 	reason: Reason
 	checks: Checks
@@ -292,7 +309,7 @@ isotropic_keeps_a_border :: proc(t: ^testing.T) {
 	disc.positions, disc.triangles = positions[:], triangles[:]
 	defer island_destroy(&disc)
 	edge := edge_for(disc, 400)
-	c := against_cpp(t, "disc", disc, edge, 0, 90)
+	c := isotropic_holds(t, "disc", disc, edge, 0, 90, {30, 0.165, true})
 	testing.expectf(t, c.iso_open_edges > 0 && c.iso_euler == 1, "disc: %s", checks_line(c))
 	run := Stage_Run{}
 	reason: Reason
@@ -321,8 +338,8 @@ isotropic_keeps_a_border :: proc(t: ^testing.T) {
 
 	// An open cylinder of 96 long slivers, a column of two a side (the corpus's): the
 	// splits must cut them across as well as along, and the cap must leave room for it.
-	// The C++ cuts them into slivers, a quarter of its triangles under 30 degrees, and
-	// makes more than the area asks for, so the count is held to the area's instead: the
+	// AutoRemesher's remesher cut them into slivers, a quarter of its triangles under 30
+	// degrees, and made more than the area asks for; the count is held to the area's, the
 	// 2000 quads' 4000 triangles, give or take a fifth (the edges' band, 0.8 to 1.33
 	// targets, lets a mesh settle a little coarse or fine).
 	SIDES :: 48
@@ -339,13 +356,13 @@ isotropic_keeps_a_border :: proc(t: ^testing.T) {
 	}
 	tube.positions, tube.triangles = tube_positions[:], tube_triangles[:]
 	defer island_destroy(&tube)
-	c = against_cpp(t, "open cylinder of slivers", tube, edge_for(tube, 2000), 0, 90, same_count = false)
+	c = isotropic_holds(t, "open cylinder of slivers", tube, edge_for(tube, 2000), 0, 90, {38, 0.07, true})
 	testing.expectf(t, c.iso_capped == 0 && c.iso_euler == 0, "open cylinder: %s", checks_line(c))
 	testing.expectf(t, c.iso_triangles > 3200 && c.iso_triangles < 4800, "open cylinder: %d triangles, the area asks for 4000", c.iso_triangles)
 }
 
-// Two spheres touching at one vertex (a pinch, which hung the C++ remesher before the
-// unpinch step), damaged triangles (repeated, a vertex twice, slivers and no area) and a
+// Two spheres touching at one vertex (a pinch, which hung AutoRemesher's remesher before
+// its unpinch step), damaged triangles (repeated, a vertex twice, slivers and no area) and a
 // tiny piece: the stage splits or cuts them, never hangs, and leaves no edge of three
 // triangles.
 @(test)
@@ -459,9 +476,9 @@ isotropic_stops_when_cancelled :: proc(t: ^testing.T) {
 }
 
 // A sphere of about 160,000 triangles down to 40,000 (the bench's 20,000 quads after the
-// thinning): the Odin stage against the C++'s time, on four threads.
+// thinning), on four threads: the stage's time, which the log carries.
 @(test)
-isotropic_speed_against_the_cpp :: proc(t: ^testing.T) {
+isotropic_on_a_dense_sphere :: proc(t: ^testing.T) {
 	pool: jobs.Pool
 	jobs.pool_init(&pool, 3)
 	defer jobs.pool_destroy(&pool)
@@ -469,7 +486,7 @@ isotropic_speed_against_the_cpp :: proc(t: ^testing.T) {
 	defer geom.mesh_destroy(&source)
 	sphere := island_of(source.positions[:], source.indices[:])
 	defer island_destroy(&sphere)
-	_ = against_cpp(t, "dense sphere", sphere, edge_for(sphere, 20000), 0, 90, &pool)
+	_ = isotropic_holds(t, "dense sphere", sphere, edge_for(sphere, 20000), 0, 90, {38, 0.09, true}, &pool)
 }
 
 // Damaged meshes made at random from a few seeds: triangles added between random vertices

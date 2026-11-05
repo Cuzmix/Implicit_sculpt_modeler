@@ -8,7 +8,7 @@ import "core:math"
 // triangle c / 3; its edge runs from its vertex to the next corner's, and `twin[c]` is the
 // corner of the other triangle whose edge runs back, or NONE on a border. Every vertex is
 // one fan of corners joined through twins: where the input shares a vertex between fans
-// (a pinch, which hung the C++ remesher), each fan past the first gets a vertex of its
+// (a pinch, which hung AutoRemesher's remesher), each fan past the first gets a vertex of its
 // own, and an edge of more than two triangles, or of two running the same way, is cut
 // into borders. A border vertex's `corner` is the corner whose edge leaves it along the
 // border, so the walk round it starts there and ends at its other border edge; the edits

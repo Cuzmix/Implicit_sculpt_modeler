@@ -6,7 +6,7 @@ import "core:slice"
 
 import "../geom"
 
-// The Odin extraction's faces (extract.odin finds the quad vertices and traces their
+// The extraction's faces (extract.odin finds the quad vertices and traces their
 // edges): the cycles the traced edges close, and the holes a fold or a flipped triangle
 // left filled. A hole whose border walks round a piece of the grid gets that piece's cells
 // as quads (lattice_patch: the fold unfolded, its layers zipped where they meet); any other

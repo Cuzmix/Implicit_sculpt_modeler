@@ -13,7 +13,6 @@ import "../camera"
 import "../geom"
 import "../render"
 import "../gizmo"
-import "../quadmesh"
 import "../sculpt"
 import "../ui"
 import "../retopo"
@@ -246,7 +245,6 @@ SETTINGS := [?]Setting {
 	{"decimate_keep_symmetry", U + offset_of(Ui_State, decimate_keep_symmetry), bool, 0, 0},
 	{"retopo_quads", U + offset_of(Ui_State, retopo_quads), i32, 100, 1_000_000},
 	{"retopo_engine", U + offset_of(Ui_State, retopo_engine), retopo.Engine, 0, 0},
-	{"retopo_core", U + offset_of(Ui_State, retopo_core), quadmesh.Core, 0, 0},
 	{"retopo_adaptivity", U + offset_of(Ui_State, retopo_adaptivity), f32, 0, 1},
 	{"retopo_keep_symmetry", U + offset_of(Ui_State, retopo_keep_symmetry), bool, 0, 0},
 	{"retopo_close_first", U + offset_of(Ui_State, retopo_close_first), bool, 0, 0},

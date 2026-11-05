@@ -106,8 +106,8 @@ onto :: proc(surface: geom.Mesh, bvh: ^geom.Bvh, p: geom.Vec3, hint: ^u32) -> ge
 
 // Joins the faces of `m` with an odd number of sides in pairs, or to the open border, as
 // the file's comment says. `dropped` (one per face, or empty) marks faces that count for
-// nothing here (a mirrored half's caps, which the caller drops after): they stay as they
-// are, out of every path, and their edges are border. `planes` (per vertex, or nil) is
+// nothing here (a mirrored half's slivers on the plane, which the caller drops after):
+// they stay as they are, out of every path, and their edges are border. `planes` (per vertex, or nil) is
 // the seam's: a vertex put on a seam edge gets the planes both its ends share, and a seam
 // vertex stays where it is. New vertices go onto `surface` through `bvh`, or through a
 // tree built here when that is nil. Returns how many odd faces were mended and how many

@@ -10,9 +10,10 @@ import "core:time"
 import "../geom"
 import "../jobs"
 
-// The Odin frame field on its own: against the C++'s on the same isotropic mesh (as many
-// singular vertices, about as smooth, the frames mostly the same way round, the same
-// sizes), with features, a density and guides, serial against parallel, and its time.
+// The frame field on its own, on smooth shapes, hard edges and features, a density and
+// guides: held to what a field must be (the singular vertices the surface's topology needs
+// and no more than the counts the tests were set from, at least as smooth, every size
+// positive, a guide followed), serial against parallel, and its time.
 
 // An island's isotropic mesh, by the Odin stage.
 @(private = "file")
@@ -25,8 +26,8 @@ iso_of :: proc(island: Island, quads: int, sharp: f64, pool: ^jobs.Pool = nil) -
 	return iso, err == .None
 }
 
-// A field's singular vertices and smoothness as measured here, whichever side solved it,
-// and its angles in the Odin bases.
+// A field's singular vertices and smoothness as measured here, and its angles in the
+// triangles' bases.
 @(private = "file")
 measure :: proc(iso: Isotropic, field: Field) -> (singular: int, smoothness: f64, angles: []f64) {
 	s := surface_build(iso.positions, iso.triangles, nil)
@@ -38,61 +39,66 @@ measure :: proc(iso: Isotropic, field: Field) -> (singular: int, smoothness: f64
 	return
 }
 
-// Both fields on the mesh; the Odin one's singular vertices within `slack` of the C++'s
-// (before and after the clean-up), its smoothness within 1 % of the C++'s or better, most
-// frames the same way round, and the sizes the same. Returns the Odin field's times.
+// What a field on a fixture must give: its singular vertices after the clean-up (a closed
+// surface of genus 0 needs at least 8, a torus none) and as solved, and its smoothness at
+// most (the mean 1 - cos 4(the frames' turn across an edge); a cube's frames turn only at
+// its corners).
 @(private = "file")
-field_against_cpp :: proc(t: ^testing.T, name: string, iso: Isotropic, guides: [][3]f64 = nil, adaptivity := 0.5, anisotropy := 1.0, sharp := 90.0, slack := 0, pool: ^jobs.Pool = nil, loc := #caller_location) -> (odin_ms: f64) {
+Field_Want :: struct {
+	singular:   [2]int,
+	solved:     int,
+	smoothness: f64,
+}
+
+// The field on the mesh, held to `want`; with `guides`, the guided triangles' frames lie
+// within GUIDE_DEGREES of their guide on average. Returns its time.
+@(private = "file")
+field_holds :: proc(t: ^testing.T, name: string, iso: Isotropic, want: Field_Want, guides: [][3]f64 = nil, adaptivity := 0.5, anisotropy := 1.0, sharp := 90.0, pool: ^jobs.Pool = nil, loc := #caller_location) -> (ms: f64) {
 	heap := runtime.heap_allocator()
 	run := Stage_Run{threads = 4, pool = pool}
 	reason: Reason
 	checks: Checks
 	t0 := time.tick_now()
-	ours, err := odin_field(iso, guides, adaptivity, anisotropy, sharp, &run, &reason, &checks)
-	odin_ms = time.duration_milliseconds(time.tick_since(t0))
-	defer field_destroy(&ours)
-	if !testing.expectf(t, err == .None && len(ours.directions) == len(iso.triangles), "%s: the Odin field failed: %v %s", name, err, reason_string(&reason), loc = loc) do return
-	our_singular, our_smooth, our_angles := measure(iso, ours)
-	defer delete(our_angles, heap)
-	testing.expectf(t, our_singular == ours.singular, "%s: %d singular vertices measured, the field says %d", name, our_singular, ours.singular, loc = loc)
-	when AVAILABLE {
-		t1 := time.tick_now()
-		theirs, cpp_err := cpp_field(iso, guides, adaptivity, anisotropy, sharp, &run, &reason)
-		cpp_ms := time.duration_milliseconds(time.tick_since(t1))
-		defer field_destroy(&theirs)
-		if !testing.expectf(t, cpp_err == .None && len(theirs.directions) == len(iso.triangles), "%s: the C++ field failed: %v %s", name, cpp_err, reason_string(&reason), loc = loc) do return
-		their_singular, their_smooth, their_angles := measure(iso, theirs)
-		defer delete(their_angles, heap)
-		// The frames' difference, folded into a quarter turn either way.
-		apart := make([]f64, len(our_angles), heap)
-		defer delete(apart, heap)
-		mean := f64(0)
-		for &a, f in apart {
-			d := math.mod(our_angles[f] - their_angles[f], math.PI / 2)
+	field, err := odin_field(iso, guides, adaptivity, anisotropy, sharp, &run, &reason, &checks)
+	ms = time.duration_milliseconds(time.tick_since(t0))
+	defer field_destroy(&field)
+	if !testing.expectf(t, err == .None && len(field.directions) == len(iso.triangles), "%s: the field failed: %v %s", name, err, reason_string(&reason), loc = loc) do return
+	singular, smoothness, angles := measure(iso, field)
+	defer delete(angles, heap)
+	sizes_bad := 0
+	for z in field.sizes do for k in 0 ..< 3 do if !(z[k] > 0) || !(z[k] < 1e6) do sizes_bad += 1
+	// The guided triangles' frames against their guides, folded into a quarter turn.
+	guided, apart := 0, f64(0)
+	if guides != nil {
+		s := surface_build(iso.positions, iso.triangles, nil)
+		defer surface_destroy(&s)
+		for g, f in guides {
+			if g == {} do continue
+			d := math.mod(angles[f] - tangent_angle(&s, g, f), math.PI / 2)
 			if d > math.PI / 4 do d -= math.PI / 2
 			if d < -math.PI / 4 do d += math.PI / 2
-			a = abs(d) * 180 / math.PI
-			mean += a
+			apart += abs(d) * 180 / math.PI
+			guided += 1
 		}
-		mean /= f64(max(len(apart), 1))
-		slice.sort(apart)
-		p95 := apart[len(apart) * 95 / 100] if len(apart) > 0 else 0
-		worst_size := f64(0)
-		for z, f in ours.sizes do for k in 0 ..< 3 do worst_size = max(worst_size, abs(z[k] - theirs.sizes[f][k]) / max(abs(theirs.sizes[f][k]), 1e-12))
-		log.infof("%s: %d triangles; Odin %d singular as solved, %d after, smoothness %.5f, %.1f ms; C++ %d, %d (%d measured), %.5f, %.1f ms; frames apart %.2f degrees on average, %.2f at the 95th percentile; sizes apart %.2g at most",
-			name, len(iso.triangles), ours.singular_solved, ours.singular, our_smooth, odin_ms, theirs.singular_solved, theirs.singular, their_singular, their_smooth, cpp_ms, mean, p95, worst_size)
-		testing.expectf(t, abs(ours.singular_solved - theirs.singular_solved) <= slack, "%s: %d singular vertices as solved, the C++ %d", name, ours.singular_solved, theirs.singular_solved, loc = loc)
-		testing.expectf(t, ours.singular <= theirs.singular + slack, "%s: %d singular vertices after the clean-up, the C++ %d", name, ours.singular, theirs.singular, loc = loc)
-		testing.expectf(t, our_smooth <= their_smooth * 1.01 + 1e-9, "%s: smoothness %.5f, the C++'s %.5f", name, our_smooth, their_smooth, loc = loc)
-		testing.expectf(t, worst_size < 1e-6, "%s: the sizes differ by %.2g", name, worst_size, loc = loc)
-	} else {
-		log.infof("%s: %d triangles; Odin %d singular, smoothness %.5f, %.1f ms", name, len(iso.triangles), ours.singular, our_smooth, odin_ms)
+		apart /= f64(max(guided, 1))
 	}
+	log.infof("%s: %d triangles; %d singular as solved, %d after, smoothness %.5f, %d guided %.2f degrees off on average, %.1f ms", name, len(iso.triangles), field.singular_solved, field.singular, smoothness, guided, apart, ms)
+	testing.expectf(t, singular == field.singular, "%s: %d singular vertices measured, the field says %d", name, singular, field.singular, loc = loc)
+	testing.expectf(t, field.singular >= want.singular[0] && field.singular <= want.singular[1], "%s: %d singular vertices, not %d to %d", name, field.singular, want.singular[0], want.singular[1], loc = loc)
+	testing.expectf(t, field.singular_solved <= want.solved, "%s: %d singular vertices as solved, at most %d expected", name, field.singular_solved, want.solved, loc = loc)
+	testing.expectf(t, smoothness <= want.smoothness, "%s: smoothness %.5f, at most %.5f expected", name, smoothness, want.smoothness, loc = loc)
+	testing.expectf(t, sizes_bad == 0, "%s: %d sizes not positive and finite", name, sizes_bad, loc = loc)
+	testing.expectf(t, guides == nil || (guided > 0 && apart <= GUIDE_DEGREES), "%s: the %d guided frames lie %.2f degrees off their guides on average", name, guided, apart, loc = loc)
 	return
 }
 
+// How far, in degrees on average, a guided triangle's frame may lie off its guide: the
+// guide pulls as hard as the curvature's strongest pull, and the smoothness pulls too.
+@(private = "file")
+GUIDE_DEGREES :: 2.0
+
 @(test)
-field_matches_the_cpp_on_smooth_shapes :: proc(t: ^testing.T) {
+field_holds_on_smooth_shapes :: proc(t: ^testing.T) {
 	source := geom.icosphere(4)
 	defer geom.mesh_destroy(&source)
 	sphere := island_of(source.positions[:], source.indices[:])
@@ -100,27 +106,27 @@ field_matches_the_cpp_on_smooth_shapes :: proc(t: ^testing.T) {
 	iso, ok := iso_of(sphere, 1500, 90)
 	defer isotropic_destroy(&iso)
 	if !testing.expect(t, ok) do return
-	_ = field_against_cpp(t, "sphere", iso)
-	_ = field_against_cpp(t, "sphere, no adaptivity or anisotropy", iso, adaptivity = 0, anisotropy = 0)
+	_ = field_holds(t, "sphere", iso, {{8, 12}, 14, 0.0215})
+	_ = field_holds(t, "sphere, no adaptivity or anisotropy", iso, {{8, 12}, 14, 0.0215}, adaptivity = 0, anisotropy = 0)
 
 	torus := torus_island(96, 48, 1, 0.4)
 	defer island_destroy(&torus)
 	iso_t, ok_t := iso_of(torus, 1500, 90)
 	defer isotropic_destroy(&iso_t)
 	if !testing.expect(t, ok_t) do return
-	_ = field_against_cpp(t, "torus", iso_t)
+	_ = field_holds(t, "torus", iso_t, {{0, 0}, 0, 0.0077})
 }
 
 // A hard-edged cube locks its frames to its edges, and a ring of features locks them too.
 @(test)
-field_matches_the_cpp_with_hard_edges_and_features :: proc(t: ^testing.T) {
+field_holds_with_hard_edges_and_features :: proc(t: ^testing.T) {
 	heap := runtime.heap_allocator()
 	cube := cube_island(30)
 	defer island_destroy(&cube)
 	iso, ok := iso_of(cube, 600, 60)
 	defer isotropic_destroy(&iso)
 	if !testing.expect(t, ok) do return
-	_ = field_against_cpp(t, "cube", iso, sharp = 60)
+	_ = field_holds(t, "cube", iso, {{8, 8}, 8, 1e-6}, sharp = 60)
 
 	ring := make([dynamic][2]u32, heap)
 	for tri in cube.triangles do for k in 0 ..< 3 {
@@ -131,12 +137,12 @@ field_matches_the_cpp_with_hard_edges_and_features :: proc(t: ^testing.T) {
 	iso_r, ok_r := iso_of(cube, 600, 60)
 	defer isotropic_destroy(&iso_r)
 	if !testing.expect(t, ok_r && len(iso_r.corner_feature) > 0) do return
-	_ = field_against_cpp(t, "cube with a ring", iso_r, sharp = 60)
+	_ = field_holds(t, "cube with a ring", iso_r, {{8, 8}, 8, 1e-6}, sharp = 60)
 }
 
 // A density scales the metric (and leaves the singular vertices as solved); guides pull.
 @(test)
-field_matches_the_cpp_with_density_and_guides :: proc(t: ^testing.T) {
+field_holds_with_density_and_guides :: proc(t: ^testing.T) {
 	heap := runtime.heap_allocator()
 	source := geom.icosphere(5)
 	defer geom.mesh_destroy(&source)
@@ -147,7 +153,7 @@ field_matches_the_cpp_with_density_and_guides :: proc(t: ^testing.T) {
 	iso, ok := iso_of(sphere, 2000, 90)
 	defer isotropic_destroy(&iso)
 	if !testing.expect(t, ok && len(iso.vertex_scale) == len(iso.positions)) do return
-	_ = field_against_cpp(t, "density 4 above", iso)
+	_ = field_holds(t, "density 4 above", iso, {{8, 56}, 56, 0.0236})
 	delete(sphere.density, heap)
 	sphere.density = nil
 
@@ -161,7 +167,7 @@ field_matches_the_cpp_with_density_and_guides :: proc(t: ^testing.T) {
 		c := (iso_g.positions[tri[0]] + iso_g.positions[tri[1]] + iso_g.positions[tri[2]]) / 3
 		if abs(c.z) < 0.15 do guides[f] = {-c.y, c.x, 0}
 	}
-	_ = field_against_cpp(t, "guide round the equator", iso_g, guides)
+	_ = field_holds(t, "guide round the equator", iso_g, {{8, 8}, 8, 0.0136}, guides)
 }
 
 // Any thread count gives the same field, bit for bit.
@@ -187,10 +193,10 @@ field_is_the_same_on_any_thread_count :: proc(t: ^testing.T) {
 	testing.expect(t, slice.equal(a.directions, b.directions) && slice.equal(a.sizes, b.sizes), "the field differs between one thread and four")
 }
 
-// A sphere of about 160,000 triangles at the bench's 20,000 quads: the Odin field against
-// the C++'s time, on four threads.
+// A sphere of about 160,000 triangles at the bench's 20,000 quads, on four threads: the
+// field's time, which the log carries.
 @(test)
-field_speed_against_the_cpp :: proc(t: ^testing.T) {
+field_on_a_dense_sphere :: proc(t: ^testing.T) {
 	pool: jobs.Pool
 	jobs.pool_init(&pool, 3)
 	defer jobs.pool_destroy(&pool)
@@ -201,5 +207,5 @@ field_speed_against_the_cpp :: proc(t: ^testing.T) {
 	iso, ok := iso_of(sphere, 20000, 90, &pool)
 	defer isotropic_destroy(&iso)
 	if !testing.expect(t, ok) do return
-	_ = field_against_cpp(t, "dense sphere", iso, pool = &pool)
+	_ = field_holds(t, "dense sphere", iso, {{8, 48}, 68, 0.0106}, pool = &pool)
 }

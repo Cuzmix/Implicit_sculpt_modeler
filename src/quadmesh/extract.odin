@@ -3,12 +3,12 @@ package quadmesh
 import "base:runtime"
 import "core:math"
 
-// The quad extraction in Odin (Core.Odin), written from the description of QEx (Ebke,
+// The quad extraction, written from the description of QEx (Ebke,
 // Bommes, Campen and Kobbelt, "QEx: Robust Quad Mesh Extraction", 2013; libQEx's source
 // is GPL and was not read). Every integer point of the cover is a quad vertex, every unit
 // step of the grid from one is a quad edge, traced across the triangles to the next point,
 // and the faces are the cycles those edges close, so each cell of the grid is one quad
-// and none is lost, where the C++ extractor cut the cover's lines into segments and
+// and none is lost, where AutoRemesher's extractor cut the cover's lines into segments and
 // joined them again by position, losing a few percent of the cells.
 //
 // Exactness first. The cover's UVs are made seamless in fixed point (EXTRACT_FIXED units

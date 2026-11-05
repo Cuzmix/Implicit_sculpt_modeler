@@ -7,15 +7,15 @@ import "core:slice"
 import "../geom"
 import "../jobs"
 
-// The first stage in Odin (Core.Odin), as qm_stage_thin does it in C++: the feature
-// chains too short to follow dropped, then an island far denser than its share of the
-// target thinned by geom.mesh_decimate. That decimation refuses the collapses that would
-// pinch the surface, so the C++'s split of pinched vertices after meshoptimizer goes; a
-// pinch the input itself has is split by the isotropic remesh (mesh.odin). Everything is
+// The first stage, as AutoRemesher thins an island: the feature chains too short to follow
+// dropped, then an island far denser than its share of the target thinned by
+// geom.mesh_decimate. That decimation refuses the collapses that would pinch the surface,
+// so AutoRemesher's split of pinched vertices after its decimation goes; a pinch the input
+// itself has is split by the isotropic remesh (mesh.odin). Everything is
 // allocated with runtime.heap_allocator(), as the stages' outputs are.
 
 // An island at more than THIN_TRIGGER times its share of the target triangle count is
-// decimated to THIN_TARGET times it first (the core's own ratios, decimateIfTooDense).
+// decimated to THIN_TARGET times it first (AutoRemesher's own ratios, decimateIfTooDense).
 @(private = "file")
 THIN_TRIGGER :: 8.0
 @(private = "file")
@@ -29,7 +29,7 @@ THIN_TARGET :: 4.0
 THIN_SLACK :: 1
 
 // How much dearer moving a vertex on an edge sharper than the stage's angle is, as
-// meshoptimizer's priority flag makes it: the quadrics already hold a crease, and this
+// AutoRemesher's decimation makes it: the quadrics already hold a crease, and this
 // keeps its vertices to the last.
 @(private = "file")
 THIN_SHARP_WEIGHT :: 10
@@ -202,7 +202,7 @@ sharp_edges :: proc(positions: [][3]f64, triangles: [][3]u32, radians: f64) -> [
 	return out[:]
 }
 
-// The feature edges less the chains too short to follow (the core's
+// The feature edges less the chains too short to follow (AutoRemesher's
 // dropShortFeatureChains): a chain (edges joined end to end through vertices of two
 // feature edges, apart from the rest at junctions and loose ends) shorter than two quad
 // edges would give the quads nothing to run along, only a kink; a tiny group's border is

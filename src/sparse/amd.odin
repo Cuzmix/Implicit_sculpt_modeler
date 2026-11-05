@@ -22,9 +22,9 @@ import "core:math"
 //   assets/licenses/SuiteSparse-AMD-LICENSE.txt).
 //
 // It is AMD with its defaults (aggressive absorption, rows denser than ten times the
-// square root of n ordered last), the statistics left out. Eigen's sparse LDLᵀ, which the
-// C++ core solves with, orders by the same algorithm, so the two factors have about the
-// same fill.
+// square root of n ordered last), the statistics left out. Eigen's sparse LDLᵀ, which
+// AutoRemesher's C++ solved with, orders by the same algorithm, so the two factors have
+// about the same fill.
 
 @(private = "file")
 EMPTY :: -1

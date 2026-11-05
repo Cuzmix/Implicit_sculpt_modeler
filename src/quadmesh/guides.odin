@@ -36,8 +36,8 @@ Guide_Piece :: struct {
 // triangle, or there is no guide or no strength. The guides are cut into pieces no longer
 // than the farthest reach (four times the plain quad edge's, where the density makes the
 // quads larger), so each lies in its middle's cell's neighbourhood, and a triangle looks
-// in the 27 cells round its middle; of two pieces as near, the earlier wins, so the
-// result is the C++'s bit for bit.
+// in the 27 cells round its middle; of two pieces as near, the earlier wins, as
+// AutoRemesher's makeGuides has it.
 odin_face_guides :: proc(iso: Isotropic, quad_edge: f64, guides: []geom.Vec3, strength: f32, allocator := context.allocator) -> (out: [][3]f64) {
 	s := f64(strength) if !math.is_nan(strength) && !math.is_inf(strength) else 0
 	s = max(0.0, min(1.0, s))
@@ -79,7 +79,7 @@ odin_face_guides :: proc(iso: Isotropic, quad_edge: f64, guides: []geom.Vec3, st
 		scale := (iso.vertex_scale[t[0]] + iso.vertex_scale[t[1]] + iso.vertex_scale[t[2]]) / 3.0 if scaled else 1.0
 		within := min(GUIDE_REACH * quad_edge * scale, cell)
 		c := cell_of(middle, cell)
-		// As the C++ starts it: no piece yet, so one exactly `within` away is taken.
+		// As AutoRemesher starts it: no piece yet, so one exactly `within` away is taken.
 		best, nearest, found := within, max(int), -1
 		for dx in i64(-1) ..= 1 do for dy in i64(-1) ..= 1 do for dz in i64(-1) ..= 1 {
 			key := key_of(c + {dx, dy, dz})

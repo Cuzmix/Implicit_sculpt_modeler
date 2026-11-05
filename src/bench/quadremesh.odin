@@ -11,78 +11,68 @@ import "../sculpt"
 
 // --quadremesh: at each size, the stretched sphere --remesh uses, cut down to Quad
 // Remesh's input cap (as the app does before the engine sees it) and quad remeshed to
-// QUAD_BENCH_QUADS at adaptivity 0 by AutoRemesher's core: the decimation's time, the
-// engine's and its stages' (the engine's own decimation of a dense island, the isotropic
-// remesh, the parameterization, the quad extraction; summed over the islands), what it
-// gave (faces, the quads' share, the share of vertices with four quads) and the peak
-// memory (the row's own on Linux, peak_rss_reset; the process's elsewhere). With --core=cpp,driver,odin each size runs once through each core named
-// (quadmesh.Core: the C++ core whole, the Odin driver with every stage the C++'s, the Odin
-// driver with the stages ported so far), one row each, for an A/B of the stages as they
-// are ported. On a platform without the engine one line says so.
+// QUAD_BENCH_QUADS at adaptivity 0 by the engine (src/quadmesh): the decimation's time,
+// the engine's and its stages' (the engine's own decimation of a dense island, the
+// isotropic remesh, the parameterization, the quad extraction; summed over the islands),
+// what it gave (faces, the quads' share, the share of vertices with four quads) and the
+// peak memory (the row's own on Linux, peak_rss_reset; the process's elsewhere).
 
 QUAD_BENCH_QUADS :: 20_000
 
 quadremesh_header :: proc() {
-	fmt.println("| Vertices | Core | Engine input triangles | Decimate ms | Quad remesh ms | Stages ms (decimate, isotropic, parameterize, extract) | Covers | Faces | Quads | Four-valent | Peak RSS MB |")
-	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	fmt.println("| Vertices | Engine input triangles | Decimate ms | Quad remesh ms | Stages ms (decimate, isotropic, parameterize, extract) | Covers | Faces | Quads | Four-valent | Peak RSS MB |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 }
 
-run_quadremesh :: proc(target: int, pool: ^jobs.Pool, core: quadmesh.Core) {
-	name := quadmesh.CORE_NAMES[core]
-	when !quadmesh.AVAILABLE {
-		fmt.printfln("| %s | %s | the engine is not built on this platform | | | | | | | |", thousands(target), name)
-		return
-	} else {
-		peak_rss_reset()
-		sp := new(Sphere)
-		defer free(sp)
-		sp.mesh = geom.geodesic_sphere(geom.geodesic_frequency_for(target), pool)
-		sculpt.sculptor_init(&sp.sculptor, &sp.mesh, pool, node_triangles)
-		free_all(context.temp_allocator)
-		s := &sp.sculptor
-		_ = sculpt.sculptor_grab_begin(s, {kind = .Grab, radius = 0.5, strength = 1}, {0, 0, 1})
-		_ = sculpt.sculptor_grab_move(s, {0.2, 0, 1.2})
-		_ = sculpt.sculptor_flush(s)
-		sculpt.sculptor_destroy(&sp.sculptor)
+run_quadremesh :: proc(target: int, pool: ^jobs.Pool) {
+	peak_rss_reset()
+	sp := new(Sphere)
+	defer free(sp)
+	sp.mesh = geom.geodesic_sphere(geom.geodesic_frequency_for(target), pool)
+	sculpt.sculptor_init(&sp.sculptor, &sp.mesh, pool, node_triangles)
+	free_all(context.temp_allocator)
+	s := &sp.sculptor
+	_ = sculpt.sculptor_grab_begin(s, {kind = .Grab, radius = 0.5, strength = 1}, {0, 0, 1})
+	_ = sculpt.sculptor_grab_move(s, {0.2, 0, 1.2})
+	_ = sculpt.sculptor_flush(s)
+	sculpt.sculptor_destroy(&sp.sculptor)
 
-		// The engine's input: the mesh itself under the cap, else a decimation to it.
-		input := sp.mesh
-		capped: geom.Mesh
-		decimate_ms := f64(0)
-		if len(sp.mesh.indices) / 3 > retopo.QUAD_REMESH_MAX_TRIANGLES {
-			t0 := time.tick_now()
-			ok: bool
-			capped, _, ok = geom.mesh_decimate(sp.mesh, retopo.QUAD_REMESH_MAX_TRIANGLES, pool)
-			decimate_ms = time.duration_milliseconds(time.tick_since(t0))
-			free_all(context.temp_allocator)
-			if !ok {
-				fmt.printfln("| %s | %s | decimation failed | | | | | | | | |", thousands(target), name)
-				geom.mesh_destroy(&sp.mesh)
-				return
-			}
-			input = capped
-		}
-		params := quadmesh.DEFAULT_PARAMS
-		params.quads = QUAD_BENCH_QUADS
-		params.threads = clamp(jobs.pool_size(pool) if pool != nil else 1, 1, quadmesh.MAX_THREADS)
-		params.core = core
-		input_triangles := len(input.indices) / 3
-		t1 := time.tick_now()
-		out, report, err, reason := quadmesh.remesh(input.positions[:], input.indices[:], params)
-		remesh_ms := time.duration_milliseconds(time.tick_since(t1))
-		geom.mesh_destroy(&capped)
-		geom.mesh_destroy(&sp.mesh)
+	// The engine's input: the mesh itself under the cap, else a decimation to it.
+	input := sp.mesh
+	capped: geom.Mesh
+	decimate_ms := f64(0)
+	if len(sp.mesh.indices) / 3 > retopo.QUAD_REMESH_MAX_TRIANGLES {
+		t0 := time.tick_now()
+		ok: bool
+		capped, _, ok = geom.mesh_decimate(sp.mesh, retopo.QUAD_REMESH_MAX_TRIANGLES, pool)
+		decimate_ms = time.duration_milliseconds(time.tick_since(t0))
 		free_all(context.temp_allocator)
-		if err != .None {
-			fmt.printfln("| %s | %s | %s | %.0f | %.0f | | | failed: %s | | | |", thousands(target), name, thousands(input_triangles), decimate_ms, remesh_ms, reason)
+		if !ok {
+			fmt.printfln("| %s | decimation failed | | | | | | | | |", thousands(target))
+			geom.mesh_destroy(&sp.mesh)
 			return
 		}
-		defer quadmesh.polygon_mesh_destroy(&out)
-		four := four_valent_share(out)
-		fmt.printfln("| %s | %s | %s | %.0f | %.0f | %.0f, %.0f, %.0f, %.0f | %d | %d | %.1f%% | %.1f%% | %.0f |", thousands(target), name, thousands(input_triangles), decimate_ms, remesh_ms,
-			report.decimate_ms, report.isotropic_ms, report.parameterize_ms, report.extract_ms,
-			report.covers, report.faces, 100 * f64(report.quads) / f64(max(report.faces, 1)), 100 * four, peak_rss_mb())
+		input = capped
 	}
+	params := quadmesh.DEFAULT_PARAMS
+	params.quads = QUAD_BENCH_QUADS
+	params.threads = clamp(jobs.pool_size(pool) if pool != nil else 1, 1, quadmesh.MAX_THREADS)
+	input_triangles := len(input.indices) / 3
+	t1 := time.tick_now()
+	out, report, err, reason := quadmesh.remesh(input.positions[:], input.indices[:], params)
+	remesh_ms := time.duration_milliseconds(time.tick_since(t1))
+	geom.mesh_destroy(&capped)
+	geom.mesh_destroy(&sp.mesh)
+	free_all(context.temp_allocator)
+	if err != .None {
+		fmt.printfln("| %s | %s | %.0f | %.0f | | | failed: %s | | | |", thousands(target), thousands(input_triangles), decimate_ms, remesh_ms, reason)
+		return
+	}
+	defer quadmesh.polygon_mesh_destroy(&out)
+	four := four_valent_share(out)
+	fmt.printfln("| %s | %s | %.0f | %.0f | %.0f, %.0f, %.0f, %.0f | %d | %d | %.1f%% | %.1f%% | %.0f |", thousands(target), thousands(input_triangles), decimate_ms, remesh_ms,
+		report.decimate_ms, report.isotropic_ms, report.parameterize_ms, report.extract_ms,
+		report.covers, report.faces, 100 * f64(report.quads) / f64(max(report.faces, 1)), 100 * four, peak_rss_mb())
 }
 
 // The share of a polygon mesh's vertices with exactly four polygons.

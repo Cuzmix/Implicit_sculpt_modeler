@@ -6,9 +6,9 @@ import "core:math"
 import "../jobs"
 import "../sparse"
 
-// The frame field in Odin (Core.Odin): what qm_stage_cover works out in C++ before the
-// cover itself (AutoRemesher's FrameField, SingularitySimplifier and Parameterizer's sizes,
-// MIT, by Jeremy Hu, whose rules this follows), handed to the cover as a Field. Each
+// The frame field: what the cover is solved on (AutoRemesher's FrameField,
+// SingularitySimplifier and Parameterizer's sizes, MIT, by Jeremy Hu, whose rules this
+// follows), handed to the cover as a Field. Each
 // triangle's frame is a direction in its plane, kept while solving as the four-fold
 // periodic pair (cos 4θ, sin 4θ) of its angle θ from the triangle's own basis, so the four
 // directions of a cross are one value. A triangle beside a sharp edge, a feature edge or
@@ -22,8 +22,8 @@ import "../sparse"
 // Singular vertices of opposite charge lying close are then cancelled in pairs
 // (singular.odin), and each triangle's quad size and stretch worked out from the curvature
 // (Adaptivity) and the field (Anisotropy). None of it depends on the cover's scaling, so
-// the driver solves it once for all of an island's covers, where the C++ solves it again
-// for each. The per-triangle loops run on the pool, each writing its own triangle's
+// the driver solves it once for all of an island's covers, where AutoRemesher solves it
+// again for each. The per-triangle loops run on the pool, each writing its own triangle's
 // values, so any thread count gives the same field, bit for bit.
 
 // A frame field and the sizes the cover is asked, one a triangle.
@@ -498,7 +498,7 @@ field_solve :: proc(s: ^Surface, sharp_degrees: f64, features: []u8, log_scale: 
 		turn := s.connection[c]
 		if log_scale != nil do turn += conformal_turn(s, u32(c), log_scale)
 		// The smoothness rows |e^{i 4 turn} z_f - z_g|²: f's pair carried across the edge,
-		// less g's (the C++'s two real rows co u_f + si v_f - u_g and -si u_f + co v_f - v_g,
+		// less g's (AutoRemesher's two real rows co u_f + si v_f - u_g and -si u_f + co v_f - v_g,
 		// transport = -4 turn).
 		transport := -4 * turn
 		co, si := math.cos(transport), math.sin(transport)
@@ -531,7 +531,7 @@ field_solve :: proc(s: ^Surface, sharp_degrees: f64, features: []u8, log_scale: 
 			known[i] += complex(weight * math.cos(angle), weight * math.sin(angle))
 		}
 	}
-	// The ridge: a share of the mean diagonal, as the C++ takes it over its real unknowns
+	// The ridge: a share of the mean diagonal, as AutoRemesher takes it over its real unknowns
 	// (each complex one's diagonal twice, so the same mean).
 	mean := f64(0)
 	for d in diagonal do mean += d
