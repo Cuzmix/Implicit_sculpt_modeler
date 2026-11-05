@@ -3584,7 +3584,7 @@ def model_dial_picks_select():
 # the shelf's Clay tile and the tool strip's last button shown (Retopologize), Search, its first
 # row and a point on the view clear of every bar.
 DRAG_1280 = ["--width=1280", "--height=720"]
-DRAG_RAIL = {"layout": (1243, 85), "camera": (1243, 181), "focus": (1243, 229), "wireframe": (1243, 325)}
+DRAG_RAIL = {"layout": (1242, 100), "camera": (1242, 196), "focus": (1242, 244), "wireframe": (1242, 340)}
 DRAG_CLAY = (324, 653)
 # The Curve page's last tile at 1280 x 720 (Smooth, after the Curve and Insert tools).
 DRAG_CURVE_LAST = (740, 653)
