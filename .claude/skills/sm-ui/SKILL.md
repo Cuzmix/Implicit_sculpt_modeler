@@ -78,7 +78,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   pinned (Put back, a hold on the grip, a drop past `CARD_RETURN_REACH` of a side); a `card_float` layout line.
   Under `CARD_SHEET_BELOW` (900 pt) `cards_as_sheet` puts one card at a time over the lower part (`column_place`).
   Android's side-edge gesture strips: `gesture_edges.odin`.
-- Layouts (`src/app/layouts.odin`, `k.layouts`): one per space, nothing named or saved. A layout is text,
+- Layouts (`src/app/layouts.odin`, `k.layouts`): one per space. A layout is text,
   `kit_layout_text(k)` (`hidden`, `open`, `window`, `column`, `card_float`, dock and `bars` lines, places written
   right-handed) and `kit_layout_put(k, text)`. `shipped[s]` is `built_in_layout(s)`; `kept[s]` is a space left
   with changes ("" = as shipped); `layouts_frame` sets `modified` (the current text against `shipped`), and
@@ -87,7 +87,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   and `space_current <Space>` (`layouts_save`, `layouts_load_line`, `layouts_loaded`). A hidden `Zone` skips its
   bar in `kit_layout` (the top bar takes Undo/Redo or Search); read the wheel's side with `rail_shown(k)`, never
   `k.rail_side`, and the action bar with `action_bar_shown`. A new panel that a layout should open goes in
-  `LAYOUT_PANELS`. The lit tab or the chevron (`kit_space_chip` when narrow) opens `kit_layout_menu`.
+  `LAYOUT_PANELS`. The lit tab or the chevron (`kit_space_chip` when narrow) opens `kit_layout_menu`. The person's own layouts are stamps, `saved[LAYOUT_SLOTS]` (name and text, `layout_saved` settings lines): `layout_save`/`layout_load` (command `.Layout_Load`, arg the slot)/`layout_update`/`layout_rename` (through `k.rename.layout`)/`layout_delete`; a load or delete keeps `undo` for its toast's Undo (`layout_undo` from `kit_results`); `matching` (slot + 1) is set in `layouts_frame` and ticks the row. Never add a "current saved layout": loading only puts the text in place.
 - Spaces (`src/app/spaces.odin`, `k.spaces`): Sculpt, Model, Render. The tool decides the space: `space_follow`
   runs once a frame and switches when `app.tool` changes (Move keeps the space); a command that picks a tool calls
   `space_picked(app)` so the space follows even when the tool was already in hand. `space_switch(app, to)` stores the
