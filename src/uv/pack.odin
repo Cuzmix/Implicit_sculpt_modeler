@@ -110,6 +110,31 @@ turn_to_smallest_box :: proc(u: ^Uvs, place: []bool) {
 		turn[i] = {1, 0}
 		if !place[i] || first[i + 1] == first[i] do continue
 		pts := points[first[i]:first[i + 1]]
+		// Akl and Toussaint's filter: no point strictly inside the quadrilateral of the
+		// four extremes can be on the hull, which leaves few to sort.
+		ext := [4][2]f32{pts[0], pts[0], pts[0], pts[0]} // least x, least y, most x, most y
+		for p in pts {
+			if p.x < ext[0].x do ext[0] = p
+			if p.y < ext[1].y do ext[1] = p
+			if p.x > ext[2].x do ext[2] = p
+			if p.y > ext[3].y do ext[3] = p
+		}
+		kept := 0
+		for p in pts {
+			inside := true
+			for e in 0 ..< 4 {
+				a, b := ext[e], ext[(e + 1) % 4]
+				if (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) <= 0 {
+					inside = false
+					break
+				}
+			}
+			if !inside {
+				pts[kept] = p
+				kept += 1
+			}
+		}
+		pts = pts[:kept]
 		slice.sort_by(pts, proc(a, b: [2]f32) -> bool {return a.x < b.x || (a.x == b.x && a.y < b.y)})
 		// Andrew's monotone chain, counter-clockwise.
 		cross :: proc(o, a, b: [2]f32) -> f32 {return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)}
