@@ -101,7 +101,8 @@ STROKE_EDIT_ACTIONS := [?]Action {
 // A selected curve in the Curve tool (curve_edit.odin): its picked point and its ends.
 @(rodata)
 CURVE_ACTIONS := [?]Action {
-	{.Curve_Delete_Point, 0, "Delete point"},
+	{.Curve_Select_All, 0, "Select all"},
+	{.Curve_Delete_Point, 0, "Delete"},
 	{.Curve_Corner, 0, "Corner"},
 	{.Curve_Close, 0, "Close"},
 	{.Curve_Bake, 0, "Bake"},

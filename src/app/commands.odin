@@ -187,6 +187,7 @@ Command_Id :: enum u16 {
 	Curve_Delete_Point,
 	Curve_Corner,
 	Curve_Close,
+	Curve_Select_All,
 	Curve_Bake,
 	Curve_Use,
 	Curve_Brush_Run,
@@ -1688,13 +1689,13 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Curve_Delete_Point = {
 		label = "Delete curve point",
-		help = "Deletes the point picked on the selected curve (tap a point to pick it); a curve keeps two points, a loop three.",
+		help = "Deletes the points picked on the selected curve (tap a point to pick it, Shift-tap or a box in the Edit tab for more); a curve keeps two points, a loop three.",
 		run = proc(app: ^App, _: int) {curve_delete_point(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return curve_point_deletable(app)},
 	},
 	.Curve_Corner = {
 		label = "Corner point",
-		help = "Turns the point picked on the selected curve into a corner, whose handles turn freely, or back into a smooth one.",
+		help = "Turns the points picked on the selected curve into corners, whose handles turn freely, or back into smooth ones (a double tap on a point does too).",
 		run = proc(app: ^App, _: int) {curve_toggle_corner(app)},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_curve(app)
@@ -1703,6 +1704,16 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, _: int) -> bool {
 			obj := selected_curve(app)
 			return obj != nil && app.curve.picked >= 1 && app.curve.picked <= len(obj.curve.points) && obj.curve.points[app.curve.picked - 1].corner
+		},
+	},
+	.Curve_Select_All = {
+		label = "Select all points",
+		help = "Picks every point of the selected curve, or none when all are picked (A in the Curve tool's Edit tab); the picked points move, turn into corners and delete together.",
+		run = proc(app: ^App, _: int) {curve_select_all(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_curve(app) != nil},
+		checked = proc(app: ^App, _: int) -> bool {
+			obj := selected_curve(app)
+			return obj != nil && curve_selected_count(obj.curve) == len(obj.curve.points)
 		},
 	},
 	.Curve_Close = {
@@ -3084,8 +3095,10 @@ chord_down :: proc(d: ^Device, c: Chord) -> bool {
 // while a text field has the keys.
 commands_handle_keys :: proc(app: ^App) {
 	if typing(app) do return
+	if !app.kit.home && !app.diag.open do curve_keys(app)
 	for b in keymap(app) {
 		if !chord_down(&app.device, b.chord) do continue
+		if curve_key_taken(app, b.chord) do continue
 		// Home stands in for the panels and the scene: only its own keys and opening a file
 		// reach past it.
 		if app.kit.home && b.command != .Home && b.command != .Open_Scene do continue

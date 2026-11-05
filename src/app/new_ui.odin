@@ -1228,6 +1228,8 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	if edit_waits && quiet && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)) do stroke_edit_validate(app)
 	// Points placed one by one for a curve end as a curve by Enter, and go by Escape.
 	placing := len(app.curve.placing) > 0
+	// Points picked on the selected curve in the Curve tool are let go by Escape next.
+	picked_points := app.tool == .Curve && selected_curve(app) != nil && curve_selected_count(selected_curve(app).curve) > 0
 	if placing && quiet && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)) do curve_place_finish(app, false)
 	// Escape, or Android's back gesture (the AC Back key), closes whatever floats, before
 	// Escape stops a replay; during a gizmo drag or a topological mask Escape only puts
@@ -1246,7 +1248,8 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 		else if placing && quiet {
 			clear(&app.curve.placing)
 			clear(&app.curve.placing_n)
-		} else if shape_waits && quiet do app.shape_pending.request = .Cancel
+		} else if picked_points && quiet do curve_select_none(selected_curve(app).curve)
+		else if shape_waits && quiet do app.shape_pending.request = .Cancel
 		else if sheet_open(k) && quiet do sheet_close(app)
 		// A job is cancelled last, once nothing else took the key.
 		else if long_job_busy(app) && quiet do long_job_cancel(app)

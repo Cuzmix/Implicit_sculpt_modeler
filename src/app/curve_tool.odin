@@ -76,6 +76,14 @@ Curve_Tool :: struct {
 	drag:    Curve_Drag,
 	picked:  int,
 	edits:   int,
+	// The Edit tab (Tab): a press on empty space drags a box that picks points rather than
+	// drawing a new curve. `box` is that drag; `tap` the last tap on a point, for a double
+	// tap; `all_handles` shows every point's handles rather than the picked points' and
+	// their neighbours'.
+	editing:     bool,
+	box:         Curve_Box,
+	tap:         Curve_Tap,
+	all_handles: bool,
 	// A Use or tube slider's drag on the selected curve, one undo step when it lets go.
 	look_drag: Curve_Look_Drag,
 	brush_runs: int, // Run brush along a curve (curve_brush.odin), for the exit stats
@@ -217,6 +225,13 @@ curve_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	c := &app.curve
 	// A press on the selected curve's points, handles or line edits it instead.
 	if !c.active && curve_edit_frame(app, input) do return true
+	// In the Edit tab a press on empty space drags a box that picks points.
+	if c.editing && !c.active && len(c.placing) == 0 {
+		if obj := selected_curve(app); obj != nil {
+			curve_box_frame(app, obj, input)
+			return true
+		}
+	}
 	if input.primary {
 		if input.press {
 			c.active = true
@@ -487,6 +502,14 @@ kit_curve_settings :: proc(app: ^App) {
 	kinds: [len(Curve_Kind)]string
 	for kind, i in Curve_Kind do kinds[i] = fmt.tprint(kind)
 	if picked := ui.tabs(ctx, "curve kind", kinds[:], int(c.kind)); picked >= 0 do c.kind = Curve_Kind(picked)
+	// Draw makes new curves from presses on empty space; Edit picks the selected curve's
+	// points there with a box instead (Tab switches).
+	if c.kind == .Curve {
+		modes := [2]string{"Draw", "Edit"}
+		keys := [2]string{"Tab", "Tab"}
+		if picked := ui.tabs(ctx, "curve mode", modes[:], int(c.editing), keys = keys[:]); picked >= 0 do c.editing = picked == 1
+		_ = ui.switch_row(ctx, "Show every point's handles", &c.all_handles)
+	}
 	ui.label(ctx, "Draw on", ctx.theme.small_size)
 	planes: [len(Curve_Plane)]string
 	for name, plane in CURVE_PLANE_NAMES do planes[int(plane)] = name

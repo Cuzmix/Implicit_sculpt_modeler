@@ -19,6 +19,9 @@ Bezier_Point :: struct {
 	intensity: f32,
 	twist:     f32, // radians about the curve, added to the frame there
 	corner:    bool, // the handles turn freely; a smooth point keeps them in one line
+	// Picked for editing (the Curve tool's selection, as Blender keeps a select flag on each
+	// point): it follows the point through inserts, deletes and undo, and is never saved.
+	selected:  bool,
 }
 
 // A point along a sampled curve: where, which way the curve runs, how far along it, which
