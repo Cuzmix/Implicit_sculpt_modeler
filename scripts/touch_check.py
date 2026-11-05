@@ -8869,8 +8869,10 @@ SPHERE_2, SPHERE_3 = (803, 437), (1009, 485)
 @scenario
 def tap_another_object_switches_to_it():
     """A finger tap on an object that is not the selected one selects it and sculpts nothing; a second tap on it,
-    now selected, lays a dab; a stroke on another object still sculpts it; a double tap there pins the pivot without
-    dabs; with Tap another object to switch to it off, the tap sculpts it as before; and where one finger turns the
+    now selected, lays a dab; a stroke on another object keeps to the selected one, missing it, and with The pen picks
+    the object it strokes on sculpts that object instead; a double tap there pins the pivot without
+    dabs; with Tap another object to switch to it off, the tap keeps to the selected one, and sculpts the other only
+    with The pen picks the object it strokes on too; and where one finger turns the
     view, a tap still switches."""
     def taps(*points, wait=24):
         s = Script()
@@ -8887,27 +8889,79 @@ def tap_another_object_switches_to_it():
     return Steps([
         (taps(SPHERE_3), THREE, ({"selected": near(2), "tap_switches": near(1), "dabs": near(0), "undo_steps": near(0)})),
         (taps(SPHERE_3, SPHERE_3), THREE, ({"selected": near(2), "tap_switches": near(1), "undo_steps": near(1), "dabs": lambda v: int(v) >= 1})),
-        (stroke, THREE, ({"selected": near(2), "tap_switches": near(0), "undo_steps": near(1)})),
+        (stroke, THREE, ({"selected": near(0), "tap_switches": near(0), "undo_steps": near(0)})),
+        (stroke, THREE + ["--script=set stroke_picks 1"], ({"selected": near(2), "tap_switches": near(0), "undo_steps": near(1)})),
         (pin, THREE, ({"selected": near(1), "pinned": near(1), "dabs": near(0), "undo_steps": near(0)})),
-        (taps(SPHERE_3), THREE + ["--script=set tap_switches 0"], ({"selected": near(2), "tap_switches": near(0), "undo_steps": near(1)})),
+        (taps(SPHERE_3), THREE + ["--script=set tap_switches 0"], ({"selected": near(0), "tap_switches": near(0), "undo_steps": near(0)})),
+        (taps(SPHERE_3), THREE + ["--script=set tap_switches 0; set stroke_picks 1"], ({"selected": near(2), "tap_switches": near(0), "undo_steps": near(1)})),
         (taps(SPHERE_3), THREE + ["--script=set finger_model orbit"], ({"selected": near(2), "tap_switches": near(1), "dabs": near(0)})),
     ])
 
 
 @scenario
 def stroke_on_another_object_keeps_to_the_selected():
-    """A mouse stroke on an object that is not the selected one selects it and sculpts it; with A stroke on another
-    object switches to it off (Settings > Pen), the same stroke leaves the selection alone and, missing the selected
-    object, sculpts nothing."""
+    """A mouse or pen stroke on an object that is not the selected one leaves the selection alone and, missing the
+    selected object, turns the view and sculpts nothing; with The pen picks the object it strokes on (Settings > Pen),
+    the same stroke selects that object and sculpts it. With the second sphere moved in front of the selected first, a
+    pen stroke on it sculpts the first through it, unless the pen picks."""
+    # The second sphere toward the eye from the first, hiding it all but its rim.
+    def behind_args(script=""):
+        return ["--spheres=2", "--vertices=20000", f"--script=select 2; move 0.6 0.4 0.9; select 1{script}"]
+    behind = Script()
+    behind.wait(4)
+    pen_stroke(behind, line((640, 390), (690, 410), 12), pressure=0.6)
+    behind.wait(4)
     def stroke():
         s = Script()
         s.wait(4)
         s.mouse_drag(line(SPHERE_3, (SPHERE_3[0] + 60, SPHERE_3[1] + 20), 12))
         s.wait(4)
         return s
+    def pen():
+        s = Script()
+        s.wait(4)
+        pen_stroke(s, line(SPHERE_3, (SPHERE_3[0] + 60, SPHERE_3[1] + 20), 12), pressure=0.6)
+        s.wait(4)
+        return s
     return Steps([
-        (stroke(), THREE, ({"selected": near(2), "undo_steps": near(1)})),
-        (stroke(), THREE + ["--script=set stroke_switches 0"], ({"selected": near(0), "undo_steps": near(0), "dabs": near(0)})),
+        (stroke(), THREE, ({"selected": near(0), "undo_steps": near(0), "dabs": near(0)})),
+        (pen(), THREE, ({"selected": near(0), "undo_steps": near(0), "dabs": near(0)})),
+        (stroke(), THREE + ["--script=set stroke_picks 1"], ({"selected": near(2), "undo_steps": near(1)})),
+        (pen(), THREE + ["--script=set stroke_picks 1"], ({"selected": near(2), "undo_steps": near(1)})),
+        (behind, behind_args(), ({"selected": near(0), "undo_steps": near(1)})),
+        (behind, behind_args("; set stroke_picks 1"), ({"selected": near(1), "undo_steps": near(1)})),
+    ])
+
+
+@scenario
+def alt_click_switches_objects():
+    """An Alt click (mouse) or an Alt tap of the pen on an object that is not the selected one selects it and sculpts
+    nothing, as ZBrush's Alt click on a subtool does; an Alt drag there still turns the view and switches nothing; a
+    finger's tap still switches too."""
+    def alt_click(pen=False):
+        s = Script()
+        s.wait(4)
+        if pen:
+            s.add("key:alt")
+            pen_stroke(s, [SPHERE_3, SPHERE_3])
+            s.add("keyup:alt")
+        else:
+            s.mouse_drag([SPHERE_3, SPHERE_3], keys=("alt",))
+        s.wait(4)
+        return s
+    drag = Script()
+    drag.wait(4)
+    drag.mouse_drag(line(SPHERE_3, (SPHERE_3[0] + 120, SPHERE_3[1]), 12), keys=("alt",))
+    drag.wait(4)
+    tap = Script()
+    tap.wait(4)
+    tap.ftap(SPHERE_3)
+    tap.wait(24)
+    return Steps([
+        (alt_click(), THREE, ({"selected": near(2), "alt_switches": near(1), "dabs": near(0), "undo_steps": near(0)})),
+        (alt_click(pen=True), THREE, ({"selected": near(2), "alt_switches": near(1), "dabs": near(0), "undo_steps": near(0)})),
+        (drag, THREE, ({"selected": near(0), "alt_switches": near(0), "dabs": near(0)})),
+        (tap, THREE, ({"selected": near(2), "tap_switches": near(1), "dabs": near(0)})),
     ])
 
 

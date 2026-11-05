@@ -702,16 +702,22 @@ stroke_catch_up :: proc(app: ^App, input: Viewport_Input, res: ^Sculpt_Frame_Res
 	_ = stroke_walk(app, obj, input, inv, st.raw.pos, st.raw.pressure, st.raw.tilt, res, bounded = false)
 }
 
+// The object a stroke may start on, or -1 for whichever is under it: with Settings > Pen >
+// The pen picks the object it strokes off (as it comes), the selected one alone, while one
+// is selected, so a stroke reaches it through any other object in front of it.
+stroke_only :: proc(app: ^App) -> int {
+	return -1 if app.nav.stroke_picks || selected_object(app) == nil else app.scene.selected
+}
+
 // Starts a stroke at `s` if it is over an object: that object becomes the selected
-// one and gets the first dab. With Settings > Pen > A stroke on another object switches to
-// it off, only the selected object is looked for, while one is selected.
+// one and gets the first dab. Only the object stroke_only names is looked for.
 @(private = "file")
 stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: Input_Sample, res: ^Sculpt_Frame_Result) {
 	origin, dir := ray_through(inv, s.pos, input.size)
 	t0 := time.tick_now()
 	// A deformer's Amount held by another finger owns the object's undo until let go.
 	if app.ui.deform.drag.active do return
-	only := -1 if app.nav.stroke_switches || selected_object(app) == nil else app.scene.selected
+	only := stroke_only(app)
 	index, hit, frame, framed, ok := scene_raycast_framed(app, origin, dir, only)
 	// With Past the outline on, Grab takes hold from just past the silhouette too, as
 	// Nomad's Move does: the nearest point of the surface within the brush ring.

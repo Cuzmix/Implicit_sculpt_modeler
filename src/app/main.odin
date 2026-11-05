@@ -238,6 +238,7 @@ App :: struct {
 	one_tap:  f64, // input_clock when a one-finger tap waiting to run lifted, 0 for none (one_tap_wait)
 	one_taps: int, // one-finger taps that ran their gesture, for the exit stats
 	tap_switches: int, // finger taps that switched the selected object (tap_switch_target), for the exit stats
+	alt_switches: int, // Alt clicks that switched the selected object (Drag.alt_click), for the exit stats
 	// The folders the last import made and what its file held for animation, left out, for
 	// the exit stats.
 	import_folders: int,
