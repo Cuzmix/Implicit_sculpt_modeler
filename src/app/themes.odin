@@ -303,7 +303,7 @@ theme_follow_device :: proc(k: ^Kit_State, dark: bool) {
 theme_seed_text :: proc(s: ui.Theme_Seed, over: ui.Theme_Overrides = {}) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	fmt.sbprintf(&b,
-		"%s hue=%v tint=%v contrast=%v opacity=%v corners=%s accent=%s chosen=%s black=%d shadow=%d",
+		"%s hue=%v tint=%v contrast=%v opacity=%v corners=%s accent=%s chosen=%s black=%d shadow=%v",
 		"light" if s.mode == .Light else "dark",
 		s.hue,
 		s.tint,
@@ -313,7 +313,7 @@ theme_seed_text :: proc(s: ui.Theme_Seed, over: ui.Theme_Overrides = {}) -> stri
 		theme_hex(s.accent),
 		strings.to_lower(fmt.tprint(s.chosen), context.temp_allocator),
 		1 if s.black else 0,
-		1 if s.shadow else 0,
+		s.shadow,
 	)
 	for token in over.set do fmt.sbprintf(&b, " %s=%s", ui.THEME_TOKEN_KEYS[token], theme_hex(over.colors[token]))
 	return strings.to_string(b)
@@ -343,7 +343,7 @@ theme_seed_parse :: proc(words: []string, seed: ui.Theme_Seed) -> (s: ui.Theme_S
 		case "contrast": if is_number do s.contrast = clamp(fraction(number), 0, 1)
 		case "opacity":  if is_number do s.opacity = clamp(fraction(number), ui.THEME_OPACITY_MIN, 1)
 		case "black":    s.black = value == "1"
-		case "shadow":   s.shadow = value == "1"
+		case "shadow":   if is_number do s.shadow = clamp(fraction(number), 0, 1)
 		case "corners":
 			switch value {
 			case "square": s.corners = .Square
@@ -588,7 +588,7 @@ settings_look :: proc(app: ^App) {
 	corners := [3]string{"Square", "Normal", "Round"}
 	if picked := ui.tabs(ctx, "Corners##look", corners[:], int(seed.corners)); picked >= 0 do seed.corners = ui.Theme_Corners(picked)
 	if seed.mode == .Dark do _ = ui.switch_row(ctx, "Pure black##look", &seed.black)
-	_ = ui.switch_row(ctx, "Panel shadows##look", &seed.shadow)
+	_ = ui.slider(ctx, "Panel shadows##look", &seed.shadow, 0, 1, .Linear, "Off" if seed.shadow <= 0 else fmt.tprintf("%.0f%%", seed.shadow * 100))
 	ui.caption(ctx, "VIEWPORT")
 	if ui.switch_row(ctx, "Bring its background##look", &ts.bring) && ts.bring do ts.brought = {}
 	ui.paragraph(ctx, "Changing theme also changes the viewport's background to go with it. The wireframe, Model mode's selection and the spaces' colours are under Every colour.")

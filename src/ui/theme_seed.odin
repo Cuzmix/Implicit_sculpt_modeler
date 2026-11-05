@@ -37,11 +37,17 @@ Theme_Seed :: struct {
 	accent:   Color,
 	chosen:   Theme_Chosen,
 	black:    bool, // a pure black ground, for OLED screens (dark only)
-	shadow:   bool, // a shadow under the panels
+	shadow:   f32, // how dark the shadow under the panels is, 0 (none) to 1; 0.5 is the usual
 }
 
 // Below this the panels' text would fight the model behind them.
 THEME_OPACITY_MIN :: 0.6
+
+// The panel shadow's alpha at a seed's `strength` (0 to 1), `full` at 1: half way is the
+// shadow the themes always had, so a person can both soften and deepen it.
+theme_shadow_alpha :: proc(strength: f32, full: f32) -> u8 {
+	return u8(clamp(strength, 0, 1) * full + 0.5)
+}
 
 // The greys' lightness (HSL, in percent) at normal contrast, taken from Lens so a Lens
 // seed comes out close to Lens. Each is moved toward or away from the surface by the
@@ -176,12 +182,12 @@ theme_derive :: proc(seed: Theme_Seed, base := THEME_LENS) -> Theme {
 		t.fill_hover = {0, 0, 0, 0x0d}
 		t.fill_pressed = {0, 0, 0, 0x17}
 		t.shadow = {20, 24, 30, 0x55}
-		t.panel_shadow = {20, 24, 30, 0x24} if seed.shadow else {}
+		t.panel_shadow = {20, 24, 30, theme_shadow_alpha(seed.shadow, 0x48)}
 	} else {
 		t.fill_hover = {0xff, 0xff, 0xff, 0x0f}
 		t.fill_pressed = {0xff, 0xff, 0xff, 0x1a}
 		t.shadow = {0, 0, 0, 0x80}
-		t.panel_shadow = {0, 0, 0, 0x66} if seed.shadow else {}
+		t.panel_shadow = {0, 0, 0, theme_shadow_alpha(seed.shadow, 0xcc)}
 	}
 
 	a := seed.accent
@@ -258,15 +264,15 @@ theme_from_seed :: proc(seed: Theme_Seed, exact: Theme, exact_seed: Theme_Seed) 
 
 // The seeds of the app's themes. Lens, Studio and Graphite each have an exact Theme
 // beside them that their seed comes close to; the others are only seeds.
-THEME_SEED_LENS :: Theme_Seed{.Dark, 213, 0.5, 0.5, 0.96, .Normal, {0x5e, 0xd6, 0xc4, 0xff}, .Soft, false, true}
-THEME_SEED_STUDIO :: Theme_Seed{.Dark, 0, 0, 0.5, 0.957, .Round, {0xf2, 0xa3, 0x3a, 0xff}, .Solid, false, false}
-THEME_SEED_GRAPHITE :: Theme_Seed{.Dark, 232, 0.3, 0.5, 0.941, .Normal, {0x5b, 0x8c, 0xff, 0xff}, .Solid, false, false}
+THEME_SEED_LENS :: Theme_Seed{.Dark, 213, 0.5, 0.5, 0.96, .Normal, {0x5e, 0xd6, 0xc4, 0xff}, .Soft, false, 0.5}
+THEME_SEED_STUDIO :: Theme_Seed{.Dark, 0, 0, 0.5, 0.957, .Round, {0xf2, 0xa3, 0x3a, 0xff}, .Solid, false, 0}
+THEME_SEED_GRAPHITE :: Theme_Seed{.Dark, 232, 0.3, 0.5, 0.941, .Normal, {0x5b, 0x8c, 0xff, 0xff}, .Solid, false, 0}
 // "Paper": a warm light theme for a bright room, its accent a deep sea green that reads on white.
-THEME_SEED_PAPER :: Theme_Seed{.Light, 40, 0.3, 0.5, 0.97, .Normal, {0x1a, 0x7a, 0x6a, 0xff}, .Soft, false, true}
+THEME_SEED_PAPER :: Theme_Seed{.Light, 40, 0.3, 0.5, 0.97, .Normal, {0x1a, 0x7a, 0x6a, 0xff}, .Soft, false, 0.5}
 // "Midnight": a pure black ground for OLED screens, where black pixels are off.
-THEME_SEED_MIDNIGHT :: Theme_Seed{.Dark, 225, 0.3, 0.5, 0.9, .Round, {0xa0, 0x8c, 0xff, 0xff}, .Soft, true, false}
+THEME_SEED_MIDNIGHT :: Theme_Seed{.Dark, 225, 0.3, 0.5, 0.9, .Round, {0xa0, 0x8c, 0xff, 0xff}, .Soft, true, 0}
 // "High contrast": white text and plain hairlines on black, with a yellow accent.
-THEME_SEED_HIGH_CONTRAST :: Theme_Seed{.Dark, 0, 0, 1, 1, .Normal, {0xff, 0xd6, 0x0a, 0xff}, .Solid, true, false}
+THEME_SEED_HIGH_CONTRAST :: Theme_Seed{.Dark, 0, 0, 1, 1, .Normal, {0xff, 0xd6, 0x0a, 0xff}, .Solid, true, 0}
 
 // A theme's card in a gallery: a small picture of the theme (its frame, a bar, a panel
 // with lines of its text, a clay ball and an accent dot) over `s`, with `tag` (Yours,

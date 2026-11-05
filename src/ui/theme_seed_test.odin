@@ -120,3 +120,22 @@ hsl_and_contrast_match_known_values :: proc(t: ^testing.T) {
 	c := color_contrast({0, 0, 0, 255}, {255, 255, 255, 255})
 	testing.expect(t, c > 20.99 && c < 21.01)
 }
+
+// Panel shadows is a strength: half way is the shadow Lens always had, so an exact Lens
+// stays exact, Off draws none, and every step between darkens it a little more.
+@(test)
+the_panel_shadow_follows_its_strength :: proc(t: ^testing.T) {
+	testing.expect_value(t, theme_derive(THEME_SEED_LENS).panel_shadow.a, THEME_LENS.panel_shadow.a)
+	last := -1
+	for k in 0 ..= 10 {
+		seed := THEME_SEED_LENS
+		seed.shadow = f32(k) / 10
+		got := theme_from_seed(seed, THEME_LENS, THEME_SEED_LENS)
+		a := int(got.panel_shadow.a)
+		testing.expectf(t, a > last, "strength %v: alpha %d, not darker than %d", seed.shadow, a, last)
+		last = a
+	}
+	off := THEME_SEED_LENS
+	off.shadow = 0
+	testing.expect_value(t, theme_from_seed(off, THEME_LENS, THEME_SEED_LENS).panel_shadow.a, 0)
+}

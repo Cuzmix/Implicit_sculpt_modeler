@@ -15,9 +15,10 @@ import "../ui"
 // its blocks under Back, as a phone's settings do. Both are the same sections, search and
 // resets.
 
-// The interface sizes on offer, times what the display asks for. None is smaller than
-// what it asks for, so every touch target stays at least 48 points (sm-store).
-UI_SCALES := [?]f32{1, 1.15, 1.3, 1.5}
+// The interface sizes on offer, times what the display asks for. 100% is the default and
+// keeps every touch target at least 48 points (sm-store); the smaller sizes are the
+// person's own choice, for a mouse or a pen on a large screen, and the block says so.
+UI_SCALES := [?]f32{0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5}
 
 // Seconds Reset all settings waits for its second tap.
 SETTINGS_WIPE_TIME :: 3

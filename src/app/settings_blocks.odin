@@ -84,8 +84,8 @@ SETTINGS_KEYS := [?]Settings_Entry{{.Keys, ""}}
 // what they are called elsewhere, in lower case.
 @(rodata)
 SETTINGS_BLOCK_WORDS := [Settings_Block]string {
-	.Look             = "look theme themes colour color lens studio graphite paper midnight high contrast accent dark light match device night day tint opacity corners black oled",
-	.Size             = "size interface scale bigger text touch targets zoom",
+	.Look             = "look theme themes colour color lens studio graphite paper midnight high contrast accent dark light match device night day tint opacity corners black oled shadow shadows panel",
+	.Size             = "size interface scale bigger text touch targets zoom smaller",
 	.Clean_Dial       = "clean view keeps dial shelf focus mode tab four-finger hide interface",
 	.Hands            = "left-handed right-handed hand mirror screen layout",
 	.Top_Bar          = "top bar search field icon docks command palette file spaces object centred",
@@ -189,6 +189,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		}
 		if picked := ui.select(ctx, "Interface size", names[:], chosen); picked >= 0 do k.ui_scale = UI_SCALES[picked]
 		ui.paragraph(ctx, "How big panels, text and touch targets are, on top of the size the screen asks for.")
+		if k.ui_scale < 1 do ui.paragraph(ctx, "Below 100% the buttons are smaller than a fingertip: best with a mouse or a pen.", color = t.warning)
 	case .Clean_Dial:
 		keeps := [len(Clean_Keep)]string{"Nothing", "The dial", "Shelf and dial"}
 		if picked := ui.tabs(ctx, "Clean view keeps", keeps[:], int(k.clean_keep)); picked >= 0 do k.clean_keep = Clean_Keep(picked)
