@@ -73,11 +73,11 @@ pose_pivot_place :: proc(app: ^App) {
 	p := &m.placed
 	same_mask := p.valid && p.id == obj.id && p.level == level && p.sum == sum
 	if same_mask && p.serial == app.history.serial do return
-	ours := m.pivot == Gizmo_Pivot{set = true, id = obj.id, at = p.at}
+	ours := obj.pivot == Gizmo_Pivot{set = true, at = p.at}
 	p^ = {id = obj.id, level = level, sum = sum, valid = true, serial = app.history.serial, at = p.at}
 	if same_mask && !ours do return
 	if at, ok := sculpt.sculptor_mask_centroid(object_sculptor(obj)); ok {
-		m.pivot = {set = true, id = obj.id, at = at}
+		obj.pivot = {set = true, at = at}
 		p.at = at
 	}
 }
@@ -191,9 +191,9 @@ pose_set :: proc(app: ^App, obj: ^Object, p: sculpt.Pose) {
 pose_carry_pivot :: proc(app: ^App, obj: ^Object, p: sculpt.Pose) {
 	if p.kind != .Move do return
 	m := &app.move
-	ours := m.pivot == Gizmo_Pivot{set = true, id = obj.id, at = m.placed.at}
-	m.pivot = {set = true, id = obj.id, at = p.pivot + p.delta}
-	if ours do m.placed.at = m.pivot.at
+	ours := obj.pivot == Gizmo_Pivot{set = true, at = m.placed.at}
+	obj.pivot = {set = true, at = p.pivot + p.delta}
+	if ours do m.placed.at = obj.pivot.at
 }
 
 // Ends the pose under way as one undo step when it changed something, named `what`, or

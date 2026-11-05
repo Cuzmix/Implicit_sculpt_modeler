@@ -80,7 +80,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(45)
+SCENE_VERSION :: u32(46)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -2070,6 +2070,9 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	put_transform(out, obj.transform)
 	put_transform(out, obj.file)
 	geom.byte_put(out, obj.transform.rotation)
+	geom.byte_put(out, u8(obj.pivot.set))
+	geom.byte_put(out, obj.pivot.at)
+	geom.byte_put(out, obj.pivot.normal)
 	geom.byte_put(out, u8(obj.boolean))
 	geom.byte_put(out, object_view_bits(obj))
 	geom.byte_put(out, i32(obj.folder))
@@ -2229,7 +2232,7 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source 
 	return nil, false, false
 }
 
-// Reads what object_put writes before the levels: the id, name, placement, boolean mode,
+// Reads what object_put writes before the levels: the id, name, placement, pivot, boolean mode,
 // view flags, folder, stored eyes and last remesh cell; r.ok goes false on damage. The caller owns
 // obj.name.
 object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
@@ -2239,6 +2242,11 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 	obj.file = get_transform(r)
 	obj.transform.rotation = geom.byte_get(r, Vec3)
 	if !finite(obj.transform.rotation) do r.ok = false
+	pivot_set := geom.byte_get(r, u8)
+	obj.pivot.set = pivot_set == 1
+	obj.pivot.at = geom.byte_get(r, Vec3)
+	obj.pivot.normal = geom.byte_get(r, Vec3)
+	if pivot_set > 1 || !finite(obj.pivot.at) || !finite(obj.pivot.normal) do r.ok = false
 	mode := geom.byte_get(r, u8)
 	if mode > u8(max(Boolean_Mode)) do r.ok = false
 	else do obj.boolean = Boolean_Mode(mode)

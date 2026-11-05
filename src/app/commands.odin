@@ -844,7 +844,7 @@ COMMANDS := [Command_Id]Command {
 		label = "Reset the pivot",
 		help = "Puts the gizmo back on the selected object's origin.",
 		icon = ICON_PIVOT_RESET,
-		run = proc(app: ^App, _: int) {app.move.pivot = {}},
+		run = proc(app: ^App, _: int) {if obj := selected_object(app); obj != nil do obj.pivot = {}},
 		enabled = proc(app: ^App, _: int) -> bool {return gizmo_pivot_set(app)},
 	},
 	.Gizmo_Pivot_Edit = {

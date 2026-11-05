@@ -120,7 +120,7 @@ pose_cancel_and_finish_mid_drag :: proc(t: ^testing.T) {
 	obj := pose_object(&app, 1)
 	s := object_sculptor(obj)
 	pose_release(&app, {})
-	pivot := app.move.pivot
+	pivot := obj.pivot
 	before := slice.clone(s.mesh.positions[:], context.temp_allocator)
 	sc := gizmo_screen(&app, POSE_SIZE)
 	x_mid := (sc.center + sc.tips[0]) * 0.5
@@ -128,10 +128,10 @@ pose_cancel_and_finish_mid_drag :: proc(t: ^testing.T) {
 	pose_drag_hold(&app, x_mid, x_mid + {80, 0})
 	testing.expect(t, !slice.equal(s.mesh.positions[:], before))
 	// The gizmo rides with the part a move carries.
-	testing.expect(t, app.move.pivot.at.x > pivot.at.x)
+	testing.expect(t, obj.pivot.at.x > pivot.at.x)
 	move_cancel(&app)
 	testing.expect(t, slice.equal(s.mesh.positions[:], before))
-	testing.expect_value(t, app.move.pivot, pivot)
+	testing.expect_value(t, obj.pivot, pivot)
 	testing.expect_value(t, len(app.history.done), 1)
 	testing.expect(t, !sculpt.sculptor_posing(s))
 
@@ -157,7 +157,7 @@ pose_entry_and_when_the_gizmo_moves_objects :: proc(t: ^testing.T) {
 	obj := pose_object(&app, 1)
 	s := object_sculptor(obj)
 	pose_release(&app, {})
-	pivot := app.move.pivot.at
+	pivot := obj.pivot.at
 	before := slice.clone(s.mesh.positions[:], context.temp_allocator)
 	testing.expect(t, gizmo_entry_apply(&app, obj, .X, "0.5"))
 	testing.expect_value(t, obj.transform, Transform{scale = 1})
@@ -165,7 +165,7 @@ pose_entry_and_when_the_gizmo_moves_objects :: proc(t: ^testing.T) {
 		w := f32(255 - s.mask[v]) / 255
 		testing.expect(t, linalg.length(s.mesh.positions[v] - (a + {0.5 * w, 0, 0})) < 1e-5)
 	}
-	testing.expect(t, abs(app.move.pivot.at.x - (pivot.x + 0.5)) < 1e-5)
+	testing.expect(t, abs(obj.pivot.at.x - (pivot.x + 0.5)) < 1e-5)
 	testing.expect_value(t, app.history.done[len(app.history.done) - 1].what, "Pose: Move")
 
 	// A second object selected: the gizmo moves the selection.
@@ -191,7 +191,7 @@ pose_click_leaves_nothing_and_the_pivot_follows_undo :: proc(t: ^testing.T) {
 	obj := pose_object(&app, 1)
 	s := object_sculptor(obj)
 	pose_release(&app, {})
-	edge := app.move.pivot
+	edge := obj.pivot
 	sc := gizmo_screen(&app, POSE_SIZE)
 	x_mid := (sc.center + sc.tips[0]) * 0.5
 	app.drag.moving = true
@@ -208,17 +208,17 @@ pose_click_leaves_nothing_and_the_pivot_follows_undo :: proc(t: ^testing.T) {
 	pose_drag_hold(&app, x_mid, x_mid + {80, 0})
 	pose_release(&app, x_mid + {80, 0})
 	testing.expect_value(t, len(app.history.done), 2)
-	testing.expect(t, app.move.pivot.at.x > edge.at.x)
+	testing.expect(t, obj.pivot.at.x > edge.at.x)
 	history_undo(&app)
 	pose_release(&app, {})
-	testing.expect(t, linalg.length(app.move.pivot.at - edge.at) < 1e-5)
+	testing.expect(t, linalg.length(obj.pivot.at - edge.at) < 1e-5)
 
-	hand := Gizmo_Pivot{set = true, id = obj.id, at = {0, 0.5, 0.5}}
-	app.move.pivot = hand
+	hand := Gizmo_Pivot{set = true, at = {0, 0.5, 0.5}}
+	obj.pivot = hand
 	pose_release(&app, {})
 	testing.expect(t, gizmo_entry_apply(&app, obj, .Turn_Y, "30"))
 	pose_release(&app, {})
-	testing.expect_value(t, app.move.pivot, hand)
+	testing.expect_value(t, obj.pivot, hand)
 }
 
 // A plain sphere with the Move tool on, and a point on it away from the gizmo.
