@@ -444,7 +444,7 @@ mtl_release_sampler :: proc(sampler: rawptr) {
 // `exact`, which turns fast maths off: divisions, square roots and the rest are then
 // IEEE 754's, as SPIR-V's are under `-fp-mode precise` (create_compute_pipeline_exact).
 @(private = "file")
-mtl_compile :: proc(code: string, entrypoint: cstring, exact: bool) -> (^MTL.Library, ^MTL.Function) {
+mtl_compile :: proc(code: string, entrypoint: cstring, exact: bool, constants: []u32 = nil) -> (^MTL.Library, ^MTL.Function) {
 	options: ^MTL.CompileOptions
 	if exact {
 		options = MTL.CompileOptions_init(MTL.CompileOptions_alloc())
@@ -458,7 +458,19 @@ mtl_compile :: proc(code: string, entrypoint: cstring, exact: bool) -> (^MTL.Lib
 		return nil, nil
 	}
 	entry := string(entrypoint) if entrypoint != nil else "main_0"
-	function := MTL.Library_newFunctionWithName(library, mtl_string(entry))
+	function: ^MTL.Function
+	if len(constants) == 0 {
+		function = MTL.Library_newFunctionWithName(library, mtl_string(entry))
+	} else {
+		// slangc gives each specialization constant its constant_id as the function
+		// constant's index (Compute_Pipeline_Desc.constants), every one a uint here.
+		values := MTL.FunctionConstantValues_init(MTL.FunctionConstantValues_alloc())
+		defer NS.release(values)
+		for &c, i in constants do MTL.FunctionConstantValues_setConstantValue(values, &c, .UInt, NS.UInteger(i))
+		constants_err: ^NS.Error
+		function, constants_err = MTL.Library_newFunctionWithConstantValues(library, mtl_string(entry), values)
+		if function == nil do log.errorf("Metal: %s with its constants: %s", entry, mtl_error_text(constants_err))
+	}
 	if function == nil {
 		NS.release(library)
 		log.errorf("Metal: the shader has no function %s", entry)
@@ -741,7 +753,7 @@ mtl_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, exact: bool) -> r
 	}
 	slots, ok := mtl_slots_for(info.code, {info.num_samplers, info.num_readonly_storage_textures, info.num_readwrite_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_buffers, info.num_uniform_buffers})
 	if !ok do return nil
-	library, function := mtl_compile(info.code, info.entrypoint, exact)
+	library, function := mtl_compile(info.code, info.entrypoint, exact, info.constants)
 	if function == nil do return nil
 	defer {
 		NS.release(function)
