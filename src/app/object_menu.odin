@@ -377,7 +377,7 @@ hold_menu_waits :: proc(app: ^App) -> bool {
 	switch g.owner {
 	case .Orbit:
 	case .Tool:
-		if lights_take_press(app, g.from, size) do return false
+		if lights_take_press(app, g.from, size) || stack_handles_take_press(app, g.from, size) do return false
 		switch app.tool {
 		case .Move:
 			// A press on the body holds the View handle without moving yet; one on the gizmo,

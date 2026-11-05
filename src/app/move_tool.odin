@@ -961,8 +961,8 @@ focus_selected :: proc(app: ^App) {
 	view_fit_free(app, true)
 }
 
-// Points the camera at the middle of the objects in view, far enough back to see them
-// all.
+// Points the camera at the middle of the objects in view and their Live stack copies,
+// far enough back to see them all.
 frame_all :: proc(app: ^App) {
 	lo, hi := Vec3(max(f32)), Vec3(min(f32))
 	for obj in app.scene.objects {
@@ -970,6 +970,15 @@ frame_all :: proc(app: ^App) {
 		t := obj.transform
 		lo = linalg.min(lo, t.position - t.scale)
 		hi = linalg.max(hi, t.position + t.scale)
+		model := transform_matrix(t)
+		for m in stack_placings(app, obj) {
+			// Each copy's middle, as far round it as the object reaches, at the copy's size.
+			w := model * m
+			at := w[3].xyz
+			reach := linalg.length(w[0].xyz)
+			lo = linalg.min(lo, at - reach)
+			hi = linalg.max(hi, at + reach)
+		}
 	}
 	if lo.x > hi.x do return
 	app.camera.target = (lo + hi) / 2

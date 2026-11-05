@@ -863,6 +863,7 @@ kit_stack_array :: proc(app: ^App, obj: ^Object) {
 	tapped := kit_stack_count(app, "array", &a.count, 2)
 	ui.caption(ctx, "EACH STEP MOVES")
 	kit_stack_xyz(app, "array step", &a.offset, 0.01, -100, 100, "%.2f")
+	ui.paragraph(ctx, "Or drag the arrow's tip in the view.", color = ctx.theme.text_tertiary)
 	if kit_more(app, .Stack) {
 		ui.caption(ctx, "EACH STEP TURNS")
 		kit_stack_xyz(app, "array turn", &a.turn, 0.5, -360, 360, "%.0f°")
@@ -885,6 +886,7 @@ kit_stack_radial :: proc(app: ^App, obj: ^Object) {
 	}
 	ui.caption(ctx, "ABOUT THE POINT")
 	kit_stack_xyz(app, "radial pivot", &r.pivot, 0.01, -100, 100, "%.2f")
+	ui.paragraph(ctx, "Or drag the pivot's dot in the view.", color = ctx.theme.text_tertiary)
 	stack_body_changed(app, obj, before, tapped)
 }
 
@@ -1177,11 +1179,23 @@ stack_shape_in :: proc(app: ^App, obj: ^Object, into: Transform) -> geom.Mesh {
 stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 	if obj == nil do return "nothing is selected"
 	words := strings.fields(text, context.temp_allocator)
-	USAGE :: "stack takes mirror x, array 4 2.2 0 0, radial 6 y, along 8 x, mirror off, show mirror, hide array or apply stack"
+	USAGE :: "stack takes mirror x, array 4 2.2 0 0, radial 6 y, along 8 x, mirror off, show mirror, hide array, open array or apply stack"
 	if len(words) < 2 do return USAGE
 	s := obj.stack
 	is_row :: proc(w: string) -> bool {return w == "mirror" || w == "array" || w == "radial" || w == "along"}
 	switch {
+	case words[0] == "open" && is_row(words[1]) && len(words) == 2:
+		// Opens the card on that row, as a tap on its line does, for its handle in the view.
+		r := Stack_Row.Mirror
+		switch words[1] {
+		case "array": r = .Array
+		case "radial": r = .Radial
+		case "along": r = .Along
+		}
+		if !stack_row_in(app, obj, r) do return fmt.tprintf("the object has no %s row", words[1])
+		app.kit.stack.object, app.kit.stack.open, app.kit.stack.opened = obj.id, r, true
+		card_open(app, .Stack)
+		return ""
 	case words[0] == "apply" && words[1] == "stack" && len(words) == 2:
 		if !stack_has_rows(s) do return "the object has no live stack"
 		app.ui.scene_command = {kind = .Stack_Apply}
@@ -1255,7 +1269,7 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 			}
 		}
 		s.array = a
-	case words[0] == "radial" && len(words) == 3:
+	case words[0] == "radial" && (len(words) == 3 || len(words) == 7 && words[3] == "pivot"):
 		count, count_ok := strconv.parse_int(words[1])
 		if !count_ok || count < 2 || count > STACK_COUNT_MAX do return fmt.tprintf("radial's count is from 2 to %d", STACK_COUNT_MAX)
 		r := s.radial if s.radial.added else STACK_RADIAL_DEFAULT
@@ -1265,6 +1279,13 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		case "y": r.axis = .Y
 		case "z": r.axis = .Z
 		case: return fmt.tprintf("%q is not an axis: x, y or z", words[2])
+		}
+		if len(words) == 7 {
+			for k in 0 ..< 3 {
+				v, v_ok := strconv.parse_f32(words[4 + k])
+				if !v_ok || !(abs(v) <= 100) do return fmt.tprintf("%q is not a pivot from -100 to 100", words[4 + k])
+				r.pivot[k] = v
+			}
 		}
 		s.radial = r
 	case words[0] == "along" && len(words) == 3:

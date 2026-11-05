@@ -348,3 +348,19 @@ stack_card_rows_add_and_say :: proc(t: ^testing.T) {
 	history_undo(&app)
 	testing.expect_value(t, obj.stack.array.count, 9)
 }
+
+// The script opens the card on a row the object has, for its handle, and sets a Radial's
+// pivot; a row it lacks is refused.
+@(test)
+stack_script_opens_a_row_and_sets_the_pivot :: proc(t: ^testing.T) {
+	app: App
+	defer stack_scene_free(&app)
+	obj := stack_scene(&app)
+	testing.expect(t, stack_script(&app, obj, "open array") != "")
+	testing.expect_value(t, stack_script(&app, obj, "radial 6 y pivot -0.6 0 0.5"), "")
+	testing.expect_value(t, obj.stack.radial.pivot, Vec3{-0.6, 0, 0.5})
+	testing.expect(t, stack_script(&app, obj, "radial 6 y pivot 1 2 300") != "")
+	testing.expect_value(t, stack_script(&app, obj, "open radial"), "")
+	c := app.kit.stack
+	testing.expect(t, c.opened && c.open == .Radial && c.object == obj.id)
+}
