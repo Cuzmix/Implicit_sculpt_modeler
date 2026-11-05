@@ -1177,7 +1177,7 @@ BRUSH_TILE :: [2]f32{64, 58}
 // chosen colour, which slides from tile to tile. Returns true when clicked. A command's
 // tile, on a dock of tiles, may be disabled (faded, taking no press) and may mark that it
 // has a long press with `corner`, as icon_button does.
-brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys := "", enabled := true, corner := false, width: f32 = 0) -> bool {
+brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys := "", enabled := true, corner := false, width: f32 = 0, picture := Picture{}) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	// A row that holds more tiles than fit at full width narrows them (`width`), the
@@ -1198,7 +1198,15 @@ brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys :
 	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.indicator_time, class = MOTION_TABS)
 	scale := feedback(ctx, id, vis, t.radius_medium + 2, hovered && !selected, held)
 	color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.7), t.on_chosen, o)
-	icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, color)
+	// A brush's own stroke on clay, where it has one, says what it does as no glyph can;
+	// the glyph stands in until the picture is made.
+	if picture.image != 0 {
+		swatch := Rect{vis.x + 6, vis.y + 6, vis.w - 12, 28}
+		picture_cover(ctx, swatch, picture)
+		stroke_rect(ctx, swatch, t.radius_small, color_fade(t.border_strong, 0.6), 1)
+	} else {
+		icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, color)
+	}
 	// A preset's name may be longer than the tile: it is cut, and shown whole in the tip.
 	name := label_text(s)
 	shown := text_fit(ctx, name, t.caption_size, cell.w - 2)

@@ -114,8 +114,11 @@ preview_render :: proc(brush: Brush, pixels: []u8) -> bool {
 		sculptor_grab_end(&s)
 	case .Draw, .Smooth, .Clay, .Flatten, .Inflate, .Pinch, .Crease, .Mask, .Layer, .Snake_Hook, .Morph, .Paint, .Clay_Strips, .Trim_Dynamic, .Cloth, .History:
 		last := preview_on(&s, path(0))
-		for i in 0 ..< dabs {
-			f := f32(i) / f32(dabs - 1)
+		// Smooth goes over its path three times, as a sculptor's strokes do, so the calmed
+		// band reads against the rough strip on a tile.
+		passes := 3 if b.kind == .Smooth else 1
+		for i in 0 ..< dabs * passes {
+			f := f32(i % dabs) / f32(dabs - 1)
 			at := preview_on(&s, path(f))
 			b.stroke_dir = at - last if i > 0 else Vec3{1, 0, 0}
 			// A hook pulls up out of the strip as it goes.
@@ -153,6 +156,25 @@ preview_on :: proc(s: ^Sculptor, p: [2]f32) -> Vec3 {
 	return hit if ok else Vec3{p.x, p.y, 0}
 }
 
+// Smooth value noise in [-0.5, 0.5] at (x, y): a fixed hash on the whole-number lattice,
+// eased between its corners, the same every time; `seed` picks another field.
+@(private = "file")
+preview_lumps :: proc(x, y: f32, seed: u32) -> f32 {
+	corner :: proc(i, j: i32, seed: u32) -> f32 {
+		h := u32(i) * 73856093 ~ u32(j) * 19349663 ~ seed * 83492791
+		h = (h ~ (h >> 13)) * 0x5bd1e995
+		h ~= h >> 15
+		return f32(h & 1023) / 1023 - 0.5
+	}
+	fx, fy := math.floor(x), math.floor(y)
+	i, j := i32(fx), i32(fy)
+	u, v := x - fx, y - fy
+	u, v = u * u * (3 - 2 * u), v * v * (3 - 2 * v)
+	a := math.lerp(corner(i, j, seed), corner(i + 1, j, seed), u)
+	b := math.lerp(corner(i, j + 1, seed), corner(i + 1, j + 1, seed), u)
+	return math.lerp(a, b, v)
+}
+
 // The strip: a grid in z = 0 facing +z, starting as `start` says: bumps made of waves and
 // a fixed hash so they are the same every time, or a ridge and a groove a little either
 // side of the stroke's path, both within its reach.
@@ -171,9 +193,10 @@ preview_strip :: proc(start: Preview_Start) -> (m: geom.Mesh) {
 			switch start {
 			case .Flat:
 			case .Bumpy:
-				h := u32(i * 73856093) ~ u32(j * 19349663)
-				h = (h ~ (h >> 13)) * 0x5bd1e995
-				z = 0.016 * math.sin(26 * x) * math.cos(23 * y) + 0.006 * math.sin(61 * x - 29 * y) + 0.005 * (f32(h & 1023) / 1023 - 0.5)
+				// Rough clay: lumps of value noise at two sizes, round and at no angle, so
+				// shrunk onto a shelf tile they read as rough clay the stroke has calmed
+				// rather than as a hatch, as waves did.
+				z = 0.07 * preview_lumps(x * 5.5, y * 5.5, 0) + 0.025 * preview_lumps(x * 13, y * 13, 7)
 			case .Ridges:
 				on := preview_path(clamp((x + 0.92) / 1.84, 0, 1)).y
 				SPREAD :: 0.035
@@ -196,7 +219,7 @@ preview_strip :: proc(start: Preview_Start) -> (m: geom.Mesh) {
 
 // Draws the sculptor's mesh into `pixels`: an orthographic view from in front and
 // PREVIEW_TILT above, each triangle filled with a depth test, its normal and colour
-// interpolated, lit by one light from the upper left and a soft fill, the clay's colour
+// interpolated, lit by one low light from the upper left and a soft fill, the clay's colour
 // tinted by the paint and darkened by the mask.
 @(private = "file")
 preview_draw :: proc(s: ^Sculptor, pixels: []u8) {
@@ -256,7 +279,9 @@ preview_draw :: proc(s: ^Sculptor, pixels: []u8) {
 			}
 		}
 	}
-	light := linalg.normalize(Vec3{-0.5, 0.6, 0.5})
+	// A low light raking across the strip, so a stroke's section (flat, round, a groove)
+	// shows in its shading even shrunk onto a shelf tile.
+	light := linalg.normalize(Vec3{-0.55, 0.75, 0.32})
 	toward := Vec3{0, -sin_t, cos_t} // toward the viewer
 	half_v := linalg.normalize(light + toward)
 	for at in 0 ..< W * H {
@@ -268,7 +293,7 @@ preview_draw :: proc(s: ^Sculptor, pixels: []u8) {
 		n := linalg.normalize0(normal[at])
 		diffuse := max(linalg.dot(n, light), 0)
 		spec := math.pow(max(linalg.dot(n, half_v), 0), 24) * 0.18
-		lit := base[at] * (0.2 + 1.0 * diffuse) + spec
+		lit := base[at] * (0.14 + 1.1 * diffuse) + spec
 		o[0], o[1], o[2], o[3] = linear_to_srgb(lit.r), linear_to_srgb(lit.g), linear_to_srgb(lit.b), 255
 	}
 }
