@@ -8,6 +8,7 @@ import "core:time"
 
 import "../geom"
 import "../jobs"
+import "../sparse"
 
 // Flattening: each island that has a border is laid flat with as little distortion as
 // the method gives, as Blender's Unwrap does, and scaled to its surface area so every
@@ -15,14 +16,21 @@ import "../jobs"
 // open (auto seams cut them).
 
 Method :: enum u8 {
+	Abf,  // ABF++'s angles (abf.odin), then LSCM in the shapes they give: Blender's default
 	Lscm, // least squares conformal maps (Lévy et al. 2002), straight from the surface
 }
+
+// Islands of at least this many triangles are solved one at a time with the pool working
+// inside the solve; smaller ones side by side, one a thread.
+@(private)
+BIG_ISLAND :: 20_000
 
 Flatten_Report :: struct {
 	islands:   int, // islands the UVs have
 	flattened: int, // laid flat
 	closed:    int, // left as they were, having no border to open them along
 	failed:    int, // left as they were: the solve broke down (a damaged surface)
+	fallbacks: int, // asked for ABF++ but laid flat by LSCM alone, its angles not reached
 	flips:     int, // flattened triangles facing the other way from their island
 	ms:        f64,
 }
@@ -32,17 +40,22 @@ Flatten_Report :: struct {
 // vertex holds every corner of it in that island) keeps them where they are and is not
 // scaled; with one, that pin and the border vertex farthest from it along the island's
 // longest side are held for the solve; with none, the two border vertices farthest apart
-// along that side. Islands are solved side by side on `pool`, the biggest first, each on
-// one thread with memory of its own, so the result does not depend on the pool. Nothing
-// happens without UVs.
-flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, method: Method = .Lscm, pool: ^jobs.Pool = nil) -> (r: Flatten_Report) {
+// along that side. Big islands are solved one at a time with the pool working inside each
+// solve, then the others side by side, each with memory of its own; nothing depends on
+// the pool. The flattened islands that are not pinned are then placed side by side in
+// the unit square (the skyline packer, skyline.odin). With `symmetry`, an island whose mirror is another island
+// takes that island's layout reflected, and one that is its own mirror comes out
+// symmetric (symmetry.odin). Nothing happens without UVs.
+flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Vertex_Faces, method: Method = .Abf, pool: ^jobs.Pool = nil, symmetry: ^Symmetry = nil) -> (r: Flatten_Report) {
 	start := time.tick_now()
 	r.islands = u.islands
 	if !has(u^) || u.islands == 0 do return
 	order, first := island_triangles(u^, context.temp_allocator)
 	Island_Result :: struct {
-		state: enum u8 {Untouched, Flat, Closed, Failed},
-		flips: int,
+		state:    enum u8 {Untouched, Flat, Closed, Failed},
+		pinned:   bool, // held where its pins are, so neither scaled nor placed
+		fallback: bool, // ABF++ did not reach its angles, so LSCM alone laid it flat
+		flips:    int,
 	}
 	Job :: struct {
 		u:         ^Uvs,
@@ -51,24 +64,20 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 		faces:     geom.Vertex_Faces,
 		order:     []u32,
 		first:     []u32,
-		biggest:   []u32,
 		results:   []Island_Result,
+		method:    Method,
+		mirror:    Mirror,
+		symmetric: bool,
 	}
-	job := Job{u, positions, indices, faces, order, first, make([]u32, u.islands, context.temp_allocator), make([]Island_Result, u.islands, context.temp_allocator)}
-	// The biggest islands are claimed first, so a big one does not start last.
-	Size :: struct {
-		triangles, island: u32,
-	}
-	sizes := make([]Size, u.islands, context.temp_allocator)
-	for &s, i in sizes do s = {first[i + 1] - first[i], u32(i)}
-	slice.sort_by(sizes, proc(a, b: Size) -> bool {return a.triangles > b.triangles || (a.triangles == b.triangles && a.island < b.island)})
-	for s, i in sizes do job.biggest[i] = s.island
-	jobs.parallel_for(pool, u.islands, &job, proc(data: rawptr, n: int) {
+	job := Job{u, positions, indices, faces, order, first, make([]Island_Result, u.islands, context.temp_allocator), method, {}, symmetry != nil}
+	if symmetry != nil do job.mirror = mirror_build(u^, positions, indices, faces, symmetry^, order, first)
+	// One island, solved on the calling thread with `pool` (nil inside a job).
+	islands_run(first, &job, pool, proc(data: rawptr, i: u32, pool: ^jobs.Pool) {
 		job := cast(^Job)data
 		heap := runtime.heap_allocator()
 		context.allocator = heap
-		i := job.biggest[n]
 		res := &job.results[i]
+		if job.symmetric && job.mirror.leader[i] >= 0 do return // laid out from its leader
 		tris := job.order[job.first[i]:job.first[i + 1]]
 		island := island_mesh(job.u^, job.indices, job.faces, tris, heap)
 		defer island_mesh_free(&island, heap)
@@ -76,39 +85,70 @@ flatten :: proc(u: ^Uvs, positions: []geom.Vec3, indices: []u32, faces: geom.Ver
 			res.state = .Closed
 			return
 		}
-		flat, ok := lscm(job.u^, job.positions, &island, heap)
+		mirrors: []i32
+		defer delete(mirrors, heap)
+		if job.symmetric && job.mirror.self[i] do mirrors = mirror_wedges(&island, job.mirror, heap)
+		angles: []f64
+		defer delete(angles, heap)
+		if job.method == .Abf {
+			reached: bool
+			angles, reached = abf_angles(job.positions, &island, pool)
+			if !reached {
+				res.fallback = true
+				delete(angles, heap)
+				angles = nil
+			}
+		}
+		flat, pinned, ok := lscm(job.u^, job.positions, &island, pool, heap, angles, mirrors, job.mirror.axis)
 		defer delete(flat, heap)
 		if !ok {
 			res.state = .Failed
 			return
 		}
-		res.state = .Flat
+		res.state, res.pinned = .Flat, pinned
+		if mirrors != nil && !pinned do _ = symmetrize(flat, &island, mirrors, job.positions, job.mirror.axis)
 		for t, li in tris do for k in 0 ..< 3 {
 			p := flat[island.wedge[3 * li + k]]
 			job.u.corner[t][k] = {f32(p.x), f32(p.y)}
 		}
 		for li in 0 ..< len(tris) do if signed_area(flat, island.wedge[3 * li:][:3]) < 0 do res.flips += 1
 	})
-	for res in job.results {
+	// The followers take their leaders' results and layouts.
+	leader: []i32
+	if symmetry != nil {
+		leader = job.mirror.leader
+		for l, i in leader do if l >= 0 do job.results[i] = job.results[l]
+		mirror_copy(u, job.mirror, proc(island: u32, data: rawptr) -> bool {
+			results := cast(^[]Island_Result)data
+			return results[island].state == .Flat
+		}, &job.results)
+	}
+	place := make([]bool, u.islands, context.temp_allocator)
+	for res, i in job.results {
 		switch res.state {
 		case .Untouched:
 		case .Flat:
+			place[i] = !res.pinned
 			r.flattened += 1
+			if res.fallback do r.fallbacks += 1
 			r.flips += res.flips
 		case .Closed: r.closed += 1
 		case .Failed: r.failed += 1
 		}
 	}
+	_ = pack_islands(u, place, leader, DEFAULT_PACK)
 	u.filled = boxes_filled(u^)
 	r.ms = time.duration_milliseconds(time.tick_since(start))
 	return
 }
 
-// The conformal map of island `m`: a coordinate per wedge, made with `allocator`. False
-// when the solve breaks down, as a surface with non-finite positions
-// makes it.
+// The conformal map of island `m`: a coordinate per wedge, made with `allocator`. With
+// `angles` (three per island triangle, from abf_angles) each triangle takes the shape
+// they give instead of its own; with `mirrors` (mirror_wedges, the island its own mirror
+// across `axis`) and no pins, a mirror pair is held. False when the solve breaks down, as a surface with
+// non-finite positions makes it.
 @(private)
-lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, allocator: runtime.Allocator) -> (flat: [][2]f64, ok: bool) {
+lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool, allocator: runtime.Allocator, angles: []f64 = nil, mirrors: []i32 = nil, axis := 0) -> (flat: [][2]f64, pinned, ok: bool) {
 	a := allocator
 	corners := m.wedge
 	n := len(corners) / 3
@@ -130,7 +170,7 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, allocator: runtime
 			if one < 0 do one = w
 		}
 	}
-	pinned := held >= 2
+	pinned = held >= 2
 	if pinned {
 		for c in 0 ..< len(corners) do if fixed[corners[c]] {
 			p := u.corner[m.tris[c / 3]][c % 3]
@@ -139,6 +179,10 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, allocator: runtime
 	} else {
 		for &f in fixed do f = false
 		p, q := far_pair(positions, m, one)
+		// A self-mirrored island holds a mirror pair instead, so its solve is symmetric.
+		if mirrors != nil && held == 0 {
+			if mp, mq := mirror_pair(positions, m, mirrors, axis); mp >= 0 do p, q = mp, mq
+		}
 		if p == q do return
 		fixed[p], fixed[q] = true, true
 		flat[p] = {0, 0}
@@ -164,6 +208,14 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, allocator: runtime
 	for t in 0 ..< n {
 		s, area := triangle_frame(positions, m.vertex, corners[3 * t:][:3])
 		area_sum += area
+		if angles != nil && area > 0 {
+			// The shape ABF++ found: the first side as long as on the surface, the
+			// second by the sines' rule, at the first corner's angle to it.
+			a := angles[3 * t:][:3]
+			l := s[1].x * math.sin(a[1]) / math.sin(a[2])
+			s[2] = {l * math.cos(a[0]), l * math.sin(a[0])}
+			area = s[1].x * s[2].y * 0.5
+		}
 		weight := 1.0
 		if !(area > 1e-14 * max(linalg.length2(s[1]), linalg.length2(s[2]), 1e-30)) {
 			// A sliver: an equilateral stand-in at a tenth of the weight, as Blender treats
@@ -249,66 +301,25 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, allocator: runtime
 		}
 	}
 
-	// Eliminated in nested dissection order of the free wedges' places.
-	place := make([][3]f32, free, a)
-	defer delete(place, a)
-	for w in 0 ..< m.wedges do if c := column[w]; c >= 0 do place[c] = positions[m.vertex[w]]
-	dedup := make([]u32, free + 1, a)
-	defer delete(dedup, a)
-	for i in 0 ..< free do dedup[i + 1] = dedup[i] + (ends[i] - next[i])
-	graph := make([]u32, dedup[free], a)
-	defer delete(graph, a)
-	for i in 0 ..< free do copy(graph[dedup[i]:dedup[i + 1]], neighbour[next[i]:ends[i]])
-	order := dissection_order(place, dedup, graph, a)
-	defer delete(order, a)
-	rank := make([]u32, free, a)
-	defer delete(rank, a)
-	for w, i in order do rank[w] = u32(i)
-
-	// The upper triangle by columns in that order: unknown c of the wedge ranked k is
-	// column 2k + c; its rows are the lower ranked neighbours' two unknowns and its own.
-	system: Sparse
-	defer sparse_destroy(&system, a)
-	system.n = 2 * free
-	system.first = make([]u32, 2 * free + 1, a)
-	rows := make([dynamic]u32, 0, 2 * len(graph) + 3 * free, a)
-	values := make([dynamic]f64, 0, 2 * len(graph) + 3 * free, a)
-	Entry :: struct {
-		rank: u32,
-		at:   u32, // index into `off`
-	}
-	below := make([dynamic]Entry, a)
-	defer delete(below)
-	for k in 0 ..< free {
-		i := order[k]
-		clear(&below)
-		for x in next[i] ..< ends[i] do if r := rank[neighbour[x]]; r < u32(k) do append(&below, Entry{r, x})
-		slice.sort_by(below[:], proc(p, q: Entry) -> bool {return p.rank < q.rank})
-		for c in 0 ..< 2 {
-			for e in below {
-				// Row unknown r of the neighbour, column unknown c of this wedge: the
-				// neighbour's block with this wedge, which is this wedge's transposed.
-				for r in 0 ..< 2 {
-					append(&rows, 2 * e.rank + u32(r))
-					append(&values, off[e.at][c][r])
-				}
-			}
-			for r in 0 ..= c {
-				append(&rows, 2 * u32(k) + u32(r))
-				append(&values, diagonal[i][r][c])
-			}
-			system.first[2 * k + c + 1] = u32(len(rows))
+	// The system as pairs (pairs.odin): the upper triangle once (each diagonal block's
+	// upper half and each neighbour pair from its lower numbered wedge), unknown c of
+	// wedge i being 2i + c.
+	heap := runtime.heap_allocator()
+	t := sparse.triplets_make(2 * free, 3 * free + 4 * int(next[free]), heap)
+	defer sparse.triplets_destroy(&t)
+	for i in 0 ..< free {
+		for r in 0 ..< 2 do for c in r ..< 2 do sparse.triplets_add(&t, 2 * i + r, 2 * i + c, diagonal[i][r][c])
+		for x in next[i] ..< ends[i] do if j := int(neighbour[x]); j > i {
+			for r in 0 ..< 2 do for c in 0 ..< 2 do sparse.triplets_add(&t, 2 * i + r, 2 * j + c, off[x][r][c])
 		}
 	}
-	system.row, system.value = rows[:], values[:]
-	factor, factored := ldl_factor(system, a)
-	if !factored do return
-	defer ldl_destroy(&factor, a)
-	x := make([]f64, 2 * free, a)
-	defer delete(x, a)
-	for k in 0 ..< free do x[2 * k], x[2 * k + 1] = rhs[2 * order[k]], rhs[2 * order[k] + 1]
-	ldl_solve(factor, x)
-	for w in 0 ..< m.wedges do if c := column[w]; c >= 0 do flat[w] = {x[2 * rank[c]], x[2 * rank[c] + 1]}
+	system, built := pair_system_make(t)
+	if !built do return
+	defer pair_system_destroy(&system)
+	x := make([]f64, 2 * free, heap)
+	defer delete(x, heap)
+	if !pair_system_solve(&system, pool, rhs, x) do return
+	for w in 0 ..< m.wedges do if c := column[w]; c >= 0 do flat[w] = {x[2 * c], x[2 * c + 1]}
 	for p in flat do if !finite(p) do return
 
 	if !pinned {
@@ -376,4 +387,33 @@ far_pair :: proc(positions: []geom.Vec3, m: ^Island_Mesh, one: int) -> (p, q: in
 @(private)
 finite :: proc(p: [2]f64) -> bool {
 	return !math.is_nan(p.x) && !math.is_nan(p.y) && !math.is_inf(p.x) && !math.is_inf(p.y)
+}
+
+// Runs `solve` once for each island (first: island_triangles' starts), biggest first. The
+// pool runs one job at a time, so the islands of BIG_ISLAND triangles or more go one by
+// one on the calling thread with the pool inside each solve, and then the others side by
+// side, one a thread, each given a nil pool. `solve` writes only its own island's results,
+// so nothing depends on the pool.
+@(private)
+islands_run :: proc(first: []u32, data: rawptr, pool: ^jobs.Pool, solve: proc(data: rawptr, island: u32, pool: ^jobs.Pool)) {
+	islands := len(first) - 1
+	Size :: struct {
+		triangles, island: u32,
+	}
+	sizes := make([]Size, islands, context.temp_allocator)
+	for &s, i in sizes do s = {first[i + 1] - first[i], u32(i)}
+	slice.sort_by(sizes, proc(a, b: Size) -> bool {return a.triangles > b.triangles || (a.triangles == b.triangles && a.island < b.island)})
+	big := 0
+	for big < islands && sizes[big].triangles >= BIG_ISLAND do big += 1
+	for s in sizes[:big] do solve(data, s.island, pool)
+	Small :: struct {
+		data:  rawptr,
+		solve: proc(data: rawptr, island: u32, pool: ^jobs.Pool),
+		sizes: []Size,
+	}
+	small := Small{data, solve, sizes[big:]}
+	jobs.parallel_for(pool, len(small.sizes), &small, proc(data: rawptr, n: int) {
+		small := cast(^Small)data
+		small.solve(small.data, small.sizes[n].island, nil)
+	})
 }

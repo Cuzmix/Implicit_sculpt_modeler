@@ -2,6 +2,8 @@ package main
 
 import "core:fmt"
 
+import "../camera"
+import "../gizmo"
 import "../ui"
 
 // The object menu (the overhaul's round 3, PR 6): what can be done to the selected object,
@@ -126,6 +128,7 @@ object_menu_open :: proc(app: ^App, id: int, at: ui.Rect, side: ui.Side, by: Men
 	k := &app.kit
 	k.object_menu, k.object_menu_id, k.object_menu_at, k.object_menu_side = true, id, at, side
 	k.object_menu_wait, k.object_menu_by = false, by
+	k.menu_point_set = false
 	if obj := selected_object(app); obj != nil && obj.id == id do return
 	for obj, i in app.scene.objects {
 		if obj.id != id do continue
@@ -147,16 +150,40 @@ view_menu_open :: proc(app: ^App, pos, size: [2]f32, by: Menu_Opener) {
 	p := (pos + app.ui.viewport_origin) / k.scale
 	at := ui.Rect{p.x, p.y, 0, 0}
 	origin, dir := mouse_ray(app.camera, pos, size)
-	if index, _, ok := scene_raycast(app, origin, dir); ok {
+	if index, hit, ok := scene_raycast(app, origin, dir); ok {
 		object_menu_open(app, app.scene.objects[index].id, at, .Pointer, by)
+		k.menu_point, k.menu_point_set = hit, true
 		return
 	}
 	scene_menu_open(app, at, .Pointer, by)
+	k.menu_point, k.menu_point_set = view_depth_point(app, origin, dir)
+}
+
+// Where the ray from the eye meets the plane through the point the view turns about,
+// facing the eye: Blender's 3D cursor, with no cursor to keep. Not ok for a ray running
+// along the plane.
+view_depth_point :: proc(app: ^App, origin, dir: Vec3) -> (Vec3, bool) {
+	target := app.camera.target
+	return gizmo.ray_plane(origin, dir, target, camera.orbit_toward(app.camera, target))
 }
 
 scene_menu_open :: proc(app: ^App, at: ui.Rect, side: ui.Side, by: Menu_Opener) {
 	k := &app.kit
 	k.scene_menu, k.scene_menu_at, k.scene_menu_side, k.object_menu_by = true, at, side, by
+	k.menu_point_set = false
+}
+
+// Adds the object picked in the Scene card's Add object at the point the menu was opened
+// on, if it was opened on the view (else where Add object puts it); `beside`, below the
+// selected object in its folder. Returns whether the command ran.
+add_at_menu_point :: proc(app: ^App, beside: bool) -> bool {
+	k := &app.kit
+	if !command_run(app, .Add_Object) do return false
+	c := &app.ui.scene_command
+	if c.kind != .Add do return true
+	c.on = beside
+	c.placed, c.point = k.menu_point_set, k.menu_point
+	return true
 }
 
 // The Object menu command: at the pointer while it is on the view (a key pressed there, the
@@ -192,7 +219,7 @@ kit_object_menu :: proc(app: ^App) {
 	ready := obj != nil && obj.id == k.object_menu_id
 	if !ready && !k.object_menu_wait do k.object_menu = false
 	if ready do k.object_menu_wait = false
-	if !ui.popover_begin(ctx, "object menu", &k.object_menu, k.object_menu_at, k.object_menu_side, {direction = .Column, padding = 6, width = OBJECT_MENU_W}) do return
+	if !ui.popover_begin(ctx, "object menu", &k.object_menu, k.object_menu_at, k.object_menu_side, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	if !ready {
 		ui.paragraph(ctx, "Selecting it...")
@@ -231,9 +258,14 @@ kit_object_menu :: proc(app: ^App) {
 		k.object_menu_rows += 1
 	}
 	ui.divider(ctx, across = true)
-	if command_menu_item(app, .Show_Panel, int(Panel_Kind.Material), label = "Material") do picked = true
+	if command_menu_item(app, .Open_Section, int(Section.Material), label = "Material") do picked = true
 	if command_menu_item(app, .Rename_Object) do picked = true
 	if command_menu_item(app, .Duplicate_Object) do picked = true
+	// A new object where the menu was opened on the surface (or where Add object puts it,
+	// opened elsewhere), below this one in its folder.
+	if k.menu_point_set && ui.menu_item(ctx, "Add object here", glyph = COMMANDS[Command_Id.Add_Object].icon, hint = "Adds the shape picked in the Scene card's Add object, its middle where the menu was opened on the surface") {
+		if add_at_menu_point(app, true) do picked = true
+	}
 	// The Scene card's rows have no ghost of their own (an eye, a lock and this menu fit
 	// beside the name), so the menu makes an object a ghost; a tap on its row makes it solid.
 	if command_menu_item(app, .Ghost_Object) do picked = true
@@ -264,15 +296,12 @@ kit_object_menu :: proc(app: ^App) {
 	if picked do k.object_menu = false
 }
 
-// Wide enough for the quick row's five touch targets and the padding round them.
-OBJECT_MENU_W :: 268
-
 // The head: the type's icon, the name, the type and how big it is; not pressable.
 @(private = "file")
 object_menu_head :: proc(app: ^App, obj: ^Object, kind: Object_Type) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
-	a := ui.area(ctx, "object menu head", {OBJECT_MENU_W - 12, t.target})
+	a := ui.area(ctx, "object menu head", {ui.MENU_W - 2 * ui.MENU_PAD, t.target})
 	y := a.rect.y + a.rect.h * 0.5
 	ui.icon(ctx, OBJECT_TYPE_ICONS[kind], {a.rect.x + 18, y}, t.icon_small, t.text_secondary)
 	name := object_label(obj)
@@ -284,12 +313,12 @@ object_menu_head :: proc(app: ^App, obj: ^Object, kind: Object_Type) {
 @(private = "file")
 object_menu_quick :: proc(app: ^App, kind: Object_Type) -> (picked: bool) {
 	ctx := &app.kit.ctx
-	ui.begin(ctx, "object menu quick", {direction = .Row, gap = 4})
+	ui.begin(ctx, "object menu quick", {direction = .Row, gap = ui.SPACE_XS})
 	defer ui.end(ctx)
 	for id in ([?]Command_Id{.Focus_Selected, .Solo_Object, .Hide_Object, .Lock_Object}) {
 		if command_button(app, id, glyph = COMMANDS[id].icon, icon_only = true) do picked = true
 	}
-	if kind == .Sculpt_Mesh && command_button(app, .Show_Panel, int(Panel_Kind.Layers), label = "Layers", glyph = STACK_CARD_ICONS[.Layers], icon_only = true) do picked = true
+	if kind == .Sculpt_Mesh && command_button(app, .Open_Card, int(Card.Layers), label = "Layers", glyph = CARD_ICONS[.Layers], icon_only = true) do picked = true
 	return
 }
 
@@ -298,18 +327,20 @@ object_menu_quick :: proc(app: ^App, kind: Object_Type) -> (picked: bool) {
 kit_scene_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
-	if !ui.popover_begin(ctx, "scene menu", &k.scene_menu, k.scene_menu_at, k.scene_menu_side, {direction = .Column, padding = 6, width = SCENE_MENU_W}) do return
+	if !ui.popover_begin(ctx, "scene menu", &k.scene_menu, k.scene_menu_at, k.scene_menu_side, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	n := len(app.scene.objects)
 	ui.caption(ctx, fmt.tprintf("SCENE · %d OBJECT%s", n, "" if n == 1 else "S"))
 	picked := false
-	for id in ([?]Command_Id{.Add_Object, .Paste_Object, .Show_All_Objects, .Frame_All}) {
+	// Add object puts the new object where the menu was opened on the view.
+	if ui.menu_item(ctx, command_label(.Add_Object, 0), command_keys(app, .Add_Object, 0), COMMANDS[Command_Id.Add_Object].icon, enabled = command_enabled(app, .Add_Object, 0), hint = "Adds the shape picked in the Scene card's Add object, its middle where the menu was opened" if k.menu_point_set else "") {
+		if add_at_menu_point(app, false) do picked = true
+	}
+	for id in ([?]Command_Id{.Paste_Object, .Show_All_Objects, .Frame_All}) {
 		if command_menu_item(app, id) do picked = true
 	}
 	if picked do k.scene_menu = false
 }
-
-SCENE_MENU_W :: 220
 
 // How long one finger held still on the view takes to open the menu there: longer than a
 // control's long press, since a finger resting on the view is more often about to turn it.
@@ -346,7 +377,7 @@ hold_menu_waits :: proc(app: ^App) -> bool {
 	switch g.owner {
 	case .Orbit:
 	case .Tool:
-		if lights_take_press(app, g.from, size) do return false
+		if lights_take_press(app, g.from, size) || stack_handles_take_press(app, g.from, size) do return false
 		switch app.tool {
 		case .Move:
 			// A press on the body holds the View handle without moving yet; one on the gizmo,

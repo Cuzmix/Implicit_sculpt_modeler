@@ -1,12 +1,13 @@
 package render
 
-import "base:runtime"
+import "../gpu"
+import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:slice"
 import "core:time"
-import sdl "vendor:sdl3"
+@(require) import sdl "vendor:sdl3" // used only on tablets (render_scene_max)
 
 import "../geom"
 import "../jobs"
@@ -24,25 +25,17 @@ import "../jobs"
 // occlusion) shows until the first samples are in. See-through items are left out, as
 // the studio leaves them.
 
-RENDER_TRACE_COMP_CODE :: #load("shaders/render_trace.comp" + SHADER_EXT, string)
-// The same kernel reading every map from one array (render_trace_maps.comp.slang), which
-// only the own Vulkan backend binds, so it has no Metal source.
-// Both again tracing against the driver's acceleration structures (Gpu_Caps.ray_query); the
-// named kernel's Metal source comes from slangc (RQ_EXT), the array one stays Vulkan's.
-when VULKAN {
-	RENDER_TRACE_MAPS_COMP_CODE :: #load("shaders/render_trace_maps.comp.spv", string)
-	RENDER_TRACE_MAPS_RQ_COMP_CODE :: #load("shaders/render_trace_maps_rq.comp.spv", string)
-}
-RENDER_TRACE_RQ_COMP_CODE :: #load("shaders/render_trace_rq.comp" + RQ_EXT, string)
-RENDER_DISPLAY_FRAG_CODE :: #load("shaders/render_display.frag" + SHADER_EXT, string)
-RENDER_DISPLAY_LINEAR_FRAG_CODE :: #load("shaders/render_display_linear.frag" + SHADER_EXT, string)
-RENDER_ATROUS_FRAG_CODE :: #load("shaders/render_atrous.frag" + SHADER_EXT, string)
+// The kernel is RENDER_TRACE_COMP (render_trace.comp.slang). RENDER_TRACE_MAPS_COMP is the
+// same kernel reading every map from one array, which only the own Vulkan backend binds, so
+// it has no Metal source. RENDER_TRACE_RQ_COMP and RENDER_TRACE_MAPS_RQ_COMP are both again
+// tracing against the driver's acceleration structures (Gpu_Caps.ray_query); the array one
+// stays Vulkan's.
 
-RENDER_FORMAT :: sdl.GPUTextureFormat.R32G32B32A32_FLOAT
+RENDER_FORMAT :: gpu.Format.RGBA32_Float
 // The exposed light the finishing stack starts from (render_linear_texture).
-RENDER_LINEAR_FORMAT :: sdl.GPUTextureFormat.R16G16B16A16_FLOAT
+RENDER_LINEAR_FORMAT :: gpu.Format.RGBA16_Float
 // The denoiser's guides and its passes' images.
-RENDER_GUIDE_FORMAT :: sdl.GPUTextureFormat.R16G16B16A16_FLOAT
+RENDER_GUIDE_FORMAT :: gpu.Format.RGBA16_Float
 // The denoiser's passes while the image is noisy, its taps 1 to 16 pixels apart; from
 // RENDER_DENOISE_FULL samples on it takes one pass fewer each time the samples grow four
 // times, down to two, as less noise needs less reach.
@@ -84,9 +77,6 @@ RENDER_FRAME_SLOW :: 50 * time.Millisecond
 RENDER_FRAME_FAST :: 20 * time.Millisecond
 @(private = "file")
 RENDER_ROWS_MIN :: 16
-// Uploads go through a transfer buffer this big, cycled between batches.
-@(private = "file")
-RENDER_TRANSFER_SIZE :: 4 << 20
 
 // The item flags of render_trace.comp.slang's ITEM_ constants.
 @(private = "file")
@@ -102,11 +92,43 @@ ITEM_TEXTURED :: 8
 ITEM_SKINNED :: 16
 @(private = "file")
 ITEM_SKIN_SHIFT :: 8
+@(private = "file")
+ITEM_ALL :: ITEM_PAINT | ITEM_GROUPS | ITEM_SLOTS | ITEM_TEXTURED | ITEM_SKINNED
+
+// Which of render_trace.slang's features a run's scene uses, its RT_ constants: the item
+// flags any item carries, an image environment, the lens and lights with a place (traced
+// as spheres), with the kind of kernel it runs (ray queries or the own walk). A kernel
+// specialised to them folds every other branch away, which on a plain sculpt takes the
+// kernel from 128 registers a thread to 96 on an RDNA2 GPU (scripts/kernel_stats.py), so
+// more of it runs at once.
+Render_Features :: struct {
+	items:         u32,
+	env_image:     bool,
+	lens:          bool,
+	sphere_lights: bool,
+	rq:            bool,
+}
+
+// The most specialised kernels a path render keeps; past it the one used longest ago goes.
+@(private = "file")
+RENDER_VARIANTS :: 8
+
+// A kernel specialised to `features`: built off the frame (`build`), then `pipeline`, or
+// `failed` when the device refused it and the general kernel stays in use for them.
+@(private = "file")
+Path_Variant :: struct {
+	features: Render_Features,
+	build:    ^gpu.Compute_Build,
+	pipeline: gpu.Compute_Pipeline,
+	failed:   bool,
+	used:     u64, // the last sample that wanted it, by Path_Render.total_samples
+	taken:    bool, // the slot holds a variant
+}
 
 Path_Render :: struct {
 	// Its own pipelines for bringing the items' trees up to date, as the studio's.
 	tracer:         Tracer,
-	pipeline:       ^sdl.GPUComputePipeline,
+	pipeline:       gpu.Compute_Pipeline,
 	// The pipeline reads the maps from one array (render_trace_maps), and how many textured
 	// items it shows with their maps: RENDER_TEXTURED_MAX with the named samplers.
 	maps_array:     bool,
@@ -114,54 +136,53 @@ Path_Render :: struct {
 	// Its kernel of the same kind tracing with ray queries, made on first use where they are
 	// offered and on (Renderer.ray_query); whether they were on when this view started, and
 	// whether this view's scene traces that way (the tracer's top level, Tracer.tlas).
-	rq_pipeline:    ^sdl.GPUComputePipeline,
+	rq_pipeline:    gpu.Compute_Pipeline,
 	rq_failed:      bool,
 	rq_on:          bool,
 	rq:             bool,
 	// With async compute each band runs on the compute queue (render_frame's `async`):
-	// at most one in flight, its fence, the run it belongs to (a band of an older run is
+	// at most one in flight, its ticket (zero for none), the run it belongs to (a band of an older run is
 	// dropped), when it went, and whether it finishes its sample. `generation` counts runs:
 	// a reset or new images start another.
 	async:          bool,
 	async_failed:   bool, // the device refused a compute-queue command buffer; bands stay in the frame
-	band_fence:     ^sdl.GPUFence,
+	band_ticket:    gpu.Ticket,
 	band_generation: u64,
 	band_started:   time.Tick,
 	band_last:      bool,
 	generation:     u64,
-	display:        ^sdl.GPUGraphicsPipeline,
-	atrous:         ^sdl.GPUGraphicsPipeline,
-	sampler:        ^sdl.GPUSampler,
+	display:        gpu.Graphics_Pipeline,
+	atrous:         gpu.Graphics_Pipeline,
+	sampler:        gpu.Sampler,
 	// The built-in studio's table for sampling it by brightness, in its own space, and its
 	// mean luminance.
-	studio_table:   ^sdl.GPUTexture,
+	studio_table:   gpu.Texture,
 	studio_mean:    f32,
-	transfer:       ^sdl.GPUTransferBuffer,
 	// The sum of the samples done in accum[current]; the sample under way is written to
 	// the other one, band by band.
-	accum:          [2]^sdl.GPUTexture,
+	accum:          [2]gpu.Texture,
 	current:        int,
-	shown:          ^sdl.GPUTexture, // what the viewport panel shows
+	shown:          gpu.Texture, // what the viewport panel shows
 	// While the finishing stack runs, `shown` again as exposed linear light, for it to
 	// finish (render_display_linear.frag.slang); made on first use, and its pipeline.
-	linear:         ^sdl.GPUTexture,
-	display_linear: ^sdl.GPUGraphicsPipeline,
+	linear:         gpu.Texture,
+	display_linear: gpu.Graphics_Pipeline,
 	linear_on:      bool, // render_frame was asked for it
 	linear_valid:   bool, // it holds what `shown` does
 	// The denoiser's guides, two pairs of the colour and the normal with distance:
 	// guides[guide_at] holds the first sample's (with depth of field, the means so far)
 	// and the kernel writes the other pair, which takes over once it has; and the
 	// denoiser's two images, one pass reading the other.
-	guides:         [2][2]^sdl.GPUTexture,
+	guides:         [2][2]gpu.Texture,
 	guide_at:       int,
-	filtered:       [2]^sdl.GPUTexture,
+	filtered:       [2]gpu.Texture,
 	// With depth of field, what render mode is laid over instead of the viewport's image,
 	// whose sharp clay would show through the blurred edges: the background and floor
 	// alone, drawn at the first sample of the view, with a depth image for that pass.
 	lens:           Lens,
 	lens_on:        bool, // this view's lens blurs
-	backdrop:       ^sdl.GPUTexture,
-	backdrop_depth: ^sdl.GPUTexture,
+	backdrop:       gpu.Texture,
+	backdrop_depth: gpu.Texture,
 	// The textured items whose maps this view binds, by map slot, with their maps' stamps
 	// when it was built (a map that changes since starts the view over), and how many more
 	// showed textured than there are slots.
@@ -174,7 +195,7 @@ Path_Render :: struct {
 	view_width:     u32,
 	view_height:    u32,
 	half:           bool, // traced at half size each way
-	buffers:        [Scene_Buffer]^sdl.GPUBuffer,
+	buffers:        [Scene_Buffer]gpu.Buffer,
 	capacity:       [Scene_Buffer]u32,
 	uniforms:       Render_Uniforms, // this still view's
 	samples:        int, // complete samples in accum[current]
@@ -196,6 +217,17 @@ Path_Render :: struct {
 	rq_samples:     int, // ...of them traced with ray queries
 	sample_started: time.Tick,
 	bytes:          int,
+	// The kernels specialised to the features scenes use (Render_Features), built off the
+	// frame, and this run's features; `kernel` is what the bands of the sample under way
+	// bind, 0 for the general kernel, which serves until the run's own is built. A run
+	// switches only between samples. For the exit stats: how many were built, and the
+	// features of the last specialised kernel used.
+	variants:       [RENDER_VARIANTS]Path_Variant,
+	features:       Render_Features,
+	kernel:         gpu.Compute_Pipeline,
+	kernel_features: Render_Features,
+	kernel_used:    bool,
+	variants_built: int,
 }
 
 @(private = "file")
@@ -219,6 +251,19 @@ Scene_Buffer :: enum {
 RENDER_TEXTURED_MAX :: 3
 @(private = "file")
 RENDER_SAMPLERS :: 5 + 3 * RENDER_TEXTURED_MAX
+// What the renderer binds and dispatches agrees with the kernels' own counts (shaders_gen.odin).
+#assert(RENDER_TRACE_COMP.num_samplers == RENDER_SAMPLERS && RENDER_TRACE_RQ_COMP.num_samplers == RENDER_SAMPLERS)
+// The scene's buffers bind in the kernels' slot order, under their names.
+#assert(len(Render_Trace_Comp_Buffers) == len(Scene_Buffer) && int(Render_Trace_Comp_Buffers.positions) == int(Scene_Buffer.Positions) && int(Render_Trace_Comp_Buffers.indices) == int(Scene_Buffer.Indices))
+#assert(int(Render_Trace_Comp_Buffers.attributes) == int(Scene_Buffer.Attributes) && int(Render_Trace_Comp_Buffers.nodes) == int(Scene_Buffer.Nodes) && int(Render_Trace_Comp_Buffers.order) == int(Scene_Buffer.Order))
+#assert(int(Render_Trace_Comp_Buffers.chunks) == int(Scene_Buffer.Chunks) && int(Render_Trace_Comp_Buffers.items) == int(Scene_Buffer.Items) && int(Render_Trace_Comp_Buffers.textured) == int(Scene_Buffer.Textured))
+// The four render kernels share their slots: the named maps' kernels all of them, the array's
+// the first five samplers, the maps then coming as the array.
+#assert(len(Render_Trace_Rq_Comp_Buffers) == len(Scene_Buffer) && len(Render_Trace_Maps_Comp_Buffers) == len(Scene_Buffer) && len(Render_Trace_Maps_Rq_Comp_Buffers) == len(Scene_Buffer))
+#assert(len(Render_Trace_Rq_Comp_Samplers) == RENDER_SAMPLERS && len(Render_Trace_Maps_Comp_Samplers) == int(Render_Trace_Comp_Samplers.map0) && len(Render_Trace_Maps_Rq_Comp_Samplers) == int(Render_Trace_Comp_Samplers.map0))
+#assert(len(Render_Trace_Rq_Comp_Write_Textures) == len(Render_Trace_Comp_Write_Textures) && len(Render_Trace_Maps_Comp_Write_Textures) == len(Render_Trace_Comp_Write_Textures) && len(Render_Trace_Maps_Rq_Comp_Write_Textures) == len(Render_Trace_Comp_Write_Textures))
+#assert(int(Render_Trace_Comp_Samplers.map0) == 5 && len(Render_Trace_Comp_Samplers) == RENDER_SAMPLERS)
+#assert(RENDER_TRACE_COMP.threadcount_x == RENDER_GROUP && RENDER_TRACE_COMP.threadcount_y == RENDER_GROUP && RENDER_TRACE_RQ_COMP.threadcount_x == RENDER_GROUP)
 // ...and through one array of maps, where the device offers texture arrays
 // (Gpu_Caps.texture_arrays, at least four items' worth), or as many as it holds.
 @(private = "file")
@@ -307,7 +352,7 @@ Lights_World :: struct {
 // it, after which it never tries again. `half` traces a quarter of the pixels, half the
 // viewport's size each way, and lays them out over it smoothly: what tablets take. `lens`
 // gives depth of field; changing it starts over, as nothing in the viewport changes.
-render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, half := false, lens := Lens{}, pool: ^jobs.Pool = nil, linear := false, async := false) -> bool {
+render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, half := false, lens := Lens{}, pool: ^jobs.Pool = nil, linear := false, async := false) -> bool {
 	debug_group(cmd, "Render mode", .Render_Mode)
 	if pr.failed do return false
 	if !path_ensure(r, pr, vt, half) {
@@ -315,6 +360,7 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 		pr.failed = true
 		return false
 	}
+	path_variants_poll(pr)
 	pr.linear_on = linear && path_linear_ensure(r, pr)
 	if !pr.linear_on do pr.linear_valid = false
 	now := time.tick_now()
@@ -337,7 +383,7 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	}
 	// While a band runs nothing it reads may change: the next waits, and so does a new
 	// view's scene, whose build rewrites the buffers a band of the old one may still read.
-	if pr.band_fence != nil do return true
+	if pr.band_ticket.value != 0 do return true
 	if !pr.built {
 		if !path_scene_build(r, pr, cmd, vt, view, proj, items, lights, softness, pool) do return true
 		pr.built = true
@@ -359,29 +405,32 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 	if pr.rows == 0 do pr.rows = pr.height if !MOBILE else max(pr.height / 4, RENDER_ROWS_MIN)
 	if !pr.async && interval > RENDER_FRAME_SLOW do pr.rows = max(pr.rows / 2, RENDER_ROWS_MIN)
 	else if !pr.async && interval > 0 && interval < RENDER_FRAME_FAST do pr.rows = min(pr.rows * 2, pr.height)
-	if pr.row == 0 do pr.sample_started = now
+	if pr.row == 0 {
+		path_kernel_pick(r, pr)
+		pr.sample_started = time.tick_now() // a build waited for is not the sample's time
+	}
 
 	rows := min(pr.rows, pr.height - pr.row)
 	if pr.async {
-		band := gpu_acquire_compute_command_buffer(r.device)
+		band := gpu.acquire_compute_command_buffer()
 		if band != nil {
 			{
 				debug_group(band, "Render mode band")
 				path_band_record(r, pr, band, rows, bounces)
 			}
-			fence := gpu_submit_compute(band)
-			if fence == nil {
-				log.errorf("render mode: a band could not be submitted (%s); it stays off", sdl.GetError())
+			ticket, ok := gpu.submit(band)
+			if !ok {
+				log.errorf("render mode: a band could not be submitted (%s); it stays off", gpu.last_error())
 				pr.failed = true
 				return false
 			}
-			pr.band_fence, pr.band_generation, pr.band_started = fence, pr.generation, now
+			pr.band_ticket, pr.band_generation, pr.band_started = ticket, pr.generation, now
 			pr.row += rows
 			pr.band_last = pr.row >= pr.height
 			if pr.band_last do pr.row = 0
 			return true
 		}
-		log.warnf("render mode: no compute-queue command buffer (%s); bands run in the frame", sdl.GetError())
+		log.warnf("render mode: no compute-queue command buffer (%s); bands run in the frame", gpu.last_error())
 		pr.async, pr.async_failed = false, true
 	}
 	path_band_record(r, pr, cmd, rows, bounces)
@@ -395,74 +444,80 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer,
 // Records one band of `rows` rows of the sample under way, from pr.row, into `cmd`: the
 // frame's command buffer or a compute-queue one.
 @(private = "file")
-path_band_record :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, rows: u32, bounces: int) {
+path_band_record :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, rows: u32, bounces: int) {
 	u := pr.uniforms
 	u.counts.x, u.counts.y, u.counts.z = u32(pr.samples), pr.row, u32(bounces)
 	written := pr.guides[1 - pr.guide_at]
-	bindings := [3]sdl.GPUStorageTextureReadWriteBinding{{texture = pr.accum[1 - pr.current]}, {texture = written[0]}, {texture = written[1]}}
-	pass := gpu_begin_compute_pass(cmd, &bindings[0], len(bindings), nil, 0)
-	if pr.rq {
-		gpu_bind_compute_pipeline(pass, pr.rq_pipeline)
-		gpu_bind_compute_accel(pass, pr.tracer.tlas)
-	} else {
-		gpu_bind_compute_pipeline(pass, pr.pipeline)
+	bindings := [Render_Trace_Comp_Write_Textures]gpu.Storage_Texture_Binding {
+		.next         = {texture = pr.accum[1 - pr.current]},
+		.guide_albedo = {texture = written[0]},
+		.guide_normal = {texture = written[1]},
 	}
+	pass := begin_compute(cmd, &bindings)
+	general := pr.rq_pipeline if pr.rq else pr.pipeline
+	gpu.bind_compute_pipeline(pass, pr.kernel if pr.kernel != 0 else general)
+	if pr.rq do gpu.bind_compute_accel(pass, pr.tracer.tlas)
 	// The image itself, not its prefiltered copy: the paths find its blur on their own,
 	// and the table is built over it.
 	env_map := r.environment.source if r.environment != nil else r.no_environment
 	table := r.environment.table if r.environment != nil else pr.studio_table
-	samplers: [5 + 3 * RENDER_TEXTURED_ARRAY]sdl.GPUTextureSamplerBinding
-	samplers[0], samplers[1], samplers[2] = {texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = env_map, sampler = r.env_sampler}, {texture = table, sampler = pr.sampler}
-	samplers[3], samplers[4] = {texture = pr.guides[pr.guide_at][0], sampler = pr.sampler}, {texture = pr.guides[pr.guide_at][1], sampler = pr.sampler}
+	// The named samplers, then each item's three maps (Render_Trace_Comp_Samplers.map0 on, or
+	// the array's slots).
+	S :: Render_Trace_Comp_Samplers
+	samplers: [5 + 3 * RENDER_TEXTURED_ARRAY]gpu.Texture_Sampler_Binding
+	samplers[S.prev] = {texture = pr.accum[pr.current], sampler = pr.sampler}
+	samplers[S.environment_map] = {texture = env_map, sampler = r.env_sampler}
+	samplers[S.env_table] = {texture = table, sampler = pr.sampler}
+	samplers[S.prev_albedo] = {texture = pr.guides[pr.guide_at][0], sampler = pr.sampler}
+	samplers[S.prev_normal] = {texture = pr.guides[pr.guide_at][1], sampler = pr.sampler}
 	// Every slot the kernel may read is given a texture, defaults where an item lacks a map:
 	// the named kernel's nine, and the array's slots in use (at least one, as a set is
 	// never empty).
-	defaults := [Texture_Map]^sdl.GPUTexture{.Base_Color = r.no_matcap, .Orm = r.no_matcap, .Normal = r.no_normal_map}
+	defaults := [Texture_Map]gpu.Texture{.Base_Color = r.no_matcap, .Orm = r.no_matcap, .Normal = r.no_normal_map}
 	slots := max(pr.tex_count, 1) if pr.maps_array else RENDER_TEXTURED_MAX
 	for slot in 0 ..< int(slots) {
 		t := pr.tex_meshes[slot]
 		for m in Texture_Map {
-			tex := t.maps[m] if t != nil && t.maps[m] != nil else defaults[m]
+			tex := t.maps[m] if t != nil && t.maps[m] != 0 else defaults[m]
 			samplers[5 + 3 * slot + int(m)] = {texture = tex, sampler = r.texture_sampler}
 		}
 	}
 	if pr.maps_array {
-		gpu_bind_compute_samplers(pass, 0, &samplers[0], 5)
-		gpu_bind_compute_texture_array(pass, samplers[5:][:3 * slots])
+		gpu.bind_compute_samplers(pass, 0, &samplers[0], len(Render_Trace_Maps_Comp_Samplers))
+		gpu.bind_compute_texture_array(pass, samplers[5:][:3 * slots])
 	} else {
-		gpu_bind_compute_samplers(pass, 0, &samplers[0], RENDER_SAMPLERS)
+		gpu.bind_compute_samplers(pass, 0, &samplers[0], RENDER_SAMPLERS)
 	}
-	reads: [Scene_Buffer]^sdl.GPUBuffer = pr.buffers
-	gpu_bind_compute_storage_buffers(pass, 0, &reads[Scene_Buffer(0)], len(Scene_Buffer))
-	gpu_push_compute_uniform_data(cmd, 0, &u, size_of(u))
-	gpu_dispatch_compute(pass, (pr.width + RENDER_GROUP - 1) / RENDER_GROUP, (rows + RENDER_GROUP - 1) / RENDER_GROUP, 1)
-	gpu_end_compute_pass(pass)
+	reads: [Scene_Buffer]gpu.Buffer = pr.buffers
+	bind_compute_storage(pass, &reads)
+	push_compute(cmd, Render_Trace_Comp_Uniforms.Render_Uniforms, &u)
+	gpu.dispatch_compute(pass, (pr.width + RENDER_GROUP - 1) / RENDER_GROUP, (rows + RENDER_GROUP - 1) / RENDER_GROUP, 1)
+	gpu.end_compute_pass(pass)
 }
 
 // A band on the compute queue that has finished: sizes the next by how long it took (three
 // frame intervals or more halve the rows, under one and a half doubles them), and when it
 // ended its sample, has this frame wait for it and lays the sample out. A band of an
-// older run only lets go of its fence.
+// older run only lets go of its ticket.
 @(private = "file")
-path_band_collect :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, exposure: f32, denoise: bool, interval: time.Duration) {
-	if pr.band_fence == nil || !gpu_query_fence(r.device, pr.band_fence) do return
-	fence := pr.band_fence
-	pr.band_fence = nil
-	defer gpu_release_fence(r.device, fence)
+path_band_collect :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, exposure: f32, denoise: bool, interval: time.Duration) {
+	if pr.band_ticket.value == 0 || !gpu.done(pr.band_ticket) do return
+	ticket := pr.band_ticket
+	pr.band_ticket = {}
 	if pr.band_generation != pr.generation do return
 	if took := time.tick_since(pr.band_started); interval > 0 {
 		if took >= 3 * interval do pr.rows = max(pr.rows / 2, RENDER_ROWS_MIN)
 		else if 2 * took < 3 * interval do pr.rows = min(pr.rows * 2, pr.height)
 	}
 	if !pr.band_last do return
-	gpu_wait_on(cmd, fence)
+	gpu.wait_on(cmd, ticket)
 	path_sample_done(pr, cmd, vt, exposure, denoise)
 }
 
 // The sample's last band is in: the sums and (at the first sample, or every one with a
 // lens) the guides it wrote take over, and the frame lays them out.
 @(private = "file")
-path_sample_done :: proc(pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, exposure: f32, denoise: bool) {
+path_sample_done :: proc(pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, exposure: f32, denoise: bool) {
 	pr.current = 1 - pr.current
 	// The kernel wrote the guides at the first sample, and at every one with a lens.
 	if pr.samples == 0 || pr.lens_on do pr.guide_at = 1 - pr.guide_at
@@ -475,15 +530,15 @@ path_sample_done :: proc(pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^View
 
 // What the viewport panel should show while render mode is on: its image, or nil when it
 // has none yet (or cannot make one).
-render_texture :: proc(pr: ^Path_Render) -> ^sdl.GPUTexture {
-	if pr.failed || pr.samples == 0 do return nil
+render_texture :: proc(pr: ^Path_Render) -> gpu.Texture {
+	if pr.failed || pr.samples == 0 do return 0
 	return pr.shown
 }
 
 // render_texture's image as exposed linear light, while render_frame is asked for it; nil
 // when it has none.
-render_linear_texture :: proc(pr: ^Path_Render) -> ^sdl.GPUTexture {
-	if pr.failed || pr.samples == 0 || !pr.linear_valid do return nil
+render_linear_texture :: proc(pr: ^Path_Render) -> gpu.Texture {
+	if pr.failed || pr.samples == 0 || !pr.linear_valid do return 0
 	return pr.linear
 }
 
@@ -491,21 +546,21 @@ render_linear_texture :: proc(pr: ^Path_Render) -> ^sdl.GPUTexture {
 // when the device refuses, and the finishing stack then reads `shown`.
 @(private = "file")
 path_linear_ensure :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
-	if pr.display_linear == nil {
-		pr.display_linear = create_fullscreen_pipeline(r, RENDER_DISPLAY_LINEAR_FRAG_CODE, RENDER_LINEAR_FORMAT, samplers = 4)
-		if pr.display_linear == nil {
-			log.warnf("render mode: no linear image for the finish (%s); it finishes the shown one", sdl.GetError())
+	if pr.display_linear == 0 {
+		pr.display_linear = create_fullscreen_pipeline(r, RENDER_DISPLAY_LINEAR_FRAG, RENDER_LINEAR_FORMAT)
+		if pr.display_linear == 0 {
+			log.warnf("render mode: no linear image for the finish (%s); it finishes the shown one", gpu.last_error())
 			return false
 		}
 	}
-	if pr.linear != nil do return true
-	pr.linear = gpu_create_texture(r.device, {
-		type = .D2, format = RENDER_LINEAR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
+	if pr.linear != 0 do return true
+	pr.linear = gpu.create_texture({
+		type = .D2, format = RENDER_LINEAR_FORMAT, usage = {.Color_Target, .Sampled},
 		width = pr.view_width, height = pr.view_height, layer_count_or_depth = 1, num_levels = 1,
 	})
 	pr.linear_valid = false
-	if pr.linear == nil do log.warnf("render mode: no linear image for the finish (%s); it finishes the shown one", sdl.GetError())
-	return pr.linear != nil
+	if pr.linear == 0 do log.warnf("render mode: no linear image for the finish (%s); it finishes the shown one", gpu.last_error())
+	return pr.linear != 0
 }
 
 // Makes the next render_frame start over.
@@ -516,23 +571,21 @@ path_render_reset :: proc(pr: ^Path_Render) {
 }
 
 path_render_destroy :: proc(r: ^Renderer, pr: ^Path_Render) {
-	if r.device == nil do return
-	_ = gpu_wait_for_idle(r.device)
-	if pr.band_fence != nil do gpu_release_fence(r.device, pr.band_fence)
-	pr.band_fence = nil
-	if pr.pipeline != nil do gpu_release_compute_pipeline(r.device, pr.pipeline)
-	if pr.rq_pipeline != nil do gpu_release_compute_pipeline(r.device, pr.rq_pipeline)
-	if pr.display != nil do gpu_release_graphics_pipeline(r.device, pr.display)
-	if pr.display_linear != nil do gpu_release_graphics_pipeline(r.device, pr.display_linear)
-	if pr.atrous != nil do gpu_release_graphics_pipeline(r.device, pr.atrous)
-	if pr.sampler != nil do gpu_release_sampler(r.device, pr.sampler)
-	if pr.studio_table != nil do gpu_release_texture(r.device, pr.studio_table)
-	if pr.transfer != nil do gpu_release_transfer_buffer(r.device, pr.transfer)
+	if !r.has_device do return
+	pr.band_ticket = {}
+	if pr.pipeline != 0 do gpu.release_compute_pipeline(pr.pipeline)
+	if pr.rq_pipeline != 0 do gpu.release_compute_pipeline(pr.rq_pipeline)
+	for &v in pr.variants do path_variant_release(&v)
+	if pr.display != 0 do gpu.release_graphics_pipeline(pr.display)
+	if pr.display_linear != 0 do gpu.release_graphics_pipeline(pr.display_linear)
+	if pr.atrous != 0 do gpu.release_graphics_pipeline(pr.atrous)
+	if pr.sampler != 0 do gpu.release_sampler(pr.sampler)
+	if pr.studio_table != 0 do gpu.release_texture(pr.studio_table)
 	path_targets_release(r, pr)
-	for b in pr.buffers do if b != nil do gpu_release_buffer(r.device, b)
+	for b in pr.buffers do if b != 0 do gpu.release_buffer(b)
 	tracer_destroy(r, &pr.tracer)
 	// The counters outlive the device's objects, for the exit stats.
-	pr^ = {tracer = pr.tracer, failed = pr.failed, rq_failed = pr.rq_failed, total_samples = pr.total_samples, total_ms = pr.total_ms, rq_samples = pr.rq_samples, bytes = pr.bytes}
+	pr^ = {tracer = pr.tracer, failed = pr.failed, rq_failed = pr.rq_failed, total_samples = pr.total_samples, total_ms = pr.total_ms, rq_samples = pr.rq_samples, bytes = pr.bytes, kernel_features = pr.kernel_features, kernel_used = pr.kernel_used, variants_built = pr.variants_built}
 }
 
 // The lights as render mode takes them: `lights` (view space, as the viewport's) turned
@@ -625,19 +678,15 @@ aabb_transform :: proc(b: geom.Aabb, model: Mat4) -> geom.Aabb {
 // for at least four textured items, with how many it shows; nil where it does not, or
 // where the device refuses it (the log says why), and render mode keeps the named kernel.
 @(private = "file")
-path_maps_pipeline :: proc(r: ^Renderer) -> (pipeline: ^sdl.GPUComputePipeline, array: bool, textured_max: u32) {
-	when VULKAN {
+path_maps_pipeline :: proc(r: ^Renderer) -> (pipeline: gpu.Compute_Pipeline, array: bool, textured_max: u32) {
+	when gpu.VULKAN {
 		offered := r.caps.texture_arrays / 3
 		if offered <= RENDER_TEXTURED_MAX do return
 		textured_max = min(offered, RENDER_TEXTURED_ARRAY)
-		pipeline = gpu_create_compute_pipeline_array(r.device, {
-			code_size = len(RENDER_TRACE_MAPS_COMP_CODE), code = raw_data(RENDER_TRACE_MAPS_COMP_CODE), entrypoint = SHADER_ENTRY,
-			format = SHADER_FORMAT, num_samplers = 5, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
-			num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
-		}, 3 * textured_max)
-		if pipeline == nil {
-			log.warnf("render mode: the texture array kernel could not be made (%s); it shows %d textured objects' maps", sdl.GetError(), RENDER_TEXTURED_MAX)
-			return nil, false, 0
+		pipeline = gpu.create_compute_pipeline_array(RENDER_TRACE_MAPS_COMP, 3 * textured_max)
+		if pipeline == 0 {
+			log.warnf("render mode: the texture array kernel could not be made (%s); it shows %d textured objects' maps", gpu.last_error(), RENDER_TEXTURED_MAX)
+			return 0, false, 0
 		}
 		array = true
 	}
@@ -647,7 +696,7 @@ path_maps_pipeline :: proc(r: ^Renderer) -> (pipeline: ^sdl.GPUComputePipeline, 
 // How many textured objects render mode shows with their maps on this device, once it has
 // started; others show their material.
 render_textured_max :: proc(pr: ^Path_Render) -> int {
-	return int(pr.textured_max) if pr.pipeline != nil else RENDER_TEXTURED_MAX
+	return int(pr.textured_max) if pr.pipeline != 0 else RENDER_TEXTURED_MAX
 }
 
 // The ray query kernel of the kind pr.pipeline is (named samplers or one array of maps),
@@ -656,23 +705,19 @@ render_textured_max :: proc(pr: ^Path_Render) -> int {
 @(private = "file")
 path_rq_kernel :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
 	if !r.ray_query || !r.caps.ray_query || pr.rq_failed || !ray_query_trusted(r) do return false
-	if pr.rq_pipeline == nil {
-		info := sdl.GPUComputePipelineCreateInfo {
-			code_size = len(RENDER_TRACE_RQ_COMP_CODE), code = raw_data(RENDER_TRACE_RQ_COMP_CODE), entrypoint = RQ_ENTRY,
-			format = SHADER_FORMAT, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
-			num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
-		}
+	if pr.rq_pipeline == 0 {
+		info := RENDER_TRACE_RQ_COMP
 		capacity: u32
 		// The array kind exists only under Vulkan (path_maps_pipeline).
-		when VULKAN {
+		when gpu.VULKAN {
 			if pr.maps_array {
-				info.code_size, info.code, info.num_samplers = len(RENDER_TRACE_MAPS_RQ_COMP_CODE), raw_data(RENDER_TRACE_MAPS_RQ_COMP_CODE), 5
+				info = RENDER_TRACE_MAPS_RQ_COMP
 				capacity = 3 * pr.textured_max
 			}
 		}
-		pr.rq_pipeline = gpu_create_compute_pipeline_traced(r.device, info, capacity)
-		if pr.rq_pipeline == nil {
-			log.warnf("render mode: the ray query kernel could not be made (%s); it walks its own trees", sdl.GetError())
+		pr.rq_pipeline = gpu.create_compute_pipeline_traced(info, capacity)
+		if pr.rq_pipeline == 0 {
+			log.warnf("render mode: the ray query kernel could not be made (%s); it walks its own trees", gpu.last_error())
 			pr.rq_failed = true
 			return false
 		}
@@ -682,66 +727,61 @@ path_rq_kernel :: proc(r: ^Renderer, pr: ^Path_Render) -> bool {
 
 @(private = "file")
 path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: bool) -> bool {
-	if pr.pipeline == nil {
-		usage := sdl.GPUTextureUsageFlags{.SAMPLER, .COMPUTE_STORAGE_WRITE}
-		if !gpu_texture_supports_format(r.device, RENDER_FORMAT, .D2, usage) || !gpu_texture_supports_format(r.device, RENDER_GUIDE_FORMAT, .D2, usage) {
+	if pr.pipeline == 0 {
+		usage := gpu.Texture_Usages{.Sampled, .Storage_Write}
+		if !gpu.texture_supports_format(RENDER_FORMAT, .D2, usage) || !gpu.texture_supports_format(RENDER_GUIDE_FORMAT, .D2, usage) {
 			log.warn("render mode: this device cannot write RGBA32F and RGBA16F from compute; it stays off")
 			return false
 		}
 		pr.pipeline, pr.maps_array, pr.textured_max = path_maps_pipeline(r)
-		if pr.pipeline == nil {
-			pr.pipeline = gpu_create_compute_pipeline(r.device, {
-				code_size = len(RENDER_TRACE_COMP_CODE), code = raw_data(RENDER_TRACE_COMP_CODE), entrypoint = SHADER_ENTRY,
-				format = SHADER_FORMAT, num_samplers = RENDER_SAMPLERS, num_readonly_storage_buffers = len(Scene_Buffer), num_readwrite_storage_textures = 3,
-				num_uniform_buffers = 1, threadcount_x = RENDER_GROUP, threadcount_y = RENDER_GROUP, threadcount_z = 1,
-			})
+		if pr.pipeline == 0 {
+			pr.pipeline = gpu.create_compute_pipeline(RENDER_TRACE_COMP)
 			pr.maps_array, pr.textured_max = false, RENDER_TEXTURED_MAX
 		}
-		pr.display = create_fullscreen_pipeline(r, RENDER_DISPLAY_FRAG_CODE, VIEWPORT_COLOR_FORMAT, samplers = 4)
-		pr.atrous = create_fullscreen_pipeline(r, RENDER_ATROUS_FRAG_CODE, RENDER_GUIDE_FORMAT, samplers = 3)
-		pr.sampler = gpu_create_sampler(r.device, {
-			min_filter = .NEAREST, mag_filter = .NEAREST, mipmap_mode = .NEAREST,
-			address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE, address_mode_w = .CLAMP_TO_EDGE,
+		pr.display = create_fullscreen_pipeline(r, RENDER_DISPLAY_FRAG, VIEWPORT_COLOR_FORMAT)
+		pr.atrous = create_fullscreen_pipeline(r, RENDER_ATROUS_FRAG, RENDER_GUIDE_FORMAT)
+		pr.sampler = gpu.create_sampler({
+			min_filter = .Nearest, mag_filter = .Nearest, mipmap_mode = .Nearest,
+			address_mode_u = .Clamp_To_Edge, address_mode_v = .Clamp_To_Edge, address_mode_w = .Clamp_To_Edge,
 		})
-		pr.transfer = gpu_create_transfer_buffer(r.device, {usage = .UPLOAD, size = RENDER_TRANSFER_SIZE})
 		studio := studio_table_build(context.temp_allocator)
 		pr.studio_table, pr.studio_mean = env_table_texture(r, studio), studio.mean
-		if pr.studio_table == nil || pr.pipeline == nil || pr.display == nil || pr.atrous == nil || pr.sampler == nil || pr.transfer == nil {
-			log.errorf("render mode: setup failed (%s); it stays off", sdl.GetError())
+		if pr.studio_table == 0 || pr.pipeline == 0 || pr.display == 0 || pr.atrous == 0 || pr.sampler == 0 {
+			log.errorf("render mode: setup failed (%s); it stays off", gpu.last_error())
 			return false
 		}
 	}
 	width, height := render_size(vt.width, vt.height, half)
-	if pr.shown != nil && pr.view_width == vt.width && pr.view_height == vt.height && pr.half == half do return true
+	if pr.shown != 0 && pr.view_width == vt.width && pr.view_height == vt.height && pr.half == half do return true
 	path_targets_release(r, pr)
 	for &t in pr.accum {
-		t = gpu_create_texture(r.device, {
-			type = .D2, format = RENDER_FORMAT, usage = {.SAMPLER, .COMPUTE_STORAGE_WRITE},
+		t = gpu.create_texture({
+			type = .D2, format = RENDER_FORMAT, usage = {.Sampled, .Storage_Write},
 			width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
 	for &pair in pr.guides {
 		for &t in pair {
-			t = gpu_create_texture(r.device, {
-				type = .D2, format = RENDER_GUIDE_FORMAT, usage = {.SAMPLER, .COMPUTE_STORAGE_WRITE},
+			t = gpu.create_texture({
+				type = .D2, format = RENDER_GUIDE_FORMAT, usage = {.Sampled, .Storage_Write},
 				width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 			})
 		}
 	}
 	for &t in pr.filtered {
-		t = gpu_create_texture(r.device, {
-			type = .D2, format = RENDER_GUIDE_FORMAT, usage = {.SAMPLER, .COLOR_TARGET},
+		t = gpu.create_texture({
+			type = .D2, format = RENDER_GUIDE_FORMAT, usage = {.Sampled, .Color_Target},
 			width = width, height = height, layer_count_or_depth = 1, num_levels = 1,
 		})
 	}
-	pr.shown = gpu_create_texture(r.device, {
-		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
+	pr.shown = gpu.create_texture({
+		type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.Color_Target, .Sampled},
 		width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 	})
 	pr.width, pr.height, pr.view_width, pr.view_height, pr.half, pr.rows = width, height, vt.width, vt.height, half, 0
 	path_render_reset(pr)
-	if pr.accum[0] == nil || pr.accum[1] == nil || pr.shown == nil || pr.guides[0][0] == nil || pr.guides[0][1] == nil || pr.guides[1][0] == nil || pr.guides[1][1] == nil || pr.filtered[0] == nil || pr.filtered[1] == nil {
-		log.errorf("render mode: target creation failed (%s); it stays off", sdl.GetError())
+	if pr.accum[0] == 0 || pr.accum[1] == 0 || pr.shown == 0 || pr.guides[0][0] == 0 || pr.guides[0][1] == 0 || pr.guides[1][0] == 0 || pr.guides[1][1] == 0 || pr.filtered[0] == 0 || pr.filtered[1] == 0 {
+		log.errorf("render mode: target creation failed (%s); it stays off", gpu.last_error())
 		return false
 	}
 	return true
@@ -752,29 +792,29 @@ path_ensure :: proc(r: ^Renderer, pr: ^Path_Render, vt: ^Viewport_Target, half: 
 // images, said in the log) render mode lays itself over the viewport's image as without
 // a lens.
 @(private = "file")
-path_backdrop :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4) {
-	if pr.backdrop == nil {
-		pr.backdrop = gpu_create_texture(r.device, {
-			type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.COLOR_TARGET, .SAMPLER},
+path_backdrop :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, view, proj: Mat4) {
+	if pr.backdrop == 0 {
+		pr.backdrop = gpu.create_texture({
+			type = .D2, format = VIEWPORT_COLOR_FORMAT, usage = {.Color_Target, .Sampled},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})
 		// Drawn into by the one pass below and never read: transient.
-		pr.backdrop_depth = gpu_create_texture_transient(r.device, {
-			type = .D2, format = r.depth_format, usage = {.DEPTH_STENCIL_TARGET},
+		pr.backdrop_depth = gpu.create_texture_transient({
+			type = .D2, format = r.depth_format, usage = {.Depth_Target},
 			width = vt.width, height = vt.height, layer_count_or_depth = 1, num_levels = 1,
 		})
-		if pr.backdrop == nil || pr.backdrop_depth == nil {
-			log.errorf("render mode: depth of field's backdrop: %s", sdl.GetError())
-			if pr.backdrop != nil do gpu_release_texture(r.device, pr.backdrop)
-			if pr.backdrop_depth != nil do gpu_release_texture(r.device, pr.backdrop_depth)
-			pr.backdrop, pr.backdrop_depth = nil, nil
+		if pr.backdrop == 0 || pr.backdrop_depth == 0 {
+			log.errorf("render mode: depth of field's backdrop: %s", gpu.last_error())
+			if pr.backdrop != 0 do gpu.release_texture(pr.backdrop)
+			if pr.backdrop_depth != 0 do gpu.release_texture(pr.backdrop_depth)
+			pr.backdrop, pr.backdrop_depth = 0, 0
 			return
 		}
 	}
 	pass := begin_mesh_pass(r, cmd, &r.single, pr.backdrop, pr.backdrop_depth, load = false, keep_depth = false, background = r.background.top)
 	draw_background(r, cmd, pass, &r.single, vt^, proj, flat_too = true)
 	draw_floor(r, cmd, pass, &r.single, view, proj)
-	gpu_end_render_pass(pass)
+	gpu.end_render_pass(pass)
 }
 
 // The size render mode traces a `width` by `height` viewport at: the same, or with `half`
@@ -787,9 +827,9 @@ render_size :: proc(width, height: u32, half: bool) -> (u32, u32) {
 // The images the size of the traced image and of the viewport.
 @(private = "file")
 path_targets_release :: proc(r: ^Renderer, pr: ^Path_Render) {
-	targets := [12]^sdl.GPUTexture{pr.accum[0], pr.accum[1], pr.shown, pr.guides[0][0], pr.guides[0][1], pr.guides[1][0], pr.guides[1][1], pr.filtered[0], pr.filtered[1], pr.backdrop, pr.backdrop_depth, pr.linear}
-	for t in targets do if t != nil do gpu_release_texture(r.device, t)
-	pr.backdrop, pr.backdrop_depth, pr.linear, pr.linear_valid = nil, nil, nil, false
+	targets := [12]gpu.Texture{pr.accum[0], pr.accum[1], pr.shown, pr.guides[0][0], pr.guides[0][1], pr.guides[1][0], pr.guides[1][1], pr.filtered[0], pr.filtered[1], pr.backdrop, pr.backdrop_depth, pr.linear}
+	for t in targets do if t != 0 do gpu.release_texture(t)
+	pr.backdrop, pr.backdrop_depth, pr.linear, pr.linear_valid = 0, 0, 0, false
 	// A band still running writes the old images: it is dropped when it ends.
 	pr.generation += 1
 }
@@ -805,7 +845,7 @@ render_denoise_passes :: proc(samples: int) -> (passes: int, spread: f32) {
 
 // Lays the sum out over the viewport into `shown`, denoised first when `denoise`.
 @(private = "file")
-path_display :: proc(pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, exposure: f32, denoise: bool) {
+path_display :: proc(pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, exposure: f32, denoise: bool) {
 	pr.exposure, pr.denoised = exposure, denoise
 	guides := pr.guides[pr.guide_at]
 	out := 0
@@ -813,38 +853,49 @@ path_display :: proc(pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport
 		passes, spread := render_denoise_passes(pr.samples)
 		for i in 0 ..< passes {
 			src := pr.accum[pr.current] if i == 0 else pr.filtered[1 - out]
-			target := sdl.GPUColorTargetInfo{texture = pr.filtered[out], load_op = .DONT_CARE, store_op = .STORE}
-			pass := gpu_begin_render_pass(cmd, &target, 1, nil)
-			gpu_bind_graphics_pipeline(pass, pr.atrous)
-			samplers := [3]sdl.GPUTextureSamplerBinding{{texture = src, sampler = pr.sampler}, {texture = guides[0], sampler = pr.sampler}, {texture = guides[1], sampler = pr.sampler}}
-			gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+			target := gpu.Color_Target{texture = pr.filtered[out], load_op = .Dont_Care, store_op = .Store}
+			pass := gpu.begin_render_pass(cmd, &target, 1, nil)
+			gpu.bind_graphics_pipeline(pass, pr.atrous)
+			samplers := [Render_Atrous_Frag_Samplers]gpu.Texture_Sampler_Binding {
+				.src          = {texture = src, sampler = pr.sampler},
+				.guide_albedo = {texture = guides[0], sampler = pr.sampler},
+				.guide_normal = {texture = guides[1], sampler = pr.sampler},
+			}
+			bind_fragment_samplers(pass, &samplers)
 			params := [4]f32{f32(int(1) << uint(i)), spread / f32(int(1) << uint(i)), 1 if i == 0 else 0, 1 if pr.lens_on else 0}
-			gpu_push_fragment_uniform_data(cmd, 0, &params, size_of(params))
-			gpu_draw_primitives(pass, 3, 1, 0, 0)
-			gpu_end_render_pass(pass)
+			push_fragment(cmd, Render_Atrous_Frag_Uniforms.Atrous_Uniforms, &params)
+			gpu.draw_primitives(pass, 3, 1, 0, 0)
+			gpu.end_render_pass(pass)
 			out = 1 - out
 		}
 	}
-	target := sdl.GPUColorTargetInfo{texture = pr.shown, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
-	pass := gpu_begin_render_pass(cmd, &target, 1, nil)
-	gpu_bind_graphics_pipeline(pass, pr.display)
-	under := pr.backdrop if pr.lens_on && pr.backdrop != nil else vt.color
-	samplers := [4]sdl.GPUTextureSamplerBinding{{texture = under, sampler = pr.sampler}, {texture = pr.accum[pr.current], sampler = pr.sampler}, {texture = pr.filtered[1 - out], sampler = pr.sampler}, {texture = guides[0], sampler = pr.sampler}}
-	gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+	target := gpu.Color_Target{texture = pr.shown, load_op = .Dont_Care, store_op = .Store, cycle = true}
+	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
+	gpu.bind_graphics_pipeline(pass, pr.display)
+	under := pr.backdrop if pr.lens_on && pr.backdrop != 0 else vt.color
+	samplers := [Render_Display_Frag_Samplers]gpu.Texture_Sampler_Binding {
+		.view_color   = {texture = under, sampler = pr.sampler},
+		.accum        = {texture = pr.accum[pr.current], sampler = pr.sampler},
+		.denoised     = {texture = pr.filtered[1 - out], sampler = pr.sampler},
+		.guide_albedo = {texture = guides[0], sampler = pr.sampler},
+	}
+	bind_fragment_samplers(pass, &samplers)
 	params := [4]f32{exposure, f32(pr.samples), 1 if denoise else 0, 1 if pr.half else 0}
-	gpu_push_fragment_uniform_data(cmd, 0, &params, size_of(params))
-	gpu_draw_primitives(pass, 3, 1, 0, 0)
-	gpu_end_render_pass(pass)
+	push_fragment(cmd, Render_Display_Frag_Uniforms.Display_Uniforms, &params)
+	gpu.draw_primitives(pass, 3, 1, 0, 0)
+	gpu.end_render_pass(pass)
 	pr.linear_valid = false
 	if !pr.linear_on do return
 	// The same again as exposed linear light, for the finishing stack.
-	target = {texture = pr.linear, load_op = .DONT_CARE, store_op = .STORE, cycle = true}
-	pass = gpu_begin_render_pass(cmd, &target, 1, nil)
-	gpu_bind_graphics_pipeline(pass, pr.display_linear)
-	gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
-	gpu_push_fragment_uniform_data(cmd, 0, &params, size_of(params))
-	gpu_draw_primitives(pass, 3, 1, 0, 0)
-	gpu_end_render_pass(pass)
+	target = {texture = pr.linear, load_op = .Dont_Care, store_op = .Store, cycle = true}
+	pass = gpu.begin_render_pass(cmd, &target, 1, nil)
+	gpu.bind_graphics_pipeline(pass, pr.display_linear)
+	// The linear display shader reads the same slots.
+	#assert(len(Render_Display_Linear_Frag_Samplers) == len(Render_Display_Frag_Samplers) && int(Render_Display_Linear_Frag_Samplers.guide_albedo) == int(Render_Display_Frag_Samplers.guide_albedo))
+	bind_fragment_samplers(pass, &samplers)
+	push_fragment(cmd, Render_Display_Linear_Frag_Uniforms.Display_Uniforms, &params)
+	gpu.draw_primitives(pass, 3, 1, 0, 0)
+	gpu.end_render_pass(pass)
 	pr.linear_valid = true
 }
 
@@ -875,7 +926,15 @@ Path_Item :: struct {
 // the merged triangles. False, with pr.refused saying why, when the scene cannot be
 // rendered.
 @(private = "file")
-path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, lights: Lights, softness: f32, pool: ^jobs.Pool) -> bool {
+path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, lights: Lights, softness: f32, pool: ^jobs.Pool) -> bool {
+	// Copies (Draw_Item.copy) are left out: the path render merges every item's vertices,
+	// triangles and trees into one set of buffers, so a copy would cost the whole mesh again.
+	items := items
+	if slice.any_of_proc(items, proc(item: Draw_Item) -> bool {return item.copy > 0}) {
+		own := make([dynamic]Draw_Item, 0, len(items), context.temp_allocator)
+		for item in items do if item.copy == 0 do append(&own, item)
+		items = own[:]
+	}
 	if !trace_prepare(r, &pr.tracer, cmd, vt, items, pool, ray_query = path_rq_kernel(r, pr)) {
 		pr.refused = "Render mode cannot trace this scene on this device; the log says why."
 		return false
@@ -904,7 +963,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 			}
 		}
 		p.vertex_off, p.tri_off, p.node_off, p.word_off, p.chunk_off = vertex_count, tri_count, node_count, word_count, chunk_count
-		p.paint = item.mesh.paint != nil && (item.paint || item.groups || item.slots != nil)
+		p.paint = item.mesh.paint != 0 && (item.paint || item.groups || item.slots != nil)
 		if t := item.textured; t != nil && item.texture_view != .Off && t.index_count > 0 && t.corner_count == 3 * p.triangles {
 			p.tex_slot = pr.textured_max
 			if item.texture_view != .Uv_Checker {
@@ -925,7 +984,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 			}
 		}
 		// A skinned item shades by its skin, as in the viewport, unless it shows its maps.
-		if mb := item.mesh; p.textured == nil && mb.skin_normals != nil && mb.skin_tris != nil && mb.skin_meta[0] >= 2 {
+		if mb := item.mesh; p.textured == nil && mb.skin_normals != 0 && mb.skin_tris != 0 && mb.skin_meta[0] >= 2 {
 			S, V, E := mb.skin_meta[0], mb.skin_meta[1], mb.skin_meta[2]
 			p.skin_samples = V + E * (S - 1) + p.triangles * ((S - 1) * (S - 2) / 2)
 			p.skin_off = skin_words
@@ -1011,7 +1070,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 	}
 
 	// Each item's own data, copied on the GPU.
-	copy_pass := gpu_begin_copy_pass(cmd)
+	copy_pass := gpu.begin_copy_pass(cmd)
 	paint_base := vertex_count * size_of(Normal_Packed)
 	for p in placed {
 		item := items[p.item]
@@ -1034,7 +1093,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 			gpu_copy(copy_pass, t.corners, pr.buffers[.Textured], p.tex_corner_off * size_of(u32), t.corner_count * size_of(u32))
 		}
 	}
-	gpu_end_copy_pass(copy_pass)
+	gpu.end_copy_pass(copy_pass)
 	ok := path_upload(r, pr, cmd, .Chunks, 0, slice.to_bytes(chunks)) &&
 		path_upload(r, pr, cmd, .Items, 0, slice.to_bytes(records)) &&
 		path_upload(r, pr, cmd, .Nodes, int(node_count) * size_of(geom.Gpu_Bvh_Node), slice.to_bytes(tlas[:])) &&
@@ -1078,6 +1137,11 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuf
 	}
 	u.counts.w = paint_base / size_of(u32)
 	u.extra = {node_count, 1 if len(tlas) == 0 && !pr.rq else 0, 0, 0}
+	pr.features = {env_image = r.environment != nil, lens = pr.lens_on, rq = pr.rq}
+	for rec in records do pr.features.items |= rec.offs.y & ITEM_ALL
+	// The kernel's gates: a light is sampled and met only with a chance above 0, and is a
+	// sphere when its kind (pos.w) is not a sun's.
+	for i in 0 ..< LIGHT_COUNT do if u.lights.size[i].w > 0 && u.lights.pos[i].w >= 0.5 do pr.features.sphere_lights = true
 	pr.bytes = 0
 	for c in pr.capacity do pr.bytes += int(c)
 	return true
@@ -1132,7 +1196,7 @@ path_item_record :: proc(item: Draw_Item, p: Path_Item, skin_base: u32) -> (rec:
 	rec.inv_model = linalg.inverse(item.model)
 	rec.color = item.color
 	rec.surface = {item.surface.x, path_roughness(item.material, item.surface), 0, 0}
-	if item.matcap != nil {
+	if item.matcap != 0 {
 		// A MatCap's picture holds its light; traced, it is its colour, a little darker as
 		// the picture's own shading leaves it, half rough.
 		rec.color.rgb *= 0.8
@@ -1142,7 +1206,7 @@ path_item_record :: proc(item: Draw_Item, p: Path_Item, skin_base: u32) -> (rec:
 	if t := p.textured; t != nil {
 		rec.offs.y |= ITEM_TEXTURED
 		maps: u32
-		for m in Texture_Map do if t.maps[m] != nil do maps |= 1 << u32(m)
+		for m in Texture_Map do if t.maps[m] != 0 do maps |= 1 << u32(m)
 		rec.tex = {p.tri_off, p.tex_corner_off, p.tex_vertex_off, min(p.tex_slot, RENDER_TEXTURED_MAX) | u32(item.texture_view) << TEX_VIEW_SHIFT | maps << TEX_MAPS_SHIFT | p.tex_slot << TEX_WIDE_SLOT_SHIFT}
 	}
 	if p.skin_samples > 0 {
@@ -1168,46 +1232,134 @@ path_item_record :: proc(item: Draw_Item, p: Path_Item, skin_base: u32) -> (rec:
 }
 
 @(private = "file")
-gpu_copy :: proc(pass: ^sdl.GPUCopyPass, src, dst: ^sdl.GPUBuffer, offset, size: u32) {
-	if src == nil || size == 0 do return
-	gpu_copy_buffer_to_buffer(pass, {buffer = src}, {buffer = dst, offset = offset}, size, false)
+gpu_copy :: proc(pass: gpu.Copy_Pass, src, dst: gpu.Buffer, offset, size: u32) {
+	if src == 0 || size == 0 do return
+	gpu.copy_buffer_to_buffer(pass, {buffer = src}, {buffer = dst, offset = offset}, size, false)
 }
 
 // Makes a scene buffer at least `size` bytes, a quarter again over when it grows.
 @(private = "file")
 path_buffer_ensure :: proc(r: ^Renderer, pr: ^Path_Render, which: Scene_Buffer, wanted: int) -> bool {
 	size := max(wanted, 64)
-	if pr.buffers[which] != nil && u32(size) <= pr.capacity[which] do return true
-	if pr.buffers[which] != nil {
-		_ = gpu_wait_for_idle(r.device)
-		gpu_release_buffer(r.device, pr.buffers[which])
+	if pr.buffers[which] != 0 && u32(size) <= pr.capacity[which] do return true
+	if pr.buffers[which] != 0 {
+		gpu.release_buffer(pr.buffers[which])
 	}
 	capacity := u32(min(size + size / 4, TRACE_BUFFER_MAX))
-	pr.buffers[which] = gpu_create_buffer(r.device, {usage = {.COMPUTE_STORAGE_READ}, size = capacity})
-	pr.capacity[which] = capacity if pr.buffers[which] != nil else 0
-	if pr.buffers[which] == nil {
-		log.errorf("render mode: a buffer of %d MB was refused (%s)", capacity >> 20, sdl.GetError())
+	pr.buffers[which] = gpu.create_buffer({usage = {.Storage_Read}, size = capacity})
+	pr.capacity[which] = capacity if pr.buffers[which] != 0 else 0
+	if pr.buffers[which] == 0 {
+		log.errorf("render mode: a buffer of %d MB was refused (%s)", capacity >> 20, gpu.last_error())
 		return false
 	}
 	return true
 }
 
-// Copies `data` into a scene buffer at `offset` through the transfer buffer, a batch at a
-// time.
+// Copies `data` into a scene buffer at `offset` through the GPU layer's upload memory.
 @(private = "file")
-path_upload :: proc(r: ^Renderer, pr: ^Path_Render, cmd: ^sdl.GPUCommandBuffer, which: Scene_Buffer, offset: int, data: []u8) -> bool {
-	for at := 0; at < len(data); at += RENDER_TRANSFER_SIZE {
-		part := data[at:min(at + RENDER_TRANSFER_SIZE, len(data))]
-		dst := gpu_map_transfer_buffer(r.device, pr.transfer, true)
-		if dst == nil {
-			log.errorf("render mode: upload failed (%s)", sdl.GetError())
-			return false
-		}
-		runtime.mem_copy_non_overlapping(dst, raw_data(part), len(part))
-		gpu_unmap_transfer_buffer(r.device, pr.transfer)
-		pass := gpu_begin_copy_pass(cmd)
-		gpu_upload_to_buffer(pass, {transfer_buffer = pr.transfer}, {buffer = pr.buffers[which], offset = u32(offset + at), size = u32(len(part))}, false)
-		gpu_end_copy_pass(pass)
+path_upload :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, which: Scene_Buffer, offset: int, data: []u8) -> bool {
+	if !gpu.upload(cmd, pr.buffers[which], u32(offset), data) {
+		log.errorf("render mode: upload failed (%s)", gpu.last_error())
+		return false
 	}
 	return true
+}
+
+// Takes the variants whose builds are over, so a build's thread is joined soon after it
+// ends; a refused one keeps its slot, marked, so it is not built again.
+@(private = "file")
+path_variants_poll :: proc(pr: ^Path_Render) {
+	for &v in pr.variants {
+		if v.build == nil || !gpu.compute_build_ready(v.build) do continue
+		path_variant_finish(pr, &v)
+	}
+}
+
+@(private = "file")
+path_variant_finish :: proc(pr: ^Path_Render, v: ^Path_Variant) {
+	v.pipeline = gpu.compute_build_finish(v.build)
+	v.build = nil
+	if v.pipeline == 0 {
+		log.warnf("render mode: a kernel for %v could not be made (%s); the general one serves", v.features, gpu.last_error())
+		v.failed = true
+		return
+	}
+	pr.variants_built += 1
+}
+
+@(private = "file")
+path_variant_release :: proc(v: ^Path_Variant) {
+	if v.build != nil do v.pipeline = gpu.compute_build_finish(v.build)
+	if v.pipeline != 0 do gpu.release_compute_pipeline(v.pipeline)
+	v^ = {}
+}
+
+// Picks the kernel the sample about to start binds: the one specialised to this run's
+// features when it is built, else the general one, starting its build when none is under
+// way. Under Renderer.kernel_builds_wait (a scripted run) the build is waited for, so the
+// run's images never depend on how long a compile took.
+@(private = "file")
+path_kernel_pick :: proc(r: ^Renderer, pr: ^Path_Render) {
+	pr.kernel = 0
+	f := pr.features
+	// The general kernel is already the one for a scene that uses everything, and WebGPU
+	// takes no constants.
+	if gpu.WEBGPU || !r.render_variants || f == {items = ITEM_ALL, env_image = true, lens = true, sphere_lights = true, rq = f.rq} do return
+	v: ^Path_Variant
+	oldest: ^Path_Variant
+	for &w in pr.variants {
+		if w.taken && w.features == f {
+			v = &w
+			break
+		}
+		if oldest == nil || !w.taken || oldest.taken && w.used < oldest.used do oldest = &w
+	}
+	if v == nil {
+		v = oldest
+		path_variant_release(v)
+		v.features, v.taken = f, true
+		desc, kind, capacity := path_variant_desc(pr, f.rq)
+		// Every render kernel declares the same constants (render_trace.slang).
+		constants := [Render_Trace_Comp_Constants]u32 {
+			.RT_ITEMS         = f.items,
+			.RT_ENV_IMAGE     = u32(f.env_image),
+			.RT_LENS          = u32(f.lens),
+			.RT_SPHERE_LIGHTS = u32(f.sphere_lights),
+		}
+		desc.constants = slice.enumerated_array(&constants)
+		v.build = gpu.compute_build_start(desc, kind, capacity, wait = r.kernel_builds_wait)
+		if v.build == nil {
+			log.warnf("render mode: a kernel for %v could not be started (%s); the general one serves", f, gpu.last_error())
+			v.failed = true
+		} else if r.kernel_builds_wait {
+			path_variant_finish(pr, v)
+		}
+	}
+	v.used = u64(pr.total_samples)
+	if v.pipeline != 0 do pr.kernel, pr.kernel_features, pr.kernel_used = v.pipeline, f, true
+}
+
+// The general kernel of the kind this view runs, which a variant specialises: as
+// path_ensure and path_rq_kernel chose it.
+@(private = "file")
+path_variant_desc :: proc(pr: ^Path_Render, rq: bool) -> (desc: gpu.Compute_Pipeline_Desc, kind: gpu.Compute_Kind, capacity: u32) {
+	desc, kind = RENDER_TRACE_RQ_COMP if rq else RENDER_TRACE_COMP, .Traced if rq else .Plain
+	// The array kind exists only under Vulkan (path_maps_pipeline).
+	when gpu.VULKAN {
+		if pr.maps_array {
+			desc = RENDER_TRACE_MAPS_RQ_COMP if rq else RENDER_TRACE_MAPS_COMP
+			kind = .Traced if rq else .Array
+			capacity = 3 * pr.textured_max
+		}
+	}
+	return
+}
+
+// The features of the last specialised kernel render mode used, for the exit stats, as
+// hex (the item flags, then the image environment, the lens and sphere lights from bit 5),
+// or "general" when it used none.
+render_variant_name :: proc(pr: ^Path_Render) -> string {
+	f := pr.kernel_features
+	if !pr.kernel_used do return "general"
+	return fmt.tprintf("%x", f.items | u32(f.env_image) << 5 | u32(f.lens) << 6 | u32(f.sphere_lights) << 7)
 }

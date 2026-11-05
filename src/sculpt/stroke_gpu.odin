@@ -45,6 +45,10 @@ Stroke_Gpu :: struct {
 	// mesh; false where one is recorded this frame and not yet submitted, which cannot be
 	// waited for (the caller then tries again next frame).
 	sync:    proc(data: rawptr, s: ^Sculptor) -> bool,
+	// Whether a readback of `s`'s mesh is recorded or submitted and not yet written into
+	// the mesh, without waiting: for work that can wait a frame for it rather than wait
+	// for the GPU (sculptor_lod_update). Nil reads as none.
+	pending: proc(data: rawptr, s: ^Sculptor) -> bool,
 	// Reads the GPU's normals of `ranges` back with the frame's readbacks, nothing
 	// recomputed (the normals the stroke's flushes left there); false leaves them to the
 	// CPU.
@@ -90,6 +94,25 @@ Gpu_Dab :: struct {
 	// `stroke`) cap each vertex's move, as displace's ONCE does.
 	once:        bool,
 	stroke:      u32,
+	// The mask shields the vertices (sculpt.shield): the kernels read the level's mask
+	// bytes, which the app keeps on the GPU while the sculptor has a mask.
+	masked:      bool,
+	// An HD window's fade toward its border shields them too (Sculptor.fade, set when the
+	// window is made): the app keeps those bytes on the GPU with the mask's.
+	faded:       bool,
+	// A drawn falloff's table (Falloff.table) in place of the round falloff, nil for none:
+	// the brush's own (Brush.falloff_shape, which its owner keeps for the brush's life), read
+	// by the frame's dispatch. Its values lie in 0 to 1 (geom.curve_at clamps), so the
+	// margins' bounds hold.
+	falloff:     []f32,
+	// The brush's alpha (Alpha.values, alpha_size a side, values 0 to 1 as alpha_load and
+	// alpha_make clamp them), nil for none, read by the frame's dispatch as the falloff
+	// table is; with the way its top faces for this dab's image and whether it is mirrored.
+	// The kernels lay it in the frame alpha_frame works out from their own area.
+	alpha:        []f32,
+	alpha_size:   int,
+	alpha_up:     Vec3,
+	alpha_mirror: bool,
 	// The hit leaves' owned vertex ranges, coalesced and sorted: what the kernels work
 	// on. Set for the hand-off; valid until the next sculptor_flush.
 	ranges:      []Vertex_Range,
@@ -204,18 +227,19 @@ stroke_gpu_decide :: proc(s: ^Sculptor, brush: Brush) {
 }
 
 // Whether the GPU's dab kernels lay dabs of `brush` on `s`: one of their kinds, with the
-// round falloff (no alpha, drawn shape or VDM), the area taken afresh each dab (no lock
-// plane or stabilize), every vertex in reach (no Connected, no mask, no HD fade, nothing
-// hidden), the surface alone (no paint channel, no skin, no layer recording, no dynamic
-// topology), and Smooth plain (no Polish, no Stable). Accumulate off is theirs too: the
-// kernels keep the stroke's heights as displace does.
+// round or a drawn falloff or an alpha (no vector displacement alpha), the area taken afresh each dab (no lock
+// plane or stabilize), every vertex in reach but for the mask and an HD window's fade (no
+// Connected, nothing hidden: a base level's fade marks its hidden vertices), the surface
+// alone (no paint channel, no skin, no layer recording, no dynamic topology), and Smooth
+// plain (no Polish, no Stable). Accumulate off is theirs too: the kernels keep the
+// stroke's heights as displace does.
 @(private)
 dab_gpu_takes :: proc(s: ^Sculptor, brush: Brush) -> bool {
 	if brush.kind not_in GPU_DAB_KINDS do return false
-	if brush.alpha != nil || brush.falloff_shape != nil || brush.lock_plane || brush.stabilize > 0 || brush.connected do return false
+	if (brush.alpha != nil && brush.alpha.vectors != nil) || brush.lock_plane || brush.stabilize > 0 || brush.connected do return false
 	if brush.channel != .Sculpt || brush.skin do return false
 	if brush.kind == .Smooth && (brush.smooth_mode == .Polish || brush.smooth_stable) do return false
-	if s.mask != nil || s.fade != nil || s.dyn != nil || s.skin != nil || s.layers.recording != 0 do return false
+	if s.hide.count > 0 || s.dyn != nil || s.skin != nil || s.layers.recording != 0 do return false
 	return true
 }
 
@@ -276,6 +300,13 @@ dab_gpu_record :: proc(s: ^Sculptor, d: ^Dab, brush: Brush) {
 		smooth_mode  = brush.smooth_mode,
 		smooth_only  = brush.smooth_only,
 		stroke       = s.layer_stroke,
+		masked       = s.mask != nil,
+		faded        = s.fade != nil,
+	}
+	if f := brush.falloff_shape; f != nil do rec.falloff = f.table[:]
+	if a := brush.alpha; a != nil {
+		rec.alpha, rec.alpha_size = a.values, a.size
+		rec.alpha_up, rec.alpha_mirror = brush.alpha_up, brush.alpha_mirror
 	}
 	#partial switch brush.kind {
 	case .Draw, .Inflate:

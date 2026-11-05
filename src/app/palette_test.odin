@@ -46,7 +46,7 @@ palette_tiers_rank_in_order :: proc(t: ^testing.T) {
 // The names other apps give a command find ours, and case and spaces do not matter.
 @(test)
 palette_finds_other_apps_names :: proc(t: ^testing.T) {
-	testing.expect_value(t, best("DynaMesh"), "Remesh")
+	testing.expect_value(t, best("DynaMesh"), "Voxel remesh")
 	testing.expect_value(t, best("zremesher"), "Quad Remesh")
 	testing.expect_value(t, best("  WIREFRAME "), "Wireframe")
 	testing.expect_value(t, best("clay"), "Clay brush")
@@ -58,15 +58,16 @@ palette_finds_other_apps_names :: proc(t: ^testing.T) {
 	testing.expect_value(t, best("qqqqq"), "")
 }
 
-// Among equal matches the recent one comes first, then one that can run now; and with
+// A brush is its bare name exactly, so "smooth" is the Smooth brush ahead of Smooth all;
+// among equal matches the recent one comes first, then one that can run now; and with
 // no query the recents lead, in the order they were run.
 @(test)
 palette_recent_then_enabled_first :: proc(t: ^testing.T) {
 	entries := palette_entries()
 	enabled := make([]bool, len(entries), context.temp_allocator)
 	for &e in enabled do e = true
-	testing.expect_value(t, best("smooth"), "Smooth all")
-	testing.expect_value(t, best("smooth", {cmd(.Brush, 1)}), "Smooth brush")
+	testing.expect_value(t, best("smooth"), "Smooth brush")
+	testing.expect_value(t, best("cage smooth", {cmd(.Cage_Smooth, 2)}), palette_label(cmd(.Cage_Smooth, 2)))
 	// Disabled loses to enabled within a tier, but not across tiers.
 	for e, i in entries do if e == cmd(.Smooth_All) do enabled[i] = false
 	hits := palette_rank("smooth", entries, nil, enabled)
@@ -103,7 +104,7 @@ palette_lists_everything_once :: proc(t: ^testing.T) {
 	entries := palette_entries()
 	seen := make(map[string]int, context.temp_allocator)
 	for e in entries {
-		testing.expect(t, e.kind == .Settings_Tab || palette_lists(e.id))
+		testing.expect(t, e.kind == .Settings_Section || palette_lists(e.id))
 		label := palette_label(e)
 		testing.expect(t, label != "")
 		seen[label] += 1
@@ -139,21 +140,13 @@ palette_names_round_trip :: proc(t: ^testing.T) {
 		testing.expectf(t, ok && back == e, "%s read back as %v", palette_entry_name(e), back)
 	}
 	testing.expect_value(t, palette_entry_name(cmd(.Brush, int(sculpt.Brush_Kind.Clay))), "Brush:Clay")
-	testing.expect_value(t, palette_entry_name({kind = .Settings_Tab, arg = int(Settings_Tab.Touch)}), "Settings_Tab:Touch")
+	testing.expect_value(t, palette_entry_name({kind = .Settings_Section, arg = int(Settings_Section.Touch)}), "Settings_Section:Touch")
 	near, ok := palette_entry_from_name("Remesh_To:990000")
 	testing.expect(t, ok && near == cmd(.Remesh_To, 2))
-	for bad in ([?]string{"Teleport", "Brush:Nonsense", "Wireframe:1", "Hd_Toggle", "None", "Command_Palette", "Settings_Tab:Sound", ""}) {
+	for bad in ([?]string{"Teleport", "Brush:Nonsense", "Wireframe:1", "Hd_Toggle", "None", "Command_Palette", "Settings_Section:Sound", ""}) {
 		_, ok = palette_entry_from_name(bad)
 		testing.expectf(t, !ok, "%q was read", bad)
 	}
-}
-
-// A tall window shows every row; a short one fewer, never under two.
-@(test)
-palette_rows_fit_the_room :: proc(t: ^testing.T) {
-	testing.expect_value(t, palette_rows(800, 48), PALETTE_ROWS)
-	testing.expect_value(t, palette_rows(400, 48), 3)
-	testing.expect_value(t, palette_rows(100, 48), 2)
 }
 
 // The touch scenarios that star, pie or bind Wireframe (scripts/touch_check.py) type
@@ -170,4 +163,14 @@ palette_wire_finds_four_rows :: proc(t: ^testing.T) {
 	labels := make([]string, len(hits), context.temp_allocator)
 	for h, i in hits do labels[i] = palette_label(entries[h.entry])
 	testing.expectf(t, len(hits) == 4, "\"wire\" finds %v", labels)
+}
+
+// A tall window shows every result row; a short one fewer, never under two, and each
+// group caption takes a row's room.
+@(test)
+lens_search_rows_fit_the_room :: proc(t: ^testing.T) {
+	testing.expect_value(t, lens_search_rows(800, 0), LENS_SEARCH_ROWS)
+	testing.expect_value(t, lens_search_rows(400, 0), 4)
+	testing.expect_value(t, lens_search_rows(400, 2), 3)
+	testing.expect_value(t, lens_search_rows(100, 0), 2)
 }

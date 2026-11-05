@@ -15,6 +15,10 @@ Stretch :: struct {
 	angle:     f64, // mean difference of a corner's angle from the surface's, in degrees
 	flips:     int, // triangles facing the other way in the texture
 	triangles: int, // triangles measured: those with area on the surface
+	// Texel density: the UVs' length a unit of the surface takes (the square root of their
+	// area over the surface's), so a map `side` texels wide gives density * side texels a
+	// unit, as Blender's Texel Density and RizomUV's TD read it.
+	density:   f64,
 }
 
 // Measures the triangles `tris` of `u` over `positions` and `indices` (nil: all of them).
@@ -30,6 +34,7 @@ stretch :: proc(u: Uvs, positions: []geom.Vec3, indices: []u32, tris: []u32 = ni
 		texture += abs(f64(c[1].x - c[0].x) * f64(c[2].y - c[0].y) - f64(c[2].x - c[0].x) * f64(c[1].y - c[0].y)) * 0.5
 	}
 	if surface <= 0 || texture <= 0 do return
+	s.density = math.sqrt(texture / surface)
 	// UVs scaled by `k` have the surface's area.
 	k := math.sqrt(surface / texture)
 	sum_l2, sum_angle, weight: f64

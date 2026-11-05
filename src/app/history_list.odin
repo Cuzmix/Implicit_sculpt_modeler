@@ -31,8 +31,6 @@ History_Row :: struct {
 HISTORY_ROW_H :: 50
 HISTORY_SUB_H :: 38
 HISTORY_ROW_GAP :: 2
-// The list's width.
-KIT_HISTORY_LIST_W :: 400
 
 // The entry at timeline position `i` (0 is the oldest done step, done and undone counted
 // as the timeline counts them).
@@ -96,7 +94,7 @@ history_same_stroke :: proc(a, b: History_Entry) -> bool {
 // limit (the swap snapshots and texture steps, and each sculptor's strokes).
 history_memory :: proc(app: ^App) -> (bytes: int, full: f32) {
 	h := &app.history
-	limit := h.swap_limit if h.swap_limit > 0 else SWAP_LIMIT_BYTES
+	limit := history_swap_limit(h)
 	bytes = h.swap_bytes
 	full = f32(h.swap_bytes) / f32(limit)
 	for obj in app.scene.objects {
@@ -115,14 +113,14 @@ history_memory :: proc(app: ^App) -> (bytes: int, full: f32) {
 	return bytes, clamp(full, 0, 1)
 }
 
-// The list view: the memory line, the rows in a scrolling body as tall as the window has
-// room for, and the playback buttons under them.
-kit_history_list :: proc(app: ^App, p: ^Panel_Frame, width: f32, can: bool) {
+// The list view, `inner` wide: the memory line, the rows in a scrolling body as tall as
+// the card's `room` leaves, and the playback buttons under them. `owner` is the card's
+// root, which a drag on the rows scrolls.
+kit_history_list :: proc(app: ^App, inner, room: f32, owner: ui.Id, can: bool) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	tl := &app.timeline
-	inner := width - 20
 	// The memory line: steps and bytes (of History may use, when set), and a meter of how
 	// near the History is to its limit.
 	steps := history_step_count(app.history.done[:]) + history_step_count(app.history.undone[:])
@@ -149,11 +147,11 @@ kit_history_list :: proc(app: ^App, p: ^Panel_Frame, width: f32, can: bool) {
 	rows := history_rows(app, only, tl.open_at, !app.history_ungrouped)
 	natural: f32 = HISTORY_ROW_H + HISTORY_ROW_GAP // the first row of all, where the History starts
 	for row in rows do natural += (HISTORY_SUB_H if row.sub else HISTORY_ROW_H) + HISTORY_ROW_GAP
-	// The rows take what the window has left under its head, the memory line and the
+	// The rows take what the card has left under its head, the memory line and the
 	// playback buttons.
-	room := max(p.room - 4 * t.target - 40, 3 * HISTORY_ROW_H)
-	height := min(natural, room)
-	s := kit_scroll_begin(ctx, "history rows", &tl.list_scroll, p.owner, inner, height, 0, fixed = true)
+	rows_room := max(room - 4 * t.target - 40, 3 * HISTORY_ROW_H)
+	height := min(natural, rows_room)
+	s := kit_scroll_begin(ctx, "history rows", &tl.list_scroll, owner, inner, height, 0, fixed = true)
 	// Only the rows in sight are laid out; spacers stand for the rest, so a History of
 	// hundreds of steps costs what a screenful does.
 	top, bottom := s.shown, s.shown + height
@@ -188,7 +186,7 @@ ICON_FILE :: rune(0xe0c4)
 @(rodata)
 KIND_GLYPHS := [History_Kind]rune {
 	.Stroke    = ui.ICON_BRUSH,
-	.Mask      = ICON_CIRCLE_DASHED,
+	.Mask      = ICON_MASK,
 	.Hide      = ui.ICON_EYE_OFF,
 	.Deform    = ui.ICON_WAND,
 	.Rebuild   = ICON_REMESH,
@@ -200,6 +198,8 @@ KIND_GLYPHS := [History_Kind]rune {
 	.Lights    = ui.ICON_SUN,
 	.Model     = ICON_CAGE,
 	.Curve     = ui.ICON_SPLINE,
+	.References = ICON_REFERENCES,
+	.Stack     = ICON_LIVE_STACK,
 }
 
 // One row: a tap goes to its step (a group's newest), a long press, a right click or the
@@ -225,9 +225,10 @@ history_row :: proc(app: ^App, row: History_Row, width: f32, can: bool, recall: 
 	// so only its press does.
 	if (a.hovered && ctx.input.pointer != .Finger) || a.held do history_tint_rest(app, e.at)
 	box := ui.Rect{a.rect.x, a.rect.y, width, h}
+	// The current step wears the one chosen look, the chosen fill with no outline, as a
+	// chosen tile or tab does.
 	if current {
-		ui.fill_rect(ctx, box, t.radius_medium, ui.color_fade(t.accent, 0.16))
-		ui.stroke_rect(ctx, box, t.radius_medium, ui.color_fade(t.accent, 0.45), 1)
+		ui.fill_rect(ctx, box, t.radius_medium, t.chosen)
 	} else if a.held {
 		ui.fill_rect(ctx, box, t.radius_medium, t.fill_pressed)
 	} else if a.hovered {
@@ -320,9 +321,11 @@ history_root_row :: proc(app: ^App, width: f32, can: bool) {
 	current := len(h.done) == 0
 	a := ui.area(ctx, "Start##history root", {width, HISTORY_ROW_H}, drag = false)
 	box := a.rect
-	if current do ui.fill_rect(ctx, box, t.radius_medium, ui.color_fade(t.accent, 0.16))
-	else if a.hovered do ui.fill_rect(ctx, box, t.radius_medium, t.fill_hover)
-	ui.stroke_rect(ctx, box, t.radius_medium, t.border_strong if !current else ui.color_fade(t.accent, 0.45), 1)
+	if current do ui.fill_rect(ctx, box, t.radius_medium, t.chosen)
+	else {
+		if a.hovered do ui.fill_rect(ctx, box, t.radius_medium, t.fill_hover)
+		ui.stroke_rect(ctx, box, t.radius_medium, t.border_strong, 1)
+	}
 	mid := box.y + box.h * 0.5
 	ui.text(ctx, "0", box.x + 24, mid, t.caption_size, t.text_tertiary, .Regular, .Right)
 	ui.icon(ctx, ICON_FILE, {box.x + 52, mid}, t.icon_small, t.text_secondary)
@@ -346,7 +349,7 @@ history_transport :: proc(app: ^App, can: bool) {
 	tl := &app.timeline
 	done, total := len(app.history.done), history_total(app)
 	ui.begin(ctx, "transport", {direction = .Row, center = true})
-	if ui.icon_button(ctx, "Back to the start", ui.ICON_SKIP_BACK, enabled = can) do timeline_seek_to(tl, 0)
+	if ui.icon_button(ctx, "Back to the start", ui.ICON_SKIP_BACK, enabled = can && done > 0) do timeline_seek_to(tl, 0)
 	if ui.icon_button(ctx, "Step back", ui.ICON_STEP_BACK, enabled = can && done > 0) do timeline_seek_to(tl, done - 1)
 	if ui.icon_button(ctx, "Pause" if tl.playing else "Play", ui.ICON_PAUSE if tl.playing else ui.ICON_PLAY, selected = tl.playing, enabled = can && total > 0) {
 		if tl.playing {
@@ -358,7 +361,7 @@ history_transport :: proc(app: ^App, can: bool) {
 		}
 	}
 	if ui.icon_button(ctx, "Step forward", ui.ICON_STEP_FORWARD, enabled = can && done < total) do timeline_seek_to(tl, done + 1)
-	if ui.icon_button(ctx, "Forward to the newest step", ui.ICON_SKIP_FORWARD, enabled = can) do timeline_seek_to(tl, total)
+	if ui.icon_button(ctx, "Forward to the newest step", ui.ICON_SKIP_FORWARD, enabled = can && done < total) do timeline_seek_to(tl, total)
 	ui.spacer(ctx, 10)
 	ui.label(ctx, fmt.tprintf("Step %d of %d", done, total), t.text_size, t.text, .Semibold)
 	ui.end(ctx)

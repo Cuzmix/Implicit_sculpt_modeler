@@ -29,10 +29,13 @@ INFINITE_SHARP :: f32(10)
 
 Mesh :: struct {
 	// Per vertex: where it is, one half-edge leaving it (on a border, the border one, so a
-	// walk round the vertex starts and ends at the gap), and its corner sharpness.
+	// walk round the vertex starts and ends at the gap), its corner sharpness, and whether it
+	// is picked (Model mode's point and edge selection: an edge is picked when both its ends
+	// are, as Blender's edit mode flushes vertex picks to edges).
 	positions: [dynamic]Vec3,
 	vert_he:   [dynamic]u32,
 	corner:    [dynamic]f32,
+	picked:    [dynamic]bool,
 	// Per half-edge.
 	he_next:   [dynamic]u32,
 	he_prev:   [dynamic]u32,
@@ -51,6 +54,7 @@ mesh_destroy :: proc(m: ^Mesh) {
 	delete(m.positions)
 	delete(m.vert_he)
 	delete(m.corner)
+	delete(m.picked)
 	delete(m.he_next)
 	delete(m.he_prev)
 	delete(m.he_vert)
@@ -68,6 +72,7 @@ mesh_make :: proc(allocator := context.allocator) -> Mesh {
 		positions = make([dynamic]Vec3, allocator),
 		vert_he = make([dynamic]u32, allocator),
 		corner = make([dynamic]f32, allocator),
+		picked = make([dynamic]bool, allocator),
 		he_next = make([dynamic]u32, allocator),
 		he_prev = make([dynamic]u32, allocator),
 		he_vert = make([dynamic]u32, allocator),
@@ -85,6 +90,7 @@ mesh_clone :: proc(m: Mesh, allocator := context.allocator) -> (c: Mesh) {
 	append(&c.positions, ..m.positions[:])
 	append(&c.vert_he, ..m.vert_he[:])
 	append(&c.corner, ..m.corner[:])
+	append(&c.picked, ..m.picked[:])
 	append(&c.he_next, ..m.he_next[:])
 	append(&c.he_prev, ..m.he_prev[:])
 	append(&c.he_vert, ..m.he_vert[:])
@@ -116,6 +122,7 @@ add_vertex :: proc(m: ^Mesh, p: Vec3) -> u32 {
 	append(&m.positions, p)
 	append(&m.vert_he, NONE)
 	append(&m.corner, 0)
+	append(&m.picked, false)
 	return u32(len(m.positions) - 1)
 }
 
@@ -221,20 +228,6 @@ find_half_edge :: proc(m: ^Mesh, a, b: u32) -> u32 {
 	w := vertex_walk(m, a)
 	for h in vertex_walk_next(&w) do if he_tip(m, h) == b do return h
 	return NONE
-}
-
-// Points vert_he[v] at the border half-edge leaving v when there is one, so walks round
-// a border vertex start at its gap. Actions call it on every vertex whose ring changed.
-vert_settle :: proc(m: ^Mesh, v: u32) {
-	h := m.vert_he[v]
-	if h == NONE do return
-	w := vertex_walk(m, v)
-	for o in vertex_walk_next(&w) {
-		if m.he_face[o] == NONE {
-			m.vert_he[v] = o
-			return
-		}
-	}
 }
 
 // The face's normal by Newell's method, unit length (zero for a degenerate face): right

@@ -1,0 +1,368 @@
+diff --git a/src/uv/flatten.odin b/src/uv/flatten.odin
+index 198672a..3f0dd28 100644
+--- a/src/uv/flatten.odin
++++ b/src/uv/flatten.odin
+@@ -160,24 +160,44 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool,
+ 		flat[q] = {f64(linalg.length(positions[m.vertex[q]] - positions[m.vertex[p]])), 0}
+ 	}
+ 
+-	// The unknowns: two a free wedge, u then v.
+-	column := make([]i32, m.wedges, a)
+-	defer delete(column, a)
+-	free := 0
+-	for w in 0 ..< m.wedges {
+-		column[w] = -1 if fixed[w] else i32(free)
+-		if !fixed[w] do free += 1
++	place := make([]geom.Vec3, m.wedges, a)
++	defer delete(place, a)
++	for w in 0 ..< m.wedges do place[w] = positions[m.vertex[w]]
++	coef, area_sum, sound := conformal_coefficients(place, corners, a)
++	defer delete(coef, a)
++	if !sound do return
++	// A big island is solved on a simplified copy, carried up and finished by conjugate
++	// gradients (Ray and Lévy 2003); the exact factor is the way back if that falls short.
++	if n < HIERARCHY_TRIANGLES || !conformal_hierarchy(place, corners, coef, fixed, flat, pool, a) {
++		conformal_direct(place, corners, coef, fixed, flat, pool, a) or_return
++	}
++	if !pinned {
++		// The surface's area, facing up. The conformal energy keeps the triangles'
++		// winding, so a negative total would only come from a solve gone wrong, which the
++		// flip count then shows anyway.
++		uv_area: f64
++		for t in 0 ..< n do uv_area += signed_area(flat, corners[3 * t:][:3])
++		if uv_area < 0 do for &p in flat do p.y = -p.y
++		if uv_area == 0 do return
++		s := math.sqrt(area_sum / abs(uv_area))
++		for &p in flat do p *= s
+ 	}
++	ok = true
++	return
++}
+ 
++// Each triangle's two rows of LSCM's least squares system, made with `allocator`; false
++// when a coordinate is not finite, and the surface's area.
++@(private)
++conformal_coefficients :: proc(place: []geom.Vec3, corners: []u32, a: runtime.Allocator) -> (coef: [][3][2]f64, area_sum: f64, ok: bool) {
++	n := len(corners) / 3
+ 	// Each triangle's two rows of LSCM's least squares system (Lévy et al. 2002): for its
+ 	// corners in a frame of their own, W_j = (z_{j+2} - z_{j+1}) / sqrt(2·area), and the
+ 	// residual Σ W_j·(u_j + i·v_j). Its real part is Σ a_j·u_j - b_j·v_j and its imaginary
+ 	// part Σ b_j·u_j + a_j·v_j.
+-	coef := make([][3][2]f64, n, a)
+-	defer delete(coef, a)
+-	area_sum: f64
++	coef = make([][3][2]f64, n, a)
+ 	for t in 0 ..< n {
+-		s, area := triangle_frame(positions, m.vertex, corners[3 * t:][:3])
++		s, area := triangle_frame(place, corners[3 * t:][:3])
+ 		area_sum += area
+ 		weight := 1.0
+ 		if !(area > 1e-14 * max(linalg.length2(s[1]), linalg.length2(s[2]), 1e-30)) {
+@@ -192,6 +212,24 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool,
+ 		for j in 0 ..< 3 do coef[t][j] = (s[(j + 2) % 3] - s[(j + 1) % 3]) * scale
+ 	}
+ 	for c in coef do for j in c do if !finite(j) do return
++	ok = true
++	return
++
++}
++
++// Solves for the free wedges' coordinates in `flat` exactly (the held ones are set
++// there already), with the multifrontal factor over a nested dissection of their places.
++@(private)
++conformal_direct :: proc(place: []geom.Vec3, corners: []u32, coef: [][3][2]f64, fixed: []bool, flat: [][2]f64, pool: ^jobs.Pool, a: runtime.Allocator) -> (ok: bool) {
++	n := len(corners) / 3
++	// The unknowns: two a free wedge, u then v.
++	column := make([]i32, len(fixed), a)
++	defer delete(column, a)
++	free := 0
++	for w in 0 ..< len(fixed) {
++		column[w] = -1 if fixed[w] else i32(free)
++		if !fixed[w] do free += 1
++	}
+ 
+ 	// The free wedges' neighbours through the triangles, each row sorted and once.
+ 	next := make([]u32, free + 1, a)
+@@ -265,16 +303,16 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool,
+ 	}
+ 
+ 	// Eliminated in nested dissection order of the free wedges' places.
+-	place := make([][3]f32, free, a)
+-	defer delete(place, a)
+-	for w in 0 ..< m.wedges do if c := column[w]; c >= 0 do place[c] = positions[m.vertex[w]]
++	spot := make([][3]f32, free, a)
++	defer delete(spot, a)
++	for w in 0 ..< len(fixed) do if c := column[w]; c >= 0 do spot[c] = place[w]
+ 	dedup := make([]u32, free + 1, a)
+ 	defer delete(dedup, a)
+ 	for i in 0 ..< free do dedup[i + 1] = dedup[i] + (ends[i] - next[i])
+ 	graph := make([]u32, dedup[free], a)
+ 	defer delete(graph, a)
+ 	for i in 0 ..< free do copy(graph[dedup[i]:dedup[i + 1]], neighbour[next[i]:ends[i]])
+-	order, wedge_tree := dissection_order(place, dedup, graph, a)
++	order, wedge_tree := dissection_order(spot, dedup, graph, a)
+ 	defer delete(order, a)
+ 	defer delete(wedge_tree, a)
+ 	// The same tree over the unknowns, two a wedge.
+@@ -328,31 +366,20 @@ lscm :: proc(u: Uvs, positions: []geom.Vec3, m: ^Island_Mesh, pool: ^jobs.Pool,
+ 	defer delete(x, a)
+ 	for k in 0 ..< free do x[2 * k], x[2 * k + 1] = rhs[2 * order[k]], rhs[2 * order[k] + 1]
+ 	front_solve(factor, x)
+-	for w in 0 ..< m.wedges do if c := column[w]; c >= 0 do flat[w] = {x[2 * rank[c]], x[2 * rank[c] + 1]}
++	for w in 0 ..< len(fixed) do if c := column[w]; c >= 0 do flat[w] = {x[2 * rank[c]], x[2 * rank[c] + 1]}
+ 	for p in flat do if !finite(p) do return
+ 
+-	if !pinned {
+-		// The surface's area, facing up. The conformal energy keeps the triangles'
+-		// winding, so a negative total would only come from a solve gone wrong, which the
+-		// flip count then shows anyway.
+-		uv_area: f64
+-		for t in 0 ..< n do uv_area += signed_area(flat, corners[3 * t:][:3])
+-		if uv_area < 0 do for &p in flat do p.y = -p.y
+-		if uv_area == 0 do return
+-		s := math.sqrt(area_sum / abs(uv_area))
+-		for &p in flat do p *= s
+-	}
+ 	ok = true
+ 	return
+ }
+ 
+-// Triangle `w`'s corners (wedges at `vertex`) laid into a frame of its own: corner 0 at
++// Triangle `w`'s corners (wedges at `place`) laid into a frame of its own: corner 0 at
+ // the origin, corner 1 along x, corner 2 above; and its area.
+ @(private)
+-triangle_frame :: proc(positions: []geom.Vec3, vertex: []u32, w: []u32) -> (s: [3][2]f64, area: f64) {
+-	p0 := linalg.array_cast(positions[vertex[w[0]]], f64)
+-	e1 := linalg.array_cast(positions[vertex[w[1]]], f64) - p0
+-	e2 := linalg.array_cast(positions[vertex[w[2]]], f64) - p0
++triangle_frame :: proc(place: []geom.Vec3, w: []u32) -> (s: [3][2]f64, area: f64) {
++	p0 := linalg.array_cast(place[w[0]], f64)
++	e1 := linalg.array_cast(place[w[1]], f64) - p0
++	e2 := linalg.array_cast(place[w[2]], f64) - p0
+ 	x1 := linalg.length(e1)
+ 	if !(x1 > 0) do return {{0, 0}, {x1, 0}, {0, 0}}, 0
+ 	y2 := linalg.length(linalg.cross(e1, e2)) / x1
+@@ -397,3 +424,223 @@ far_pair :: proc(positions: []geom.Vec3, m: ^Island_Mesh, one: int) -> (p, q: in
+ finite :: proc(p: [2]f64) -> bool {
+ 	return !math.is_nan(p.x) && !math.is_nan(p.y) && !math.is_inf(p.x) && !math.is_inf(p.y)
+ }
++
++// Islands of at least this many triangles are solved through a simplified copy of about
++// HIERARCHY_COARSE triangles: the direct factor's work grows as n^1.5, a conjugate
++// gradient step's only as n, and the copy's answer leaves the steps only local error to
++// remove, which they remove fast.
++@(private)
++HIERARCHY_TRIANGLES :: 60_000
++@(private)
++HIERARCHY_COARSE :: 20_000
++// Steps of conjugate gradients at most, and the share of the right side's size they have
++// to bring the residual under.
++@(private)
++CG_STEPS :: 400
++@(private)
++CG_TOLERANCE :: 1e-6
++// The steps' loops run in chunks of this many triangles or wedges (parallel_ranges cuts
++// at its multiples), and their sums are added chunk by chunk in order.
++@(private)
++CHUNK :: 4096
++
++// Hierarchical LSCM: solves the island simplified (geom.simplify, which keeps the border
++// and the held wedges where they are), places the wedges the copy dropped by unfolding
++// their triangles from the ones it kept, and refines the whole by conjugate gradients.
++// False, with `flat` to be solved again, when the copy loses a held wedge or the steps
++// do not converge.
++@(private)
++conformal_hierarchy :: proc(place: []geom.Vec3, corners: []u32, coef: [][3][2]f64, fixed: []bool, flat: [][2]f64, pool: ^jobs.Pool, a: runtime.Allocator) -> bool {
++	wedges := len(fixed)
++	weight := make([]f32, wedges, a)
++	defer delete(weight, a)
++	for &w, i in weight do w = 1e6 if fixed[i] else 1
++	coarse_corners := make([dynamic]u32, a)
++	defer delete(coarse_corners)
++	_ = geom.simplify(place, corners, HIERARCHY_COARSE, &coarse_corners, a, strict = true, guide = {weight = weight})
++	// The copy's own numbering of the wedges it kept, in their order.
++	local := make([]i32, wedges, a)
++	defer delete(local, a)
++	for &l in local do l = -1
++	for c in coarse_corners do local[c] = 0
++	kept := 0
++	for &l in local do if l == 0 {
++		l = i32(kept)
++		kept += 1
++	}
++	for f, w in fixed do if f && local[w] < 0 do return false
++	small_place := make([]geom.Vec3, kept, a)
++	defer delete(small_place, a)
++	small_fixed := make([]bool, kept, a)
++	defer delete(small_fixed, a)
++	small_flat := make([][2]f64, kept, a)
++	defer delete(small_flat, a)
++	for l, w in local do if l >= 0 {
++		small_place[l], small_fixed[l], small_flat[l] = place[w], fixed[w], flat[w]
++	}
++	for &c in coarse_corners do c = u32(local[c])
++	small_coef, _, sound := conformal_coefficients(small_place, coarse_corners[:], a)
++	defer delete(small_coef, a)
++	if !sound || !conformal_direct(small_place, coarse_corners[:], small_coef, small_fixed, small_flat, pool, a) do return false
++
++	// The dropped wedges, placed a ring at a time, each at the mean of its placed
++	// neighbours: a start the steps then make conformal, and one that never extrapolates.
++	known := make([]bool, wedges, a)
++	defer delete(known, a)
++	for l, w in local do if l >= 0 {
++		flat[w] = small_flat[l]
++		known[w] = true
++	}
++	sum := make([][2]f64, wedges, a)
++	defer delete(sum, a)
++	count := make([]u32, wedges, a)
++	defer delete(count, a)
++	n := len(corners) / 3
++	for {
++		for t in 0 ..< n {
++			w := corners[3 * t:][:3]
++			for k in 0 ..< 3 do if !known[w[k]] do for o in 1 ..< 3 do if known[w[(k + o) % 3]] {
++				sum[w[k]] += flat[w[(k + o) % 3]]
++				count[w[k]] += 1
++			}
++		}
++		placed := false
++		for c, x in count do if c > 0 {
++			flat[x] = sum[x] / f64(c)
++			known[x] = true
++			sum[x], count[x] = {}, 0
++			placed = true
++		}
++		if !placed do break
++	}
++	for k in known do if !k do return false
++	return conformal_iterate(corners, coef, fixed, flat, pool, a)
++}
++
++// Conjugate gradients on LSCM's normal equations from the coordinates in `flat`,
++// preconditioned by their diagonal; true when the residual fell under CG_TOLERANCE of
++// the right side's within CG_STEPS. Each step's sums run over fixed chunks added in
++// order, so the result does not depend on the pool.
++@(private)
++conformal_iterate :: proc(corners: []u32, coef: [][3][2]f64, fixed: []bool, flat: [][2]f64, pool: ^jobs.Pool, a: runtime.Allocator) -> bool {
++	wedges := len(fixed)
++	n := len(corners) / 3
++	// Each wedge's corners, so a wedge gathers its sums in the same order on any pool.
++	first := make([]u32, wedges + 1, a)
++	defer delete(first, a)
++	for c in corners do first[c + 1] += 1
++	for w in 0 ..< wedges do first[w + 1] += first[w]
++	of := make([]u32, len(corners), a)
++	defer delete(of, a)
++	fill := make([]u32, wedges, a)
++	defer delete(fill, a)
++	copy(fill, first[:wedges])
++	for c, x in corners {
++		of[fill[c]] = u32(x)
++		fill[c] += 1
++	}
++	diagonal := make([]f64, wedges, a)
++	defer delete(diagonal, a)
++	for w in 0 ..< wedges do for x in first[w] ..< first[w + 1] do diagonal[w] += linalg.length2(coef[of[x] / 3][of[x] % 3])
++	rows := make([][2]f64, n, a)
++	defer delete(rows, a)
++	r := make([][2]f64, wedges, a)
++	defer delete(r, a)
++	z := make([][2]f64, wedges, a)
++	defer delete(z, a)
++	p := make([][2]f64, wedges, a)
++	defer delete(p, a)
++	q := make([][2]f64, wedges, a)
++	defer delete(q, a)
++	partial := make([]f64, (wedges + CHUNK - 1) / CHUNK, a)
++	defer delete(partial, a)
++
++	Pass :: struct {
++		corners:         []u32,
++		coef:            [][3][2]f64,
++		fixed:           []bool,
++		first, of:       []u32,
++		rows:            [][2]f64,
++		x, out:          [][2]f64,
++		negate:          bool,
++		a, b:            [][2]f64,
++		partial:         []f64,
++	}
++	// out = AᵀA·x over the free wedges (x is zero on the held ones unless `negate`, when
++	// out = -Aᵀ(A·x), the residual for the right side zero).
++	apply :: proc(ps: ^Pass, pool: ^jobs.Pool) {
++		jobs.parallel_ranges(pool, len(ps.rows), ps, proc(data: rawptr, lo, hi: int) {
++			ps := cast(^Pass)data
++			for t in lo ..< hi {
++				re, im: f64
++				for j in 0 ..< 3 {
++					c := ps.coef[t][j]
++					x := ps.x[ps.corners[3 * t + j]]
++					re += c.x * x.x - c.y * x.y
++					im += c.y * x.x + c.x * x.y
++				}
++				ps.rows[t] = {re, im}
++			}
++		}, CHUNK)
++		jobs.parallel_ranges(pool, len(ps.fixed), ps, proc(data: rawptr, lo, hi: int) {
++			ps := cast(^Pass)data
++			for w in lo ..< hi {
++				if ps.fixed[w] {
++					ps.out[w] = {}
++					continue
++				}
++				g: [2]f64
++				for x in ps.first[w] ..< ps.first[w + 1] {
++					c := ps.coef[ps.of[x] / 3][ps.of[x] % 3]
++					row := ps.rows[ps.of[x] / 3]
++					g += {c.x * row.x + c.y * row.y, -c.y * row.x + c.x * row.y}
++				}
++				ps.out[w] = -g if ps.negate else g
++			}
++		}, CHUNK)
++	}
++	// Σ a·b over the wedges, by chunks added in order.
++	dot :: proc(ps: ^Pass, a, b: [][2]f64, pool: ^jobs.Pool) -> f64 {
++		ps.a, ps.b = a, b
++		jobs.parallel_ranges(pool, len(a), ps, proc(data: rawptr, lo, hi: int) {
++			ps := cast(^Pass)data
++			s: f64
++			for w in lo ..< hi do s += linalg.dot(ps.a[w], ps.b[w])
++			ps.partial[lo / CHUNK] = s
++		}, CHUNK)
++		total: f64
++		for s in ps.partial do total += s
++		return total
++	}
++	ps := Pass{corners = corners, coef = coef, fixed = fixed, first = first, of = of, rows = rows, partial = partial}
++	// The yardstick: the residual with every free wedge at the origin, the right side's.
++	for w in 0 ..< wedges do p[w] = flat[w] if fixed[w] else {}
++	ps.x, ps.out, ps.negate = p, r, true
++	apply(&ps, pool)
++	for w in 0 ..< wedges do z[w] = r[w] / diagonal[w] if !fixed[w] && diagonal[w] > 0 else {}
++	start := dot(&ps, r, z, pool)
++	ps.x, ps.out, ps.negate = flat, r, true
++	apply(&ps, pool)
++	for w in 0 ..< wedges do z[w] = r[w] / diagonal[w] if !fixed[w] && diagonal[w] > 0 else {}
++	copy(p, z)
++	rz := dot(&ps, r, z, pool)
++	if rz <= CG_TOLERANCE * CG_TOLERANCE * start do return true
++	for _ in 0 ..< CG_STEPS {
++		ps.x, ps.out, ps.negate = p, q, false
++		apply(&ps, pool)
++		pq := dot(&ps, p, q, pool)
++		if !(pq > 0) do return false
++		alpha := rz / pq
++		for w in 0 ..< wedges {
++			flat[w] += alpha * p[w]
++			r[w] -= alpha * q[w]
++			z[w] = r[w] / diagonal[w] if !fixed[w] && diagonal[w] > 0 else {}
++		}
++		next := dot(&ps, r, z, pool)
++		if next <= CG_TOLERANCE * CG_TOLERANCE * start do return true
++		beta := next / rz
++		rz = next
++		for w in 0 ..< wedges do p[w] = z[w] + beta * p[w]
++	}
++	return false
++}

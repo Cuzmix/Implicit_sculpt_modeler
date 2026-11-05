@@ -80,7 +80,7 @@ a_typed_hex_code_sets_the_colour :: proc(t: ^testing.T) {
 	app: App
 	kit_init(&app)
 	defer ui.destroy(&app.kit.ctx)
-	defer workspaces_destroy(&app.kit)
+	defer layouts_destroy(&app.kit)
 	rgb := [3]f32{0.5, 0.5, 0.5}
 	_ = color_frame(&app, &rgb, true, {})
 	// The field's id, as kit_color names it inside its row.
@@ -117,7 +117,7 @@ a_colour_well_opens_the_popover :: proc(t: ^testing.T) {
 	app: App
 	kit_init(&app)
 	defer ui.destroy(&app.kit.ctx)
-	defer workspaces_destroy(&app.kit)
+	defer layouts_destroy(&app.kit)
 	c := &app.kit.colors
 	rgb := [3]f32{0.5, 0.5, 0.5}
 	_ = color_frame(&app, &rgb, true, {})
@@ -235,17 +235,17 @@ colors_palettes_add_and_delete :: proc(t: ^testing.T) {
 	testing.expect_value(t, palette_new(&c), -1)
 }
 
-// One headless frame of the Colors card, in a window `window` points big; returns where
-// the card was laid out.
+// One headless frame of the columns with the Colours card open, in a window `window` points
+// big; returns where the card was laid out.
 @(private = "file")
 colors_card_frame :: proc(app: ^App, window: [2]f32) -> ui.Rect {
 	k := &app.kit
 	ui.frame_begin(&k.ctx, {window = window, pixel_density = 1, dt = 1.0 / 60})
-	_ = kit_colors_card(app)
+	kit_columns(app)
 	ui.frame_end(&k.ctx)
 	free_all(context.temp_allocator)
 	k.frame += 1
-	return panel_rect(app, Kit_Window.Colors)
+	return card_rect(app, .Colours)
 }
 
 // On Palettes the card keeps the Disc's size, so its tabs stay where they were and the
@@ -256,10 +256,10 @@ colors_palettes_keep_the_discs_size :: proc(t: ^testing.T) {
 	app: App
 	kit_init(&app)
 	defer ui.destroy(&app.kit.ctx)
-	defer workspaces_destroy(&app.kit)
+	defer layouts_destroy(&app.kit)
 	k := &app.kit
 	c := &k.colors
-	k.inspector, k.colors_card = false, true
+	card_open(&app, .Colours)
 	for own in ([2]bool{false, true}) {
 		if own {
 			testing.expect(t, palette_new(c) == 0)

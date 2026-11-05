@@ -1,9 +1,9 @@
 package render
 
+import "../gpu"
 import "core:hash"
 import "core:log"
 import "core:slice"
-import sdl "vendor:sdl3"
 
 import "../geom"
 
@@ -33,16 +33,12 @@ nav_head_init :: proc(r: ^Renderer, nh: ^Nav_Head, mesh: geom.Mesh) -> bool {
 		nh.failed = true
 		return false
 	}
-	// The head never changes after this, so the large transfer buffer goes now.
-	gpu_release_transfer_buffer(r.device, mb.transfer)
-	mb.transfer, mb.transfer_size = nil, 0
 	nh.mesh = mb
 	return true
 }
 
 nav_head_destroy :: proc(r: ^Renderer, nh: ^Nav_Head) {
-	if r.device == nil do return
-	_ = gpu_wait_for_idle(r.device)
+	if !r.has_device do return
 	mesh_buffers_destroy(r, &nh.mesh)
 	viewport_target_destroy(r, &nh.target)
 	nh^ = {}
@@ -52,13 +48,13 @@ nav_head_destroy :: proc(r: ^Renderer, nh: ^Nav_Head) {
 // (the camera's right, up and back in world space, as its columns) and shaded `color`
 // with the clay material, unless the texture holds that already. Returns the texture,
 // or nil when there is none to show.
-nav_head_draw :: proc(r: ^Renderer, nh: ^Nav_Head, cmd: ^sdl.GPUCommandBuffer, size: [2]u32, rotation: matrix[3, 3]f32, color: [4]f32) -> ^sdl.GPUTexture {
-	if nh.failed || nh.mesh.positions == nil || size.x == 0 || size.y == 0 do return nil
+nav_head_draw :: proc(r: ^Renderer, nh: ^Nav_Head, cmd: gpu.Cmd, size: [2]u32, rotation: matrix[3, 3]f32, color: [4]f32) -> gpu.Texture {
+	if nh.failed || nh.mesh.positions == 0 || size.x == 0 || size.y == 0 do return 0
 	w, h := size.x * NAV_HEAD_SUPERSAMPLE, size.y * NAV_HEAD_SUPERSAMPLE
 	if !viewport_target_resize(r, &nh.target, w, h, transient_depth = true) {
 		nh.failed = true
-		log.errorf("navigation head target: %s", sdl.GetError())
-		return nil
+		log.errorf("navigation head target: %s", gpu.last_error())
+		return 0
 	}
 	// The camera's view without its place: the head sits three units in front of the eye.
 	m := rotation
@@ -88,7 +84,7 @@ nav_head_draw :: proc(r: ^Renderer, nh: ^Nav_Head, cmd: ^sdl.GPUCommandBuffer, s
 	item := Draw_Item{mesh = &nh.mesh, model = IDENTITY, color = color, damage = geom.AABB_EMPTY}
 	pass := begin_mesh_pass(r, cmd, &r.single, nh.target.color, nh.target.depth, load = false, keep_depth = false, background = {0, 0, 0, 0})
 	draw_items(r, cmd, pass, &r.single, view, proj, {item}, nil, nil)
-	gpu_end_render_pass(pass)
+	gpu.end_render_pass(pass)
 	nh.key = key
 	return nh.target.color
 }

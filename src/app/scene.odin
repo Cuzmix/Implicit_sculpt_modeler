@@ -10,6 +10,7 @@ import "core:time"
 
 import "../camera"
 import "../geom"
+import "../jobs"
 import "../gizmo"
 import "../render"
 import "../sculpt"
@@ -62,6 +63,9 @@ Object :: struct {
 	// exported to): imports are moved and scaled to the size the app works at, and
 	// this puts them back. The identity for spheres.
 	file:      Transform,
+	// Where its gizmo sits and turns and scales go about, when not its origin (Set pivot,
+	// the pivot row); saved with it.
+	pivot:     Gizmo_Pivot,
 	levels:    sculpt.Levels,
 	// Per level, made the first time the level is shown and kept while it exists. A
 	// level's buffers catch up with what changed while it was not current when it is
@@ -71,6 +75,8 @@ Object :: struct {
 	// Per level, the polygons whose edges its buffers hold for the wireframe (poly_edges.odin).
 	poly_edges: [sculpt.MAX_LEVELS]sculpt.Polygon_Source,
 	boolean:   Boolean_Mode, // how it applies to the base in a boolean (app/boolean.odin)
+	// Its live stack (stack.odin): rows that change how it is shown, its copies and mirror.
+	stack:     Stack,
 	// The lattice spacing of its last remesh, in its mesh space, which Remesh again keeps
 	// (remesh_again_setup); 0 when no remesh made its mesh or another rebuild came after.
 	remesh_cell: f32,
@@ -175,6 +181,9 @@ Scene :: struct {
 	print_mm: f32,
 	// The proportion guides (guides.odin), saved with the scene.
 	guides:   Guides,
+	// The reference pictures and their places on the board (references.odin), saved with
+	// the scene.
+	refs:     References,
 }
 
 // Changes to the object list or the selected object's levels requested by the UI,
@@ -189,12 +198,12 @@ Surface :: struct {
 	mask:   []u8,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Layout_Uvs, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Bake_Curve, Curve_Cage, Skin_Apply, Squeeze}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Unwrap, Straighten, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Curve_Points, Bake_Curve, Curve_Cage, Skin_Apply, Squeeze, Stack_Apply}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
 // either kind.
-MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Knife, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Split, .Merge, .Group_Material, .Layout_Uvs, .Remove_Textures, .Repair, .Skin_Apply, .Squeeze}
+MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Stack_Apply, .Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Knife, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Split, .Merge, .Group_Material, .Unwrap, .Straighten, .Remove_Textures, .Repair, .Skin_Apply, .Squeeze}
 
 // The commands a curve object refuses: everything that works on a surface, as a voxel
 // object's or a cage's do; placing, copying, listing, showing and deleting work on it.
@@ -206,7 +215,9 @@ Scene_Command :: struct {
 	quad:     retopo.Options, // Retopo: the engine and its options (retopo.odin)
 	remesh:   Remesh_Setup, // Remesh: Smooth, Keep detail and Groups (remesh.odin)
 	decimate: Decimate_Setup, // Decimate: the share to keep and what to keep besides the shape (decimate.odin)
+	unwrap:   Unwrap_Setup, // Unwrap: its relax, symmetry and kept seams (unwrap.odin)
 	shape:    geom.Primitive, // Add, New: what to add
+	curve_shape: Curve_Shape, // Add: a curve of this shape instead (at `point` when placed, else the view's centre)
 	mesh:     int, // Add, New: a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	voxels:   int, // Add: a voxel sphere this many voxels across instead of the shape (0 for a mesh); New: a voxel block this many across; Mesh_To_Voxels: voxels across the object's longest side; Voxel_Resample: the voxel object's new resolution, twice or half its own
 	// Dyntopo: turn dynamic topology on, or off; Symmetrize: keep the + side; Delete_Others:
@@ -216,13 +227,16 @@ Scene_Command :: struct {
 	// Repair: Close holes leaves the largest open, Delete half keeps the + side; New: an
 	// empty scene, with no object.
 	on:       bool,
+	// Add: put the new object's middle at `point` (in the world here), where a menu was
+	// opened on the view, rather than at the next free place.
+	placed:   bool,
 	axis:     int, // Symmetrize, Align, Distribute, Repair's Delete half: 0 x, 1 y, 2 z; Curve_Cage: the Curve_Cage_Kind
 	edge:     int, // Align, Distribute: 0 each object's low side, 1 its middle, 2 its high side
 	split:    Split_Mode, // Split: what becomes objects of their own
 	level:    int, // Set_Level; HD steps for Hd_Steps
 	at:       [2]f32, // Hd_Enter: the viewport point to open the window around
 	size:     [2]f32, // ...in a viewport of this size
-	point:    Vec3, // Slice, Knife: a point of the plane, in the selected object's space
+	point:    Vec3, // Slice, Knife: a point of the plane, in the selected object's space; Add: where it goes, placed
 	normal:   Vec3, // ...and the way to the part that becomes a new object (Slice) or goes (Knife)
 	// Runs the command again in place of the last one of its kind, from before it
 	// (adjust_last.odin): Remesh, Decimate, Symmetrize, Retopo and Extract.
@@ -243,15 +257,19 @@ Scene_Command :: struct {
 	cage:     poly.Primitive, // Add_Cage: the primitive to add as a cage...
 	segments: poly.Primitive_Options, // ...with these segments
 	tidy:     Cage_Tidy, // Tidy_Cage: which
-	select:   poly.Select_Op, // Select_Cage: which
+	select:   poly.Select_Op, // Select_Cage: which...
+	pick:     Model_Element, // ...on the faces, or on the points (edges and points)
 	look:     Cage_Look, // Cage_Look: how the selected cage is drawn
 	look_drag: bool, // Cage_Look: from a slider being dragged, one undo step when it lets go
 	crease:   Cage_Crease, // Crease_Cage: which
 	curve:    Curve_Look, // Curve_Look: what the selected curve makes and its options (look_drag as Cage_Look's)
+	points:   Curve_Point_Values, // Curve_Points: the picked points' middle, radius and tilt wanted (look_drag too)
+	// Remesh, Subdivide: the memory check before it passed or was answered (memory_check.odin).
+	checked:  bool,
 }
 
 scene_destroy :: proc(app: ^App) {
-	render.wait_idle(&app.renderer)
+	refs_destroy(app)
 	for obj in app.scene.objects do object_free(app, obj)
 	delete(app.scene.objects)
 	folders_clear(&app.scene.folders)
@@ -341,7 +359,6 @@ object_make_primitive :: proc(app: ^App, shape: geom.Primitive, vertices: int, t
 	// A starter is a closed manifold mesh, so each level divides; the top is shown.
 	for _ in 0 ..< levels do if !sculpt.levels_subdivide(&obj.levels) do break
 	if !object_show_level(app, obj, start) {
-		render.wait_idle(&app.renderer)
 		object_discard(app, obj)
 		return nil, false
 	}
@@ -426,20 +443,35 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int, setup := Remesh_Se
 	}
 	defer if dyn do delete(mask)
 	groups := sculpt.sculptor_groups(s) if !dyn else nil
-	color := s.color if !dyn else nil
+	color := sculpt.sculptor_paint_shown(s) if !dyn else nil
 	report: geom.Remesh_Report
 	defer geom.remesh_report_destroy(&report)
-	mesh, built := geom.remesh_voxel_measured(source, area, bounds, vertices, &app.pool, options = remesh_options(setup, groups, color != nil || groups != nil || mask != nil), report = &report)
+	mesh, built := geom.remesh_voxel_measured(source, area, bounds, remesh_base_count(vertices, setup), &app.pool, options = remesh_options(setup, groups, color != nil || groups != nil || mask != nil), report = &report)
 	surface: Surface
 	defer surface_free(&surface)
 	if built do surface = remesh_surface(report, mesh, source, color, groups, mask)
-	geom.mesh_destroy(&packed)
-	free_all(context.temp_allocator)
 	if !built {
+		geom.mesh_destroy(&packed)
+		free_all(context.temp_allocator)
 		log.warn("remesh: the mesh has no volume to remesh")
 		return false, true
 	}
-	return true, remesh_apply(app, obj, mesh, start, time.tick_now(), surface = surface, remeshed = report, setup = setup)
+	computed := time.tick_now()
+	if setup.levels == 0 {
+		geom.mesh_destroy(&packed)
+		free_all(context.temp_allocator)
+		return true, remesh_apply(app, obj, mesh, start, computed, surface = surface, remeshed = report, setup = setup)
+	}
+	// The levels are built before the rebuild lets the old surface go, since the top is
+	// fitted onto it, as a long job builds them on its thread.
+	prepared: sculpt.Levels
+	levels_prepare(&prepared, mesh, surface, report.quads, &app.pool)
+	_ = remesh_build_levels(&prepared, source, setup, report.cell, &app.pool)
+	geom.mesh_destroy(&packed)
+	free_all(context.temp_allocator)
+	// The top's triangles stand for the mesh where the rebuild counts them (a skin's).
+	top := sculpt.levels_current(&prepared).mesh
+	return true, remesh_apply(app, obj, {positions = top.positions, indices = top.indices}, start, computed, &prepared, remeshed = report, setup = setup)
 }
 
 // The second half of a remesh, which a long job (long_job.odin) runs on the frame thread
@@ -450,7 +482,6 @@ object_remesh :: proc(app: ^App, obj: ^Object, vertices: int, setup := Remesh_Se
 // when the old mesh is gone and the new one could not be uploaded.
 remesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start, computed: time.Tick, prepared: ^sculpt.Levels = nil, surface: Surface = {}, remeshed: geom.Remesh_Report = {}, setup: Remesh_Setup = {}) -> bool {
 	ready := time.tick_now()
-	render.wait_idle(&app.renderer)
 	// With Quads the maps say where the quads' corners and halves went, for the base
 	// level to keep them as its polygons (a long job's levels already do).
 	old_to_new, tri_from: []u32
@@ -462,14 +493,17 @@ remesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start, computed: 
 	defer delete(tri_from)
 	if !object_rebuild(app, obj, mesh, ready, normals = false, surface = surface, prepared = prepared, old_to_new = old_to_new, tri_from = tri_from) do return false
 	if old_to_new != nil do remesh_take_quads(&obj.levels, remeshed.quads, old_to_new, tri_from)
-	// After the rebuild, which forgets the cell of any remesh before.
-	obj.remesh_cell = remeshed.cell
+	// After the rebuild, which forgets the cell of any remesh before. With levels it is
+	// the top's, half the base's a level, so Remesh again makes the same density.
+	built := setup
+	built.levels = len(obj.levels.levels) - 1 if setup.levels > 0 else 0
+	obj.remesh_cell = remeshed.cell / f32(int(1) << uint(built.levels))
 	app.stats.remesh_cell = remeshed.cell
 	app.stats.remesh_ms = time.duration_milliseconds(time.tick_diff(start, computed))
 	app.stats.remesh_setup_ms = time.duration_milliseconds(time.tick_since(ready))
 	vertices := geom.mesh_vertex_count(object_mesh(obj)^)
 	// Made after the rebuild, which frees the temp memory a note would sit in.
-	note := remesh_note(remeshed, setup)
+	note := remesh_note(remeshed, built)
 	log.infof("remesh: %d vertices in %.0f ms, ready in %.0f ms more%s", vertices, app.stats.remesh_ms, app.stats.remesh_setup_ms, note)
 	if note != "" do report(app, .Remesh, {}, "%s%s", scene_report_line("Remeshed %s", object_label(obj), vertices, time.duration_milliseconds(time.tick_since(start))), note)
 	return true
@@ -505,7 +539,6 @@ object_decimate :: proc(app: ^App, obj: ^Object, vertices: int, setup: Decimate_
 // (`unmirrored`, from decimate_compute).
 decimate_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, error: f32, before: int, start, computed: time.Tick, prepared: ^sculpt.Levels = nil, surface: Surface = {}, setup: Decimate_Setup = {}, unmirrored := "") -> bool {
 	ready := time.tick_now()
-	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, mesh, ready, normals = true, surface = surface, prepared = prepared) do return false
 	app.stats.decimate_ms = time.duration_milliseconds(time.tick_diff(start, computed))
 	app.stats.decimate_error = error
@@ -565,7 +598,6 @@ object_symmetrize :: proc(app: ^App, obj: ^Object, axis: int, keep_positive: boo
 	defer delete(old_to_new)
 	defer delete(tri_from)
 	cut := time.tick_now()
-	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, mesh, cut, normals = true, mirror = {active = true, axis = sculpt.Axis(axis), keep_positive = keep_positive}, old_to_new = old_to_new, tri_from = tri_from) {
 		sculpt.polys_destroy(&polys)
 		return true, false
@@ -603,7 +635,6 @@ object_slice :: proc(app: ^App, obj: ^Object, point, normal: Vec3) -> (part: ^Ob
 		return nil, false, true
 	}
 	cut := time.tick_now()
-	render.wait_idle(&app.renderer)
 	// Both parts take the layers, so the level they came from stays until the second has.
 	layered := object_take_layered(app, obj)
 	defer sculpt.layered_level_free(&layered)
@@ -655,7 +686,6 @@ object_knife :: proc(app: ^App, obj: ^Object, point, normal: Vec3) -> (changed, 
 		return false, true
 	}
 	cut := time.tick_now()
-	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, back, cut, normals = true) do return true, false
 	app.stats.slice_ms = time.duration_milliseconds(time.tick_diff(start, cut))
 	app.stats.slice_setup_ms = time.duration_milliseconds(time.tick_since(cut))
@@ -698,7 +728,6 @@ scene_duplicate :: proc(app: ^App, obj: ^Object) -> bool {
 	twin, read, made := object_get(app, &r)
 	if !read do return true
 	if !made {
-		render.wait_idle(&app.renderer)
 		object_discard(app, twin)
 		return false
 	}
@@ -729,7 +758,6 @@ scene_paste :: proc(app: ^App) -> bool {
 	twin, read, made := object_get(app, &r)
 	if !read do return true
 	if !made {
-		render.wait_idle(&app.renderer)
 		object_discard(app, twin)
 		return false
 	}
@@ -770,7 +798,7 @@ scene_delete_others :: proc(app: ^App, all: bool) {
 		bytes += object_put_estimate(obj)
 	}
 	if len(ids) == 0 do return
-	if bytes > SWAP_LIMIT_BYTES {
+	if bytes > history_swap_limit(&app.history) {
 		report(app, nil, {.Warning}, "Too much to delete in one undoable step (%.1f GB); delete fewer objects at a time", f64(bytes) / (1 << 30))
 		return
 	}
@@ -808,7 +836,6 @@ object_set_dyntopo :: proc(app: ^App, obj: ^Object, on: bool) -> (changed, ok: b
 	object_forget_history(app, obj)
 	converted := time.tick_now()
 	// The layout changed completely: new buffers with everything in them.
-	render.wait_idle(&app.renderer)
 	render.mesh_buffers_destroy(&app.renderer, &obj.gpu[0])
 	obj.poly_edges[0] = {}
 	obj.gpu[0], ok = render.mesh_buffers_create(&app.renderer, object_mesh(obj)^, object_sculptor(obj).mask)
@@ -828,7 +855,6 @@ object_set_dyntopo :: proc(app: ^App, obj: ^Object, on: bool) -> (changed, ok: b
 level_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^sculpt.Level, ranges: []geom.Vertex_Range) -> (bytes: int, ok: bool) {
 	m := lv.mesh
 	if u32(len(m.positions)) > gpu.vertex_capacity || u32(len(m.indices)) > gpu.index_count {
-		render.wait_idle(&app.renderer)
 		render.mesh_buffers_destroy(&app.renderer, gpu)
 		gpu^ = render.mesh_buffers_create(&app.renderer, m, lv.sculptor.mask) or_return
 		render.viewport_invalidate(&app.target)
@@ -840,6 +866,12 @@ level_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: 
 	upload := render.sculpt_gpu_upload(gpu)
 	if upload != .None do render.mesh_buffers_upload_ranges(&app.renderer, cmd, gpu, m, ranges, lv.sculptor.mask, upload == .Positions)
 	bytes += paint_upload(app, cmd, gpu, lv, ranges)
+	// The mask and HD fade bytes the GPU's dab kernels read, once the mesh's lookup is
+	// there. A level with hidden triangles has a fade too, marking them, but no stroke of
+	// its goes to the GPU.
+	bytes += render.sculpt_gpu_bytes_upload(&app.renderer, cmd, gpu, .Mask, lv.sculptor.mask, ranges)
+	fade := lv.sculptor.fade if sculpt.sculptor_hidden_count(&lv.sculptor) == 0 else nil
+	bytes += render.sculpt_gpu_bytes_upload(&app.renderer, cmd, gpu, .Fade, fade, ranges)
 	triangles := sculpt.sculptor_index_ranges(&lv.sculptor)
 	render.mesh_buffers_upload_indices(&app.renderer, cmd, gpu, m.indices[:], triangles)
 	if upload != .None do for r in ranges do bytes += int(r.count) * (size_of(geom.Vec3) if upload == .Positions else render.VERTEX_BYTES)
@@ -856,16 +888,14 @@ skin_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^
 	s := &lv.sculptor
 	sk := sculpt.sculptor_skin(s)
 	if sk == nil {
-		if gpu.skin_normals != nil {
-			render.wait_idle(&app.renderer)
+		if gpu.skin_normals != 0 {
 			render.mesh_buffers_drop_skin(&app.renderer, gpu)
 		}
 		return 0
 	}
 	stamp := sculpt.sculptor_paint_stamp(s)
 	skin_stamp := sculpt.sculptor_skin_stamp(s)
-	if gpu.skin_normals == nil || gpu.skin_stamp != skin_stamp || gpu.skin_samples != u32(len(sk.normals)) {
-		if gpu.skin_normals != nil do render.wait_idle(&app.renderer)
+	if gpu.skin_normals == 0 || gpu.skin_stamp != skin_stamp || gpu.skin_samples != u32(len(sk.normals)) {
 		tris := sculpt.sculptor_skin_tris(s, context.temp_allocator)
 		if !render.mesh_buffers_set_skin(&app.renderer, gpu, tris, sk.normals, sk.heights, sk.height_max, sk.segments, sk.vert_count, sk.edge_count) do return 0
 		gpu.skin_lead_stamp, gpu.skin_stamp = stamp, skin_stamp
@@ -905,7 +935,6 @@ scene_delete_selected :: proc(app: ^App, undoable := true, chain := false) {
 	if obj == nil do return
 	stroke_finish(app)
 	if undoable do history_record_swap(app, obj.id, history_snapshot(app, obj, "delete object"), chain)
-	render.wait_idle(&app.renderer)
 	ordered_remove(&app.scene.objects, app.scene.selected)
 	object_free(app, obj)
 	app.scene.selected = min(app.scene.selected, len(app.scene.objects) - 1)
@@ -921,10 +950,10 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		inspector_drags_end(app)
 		// A look slider's own commands carry on its drag.
 		if cmd.kind != .Cage_Look || !cmd.look_drag do cage_look_drag_end(app, force = true)
-		if cmd.kind != .Curve_Look || !cmd.look_drag do curve_look_drag_end(app, force = true)
+		if (cmd.kind != .Curve_Look && cmd.kind != .Curve_Points) || !cmd.look_drag do curve_look_drag_end(app, force = true)
 	}
 	if obj := selected_object(app); obj != nil && obj.voxel != nil && cmd.kind in MESH_ONLY_COMMANDS {
-		report(app, Kit_Section.Voxels, {.Warning}, "%v needs a mesh: convert %s to a mesh first (Voxels card)", cmd.kind, object_label(obj))
+		report(app, Section.Voxels, {.Warning}, "%v needs a mesh: convert %s to a mesh first (Voxels card)", cmd.kind, object_label(obj))
 		return true
 	}
 	if obj := selected_object(app); obj != nil && obj.curve != nil && cmd.kind in CURVE_REFUSED_SCENE {
@@ -932,7 +961,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		return true
 	}
 	if obj := selected_object(app); obj != nil && cmd.kind in SKIN_REFUSED_SCENE && object_top_skin(obj) != nil {
-		report(app, Kit_Section.Hd, {.Warning}, "%v keeps away from a detail skin: remove the skin from %s first (HD detail card)", cmd.kind, object_label(obj))
+		report(app, Section.Hd, {.Warning}, "%v keeps away from a detail skin: remove the skin from %s first (HD detail card)", cmd.kind, object_label(obj))
 		return true
 	}
 	if obj := selected_object(app); obj != nil && obj.cage != nil && cmd.kind in CAGE_REFUSED_SCENE {
@@ -942,6 +971,10 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	switch cmd.kind {
 	case .None:
 	case .Add:
+		if cmd.curve_shape != .None {
+			if !curve_shape_add(app, cmd.curve_shape, cmd.point if cmd.placed else app.camera.target) do report(app, nil, {.Warning}, "the %s curve could not be made", CURVE_SHAPE_NAMES[cmd.curve_shape])
+			break
+		}
 		before := len(app.scene.objects)
 		sel := selected_object(app)
 		at := Transform{position = next_free_position(app), scale = 1}
@@ -951,6 +984,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			if !scene_add_voxel_sphere(app, cmd.voxels, at) do return false
 		} else if !scene_add_primitive(app, cmd.shape, cmd.vertices, at) do return false
 		if len(app.scene.objects) > before {
+			if cmd.placed do selected_object(app).transform.position = cmd.point
 			// Inserted below the selection, in its folder, rather than at the end.
 			if cmd.on && sel != nil {
 				added := selected_object(app)
@@ -981,13 +1015,15 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	case .Tidy_Cage:
 		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_tidy_cage(app, obj, cmd.tidy)
 	case .Select_Cage:
-		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_select_cage(app, obj, cmd.select)
+		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_select_cage(app, obj, cmd.select, cmd.pick)
 	case .Cage_Look:
 		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_set_cage_look(app, obj, cmd.look, cmd.look_drag)
 	case .Crease_Cage:
 		if obj := selected_object(app); obj != nil && obj.cage != nil do return object_crease_cage(app, obj, cmd.crease)
 	case .Curve_Look:
 		if obj := selected_object(app); obj != nil && obj.curve != nil do return object_set_curve_look(app, obj, cmd.curve, cmd.look_drag)
+	case .Curve_Points:
+		if obj := selected_object(app); obj != nil && obj.curve != nil do return curve_set_point_values(app, obj, cmd.points, cmd.look_drag)
 	case .Bake_Curve:
 		if obj := selected_object(app); obj != nil && obj.curve != nil do return curve_bake(app, obj)
 	case .Skin_Apply:
@@ -1014,8 +1050,14 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			if changed do history_record_swap(app, obj.id, before)
 			else do history_snapshot_drop(before)
 		}
-	case .Layout_Uvs:
-		if obj := selected_object(app); obj != nil do object_layout_uvs(app, obj)
+	case .Unwrap:
+		if obj := selected_object(app); obj != nil {
+			if !unwrap_check(app, obj) do return true
+			if long_job_async(app, obj, cmd) do return long_job_start(app, cmd, obj, nil)
+			object_unwrap(app, obj, cmd.unwrap)
+		}
+	case .Straighten:
+		if obj := selected_object(app); obj != nil && unwrap_check(app, obj) do object_straighten(app, obj)
 	case .Remove_Textures:
 		texture_remove(app, selected_object(app))
 	case .Retopo:
@@ -1118,6 +1160,11 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			if changed do history_record_swap(app, obj.id, before)
 			else do history_snapshot_drop(before)
 		}
+	case .Stack_Apply:
+		if obj := selected_object(app); obj != nil && !stack_apply(app, obj) {
+			scene_delete_selected(app, undoable = false)
+			return false
+		}
 	case .Knife:
 		if obj := selected_object(app); obj != nil {
 			before := history_snapshot(app, obj, "knife")
@@ -1210,7 +1257,7 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			else do history_snapshot_drop(before)
 			// Its vertices are numbered afresh, so the selection sets went; Undo brings them back.
 			if changed && cmd.on && sets > 0 {
-				report(app, Kit_Section.Topology, {.Undo}, "Dynamic topology on: %d selection set%s went, as the vertices are numbered afresh", sets, "" if sets == 1 else "s")
+				report(app, Section.Topology, {.Undo}, "Dynamic topology on: %d selection set%s went, as the vertices are numbered afresh", sets, "" if sets == 1 else "s")
 				app.sets_noted = sets
 			}
 			return ok
@@ -1248,8 +1295,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		levels := &obj.levels
 		#partial switch cmd.kind {
 		case .Subdivide:
-			if _, _, bytes := sculpt.levels_subdivide_estimate(levels); bytes > MAX_SUBDIVIDE_BYTES {
-				log.warnf("subdivide: the new level would need about %d MB; the limit is %d MB", bytes >> 20, MAX_SUBDIVIDE_BYTES >> 20)
+			if vertices, _, bytes := sculpt.levels_subdivide_estimate(levels); !mesh_subdivide_fits(app, vertices, bytes) {
+				log.warnf("subdivide: the new level of %d vertices would need about %d MB, more than Settings > Performance > Mesh size allows", vertices, bytes >> 20)
 				return true
 			}
 			if levels.hd.steps > 0 {
@@ -1280,7 +1327,6 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			return object_set_level(app, obj, cmd.level)
 		case .Delete_Higher:
 			history_record_swap(app, obj.id, history_snapshot(app, obj, "delete higher levels"))
-			render.wait_idle(&app.renderer)
 			for i in levels.current + 1 ..< len(levels.levels) {
 				render.mesh_buffers_destroy(&app.renderer, &obj.gpu[i])
 				obj.poly_edges[i] = {}
@@ -1292,7 +1338,6 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		case .Delete_Lower:
 			k := levels.current
 			history_record_swap(app, obj.id, history_snapshot(app, obj, "delete lower levels"))
-			render.wait_idle(&app.renderer)
 			for i in 0 ..< k do render.mesh_buffers_destroy(&app.renderer, &obj.gpu[i])
 			sculpt.levels_delete_lower(levels)
 			// The buffers move down with their levels, and so does what edges they hold.
@@ -1331,9 +1376,6 @@ object_set_level :: proc(app: ^App, obj: ^Object, level: int) -> bool {
 	return object_show_level(app, obj, start)
 }
 
-// Largest new level Subdivide makes, in CPU memory.
-MAX_SUBDIVIDE_BYTES :: 12 << 30
-
 // Brings the current level's normals and GPU buffers up to date after it became
 // current: uploads what changed while it was not, or everything the first time it is
 // shown. `start` is when the level change began, for the stats. Returns false on a GPU
@@ -1349,7 +1391,7 @@ object_show_level :: proc(app: ^App, obj: ^Object, start: time.Tick) -> bool {
 	lv := object_level(obj)
 	ranges := sculpt.sculptor_flush(&lv.sculptor)
 	gpu := object_gpu(obj)
-	if gpu.positions == nil {
+	if gpu.positions == 0 {
 		ok: bool
 		gpu^, ok = render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)
 		return ok
@@ -1400,7 +1442,9 @@ object_hd_leave :: proc(app: ^App, obj: ^Object) {
 	if !object_in_hd(obj) do return
 	if app.stroke.object == obj.id do stroke_finish(app)
 	start := time.tick_now()
-	render.wait_idle(&app.renderer)
+	// The window's positions and normals land from the GPU before its buffers go, which
+	// would drop the readbacks still under way, and before the window is stored.
+	object_gpu_sync(obj)
 	render.mesh_buffers_destroy(&app.renderer, &obj.hd_gpu)
 	sculpt.levels_hd_leave(&obj.levels)
 	history_forget_level(app, obj.id, HD_LEVEL)
@@ -1422,15 +1466,25 @@ next_free_position :: proc(app: ^App) -> Vec3 {
 // Nearest object a press can pick hit by a world-space ray (dir normalised). The hit is
 // in world space.
 scene_raycast :: proc(app: ^App, origin, dir: Vec3, only := -1) -> (index: int, hit: Vec3, ok: bool) {
+	index, hit, _, _, ok = scene_raycast_framed(app, origin, dir, only)
+	return
+}
+
+// scene_raycast over the live stack's copies too (stack_frames): `frame` is the transform
+// of the copy hit, `framed` false when it was the object itself.
+scene_raycast_framed :: proc(app: ^App, origin, dir: Vec3, only := -1) -> (index: int, hit: Vec3, frame: Transform, framed, ok: bool) {
 	best := max(f32)
 	for obj, i in app.scene.objects {
 		if (only >= 0 && i != only) || !object_pickable(app, obj) do continue
-		t := obj.transform
-		local_hit, _, local_ok := object_raycast_local(obj, to_local(t, origin), to_local_dir(t, dir))
-		if !local_ok do continue
-		world_hit := to_world(t, local_hit)
-		if d := linalg.length(world_hit - origin); d < best {
-			best, index, hit, ok = d, i, world_hit, true
+		frames := stack_frames(app, obj)
+		for k in -1 ..< len(frames) {
+			t := obj.transform if k < 0 else frames[k]
+			local_hit, _, local_ok := object_raycast_local(obj, to_local(t, origin), to_local_dir(t, dir))
+			if !local_ok do continue
+			world_hit := to_world(t, local_hit)
+			if d := linalg.length(world_hit - origin); d < best {
+				best, index, hit, frame, framed, ok = d, i, world_hit, t, k >= 0, true
+			}
 		}
 	}
 	return
@@ -1505,7 +1559,8 @@ object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.
 		sculpt.levels_destroy(&obj.levels)
 		return false
 	}
-	obj.gpu[0] = mesh_gpu
+	// Prepared levels may show a level above the base (a remesh's Build levels).
+	obj.gpu[obj.levels.current] = mesh_gpu
 	log.infof("mesh: %d vertices, %d triangles; ready to sculpt in %.0f ms, uploaded in %.0f ms",
 		geom.mesh_vertex_count(object_mesh(obj)^), geom.mesh_triangle_count(object_mesh(obj)^),
 		time.duration_milliseconds(time.tick_diff(start, ready)), time.duration_milliseconds(time.tick_since(ready)))
@@ -1513,12 +1568,29 @@ object_build_from :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.
 	return true
 }
 
+// Levels `l` made from `mesh` (taking it) with `surface`'s polypaint, polygroups and mask
+// and a remesh's `quads` (nil for none) following the renumbering onto the base, as
+// object_build_from takes a surface on the frame thread: a long job's levels made on its
+// thread, or a remesh's before it builds levels on them.
+levels_prepare :: proc(l: ^sculpt.Levels, mesh: geom.Mesh, surface: Surface, quads: [][4]u32, pool: ^jobs.Pool, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}) {
+	if surface.color == nil && surface.groups == nil && surface.mask == nil && quads == nil {
+		sculpt.levels_init(l, mesh, pool, progress = progress, share = share)
+		return
+	}
+	old_to_new := make([]u32, len(mesh.positions))
+	defer delete(old_to_new)
+	tri_from := make([]u32, len(mesh.indices) / 3)
+	defer delete(tri_from)
+	sculpt.levels_init(l, mesh, pool, old_to_new = old_to_new, tri_from = tri_from, progress = progress, share = share)
+	sculpt.levels_take_surface(l, surface.color, surface.groups, old_to_new, tri_from, surface.mask)
+	if quads != nil do remesh_take_quads(l, quads, old_to_new, tri_from)
+}
+
 // Rebuilds the object from `mesh` (taking it), as a remesh does: its levels, HD
 // detail, mask and strokes go (the caller records the swap). Returns false only when
 // the new mesh could not be uploaded.
 object_replace_mesh :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh) -> bool {
 	start := time.tick_now()
-	render.wait_idle(&app.renderer)
 	return object_rebuild(app, obj, mesh, start, normals = true)
 }
 
@@ -1528,7 +1600,7 @@ object_replace_mesh :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh) -> bool {
 // its polypaint and polygroups (a repair's). `normals` works out the mesh's normals, for
 // a mesh that comes without them. `old_to_new` and `tri_from` (not temporary) receive the
 // renumbering, as object_build_from fills them, for a caller that keeps maps into the
-// level. The caller waits for the GPU first. Returns false only when the new mesh could
+// level. Returns false only when the new mesh could
 // not be uploaded. The object forgets its remesh cell (Object.remesh_cell).
 object_rebuild :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, start: time.Tick, normals: bool, mirror: sculpt.Surface_Mirror = {}, surface: Surface = {}, prepared: ^sculpt.Levels = nil, old_to_new: []u32 = nil, tri_from: []u32 = nil, squeeze: u32 = 0) -> bool {
 	layered := object_take_layered(app, obj)
@@ -1563,7 +1635,7 @@ skin_carry_onto :: proc(app: ^App, obj: ^Object, old: ^sculpt.Levels, segments: 
 	src := &old.levels[len(old.levels) - 1].sculptor
 	s := object_sculptor(obj)
 	if !sculpt.sculptor_skin_set(s, segments) {
-		report(app, Kit_Section.Hd, {.Warning}, "The detail of %s could not be carried: the new mesh takes no skin (open or not manifold)", object_label(obj))
+		report(app, Section.Hd, {.Warning}, "The detail of %s could not be carried: the new mesh takes no skin (open or not manifold)", object_label(obj))
 		return
 	}
 	// Far enough to find the old surface across what a rebuild smooths away, a few of the
@@ -1575,7 +1647,7 @@ skin_carry_onto :: proc(app: ^App, obj: ^Object, old: ^sculpt.Levels, segments: 
 	app.stats.skin_carry_ms = time.duration_milliseconds(time.tick_since(start))
 	app.skin_carry = rep
 	size := linalg.length(bounds.hi - bounds.lo)
-	report(app, Kit_Section.Hd, {}, "Carried the detail of %s onto a skin of %d segments: off by %.3f%% of its size at worst, %.4f%% on average%s", object_label(obj), segments, 100 * rep.worst / size, 100 * rep.mean / size, ", with sideways offsets" if rep.side else "")
+	report(app, Section.Hd, {}, "Carried the detail of %s onto a skin of %d segments: off by %.3f%% of its size at worst, %.4f%% on average%s", object_label(obj), segments, 100 * rep.worst / size, 100 * rep.mean / size, ", with sideways offsets" if rep.side else "")
 }
 
 // Takes the level the object is on out of its levels when it has layers, for
@@ -1601,7 +1673,8 @@ object_carry_layers :: proc(app: ^App, obj: ^Object, layered: sculpt.Layered_Lev
 	log.infof("layers: carried %d onto the rebuilt mesh in %.0f ms", kept, ms)
 }
 
-// Frees the levels and GPU buffers. The caller waits for the GPU first. A rebuild
+// Frees the levels and GPU buffers (the GPU layer keeps them until work in flight is
+// done). A rebuild
 // (`rebuild`) counts the selection sets that go for the command's note.
 object_release_mesh :: proc(app: ^App, obj: ^Object, rebuild := true) {
 	if rebuild do app.sets_lost += len(sculpt.levels_sets(&obj.levels))

@@ -20,7 +20,6 @@ Lens_Submenu :: enum u8 {
 	Recent,
 	Import,
 	Export,
-	Workspaces,
 	More,
 }
 
@@ -32,7 +31,6 @@ LENS_SUBMENU_NAMES := [Lens_Submenu]string {
 	.Recent     = "Open recent",
 	.Import     = "Import",
 	.Export     = "Export...",
-	.Workspaces = "Workspaces",
 	.More       = "More",
 }
 
@@ -48,14 +46,12 @@ LENS_MENU_PLACE := #partial [Command_Id]Lens_Submenu {
 	.Scene_Versions         = .Main,
 	.Export_Sheet           = .Main,
 	.Send_Scene             = .Main,
-	.Customise_Bars         = .Main,
 	.Settings               = .Main,
 	.Help                   = .Main,
 	.New_Scene              = .New,
 	.Open_Last_Autosave     = .Recent,
 	.Import_Mesh            = .Import,
 	.Get_From_Blender       = .Import,
-	.Workspace_Import       = .Import,
 	// The Export sheet holds these, under Menu > Export....
 	.Export_Mesh            = .Export,
 	.Screenshot             = .Export,
@@ -63,12 +59,11 @@ LENS_MENU_PLACE := #partial [Command_Id]Lens_Submenu {
 	.Record_Turntable       = .Export,
 	.Export_Print           = .Export,
 	.Send_To_Blender        = .More,
-	.Workspace_Export       = .Workspaces,
-	.Workspace              = .Workspaces,
 	.Stats                  = .More,
 	.Macros                 = .More,
 	.Library                = .More,
 	.Viewport_Readout       = .More,
+	.Readout_Gpu            = .More,
 	.Reduce_Motion          = .More,
 	.Left_Handed            = .More,
 }
@@ -76,22 +71,18 @@ LENS_MENU_PLACE := #partial [Command_Id]Lens_Submenu {
 // How long a mouse rests on a submenu's row before the submenu opens, in seconds.
 MENU_REST :: 0.25
 
-// The menu's and its submenus' widths, in points.
-LENS_MENU_W :: 264
-LENS_SUBMENU_W :: 264
-
 // The menu under the menu button, and the submenu open beside it.
 kit_menu_lens :: proc(app: ^App, anchor: ui.Rect) {
 	k := &app.kit
 	ctx := &k.ctx
 	if !k.menu do k.menu_sub = .None
 	owner := ui.id_of(ctx, "menu")
-	if !ui.popover_begin(ctx, "menu", &k.menu, anchor, .Below, {direction = .Column, padding = 6, width = LENS_MENU_W}) do return
+	if !ui.popover_begin(ctx, "menu", &k.menu, anchor, .Below, {direction = .Column, padding = ui.SPACE_S, width = ui.MENU_W}) do return
 	// On a short window the list scrolls rather than running off the bottom.
 	area := ui.safe_area(ctx)
 	room := max(area.y + area.h - (anchor.y + anchor.h + 6) - 4 - 2 * 6, 4 * ctx.theme.target)
 	_, natural := ui.prev_layout(ctx, "menu body")
-	body_w := LENS_MENU_W - 2 * 6 - (f32(10) if natural.y > room else 0)
+	body_w := ui.MENU_W - 2 * 6 - (f32(10) if natural.y > room else 0)
 	scroll := kit_scroll_begin(ctx, "menu body", &k.menu_scroll, owner, body_w, room, 0)
 	pick := false
 	if command_menu_item(app, .Home) do pick = true
@@ -112,8 +103,6 @@ kit_menu_lens :: proc(app: ^App, anchor: ui.Rect) {
 		if command_menu_item(app, .Send_Scene, label = fmt.tprintf("Send to %s##send", to) if to != "" else "Send to...##send") do pick = true
 	}
 	ui.divider(ctx, across = true)
-	lens_sub_row(app, .Workspaces, ui.ICON_PANEL)
-	if command_menu_item(app, .Customise_Bars, label = "Edit docks...") do pick = true
 	if command_menu_item(app, .Settings) do pick = true
 	if command_menu_item(app, .Help, int(Help_Tab.Keys), "Help and shortcuts") do pick = true
 	lens_sub_row(app, .More, ui.ICON_MORE)
@@ -165,13 +154,13 @@ kit_submenu :: proc(app: ^App) {
 	if k.menu_sub == .None || k.menu_sub == .Main do return
 	open := true
 	sub := k.menu_sub
-	if !ui.popover_begin(ctx, fmt.tprintf("menu sub %v", sub), &open, k.menu_sub_at, .Right, {direction = .Column, padding = 6, width = LENS_SUBMENU_W}) do return
+	if !ui.popover_begin(ctx, fmt.tprintf("menu sub %v", sub), &open, k.menu_sub_at, .Right, {direction = .Column, padding = ui.SPACE_S, width = ui.MENU_W}) do return
 	pick := false
 	switch sub {
 	case .None, .Main:
 	case .New:
 		ui.caption(ctx, "  NEW SCENE")
-		pick = menu_new_scenes(app, LENS_SUBMENU_W - 2 * 6)
+		pick = menu_new_scenes(app, ui.MENU_W - 2 * 6)
 	case .Recent:
 		pick = lens_recent_list(app)
 		ui.divider(ctx, across = true)
@@ -179,27 +168,8 @@ kit_submenu :: proc(app: ^App) {
 	case .Import:
 		if command_menu_item(app, .Import_Mesh) do pick = true
 		if LINK_AVAILABLE && command_menu_item(app, .Get_From_Blender) do pick = true
-		if command_menu_item(app, .Workspace_Import) do pick = true
 	case .Export:
 		// Not a submenu: the Export sheet holds what it held.
-	case .Workspaces:
-		ui.caption(ctx, "  WORKSPACES")
-		w := &k.workspaces
-		for ws, slot in w.list {
-			if !ws.used do continue
-			if command_menu_item(app, .Workspace, slot, label = fmt.tprintf("%s##menu workspace %d", workspace_name(k, slot), slot)) do pick = true
-		}
-		ui.divider(ctx, across = true)
-		if command_menu_item(app, .Workspace_Export) do pick = true
-		if ui.menu_item(ctx, "Workspace options...", glyph = ui.ICON_SETTINGS) {
-			// The switcher's own menu opens where the switcher is, after this one closes.
-			at := w.menu_at
-			kit_floats_close(k)
-			w.menu, w.menu_at = true, at
-			menu_close_all(app)
-			ui.popover_end(ctx)
-			return
-		}
 	case .More:
 		if LINK_AVAILABLE && command_menu_item(app, .Send_To_Blender) do pick = true
 		// The menu stays open over the two that switch something on or off.
@@ -207,6 +177,7 @@ kit_submenu :: proc(app: ^App) {
 		if command_menu_item(app, .Macros) do pick = true
 		if command_menu_item(app, .Library) do pick = true
 		_ = command_menu_item(app, .Viewport_Readout)
+		_ = command_menu_item(app, .Readout_Gpu)
 		_ = command_menu_item(app, .Reduce_Motion)
 		_ = command_menu_item(app, .Left_Handed)
 	}

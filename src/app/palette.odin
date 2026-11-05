@@ -5,6 +5,8 @@ import "core:reflect"
 import "core:slice"
 import "core:strings"
 
+import "../poly"
+import "../sculpt"
 import "../ui"
 
 // The command palette: every command the registry holds, and each Settings tab, found
@@ -19,7 +21,7 @@ import "../ui"
 
 Palette_Kind :: enum u8 {
 	Command,
-	Settings_Tab,
+	Settings_Section,
 }
 
 // One thing the palette can run: a command with its argument, or a Settings tab (`arg`).
@@ -29,18 +31,8 @@ Palette_Entry :: struct {
 	arg:  int,
 }
 
-// The most result rows shown at once (fewer when the window is short: palette_rows),
-// and how many recent entries are kept.
-PALETTE_ROWS :: 8
+// How many recent entries are kept.
 PALETTE_RECENT :: 8
-
-// How many result rows fit in `room` points of height under the Search button, besides
-// the field, the captions, the help, its row of buttons and the padding: from 2 up to
-// PALETTE_ROWS. A row is a touch target less 4, plus the column's gap of 2.
-palette_rows :: proc(room, target: f32) -> int {
-	fixed := 16 + (target + 2) + 2 * (22 + 2) + (1 + 2) + (74 + 2) + (target + 2)
-	return clamp(int((room - fixed) / (target - 2)), 2, PALETTE_ROWS)
-}
 
 // Other words each command is found by: names other apps give it and words people
 // reach for. The label itself is always searched; the help sentence is not, since it
@@ -104,6 +96,10 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Gizmo_Snap       = "grid increment step snapping",
 	.Gizmo_Pivot      = "origin center centre anchor transform point",
 	.Gizmo_Pivot_Reset = "origin center centre anchor",
+	.Gizmo_Pivot_Edit = "unlock origin anchor move pivot only affect origins",
+	.Gizmo_Pivot_Center = "origin center centre bounds anchor geometry",
+	.Gizmo_Pivot_Unmasked = "origin center centre mask free unmasked anchor",
+	.Gizmo_Orient     = "orientation align axes local global world normal transform space",
 	.Reset_Transform  = "clear transform origin zero identity unrotate",
 	.Symmetry_X       = "mirror",
 	.Local_Symmetry   = "mirror centre center own middle",
@@ -164,6 +160,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Morph_Delete     = "morph target",
 	.New_Layer        = "sculpt layers record",
 	.Layer_Edit       = "sculpt layers copy flip negate combine order reorder apply flatten",
+	.New_Paint_Layer  = "polypaint colour color stack texture",
+	.Paint_Layer_Edit = "polypaint colour color stack combine order reorder flatten remove",
 	.Recall_Earlier   = "historyrecall local undo recall point",
 	.Recall_Later     = "historyrecall local undo recall point",
 	.Recall_Oldest    = "historyrecall local undo recall point first",
@@ -181,6 +179,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Fix_Mesh         = "fix mesh integrity repair normals flipped faces recalculate outside duplicates",
 	.Delete_Half      = "delete by symmetry remove side cut half mirror",
 	.Retopologize     = "zremesher quadriflow quads retopo quad retopologize autoremesher",
+	.Straighten       = "straighten rectify follow active quads uv squares grid rectangularize",
+	.Unwrap           = "uv master smart uv project auto seams unwrap uvs layout texture coordinates flatten new uvs",
 	.Make_Boolean     = "live boolean subtract union intersect",
 	.Live_Boolean     = "preview subtract union intersect",
 	.Extract_Masked   = "extract shell",
@@ -225,21 +225,12 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.View_Back        = "camera undo back history last view",
 	.View_Forward     = "camera redo forward history",
 	.Stats            = "performance fps statistics",
-	.Inspector        = "panel properties tray subpalette",
-	.Show_Section     = "card section panel open go",
-	.Show_Panel       = "panel card stack open show subtools subtool list outliner objects",
-	.Rail_Group       = "panel group tabs stack",
-	.Pin_Section      = "pin keep card stack panel unpin",
+	.Open_Card        = "card panel palette properties tray open show go",
+	.Open_Section     = "section card panel open show go fold",
 	.Panels_Reset     = "reset panels layout columns dock windows restore default",
-	.Workspace        = "workspace layout room switch focus sculpt inspect studio",
-	.Workspace_Save   = "workspace layout keep store",
-	.Workspace_Save_As = "workspace layout new duplicate copy own custom",
-	.Workspace_Revert = "workspace layout undo changes discard",
-	.Workspace_Reset  = "workspace layout default factory built-in",
-	.Workspace_Rename = "workspace layout name",
-	.Workspace_Delete = "workspace layout remove",
-	.Workspace_Export = "workspace layout export share file save send",
-	.Workspace_Import = "workspace layout import share file open load",
+	.Layout_Reset     = "reset layout workspace default factory docks cards restore",
+	.Layout_Save_As   = "save layout workspace preset my own custom store name docks cards",
+	.Layout_Load      = "load layout workspace preset my own custom apply switch docks cards",
 	.View_Pass        = "pass view mode normals depth curvature cavity occlusion ao silhouette shaded diagnostic check skin detail normal map",
 	.View_Pass_Last   = "pass view back previous toggle",
 	.View_Grid        = "grid split panes quad four views side front top layout compare",
@@ -249,7 +240,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Render_Preview   = "render preview pane path trace rendered view beside split",
 	.View_Window      = "window monitor second screen display detach tear off pop out view",
 	.View_Windows_Close = "close view windows monitor second screen",
-	.Clean_View       = "clean view hide interface chrome controls zen distraction free fullscreen tab",
+	.Clean_View       = "clean view hide interface chrome controls zen distraction free fullscreen tab focus mode",
+	.Inspect_Mode     = "four views inspect form check curvature normals silhouette shaded grid",
 	.Brush_Picker     = "brush picker browser library all brushes cards stroke preview choose shelf",
 	.View_Layout_Menu = "view layout grid split panes quad four single preset menu",
 	.Pass_Menu        = "passes pass menu normals depth curvature silhouette occlusion ao matcap wipe",
@@ -258,7 +250,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.File_Chip        = "file name saved unsaved status chip",
 	.Space_Tabs       = "spaces tabs sculpt model render switch workspace",
 	.Object_Chip      = "object chip selected name subtool",
-	.Viewport_Readout = "hud overlay stats vertices memory gpu corner",
+	.Viewport_Readout = "hud overlay stats vertices memory corner",
+	.Readout_Gpu      = "hud overlay stats gpu frame time milliseconds performance",
 	.Reduce_Motion    = "animation accessibility",
 	.Left_Handed     = "left hand right hand mirror swap sides southpaw",
 }
@@ -272,14 +265,19 @@ HELP_SEARCH_WORDS := [Help_Tab]string {
 	.Glossary = "terms words names meaning",
 }
 
-// The words each Settings tab is found by, besides its name.
+// The words each Settings section is found by, besides its name.
 @(rodata)
-SETTINGS_SEARCH_WORDS := [Settings_Tab]string {
-	.Interface   = "preferences scale size theme ui",
+SETTINGS_SEARCH_WORDS := [Settings_Section]string {
+	.Interface   = "preferences scale size theme ui look",
 	.Camera      = "preferences orbit turn pivot",
-	.Touch       = "preferences pen finger gesture tablet stylus pressure",
-	.Keys        = "keymap shortcuts hotkeys bindings mouse buttons navigation blender maya zbrush",
-	.Performance = "preferences performance speed fps frame rate refresh hz vsync battery idle rest threads statistics autosave recovery backup crash",
+	.Touch       = "preferences finger gesture tablet",
+	.Pen         = "preferences stylus pencil pressure",
+	.Dial        = "preferences wheel modifier",
+	.Performance = "preferences system speed statistics graphics display gpu",
+	.Frame_Rate  = "preferences fps refresh hz vsync battery idle rest latency",
+	.Bars        = "preferences docks buttons pies action bar",
+	.Files       = "preferences system autosave recovery backup crash earlier saves undo history blender link send",
+	.Shortcuts   = "keys keymap hotkeys bindings mouse buttons navigation blender maya zbrush",
 }
 
 // Every entry the palette searches, in the registry's order then the Settings tabs': a
@@ -290,12 +288,10 @@ palette_entries :: proc() -> []Palette_Entry {
 		if !palette_lists(id) do continue
 		n := COMMANDS[id].args
 		for arg in 0 ..< max(n, 1) {
-			// A card's twin section is offered as its card, Show panel's.
-			if id == .Show_Section && section_is_card(Kit_Section(arg)) do continue
 			append(&out, Palette_Entry{.Command, id, arg})
 		}
 	}
-	for tab in Settings_Tab do append(&out, Palette_Entry{kind = .Settings_Tab, arg = int(tab)})
+	for s in Settings_Section do append(&out, Palette_Entry{kind = .Settings_Section, arg = int(s)})
 	return out[:]
 }
 
@@ -304,6 +300,7 @@ palette_entries_shown :: proc(app: ^App) -> []Palette_Entry {
 	out := make([dynamic]Palette_Entry, 0, 160, context.temp_allocator)
 	for e in palette_entries() {
 		if e.kind == .Command && e.id == .Run_Macro && app.macro.slots[e.arg].name == "" do continue
+		if e.kind == .Command && e.id == .Layout_Load && app.kit.layouts.saved[e.arg].name == "" do continue
 		if e.kind == .Command && e.id == .Run_Plugin && !plugin_slot_loaded(app, e.arg) do continue
 		if e.kind == .Command && e.id == .Reload_Plugins && !PLUGINS_AVAILABLE do continue
 		// Only the presets there are, of the room kept for them.
@@ -316,6 +313,7 @@ palette_entries_shown :: proc(app: ^App) -> []Palette_Entry {
 // What the palette and Settings > Keys show for the entry: a macro by its name.
 entry_title :: proc(app: ^App, e: Palette_Entry) -> string {
 	if e.kind == .Command && e.id == .Run_Macro && app.macro.slots[e.arg].name != "" do return fmt.tprintf("Macro: %s", app.macro.slots[e.arg].name)
+	if e.kind == .Command && e.id == .Layout_Load && app.kit.layouts.saved[e.arg].name != "" do return fmt.tprintf("Layout: %s", app.kit.layouts.saved[e.arg].name)
 	if e.kind == .Command && e.id == .Run_Plugin && app.plugins.slots[e.arg].key != "" do return plugin_slot_title(app, e.arg)
 	if e.kind == .Command && e.id == .Brush_Preset && e.arg >= PRESET_SLOT_OWN do return fmt.tprintf("%s brush", preset_slot_label(app, e.arg))
 	return palette_label(e)
@@ -330,7 +328,7 @@ palette_lists :: proc(id: Command_Id) -> bool {
 	if !SEND_AVAILABLE && id == .Send_Scene do return false
 	// A developer's screen: only in builds made for developers (diagnostics.odin).
 	if id == .Input_Diagnostics do return DIAGNOSTICS
-	return id != .None && id != .Command_Palette && id != .Hd_Toggle && id != .Replay_Stroke && id != .Pencil_Preferred && id != .Pen_As_Empty && id != .Rail_Group
+	return id != .None && id != .Command_Palette && id != .Hd_Toggle && id != .Replay_Stroke && id != .Pencil_Preferred && id != .Pen_As_Empty
 }
 
 // Where a menu's own heading names what a label leaves out ("Delete" under the object's
@@ -355,13 +353,13 @@ PALETTE_LABELS := #partial [Command_Id]string {
 
 // What the palette shows for the entry.
 palette_label :: proc(e: Palette_Entry) -> string {
-	if e.kind == .Settings_Tab do return fmt.tprintf("Settings: %s", SETTINGS_TAB_NAMES[Settings_Tab(e.arg)])
+	if e.kind == .Settings_Section do return fmt.tprintf("Settings: %s", SETTINGS_SECTION_NAMES[Settings_Section(e.arg)])
 	if COMMANDS[e.id].args == 0 && PALETTE_LABELS[e.id] != "" do return PALETTE_LABELS[e.id]
 	return command_label(e.id, e.arg)
 }
 
 palette_words_of :: proc(e: Palette_Entry) -> string {
-	if e.kind == .Settings_Tab do return SETTINGS_SEARCH_WORDS[Settings_Tab(e.arg)]
+	if e.kind == .Settings_Section do return SETTINGS_SEARCH_WORDS[Settings_Section(e.arg)]
 	if e.id == .Help do return HELP_SEARCH_WORDS[Help_Tab(e.arg)]
 	return SEARCH_WORDS[e.id]
 }
@@ -465,9 +463,11 @@ Palette_Hit :: struct {
 	length:  int, // the label's length
 }
 
-// The entries that match `query`, best first: by tier, then recent first, then those
-// that can run now, then the tighter fuzzy match, then the shorter label, then the
-// table's order, so equal matches always come in the same order. With no query every
+// The entries that match `query`, best first: the exact and prefix matches, then the
+// others that can run now ahead of those that cannot (a greyed row a word or a synonym
+// matched is rarely what was meant), then by tier, then recent first, then those that can
+// run now, then the tighter fuzzy match, then the shorter label, then the table's order,
+// so equal matches always come in the same order. With no query every
 // entry matches, the favourites first in the order they were starred, then recent, then
 // those that can run, then in the table's order; a query ranks favourites as any other.
 // `enabled[i]` says whether entries[i] can run now. In the temp allocator.
@@ -478,6 +478,11 @@ palette_rank :: proc(query: string, entries: []Palette_Entry, recent: []Palette_
 	for e, i in entries {
 		label := fold(titles[i] if titles != nil else palette_label(e))
 		tier, score := palette_match(q, label, fold(palette_words_of(e)))
+		// A brush is also its bare name, so "smooth" is the Smooth brush exactly, ahead of
+		// Smooth all, which it only starts.
+		if e.kind == .Command && e.id == .Brush && e.arg >= 0 && e.arg < len(sculpt.Brush_Kind) {
+			if bare, _ := palette_match(q, fold(BRUSHES[sculpt.Brush_Kind(e.arg)].name), ""); bare == .Exact do tier, score = .Exact, 0
+		}
 		if tier == .None do continue
 		r := PALETTE_RECENT
 		for f, j in recent do if f == e {r = j; break}
@@ -488,6 +493,9 @@ palette_rank :: proc(query: string, entries: []Palette_Entry, recent: []Palette_
 		append(&hits, Palette_Hit{i, tier, score, star, r, enabled[i], 0 if q == "" else len(label)})
 	}
 	slice.sort_by(hits[:], proc(a, b: Palette_Hit) -> bool {
+		a_close, b_close := a.tier <= .Prefix, b.tier <= .Prefix
+		if a_close != b_close do return a_close
+		if !a_close && a.enabled != b.enabled do return a.enabled
 		if a.tier != b.tier do return a.tier < b.tier
 		if a.favourite != b.favourite do return a.favourite < b.favourite
 		if a.recent != b.recent do return a.recent < b.recent
@@ -511,23 +519,25 @@ palette_remember :: proc(recent: ^[PALETTE_RECENT]Palette_Entry, count: ^int, e:
 
 // Whether the entry can run now.
 palette_enabled :: proc(app: ^App, e: Palette_Entry) -> bool {
-	return e.kind == .Settings_Tab || command_enabled(app, e.id, e.arg)
+	return e.kind == .Settings_Section || command_enabled(app, e.id, e.arg)
 }
 
 // The row's icon: the command's own, or a wand for one that has none, so every label in
 // the list starts at the same place.
 palette_icon :: proc(e: Palette_Entry) -> rune {
-	if e.kind == .Settings_Tab do return ui.ICON_SETTINGS
+	if e.kind == .Settings_Section do return ui.ICON_SETTINGS
 	if e.id == .Brush_Value && e.arg >= 0 && e.arg < len(Brush_Value) do return BRUSH_VALUE_ICONS[Brush_Value(e.arg)]
+	if e.id == .Model_Action && e.arg >= 0 && e.arg < len(Model_Action) do return MODEL_ACTION_ICONS[Model_Action(e.arg)]
+	if e.id == .Add_Cage && e.arg >= 0 && e.arg < len(poly.Primitive) do return PRIMITIVE_ICONS[poly.Primitive(e.arg)]
 	return COMMANDS[e.id].icon if COMMANDS[e.id].icon != 0 else ui.ICON_WAND
 }
 
 // The entry's name as settings.txt and the exit stats write it: the command's name, and
 // its argument by name too ("Brush:Clay", "View_Axis:Front", "Remesh_To:1000000",
-// "Settings_Tab:Touch"), so a reordered enum never turns one remembered command into
+// "Settings_Section:Touch"), so a reordered enum never turns one remembered command into
 // another. In the temp allocator.
 palette_entry_name :: proc(e: Palette_Entry) -> string {
-	if e.kind == .Settings_Tab do return fmt.tprintf("Settings_Tab:%v", Settings_Tab(e.arg))
+	if e.kind == .Settings_Section do return fmt.tprintf("Settings_Section:%v", Settings_Section(e.arg))
 	return command_name(e.id, e.arg)
 }
 
@@ -535,9 +545,9 @@ palette_entry_name :: proc(e: Palette_Entry) -> string {
 // A size reads back as the nearest preset, as `new_vertices` does.
 palette_entry_from_name :: proc(name: string) -> (e: Palette_Entry, ok: bool) {
 	head, _, tail := strings.partition(name, ":")
-	if head == "Settings_Tab" {
-		tab := reflect.enum_from_name(Settings_Tab, tail) or_return
-		return {kind = .Settings_Tab, arg = int(tab)}, true
+	if head == "Settings_Section" {
+		s := reflect.enum_from_name(Settings_Section, tail) or_return
+		return {kind = .Settings_Section, arg = int(s)}, true
 	}
 
 	id, arg := command_from_name(name) or_return
@@ -604,8 +614,8 @@ palette_run :: proc(app: ^App, e: Palette_Entry) {
 	switch e.kind {
 	case .Command:
 		ran = command_run(app, e.id, e.arg)
-	case .Settings_Tab:
-		ran = settings_open(app, Settings_Tab(e.arg))
+	case .Settings_Section:
+		ran = settings_open(app, Settings_Section(e.arg))
 	}
 	if !ran do return
 	k.palette_runs += 1
@@ -614,7 +624,7 @@ palette_run :: proc(app: ^App, e: Palette_Entry) {
 }
 
 // The palette's popover under the Search button: the field, as many results as fit (up
-// to PALETTE_ROWS) with their shortcuts and states, the picked one's help, and how many
+// to LENS_SEARCH_ROWS) with their shortcuts and states, the picked one's help, and how many
 // more there are. Up and Down pick (the list scrolls to keep the pick in view), and so
 // do a pointer moving over a row and a press on one, so the pick's Put on a bar and the
 // footer's buttons follow the mouse, the pen and a finger; Enter or a tap runs, a long
@@ -628,9 +638,8 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	// Wide, centred under the top bar, its rows saying where each lives (lens_search.odin).
 	width := min(f32(LENS_SEARCH_W), area.w - 2 * t.edge)
 	anchor, side := lens_search_anchor(app, search, width)
-	rows := palette_rows(area.y + area.h - (anchor.y + anchor.h + 6) - 4, t.target)
 	was := k.palette
-	if !ui.popover_begin(ctx, "palette", &k.palette, anchor, side, {direction = .Column, gap = 2, padding = 8, width = width}) do return
+	if !ui.popover_begin(ctx, "palette", &k.palette, anchor, side, {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_M, width = width}) do return
 	defer ui.popover_end(ctx)
 	// A press outside closed it: give the keys back.
 	if was && !k.palette do ctx.text_focus = 0
@@ -672,7 +681,7 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	if query != "" && !choosing {
 		hits, k.palette_groups = palette_group_hits(hits, entries)
 	}
-	rows = lens_search_rows(area.y + area.h - (anchor.y + anchor.h + 6) - 4, card(k.palette_groups))
+	rows := lens_search_rows(area.y + area.h - (anchor.y + anchor.h + 6) - 4, card(k.palette_groups))
 	n := len(hits)
 	if k.palette && n > 0 {
 		if key_pressed(d, KEY_DOWN, repeat = true) do k.palette_pick = (k.palette_pick + 1) % n
@@ -720,7 +729,7 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	ui.begin(ctx, "palette help", {direction = .Column, height = 56, width = width - 16})
 	if n > 0 {
 		e := entries[hits[k.palette_pick].entry]
-		help := fmt.tprintf("Opens Settings on the %s tab.", SETTINGS_TAB_NAMES[Settings_Tab(e.arg)]) if e.kind == .Settings_Tab else COMMANDS[e.id].help
+		help := fmt.tprintf("Opens Settings on its %s section.", SETTINGS_SECTION_NAMES[Settings_Section(e.arg)]) if e.kind == .Settings_Section else COMMANDS[e.id].help
 		if e.kind == .Command {
 			if gesture := command_gesture(app, e.id, e.arg); gesture != "" do help = fmt.tprintf("%s By touch: %s%s.", help, strings.to_lower(gesture[:1], context.temp_allocator), gesture[1:])
 		}
@@ -735,7 +744,8 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	if n > 0 do pick = entries[hits[k.palette_pick].entry]
 	k.palette_picked = pick
 	if lens_palette_footer(app, pick, width, anchor) do shown = pick
-	if n > rows do ui.caption(ctx, fmt.tprintf("  %d-%d OF %d: TYPE MORE TO NARROW", k.palette_first + 1, min(k.palette_first + rows, n), n))
+	// A sentence, not a caption: the capitals are kept for the groups' names.
+	if n > rows do ui.label(ctx, fmt.tprintf("   %d–%d of %d. Type more to narrow.", k.palette_first + 1, min(k.palette_first + rows, n), n), ctx.theme.small_size, ctx.theme.text_tertiary)
 	enter := key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)
 	if k.palette && n > 0 && key_pressed(d, KEY_TAB) {
 		e := entries[hits[k.palette_pick].entry]
@@ -760,19 +770,19 @@ kit_palette :: proc(app: ^App, search: ui.Rect) {
 	}
 	if e, ok := shown.?; ok {
 		palette_close(app)
-		_ = tray_show(app, e.id, e.arg)
+		_ = card_show(app, e.id, e.arg)
 		return
 	}
 	if e, ok := ran.?; ok do palette_run(app, e)
 }
 
-// Where the entry's control is in the tray, as "the Mask card", or
-// "" for one with no home there (a Settings tab, or a command only the bars or keys run).
+// Where the entry's control is on the cards, as "the Mesh card's Rebuild", or "" for one
+// with no home there (a Settings tab, or a command only the docks or keys run).
 palette_home :: proc(e: Palette_Entry) -> string {
 	if e.kind != .Command do return ""
 	sec, ok := COMMAND_HOMES[e.id].?
 	if !ok do return ""
-	if section_palette(sec) == .Tool do return fmt.tprintf("the Brush card's %s", tray_section_title(sec))
-	if p, _ := panel_of_section(sec); !panel_is_section(p) do return fmt.tprintf("the %s card", STACK_CARD_NAMES[p])
-	return fmt.tprintf("the %s card", tray_section_title(sec))
+	c := section_card(sec)
+	if card_sections_count(c) == 1 do return fmt.tprintf("the %s card", card_title(c))
+	return fmt.tprintf("the %s card's %s", card_title(c), section_title(sec))
 }

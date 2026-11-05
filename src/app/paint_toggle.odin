@@ -23,10 +23,10 @@ paint_toggle :: proc(app: ^App) {
 }
 
 // Whether the colour island shows: in Sculpt, while the brushes paint (or the Paint brush,
-// which always does, is held), with the dock in sight and History not in its place.
+// which always does, is held), with the dock in sight.
 colour_island_shown :: proc(app: ^App) -> bool {
 	k := &app.kit
-	if k.spaces.current != .Sculpt || app.tool != .Brush || zone_hidden(k, .Dock) || k.history || lens_focus(k) do return false
+	if k.spaces.current != .Sculpt || app.tool != .Brush || zone_hidden(k, .Dock) || lens_focus(k) do return false
 	return app.brush.channel != .Sculpt || .Paint in BRUSHES[app.brush.kind].flags
 }
 
@@ -59,7 +59,7 @@ kit_colour_island :: proc(app: ^App) {
 	fixed := t.target * 2 + 8 + t.target + segment_w + 4 * ACTION_BAR_PADDING
 	history := clamp(int((room - fixed) / (SWATCH_SIDE + 2)), 0, min(ISLAND_HISTORY, c.history_count))
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "colour island", .Center, .End, {0, t.edge + dock_lift(app) + dock.y + ACTION_BAR_GAP}, {direction = .Row, gap = 6, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "colour island", .Center, .End, {0, t.edge + dock_lift(app) + dock.y + ACTION_BAR_GAP}, {direction = .Row, gap = ui.SPACE_S, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
 	// The main colour's well, as a colour field's: the popover sets it, taken next frame.
 	well := "Main colour##colour island"
 	id := ui.id_of(ctx, well)

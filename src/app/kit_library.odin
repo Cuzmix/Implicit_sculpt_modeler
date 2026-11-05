@@ -6,70 +6,57 @@ import "core:strings"
 
 import "../ui"
 
-// The Library panel (Menu > Library, or Search): Install pack at its top, a pack waiting
-// on Replace, then the person's own alphas and every pack installed, each with what it
-// holds and Remove. It takes the inspector's place on the right as Settings, Help and
-// Macros do.
+// The Library's packs: its sidebar's Manage packs page (Install pack and Make a pack at
+// its top, a pack waiting on Replace, then the person's own alphas and every pack
+// installed, each with what it holds and Remove), and a pack's own page, which shows its
+// row above its presets. Both are drawn in the Library sheet (kit_brush_sheet).
 
-KIT_LIBRARY_W :: KIT_SETTINGS_W
+// The Library's `pack` while its Manage packs page is shown.
+PACKS_MANAGE :: -1
 
 // Seconds a pack's Remove waits for its second tap.
 PACK_REMOVE_ARM_TIME :: 3
 
-// Opens the Library panel in the inspector's place, unfolded and in front.
-library_open :: proc(app: ^App) {
+// Opens the Library on its Manage packs page.
+library_packs_open :: proc(app: ^App) {
 	k := &app.kit
-	if k.settings do settings_close(app)
-	k.help, k.macros, k.library, k.pack_armed = false, false, true, 0
-	k.windows[.Library].minimized = false
-	window_raise(k, .Library)
+	p := &k.brushes
+	kit_floats_close(k)
+	p.adding = nil
+	p.category, p.pack, p.searching, p.search = .Pack, PACKS_MANAGE, false, {}
+	k.browser, k.grid_scroll, k.library_scroll, k.pack_armed = true, 0, 0, 0
+	p.side_scroll, p.side_reveal = 0, true
 }
 
-kit_library :: proc(app: ^App) -> (raised: bool) {
+// The Manage packs page in the room `height` high: the buttons, what is installing or
+// waiting, the rows in a body that scrolls, and the note on what a pack is.
+kit_library_manage :: proc(app: ^App, owner: ui.Id, inner, height: f32) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	id := ui.id_of(ctx, "library")
-	shown := ui.presence(ctx, id, k.library, t.panel_time)
-	if shown <= 0 do return
-	win := &k.windows[.Library]
-	top := kit_top()
-	room := window_room(app, win^, top)
-	if !win.moved do room -= side_panel_below(app, KIT_LIBRARY_W)
-	inner := f32(KIT_LIBRARY_W - 2 * 16)
 	l := &app.library
-
-	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "library", "Library", win, .End, .Start, {kit_right(app), top}, {direction = .Column, gap = 8, padding = 16, width = KIT_LIBRARY_W, radius = t.radius_large, background = .Panel, inert = !k.library}, "Esc")
-	raised = raised_now
-	if closed do k.library = false
-	if body {
-		kit_command_pair(app, .Pick_Pack, .Save_Pack, label_a = "Install pack...", label_b = "Make a pack...")
-		if w := l.worker; w != nil {
-			ui.label(ctx, ui.text_fit(ctx, fmt.tprintf("Installing %s...", filepath.base(w.path)), t.caption_size, inner), t.caption_size, t.text_secondary)
-		}
-		if u := l.pending; u != nil do kit_pack_pending(app, u, inner)
-		ui.caption(ctx, fmt.tprintf("INSTALLED  %d PACK%s", len(l.packs), "" if len(l.packs) == 1 else "S"))
-
-		// The list scrolls in the room the controls above and the note below leave.
-		foot := "This run keeps no library: it keeps no settings." if l.folder == "" else fmt.tprintf("A content pack is a .sculptpack file: a ZIP archive of images under alphas/, brush presets in brushes.txt, OBJ or PLY meshes under meshes/ and a pack.txt naming it. Make a pack writes your own alphas and presets as one, named after its file. Packs only add to what is built in and hold no code. They are kept in the folder %s beside the settings file.", filepath.base(l.folder))
-		_, foot_size := ui.prev_layout(ctx, "library foot")
-		_, head_size := ui.prev_layout(ctx, "library pending")
-		extra := head_size.y + 8 if l.pending != nil else 0
-		if l.worker != nil do extra += t.caption_size * 1.4 + 8
-		body_h := max(room - 2 * 16 - 3 * 8 - t.target - t.caption_size * 1.4 - foot_size.y - extra, 120)
-		scroll := kit_scroll_begin(ctx, "library body", &k.library_scroll, id, inner, body_h, 4)
-		kit_library_row(app, -1, inner)
-		for _, i in l.packs do kit_library_row(app, i, inner)
-		if len(l.packs) == 0 do ui.paragraph(ctx, "No packs yet. Install pack adds one from a .sculptpack file; its alphas then show in the Brush card's Alpha section, its presets in the brush browser and its meshes in New scene and Add object, under its name.")
-		kit_scroll_end(ctx, scroll)
-		ui.begin(ctx, "library foot", {direction = .Column, width = inner})
-		ui.paragraph(ctx, foot)
-		ui.end(ctx)
+	kit_command_pair(app, .Pick_Pack, .Save_Pack, label_a = "Install pack...", label_b = "Make a pack...")
+	if w := l.worker; w != nil {
+		ui.label(ctx, ui.text_fit(ctx, fmt.tprintf("Installing %s...", filepath.base(w.path)), t.caption_size, inner), t.caption_size, t.text_secondary)
 	}
-	ui.window_end(ctx)
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
-	return
+	if u := l.pending; u != nil do kit_pack_pending(app, u, inner)
+	ui.caption(ctx, fmt.tprintf("INSTALLED  %d PACK%s", len(l.packs), "" if len(l.packs) == 1 else "S"))
+
+	// The list scrolls in the room the controls above and the note below leave.
+	foot := "This run keeps no library: it keeps no settings." if l.folder == "" else fmt.tprintf("A content pack is a .sculptpack file: a ZIP archive of images under alphas/, brush presets in brushes.txt, OBJ or PLY meshes under meshes/ and a pack.txt naming it. Make a pack writes your own alphas and presets as one, named after its file. Packs only add to what is built in and hold no code. They are kept in the folder %s beside the settings file.", filepath.base(l.folder))
+	_, foot_size := ui.prev_layout(ctx, "library foot")
+	_, head_size := ui.prev_layout(ctx, "library pending")
+	extra := head_size.y + 8 if l.pending != nil else 0
+	if l.worker != nil do extra += ui.line_height(t.caption_size) + 8
+	body_h := max(height - 3 * 8 - t.target - ui.CAPTION_H - foot_size.y - extra, 120)
+	scroll := kit_scroll_begin(ctx, "library body", &k.library_scroll, owner, inner, body_h, 4)
+	kit_library_row(app, -1, inner)
+	for _, i in l.packs do kit_library_row(app, i, inner)
+	if len(l.packs) == 0 do ui.paragraph(ctx, "No packs yet. Install pack adds one from a .sculptpack file; its alphas then show in the Brush card's Alpha section, its presets here under its name and its meshes in New scene and Add object.", inner)
+	kit_scroll_end(ctx, scroll)
+	ui.begin(ctx, "library foot", {direction = .Column, width = inner})
+	ui.paragraph(ctx, foot, inner)
+	ui.end(ctx)
 }
 
 // A pack installed already, by name and author, waiting on Replace or Keep.
@@ -78,9 +65,9 @@ kit_pack_pending :: proc(app: ^App, u: ^Pack_Unpacked, inner: f32) {
 	ctx := &app.kit.ctx
 	old := ""
 	for p in app.library.packs do if strings.equal_fold(p.name, u.info.name) && strings.equal_fold(p.author, u.info.author) do old = p.version
-	ui.begin(ctx, "library pending", {direction = .Column, gap = 8, width = inner})
+	ui.begin(ctx, "library pending", {direction = .Column, gap = ui.SPACE_M, width = inner})
 	ui.paragraph(ctx, fmt.tprintf("%s is installed already%s. Replace it with the one in %s%s? Its alphas keep their names, so presets that use them keep working.", u.info.name, "" if old == "" else fmt.tprintf(" (version %s)", old), u.source, "" if u.info.version == "" else fmt.tprintf(" (version %s)", u.info.version)))
-	ui.begin(ctx, "library pending buttons", {direction = .Row, gap = 8, width = inner})
+	ui.begin(ctx, "library pending buttons", {direction = .Row, gap = ui.SPACE_M, width = inner})
 	half := (inner - 8) * 0.5
 	if ui.button(ctx, "Replace", .Solid, .Accent, width = half) do pack_pending_answer(app, true)
 	if ui.button(ctx, "Keep the old one", .Bordered, width = half) do pack_pending_answer(app, false)
@@ -97,7 +84,6 @@ pack_remove_armed :: proc(app: ^App, i: int) -> bool {
 // One row: the person's own alphas (`i` -1), or pack `i` with its author, version,
 // licence and what it holds, and Remove, which asks for a second tap in the line under
 // the name.
-@(private = "file")
 kit_library_row :: proc(app: ^App, i: int, inner: f32) {
 	k := &app.kit
 	ctx := &k.ctx

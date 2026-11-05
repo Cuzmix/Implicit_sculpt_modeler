@@ -150,7 +150,7 @@ solo_follows_the_selection_and_keeps_the_eyes :: proc(t: ^testing.T) {
 
 // The scene file keeps each object's eye and ghost from version 8, its polypaint left
 // out from version 11, its lock from version 25 and the spaces it is left out of from
-// version 33, reads older files with everything in view and unlocked, and refuses flags it
+// version 33 and its pivot, reads older files with everything in view and unlocked, and refuses flags it
 // does not know.
 @(test)
 view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
@@ -159,6 +159,8 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 	objs := tree_scene(&app)
 	objs[0].off, objs[1].ghost, objs[2].locked = true, true, true
 	objs[1].remesh_cell = 0.025
+	objs[1].pivot = {set = true, at = {0.25, -0.5, 1}, normal = {0, 1, 0}}
+	objs[2].stack.mirror = {added = true, axes = {.X}, minus = true}
 	for obj in objs {
 		out: [dynamic]u8
 		defer delete(out)
@@ -172,12 +174,14 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		testing.expect_value(t, back.ghost, obj.ghost)
 		testing.expect_value(t, back.locked, obj.locked)
 		testing.expect_value(t, back.transform, obj.transform)
+		testing.expect_value(t, back.pivot, obj.pivot)
 
 		testing.expect_value(t, back.remesh_cell, obj.remesh_cell)
+		testing.expect_value(t, back.stack, obj.stack)
 
-		// The flags byte sits ten bytes before the end of the head: the flags, the folder,
-		// the stored eyes and the last remesh's cell.
-		flags := r.at - 10
+		// The flags byte sits ten bytes and the live stack's before the end of the head:
+		// the flags, the folder, the stored eyes, the last remesh's cell and the stack.
+		flags := r.at - 10 - STACK_BYTES
 
 		// Each known bit reads back; one past them is damage.
 		out[flags] = 4
@@ -401,7 +405,8 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	more: [dynamic]u8
 	defer delete(more)
 	lights_more_put(&more, app.scene.lights)
-	end := len(head) - len(more)
+	// The references' chunk follows the scene's.
+	end := len(head) - len(more) - test_refs_chunk_len(&app)
 	r.at = end - (4 + 4 + 4 + len("Ears") + 1 + 1 + 4 + 4 + 2 + 8 + len(lights) + 4 + GUIDES_BYTES + SCENE_CURVE_FIELD_BYTES)
 	folders, next, ok := folders_get(&r)
 	defer {
@@ -477,7 +482,7 @@ the_swap_limit_drops_an_arrange_head :: proc(t: ^testing.T) {
 	history_record_swap(&app, 10, history_snapshot(&app, nil, "delete object"), chain = true)
 	history_record_swap(&app, 11, history_snapshot(&app, nil, "delete object"), chain = true)
 	testing.expect_value(t, len(app.history.done), 3)
-	app.history.swap_bytes = SWAP_LIMIT_BYTES + 1
+	app.history.swap_bytes = history_swap_limit(&app.history) + 1
 	history_record_swap(&app, 12, history_snapshot(&app, nil, "add object"))
 	testing.expect_value(t, len(app.history.done), 1)
 	testing.expect(t, !app.history.done[0].chain && app.history.done[0].id == 12)

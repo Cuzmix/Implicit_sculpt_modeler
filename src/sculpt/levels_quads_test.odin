@@ -66,7 +66,6 @@ quads_round_trip_the_file :: proc(t: ^testing.T) {
 }
 
 // A unit cube as six quads facing out, with `allocator`.
-@(private = "file")
 cube_quads :: proc(allocator := context.temp_allocator) -> (q: geom.Quad_Mesh) {
 	q.positions = make([]geom.Vec3, 8, allocator)
 	for &p, i in q.positions do p = {f32(i & 1), f32(i >> 1 & 1), f32(i >> 2)}
@@ -182,4 +181,38 @@ uvs_refuse_damage :: proc(t: ^testing.T) {
 	past := transmute([4]u8)u32(l.uvs.islands)
 	copy(bad[islands:], past[:])
 	refused(t, bad, "an island out of range")
+}
+
+// A quad cube's triangles each draw two of their edges in the wireframe, the quad's sides,
+// and leave out the third, the diagonal both halves of a quad share; every polygon edge is
+// drawn by the two triangles on either side of it.
+@(test)
+polygon_tri_edges_leave_out_diagonals :: proc(t: ^testing.T) {
+	q := cube_quads()
+	old_to_new := make([]u32, len(q.positions), context.temp_allocator)
+	tri_from := make([]u32, 2 * len(q.quads), context.temp_allocator)
+	l: Levels
+	levels_init(&l, geom.quad_mesh_triangulate(q), nil, 64, old_to_new, tri_from)
+	defer levels_destroy(&l)
+	quads := make([][4]u32, len(q.quads))
+	for f, i in q.quads do for v, k in f do quads[i][k] = old_to_new[v]
+	levels_set_quads(&l, quads)
+	pairs := levels_polygon_edges(&l, 0)
+	words := levels_polygon_tri_edges(&l, 0, pairs, context.temp_allocator)
+	indices := l.levels[0].mesh.indices[:]
+	tris := len(indices) / 3
+	testing.expect_value(t, len(words), (tris + 7) / 8)
+	drawn_edges := make(map[u64]int, context.temp_allocator)
+	for tri in 0 ..< tris {
+		bits := (words[tri / 8] >> (4 * u32(tri % 8))) & 15
+		testing.expect_value(t, bits & 8, 0)
+		n := int(bits & 1) + int(bits >> 1 & 1) + int(bits >> 2 & 1)
+		testing.expectf(t, n == 2, "triangle %d draws %d edges", tri, n)
+		for k in 0 ..< 3 do if bits & (1 << u32(k)) != 0 {
+			a, b := indices[3 * tri + (k + 1) % 3], indices[3 * tri + (k + 2) % 3]
+			drawn_edges[u64(min(a, b)) << 32 | u64(max(a, b))] += 1
+		}
+	}
+	testing.expect_value(t, len(drawn_edges), len(pairs) / 2)
+	for _, n in drawn_edges do testing.expect_value(t, n, 2)
 }

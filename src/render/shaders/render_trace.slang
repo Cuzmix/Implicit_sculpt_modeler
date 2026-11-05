@@ -139,6 +139,22 @@ static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
 
 #define LIGHT_COUNT 8
 
+// What the scene may use, as specialization constants (Metal function constants): the
+// renderer builds a kernel for each mix a scene needs (render/path.odin's
+// Render_Features), and the driver folds away every branch a constant rules out, which
+// takes the plain sculpt's kernel from 128 registers a thread to 96 on an RDNA2 GPU
+// (scripts/kernel_stats.py). Left unset they allow everything, which is the general
+// kernel a run uses until its own is built. All are uints, so Metal sets them with one type.
+// The item flags (ITEM_) any item may carry: each item's flags are masked with them.
+[[vk::constant_id(0)]] const uint RT_ITEMS = 0xffffffffu;
+// 1 when an image environment may be bound.
+[[vk::constant_id(1)]] const uint RT_ENV_IMAGE = 1u;
+// 1 when depth of field may be on.
+[[vk::constant_id(2)]] const uint RT_LENS = 1u;
+// 1 when a light with a place (point, spot or area, each traced as a sphere) may be on;
+// 0 means suns only.
+[[vk::constant_id(3)]] const uint RT_SPHERE_LIGHTS = 1u;
+
 [[vk::binding(0, 2)]] cbuffer Render_Uniforms {
 	float4x4 inv_view_proj; // clip space back to the world
 	// The lights in world space, as render.Lights carries them in view space (light_at in
@@ -653,7 +669,7 @@ float power_weight(float a, float b) {
 // What a path that leaves the scene along `d` takes: the image environment, or the
 // built-in studio at the ambient light's strength as the viewport's diffuse takes it.
 float3 environment(float3 d) {
-	if (env.x > 0.5) {
+	if (RT_ENV_IMAGE != 0u && env.x > 0.5) {
 		float3 e = mul(d, transpose(float3x3(env_x.xyz, env_y.xyz, env_z.xyz)));
 		return environment_map.SampleLevel(panorama_uv(e), 0.0).rgb * env.y;
 	}
@@ -663,7 +679,7 @@ float3 environment(float3 d) {
 
 // The environment's frame: its own axes in the world, an image's or the studio's.
 float3x3 env_frame() {
-	return env.x > 0.5 ? float3x3(env_x.xyz, env_y.xyz, env_z.xyz) : float3x3(rig_x.xyz, rig_y.xyz, rig_z.xyz);
+	return RT_ENV_IMAGE != 0u && env.x > 0.5 ? float3x3(env_x.xyz, env_y.xyz, env_z.xyz) : float3x3(rig_x.xyz, rig_y.xyz, rig_z.xyz);
 }
 
 // A direction (world) picked by the environment's table, and its density.
@@ -672,10 +688,10 @@ float3 env_sample(out float pdf) {
 	int count = ts.x * ts.y;
 	float u = rnd() * float(count);
 	int i = min(int(u), count - 1);
-	float4 e = env_table.Load(int3(int2(i % ts.x, i / ts.x), 0));
+	float4 e = load_texel(env_table, int2(i % ts.x, i / ts.x));
 	if (frac(u) >= e.x) {
 		i = int(e.y);
-		e = env_table.Load(int3(int2(i % ts.x, i / ts.x), 0));
+		e = load_texel(env_table, int2(i % ts.x, i / ts.x));
 	}
 	float2 uv = (float2(i % ts.x, i / ts.x) + float2(rnd(), rnd())) / float2(ts);
 	float3 local = panorama_dir(uv);
@@ -688,7 +704,7 @@ float env_pdf(float3 d) {
 	float3 local = mul(d, transpose(env_frame()));
 	int2 ts = texture_size(env_table);
 	int2 at = min(int2(panorama_uv(local) * float2(ts)), ts - 1);
-	return env_table.Load(int3(at, 0)).z / max(sqrt(max(1.0 - local.y * local.y, 0.0)), 1e-4);
+	return load_texel(env_table, at).z / max(sqrt(max(1.0 - local.y * local.y, 0.0)), 1e-4);
 }
 
 // One light's light at a surface (next-event estimation): the environment or a light,
@@ -721,7 +737,7 @@ float3 direct_light(Surface s, float3 p, float3 ng, float3 n, float3 v) {
 	float3 l;
 	float dist = FAR, pdf_dir;
 	float3 radiance = light_color[i].rgb * light_size[i].y;
-	if (light_pos[i].w < 0.5) {
+	if (RT_SPHERE_LIGHTS == 0u || light_pos[i].w < 0.5) {
 		l = sample_cone(light_pos[i].xyz, light_size[i].x);
 		pdf_dir = cone_pdf(light_size[i].x);
 	} else {
@@ -757,7 +773,7 @@ float3 lights_met(float3 o, float3 d, float t_hit, bool escaped, float pdf_bsdf)
 		if (light_size[i].w <= 0.0 || light_nee_only(i)) continue;
 		float3 radiance = light_color[i].rgb * light_size[i].y;
 		float pdf_dir;
-		if (light_pos[i].w < 0.5) {
+		if (RT_SPHERE_LIGHTS == 0u || light_pos[i].w < 0.5) {
 			if (!escaped || dot(d, light_pos[i].xyz) < light_size[i].x) continue;
 			pdf_dir = cone_pdf(light_size[i].x);
 		} else {
@@ -807,7 +823,7 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 	// instead, picked over its disc (Shirley's concentric map), then starts back where the
 	// pinhole's did, so the near plane clips as the viewport does. Measured from the eye's
 	// plane, so it holds for an orthographic view too, whose rays start far behind it.
-	bool lens = lens_eye.w > 0.0;
+	bool lens = RT_LENS != 0u && lens_eye.w > 0.0;
 	if (lens) {
 		float2 u = 2.0 * float2(rnd(), rnd()) - 1.0;
 		float2 disc = float2(0.0);
@@ -845,7 +861,7 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 		if (bounce == bounces) break;
 
 		uint ia = indices[3u * hit.tri], ib = indices[3u * hit.tri + 1u], ic = indices[3u * hit.tri + 2u];
-		uint base = items[hit.item].offs.x, flags = items[hit.item].offs.y;
+		uint base = items[hit.item].offs.x, flags = items[hit.item].offs.y & RT_ITEMS;
 		float4x4 model = items[hit.item].model;
 		float w0 = 1.0 - hit.uv.x - hit.uv.y;
 		float3 p0 = vertex(base + ia), p1 = vertex(base + ib), p2 = vertex(base + ic);
@@ -970,13 +986,13 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 	}
 	float lum = luminance(radiance);
 	if (lum > SAMPLE_CLAMP) radiance *= SAMPLE_CLAMP / lum;
-	float4 sum = first ? float4(0.0) : prev.Load(int3(px, 0));
+	float4 sum = first ? float4(0.0) : load_texel(prev, px);
 	next[px] = sum + float4(radiance, covered);
 	if (lens) {
 		// Running means over the samples whose ray met the scene, the share that did in
 		// the colour's a, so the colour divided out is the colour the blurred light has.
-		float4 prev_a = first ? float4(0.0) : prev_albedo.Load(int3(px, 0));
-		float4 prev_n = first ? float4(0.0) : prev_normal.Load(int3(px, 0));
+		float4 prev_a = first ? float4(0.0) : load_texel(prev_albedo, px);
+		float4 prev_n = first ? float4(0.0) : load_texel(prev_normal, px);
 		float done = float(counts.x);
 		float hit = guide_a.a, hits_before = prev_a.a * done;
 		float hits = hits_before + hit;

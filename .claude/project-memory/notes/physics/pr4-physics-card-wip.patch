@@ -1,0 +1,1470 @@
+diff --git a/README.md b/README.md
+index 96e4018..d3bde18 100644
+--- a/README.md
++++ b/README.md
+@@ -296,7 +296,7 @@ The Stats panel shows the same timings live:
+ 
+ ## Deformation
+ 
+-The Deformation card (Surface page) is ZBrush's Deformation sliders with Blender's mesh transforms and filters and Nomad's live filters: a list of what it does, the axes it works along where it takes any (X, Y and Z toggles; Offset, Rotate and Size take several, Skew, S bend, Squeeze and Gravity one), and Amount, a slider to drag. Offset moves the free part along the axes by a share of its size (±100 %); Rotate turns it about its middle (±180°, about each axis in turn); Size scales it about its middle along the axes (−95 % to +200 %); Skew leans it along the axis the further the higher it is (along X over its width for Y; ±60°); S bend waves it once each way along the axis over its height (up to a quarter of its size); Squeeze pinches its middle across the axis, or bulges it the other way; Noise roughens the surface in and out along its normals with smooth bumps an eighth of its size across (up to 5 % of the size, the same bumps at the same place every time); Inflate pushes the surface out or in along its normals (up to 10 %); Spherize rounds the free part toward a ball as wide as it is (0 to 100 %); Gravity sags its outer parts down the axis, the further out the more, as a soft drape. These show live as the slider moves, set afresh each frame from where the drag began, as Nomad's filters do; letting go is one undo step and the slider springs back to 0 for the next, as the Deformers' Amount. Polish and Relax go over the surface's neighbours a number of times, so they run once, when the slider is let go, with the steps it shows (up to 20): Polish takes the roughness off as Smooth all does but keeps the size (Taubin's λ|μ smoothing, a step toward the neighbours' average then a slightly larger one back; on a rough sphere 10 steps keep the volume within 1 % where Smooth loses 6 %), Relax moves each vertex only along the surface toward its neighbours' average, which evens out their spacing and keeps the shape. Every one works on the part the mask leaves free (all that is shown, with no mask), a half-masked vertex taking part of it, in the object's own space over that part's box; not on clay, in an HD window or with dynamic topology. Under More options, Repeat on the other objects gives every other shown object the last one, each over its own free part, as one undo step with them all (ZBrush's Apply To All Subtools); Smooth all and its options are there too. The Deformation command (with each kind, in the command palette and for keys) opens the section on it. The exit stats give `reshapes`, `reshape_ms` and `reshape_kind`.
++The Deformation card (Surface page) is ZBrush's Deformation sliders with Blender's mesh transforms and filters and Nomad's live filters: a list of what it does, the axes it works along where it takes any (X, Y and Z toggles; Offset, Rotate and Size take several, Skew, S bend and Squeeze one), and Amount, a slider to drag. Offset moves the free part along the axes by a share of its size (±100 %); Rotate turns it about its middle (±180°, about each axis in turn); Size scales it about its middle along the axes (−95 % to +200 %); Skew leans it along the axis the further the higher it is (along X over its width for Y; ±60°); S bend waves it once each way along the axis over its height (up to a quarter of its size); Squeeze pinches its middle across the axis, or bulges it the other way; Noise roughens the surface in and out along its normals with smooth bumps an eighth of its size across (up to 5 % of the size, the same bumps at the same place every time); Inflate pushes the surface out or in along its normals (up to 10 %); Spherize rounds the free part toward a ball as wide as it is (0 to 100 %). A drape under gravity is the Physics card's Settle, which lets the free part fall as cloth onto the floor and the other objects. These show live as the slider moves, set afresh each frame from where the drag began, as Nomad's filters do; letting go is one undo step and the slider springs back to 0 for the next, as the Deformers' Amount. Polish and Relax go over the surface's neighbours a number of times, so they run once, when the slider is let go, with the steps it shows (up to 20): Polish takes the roughness off as Smooth all does but keeps the size (Taubin's λ|μ smoothing, a step toward the neighbours' average then a slightly larger one back; on a rough sphere 10 steps keep the volume within 1 % where Smooth loses 6 %), Relax moves each vertex only along the surface toward its neighbours' average, which evens out their spacing and keeps the shape. Every one works on the part the mask leaves free (all that is shown, with no mask), a half-masked vertex taking part of it, in the object's own space over that part's box; not on clay, in an HD window or with dynamic topology. Under More options, Repeat on the other objects gives every other shown object the last one, each over its own free part, as one undo step with them all (ZBrush's Apply To All Subtools); Smooth all and its options are there too. The Deformation command (with each kind, in the command palette and for keys) opens the section on it. The exit stats give `reshapes`, `reshape_ms` and `reshape_kind`.
+ 
+ ## Smooth all and the GPU compute trial
+ 
+diff --git a/src/app/commands.odin b/src/app/commands.odin
+index cf83b7b..546423d 100644
+--- a/src/app/commands.odin
++++ b/src/app/commands.odin
+@@ -64,6 +64,7 @@ Command_Id :: enum u16 {
+ 	Hide_Gesture_Pick, // the argument is the Gesture_Tool
+ 	Symmetry_X,
+ 	Physics,
++	Settle,
+ 	Local_Symmetry,
+ 	Radial_Symmetry,
+ 	Brush_Add,
+@@ -896,6 +897,12 @@ COMMANDS := [Command_Id]Command {
+ 		run = proc(app: ^App, _: int) {app.brush.physics = !app.brush.physics},
+ 		checked = proc(app: ^App, _: int) -> bool {return app.brush.physics},
+ 	},
++	.Settle = {
++		label = "Settle",
++		help = "Lets the selected object's free part fall as cloth onto the floor and the other objects until it comes to rest, as its Physics card says; again, or Escape, stops it. One undo step.",
++		run = proc(app: ^App, _: int) {settle_toggle(app)},
++		checked = proc(app: ^App, _: int) -> bool {return app.ui.physics.settle.active},
++	},
+ 	.Local_Symmetry = {
+ 		label = "Local symmetry",
+ 		help = "Mirrors strokes about the object's own middle instead of its origin, so an object built or moved off centre keeps its symmetry.",
+@@ -3099,7 +3106,10 @@ commands_handle_keys :: proc(app: ^App) {
+ 		}
+ 		command_run(app, b.command, b.arg)
+ 	}
+-	if key_pressed(&app.device, KEY_ESCAPE) do replay_stop(app)
++	if key_pressed(&app.device, KEY_ESCAPE) {
++		replay_stop(app)
++		settle_stop(app)
++	}
+ }
+ 
+ // A menu row for the command, with its icon, shortcut and state from the table, and a
+diff --git a/src/app/deformers.odin b/src/app/deformers.odin
+index 4375648..9f6858b 100644
+--- a/src/app/deformers.odin
++++ b/src/app/deformers.odin
+@@ -268,6 +268,7 @@ inspector_drags_end :: proc(app: ^App) {
+ 	deform_drag_end(app, force = true)
+ 	reshape_drag_end(app, force = true)
+ 	light_drag_end(app, force = true)
++	physics_card_end(app)
+ }
+ 
+ // Whether `obj` can be deformed: not in an HD window, nor under dynamic topology, whose
+diff --git a/src/app/exit_stats.odin b/src/app/exit_stats.odin
+index 78a07a0..c52a685 100644
+--- a/src/app/exit_stats.odin
++++ b/src/app/exit_stats.odin
+@@ -282,7 +282,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
+ 			fmt.printfln("pressure_response=%d pressure_own=%d", pressure_response(pressure_edit(&app.brush)), int(app.brush.pressures[app.brush.kind].own))
+ 			fmt.printfln("grab_refine_splits=%d grab_refine_ms=%.2f", app.grab_refine.splits, app.grab_refine.ms)
+ 			fmt.printfln("stretch_repair_splits=%d stretch_repair_ms=%.2f", app.stretch_repair.splits, app.stretch_repair.ms)
+-			fmt.printfln("cloth_volume_builds=%d cloth_volumes=%d physics=%d physics_poses=%d", app.cloth_volume_builds, len(app.cloth_volumes), int(app.brush.physics), app.physics_poses)
++			fmt.printfln("cloth_volume_builds=%d cloth_volumes=%d physics=%d physics_poses=%d settles=%d settle_ms=%.1f physics_filters=%d", app.cloth_volume_builds, len(app.cloth_volumes), int(app.brush.physics), app.physics_poses, app.ui.physics.settles, app.ui.physics.settle_ms, app.ui.physics.filters)
+ 			fmt.printfln("skin_settle_strokes=%d skin_settle_vertices=%d skin_settle_ms=%.2f", app.skin_settle.strokes, app.skin_settle.vertices, app.skin_settle.ms)
+ 			skin_segments: u32
+ 			if sk := object_skin(selected_object(app)); sk != nil do skin_segments = sk.segments
+diff --git a/src/app/files.odin b/src/app/files.odin
+index abd8912..73ce7f8 100644
+--- a/src/app/files.odin
++++ b/src/app/files.odin
+@@ -81,7 +81,7 @@ SCENE_MAGIC :: "SCULPTSC"
+ // after the preview block (scene_chunk_begin), each read whole. Until release a format
+ // change replaces the old reader: the writer and the reader change together, with no
+ // branch for files an earlier build wrote, which then refuse to open.
+-SCENE_VERSION :: u32(38)
++SCENE_VERSION :: u32(39)
+ // The chunks of a scene file: the scene's own fields, then one an object.
+ CHUNK_SCENE :: "SCEN"
+ CHUNK_OBJECT :: "OBJ "
+@@ -2065,6 +2065,7 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
+ 	geom.byte_put(out, i32(obj.folder))
+ 	geom.byte_put(out, obj.vis_off)
+ 	geom.byte_put(out, obj.remesh_cell)
++	physics_put(out, object_physics(obj))
+ 	geom.byte_put(out, u8(object_kind(obj)))
+ 	material_put(out, obj.material, refs[0] if len(refs) > 0 else {})
+ 	group_materials_put(out, obj, refs[1:] if len(refs) > 0 else nil)
+@@ -2218,7 +2219,7 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source
+ }
+ 
+ // Reads what object_put writes before the levels: the id, name, placement, boolean mode,
+-// view flags, folder, stored eyes and last remesh cell; r.ok goes false on damage. The caller owns
++// view flags, folder, stored eyes, last remesh cell and Physics card; r.ok goes false on damage. The caller owns
+ // obj.name.
+ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
+ 	obj.id = int(geom.byte_get(r, i32))
+@@ -2239,6 +2240,7 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
+ 	obj.vis_off = geom.byte_get(r, u8)
+ 	obj.remesh_cell = geom.byte_get(r, f32)
+ 	if !(obj.remesh_cell >= 0 && obj.remesh_cell <= max(f32)) do r.ok = false
++	obj.physics = physics_get(r)
+ }
+ 
+ // Frees an object read for a scene that never got it: it has no history and draws
+diff --git a/src/app/kit_object.odin b/src/app/kit_object.odin
+index 27b2634..4a4a936 100644
+--- a/src/app/kit_object.odin
++++ b/src/app/kit_object.odin
+@@ -53,6 +53,7 @@ OBJECT_SECTIONS := [?]Object_Section {
+ 	{.Surface, .Paint, "Polypaint", proc(app: ^App, _: ^Object) {kit_paint(app)}},
+ 	{.Surface, .Morph, "Morph target", kit_morph},
+ 	{.Surface, .Deform, "Deformation", kit_deformation},
++	{.Surface, .Physics, "Physics", kit_physics},
+ 	{.Surface, .Deformers, "Deformers", kit_deformers},
+ 	{.Build, .Voxels, "Voxels", kit_voxels},
+ 	{.Build, .Retopo, "UVs and baking", proc(app: ^App, _: ^Object) {kit_retopo_section(app)}},
+diff --git a/src/app/kit_tool.odin b/src/app/kit_tool.odin
+index f4bb249..d31bf99 100644
+--- a/src/app/kit_tool.odin
++++ b/src/app/kit_tool.odin
+@@ -338,10 +338,7 @@ kit_stroke :: proc(app: ^App) {
+ 			_ = ui.switch_row(ctx, "Keep area", &c.keep_area)
+ 			_ = ui.switch_row(ctx, "Allow shrink", &c.allow_shrink)
+ 			_ = ui.switch_row(ctx, "Allow expand", &c.allow_expand)
+-			_ = ui.switch_row(ctx, "Collide with floor", &c.floor)
+-			_ = ui.switch_row(ctx, "Collide with objects", &c.objects)
+-			_ = ui.switch_row(ctx, "Self collision", &c.self_collide)
+-			ui.paragraph(ctx, "Local simulates the cloth round where the stroke began, Follows round the brush as it moves, Whole the entire model, held only by the mask. Gravity pulls the cloth toward the bottom of the screen in every mode. Stiffness is how firmly edges keep their length; Firmness how much the cloth resists bending, for wider, fewer folds; Damping how quickly it settles. Keep area holds edges to the stored morph target's lengths, so stretched cloth shrinks back. Allow shrink lets the cloth crumple without pushing back; Allow expand lets it stretch like rubber. The collisions keep it on the floor (where the floor grid stands, at the bottom of the scene), out of the other objects and its folds out of each other; Physics strokes take them too.")
++			ui.paragraph(ctx, "Local simulates the cloth round where the stroke began, Follows round the brush as it moves, Whole the entire model, held only by the mask. Gravity pulls the cloth in every mode, the way the object's Physics card says (World down by default). Stiffness is how firmly edges keep their length; Firmness how much the cloth resists bending, for wider, fewer folds; Damping how quickly it settles. Keep area holds edges to the stored morph target's lengths, so stretched cloth shrinks back. Allow shrink lets the cloth crumple without pushing back; Allow expand lets it stretch like rubber. What it collides with (the floor, the other objects, itself) is the object's, on its Physics card.")
+ 			kit_more_end(app)
+ 		}
+ 	}
+diff --git a/src/app/lens_stack.odin b/src/app/lens_stack.odin
+index 3ad4386..faaccce 100644
+--- a/src/app/lens_stack.odin
++++ b/src/app/lens_stack.odin
+@@ -56,6 +56,7 @@ Panel_Kind :: enum u8 {
+ 	Groups,
+ 	Morph,
+ 	Deform,
++	Physics,
+ 	Deformers,
+ 	Remesh,
+ 	Mirror,
+diff --git a/src/app/new_ui.odin b/src/app/new_ui.odin
+index 3664794..2540cb6 100644
+--- a/src/app/new_ui.odin
++++ b/src/app/new_ui.odin
+@@ -604,6 +604,7 @@ Kit_Section :: enum u8 {
+ 	Morph,
+ 	Layers,
+ 	Deform,
++	Physics,
+ 	Deformers,
+ 	Remesh,
+ 	Mirror,
+@@ -1329,6 +1330,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
+ 	reshape_drag_end(app)
+ 	lattice_frame(app)
+ 	pose_physics_frame(app)
++	physics_card_frame(app)
+ 	transform_drag_end(app)
+ 	light_drag_end(app)
+ 	tree_column_send(app)
+diff --git a/src/app/panel_kind.odin b/src/app/panel_kind.odin
+index b4ea1c1..93dd64d 100644
+--- a/src/app/panel_kind.odin
++++ b/src/app/panel_kind.odin
+@@ -56,7 +56,7 @@ PANEL_OF_SECTION := #partial [Kit_Section]Panel_Kind {
+ 	.Samples = .Samples, .Alpha = .Alpha, .Pen = .Pen, .Options = .Options, .Recorder = .Recorder,
+ 	.Transform = .Transform, .Levels = .Levels, .Hd = .Hd, .Topology = .Topology, .Mask = .Mask, .Sets = .Sets,
+ 	.Visibility = .Visibility, .Paint = .Paint, .Groups = .Groups, .Morph = .Morph,
+-	.Deform = .Deform, .Deformers = .Deformers, .Remesh = .Remesh, .Mirror = .Mirror, .Voxels = .Voxels,
++	.Deform = .Deform, .Physics = .Physics, .Deformers = .Deformers, .Remesh = .Remesh, .Mirror = .Mirror, .Voxels = .Voxels,
+ 	.Retopo = .Retopo, .Textures = .Textures, .Project = .Project, .Booleans = .Booleans, .Extract = .Extract,
+ 	.Look = .Look, .Render = .Render, .Lens = .Lens, .Finish = .Finish, .Camera = .Camera,
+ 	.Turntable = .Turntable, .Print = .Print, .Floor = .Floor, .Background = .Background,
+@@ -68,7 +68,7 @@ SECTION_OF_PANEL := #partial [Panel_Kind]Kit_Section {
+ 	.Samples = .Samples, .Alpha = .Alpha, .Pen = .Pen, .Options = .Options, .Recorder = .Recorder,
+ 	.Transform = .Transform, .Levels = .Levels, .Hd = .Hd, .Topology = .Topology, .Mask = .Mask, .Sets = .Sets,
+ 	.Visibility = .Visibility, .Paint = .Paint, .Groups = .Groups, .Morph = .Morph,
+-	.Deform = .Deform, .Deformers = .Deformers, .Remesh = .Remesh, .Mirror = .Mirror, .Voxels = .Voxels,
++	.Deform = .Deform, .Physics = .Physics, .Deformers = .Deformers, .Remesh = .Remesh, .Mirror = .Mirror, .Voxels = .Voxels,
+ 	.Retopo = .Retopo, .Textures = .Textures, .Project = .Project, .Booleans = .Booleans, .Extract = .Extract,
+ 	.Look = .Look, .Render = .Render, .Lens = .Lens, .Finish = .Finish, .Camera = .Camera, .Turntable = .Turntable,
+ 	.Print = .Print, .Floor = .Floor, .Background = .Background,
+diff --git a/src/app/physics_card.odin b/src/app/physics_card.odin
+new file mode 100644
+index 0000000..5d9cc35
+--- /dev/null
++++ b/src/app/physics_card.odin
+@@ -0,0 +1,483 @@
++package main
++
++import "core:fmt"
++import "core:math/linalg"
++import "core:time"
++
++import "../camera"
++import "../geom"
++import "../sculpt"
++import "../ui"
++
++// The Physics card (Object palette, Surface page): an object's cloth, as ZBrush's
++// Simulation palette and Blender's cloth filter keep it. What the object is made of
++// (Stiffness, Firmness, Damping, Keep area) and what it meets (the floor, the other
++// objects, itself) serve Settle, the filters, the Physics switch and posing with Physics;
++// the Cloth brush keeps its own make-up, as each of ZBrush's cloth brushes does, and takes
++// the object's collisions and gravity's way. Settle lets the free part fall as cloth
++// (ZBrush's Run Simulation); the filters pull it toward an inflated, expanded or scaled
++// copy of itself while it stays cloth, so it folds instead of stretching.
++
++Gravity_Way :: enum u8 {
++	World,  // down the scene's Y axis
++	Screen, // toward the bottom of the screen as it is each step
++	Set,    // the way the screen's down pointed when Set direction was pressed
++}
++
++@(rodata)
++GRAVITY_WAY_NAMES := [Gravity_Way]string {
++	.World  = "World down",
++	.Screen = "Screen down",
++	.Set    = "Set",
++}
++
++Object_Physics :: struct {
++	// Set once the card first changed it or a scene file gave it; until then the object
++	// has PHYSICS_DEFAULTS (object_physics), so every way of making an object starts there.
++	set:          bool,
++	gravity:      f32, // Settle's pull, 0 to 1
++	way:          Gravity_Way,
++	down:         Vec3, // Set: the world direction, unit length
++	floor:        bool,
++	objects:      bool,
++	gap:          f32, // how far the cloth stays off other objects, a share of its object's size
++	self_collide: bool,
++	thickness:    f32, // how far apart self collision keeps the cloth, in edges
++	on_masked:    bool, // Settle and the filters move the masked part instead of the free one
++	stiffness:    f32,
++	firmness:     f32,
++	damping:      f32,
++	keep_area:    bool,
++	allow_shrink: bool,
++	allow_expand: bool,
++}
++
++PHYSICS_DEFAULTS :: Object_Physics {
++	set       = true,
++	gravity   = 1,
++	way       = .World,
++	down      = {0, -1, 0},
++	floor     = true,
++	objects   = true,
++	gap       = 0.01,
++	thickness = 1,
++	stiffness = sculpt.CLOTH_DEFAULTS.stiffness,
++	firmness  = sculpt.CLOTH_DEFAULTS.firmness,
++	damping   = sculpt.CLOTH_DEFAULTS.damping,
++}
++
++// The ranges of the card's sliders, which a scene file's values are held to as well.
++PHYSICS_GAP_MAX :: f32(0.05)
++PHYSICS_THICKNESS_MIN :: f32(0.5)
++PHYSICS_THICKNESS_MAX :: f32(3)
++
++// The most vertices the cloth simulates at once for Settle, a filter or a pose: past it a
++// step a frame no longer keeps up with the pointer, and the card says so.
++PHYSICS_MAX :: 300_000
++
++// Settle stops by itself once no vertex has moved more than this share of an edge for
++// PHYSICS_REST_FRAMES frames in a row, or after PHYSICS_SETTLE_FRAMES frames at most.
++PHYSICS_REST :: f32(0.001)
++PHYSICS_REST_FRAMES :: 10
++PHYSICS_SETTLE_FRAMES :: 1500
++// A press of Settle held longer than this runs while held and stops on release; a shorter
++// one, a tap, leaves it running until it rests or is tapped again.
++PHYSICS_HOLD_SECONDS :: 0.35
++
++Physics_Card :: struct {
++	settle: Settle_Run,
++	filter: Physics_Filter,
++	filter_axes: bit_set[sculpt.Axis],
++	filter_frame: Filter_Frame,
++	amount: f32, // the filter's slider, -100 to 100; 0 between drags
++	wait_release: bool, // a drag ended under a held pointer: the slider stays at 0 till it lets go
++	drag: Filter_Drag,
++	settles, filters: int, // run, for the exit stats
++	settle_ms: f64, // the last Settle's time stepping
++}
++
++Physics_Filter :: enum u8 {
++	Inflate,
++	Expand,
++	Scale,
++}
++
++Filter_Frame :: enum u8 {
++	Object,
++	World,
++	Screen,
++}
++
++Settle_Run :: struct {
++	active:  bool,
++	id:      int, // the object, which the selection may leave meanwhile
++	held:    bool, // runs while the press that began it is held, and stops on release
++	press:   time.Tick,
++	frames:  int,
++	resting: int, // frames in a row it moved less than PHYSICS_REST
++	ms:      f64,
++}
++
++Filter_Drag :: struct {
++	active: bool,
++	id:     int,
++	ms:     f64,
++}
++
++// The object's cloth settings: its own once set, else the defaults.
++object_physics :: proc(obj: ^Object) -> Object_Physics {
++	return obj.physics if obj.physics.set else PHYSICS_DEFAULTS
++}
++
++// The object's cloth settings to change, made its own first.
++@(private = "file")
++object_physics_edit :: proc(obj: ^Object) -> ^Object_Physics {
++	if !obj.physics.set do obj.physics = PHYSICS_DEFAULTS
++	return &obj.physics
++}
++
++// The object's make-up and what it collides with as the solver takes them, `region` and
++// `gravity` the caller's.
++object_cloth_settings :: proc(obj: ^Object, region := sculpt.Cloth_Region.Whole, gravity: f32 = 0) -> sculpt.Cloth_Settings {
++	p := object_physics(obj)
++	return {
++		region = region, stiffness = p.stiffness, firmness = p.firmness, damping = p.damping, gravity = gravity,
++		keep_area = p.keep_area, allow_shrink = p.allow_shrink, allow_expand = p.allow_expand,
++		floor = p.floor, objects = p.objects, self_collide = p.self_collide,
++	}
++}
++
++// The Cloth brush's settings with the object's collisions in place of its own.
++cloth_brush_settings :: proc(app: ^App, obj: ^Object) -> sculpt.Cloth_Settings {
++	set := app.brush.cloth
++	p := object_physics(obj)
++	set.floor, set.objects, set.self_collide, set.on_masked = p.floor, p.objects, p.self_collide, false
++	return set
++}
++
++// The way gravity pulls on `obj`, in its own space, as its card says.
++physics_down :: proc(app: ^App, obj: ^Object) -> Vec3 {
++	p := object_physics(obj)
++	world: Vec3
++	switch p.way {
++	case .World:  world = {0, -1, 0}
++	case .Screen: world = screen_down(app)
++	case .Set:    world = p.down
++	}
++	return linalg.normalize0(to_local_dir(obj.transform, world))
++}
++
++// The bottom of the screen as a world direction.
++@(private = "file")
++screen_down :: proc(app: ^App) -> Vec3 {
++	view := camera.orbit_view(app.camera)
++	return -Vec3{view[1, 0], view[1, 1], view[1, 2]}
++}
++
++// The gap and thickness of the object's card, as the solver takes them.
++@(private = "file")
++physics_collide :: proc(app: ^App, obj: ^Object, set: sculpt.Cloth_Settings) -> sculpt.Cloth_Collisions {
++	with := cloth_collisions(app, obj, set)
++	p := object_physics(obj)
++	s := object_sculptor(obj)
++	if len(s.bvh.nodes) > 0 {
++		box := s.bvh.nodes[0].bounds
++		with.gap = p.gap * linalg.length(box.hi - box.lo)
++	}
++	with.thickness = p.thickness
++	return with
++}
++
++// Whether the card's runs can work on `obj`: a mesh object, out of HD and without
++// dynamic topology, saying why not in the card unless `quiet`.
++physics_card_allowed :: proc(app: ^App, obj: ^Object, quiet := true) -> bool {
++	why := ""
++	if obj.voxel != nil || obj.cage != nil || obj.curve != nil do why = "Physics works on a sculpted mesh, not voxel clay, a cage or a curve"
++	else if object_in_hd(obj) do why = "Physics needs the HD window left first (A)"
++	else if object_dynamic(obj) do why = "Physics needs dynamic topology off"
++	if why == "" do return true
++	if !quiet do report(app, Kit_Section.Physics, {.Warning}, "%s", why)
++	return false
++}
++
++// Starts the cloth over the free part of `obj` for Settle (`filter` false) or the card's
++// filter, as one stroke. False, saying why, when it cannot.
++@(private = "file")
++physics_run_begin :: proc(app: ^App, obj: ^Object, filter: bool) -> bool {
++	if !physics_card_allowed(app, obj, quiet = false) do return false
++	s := object_sculptor(obj)
++	if s.history.recording || sculpt.sculptor_posing(s) do return false
++	p := object_physics(obj)
++	set := object_cloth_settings(obj, gravity = p.gravity)
++	set.on_masked = p.on_masked
++	sculpt.sculptor_stroke_begin(s)
++	n := 0
++	if filter {
++		c := &app.ui.physics
++		n = sculpt.sculptor_filter_begin(s, sculpt.Cloth_Filter_Kind(c.filter), set, physics_filter_frame(app, obj), c.filter_axes)
++	} else {
++		n = sculpt.sculptor_settle_begin(s, set)
++	}
++	why := ""
++	if n == 0 do why = "Nothing is free to move: the mask holds all that is shown" if !p.on_masked else "Nothing is masked to move (On masked)"
++	else if n > PHYSICS_MAX do why = fmt.tprintf("Physics moves up to %d vertices at once; this one has %d free", PHYSICS_MAX, n)
++	if why != "" {
++		sculpt.sculptor_cloth_end(s)
++		_ = sculpt.sculptor_stroke_discard(s)
++		report(app, Kit_Section.Physics, {.Warning}, "%s", why)
++		return false
++	}
++	sculpt.sculptor_cloth_collide(s, physics_collide(app, obj, set))
++	return true
++}
++
++// Ends the card's run on `obj` as one undo step named `what` when it moved anything.
++@(private = "file")
++physics_run_end :: proc(app: ^App, obj: ^Object, what: string) -> bool {
++	s := object_sculptor(obj)
++	sculpt.sculptor_cloth_end(s)
++	if !sculpt.sculptor_stroke_end(s) do return false
++	history_record(app, obj, .Deform, what)
++	return true
++}
++
++// The axes a filter scales along, as columns in `obj`'s space.
++@(private = "file")
++physics_filter_frame :: proc(app: ^App, obj: ^Object) -> matrix[3, 3]f32 {
++	axes: [3]Vec3
++	switch app.ui.physics.filter_frame {
++	case .Object:
++		return 1
++	case .World:
++		axes = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}
++	case .Screen:
++		view := camera.orbit_view(app.camera)
++		for k in 0 ..< 3 do axes[k] = {view[k, 0], view[k, 1], view[k, 2]}
++	}
++	m: matrix[3, 3]f32
++	for k in 0 ..< 3 {
++		a := linalg.normalize0(to_local_dir(obj.transform, axes[k]))
++		m[0, k], m[1, k], m[2, k] = a.x, a.y, a.z
++	}
++	return m
++}
++
++// Starts Settle on `obj`, held (`held`, stopping on release) or running till it rests.
++settle_start :: proc(app: ^App, obj: ^Object, held: bool) -> bool {
++	inspector_drags_end(app)
++	stroke_finish(app)
++	if !physics_run_begin(app, obj, filter = false) do return false
++	app.ui.physics.settle = {active = true, id = obj.id, held = held, press = time.tick_now()}
++	return true
++}
++
++// Stops Settle, if it runs, as one undo step.
++settle_stop :: proc(app: ^App) {
++	c := &app.ui.physics
++	run := c.settle
++	if !run.active do return
++	c.settle = {}
++	obj := object_by_id(app, run.id)
++	if obj == nil do return
++	if !physics_run_end(app, obj, "Settle") do return
++	c.settles += 1
++	c.settle_ms = run.ms
++	report(app, Kit_Section.Physics, {.Undo}, "Settled %s: %d steps (%.0f ms)", object_label(obj), run.frames, run.ms)
++}
++
++// Starts or stops Settle on the selected object: the Settle command and a tap of the
++// card's button.
++settle_toggle :: proc(app: ^App) {
++	if app.ui.physics.settle.active {
++		settle_stop(app)
++		return
++	}
++	if obj := selected_object(app); obj != nil do _ = settle_start(app, obj, held = false)
++}
++
++// Follows the filter's slider on `obj`: its first change starts the drag.
++@(private = "file")
++filter_drag_to :: proc(app: ^App, obj: ^Object) {
++	c := &app.ui.physics
++	if c.drag.active && c.drag.id != obj.id do filter_drag_end(app, force = true)
++	if c.drag.active || c.wait_release do return
++	settle_stop(app)
++	inspector_drags_end(app)
++	stroke_finish(app)
++	if !physics_run_begin(app, obj, filter = true) {
++		c.amount = 0
++		return
++	}
++	c.drag = {active = true, id = obj.id}
++}
++
++// Ends the filter's drag once the pointer lets go (or at once with `force`) as one undo
++// step; the slider springs back to 0. Runs every frame, so a drag ends even if the card
++// closed meanwhile.
++filter_drag_end :: proc(app: ^App, force := false) {
++	c := &app.ui.physics
++	held := .Left in app.device.down
++	if !held do c.wait_release = false
++	if !c.drag.active || (!force && held) do return
++	drag := c.drag
++	c.drag, c.amount, c.wait_release = {}, 0, held
++	obj := object_by_id(app, drag.id)
++	if obj == nil do return
++	if !physics_run_end(app, obj, PHYSICS_FILTER_NAMES[c.filter]) do return
++	c.filters += 1
++	report(app, Kit_Section.Physics, {.Undo}, "%s %s (%.0f ms)", PHYSICS_FILTER_NAMES[c.filter], object_label(obj), drag.ms)
++}
++
++@(rodata)
++PHYSICS_FILTER_NAMES := [Physics_Filter]string {
++	.Inflate = "Inflate",
++	.Expand  = "Expand",
++	.Scale   = "Scale",
++}
++
++@(rodata)
++PHYSICS_FILTER_HELP := [Physics_Filter]string {
++	.Inflate = "Pulls the free part out along its normals (in, the other way), as cloth: it puffs and wrinkles instead of swelling smoothly.",
++	.Expand  = "Pulls the free part away from its middle (toward it, the other way), as cloth: drawn in, it gathers into folds.",
++	.Scale   = "Pulls the free part toward a copy scaled along the chosen axes, from half to twice the size, as cloth: shrunk, it folds.",
++}
++
++// One step a frame of the card's run under way: Settle until it rests, is let go or is
++// stopped, or the filter at the slider's amount while it is dragged.
++physics_card_frame :: proc(app: ^App) {
++	c := &app.ui.physics
++	filter_drag_end(app)
++	if c.drag.active {
++		if obj := object_by_id(app, c.drag.id); obj != nil {
++			start := time.tick_now()
++			_ = sculpt.sculptor_filter_step(object_sculptor(obj), c.amount / 100, physics_down(app, obj))
++			c.drag.ms += time.duration_milliseconds(time.tick_since(start))
++		}
++	}
++	run := &c.settle
++	if !run.active do return
++	obj := object_by_id(app, run.id)
++	if obj == nil {
++		run^ = {}
++		return
++	}
++	// A press held past a tap runs only while it is held.
++	if run.held && .Left not_in app.device.down {
++		if time.duration_seconds(time.tick_since(run.press)) >= PHYSICS_HOLD_SECONDS {
++			settle_stop(app)
++			return
++		}
++		run.held = false
++	}
++	start := time.tick_now()
++	motion := sculpt.sculptor_settle_step(object_sculptor(obj), physics_down(app, obj))
++	run.ms += time.duration_milliseconds(time.tick_since(start))
++	run.frames += 1
++	run.resting = run.resting + 1 if motion < PHYSICS_REST else 0
++	if !run.held && (run.resting >= PHYSICS_REST_FRAMES || run.frames >= PHYSICS_SETTLE_FRAMES) do settle_stop(app)
++}
++
++// Ends the card's runs at once, before a command, an undo or a scene change changes what
++// they move.
++physics_card_end :: proc(app: ^App) {
++	settle_stop(app)
++	filter_drag_end(app, force = true)
++}
++
++// The card: Settle, gravity, collisions, the filters and the make-up.
++kit_physics :: proc(app: ^App, obj: ^Object) {
++	ctx := &app.kit.ctx
++	c := &app.ui.physics
++	p := object_physics(obj)
++	edit := p
++	can := physics_card_allowed(app, obj)
++	defer if edit != p do object_physics_edit(obj)^ = edit
++
++	// Settle: a press runs it and a long one only while held; a tap leaves it running till
++	// it rests, and a second tap stops it.
++	running := c.settle.active && c.settle.id == obj.id
++	label := "Stop settling" if running else "Settle"
++	clicked := ui.button(ctx, label, .Solid if !running else .Flat, .Accent, glyph = ui.ICON_PLAY if !running else ui.ICON_PAUSE, enabled = can, keys = command_hint(app, .Settle))
++	pressed := ctx.active == ctx.last_id && .Left in app.device.pressed
++	if pressed && !running && can do _ = settle_start(app, obj, held = true)
++	else if clicked && running && !c.settle.held do settle_stop(app)
++	_ = ui.slider(ctx, "Gravity", &edit.gravity, 0, 1, .Linear, fmt.tprintf("%.0f%%", edit.gravity * 100))
++	ways: [len(Gravity_Way)]string
++	for name, w in GRAVITY_WAY_NAMES do ways[int(w)] = name
++	if picked := ui.tabs(ctx, "gravity way", ways[:], int(edit.way)); picked >= 0 do edit.way = Gravity_Way(picked)
++	if edit.way == .Set {
++		if ui.button(ctx, "Set direction") do edit.down = screen_down(app)
++	}
++	ui.paragraph(ctx, "Settle lets the free part fall as cloth, onto the floor and the other objects, till it comes to rest: a tap runs it, a held press only while held, and a tap or Escape stops it, as one undo step. The mask holds what it covers (On masked, the other way round).")
++
++	_ = ui.switch_row(ctx, "Collide with floor", &edit.floor)
++	_ = ui.switch_row(ctx, "Collide with objects", &edit.objects)
++	if edit.objects do _ = ui.slider(ctx, "Gap", &edit.gap, 0, PHYSICS_GAP_MAX, .Linear, fmt.tprintf("%.1f%%", edit.gap * 100))
++	_ = ui.switch_row(ctx, "Self collision", &edit.self_collide)
++	if edit.self_collide do _ = ui.slider(ctx, "Thickness", &edit.thickness, PHYSICS_THICKNESS_MIN, PHYSICS_THICKNESS_MAX, .Linear, fmt.tprintf("%.1f edges", edit.thickness))
++	_ = ui.switch_row(ctx, "On masked", &edit.on_masked)
++
++	// The filters: a slider each drag pulls toward, live, as one undo step.
++	filters: [len(Physics_Filter)]string
++	for name, f in PHYSICS_FILTER_NAMES do filters[int(f)] = name
++	if picked := ui.tabs(ctx, "physics filter", filters[:], int(c.filter)); picked >= 0 && !c.drag.active do c.filter = Physics_Filter(picked)
++	if c.filter == .Scale {
++		ui.begin(ctx, "physics filter axes", {direction = .Row, gap = 4})
++		for a in sculpt.Axis {
++			if ui.toggle_button(ctx, fmt.tprintf("%v##physics", a), a in c.filter_axes, 92) && !c.drag.active {
++				if a in c.filter_axes do c.filter_axes -= {a}
++				else do c.filter_axes += {a}
++			}
++		}
++		ui.end(ctx)
++		frames := [len(Filter_Frame)]string{"Object", "World", "Screen"}
++		if picked := ui.tabs(ctx, "physics filter frame", frames[:], int(c.filter_frame)); picked >= 0 && !c.drag.active do c.filter_frame = Filter_Frame(picked)
++	}
++	if c.wait_release do c.amount = 0
++	axes_ok := c.filter != .Scale || card(c.filter_axes) > 0
++	if ui.slider(ctx, "Amount##physics", &c.amount, -100, 100, .Linear, fmt.tprintf("%+.0f%%", c.amount), enabled = can && axes_ok) do filter_drag_to(app, obj)
++	ui.paragraph(ctx, PHYSICS_FILTER_HELP[c.filter])
++
++	if kit_more(app, .Physics) {
++		_ = ui.slider(ctx, "Stiffness", &edit.stiffness, 0, 1, .Linear, fmt.tprintf("%.0f%%", edit.stiffness * 100))
++		_ = ui.slider(ctx, "Firmness", &edit.firmness, 0, 1, .Linear, fmt.tprintf("%.0f%%", edit.firmness * 100))
++		_ = ui.slider(ctx, "Damping", &edit.damping, 0, 1, .Linear, fmt.tprintf("%.0f%%", edit.damping * 100))
++		_ = ui.switch_row(ctx, "Keep area", &edit.keep_area)
++		_ = ui.switch_row(ctx, "Allow shrink", &edit.allow_shrink)
++		_ = ui.switch_row(ctx, "Allow expand", &edit.allow_expand)
++		ui.paragraph(ctx, "What this object is made of, for Settle, the filters, the Physics switch and posing with Physics (the Cloth brush keeps its own): Stiffness is how firmly edges keep their length; Firmness how much it resists bending, for wider, fewer folds; Damping how quickly it settles. Keep area holds edges to the stored morph target's lengths; Allow shrink lets it crumple without pushing back; Allow expand lets it stretch like rubber. The collisions and gravity's way serve the Cloth brush too.")
++		kit_more_end(app)
++	}
++	kit_last_result(app, .Physics)
++}
++
++// Appends the card's settings as the scene file's object keeps them.
++physics_put :: proc(out: ^[dynamic]u8, p: Object_Physics) {
++	geom.byte_put(out, [6]f32{p.gravity, p.gap, p.thickness, p.stiffness, p.firmness, p.damping})
++	geom.byte_put(out, p.down)
++	geom.byte_put(out, u8(p.way))
++	flags := u8(p.floor) | u8(p.objects) << 1 | u8(p.self_collide) << 2 | u8(p.on_masked) << 3 | u8(p.keep_area) << 4 | u8(p.allow_shrink) << 5 | u8(p.allow_expand) << 6
++	geom.byte_put(out, flags)
++}
++
++// Reads what physics_put writes; r.ok goes false on values out of the card's ranges.
++physics_get :: proc(r: ^geom.Byte_Reader) -> (p: Object_Physics) {
++	v := geom.byte_get(r, [6]f32)
++	p.gravity, p.gap, p.thickness, p.stiffness, p.firmness, p.damping = v[0], v[1], v[2], v[3], v[4], v[5]
++	p.down = geom.byte_get(r, Vec3)
++	way := geom.byte_get(r, u8)
++	flags := geom.byte_get(r, u8)
++	in_unit :: proc(x: f32) -> bool {return x >= 0 && x <= 1}
++	ok := in_unit(p.gravity) && in_unit(p.stiffness) && in_unit(p.firmness) && in_unit(p.damping)
++	ok &&= p.gap >= 0 && p.gap <= PHYSICS_GAP_MAX && p.thickness >= PHYSICS_THICKNESS_MIN && p.thickness <= PHYSICS_THICKNESS_MAX
++	ok &&= way <= u8(max(Gravity_Way)) && flags < 1 << 7 && abs(linalg.length(p.down) - 1) < 1e-3
++	if !ok {
++		r.ok = false
++		return
++	}
++	p.way = Gravity_Way(way)
++	p.floor, p.objects, p.self_collide, p.on_masked = flags & 1 != 0, flags & 2 != 0, flags & 4 != 0, flags & 8 != 0
++	p.keep_area, p.allow_shrink, p.allow_expand = flags & 16 != 0, flags & 32 != 0, flags & 64 != 0
++	p.set = true
++	return
++}
+diff --git a/src/app/pose.odin b/src/app/pose.odin
+index aae6770..25fa16c 100644
+--- a/src/app/pose.odin
++++ b/src/app/pose.odin
+@@ -101,25 +101,18 @@ pose_begin :: proc(app: ^App, obj: ^Object, drag := false) -> bool {
+ 	return true
+ }
+ 
+-// The most free vertices Physics simulates on a pose: past it a drag of the gizmo, a
+-// lattice point or a deformer moves the surface as it would without Physics, as a step a
+-// frame over more would no longer keep up with the pointer.
+-PHYSICS_POSE_MAX :: 300_000
+-
+ // With the Physics switch on, the cloth follows the pose just begun on `obj`
+ // (sculpt.sculptor_pose_physics): the free part lags behind the handle, swings and settles,
+-// colliding with what the Cloth brush's switches say. A pose over PHYSICS_POSE_MAX free
++// colliding with what the object's Physics card says. A pose over PHYSICS_MAX free
+ // vertices says so in `section` and runs without it.
+ pose_physics_begin :: proc(app: ^App, obj: ^Object, section: Kit_Section) {
+ 	if !app.brush.physics do return
+ 	s := object_sculptor(obj)
+-	if free := sculpt.sculptor_pose_moved(s); free > PHYSICS_POSE_MAX {
+-		report(app, section, {.Warning}, "Physics follows a pose of up to %d free vertices; this one has %d and moves without it", PHYSICS_POSE_MAX, free)
++	if free := sculpt.sculptor_pose_moved(s); free > PHYSICS_MAX {
++		report(app, section, {.Warning}, "Physics follows a pose of up to %d free vertices; this one has %d and moves without it", PHYSICS_MAX, free)
+ 		return
+ 	}
+-	set := sculpt.CLOTH_DEFAULTS
+-	c := app.brush.cloth
+-	set.floor, set.objects, set.self_collide = c.floor, c.objects, c.self_collide
++	set := object_cloth_settings(obj)
+ 	if sculpt.sculptor_pose_physics(s, app.brush.physics_strength, set) == 0 do return
+ 	sculpt.sculptor_cloth_collide(s, cloth_collisions(app, obj, set))
+ 	app.physics_poses += 1
+@@ -139,9 +132,7 @@ pose_physics_frame :: proc(app: ^App) {
+ 	if obj == nil do return
+ 	s := object_sculptor(obj)
+ 	if !sculpt.sculptor_pose_physics_on(s) do return
+-	view := camera.orbit_view(app.camera)
+-	down := linalg.normalize0(-to_local_dir(obj.transform, Vec3{view[1, 0], view[1, 1], view[1, 2]}))
+-	_ = sculpt.sculptor_pose_physics_step(s, down)
++	_ = sculpt.sculptor_pose_physics_step(s, physics_down(app, obj))
+ }
+ 
+ // The pose in `obj`'s own space that the gizmo's change from `from` to `to` makes of
+diff --git a/src/app/presets.odin b/src/app/presets.odin
+index 916221d..339d46f 100644
+--- a/src/app/presets.odin
++++ b/src/app/presets.odin
+@@ -375,9 +375,8 @@ preset_ref :: proc(app: ^App, n: int) -> string {
+ // stroke's), tip_roundness= and tip_scale= (Clay strips), trim_angle= and trim_dynamic=0
+ // (Trim dynamic), plane_height= and plane_depth= (Flatten) and cloth_region=, cloth_stiffness=,
+ // cloth_firmness=, cloth_damping=, cloth_gravity=, keep_area=1, allow_shrink=1 and
+-// allow_expand=1, cloth_floor=1, cloth_objects=1 and cloth_self=1 (the Cloth brush's
+-// Cloth_Settings) and physics=1 and physics_strength= (the
+-// Physics switch), each written only where it
++// allow_expand=1 (the Cloth brush's make-up; what it collides with is the object's) and
++// physics=1 and physics_strength= (the Physics switch), each written only where it
+ // is not as a fresh brush has it. A line without accumulate= accumulates,
+ // and one without shape= takes its brush's default shape (projected_default).
+ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
+@@ -456,9 +455,6 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
+ 		case "keep_area": v.cloth.keep_area = value == "1"
+ 		case "allow_shrink": v.cloth.allow_shrink = value == "1"
+ 		case "allow_expand": v.cloth.allow_expand = value == "1"
+-		case "cloth_floor": v.cloth.floor = value == "1"
+-		case "cloth_objects": v.cloth.objects = value == "1"
+-		case "cloth_self": v.cloth.self_collide = value == "1"
+ 		case "physics": v.physics = value == "1"
+ 		case "physics_strength": v.physics_strength = clamp(number(value, PHYSICS_STRENGTH_DEFAULT), 0.05, 1)
+ 		case "smooth_mode":
+@@ -528,9 +524,6 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
+ 		if c.keep_area do fmt.sbprintf(out, " keep_area=1")
+ 		if c.allow_shrink do fmt.sbprintf(out, " allow_shrink=1")
+ 		if c.allow_expand do fmt.sbprintf(out, " allow_expand=1")
+-		if c.floor do fmt.sbprintf(out, " cloth_floor=1")
+-		if c.objects do fmt.sbprintf(out, " cloth_objects=1")
+-		if c.self_collide do fmt.sbprintf(out, " cloth_self=1")
+ 	}
+ 	strings.write_byte(out, '\n')
+ }
+diff --git a/src/app/rail_panels.odin b/src/app/rail_panels.odin
+index 22120e9..285c099 100644
+--- a/src/app/rail_panels.odin
++++ b/src/app/rail_panels.odin
+@@ -91,6 +91,7 @@ SECTION_ICONS := [Kit_Section]rune {
+ 	.Morph       = ICON_FLIP_VIEW,
+ 	.Layers      = ICON_LAYERS,
+ 	.Deform      = ui.ICON_WAND,
++	.Physics     = rune(0xe1ca), // shirt, as the Cloth brush
+ 	.Deformers   = ui.ICON_ROTATE_3D,
+ 	.Remesh      = ICON_REMESH,
+ 	.Mirror      = ICON_SYMMETRY,
+diff --git a/src/app/replay.odin b/src/app/replay.odin
+index f3ebeff..76ba634 100644
+--- a/src/app/replay.odin
++++ b/src/app/replay.odin
+@@ -238,7 +238,7 @@ replay_shortcut :: proc(app: ^App) {
+ // loaded, since an alpha names an image that may not be there.
+ STROKES_MAGIC :: "SCSTROKE"
+ // The only version read: a change replaces the reader (AGENTS.md).
+-STROKES_VERSION :: u32(33)
++STROKES_VERSION :: u32(34)
+ 
+ strokes_save :: proc(app: ^App, path: string) -> bool {
+ 	t := replay_source(app)
+@@ -307,7 +307,6 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
+ 		geom.byte_put(&out, u8(b.grab_outline))
+ 		geom.byte_put(&out, [4]u8{u8(b.cloth.region), u8(b.cloth.keep_area), u8(b.cloth.allow_shrink), u8(b.cloth.allow_expand)})
+ 		geom.byte_put(&out, [4]f32{b.cloth.stiffness, b.cloth.firmness, b.cloth.damping, b.cloth.gravity})
+-		geom.byte_put(&out, [3]u8{u8(b.cloth.floor), u8(b.cloth.objects), u8(b.cloth.self_collide)})
+ 		geom.byte_put(&out, u8(b.physics))
+ 		geom.byte_put(&out, b.physics_strength)
+ 	}
+@@ -431,7 +430,6 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
+ 		outline := geom.byte_get(&r, u8)
+ 		cloth_ways := geom.byte_get(&r, [4]u8)
+ 		cloth_amounts := geom.byte_get(&r, [4]f32)
+-		collides := geom.byte_get(&r, [3]u8)
+ 		physics := geom.byte_get(&r, u8)
+ 		physics_strength := geom.byte_get(&r, f32)
+ 		if !r.ok || int(kind) >= len(sculpt.Brush_Kind) || int(stroke) >= len(Stroke_Mode) || int(cloth) >= len(sculpt.Cloth_Mode) do return false
+@@ -446,7 +444,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
+ 		if focal < sculpt.FOCAL_MIN || focal > sculpt.FOCAL_MAX || scale < TOUCH_STRENGTH_MIN || scale > 1 do return false
+ 		if int(cloth_ways[0]) >= len(sculpt.Cloth_Region) || cloth_ways[1] > 1 || cloth_ways[2] > 1 || cloth_ways[3] > 1 do return false
+ 		for x in cloth_amounts do if !finite(x) || x < 0 || x > 1 do return false
+-		if collides[0] > 1 || collides[1] > 1 || collides[2] > 1 || physics > 1 || !finite(physics_strength) || physics_strength < 0 || physics_strength > 1 do return false
++		if physics > 1 || !finite(physics_strength) || physics_strength < 0 || physics_strength > 1 do return false
+ 		b.kind = sculpt.Brush_Kind(kind)
+ 		b.radius_px = clamp(radius, MIN_RADIUS_PX, MAX_RADIUS_PX)
+ 		b.strengths[b.kind] = clamp(strength, MIN_STRENGTH, 1)
+@@ -469,7 +467,6 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
+ 		b.cloth = {
+ 			region = sculpt.Cloth_Region(cloth_ways[0]), keep_area = cloth_ways[1] == 1, allow_shrink = cloth_ways[2] == 1, allow_expand = cloth_ways[3] == 1,
+ 			stiffness = cloth_amounts[0], firmness = cloth_amounts[1], damping = cloth_amounts[2], gravity = cloth_amounts[3],
+-			floor = collides[0] == 1, objects = collides[1] == 1, self_collide = collides[2] == 1,
+ 		}
+ 		b.spray_spread = clamp(spread, 0, SPRAY_MAX_SPREAD)
+ 		b.line, b.join = line == 1, join == 1
+diff --git a/src/app/reshape.odin b/src/app/reshape.odin
+index a48fe01..d342bd3 100644
+--- a/src/app/reshape.odin
++++ b/src/app/reshape.odin
+@@ -10,7 +10,7 @@ import "../ui"
+ // The Deformation card: one slider for each of ZBrush's Deformation
+ // operations, with Blender's mesh transforms and filters and Nomad's live filters as the
+ // other half. Pick what it does (Offset, Rotate, Size, Skew, S bend, Squeeze, Noise,
+-// Inflate, Spherize, Gravity, Polish or Relax), the axes it works along where it has any,
++// Inflate, Spherize, Polish or Relax), the axes it works along where it has any,
+ // and drag Amount: the part the mask leaves free (all that is shown, with no mask) takes
+ // it live, as a pose (sculpt/reshape.odin), and letting go is one undo step, after which
+ // the slider springs back to 0 for the next. Polish and Relax go over the surface's
+@@ -28,7 +28,6 @@ Reshape_Choice :: enum u8 {
+ 	Noise,
+ 	Inflate,
+ 	Spherize,
+-	Gravity,
+ 	Polish,
+ 	Relax,
+ }
+@@ -44,7 +43,6 @@ RESHAPE_NAMES := [Reshape_Choice]string {
+ 	.Noise    = "Noise",
+ 	.Inflate  = "Inflate",
+ 	.Spherize = "Spherize",
+-	.Gravity  = "Gravity",
+ 	.Polish   = "Polish",
+ 	.Relax    = "Relax",
+ }
+@@ -60,7 +58,6 @@ RESHAPE_DONE := [Reshape_Choice]string {
+ 	.Noise    = "Roughened",
+ 	.Inflate  = "Inflated",
+ 	.Spherize = "Spherized",
+-	.Gravity  = "Sagged",
+ 	.Polish   = "Polished",
+ 	.Relax    = "Relaxed",
+ }
+@@ -77,7 +74,6 @@ RESHAPE_HELP := [Reshape_Choice]string {
+ 	.Noise    = "Roughens the surface in and out along its normals, smooth bumps an eighth of the size across.",
+ 	.Inflate  = "Pushes the surface out along its normals, or in the other way.",
+ 	.Spherize = "Rounds the free part toward a ball as wide as it is.",
+-	.Gravity  = "Sags the outer parts down the axis, the further out the more, as a soft drape.",
+ 	.Polish   = "Smooths the roughness away and keeps the size, which Smooth shrinks; the amount is the steps.",
+ 	.Relax    = "Evens out the spacing of the vertices over the surface and keeps its shape; the amount is the steps.",
+ }
+@@ -144,7 +140,7 @@ reshape_range :: proc(c: Reshape_Choice) -> (lo, hi: f32, unit: string) {
+ 	case .Size:     return sculpt.RESHAPE_SIZE_MIN * 100, 200, "%"
+ 	case .Spherize: return 0, 100, "%"
+ 	case .Polish, .Relax: return 0, RESHAPE_STEPS_MAX, " steps"
+-	case .Offset, .S_Bend, .Squeeze, .Noise, .Inflate, .Gravity:
++	case .Offset, .S_Bend, .Squeeze, .Noise, .Inflate:
+ 	}
+ 	return -100, 100, "%"
+ }
+diff --git a/src/app/scene.odin b/src/app/scene.odin
+index aa184d4..4e73e49 100644
+--- a/src/app/scene.odin
++++ b/src/app/scene.odin
+@@ -109,6 +109,7 @@ Object :: struct {
+ 	// Its texture maps, while it has quads and UVs (textures.odin), and their GPU copy.
+ 	textures:  Object_Textures,
+ 	preview:   Texture_Preview,
++	physics:   Object_Physics, // its Physics card (physics_card.odin)
+ }
+ 
+ // The level being sculpted: the HD window while one is open.
+diff --git a/src/app/script.odin b/src/app/script.odin
+index e3fc16b..a7c6083 100644
+--- a/src/app/script.odin
++++ b/src/app/script.odin
+@@ -167,9 +167,6 @@ SCRIPT_VALUES := [?]Setting {
+ 	{"cloth_mode", offset_of(App, brush) + offset_of(Brush_Settings, cloth_mode), sculpt.Cloth_Mode, 0, 0},
+ 	{"cloth_region", offset_of(App, brush) + offset_of(Brush_Settings, cloth) + offset_of(sculpt.Cloth_Settings, region), sculpt.Cloth_Region, 0, 0},
+ 	{"cloth_gravity", offset_of(App, brush) + offset_of(Brush_Settings, cloth) + offset_of(sculpt.Cloth_Settings, gravity), f32, 0, 1},
+-	{"cloth_floor", offset_of(App, brush) + offset_of(Brush_Settings, cloth) + offset_of(sculpt.Cloth_Settings, floor), bool, 0, 0},
+-	{"cloth_objects", offset_of(App, brush) + offset_of(Brush_Settings, cloth) + offset_of(sculpt.Cloth_Settings, objects), bool, 0, 0},
+-	{"cloth_self", offset_of(App, brush) + offset_of(Brush_Settings, cloth) + offset_of(sculpt.Cloth_Settings, self_collide), bool, 0, 0},
+ }
+ 
+ // Values with more to them that only scripts set, as SETTING_LINES are set: the scene's
+diff --git a/src/app/sculpt_tool.odin b/src/app/sculpt_tool.odin
+index b45de58..f1ccfa2 100644
+--- a/src/app/sculpt_tool.odin
++++ b/src/app/sculpt_tool.odin
+@@ -820,8 +820,9 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s:
+ 		sculpt.sculptor_grab_begin(object_sculptor(obj), brush, local)
+ 	} else if st.cloth {
+ 		// Invert (Ctrl) turns each mode about: Pinch spreads, Push lifts, Twist turns back.
+-		sculpt.sculptor_cloth_begin(object_sculptor(obj), brush, local, app.brush.cloth_mode, app.brush.cloth)
+-		sculpt.sculptor_cloth_collide(object_sculptor(obj), cloth_collisions(app, obj, app.brush.cloth))
++		set := cloth_brush_settings(app, obj)
++		sculpt.sculptor_cloth_begin(object_sculptor(obj), brush, local, app.brush.cloth_mode, set)
++		sculpt.sculptor_cloth_collide(object_sculptor(obj), cloth_collisions(app, obj, set))
+ 		return
+ 	} else {
+ 		object_dab(app, obj, brush, local, object_normal_local(obj, local))
+@@ -938,7 +939,7 @@ grab_along_normal :: proc(app: ^App, drag, n, facing: Vec3) -> Vec3 {
+ 
+ // Steps a Cloth stroke's simulation once, with the pointer at `pos`: Drag pulls what
+ // was under the brush after the pointer on the plane through where it began facing the
+-// camera, as Grab does; Gravity pulls toward the bottom of the screen (the top when
++// camera, as Grab does; Gravity pulls the way the object's Physics card says (up when
+ // inverted).
+ @(private = "file")
+ cloth_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos: [2]f32, res: ^Sculpt_Frame_Result) {
+@@ -956,13 +957,11 @@ cloth_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos
+ 		hit := origin + dir * (linalg.dot(st.anchor - origin, facing) / along)
+ 		offset = to_local_dir(t, hit - st.anchor) / t.scale
+ 	}
+-	view := camera.orbit_view(app.camera)
+-	down := -to_local_dir(t, Vec3{view[1, 0], view[1, 1], view[1, 2]})
+ 	st.pos = pos
+ 	t1 := time.tick_now()
+ 	// The sliders may move mid-stroke; the cloth takes them at its next step.
+-	sculpt.sculptor_cloth_settings(object_sculptor(obj), app.brush.cloth)
+-	sculpt.sculptor_cloth_step(object_sculptor(obj), offset, linalg.normalize0(down))
++	sculpt.sculptor_cloth_settings(object_sculptor(obj), cloth_brush_settings(app, obj))
++	sculpt.sculptor_cloth_step(object_sculptor(obj), offset, physics_down(app, obj))
+ 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
+ 	res.dabs += 1
+ }
+@@ -1934,16 +1933,14 @@ physics_allowed :: proc(app: ^App, obj: ^Object, st: ^Stroke, say: bool) -> bool
+ physics_begin :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, local: Vec3) {
+ 	st := &app.stroke
+ 	flags := BRUSHES[st.kind].flags
+-	set := sculpt.CLOTH_DEFAULTS
++	// The object's make-up and collisions, from its Physics card, without gravity.
++	set := object_cloth_settings(obj, .Local)
+ 	reach: f32 = sculpt.CLOTH_REACH
+ 	switch {
+ 	case st.kind == .Elastic: reach = PHYSICS_ELASTIC_REACH
+ 	case .Grab in flags:      reach = PHYSICS_GRAB_REACH
+ 	case:                     set.region = .Follows
+ 	}
+-	// Until the Physics card, Physics collides with what the Cloth brush does.
+-	c := app.brush.cloth
+-	set.floor, set.objects, set.self_collide = c.floor, c.objects, c.self_collide
+ 	st.physics = sculpt.sculptor_physics_begin(object_sculptor(obj), brush, local, app.brush.physics_strength, reach, set) > 0
+ 	if st.physics do sculpt.sculptor_cloth_collide(object_sculptor(obj), cloth_collisions(app, obj, set))
+ }
+@@ -1959,9 +1956,7 @@ physics_follow :: proc(app: ^App, res: ^Sculpt_Frame_Result) {
+ 	at := st.at
+ 	if st.hook do at = to_local(t, st.anchor)
+ 	else if st.last_set do at = st.last_at
+-	view := camera.orbit_view(app.camera)
+-	down := linalg.normalize0(-to_local_dir(t, Vec3{view[1, 0], view[1, 1], view[1, 2]}))
+ 	t1 := time.tick_now()
+-	sculpt.sculptor_physics_step(object_sculptor(obj), at, down)
++	sculpt.sculptor_physics_step(object_sculptor(obj), at, physics_down(app, obj))
+ 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
+ }
+diff --git a/src/app/ui.odin b/src/app/ui.odin
+index 685d48d..7e620d1 100644
+--- a/src/app/ui.odin
++++ b/src/app/ui.odin
+@@ -77,6 +77,7 @@ Ui_State :: struct {
+ 	layer_mask:         Layer_Mask_Paint, // the layer mask a row's mask square picked for painting (layer_masks.odin)
+ 	deform:             Deform_Panel, // the Deformers section's choices and its Amount drag (deformers.odin)
+ 	reshape:            Reshape_Panel, // the Deformation section's choices and its Amount drag (reshape.odin)
++	physics:            Physics_Card, // the Physics section's filter and its runs under way (physics_card.odin)
+ 	transform_drag:     Transform_Drag, // the Transform section's values are being dragged: one undo step
+ 	light_drag:         Light_Drag, // the Lights section's values are being changed: one undo step
+ 	light_press:        Light_Press, // a press on the lights in the viewport (light_markers.odin)
+@@ -199,7 +200,7 @@ CLOTH_MODE_HELP := [sculpt.Cloth_Mode]cstring {
+ }
+ 
+ ui_state_default :: proc() -> Ui_State {
+-	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, remesh_cell_mm = REMESH_CELL_MM_DEFAULT, remesh_smooth = geom.REMESH_SMOOTH_DEFAULT, remesh_keep_thin = true, remesh_keep_paint = true, remesh_quads = true, remesh_keep_symmetry = true, decimate_keep_symmetry = true, retopo_keep_symmetry = true, retopo_keep_groups = true, retopo_keep_creases = true, retopo_edge_degrees = retopo.EDGE_DEGREES_DEFAULT, retopo_guide_strength = retopo.GUIDE_STRENGTH_DEFAULT, rebuild_fewer = 100_000, decimate_percent = DECIMATE_PERCENT_DEFAULT, decimate_keep_paint = true, decimate_keep_groups = true, decimate_keep_borders = true, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), weld_distance = WELD_DISTANCE_DEFAULT}
++	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, remesh_cell_mm = REMESH_CELL_MM_DEFAULT, remesh_smooth = geom.REMESH_SMOOTH_DEFAULT, remesh_keep_thin = true, remesh_keep_paint = true, remesh_quads = true, remesh_keep_symmetry = true, decimate_keep_symmetry = true, retopo_keep_symmetry = true, retopo_keep_groups = true, retopo_keep_creases = true, retopo_edge_degrees = retopo.EDGE_DEGREES_DEFAULT, retopo_guide_strength = retopo.GUIDE_STRENGTH_DEFAULT, rebuild_fewer = 100_000, decimate_percent = DECIMATE_PERCENT_DEFAULT, decimate_keep_paint = true, decimate_keep_groups = true, decimate_keep_borders = true, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), physics = {filter_axes = {.X, .Y, .Z}}, weld_distance = WELD_DISTANCE_DEFAULT}
+ }
+ 
+ // Turns the studio render on or off; on, it starts from the plain viewport.
+diff --git a/src/sculpt/cloth.odin b/src/sculpt/cloth.odin
+index 191db87..9dc421f 100644
+--- a/src/sculpt/cloth.odin
++++ b/src/sculpt/cloth.odin
+@@ -58,6 +58,35 @@ Cloth_Settings :: struct {
+ 	floor:        bool,
+ 	objects:      bool,
+ 	self_collide: bool,
++	// On masked (ZBrush's): the mask picks the cloth instead of holding it, so the masked
++	// part moves and the rest stays; hiding still holds what it hides.
++	on_masked:    bool,
++}
++
++// What runs the cloth: a brush stroke or Physics (the Cloth brush's modes, or targets the
++// tool sets), Settle (nothing but gravity and the collisions, ZBrush's Run Simulation) or
++// a filter (sculptor_filter_begin), whose targets are the model inflated, expanded or
++// scaled.
++Cloth_Run :: enum u8 {
++	Brush,
++	Settle,
++	Filter,
++}
++
++// The Physics card's filters, as Blender's cloth filter: the free part is pulled toward
++// the shape the filter makes of it, and stays cloth on the way, so it folds instead of
++// stretching.
++Cloth_Filter_Kind :: enum u8 {
++	Inflate, // out along the normals (in for a negative amount)
++	Expand,  // away from the free part's middle (toward it for a negative amount)
++	Scale,   // scaled about the middle along the chosen axes, from half to twice the size
++}
++
++Cloth_Filter :: struct {
++	kind:   Cloth_Filter_Kind,
++	frame:  matrix[3, 3]f32, // Scale: the axes it scales along, as columns in the mesh's space
++	axes:   bit_set[Axis],   // Scale: which of them
++	middle: Vec3,            // the free part's mean, which Expand and Scale go about
+ }
+ 
+ CLOTH_DEFAULTS :: Cloth_Settings {
+@@ -86,6 +115,11 @@ Cloth :: struct {
+ 	// Physics on a pose (sculptor_pose_physics): a vertex keeps its last target through
+ 	// frames the pose did not set it, as a pose holds still while the pointer does.
+ 	hold:       bool,
++	run:        Cloth_Run,
++	filter:     Cloth_Filter,
++	// The largest move a vertex made in the last step, in mean links, which tells Settle
++	// when the cloth has come to rest.
++	motion:     f32,
+ 	steps:      int, // steps taken this stroke, which ease the target modes in
+ 	brush:      Brush, // for the falloff shape and the symmetry, as the stroke began
+ 	images:     [dynamic; SYM_IMAGES_MAX]Sym_Image,
+@@ -137,6 +171,13 @@ CLOTH_RELAX :: 1.4
+ // where it began by CLOTH_RESTORE of the way while anything pulls it, so the cloth hangs
+ // at about CLOTH_GRAVITY / CLOTH_RESTORE radii instead of falling for ever.
+ CLOTH_GRAVITY :: 0.012
++// Settle's gravity a step at full Gravity, in mean links: the cloth falls at most about
++// CLOTH_SETTLE_GRAVITY / damping links a step, a few, which the substeps keep from
++// tunnelling through a collider.
++CLOTH_SETTLE_GRAVITY :: 0.15
++// How hard a filter's targets pull the cloth each round: low enough that the cloth folds
++// on the way rather than snapping to the filtered shape.
++CLOTH_FILTER_FOLLOW :: 0.05
+ CLOTH_RESTORE :: 0.02
+ // The target modes move what is under the brush up to this share of the way (of the
+ // distance to the centre, or of the radius), times strength, eased in over
+@@ -221,10 +262,11 @@ sculptor_cloth_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mode: Clo
+ }
+ 
+ @(private = "file")
+-cloth_start :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mode: Cloth_Mode, settings: Cloth_Settings, reach, follow: f32) -> int {
++cloth_start :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mode: Cloth_Mode, settings: Cloth_Settings, reach, follow: f32, run := Cloth_Run.Brush) -> int {
+ 	c := &s.cloth
+ 	if c.leaves == nil do cloth_init(c, s.history.allocator)
+ 	sculptor_cloth_end(s)
++	c.run = run
+ 	c.mode, c.settings, c.invert = mode, settings, brush.invert
+ 	c.reach, c.follow = reach, clamp(follow, 0, 1)
+ 	c.center, c.radius, c.strength, c.brush = center, brush.radius, brush.strength, brush
+@@ -297,7 +339,7 @@ cloth_gather :: proc(s: ^Sculptor, at, offset: Vec3) -> int {
+ 				if set.region == .Whole do break
+ 			}
+ 			if near2 >= reach2 do continue
+-			w := shield(s.fade, s.mask, v)
++			w := cloth_weight(s, v)
+ 			// Over the whole model a masked or hidden vertex is held where it is, which
+ 			// its neighbours' links see as well outside the region as in it, so it stays
+ 			// out: a pose of a small free part simulates that part alone.
+@@ -493,6 +535,9 @@ cloth_drives :: proc(s: ^Sculptor, at: Vec3) {
+ 				c.turn[i], c.focus[i] = 1, j.center
+ 			}
+ 			c.drive[i] = strongest * shield(s.fade, s.mask, c.verts[i])
++			// Settle and the filters drive nothing by a brush: Settle pulls only by gravity,
++			// and a filter sets its targets each step.
++			if c.run != .Brush do c.turn[i], c.focus[i], c.drive[i] = 1, j.center, 0
+ 		}
+ 	})
+ }
+@@ -598,7 +643,11 @@ cloth_advance :: proc(s: ^Sculptor, at, offset: Vec3, moved: f32, down: Vec3) ->
+ 	j := Cloth_Job{s = s, center = at}
+ 	j.keep = math.pow(1 - clamp(set.damping, 0, 1), dt)
+ 	j.ease = min(f32(c.steps + 1) / CLOTH_EASE_STEPS, 1) * c.strength * CLOTH_PINCH_MAX
+-	if set.gravity > 0 {
++	if set.gravity > 0 && c.run == .Settle {
++		// Settle lets the cloth fall freely, as far as the collisions and what holds it
++		// let it, at a pace of links so a dense mesh falls no faster than a coarse one.
++		j.force = down * (c.link_mean * clamp(set.gravity, 0, 1) * CLOTH_SETTLE_GRAVITY * dt * dt)
++	} else if set.gravity > 0 && c.run == .Brush {
+ 		g := c.radius * clamp(set.gravity, 0, 1) * CLOTH_GRAVITY * dt * dt
+ 		// Inverting a Drag stroke lets the cloth float up rather than sag.
+ 		if c.mode == .Drag do g *= sign
+@@ -628,12 +677,23 @@ cloth_advance :: proc(s: ^Sculptor, at, offset: Vec3, moved: f32, down: Vec3) ->
+ 		}
+ 	}
+ 	c.last = offset
++	j.moves = make([]f32, chunks, context.temp_allocator)
+ 	jobs.parallel_for(pool, chunks, &j, proc(data: rawptr, k: int) {
+-		c := &(cast(^Cloth_Job)data).s.cloth
+-		m := (cast(^Cloth_Job)data).s.mesh
++		j := cast(^Cloth_Job)data
++		c := &j.s.cloth
++		m := j.s.mesh
+ 		lo, hi := cloth_range(c, k)
+-		for i in lo ..< hi do m.positions[c.verts[i]] = c.pos[i]
++		most: f32
++		for i in lo ..< hi {
++			v := c.verts[i]
++			most = max(most, linalg.length2(c.pos[i] - m.positions[v]))
++			m.positions[v] = c.pos[i]
++		}
++		j.moves[k] = most
+ 	})
++	most: f32
++	for x in j.moves do most = max(most, x)
++	c.motion = linalg.sqrt(most) / c.link_mean if c.link_mean > 0 else 0
+ 	sculptor_nodes_moved(s, c.nodes[:])
+ 	if s.history.recording do for leaf in s.changed do record_changed_node(s, s.node_of[leaf])
+ 	return n
+@@ -656,7 +716,7 @@ sculptor_cloth_end :: proc(s: ^Sculptor) {
+ 	for a in ([?]^[dynamic]f32{&c.pin, &c.drive, &c.length, &c.bend_len}) do clear(a)
+ 	clear(&c.turn)
+ 	clear(&c.images)
+-	c.steps, c.last, c.link_mean, c.hold = 0, {}, 0, false
++	c.steps, c.last, c.link_mean, c.hold, c.run, c.motion = 0, {}, 0, false, .Brush, 0
+ 	clear(&c.collide.colliders)
+ 	c.collide = {colliders = c.collide.colliders}
+ }
+@@ -831,3 +891,116 @@ cloth_destroy :: proc(c: ^Cloth) {
+ 	for a in ([?]^[dynamic]u32{&c.self_slot, &c.self_first, &c.self_order}) do delete(a^)
+ 	c^ = {}
+ }
++
++// How free the cloth leaves vertex `v`: what the mask and hiding leave (shield), or with
++// On masked what the mask covers, still held where hidden.
++@(private)
++cloth_weight :: #force_inline proc(s: ^Sculptor, v: u32) -> f32 {
++	if !s.cloth.settings.on_masked do return shield(s.fade, s.mask, v)
++	if s.mask == nil do return 0
++	w := f32(s.mask[v]) * (1.0 / 255)
++	if s.fade != nil do w *= f32(s.fade[v]) * (1.0 / 255)
++	return w
++}
++
++// The cloth over the model's free part (the whole region), the brush a ball round the
++// whole mesh, for Settle and the filters. Call inside a stroke for it to be undoable.
++@(private = "file")
++cloth_whole :: proc(s: ^Sculptor, settings: Cloth_Settings, follow: f32, run: Cloth_Run) -> int {
++	if len(s.bvh.nodes) == 0 do return 0
++	box := s.bvh.nodes[0].bounds
++	set := settings
++	set.region = .Whole
++	b := Brush{radius = max(linalg.length(box.hi - box.lo) * 0.5, 1e-6), strength = 1}
++	return cloth_start(s, b, (box.lo + box.hi) * 0.5, .Drag, set, CLOTH_REACH, follow, run)
++}
++
++// Settle, as ZBrush's Run Simulation: the free part of the model becomes cloth that falls
++// `down` (sculptor_settle_step) by the settings' gravity, colliding with what
++// sculptor_cloth_collide gives it and with itself, its edges keeping their lengths, until
++// it comes to rest. Returns how many vertices it simulates.
++sculptor_settle_begin :: proc(s: ^Sculptor, settings := CLOTH_DEFAULTS) -> int {
++	return cloth_whole(s, settings, 0, .Settle)
++}
++
++// One step of Settle; returns the largest move it made, in mean links, which falls toward
++// 0 as the cloth comes to rest.
++sculptor_settle_step :: proc(s: ^Sculptor, down: Vec3) -> f32 {
++	c := &s.cloth
++	if c.run != .Settle || len(c.verts) == 0 do return 0
++	// A vertex falls about CLOTH_SETTLE_GRAVITY / damping links a step at most, which the
++	// substeps take a link at a time.
++	fall := c.link_mean * clamp(c.settings.gravity, 0, 1) * CLOTH_SETTLE_GRAVITY / max(c.settings.damping, 0.02)
++	_ = cloth_advance(s, c.center, {}, min(fall, c.link_mean * CLOTH_SUBSTEPS), down)
++	return c.motion
++}
++
++// A filter of the Physics card's, `kind`, on the model's free part: each step
++// (sculptor_filter_step) pulls the cloth toward the shape the filter makes of where it
++// began, CLOTH_FILTER_FOLLOW of the way a round, so it folds rather than stretches. Scale
++// goes along `axes` of `frame` (columns, unit length, in the mesh's space). Returns how
++// many vertices it simulates.
++sculptor_filter_begin :: proc(s: ^Sculptor, kind: Cloth_Filter_Kind, settings := CLOTH_DEFAULTS, frame: matrix[3, 3]f32 = 1, axes := bit_set[Axis]{.X, .Y, .Z}) -> int {
++	n := cloth_whole(s, settings, CLOTH_FILTER_FOLLOW, .Filter)
++	if n == 0 do return 0
++	c := &s.cloth
++	c.hold = true
++	// The free part's mean, summed in order so it is the same on any number of threads.
++	sum: [3]f64
++	for p in c.rest do sum += {f64(p.x), f64(p.y), f64(p.z)}
++	sum /= f64(n)
++	c.filter = {kind = kind, frame = frame, axes = axes, middle = {f32(sum.x), f32(sum.y), f32(sum.z)}}
++	return n
++}
++
++// One step of the filter under way at `amount` (-1 to 1), `down` the way gravity pulls.
++// Returns how many vertices it simulates.
++sculptor_filter_step :: proc(s: ^Sculptor, amount: f32, down: Vec3) -> int {
++	c := &s.cloth
++	n := len(c.verts)
++	if c.run != .Filter || n == 0 do return 0
++	j := Cloth_Job{s = s, ease = clamp(amount, -1, 1)}
++	pool := s.pool if n >= PARALLEL_MIN_VERTS else nil
++	chunks := (n + CLOTH_CHUNK - 1) / CLOTH_CHUNK
++	j.moves = make([]f32, chunks, context.temp_allocator)
++	jobs.parallel_for(pool, chunks, &j, proc(data: rawptr, k: int) {
++		j := cast(^Cloth_Job)data
++		c := &j.s.cloth
++		f := c.filter
++		a := j.ease
++		// Scale doubles at 1 and halves at -1 along each chosen axis.
++		factor := math.pow(f32(2), a)
++		lo, hi := cloth_range(c, k)
++		most: f32
++		for i in lo ..< hi {
++			rest := c.rest[i]
++			target := rest
++			switch f.kind {
++			case .Inflate:
++				target = rest + c.normal[i] * (a * c.radius * CLOTH_FILTER_INFLATE)
++			case .Expand:
++				target = rest + (rest - f.middle) * (a * CLOTH_FILTER_EXPAND)
++			case .Scale:
++				local := linalg.transpose(f.frame) * (rest - f.middle)
++				for axis in Axis do if axis in f.axes do local[int(axis)] *= factor
++				target = f.middle + f.frame * local
++			}
++			c.target[i], c.drive[i] = target, 1
++			most = max(most, linalg.length(target - c.pos[i]))
++		}
++		j.moves[k] = most
++	})
++	// The targets pull a share of the way a round, so the move a step is that share of
++	// the way at most.
++	most: f32
++	for x in j.moves do most = max(most, x)
++	return cloth_advance(s, c.center, {}, most * CLOTH_FILTER_FOLLOW, down)
++}
++
++// Inflate at full amount moves the surface this share of the free part's half size out;
++// Expand moves each vertex this share of its distance from the middle.
++CLOTH_FILTER_INFLATE :: 0.15
++CLOTH_FILTER_EXPAND :: 0.5
++
++// The largest move a vertex made in the cloth's last step, in mean links.
++sculptor_cloth_motion :: proc(s: ^Sculptor) -> f32 {return s.cloth.motion}
+diff --git a/src/sculpt/cloth_collide.odin b/src/sculpt/cloth_collide.odin
+index 3c8dd97..1d9e099 100644
+--- a/src/sculpt/cloth_collide.odin
++++ b/src/sculpt/cloth_collide.odin
+@@ -42,7 +42,7 @@ Cloth_Collisions :: struct {
+ 	floor_up:    Vec3, // its normal, unit length, pointing to where the cloth may be
+ 	colliders:   [dynamic]Cloth_Collider,
+ 	gap:         f32, // how far from a surface the cloth stays; 0 for half a link
+-	thickness:   f32, // how far apart self collision keeps two vertices; 0 for a link
++	thickness:   f32, // how far apart self collision keeps two vertices, in mean links; 0 for one
+ }
+ 
+ // Lattice points along the volume's longest side at most, and how many cells either side
+@@ -239,7 +239,7 @@ cloth_collide_pass :: proc(s: ^Sculptor, pool: ^jobs.Pool) {
+ cloth_self_grid :: proc(s: ^Sculptor) {
+ 	c := &s.cloth
+ 	n := len(c.verts)
+-	c.self_cell = 2 * (c.collide.thickness if c.collide.thickness > 0 else c.link_mean)
++	c.self_cell = 2 * c.link_mean * (c.collide.thickness if c.collide.thickness > 0 else 1)
+ 	resize(&c.self_slot, n)
+ 	resize(&c.self_first, n + 1)
+ 	resize(&c.self_order, n)
+diff --git a/src/sculpt/cloth_settle_test.odin b/src/sculpt/cloth_settle_test.odin
+new file mode 100644
+index 0000000..5e13236
+--- /dev/null
++++ b/src/sculpt/cloth_settle_test.odin
+@@ -0,0 +1,123 @@
++package sculpt
++
++import "core:math/linalg"
++import "core:slice"
++import "core:testing"
++
++import "../geom"
++import "../jobs"
++
++// A sphere whose top cap the mask holds (or, with On masked, the only part that moves),
++// settled for `steps` steps onto a floor through its lowest point. Returns the settled
++// mesh, the last step's motion and the positions it started from.
++@(private = "file")
++settle_run :: proc(t: ^testing.T, pool: ^jobs.Pool, steps: int, on_masked := false) -> (m: geom.Mesh, motion: f32, before: []Vec3) {
++	m = geom.icosphere(4)
++	s: Sculptor
++	sculptor_init(&s, &m, pool, 64)
++	defer sculptor_destroy(&s)
++	values := make([]u8, len(m.positions), context.temp_allocator)
++	for p, v in m.positions do values[v] = 255 if p.y > 0.7 else 0
++	testing.expect(t, sculptor_mask_values(&s, values, .Replace))
++	before = slice.clone(m.positions[:], context.temp_allocator)
++	set := CLOTH_DEFAULTS
++	set.gravity, set.on_masked = 1, on_masked
++	sculptor_stroke_begin(&s)
++	n := sculptor_settle_begin(&s, set)
++	testing.expect(t, n > 0 && n < len(m.positions), "settle should simulate the free part alone")
++	sculptor_cloth_collide(&s, {floor = true, floor_at = {0, -1, 0}, floor_up = {0, 1, 0}})
++	for _ in 0 ..< steps do motion = sculptor_settle_step(&s, {0, -1, 0})
++	sculptor_cloth_end(&s)
++	testing.expect(t, sculptor_stroke_end(&s), "settle should be an undo step")
++	settled := slice.clone(m.positions[:], context.temp_allocator)
++	testing.expect(t, sculptor_undo(&s), "undo failed")
++	testing.expect(t, slice.equal(m.positions[:], before), "undo should put every vertex back")
++	copy(m.positions[:], settled)
++	return
++}
++
++@(test)
++settle_drapes_and_comes_to_rest :: proc(t: ^testing.T) {
++	m, motion, before := settle_run(t, nil, 400)
++	defer geom.mesh_destroy(&m)
++	testing.expectf(t, motion < 0.01, "the cloth should come to rest, still moving %v links a step", motion)
++	low, fell := f32(1e9), f32(0)
++	for p, v in m.positions {
++		low = min(low, p.y)
++		if before[v].y > 0.7 do testing.expect_value(t, p, before[v])
++		fell = max(fell, before[v].y - p.y)
++	}
++	testing.expectf(t, low > -1.001, "the floor should hold it, lowest %v", low)
++	testing.expectf(t, fell > 0.2, "gravity should pull the free part down, at most %v", fell)
++
++	pool: jobs.Pool
++	jobs.pool_init(&pool, 3)
++	defer jobs.pool_destroy(&pool)
++	b, _, _ := settle_run(t, &pool, 40)
++	defer geom.mesh_destroy(&b)
++	a, _, _ := settle_run(t, nil, 40)
++	defer geom.mesh_destroy(&a)
++	testing.expect(t, slice.equal(a.positions[:], b.positions[:]), "serial and parallel differ")
++}
++
++@(test)
++settle_on_masked_moves_only_the_mask :: proc(t: ^testing.T) {
++	m, _, before := settle_run(t, nil, 60, on_masked = true)
++	defer geom.mesh_destroy(&m)
++	moved := 0
++	for p, v in m.positions {
++		if before[v].y <= 0.7 do testing.expect_value(t, p, before[v])
++		else if p != before[v] do moved += 1
++	}
++	testing.expect(t, moved > 10, "the masked cap should fall")
++}
++
++// The filters pull the free part (above y = 0) toward the shape they make, and drawn in,
++// it folds rather than shrinking: its edges stay near their lengths, where the filter's
++// own shape would halve some.
++@(test)
++filters_fold_the_free_part :: proc(t: ^testing.T) {
++	run :: proc(t: ^testing.T, pool: ^jobs.Pool, kind: Cloth_Filter_Kind, amount: f32) -> (m: geom.Mesh, shrink: f32, before: []Vec3) {
++		m = geom.icosphere(4)
++		s: Sculptor
++		sculptor_init(&s, &m, pool, 64)
++		defer sculptor_destroy(&s)
++		values := make([]u8, len(m.positions), context.temp_allocator)
++		for p, v in m.positions do values[v] = 255 if p.y < 0 else 0
++		testing.expect(t, sculptor_mask_values(&s, values, .Replace))
++		before = slice.clone(m.positions[:], context.temp_allocator)
++		sculptor_stroke_begin(&s)
++		testing.expect(t, sculptor_filter_begin(&s, kind, axes = {.X}) > 0)
++		for _ in 0 ..< 60 do _ = sculptor_filter_step(&s, amount, {0, -1, 0})
++		sculptor_cloth_end(&s)
++		testing.expect(t, sculptor_stroke_end(&s))
++		shrink = 1
++		for i := 0; i < len(m.indices); i += 3 {
++			for e in 0 ..< 3 {
++				a, b := m.indices[i + e], m.indices[i + (e + 1) % 3]
++				if before[a].y < 0.05 || before[b].y < 0.05 do continue
++				shrink = min(shrink, linalg.length(m.positions[a] - m.positions[b]) / linalg.length(before[a] - before[b]))
++			}
++		}
++		return
++	}
++	for kind in Cloth_Filter_Kind {
++		m, shrink, before := run(t, nil, kind, -1)
++		defer geom.mesh_destroy(&m)
++		moved: f32
++		for p, v in m.positions {
++			if before[v].y < 0 do testing.expect_value(t, p, before[v])
++			moved = max(moved, linalg.length(p - before[v]))
++		}
++		testing.expectf(t, moved > 0.02, "%v moved the free part at most %v", kind, moved)
++		testing.expectf(t, shrink > 0.65, "%v shrank an edge to %v of its length", kind, shrink)
++	}
++	pool: jobs.Pool
++	jobs.pool_init(&pool, 3)
++	defer jobs.pool_destroy(&pool)
++	a, _, _ := run(t, nil, .Scale, -0.5)
++	defer geom.mesh_destroy(&a)
++	b, _, _ := run(t, &pool, .Scale, -0.5)
++	defer geom.mesh_destroy(&b)
++	testing.expect(t, slice.equal(a.positions[:], b.positions[:]), "serial and parallel differ")
++}
+diff --git a/src/sculpt/reshape.odin b/src/sculpt/reshape.odin
+index 3be3647..faa2dae 100644
+--- a/src/sculpt/reshape.odin
++++ b/src/sculpt/reshape.odin
+@@ -22,7 +22,6 @@ Reshape_Kind :: enum u8 {
+ 	Noise,    // roughens it along the surface's normals
+ 	Inflate,  // pushes it out along the normals (or in)
+ 	Spherize, // rounds it toward a ball
+-	Gravity,  // sags its outer parts down the axis, as a soft drape
+ }
+ 
+ Reshape :: struct {
+@@ -55,7 +54,7 @@ reshape_needs_normals :: proc(kind: Reshape_Kind) -> bool {return kind == .Noise
+ // Whether a kind works along one axis, rather than any set of them or none.
+ reshape_one_axis :: proc(kind: Reshape_Kind) -> bool {
+ 	#partial switch kind {
+-	case .Skew, .S_Bend, .Squeeze, .Gravity: return true
++	case .Skew, .S_Bend, .Squeeze: return true
+ 	}
+ 	return false
+ }
+@@ -81,7 +80,7 @@ Reshape_Plan :: struct {
+ 	lo:     Vec3,
+ 	extent: Vec3,
+ 	delta:  Vec3, // Offset: the whole move
+-	radius: f32,  // Spherize: the ball's; Gravity: the furthest from the axis
++	radius: f32,  // Spherize: the ball's
+ 	slope:  f32,  // Skew: the lean's tangent
+ }
+ 
+@@ -109,14 +108,10 @@ reshape_plan :: proc(r: Reshape) -> (p: Reshape_Plan) {
+ 	case .Spherize:
+ 		p.amount = clamp(r.amount, 0, 1)
+ 		p.radius = (p.extent.x + p.extent.y + p.extent.z) / 6
+-	case .Gravity:
+-		across: Vec3 = p.extent * 0.5
+-		across[p.i] = 0
+-		p.radius = linalg.length(across)
+ 	case .Rotate, .S_Bend, .Squeeze, .Noise, .Inflate:
+ 	}
+ 	axes_needed := reshape_has_axes(r.kind) && card(r.axes) == 0
+-	p.still = p.amount == 0 || !(p.size > 0) || axes_needed || (r.kind == .Gravity && !(p.radius > 0))
++	p.still = p.amount == 0 || !(p.size > 0) || axes_needed
+ 	return
+ }
+ 
+@@ -168,13 +163,6 @@ reshape_at :: #force_inline proc(p: ^Reshape_Plan, a, n: Vec3, w: f32) -> Vec3 {
+ 		length := linalg.length(d)
+ 		if !(length > 0) do return a
+ 		return a + (p.centre + d * (p.radius / length) - a) * (w * p.amount)
+-	case .Gravity:
+-		d := a - p.centre
+-		d[p.i] = 0
+-		r := linalg.length(d) / p.radius
+-		q := a
+-		q[p.i] -= w * p.amount * p.size * 0.5 * r * r
+-		return q
+ 	}
+ 	return a
+ }

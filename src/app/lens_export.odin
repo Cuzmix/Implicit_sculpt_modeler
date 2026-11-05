@@ -29,7 +29,7 @@ Export_Format :: enum u8 {
 	Screenshot,
 	Turntable,
 	Print,
-	// The presets' own, after the others so that a settings file naming those still reads.
+	// The presets' own.
 	Print_OBJ,
 	Link,
 	Print_3MF,
@@ -191,6 +191,7 @@ export_preset_has :: proc(p: Export_Preset, f: Export_Format) -> bool {
 Export_Once :: struct {
 	decimate: int, // the triangles the file may hold; 0 keeps them all
 	hollow:   f32, // a print's wall in millimetres, hollowed inside it; 0 for solid
+	keep_stack: bool, // the live stack stays out, the object going as it holds it rather than as it shows
 }
 
 // The For this file options for request `req`: the sheet's when it started it, else none.
@@ -213,6 +214,7 @@ Export_Sheet :: struct {
 	decimate_to: i32, // the triangles it decimates to; 0 for half of what goes out
 	hollow:      bool, // Hollow for this file only, for a print
 	hollow_wall: f32, // its wall in millimetres; 0 for EXPORT_HOLLOW_WALL
+	keep_stack:  bool, // Bake the live stack off: the objects go as they hold, not as they show
 	ran:         bool, // an export has run, in this run or one before
 	last_preset: Export_Preset,
 	last_format: Export_Format,
@@ -303,18 +305,19 @@ export_bytes :: proc(app: ^App, f: Export_Format) -> int {
 	if _, is_print := export_print_file(f); is_print {
 		// A print takes its objects (print_objects), each counted the same way.
 		bytes := 0
-		for obj in print_objects(app) do bytes += export_object_bytes(obj, f)
+		for obj in print_objects(app) do bytes += export_object_bytes(app, obj, f)
 		return bytes
 	}
 	if f == .Link do return link_send_bytes(app)
 	obj := selected_object(app)
-	return 0 if obj == nil else export_object_bytes(obj, f)
+	return 0 if obj == nil else export_object_bytes(app, obj, f)
 }
 
 // What format `f` writes for `obj` alone.
 @(private = "file")
-export_object_bytes :: proc(obj: ^Object, f: Export_Format) -> int {
-	v, t := object_vertex_count(obj), object_triangle_count(obj)
+export_object_bytes :: proc(app: ^App, obj: ^Object, f: Export_Format) -> int {
+	n := export_stack_copies(app, obj)
+	v, t := n * object_vertex_count(obj), n * object_triangle_count(obj)
 	#partial switch f {
 	case .OBJ, .Print_OBJ: return 30 * v + 20 * t
 	case .PLY:             return 300 + 12 * v + 13 * t
@@ -351,11 +354,30 @@ EXPORT_HOLLOW_MAX :: 20.0
 export_triangles :: proc(app: ^App, f: Export_Format) -> int {
 	if _, is_print := export_print_file(f); is_print {
 		n := 0
-		for obj in print_objects(app) do n += object_triangle_count(obj)
+		for obj in print_objects(app) do n += export_stack_copies(app, obj) * object_triangle_count(obj)
 		return n
 	}
 	obj := selected_object(app)
-	return 0 if obj == nil else object_triangle_count(obj)
+	return 0 if obj == nil else export_stack_copies(app, obj) * object_triangle_count(obj)
+}
+
+// How many times over an export takes `obj`: once for each placing of its live stack
+// when the sheet bakes it (a mirror welds a half to its image, so it adds none), else once.
+export_stack_copies :: proc(app: ^App, obj: ^Object) -> int {
+	if app.kit.export.keep_stack || !stack_shows(app, obj) do return 1
+	return len(stack_steps(app, obj))
+}
+
+// Bake the live stack's switch, while an object the export takes has rows showing: on, it
+// goes as the view shows it; off, as it holds, its copies left behind. Whether it showed.
+@(private = "file")
+export_stack_row :: proc(app: ^App, objs: []^Object) -> bool {
+	shows := false
+	for obj in objs do shows ||= stack_shows(app, obj)
+	if !shows do return false
+	bake := !app.kit.export.keep_stack
+	if ui.switch_row(&app.kit.ctx, "Bake the live stack", &bake) do app.kit.export.keep_stack = !bake
+	return true
 }
 
 // The triangles Decimate for this file only leaves: what the sheet set, or half of what
@@ -440,7 +462,7 @@ export_run :: proc(app: ^App) -> bool {
 	// content:// document has none, as for Save next.
 	where_ := ""
 	if save_next_allowed(app) do where_, _ = filepath.join({filepath.dir(app.scene_path), export_file_name(app, f)}, context.temp_allocator)
-	app.export_once = {decimate = export_decimate_budget(app, f) if export_decimates(s) else 0, hollow = export_hollow_wall(s) if export_hollows(s) else 0}
+	app.export_once = {decimate = export_decimate_budget(app, f) if export_decimates(s) else 0, hollow = export_hollow_wall(s) if export_hollows(s) else 0, keep_stack = s.keep_stack}
 	if f == .Send {
 		target := export_send_target(app)
 		if target == "" do return false
@@ -462,27 +484,12 @@ kit_export_sheet :: proc(app: ^App) {
 	ctx := &k.ctx
 	t := ctx.theme
 	s := &k.export
-	area := ui.safe_area(ctx)
-	width := min(f32(EXPORT_SHEET_W), area.w - 32)
-	at := ui.Rect{area.x + (area.w - width) * 0.5, kit_top() + 24, 0, 0}
-	PAD :: 16
-	if !ui.popover_begin(ctx, "export sheet", &s.open, at, .Pointer, {direction = .Column, gap = 12, padding = PAD, width = width}) do return
-	defer ui.popover_end(ctx)
+	// The sheet (sheet.odin), its head naming what ran last.
+	last := export_last_label(s.last_preset, s.last_format) if s.ran else ""
+	inner, _, shown := sheet_begin(app, "export sheet", "Export", ICON_DOWNLOAD, &s.open, EXPORT_SHEET_W, last, gap = ui.SPACE_L)
+	if !shown do return
+	defer sheet_end(app)
 	export_settle(s)
-	inner := width - 2 * PAD
-
-	// The head: Export, what ran last, and Close.
-	ui.begin(ctx, "export head", {direction = .Row, center = true, gap = 8, width = inner})
-	mark := ui.place(ctx, {t.icon_size, t.target})
-	ui.icon(ctx, ICON_DOWNLOAD, {mark.x + mark.w * 0.5, mark.y + mark.h * 0.5}, t.icon_size, t.text)
-	title := ui.place(ctx, {inner - mark.w - t.target - 16, t.target})
-	ui.text(ctx, "Export", title.x, title.y + title.h * 0.5, t.heading_size * 1.15, t.text, .Semibold)
-	if s.ran {
-		last := ui.text_fit(ctx, export_last_label(s.last_preset, s.last_format), t.small_size, title.w - 120)
-		ui.text(ctx, last, title.x + title.w, title.y + title.h * 0.5, t.small_size, t.text_secondary, .Regular, .Right)
-	}
-	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do s.open = false
-	ui.end(ctx)
 
 	// The presets, six across, or three a row on a narrow window.
 	GAP :: 10
@@ -501,7 +508,7 @@ kit_export_sheet :: proc(app: ^App) {
 	COLUMNS_GAP :: 22
 	options_w := math.floor((inner - COLUMNS_GAP) * 0.54)
 	ui.begin(ctx, "export body", {direction = .Row, gap = COLUMNS_GAP, width = inner, height = EXPORT_BODY_H})
-	ui.begin(ctx, "export options", {direction = .Column, gap = 8, width = options_w})
+	ui.begin(ctx, "export options", {direction = .Column, gap = ui.SPACE_M, width = options_w})
 	ui.caption(ctx, "OPTIONS")
 	formats := export_preset_formats(s.preset)
 	if len(formats) > 1 {
@@ -520,7 +527,7 @@ kit_export_sheet :: proc(app: ^App) {
 
 	// The foot: what Export does to the scene, then Cancel and Export.
 	ui.divider(ctx, across = true)
-	ui.begin(ctx, "export foot", {direction = .Row, center = true, gap = 8, width = inner})
+	ui.begin(ctx, "export foot", {direction = .Row, center = true, gap = ui.SPACE_M, width = inner})
 	buttons: f32 = 2 * 100 + 8
 	r := ui.place(ctx, {inner - buttons - 8, t.target})
 	note := ui.text_fit(ctx, export_foot_note(s.format, s.copy), t.small_size, r.w, .Regular)
@@ -556,11 +563,12 @@ export_preset_card :: proc(ctx: ^ui.Context, p: Export_Preset, w: f32, lit: bool
 	x := r.x + INSET
 	y := r.y + INSET + t.icon_size * 0.5
 	ui.icon(ctx, EXPORT_PRESET_ICONS[p], {x + t.icon_size * 0.5, y}, t.icon_size, t.accent if lit else t.text_secondary)
-	y += t.icon_size * 0.5 + 8 + t.text_size * 0.6
+	name_h := ui.line_height(t.text_size)
+	y += t.icon_size * 0.5 + 8 + name_h * 0.5
 	room := r.w - 2 * INSET
 	ui.text(ctx, ui.text_fit(ctx, EXPORT_PRESET_NAMES[p], t.text_size, room, .Semibold), x, y, t.text_size, t.text, .Semibold)
-	line_h := math.ceil(t.small_size * 1.4)
-	y += t.text_size * 0.6 + 4 + line_h * 0.5
+	line_h := ui.line_height(t.small_size)
+	y += name_h * 0.5 + 4 + line_h * 0.5
 	first, second := export_two_lines(ctx, EXPORT_PRESET_DETAIL[p], t.small_size, room)
 	ui.text(ctx, first, x, y, t.small_size, t.text_secondary)
 	if second != "" do ui.text(ctx, second, x, y + line_h, t.small_size, t.text_secondary)
@@ -591,8 +599,8 @@ export_preview :: proc(app: ^App, f: Export_Format, w: f32) {
 	ctx := &k.ctx
 	t := ctx.theme
 	obj := selected_object(app)
-	ui.begin(ctx, "export preview", {direction = .Column, gap = 10, width = w})
-	ui.begin(ctx, "export preview head", {direction = .Row, gap = 12, width = w})
+	ui.begin(ctx, "export preview", {direction = .Column, gap = ui.SPACE_M, width = w})
+	ui.begin(ctx, "export preview head", {direction = .Row, gap = ui.SPACE_L, width = w})
 	pic := ui.place(ctx, {EXPORT_PICTURE, EXPORT_PICTURE})
 	ui.fill_rect(ctx, pic, t.radius_medium, t.fill)
 	drawn := false
@@ -612,7 +620,7 @@ export_preview :: proc(app: ^App, f: Export_Format, w: f32) {
 	}
 	if !drawn do ui.icon(ctx, EXPORT_PRESET_ICONS[app.kit.export.preset], {pic.x + pic.w * 0.5, pic.y + pic.h * 0.5}, t.icon_size * 2, t.text_tertiary)
 	lines_w := w - EXPORT_PICTURE - 12
-	ui.begin(ctx, "export preview lines", {direction = .Column, gap = 2, width = lines_w})
+	ui.begin(ctx, "export preview lines", {direction = .Column, gap = ui.SPACE_2XS, width = lines_w})
 	ui.label(ctx, ui.text_fit(ctx, export_file_name(app, f), t.text_size, lines_w, .Semibold), t.text_size, t.text, .Semibold)
 	for line in export_preview_lines(app, f) do ui.label(ctx, ui.text_fit(ctx, line, t.small_size, lines_w), t.small_size, t.text_secondary)
 	ui.end(ctx)
@@ -654,7 +662,7 @@ export_preview_lines :: proc(app: ^App, f: Export_Format) -> []string {
 			break
 		}
 		triangles := 0
-		for o in objs do triangles += object_triangle_count(o)
+		for o in objs do triangles += export_stack_copies(app, o) * object_triangle_count(o)
 		append(&lines, object_label(objs[0]) if len(objs) == 1 else fmt.tprintf("%d objects, each its own part" if f == .Print_3MF else "%d objects as one mesh", len(objs)))
 		append(&lines, export_triangles_line(app, f, triangles))
 		// The file stands Z up, so the scene's height (Y) is the print's.
@@ -671,7 +679,7 @@ export_preview_lines :: proc(app: ^App, f: Export_Format) -> []string {
 			break
 		}
 		append(&lines, object_label(obj))
-		append(&lines, export_triangles_line(app, f, object_triangle_count(obj)))
+		append(&lines, export_triangles_line(app, f, export_stack_copies(app, obj) * object_triangle_count(obj)))
 	}
 	return lines[:]
 }
@@ -708,6 +716,7 @@ export_options :: proc(app: ^App, f: Export_Format) {
 		} else {
 			ui.value_row(ctx, "Vertices", count_label(object_vertex_count(obj)))
 		}
+		_ = export_stack_row(app, {obj})
 		#partial switch f {
 		case .STL:  ui.paragraph(ctx, "Triangles alone, as slicers read them. For a print at its real size, 3D print sets it in millimetres.")
 		case .GLTF: ui.paragraph(ctx, "Binary glTF, as Unity, Unreal and Godot read it: the object's layers as shape keys, its materials and its maps.")
@@ -765,14 +774,15 @@ export_print_options :: proc(app: ^App) {
 		ui.paragraph(ctx, "Select an object to print, or turn Only the selected objects off to print every object shown.")
 		return
 	}
+	stacked := export_stack_row(app, objs)
 	// The height to drag and its unit beside it, on one row.
 	t := ctx.theme
 	UNITS_W :: 132
 	row_w := ui.fill_width(ctx)
-	ui.begin(ctx, "export print height", {direction = .Row, center = true, gap = 8, width = row_w})
+	ui.begin(ctx, "export print height", {direction = .Row, center = true, gap = ui.SPACE_M, width = row_w})
 	ui.begin(ctx, "export print height value", {direction = .Column, width = row_w - UNITS_W - 8})
 	unit := PRINT_UNIT_MM[app.print_unit]
-	b := print_bounds_of(objs)
+	b := print_bounds_of(app, objs)
 	height := (b.hi.y - b.lo.y) * print_scale(app) / unit
 	step := max(height / 500, 0.001)
 	if ui.drag_value(ctx, "Height##export print", &height, step, 0, PRINT_MM_MAX * 1000, fmt.tprintf("%s %s", print_number(height), PRINT_UNIT_NAMES[app.print_unit]), enabled = b.hi.y > b.lo.y) {
@@ -785,7 +795,7 @@ export_print_options :: proc(app: ^App) {
 	ui.end(ctx)
 	export_decimate_rows(app, k.export.format)
 	// Hollow for this file only, with its wall to drag beside it on the same row while on.
-	ui.begin(ctx, "export print hollow", {direction = .Row, center = true, gap = 8, width = row_w})
+	ui.begin(ctx, "export print hollow", {direction = .Row, center = true, gap = ui.SPACE_M, width = row_w})
 	ui.begin(ctx, "export print hollow switch", {direction = .Column, width = row_w - UNITS_W - 8 if s.hollow else row_w})
 	_ = ui.switch_row(ctx, "Hollow for this file only", &s.hollow)
 	ui.end(ctx)
@@ -797,5 +807,5 @@ export_print_options :: proc(app: ^App) {
 	}
 	ui.end(ctx)
 	// The note has room only while the rows under it are folded.
-	if !s.decimate && !s.hollow do ui.paragraph(ctx, "Width and depth follow, at the scene's one print scale, so parts printed apart fit. Hollow keeps a wall that thick inside; the slicer adds the drain holes.", color = t.text_tertiary)
+	if !s.decimate && !s.hollow && !stacked do ui.paragraph(ctx, "Width and depth follow, at the scene's one print scale, so parts printed apart fit. Hollow keeps a wall that thick inside; the slicer adds the drain holes.", color = t.text_tertiary)
 }

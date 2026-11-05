@@ -82,6 +82,7 @@ themes_read_back_from_the_settings :: proc(t: ^testing.T) {
 	testing.expect(t, theme_keep(&a.kit))
 	theme_choose(&a.kit, {.Paper, -1})
 	a.kit.themes.seed.contrast = 0.75
+	a.kit.themes.seed.shadow = 0.37
 	a.kit.themes.match = true
 	testing.expect(t, settings_save(&a, path))
 
@@ -98,7 +99,7 @@ themes_read_back_from_the_settings :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.kit.themes.day, Theme_Ref{.Paper, -1})
 	testing.expect_value(t, b.kit.themes.night, Theme_Ref{.Lens, 0})
 
-	words := []string{"light", "hue=400", "opacity=0.2", "contrast=75", "accent=#123", "sparkle=9", "corners=round"}
+	words := []string{"light", "hue=400", "opacity=0.2", "contrast=75", "accent=#123", "sparkle=9", "corners=round", "shadow=80"}
 	s, _, ok := theme_seed_parse(words, LOOK_SEEDS[.Lens])
 	testing.expect(t, ok)
 	testing.expect_value(t, s.mode, ui.Theme_Mode.Light)
@@ -107,6 +108,7 @@ themes_read_back_from_the_settings :: proc(t: ^testing.T) {
 	testing.expect_value(t, s.contrast, 0.75)
 	testing.expect_value(t, s.accent, ui.Color{0x11, 0x22, 0x33, 0xff})
 	testing.expect_value(t, s.corners, ui.Theme_Corners.Round)
+	testing.expect_value(t, s.shadow, 0.8)
 	free_all(context.temp_allocator)
 }
 
@@ -187,7 +189,7 @@ a_share_code_imports_the_same_theme :: proc(t: ^testing.T) {
 }
 
 // The viewport's marks keep the renderer's own colours until set by hand, and a space's
-// tint set by hand brings its soft fill along.
+// tint set by hand shows.
 @(test)
 viewport_marks_follow_only_colours_set_by_hand :: proc(t: ^testing.T) {
 	k: Kit_State
@@ -203,7 +205,6 @@ viewport_marks_follow_only_colours_set_by_hand :: proc(t: ^testing.T) {
 	testing.expect_value(t, theme_selection_color(&k), [4]f32{0, 0, 1, MODEL_SELECTION_COLOR.a})
 	shown := theme_current(&k)
 	testing.expect_value(t, shown.tints[1], ui.Color{0x20, 0xa0, 0x40, 255})
-	testing.expect(t, shown.tints_soft[1] != theme_saved(&k).tints_soft[1])
 	// Held to compare, the saved theme's marks show again.
 	k.themes.compare = true
 	testing.expect_value(t, theme_wire_color(&k), [4]f32{})

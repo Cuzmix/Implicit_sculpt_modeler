@@ -37,18 +37,24 @@ Theme_Seed :: struct {
 	accent:   Color,
 	chosen:   Theme_Chosen,
 	black:    bool, // a pure black ground, for OLED screens (dark only)
-	shadow:   bool, // a shadow under the panels
+	shadow:   f32, // how dark the shadow under the panels is, 0 (none) to 1; 0.5 is the usual
 }
 
 // Below this the panels' text would fight the model behind them.
 THEME_OPACITY_MIN :: 0.6
+
+// The panel shadow's alpha at a seed's `strength` (0 to 1), `full` at 1: half way is the
+// shadow the themes always had, so a person can both soften and deepen it.
+theme_shadow_alpha :: proc(strength: f32, full: f32) -> u8 {
+	return u8(clamp(strength, 0, 1) * full + 0.5)
+}
 
 // The greys' lightness (HSL, in percent) at normal contrast, taken from Lens so a Lens
 // seed comes out close to Lens. Each is moved toward or away from the surface by the
 // contrast. Light themes have their own steps, the surfaces near white.
 @(private = "file")
 Levels :: struct {
-	frame, frame_line, pane, surface, raised, fill, cursor, cursor_line, track, border, border_strong: f32,
+	frame, frame_line, pane, surface, raised, fill, track, border, border_strong: f32,
 	text, text_secondary, text_tertiary: f32,
 }
 
@@ -59,15 +65,13 @@ LEVELS_DARK := Levels {
 	pane           = 11.6,
 	surface        = 10.4,
 	raised         = 14.3,
-	fill           = 17.6,
-	cursor         = 14.3,
-	cursor_line    = 26.9,
+	fill           = 21.6,
 	track          = 25.9,
 	border         = 19.4,
 	border_strong  = 26.9,
 	text           = 92.5,
 	text_secondary = 68.8,
-	text_tertiary  = 46.3,
+	text_tertiary  = 53.7,
 }
 
 @(private = "file", rodata)
@@ -77,15 +81,13 @@ LEVELS_LIGHT := Levels {
 	pane           = 91,
 	surface        = 97,
 	raised         = 100,
-	fill           = 91.5,
-	cursor         = 100,
-	cursor_line    = 77,
+	fill           = 85,
 	track          = 80,
 	border         = 85,
 	border_strong  = 75,
 	text           = 12,
 	text_secondary = 34,
-	text_tertiary  = 47,
+	text_tertiary  = 42,
 }
 
 // How far below the dark steps a pure black ground puts every grey.
@@ -148,7 +150,7 @@ theme_derive :: proc(seed: Theme_Seed, base := THEME_LENS) -> Theme {
 	lv := LEVELS_LIGHT if light else LEVELS_DARK
 	if seed.black && !light {
 		lv.frame, lv.pane = 0, 0
-		for p in ([]^f32{&lv.frame_line, &lv.surface, &lv.raised, &lv.fill, &lv.cursor, &lv.cursor_line, &lv.track, &lv.border, &lv.border_strong}) do p^ = max(p^ - BLACK_DROP, 0)
+		for p in ([]^f32{&lv.frame_line, &lv.surface, &lv.raised, &lv.fill, &lv.track, &lv.border, &lv.border_strong}) do p^ = max(p^ - BLACK_DROP, 0)
 	}
 	k := 0.55 + clamp(seed.contrast, 0, 1) * 0.9
 	sat := clamp(seed.tint, 0, 1) * TINT_SATURATION
@@ -167,8 +169,6 @@ theme_derive :: proc(seed: Theme_Seed, base := THEME_LENS) -> Theme {
 	t.surface = {solid.r, solid.g, solid.b, u8(clamp(seed.opacity, THEME_OPACITY_MIN, 1) * 255 + 0.5)}
 	t.surface_raised = grey(h, sat, lv.raised, s, k)
 	t.fill = grey(h, sat, lv.fill, s, k)
-	t.cursor = grey(h, sat, lv.cursor, s, k)
-	t.cursor_line = grey(h, sat, lv.cursor_line, s, k)
 	t.track = grey(h, sat, lv.track, s, k)
 	t.border = grey(h, sat, lv.border, s, k)
 	t.border_strong = grey(h, sat, lv.border_strong, s, k)
@@ -182,18 +182,18 @@ theme_derive :: proc(seed: Theme_Seed, base := THEME_LENS) -> Theme {
 		t.fill_hover = {0, 0, 0, 0x0d}
 		t.fill_pressed = {0, 0, 0, 0x17}
 		t.shadow = {20, 24, 30, 0x55}
-		t.panel_shadow = {20, 24, 30, 0x24} if seed.shadow else {}
+		t.panel_shadow = {20, 24, 30, theme_shadow_alpha(seed.shadow, 0x48)}
 	} else {
 		t.fill_hover = {0xff, 0xff, 0xff, 0x0f}
 		t.fill_pressed = {0xff, 0xff, 0xff, 0x1a}
 		t.shadow = {0, 0, 0, 0x80}
-		t.panel_shadow = {0, 0, 0, 0x66} if seed.shadow else {}
+		t.panel_shadow = {0, 0, 0, theme_shadow_alpha(seed.shadow, 0xcc)}
 	}
 
 	a := seed.accent
 	a.a = 255
 	t.accent = a
-	t.accent_soft = color_mix(solid, a, 0.15 if light else 0.17)
+	t.accent_soft = color_mix(solid, a, 0.3 if light else 0.17)
 	// The ink on the accent is white or the accent's own near-black, whichever reads better.
 	ink := color_mix(a, {0, 0, 0, 255}, 0.88)
 	white := Color{0xff, 0xff, 0xff, 0xff}
@@ -219,13 +219,11 @@ theme_derive :: proc(seed: Theme_Seed, base := THEME_LENS) -> Theme {
 	}
 	t.knob_on = t.on_accent
 	t.camera[0] = a
-	// The space tints read on the frame: darker on a light one, with soft fills mixed
-	// toward the surface either way.
+	// The space tints read on the frame: darker on a light one.
 	for i in 0 ..< len(t.tints) {
 		tint := base.tints[i]
 		if light do tint = color_mix(tint, {0, 0, 0, 255}, 0.3)
 		t.tints[i] = tint
-		t.tints_soft[i] = color_mix(solid, tint, 0.16 if light else 0.2)
 	}
 	r := CORNER_RADII[seed.corners]
 	t.radius_small, t.radius_medium, t.radius_large = r[0], r[1], r[2]
@@ -266,15 +264,15 @@ theme_from_seed :: proc(seed: Theme_Seed, exact: Theme, exact_seed: Theme_Seed) 
 
 // The seeds of the app's themes. Lens, Studio and Graphite each have an exact Theme
 // beside them that their seed comes close to; the others are only seeds.
-THEME_SEED_LENS :: Theme_Seed{.Dark, 213, 0.5, 0.5, 0.96, .Normal, {0x5e, 0xd6, 0xc4, 0xff}, .Soft, false, true}
-THEME_SEED_STUDIO :: Theme_Seed{.Dark, 0, 0, 0.5, 0.957, .Round, {0xf2, 0xa3, 0x3a, 0xff}, .Solid, false, false}
-THEME_SEED_GRAPHITE :: Theme_Seed{.Dark, 232, 0.3, 0.5, 0.941, .Normal, {0x5b, 0x8c, 0xff, 0xff}, .Solid, false, false}
+THEME_SEED_LENS :: Theme_Seed{.Dark, 213, 0.5, 0.5, 0.96, .Normal, {0x5e, 0xd6, 0xc4, 0xff}, .Soft, false, 0.5}
+THEME_SEED_STUDIO :: Theme_Seed{.Dark, 0, 0, 0.5, 0.957, .Round, {0xf2, 0xa3, 0x3a, 0xff}, .Solid, false, 0}
+THEME_SEED_GRAPHITE :: Theme_Seed{.Dark, 232, 0.3, 0.5, 0.941, .Normal, {0x5b, 0x8c, 0xff, 0xff}, .Solid, false, 0}
 // "Paper": a warm light theme for a bright room, its accent a deep sea green that reads on white.
-THEME_SEED_PAPER :: Theme_Seed{.Light, 40, 0.3, 0.5, 0.97, .Normal, {0x1a, 0x7a, 0x6a, 0xff}, .Soft, false, true}
+THEME_SEED_PAPER :: Theme_Seed{.Light, 40, 0.3, 0.5, 0.97, .Normal, {0x1a, 0x7a, 0x6a, 0xff}, .Soft, false, 0.5}
 // "Midnight": a pure black ground for OLED screens, where black pixels are off.
-THEME_SEED_MIDNIGHT :: Theme_Seed{.Dark, 225, 0.3, 0.5, 0.9, .Round, {0xa0, 0x8c, 0xff, 0xff}, .Soft, true, false}
+THEME_SEED_MIDNIGHT :: Theme_Seed{.Dark, 225, 0.3, 0.5, 0.9, .Round, {0xa0, 0x8c, 0xff, 0xff}, .Soft, true, 0}
 // "High contrast": white text and plain hairlines on black, with a yellow accent.
-THEME_SEED_HIGH_CONTRAST :: Theme_Seed{.Dark, 0, 0, 1, 1, .Normal, {0xff, 0xd6, 0x0a, 0xff}, .Solid, true, false}
+THEME_SEED_HIGH_CONTRAST :: Theme_Seed{.Dark, 0, 0, 1, 1, .Normal, {0xff, 0xd6, 0x0a, 0xff}, .Solid, true, 0}
 
 // A theme's card in a gallery: a small picture of the theme (its frame, a bar, a panel
 // with lines of its text, a clay ball and an accent dot) over `s`, with `tag` (Yours,
@@ -330,8 +328,6 @@ Theme_Token :: enum u8 {
 	Surface,
 	Surface_Raised,
 	Fill,
-	Cursor,
-	Cursor_Line,
 	Track,
 	Border,
 	Border_Strong,
@@ -367,8 +363,6 @@ THEME_TOKEN_KEYS := [Theme_Token]string {
 	.Surface        = "surface",
 	.Surface_Raised = "surface_raised",
 	.Fill           = "fill",
-	.Cursor         = "cursor",
-	.Cursor_Line    = "cursor_line",
 	.Track          = "track",
 	.Border         = "border",
 	.Border_Strong  = "border_strong",
@@ -402,8 +396,6 @@ THEME_TOKEN_NAMES := [Theme_Token]string {
 	.Surface        = "Bars, panels and the shelf",
 	.Surface_Raised = "Menus, popovers and toasts",
 	.Fill           = "Wells, inputs and tab strips",
-	.Cursor         = "Chosen segment",
-	.Cursor_Line    = "Chosen segment's hairline",
 	.Track          = "Slider track, switch off",
 	.Border         = "Panel hairline",
 	.Border_Strong  = "Popover hairline",
@@ -442,8 +434,6 @@ theme_token :: proc(t: ^Theme, token: Theme_Token) -> ^Color {
 	case .Surface:        return &t.surface
 	case .Surface_Raised: return &t.surface_raised
 	case .Fill:           return &t.fill
-	case .Cursor:         return &t.cursor
-	case .Cursor_Line:    return &t.cursor_line
 	case .Track:          return &t.track
 	case .Border:         return &t.border
 	case .Border_Strong:  return &t.border_strong
@@ -472,17 +462,11 @@ theme_token :: proc(t: ^Theme, token: Theme_Token) -> ^Color {
 
 // `t` with the colours set by hand put over it. The panels keep the seed's opacity, so a
 // hand-set surface colour still lets the view show through as much as before, and the
-// selection keeps its own so the faces under it still show. A space's soft fill follows
-// its tint, mixed toward the panels as theme_derive mixes it.
+// selection keeps its own so the faces under it still show.
 theme_overrides_apply :: proc(t: ^Theme, o: Theme_Overrides) {
 	for token in o.set {
 		c := o.colors[token]
 		p := theme_token(t, token)
 		p^ = {c.r, c.g, c.b, p.a if token == .Surface || token == .Selection else 255}
-	}
-	solid := Color{t.surface.r, t.surface.g, t.surface.b, 255}
-	light := color_luminance(solid) > 0.5
-	for token, i in ([3]Theme_Token{.Space_Sculpt, .Space_Model, .Space_Render}) {
-		if token in o.set do t.tints_soft[i] = color_mix(solid, t.tints[i], 0.16 if light else 0.2)
 	}
 }

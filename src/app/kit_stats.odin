@@ -6,39 +6,31 @@ import "../render"
 import "../sculpt"
 import "../ui"
 
-// The Stats panel (F11, Menu > Stats, Settings > System). Simple, it says how
+// The Details card (F11, Menu > More > Details, Settings > System). Simple, it says how
 // smoothly the app runs in plain words, grouped as performance, mesh and memory; Advanced,
 // it shows every measurement by the name the app prints on exit (`ui_ms` and so on) with
 // its p50 and p99, the drawing switches for comparing speed, and what the brush costs.
-// Every number is one the app measured: nothing is estimated. It is a window that starts
-// at the top left, clear of the size and strength sliders, and fades in and out. Returns
-// true when a press landed on it, to bring it to the front.
-kit_stats :: proc(app: ^App) -> (raised: bool) {
+// Every number is one the app measured: nothing is estimated. A card like the others, it
+// can be pinned to stay beside the work while sculpting, or floated.
+
+// The Details card's width: room for a label and its p50 and p99 side by side.
+DETAILS_CARD_W :: 340
+
+// The Details card's body, `inner` wide and `height` tall, `owner` its root: the Simple and
+// Advanced tabs, and under them the numbers, which scroll.
+details_card_body :: proc(app: ^App, inner, height: f32, owner: ui.Id) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	shown := ui.presence(ctx, panel_id(Kit_Window.Stats), k.stats, t.panel_time)
-	if shown <= 0 do return
 	s := &app.stats
-	win := &k.windows[.Stats]
-	points, _ := ui.prev_layout(ctx, "points")
-	mark := ui.vertex_mark(ctx)
-	p := panel_begin(app, Kit_Window.Stats, "Statistics", .Start, .Start, {kit_left(app), TOP_BAR_H + 4 + points.y + 8}, {direction = .Column, gap = 2, padding = 12, width = KIT_STATS_W, radius = t.radius_large, background = .Panel, inert = !k.stats}, "F11")
-	raised = p.raised
-	if p.closed do k.stats = false
-	slide := window_slide(ctx, win^, .Start) * (1 - shown) * 16
-	if !p.body {
-		panel_end(app, &p)
-		ui.transform_since(ctx, mark, shown, 1, {}, {slide, 0})
-		return
-	}
 	detail := [2]string{"Simple", "Advanced"}
-	if picked := ui.tabs(ctx, "detail", detail[:], int(k.stats_advanced)); picked >= 0 do k.stats_advanced = picked == 1
-	ui.spacer(ctx, 4)
+	if picked := ui.tabs(ctx, "detail", detail[:], int(k.stats_advanced)); picked >= 0 && (picked == 1) != k.stats_advanced {
+		k.stats_advanced, k.details_scroll = picked == 1, 0
+	}
+	body := kit_scroll_begin(ctx, "details body", &k.details_scroll, owner, inner, max(height - t.target - 8, 80), 2)
+	defer kit_scroll_end(ctx, body)
 	if !k.stats_advanced {
 		kit_stats_simple(app)
-		panel_end(app, &p)
-		ui.transform_since(ctx, mark, shown, 1, {}, {slide, 0})
 		return
 	}
 	ring :: proc(ctx: ^ui.Context, label: string, r: Sample_Ring, unit: string) {
@@ -50,7 +42,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		ui.value_row(ctx, label, fmt.tprintf("p50 %.2f   p99 %.2f %s", p50, p99, unit))
 	}
 
-	if ui.section(ctx, "Frame", &k.open[.Frame]) {
+	if ui.section(ctx, "Frame", &k.stats_open[.Frame]) {
 		ring(ctx, "Frame  frame_ms", s.frame_ms, "ms")
 		ring(ctx, "CPU  cpu_ms", s.cpu_ms, "ms")
 		if app.time_gpu do ring(ctx, "GPU (3D)  gpu_ms", s.gpu_ms, "ms")
@@ -70,7 +62,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		ui.section_end(ctx)
 	}
 
-	if ui.section(ctx, "Drawing", &k.open[.Drawing]) {
+	if ui.section(ctx, "Drawing", &k.stats_open[.Drawing]) {
 		v := s.viewport
 		frame_rate_controls(app, explain = false)
 		if ui.switch_row(ctx, "Time GPU work", &app.time_gpu) do s.gpu_ms = {}
@@ -112,7 +104,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 		ui.section_end(ctx)
 	}
 
-	if ui.section(ctx, "While sculpting", &k.open[.Sculpting]) {
+	if ui.section(ctx, "While sculpting", &k.stats_open[.Sculpting]) {
 		ring(ctx, "Raycast  raycast_ms", s.raycast_ms, "ms")
 		ring(ctx, "Brush  brush_ms", s.brush_ms, "ms")
 		ring(ctx, "Normals  normals_ms", s.normals_ms, "ms")
@@ -146,13 +138,7 @@ kit_stats :: proc(app: ^App) -> (raised: bool) {
 	}
 	kit_stats_last(app)
 	kit_stats_help(app)
-	panel_end(app, &p)
-	ui.transform_since(ctx, mark, shown, 1, {}, {slide, 0})
-	return
 }
-
-// The Stats panel's width: room for a label and its p50 and p99 side by side.
-KIT_STATS_W :: 340
 
 // The simple view: how smoothly the app runs, the mesh, and the memory it measures, in
 // plain words with their units spelled out.
@@ -248,7 +234,7 @@ kit_stats_help :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	ui.spacer(ctx, 4)
-	if ui.section(ctx, "What do these numbers mean?", &k.open[.Stats_Help]) {
+	if ui.section(ctx, "What do these numbers mean?", &k.stats_open[.Help]) {
 		ui.paragraph(ctx, "Times are in milliseconds (ms), thousandths of a second; at 60 frames per second each frame has 16.7 ms.")
 		ui.paragraph(ctx, fmt.tprintf("Typical is the median, p50, of the last %d frames: half took less, half took more.", HISTORY))
 		ui.paragraph(ctx, "Slower moments is the 99th percentile, p99: 99 in every 100 frames took this long or less. It shows the hitches without being the single slowest frame.")

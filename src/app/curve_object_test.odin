@@ -133,7 +133,7 @@ curve_scene_round_trip :: proc(t: ^testing.T) {
 	defer curve_scene_free(&app)
 	app.camera = camera.orbit_default()
 	app.scene.lights = app.start_lights
-	a := []geom.Bezier_Point{{p = {0, 0, 0}, h_out = {0.1, 0, 0}, radius = 0.2, intensity = 1}, {p = {1, 0, 0}, h_in = {-0.1, 0, 0}, radius = 0.1, intensity = 0.5, twist = 0.3, corner = true}}
+	a := []geom.Bezier_Point{{p = {0, 0, 0}, h_out = {0.1, 0, 0}, radius = 0.2, intensity = 1}, {p = {1, 0, 0}, h_in = {-0.1, 0, 0}, radius = 0.1, intensity = 0.5, twist = 0.3, handles = .Free}}
 	b := []geom.Bezier_Point{{p = {0, 1, 0}, radius = 1, intensity = 1}, {p = {0, 2, 0}, radius = 1, intensity = 1}, {p = {1, 2, 0}, radius = 1, intensity = 1}}
 	testing.expect(t, curve_object_add(&app, a, false))
 	testing.expect(t, curve_object_add(&app, b, true))
@@ -164,6 +164,7 @@ curve_scene_round_trip :: proc(t: ^testing.T) {
 	for {
 		next, body, more := scene_chunk_next(&r)
 		if !more do break
+		if next == CHUNK_REFS do continue
 		testing.expect_value(t, next, CHUNK_CURVE)
 		// A curve in an object's chunk is damage; in its own it reads back.
 		wrong := body
@@ -188,7 +189,7 @@ curve_scene_round_trip :: proc(t: ^testing.T) {
 	if c0 != nil && len(c0.points) == 2 {
 		// Points are kept about the object's middle, which its transform puts back.
 		world := to_world(got[0].transform, c0.points[1].p)
-		testing.expectf(t, abs(world.x - 1) < 1e-5 && c0.points[1].corner && c0.points[1].twist == 0.3, "%v", c0.points[1])
+		testing.expectf(t, abs(world.x - 1) < 1e-5 && c0.points[1].handles == .Free && c0.points[1].twist == 0.3, "%v", c0.points[1])
 	}
 }
 
@@ -252,8 +253,8 @@ curve_damage_is_refused :: proc(t: ^testing.T) {
 	check(t, use, false, "a use past the last")
 	corner := make([]u8, len(bytes), context.temp_allocator)
 	copy(corner, bytes[:])
-	corner[6 + CURVE_POINT_BYTES - 1] = 2
-	check(t, corner, false, "a corner of 2")
+	corner[6 + CURVE_POINT_BYTES - 1] = u8(len(geom.Handle_Type))
+	check(t, corner, false, "a handle type past the last")
 	nan := make([]u8, len(bytes), context.temp_allocator)
 	copy(nan, bytes[:])
 	bits := transmute([4]u8)math.nan_f32()
@@ -268,7 +269,7 @@ curve_tube_options_read_back :: proc(t: ^testing.T) {
 	cp := Curve_Part{closed = true, look = CURVE_LOOK_DEFAULTS}
 	defer delete(cp.points)
 	append(&cp.points, geom.Bezier_Point{p = {0, 0, 0}, radius = 1}, geom.Bezier_Point{p = {1, 0, 0}, radius = 1}, geom.Bezier_Point{p = {0, 1, 0}, radius = 1})
-	cp.tube = {profile = .Star, radius = .One, one = 0.3, sides = 7, density = 2.5, caps = .Open, flatness = 0.4}
+	cp.tube = {profile = geom.profile_preset(.Star), radius = .One, one = 0.3, sides = 7, density = 2.5, caps = .Open, width = geom.width_preset(.Bulge)}
 	cp.lathe = {axis = {0, 0, 1}, through = .End, angle = 270, segments = 200, caps = false}
 	cp.along = {part = .Tooth, opts = {gap = 0.7, alternate = true, lift = -0.3, up = {1, 0, 0}}}
 	bytes: [dynamic]u8
@@ -303,14 +304,19 @@ curve_tube_options_read_back :: proc(t: ^testing.T) {
 	testing.expect(t, !ok, "a lathe with no axis was read")
 	sides := make([]u8, len(bytes), context.temp_allocator)
 	copy(sides, bytes[:])
-	sides[6 + 3 * CURVE_POINT_BYTES + 6] = 2
+	sides[6 + 3 * CURVE_POINT_BYTES + 5] = 2
 	_, ok = read(sides)
 	testing.expect(t, !ok, "two sides were read")
 	profile := make([]u8, len(bytes), context.temp_allocator)
 	copy(profile, bytes[:])
-	profile[6 + 3 * CURVE_POINT_BYTES] = 9
+	profile[6 + 3 * CURVE_POINT_BYTES + 11] = 2
 	_, ok = read(profile)
-	testing.expect(t, !ok, "a profile past the last was read")
+	testing.expect(t, !ok, "a profile of two points was read")
+	width := make([]u8, len(bytes), context.temp_allocator)
+	copy(width, bytes[:])
+	width[6 + 3 * CURVE_POINT_BYTES + 13 + geom.PROFILE_POINTS_MAX * (6 * size_of(f32) + 1)] = 1
+	_, ok = read(width)
+	testing.expect(t, !ok, "a width along of one point was read")
 }
 
 // Choosing Lathe sets the axis to the view's vertical in the curve's space, through the
@@ -335,15 +341,18 @@ curve_lathe_takes_the_view_axis :: proc(t: ^testing.T) {
 	testing.expect(t, c.axis == geom.LATHE_DEFAULTS.axis && c.angle == 360 && c.segments == 3)
 }
 
-// Cleaning keeps a tube buildable: sides in range, density and flatness positive.
+// Cleaning keeps a tube buildable: sides in range, density positive, a profile of three
+// points or more, a width along of two or more.
 @(test)
 curve_tube_clean_bounds :: proc(t: ^testing.T) {
-	o := curve_tube_clean({sides = 1, density = 0, flatness = -1, one = -2})
+	o := curve_tube_clean({sides = 1, density = 0, one = -2})
 	testing.expect_value(t, o.sides, 3)
-	testing.expect(t, o.density > 0 && o.flatness > 0 && o.one == 0)
-	o = curve_tube_clean({sides = 999, density = 100, flatness = 0.5, one = 0.2})
+	testing.expect(t, o.density > 0 && o.one == 0)
+	testing.expect(t, o.profile == geom.PROFILE_ROUND, "an empty profile was kept")
+	testing.expect(t, o.width == geom.WIDTH_EVEN, "an empty width along was kept")
+	o = curve_tube_clean({sides = 999, density = 100, one = 0.2, profile = geom.profile_preset(.Star)})
 	testing.expect_value(t, o.sides, geom.TUBE_SIDES_MAX)
-	testing.expect(t, o.density <= 16 && o.flatness == 0.5 && o.one == 0.2)
+	testing.expect(t, o.density <= 16 && o.one == 0.2 && o.profile.count == 10)
 }
 
 // A curve is its own type: the chip says Curve and its conversion is Bake, which needs a tube.

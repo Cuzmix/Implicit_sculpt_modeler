@@ -4,84 +4,34 @@ import "core:fmt"
 import "core:strings"
 import "../ui"
 
-// Arrange: the one mode in which the interface's layout is changed, grown from Customise
-// bars (bars.odin), whose rings, slot popovers and + tiles it keeps. While it is on, the
-// top bar and the Library (lens_arrange.odin) offer which bars show, where every panel
-// goes, Revert, Save as new and Done; both columns show where a panel can be
-// dropped, and a hidden bar shows as an outline in its place with Show. What is arranged
-// is the current workspace's live layout: the switcher's dot says it has changed, and
-// Save keeps it.
+// Arrange: the mode in which the docks' buttons are changed, grown from Customise bars
+// (bars.odin), whose rings, slot popovers and + tiles it keeps. While it is on, the top
+// bar and the Library (lens_arrange.odin) offer which bars show, where every panel goes,
+// Reset layout and Done; both columns show where a panel can be dropped, and a hidden bar
+// shows as an outline in its place with Show. What is arranged is the current space's
+// layout, kept as it is: the tab's dot says it differs from how it ships.
 
 // The bars as the Library's Show chips name them, in the order it lists them.
 @(rodata)
 ZONE_NAMES := [Zone]string {
-	.Brush_Bar  = "Off-hand island",
-	.View_Bar   = "View rail",
+	.Brush_Bar  = "Brush toolbar",
+	.View_Bar   = "View toolbar",
 	.Dock       = "Shelf",
-	.Wheel      = "Wheel",
+	.Wheel      = "Dial",
 	.Action_Bar = "Next steps",
 }
 
-// The panels the drawer lists: every window a layout keeps (a pinned section is a card of
-// the stack, which goes where the stack goes).
-@(private = "file")
-arrange_panels :: proc(app: ^App) -> []Panel_Ref {
-	out := make([dynamic]Panel_Ref, context.temp_allocator)
-	for w in LAYOUT_PANELS do append(&out, Panel_Ref(w))
-	return out[:]
-}
-
-// Where a panel is, as the drawer's choice shows it: 0 hidden, then for the stack 1 docked
-// on the left, 2 docked on the right, 3 floating, and for the other windows 1 shown.
-@(private = "file")
-ARRANGE_PLACES := [?]string{"Hidden", "Left", "Right", "Float"}
-@(private = "file")
-ARRANGE_SHOWN := [?]string{"Hidden", "Shown"}
-
-@(private = "file")
-arrange_place :: proc(app: ^App, ref: Panel_Ref) -> int {
-	if !panel_open(app, ref) do return 0
-	if ref != Panel_Ref(Kit_Window.Inspector) do return 1
-	switch app.kit.stack.place {
-	case .Left:  return 1
-	case .Right: return 2
-	case .Float:
-	}
-	return 3
-}
-
-// Puts panel `ref` where the drawer's choice says: hidden, or shown (the stack docked on a
-// side or floating where it last floated).
-@(private = "file")
-arrange_put :: proc(app: ^App, ref: Panel_Ref, place: int) {
-	if place == 0 {
-		panel_set_open(app, ref, false)
-		return
-	}
-	if ref == Panel_Ref(Kit_Window.Inspector) {
-		switch place {
-		case 1: stack_place_set(app, .Left)
-		case 2: stack_place_set(app, .Right)
-		case 3: stack_place_set(app, .Float)
-		}
-	}
-	panel_set_open(app, ref, true)
-	// The tray and the Objects card share a place, as opening either does.
-	if r, ok := ref.(Kit_Window); ok && r == .Objects do app.kit.inspector = false
-	if r, ok := ref.(Kit_Window); ok && r == .Inspector do app.kit.objects_card = false
-}
-
-// The Show chips: one for each bar, lit while the workspace shows it.
+// The Show chips: one for each bar, lit while the layout shows it.
 arrange_show_chips :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	ui.begin(ctx, "arrange zones", {direction = .Row, gap = 4, center = true})
+	ui.begin(ctx, "arrange zones", {direction = .Row, gap = ui.SPACE_XS, center = true})
 	ui.label(ctx, "Show", t.small_size, t.text_secondary)
 	for z in Zone {
 		shown := z not_in k.hidden
 		w := ui.text_width(ctx, ZONE_NAMES[z], t.text_size, .Semibold) + 28
-		if ui.toggle_button(ctx, fmt.tprintf("%s##zone", ZONE_NAMES[z]), shown, w, tooltip = fmt.tprintf("Show the %s in this workspace", strings.to_lower(ZONE_NAMES[z], context.temp_allocator))) {
+		if ui.toggle_button(ctx, fmt.tprintf("%s##zone", ZONE_NAMES[z]), shown, w, tooltip = fmt.tprintf("Show the %s in this space's layout", strings.to_lower(ZONE_NAMES[z], context.temp_allocator))) {
 			zone_toggle(k, z)
 		}
 	}
@@ -92,27 +42,6 @@ arrange_show_chips :: proc(app: ^App) {
 zone_toggle :: proc(k: ^Kit_State, z: Zone) {
 	k.hidden ~= {z}
 	if z in k.hidden do kit_floats_close(k)
-}
-
-// Every panel with where it is, to be changed with a tap: Settings > Bars.
-arrange_panel_rows :: proc(app: ^App) {
-	ctx := &app.kit.ctx
-	t := ctx.theme
-	ui.caption(ctx, "PANELS")
-	for ref in arrange_panels(app) {
-		ui.begin(ctx, fmt.tprintf("arrange %s", panel_name(ref)), {direction = .Row, gap = 8, center = true})
-		r := ui.place(ctx, {120, t.target})
-		// The tray by what it is, not by the palette it shows now.
-		title := panel_title(app, ref)
-		is_stack := ref == Panel_Ref(Kit_Window.Inspector)
-		if is_stack do title = "Panel stack"
-		ui.text(ctx, title, r.x, r.y + r.h * 0.5, t.text_size, t.text)
-		now := arrange_place(app, ref)
-		places := ARRANGE_PLACES[:] if is_stack else ARRANGE_SHOWN[:]
-		if to := ui.tabs(ctx, fmt.tprintf("place##%s", panel_name(ref)), places, now, 66); to >= 0 && to != now do arrange_put(app, ref, to)
-		ui.end(ctx)
-	}
-	ui.paragraph(ctx, "A section becomes a card kept in the stack with Pin to the stack, on its card's More, its bar button's popover or in Search.")
 }
 
 // While arranging: each hidden bar as an outline where it would be, with Show.

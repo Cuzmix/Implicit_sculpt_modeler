@@ -155,12 +155,12 @@ deform_of :: proc(app: ^App, obj: ^Object, panel := false) -> (d: sculpt.Deform,
 	p := &app.ui.deform
 	lo, hi, free := deform_bounds(app, obj)
 	if !free {
-		if !quiet do report(app, Kit_Section.Deformers, {.Warning}, "Nothing is free to deform: the mask covers all that is shown")
+		if !quiet do report(app, Section.Deformers, {.Warning}, "Nothing is free to deform: the mask covers all that is shown")
 		return
 	}
 	i := int(p.along)
 	if !(hi[i] - lo[i] > 1e-6) {
-		if !quiet do report(app, Kit_Section.Deformers, {.Warning}, "The free part is flat along %v; pick another axis", p.along)
+		if !quiet do report(app, Section.Deformers, {.Warning}, "The free part is flat along %v; pick another axis", p.along)
 		return
 	}
 	d = {kind = p.kind, along = p.along, toward = deform_toward(p), lo = lo, hi = hi}
@@ -194,10 +194,10 @@ deform_drag_begin :: proc(app: ^App, obj: ^Object) -> bool {
 	if !deform_allowed(app, obj, quiet = false) do return false
 	d := deform_of(app, obj) or_return
 	if !sculpt.sculptor_pose_begin(object_sculptor(obj)) {
-		report(app, Kit_Section.Deformers, {.Warning}, "Nothing is free to deform: the mask covers all that is shown")
+		report(app, Section.Deformers, {.Warning}, "Nothing is free to deform: the mask covers all that is shown")
 		return false
 	}
-	pose_physics_begin(app, obj, Kit_Section.Deformers)
+	pose_physics_begin(app, obj, Section.Deformers)
 	app.ui.deform.drag = {active = true, id = obj.id, deform = d}
 	return true
 }
@@ -242,7 +242,7 @@ deform_done :: proc(app: ^App, obj: ^Object, d: sculpt.Deform, ms: f64) {
 	p := &app.ui.deform
 	p.count += 1
 	p.last, p.ms = d.kind, ms
-	report(app, Kit_Section.Deformers, {.Undo}, "%s %s by %s (%.0f ms)", DEFORM_DONE[d.kind], object_label(obj), deform_text(d), ms)
+	report(app, Section.Deformers, {.Undo}, "%s %s by %s (%.0f ms)", DEFORM_DONE[d.kind], object_label(obj), deform_text(d), ms)
 	adjust_set(app, .Deformer, {}, obj.id)
 	if app.adjustable.op == .Deformer do app.adjustable.deform, app.adjustable.sculptor = d, object_sculptor(obj)
 }
@@ -275,11 +275,11 @@ inspector_drags_end :: proc(app: ^App) {
 // strokes save whole nodes rather than the positions a deformation starts from.
 deform_allowed :: proc(app: ^App, obj: ^Object, quiet := true) -> bool {
 	if object_in_hd(obj) {
-		if !quiet do report(app, Kit_Section.Deformers, {.Warning}, "Deformers need the HD window left first (A)")
+		if !quiet do report(app, Section.Deformers, {.Warning}, "Deformers need the HD window left first (A)")
 		return false
 	}
 	if object_dynamic(obj) {
-		if !quiet do report(app, Kit_Section.Deformers, {.Warning}, "Deformers need dynamic topology off")
+		if !quiet do report(app, Section.Deformers, {.Warning}, "Deformers need dynamic topology off")
 		return false
 	}
 	return true

@@ -24,9 +24,8 @@ HELP_TAB_NAMES := [Help_Tab]string {
 	.Glossary = "Glossary",
 }
 
-// The Help window's width: Settings', so swapping one for the other in their shared place
-// keeps the panel's edge where it was.
-KIT_HELP_W :: KIT_SETTINGS_W
+// The Help sheet's width, room for a key and what it does on one line.
+KIT_HELP_W :: 520
 
 // The registry's commands by the part of the app they act on, as Help groups their keys.
 Command_Group :: enum u8 {
@@ -118,7 +117,7 @@ MOUSE_HELP := [?]Help_Line {
 	{group = "MOUSE", what = "Select an object", how = "Click it", show = move_tool},
 	{group = "MOUSE", what = "Move it", how = "Drag it, a gizmo arm or square", show = move_tool},
 	{group = "MOUSE", what = "Turn or scale it", how = "W again, then drag a ring or the middle", show = move_tool},
-	{group = "MOUSE", what = "Move, turn and scale in one gizmo", how = "W until All: arrows, rings, knobs", show = move_tool},
+	{group = "MOUSE", what = "Move, turn and scale in one gizmo", how = "W until All: arrows, rings, knobs (coloured stretch, white scales)", show = move_tool},
 	{group = "MOUSE", what = "Snap a gizmo drag", how = "Ctrl while dragging", show = move_tool},
 	{group = "MOUSE", what = "Put it back mid-drag", how = "Esc", show = move_tool},
 	{group = "MOUSE", what = "Type a handle's value", how = "Click the handle without moving", show = move_tool},
@@ -148,8 +147,8 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "SCULPT", command = .Strength_Up},
 	{group = "SCULPT", what = "Focal shift", how = "Three fingers sideways", show = proc(app: ^App) -> bool {return app.nav.three_finger}},
 	{group = "SCULPT", what = "Focal shift", how = "Drag a Focal shift chip across (Customise bars puts one on any bar)"},
-	{group = "SCULPT", what = "Smooth, invert, mask or hide", how = "Modifier wheel: tap or hold; Smooth and Mask together hide", show = proc(app: ^App) -> bool {return app.tool == .Brush && rail_shown(&app.kit) != .Off}},
-	{group = "SCULPT", what = "Resize or turn the modifier wheel", how = "Two fingers on its ring: spread or pinch, twist", show = proc(app: ^App) -> bool {return rail_shown(&app.kit) != .Off}},
+	{group = "SCULPT", what = "Smooth, invert, mask or hide", how = "Dial: tap or hold; Smooth and Mask together hide", show = proc(app: ^App) -> bool {return app.tool == .Brush && rail_shown(&app.kit) != .Off}},
+	{group = "SCULPT", what = "Resize or turn the dial", how = "Two fingers on its ring: spread or pinch, twist", show = proc(app: ^App) -> bool {return rail_shown(&app.kit) != .Off}},
 	{group = "SCULPT", what = "Mask or hide a shape", how = "Mask, or Smooth and Mask, on: drag empty space", show = proc(app: ^App) -> bool {return app.tool == .Brush && rail_shown(&app.kit) != .Off}},
 	{group = "SCULPT", what = "Straight line from the press", how = "Hold Smooth mid-stroke", show = proc(app: ^App) -> bool {return app.tool == .Brush && rail_shown(&app.kit) != .Off}},
 	{group = "SCULPT", what = "Mask along the surface, to pose", how = "Mask on, drag from the model", show = proc(app: ^App) -> bool {return app.tool == .Move && rail_shown(&app.kit) != .Off}},
@@ -161,8 +160,8 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "VIEW", what = "Turn the view", how = "One finger from the edges", show = proc(app: ^App) -> bool {return app.nav.edge_orbit && finger_model_now(app) == .Sculpt}},
 	{group = "VIEW", what = "Turn the view", how = "Two fingers down, lift one", show = proc(app: ^App) -> bool {return app.nav.lift_one_orbit}},
 	{group = "VIEW", what = "Turn the view", how = "The pen on empty space", show = proc(app: ^App) -> bool {return empty_turns(app) && app.nav.empty_drag[.Pen] == .Orbit}},
-	{group = "VIEW", what = "Look from a side", how = "Tap that side of the navigation head"},
-	{group = "VIEW", what = "Turn the view", how = "Drag the navigation head"},
+	{group = "VIEW", what = "Look from a side", how = "Tap that side of the view gizmo"},
+	{group = "VIEW", what = "Turn the view", how = "Drag the view gizmo"},
 	{group = "VIEW", what = "Pan", how = "Drag two fingers", show = proc(app: ^App) -> bool {return app.nav.two_finger_pan}},
 	{group = "VIEW", what = "Zoom", how = "Pinch two fingers", show = proc(app: ^App) -> bool {return app.nav.pinch_zoom}},
 	{group = "VIEW", what = "Roll", how = "Twist two fingers", show = proc(app: ^App) -> bool {return twist_rolls(app.nav)}},
@@ -184,7 +183,7 @@ TOUCH_HELP := [?]Help_Line {
 	{group = "ANY CONTROL", what = "Its name, or its second action", how = "Long press"},
 	{group = "ANY CONTROL", what = "Draw size, strength or focal shift", how = "Hold the pen over it and roll the pen"},
 	{group = "ANY CONTROL", what = "Step a choice, scroll a panel, turn the shelf's page, scrub History", how = "Hold the pen over it and roll the pen"},
-	{group = "ANY CONTROL", what = "Its own pen buttons, double-tap and squeeze", how = "Settings > Pen > Where the pen points: the model, empty space, the shelf, panels, History, the navigation head, the colour Disc"},
+	{group = "ANY CONTROL", what = "Its own pen buttons, double-tap and squeeze", how = "Settings > Pen > Where the pen points: the model, empty space, the shelf, panels, History, the view gizmo, the colour Disc"},
 }
 
 // A word the app uses, the names other apps give the same thing, and what it means.
@@ -221,6 +220,10 @@ GLOSSARY := [?]Glossary_Entry {
 	{"Held stroke", "Stroke editing (Nomad 2.9), Adjust Last (ZBrush)", "A stroke held still at its end opens for editing: drag its points or its stamp, then Validate keeps it as one undo step and Cancel puts the surface back.", "", {}},
 	{"Curve", "Curve (Nomad, Blender), CurveTube and Curve brushes (ZBrush), spline (3DCoat)", "A Bézier curve object drawn with the Curve tool (C): drag to draw it freehand or tap its points, then drag its points, handles and radius dots to shape it. It makes nothing until its use says what.", "", {}},
 	{"Tube", "CurveTube (ZBrush), Tube (Nomad), Bevel depth (Blender)", "A curve's use that sweeps a live tube along it, as wide as its radius dots, rebuilt at each edit until Bake makes it a mesh.", "", {}},
+	{"Draw on", "Drawing plane (Blender Grease Pencil, Feather, Gravity Sketch), depth (Blender Draw curve)", "Where a curve's points land when no model is under the pen: the surface, the plane facing the view, the floor, or the front or side plane (Curve tool's card).", "", {}},
+	{"Handle type", "Handle types (Blender), Bézier handles (Illustrator, Inkscape)", "How a curve point's two handles behave: Aligned keeps them in one line, Auto follows the neighbours, Vector makes a corner and Free lets each turn on its own (Curve tool's Edit tab).", "", {}},
+	{"Profile", "Custom bevel profile and Bevel Object (Blender), curve profile (3DCoat)", "A tube's cross-section, drawn as a closed outline of points and handles on the pad in the Curve tool's card, the presets starting it over and Mirror keeping its halves alike.", "", {}},
+	{"Width along", "Taper curve and Taper Object (Blender), per-point radius (Nomad)", "A graph from a curve's start to its end whose height times each point's radius is the tube's radius there (Even, Taper, Both ends, Bulge to start from).", "", {}},
 	{"Lathe", "Lathe (Nomad), Screw modifier (Blender), lathe (Maya)", "A curve's use that spins it round an axis, the view's vertical when chosen, into a closed solid (a vase, a bottle, a wheel).", "", {}},
 	{"Along", "CurveMultiTube and IMM curve brushes (ZBrush), Array along curve (Blender)", "A curve's use that sets copies of a part (a stitch, a zipper tooth, a sphere) one after another along it, sized by its width.", "", {}},
 	{"Brush path", "Curve stroke (ZBrush), curve stroke (Blender)", "A curve's use that lays the brush in hand along it on the model under it, opening the stroke for editing as a held stroke does.", "", {}},
@@ -252,7 +255,7 @@ GLOSSARY := [?]Glossary_Entry {
 	{"Accumulate", "Accumulate (Blender, Nomad), build-up", "Whether a stroke going over itself keeps building up; off, it stops at the height one pass lays, as Draw starts (Brush card > Samples).", "", {}},
 	{"Smooth only", "Smooth Valleys and Smooth Peaks (ZBrush)", "Smooth evening out only the dents (Valleys) or only the bumps (Peaks), leaving the rest (Brush card > Options with Smooth, or those two presets).", "", {}},
 	{"Save next", "Save Next (ZBrush for iPad), Save Incremental (Blender)", "Saving the scene as the next numbered file beside its own, dragon_002 after dragon, and saving there from then on, so each stage stays as a file (Search, or a bar button).", "increment", {.Save_Scene_Next}},
-	{"Screen layout", "Screen Layout (ZBrush for iPad), left-handed mode (Nomad)", "Right-handed or Left-handed: left-handed swaps the sides, the off-hand island and the wheel to the right, the navigation and the palettes to the left (Settings > Interface).", "", {}},
+	{"Screen layout", "Screen Layout (ZBrush for iPad), left-handed mode (Nomad)", "Right-handed or Left-handed: left-handed swaps the sides, the brush toolbar and the dial to the right, the view gizmo and the cards to the left (Settings > Interface).", "", {}},
 	{"Light sphere", "Light palette (ZBrush), studio lights (Blender), lights (Nomad)", "A ball in Lights card showing where each light shines from: drag on it to move the picked light, tap the light to send it behind the model.", "", {}},
 	{"Point and spot lights", "Point and spot lights (Blender, Marmoset, KeyShot), lights (Nomad)", "Lights that shine from a place, brighter close up, a spot only into its cone; each moves with the camera or stays in the scene, and the scene file keeps them. Lights card > More options.", "", {}},
 	{"Light markers", "Light objects (Blender, KeyShot), lights in the viewport (Marmoset)", "The plates in the view standing for each light while Lights card shows: drag one to move its light, a sun round a circle about the orbit's centre, a point light or a spot across the view, or along an axis by the arms round the picked one.", "", {}},
@@ -263,13 +266,15 @@ GLOSSARY := [?]Glossary_Entry {
 	{"Lock plane", "Original plane (ZBrush), plane lock (Nomad), original normal (Blender)", "A stroke keeping the plane its first dab found, so a long Flatten or Clay stroke does not drift with the surface (Brush card > Options).", "original", {.Lock_Plane}},
 	{"Mask", "Mask (ZBrush, Blender, Nomad), freeze (3DCoat)", "Paint on the surface that no brush can move. Masked parts show darker.", "freeze", {.Mask}},
 	{"Pose", "Gizmo 3D with a mask (ZBrush), Pose brush (Blender, Nomad), Pose tool (3DCoat)", "The Move tool's handles bending the unmasked part of an object about the gizmo, the mask's soft edge as the joint, instead of moving the whole object. Ctrl + drag from the model masks along the surface for it (a topological mask).", "posing", {.Gizmo}},
-	{"Selection set", "Selection set (ZBrush), stored freeze (3DCoat)", "A mask kept by name with the object, to make the mask again later or add to it (Selection card sets).", "selection", {.Store_Selection_Set, .Restore_Selection_Set, .Show_Section}},
+	{"Selection set", "Selection set (ZBrush), stored freeze (3DCoat)", "A mask kept by name with the object, to make the mask again later or add to it (the Mask card's Sets).", "selection", {.Store_Selection_Set, .Restore_Selection_Set, .Open_Section}},
 	{"Hide", "Hide (ZBrush, Nomad), visibility (Blender)", "Parts taken out of view, which brushes then leave alone, until shown again.", "visibility unhide", {.Show_All, .Invert_Hidden, .Hide_Masked, .Hide_Unmasked, .Grow_Visible, .Shrink_Visible, .Grow_All_Visible, .Outer_Ring, .Grow_To_Groups, .Show_Masked}},
-	{"Group", "Polygroup (ZBrush), face set (Blender, Nomad)", "A set of faces in one colour, for masking, hiding or picking by.", "polygroup", {.Group_Shortcut, .Group, .Polygroups, .Show_Section}},
-	{"Level", "Subdivision level (ZBrush), Multires (Blender), multiresolution (Nomad)", "A finer copy of the object made by Subdivide. Detail sculpted on one level shows on the rest.", "subdivision multires", {.Subdivide, .Level_Up, .Level_Down, .Delete_Lower_Levels, .Delete_Higher_Levels, .Show_Section}},
+	{"Group", "Polygroup (ZBrush), face set (Blender, Nomad)", "A set of faces in one colour, for masking, hiding or picking by.", "polygroup", {.Group_Shortcut, .Group, .Polygroups, .Open_Section}},
+	{"Level", "Subdivision level (ZBrush), Multires (Blender), multiresolution (Nomad)", "A finer copy of the object made by Subdivide. Detail sculpted on one level shows on the rest.", "subdivision multires", {.Subdivide, .Level_Up, .Level_Down, .Delete_Lower_Levels, .Delete_Higher_Levels, .Open_Section}},
 	{"Layer", "Layer (ZBrush, Nomad), shape key (Blender)", "Changes kept apart from the sculpt under them, which can be faded or turned off (Layers card). Not the Layer brush, which raises the surface evenly.", "", {}},
-	{"Remesh", "DynaMesh (ZBrush), voxel remesh (Blender, Nomad), voxelize (3DCoat)", "Rebuilds the object as an even mesh that keeps its shape, joining what overlaps.", "dynamesh voxelize", {.Remesh, .Remesh_To}},
+	{"Voxel remesh", "DynaMesh (ZBrush), voxel remesh (Blender, Nomad), voxelize (3DCoat)", "Rebuilds the object as an even mesh that keeps its shape, joining what overlaps.", "dynamesh voxelize", {.Remesh, .Remesh_To}},
 	{"Quad Remesh", "ZRemesher (ZBrush), QuadriFlow (Blender), auto-retopo (3DCoat)", "Builds a light mesh of quads over the sculpt, for animation, UVs and baking.", "zremesher quadriflow retopologize", {.Retopologize}},
+	{"Straighten quad islands", "Follow Active Quads (Blender), UV Squares, Rectangularize (RizomUV)", "Lays each quad island out as a grid of rectangles, rows and columns as long as on the model (Mesh card: UVs, More options).", "rectify straighten rectangularize", {.Straighten}},
+	{"Unwrap", "UV Master (ZBrush), Smart UV Project (Blender), auto unwrap (Nomad), auto seams (3DCoat)", "Gives the object UVs: seams cut where they are least seen, each piece laid flat and packed in the square (Mesh card: UVs).", "master seams unwrap", {.Unwrap}},
 }
 
 // The Keys tab's rows: every command with a shortcut, by group and with all its chords,
@@ -336,70 +341,55 @@ help_name :: proc(id: Command_Id, arg: int) -> string {
 	return strings.trim_suffix(palette_label({.Command, id, arg}), "...")
 }
 
-// Opens Help on `tab` from its top, in Settings' place, unfolded and in front.
+// Opens Help on `tab` from its top, closing Settings or Macros (one sheet at a time).
 help_open :: proc(app: ^App, tab: Help_Tab) {
 	k := &app.kit
 	if k.settings do settings_close(app)
-	k.macros, k.library = false, false
+	k.macros = false
 	k.help, k.help_tab, k.help_scroll = true, tab, 0
-	k.windows[.Help].minimized = false
-	window_raise(k, .Help)
 }
 
-kit_help :: proc(app: ^App) -> (raised: bool) {
+kit_help :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
+	// The sheet's own id, named at the root (inside the sheet a name is the sheet's).
 	id := ui.id_of(ctx, "help")
-	shown := ui.presence(ctx, id, k.help, t.panel_time)
-	if shown <= 0 do return
-	win := &k.windows[.Help]
-	top := kit_top()
-	room := window_room(app, win^, top)
-	if !win.moved do room -= side_panel_below(app, KIT_HELP_W)
-	inner := f32(KIT_HELP_W - 2 * 16)
-
-	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "help", "Help", win, .End, .Start, {kit_right(app), top}, {direction = .Column, gap = 8, padding = 16, width = KIT_HELP_W, radius = t.radius_large, background = .Panel, inert = !k.help}, "Esc")
-	raised = raised_now
-	if closed do k.help = false
-	if body {
-		// The tags over the screen itself, for learning it where it is used.
-		ui.begin(ctx, "help top", {direction = .Row, gap = 8})
-		half := (inner - 8) * 0.5
-		_ = command_button(app, .Name_Controls, variant = .Bordered, width = half, glyph = ui.ICON_TAG)
-		_ = command_button(app, .Take_Tour, variant = .Bordered, width = half, glyph = ui.ICON_HELP)
-		ui.end(ctx)
-		names: [len(Help_Tab)]string
-		for tab in Help_Tab do names[int(tab)] = HELP_TAB_NAMES[tab]
-		if picked := ui.tabs(ctx, "help tabs", names[:], int(k.help_tab)); picked >= 0 && Help_Tab(picked) != k.help_tab {
-			k.help_tab = Help_Tab(picked)
-			k.help_scroll = 0
-		}
-		body_h := max(room - 2 * 16 - 3 * 8 - 3 * t.target, 120)
-		scroll := kit_scroll_begin(ctx, "help body", &k.help_scroll, id, inner, body_h, 4)
-		tool := kit_tool_name(app.tool)
-		switch k.help_tab {
-		case .Keys:
-			help_rows(app, help_key_rows(app), inner)
-			ui.paragraph(ctx, fmt.tprintf("The viewport keys and the mouse are as the %s tool has them; they change with the tool.", tool))
-			ui.paragraph(ctx, "To give a command another key, Ctrl+Alt+click its button or menu row, tap it in Settings > Keys, or pick it in Search and tap Assign key. Settings > Keys also makes the mouse turn, pan and zoom as Blender or Maya does.")
-			if ui.button(ctx, "Keys settings", .Bordered, glyph = ui.ICON_KEYBOARD) do settings_open(app, .Keys)
-		case .Gestures:
-			ui.paragraph(ctx, fmt.tprintf("With the %s tool and the settings as they are now: a gesture turned off is not listed.", tool))
-			ui.spacer(ctx, 4)
-			help_rows(app, help_touch_rows(app), inner)
-			ui.paragraph(ctx, "Gestures turn on and off in Settings > Touch, the edges that turn the view in Settings > Camera, and the modifier buttons in Settings > Interface.")
-			if ui.button(ctx, "Touch settings", .Bordered, glyph = ui.ICON_SETTINGS) do settings_open(app, .Touch)
-			_ = command_button(app, .Coach_Tips, variant = .Bordered, glyph = ui.ICON_HELP)
-		case .Glossary:
-			help_glossary(app)
-		}
-		kit_scroll_end(ctx, scroll)
+	inner, room, shown := sheet_begin(app, "help", "Help", ui.ICON_HELP, &k.help, KIT_HELP_W)
+	if !shown do return
+	defer sheet_end(app)
+	// The tags over the screen itself, for learning it where it is used.
+	ui.begin(ctx, "help top", {direction = .Row, gap = ui.SPACE_M})
+	half := (inner - 8) * 0.5
+	_ = command_button(app, .Name_Controls, variant = .Bordered, width = half, glyph = ui.ICON_TAG)
+	_ = command_button(app, .Take_Tour, variant = .Bordered, width = half, glyph = ui.ICON_HELP)
+	ui.end(ctx)
+	names: [len(Help_Tab)]string
+	for tab in Help_Tab do names[int(tab)] = HELP_TAB_NAMES[tab]
+	if picked := ui.tabs(ctx, "help tabs", names[:], int(k.help_tab)); picked >= 0 && Help_Tab(picked) != k.help_tab {
+		k.help_tab = Help_Tab(picked)
+		k.help_scroll = 0
 	}
-	ui.window_end(ctx)
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
-	return
+	body_h := max(room - 2 * 8 - 2 * t.target, 120)
+	scroll := kit_scroll_begin(ctx, "help body", &k.help_scroll, id, inner, body_h, 4)
+	tool := kit_tool_name(app.tool)
+	switch k.help_tab {
+	case .Keys:
+		help_rows(app, help_key_rows(app), inner)
+		ui.paragraph(ctx, fmt.tprintf("The viewport keys and the mouse are as the %s tool has them; they change with the tool.", tool))
+		ui.paragraph(ctx, "To give a command another key, Ctrl+Alt+click its button or menu row, tap it in Settings > Keys, or pick it in Search and tap Assign key. Settings > Keys also makes the mouse turn, pan and zoom as Blender or Maya does.")
+		if ui.button(ctx, "Keys settings", .Bordered, glyph = ui.ICON_KEYBOARD) do settings_open(app, .Shortcuts)
+	case .Gestures:
+		ui.paragraph(ctx, fmt.tprintf("With the %s tool and the settings as they are now: a gesture turned off is not listed.", tool))
+		ui.spacer(ctx, 4)
+		help_rows(app, help_touch_rows(app), inner)
+		ui.paragraph(ctx, "Gestures turn on and off in Settings > Touch, the edges that turn the view in Settings > Camera, and the modifier buttons in Settings > Interface.")
+		if ui.button(ctx, "Touch settings", .Bordered, glyph = ui.ICON_SETTINGS) do settings_open(app, .Touch)
+		_ = command_button(app, .Coach_Tips, variant = .Bordered, glyph = ui.ICON_HELP)
+	case .Glossary:
+		help_glossary(app)
+	}
+	kit_scroll_end(ctx, scroll)
 }
 
 // The rows under a caption for each group. A row whose two halves fit side by side is one
@@ -429,7 +419,7 @@ help_rows :: proc(app: ^App, rows: []Help_Row, width: f32) {
 help_glossary :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
-	ui.paragraph(ctx, fmt.tprintf("The words this app uses, and what other apps call the same thing. Search (%s) finds a command by either.", command_keys(app, .Command_Palette)))
+	ui.paragraph(ctx, fmt.tprintf("The words this app uses, and what other apps call the same thing. Search%s finds a command by either.", keys_paren(app, .Command_Palette)))
 	for g in GLOSSARY {
 		ui.spacer(ctx, 6)
 		ui.label(ctx, g.word, 0, t.text, .Semibold)

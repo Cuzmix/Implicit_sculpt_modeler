@@ -51,7 +51,7 @@ CASES = [
     ("render_full", "set render_samples 4\nset render_half off\nrender_mode on", 900, "render_samples=4 "),
     ("render_half", "set render_samples 4\nset render_half on\nrender_mode on", 600, "render_samples=4 "),
     ("render_dof", "set render_samples 4\nset render_half on\nset render_dof on\nrender_mode on", 600, "render_samples=4 "),
-    ("thumbnail", "set thumbnail on", 30, ""),
+    ("second_view", "second_view on", 30, ""),
 ]
 
 

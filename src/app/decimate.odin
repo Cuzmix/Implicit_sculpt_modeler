@@ -19,7 +19,7 @@ import "../ui"
 // themselves unless Keep borders holds them (its Keep Borders); masked areas and the
 // edges in the paint keep more of their triangles (its Use Mask and Use Polypaint).
 // UVs belong to quad faces in this app, which a decimation turns into triangles, so they
-// go, as they do in Blender; New UVs lays out fresh ones.
+// go, as they do in Blender; Unwrap lays out fresh ones.
 
 Decimate_By :: enum u8 {
 	Percent, // a share of the object's vertices
@@ -115,7 +115,7 @@ decimate_source :: proc(obj: ^Object, setup: Decimate_Setup, borrow := false) ->
 		copy(src.mesh.positions[:], m.positions[:])
 		copy(src.mesh.indices[:], m.indices[:])
 	}
-	if setup.keep_paint && s.color != nil do src.color = slice.clone(s.color)
+	if c := sculpt.sculptor_paint_shown(s); setup.keep_paint && c != nil do src.color = slice.clone(c)
 	if setup.keep_groups && sculpt.sculptor_has_groups(s) do src.groups = slice.clone(sculpt.sculptor_groups(s))
 	if setup.use_mask && s.mask != nil do src.mask = slice.clone(s.mask)
 	return
@@ -199,7 +199,7 @@ decimate_mirrored :: proc(src: Decimate_Source, vertices: int, setup: Decimate_S
 	mirror := setup.mirror
 	sources: geom.Slice_From
 	defer geom.slice_from_destroy(&sources)
-	half_mesh, cut := geom.mirror_cut(src.mesh, mirror, false, pool, from = &sources)
+	half_mesh, cut := geom.mirror_cut(src.mesh, mirror, pool, from = &sources)
 	if !cut do return {}, 0, {}, false, "the object does not cross the plane"
 	// The part's own paint, groups and mask, from the vertices and triangles it was cut
 	// from (a cut point takes its nearer end's).
@@ -285,7 +285,7 @@ kit_decimate_options :: proc(app: ^App, obj: ^Object) {
 	if picked := ui.tabs(ctx, "decimate by", names[:], int(u.decimate_by)); picked >= 0 do u.decimate_by = Decimate_By(picked)
 	s := object_sculptor(obj)
 	dynamic_layout := object_dynamic(obj)
-	_ = ui.switch_row(ctx, "Keep paint", &u.decimate_keep_paint, enabled = s.color != nil && !dynamic_layout)
+	_ = ui.switch_row(ctx, "Keep paint", &u.decimate_keep_paint, enabled = sculpt.sculptor_paint_shows(s) && !dynamic_layout)
 	_ = ui.switch_row(ctx, "Keep groups", &u.decimate_keep_groups, enabled = sculpt.sculptor_has_groups(s) && !dynamic_layout)
 	_ = ui.switch_row(ctx, "Keep borders", &u.decimate_keep_borders)
 	_ = ui.switch_row(ctx, "Use mask", &u.decimate_use_mask, enabled = s.mask != nil)

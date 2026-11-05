@@ -98,7 +98,7 @@ library_adds_buttons_to_a_dock :: proc(t: ^testing.T) {
 	testing.expect(t, len(cards) > 0)
 	for l in cards do testing.expect_value(t, brush_item_category(l.item), Brush_Category.Cards)
 	lights: Brush_Item
-	for l in cards do if l.item.slot.command == (Bar_Slot{.Show_Panel, int(Panel_Kind.Tools)}) do lights = l.item
+	for l in cards do if l.item.slot.command == (Bar_Slot{.Open_Card, int(Card.Look)}) do lights = l.item
 	testing.expect(t, brush_item_is_button(lights))
 	library_put(&app, lights)
 	testing.expect_value(t, len(bar_used(&app, .View_Rail)), n + 1)

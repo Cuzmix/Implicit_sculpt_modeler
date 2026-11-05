@@ -1,7 +1,7 @@
 package render
 
+import "../gpu"
 import "core:log"
-import sdl "vendor:sdl3"
 
 // Pictures the CPU decoded for the interface to show, such as the Home screen's previews
 // of saved scenes: each goes into a cell of one atlas texture from the frame's own
@@ -9,8 +9,7 @@ import sdl "vendor:sdl3"
 // the GPU. A picture keeps its own size at its cell's top left; the interface shows that
 // part alone (picture_uv).
 Pictures :: struct {
-	atlas:    ^sdl.GPUTexture,
-	transfer: ^sdl.GPUTransferBuffer, // PICTURES_PER_FRAME cells' worth, cycled each frame
+	atlas:    gpu.Texture,
 	failed:   bool, // the device refused a texture or buffer; no picture is shown
 }
 
@@ -31,67 +30,44 @@ Picture_Upload :: struct {
 }
 
 pictures_destroy :: proc(r: ^Renderer, p: ^Pictures) {
-	if r.device == nil do return
-	_ = gpu_wait_for_idle(r.device)
-	if p.atlas != nil do gpu_release_texture(r.device, p.atlas)
-	if p.transfer != nil do gpu_release_transfer_buffer(r.device, p.transfer)
+	if !r.has_device do return
+	if p.atlas != 0 do gpu.release_texture(p.atlas)
 	p^ = {}
 }
 
 // Uploads up to PICTURES_PER_FRAME of `items` into their cells on `cmd`, making the atlas
 // (cleared to transparent) on first use. Items out of range are skipped. False when there
 // is no atlas to upload into.
-pictures_upload :: proc(r: ^Renderer, p: ^Pictures, cmd: ^sdl.GPUCommandBuffer, items: []Picture_Upload) -> bool {
+pictures_upload :: proc(r: ^Renderer, p: ^Pictures, cmd: gpu.Cmd, items: []Picture_Upload) -> bool {
 	if p.failed do return false
 	CELL_BYTES :: PICTURE_PX * PICTURE_PX * 4
-	if p.atlas == nil {
+	if p.atlas == 0 {
 		SIZE :: PICTURE_PX * PICTURE_CELLS
-		p.atlas = gpu_create_texture(r.device, {
-			type = .D2, format = .R8G8B8A8_UNORM, usage = {.COLOR_TARGET, .SAMPLER},
+		p.atlas = gpu.create_texture({
+			type = .D2, format = .RGBA8_Unorm, usage = {.Color_Target, .Sampled},
 			width = SIZE, height = SIZE, layer_count_or_depth = 1, num_levels = 1,
 		})
-		p.transfer = gpu_create_transfer_buffer(r.device, {usage = .UPLOAD, size = CELL_BYTES * PICTURES_PER_FRAME})
-		if p.atlas == nil || p.transfer == nil {
-			log.errorf("picture textures: %s", sdl.GetError())
+		if p.atlas == 0 {
+			log.errorf("picture textures: %s", gpu.last_error())
 			p.failed = true
 			return false
 		}
 		// A new texture holds anything: every cell starts empty.
-		color := sdl.GPUColorTargetInfo{texture = p.atlas, load_op = .CLEAR, store_op = .STORE}
-		pass := gpu_begin_render_pass(cmd, &color, 1, nil)
-		gpu_end_render_pass(pass)
+		color := gpu.Color_Target{texture = p.atlas, load_op = .Clear, store_op = .Store}
+		pass := gpu.begin_render_pass(cmd, &color, 1, nil)
+		gpu.end_render_pass(pass)
 	}
 	n := 0
 	for it in items {
-		if n < PICTURES_PER_FRAME && picture_fits(it) do n += 1
-	}
-	if n == 0 do return true
-	// Cycled: the copy of an earlier frame may still be reading the buffer.
-	dst := ([^]u8)(gpu_map_transfer_buffer(r.device, p.transfer, true))
-	if dst == nil {
-		log.errorf("picture map: %s", sdl.GetError())
-		return false
-	}
-	at := 0
-	for it in items {
-		if at == n do break
-		if !picture_fits(it) do continue
-		copy(dst[at * CELL_BYTES:][:it.width * it.height * 4], it.pixels)
-		at += 1
-	}
-	gpu_unmap_transfer_buffer(r.device, p.transfer)
-	pass := gpu_begin_copy_pass(cmd)
-	at = 0
-	for it in items {
-		if at == n do break
+		if n == PICTURES_PER_FRAME do break
 		if !picture_fits(it) do continue
 		x, y := u32(it.cell % PICTURE_CELLS) * PICTURE_PX, u32(it.cell / PICTURE_CELLS) * PICTURE_PX
-		gpu_upload_to_texture(pass,
-			{transfer_buffer = p.transfer, offset = u32(at * CELL_BYTES), pixels_per_row = u32(it.width), rows_per_layer = u32(it.height)},
-			{texture = p.atlas, x = x, y = y, w = u32(it.width), h = u32(it.height), d = 1}, false)
-		at += 1
+		if !gpu.upload_texture(cmd, {texture = p.atlas, x = x, y = y, w = u32(it.width), h = u32(it.height), d = 1}, it.pixels[:it.width * it.height * 4]) {
+			log.errorf("picture upload: %s", gpu.last_error())
+			return false
+		}
+		n += 1
 	}
-	gpu_end_copy_pass(pass)
 	return true
 }
 

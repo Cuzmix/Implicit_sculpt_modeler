@@ -1,0 +1,14 @@
+---
+name: sculpt-wow-features
+description: Thread "Build standout wow features for sculpt" (2026-10-25): ranked wow list, PRs merged into odin-sculpt, what each adds and how it was verified
+metadata:
+  type: project
+---
+
+Bolt asked 2026-10-25 for standout features vs ZBrush/3DCoat/Nomad. Ranked list: 1 history timeline + time-lapse, 2 cloth/gravity sculpting, 3 studio render (progressive AO/soft shadows when idle), 4 instant open of huge meshes, 5 stroke record/replay. Bolt vetoed #6 collaborative LAN sculpting. Another thread does polypaint/layers/retopo/booleans/curve brushes/20-50M: don't duplicate.
+- PR #35 merged: History panel under the viewport (src/app/timeline.odin): undo steps as coloured blocks, scrub/play via history_undo/redo with 25 ms/frame budget, Record time-lapse to a folder of PNGs (optional turntable). History_Entry has kind/what/at. Flags --timelapse, --timelapse-steps, --timelapse-spin, --bench-lifts. 10M stroke undo ~1.7 ms on VM. Not tried on Windows.
+- PR #37 merged: Cloth brush (Brush_Kind.Cloth, no key; src/sculpt/cloth.odin PBD: Verlet + 5 Jacobi edge rounds with normal buckle and displacement bending; modes Drag/Gravity/Pinch/Expand, --cloth=MODE). 1M ~2.3 ms/frame, 10M ~18 ms/frame + 50-150 ms stroke setup on VM; no symmetry, not with dyntopo. Merging fixed conflict markers the polypaint PR #36 left in README App flags.
+- PR #39 merged: Studio render (View > Studio render, Shift+R; src/render/studio.odin): progressive shadow-map AO + jittered key-light soft shadow while the view is still, resets on any redraw (copies plain viewport through), 256 samples default; viewport depth now has .SAMPLER (Renderer.depth_sampled). Flags --studio, --studio-samples. Not timed on a real GPU.
+- PR #42 merged: faster scene open. levels_write stores the base level's node layout (LEVELS_LAYOUT=16, SCENE_VERSION 6; quads flag is 8, version 5 = boolean mode from the other thread); sculptor_init_laid_out (src/sculpt/layout.odin) skips BVH build + reorder, refuses bad layouts. 10M scene read 3.4-3.7 s -> 1.1-2.4 s; app open ~6.5 -> ~4.2 s on VM (2.5 s of it llvmpipe buffer copy). vertex_faces_build (~0.76 s) and GPU upload left as is.
+- PR #45 merged: Stroke recorder (src/app/replay.odin, Tools panel section). Last stroke always kept; Record/Stop takes; Replay where drawn (recorded camera); R at pointer stamps in current view; Recorded brushes toggle; Instant (sculptor_refresh_normals between frames); .strokes files (brush subset, validated). Replay through sculpt_frame is bit-identical to the original strokes. Flags --record-strokes, --save-strokes, --load-strokes (from frame 3 / after bench), --replay-shift, --instant-replay. All 5 wow items done 2026-10-25; none tried on Windows.
+- Container setup: apt packages from scripts/setup_deps.sh header + xdotool imagemagick, then ./scripts/setup_deps.sh (~3 min). Don't `pkill -f build/sculpt` (kills own shell); use `pgrep -x sculpt | xargs kill`.

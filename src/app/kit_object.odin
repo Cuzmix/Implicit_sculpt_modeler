@@ -8,59 +8,40 @@ import "../render"
 import "../sculpt"
 import "../ui"
 
-// The Object palette's sections fall in pages, by the question an artist asks of the
-// selected object (UX research 08 section 3): what shape and topology it has, which
-// part is being worked on, what is on its surface, and what is made from it. Search lists
-// them in that order; the page of the one drawn last is kept for the exit stats.
-Object_Page :: enum u8 {
-	Shape,
-	Select,
-	Surface,
-	Build,
-}
-
-OBJECT_PAGE_NAMES := [Object_Page]string {
-	.Shape   = "Shape",
-	.Select  = "Select",
-	.Surface = "Surface",
-	.Build   = "Build",
-}
-
-// One section of the Object palette: the page it is on, which it is, its title and what
-// it draws.
+// One section that works on the selected object: which it is, its title and what it draws.
+// Each is on one card (cards.odin's section_card).
 Object_Section :: struct {
-	page:    Object_Page,
-	section: Kit_Section,
+	section: Section,
 	title:   string,
 	draw:    proc(app: ^App, obj: ^Object),
 }
 
-// Every Object palette section, page by page in the order shown; each is on one page only
-// (object_sections_each_on_one_page).
 @(rodata)
 OBJECT_SECTIONS := [?]Object_Section {
-	{.Shape, .Transform, "Transform", kit_transform},
-	{.Shape, .Levels, "Subdivision levels", kit_levels},
-	{.Shape, .Hd, "HD detail", kit_hd},
-	{.Shape, .Topology, "Dynamic topology", kit_dyntopo},
-	{.Shape, .Remesh, "Rebuild", kit_rebuild},
-	{.Shape, .Mirror, "Modify topology", proc(app: ^App, _: ^Object) {kit_topology(app)}},
-	{.Select, .Mask, "Mask", proc(app: ^App, _: ^Object) {kit_mask(app)}},
-	{.Select, .Sets, "Selection sets", kit_sets},
-	{.Select, .Groups, "Polygroups", proc(app: ^App, _: ^Object) {kit_groups(app)}},
-	{.Select, .Visibility, "Hide, clip and slice", kit_visibility},
-	{.Surface, .Layers, "Layers", proc(app: ^App, _: ^Object) {kit_lens_layers(app)}},
-	{.Surface, .Paint, "Polypaint", proc(app: ^App, _: ^Object) {kit_paint(app)}},
-	{.Surface, .Morph, "Morph target", kit_morph},
-	{.Surface, .Deform, "Deformation", kit_deformation},
-	{.Surface, .Physics, "Physics", kit_physics},
-	{.Surface, .Deformers, "Deformers", kit_deformers},
-	{.Build, .Voxels, "Voxels", kit_voxels},
-	{.Build, .Retopo, "UVs and baking", proc(app: ^App, _: ^Object) {kit_retopo_section(app)}},
-	{.Build, .Textures, "Textures", proc(app: ^App, _: ^Object) {kit_textures_section(app)}},
-	{.Build, .Project, "Project detail", proc(app: ^App, _: ^Object) {kit_project_section(app)}},
-	{.Build, .Booleans, "Booleans", proc(app: ^App, _: ^Object) {kit_boolean_section(app)}},
-	{.Build, .Extract, "Extract", proc(app: ^App, _: ^Object) {kit_extract_section(app)}},
+	{.Transform, "Transform", kit_transform},
+	{.Levels, "Subdivision levels", kit_levels},
+	{.Hd, "HD detail", kit_hd},
+	{.Topology, "Dynamic topology", kit_dyntopo},
+	{.Remesh, "Remesh and decimate", kit_rebuild},
+	{.Mirror, "Modify topology", proc(app: ^App, _: ^Object) {kit_topology(app)}},
+	{.Mask, "Mask", proc(app: ^App, _: ^Object) {kit_mask(app)}},
+	{.Sets, "Selection sets", kit_sets},
+	{.Groups, "Polygroups", proc(app: ^App, _: ^Object) {kit_groups(app)}},
+	{.Visibility, "Hide, clip and slice", kit_visibility},
+	{.Layers, "Layers", proc(app: ^App, _: ^Object) {kit_lens_layers(app)}},
+	{.Stack, "Live stack", kit_stack},
+	{.Paint, "Polypaint", proc(app: ^App, _: ^Object) {kit_paint(app)}},
+	{.Morph, "Morph target", kit_morph},
+	{.Deform, "Deformation", kit_deformation},
+	{.Physics, "Physics", kit_physics},
+	{.Deformers, "Deformers", kit_deformers},
+	{.Voxels, "Voxels", kit_voxels},
+	{.Uvs, "UVs", proc(app: ^App, _: ^Object) {kit_uvs_section(app)}},
+	{.Retopo, "Bake", proc(app: ^App, _: ^Object) {kit_retopo_section(app)}},
+	{.Textures, "Textures", proc(app: ^App, _: ^Object) {kit_textures_section(app)}},
+	{.Project, "Project detail", proc(app: ^App, _: ^Object) {kit_project_section(app)}},
+	{.Booleans, "Booleans", proc(app: ^App, _: ^Object) {kit_boolean_section(app)}},
+	{.Extract, "Extract", proc(app: ^App, _: ^Object) {kit_extract_section(app)}},
 }
 
 // Where the object is, how it is turned and how big it is: values to drag.
@@ -76,7 +57,7 @@ kit_transform :: proc(app: ^App, obj: ^Object) {
 		_ = ui.drag_value(ctx, fmt.tprintf("Position %s", axis), &tr.position[i], 0.005, -1e4, 1e4, fmt.tprintf("%.3f", tr.position[i]))
 	}
 	_ = ui.drag_value(ctx, "Scale", &tr.scale, 0.005, MIN_OBJECT_SCALE, MAX_OBJECT_SCALE, fmt.tprintf("%.3f", tr.scale))
-	ui.paragraph(ctx, fmt.tprintf("Drag sideways on a value to change it, or use the Move tool's gizmo (%s steps it through move, turn, scale and all three at once).", command_keys(app, .Tool_Move)))
+	ui.paragraph(ctx, fmt.tprintf("Drag sideways on a value to change it, or use the Move tool's gizmo (%s steps it through move, turn, scale and all three at once).", keys_or_name(app, .Tool_Move)))
 	if kit_more(app, .Transform) {
 		for axis, i in axes {
 			if ui.drag_value(ctx, fmt.tprintf("Turn about %s", axis), &tr.rotation[i], 0.5, -1e6, 1e6, fmt.tprintf("%.1f°", tr.rotation[i])) {
@@ -113,7 +94,11 @@ kit_levels :: proc(app: ^App, obj: ^Object) {
 	}
 	kit_command_pair(app, .Delete_Lower_Levels, .Delete_Higher_Levels, label_a = "Delete lower", label_b = "Delete higher", tone_a = .Danger, tone_b = .Danger)
 	if object_can_edit_cage(obj) do _ = command_button(app, .Edit_Cage, width = ui.fill_width(ctx), glyph = ui.ICON_SHAPES)
-	ui.paragraph(ctx, fmt.tprintf("%s and %s go up and down. All levels use %s of memory; %s undoes a deletion.", command_keys(app, .Level_Up), command_keys(app, .Level_Down), bytes_label(sculpt.levels_bytes(levels)), command_keys(app, .Undo)))
+	if up, down := command_keys(app, .Level_Up), command_keys(app, .Level_Down); up != "" && down != "" {
+		ui.paragraph(ctx, fmt.tprintf("%s and %s go up and down. All levels use %s of memory; %s undoes a deletion.", up, down, bytes_label(sculpt.levels_bytes(levels)), keys_or_name(app, .Undo)))
+	} else {
+		ui.paragraph(ctx, fmt.tprintf("All levels use %s of memory; Undo brings a deleted level back.", bytes_label(sculpt.levels_bytes(levels))))
+	}
 	if s := app.stats; s.level_sync_ms + s.level_show_ms > 0 {
 		ui.paragraph(ctx, fmt.tprintf("Last change: %.0f ms to update the levels, %.0f ms to show.", s.level_sync_ms, s.level_show_ms))
 	}
@@ -212,11 +197,13 @@ kit_hd :: proc(app: ^App, obj: ^Object) {
 	ui.paragraph(ctx, fmt.tprintf("%d step%s up: %s vertices.", steps, "" if steps == 1 else "s", count_label(sculpt.levels_hd_vertices(levels))))
 	if object_in_hd(obj) {
 		_ = command_button(app, .Hd_Leave, tone = .Accent)
-		ui.paragraph(ctx, fmt.tprintf("A window of %s vertices, opened in %.0f + %.0f ms. %s leaves it too.", count_label(hd.window_vertices), app.stats.hd_open_ms, app.stats.hd_upload_ms, command_keys(app, .Hd_Toggle)))
+		ui.paragraph(ctx, fmt.tprintf("A window of %s vertices, opened in %.0f + %.0f ms. %s leaves it too.", count_label(hd.window_vertices), app.stats.hd_open_ms, app.stats.hd_upload_ms, keys_or_name(app, .Hd_Toggle)))
 	} else {
 		// From the button, the window opens around the middle of the viewport.
 		_ = command_button(app, .Hd_Sculpt, variant = .Solid, tone = .Accent)
-		ui.paragraph(ctx, fmt.tprintf("%s opens a window where the pointer is.", command_keys(app, .Hd_Toggle)))
+		// A key opens a window where the pointer is; with no keyboard there is no pointer
+		// to open it at, so the sentence says nothing.
+		if keys := command_keys(app, .Hd_Toggle); keys != "" do ui.paragraph(ctx, fmt.tprintf("%s opens a window where the pointer is.", keys))
 	}
 	millions := f32(app.hd_window_vertices / 1_000_000)
 	if ui.slider(ctx, "Window", &millions, 1, 16, .Linear, fmt.tprintf("%dM vertices", app.hd_window_vertices / 1_000_000)) {
@@ -273,12 +260,19 @@ kit_mask :: proc(app: ^App) {
 	// Steps stays out of the fold: the action bar's step buttons and the Mask taps use it.
 	steps := f32(app.ui.mask_steps)
 	if ui.slider(ctx, "Steps", &steps, 1, 50, .Linear, fmt.tprintf("%d", app.ui.mask_steps)) do app.ui.mask_steps = i32(steps + 0.5)
-	ui.label(ctx, "Ctrl + drag on empty space draws", t.small_size)
+	// With no keyboard the way to a shape is the dial's Mask, tapped on or held.
+	keyless := app.kit.keyless
+	ui.label(ctx, "Mask on the dial, then a drag on empty space draws" if keyless else "Ctrl + drag on empty space draws", t.small_size)
 	shapes := [2]string{"Rectangle", "Lasso"}
 	if picked := ui.tabs(ctx, "mask shape", shapes[:], int(app.ui.mask_shape_kind)); picked >= 0 do app.ui.mask_shape_kind = Mask_Shape_Kind(picked)
-	ui.paragraph(ctx, fmt.tprintf("Paint the mask with the Mask brush, or Ctrl + drag a shape from empty space (with Alt: unmask). Masked parts show darker and no brush moves them. Blur, Sharpen, Grow and Shrink (over the shelf while something is masked, and under More options) move its edge Steps rings of triangles. %s clears, %s inverts. With Mask on and the Sculpt tool, a tap off the model inverts, one on the mask blurs it and one on an unmasked part sharpens it.", command_keys(app, .Mask, int(sculpt.Mask_Command.Clear)), command_keys(app, .Mask, int(sculpt.Mask_Command.Invert))))
+	if keyless do ui.paragraph(ctx, "Paint the mask with the Mask brush, or tap Mask on the dial and drag a shape from empty space. Masked parts show darker and no brush moves them. Blur, Sharpen, Grow and Shrink (over the shelf while something is masked, and under More options) move its edge Steps rings of triangles. With Mask on and the Sculpt tool, a tap off the model inverts, one on the mask blurs it and one on an unmasked part sharpens it.")
+	else do ui.paragraph(ctx, fmt.tprintf("Paint the mask with the Mask brush, or Ctrl + drag a shape from empty space (with Alt: unmask). Masked parts show darker and no brush moves them. Blur, Sharpen, Grow and Shrink (over the shelf while something is masked, and under More options) move its edge Steps rings of triangles. %s clears, %s inverts. With Mask on and the Sculpt tool, a tap off the model inverts, one on the mask blurs it and one on an unmasked part sharpens it.", keys_or_name(app, .Mask, int(sculpt.Mask_Command.Clear)), keys_or_name(app, .Mask, int(sculpt.Mask_Command.Invert))))
 	kit_last_result(app, .Mask)
 	if kit_more(app, .Mask) {
+		// Whether the view darkens what is masked; the mask stays either way, and it is no
+		// undo step.
+		shown := !app.ui.mask_hidden
+		if ui.switch_row(ctx, "Show the mask", &shown) do app.ui.mask_hidden = !shown
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Blur), int(sculpt.Mask_Command.Sharpen), "Blur", "Sharpen")
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Grow), int(sculpt.Mask_Command.Shrink), "Grow", "Shrink")
 		kit_command_pair(app, .Mask, .Mask, int(sculpt.Mask_Command.Cavity), int(sculpt.Mask_Command.Hidden), "Mask cavities", "Mask hidden")
@@ -340,7 +334,7 @@ kit_visibility :: proc(app: ^App, obj: ^Object) {
 	}
 	kit_command_pair(app, .Show_All, .Invert_Hidden, label_b = "Invert hiding")
 	kit_command_pair(app, .Hide_Masked, .Hide_Unmasked)
-	ui.paragraph(ctx, fmt.tprintf("%s shows all; %s inverts. Hide masked and Hide unmasked hide by the mask; Mask hidden (Mask, More options) turns what is hidden into a mask.", command_keys(app, .Show_All), command_keys(app, .Invert_Hidden)))
+	ui.paragraph(ctx, fmt.tprintf("%s shows all; %s inverts. Hide masked and Hide unmasked hide by the mask; Mask hidden (Mask, More options) turns what is hidden into a mask.", keys_or_name(app, .Show_All), keys_or_name(app, .Invert_Hidden)))
 	kit_last_result(app, .Visibility)
 	if app.stats.slice_ms > 0 do ui.paragraph(ctx, fmt.tprintf("Last slice: %.0f ms, ready in %.0f ms more.", app.stats.slice_ms, app.stats.slice_setup_ms))
 	if kit_more(app, .Visibility) {
@@ -367,7 +361,7 @@ kit_groups :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Visible), int(sculpt.Group_Command.Masked), "Group visible", "Group masked")
 	_ = ui.switch_row(ctx, "Show polygroups", &app.show_groups, keys = command_hint(app, .Polygroups))
-	ui.paragraph(ctx, fmt.tprintf("%s groups the masked part (clearing the mask), or with nothing masked what is shown. Ctrl + Shift click a group to show only it (again: everything but it); with Alt, to mask it. %s shows the groups. Not in HD or with dynamic topology.", command_keys(app, .Group_Shortcut), command_keys(app, .Polygroups)))
+	ui.paragraph(ctx, fmt.tprintf("%s groups the masked part (clearing the mask), or with nothing masked what is shown. Ctrl + Shift click a group to show only it (again: everything but it); with Alt, to mask it. %s shows the groups. Not in HD or with dynamic topology.", keys_or_name(app, .Group_Shortcut), keys_or_name(app, .Polygroups)))
 	if kit_more(app, .Groups) {
 		_ = ui.slider(ctx, "Angle", &app.ui.crease_degrees, 1, 90, .Linear, fmt.tprintf("%.0f°", app.ui.crease_degrees))
 		kit_command_pair(app, .Group, .Group, int(sculpt.Group_Command.Creases), int(sculpt.Group_Command.Normals), "Groups by creases", "Groups by normals")

@@ -134,11 +134,12 @@ levels_set_current :: proc(l: ^Levels, index: int) {
 
 // Carries the colours and groups of the current level to level `to` when they changed
 // since it became current; otherwise every level keeps its own, so a look at a coarser
-// level and back loses nothing.
+// level and back loses nothing. The paint layer stack itself always goes, so every level
+// shows the same layers, and the layers a level lacks take their colours.
 @(private)
 levels_carry_paint :: proc(l: ^Levels, to: int) {
 	s := &l.levels[l.current].sculptor
-	if s.color_edited do levels_carry_color(l, l.current, to)
+	levels_carry_color(l, l.current, to, all = s.color_edited)
 	if s.groups.edited do levels_carry_groups(l, l.current, to)
 	s.color_edited, s.groups.edited = false, false
 }
@@ -153,7 +154,7 @@ levels_paint_to_top :: proc(l: ^Levels) {levels_paint_to(l, len(l.levels) - 1)}
 levels_paint_to :: proc(l: ^Levels, to: int) {
 	if l.current == to do return
 	s := &l.levels[l.current].sculptor
-	if s.color_edited do levels_carry_color(l, l.current, to)
+	levels_carry_color(l, l.current, to, all = s.color_edited)
 	if s.groups.edited do levels_carry_groups(l, l.current, to)
 }
 
@@ -289,7 +290,8 @@ levels_delete_higher :: proc(l: ^Levels) -> (carried, dropped: int) {
 }
 
 // Deletes every level below the current one, which becomes the base. The selection
-// sets kept by those levels are carried up to it first.
+// sets kept by those levels are carried up to it first, and the UVs become the new base's
+// own (levels_uvs_at), so maps made on them still fit.
 levels_delete_lower :: proc(l: ^Levels) {
 	assert(l.hd.window == nil, "leave the HD window first")
 	k := l.current
@@ -297,7 +299,9 @@ levels_delete_lower :: proc(l: ^Levels) {
 	sync_levels(l, down = false)
 	levels_sets_carry(l, {0, k}, k)
 	for &set in l.sets do set.level -= k
+	uvs, kept := levels_uvs_at(l, k, l.allocator)
 	levels_drop_quads(l) // the base's triangles are a level above's now
+	if kept do l.uvs = uvs
 	for lv in l.levels[:k] do level_free(l, lv)
 	level_unlink(l, l.levels[k])
 	copy(l.levels[:], l.levels[k:])

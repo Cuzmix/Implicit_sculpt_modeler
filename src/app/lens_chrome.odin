@@ -1,21 +1,20 @@
 package main
 
-import "core:fmt"
 import "core:math"
 
 import "../ui"
 
 // The Lens layout's floating chrome round the full-window view (round 2 of the mockups):
 // the off-hand island of tall Size and Strength sliders above the dial, the readout at
-// the top corner on the same side, the view rail of one-tap view tools down the pen side,
-// and the mini view under the panels. Each is laid out under the names the bars before them
+// the top corner on the same side and the view rail of one-tap view tools down the pen
+// side. Each is laid out under the names the bars before them
 // had ("brush bar", "points", "view bar"), so whatever keeps clear of those keeps clear of
 // these. Left-handed, the kit's mirror swaps every side.
 
 // Lucide's layout-grid, aperture and box, for the view layout, the passes and the object.
 ICON_VIEW_LAYOUT :: ui.ICON_GRID
 ICON_PASSES :: rune(0xe044)
-ICON_MINI_VIEW :: ui.ICON_IMAGE
+ICON_SECOND_VIEW :: ui.ICON_IMAGE
 ICON_OBJECT_BOX :: rune(0xe065)
 ICON_FLIP_VIEW :: rune(0xe361) // flip-horizontal
 
@@ -28,10 +27,6 @@ LENS_EDGE :: 12
 
 // A chip's pill, in points: drawn this tall inside a touch target.
 LENS_CHIP_H :: 32
-
-// The mini view's picture, in points: portrait, as a silhouette of a head or a figure is.
-MINI_W :: 168
-MINI_H :: 200
 
 // A size or strength slider's tooltip: its keys, and the three-finger drag when that is on.
 slider_hint :: proc(app: ^App, keys: string, step: Command_Id) -> string {
@@ -73,13 +68,16 @@ lens_chip_width :: proc(ctx: ^ui.Context, text: string, sub := "", glyph: rune =
 LENS_CHIP_PAD :: 10
 
 // Draws a chip's pill at `pill`, pressed or hovered as `held` and `hovered` say.
-lens_chip_draw :: proc(ctx: ^ui.Context, pill: ui.Rect, text: string, sub := "", glyph: rune = 0, dot: Maybe(ui.Color) = nil, chevron := false, lit := false, held := false, hovered := false) {
+lens_chip_draw :: proc(ctx: ^ui.Context, pill: ui.Rect, text: string, sub := "", glyph: rune = 0, dot: Maybe(ui.Color) = nil, chevron := false, lit := false, held := false, hovered := false, glass := true) {
 	t := ctx.theme
-	fill := ui.Color{t.frame.r, t.frame.g, t.frame.b, TOP_GLASS_ALPHA}
-	ui.fill_rect(ctx, pill, t.radius_medium, fill)
-	if held do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_pressed)
-	else if hovered do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_hover)
-	ui.stroke_rect(ctx, pill, t.radius_medium, t.border, 1)
+	// Without its glass, the content alone, on a pill its caller drew (a tab strip's).
+	if glass {
+		fill := ui.Color{t.frame.r, t.frame.g, t.frame.b, TOP_GLASS_ALPHA}
+		ui.fill_rect(ctx, pill, t.radius_medium, fill)
+		if held do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_pressed)
+		else if hovered do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_hover)
+		ui.stroke_rect(ctx, pill, t.radius_medium, t.border, 1)
+	}
 	x := pill.x + LENS_CHIP_PAD
 	cy := pill.y + pill.h * 0.5
 	if c, ok := dot.?; ok {
@@ -110,11 +108,10 @@ lens_focal_mm :: proc(fov_y: f32) -> f32 {
 // A dock button's name beside its icon: one short word where the command's name is long.
 rail_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	#partial switch s.id {
-	case .Inspector:        return "Main"
 	case .View_Layout_Menu: return "Layout"
 	case .Focus_Selected:   return "Frame"
 	case .Symmetry_X:       return "Symmetry"
-	case .Thumbnail:        return "Mini view"
+	case .Second_View:      return "Second"
 	}
 	return bar_label(app, s)
 }
@@ -141,8 +138,10 @@ lens_nav_offset :: proc(app: ^App) -> f32 {
 	// side.
 	if k.docks[.Offhand].edge != .Default do take(ui.prev_rect(ctx, "brush bar"), area, mid, near_top, ctx.mirror, &reach)
 	for i in 0 ..< USER_DOCKS do if user_dock_shown(k, i) do take(ui.prev_rect(ctx, DOCK_ROOTS[user_dock_id(i)]), area, mid, near_top, ctx.mirror, &reach)
-	for c in k.panels.rect do take(c, area, mid, near_top, ctx.mirror, &reach)
+	for s in Column_Side do take(column_rest_rect(app, s), area, mid, near_top, ctx.mirror, &reach)
 	for s in k.panels.seen do if s.frame >= k.frame - 1 do take(s.rect, area, mid, near_top, ctx.mirror, &reach)
+	// A card a rail button opened is no panel, but it covers the head just the same.
+	for c in Card do if card_shown(app, c) do take(ui.prev_rect(ctx, card_root_name(c)), area, mid, near_top, ctx.mirror, &reach)
 	return reach
 }
 
@@ -155,110 +154,3 @@ lens_palm :: proc(app: ^App) -> f32 {
 	return area.h * 0.2
 }
 
-// How far up from the safe area's bottom the mini view reaches where it sits in its place
-// in Lens, for the panels' column above it to stop short of; zero when it is not there.
-lens_mini_reach :: proc(app: ^App) -> f32 {
-	k := &app.kit
-	if !k.thumbnail || k.windows[.Thumbnail].moved do return 0
-	r := panel_rect(app, Kit_Window.Thumbnail)
-	if r.h <= 0 do return 0
-	area := ui.safe_area(&k.ctx)
-	return area.y + area.h - r.y
-}
-
-// The mini view (the thumbnail window, in Lens): the second camera's picture alone in the
-// pen side's lower corner, under the panels and above the palm. A chip on it names what it
-// shows; a tap on the chip shows the camera and pass choices under the picture, and a tap
-// on the picture swaps it with the main view. A drag turns it, as the thumbnail's does.
-kit_mini_view :: proc(app: ^App) -> (raised: bool) {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	sv := &k.second
-	shown := ui.presence(ctx, panel_id(Kit_Window.Thumbnail), k.thumbnail, t.panel_time)
-	k.thumbnail_px = {}
-	if shown <= 0 do return
-	win := &k.windows[.Thumbnail]
-	PADDING :: 4
-	below := max(t.edge, lens_palm(app), side_panel_below(app, MINI_W + 2 * PADDING))
-	mark := ui.vertex_mark(ctx)
-	p := panel_begin(app, Kit_Window.Thumbnail, "", .End, .End, {kit_right(app), below}, {direction = .Column, gap = 6, padding = PADDING, width = MINI_W + 2 * PADDING, radius = t.radius_large, background = .Panel, inert = !k.thumbnail}, card = true)
-	raised = p.raised
-	if p.closed do k.thumbnail = false
-	if p.dock do panel_menu_open(app, Kit_Window.Thumbnail)
-	if p.body {
-		a := ui.area(ctx, "second view picture", {MINI_W, MINI_H})
-		pic := a.rect
-		d := ctx.input.pixel_density
-		k.thumbnail_px = {u32(pic.w * d + 0.5), u32(pic.h * d + 0.5)}
-		ui.fill_rect(ctx, pic, t.radius_small, t.fill)
-		if app.thumbnail.shown != nil {
-			lo, hi := [2]f32{0, 0}, [2]f32{1, 1}
-			if k.thumbnail_flip do lo.x, hi.x = 1, 0
-			ui.image_part(ctx, pic, KIT_THUMBNAIL_IMAGE, lo, hi)
-			kit_guides(app, pic, app.thumbnail.orbit, "thumbnail")
-		}
-		second_view_input(app, ctx, k.scale, sv, a)
-		// The chip over the picture's corner is part of the picture's press: a tap on it
-		// shows the choices, a tap elsewhere swaps.
-		dot, _ := second_color(t, sv, 1)
-		label := fmt.tprintf("%s · %s", SECOND_CAMERA_NAMES[sv.camera], second_shows_name(sv))
-		// A render says how far it has come, as round 2's studio2 screen: "Rendered · 64/256".
-		if have, want := picture_samples(app, sv, &app.thumbnail); want > 0 do label = fmt.tprintf("%s · %d/%d", second_shows_name(sv), min(have, want), want)
-		room := pic.w - 12
-		label = ui.text_fit(ctx, label, t.small_size, room - lens_chip_width(ctx, "", dot = true, chevron = true), .Semibold)
-		w := min(lens_chip_width(ctx, label, dot = true, chevron = true), room)
-		chip := ui.Rect{pic.x + 6, pic.y + 6, w, LENS_CHIP_H - 4}
-		on_chip := ui.rect_contains(chip, a.mouse)
-		lens_chip_draw(ctx, chip, label, dot = dot, chevron = true, lit = k.mini_rows, held = a.held && on_chip, hovered = a.hovered && on_chip)
-		if a.clicked && !sv.dragging {
-			if on_chip do k.mini_rows = !k.mini_rows
-			else do mini_swap(app)
-		}
-		if k.mini_rows do kit_mini_rows(app)
-	}
-	panel_end(app, &p)
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
-	return
-}
-
-// The mini view's choices under its picture: its camera and pass, then Flip, Link and Close.
-@(private = "file")
-kit_mini_rows :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	sv := &k.second
-	cameras := make([]string, len(Second_Camera), context.temp_allocator)
-	for name, c in SECOND_CAMERA_NAMES do cameras[c] = name
-	if picked := ui.select(ctx, "Mini view camera", cameras, int(sv.camera), MINI_W); picked >= 0 && Second_Camera(picked) != sv.camera {
-		if Second_Camera(picked) == .Free do second_free(app, sv)
-		else do sv.camera = Second_Camera(picked)
-	}
-	passes := make([]string, len(Second_Pass), context.temp_allocator)
-	for name, kind in SECOND_PASS_NAMES do passes[kind] = name
-	if picked := ui.select(ctx, "Mini view shows", passes, int(sv.pass), MINI_W); picked >= 0 do sv.pass = Second_Pass(picked)
-	ui.begin(ctx, "mini view row", {direction = .Row, center = true, gap = 4})
-	if ui.icon_button(ctx, "Flip left to right", ICON_FLIP_VIEW, selected = k.thumbnail_flip) do k.thumbnail_flip = !k.thumbnail_flip
-	linked := second_linked(sv)
-	if ui.icon_button(ctx, "Unlink from the main camera" if linked else "Link to the main camera", ICON_LINK, selected = linked) do second_link_toggle(app, sv)
-	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE) do k.thumbnail = false
-	ui.end(ctx)
-}
-
-// A tap on the mini view's picture: the main view takes the camera the mini view sees
-// through, and the mini view keeps the main view's as a free camera, so a second tap swaps
-// them back. A linked view already shows the main camera, so it has nothing to swap.
-mini_swap :: proc(app: ^App) {
-	k := &app.kit
-	sv := &k.second
-	if second_linked(sv) {
-		report(app, nil, {.Quiet}, "The mini view shows the main camera: pick another camera to swap with it")
-		return
-	}
-	other := second_orbit(app, sv)
-	main := app.camera
-	other.shift, main.shift = main.shift, {}
-	app.camera = other
-	sv.orbit, sv.camera = main, .Free
-	k.mini_swaps += 1
-}

@@ -76,7 +76,7 @@ layer_picture_draw :: proc(app: ^App, obj: ^Object, index: int, r: ui.Rect, fade
 	s := &ls.slots[slot]
 	if key := layer_picture_key(obj, index); s.want != key do s.want, s.changed = key, time.tick_now()
 	s.used = ls.frame
-	if s.drawn == 0 || app.layer_pictures.atlas == nil do return false
+	if s.drawn == 0 || app.layer_pictures.atlas == 0 do return false
 	lo, hi := render.step_picture_uv(slot)
 	ctx := &app.kit.ctx
 	ui.image_part(ctx, r, KIT_LAYER_PICTURES_IMAGE, lo, hi, {255, 255, 255, u8(255 * clamp(fade, 0, 1))})

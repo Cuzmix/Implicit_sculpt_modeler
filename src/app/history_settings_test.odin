@@ -49,7 +49,7 @@ history_settings_hold_the_history :: proc(t: ^testing.T) {
 	// Back to Automatic, the stores take their own limits again.
 	app.history_limit_mb = 0
 	history_cap(&app)
-	testing.expect_value(t, object_sculptor(obj).history.limit, sculpt.UNDO_LIMIT_BYTES)
+	testing.expect_value(t, object_sculptor(obj).history.limit, history_level_automatic(platform_ram()))
 
 	app.history_camera = true
 	app.camera.yaw = 9

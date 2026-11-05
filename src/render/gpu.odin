@@ -1,64 +1,55 @@
 package render
 
+import "../gpu"
 import "core:log"
 
 import sdl "vendor:sdl3"
 
 // The GPU objects the app holds and passes back without looking inside: a frame's
-// command buffers, the textures it shows, fences, and a sample count. Only this package
+// command buffers, the textures it shows, tickets, and a sample count. Only this package
 // names the GPU API (AGENTS.md's package boundaries; `scripts/boundary_check.py` fails
 // the check otherwise), so another backend changes these and the procs below, and the
 // app stays as it is.
-Cmd :: ^sdl.GPUCommandBuffer
-Texture :: ^sdl.GPUTexture
-Fence :: ^sdl.GPUFence
-Sample_Count :: sdl.GPUSampleCount
-
-// Waits until the GPU has finished everything submitted: before freeing a buffer or
-// texture a frame in flight may still read.
-wait_idle :: proc(r: ^Renderer) {
-	if !gpu_wait_for_idle(r.device) do log.warnf("WaitForGPUIdle failed: %s", sdl.GetError())
-}
+Cmd :: gpu.Cmd
+Texture :: gpu.Texture
+Ticket :: gpu.Ticket
+Sample_Count :: gpu.Sample_Count
 
 // A command buffer to record into, or nil (logged) when the device has none to give.
 cmd_begin :: proc(r: ^Renderer) -> Cmd {
-	cmd := gpu_acquire_command_buffer(r.device)
-	if cmd == nil do log.errorf("AcquireGPUCommandBuffer failed: %s", sdl.GetError())
+	cmd := gpu.acquire_command_buffer()
+	if cmd == nil do log.errorf("AcquireGPUCommandBuffer failed: %s", gpu.last_error())
 	return cmd
 }
 
 // Sends the recorded work to the GPU; false (logged) when the device refused it.
 cmd_submit :: proc(cmd: Cmd) -> bool {
-	if gpu_submit_command_buffer(cmd) do return true
-	log.errorf("submit failed: %s", sdl.GetError())
-	return false
+	_, ok := cmd_submit_ticket(cmd)
+	return ok
 }
 
-// Sends the recorded work with a fence that signals when the GPU has done it; nil
+// Sends the recorded work with the ticket that is done once the GPU has run it; false
 // (logged) when the device refused it.
-cmd_submit_fenced :: proc(cmd: Cmd) -> Fence {
-	fence := gpu_submit_command_buffer_and_acquire_fence(cmd)
-	if fence == nil do log.errorf("submit failed: %s", sdl.GetError())
-	return fence
+cmd_submit_ticket :: proc(cmd: Cmd) -> (Ticket, bool) {
+	ticket, ok := gpu.submit(cmd)
+	if !ok do log.errorf("submit failed: %s", gpu.last_error())
+	return ticket, ok
 }
 
 // Drops a command buffer unsubmitted. One that holds a swapchain texture cannot be
 // cancelled: submit it instead.
 cmd_cancel :: proc(cmd: Cmd) -> bool {
-	return gpu_cancel_command_buffer(cmd)
+	return gpu.cancel_command_buffer(cmd)
 }
 
 // Whether the recording holds anything for the GPU to run, or an image to present.
 cmd_recorded :: proc(cmd: Cmd) -> bool {
-	return gpu_command_buffer_recorded(cmd)
+	return gpu.command_buffer_recorded(cmd)
 }
 
-// Waits for the fence, releases it and clears the handle; nothing for nil.
-fence_finish :: proc(r: ^Renderer, fence: ^Fence) {
-	if fence^ == nil do return
-	_ = gpu_wait_for_fences(r.device, true, fence, 1)
-	gpu_release_fence(r.device, fence^)
-	fence^ = nil
+// Waits until the GPU has run the work up to `ticket`; at once for one already done.
+ticket_wait :: proc(ticket: Ticket) {
+	_ = gpu.wait(ticket)
 }
 
 // The window's next swapchain texture for `cmd` and its size in pixels. With `wait`, waits
@@ -67,11 +58,11 @@ fence_finish :: proc(r: ^Renderer, fence: ^Fence) {
 // (logged) when the swapchain failed.
 swapchain_acquire :: proc(cmd: Cmd, window: ^sdl.Window, wait: bool) -> (texture: Texture, size: [2]u32, ok: bool) {
 	if wait {
-		ok = gpu_wait_and_acquire_swapchain_texture(cmd, window, &texture, &size.x, &size.y)
+		ok = gpu.wait_and_acquire_swapchain_texture(cmd, window, &texture, &size.x, &size.y)
 	} else {
-		ok = gpu_acquire_swapchain_texture(cmd, window, &texture, &size.x, &size.y)
+		ok = gpu.acquire_swapchain_texture(cmd, window, &texture, &size.x, &size.y)
 	}
-	if !ok do log.errorf("acquire swapchain failed: %s", sdl.GetError())
+	if !ok do log.errorf("acquire swapchain failed: %s", gpu.last_error())
 	return
 }
 
@@ -81,35 +72,35 @@ swapchain_acquire :: proc(cmd: Cmd, window: ^sdl.Window, wait: bool) -> (texture
 // window's; a pre-rotated swapchain's texture is turned from it (swapchain_turns).
 ui_present :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: Cmd, window: ^sdl.Window, swapchain: Texture, size: [2]u32, clear: [4]f32, draws: []Ui_Draw, draw: bool) {
 	debug_group(cmd, "Interface", .Interface)
-	target := sdl.GPUColorTargetInfo {
+	target := gpu.Color_Target {
 		texture     = swapchain,
-		clear_color = sdl.FColor(clear),
-		load_op     = .CLEAR,
-		store_op    = .STORE,
+		clear_color = clear,
+		load_op     = .Clear,
+		store_op    = .Store,
 	}
-	pass := gpu_begin_render_pass(cmd, &target, 1, nil)
+	pass := gpu.begin_render_pass(cmd, &target, 1, nil)
 	if draw {
-		format := gpu_get_swapchain_texture_format(r.device, window)
-		ui_pass_draw(r, up, cmd, pass, format, size, draws, gpu_swapchain_turns(window))
+		format := gpu.get_swapchain_texture_format(window)
+		ui_pass_draw(r, up, cmd, pass, format, size, draws, gpu.swapchain_turns(window))
 	}
-	gpu_end_render_pass(pass)
+	gpu.end_render_pass(pass)
 }
 
 // Quarter turns clockwise the window's swapchain images are drawn at (pre-rotation): 0
 // upright, which is all but Android's own Vulkan backend on a turned tablet.
 swapchain_turns :: proc(window: ^sdl.Window) -> int {
-	return gpu_swapchain_turns(window)
+	return gpu.swapchain_turns(window)
 }
 
 // Lets the own Vulkan backend pre-rotate (on Android it does by default); set before the
 // window is claimed. --no-pre-rotate turns it off to compare.
 set_pre_rotate :: proc(on: bool) {
-	when VULKAN do vk_pre_rotate = on
+	gpu.set_pre_rotate(on)
 }
 
 // Whether the device exists: false before renderer_init and in runs without a window.
 renderer_ready :: proc(r: ^Renderer) -> bool {
-	return r.device != nil
+	return r.has_device
 }
 
 // Names the commands recorded from here to the end of the enclosing scope for capture
@@ -117,13 +108,13 @@ renderer_ready :: proc(r: ^Renderer) -> bool {
 // Called outside any pass, so the group spans whole passes. A `span` also times the group
 // on the GPU for the Stats panel (timing.odin).
 @(deferred_in = debug_group_end)
-debug_group :: proc(cmd: ^sdl.GPUCommandBuffer, name: cstring, span := Gpu_Span.None) {
-	gpu_push_debug_group(cmd, name)
+debug_group :: proc(cmd: gpu.Cmd, name: cstring, span := Gpu_Span.None) {
+	gpu.push_debug_group(cmd, name)
 	span_begin(cmd, span)
 }
 
 @(private)
-debug_group_end :: proc(cmd: ^sdl.GPUCommandBuffer, name: cstring, span := Gpu_Span.None) {
+debug_group_end :: proc(cmd: gpu.Cmd, name: cstring, span := Gpu_Span.None) {
 	span_end(cmd, span)
-	gpu_pop_debug_group(cmd)
+	gpu.pop_debug_group(cmd)
 }

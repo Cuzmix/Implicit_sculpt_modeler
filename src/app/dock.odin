@@ -53,11 +53,11 @@ dock_slot_settings :: proc(app: ^App, s: Dock_Slot) {
 	else do brush_settings_open(app, s.kind)
 }
 
-// Picks the preset numbered `n` (PACK_PRESET) and shows its settings: the tray, on the
+// Picks the preset numbered `n` (PACK_PRESET) and shows its settings: the Tool card, on the
 // brush's Preset section, to rename it or save its changes.
 preset_settings_open :: proc(app: ^App, n: int) {
 	preset_use(app, n)
-	tray_open(app, .Preset)
+	card_reveal(app, .Preset)
 }
 
 // Makes the mask shape or gesture `tool` the one the modifiers draw, closes the browser
@@ -69,10 +69,10 @@ shape_tool_pick :: proc(app: ^App, tool: union {
 	switch t in tool {
 	case Mask_Shape_Kind:
 		app.ui.mask_shape_kind = t
-		report(app, Kit_Section.Mask, {}, "Ctrl + drag on empty space (or Mask on the wheel) now masks a %s", strings.to_lower(MASK_SHAPE_NAMES[t], context.temp_allocator))
+		report(app, Section.Mask, {}, "Ctrl + drag on empty space (or Mask on the dial) now masks a %s", strings.to_lower(MASK_SHAPE_NAMES[t], context.temp_allocator))
 	case Gesture_Tool:
 		app.gesture = t
-		report(app, Kit_Section.Visibility, {}, "Ctrl + Shift + drag (or Hide on the wheel) now runs %s", GESTURE_NAMES[t])
+		report(app, Section.Visibility, {}, "Ctrl + Shift + drag (or Hide on the dial) now runs %s", GESTURE_NAMES[t])
 	}
 	app.kit.browser = false
 }
@@ -101,12 +101,11 @@ GESTURE_ICONS := [Gesture_Tool]rune {
 	.Knife          = 0xe2f0,
 }
 
-// Picks `tool` and shows its settings: the tray, on the tool's palette.
+// Picks `tool` and shows its settings: the Tool card, from its top.
 tool_settings_open :: proc(app: ^App, tool: Tool) {
 	command_run(app, TOOL_COMMANDS[tool])
-	side_panel_close(app)
-	app.kit.inspector, app.kit.stack.revealed = true, nil
-	stack_reveal_card(app, .Brush)
+	sheet_close(app)
+	card_reveal(app, .Brush)
 }
 
 @(rodata)

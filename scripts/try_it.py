@@ -59,6 +59,8 @@ CHECKS = [
      [stat_at_least("dabs", 1)]),
     ("sculpt_10m", "the same stroke on 10M (40k with four levels)", ["--vertices=40000", "--subdivide=4", "--bench-stroke=120"],
      [stat_at_least("dabs", 1), stat_at_least("vertices", 9_000_000)]),
+    ("gpu_sculpt_10m", "the same stroke with Sculpt on the GPU asked for (gpu_dab_strokes=1 when the GPU took it)",
+     ["--vertices=40000", "--subdivide=4", "--bench-stroke=120", "--gpu-sculpt"], [stat_at_least("dabs", 1)]),
     ("orbit_5m", "one full turn round a 5M sphere", ["--vertices=5000000", "--orbit", "--frames=240"], []),
     ("remesh", "Remesh of a 200k sphere to 100k, then the mesh checked",
      ["--vertices=200000", "--script=set rebuild_even 100000; rebuild", "--frames=30", "--check-mesh"],

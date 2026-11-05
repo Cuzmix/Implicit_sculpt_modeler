@@ -1,49 +1,95 @@
-// SDL_shadercross 1ff05bec5739 from ui.frag.spv sha256 27b36442b9eb8e6ead0810a4529e9bfe0b995ed5c481cb5e7586856a36706ff2
+// slangc metal from ui.frag.spv sha256 27b36442b9eb8e6ead0810a4529e9bfe0b995ed5c481cb5e7586856a36706ff2
+// slots s=0:0 rt= wt= rb= wb= u=0 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-struct SLANG_ParameterGroup_Ui_Fragment_Uniforms_std140
+#line 90 "core"
+struct pixelOutput_0
 {
-    float4 params;
+    float4 output_0 [[color(0)]];
 };
 
-struct main0_out
+
+#line 90
+struct pixelInput_0
 {
-    float4 entryPointParam_main [[color(0)]];
+    float2 uv_0 [[user(TEXCOORD)]];
+    float4 color_0 [[user(COLOR)]];
 };
 
-struct main0_in
+
+#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/ui.frag.slang"
+struct SLANG_ParameterGroup_Ui_Fragment_Uniforms_0
 {
-    float2 uv [[user(locn0)]];
-    float4 color [[user(locn1)]];
+    float4 params_0;
 };
 
-fragment main0_out main0(main0_in in [[stage_in]], constant SLANG_ParameterGroup_Ui_Fragment_Uniforms_std140& Ui_Fragment_Uniforms [[buffer(0)]], texture2d<float> tex [[texture(0)]], sampler texSmplr [[sampler(0)]])
+
+#line 9
+struct KernelContext_0
 {
-    main0_out out = {};
-    float4 _35 = tex.sample(texSmplr, (in.uv * Ui_Fragment_Uniforms.params.xy));
-    float4 s = _35;
-    if (Ui_Fragment_Uniforms.params.w > 0.5)
+    SLANG_ParameterGroup_Ui_Fragment_Uniforms_0 constant* Ui_Fragment_Uniforms_0;
+    texture2d<float, access::sample> tex_texture_0;
+    sampler tex_sampler_0;
+};
+
+
+#line 13
+[[fragment]] pixelOutput_0 main_0(pixelInput_0 _S1 [[stage_in]], SLANG_ParameterGroup_Ui_Fragment_Uniforms_0 constant* Ui_Fragment_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> tex_texture_1 [[texture(0)]], sampler tex_sampler_1 [[sampler(0)]])
+{
+
+#line 13
+    thread KernelContext_0 kernelContext_0;
+
+#line 13
+    (&kernelContext_0)->Ui_Fragment_Uniforms_0 = Ui_Fragment_Uniforms_1;
+
+#line 13
+    (&kernelContext_0)->tex_texture_0 = tex_texture_1;
+
+#line 13
+    (&kernelContext_0)->tex_sampler_0 = tex_sampler_1;
+    float2 _S2 = _S1.uv_0 * Ui_Fragment_Uniforms_1->params_0.xy;
+
+#line 14
+    ;
+
+#line 14
+    thread float4 s_0 = (((&kernelContext_0)->tex_texture_0).sample(((&kernelContext_0)->tex_sampler_0), (_S2)));
+    if((Ui_Fragment_Uniforms_1->params_0.w) > 0.5f)
     {
-        float4 _43 = s;
-        float4 _46 = s;
-        float3 _52 = _43.xyz / float3(fast::max(_46.w, 0.0039215688593685626983642578125));
-        s.x = _52.x;
-        s.y = _52.y;
-        s.z = _52.z;
+
+#line 15
+        s_0.xyz = s_0.xyz / float3(max(s_0.w, 0.00392156885936856f)) ;
+
+#line 15
     }
-    float4 _9;
-    if (Ui_Fragment_Uniforms.params.z > 0.5)
+
+#line 15
+    float4 _S3;
+    if((Ui_Fragment_Uniforms_1->params_0.z) > 0.5f)
     {
-        _9 = in.color * s;
+
+#line 16
+        _S3 = _S1.color_0 * s_0;
+
+#line 16
     }
     else
     {
-        _9 = float4(in.color.xyz, in.color.w * s.x);
+
+#line 16
+        _S3 = float4(_S1.color_0.xyz, _S1.color_0.w * s_0.x);
+
+#line 16
     }
-    out.entryPointParam_main = _9;
-    return out;
+
+#line 16
+    pixelOutput_0 _S4 = { _S3 };
+
+#line 16
+    return _S4;
 }
 

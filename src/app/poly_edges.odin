@@ -34,11 +34,16 @@ poly_edges_frame :: proc(app: ^App) {
 		gpu := &obj.gpu[k]
 		// The level's buffers are made when it is first shown; until then there is
 		// nothing to put the edges on.
-		if gpu.positions == nil do continue
+		if gpu.positions == 0 do continue
 		source := sculpt.levels_polygon_source(&obj.levels, k)
 		if source == obj.poly_edges[k] do continue
 		pairs := sculpt.levels_polygon_edges(&obj.levels, k, context.temp_allocator)
-		_ = render.mesh_buffers_set_edges(&app.renderer, gpu, pairs)
+		// Where the wireframe is drawn in the shading pass, the same edges per triangle
+		// let it leave out the polygons' diagonals there instead of drawing every edge
+		// again as a line.
+		tri_edges: []u32
+		if render.caps(&app.renderer).barycentric && len(pairs) > 0 do tri_edges = sculpt.levels_polygon_tri_edges(&obj.levels, k, pairs, context.temp_allocator)
+		_ = render.mesh_buffers_set_edges(&app.renderer, gpu, pairs, tri_edges)
 		obj.poly_edges[k] = source
 	}
 }
@@ -47,5 +52,5 @@ poly_edges_frame :: proc(app: ^App) {
 poly_edges_shown :: proc(app: ^App, obj: ^Object) -> bool {
 	if !poly_edges_wanted(app, obj) do return false
 	k := obj.levels.current
-	return obj.poly_edges[k] != {} && obj.gpu[k].edges != nil
+	return obj.poly_edges[k] != {} && obj.gpu[k].edges != 0
 }

@@ -12,7 +12,7 @@ import "../ui"
 // File dock holds the menu, the file chip (the file and whether it is saved), Save, Undo and
 // Redo; the Spaces dock the space tabs and the object chip; the App dock Search, History and
 // Settings. They are a setting, not a layout's: the Spaces dock holds the spaces' tabs, so
-// the bar is the same in every space and workspace. When the corners would reach the middle
+// the bar is the same in every space. When the corners would reach the middle
 // dock, the chips give way in a fixed order (the object chip's badges, Search's field, the
 // chip's tag, the file chip, the tabs to the layout's chip, the object chip to its icon), and
 // only then does the middle leave the centre. Returns the menu button and the Search button,
@@ -30,6 +30,7 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	v := Top_Fit {
 		focus   = lens_focus(k) && !k.bars_edit,
 		arrange = k.bars_edit,
+		edit    = k.bars_edit && k.edit_dock == nil,
 		file    = !lens_focus(k),
 		field   = k.search_field,
 		fit     = .Full,
@@ -142,8 +143,9 @@ TOP_DOCK_ROOTS := [Top_Dock]string {
 
 // What the top docks show this frame, from everything down to the least that still works.
 Top_Fit :: struct {
-	focus:   bool, // Focus's middle (workspace, X symmetry) and View layout and Passes at the end
+	focus:   bool, // Focus's middle (the space chip, X symmetry) and View layout and Passes at the end
 	arrange: bool, // editing the docks: the middle holds the editing controls
+	edit:    bool, // the top docks' own buttons are edited: Edit docks, not one dock's Edit buttons
 	file:    bool, // the file chip
 	field:   bool, // Search as its field rather than its icon
 	tabs:    int, // the space tabs (0), the layout's chip (1) or neither (2); editing, all of the controls (0) or Done alone
@@ -175,14 +177,14 @@ top_slot_width :: proc(app: ^App, s: Bar_Slot, v: Top_Fit, chip: Object_Chip) ->
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	// Editing, every button stands as its icon, to be carried, removed or changed.
-	if v.arrange do return t.target
+	if v.edit do return t.target
 	#partial switch s.id {
 	case .File_Chip:
 		return top_file_width(app) if v.file else 0
 	case .Space_Tabs:
 		switch v.tabs {
 		case 0: return space_tabs_width(app)
-		case 1: return WORKSPACE_CHIP_ROOM
+		case 1: return SPACE_CHIP_ROOM
 		}
 		return 0
 	case .Object_Chip:
@@ -214,7 +216,7 @@ top_dock_width :: proc(app: ^App, d: Top_Dock, v: Top_Fit, chip: Object_Chip, sk
 		n += 1
 		prev = s.id
 	}
-	if v.arrange {
+	if v.edit {
 		w += t.target
 		n += 1
 	}
@@ -229,7 +231,7 @@ top_widths :: proc(app: ^App, v: Top_Fit, chip: Object_Chip) -> (w: [Top_Dock]f3
 	case v.arrange:
 		w[.Spaces] = (arrange_top_width(app) if v.tabs == 0 else ARRANGE_DONE_W) + 2 * TOP_ISLAND_PAD
 	case v.focus:
-		w[.Spaces] = WORKSPACE_CHIP_ROOM + FOCUS_SYMMETRY_W + 3 * TOP_ISLAND_PAD
+		w[.Spaces] = SPACE_CHIP_ROOM + FOCUS_SYMMETRY_W + 3 * TOP_ISLAND_PAD
 		w[.App] += TOP_DIVIDER_W + 2 * app.kit.ctx.theme.target + 3 * TOP_ISLAND_PAD
 	}
 	return
@@ -251,7 +253,7 @@ top_dock_draw :: proc(app: ^App, d: Top_Dock, v: Top_Fit, chip: Object_Chip, men
 		if drawn > 0 && top_divides(prev, s.id) do top_divider(ctx)
 		drawn += 1
 		prev = s.id
-		if v.arrange {
+		if v.edit {
 			bar_slot_button(app, which, i, s)
 			continue
 		}
@@ -280,7 +282,7 @@ top_dock_draw :: proc(app: ^App, d: Top_Dock, v: Top_Fit, chip: Object_Chip, men
 				_ = top_space_tabs(app)
 				k.space_tabs_at = ui.last_ended(ctx)
 			} else {
-				kit_workspace_chip(app)
+				kit_space_chip(app)
 			}
 		case .Object_Chip:
 			top_object_chip(app, chip, v.fit)
@@ -294,9 +296,10 @@ top_dock_draw :: proc(app: ^App, d: Top_Dock, v: Top_Fit, chip: Object_Chip, men
 				else do palette_open(app)
 			}
 			search_anchor^ = ctx.last_rect
-		case .History_Panel:
-			if ui.icon_button(ctx, "History", ui.ICON_HISTORY, selected = k.history) do k.history = !k.history
-			k.history_at = ctx.last_rect
+		case .Open_Card:
+			bar_slot_button(app, which, i, s)
+			// The History card's button, which the tour lights.
+			if Card(s.arg) == .History do k.history_at = ctx.last_rect
 		case .Settings:
 			_ = top_command(app, .Settings, ui.ICON_SETTINGS, "Settings", k.settings)
 		case:
@@ -308,10 +311,10 @@ top_dock_draw :: proc(app: ^App, d: Top_Dock, v: Top_Fit, chip: Object_Chip, men
 		history_roll(app, undo_at)
 		pen_zone(app, undo_at, .History)
 	}
-	if v.arrange do bar_add_button(app, which, len(used))
+	if v.edit do bar_add_button(app, which, len(used))
 }
 
-// Whether the layout is focused: its workspace hides the view bar, as the built-in
+// Whether the layout is focused: it hides the view bar, as the built-in
 // Focus does (screen focus2). The top bar is then three islands over the view, and the
 // view's chips, the rail and the shelf's page names stand aside.
 lens_focus :: proc(k: ^Kit_State) -> bool {
@@ -321,13 +324,13 @@ lens_focus :: proc(k: ^Kit_State) -> bool {
 // The width the X symmetry chip takes in Focus's middle island, in points.
 FOCUS_SYMMETRY_W :: 64
 
-// Focus's middle island: the workspace (its chip opens the switcher's menu) and X symmetry.
+// Focus's middle island: the space (its chip opens the layout menu) and X symmetry.
 @(private = "file")
 top_focus_middle :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	kit_workspace_chip(app)
+	kit_space_chip(app)
 	x := command_checked(app, .Symmetry_X)
 	if a := lens_chip(ctx, "Symmetry X##focus", "X", glyph = ICON_SYMMETRY, lit = x, keys = command_hint(app, .Symmetry_X)); a.clicked do command_run(app, .Symmetry_X)
 	if x do ui.stroke_rect(ctx, {ctx.last_rect.x, ctx.last_rect.y + (ctx.last_rect.h - LENS_CHIP_H) * 0.5, ctx.last_rect.w, LENS_CHIP_H}, t.radius_medium, t.accent, 1)
@@ -343,7 +346,7 @@ top_focus_view :: proc(app: ^App) {
 	layout := bar_pop_showing(app, .View_Layout)
 	if ui.icon_button(ctx, "View layout", ICON_VIEW_LAYOUT, selected = layout, keys = command_hint(app, .View_Layout_Menu)) do bar_pop_toggle(app, .View_Layout, ctx.last_rect, .Below)
 	k.bar_at[.View_Layout], k.bar_side[.View_Layout] = ctx.last_rect, .Below
-	if ui.icon_button(ctx, "Passes", ICON_PASSES, selected = k.passes.menu, keys = command_hint(app, .Pass_Menu)) {
+	if ui.icon_button(ctx, "Shading modes", ICON_PASSES, selected = k.passes.menu, keys = command_hint(app, .Pass_Menu)) {
 		k.passes.menu_at, k.passes.menu_side = ctx.last_rect, .Below
 		pass_menu_toggle(app)
 	}
@@ -398,7 +401,7 @@ top_file_block :: proc(app: ^App) -> f32 {
 	shown := ui.text_fit(ctx, status, t.small_size, w - 16)
 	ui.text(ctx, shown, r.x + 8, mid + 8, t.small_size, t.text_tertiary)
 	// A save just made says so with a tick after the status (feedback_motion.odin).
-	draw_save_tick(app, {r.x + 8 + ui.text_width(ctx, shown, t.small_size) + 4 + t.small_size * 0.5, mid + 8}, t.small_size)
+	draw_save_tick(app, {r.x + 8 + ui.text_width(ctx, shown, t.small_size) + 4, mid + 8}, t.small_size)
 	return w
 }
 
@@ -421,9 +424,6 @@ saved_ago :: proc(d: time.Duration) -> string {
 	}
 	return fmt.tprintf("Saved %d days ago", m / (24 * 60))
 }
-
-// Lucide's plus.
-ICON_PLUS_SMALL :: rune(0xe141)
 
 // The Search field's width, in points: room for its hint and its keys.
 TOP_SEARCH_W :: 300

@@ -188,6 +188,7 @@ sculptor_dyn_enable :: proc(s: ^Sculptor, allocator := context.allocator) -> boo
 	hide_drop(s) // triangles are about to be split and collapsed
 	// Edits would have to carry colours and groups along; they go, as the hiding does.
 	groups_destroy(s)
+	paint_layers_destroy(s)
 	delete(s.color, s.history.allocator)
 	s.color = nil
 	s.paint_stamp += 1
@@ -421,8 +422,6 @@ sculptor_triangle_count :: proc(s: ^Sculptor) -> int {
 	for n in s.nodes do total += int(n.tri_count)
 	return total
 }
-
-sculptor_is_dynamic :: proc(s: ^Sculptor) -> bool {return s.dyn != nil}
 
 // Bytes the dynamic layout adds: the triangle lists and per-node data (the mesh's
 // arrays, unused slots included, count as the mesh's own).

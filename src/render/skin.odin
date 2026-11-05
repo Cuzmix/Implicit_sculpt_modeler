@@ -1,10 +1,10 @@
 package render
 
+import "../gpu"
 import "core:log"
 import "core:math/linalg"
 import "core:slice"
 import "../geom"
-import sdl "vendor:sdl3"
 
 // The detail skin (sculpt/skin.odin) on the GPU: per sample its normal, per triangle its
 // edges and lead corner, read by the skinned pipeline's fragment shader to light each
@@ -12,20 +12,12 @@ import sdl "vendor:sdl3"
 // shader pulls its vertex from the mesh's own buffers, since a pixel needs its triangle's
 // number, which an indexed draw cannot give it.
 
-// The skinned vertex shader's storage buffers: paint, indices, positions, normals.
-SKIN_VERTEX_STORAGE :: 4
-// The skinned fragment shader's: the samples' normals and the triangles' records.
-SKIN_FRAGMENT_STORAGE :: 2
-// The grid's vertex shader's (skin_tess.vert.slang): paint, indices, positions, normals,
-// and the samples' normals, the triangles' records and the samples' heights.
-SKIN_TESS_STORAGE :: 7
-
 // Whether `item` draws with the skinned pipeline: its mesh has a skin uploaded and its
 // buffers can be read as storage.
 @(private)
 draws_skinned :: proc(pipes: ^Mesh_Pipelines, item: Draw_Item) -> bool {
 	mb := item.mesh
-	return pipes.skinned != nil && mb != nil && mb.skin_normals != nil && mb.skin_tris != nil && mb.storage
+	return pipes.skinned != 0 && mb != nil && mb.skin_normals != 0 && mb.skin_tris != 0 && mb.storage
 }
 
 // A chunk is drawn as the skin's grid when the skin can move its outline there by at least
@@ -52,8 +44,8 @@ skin_tess_px :: proc(item: Draw_Item, proj: Mat4, height: u32, eye: geom.Vec3, b
 @(private)
 skin_tess_near :: proc(r: ^Renderer, item: Draw_Item, proj: Mat4, height: u32, eye: geom.Vec3) -> bool {
 	mb := item.mesh
-	if mb == nil || mb.skin_heights == nil || mb.skin_reach <= 0 || mb.skin_meta[0] < 2 || !mb.storage do return false
-	if r.single.skin_tess == nil || r.single.skinned == nil || (r.multi.mesh != nil && r.multi.skin_tess == nil) do return false
+	if mb == nil || mb.skin_heights == 0 || mb.skin_reach <= 0 || mb.skin_meta[0] < 2 || !mb.storage do return false
+	if r.single.skin_tess == 0 || r.single.skinned == 0 || (r.multi.mesh != 0 && r.multi.skin_tess == 0) do return false
 	for c in item.chunks do if c.index_count > 0 && skin_tess_px(item, proj, height, eye, c.bounds) >= SKIN_TESS_PX do return true
 	return false
 }
@@ -137,26 +129,35 @@ skin_tess_split :: proc(r: ^Renderer, item: Draw_Item, proj: Mat4, height: u32, 
 // skin_tess_split picked, as the skin's grid with `pipes`' skin_tess pipeline, which it
 // leaves bound; returns whether it did.
 @(private)
-draw_skinned_item :: proc(r: ^Renderer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, item: Draw_Item, stats: ^Viewport_Stats) -> (tessellated: bool) {
+draw_skinned_item :: proc(r: ^Renderer, pass: gpu.Render_Pass, pipes: ^Mesh_Pipelines, item: Draw_Item, stats: ^Viewport_Stats) -> (tessellated: bool) {
 	mb := item.mesh
-	vertex := [SKIN_VERTEX_STORAGE]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint, mb.indices, mb.positions, mb.normals}
-	gpu_bind_vertex_storage_buffers(pass, 0, &vertex[0], len(vertex))
-	fragment := [SKIN_FRAGMENT_STORAGE]^sdl.GPUBuffer{mb.skin_normals, mb.skin_tris}
-	gpu_bind_fragment_storage_buffers(pass, 0, &fragment[0], len(fragment))
-	STRIDE :: size_of(sdl.GPUIndexedIndirectDrawCommand)
-	if mb.cull.culled && r.cull && len(item.chunks) > 0 && mb.indirect != nil {
-		gpu_draw_primitives_indirect_count(pass, mb.indirect, CULL_HEADER, mb.indirect, 0, mb.draw_count, STRIDE)
-	} else if (r.cull || item.hidden != nil) && len(item.chunks) > 0 && mb.indirect != nil {
-		if mb.draw_count > 0 do gpu_draw_primitives_indirect(pass, mb.indirect, 0, mb.draw_count, STRIDE)
+	paint := mb.paint if mb.paint != 0 else r.no_paint
+	vertex := [Skin_Vert_Buffers]gpu.Buffer{.paint = paint, .indices = mb.indices, .positions = mb.positions, .normals = mb.normals}
+	bind_vertex_storage(pass, &vertex)
+	fragment := [Skin_Frag_Buffers]gpu.Buffer{.skin_normals = mb.skin_normals, .skin_tris = mb.skin_tris}
+	bind_fragment_storage(pass, &fragment)
+	STRIDE :: size_of(gpu.Indexed_Indirect_Draw)
+	if mb.cull.culled && r.cull && len(item.chunks) > 0 && mb.indirect != 0 {
+		gpu.draw_primitives_indirect_count(pass, mb.indirect, CULL_HEADER, mb.indirect, 0, mb.draw_count, STRIDE)
+	} else if (r.cull || item.hidden != nil) && len(item.chunks) > 0 && mb.indirect != 0 {
+		if mb.draw_count > 0 do gpu.draw_primitives_indirect(pass, mb.indirect, 0, mb.draw_count, STRIDE)
 		if stats != nil {
 			for v in mb.visible do stats.triangles += u64(v.index_count / 3)
 			stats.draws += u64(mb.draw_count)
 		}
-		if mb.tess_draw_count == 0 || pipes.skin_tess == nil do return
-		gpu_bind_graphics_pipeline(pass, pipes.skin_tess)
-		grid := [SKIN_TESS_STORAGE]^sdl.GPUBuffer{vertex[0], mb.indices, mb.positions, mb.normals, mb.skin_normals, mb.skin_tris, mb.skin_heights}
-		gpu_bind_vertex_storage_buffers(pass, 0, &grid[0], len(grid))
-		gpu_draw_primitives_indirect(pass, mb.indirect, (mb.draw_count + mb.lod_draw_count) * STRIDE, mb.tess_draw_count, STRIDE)
+		if mb.tess_draw_count == 0 || pipes.skin_tess == 0 do return
+		gpu.bind_graphics_pipeline(pass, pipes.skin_tess)
+		grid := [Skin_Tess_Vert_Buffers]gpu.Buffer {
+			.paint        = paint,
+			.indices      = mb.indices,
+			.positions    = mb.positions,
+			.normals      = mb.normals,
+			.skin_normals = mb.skin_normals,
+			.skin_tris    = mb.skin_tris,
+			.skin_heights = mb.skin_heights,
+		}
+		bind_vertex_storage(pass, &grid)
+		gpu.draw_primitives_indirect(pass, mb.indirect, (mb.draw_count + mb.lod_draw_count) * STRIDE, mb.tess_draw_count, STRIDE)
 		if stats != nil {
 			for v in mb.tess_visible[:mb.tess_draw_count] {
 				stats.triangles += u64(v.index_count / 3)
@@ -166,7 +167,7 @@ draw_skinned_item :: proc(r: ^Renderer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_P
 		}
 		return true
 	} else {
-		gpu_draw_primitives(pass, mb.index_count, 1, 0, 0)
+		gpu.draw_primitives(pass, mb.index_count, 1, 0, 0)
 		if stats == nil do return
 		stats.triangles += u64(mb.index_count / 3)
 		stats.draws += 1
@@ -182,21 +183,21 @@ mesh_buffers_set_skin :: proc(r: ^Renderer, mb: ^Mesh_Buffers, tris: [][4]u32, n
 	mesh_buffers_drop_skin(r, mb)
 	if !mb.storage || len(tris) == 0 || len(normals) == 0 || len(heights) != len(normals) do return false
 	words := heights_packed(heights, {{0, u32(len(heights) + 1) / 2}}, context.temp_allocator)
-	mb.skin_normals = gpu_create_buffer(r.device, {usage = {.GRAPHICS_STORAGE_READ}, size = u32(len(normals) * size_of([2]i16))})
-	mb.skin_tris = gpu_create_buffer(r.device, {usage = {.GRAPHICS_STORAGE_READ}, size = u32(len(tris) * size_of([4]u32))})
-	mb.skin_heights = gpu_create_buffer(r.device, {usage = {.GRAPHICS_STORAGE_READ}, size = u32(len(words) * size_of(u32))})
-	ok := mb.skin_normals != nil && mb.skin_tris != nil && mb.skin_heights != nil
-	ok = ok && upload_blocking(r, mb, mb.skin_normals, slice.to_bytes(normals))
-	ok = ok && upload_blocking(r, mb, mb.skin_tris, slice.to_bytes(tris))
-	ok = ok && upload_blocking(r, mb, mb.skin_heights, slice.to_bytes(words))
+	mb.skin_normals = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = u32(len(normals) * size_of([2]i16))})
+	mb.skin_tris = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = u32(len(tris) * size_of([4]u32))})
+	mb.skin_heights = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = u32(len(words) * size_of(u32))})
+	ok := mb.skin_normals != 0 && mb.skin_tris != 0 && mb.skin_heights != 0
+	ok = ok && upload_now(r, mb.skin_normals, slice.to_bytes(normals))
+	ok = ok && upload_now(r, mb.skin_tris, slice.to_bytes(tris))
+	ok = ok && upload_now(r, mb.skin_heights, slice.to_bytes(words))
 	if !ok {
-		log.errorf("detail skin upload failed: %s", sdl.GetError())
+		log.errorf("detail skin upload failed: %s", gpu.last_error())
 		mesh_buffers_drop_skin(r, mb)
 		return false
 	}
-	gpu_set_buffer_name(r.device, mb.skin_normals, "skin normals")
-	gpu_set_buffer_name(r.device, mb.skin_tris, "skin triangles")
-	gpu_set_buffer_name(r.device, mb.skin_heights, "skin heights")
+	gpu.set_buffer_name(mb.skin_normals, "skin normals")
+	gpu.set_buffer_name(mb.skin_tris, "skin triangles")
+	gpu.set_buffer_name(mb.skin_heights, "skin heights")
 	mb.skin_meta = {segments, verts, edges}
 	mb.skin_reach = reach
 	mb.skin_samples = u32(len(normals))
@@ -206,10 +207,10 @@ mesh_buffers_set_skin :: proc(r: ^Renderer, mb: ^Mesh_Buffers, tris: [][4]u32, n
 
 // Records the upload of the samples' normals and heights in `ranges`
 // (sculpt.sculptor_skin_ranges), and how far the skin now strays at most.
-mesh_buffers_upload_skin :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, normals: [][2]i16, heights: []f16, reach: f32, ranges: []geom.Vertex_Range) {
+mesh_buffers_upload_skin :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, normals: [][2]i16, heights: []f16, reach: f32, ranges: []geom.Vertex_Range) {
 	debug_group(cmd, "Skin upload", .Uploads)
 	mb.skin_reach = reach
-	if mb.skin_normals == nil || len(ranges) == 0 do return
+	if mb.skin_normals == 0 || len(ranges) == 0 do return
 	if u32(len(normals)) != mb.skin_samples || len(heights) != len(normals) {
 		log.errorf("detail skin upload: %d samples for a buffer of %d", len(normals), mb.skin_samples)
 		return
@@ -217,14 +218,14 @@ mesh_buffers_upload_skin :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^
 	// A packed normal is one u32, and a range of samples one of indices.
 	words := slice.reinterpret([]u32, normals)
 	if !upload_index_ranges(r, cmd, mb, mb.skin_normals, words, transmute([]geom.Index_Range)ranges) {
-		log.errorf("detail skin upload failed: %s", sdl.GetError())
+		log.errorf("detail skin upload failed: %s", gpu.last_error())
 	}
 	// The heights go two a word: each range widened to whole words, packed one after another.
 	word_ranges := make([]geom.Index_Range, len(ranges), context.temp_allocator)
 	for g, i in ranges do word_ranges[i] = {g.first / 2, (g.first + g.count + 1) / 2 - g.first / 2}
 	packed := heights_packed(heights, word_ranges, context.temp_allocator)
 	if !upload_index_ranges(r, cmd, mb, mb.skin_heights, packed, word_ranges, packed = true) {
-		log.errorf("detail skin upload failed: %s", sdl.GetError())
+		log.errorf("detail skin upload failed: %s", gpu.last_error())
 	}
 	mb_touch(r, mb)
 }
@@ -250,23 +251,23 @@ heights_packed :: proc(heights: []f16, words: []geom.Index_Range, allocator := c
 
 // Records the upload of every triangle's record again (their lead corners change with
 // the polygroups).
-mesh_buffers_upload_skin_tris :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, tris: [][4]u32) {
-	if mb.skin_tris == nil do return
+mesh_buffers_upload_skin_tris :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, tris: [][4]u32) {
+	if mb.skin_tris == 0 do return
 	words := slice.reinterpret([]u32, tris)
 	whole := [1]geom.Index_Range{{0, u32(len(words))}}
 	if !upload_index_ranges(r, cmd, mb, mb.skin_tris, words, whole[:]) {
-		log.errorf("detail skin upload failed: %s", sdl.GetError())
+		log.errorf("detail skin upload failed: %s", gpu.last_error())
 	}
 	mb_touch(r, mb)
 }
 
-// Takes the skin off the mesh, which draws by its own normals again. The caller waits for
-// the GPU first (render.wait_idle) when it may still be drawing it.
+// Takes the skin off the mesh, which draws by its own normals again. A frame in flight
+// still drawing the skin keeps its buffers until it is done.
 mesh_buffers_drop_skin :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
-	if mb.skin_normals != nil do gpu_release_buffer(r.device, mb.skin_normals)
-	if mb.skin_tris != nil do gpu_release_buffer(r.device, mb.skin_tris)
-	if mb.skin_heights != nil do gpu_release_buffer(r.device, mb.skin_heights)
-	mb.skin_normals, mb.skin_tris, mb.skin_heights, mb.skin_meta, mb.skin_samples, mb.skin_lead_stamp, mb.skin_stamp = nil, nil, nil, {}, 0, 0, 0
+	if mb.skin_normals != 0 do gpu.release_buffer(mb.skin_normals)
+	if mb.skin_tris != 0 do gpu.release_buffer(mb.skin_tris)
+	if mb.skin_heights != 0 do gpu.release_buffer(mb.skin_heights)
+	mb.skin_normals, mb.skin_tris, mb.skin_heights, mb.skin_meta, mb.skin_samples, mb.skin_lead_stamp, mb.skin_stamp = 0, 0, 0, {}, 0, 0, 0
 	mb.skin_reach, mb.tess_draw_count = 0, 0
 	mb_touch(r, mb)
 }

@@ -189,16 +189,16 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 	float2 size = float2(texture_size(view_depth));
 	int2 px = int2(global_id.xy);
 	if (px.x >= int(size.x) || px.y >= int(size.y)) return;
-	float d = view_depth.Load(int3(px, 0)).r;
+	float d = load_texel(view_depth, px).r;
 	if (d >= 1.0) return;
 	float2 frag = float2(px) + 0.5;
 	float3 p = world_at(frag, d, size);
 	// The surface normal from the depth of the neighbouring pixels, as studio_gather.frag.
 	int2 hi = int2(size) - 1;
-	float dl = view_depth.Load(int3(clamp(px - int2(1, 0), int2(0), hi), 0)).r;
-	float dr = view_depth.Load(int3(clamp(px + int2(1, 0), int2(0), hi), 0)).r;
-	float du = view_depth.Load(int3(clamp(px - int2(0, 1), int2(0), hi), 0)).r;
-	float dd = view_depth.Load(int3(clamp(px + int2(0, 1), int2(0), hi), 0)).r;
+	float dl = load_texel(view_depth, clamp(px - int2(1, 0), int2(0), hi)).r;
+	float dr = load_texel(view_depth, clamp(px + int2(1, 0), int2(0), hi)).r;
+	float du = load_texel(view_depth, clamp(px - int2(0, 1), int2(0), hi)).r;
+	float dd = load_texel(view_depth, clamp(px + int2(0, 1), int2(0), hi)).r;
 	float3 px_r = abs(dr - d) < abs(d - dl) ? world_at(frag + float2(1, 0), dr, size) - p : p - world_at(frag - float2(1, 0), dl, size);
 	float3 px_d = abs(dd - d) < abs(d - du) ? world_at(frag + float2(0, 1), dd, size) - p : p - world_at(frag - float2(0, 1), du, size);
 	float3 n = normalize(cross(px_d, px_r));

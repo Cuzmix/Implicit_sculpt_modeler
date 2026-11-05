@@ -1,8 +1,8 @@
 package render
 
+import "../gpu"
 import "core:log"
 import "core:math/linalg"
-import sdl "vendor:sdl3"
 
 import "../geom"
 
@@ -26,7 +26,7 @@ Shadow_Uniforms :: struct {
 // draws, and the rest keeps what it held; without, all of it is, simplified where a full
 // redraw of the viewport simplifies (lod_view), so the depth is the surface the colour shows.
 @(private)
-view_depth_draw :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, depth_pipeline, clear_pipeline: ^sdl.GPUGraphicsPipeline, target: ^sdl.GPUTexture, width, height: u32, view, proj: Mat4, items: []Draw_Item, rect: Maybe(Rect) = nil) {
+view_depth_draw :: proc(r: ^Renderer, cmd: gpu.Cmd, depth_pipeline, clear_pipeline: gpu.Graphics_Pipeline, target: gpu.Texture, width, height: u32, view, proj: Mat4, items: []Draw_Item, rect: Maybe(Rect) = nil) {
 	stats: Viewport_Stats
 	part, partial := rect.?
 	if partial {
@@ -34,34 +34,36 @@ view_depth_draw :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, depth_pipeline
 	} else {
 		prepare_draws(r, cmd, view, proj, items, nil, &stats, lod = lod_view(r, height, proj))
 	}
-	depth := sdl.GPUDepthStencilTargetInfo {
+	depth := gpu.Depth_Target {
 		texture          = target,
 		clear_depth      = 1,
-		load_op          = .LOAD if partial else .CLEAR,
-		store_op         = .STORE,
-		stencil_load_op  = .DONT_CARE,
-		stencil_store_op = .DONT_CARE,
+		load_op          = .Load if partial else .Clear,
+		store_op         = .Store,
+		stencil_load_op  = .Dont_Care,
+		stencil_store_op = .Dont_Care,
 		// A partial redraw keeps the rest, so it must draw into the same texture.
 		cycle            = !partial,
 	}
-	pass := gpu_begin_render_pass(cmd, nil, 0, &depth)
+	pass := gpu.begin_render_pass(cmd, nil, 0, &depth)
 	if partial {
-		gpu_set_scissor(pass, {part.x, part.y, part.w, part.h})
-		gpu_bind_graphics_pipeline(pass, clear_pipeline)
-		gpu_draw_primitives(pass, 3, 1, 0, 0)
+		gpu.set_scissor(pass, {part.x, part.y, part.w, part.h})
+		gpu.bind_graphics_pipeline(pass, clear_pipeline)
+		gpu.draw_primitives(pass, 3, 1, 0, 0)
 	}
-	gpu_bind_graphics_pipeline(pass, depth_pipeline)
+	gpu.bind_graphics_pipeline(pass, depth_pipeline)
 	for item in items {
 		// See-through items leave the viewport's own depth be, so they stay out of this
 		// one too: the anti-aliased viewport then shades as the plain one does.
 		if blended(&r.single, item) do continue
 		u := Shadow_Uniforms{proj * view, item.model}
-		gpu_push_vertex_uniform_data(cmd, 0, &u, size_of(u))
-		vbufs := [1]sdl.GPUBufferBinding{{buffer = item.mesh.positions}}
-		gpu_bind_vertex_buffers(pass, 0, &vbufs[0], 1)
+		// The pipeline culls back faces, which a reflected copy winds the other way.
+		gpu.set_front_face(pass, model_reflected(item.model))
+		push_vertex(cmd, Shadow_Vert_Uniforms.Shadow_Uniforms, &u)
+		vbufs := [1]gpu.Buffer_Binding{{buffer = item.mesh.positions}}
+		gpu.bind_vertex_buffers(pass, 0, &vbufs[0], 1)
 		draw_item_triangles(r, pass, item, nil)
 	}
-	gpu_end_render_pass(pass)
+	gpu.end_render_pass(pass)
 }
 
 // Maps the pixel rectangle `rect` of a `width` by `height` target to the whole of clip
@@ -120,33 +122,25 @@ scene_sphere :: proc(items: []Draw_Item) -> (center: [3]f32, radius: f32, ok: bo
 // Depth from a light (both faces, so an open mesh or a hole still casts its shadow) or,
 // with `cull_back`, the camera's (front faces, matching what the viewport drew).
 @(private)
-create_shadow_pipeline :: proc(r: ^Renderer, cull_back: bool) -> ^sdl.GPUGraphicsPipeline {
-	vert := gpu_create_shader(r.device, {
-		code_size = len(SHADOW_VERT_CODE), code = raw_data(SHADOW_VERT_CODE), entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .VERTEX, num_uniform_buffers = 1,
-	})
-	frag := gpu_create_shader(r.device, {
-		code_size = len(SHADOW_FRAG_CODE), code = raw_data(SHADOW_FRAG_CODE), entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .FRAGMENT,
-	})
-	defer if vert != nil do gpu_release_shader(r.device, vert)
-	defer if frag != nil do gpu_release_shader(r.device, frag)
-	if vert == nil || frag == nil do return nil
-	buffers := [1]sdl.GPUVertexBufferDescription{{slot = 0, pitch = size_of(geom.Vec3), input_rate = .VERTEX}}
-	attributes := [1]sdl.GPUVertexAttribute{{location = 0, buffer_slot = 0, format = .FLOAT3}}
-	return gpu_create_graphics_pipeline(r.device, {
+create_shadow_pipeline :: proc(r: ^Renderer, cull_back: bool) -> gpu.Graphics_Pipeline {
+	vert := gpu.create_shader(SHADOW_VERT)
+	frag := gpu.create_shader(SHADOW_FRAG)
+	defer if vert != 0 do gpu.release_shader(vert)
+	defer if frag != 0 do gpu.release_shader(frag)
+	if vert == 0 || frag == 0 do return 0
+	buffers := [1]gpu.Vertex_Buffer{{slot = 0, pitch = size_of(geom.Vec3), input_rate = .Vertex}}
+	attributes := [1]gpu.Vertex_Attribute{{location = 0, buffer_slot = 0, format = .Float3}}
+	return gpu.create_graphics_pipeline({
 		vertex_shader = vert,
 		fragment_shader = frag,
-		vertex_input_state = {
-			vertex_buffer_descriptions = &buffers[0],
-			num_vertex_buffers = 1,
-			vertex_attributes = &attributes[0],
-			num_vertex_attributes = 1,
+		vertex_input = {
+			buffers = buffers[:],
+			attributes = attributes[:],
 		},
-		primitive_type = .TRIANGLELIST,
-		rasterizer_state = {fill_mode = .FILL, cull_mode = .BACK if cull_back else .NONE, front_face = .COUNTER_CLOCKWISE},
-		depth_stencil_state = {compare_op = .LESS, enable_depth_test = true, enable_depth_write = true},
-		target_info = {depth_stencil_format = r.depth_format, has_depth_stencil_target = true},
+		primitive = .Triangle_List,
+		rasterizer_state = {fill_mode = .Fill, cull_mode = .Back if cull_back else .None, front_face = .Counter_Clockwise},
+		depth_stencil_state = {compare_op = .Less, enable_depth_test = true, enable_depth_write = true},
+		targets = {depth_stencil_format = r.depth_format, has_depth_stencil_target = true},
 	})
 }
 
@@ -154,60 +148,48 @@ create_shadow_pipeline :: proc(r: ^Renderer, cull_back: bool) -> ^sdl.GPUGraphic
 // was there, and no colour: clears a scissored part of a depth target, which a render
 // pass can only clear whole.
 @(private)
-create_depth_clear_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
-	vert := gpu_create_shader(r.device, {
-		code_size = len(CLEAR_VERT_CODE), code = raw_data(CLEAR_VERT_CODE), entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .VERTEX,
-	})
-	frag := gpu_create_shader(r.device, {
-		code_size = len(SHADOW_FRAG_CODE), code = raw_data(SHADOW_FRAG_CODE), entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .FRAGMENT,
-	})
-	defer if vert != nil do gpu_release_shader(r.device, vert)
-	defer if frag != nil do gpu_release_shader(r.device, frag)
-	if vert == nil || frag == nil do return nil
-	return gpu_create_graphics_pipeline(r.device, {
+create_depth_clear_pipeline :: proc(r: ^Renderer) -> gpu.Graphics_Pipeline {
+	vert := gpu.create_shader(CLEAR_VERT)
+	frag := gpu.create_shader(SHADOW_FRAG)
+	defer if vert != 0 do gpu.release_shader(vert)
+	defer if frag != 0 do gpu.release_shader(frag)
+	if vert == 0 || frag == 0 do return 0
+	return gpu.create_graphics_pipeline({
 		vertex_shader = vert,
 		fragment_shader = frag,
-		primitive_type = .TRIANGLELIST,
-		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
-		depth_stencil_state = {compare_op = .ALWAYS, enable_depth_test = true, enable_depth_write = true},
-		target_info = {depth_stencil_format = r.depth_format, has_depth_stencil_target = true},
+		primitive = .Triangle_List,
+		rasterizer_state = {fill_mode = .Fill, cull_mode = .None},
+		depth_stencil_state = {compare_op = .Always, enable_depth_test = true, enable_depth_write = true},
+		targets = {depth_stencil_format = r.depth_format, has_depth_stencil_target = true},
 	})
 }
 
-// A full-screen triangle (clear.vert.slang) through `frag_code`, which reads `samplers` samplers
-// and one uniform buffer, into one colour target; `additive` blends by adding.
+// A full-screen triangle (clear.vert.slang) through the fragment shader `fragment` into one
+// colour target; `additive` blends by adding.
 @(private)
-create_fullscreen_pipeline :: proc(r: ^Renderer, frag_code: string, format: sdl.GPUTextureFormat, samplers: u32, additive := false) -> ^sdl.GPUGraphicsPipeline {
-	vert := gpu_create_shader(r.device, {
-		code_size = len(CLEAR_VERT_CODE), code = raw_data(CLEAR_VERT_CODE), entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .VERTEX,
-	})
-	frag := gpu_create_shader(r.device, {
-		code_size = len(frag_code), code = raw_data(frag_code), entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .FRAGMENT, num_samplers = samplers, num_uniform_buffers = 1,
-	})
-	defer if vert != nil do gpu_release_shader(r.device, vert)
-	defer if frag != nil do gpu_release_shader(r.device, frag)
-	if vert == nil || frag == nil {
-		log.errorf("full-screen pass shaders: %s", sdl.GetError())
-		return nil
+create_fullscreen_pipeline :: proc(r: ^Renderer, fragment: gpu.Shader_Desc, format: gpu.Format, additive := false) -> gpu.Graphics_Pipeline {
+	vert := gpu.create_shader(CLEAR_VERT)
+	frag := gpu.create_shader(fragment)
+	defer if vert != 0 do gpu.release_shader(vert)
+	defer if frag != 0 do gpu.release_shader(frag)
+	if vert == 0 || frag == 0 {
+		log.errorf("full-screen pass shaders: %s", gpu.last_error())
+		return 0
 	}
-	blend := sdl.GPUColorTargetBlendState{}
+	blend := gpu.Blend_State{}
 	if additive {
 		blend = {
-			src_color_blendfactor = .ONE, dst_color_blendfactor = .ONE, color_blend_op = .ADD,
-			src_alpha_blendfactor = .ONE, dst_alpha_blendfactor = .ONE, alpha_blend_op = .ADD,
+			src_color_blendfactor = .One, dst_color_blendfactor = .One, color_blend_op = .Add,
+			src_alpha_blendfactor = .One, dst_alpha_blendfactor = .One, alpha_blend_op = .Add,
 			enable_blend = true,
 		}
 	}
-	color_targets := [1]sdl.GPUColorTargetDescription{{format = format, blend_state = blend}}
-	return gpu_create_graphics_pipeline(r.device, {
+	color_targets := [1]gpu.Color_Target_Desc{{format = format, blend_state = blend}}
+	return gpu.create_graphics_pipeline({
 		vertex_shader = vert,
 		fragment_shader = frag,
-		primitive_type = .TRIANGLELIST,
-		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
-		target_info = {color_target_descriptions = &color_targets[0], num_color_targets = 1},
+		primitive = .Triangle_List,
+		rasterizer_state = {fill_mode = .Fill, cull_mode = .None},
+		targets = {color_targets = color_targets[:]},
 	})
 }

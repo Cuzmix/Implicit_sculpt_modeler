@@ -103,7 +103,9 @@ cursor_update :: proc(app: ^App, input: Viewport_Input) {
 	start := time.tick_now()
 	defer ring_push(&app.stats.cursor_ms, time.duration_milliseconds(time.tick_since(start)))
 	origin, dir := mouse_ray(app.camera, ring_center(app, input), input.size)
-	index, hit, face, ok := scene_raycast_surface(app, origin, dir)
+	// The ring lies on what a stroke would work on: the selected object alone, seen through
+	// any other in front of it, while strokes keep to it (stroke_only).
+	index, hit, face, ok := scene_raycast_surface(app, origin, dir, only = stroke_only(app))
 	if !ok do return
 	obj := app.scene.objects[index]
 	t := obj.transform

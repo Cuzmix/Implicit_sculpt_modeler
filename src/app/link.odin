@@ -386,9 +386,25 @@ link_object_ply :: proc(app: ^App, obj: ^Object, out: ^[dynamic]u8) -> (vertices
 		packed, mask = sculpt.sculptor_compact_mesh(&lv.sculptor)
 		delete(mask)
 		positions, indices = packed.positions[:], packed.indices[:]
-	} else if c := lv.sculptor.color; c != nil {
+	} else if c := sculpt.sculptor_paint_shown(&lv.sculptor); c != nil {
 		colors = make([][3]u8, len(c))
 		for x, v in c do colors[v] = paint_over(x, {255, 255, 255})
+	}
+	// Blender gets what the view shows: the live stack baked, which a get then brings back
+	// in place of the object and its rows (link_apply's Swap).
+	baked: geom.Mesh
+	defer geom.mesh_destroy(&baked)
+	from: [dynamic]u32
+	defer delete(from)
+	made: bool
+	if baked, made = stack_bake(app, obj, positions, indices, &from); made {
+		positions, indices = baked.positions[:], baked.indices[:]
+		if colors != nil {
+			moved := make([][3]u8, len(from))
+			for v, k in from do moved[k] = colors[v]
+			delete(colors)
+			colors = moved
+		}
 	}
 	geom.mesh_write_ply(out, positions, indices, 1, {}, &app.pool, colors)
 	return len(positions), len(indices) / 3
@@ -562,8 +578,9 @@ link_plan :: proc(app: ^App, o: Link_Object, token: u64, mesh: geom.Mesh, sent: 
 	if o.level >= len(obj.levels.levels) do return .Add, nil, .Level_Gone
 	level := obj.levels.levels[o.level]
 	// A level deleted below the one sent renumbers it: the level of that number now is
-	// another, which the mesh must not replace.
-	if went != nil && went.level == o.level && len(level.mesh.positions) != went.vertices do return .Add, nil, .Level_Gone
+	// another, which the mesh must not replace. A live stack went baked, so its count is
+	// not the level's and says nothing of it.
+	if went != nil && went.level == o.level && len(level.mesh.positions) != went.vertices && !stack_shows(app, obj) do return .Add, nil, .Level_Gone
 	if len(level.mesh.positions) != len(mesh.positions) || !link_same_triangles(level.mesh.indices[:], mesh.indices[:], &app.pool) do return .Swap, obj, .Topology
 	return .Project, obj, .None
 }
@@ -657,6 +674,9 @@ link_apply :: proc(app: ^App, o: Link_Object, mesh: ^geom.Mesh, action: Link_Act
 			return false
 		}
 		mesh^ = {}
+		// The link sent the stack baked, so the mesh back holds its copies: the rows that
+		// showed come out, as Apply the stack takes them, in the same undo step.
+		if stack_shows(app, obj) do stack_take_shown(app, obj)
 		if was_dynamic {
 			if _, ok := object_set_dyntopo(app, obj, true); !ok do return false
 		}

@@ -68,7 +68,6 @@ settings_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	a.kit.add_size = 1
 	a.custom = MATERIALS[FIRST_MATCAP + 2]
 	a.custom.selected = {0.25, 0.75, 1, 1}
-	a.kit.windows[.Stats] = {moved = true, offset = {40, -20}, minimized = true}
 	color_history_push(&a.kit.colors, {1, 0.5, 0})
 	color_history_push(&a.kit.colors, {0, 0, 1})
 	mine := palette_new(&a.kit.colors)
@@ -95,7 +94,6 @@ settings_read_back_what_they_wrote :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.custom.matcap, 3)
 	testing.expect_value(t, b.custom.selected.rgb, a.custom.selected.rgb)
 	testing.expect_value(t, b.custom.idle, MATCAP_IDLE)
-	testing.expect_value(t, b.kit.windows[.Stats], a.kit.windows[.Stats])
 	testing.expect_value(t, b.kit.palette_recent_count, 2)
 	testing.expect(t, b.kit.palette_recent == a.kit.palette_recent)
 	testing.expect_value(t, b.kit.colors.history_count, 2)

@@ -9,8 +9,7 @@
 #   bench   headless sculpt benchmark at 500k, 1M, 5M, 7M and 10M vertices (no display
 #           needed); extra args go to build/bench, e.g. 2000000 --threads=1
 #   smoke   debug build, then run 300 frames with GPU debug mode and a view window (a
-#           second swapchain), once on SDL_GPU and once on the Vulkan backend; fails on
-#           any SDL assert, GPU error, Vulkan validation message or leaked allocation
+#           second swapchain); fails on any SDL assert, GPU error, Vulkan validation message or leaked allocation
 #           (needs a display, e.g. Xvfb)
 #   gpubench release build, then time the GPU and CPU while orbiting and sculpting a
 #           sphere at 500k, 1M, 5M, 7M, 10M and 20M vertices, with each speed setting on and
@@ -33,8 +32,10 @@
 #           without Xcode or linking, so iOS-only compile errors show up anywhere
 #   ios     macOS with Xcode only: build the iPad app (ios/, README.md "iPad") into
 #           build/ios/Sculpt.ipa, unsigned for AltStore to sign on the iPad, or signed for
-#           TestFlight and the App Store when SCULPT_SIGN_IDENTITY and SCULPT_PROFILE are set
-#           (.github/workflows/ipad.yml runs it on GitHub's macOS runner)
+#           TestFlight and the App Store when SCULPT_SIGN_IDENTITY and SCULPT_PROFILE are set;
+#           with SCULPT_IOS_OBJECT it links the app's object from that path rather than
+#           compiling it (.github/workflows/ipad.yml compiles it on Linux with iphonecheck
+#           and runs this on GitHub's macOS runner)
 #   iosupload macOS only: send the signed build/ios/Sculpt.ipa to App Store Connect for
 #           TestFlight (ASC_KEY_ID, ASC_ISSUER_ID and the API key's .p8)
 #   maccheck compile the app for the Mac (Apple silicon) to an object file, as `mac` does,
@@ -72,13 +73,11 @@ mode="${1:-debug}"; shift || true
 # for which Slang raises the profile with SPV_EXT_descriptor_indexing on purpose, so that
 # warning (41012) is quieted for it; it has no Metal source (scripts/shaders_msl.py). A
 # shader whose first line starts "// ray query" raises the profile for ray queries the same
-# way, so it is quieted too; its Metal source is slangc's own (name.comp.metal), which
-# scripts/shaders_msl.py makes with slangc alone. A shader whose first line starts
+# way, so it is quieted too. A shader whose first line starts
 # "// barycentric" reads where the pixel lies between the triangle's corners, which raises
 # the profile with SPV_KHR_fragment_shader_barycentric, so the warning is quieted for it
-# too; the renderer loads it only where the device offers that (Gpu_Caps.barycentric), and
-# its Metal source is made for MSL 2.3, the first with barycentrics on both the Mac and the
-# iPad. Without deps/slang (scripts/setup_deps.sh)
+# too; the renderer loads it only where the device offers that (Gpu_Caps.barycentric). Every
+# shader's Metal source is slangc's own (scripts/shaders_msl.py). Without deps/slang (scripts/setup_deps.sh)
 # the committed .spv files are used as they are.
 SLANGC="$DEPS/slang/bin/slangc"
 compile_shaders() {
@@ -92,12 +91,14 @@ compile_shaders() {
 		if head -n 1 "$src" | grep -q '^// vulkan only\|^// ray query\|^// barycentric'; then flags+=(-warnings-disable 41012); fi
 		"$SLANGC" "$src" -target spirv -profile spirv_1_3 -matrix-layout-row-major -O0 -stage "$stage" -entry main "${flags[@]}" -o "$name.spv"
 	done
-	# Each new .spv's Metal source for the iPad build (scripts/shaders_msl.py): the .msl when
-	# SDL_shadercross is built (scripts/build_shadercross.py), and a ray query kernel's .metal
-	# with slangc alone; `check` fails on a stale one.
+	# Each new .spv's Metal source for the Mac and iPad builds, made by slangc with its slot
+	# table (scripts/shaders_msl.py); `check` fails on a stale one.
 	python3 "$ROOT/scripts/shaders_msl.py"
 	# And its WGSL for the web version (scripts/shaders_wgsl.py), likewise checked.
 	python3 "$ROOT/scripts/shaders_wgsl.py"
+	# And its description in src/render/shaders_gen.odin, counts and thread groups from slangc's
+	# reflection (scripts/shaders_gen.py), likewise checked.
+	python3 "$ROOT/scripts/shaders_gen.py"
 }
 
 common=(-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
@@ -112,8 +113,6 @@ need_luau() {
 	# A shim changed since the library was built is compiled again (a library built from
 	# this shim and tag is kept, so this costs nothing most runs).
 	python3 "$ROOT/scripts/build_ufbx.py" > /dev/null || { echo "ufbx: src/fbx/fbx_shim.c changed and rebuilding deps/ufbx failed: run python3 scripts/build_ufbx.py"; exit 1; }
-	# And AutoRemesher's core for Quad Remesh, with its boundary (scripts/build_autoremesher.py).
-	[ -f "$DEPS/autoremesher/libautoremesher.a" ] || { echo "AutoRemesher missing: run scripts/setup_deps.sh, which builds deps/autoremesher"; exit 1; }
 }
 
 # The oldest iPadOS the iPad build runs on. From 17.4 Odin's thread waits use the public
@@ -203,7 +202,7 @@ apple_icon() {
 
 # Every Metal shader through Apple's own compiler for SDK $1 (iphoneos or macosx), into
 # build/$2/msl, so a translation error stops the build here rather than on the device, where
-# SDL compiles each from source when the app first makes its pipeline (scripts/shaders_msl.py
+# the Metal backend compiles each from source when the app first makes its pipeline (scripts/shaders_msl.py
 # made them). A shader whose source and compiler match those it last passed with (its .sum
 # beside its .air, which the workflows keep in their caches) is not checked again.
 metal_check() {
@@ -247,25 +246,28 @@ case "$mode" in
 	test)
 		compile_shaders
 		need_luau
-		for pkg in geom uv poly camera sculpt jobs gizmo png_write zip hdri voxel ui luau usd fbx quadmesh retopo send app; do
+		for pkg in geom uv poly camera sculpt jobs gizmo png_write zip hdri voxel ui luau usd fbx sparse quadmesh retopo send app; do
 			"$ODIN" test "$ROOT/src/$pkg" -out:"$ROOT/build/test_$pkg" "${common[@]}"
 		done
 		;;
 	check)
 		# Library packages have no main, hence -no-entry-point; it is harmless on the executables.
 		# odin check takes no linker flags, so this is wincheck's flag list, not common's.
-		for pkg in app bench fbx geom camera gizmo hdri jobs luau png_write poly quadmesh render retopo sculpt send ui usd uv voxel zip; do
+		for pkg in app bench fbx geom camera gizmo gpu hdri jobs luau png_write poly quadmesh render retopo sculpt send sparse ui usd uv voxel zip; do
 			"$ODIN" check "$ROOT/src/$pkg" -no-entry-point \
 				-collection:deps="$DEPS" -vet -strict-style -warnings-as-errors
 		done
 		python3 "$ROOT/scripts/agents_sync.py" --check
 		python3 "$ROOT/scripts/boundary_check.py"
+		# The interface's computed qualities (contrast, literal sizes, shared icons) only get better.
+		python3 "$ROOT/scripts/ui_audit.py" --quiet
 		python3 "$ROOT/scripts/shaders_msl.py" --check
 		python3 "$ROOT/scripts/shaders_wgsl.py" --check
+		python3 "$ROOT/scripts/shaders_gen.py" --check
 		# The web version compiles the engine for js, where a core:os or core:thread call on a
 		# sculpt path would fail; checking it here keeps that from going unnoticed.
 		python3 "$ROOT/scripts/web_build.py" --check
-		echo "check: 21 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal and WGSL shaders current, the web version type-checks"
+		echo "check: 23 packages type-check, agent mirror current, only src/gpu talks to the GPU and only the platform files import SDL, the interface audit no worse than its baseline, Metal and WGSL shaders and their descriptions current, the web version type-checks"
 		;;
 	web)
 		python3 "$ROOT/scripts/web_build.py" "$@"
@@ -360,20 +362,30 @@ case "$mode" in
 		cc=(xcrun -sdk iphoneos clang -target "arm64-apple-ios$IOS_MIN")
 		[ -f "$out/sdl/lib/libSDL3.a" ] || "$ROOT/scripts/sdl_ios.sh" "$IOS_MIN" "$DEPS/sdl3-src" "$out"
 		metal_check iphoneos ios
-		ios_object
+		# The app's object: compiled here, or the one SCULPT_IOS_OBJECT names, which the iPad
+		# workflow compiles on Linux so that the Mac needs no Odin of its own.
+		if [ -n "${SCULPT_IOS_OBJECT:-}" ]; then
+			[ -f "$SCULPT_IOS_OBJECT" ] || { echo "SCULPT_IOS_OBJECT names no file: $SCULPT_IOS_OBJECT"; exit 1; }
+			cp "$SCULPT_IOS_OBJECT" "$out/sculpt.o"
+		else
+			ios_object
+		fi
 		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_truetype.c" -o "$out/stb_truetype.o"
+		# stb_image, for the pictures Odin's own readers leave out (progressive JPEGs).
+		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_image.c" -o "$out/stb_image.o"
 		# ufbx with the app's shim round it, for FBX import (src/fbx).
 		"${cc[@]}" -O2 -w -I"$DEPS/ufbx-src" -c "$ROOT/src/fbx/fbx_shim.c" -o "$out/ufbx.o"
 		"${cc[@]}" -O2 -Wall -fobjc-arc -I"$out/sdl/include" -c "$ROOT/ios/sculpt_ios.m" -o "$out/sculpt_ios.o"
 		rm -rf "$out/Payload"
 		mkdir -p "$app"
 		# SDL's pkg-config file names the libraries and frameworks it needs; the document
-		# picker's content types are one more.
+		# picker's content types are one more, the keyboard's Delete key (sculpt_ios.m)
+		# another, and the photo picker (Photos for the References board) a third.
 		libs=$(PKG_CONFIG_PATH="$out/sdl/lib/pkgconfig" pkg-config --static --libs sdl3)
 		[ -n "$libs" ] || { echo "pkg-config gave no flags for SDL's static library"; exit 1; }
 		read -r -a sdl_libs <<< "$libs"
-		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/ufbx.o" "$out/sculpt_ios.o" "${sdl_libs[@]}" \
-			-framework UniformTypeIdentifiers -o "$app/Sculpt"
+		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/stb_image.o" "$out/ufbx.o" "$out/sculpt_ios.o" "${sdl_libs[@]}" \
+			-framework UniformTypeIdentifiers -framework GameController -framework PhotosUI -o "$app/Sculpt"
 		cp "$ROOT/ios/Info.plist" "$app/Info.plist"
 		plutil -replace MinimumOSVersion -string "$IOS_MIN" "$app/Info.plist"
 		plutil -replace CFBundleVersion -string "${BUILD_NUMBER:-1}" "$app/Info.plist"
@@ -436,16 +448,15 @@ case "$mode" in
 		metal_check macosx mac
 		mac_object
 		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_truetype.c" -o "$out/stb_truetype.o"
+		# stb_image, for the pictures Odin's own readers leave out (progressive JPEGs).
+		"${cc[@]}" -O2 -c "$DEPS/odin/vendor/stb/src/stb_image.c" -o "$out/stb_image.o"
 		"${cc[@]}" -O2 -w -I"$DEPS/ufbx-src" -c "$ROOT/src/fbx/fbx_shim.c" -o "$out/ufbx.o"
-		# Quad Remesh is offered on the Mac (src/quadmesh), so AutoRemesher's core links in too,
-		# built for the same minimum macOS when it is missing.
-		[ -f "$DEPS/autoremesher/libautoremesher.a" ] || MACOSX_DEPLOYMENT_TARGET="$MAC_MIN" python3 "$ROOT/scripts/build_autoremesher.py" || exit 1
 		rm -rf "$app"
 		mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 		libs=$(PKG_CONFIG_PATH="$out/sdl/lib/pkgconfig" pkg-config --static --libs sdl3)
 		[ -n "$libs" ] || { echo "pkg-config gave no flags for SDL's static library"; exit 1; }
 		read -r -a sdl_libs <<< "$libs"
-		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/ufbx.o" "$DEPS/autoremesher/libautoremesher.a" -lc++ "${sdl_libs[@]}" -o "$app/Contents/MacOS/Sculpt"
+		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/stb_image.o" "$out/ufbx.o" "${sdl_libs[@]}" -o "$app/Contents/MacOS/Sculpt"
 		plist="$app/Contents/Info.plist"
 		cp "$ROOT/mac/Info.plist" "$plist"
 		plutil -replace LSMinimumSystemVersion -string "$MAC_MIN" "$plist"

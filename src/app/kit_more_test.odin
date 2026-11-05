@@ -50,7 +50,7 @@ section_scene_free :: proc(app: ^App) {
 	alphas_destroy(app)
 	results_destroy(app)
 	ui.destroy(&app.kit.ctx)
-	workspaces_destroy(&app.kit)
+	layouts_destroy(&app.kit)
 }
 
 // How many controls one section lays out in a headless frame, with its More folded or,
@@ -58,7 +58,7 @@ section_scene_free :: proc(app: ^App) {
 // so the alpha thumbnails and each layer's row (record, show, name, strength) are not
 // counted.
 @(private = "file")
-section_controls :: proc(app: ^App, sec: Kit_Section, draw: proc(app: ^App, obj: ^Object), obj: ^Object, all: bool) -> int {
+section_controls :: proc(app: ^App, sec: Section, draw: proc(app: ^App, obj: ^Object), obj: ^Object, all: bool) -> int {
 	ctx := &app.kit.ctx
 	app.kit.all_options = all
 	ui.frame_begin(ctx, {window = {1600, 900}, pixel_density = 1, dt = 1.0 / 60})
@@ -80,7 +80,11 @@ section_controls :: proc(app: ^App, sec: Kit_Section, draw: proc(app: ^App, obj:
 	return n
 }
 
-// Every inspector section shows at most five controls until its More options open (UX
+// The sections that were cards of their own before the cards held sections, which keep
+// their own layout rather than five controls.
+OWN_LAYOUT_SECTIONS :: bit_set[Section]{.Layers, .Scene, .Lights, .Material, .Environment}
+
+// Every section shows at most five controls until its More options open (UX
 // rule "Basic ≤ 5 controls"): for every brush and stroke mode on the Brush card, the Object palette's pages,
 // the Scene card, and the Curve and Insert tools.
 @(test)
@@ -109,9 +113,9 @@ sections_show_at_most_five_controls :: proc(t: ^testing.T) {
 	}
 	preset_delete(&app, 0)
 	for sec in OBJECT_SECTIONS {
-		// A section that is its card (Layers) keeps the card's own layout.
-		if p, _ := panel_of_section(sec.section); !panel_is_section(p) do continue
-		// The object counts as made of quads for UVs and baking only, which needs them;
+		// The sections that were cards of their own keep their own layout.
+		if sec.section in OWN_LAYOUT_SECTIONS do continue
+		// The object counts as made of quads for Bake only, which needs them;
 		// the other sections are counted on the sculpted mesh they were laid out for.
 		quads := obj.levels.faces.quads
 		if sec.section != .Retopo do obj.levels.faces.quads = nil
@@ -120,7 +124,7 @@ sections_show_at_most_five_controls :: proc(t: ^testing.T) {
 		testing.expectf(t, n <= 5, "Object palette, %s: %d controls", sec.title, n)
 	}
 	for sec in SCENE_SECTIONS {
-		if p, _ := panel_of_section(sec.section); !panel_is_section(p) do continue
+		if sec.section in OWN_LAYOUT_SECTIONS do continue
 		tab_draw = sec.draw
 		n := section_controls(&app, sec.section, by_tab, obj, false)
 		testing.expectf(t, n <= 5, "Scene card, %s: %d controls", sec.title, n)
@@ -140,18 +144,19 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 	obj := section_scene(&app)
 	defer section_scene_free(&app)
 	Full :: struct {
-		section:  Kit_Section,
+		section:  Section,
 		controls: int,
 	}
-	// UVs and baking has 10: its Quads count and Retopologize moved to Shape > Rebuild,
-	// and the bake set brought its maps' switches and occlusion's sliders. Mask has 20
+	// Bake has 12: its Quads count and Retopologize moved to Shape > Rebuild, New UVs
+	// became the UVs section's Unwrap, and the bake set brought its maps' switches and
+	// occlusion's sliders. Mask has 20
 	// since Mask region, Mask by (Peaks: kind, Strength, Blur, curve, Apply) and Mask
 	// adjust (curve, Blur, Apply) joined its fold; Polygroups 10 since Groups by normals,
 	// pieces and UVs and Merge similar joined its; Hide, clip and slice folds Grow,
 	// Shrink, Grow all, Outer ring, Grow to groups and Show masked. Material is its card
 	// since the section and the card became one: its tabs, the spheres, the colour and
 	// Apply to, and under More Metallic, Cavity, Ridge, Exposure and Dim the others.
-	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 20}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 10}, {.Project, 6}, {.Material, 25}, {.Camera, 6}}
+	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 20}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 12}, {.Project, 6}, {.Material, 25}, {.Camera, 6}}
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)
 	for f in full {

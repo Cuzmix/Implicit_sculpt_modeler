@@ -26,6 +26,7 @@ Options :: struct {
 	settings_file: string `usage:"Read and write the remembered settings at this path instead of the per-user folder, scripted runs included (for testing that settings persist)."`,
 	coach: bool `usage:"Show the first-run tips from the first one, even in a scripted run (an interactive run shows them until they are done or skipped)."`,
 	tour: bool `usage:"Show the tour from its first step, even in a scripted run (an interactive run shows it after the first-run tips until it is done or skipped)."`,
+	no_keyboard: bool `usage:"Run as a tablet with no keyboard attached does: the interface leaves key shortcuts out of its menus, hints and sentences."`,
 	gpu_debug: bool `usage:"Create the GPU device in debug mode (enables validation where available)."`,
 	no_pre_rotate: bool `usage:"Leave turning the picture to the system on a turned Android tablet instead of drawing it turned (for comparing frame and GPU times)."`,
 	subdiv:    int `usage:"Icosphere subdivision level (default 6)."`,
@@ -74,25 +75,27 @@ Options :: struct {
 	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with set tilt_strength in a start-up script)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	idle_sleep: bool `usage:"Rest when idle (Settings > System) in a scripted run too, which otherwise never rests: for testing it."`,
+	memory_free: int `usage:"Take this many MB as what the system leaves the app, in place of asking it, so the memory check before Remesh and Subdivide can be tried on any machine: for testing it."`,
 	async_jobs: bool `usage:"Run Remesh, Decimate and Retopologize on a thread of their own in a scripted run too, and on any size of object, as an interactive run does on a big one: for testing it."`,
 	camera_ease: bool `usage:"Let Frame all, Focus selected, Reset camera, the axis views and Previous and Next view glide in a scripted run too, which otherwise jumps: for testing it."`,
 	frame_limit: int `usage:"Draw at most N frames a second (Settings > System > Frame rate > Limit)."`,
 	time_gpu:  bool `usage:"Measure the GPU time of the 3D viewport every frame. Waits for the GPU each frame, so frames no longer overlap."`,
 	gpubench:  string `usage:"Time the GPU and CPU while orbiting and sculpting one sphere at 500k, 1M, 5M, 7M, 10M and 20M vertices (only --vertices when given), with each speed setting on and off; write the markdown tables to this path and exit."`,
 	async_compute: bool `usage:"Run render mode's bands on a compute queue of their own for this run, as Settings > System > Graphics > Async compute does, even on a device with one queue, where nothing overlaps but the waits between the queues still run: for testing them."`,
+	no_render_variants: bool `usage:"Render with render mode's general kernel only for this run, never the kernels it builds for each scene's features (for comparison)."`,
 	no_ray_query: bool `usage:"Trace the studio render's and render mode's rays by walking the app's own trees for this run, as Settings > System > Graphics > Ray tracing hardware off does, even where the GPU offers ray queries (for comparison)."`,
 	cpu_smooth: bool `usage:"Start with the Deformation card's On the GPU off, so Smooth all runs on the CPU even where the GPU is offered."`,
-	gpu_sculpt: bool `usage:"Start with Stats > Drawing > Sculpt on the GPU on, where it is offered: a kernel recomputes each stroke's vertex normals on the GPU and reads them back, and the CPU uploads only positions (README \"Sculpt on the GPU\")."`,
+	gpu_sculpt: bool `usage:"Start with Stats > Drawing > Sculpt on the GPU on, where it is offered, and in a scripted run too, which otherwise sculpts on the CPU: kernels lay each stroke's dabs and recompute its vertex normals on the GPU and read them back (README \"Sculpt on the GPU\")."`,
+	cpu_sculpt: bool `usage:"Start with Stats > Drawing > Sculpt on the GPU off, where it would start on (a video card under Vulkan)."`,
 	gpu_sculpt_sync: bool `usage:"With --gpu-sculpt, wait for each frame's readback of normals before the next frame's dabs, so the CPU reads the normals the CPU path would have (for comparing the two paths' arithmetic alone)."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
+	quadmesh_dump: string `usage:"Write each stage of Quad Remesh's Flow engine to this folder as OBJ files (the island, the isotropic mesh, each quad cover with its UVs, the quads, and the stage checks); scripts/quadmesh_view.py draws a cover."`,
 	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from retopologize in a start-up script) into this folder, as Bake maps... does (before --export)."`,
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as Menu > Open scene... does."`,
 	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply, .stl, .glb, .gltf, .usd, .usda, .usdc, .usdz or .fbx file instead of spheres (after any --open), as Menu > Import mesh... does."`,
 	export:    string `usage:"On exit, write the selected object's shown level to this .obj, .ply, .stl, .glb or .usda file, as Menu > Export mesh... does."`,
-	export_workspace: string `usage:"On exit, write the current workspace's layout to this .workspace file, as the workspace menu's Export workspace... does."`,
-	import_workspace: string `usage:"Read this .workspace file as a new workspace of your own and switch to it on the first frame, as the workspace menu's Import workspace... does."`,
 	export_print: string `usage:"On exit, write the selected objects to this .stl, .obj or .3mf file at their print size, as the Export sheet's 3D print does."`,
 	save:      string `usage:"On exit, save the scene to this .sculpt file, as Menu > Save scene does."`,
 	autosave:  f32 `usage:"Autosave every this many seconds once the scene changed and the app rested, as Settings > System > Autosave does every few minutes; scripted runs only autosave with this or --autosave-folder."`,
@@ -142,9 +145,12 @@ App :: struct {
 	gesture:  Gesture_Tool, // what a Ctrl + Shift + drag does
 	smooth_gpu: render.Smooth_Compute, // Smooth all's compute shader and buffers, made on first use
 	smooth_gpu_failed: bool, // the device refused the compute pipeline; Smooth all stays on the CPU
-	// Stats > Drawing's Sculpt on the GPU (sculpt_gpu.odin): strokes hand their normals to a
-	// kernel where render.caps offers it; off until the kernels cover a stroke's whole work.
+	// Stats > Drawing's Sculpt on the GPU (sculpt_gpu.odin): strokes hand their dabs and
+	// normals to kernels where render.caps offers it; on at the start of a person's run
+	// wherever it is offered.
 	gpu_sculpt: bool,
+	// --quadmesh-dump: the folder Quad Remesh writes its stages to, or "".
+	quadmesh_dump: string,
 	// The selected object's lookup for the GPU's kernels is still going up a slice a frame
 	// (sculpt_gpu_prepare_level): the app does not rest, and --bench-stroke waits for it.
 	gpu_lookup_waiting: bool,
@@ -233,6 +239,7 @@ App :: struct {
 	one_tap:  f64, // input_clock when a one-finger tap waiting to run lifted, 0 for none (one_tap_wait)
 	one_taps: int, // one-finger taps that ran their gesture, for the exit stats
 	tap_switches: int, // finger taps that switched the selected object (tap_switch_target), for the exit stats
+	alt_switches: int, // Alt clicks that switched the selected object (Drag.alt_click), for the exit stats
 	// The folders the last import made and what its file held for animation, left out, for
 	// the exit stats.
 	import_folders: int,
@@ -273,7 +280,6 @@ App :: struct {
 	autosave: Autosave, // the background autosave and crash recovery (autosave.odin)
 	preview:  Scene_Preview, // the picture scene files keep for the Home screen (scene_preview.odin)
 	home:     Home, // the Home screen's pictures and autosaves (home.odin)
-	thumbnail: Picture, // the second view's picture (thumbnail.odin)
 	panes:     [GRID_VIEWS]Picture, // the view panes' pictures (grid.odin)
 	view_windows: View_Windows, // second views in OS windows of their own (view_window.odin)
 	work_still: render.Viewport_Target, // what the main pane holds while a view pane is worked in (grid_work)
@@ -283,6 +289,8 @@ App :: struct {
 	turntable_frames: i32, // how many frames it takes, remembered
 	print_unit:    Print_Unit, // Scene > 3D print's unit, remembered
 	print_exports: int, // files exported for printing, for the exit stats
+	unwraps:     Unwrap_Stats, // Unwrap's runs (unwrap.odin), for the exit stats
+	stack_bakes: int, // exports, link sends and boolean marks that took a live stack baked (stack_bake), for the exit stats
 	print_bed:     [3]f32, // the printer's bed in millimetres (Settings > Files > 3D printer); 0 for the default
 	print_wall:    f32, // the least wall a print should have, in millimetres; 0 for the default
 	print_checks:  Print_Checks, // the Export sheet's checks of the selected object (print_checks.odin)
@@ -335,6 +343,13 @@ App :: struct {
 	// drawn into this frame, for the interface to show; nil when there is none.
 	nav_head:       render.Nav_Head,
 	nav_shown:      render.Texture,
+	// The person's own model for the view gizmo's Model style (view_gizmo.odin), with the
+	// name of the object it was made from; empty until one is taken. Its serial counts the
+	// models taken, and view_model_on says which the GPU holds (0 the head, a serial + 1).
+	view_model:        geom.Mesh,
+	view_model_name:   string,
+	view_model_serial: int,
+	view_model_on:     int,
 	// The Objects card's pictures of objects (object_thumbs.odin): the atlas they are drawn
 	// into and which object each of its cells shows.
 	thumbs:         render.Thumbs,
@@ -361,9 +376,16 @@ App :: struct {
 	matcaps:      [len(MATCAP_RECIPES)]render.Texture,
 	matcap_image: render.Texture,
 	brush_previews: Brush_Previews, // the brushes' pictures made by the brushes (brush_previews.odin)
+	brush_icons:    Brush_Icons, // the brushes' own icons, one atlas (brush_icons.odin)
 	matcap_path:  string,
 	// The image environment the physically based materials light with (environment.odin).
 	env:       Environment_State,
+	// The longest a reference picture took to decode, in ms, for the exit stats.
+	refs_decode_ms: f64,
+	// What the reference pictures' GPU copies may take, in MB (Settings > Performance >
+	// Mesh size); 0 is Automatic (REFS_MEMORY_AUTOMATIC_MB), and how many were made small.
+	refs_memory_mb: i32,
+	refs_shrunk:    int,
 	flat:      bool, // shade with each triangle's own normal (faceted) instead of smoothed normals
 	// What objects with texture maps show of them (textures.odin): .Off draws them as clay.
 	texture_view: render.Texture_View,
@@ -436,6 +458,8 @@ App :: struct {
 	frame_rate:  Frame_Rate, // how often to draw (frame_rate.odin), applied at the start of the next frame
 	frame_limit: i32,        // frames a second at most, for Frame_Rate.Limit
 	pacer:       Frame_Pacer,
+	// The side-edge strips kept from Android's back gesture (gesture_edges.odin).
+	gesture_edges: Gesture_Edges,
 	low_latency: Low_Latency, // how far the GPU may run behind (frame_rate.odin), applied as frame_rate is
 	display_link: bool, // Settings > System > Frame rate > Pace with the display: the Metal display link (a trial)
 	idle_sleep:  bool, // rest between frames while nothing changes (idle.odin)
@@ -463,6 +487,22 @@ App :: struct {
 	history_ungrouped: bool,
 	history_no_finger_scrub: bool, // two fingers held then slid do not scrub the History (History > Settings)
 	history_pictures:  bool, // the History list shows each step's picture (History > Settings)
+	// The check before a heavy step (memory_check.odin): what it holds back while the person
+	// decides, the answer remembered (Settings > Files > Undo history), and --memory-free's
+	// stand-in for what the system says is left, in MB (0 to ask the system).
+	memory_ask:       Memory_Ask,
+	memory_short:     Memory_Short,
+	memory_free_test: int,
+	// Largest remesh and Largest subdivision level in vertices (Settings > Performance >
+	// Mesh size); 0 is Automatic, from the device's memory (mesh_limits.odin).
+	remesh_most:      i32,
+	subdivide_most:   i32,
+	mesh_limited:     int, // remeshes held to Largest remesh, for the exit stats
+	// The system warned that memory runs low; history_cap drops old steps at the next
+	// frame with nothing under way.
+	memory_low:          bool,
+	undo_disk:           Undo_Disk, // big undo copies on disk (undo_disk.odin)
+	memory_low_warnings: int,
 	versions:   [dynamic]Version_Row, // the scene file's earlier saves, newest first (versions_refresh)
 	saved_fp:   u64, // scene_fingerprint when the scene last matched its file (autosave_scene_saved)
 	saved_at:   time.Time, // when its file was last written (by this save, or before it was opened); zero for no file
@@ -613,6 +653,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	matcaps_create(&app)
 	defer matcaps_destroy(&app)
 	defer brush_previews_destroy(&app)
+	brush_icons_create(&app)
+	defer brush_icons_destroy(&app)
 	defer environment_destroy(&app)
 	defer render.smooth_compute_destroy(&app.renderer, &app.smooth_gpu)
 	defer render.studio_destroy(&app.renderer, &app.studio)
@@ -620,6 +662,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer render.path_render_destroy(&app.renderer, &app.path)
 	defer render.finish_destroy(&app.renderer, &app.finished)
 	defer render.nav_head_destroy(&app.renderer, &app.nav_head)
+	defer geom.mesh_destroy(&app.view_model)
+	defer delete(app.view_model_name)
 	defer render.thumbs_destroy(&app.renderer, &app.thumbs)
 	defer render.step_pictures_destroy(&app.renderer, &app.step_pictures)
 	defer render.step_pictures_destroy(&app.renderer, &app.layer_pictures)
@@ -635,6 +679,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer geom.mesh_destroy(&app.ui.boolean.preview_mesh)
 	defer boolean_coarse_drop(&app)
 	defer scene_destroy(&app)
+	// After the History, whose snapshots delete their files first.
+	defer undo_disk_destroy(&app)
 	defer history_destroy(&app.history)
 	// Before the history and the scene go: a job still running holds a snapshot and reads
 	// nothing of theirs, but its thread must end first.
@@ -763,13 +809,20 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.renderer.cull = !opts.no_cull
 	app.renderer.gpu_cull = !opts.cpu_cull && (render.caps(&app.renderer).gpu_cull_default || opts.gpu_cull)
 	app.renderer.gpu_culling.check = opts.dump_cull
-	app.gpu_sculpt = opts.gpu_sculpt && render.caps(&app.renderer).gpu_sculpt
+	// On where it starts on, in a person's run: tests, replays and benchmarks keep the CPU's
+	// path, their oracle, unless --gpu-sculpt asks.
+	gpu_caps := render.caps(&app.renderer)
+	app.gpu_sculpt = gpu_caps.gpu_sculpt && !opts.cpu_sculpt && (opts.gpu_sculpt || run_interactive(opts))
+	if app.gpu_sculpt do render.sculpt_gpu_kernels(&app.renderer)
 	app.gpu_lookup_waiting = app.gpu_sculpt
 	app.renderer.sculpt_gpu.sync = opts.gpu_sculpt_sync
+	app.quadmesh_dump = opts.quadmesh_dump
 	sculpt_gpu_install(&app)
 	app.renderer.partial = !opts.no_partial
 	app.renderer.tile_msaa = opts.tile_msaa
 	app.renderer.trace = !opts.no_trace
+	app.renderer.render_variants = !opts.no_render_variants
+	app.renderer.kernel_builds_wait = unattended
 	app.simplify = !opts.no_simplify
 	app.simplify_px = 1
 	app.frame_rate = .Unlimited if opts.no_vsync || opts.gpubench != "" else .Match_Display
@@ -793,7 +846,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.turntable_frames = TURNTABLE_FRAMES_DEFAULT
 	environment_settings_default(&app)
 	app.dim_others = true
-	app.skin_auto = true
+	app.skin_auto = false // a skin built at a press stalls that stroke, so it is added by hand unless asked for
 	app.skin_map_range = 0.05
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
@@ -812,12 +865,13 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// names, and before the renderer goes, which their textures need: keep it here.
 	defer library_destroy(&app)
 	settings_load(&app, settings)
+	if m, name, ok := view_model_load(view_model_path(settings)); ok do app.view_model, app.view_model_name = m, name
 	pencil_init(&app, window)
 	app.pencil.no_leave = !PEN_LEAVE_SAID || opts.pen_no_leave
 	app.pencil.system_palms = SYSTEM_PALMS || opts.system_palms
 	pen_samples_init(&app, window)
 	// The benchmarks measure the viewport filling the window, so their numbers stay
-	// comparable whatever grid a workspace keeps.
+	// comparable whatever grid a layout keeps.
 	if opts.bench_stroke > 0 || opts.gpubench != "" do app.kit.grid.tree = grid_preset_tree(.Single)
 	// Only for the settings of everyday use: a run with a settings file of its own (a test's)
 	// keeps the code's look unless the file says otherwise.
@@ -855,6 +909,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.coach do app.kit.coach = 0
 	app.kit.tour.run, app.kit.tour.since = (remember && opts.frames == 0) || opts.tour, -1
 	if opts.tour do app.kit.tour.step = 0
+	app.kit.no_keyboard = opts.no_keyboard
 	app.kit.fixed_dt = opts.ui_dt
 	// After the clock is chosen, which the session's times count on.
 	app.diag.allowed = DIAGNOSTICS || opts.input_diagnostics || opts.diag_test != "" || opts.diag_export != ""
@@ -883,11 +938,12 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	interactive := run_interactive(opts)
 	app.camera_ease.allowed = interactive || opts.camera_ease
 	app.long_job.allowed, app.long_job.forced = interactive || opts.async_jobs, opts.async_jobs
+	app.memory_free_test = opts.memory_free
 	autosave_init(&app, interactive, f64(opts.autosave), opts.autosave_folder, f64(opts.autosave_rest), opts.check_autosave, opts.crash_after_autosave)
+	undo_disk_init(&app)
 	defer autosave_destroy(&app)
 	defer scene_preview_destroy(&app)
 	defer home_destroy(&app)
-	defer thumbnail_destroy(&app)
 	defer grid_destroy(&app)
 	// Before the renderer and the interface go, which the windows' buffers belong to.
 	defer view_windows_destroy(&app)
@@ -896,7 +952,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	// After autosave_init, whose folder Home's Autosaves lists.
 	if home_at_start(&app, opts, interactive) do home_open(&app)
 	// Read on the first frame, as a file picked in the dialog is.
-	if opts.import_workspace != "" do file_post(.Import_Workspace, opts.import_workspace)
 	// The benchmark's autosave writes the scene it starts with.
 	if opts.bench_after_autosave do app.autosave.clean = 0
 	if opts.autosave_hold do autosave_hold(&app)
@@ -914,7 +969,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		bench       = &bench,
 		driven      = interactive && opts.run == "" && opts.script == "" && opts.ui_events == "" && opts.load_strokes == "" && opts.timelapse == "" && !opts.orbit,
 	}
-	defer render.fence_finish(&app.renderer, &loop.present_fence)
+	defer render.ticket_wait(loop.present_ticket)
 	for _ in 0 ..< min(opts.view_windows, VIEW_WINDOWS_MAX) do view_window_request(&app, view_window_default(&app))
 	crash_log_report(&app)
 	crash_test(opts.crash_test)
@@ -964,7 +1019,6 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if opts.export_print != "" && set_up && !print_export(&app, opts.export_print) do return false
 	if opts.save != "" && set_up && !scene_save(&app, opts.save) do return false
 	if opts.save_strokes != "" && set_up && !strokes_save(&app, opts.save_strokes) do return false
-	if opts.export_workspace != "" && set_up && !workspace_export(&app, opts.export_workspace) do return false
 	// A run still under way at exit ends here, so its verdict is in the stats and the report.
 	if app.diag.run_open do diag_run_end(&app, .End)
 	if opts.diag_export != "" && !diag_export(&app, opts.diag_export) do return false

@@ -73,11 +73,11 @@ pose_pivot_place :: proc(app: ^App) {
 	p := &m.placed
 	same_mask := p.valid && p.id == obj.id && p.level == level && p.sum == sum
 	if same_mask && p.serial == app.history.serial do return
-	ours := m.pivot == Gizmo_Pivot{set = true, id = obj.id, at = p.at}
+	ours := obj.pivot == Gizmo_Pivot{set = true, at = p.at}
 	p^ = {id = obj.id, level = level, sum = sum, valid = true, serial = app.history.serial, at = p.at}
 	if same_mask && !ours do return
 	if at, ok := sculpt.sculptor_mask_centroid(object_sculptor(obj)); ok {
-		m.pivot = {set = true, id = obj.id, at = at}
+		obj.pivot = {set = true, at = at}
 		p.at = at
 	}
 }
@@ -86,18 +86,18 @@ pose_pivot_place :: proc(app: ^App) {
 // saying why, in an HD window, under dynamic topology, or with nothing shown left free.
 pose_begin :: proc(app: ^App, obj: ^Object, drag := false) -> bool {
 	if object_in_hd(obj) {
-		report(app, Kit_Section.Transform, {.Warning}, "Posing needs the HD window left first (A)")
+		report(app, Section.Transform, {.Warning}, "Posing needs the HD window left first (A)")
 		return false
 	}
 	if object_dynamic(obj) {
-		report(app, Kit_Section.Transform, {.Warning}, "Posing needs dynamic topology off")
+		report(app, Section.Transform, {.Warning}, "Posing needs dynamic topology off")
 		return false
 	}
 	if !sculpt.sculptor_pose_begin(object_sculptor(obj)) {
-		report(app, Kit_Section.Transform, {.Warning}, "Nothing is free to pose: the mask covers all that is shown")
+		report(app, Section.Transform, {.Warning}, "Nothing is free to pose: the mask covers all that is shown")
 		return false
 	}
-	if drag do pose_physics_begin(app, obj, Kit_Section.Transform)
+	if drag do pose_physics_begin(app, obj, Section.Transform)
 	return true
 }
 
@@ -105,7 +105,7 @@ pose_begin :: proc(app: ^App, obj: ^Object, drag := false) -> bool {
 // (sculpt.sculptor_pose_physics): the free part lags behind the handle, swings and settles,
 // colliding with what the object's Physics card says. A pose over PHYSICS_MAX free
 // vertices says so in `section` and runs without it.
-pose_physics_begin :: proc(app: ^App, obj: ^Object, section: Kit_Section) {
+pose_physics_begin :: proc(app: ^App, obj: ^Object, section: Section) {
 	if !app.brush.physics do return
 	s := object_sculptor(obj)
 	if free := sculpt.sculptor_pose_moved(s); free > PHYSICS_MAX {
@@ -182,9 +182,9 @@ pose_set :: proc(app: ^App, obj: ^Object, p: sculpt.Pose) {
 pose_carry_pivot :: proc(app: ^App, obj: ^Object, p: sculpt.Pose) {
 	if p.kind != .Move do return
 	m := &app.move
-	ours := m.pivot == Gizmo_Pivot{set = true, id = obj.id, at = m.placed.at}
-	m.pivot = {set = true, id = obj.id, at = p.pivot + p.delta}
-	if ours do m.placed.at = m.pivot.at
+	ours := obj.pivot == Gizmo_Pivot{set = true, at = m.placed.at}
+	obj.pivot = {set = true, at = p.pivot + p.delta}
+	if ours do m.placed.at = obj.pivot.at
 }
 
 // Ends the pose under way as one undo step when it changed something, named `what`, or
@@ -209,16 +209,25 @@ pose_entry_apply :: proc(app: ^App, obj: ^Object, h: gizmo.Handle, op: u8, v: f3
 	#partial switch h {
 	case .X, .Y, .Z:
 		if op != 0 && op != '+' do return false
-		to.position += gizmo.AXES[int(h) - int(gizmo.Handle.X)] * v
+		to.position += gizmo_axes(app, obj)[int(h) - int(gizmo.Handle.X)] * v
 	case .Turn_X ..= .Turn_View:
 		if op != 0 && op != '+' do return false
 		i := int(h) - int(gizmo.Handle.Turn_X)
-		axis = gizmo.AXES[i] if i < 3 else -camera.orbit_toward(app.camera, pivot)
+		axis = gizmo_axes(app, obj)[i] if i < 3 else -camera.orbit_toward(app.camera, pivot)
 		degrees = v
 	case .Scale:
 		factor := 1 + v if op == '+' else v
 		if factor <= 0 do return false
 		to.scale *= factor
+	case .Scale_X, .Scale_Y, .Scale_Z:
+		if op != 0 && op != '+' do return false
+		factor := 1 + v if op == '+' else v
+		if factor <= 0 do return false
+		p := stretch_pose(obj.transform, pivot, gizmo_axes(app, obj)[gizmo.stretch_axis(h)], clamp(factor, MIN_STRETCH, MAX_STRETCH))
+		if pose_is_still(p) || !pose_begin(app, obj) do return true
+		sculpt.sculptor_pose_apply(object_sculptor(obj), p)
+		_ = pose_end(app, obj, h, "" if pose_mode(app) else STRETCH_WHAT[gizmo.stretch_axis(h)])
+		return true
 	case:
 		return false
 	}

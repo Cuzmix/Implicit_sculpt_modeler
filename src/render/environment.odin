@@ -1,9 +1,9 @@
 package render
 
+import "../gpu"
 import "core:log"
 import "core:math/bits"
 import "core:mem"
-import sdl "vendor:sdl3"
 
 // Image environments (image-based lighting): an equirectangular panorama the physically
 // based materials reflect and take their diffuse light from in place of the built-in
@@ -17,17 +17,17 @@ import sdl "vendor:sdl3"
 // small to halve that often.
 ENV_LEVELS :: 6
 
-ENV_FORMAT :: sdl.GPUTextureFormat.R16G16B16A16_FLOAT
+ENV_FORMAT :: gpu.Format.RGBA16_Float
 
 Environment :: struct {
-	source:        ^sdl.GPUTexture,
-	prefiltered:   ^sdl.GPUTexture,
+	source:        gpu.Texture,
+	prefiltered:   gpu.Texture,
 	levels:        int, // the prefiltered texture's
 	width, height: int, // the source's
 	sh:            [9][3]f32,
 	// Render mode's table for sampling it by brightness (env_sample.odin), its size, and
 	// its mean luminance over the sphere.
-	table:         ^sdl.GPUTexture,
+	table:         gpu.Texture,
 	table_width:   int,
 	table_height:  int,
 	mean:          f32,
@@ -56,8 +56,6 @@ Prefilter_Uniforms :: struct {
 	target: [4]f32, // xy: the level's size, z: the source mip a mirror reads
 }
 
-ENV_PREFILTER_FRAG_CODE :: #load("shaders/env_prefilter.frag" + SHADER_EXT, string)
-
 // Makes an environment from `pixels`, linear RGB rows top (straight up) to bottom,
 // `width` by `height` (2:1, at least 64 wide), and its harmonics `sh`: uploads it,
 // builds its mips and prefilters it on a command buffer of its own, waiting for the GPU,
@@ -69,17 +67,17 @@ environment_create :: proc(r: ^Renderer, pixels: [][3]f32, width, height: int, s
 	env.width, env.height, env.sh = width, height, sh
 	pw, ph := width / 2, height / 2
 	env.levels = min(ENV_LEVELS, int(bits.log2(uint(ph))) + 1)
-	env.source = gpu_create_texture(r.device, {
-		type = .D2, format = ENV_FORMAT, usage = {.SAMPLER, .COLOR_TARGET},
+	env.source = gpu.create_texture({
+		type = .D2, format = ENV_FORMAT, usage = {.Sampled, .Color_Target},
 		width = u32(width), height = u32(height), layer_count_or_depth = 1,
 		num_levels = u32(bits.log2(uint(width))) + 1,
 	})
-	env.prefiltered = gpu_create_texture(r.device, {
-		type = .D2, format = ENV_FORMAT, usage = {.SAMPLER, .COLOR_TARGET},
+	env.prefiltered = gpu.create_texture({
+		type = .D2, format = ENV_FORMAT, usage = {.Sampled, .Color_Target},
 		width = u32(pw), height = u32(ph), layer_count_or_depth = 1, num_levels = u32(env.levels),
 	})
-	if env.source == nil || env.prefiltered == nil {
-		log.errorf("environment %d x %d: %s", width, height, sdl.GetError())
+	if env.source == 0 || env.prefiltered == 0 {
+		log.errorf("environment %d x %d: %s", width, height, gpu.last_error())
 		return
 	}
 	half := make([][4]f16, len(pixels))
@@ -89,39 +87,38 @@ environment_create :: proc(r: ^Renderer, pixels: [][3]f32, width, height: int, s
 	lum, tw, th := env_table_luminance(pixels, width, height, context.temp_allocator)
 	table := env_table_build(lum, tw, th, context.temp_allocator)
 	env.table = env_table_texture(r, table)
-	if env.table == nil do return
+	if env.table == 0 do return
 	env.table_width, env.table_height, env.mean = tw, th, table.mean
 
 	pipeline := create_prefilter_pipeline(r)
-	if pipeline == nil do return
-	defer gpu_release_graphics_pipeline(r.device, pipeline)
-	cmd := gpu_acquire_command_buffer(r.device)
+	if pipeline == 0 do return
+	defer gpu.release_graphics_pipeline(pipeline)
+	cmd := gpu.acquire_command_buffer()
 	if cmd == nil {
-		log.errorf("environment prefilter: %s", sdl.GetError())
+		log.errorf("environment prefilter: %s", gpu.last_error())
 		return
 	}
 	for level in 0 ..< env.levels {
-		target := sdl.GPUColorTargetInfo{texture = env.prefiltered, mip_level = u32(level), load_op = .DONT_CARE, store_op = .STORE}
-		pass := gpu_begin_render_pass(cmd, &target, 1, nil)
-		gpu_bind_graphics_pipeline(pass, pipeline)
-		binding := sdl.GPUTextureSamplerBinding{texture = env.source, sampler = r.env_sampler}
-		gpu_bind_fragment_samplers(pass, 0, &binding, 1)
+		target := gpu.Color_Target{texture = env.prefiltered, mip_level = u32(level), load_op = .Dont_Care, store_op = .Store}
+		pass := gpu.begin_render_pass(cmd, &target, 1, nil)
+		gpu.bind_graphics_pipeline(pass, pipeline)
+		samplers := [Env_Prefilter_Frag_Samplers]gpu.Texture_Sampler_Binding{.source = {texture = env.source, sampler = r.env_sampler}}
+		bind_fragment_samplers(pass, &samplers)
 		u := Prefilter_Uniforms {
 			params = {f32(level) / f32(max(env.levels - 1, 1)), f32(width), f32(height), 0},
 			target = {f32(max(pw >> uint(level), 1)), f32(max(ph >> uint(level), 1)), 1, 0},
 		}
-		gpu_push_fragment_uniform_data(cmd, 0, &u, size_of(u))
-		gpu_draw_primitives(pass, 3, 1, 0, 0)
-		gpu_end_render_pass(pass)
+		push_fragment(cmd, Env_Prefilter_Frag_Uniforms.Prefilter_Uniforms, &u)
+		gpu.draw_primitives(pass, 3, 1, 0, 0)
+		gpu.end_render_pass(pass)
 	}
-	fence := gpu_submit_command_buffer_and_acquire_fence(cmd)
-	if fence == nil {
-		log.errorf("environment prefilter submit: %s", sdl.GetError())
+	ticket, submitted := gpu.submit(cmd)
+	if !submitted {
+		log.errorf("environment prefilter submit: %s", gpu.last_error())
 		return
 	}
-	defer gpu_release_fence(r.device, fence)
-	if !gpu_wait_for_fences(r.device, true, &fence, 1) {
-		log.errorf("environment prefilter wait: %s", sdl.GetError())
+	if !gpu.wait(ticket) {
+		log.errorf("environment prefilter wait: %s", gpu.last_error())
 		return
 	}
 	r.last_version += 1
@@ -129,19 +126,18 @@ environment_create :: proc(r: ^Renderer, pixels: [][3]f32, width, height: int, s
 	return env, true
 }
 
-// Waits for the GPU (a frame in flight may still sample it) and releases the textures.
+// Releases the textures; a frame in flight that samples them keeps them until it is done.
 environment_destroy :: proc(r: ^Renderer, env: ^Environment) {
-	if env.source == nil && env.prefiltered == nil && env.table == nil do return
-	_ = gpu_wait_for_idle(r.device)
-	if env.source != nil do gpu_release_texture(r.device, env.source)
-	if env.prefiltered != nil do gpu_release_texture(r.device, env.prefiltered)
-	if env.table != nil do gpu_release_texture(r.device, env.table)
+	if env.source == 0 && env.prefiltered == 0 && env.table == 0 do return
+	if env.source != 0 do gpu.release_texture(env.source)
+	if env.prefiltered != 0 do gpu.release_texture(env.prefiltered)
+	if env.table != 0 do gpu.release_texture(env.table)
 	env^ = {}
 }
 
 // The bytes the environment's textures hold on the GPU, mips included.
 environment_bytes :: proc(env: Environment) -> int {
-	if env.source == nil do return 0
+	if env.source == 0 do return 0
 	// A full mip chain adds a third; each texel is 8 bytes.
 	source := env.width * env.height * 8 * 4 / 3
 	prefiltered := 0
@@ -163,7 +159,7 @@ material_environment :: proc(r: ^Renderer, m: ^Material_Uniforms) {
 // The prefiltered environment's binding: every pipeline that has the sampler is given one,
 // the black stand-in when there is no environment.
 @(private)
-environment_binding :: proc(r: ^Renderer) -> sdl.GPUTextureSamplerBinding {
+environment_binding :: proc(r: ^Renderer) -> gpu.Texture_Sampler_Binding {
 	texture := r.environment.prefiltered if r.environment != nil else r.no_environment
 	return {texture = texture, sampler = r.env_sampler}
 }
@@ -189,29 +185,23 @@ environment_keyed :: proc(r: ^Renderer) -> Environment_Keyed {
 }
 
 @(private = "file")
-create_prefilter_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
-	vert := gpu_create_shader(r.device, {
-		code_size = len(CLEAR_VERT_CODE), code = raw_data(CLEAR_VERT_CODE), entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .VERTEX,
-	})
-	frag := gpu_create_shader(r.device, {
-		code_size = len(ENV_PREFILTER_FRAG_CODE), code = raw_data(ENV_PREFILTER_FRAG_CODE), entrypoint = SHADER_ENTRY,
-		format = SHADER_FORMAT, stage = .FRAGMENT, num_samplers = 1, num_uniform_buffers = 1,
-	})
-	defer if vert != nil do gpu_release_shader(r.device, vert)
-	defer if frag != nil do gpu_release_shader(r.device, frag)
-	if vert == nil || frag == nil {
-		log.errorf("environment prefilter shaders: %s", sdl.GetError())
-		return nil
+create_prefilter_pipeline :: proc(r: ^Renderer) -> gpu.Graphics_Pipeline {
+	vert := gpu.create_shader(CLEAR_VERT)
+	frag := gpu.create_shader(ENV_PREFILTER_FRAG)
+	defer if vert != 0 do gpu.release_shader(vert)
+	defer if frag != 0 do gpu.release_shader(frag)
+	if vert == 0 || frag == 0 {
+		log.errorf("environment prefilter shaders: %s", gpu.last_error())
+		return 0
 	}
-	color_targets := [1]sdl.GPUColorTargetDescription{{format = ENV_FORMAT}}
-	pipeline := gpu_create_graphics_pipeline(r.device, {
+	color_targets := [1]gpu.Color_Target_Desc{{format = ENV_FORMAT}}
+	pipeline := gpu.create_graphics_pipeline({
 		vertex_shader = vert,
 		fragment_shader = frag,
-		primitive_type = .TRIANGLELIST,
-		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
-		target_info = {color_target_descriptions = &color_targets[0], num_color_targets = len(color_targets)},
+		primitive = .Triangle_List,
+		rasterizer_state = {fill_mode = .Fill, cull_mode = .None},
+		targets = {color_targets = color_targets[:]},
 	})
-	if pipeline == nil do log.errorf("environment prefilter pipeline: %s", sdl.GetError())
+	if pipeline == 0 do log.errorf("environment prefilter pipeline: %s", gpu.last_error())
 	return pipeline
 }

@@ -15,7 +15,7 @@ import "../render"
 //
 // A view's shading is its own (View_Shading): the main view keeps it in Passes, and each
 // other view (a view pane, the second view, a view window) in its Second_View, shown while
-// its pass is Shaded, its Render pass being its Rendered; the workspace's layout writes
+// its pass is Shaded, its Render pass being its Rendered; the space's layout writes
 // them. The objects keep only their materials: each frame the draw items are made once, as
 // their materials say, and shading_items rewrites each view's copy of them by its shading,
 // from what each item was made of (Item_From).
@@ -132,21 +132,17 @@ second_shading_mode :: proc(sv: ^Second_View) -> (m: Shading_Mode, ok: bool) {
 main_draw_shading :: proc(app: ^App) -> (s: View_Shading, pane: bool) {
 	g := &app.kit.grid
 	if g.work == 0 do return app.kit.passes.shading, false
-	sv := &g.views[g.work - 1]
+	sv := grid_view(g, g.work)
 	if sv.pass == .Shaded do return sv.shading, true
 	return {mode = .Material_Preview}, true
 }
 
-// Whether any view showing now is in mode `m`: the main view, a view pane, the second view
-// or a view window.
+// Whether any view showing now is in mode `m`: the main view, a view pane or a view window.
 shading_mode_anywhere :: proc(app: ^App, m: Shading_Mode) -> bool {
 	if main_shading_mode(app) == m do return true
 	g := &app.kit.grid
-	for &v in g.views[:grid_panes(g) - 1] {
-		if shown, ok := second_shading_mode(&v); ok && shown == m do return true
-	}
-	if app.kit.thumbnail {
-		if shown, ok := second_shading_mode(&app.kit.second); ok && shown == m do return true
+	for i in 1 ..< grid_panes(g) do if pane_shows_view(g, i) {
+		if shown, ok := second_shading_mode(grid_view(g, i)); ok && shown == m do return true
 	}
 	for w in app.view_windows.open {
 		if w == nil do continue
@@ -185,19 +181,9 @@ solid_lighting_set :: proc(app: ^App, l: Solid_Lighting) {
 // is gone (a content pack's taken away).
 shading_matcap :: proc(app: ^App, s: View_Shading) -> render.Texture {
 	if s.matcap != 0 {
-		if tex := material_matcap(app, {matcap = s.matcap}); tex != nil do return tex
+		if tex := material_matcap(app, {matcap = s.matcap}); tex != 0 do return tex
 	}
 	return material_matcap(app, {matcap = SHADING_MATCAP_DEFAULT})
-}
-
-// The name of the MatCap Solid shades with.
-shading_matcap_name :: proc(app: ^App, s: View_Shading) -> string {
-	i := s.matcap if s.matcap > 0 && s.matcap <= len(MATCAP_RECIPES) else SHADING_MATCAP_DEFAULT
-	if s.matcap == MATCAP_IMAGE && app.matcap_image != nil do return "Imported"
-	if s.matcap >= PACK_MATCAP {
-		if mc, ok := pack_matcap_at(app, s.matcap - PACK_MATCAP); ok do return mc.stem
-	}
-	return string(MATCAP_RECIPES[i - 1].label)
 }
 
 // The pass a view in shading `s` draws its items in, where the pass picked is `p`: a pass
@@ -255,7 +241,7 @@ shading_items :: proc(app: ^App, items: []render.Draw_Item, froms: []Item_From, 
 		f := froms[i] if i < len(froms) else {}
 		switch mode {
 		case .Wireframe:
-			d.paint, d.groups, d.slots, d.matcap = false, false, nil, nil
+			d.paint, d.groups, d.slots, d.matcap = false, false, nil, 0
 			d.textured, d.texture_view = nil, .Off
 			// A level with polygon edges and a cage draw those; the rest their triangles'.
 			if f.poly_edges {
@@ -285,7 +271,7 @@ shading_items :: proc(app: ^App, items: []render.Draw_Item, froms: []Item_From, 
 				if s.color == .Material do m.selected, m.idle = {1, 1, 1, 1}, MATCAP_IDLE
 				d.matcap = shading_matcap(app, s)
 			} else if s.lighting == .Flat {
-				d.matcap = nil
+				d.matcap = 0
 			}
 			d.material = m.shading
 			if s.color != .Material || s.lighting == .MatCap {

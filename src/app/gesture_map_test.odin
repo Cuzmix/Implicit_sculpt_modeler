@@ -89,7 +89,7 @@ palette_chooses_a_gestures_command :: proc(t: ^testing.T) {
 
 	palette_open_for(&app, .Four_Tap)
 	before := app.nav.gestures[.Four_Tap]
-	palette_run(&app, {kind = .Settings_Tab, arg = 0})
+	palette_run(&app, {kind = .Settings_Section, arg = 0})
 	testing.expect_value(t, app.nav.gestures[.Four_Tap], before)
 	testing.expect(t, !app.kit.palette)
 	free_all(context.temp_allocator)

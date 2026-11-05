@@ -68,7 +68,7 @@ VALUE_LOOK_NAMES := [Value_Look]string {
 
 // The section each value's settings are in, which its menu's Brush settings opens.
 @(rodata)
-BRUSH_VALUE_SECTIONS := [Brush_Value]Kit_Section {
+BRUSH_VALUE_SECTIONS := [Brush_Value]Section {
 	.Size        = .Pen,
 	.Strength    = .Pen,
 	.Focal_Shift = .Falloff,
@@ -277,16 +277,16 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 	look := bar_look(k, which, slot)
 	side := bar_side(app, which)
 	name := fmt.tprintf("%s##value %v %d", BRUSH_VALUE_NAMES[v], which, slot)
-	enabled := k.bars_edit || value_enabled(app, v)
+	enabled := bar_editing(k, which) || value_enabled(app, v)
 	lit := bar_pop_showing(app, .Value) && k.bar_pop.value == v
 	hint := hint_join(value_text(app, v), command_hint(app, .Brush_Value, int(v)))
 	if look == .Icon {
 		if ui.icon_button(ctx, name, BRUSH_VALUE_ICONS[v], lit, enabled, hint, cell.x) {
-			if k.bars_edit do bar_slot_open(app, which, slot, ctx.last_rect)
+			if bar_editing(k, which) do bar_slot_open(app, which, slot, ctx.last_rect)
 			else do value_pop_toggle(app, v, ctx.last_rect, side)
 		}
-		if enabled && !k.bars_edit do value_roll(app, v, ui.hover_roll(ctx, ctx.last_id, ctx.hot == ctx.last_id))
-		if k.bars_edit do bar_edit_ring(app, ctx.last_rect)
+		if enabled && !bar_editing(k, which) do value_roll(app, v, ui.hover_roll(ctx, ctx.last_id, ctx.hot == ctx.last_id))
+		if bar_editing(k, which) do bar_edit_ring(app, ctx.last_rect)
 		else if ctx.last_id != 0 && ui.secondary(ctx) do value_menu_open(app, which, slot, v, ctx.last_rect, side)
 		bar_slot_lift(app, which, slot, value_slot(v), look)
 		return
@@ -297,7 +297,7 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 	axis := 0 if column else 1
 	scrubbing := false
 	// Held still, a drag lifts the chip to carry it (bar_drag.odin) rather than scrubbing.
-	if enabled && !k.bars_edit && v != .Pressure && !ui.held_still(ctx, a.id) {
+	if enabled && !bar_editing(k, which) && v != .Pressure && !ui.held_still(ctx, a.id) {
 		if a.pressed do ctx.press_value = value_fraction(app, v)
 		if a.held && ui.claim_drag(ctx, axis) {
 			d := ctx.input.mouse - ctx.won_mouse
@@ -317,12 +317,12 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 		}
 	}
 	if !a.held && k.value_scrubbing == a.id do k.value_scrubbing = 0
-	if enabled && !k.bars_edit do value_roll(app, v, ui.hover_roll(ctx, a.id, a.hovered))
+	if enabled && !bar_editing(k, which) do value_roll(app, v, ui.hover_roll(ctx, a.id, a.hovered))
 	if a.held && enabled do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_pressed)
 	else if lit do ui.fill_rect(ctx, pill, t.radius_medium, t.accent_soft)
 	else if a.hovered && enabled do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_hover)
 	fg := t.accent if lit || scrubbing else t.text
-	if !enabled do fg = ui.color_fade(t.text_secondary, 0.35)
+	if !enabled do fg = ui.disabled_ink(t)
 	cx := pill.x + pill.w * 0.5
 	ui.icon(ctx, BRUSH_VALUE_ICONS[v], {cx, pill.y + pill.h * 0.36}, t.icon_size - 2, fg)
 	ui.text(ctx, value_short(app, v), cx, pill.y + pill.h * 0.72, t.caption_size, fg if lit || scrubbing else t.text_secondary, .Semibold, .Center)
@@ -332,7 +332,7 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 	if enabled do ui.fill_rect(ctx, {line.x, line.y, line.w * value_fraction(app, v), line.h}, 1, t.accent)
 	ui.tip(ctx, a.id, pill, BRUSH_VALUE_NAMES[v], hint)
 	if a.id != 0 do bar_slot_lift(app, which, slot, value_slot(v), look)
-	if k.bars_edit {
+	if bar_editing(k, which) {
 		bar_edit_ring(app, a.rect)
 		if a.clicked do bar_slot_open(app, which, slot, a.rect)
 		return
@@ -374,9 +374,9 @@ kit_value_pop :: proc(app: ^App) {
 	t := ctx.theme
 	p := &k.bar_pop
 	v := p.value
-	if !ui.popover_begin(ctx, "bar value", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = 12, width = VALUE_POP_W}) do return
+	if !ui.popover_begin(ctx, "bar value", &p.open, p.at, p.side, {direction = .Column, gap = ui.SPACE_S, padding = ui.SPACE_L, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
-	ui.begin(ctx, "value head", {direction = .Row, center = true, gap = 8})
+	ui.begin(ctx, "value head", {direction = .Row, center = true, gap = ui.SPACE_M})
 	g := ui.area(ctx, "value glyph", {t.icon_small, t.target}, drag = false)
 	ui.icon(ctx, BRUSH_VALUE_ICONS[v], {g.rect.x + g.rect.w * 0.5, g.rect.y + g.rect.h * 0.5}, t.icon_small, t.accent)
 	ui.label(ctx, BRUSH_VALUE_NAMES[v], t.text_size, t.text, .Semibold)
@@ -394,8 +394,8 @@ kit_value_pop :: proc(app: ^App) {
 	if ui.slider(ctx, fmt.tprintf("##value pop %v", v), &x, lo, hi, scale, "", enabled) do value_set(app, v, x)
 	steps := value_steps(v)
 	if len(steps) == 0 do return
-	ui.begin(ctx, "value steps", {direction = .Row, gap = 6})
-	w := (VALUE_POP_W - 24 - 6 * f32(len(steps) - 1)) / f32(len(steps))
+	ui.begin(ctx, "value steps", {direction = .Row, gap = ui.SPACE_S})
+	w := (ui.POPOVER_W - 24 - 6 * f32(len(steps) - 1)) / f32(len(steps))
 	for s in steps {
 		on := abs(value_get(app, v) - s) < 1e-3 * max(1, abs(s))
 		if ui.toggle_button(ctx, fmt.tprintf("%s##value step %v", value_step_text(v, s), s), on, w) && enabled do value_set(app, v, s)
@@ -403,8 +403,6 @@ kit_value_pop :: proc(app: ^App) {
 	ui.end(ctx)
 	if !enabled do ui.paragraph(ctx, "Spacing is for a stroke of dabs: Spray and Roll space their own.")
 }
-
-VALUE_POP_W :: 300
 
 // A value item's menu: how it shows, its brush settings, its moves, another value after
 // it, and Remove.
@@ -418,7 +416,7 @@ kit_value_menu :: proc(app: ^App) {
 		p.open = false
 		return
 	}
-	if !ui.popover_begin(ctx, "bar value menu", &p.open, p.at, p.side, {direction = .Column, padding = 6, width = 268}) do return
+	if !ui.popover_begin(ctx, "bar value menu", &p.open, p.at, p.side, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	ui.caption(ctx, fmt.tprintf("%s · SHOW AS", strings.to_upper(BRUSH_VALUE_NAMES[v], context.temp_allocator)))
 	look := bar_look(k, which, slot)
@@ -435,7 +433,7 @@ kit_value_menu :: proc(app: ^App) {
 		at, side := p.at, p.side
 		if v == .Exposure do k.more[.Material] = true
 		p.open = false
-		card_pop_section(app, BRUSH_VALUE_SECTIONS[v], at, side)
+		bar_section_toggle(app, BRUSH_VALUE_SECTIONS[v], at, side)
 		return
 	}
 	column := bar_column(which)

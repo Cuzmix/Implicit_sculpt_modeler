@@ -10,6 +10,7 @@ groupshared float4 lane_center[SLAB];
 
 [numthreads(256, 1, 1)]
 void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID) {
+	keep_bindings();
 	Dab d = dabs[dab];
 	uint g, v;
 	bool mine = slab_vertex(d, group_id, local_id, g, v);

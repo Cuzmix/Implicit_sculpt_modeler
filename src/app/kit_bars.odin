@@ -7,7 +7,7 @@ import "../sculpt"
 import "../ui"
 
 // What the bars round the view share (the top bar is kit_top_lens.odin, the off-hand
-// island, view rail and mini view lens_chrome.odin, the shelf lens_shelf.odin):
+// island and view rail lens_chrome.odin, the shelf lens_shelf.odin):
 // the interface's looks, the one popover a bar button opens beside itself, and where the
 // panels start clear of the bars.
 
@@ -41,7 +41,7 @@ BAR_EDGE :: 4
 
 // What a bar's popover holds: the three symmetry axes, what the polyframe shows, Remesh's
 // quick menu, the Shading or Camera menu, or the view layout. A section or card a button
-// opens pops out as the stack's own floating card instead (card_pop.odin).
+// opens shows in the card column beside it instead (column.odin).
 Bar_Pop_Kind :: enum u8 {
 	Symmetry,
 	Polyframe,
@@ -51,15 +51,14 @@ Bar_Pop_Kind :: enum u8 {
 	View_Layout,
 	Value, // a brush value's slider and steps (brush_values.odin)
 	Value_Menu, // a value item's menu: its look, its section, its moves
-	Group_Menu, // a rail group's menu: name, colour, Tabs or Stacked, pin, take out
 	Dock_Menu, // a dock's ⋯: add a button, its lines and names (docks.odin)
+	View_Gizmo, // the view gizmo's style, held or right-clicked on it (view_gizmo.odin)
 }
 
 // The one popover the bars open: one at a time, beside the button that opened it.
 Bar_Pop :: struct {
 	open:    bool,
 	kind:    Bar_Pop_Kind,
-	group:   int,
 	at:      ui.Rect,
 	side:    ui.Side,
 	scroll:  f32,
@@ -135,14 +134,14 @@ kit_edge_width :: proc(app: ^App, edge: Dock_Edge) -> f32 {
 
 // Where a card under the top bar (the first-run tip, the recovery offer) goes: under the
 // window's middle where that clears the off-hand island on the left and the view rail and
-// the stack on the right, else in the middle of the room between them; lower down where
+// the card column on the right, else in the middle of the room between them; lower down where
 // it would meet the readout. Returns its shift from the middle, its width (at
 // most `most`, at least `least`) and its top; false when even that does not fit.
 kit_card_place :: proc(app: ^App, most, least: f32) -> (shift, w, top: f32, fits: bool) {
 	k := &app.kit
 	area := ui.safe_area(&k.ctx)
 	left := kit_left(app)
-	right := kit_right(app) + (KIT_SETTINGS_W + 8 if side_panel_open(k) else tray_width(app) + 8 if k.inspector else 0)
+	right := kit_right(app) + cards_right_room(app)
 	room := area.w - left - right
 	if room < least do return
 	w = min(most, room)
@@ -154,17 +153,6 @@ kit_card_place :: proc(app: ^App, most, least: f32) -> (shift, w, top: f32, fits
 	reach := area.x + area.w - points.x if k.ctx.mirror else points.x - area.x + points.w
 	if points.w > 0 && area.w * 0.5 + shift - w * 0.5 < reach + 8 do top = points_bottom(app)
 	return shift, w, top, true
-}
-
-// How much a panel `width` wide on the right, where it starts, gives up at its foot so as
-// to stay clear of the shelf (laid out as "dock") and the action bar over it where the
-// two would meet.
-side_panel_below :: proc(app: ^App, width: f32) -> f32 {
-	ctx := &app.kit.ctx
-	area := ui.safe_area(ctx)
-	_, dock_hi := shelf_bottom_span(app)
-	if dock_hi + 8 > area.w - kit_right(app) - width do return dock_stack(app) + 8
-	return 0
 }
 
 // How far down from the safe area's top the readout ("points") reaches, with a margin
@@ -210,50 +198,50 @@ kit_bar_popover :: proc(app: ^App) {
 	p := &k.bar_pop
 	switch p.kind {
 	case .Symmetry:
-		if !ui.popover_begin(ctx, "bar symmetry", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = 10, width = 248}) do return
+		if !ui.popover_begin(ctx, "bar symmetry", &p.open, p.at, p.side, {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 		defer ui.popover_end(ctx)
 		symmetry_controls(app)
 	case .Polyframe:
-		if !ui.popover_begin(ctx, "bar polyframe", &p.open, p.at, p.side, {direction = .Column, gap = 4, padding = 10, width = 220}) do return
+		if !ui.popover_begin(ctx, "bar polyframe", &p.open, p.at, p.side, {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 		defer ui.popover_end(ctx)
 		ui.caption(ctx, "POLYFRAME SHOWS")
-		ui.begin(ctx, "polyframe parts", {direction = .Row, gap = 4})
+		ui.begin(ctx, "polyframe parts", {direction = .Row, gap = ui.SPACE_XS})
 		if ui.toggle_button(ctx, "Lines", app.polyframe_lines, 96, tooltip = "The selected object's edges") do app.polyframe_lines = !app.polyframe_lines
 		if ui.toggle_button(ctx, "Fill", app.polyframe_fill, 96, tooltip = "The selected object's polygroups in their colours") do app.polyframe_fill = !app.polyframe_fill
 		ui.end(ctx)
 	case .Remesh_Quick:
-		if !ui.popover_begin(ctx, "bar remesh", &p.open, p.at, p.side, {direction = .Column, gap = 6, padding = 12, width = REMESH_QUICK_W}) do return
+		if !ui.popover_begin(ctx, "bar remesh", &p.open, p.at, p.side, {direction = .Column, gap = ui.SPACE_S, padding = ui.SPACE_L, width = ui.POPOVER_W}) do return
 		defer ui.popover_end(ctx)
 		kit_remesh_quick(app)
 	case .Shading:
-		if !ui.popover_begin(ctx, "bar shading", &p.open, p.at, p.side, {direction = .Column, padding = 6, width = 268}) do return
+		if !ui.popover_begin(ctx, "bar shading", &p.open, p.at, p.side, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 		defer ui.popover_end(ctx)
 		kit_shading_menu(app)
 	case .Camera:
-		if !ui.popover_begin(ctx, "bar camera", &p.open, p.at, p.side, {direction = .Column, padding = 6, width = 268}) do return
+		if !ui.popover_begin(ctx, "bar camera", &p.open, p.at, p.side, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 		defer ui.popover_end(ctx)
 		kit_camera_menu(app)
 	case .View_Layout:
-		if !ui.popover_begin(ctx, "bar view layout", &p.open, p.at, p.side, {direction = .Column, gap = 8, padding = 12, width = VIEW_LAYOUT_W + 24}) do return
+		if !ui.popover_begin(ctx, "bar view layout", &p.open, p.at, p.side, {direction = .Column, gap = ui.SPACE_M, padding = ui.SPACE_L, width = VIEW_LAYOUT_W + 24}) do return
 		defer ui.popover_end(ctx)
 		kit_view_layout_lens(app, VIEW_LAYOUT_W)
 	case .Value:
 		kit_value_pop(app)
 	case .Value_Menu:
 		kit_value_menu(app)
-	case .Group_Menu:
-		kit_group_menu(app)
 	case .Dock_Menu:
 		kit_dock_menu(app)
+	case .View_Gizmo:
+		kit_view_gizmo_pop(app)
 	}
 }
 
-// The symmetry axes, Local, and the radial copies: the bar's Symmetry popover and the Lens
-// stack's Symmetry panel.
+// The symmetry axes, Local, and the radial copies: the bar's Symmetry popover and the
+// Symmetry card.
 symmetry_controls :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	ui.caption(ctx, "SYMMETRY")
-	ui.begin(ctx, "symmetry axes", {direction = .Row, gap = 4})
+	ui.begin(ctx, "symmetry axes", {direction = .Row, gap = ui.SPACE_XS})
 	for axis in sculpt.Axis {
 		name := fmt.tprint(axis)
 		tip := fmt.tprintf("Symmetry across %s", name)
@@ -262,7 +250,7 @@ symmetry_controls :: proc(app: ^App) {
 	if ui.toggle_button(ctx, "Local", app.brush.sym_local, 64, command_hint(app, .Local_Symmetry), COMMANDS[.Local_Symmetry].help) do command_run(app, .Local_Symmetry)
 	ui.end(ctx)
 	ui.caption(ctx, "RADIAL")
-	ui.begin(ctx, "radial axes", {direction = .Row, gap = 4})
+	ui.begin(ctx, "radial axes", {direction = .Row, gap = ui.SPACE_XS})
 	if ui.toggle_button(ctx, "Radial", app.brush.radial_on, 64, command_hint(app, .Radial_Symmetry), COMMANDS[.Radial_Symmetry].help) do command_run(app, .Radial_Symmetry)
 	for axis in sculpt.Axis {
 		name := fmt.tprintf("%v##radial", axis)
@@ -278,9 +266,9 @@ symmetry_controls :: proc(app: ^App) {
 	_ = ui.switch_row(ctx, "Show the symmetry line", &app.kit.symmetry_line)
 }
 
-// Section `sec` of the tray, wherever its palette lists it: its title and what draws it
-// (for the Object palette's, with the object).
-bar_section :: proc(app: ^App, sec: Kit_Section) -> (title: string, draw: proc(app: ^App), obj_draw: proc(app: ^App, obj: ^Object), found: bool) {
+// Section `sec`, wherever its card's table lists it: its title and what draws it
+// (for the object sections, with the object).
+bar_section :: proc(app: ^App, sec: Section) -> (title: string, draw: proc(app: ^App), obj_draw: proc(app: ^App, obj: ^Object), found: bool) {
 	for s in BRUSH_SECTIONS do if s.section == sec do return s.title, s.draw, nil, true
 	for s in SCENE_SECTIONS do if s.section == sec do return s.title, s.draw, nil, true
 	for s in OBJECT_SECTIONS do if s.section == sec do return s.title, nil, s.draw, true

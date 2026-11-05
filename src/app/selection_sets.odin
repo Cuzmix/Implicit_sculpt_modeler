@@ -16,7 +16,7 @@ import "../ui"
 sets_ready :: proc(app: ^App, obj: ^Object, say := true) -> bool {
 	if obj == nil do return false
 	if sculpt.levels_sets_ready(&obj.levels) do return true
-	if say do report(app, Kit_Section.Sets, {.Warning}, "Selection sets need %s", "the HD window left first (A)" if object_in_hd(obj) else "dynamic topology off")
+	if say do report(app, Section.Sets, {.Warning}, "Selection sets need %s", "the HD window left first (A)" if object_in_hd(obj) else "dynamic topology off")
 	return false
 }
 
@@ -28,7 +28,7 @@ set_store :: proc(app: ^App, over: u32 = 0) {
 	if !sets_ready(app, obj) do return
 	l := &obj.levels
 	if over == 0 && len(sculpt.levels_sets(l)) >= sculpt.MAX_SELECTION_SETS {
-		report(app, Kit_Section.Sets, {.Warning}, "An object keeps at most %d selection sets: delete one first", sculpt.MAX_SELECTION_SETS)
+		report(app, Section.Sets, {.Warning}, "An object keeps at most %d selection sets: delete one first", sculpt.MAX_SELECTION_SETS)
 		return
 	}
 	// The first "Set N" from the count up that no set is called already.
@@ -41,14 +41,14 @@ set_store :: proc(app: ^App, over: u32 = 0) {
 	}
 	id := sculpt.levels_set_store(l, name, over)
 	if id == 0 {
-		report(app, Kit_Section.Sets, {.Warning}, "Nothing is masked to store")
+		report(app, Section.Sets, {.Warning}, "Nothing is masked to store")
 		return
 	}
 	app.scene_edits += 1
 	i := sculpt.levels_set_index(l, id)
 	app.ui.set_selected = i
 	set := &sculpt.levels_sets(l)[i]
-	report(app, Kit_Section.Sets, {}, "Stored the mask %s %s (%s masked)", "over" if over != 0 else "as", sculpt.selection_set_name(set), set_percent(set.masked))
+	report(app, Section.Sets, {}, "Stored the mask %s %s (%s masked)", "over" if over != 0 else "as", sculpt.selection_set_name(set), set_percent(set.masked))
 }
 
 // Brings back set `id` of the selected object by `mode`, as a mask undo step.
@@ -62,11 +62,11 @@ set_restore :: proc(app: ^App, id: u32, mode: sculpt.Set_Mode) {
 	name := sculpt.selection_set_name(&sculpt.levels_sets(l)[i])
 	verb := SET_MODE_VERBS[mode]
 	if !sculpt.levels_set_restore(l, id, mode) {
-		report(app, Kit_Section.Sets, {}, "%s %s: the mask is as it was", verb, name)
+		report(app, Section.Sets, {}, "%s %s: the mask is as it was", verb, name)
 		return
 	}
 	history_record(app, obj, .Mask, fmt.tprintf("%s %s", verb, name))
-	report(app, Kit_Section.Sets, {.Undo}, "%s %s", verb, name)
+	report(app, Section.Sets, {.Undo}, "%s %s", verb, name)
 }
 
 @(rodata)
@@ -83,7 +83,7 @@ set_delete :: proc(app: ^App, id: u32) {
 	l := &obj.levels
 	i := sculpt.levels_set_index(l, id)
 	if i < 0 do return
-	report(app, Kit_Section.Sets, {}, "Deleted %s", sculpt.selection_set_name(&sculpt.levels_sets(l)[i]))
+	report(app, Section.Sets, {}, "Deleted %s", sculpt.selection_set_name(&sculpt.levels_sets(l)[i]))
 	sculpt.levels_set_delete(l, id)
 	app.scene_edits += 1
 }
@@ -109,7 +109,7 @@ kit_sets :: proc(app: ^App, obj: ^Object) {
 	restore_width: f32 = 104
 	field := ui.fill_width(ctx) - restore_width - 4
 	for &set, i in sets {
-		ui.begin(ctx, fmt.tprintf("set %d %d", obj.id, set.id), {direction = .Row, gap = 4, center = true})
+		ui.begin(ctx, fmt.tprintf("set %d %d", obj.id, set.id), {direction = .Row, gap = ui.SPACE_XS, center = true})
 		name := set.name
 		// Keyed by the object too: set ids start again for each object.
 		if ui.text_field(ctx, fmt.tprintf("name##set %d %d", obj.id, set.id), name[:], field, hint = "Name") {

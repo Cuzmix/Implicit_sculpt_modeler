@@ -8,7 +8,7 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
 ## One entry point
 | Command (Windows; Linux is `./build.sh <mode>`) | What it does |
 |---|---|
-| `build.bat check` | `odin check` of all twenty-one packages with the strict flags (`-no-entry-point`: the libraries have no `main`), then `python scripts/agents_sync.py --check`, `boundary_check.py` and `shaders_msl.py --check` (each `.spv` has a current `.msl`). No link, no shaders, no `build\`. The gate: run it first and last |
+| `build.bat check` | `odin check` of all twenty-one packages with the strict flags (`-no-entry-point`: the libraries have no `main`), then `python scripts/agents_sync.py --check`, `boundary_check.py` `shaders_msl.py --check` (each `.spv` has a current `.msl`), `shaders_wgsl.py --check` and `shaders_gen.py --check` (each `.spv` has a current description in `src/render/shaders_gen.odin`). No link, no shaders, no `build\`. The gate: run it first and last |
 | `build.bat` | the debug app, `-debug`, into `build\sculpt.exe`; `ODIN_DEBUG` wraps the allocator in `mem.Tracking_Allocator` and the process exits 1 on any leak or bad free; copies `SDL3.dll` from `deps\odin\vendor\sdl3` next to it |
 | `build.bat release` | `-o:speed -no-bounds-check`: the only build whose timings count (sm-perf) |
 | `build.bat test` | `odin test` on geom, uv, poly, camera, sculpt, voxel, jobs, gizmo, png_write, zip, hdri, ui, luau, usd, fbx, quadmesh, retopo, send and app in that order, stopping at the first failing package; render has no tests, and app's need no window (they test pure logic such as the command registry); the runner tracks memory, so a leak fails a test |
@@ -42,12 +42,10 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
 - Shaders: Slang sources (`src/render/shaders/*.slang`, sm-render) compile to the committed `.spv` with slangc:
   `build.sh` uses `deps/slang/bin/slangc` (setup_deps takes it from the LunarG Vulkan SDK `VULKAN_SDK`, checked
   against `VULKAN_SDK_SHA256` in `scripts/versions.env`), `build.bat` `deps\slang\bin\slangc.exe` or one on PATH (the
-  Vulkan SDK installs it); without one the committed `.spv` are used as they are. When `deps/shadercross` exists
-  (`python scripts/build_shadercross.py`, which `setup_deps.sh` runs: CMake, git and a C++ compiler; three pinned builds,
-  SPIRV-Cross and SDL3 static, then the tool), each new `.spv` also becomes its `.msl` (`python scripts/shaders_msl.py`;
-  `--all` remakes every one). `./build.sh ios` compiles every `.msl` with `xcrun metal` before linking.
+  Vulkan SDK installs it); without one the committed `.spv` are used as they are. Each new `.spv` also gets its `.msl` from slangc's
+  Metal target with its slot table (`python scripts/shaders_msl.py`; `--all` remakes every one), and every changed `.spv` is reflected into `src/render/shaders_gen.odin` (`python scripts/shaders_gen.py`). `./build.sh ios` compiles every `.msl` with `xcrun metal` before linking.
 - VS Code: `.vscode/tasks.json` (one task per build mode and script, Windows and Linux, grouped Desktop, Test, Android,
-  iPad, Build all and Clean, with an Odin problem matcher; the test picker lists all twelve packages) and `launch.json`
+  iPad, Build all and Clean, with an Odin problem matcher; the test picker lists the nineteen packages `build.sh test` runs) and `launch.json`
   (cppvsdbg on the PDBs, named by device; the build-and-run entries run build.bat or a script through cmd.exe under it;
   "Desktop: Debug, GPU validation" sets `SDL_ASSERT=break`). A new build mode or script gets a task, and a launch entry
   when it builds or runs for a device.
@@ -68,10 +66,10 @@ description: Build, run, test and verify the sculpt modeler through build.bat (W
   `brush_ms`, `normals_ms`, `upload_kb`, `latency_ms`; with `--bench-stroke` `undo_mb= undo_ms= redo_ms=` and
   `level_changes_ms=`; always `camera_yaw= camera_pitch= camera_roll= camera_distance= camera_target=x,y,z`,
   `orbit_pivot=x,y,z pivot_source=centre|stroke|pointer|object` (the last orbit's), `undo_steps= redo_steps=
-  brush_radius_px= brush_strength= selected=`, `inspector_scroll= settings_scroll= settings_open=`, `cursor_hit=
-  cursor_normal=x,y,z` and `window_inspector= window_stats= window_history= window_settings=` (each
-  `open,folded,left,top`), `column_left= column_right= panel_pins=` (docked panels top to bottom, pinned
-  sections, or none): what scripted input did. These are the numbers to quote; `--frames=N` ends a run by itself.
+  brush_radius_px= brush_strength= selected=`, `card_scroll= cards= settings_scroll= settings_open=`, `cursor_hit=
+  cursor_normal=x,y,z` and `window_stats= window_settings=` (each
+  `open,folded,left,top`), `layout_left_column= layout_right_column=` (where the card columns stood, or
+  zeros): what scripted input did. These are the numbers to quote; `--frames=N` ends a run by itself.
 
 ## Seeing the viewport
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\view.ppm

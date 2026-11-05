@@ -16,7 +16,8 @@ import "../ui"
 // lists do; a long press, a right click or the pen's side button opens the layer's menu.
 // Under the rows Base sculpt, everything outside the layers, then Duplicate, Merge down,
 // Bake all and the menu, how many layers and how much memory. It is the one Layers
-// interface: the Layers card and the rail draw this card.
+// interface: the Layers card and the rail draw this card, whose Paint tab is the paint
+// layers (lens_paint_layers.odin).
 
 // A layer row's height, in points, and its picture's side.
 LAYER_ROW_H :: 56
@@ -50,7 +51,7 @@ Layer_Panel :: struct {
 	tint_last:   int, // the layer tinted last, for counting new tints
 }
 
-// The card's content, as the stack draws it.
+// The Layers section's content, as the Layers card draws it.
 kit_lens_layers :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -60,6 +61,13 @@ kit_lens_layers :: proc(app: ^App) {
 	k.layer_rows = 0
 	if obj == nil {
 		ui.paragraph(ctx, "Add or select an object first.")
+		return
+	}
+	// One card for layers: sculpt layers and paint layers are its two tabs.
+	tab_names := [2]string{"Sculpt", "Paint"}
+	if tab := ui.tabs(ctx, "Layers kind", tab_names[:], int(app.ui.layers_paint)); tab >= 0 do app.ui.layers_paint = tab == 1
+	if app.ui.layers_paint {
+		kit_lens_paint_layers(app, obj)
 		return
 	}
 	allowed := layers_allowed(obj)
@@ -72,7 +80,7 @@ kit_lens_layers :: proc(app: ^App) {
 	if lp.swiped_id != obj.id || lp.swiped > len(layers) do lp.swiped = 0
 
 	// The head: New layer, the level and Wide ±5.
-	ui.begin(ctx, "lens layers head", {direction = .Row, gap = 6, center = true, width = width})
+	ui.begin(ctx, "lens layers head", {direction = .Row, gap = ui.SPACE_S, center = true, width = width})
 	_ = command_button(app, .New_Layer, label = "New layer", variant = .Solid, tone = .Accent, glyph = ui.ICON_PLUS, width = ui.text_width(ctx, "New layer", t.text_size, .Semibold) + 52)
 	level := HD_LEVEL if object_in_hd(obj) else obj.levels.current
 	level_text := "HD window" if level == HD_LEVEL else fmt.tprintf("Level %d of %d", level + 1, len(obj.levels.levels))
@@ -99,7 +107,7 @@ kit_lens_layers :: proc(app: ^App) {
 	// The foot: what acts on the picked layer, and its menu.
 	if len(layers) > 0 {
 		ui.divider(ctx, across = true)
-		ui.begin(ctx, "lens layers foot", {direction = .Row, gap = 4, center = true, width = width})
+		ui.begin(ctx, "lens layers foot", {direction = .Row, gap = ui.SPACE_XS, center = true, width = width})
 		third := (width - t.target - 12) / 3
 		_ = command_button(app, .Layer_Edit, int(Layer_Action.Duplicate), label = "Duplicate", width = third)
 		_ = command_button(app, .Layer_Edit, int(Layer_Action.Merge_Down), label = "Merge down", width = third)
@@ -108,7 +116,7 @@ kit_lens_layers :: proc(app: ^App) {
 		ui.end(ctx)
 		// What the menu also holds, as buttons for the picked layer, folded under More.
 		if kit_more(app, .Layers) {
-			ui.begin(ctx, "lens layers more", {direction = .Row, gap = 4, center = true, width = width})
+			ui.begin(ctx, "lens layers more", {direction = .Row, gap = ui.SPACE_XS, center = true, width = width})
 			_ = command_button(app, .Layer_Edit, int(Layer_Action.Invert), label = "Invert", width = third)
 			_ = command_button(app, .Layer_Edit, int(Layer_Action.Move_Up), label = "Move up", width = third)
 			_ = command_button(app, .Layer_Edit, int(Layer_Action.Move_Down), label = "Move down", width = third)
@@ -161,7 +169,7 @@ lens_layer_row :: proc(app: ^App, obj: ^Object, i: int, width: f32, allowed: boo
 		lp.swiped = 0
 	}
 	mark := ui.vertex_mark(ctx)
-	ui.begin(ctx, zone_name, {direction = .Row, center = true, gap = 8, width = zone_w, height = LAYER_ROW_H, padding = 6, drag_scroll = true})
+	ui.begin(ctx, zone_name, {direction = .Row, center = true, gap = ui.SPACE_M, width = zone_w, height = LAYER_ROW_H, padding = ui.SPACE_S, drag_scroll = true})
 	p := ui.area(ctx, fmt.tprintf("Layer picture##lens layer %d", i), {LAYER_PICTURE, LAYER_PICTURE}, drag = false)
 	pic := p.rect
 	if !layer_picture_draw(app, obj, i, pic, fade) {
@@ -206,7 +214,7 @@ lens_layer_row :: proc(app: ^App, obj: ^Object, i: int, width: f32, allowed: boo
 
 	if open {
 		// Swiped open: Merge down and Delete, as an iOS list's row offers them.
-		ui.begin(ctx, fmt.tprintf("lens layer %d actions", i), {direction = .Row, gap = 4, center = true, width = LAYER_SWIPE_W})
+		ui.begin(ctx, fmt.tprintf("lens layer %d actions", i), {direction = .Row, gap = ui.SPACE_XS, center = true, width = LAYER_SWIPE_W})
 		if ui.icon_button(ctx, fmt.tprintf("Merge down##lens layer swipe %d", i), ICON_MERGE, enabled = allowed && i > 0) {
 			app.ui.layer_selected = i
 			layer_action(app, .Merge_Down)
@@ -302,7 +310,7 @@ lens_layer_strength :: proc(app: ^App, obj: ^Object, i: int, w, fade: f32) {
 		if abs(v) < 0.04 do v = 0
 		if abs(v - 1) < 0.04 do v = 1
 		if v != strength {
-			if !app.ui.layer_dragging || app.ui.layer_drag_id != obj.id {
+			if !app.ui.layer_dragging || app.ui.layer_drag_id != obj.id || app.ui.layer_drag_paint {
 				layer_drag_finish(app)
 				stroke_finish(app)
 				app.ui.layer_dragging, app.ui.layer_drag_id, app.ui.layer_drag_wide = true, obj.id, wide
@@ -346,12 +354,12 @@ kit_layer_menu :: proc(app: ^App) {
 		lp.menu = false
 		return
 	}
-	if !ui.popover_begin(ctx, "layer menu", &lp.menu, lp.menu_at, .Pointer if lp.menu_at.w <= 1 else .Above_Center, {direction = .Column, gap = 0, padding = 6, width = 280}) do return
+	if !ui.popover_begin(ctx, "layer menu", &lp.menu, lp.menu_at, .Pointer if lp.menu_at.w <= 1 else .Above_Center, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	l := &layers[i]
 	allowed := layers_allowed(obj)
 	app.ui.layer_selected = i
-	ui.begin(ctx, "layer menu head", {direction = .Column, gap = 2, padding = 8})
+	ui.begin(ctx, "layer menu head", {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_M})
 	ui.label(ctx, sculpt.sculptor_layer_name(l), t.text_size, t.text, .Semibold)
 	ui.label(ctx, fmt.tprintf("%s · strength %.2f%s", object_label(obj), l.strength, "" if l.visible else " · hidden"), t.small_size, t.text_secondary)
 	ui.end(ctx)

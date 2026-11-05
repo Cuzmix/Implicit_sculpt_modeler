@@ -1,0 +1,275 @@
+<title>Detail Skin</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column of ranked feature rows; each row = what Uniform does | what we have | what we build; two live mocks inline. */
+:root{
+  --bg:#eef1f0; --panel:#ffffff; --ink:#15201d; --mute:#5b6a66; --line:#d5dcda;
+  --accent:#0f7d6c; --accent-soft:#d4ece7; --warn:#a35a00; --warn-soft:#fbead2; --have:#3b5b9a; --have-soft:#dfe6f5;
+  --display:"Schibsted Grotesk",system-ui,sans-serif; --body:"Schibsted Grotesk",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1413; --panel:#171e1c; --ink:#e3ebe8; --mute:#93a39f; --line:#2a3532;
+  --accent:#4fd1b5; --accent-soft:#163a33; --warn:#f0b35a; --warn-soft:#3a2b14; --have:#9db5ec; --have-soft:#1e2a44; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1413; --panel:#171e1c; --ink:#e3ebe8; --mute:#93a39f; --line:#2a3532;
+  --accent:#4fd1b5; --accent-soft:#163a33; --warn:#f0b35a; --warn-soft:#3a2b14; --have:#9db5ec; --have-soft:#1e2a44; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55}
+.wrap{max-width:980px;margin:0 auto;padding-block:28px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:28px}
+h1{font-family:var(--display);font-weight:800;font-size:clamp(28px,5vw,42px);line-height:1.1;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h2{font-family:var(--display);font-size:22px;margin:0;text-wrap:balance}
+h3{font-size:17px;margin:0;text-wrap:balance}
+p{margin:0;max-width:68ch}
+.lede{color:var(--mute);font-size:16px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+.pick{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.pick .box{display:flex;flex-direction:column;gap:6px}
+.pick b{font-size:15px}
+.pick small{color:var(--mute)}
+.tier{display:flex;flex-direction:column;gap:14px}
+.tierhead{display:flex;flex-direction:column;gap:4px;border-bottom:1px solid var(--line);padding-bottom:8px}
+.row{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.rowhead{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap}
+.rank{font-family:var(--mono);font-weight:600;color:var(--accent);font-size:14px;min-width:2.2em}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+.chip{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+.chip.cost{background:var(--warn-soft);color:var(--warn)}
+.chip.have{background:var(--have-soft);color:var(--have)}
+.cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+@media (max-width:760px){.cols{grid-template-columns:1fr}}
+.cols>div{min-width:0;display:flex;flex-direction:column;gap:4px}
+.lab{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+.cols p{font-size:14px}
+.wow{font-size:14px;border-left:3px solid var(--accent);padding-left:10px}
+.src{font-size:13px;color:var(--mute)}
+a{color:var(--accent)}
+.mock{display:grid;grid-template-columns:auto minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:640px){.mock{grid-template-columns:1fr}}
+.pad{position:relative;width:200px;height:200px;border-radius:8px;background:linear-gradient(135deg,var(--accent-soft),var(--have-soft));border:1px solid var(--line);touch-action:none;cursor:crosshair;max-width:100%}
+.pad .dot{position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);box-shadow:0 1px 4px rgba(0,0,0,.3);pointer-events:none}
+.pad span{position:absolute;font-family:var(--mono);font-size:10px;color:var(--mute)}
+.mockpair{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
+canvas{max-width:100%;border-radius:8px;border:1px solid var(--line);background:var(--bg)}
+.ctl{display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px}
+.ctl select,.ctl input{font:inherit;font-size:13px}
+.ctl label{display:flex;gap:6px;align-items:center}
+.readout{font-family:var(--mono);font-size:12px;color:var(--mute)}
+table{border-collapse:collapse;font-size:13.5px;width:100%}
+.tw{overflow-x:auto}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);font-weight:400}
+ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px;max-width:70ch}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+svg text{fill:var(--mute);font-family:var(--mono);font-size:10px}
+.verdict{background:var(--accent-soft);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.verdict b{color:var(--accent)}
+.lab2{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+.stage{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;align-items:baseline}
+.stage b{font-family:var(--mono);color:var(--accent)}
+.mapsmock{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.mapsmock figure{margin:0;display:flex;flex-direction:column;gap:6px;min-width:0}
+.mapsmock figcaption{font-size:12.5px;color:var(--mute)}
+.mapsmock canvas{width:100%;height:auto;aspect-ratio:1;image-rendering:auto;touch-action:none}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{font:inherit;font-size:13px;border:0;background:var(--panel);color:var(--ink);padding:5px 10px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--panel)}
+.ctl button.plain{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:5px 10px;cursor:pointer}
+</style>
+
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:10px">
+  <div class="eyebrow">Brainstorm and plan · 2 Nov 2026 · nothing built yet</div>
+  <h1>Detail Skin</h1>
+  <p class="lede">A cheaper way to sculpt fine detail. Past the size your mesh can hold, strokes land in a skin of texels on the surface instead of needing more polygons. When you're ready, the skin becomes real polygons, or exports as maps for a game. Bolt's ask: "push more detail while sculpting, and when they are ready they can bake back, like a new way of sculpting that's cheaper".</p>
+</header>
+
+<section class="box" style="display:flex;flex-direction:column;gap:10px">
+  <h2>Why it's cheaper</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Same detail, two ways</th><th>Polygons</th><th>Mesh + skin</th></tr></thead>
+    <tbody>
+      <tr><td>Points of detail</td><td>16.7M vertices</td><td>1M vertices + 16.7M texels (4096²)</td></tr>
+      <tr><td>Memory</td><td>about 1.7 GB (our mesh costs about 100 bytes a vertex)</td><td>about 100 MB mesh + 32 MB skin (2 bytes a texel of height)</td></tr>
+      <tr><td>A stroke touches</td><td>vertices, normals and BVH nodes, then re-uploads them</td><td>a few 64×64 tiles of height, then uploads those tiles</td></tr>
+      <tr><td>Drawing</td><td>16.7M vertices every frame</td><td>1M vertices with a normal from the skin in the shader</td></tr>
+    </tbody>
+  </table></div>
+  <p class="src">These are estimates from our own numbers, not measurements. Stage 1 measures them on the 3060 Ti, the iPad and the OnePlus Pad before anything else is built on top.</p>
+</section>
+
+<section class="tier">
+  <div class="tierhead"><span class="eyebrow">How it works</span><h2>Six ideas that make up the skin</h2></div>
+
+  <article class="row">
+    <div class="rowhead"><span class="rank">1</span><h3>A skin you never have to unwrap</h3><div class="chips"><span class="chip">core</span><span class="chip cost">L · design first</span></div></div>
+    <div class="cols">
+      <div><span class="lab">What</span><p>Each chunk of the mesh (our BVH nodes, about 1,000 triangles) gets its own patch of texels at the same density in world units, packed automatically. You never see UVs.</p></div>
+      <div><span class="lab">Brushes</span><p>Draw, Clay, Crease, Smooth, Flatten, Layer and alpha stamps write height into the skin. Mask and symmetry apply as usual, and strokes cross patch edges because neighbouring patches share their border texels.</p></div>
+      <div><span class="lab">Keeps our rules</span><p>Stamps run on the CPU job pool over 64×64 tiles, so replays stay bit-identical. Only touched tiles go to the GPU, and undo is per tile, as voxel bricks already work.</p></div>
+    </div>
+  </article>
+
+  <article class="row">
+    <div class="rowhead"><span class="rank">2</span><h3>Each stroke splits by size</h3><div class="chips"><span class="chip">wow</span><span class="chip cost">M</span></div></div>
+    <div class="cols">
+      <div><span class="lab">What</span><p>The broad part of a stroke moves mesh vertices and the fine part goes into the skin, with no mode to switch. The split sits at the mesh's own edge length, and a slider moves it.</p></div>
+      <div><span class="lab">Why</span><p>A skin can't change the silhouette, and a mesh can't hold pores cheaply. Splitting every stroke gives you both, and you don't have to think about it.</p></div>
+      <div><span class="lab">Not in the skin</span><p>Grab, Move, Snake hook, Pose and Cloth always move the mesh. The skin rides along on the surface as it moves.</p></div>
+    </div>
+  </article>
+
+  <article class="row">
+    <div class="rowhead"><span class="rank">3</span><h3>Apply and Squeeze: back and forth</h3><div class="chips"><span class="chip">wow</span><span class="chip cost">M</span></div></div>
+    <div class="cols">
+      <div><span class="lab">Apply</span><p>Turns the skin into real polygons when you're ready: a new subdivision level, or HD detail, displaced by the skin. One undo step.</p></div>
+      <div><span class="lab">Squeeze</span><p>Goes the other way. Take a heavy 20M sculpt, move its fine detail into the skin and decimate the mesh, so sculpting stays fast. Apply brings it back.</p></div>
+      <div><span class="lab">Compared</span><p>ZBrush HD Geometry shows detail only inside one small window and only renders it. Nanite and micro-meshes handle drawing, not sculpting. I found nothing that moves detail both ways.</p></div>
+    </div>
+  </article>
+
+  <article class="row">
+    <div class="rowhead"><span class="rank">4</span><h3>Maps for games, with no bake</h3><div class="chips"><span class="chip cost">M</span></div></div>
+    <div class="cols">
+      <div><span class="lab">What</span><p>A game model (Quad Remesh with UVs) reads its normal, height and displacement maps straight from the sculpt's mesh and skin, re-sampled live for the tiles a stroke changed.</p></div>
+      <div><span class="lab">Better than baking</span><p>Skew, waviness, cage seams and ray misses come from projecting a far-away high poly. Our game model sits on the sculpt it came from, and the problem map tints any spot where it doesn't.</p></div>
+      <div><span class="lab">Exports</span><p>Presets for Unreal (green down), Unity, Godot and Blender (green up), and MikkTSpace tangents ported bit for bit (zlib licence), since ours match "not to the bit" today.</p></div>
+    </div>
+  </article>
+
+  <article class="row">
+    <div class="rowhead"><span class="rank">5</span><h3>Real edges near the camera</h3><div class="chips"><span class="chip cost">M–L</span></div></div>
+    <div class="cols">
+      <div><span class="lab">What</span><p>Far away, the skin is a normal in the shader. Close up, a compute pass splits the nearest triangles and pushes them out by the skin, so profiles and silhouettes show the detail too.</p></div>
+      <div><span class="lab">Why last</span><p>Normal shading already sells most detail while you sculpt. This is for close-ups and renders, and it costs GPU time.</p></div>
+      <div><span class="lab">Builds on</span><p>Our compute culling and indirect draws, and the studio and path-traced render, which can trace the displaced surface.</p></div>
+    </div>
+  </article>
+
+  <article class="row">
+    <div class="rowhead"><span class="rank">6</span><h3>Extras the skin makes easy</h3><div class="chips"><span class="chip cost">S each</span></div></div>
+    <div class="cols">
+      <div><span class="lab">Seamless tiles</span><p>A flat skin whose edges wrap, so brick, bark or scales tile with no seam (the mock does this). Tiles then become alphas and stencils.</p></div>
+      <div><span class="lab">Game distance</span><p>A slider shows the mip level a game uses far away (in the mock), so you know whether pores survive before you export.</p></div>
+      <div><span class="lab">Maps in</span><p>Load a normal or height map, or a photo, into the skin and sculpt on it. A normal map turns into height through a Poisson solve, so it doesn't drift.</p></div>
+    </div>
+  </article>
+</section>
+<section class="row" id="mock">
+  <div class="rowhead"><h3>Try it: sculpt the skin</h3><span class="chips"><span class="chip">live mock</span></span></div>
+  <p class="src">Drag on the left square. The mesh under it is two triangles, and every bump you make lives in the skin, shown as the normal map in the middle. Turn on Tile and the brush wraps at the edges, so the 2×2 preview on the right never shows a seam. The game distance slider shows the smaller mip levels a game uses far away, so you can see which detail survives.</p>
+  <div class="ctl">
+    <span class="seg" role="group" aria-label="Brush">
+      <button type="button" data-b="clay" aria-pressed="true">Clay</button><button type="button" data-b="crease" aria-pressed="false">Crease</button><button type="button" data-b="smooth" aria-pressed="false">Smooth</button>
+    </span>
+    <label for="inv"><input id="inv" type="checkbox"> Invert</label>
+    <label for="wrap"><input id="wrap" type="checkbox" checked> Tile (wrap edges)</label>
+    <label for="rad">Size <input id="rad" type="range" min="3" max="20" value="8"></label>
+    <label for="mip">Game distance <input id="mip" type="range" min="0" max="3" value="0"></label>
+    <label for="lgt">Light <input id="lgt" type="range" min="0" max="359" value="135"></label>
+    <button type="button" class="plain" id="clr">Clear</button>
+  </div>
+  <div class="mapsmock">
+    <figure><canvas id="cLit" width="256" height="256" aria-label="Sculpt here: the tile lit through its normal map"></canvas><figcaption>Sculpt here: 2 triangles, all detail in the skin</figcaption></figure>
+    <figure><canvas id="cNrm" width="128" height="128" aria-label="The normal map as written"></canvas><figcaption>The skin as a normal map (green up)</figcaption></figure>
+    <figure><canvas id="cTile" width="256" height="256" aria-label="The map tiled two by two"></canvas><figcaption>Tiled 2×2: seams show here if the edges don't wrap</figcaption></figure>
+  </div>
+  <p class="readout" id="mread"></p>
+</section>
+<section class="tier">
+  <div class="tierhead"><span class="eyebrow">Today</span><h2>How other apps handle fine detail and maps</h2></div>
+  <div class="box tw">
+    <table>
+      <thead><tr><th>App</th><th>How detail reaches the map</th><th>Where it hurts</th></tr></thead>
+      <tbody>
+        <tr><td><b>ZBrush</b></td><td>Sculpt millions of polygons, then bake. HD Geometry adds detail only inside one window, for render.</td><td>Bake errors, a separate step, and no real-time normal-map shader to check the result.</td></tr>
+        <tr><td><b>Blender, Mudbox</b></td><td>Subdivision levels, then "bake from multires" or extract maps.</td><td>Polygons all the way down, and a bake that goes wrong unless the viewport level is 0.</td></tr>
+        <tr><td><b>Substance Painter</b></td><td>Paint height with paint brushes; it is turned into normals live.</td><td>No sculpt brushes. Height-to-normal differs across texel densities. Polycount's answer is "paint height, not normals".</td></tr>
+        <tr><td><b>3D-Coat</b></td><td>A Depth channel and the legacy Microvertex mode.</td><td>Moving between Paint and Sculpt rooms can overwrite work.</td></tr>
+        <tr><td><b>ArmorPaint</b></td><td>Height painting and decals.</td><td>No direct normal painting.</td></tr>
+        <tr><td><b>Uniform</b></td><td>Displacement brushes on low-poly meshes, "baked in real time".</td><td>Closest to this idea, but its brushes paint displacement rather than sculpting, and it needs UVs.</td></tr>
+        <tr><td><b>Our app now</b></td><td>Quad Remesh, auto UVs, CPU bake (3.7 s at 2048 from 10M), maps shown in the view, HD detail windows.</td><td>Detail always means more polygons, and maps mean another bake.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="tier">
+  <div class="tierhead"><span class="eyebrow">Risks</span><h2>What could go wrong</h2></div>
+  <ul>
+    <li><b>Patch borders.</b> Strokes must cross from one patch to the next with no step. Border texels are shared and kept in sync, and stage 1 includes a test that strokes across every border of a sphere and checks the result.</li>
+    <li><b>The mesh changing under the skin.</b> Remesh, dynamic topology and Decimate change the patches, so the skin is re-sampled onto the new ones by ray, as a swap undo entry. Dynamic topology inside a stroke stays off while a skin exists, at least in the first version.</li>
+    <li><b>Height only.</b> The skin can't hold overhangs. That's fine for pores, wrinkles, scales and engraving. Sideways offsets (vector displacement, 6 bytes a texel) could come later if needed.</li>
+    <li><b>Process rules.</b> It brings new object data, a file chunk and GPU uploads, so it needs a written design and an architect review before any code.</li>
+  </ul>
+</section>
+
+<section class="tier">
+  <div class="tierhead"><span class="eyebrow">Order</span><h2>How I would build it</h2></div>
+  <div class="box" style="display:flex;flex-direction:column;gap:8px">
+    <div class="stage"><b>K1</b><span>Skin store: patches per node, 16-bit height tiles, CPU stamps for Draw, Clay, Crease, Smooth, Flatten, Layer and alphas, tile upload, normal from the skin in the shader, per-tile undo, a file chunk. Measured on all three of Bolt's devices.</span></div>
+    <div class="stage"><b>K2</b><span>Each stroke splits by size, then Apply (into levels or HD) and Squeeze.</span></div>
+    <div class="stage"><b>K3</b><span>Maps for games straight from the skin, the problem map, engine presets and MikkTSpace.</span></div>
+    <div class="stage"><b>K4</b><span>Seamless tiles, game distance preview, and maps into the skin.</span></div>
+    <div class="stage"><b>K5</b><span>Real edges near the camera.</span></div>
+  </div>
+  <div class="verdict">
+    <b>How this fits the plans already open</b>
+    <p>The Surface plan's texture painting needs per-texel tiles too. If the skin's tile store also holds colour, roughness and metal, one stroke can paint and sculpt at once, and paint works on any sculpt without UVs. I'd design K1 as that shared store, which makes the Surface plan's painting stages cheaper later.</p>
+  </div>
+  <p class="src">Sources: <a href="https://80.lv/articles/sparseal-unveils-uniform-1-1-features/" target="_blank" rel="noopener">Uniform 1.1</a> and <a href="https://80.lv/articles/sparseal-previews-uniform-1-2-features/" target="_blank" rel="noopener">1.2</a> · <a href="https://helpx.adobe.com/substance-3d-painter/painting/advanced-channel-painting/height-map-painting.html" target="_blank" rel="noopener">Substance height painting</a> and <a href="https://steamcommunity.com/app/454510/discussions/0/1471969431599795118" target="_blank" rel="noopener">user reports</a> · <a href="https://polycount.com/discussion/comment/2442860" target="_blank" rel="noopener">Polycount on painting height</a> · <a href="https://3dcoat.com/documentation/?p=2074" target="_blank" rel="noopener">3D-Coat Paint room</a> · <a href="https://forums.armory3d.org/t/paint-normal-map/2945" target="_blank" rel="noopener">ArmorPaint forum</a> · <a href="https://docs.blender.org/manual/en/dev/modeling/modifiers/generate/multiresolution.html" target="_blank" rel="noopener">Blender multires</a> · <a href="https://www.zbrushcentral.com/t/how-to-texture-a-low-poly-model-with-regards-to-its-normal-map/321415" target="_blank" rel="noopener">ZBrushCentral on normal maps</a> · <a href="https://typhen.artstation.com/blog/BDr6/this-is-normal-2-baking-normal-maps" target="_blank" rel="noopener">bake problems guide</a>. Our side comes from the README and project notes at commit 46f6c39.</p>
+</section>
+</div>
+<script>
+(function(){
+  var N=128,h=new Float32Array(N*N),lit=document.getElementById('cLit'),nrm=document.getElementById('cNrm'),til=document.getElementById('cTile');
+  var gl=lit.getContext('2d'),gn=nrm.getContext('2d'),gt=til.getContext('2d');
+  var brush='clay',inv=document.getElementById('inv'),wrap=document.getElementById('wrap'),rad=document.getElementById('rad'),mip=document.getElementById('mip'),lgt=document.getElementById('lgt'),read=document.getElementById('mread');
+  var off=document.createElement('canvas');off.width=N;off.height=N;var go=off.getContext('2d');
+  var noff=document.createElement('canvas');noff.width=N;noff.height=N;var gno=noff.getContext('2d');
+  function idx(x,y){if(wrap.checked){x=(x%N+N)%N;y=(y%N+N)%N}else{if(x<0||y<0||x>=N||y>=N)return -1}return y*N+x}
+  function dab(cx,cy){
+    var r=+rad.value,sgn=inv.checked?-1:1,R=Math.ceil(r*1.2);
+    if(brush=='smooth'){var tmp=[];for(var y=-R;y<=R;y++)for(var x=-R;x<=R;x++){var d=Math.hypot(x,y)/r;if(d>1)continue;var i=idx(cx+x,cy+y);if(i<0)continue;var s=0,c=0;for(var k=0;k<4;k++){var j=idx(cx+x+[1,-1,0,0][k],cy+y+[0,0,1,-1][k]);if(j>=0){s+=h[j];c++}}tmp.push([i,h[i]+(s/c-h[i])*0.5*(1-d*d)])}tmp.forEach(function(t){h[t[0]]=t[1]});return}
+    for(var y=-R;y<=R;y++)for(var x=-R;x<=R;x++){
+      var d=Math.hypot(x,y)/r;if(d>1)continue;var i=idx(cx+x,cy+y);if(i<0)continue;
+      var f=brush=='crease'?-Math.pow(Math.max(0,1-d*2.2),2)*0.9:(3*Math.pow(1-d,2)-2*Math.pow(1-d,3))*0.35;
+      if(brush=='clay'){var cap=1.2;h[i]=Math.min(cap,h[i]+sgn*f*0.5)}else h[i]+=sgn*f*0.6;
+    }
+  }
+  function normals(level){
+    var s=1<<level,M=N/s,out=new Float32Array(M*M*3);
+    for(var y=0;y<M;y++)for(var x=0;x<M;x++){var ax=0,ay=0,az=0;
+      for(var yy=0;yy<s;yy++)for(var xx=0;xx<s;xx++){var X=x*s+xx,Y=y*s+yy;
+        var l=h[idx(X-1,Y)>=0?idx(X-1,Y):Y*N+X],r=h[idx(X+1,Y)>=0?idx(X+1,Y):Y*N+X],u=h[idx(X,Y-1)>=0?idx(X,Y-1):Y*N+X],dn=h[idx(X,Y+1)>=0?idx(X,Y+1):Y*N+X];
+        var nx=-(r-l)*2.2,ny=(dn-u)*2.2,nz=1,L=Math.hypot(nx,ny,nz);ax+=nx/L;ay+=ny/L;az+=nz/L}
+      var L2=Math.hypot(ax,ay,az),o=(y*M+x)*3;out[o]=ax/L2;out[o+1]=ay/L2;out[o+2]=az/L2}
+    return {n:out,M:M};
+  }
+  function render(){
+    var lv=+mip.value,nm=normals(lv),M=nm.M,a=+lgt.value*Math.PI/180,lx=Math.cos(a)*0.62,ly=-Math.sin(a)*0.62,lz=0.78;
+    var img=go.createImageData(N,N),ni=gno.createImageData(N,N),s=N/M;
+    for(var y=0;y<N;y++)for(var x=0;x<N;x++){var o=((y/s|0)*M+(x/s|0))*3,nx=nm.n[o],ny=nm.n[o+1],nz=nm.n[o+2];
+      var dif=Math.max(0,nx*lx+ny*ly+nz*lz),hx=lx,hy=ly,hz=lz+1,hl=Math.hypot(hx,hy,hz),sp=Math.pow(Math.max(0,(nx*hx+ny*hy+nz*hz)/hl),40)*0.25;
+      var v=0.16+0.74*dif,i=(y*N+x)*4;img.data[i]=Math.min(255,(v*0.86+sp)*255);img.data[i+1]=Math.min(255,(v*0.8+sp)*255);img.data[i+2]=Math.min(255,(v*0.74+sp)*255);img.data[i+3]=255;
+      ni.data[i]=(nx*0.5+0.5)*255;ni.data[i+1]=(ny*0.5+0.5)*255;ni.data[i+2]=(nz*0.5+0.5)*255;ni.data[i+3]=255}
+    go.putImageData(img,0,0);gno.putImageData(ni,0,0);
+    gl.imageSmoothingEnabled=lv==0;gl.drawImage(off,0,0,256,256);
+    gn.drawImage(noff,0,0);
+    gt.imageSmoothingEnabled=true;for(var k=0;k<4;k++)gt.drawImage(off,(k%2)*128,(k>>1)*128,128,128);
+    var texels=N*N;read.textContent='mesh 2 triangles · skin '+N+'×'+N+' = '+texels.toLocaleString()+' texels · showing mip '+lv+' ('+M+'×'+M+') · edges '+(wrap.checked?'wrap':'stop');
+  }
+  // A few starting strokes so the mock opens with something on it.
+  (function seed(){var b0=brush;brush='crease';for(var t=0;t<=1;t+=0.01)dab(Math.round(20+t*88),Math.round(64+18*Math.sin(t*6.28)));brush='clay';[[30,30],[96,30],[96,100],[34,98],[64,64]].forEach(function(p,i){for(var k=0;k<3;k++)dab(p[0],p[1])});brush=b0})();
+  var down=false,last=null;
+  function at(e){var r=lit.getBoundingClientRect();return [Math.floor((e.clientX-r.left)/r.width*N),Math.floor((e.clientY-r.top)/r.height*N)]}
+  function strokeTo(p){if(!last){dab(p[0],p[1]);last=p;return}var d=Math.hypot(p[0]-last[0],p[1]-last[1]),st=Math.max(1,+rad.value*0.25),n=Math.ceil(d/st);for(var i=1;i<=n;i++)dab(Math.round(last[0]+(p[0]-last[0])*i/n),Math.round(last[1]+(p[1]-last[1])*i/n));last=p}
+  lit.addEventListener('pointerdown',function(e){down=true;last=null;try{lit.setPointerCapture(e.pointerId)}catch(_){}strokeTo(at(e));render()});
+  lit.addEventListener('pointermove',function(e){if(!down)return;strokeTo(at(e));render()});
+  lit.addEventListener('pointerup',function(){down=false;last=null});
+  document.querySelectorAll('.seg button').forEach(function(b){b.addEventListener('click',function(){brush=b.dataset.b;document.querySelectorAll('.seg button').forEach(function(o){o.setAttribute('aria-pressed',o===b?'true':'false')})})});
+  [mip,lgt,wrap].forEach(function(el){el.addEventListener('input',render)});
+  document.getElementById('clr').addEventListener('click',function(){h.fill(0);render()});
+  render();
+})();
+</script>

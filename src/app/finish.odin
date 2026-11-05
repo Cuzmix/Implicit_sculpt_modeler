@@ -101,9 +101,9 @@ finish_view_frame :: proc(app: ^App, cmd: render.Cmd, changed: bool) {
 @(private = "file")
 finish_source :: proc(app: ^App) -> (source: render.Texture, linear: bool) {
 	if render_running(app) && app.path.samples >= RENDER_SHOW_MIN {
-		if t := render.render_linear_texture(&app.path); t != nil do return t, true
+		if t := render.render_linear_texture(&app.path); t != 0 do return t, true
 	}
-	if t := viewport_unfinished(app); t != nil do return t, false
+	if t := viewport_unfinished(app); t != 0 do return t, false
 	return app.target.color, false
 }
 

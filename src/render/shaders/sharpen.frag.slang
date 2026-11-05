@@ -17,7 +17,7 @@
 
 float3 at(int2 p) {
 	int2 last = texture_size(graded) - 1;
-	return saturate(graded.Load(int3(clamp(p, int2(0), last), 0)).rgb);
+	return saturate(load_texel(graded, clamp(p, int2(0), last)).rgb);
 }
 
 float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
@@ -42,6 +42,6 @@ float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 	float3 floor = smoothstep(1.5 / 255.0, 4.0 / 255.0, range);
 	float3 w = room * floor * (-1.0 / lerp(8.0, 5.0, saturate(params.x)));
 	float3 sharp = saturate((w * (b + d + f + h) + e) / (1.0 + 4.0 * w));
-	float alpha = graded.Load(int3(p, 0)).a;
+	float alpha = load_texel(graded, p).a;
 	return float4(grain_and_dither(sharp, frag_coord.xy, params.y, params.z, asuint(params.w)), alpha);
 }

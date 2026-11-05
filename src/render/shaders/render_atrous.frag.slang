@@ -25,10 +25,10 @@ static const float KERNEL[3] = { 3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0 };
 
 // The light at `px` with the colour divided out: from the sum on the first pass.
 float3 light_at(int2 px) {
-	float4 c = src.Load(int3(px, 0));
+	float4 c = load_texel(src, px);
 	if (params.z < 0.5) return c.rgb;
 	float3 mean = c.rgb / max(c.a, 1.0);
-	float4 a = guide_albedo.Load(int3(px, 0));
+	float4 a = load_texel(guide_albedo, px);
 	return a.a > 0.0 ? mean / max(a.rgb, float3(0.02)) : mean;
 }
 
@@ -40,11 +40,11 @@ float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 	int2 px = int2(frag_coord.xy);
 	int2 hi = texture_size(src) - 1;
 	float3 centre = light_at(px);
-	float4 ga = guide_albedo.Load(int3(px, 0));
+	float4 ga = load_texel(guide_albedo, px);
 	if (ga.a <= 0.0) {
 		return float4(centre, 1.0);
 	}
-	float4 gn = guide_normal.Load(int3(px, 0));
+	float4 gn = load_texel(guide_normal, px);
 	if (params.w > 0.5) gn.xyz = normalize(gn.xyz + float3(0.0, 0.0, 1e-6));
 	int step = int(params.x);
 	float l0 = luminance(centre);
@@ -53,9 +53,9 @@ float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 	for (int y = -2; y <= 2; y++) {
 		for (int x = -2; x <= 2; x++) {
 			int2 q = clamp(px + int2(x, y) * step, int2(0), hi);
-			float4 qa = guide_albedo.Load(int3(q, 0));
+			float4 qa = load_texel(guide_albedo, q);
 			if (qa.a <= 0.0) continue;
-			float4 qn = guide_normal.Load(int3(q, 0));
+			float4 qn = load_texel(guide_normal, q);
 			if (params.w > 0.5) qn.xyz = normalize(qn.xyz + float3(0.0, 0.0, 1e-6));
 			float3 c = light_at(q);
 			float w = KERNEL[abs(x)] * KERNEL[abs(y)];

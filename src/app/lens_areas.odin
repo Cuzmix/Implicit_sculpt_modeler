@@ -112,12 +112,16 @@ Grid_Areas :: struct {
 
 // The layout as it is now, as a step Undo would bring back.
 grid_step_now :: proc(g: ^View_Grid) -> Grid_Step {
-	return {tree = g.tree, views = g.views, at = time.tick_now()}
+	return {tree = g.tree, tabs = g.tabs, at = time.tick_now()}
 }
 
 // Keeps `s` as the newest layout step; what was undone is gone.
 grid_step_push :: proc(g: ^View_Grid, s: Grid_Step) {
 	u := &g.undo
+	if u.back == nil {
+		u.back = make([]Grid_Step, GRID_UNDO)
+		u.ahead = make([]Grid_Step, GRID_UNDO)
+	}
 	if u.back_n == GRID_UNDO {
 		copy(u.back[:], u.back[1:])
 		u.back_n -= 1
@@ -132,7 +136,7 @@ grid_step_push :: proc(g: ^View_Grid, s: Grid_Step) {
 @(private = "file")
 grid_step_put :: proc(app: ^App, s: Grid_Step) {
 	g := &app.kit.grid
-	g.tree, g.views, g.maximised = s.tree, s.views, 0
+	g.tree, g.tabs, g.maximised = s.tree, s.tabs, 0
 	g.serial += 1
 	for &pic in app.panes do pic.key, pic.due = 0, true
 	app.kit.pane_menu.open = false
@@ -279,7 +283,7 @@ grid_op_apply :: proc(app: ^App) {
 grid_pane_copy :: proc(app: ^App, pane: int) -> Second_View {
 	g := &app.kit.grid
 	if pane > 0 {
-		v := g.views[pane - 1]
+		v := grid_view(g, pane)^
 		v.dragging, v.turns, v.linked = false, 0, 0
 		return v
 	}
@@ -297,7 +301,7 @@ grid_pane_copy :: proc(app: ^App, pane: int) -> Second_View {
 // A pane's name in the gestures' notes: the main view, or its camera.
 grid_pane_name :: proc(g: ^View_Grid, pane: int) -> string {
 	if pane <= 0 do return "Main view"
-	return SECOND_CAMERA_NAMES[g.views[pane - 1].camera]
+	return SECOND_CAMERA_NAMES[grid_view(g, pane).camera]
 }
 
 // Whether the corner handles take presses: nothing maximised, no stroke going on
@@ -308,7 +312,9 @@ grid_corners_on :: proc(app: ^App) -> bool {
 	ctx := &k.ctx
 	g := &k.grid
 	if app.stroke.active do g.areas.stroke_end = ctx.time
-	if g.maximised != 0 || k.clean || k.home do return false
+	// A card in a column takes the view's corner to itself: the handle would stand as a
+	// stray bracket beside it, and a split is made with the cards put away.
+	if g.maximised != 0 || k.clean || k.home || cards_in_columns(k) do return false
 	if g.areas.stroke_end > 0 && ctx.time - g.areas.stroke_end < GRID_CORNER_REST do return false
 	return !kit_floating(app) && ctx.popup_open_prev == 0 && g.areas.chip.pane == 0
 }
@@ -595,7 +601,7 @@ kit_divider_menu :: proc(app: ^App) {
 	g := &k.grid
 	m := &g.areas.menu
 	if m.open && (m.serial != g.serial || m.node >= g.tree.count || !g.tree.nodes[m.node].split) do m.open = false
-	if !ui.popover_begin(ctx, "divider menu", &m.open, m.at, .Below, {direction = .Column, padding = 6, width = 240}) do return
+	if !ui.popover_begin(ctx, "divider menu", &m.open, m.at, .Below, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	node := g.tree.nodes[m.node]
 	n := grid_panes(g)

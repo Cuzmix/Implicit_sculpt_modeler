@@ -57,7 +57,7 @@ re-check the stores' pages before a first submission, because they move every ye
   versions must go to the app's own folder (or the picked folder's tree, if the user granted one), never ask for
   broader storage access to keep them.
 - Apple 4.2 / 2.1: the build is complete, nothing says "coming soon", no placeholder screens, no debug panels
-  reachable by users (the Stats panel, F11 and Menu > Stats, is to be a developer flag only in store builds).
+  reachable by users (the Details card, F11 and Menu > More > Details, is to be a developer flag only in store builds).
 
 ## Files, storage and data
 - No access outside the app's own folders except through the system file picker (Storage Access Framework on
@@ -134,8 +134,11 @@ re-check the stores' pages before a first submission, because they move every ye
   Inter (OFL 1.1, its licence beside the font files), Lucide (ISC), stb (public domain or MIT),
   kb_text_shape, Luau (MIT, with Lua's MIT notice; its texts in the repository's assets/licenses folder, desktop builds only; Luau asks for "Luau"
   in user-facing docs), Stephen Hill's ACES fit (MIT, assets/licenses/ACES-fit-LICENSE.txt; finish.frag.slang), ufbx (MIT or public domain,
-  assets/licenses/ufbx-LICENSE.txt; FBX import on every platform) and anything
-  added later. A new dependency is added there in the same change.
+  assets/licenses/ufbx-LICENSE.txt; FBX import on every platform), SuiteSparse's AMD order (BSD 3-clause,
+  assets/licenses/SuiteSparse-AMD-LICENSE.txt, its notice also in src/sparse/amd.odin; Quad Remesh's solves), AutoRemesher
+  and its isotropic remesher (MIT, assets/licenses/AutoRemesher-LICENSE.txt and isotropicremesher-LICENSE.txt; Quad
+  Remesh's engine, src/quadmesh, ported to Odin, on every platform) and anything added later. A new dependency is added
+  there in the same change.
 
 ## Before calling a change done
 - Name in your report which of the sections above the change touches and how it keeps to them, or say "no store

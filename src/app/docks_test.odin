@@ -20,6 +20,10 @@ new_docks_float_and_delete :: proc(t: ^testing.T) {
 	testing.expect(t, !user_dock_new(&app))
 	testing.expect_value(t, user_docks_used(k), USER_DOCKS)
 	testing.expect(t, k.bars_edit)
+	// Each new dock is the one being filled: only its buttons are edited.
+	testing.expect_value(t, k.edit_dock, Maybe(Dock_Id)(Dock_Id.Dock_4))
+	testing.expect(t, dock_editing(k, .Dock_4) && !dock_editing(k, .Dock_1) && !dock_editing(k, .Rail))
+	testing.expect(t, bar_editing(k, user_dock_which(3)) && !bar_editing(k, .View_Rail))
 	testing.expect_value(t, k.docks[.Dock_2].place, Dock_Place{edge = .Float, at = user_dock_middle(k)})
 	testing.expect_value(t, user_dock_middle(k), [2]f32{774, 390})
 
@@ -59,12 +63,12 @@ docks_read_back :: proc(t: ^testing.T) {
 	a.docks[.Dock_3] = {used = true, place = {edge = .Float, at = {400, 300}}, more_off = true}
 	a.docks[.Offhand] = {place = {edge = .Right, along = 0.25}}
 	a.docks[.Rail] = {more_lines = 2, names = .Off}
-	a.docks[.Shelf] = {place = {edge = .Bottom, along = 0.2}}
+	a.docks[.Shelf] = {place = {edge = .Top, along = 0.2}}
 	text := kit_layout_text(&a)
 	testing.expect(t, strings.contains(text, "dock dock1 Right 0.25 0 0 2 Always 1\n"), text)
 	testing.expect(t, strings.contains(text, "dock dock3 Float 0 400 300 1 Wide 0\n"), text)
 	testing.expect(t, strings.contains(text, "dock rail Default 0 0 0 3 Off 1\n"), text)
-	testing.expect(t, strings.contains(text, "dock shelf Bottom 0.2 0 0 1 Wide 1\n"), text)
+	testing.expect(t, strings.contains(text, "dock shelf Top 0.2 0 0 1 Wide 1\n"), text)
 	testing.expect(t, strings.contains(text, fmt.tprintf("bar dock_1 0 %s\n", command_name(.Focus_Selected, 0))), text)
 	b: Kit_State
 	kit_layout_put(&b, text)
@@ -79,7 +83,7 @@ docks_read_back :: proc(t: ^testing.T) {
 	testing.expect_value(t, dock_looks_text(&b), "offhand:1:wide,rail:3:off,shelf:1:wide,dock1:2:always,dock3:1:wide:nomore")
 
 	// Wrong counts, names, edges and numbers, and buttons of a dock no line makes: none of them.
-	kit_layout_put(&b, "dock dock5 Float 0 0 0 1 Wide 1\ndock shelf Left 0.5 0 0 1 Wide 1\ndock rail Bottom 0.5 0 0 1 Wide 1\ndock offhand Left NaN 0 0 1 Wide 1\ndock offhand Float 0 inf 0 1 Wide 1\ndock rail Default 0 0 0 1 Tiles 1\ndock offhand Left 0 0 0 1\nbars\nbar_count dock_2 1\nbar dock_2 0 frame_all\n")
+	kit_layout_put(&b, "dock dock5 Float 0 0 0 1 Wide 1\ndock shelf Left 0.5 0 0 1 Wide 1\ndock shelf Right 0.5 0 0 1 Wide 1\ndock offhand Left NaN 0 0 1 Wide 1\ndock offhand Float 0 inf 0 1 Wide 1\ndock rail Default 0 0 0 1 Tiles 1\ndock offhand Left 0 0 0 1\nbars\nbar_count dock_2 1\nbar dock_2 0 frame_all\n")
 	testing.expect_value(t, user_docks_used(&b), 0)
 	for d in Dock_Id do testing.expect_value(t, b.docks[d], Dock{})
 	testing.expect(t, !strings.contains(kit_layout_text(&b), "dock"))

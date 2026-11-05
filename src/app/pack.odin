@@ -496,7 +496,7 @@ pack_busy :: proc(app: ^App) -> bool {
 }
 
 // Places an unpacked pack in the library. A pack of the same name and author as one
-// installed replaces it only with `replace`; otherwise it waits on the Library panel's
+// installed replaces it only with `replace`; otherwise it waits on the Library's Manage packs page's
 // Replace (app.library.pending). Takes `u`.
 pack_install_finish :: proc(app: ^App, u: ^Pack_Unpacked, replace: bool) -> (error: string) {
 	l := &app.library
@@ -513,7 +513,7 @@ pack_install_finish :: proc(app: ^App, u: ^Pack_Unpacked, replace: bool) -> (err
 	for p, i in l.packs do if strings.equal_fold(p.name, u.info.name) && strings.equal_fold(p.author, u.info.author) do old = i
 	if old >= 0 && !replace {
 		l.pending = u
-		library_open(app)
+		library_packs_open(app)
 		return
 	}
 	id := strings.clone(l.packs[old].id, context.temp_allocator) if old >= 0 else pack_id(app, u.info.name)
@@ -582,7 +582,7 @@ pack_install_finish :: proc(app: ^App, u: ^Pack_Unpacked, replace: bool) -> (err
 	return ""
 }
 
-// The Library panel's Replace and Keep the old one, for the pack waiting on them.
+// Manage packs' Replace and Keep the old one, for the pack waiting on them.
 pack_pending_answer :: proc(app: ^App, replace: bool) {
 	u := app.library.pending
 	if u == nil do return
@@ -624,7 +624,7 @@ pack_id :: proc(app: ^App, name: string) -> string {
 	}
 }
 
-// What a pack holds, for notes and the Library panel: "3 alphas, 2 presets and 1 mesh",
+// What a pack holds, for notes and the Library's packs: "3 alphas, 2 presets and 1 mesh",
 // leaving out what it has none of (and saying "nothing" when that is all of it).
 pack_holds :: proc(p: Pack) -> string {
 	parts := make([dynamic]string, context.temp_allocator)

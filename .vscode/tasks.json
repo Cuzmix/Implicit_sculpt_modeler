@@ -326,7 +326,7 @@
 			"id": "testPackage",
 			"type": "pickString",
 			"description": "Package to test",
-			"options": ["geom", "uv", "poly", "camera", "sculpt", "voxel", "jobs", "gizmo", "png_write", "zip", "ui", "luau", "usd", "fbx", "quadmesh", "send", "app"],
+			"options": ["geom", "uv", "poly", "camera", "sculpt", "jobs", "gizmo", "png_write", "zip", "hdri", "voxel", "ui", "luau", "usd", "fbx", "quadmesh", "retopo", "send", "app"],
 			"default": "sculpt"
 		}
 	]

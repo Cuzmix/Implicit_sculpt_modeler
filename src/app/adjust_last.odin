@@ -43,7 +43,7 @@ ADJUST_STROKE_MAX :: f32(1.5)
 @(rodata)
 ADJUST_NAMES := [Adjust_Op]string {
 	.None       = "",
-	.Remesh     = "Remesh",
+	.Remesh     = "Voxel remesh",
 	.Decimate   = "Decimate",
 	.Mirror     = "Mirror",
 	.Retopo     = "Quad Remesh",
@@ -54,9 +54,9 @@ ADJUST_NAMES := [Adjust_Op]string {
 	.Model      = "model action",
 }
 
-// The inspector section whose settings each operation takes.
+// The card section whose settings each operation takes.
 @(rodata)
-ADJUST_SECTIONS := [Adjust_Op]Kit_Section {
+ADJUST_SECTIONS := [Adjust_Op]Section {
 	.None       = .Remesh,
 	.Remesh     = .Remesh,
 	.Decimate   = .Remesh,
@@ -364,7 +364,7 @@ kit_adjust_popover :: proc(app: ^App) {
 		area := ui.safe_area(ctx)
 		anchor = {area.x + area.w * 0.5 - 1, area.y + area.h - t.edge - dock_stack(app), 2, 1}
 	}
-	if !ui.popover_begin(ctx, "adjust last", &k.adjust_pop, anchor, .Above_Center, {direction = .Column, gap = 6, padding = 10, width = 300}) do return
+	if !ui.popover_begin(ctx, "adjust last", &k.adjust_pop, anchor, .Above_Center, {direction = .Column, gap = ui.SPACE_S, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	ui.label(ctx, fmt.tprintf("Adjust %s", adjust_name(app)), t.small_size)
 	// What it did and the note go above the controls, so that a longer line grows the
 	// popover upward and the controls stay where the thumb is, just over the bar.

@@ -10,14 +10,14 @@ import "../sculpt"
 // The sculptor asks here, at a stroke's first dab, how much of the stroke the GPU takes:
 // its dabs and normals, or its normals alone. Each flush of such a stroke hands its dab
 // records and its vertex ranges here, and the frame dispatches the kernels for them once
-// the positions the CPU moved are uploaded (frame_step) and submits the frame with a
-// fence for their readback, whose landing refits the sculptor's bounds. The switch is
+// the positions the CPU moved are uploaded (frame_step) and submits the frame, whose
+// ticket says when their readback is in, whose landing refits the sculptor's bounds. The switch is
 // Stats > Drawing's Sculpt on the GPU (--gpu-sculpt for one run), off until the kernels
 // cover a stroke's whole work.
 
 // Sets the sculptor's callbacks once, at start-up.
 sculpt_gpu_install :: proc(app: ^App) {
-	sculpt.stroke_gpu = {data = app, begin = sculpt_gpu_begin, dabs = sculpt_gpu_dabs, normals = sculpt_gpu_normals, sync = sculpt_gpu_sync, normals_back = sculpt_gpu_normals_back, normals_now = sculpt_gpu_normals_now}
+	sculpt.stroke_gpu = {data = app, begin = sculpt_gpu_begin, dabs = sculpt_gpu_dabs, normals = sculpt_gpu_normals, sync = sculpt_gpu_sync, pending = sculpt_gpu_pending, normals_back = sculpt_gpu_normals_back, normals_now = sculpt_gpu_normals_now}
 }
 
 // The object and level sculpted by `s`, and the GPU buffers that draw it: the current
@@ -50,10 +50,16 @@ sculpt_gpu_sculptor :: proc(app: ^App, gpu: ^render.Mesh_Buffers) -> ^sculpt.Scu
 // object (render.sculpt_gpu_prepare), so the first stroke on it finds the lookup on the
 // GPU rather than waiting seconds for 700 MB at 25M; whether more is to come. Nothing
 // goes up with the switch off, nor for a level whose strokes all stay on the CPU (the
-// conditions sculpt_gpu_wanted reads before the brush), and the frame calls it only
-// while no stroke is under way.
+// conditions sculpt_gpu_wanted reads before the brush), nor for the level around an HD
+// window, which brushes do not reach while it is open (its lookup is given back unless a
+// stroke took it, sculpt_gpu_unselected); the frame calls it only while no stroke is
+// under way.
 sculpt_gpu_prepare_level :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, lv: ^sculpt.Level, gpu: ^render.Mesh_Buffers) -> (waiting: bool) {
 	if !app.gpu_sculpt || !render.caps(&app.renderer).gpu_sculpt || app.renderer.sculpt_gpu.failed do return false
+	if window := obj.levels.hd.window; window != nil && lv != window {
+		render.sculpt_gpu_unselected(&app.renderer, gpu)
+		return false
+	}
 	s := &lv.sculptor
 	if object_dynamic(obj) || sculpt.sculptor_skin(s) != nil || sculpt.sculptor_hidden_count(s) > 0 do return false
 	if !gpu.storage || gpu.vertex_capacity != u32(len(lv.mesh.positions)) || gpu.index_count != u32(len(lv.mesh.indices)) do return false
@@ -66,9 +72,9 @@ sculpt_gpu_prepare_level :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, lv: ^
 // triangles leave out), whose buffers the kernels can read, and only once the mesh's
 // lookup is on the GPU: its normals; and its dabs too for a stroke that lays dabs along
 // its path (Drag rectangle, Drag dot and a straight line put the stroke back every
-// frame, which the GPU's copy would not follow) on the current level (an HD window's
-// border fades the brush out, which the kernels do not read). The sculptor narrows Dabs
-// to Normals for a brush its kernels do not lay.
+// frame, which the GPU's copy would not follow), on the current level or an HD window
+// (whose fade toward its border the kernels read as they read the mask). The sculptor
+// narrows Dabs to Normals for a brush its kernels do not lay.
 @(private = "file")
 sculpt_gpu_begin :: proc(data: rawptr, s: ^sculpt.Sculptor, brush: sculpt.Brush) -> sculpt.Gpu_Take {
 	app := cast(^App)data
@@ -92,7 +98,7 @@ sculpt_gpu_wanted :: proc(app: ^App, obj: ^Object, lv: ^sculpt.Level, gpu: ^rend
 	st := &app.stroke
 	// Physics writes the positions on the CPU after the dabs, so the GPU takes only normals.
 	if st.physics do return .Normals
-	if lv != sculpt.levels_current(&obj.levels) || st.mode == .Drag_Rect || st.mode == .Drag_Dot || st.line do return .Normals
+	if st.mode == .Drag_Rect || st.mode == .Drag_Dot || st.line do return .Normals
 	return .Dabs
 }
 
@@ -138,6 +144,13 @@ sculpt_gpu_dabs :: proc(data: rawptr, s: ^sculpt.Sculptor, dabs: []sculpt.Gpu_Da
 			peaks        = d.smooth_only == .Peaks,
 			once         = d.once,
 			stroke       = d.stroke,
+			masked       = d.masked,
+			faded        = d.faded,
+			alpha        = d.alpha,
+			alpha_size   = d.alpha_size,
+			alpha_up     = d.alpha_up,
+			alpha_mirror = d.alpha_mirror,
+			falloff      = d.falloff,
 			ranges       = d.ranges,
 		}
 	}
@@ -197,6 +210,14 @@ sculpt_gpu_sync :: proc(data: rawptr, s: ^sculpt.Sculptor) -> bool {
 	exact := render.sculpt_gpu_sync(&app.renderer, gpu)
 	sculpt_gpu_landed(app)
 	return exact
+}
+
+// Whether a readback of the mesh is on its way, not yet landed (render.sculpt_gpu_pending).
+@(private = "file")
+sculpt_gpu_pending :: proc(data: rawptr, s: ^sculpt.Sculptor) -> bool {
+	app := cast(^App)data
+	_, _, gpu := sculpt_gpu_level(app, s)
+	return gpu != nil && render.sculpt_gpu_pending(&app.renderer, gpu)
 }
 
 // Refits the sculptors' bounds for every readback of positions that landed since the

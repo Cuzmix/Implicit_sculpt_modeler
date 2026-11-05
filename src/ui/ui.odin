@@ -222,6 +222,10 @@ Context :: struct {
 	theme:          Theme,
 	fonts:          Fonts,
 	draw:           Draw_List,
+	// Last frame's draw list, kept until the next frame starts, so what stopped being drawn
+	// can be copied from it and drawn a little longer as it leaves (copy_prev, motion.odin).
+	draw_prev:      Draw_List,
+	frame:          u64, // frames begun, for Draw_Range
 	active:         Id, // the widget the pointer pressed and still holds
 	active_seen:    bool, // ...drawn this frame: a held widget that disappears lets go
 	hot:            Id, // the widget under the pointer this frame
@@ -404,6 +408,7 @@ init :: proc(ctx: ^Context, theme := THEME_DARK) {
 destroy :: proc(ctx: ^Context) {
 	fonts_destroy(&ctx.fonts)
 	draw_list_destroy(&ctx.draw)
+	draw_list_destroy(&ctx.draw_prev)
 	delete(ctx.placed)
 	delete(ctx.placed_prev)
 	delete(ctx.stack)
@@ -431,8 +436,10 @@ frame_begin :: proc(ctx: ^Context, input: Input) {
 	before := ctx.time
 	ctx.time += f64(clamp(input.dt, 0, 0.1))
 	if int(ctx.time) != int(before) do tween_prune(ctx)
+	ctx.draw, ctx.draw_prev = ctx.draw_prev, ctx.draw
 	draw_list_clear(&ctx.draw)
 	ctx.draw.keep = 0
+	ctx.frame += 1
 	clear(&ctx.stack)
 	ctx.overlaps_prev, ctx.overlap_prev = ctx.overlaps, ctx.overlap_first
 	ctx.overlaps, ctx.overlap_first = 0, {}
@@ -630,6 +637,21 @@ prev_rect :: proc(ctx: ^Context, name: string) -> Rect {
 		if p.id == id do return p.rect
 	}
 	return {}
+}
+
+// Where root `name` was laid out this frame so far, empty when it has not been.
+root_rect :: proc(ctx: ^Context, name: string) -> Rect {
+	id := hash_under(0, name)
+	for p in ctx.placed do if p.id == id do return p.rect
+	return {}
+}
+
+// Where the outermost container open now stands, empty outside every container: what
+// is drawn inside it can be placed relative to it, so a move of the whole is told from
+// a move within it.
+open_root_rect :: proc(ctx: ^Context) -> Rect {
+	if len(ctx.stack) == 0 do return {}
+	return ctx.stack[0].rect
 }
 
 // Where the root container `name` (begun outside every container) was last frame, asked
@@ -853,9 +875,19 @@ open :: proc(ctx: ^Context, id: Id, r: Rect, box: Box, root: bool) {
 	append(&ctx.stack, c)
 }
 
-// Asks the innermost container to slide its indicator to `r`, under its children.
+// Asks the innermost container to slide its indicator to `r`, under its children. A
+// container slides one: a second chosen child in it (two things on at once, such as a
+// shading mode and an open card on one shelf) is filled where it stands instead, so both
+// show the same chosen look rather than the second losing its fill.
 indicator :: proc(ctx: ^Context, r: Rect, radius: f32, color: Color, line := Color{}) {
-	if n := len(ctx.stack); n > 0 do ctx.stack[n - 1].indicator = Indicator{r, radius, color, line}
+	n := len(ctx.stack)
+	if n == 0 do return
+	if _, taken := ctx.stack[n - 1].indicator.?; taken {
+		fill_rect(ctx, r, radius, color)
+		if line.a > 0 do stroke_rect(ctx, r, radius, line, 1)
+		return
+	}
+	ctx.stack[n - 1].indicator = Indicator{r, radius, color, line}
 }
 
 // The smallest rectangle holding both.
@@ -1213,15 +1245,6 @@ shadow_rect :: proc(ctx: ^Context, r: Rect, radius: f32, color: Color) {
 	}
 }
 
-// A soft shadow under a circle: rings fading out, cheap and good enough at knob sizes.
-shadow_circle :: proc(ctx: ^Context, center: [2]f32, radius: f32, color: Color) {
-	for k in 0 ..< 3 {
-		c := color
-		c.a = u8(f32(color.a) * (0.5 - f32(k) * 0.15))
-		fill_circle(ctx, center + {0, 1}, radius + f32(k) * 1.2, c)
-	}
-}
-
 // An image the app registered (such as the 3D viewport), stretched over `r`, multiplied by
 // `tint` (its alpha fades it).
 image :: proc(ctx: ^Context, r: Rect, image_id: u64, tint := Color{255, 255, 255, 255}) {
@@ -1233,6 +1256,23 @@ image :: proc(ctx: ^Context, r: Rect, image_id: u64, tint := Color{255, 255, 255
 image_part :: proc(ctx: ^Context, r: Rect, image_id: u64, lo, hi: [2]f32, tint := Color{255, 255, 255, 255}) {
 	draw_set_state(&ctx.draw, .Image, image_id, ctx.clip)
 	draw_quad(&ctx.draw, to_px(ctx, r), lo, hi, tint)
+}
+
+// A registered image over `r` with texture coordinate `uv[i]` at its top left, top right,
+// bottom right and bottom left corners in turn: a picture mirrored or turned by quarters
+// as well as cut, as a reference picture on its board is.
+image_corners :: proc(ctx: ^Context, r: Rect, image_id: u64, uv: [4][2]f32, tint := Color{255, 255, 255, 255}) {
+	draw_set_state(&ctx.draw, .Image, image_id, ctx.clip)
+	dl := &ctx.draw
+	p := to_px(ctx, r)
+	base := u32(len(dl.vertices))
+	append(&dl.vertices,
+		Vertex{{p.x, p.y}, uv[0], tint},
+		Vertex{{p.x + p.w, p.y}, uv[1], tint},
+		Vertex{{p.x + p.w, p.y + p.h}, uv[2], tint},
+		Vertex{{p.x, p.y + p.h}, uv[3], tint},
+	)
+	draw_add_indices(dl, base, base + 1, base + 2, base, base + 2, base + 3)
 }
 
 // A registered image drawn in a circle of `radius` round `center`, the image's square

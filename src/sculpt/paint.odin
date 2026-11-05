@@ -37,12 +37,18 @@ Paint_Gradient :: struct {
 // Whether the sculptor holds colours (painted or cleared since).
 sculptor_has_color :: proc(s: ^Sculptor) -> bool {return s.color != nil}
 
-// Gives the sculptor colours, none covering the clay, if it has none yet.
+// Gives the sculptor colours, none covering the clay, if it has none yet: the picked paint
+// layer's, made first when there is none (paint_first_layer), or when none is picked.
 @(private)
 color_ensure :: proc(s: ^Sculptor) {
 	if s.color != nil do return
+	if s.paint.picked == 0 {
+		paint_first_layer(s)
+		if s.paint.picked == 0 do paint_pick_id(s, s.paint.list[len(s.paint.list) - 1].id)
+	}
 	s.color = make([]Color, len(s.mesh.positions), s.history.allocator)
 	s.paint_stamp += 1
+	s.paint.whole = true
 }
 
 // One Paint dab, called by dab_once with the hit leaves found. Returns how many
@@ -268,14 +274,15 @@ sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u
 	return sculptor_stroke_end(s)
 }
 
-// The paint where the ray from `origin` along `dir` (mesh space) first meets a shown
+// The paint as it shows (every layer composited) where the ray from `origin` along `dir` (mesh space) first meets a shown
 // triangle: its corners' colours blended by where it hit, coverage included (0 is bare
 // clay, as everywhere in polypaint). `hit` is false when the ray misses; with no paint the
 // colour is zero, which the caller shows as the clay. For the eyedropper.
 sculptor_color_at :: proc(s: ^Sculptor, origin, dir: Vec3) -> (c: Color, hit: bool) {
 	along, tri, on := geom.bvh_raycast(&s.bvh, s.mesh^, origin, dir, sculptor_hidden_tris(s))
 	hit = on
-	if !hit || s.color == nil do return
+	colors := sculptor_paint_shown(s)
+	if !hit || colors == nil do return
 	m := s.mesh
 	i := m.indices[3 * tri:][:3]
 	a, b, cc := m.positions[i[0]], m.positions[i[1]], m.positions[i[2]]
@@ -284,7 +291,7 @@ sculptor_color_at :: proc(s: ^Sculptor, origin, dir: Vec3) -> (c: Color, hit: bo
 	n := linalg.cross(b - a, cc - a)
 	area := linalg.dot(n, n)
 	if area <= 0 {
-		c = s.color[i[0]]
+		c = colors[i[0]]
 		return
 	}
 	wb := linalg.dot(linalg.cross(p - a, cc - a), n) / area
@@ -292,7 +299,7 @@ sculptor_color_at :: proc(s: ^Sculptor, origin, dir: Vec3) -> (c: Color, hit: bo
 	w := [3]f32{clamp(1 - wb - wc, 0, 1), clamp(wb, 0, 1), clamp(wc, 0, 1)}
 	sum := w[0] + w[1] + w[2]
 	for k in 0 ..< 4 {
-		x := (f32(s.color[i[0]][k]) * w[0] + f32(s.color[i[1]][k]) * w[1] + f32(s.color[i[2]][k]) * w[2]) / max(sum, 1e-6)
+		x := (f32(colors[i[0]][k]) * w[0] + f32(colors[i[1]][k]) * w[1] + f32(colors[i[2]][k]) * w[2]) / max(sum, 1e-6)
 		c[k] = u8(clamp(x + 0.5, 0, 255))
 	}
 	return
@@ -341,49 +348,70 @@ levels_take_surface :: proc(l: ^Levels, color: []Color, groups: []u16, old_to_ne
 	s.color_edited, s.groups.edited = s.color != nil, s.groups.tris != nil
 }
 
-// Copies the colours from level `from` to level `to`, through the levels between: a
-// vertex continuing one below takes its colour, a vertex on an edge the average of the
-// edge's ends, and going down a vertex takes the colour of the vertex it became above.
+// Copies the paint from level `from` to level `to`, through the levels between: each level
+// on the way takes the stack of the one before it (paint_mirror), and with `all` every
+// layer's colours, else only those of layers it lacked. A vertex continuing one below takes
+// its colour, a vertex on an edge the average of the edge's ends, and going down a vertex
+// takes the colour of the vertex it became above.
 @(private)
-levels_carry_color :: proc(l: ^Levels, from, to: int) {
+levels_carry_color :: proc(l: ^Levels, from, to: int, all := true) {
 	if from == to do return
 	step := 1 if to > from else -1
 	for j := from; j != to; j += step {
-		src, dst := l.levels[j], l.levels[j + step]
-		if src.sculptor.color == nil do continue
-		color_ensure(&dst.sculptor)
-		Job :: struct {
-			src, dst: ^Level,
-			up:       bool,
-			changed:  []bool, // per node of dst
-		}
-		job := Job{src, dst, step > 0, make([]bool, len(dst.sculptor.nodes), context.temp_allocator)}
-		jobs.parallel_for(l.pool, len(dst.sculptor.nodes), &job, proc(data: rawptr, id: int) {
-			job := cast(^Job)data
-			s := &job.dst.sculptor
-			from := job.src.sculptor.color
-			n := s.nodes[id]
-			changed := false
-			for v in n.vert_first ..< n.vert_first + n.vert_count {
-				c: Color
-				if job.up {
-					p := job.dst.parents[v]
-					if p[2] == EVEN {
-						c = from[p[0]]
-					} else {
-						a, b := from[p[0]], from[p[1]]
-						for k in 0 ..< 4 do c[k] = u8((u32(a[k]) + u32(b[k]) + 1) / 2)
-					}
-				} else {
-					c = from[job.src.even_of[v]]
-				}
-				if s.color[v] != c {
-					s.color[v] = c
-					changed = true
-				}
+		src, dst := &l.levels[j].sculptor, &l.levels[j + step].sculptor
+		if !all && paint_same_stack(src, dst) do continue
+		missing := paint_mirror(src, dst)
+		for _, i in src.paint.list {
+			if !all && !missing[i] do continue
+			from_colors := sculptor_paint_layer_colors(src, i)
+			if from_colors == nil do continue
+			to_colors := sculptor_paint_layer_colors(dst, i)
+			if to_colors == nil {
+				to_colors = make([]Color, len(dst.mesh.positions), dst.history.allocator)
+				if dst.paint.list[i].id == dst.paint.picked do dst.color = to_colors
+				else do dst.paint.list[i].color = to_colors
 			}
-			job.changed[id] = changed
-		})
-		for changed, id in job.changed do if changed do mark_stale(&dst.sculptor, u32(id), .Paint)
+			carry_colors(l, l.levels[j], l.levels[j + step], step > 0, from_colors, to_colors)
+		}
+		dst.paint_stamp += 1
 	}
+}
+
+// Carries one layer's colours one level up or down, levels_carry_color's rule.
+@(private = "file")
+carry_colors :: proc(l: ^Levels, src, dst: ^Level, up: bool, from, to: []Color) {
+	Job :: struct {
+		src, dst: ^Level,
+		up:       bool,
+		from, to: []Color,
+		changed:  []bool, // per node of dst
+	}
+	job := Job{src, dst, up, from, to, make([]bool, len(dst.sculptor.nodes), context.temp_allocator)}
+	jobs.parallel_for(l.pool, len(dst.sculptor.nodes), &job, proc(data: rawptr, id: int) {
+		job := cast(^Job)data
+		s := &job.dst.sculptor
+		from := job.from
+		n := s.nodes[id]
+		changed := false
+		for v in n.vert_first ..< n.vert_first + n.vert_count {
+			c: Color
+			if job.up {
+				p := job.dst.parents[v]
+				if p[2] == EVEN {
+					c = from[p[0]]
+				} else {
+					a, b := from[p[0]], from[p[1]]
+					for k in 0 ..< 4 do c[k] = u8((u32(a[k]) + u32(b[k]) + 1) / 2)
+				}
+			} else {
+				c = from[job.src.even_of[v]]
+			}
+			if job.to[v] != c {
+				job.to[v] = c
+				changed = true
+			}
+		}
+		job.changed[id] = changed
+	})
+	for changed, id in job.changed do if changed do mark_stale(&dst.sculptor, u32(id), .Paint)
 }

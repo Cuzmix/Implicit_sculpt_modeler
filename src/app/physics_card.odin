@@ -196,7 +196,7 @@ physics_card_allowed :: proc(app: ^App, obj: ^Object, quiet := true) -> bool {
 	else if object_in_hd(obj) do why = "Physics needs the HD window left first (A)"
 	else if object_dynamic(obj) do why = "Physics needs dynamic topology off"
 	if why == "" do return true
-	if !quiet do report(app, Kit_Section.Physics, {.Warning}, "%s", why)
+	if !quiet do report(app, Section.Physics, {.Warning}, "%s", why)
 	return false
 }
 
@@ -224,7 +224,7 @@ physics_run_begin :: proc(app: ^App, obj: ^Object, filter: bool) -> bool {
 	if why != "" {
 		sculpt.sculptor_cloth_end(s)
 		_ = sculpt.sculptor_stroke_discard(s)
-		report(app, Kit_Section.Physics, {.Warning}, "%s", why)
+		report(app, Section.Physics, {.Warning}, "%s", why)
 		return false
 	}
 	sculpt.sculptor_cloth_collide(s, physics_collide(app, obj, set))
@@ -282,7 +282,7 @@ settle_stop :: proc(app: ^App) {
 	if !physics_run_end(app, obj, "Settle") do return
 	c.settles += 1
 	c.settle_ms = run.ms
-	report(app, Kit_Section.Physics, {.Undo}, "Settled %s: %d steps (%.0f ms)", object_label(obj), run.frames, run.ms)
+	report(app, Section.Physics, {.Undo}, "Settled %s: %d steps (%.0f ms)", object_label(obj), run.frames, run.ms)
 }
 
 // Starts or stops Settle on the selected object: the Settle command and a tap of the
@@ -325,7 +325,7 @@ filter_drag_end :: proc(app: ^App, force := false) {
 	if obj == nil do return
 	if !physics_run_end(app, obj, PHYSICS_FILTER_NAMES[c.filter]) do return
 	c.filters += 1
-	report(app, Kit_Section.Physics, {.Undo}, "%s %s (%.0f ms)", PHYSICS_FILTER_NAMES[c.filter], object_label(obj), drag.ms)
+	report(app, Section.Physics, {.Undo}, "%s %s (%.0f ms)", PHYSICS_FILTER_NAMES[c.filter], object_label(obj), drag.ms)
 }
 
 @(rodata)

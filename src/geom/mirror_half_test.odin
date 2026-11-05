@@ -32,7 +32,7 @@ mirror_cut_then_mirror_closes :: proc(t: ^testing.T) {
 	mirror := Remesh_Mirror{axes = {true, false, true}, center = {0.3, 0, -0.2}}
 	from: Slice_From
 	defer slice_from_destroy(&from)
-	half, ok := mirror_cut(m, mirror, false, nil, from = &from)
+	half, ok := mirror_cut(m, mirror, nil, from = &from)
 	defer mesh_destroy(&half)
 	if !testing.expect(t, ok, "not cut") do return
 	testing.expect_value(t, len(from.vertex), len(half.positions))
@@ -64,7 +64,7 @@ decimate_with_a_seam_stays_on_the_plane :: proc(t: ^testing.T) {
 	m := icosphere(5)
 	defer mesh_destroy(&m)
 	mirror := Remesh_Mirror{axes = {true, false, false}}
-	half, ok := mirror_cut(m, mirror, false, nil)
+	half, ok := mirror_cut(m, mirror, nil)
 	defer mesh_destroy(&half)
 	if !testing.expect(t, ok, "not cut") do return
 	planes := mirror_seam(half, mirror, 1e-4)

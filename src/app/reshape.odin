@@ -203,11 +203,11 @@ reshape_drag_begin :: proc(app: ^App, obj: ^Object) -> bool {
 		r, ok := reshape_of(app, obj, kind, reshape_axes(p, p.choice))
 		if !ok do return false
 		if !sculpt.sculptor_pose_begin(object_sculptor(obj)) {
-			report(app, Kit_Section.Deform, {.Warning}, "Nothing is free to reshape: the mask covers all that is shown")
+			report(app, Section.Deform, {.Warning}, "Nothing is free to reshape: the mask covers all that is shown")
 			return false
 		}
 		drag.reshape, drag.posed = r, true
-		pose_physics_begin(app, obj, Kit_Section.Deform)
+		pose_physics_begin(app, obj, Section.Deform)
 	}
 	p.drag = drag
 	return true
@@ -219,11 +219,11 @@ reshape_drag_begin :: proc(app: ^App, obj: ^Object) -> bool {
 reshape_of :: proc(app: ^App, obj: ^Object, kind: sculpt.Reshape_Kind, axes: bit_set[sculpt.Axis], quiet := false) -> (r: sculpt.Reshape, ok: bool) {
 	lo, hi, free := deform_bounds(app, obj)
 	if !free {
-		if !quiet do report(app, Kit_Section.Deform, {.Warning}, "Nothing is free to reshape: the mask covers all that is shown")
+		if !quiet do report(app, Section.Deform, {.Warning}, "Nothing is free to reshape: the mask covers all that is shown")
 		return
 	}
 	if sculpt.reshape_has_axes(kind) && card(axes) == 0 {
-		if !quiet do report(app, Kit_Section.Deform, {.Warning}, "Pick an axis for %s", RESHAPE_NAMES[Reshape_Choice(kind)])
+		if !quiet do report(app, Section.Deform, {.Warning}, "Pick an axis for %s", RESHAPE_NAMES[Reshape_Choice(kind)])
 		return
 	}
 	return {kind = kind, axes = axes, lo = lo, hi = hi}, true
@@ -276,7 +276,7 @@ reshape_done :: proc(app: ^App, obj: ^Object, c: Reshape_Choice, axes: bit_set[s
 	p.count += 1
 	p.ms = ms
 	p.last = {valid = true, choice = c, axes = axes, amount = shown}
-	if !chain do report(app, Kit_Section.Deform, {.Undo}, "%s %s: %s (%.0f ms)", RESHAPE_DONE[c], object_label(obj), reshape_text(c, axes, shown), ms)
+	if !chain do report(app, Section.Deform, {.Undo}, "%s %s: %s (%.0f ms)", RESHAPE_DONE[c], object_label(obj), reshape_text(c, axes, shown), ms)
 }
 
 // Gives every other shown object that can take it the last reshape, each over its own
@@ -306,9 +306,9 @@ reshape_repeat :: proc(app: ^App) -> int {
 	}
 	p.last = last
 	if done == 0 {
-		report(app, Kit_Section.Deform, {.Warning}, "No other shown object could take %s", reshape_text(last.choice, last.axes, last.amount))
+		report(app, Section.Deform, {.Warning}, "No other shown object could take %s", reshape_text(last.choice, last.axes, last.amount))
 	} else {
-		report(app, Kit_Section.Deform, {.Undo}, "%s on %d other object%s", reshape_text(last.choice, last.axes, last.amount), done, "" if done == 1 else "s")
+		report(app, Section.Deform, {.Undo}, "%s on %d other object%s", reshape_text(last.choice, last.axes, last.amount), done, "" if done == 1 else "s")
 	}
 	return done
 }
@@ -317,15 +317,15 @@ reshape_repeat :: proc(app: ^App) -> int {
 // as the Deformers.
 reshape_allowed :: proc(app: ^App, obj: ^Object, quiet := true) -> bool {
 	if obj.voxel != nil {
-		if !quiet do report(app, Kit_Section.Deform, {.Warning}, "Deformation needs a mesh: convert the clay first (Voxels card)")
+		if !quiet do report(app, Section.Deform, {.Warning}, "Deformation needs a mesh: convert the clay first (Voxels card)")
 		return false
 	}
 	if object_in_hd(obj) {
-		if !quiet do report(app, Kit_Section.Deform, {.Warning}, "Deformation needs the HD window left first (A)")
+		if !quiet do report(app, Section.Deform, {.Warning}, "Deformation needs the HD window left first (A)")
 		return false
 	}
 	if object_dynamic(obj) {
-		if !quiet do report(app, Kit_Section.Deform, {.Warning}, "Deformation needs dynamic topology off")
+		if !quiet do report(app, Section.Deform, {.Warning}, "Deformation needs dynamic topology off")
 		return false
 	}
 	return true
@@ -341,7 +341,7 @@ kit_deformation :: proc(app: ^App, obj: ^Object) {
 	if picked := ui.select(ctx, "deformation kind", names[:], int(p.choice)); picked >= 0 && !p.drag.active do p.choice = Reshape_Choice(picked)
 	c := p.choice
 	if has, one := reshape_choice_axes(c); has {
-		ui.begin(ctx, "deformation axes", {direction = .Row, gap = 4})
+		ui.begin(ctx, "deformation axes", {direction = .Row, gap = ui.SPACE_XS})
 		axes := reshape_axes(p, c)
 		for a in sculpt.Axis {
 			if ui.toggle_button(ctx, fmt.tprintf("%v##deformation", a), a in axes, 92) && !p.drag.active {

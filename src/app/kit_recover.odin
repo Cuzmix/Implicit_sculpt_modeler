@@ -13,7 +13,7 @@ import "../ui"
 
 recover_shown :: proc(app: ^App) -> bool {
 	a := &app.autosave
-	return len(a.offers) > 0 && !a.offer_hidden && !side_panel_open(&app.kit) && !kit_floating(app)
+	return len(a.offers) > 0 && !a.offer_hidden && !sheet_open(&app.kit) && !kit_floating(app)
 }
 
 // The card's sentence for an offer: when, how much, and which file.
@@ -37,8 +37,8 @@ kit_recover :: proc(app: ^App) {
 	if !fits do return
 	k.recover_shown = true
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "recover", .Center, .Start, {shift, top}, {direction = .Column, gap = 8, padding = 14, width = w, radius = t.radius_large + 4, background = .Panel})
-	ui.begin(ctx, "recover title", {direction = .Row, gap = 10, center = true})
+	ui.begin_anchored(ctx, "recover", .Center, .Start, {shift, top}, {direction = .Column, gap = ui.SPACE_M, padding = ui.SPACE_XL, width = w, radius = t.radius_large + 4, background = .Panel})
+	ui.begin(ctx, "recover title", {direction = .Row, gap = ui.SPACE_M, center = true})
 	ui.begin(ctx, "recover badge", {width = 36, height = 36, radius = t.radius_medium, background = .Track})
 	ui.end(ctx)
 	r := ctx.last_rect
@@ -46,7 +46,7 @@ kit_recover :: proc(app: ^App) {
 	ui.label(ctx, "Recover your work?", t.text_size, t.text, .Semibold)
 	ui.end(ctx)
 	ui.paragraph(ctx, recover_text(o), color = t.text)
-	ui.begin(ctx, "recover buttons", {direction = .Row, gap = 8})
+	ui.begin(ctx, "recover buttons", {direction = .Row, gap = ui.SPACE_M})
 	third := (w - 2 * 14 - 2 * 8) / 3
 	if ui.button(ctx, "Recover", .Solid, .Accent, width = third) do file_post(.Recover, o.session)
 	if ui.button(ctx, "Not now", .Bordered, width = third) do app.autosave.offer_hidden = true

@@ -171,20 +171,7 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8, opts := Write_Options{}) -> 
 	}
 	s := &levels_current(l).sculptor
 	if !write_mask(&w, sculptor_sculpt_mask(s), canon[l.current]) do return false
-	geom.byte_put(out, u8(s.color != nil))
-	if s.color != nil {
-		Colors :: struct {
-			from:  []Color,
-			to:    []Color,
-			canon: []u32,
-		}
-		c := Colors{s.color, slice.reinterpret([]Color, geom.byte_put_bytes(out, len(s.color) * size_of(Color))), canon[l.current]}
-		ranged := ranges(w.pool, w.abort, len(s.color), &c, proc(data: rawptr, lo, hi: int) {
-			c := cast(^Colors)data
-			for u in lo ..< hi do c.to[place(c.canon, u32(u))] = c.from[u]
-		}, geom.RANGE_GRAIN)
-		if !ranged do return false
-	}
+	if !write_paint(&w, s, canon[l.current]) do return false
 	geom.byte_put(out, u8(s.groups.tris != nil))
 	if s.groups.tris != nil {
 		order := tri_canon(s, canon[l.current], w.abort)
@@ -297,6 +284,75 @@ read_sets :: proc(r: ^geom.Byte_Reader, l: ^Levels, canon: []([]u32)) -> bool {
 		set.data, set.runs = set_encode(values, l.allocator)
 		append(&l.sets, set)
 	}
+	return true
+}
+
+// A sculptor's paint layers (paint_layers.odin): how many, the picked one (index + 1, 0 for
+// none), the next id and how many were named; then per layer its name, id, eye and
+// opacity, a byte saying whether it has colours and those per vertex in file order.
+@(private = "file")
+write_paint :: proc(w: ^Writer, s: ^Sculptor, canon: []u32) -> bool {
+	out := w.out
+	p := &s.paint
+	geom.byte_put(out, u32(len(p.list)))
+	geom.byte_put(out, u32(sculptor_paint_picked(s) + 1))
+	geom.byte_put(out, p.next_id)
+	geom.byte_put(out, u32(p.named))
+	for l, i in p.list {
+		geom.byte_put(out, l.name)
+		geom.byte_put(out, l.id)
+		geom.byte_put(out, u8(l.visible))
+		geom.byte_put(out, l.opacity)
+		colors := sculptor_paint_layer_colors(s, i)
+		geom.byte_put(out, u8(colors != nil))
+		if colors == nil do continue
+		Colors :: struct {
+			from:  []Color,
+			to:    []Color,
+			canon: []u32,
+		}
+		c := Colors{colors, slice.reinterpret([]Color, geom.byte_put_bytes(out, len(colors) * size_of(Color))), canon}
+		ranged := ranges(w.pool, w.abort, len(colors), &c, proc(data: rawptr, lo, hi: int) {
+			c := cast(^Colors)data
+			for u in lo ..< hi do c.to[place(c.canon, u32(u))] = c.from[u]
+		}, geom.RANGE_GRAIN)
+		if !ranged do return false
+	}
+	return true
+}
+
+// Reads what write_paint wrote into a sculptor without paint. False on a damaged file.
+@(private = "file")
+read_paint :: proc(r: ^geom.Byte_Reader, s: ^Sculptor, canon: []u32) -> bool {
+	count := geom.byte_get(r, u32)
+	picked := geom.byte_get(r, u32)
+	next_id := geom.byte_get(r, u32)
+	named := geom.byte_get(r, u32)
+	if !r.ok || count > MAX_PAINT_LAYERS || picked > count do return false
+	n := len(s.mesh.positions)
+	a := s.history.allocator
+	for _ in 0 ..< count {
+		l: Paint_Layer
+		l.name = geom.byte_get(r, [32]u8)
+		l.id = geom.byte_get(r, u32)
+		visible := geom.byte_get(r, u8)
+		l.opacity = geom.byte_get(r, f32)
+		has := geom.byte_get(r, u8)
+		if !r.ok || visible > 1 || has > 1 || l.id == 0 || l.id > next_id || paint_index(s, l.id) >= 0 || !(l.opacity >= 0 && l.opacity <= 1) do return false
+		l.visible = visible == 1
+		l.name[len(l.name) - 1] = 0
+		if has == 1 {
+			saved := geom.byte_get_bytes(r, n * size_of(Color))
+			if !r.ok do return false
+			l.color = make([]Color, n, a)
+			for u in 0 ..< n do l.color[u] = intrinsics.unaligned_load(cast(^Color)&saved[size_of(Color) * int(canon[u])])
+		}
+		append(&s.paint.list, l)
+	}
+	s.paint.next_id, s.paint.named = next_id, int(named)
+	if picked > 0 do paint_pick_id(s, s.paint.list[picked - 1].id)
+	s.paint.whole = true
+	s.paint_stamp += 1
 	return true
 }
 
@@ -471,15 +527,7 @@ levels_read :: proc(l: ^Levels, r: ^geom.Byte_Reader, pool: ^jobs.Pool, node_tri
 	}
 	if flags & LEVELS_PAINT != 0 {
 		s := &levels_current(l).sculptor
-		has_color := geom.byte_get(r, u8)
-		if !r.ok || has_color > 1 do return false
-		if has_color == 1 {
-			n := len(s.mesh.positions)
-			saved := geom.byte_get_bytes(r, n * size_of(Color))
-			if !r.ok do return false
-			color_ensure(s)
-			for u in 0 ..< n do s.color[u] = intrinsics.unaligned_load(cast(^Color)&saved[size_of(Color) * int(canon[current][u])])
-		}
+		if !read_paint(r, s, canon[current]) do return false
 		has_groups := geom.byte_get(r, u8)
 		if !r.ok || has_groups > 1 do return false
 		if has_groups == 1 {
@@ -492,7 +540,7 @@ levels_read :: proc(l: ^Levels, r: ^geom.Byte_Reader, pool: ^jobs.Pool, node_tri
 			groups_refresh(s)
 		}
 		// The other levels take them at the first level change.
-		s.color_edited, s.groups.edited = s.color != nil, s.groups.tris != nil
+		s.color_edited, s.groups.edited = len(s.paint.list) > 0, s.groups.tris != nil
 	}
 	if flags & LEVELS_LAYERS != 0 {
 		for lv, j in l.levels do if !read_layers(r, &lv.sculptor, canon[j], flags & LEVELS_LAYER_MASKS != 0) do return false

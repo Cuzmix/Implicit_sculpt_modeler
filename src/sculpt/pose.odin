@@ -28,10 +28,10 @@ Pose_Kind :: enum {
 Pose :: struct {
 	kind:   Pose_Kind,
 	pivot:  Vec3, // what turns and scales go about
-	axis:   Vec3, // Turn: the unit axis through the pivot
+	axis:   Vec3, // Turn: the unit axis through the pivot; Scale: the axis it stretches along, or zero for an even scale
 	angle:  f32,  // Turn: radians, right-handed about the axis
 	delta:  Vec3, // Move: the offset
-	factor: f32,  // Scale: the factor for a free vertex
+	factor: f32,  // Scale: the factor for a free vertex; with `axis` set, along that unit axis only (a stretch)
 	deform: Deform, // Deform: which, along what and how much
 	lattice: Lattice_Move, // Lattice: the point and its move
 	reshape: Reshape, // Reshape: which, along what and how much
@@ -76,6 +76,23 @@ pose_keep_normals :: proc(s: ^Sculptor) {
 		n := s.nodes[id]
 		copy(s.pose.normals[s.pose.normal_at[i]:][:n.vert_count], s.mesh.normals[n.vert_first:][:n.vert_count])
 	}
+}
+
+// The middle of the free part of the mesh: every vertex weighed by how free it is
+// (shown and unmasked), in the mesh's own space. Not ok when nothing is free. Summed in
+// node order on one thread, so the same mesh gives the same point every time.
+sculptor_free_middle :: proc(s: ^Sculptor) -> (middle: Vec3, ok: bool) {
+	sum: [3]f64
+	weight: f64
+	for p, v in s.mesh.positions {
+		w := f64(shield(s.fade, s.mask, u32(v)))
+		if w <= 0 do continue
+		sum += [3]f64{f64(p.x), f64(p.y), f64(p.z)} * w
+		weight += w
+	}
+	if weight <= 0 do return
+	m := sum / weight
+	return {f32(m.x), f32(m.y), f32(m.z)}, true
 }
 
 // Whether a pose is under way.
@@ -158,7 +175,9 @@ sculptor_pose_apply :: proc(s: ^Sculptor, p: Pose) {
 			case .Move:
 				positions[k] = a + w * p.delta
 			case .Scale:
-				positions[k] = p.pivot + (a - p.pivot) * (1 + w * (p.factor - 1))
+				f := 1 + w * (p.factor - 1)
+				if job.axis == {} do positions[k] = p.pivot + (a - p.pivot) * f
+				else do positions[k] = a + job.axis * (linalg.dot(a - p.pivot, job.axis) * (f - 1))
 			case .Turn:
 				if job.axis == {} {
 					positions[k] = a

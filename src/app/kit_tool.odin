@@ -9,7 +9,7 @@ import "../gizmo"
 import "../sculpt"
 import "../ui"
 
-// The tray's first palette: the tool in use, and everything that sets it up.
+// The Tool card's sections: the tool in use, and everything that sets it up.
 
 // The palette's name, after the tool it shows.
 kit_tool_name :: proc(tool: Tool) -> string {
@@ -23,8 +23,8 @@ kit_tool_name :: proc(tool: Tool) -> string {
 	return ""
 }
 
-// The Brush card's body under a tool other than the brush, whose body is the stack's own
-// (stack_brush).
+// The Tool card's Brush section under a tool other than the brush (the brush's own is
+// card_brush).
 kit_tool_tab :: proc(app: ^App) {
 	switch app.tool {
 	case .Brush:
@@ -38,7 +38,7 @@ kit_tool_tab :: proc(app: ^App) {
 // The palette's heading: an icon on a badge, a title, and a line of help under them.
 kit_tool_head :: proc(ctx: ^ui.Context, glyph: rune, title, help: string) {
 	t := ctx.theme
-	ui.begin(ctx, "tool head", {direction = .Row, gap = 10, center = true})
+	ui.begin(ctx, "tool head", {direction = .Row, gap = ui.SPACE_M, center = true})
 	ui.begin(ctx, "tool badge", {width = 36, height = 36, radius = t.radius_medium, background = .Track})
 	ui.end(ctx)
 	r := ctx.last_rect
@@ -52,7 +52,7 @@ kit_tool_head :: proc(ctx: ^ui.Context, glyph: rune, title, help: string) {
 // One section of a palette that is not per object (the Brush and Scene cards): which
 // it is, its title, what it draws, and when it is offered (always, when nil).
 Kit_Tab_Section :: struct {
-	section: Kit_Section,
+	section: Section,
 	title:   string,
 	draw:    proc(app: ^App),
 	shown:   proc(app: ^App) -> bool,
@@ -92,7 +92,7 @@ kit_brush_colors :: proc(app: ^App) {
 		ui.paragraph(ctx, fmt.tprintf("%s keeps to what it changes; Sculpt, Both and Paint are for the sculpting brushes.", BRUSHES[b.kind].name))
 	}
 	_ = kit_color(app, "brush colour", &b.color)
-	_ = command_button(app, .Colors_Card, label = "Open Colors", glyph = ICON_COLOUR, width = ui.fill_width(ctx))
+	_ = command_button(app, .Open_Card, int(Card.Colours), label = "Open Colours", glyph = ICON_COLOUR, width = ui.fill_width(ctx))
 	_ = ui.switch_row(ctx, "Smooth blurs, Invert erases", &b.paint_dial, .Paint in BRUSHES[b.kind].flags || channel_brush(b.kind))
 	if kit_more(app, .Paint_Color) {
 		ui.caption(ctx, "SECONDARY")
@@ -134,7 +134,7 @@ kit_brush_options :: proc(app: ^App) {
 	if b.kind in sculpt.SKIN_KINDS && (object_top_skin(selected_object(app)) != nil || b.detail_to[b.kind] != .Auto) {
 		ui.label(ctx, "Detail goes to", ctx.theme.text_size, ctx.theme.text)
 		if picked := ui.tabs(ctx, "detail goes to", {"Auto", "Mesh", "Skin"}, int(b.detail_to[b.kind])); picked >= 0 do b.detail_to[b.kind] = Detail_To(picked)
-		ui.paragraph(ctx, fmt.tprintf("Auto puts the brush's detail in the object's detail skin; Mesh moves vertices as without one; Skin never moves a vertex. Each brush keeps its own; %s steps through them.", command_keys(app, .Detail_To_Next)))
+		ui.paragraph(ctx, fmt.tprintf("Auto puts the brush's detail in the object's detail skin; Mesh moves vertices as without one; Skin never moves a vertex. Each brush keeps its own; %s steps through them.", keys_or_name(app, .Detail_To_Next)))
 	}
 	if b.kind == .Grab {
 		_ = ui.switch_row(ctx, "All depth", &b.grab_depth)
@@ -282,21 +282,14 @@ kit_preset :: proc(app: ^App) {
 	}
 }
 
-// Size, strength, then the stroke mode (with Spray's spread) or, for the brushes that
-// lay no dabs along the path, the cloth brush's mode; under More, how the path is
-// followed: the lazy mouse, straight lines and joined strokes.
+// The stroke mode (with Spray's spread) or, for the brushes that lay no dabs along the
+// path, the cloth brush's mode; under More, how the path is followed: the lazy mouse,
+// straight lines and joined strokes. Size and Strength stand above it on the Tool card
+// (card_brush), whose readers know the keys from the dock's tooltips.
 @(private = "file")
 kit_stroke :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	kind := app.brush.kind
-	// Lens's Brush card shows Radius and Strength above its groups, and its readers know the
-	// keys from the island's tooltips.
-	stack := app.kit.in_stack
-	if !stack {
-		_ = ui.slider(ctx, "Size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px))
-		s := brush_strength(app)
-		_ = ui.slider(ctx, "Strength", s, MIN_STRENGTH, 1, .Linear, fmt.tprintf("%.2f", s^))
-	}
 	// Grab, Snake hook and Cloth move what they pick up rather than laying dabs, so a
 	// stroke mode means nothing to them.
 	if BRUSHES[kind].flags & {.Grab, .Hook, .Cloth} == {} {
@@ -342,7 +335,6 @@ kit_stroke :: proc(app: ^App) {
 			kit_more_end(app)
 		}
 	}
-	if !stack do ui.paragraph(ctx, "S or U over the viewport sizes the brush or sets its strength there; [ and ] step the size, Shift with them the strength. Each brush keeps its own strength. Space, or a right click without dragging (a pen's side button), opens the brush pie.")
 }
 
 // The Stroke section's More: how the stroke follows the pointer's path.
@@ -538,7 +530,7 @@ kit_move_tab :: proc(app: ^App) {
 	kit_tool_head(ctx, ui.ICON_MOVE, "Move", "Tap or click an object to select it, and drag it to move it across the view. The gizmo moves it along an arm or across a plane square, turns it about a ring, or scales it from the middle; All does the three at once.")
 	// The camera's buttons first, where they always are, then the gizmo's settings.
 	half := (ui.fill_width(ctx) - 8) * 0.5
-	ui.begin(ctx, "move actions", {direction = .Row, gap = 8})
+	ui.begin(ctx, "move actions", {direction = .Row, gap = ui.SPACE_M})
 	_ = command_button(app, .Focus_Selected, width = half, glyph = ui.ICON_FOCUS)
 	_ = command_button(app, .Frame_All, width = half, glyph = ui.ICON_FRAME)
 	ui.end(ctx)
@@ -547,9 +539,17 @@ kit_move_tab :: proc(app: ^App) {
 	hints: [len(gizmo.Mode)]string
 	for &h, i in hints do h = command_hint(app, .Gizmo, i)
 	if picked := ui.tabs(ctx, "gizmo mode", modes[:], int(app.move.mode), keys = hints[:]); picked >= 0 do command_run(app, .Gizmo, picked)
+	orients: [len(Gizmo_Orient)]string
+	for name, o in GIZMO_ORIENT_NAMES do orients[int(o)] = name
+	orient_hints: [len(Gizmo_Orient)]string
+	for &h, i in orient_hints do h = command_hint(app, .Gizmo_Orient, i)
+	if picked := ui.tabs(ctx, "gizmo orientation", orients[:], int(app.move.orient), keys = orient_hints[:]); picked >= 0 do command_run(app, .Gizmo_Orient, picked)
 	_ = ui.switch_row(ctx, "Snap", &app.move.snap)
 	kit_command_pair(app, .Gizmo_Pivot, .Gizmo_Pivot_Reset, label_a = "Set pivot", label_b = "Reset pivot")
-	ui.paragraph(ctx, fmt.tprintf("All moves on its arrows and plane squares, turns on its rings and scales on the white knobs, with no switching. %s again steps through the four. Snap (or Ctrl for one drag) moves in steps of a grid that follows the zoom, turns 15° at a time and scales in steps of 0.1. Esc puts the object back mid-drag; %s undoes a drag. Tap a handle without moving it to type its value. Set pivot, then a tap on a surface, turns and scales about that point.", command_keys(app, .Tool_Move), command_keys(app, .Undo)))
+	kit_command_pair(app, .Gizmo_Pivot_Edit, .Gizmo_Pivot_Center, label_a = "Edit pivot", label_b = "Pivot to middle")
+	shown := !app.move.pivot_row_off
+	if ui.switch_row(ctx, "Pivot row over the gizmo", &shown) do app.move.pivot_row_off = !shown
+	ui.paragraph(ctx, fmt.tprintf("All moves on its arrows and plane squares, turns on its rings, stretches the mesh along an axis on the coloured knobs and scales evenly on the white knob on the view ring, with no switching. %s again steps through the four. Snap (or Ctrl for one drag) moves in steps of a grid that follows the zoom, turns 15° at a time and scales in steps of 0.1. Esc puts the object back mid-drag; %s undoes a drag. Tap a handle without moving it to type its value. Set pivot, then a tap on a surface, turns and scales about that point.", keys_or_name(app, .Tool_Move), keys_or_name(app, .Undo)))
 	// Posing changes what the handles do, so it says so while it is on.
 	if pose_mode(app) {
 		ui.paragraph(ctx, "Posing: a mask is on, so the handles bend the unmasked part about the gizmo, which sits on the mask's soft edge; a drag on the object still moves all of it. Clear the mask to move the object with the handles again.")
@@ -558,14 +558,14 @@ kit_move_tab :: proc(app: ^App) {
 		_ = ui.switch_row(ctx, "Physics", &b.physics, keys = command_hint(app, .Physics))
 		if b.physics do _ = ui.slider(ctx, "Physics strength", &b.physics_strength, 0.05, 1, .Linear, fmt.tprintf("%.0f%%", b.physics_strength * 100))
 	}
-	ui.paragraph(ctx, "Ctrl + drag from the model (or with the rail's Mask on) masks along the surface: free near the press, masked as far as the drag reaches, ready to pose. Alt the other way round.")
+	ui.paragraph(ctx, "Ctrl + drag from the model (or with the dial's Mask on) masks along the surface: free near the press, masked as far as the drag reaches, ready to pose. Alt the other way round.")
 	ui.paragraph(ctx, "The Transform card places the selected object exactly: position, turn and scale.")
 }
 
 @(private = "file")
 kit_curve_tab :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	kit_tool_head(ctx, ui.ICON_SPLINE, "Curve", "Curve: drag over the surface for a curve that follows the path with as few points as keep it close, or tap points one by one (Enter ends, a tap on the first point closes it, Escape drops them). The curve stays an object of its own, a line over the model; Tube draws one with a tube along it, its width a share of the brush's diameter (S changes the brush size), which follows each edit of the curve until Bake makes it a mesh to sculpt. Stitches and Zipper draw one with stitches or zipper teeth set along it, as live.")
+	kit_tool_head(ctx, ui.ICON_SPLINE, "Curve", "Curve: drag for a curve that follows the path with as few points as keep it close, or tap points one by one, on the model or anywhere in the scene: Draw on says where a point lands (Surface: on the model, off it on the plane facing the view; View, Floor, Front or Side: on that plane, shown as a grid, through the view's centre and then the point before) (Enter ends, a tap on the first point closes it, Escape drops them). The curve stays an object of its own, a line over the model; Tube draws one with a tube along it, its width a share of the brush's diameter (S changes the brush size), which follows each edit of the curve until Bake makes it a mesh to sculpt. Stitches and Zipper draw one with stitches or zipper teeth set along it, as live.")
 	kit_curve_settings(app)
 }
 

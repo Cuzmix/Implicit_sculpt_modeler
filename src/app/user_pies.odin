@@ -160,7 +160,7 @@ kit_pie_editor :: proc(app: ^App) {
 	if at.w <= 0 do at = {area.x + area.w * 0.5, area.y + kit_top(), 0, 0}
 	owner := ui.id_of(ctx, "pie editor")
 	size, _ := ui.prev_layout(ctx, "pie editor")
-	if !ui.popover_begin(ctx, "pie editor", &k.pie_editor, at, .Below, {direction = .Column, gap = 4, padding = 12, width = width + 24}) do return
+	if !ui.popover_begin(ctx, "pie editor", &k.pie_editor, at, .Below, {direction = .Column, gap = ui.SPACE_XS, padding = ui.SPACE_L, width = width + 24}) do return
 	defer ui.popover_end(ctx)
 	put := k.pie_put
 	ui.begin(ctx, "pie editor head", {direction = .Row, center = true})
@@ -182,7 +182,7 @@ kit_pie_editor :: proc(app: ^App) {
 	for &s, i in k.brush_pie.slots[:PIE_SLOTS] {
 		glyph := ui.ICON_PLUS if s.id == .None else bar_icon(app, s)
 		lit := put.id != .None && s == put
-		if ui.brush_tile(ctx, fmt.tprintf("%s##pie brush %d", shelf_label(app, s) if s.id != .None else "Empty", i), glyph, lit) {
+		if ui.brush_tile(ctx, fmt.tprintf("%s##pie brush %d", shelf_label(app, s) if s.id != .None else "Empty", i), glyph, lit, picture = bar_picture(app, s)) {
 			if put.id != .None && bar_lists(put.id) {
 				s = put
 				pies_saved(app)

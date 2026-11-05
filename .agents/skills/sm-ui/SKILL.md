@@ -1,6 +1,6 @@
 ---
 name: sm-ui
-description: The interface — the kit in src/ui (containers, widgets, hit testing, the gesture arena, scrolling, fingers, tokens, motion, popovers, layers, text fields) and its use in src/app (new_ui.odin's toolbars, shelf, inspector and menus; kit_tool, kit_object, kit_scene, kit_stats, kit_settings; each feature's kit_*_section; the History panel in timeline.odin) — and the frame loop: the Device, touch and pen routing (touch.odin, navigate.odin), Viewport_Input, pen samples, the viewport overlay, the brush pie, shortcuts, Scene_Command, remembered settings. Load for ANY task that adds or changes something the user taps, reads or types, e.g. "add a section to the Object tab", "add a shortcut", "add a setting", "show X in the Stats panel", "the slider does not update", "the viewport ignores the pointer", "a finger turns the view by itself". Requires sm-odin and sm-build; testing touch is sm-touch-testing; what buttons do is sm-sculpt or sm-cad; viewport pixels are sm-render; touch targets and store rules are sm-store.
+description: The interface — the kit in src/ui (containers, widgets, hit testing, the gesture arena, scrolling, fingers, tokens, motion, popovers, layers, text fields) and its use in src/app (new_ui.odin's toolbars, shelf, cards and menus; kit_tool, kit_object, kit_scene, kit_stats, kit_settings; each feature's kit_*_section; the History card in timeline.odin) — and the frame loop: the Device, touch and pen routing (touch.odin, navigate.odin), Viewport_Input, pen samples, the viewport overlay, the brush pie, shortcuts, Scene_Command, remembered settings. Load for ANY task that adds or changes something the user taps, reads or types, e.g. "add a section to the Object tab", "add a shortcut", "add a setting", "show X in the Details card", "the slider does not update", "the viewport ignores the pointer", "a finger turns the view by itself". Requires sm-odin and sm-build; testing touch is sm-touch-testing; what buttons do is sm-sculpt or sm-cad; viewport pixels are sm-render; touch targets and store rules are sm-store.
 ---
 
 # Interface
@@ -31,8 +31,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   (`viewport_mute`). Nothing else reaches the camera or the tools.
 - `Ui_State` (`ui.odin:15`): `viewport_request`, `scene_command`, the pointer over the viewport for shortcuts that act
   there, the pie, the S/U adjust, curve handles, and each section's own settings and last results. `Kit_State`
-  (`new_ui.odin:30`): the kit context, which tab, which sections are open (`Kit_Section`), menus, Stats (Simple or
-  Advanced), Settings (open, tab, scroll) and History panels, the interface size (`ui_scale`), the tray's scroll,
+  (`new_ui.odin:30`): the kit context, which tab, which sections show More (`Section`), menus, Stats (Simple or
+  Advanced), Settings (open, tab, scroll) and the History card's view, the interface size (`ui_scale`), the cards (`cards: Cards`),
   add shape and size, the overlay's `layer`, text input on or off.
 - Layout: one, Lens; never add a second chrome (`settings_load` passes over the old Classic lines). `kit_layout`
   (`new_ui.odin`) lays out in order: the top bar `kit_top_bar` (`kit_top_lens.odin`: three docks, `Top_Dock`, whose
@@ -40,7 +40,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   navigation head, the view rail ("view bar"), the person's docks, the shelf ("dock"), the action bar, the picker,
   Search and the menu. Keep-clear rules and Arrange find each by its container name (`ui.prev_rect`, or
   `prev_root_rect` from inside another root), so renaming one moves them all. The full map, bar by bar (fits,
-  keep-clear rules, Arrange and places, docks, palette groups, the dial, focus, offers), is
+  keep-clear rules, Arrange and places, docks, the dial, focus, offers), is
   [references/lens-layout.md](references/lens-layout.md): read it before changing any chrome.
 - The look is a theme (`themes.odin`): `Kit_State.themes.seed` (a `ui.Theme_Seed`: mode, tint, contrast, opacity,
   corners, accent, chosen style, pure black, shadows) made into colours by `ui.theme_from_seed` against the built-in
@@ -51,42 +51,49 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   default, to Lens once. Colours outside widgets come from the theme too: the swapchain
   clear and screen dumps (`kit_frame_color`), the top bar (`Background.Band`: `frame` plus `frame_line`), view pane
   grounds and pass grounds (`pane`, `color_f32`).
-- Windows (`src/ui/window.odin`, `Kit_Window` in `new_ui.odin`): the tray, Stats, History and Settings are
-  `ui.window_begin(ctx, name, title, &k.windows[which], x, y, offset, box, close_keys)` … `ui.window_end`: a title
-  bar (drag it to move, Minimise folds to it, a tap on a folded title opens it, Close) over the caller's body, which
-  is laid out only while `body` is true. A moved window keeps to its nearer edges (`ui.Window.x/y/offset`) and its
-  title bar stays in the safe area. `raised` (a press anywhere on it) moves it to the end of `k.order` with
-  `window_raise`; the draw order is the hit-test order from the next frame. `window_room` is the height it has where
-  it is; `window_slide` the side it slides from. Positions and folds are `window` lines in the settings;
+- Floating places (`ui.Window`, `src/ui/window.odin`): only floating cards float; there is no other window kind.
+  A moved one keeps to its nearer edges (`ui.Window.x/y/offset`, `cards.windows[c]`), `kit_mirror` sends it across
+  when the hand changes, and `float_raise(k, c)` moves it to the end of `k.order` (a `Card` each) on a press; the
+  draw order is the hit-test order from the next frame. `window_room` is the height it has where it is;
   `windows_reset` puts them back (Settings > Interface > Reset panel positions).
-- Where the panels go (`src/app/panels.odin`, PR 9e): the columns are gone. `k.stack.place` (`Stack_Place`: Right,
-  Left, Float, layout terms, reset by `stack_default`; `stack_place_set`, layout line `stack_place left|float`) says
-  where the whole stack goes; `stack_docked(k) -> (side, ok)` is how to ask. Other windows only float. Each panel proc
-  calls `panel_begin(app, ref, title, x, y, offset, box)` … `panel_end`, never `ui.window_begin` itself; only the
-  stack docks, laid out by `kit_stack_dock` as its own root at `k.panels.at` with its body scrolled
-  (`k.panels.scroll`), and it writes `k.panels.rect[side]`, which what keeps clear of it reads. Size a body from
-  `Panel_Frame.room`, scroll from `.owner`. `kit_panel_menu` (Dock on the left/right, Float for the stack; Fold, Close).
-  Exit stats `stack_place= panel_pins= panel_moves= panel_menu=`.
-- Workspaces (`src/app/workspaces.odin`): a layout is text, `kit_layout_text(k)` (`hidden`, `open`, `window`,
-  `stack*` lines, places written right-handed) and `kit_layout_put(k, text)`; the modified dot is that text
-  against the current workspace's `saved`, once a frame (`workspaces_frame`). Built-ins are `built_in_layout(b)`,
-  canonical by construction. A hidden `Zone` skips its bar in `kit_layout` (the top bar takes Undo/Redo or
-  Search/Palettes); read the wheel's side with `rail_shown(k)`, never `k.rail_side`, and the action bar with
-  `action_bar_shown`. A new panel that a layout should open goes in `LAYOUT_PANELS`. Commands `Workspace` (slot arg),
-  `Workspace_Save/_Save_As/_Revert/_Reset/_Rename/_Delete`. The layout holds the column and strip bars (a `bars`
-  line, then `bars_save`); a text with no `bars` line keeps the bars.
-  Workspace files (`workspace_file.odin`, commands `Workspace_Export/_Import`): `SCULPT_WORKSPACE 1` plus escaped
-  `name` and `layout` lines; an import goes through `workspace_layout_clean` (put into a fresh `Kit_State`, written
-  again) and `workspace_add` (a free own slot, a unique name); until release a format change edits the writer and the
-  reader together, with no reading of older files (AGENTS.md). Test by flag: `--export-workspace=PATH`, `--import-workspace=PATH`.
+- Cards and columns (`src/app/cards.odin`, `src/app/column.odin`): docks hold buttons, cards hold controls. `Card`
+  (Tool, Layers, Scene, Mesh, Mask, Deform, Paint, Symmetry, Look, Render) is the card enum and `Section` every
+  section, grouped by card in order (`section_card(sec)` by switch ranges; `card_sections(c)`). A card opens in a
+  `Column` (`Column_Side` Left or Right, layout terms; Right is the pen side) beside the button that opened it:
+  `card_toggle(app, c, at, side)` from a dock button, `card_open(app, c)` with no button (pen side),
+  `card_reveal(app, sec)` to open a card on a section (unfolds it, scrolls to it next frame), `card_close`,
+  `card_pin`. `columns_update` runs first in `kit_layout`: a viewport press closes every unpinned card and is
+  swallowed. `kit_columns` draws them under the floating windows. With a mouse (`columns_split`) a column shows two
+  cards, the pinned one on top; on touch one, the pinned one coming back when the other closes, and the pen side's
+  column stops at `CARD_PALM_TOP` of the height. What keeps clear of a card that stays reads
+  `column_rest_rect(app, s)` or `cards_right_room(app)`; `card_rect(app, c)` is where a card was laid out;
+  `section_on_screen(app, sec)` lights a section's button. Commands `Open_Card` (arg a `Card`) and `Open_Section`
+  (arg a `Section`). Other panels only float: each panel proc calls `panel_begin(app, ref, title, x, y, offset, box)`
+  … `panel_end`, never `ui.window_begin` itself. Exit stats `cards= cards_shut= card_opens= card_folds= card_pins=
+  card_closes= card_front= card_scroll= card_section= card_marked= cards_float= card_floated= card_returned=`.
+  Floating cards (`card_float.odin`): `card_head` returns `torn` when the title is dragged past the slop and
+  `card_float_tear` takes the card out of its column into `cards.floats` with a `ui.Window` of its own
+  (`cards.windows[c]`), grabbed by the same press; `card_float_draw` draws it through `panel_begin(card = true)`
+  in `k.order` (`Panel_Ref` is a `Card`); `card_float_return(app, c, side)` puts it back
+  pinned (Put back, a hold on the grip, a drop past `CARD_RETURN_REACH` of a side); a `card_float` layout line.
+  Under `CARD_SHEET_BELOW` (900 pt) `cards_as_sheet` puts one card at a time over the lower part (`column_place`).
+  Android's side-edge gesture strips: `gesture_edges.odin`.
+- Layouts (`src/app/layouts.odin`, `k.layouts`): one per space. A layout is text,
+  `kit_layout_text(k)` (`hidden`, `open`, `window`, `column`, `card_float`, dock and `bars` lines, places written
+  right-handed) and `kit_layout_put(k, text)`. `shipped[s]` is `built_in_layout(s)`; `kept[s]` is a space left
+  with changes ("" = as shipped); `layouts_frame` sets `modified` (the current text against `shipped`), and
+  `layout_changed(k, s)` drives each tab's amber dot. `layout_switch` (from `space_switch`) keeps the one left and
+  puts the next in place; `.Layout_Reset` puts the shipped one back. Settings: `space_layout <Space> <escaped>`
+  and `space_current <Space>` (`layouts_save`, `layouts_load_line`, `layouts_loaded`). A hidden `Zone` skips its
+  bar in `kit_layout` (the top bar takes Undo/Redo or Search); read the wheel's side with `rail_shown(k)`, never
+  `k.rail_side`, and the action bar with `action_bar_shown`. A new panel that a layout should open goes in
+  `LAYOUT_PANELS`. The lit tab or the chevron (`kit_space_chip` when narrow) opens `kit_layout_menu`. The person's own layouts are stamps, `saved[LAYOUT_SLOTS]` (name and text, `layout_saved` settings lines): `layout_save`/`layout_load` (command `.Layout_Load`, arg the slot)/`layout_update`/`layout_rename` (through `k.rename.layout`)/`layout_delete`; a load or delete keeps `undo` for its toast's Undo (`layout_undo` from `kit_results`); `matching` (slot + 1) is set in `layouts_frame` and ticks the row. Never add a "current saved layout": loading only puts the text in place.
 - Spaces (`src/app/spaces.odin`, `k.spaces`): Sculpt, Model, Render. The tool decides the space: `space_follow`
   runs once a frame and switches when `app.tool` changes (Move keeps the space); a command that picks a tool calls
   `space_picked(app)` so the space follows even when the tool was already in hand. `space_switch(app, to)` stores the
-  tool left (`Space_Tool`), the shelf page and the workspace slot of the space left, puts `to`'s back, and turns the
-  views off. Every workspace slot belongs to one space (`workspace_space`; built-ins = `Built_In` = `Space`); the
-  menu lists only the current space's. Focus and Inspect are views, not layouts (`k.focus_mode`, `inspect_set`,
-  `zone_hidden` adds their zones), so they never set the modified dot. `command_from_name` / the script parser
-  map `Workspace:Focus/Inspect/Studio`. Commands `Space_Switch` (Ctrl+1..3), `Focus_Mode`, `Inspect_Mode`; exit stats `space= space_switches= focus_mode=
+  tool left (`Space_Tool`), the shelf page and the layout of the space left, puts `to`'s back, and turns the
+  views off. Focus and Inspect are views, not layouts (`k.focus_mode`, `inspect_set`, `zone_hidden` adds their
+  zones), so they never set the modified dot. Commands `Space_Switch` (Ctrl+1..3), `Focus_Mode`, `Inspect_Mode`; exit stats `space= space_switches= focus_mode=
   inspect_mode=`.
 - Passes (`src/app/passes.odin`, `k.passes`): `kit_pass_chip` in the top bar before History (fixed width,
   `pass_chip_width`), its list `kit_pass_menu`, commands `View_Pass` (arg the pass, Alt+1..6) and
@@ -106,10 +113,6 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   pass `Picture.orbit` (the camera their picture was drawn through, which lags while working), the main view
   `app.camera`. Only the tag is a ui root, so strokes cross the line. `guides_frame` (in `kit_grid`) bumps
   `view_edits` once when the held tag lets go; never an undo step, never a Scene_Command.
-- Narrow windows (`stack_narrow`: safe width < `COLUMNS_MIN_W` and `k.column_popovers`): the docked stack draws only
-  while `k.panels.popped` (or arranging; `stack_visible`); `stack_pop_update` pops it when it opens and puts it away on
-  a viewport press (swallowed, as popovers do) or Escape; `stack_pop_open` pops it for a card opened or kept;
-  `kit_stack_pop_tab` pops it; Palettes toggles it there. Light a tray button with `tray_shown(app)`.
 - View grid (`src/app/grid.odin`, `k.grid: View_Grid`, command `View_Grid`): presets only (`grid_cells`, pixel-snapped),
   pane 0 is the main view, panes 1-3 are `Second_View`s per preset drawn by `picture_frame` into `App.panes` (one
   picture a frame, `app.pictures_drawn`); `view_grid_room` is the window (panels float over the panes; a head avoids columns via `grid_left_column_edge` and wraps to two rows when narrow); `Theme.panel_shadow` lifts `.Panel`s; a divider drag freezes the target and
@@ -134,22 +137,20 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   it (keys stay the main window's); heads are laid out right after `kit_frame` and share `view_head_camera`,
   `view_head_pass`, `view_head_link` with the panes; `second_view_input` takes the context and scale it runs in.
   Scripted events reach a window as `FRAME:winN:...`.
-- Second view (`src/app/thumbnail.odin`, `k.second: Second_View`, the Thumbnail window and command): the picture is a
-  `ui.area` (`second_view_input`): on a linked view (`second_linked`: Follow, Mirror) a drag turns `app.camera` itself
+- Second view (the `.Second_View` command toggles the grid between Single and Side by side; each view pane and view
+  window holds a `Second_View`, `src/app/thumbnail.odin`): the picture is a `ui.area` (`second_view_input`): on a linked view (`second_linked`: Follow, Mirror) a drag turns `app.camera` itself
   (`orbit_latch` first, x reversed for Mirror, counted in `sv.linked`), on an independent one `second_free` seeds
   `sv.orbit` from the camera shown and the drag turns that; the wheel zooms the same camera. `camera.orbit_mirror_x`
   reflects in x = 0. Camera and pass are two `ui.select`s after `camera_dot` (`second_color`: `Theme.camera[0]` when
-  linked, a ring when mirrored, else `camera[index]`), with Flip, the link button (`second_link_toggle`), Maximise
-  (floating only, never kept) and Close under them. `Second_Camera`/`Second_Pass` are settings rows by name (a new
-  camera goes at the end so touch scenarios' list rows hold); zero is Follow ("Linked") with Silhouette.
+  linked, a ring when mirrored, else `camera[index]`) and the link button (`second_link_toggle`) on the pane's head.
+  `Second_Camera`/`Second_Pass` are written by name in `pane` layout lines (a new camera goes at the end so touch
+  scenarios' list rows hold); zero is Follow ("Linked") with Silhouette.
 - Cards (`ui.card_begin`): a window with no title bar, as ZBrush for iPad's quick-access cards, its dots on top
   dragging it like a title bar and a long press on them returning `dock`, then a large centred title. The Objects
-  card (`kit_objects_card.odin`, `Kit_Window.Objects`) is one: Add / Duplicate / New folder /
+  card (`kit_objects_card.odin`) is one: Add / Duplicate / New folder /
   More, then `ui.thumb_row` rows (a picture cell of `KIT_THUMBS_IMAGE` from `thumb_for`, the name, a switch under it,
   toggles at the right, an accent outline when selected; `drags = true` makes a mouse drag or a long press then drag
-  report `dragged`), fed to the shared `kit_row_drags`/`kit_tree_drags` with a `Tree_Scroll` of its own body. It
-  shares the tray's place: the tray or a side panel opening closes it (`tray_was`), `objects_card_toggle` closes
-  them. Its menus are popovers in `kit_objects_card_menus`; `menu_item(trailing = true)` puts the icon at the right
+  report `dragged`), fed to the shared `kit_row_drags`/`kit_tree_drags` with a `Tree_Scroll` of its own body. Its menus are popovers in `kit_objects_card_menus`; `menu_item(trailing = true)` puts the icon at the right
   as iPad menus do.
   Under the list's size bar a `ui.section` "Actions" unfolds a `kit_scroll` body (`card_actions`): the V1 to V8 tiles
   (`.Visibility_Slot`, a `View_Change`), then one `ui.section` per `Card_Action`. Sections reuse other panels' content
@@ -157,31 +158,32 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   `command_button(..., icon_only = true)`: the icon alone, the label in its tooltip. Touch scenarios reach section
   bodies by header coordinates (`OBJECTS_CARD` in touch_check), which move by `CARD_ROW_H` with each row the list
   gains or loses.
-  The Colors card (`kit_colors.odin`, `Kit_Window.Colors`, `Colors_Card` command) is the other:
-  beside the off-hand island, Procreate's tabs (`Colors_Tab`) as `brush_tile`s along its bottom over a `kit_scroll` body,
+  The Colours card (`kit_colors.odin`, `Card.Colours`, `colors_card_body`) and the History card (`timeline.odin`'s
+  `history_card_body`, `Card.History`) are `OWN_BODY_CARDS`: `card_content` hands them the card's inner width, height
+  and root, and they keep their own scroll and the controls that stay under it; `card_width` makes them wider than
+  `CARD_W` and a column as wide as its widest card. The Colours card has Procreate's tabs (`Colors_Tab`) as `brush_tile`s along its bottom over a `kit_scroll` body,
   its state in `Kit_State.colors` (`Colors_Card`: the HSV it edits, kept apart from the RGB so a grey keeps its hue,
   `colors_sync` re-reading it when the colour changed elsewhere; history; your palettes). A pick goes through
   `colors_set_hsv`/`colors_set_rgb` and joins the history when the pointer lets go; `colors_pick` for taps. The
   Eyedropper is `eyedropper_frame` beside `group_pick_frame` in the frame loop, its loupe `draw_eyedropper` in the
   overlay; `COLORS_CARD` in touch_check holds the card's coordinates.
-- Sections (`kit_tray.odin`; the stack is still the "inspector" window and layout name): palettes `Kit_Tab` Tool
-  (`kit_tool.odin`: the brush's `BRUSH_SECTIONS`; `kit_tool_tab` is the Brush card under Curve, Insert, Move or
-  Model), Object (`kit_object.odin`, `OBJECT_SECTIONS`) and Scene (`kit_scene.odin`: `kit_scene_objects`, the rows
-  with eye and ghost in `scene_tree.odin`, then `SCENE_SECTIONS`); each section is a `Panel_Kind` card drawn by
-  `panel_body`; the stack's width is `tray_width`. Open a section with `tray_open(app, sec)`; Kit_Section
-  keeps the tray's sections first (`TRAY_SECTIONS`, `section_palette`) and the Stats panel's after. A feature's
-  section lives beside its code (`kit_layers_section` in `layers.odin`, …) and starts with nothing but its
-  controls (the tray draws its title). The content is the clipped "inspector body", which scrolls (see Input
-  routing); the list scrolls on its own. Search's Show where (`tray_show`, `COMMAND_HOMES`) marks a command's
-  control: `command_hint` calls `tray_mark`, which `ui.mark_next`s the next control while the tray draws, and
-  `tray_mark_draw` rings `ctx.marked.rect`; `show_where_finds_every_home` checks every home has its control. The
-  Show_Section command (one argument per section) opens any section from search, keys and scripts. While Settings
-  or Help is open the tray is hidden and inert.
-- Settings panel (`kit_settings.odin`): tabs Interface, Camera, Touch, Performance (`Settings_Tab`), anchored right
-  in the tray's place, its body scrolling as the tray does; each tab ends in "Reset <tab> settings"
-  (`settings_reset`), the foot holds Reset everything (a second tap within `SETTINGS_WIPE_TIME` confirms) and Done
-  (`settings_close` saves). Camera and touch preferences are `app.nav` (`Nav_Prefs`, `NAV_DEFAULT`, `navigate.odin`).
-- Stats panel (`kit_stats.odin`): Simple (plain labels in Performance, While sculpting, Mesh, Memory groups; p50 is
+- Sections: each is drawn by its table's proc (`BRUSH_SECTIONS` in kit_tool.odin, `OBJECT_SECTIONS` in
+  kit_object.odin, `SCENE_SECTIONS` in kit_scene.odin; `bar_section(app, sec)` finds it) inside `card_body`, which
+  draws a fold header per section (`"%s##section"`, folded ones in `k.cards.shut`, each saying how it is set:
+  `section_summary`). The Tool card's Brush section is `card_brush` (the brush card, Size and Strength); under
+  another tool `kit_tool_tab`. A feature's section lives beside its code (`kit_layers_section` in `layers.odin`, …)
+  and starts with nothing but its controls (the card draws its title). The body is the card's "card body" scroll.
+  Search's Show where (`card_show`, `COMMAND_HOMES`) marks a command's control: `command_hint` calls `card_mark`,
+  which `ui.mark_next`s the next control while the card draws (`k.cards.drawing`), and the ring is drawn round
+  `ctx.marked.rect`; `show_where_opens_the_card_on_its_section` and `show_where_finds_every_home` check them. While
+  Settings or Help is open the cards are hidden and inert.
+- Settings (`kit_settings.odin`, `settings_sections.odin`): one list of `Settings_Section`s. From
+  `SETTINGS_SHEET_MIN_WINDOW` the sheet (sections down its side, the open one beside them); narrower, a panel on the right
+  that drills down (`settings_drill`: the section list under Search settings, or one section under
+  Back). Each section ends in "Reset <section> settings" (`settings_section_reset`); `settings_wipe_button` is Reset
+  all settings (a second tap within `SETTINGS_WIPE_TIME` confirms); `settings_open(app, section)` opens on one and
+  `settings_close` saves. Camera and touch preferences are `app.nav` (`Nav_Prefs`, `NAV_DEFAULT`, `navigate.odin`).
+- Details card (`kit_stats.odin`, `details_card_body`, an own-body card): Simple (plain labels in Performance, While sculpting, Mesh, Memory groups; p50 is
   "typical", p99 "slower moments", never "worst") and Advanced (exact key names, p50/p99, graph, drawing switches);
   "What do these numbers mean?" explains them. Show only what is measured: an empty ring says "not measured yet".
 - Overlay (`overlay.odin`): drawn after the tools ran, in window coordinates through `Overlay` (points are window
@@ -196,7 +198,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - Operation results (`src/app/results.odin`): an operation says what it did once, with
   `report(app, section, flags, format, args)` (past tense, with its time); `.Quiet` for what
   shows by itself, `.Undo` right after recording its undo step. The kit shows it as a toast
-  (with Undo when offered), its inspector section with `kit_last_result`, and Stats under Last
+  (with Undo when offered), its card section with `kit_last_result`, and Stats under Last
   operation. Never add a per-operation `*_last` struct to `app.ui`. Undo is tied to the step by
   `Undo_Mark` (object id and time), never by a count of steps. Destructive scene commands are
   reported by `scene_run` around `scene_apply`.
@@ -243,11 +245,14 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   (`hit_area`; sm-store); what is drawn can be smaller (`control` 36, `row` 40). Widgets name tokens from
   `src/ui/theme.odin` (`THEME_LENS`, `THEME_STUDIO` and `THEME_DARK`, "Graphite"), never literal colours or sizes;
   a new token gets a value in every theme (`track`, `knob_off`/`knob_on`, `cursor_line`, `chosen`/`on_chosen`,
-  `camera[4]` for the camera dots).
+  `camera[4]` for the camera dots). Every `gap` and `padding` is a spacing step, `ui.SPACE_2XS` (2) to
+  `ui.SPACE_XL` (16), or 0, and a line of text is `ui.line_height(size)` tall, never `size * 1.4`: the audit
+  (`scripts/ui_audit.py`) holds both at none. The accent means on and chosen only: `button(.Solid, .Accent)`, the
+  one primary action, draws in the text's ink (`t.text` fill, `t.surface` label), never in the accent.
 - Widgets (`widgets.odin`): `label`, `paragraph`, `caption`, `icon_button`, `button` (variant, tone, width, glyph,
   enabled, keys: a tooltip hint), `toggle_button`, `tabs` (segmented control; `chosen` -1 shows none; `keys` a hint per option), `switch_row`, `slider` (linear or
   logarithmic), `vslider`, `drag_value` (drag sideways, from the press value), `text_field` (a `[]u8` buffer),
-  `select`, `gradient_slider` (a track of colour stops, for channels), `swatch` (a colour cell a whole target, `long` its menu), `list_row`, `tree_row` (indent, chevron, trailing `Row_Toggle`s, `grip` that drags the row and claims the press, `held_toggle` for a column drag: at once for a mouse, after the tooltip's hold for a finger or pen), `menu_item`, `brush_tile`, `preview_tile` (a large tile: a `fill_ball` material ball with an icon over a name; `selected` rings it, several at once in a row, `menu` its long press), `picture_tile` (a grid tile of something to open: an atlas `Picture` cut to a 4:3 well, a title and a line, a `Tile_Ring`, a danger `banner` for an armed tap), `section`/`section_end`, `value_row`, `plot`, `area` (a space to draw
+  `select`, `gradient_slider` (a track of colour stops, for channels), `swatch` (a colour cell a whole target, `long` its menu), `list_row`, `thumb_row` (a picture, a name with a switch under it, a chevron, trailing `Row_Toggle`s; `drags` reorders: at once for a mouse, after the long press for a finger or pen), `menu_item`, `brush_tile`, `picture_tile` (a grid tile of something to open: an atlas `Picture` cut to a 4:3 well, a title and a line, a `Tile_Ring`, a danger `banner` for an armed tap), `section`/`section_end`, `value_row`, `plot`, `area` (a space to draw
   into that reports the pointer: graphs, bars, thumbnails), `grey_image`, `divider`. Shapes (`ui.odin`): `fill_rect`,
   `stroke_rect`, `fill_circle`, `stroke_circle`, `line`, `polyline`, `fill_convex`, `text`, `icon`.
 - Every pressable widget has default, hover, pressed, selected and disabled looks through `feedback`; selected tabs,
@@ -261,6 +266,14 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   animates; a command that jumps the camera glides instead: `before := camera_ease_begin(app)`, jump, `camera_ease_from(app, before)` (camera_ease.odin). `ctx.mirror_slide` (set from a tween on the hand in `kit_begin`) draws each outermost root
   part of the way back to its mirror image in `ui.end`, clips included: no app code for the hand switch's slide.
   Feedback flashes (feedback_motion.odin) draw over the viewport from a `Flash` stamped where the change happened.
+  Something that slides whole, its scrolling body too, takes `m := motion_mark(ctx)` before it is drawn and
+  `slide_since(ctx, m, opacity, offset, cut)` after (clips move with it; `cut` hides it behind a dock). What leaves is
+  drawn from last frame: note `range_end(ctx, m)` each frame, and the frame it is no longer drawn `copy_prev` it into a
+  `Draw_Copy` and `draw_copy` it for the leave's frames (triangles are found by vertex, as layer_mark moves indices).
+  Cards and docks do this in panel_motion.odin; a new panel that comes and goes joins it rather than redrawing inert.
+  Items that move within a container (Edit buttons) keep their place relative to `open_root_rect(ctx)`, so the whole
+  moving is told from a move within it, and glide from the old place (slot_motion_end is the pattern).
+  Something small that comes and goes over the view (a pill, a chip) is a `Pop`: `m := motion_mark`, draw it, `pop_motion_end(app, pop, m)`.
 - Popovers (`popup.odin`): `popover_begin(ctx, name, open, anchor, side, box)` … `popover_end`; a press outside one
   closes it (swallowed if on the viewport); the first frame is measured invisibly. Selects draw their list in
   `frame_end`, over everything; a list taller than the room above or below its field is cut to the window and
@@ -278,7 +291,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | Want | Do |
 |---|---|
 | a control | a widget call in the right section of `kit_tool.odin`, `kit_object.odin`, `kit_scene.odin` or a feature's `kit_*_section`, editing `App` through a pointer |
-| a new section | a `Kit_Section` value (`new_ui.odin`), open by default only if it belongs in `kit_init`'s list, and a row in the tab's table (`BRUSH_SECTIONS` in kit_tool.odin, `OBJECT_SECTIONS` in kit_object.odin, `SCENE_SECTIONS` in kit_scene.odin), which draws it inside `ui.section` |
+| a new section | a `Section` value in its card's run (`cards.odin`, kept in `section_card`'s ranges), folded at first unless it is one of the card's first few (`CARDS_SHUT_DEFAULT`), and a row in the table (`BRUSH_SECTIONS` in kit_tool.odin, `OBJECT_SECTIONS` in kit_object.odin, `SCENE_SECTIONS` in kit_scene.odin), which draws it inside `ui.section` |
 | more than five controls in a section | the first five (the commonest) as they are, the rest inside `if kit_more(app, .X) { …; kit_more_end(app) }` (kit_widgets.odin): a More options fold, or everything with Settings > Interface > Show every option. `sections_show_at_most_five_controls` (kit_more_test.odin) counts `ctx.controls` for every section in its widest state and fails over five; keep "Last: ..." lines and controls other features read (Mask's Steps) out of the fold |
 | something floating (a menu, popover, list) | add its flag to `kit_floating` (new_ui.odin): Escape closes it before Settings or Help, and the first-run tip (kit_coach.odin) hides under it |
 | a gesture that should count for a first-run tip | set `app.coach_seen += {.Step}` where the gesture changes the view or the model, only once it moved (past the slop for touches); coach_update counts it when the gesture ends |
@@ -287,7 +300,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | a button, pair, switch or tab that runs a command | `command_button(app, id, ...)` or `kit_command_pair(app, a, b, ...)` (label, enabled state and the `command_hint` tooltip from the registry); a switch or tab passes `keys = command_hint(...)` (tabs a `hints` slice); a new touch gesture goes in `command_gesture`; `controls_that_run_commands_show_their_hints` scans the sources and fails a widget that runs a command without its hint |
 | a button that changes the scene | a new `Scene_Command.kind` and a `scene_apply` case (the sm-cad checklist); the panel only sets `scene_command` |
 | a new statistic | a `Sample_Ring` in `Frame_Stats` (`src/app/stats.odin`), `ring_push` where it is measured, a `value_row` in `kit_stats.odin` and a key in the exit stats |
-| an A/B toggle | `ui.switch_row(ctx, "…", &app.<field>)` in the Stats panel's Drawing section plus a `--no-<x>` field in `Options` and a sentence in README "App flags" |
+| an A/B toggle | `ui.switch_row(ctx, "…", &app.<field>)` in the Details card's Drawing section plus a `--no-<x>` field in `Options` and a sentence in README "App flags" |
 | something drawn over the viewport | `overlay_*` calls in `overlay_viewport` (`overlay.odin`), in window coordinates |
 | a shortcut | a `Command_Id` and its `COMMANDS` row (label, help, icon, run, enabled, checked) in `src/app/commands.odin` if the action is new, and a `DEFAULT_BINDINGS` row (exact modifiers, kept in the order keys are read); menus show it through `command_menu_item`, tooltips through `command_hint`; `commands_test.odin` refuses a chord bound twice; README "Controls"; the command palette lists it by itself: add the names other apps give it to `SEARCH_WORDS` (`palette.odin`), a clearer `PALETTE_LABELS` row when its menu heading says what the label leaves out, and leave it out in `palette_lists` if it acts where the pointer is; Help > Keys lists it by itself, in its `command_group` |
 | a viewport input that tools must not see | clear it with `viewport_mute` before the tools read `Viewport_Input`; never filter inside a tool |
@@ -295,7 +308,8 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | a user preference in Settings | a field in `Nav_Prefs`/`Kit_State` with its default in `NAV_DEFAULT` or `kit_init`, a row in its `settings_<tab>` proc with a one-line `paragraph`, a line in `settings_reset`, the two settings lines above, README "Settings" |
 | a control that drags sideways inside a scrolling panel | act only `if held && claim_drag(ctx, 0)` (a tap may still act on `clicked`), so a vertical finger drag scrolls instead |
 | a new scrolling panel | in the app, `kit_scroll_begin(ctx, name, &scroll, window_id, width, height, gap)` before the body and `kit_scroll_end(ctx, s)` after (`new_ui.odin`: wheel, drag, easing and the bar, as the inspector, Settings and Help scroll); in the kit itself, `scroll_update(ctx, id, prev_rect(ctx, name), &scroll, limit)` before, `begin` with `clip`, `scroll` and `drag_scroll = true`, `scroll_take(ctx, id, scroll, limit, root)` after, the drag followed with tween duration 0 |
-| a new floating panel | a `Kit_Window` value, a place in `KIT_WINDOW_ORDER`, its proc returning `raised` from `ui.window_begin` (default anchors as `begin_anchored`'s) with its body only while `body`, `ui.window_end`, a case in `kit_layout`'s loop and in the exit stats' `window_*` names; scroll its body as above, sized by `window_room`; one that opens on the right in the inspector's place joins `side_panel_open`/`side_panel_close` (Settings and Help) |
+| a new floating panel | none: a panel is a card (kept beside the work, which floats when torn out) or a sheet (opened, read or set, put away) |
+| a new sheet | `sheet_begin`/`sheet_end` (`sheet.odin`: centred under the top bar, Close and Esc, a press outside puts it away) on its open flag, drawn from `kit_sheets` so what floats from it (a key's Assign, a theme's menu) draws over it; join `sheet_open`/`sheet_close` when it is one of the one-at-a-time sheets (Settings, Help, Macros), and size its scrolling body from the `room` it returns |
 | a follow-up action for something active on the object | a group or a row in `ACTION_GROUPS` (`kit_action_bar.odin`) and its state in `action_groups_now`; derived facts that cost a scan (like `object_has_mask`) are cached on `history.serial`, never computed every frame; anything at the bottom middle keeps clear of `dock_stack`, the shelf plus the action bar |
 | a long press (secondary action) on a control | `if ui.secondary(ctx) do ...` right after the widget (a value slider: `vslider(reset = v)`); add a row to README "Touch and pen" and a `long_press(s, x, y)` scenario; a control without one shows its tooltip |
 | a touch gesture | measure in `touch_route` (Viewport owner only, every finger still down: `f.count == f.most`; the one exception is `touch_lift_orbit`, the finger left of two, which runs first and keeps the touch once armed), write a `Viewport_Input` field, apply it in `camera_apply_input` (it runs with no pointer down) or the tool; a switch in Settings > Touch; a scenario in `scripts/touch_check.py`; a line in `TOUCH_HELP` (`kit_help.odin`) so Help > Gestures lists it (`help_touch_rows_hold_every_gesture` fails a `command_gesture` missing there) |
@@ -314,7 +328,7 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | Ctrl+Z pressed and let go within one slow frame is lost | the Device counts the modifiers held when the frame's last key went down as held (`device_frame_end`) |
 | a tap's press and release in one frame lose the press | `kit_viewport_input` counts a press this frame as held; the release among the samples ends the stroke |
 | a finger's first press is a drag from where the last finger lifted | it was, with SDL's touch mouse; now `device_move(jump = true)` and drags measure from last frame's pointer (`Drag.last`), never SDL's motion sum |
-| a finger press on a slider in the inspector moves it | it is tentative until it moves: sideways the slider wins, vertically the inspector scrolls, a tap lands as a tap |
+| a finger press on a slider in a card moves it | it is tentative until it moves: sideways the slider wins, vertically the card scrolls, a tap lands as a tap |
 | the camera ignores two fingers when no button is down | `camera_apply_input` applies `touch_*` before its hovered/dragging check: keep gesture fields ahead of it |
 | gesture totals start at zero | they live in `Touch` and reset on the first finger down (`t.axis = -1`), not in `Drag`, which a gesture may never set |
 | an orbit turns by the whole drag | the move that crosses the slop is not counted for fingers and the pen; scenario paths use `past_slop` |
@@ -322,9 +336,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 | an enumerated array literal can name some cases | `-vet` wants every case: set the rest in a loop (`kit_init` opens its sections that way) |
 | `--ui-events` only press panels | they are pushed as SDL events (`kit_events_push`): a scripted press on the viewport sculpts or orbits; `fdown`/`pdown` are a touch screen's finger and the pen |
 | a text field keeps the keys while its popover is open | a plain `text_field` lets them go on Enter, Escape or any press elsewhere; one that must keep them (the palette's) passes `hold = open`, and its owner sets `ctx.text_focus = 0` when it closes; shortcuts stay off while `k.palette` is set, since a popover's field is first drawn a frame or two after it opens |
-| a mouse press on a control scrolls the inspector | only a press on its gap does; a mouse wins any control at once (fingers and the pen scroll from anywhere) |
+| a mouse press on a control scrolls a card | only a press on its gap does; a mouse wins any control at once (fingers and the pen scroll from anywhere) |
 | a long row of text fits | `paragraph` wraps to the column's width; `label` and `value_row` do not |
-| a tween follows a drag | a drag must follow the pointer exactly: give it duration 0 (the inspector's scroll does) |
+| a tween follows a drag | a drag must follow the pointer exactly: give it duration 0 (a card's scroll does) |
 | a shortcut fires while typing a layer name | `commands_handle_keys` returns while `typing(app)`; new key handling must check it too |
 | a select's options can be built once | they must stay valid for the frame (temp memory is fine) |
 | a press while a pie is open reaches the panel under it | kit_begin hands the kit no press, hold or release while `app.ui.pie.open` or `.swallow`; a right tap then closes the pie from anywhere |
@@ -337,12 +351,12 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 
 ## Verify
 - `--ui-events="5:move:800,450;6:down;7:up;9:right;12:wheel:-3;14:fdown:0:300,300;16:fup:0"` drives the mouse,
-  fingers and pen in window points (Menu at 26,26, Menu > Settings at 75,688; the inspector's title bar at y 104, its
-  Minimise at 1450 and Close at 1500, and its tabs at about y 154 on a 1600 x 900 window; the `UI` table at the top of
+  fingers and pen in window points (Menu at 26,26, Menu > Settings at 75,688; the view rail's Tool button at 1563,85 opens the Tool card, its
+  header at y 78, on a 1600 x 900 window; named controls (`@card Tool/Close##card`) are steadier than points; the `UI` table at the top of
   `scripts/touch_check.py` names every bar button's position; `pnear`, `pmove`, `ppress:P` and `proll:DEG` are the
   pen hovering, moving, pressing and turned about its length, which `pen_roll_take` turns into `App.pen_roll`), and
   `--dump-screen=build/x.png` writes the whole window, overlay included; open it and describe it. `ui_ms_*` and
-  `ui_vertices` on exit are the kit's cost; `camera_*`, `undo_steps`, `brush_radius_px`, `inspector_scroll`,
+  `ui_vertices` on exit are the kit's cost; `camera_*`, `undo_steps`, `brush_radius_px`, `card_scroll`,
   `settings_open` and `window_<name>=open,folded,left,top` show what the input did.
 - `python scripts/touch_check.py` runs every touch, pen and mouse scenario (sm-touch-testing) after a debug build.
 - `build.bat test` runs the kit's headless tests (`src/ui/ui_test.odin`); `build.bat smoke` after changing the frame loop.

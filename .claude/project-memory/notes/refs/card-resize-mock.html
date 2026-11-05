@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resizable cards mock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* The app's own dark look (Lens): one visual world, so the page stays single-theme. */
+  --view:#2b2d31; --card:#1b1e23; --pane:#14171b; --raised:#262a30; --line:#2f343b;
+  --text:#e9ecef; --text2:#a6adb6; --text3:#6f7781; --accent:#52d6b8; --accent-bg:#173a33;
+  --font:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  /* Layout: three mocks side by side, each a 312 pt card over a strip of the view, notes under each. */
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#111316;color:var(--text);font-family:var(--font);font-size:14px;line-height:1.45}
+header{max-width:1180px;margin:0 auto;padding:28px 20px 8px}
+h1{font-size:22px;font-weight:600;margin:0 0 6px;text-wrap:balance}
+header p{margin:0;color:var(--text2);max-width:70ch}
+.grid{max-width:1180px;margin:0 auto;padding:16px 20px 40px;display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:20px}
+.opt{display:flex;flex-direction:column;gap:12px}
+.opt h2{font-size:16px;font-weight:600;margin:0;display:flex;gap:8px;align-items:center}
+.tag{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--accent-bg);color:var(--accent)}
+.stage{background:var(--view);border-radius:14px;padding:14px;display:flex;justify-content:center;
+  background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:40px 40px}
+.card{width:312px;background:var(--card);border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.45);padding:12px;display:flex;flex-direction:column;gap:10px}
+.head{display:flex;align-items:center;gap:8px;height:32px}
+.head .t{font-weight:600;flex:1}
+.ib{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:var(--text2);flex:none}
+.ib.on{background:var(--accent-bg);color:var(--accent)}
+.ib svg,.chip svg,.lb svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.row{display:flex;align-items:center;gap:6px}
+.chip{white-space:nowrap;display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:9px;background:var(--raised);color:var(--text);font-size:13px;font-weight:500}
+.chip.on{background:var(--accent-bg);color:var(--accent)}
+.chip.add{background:var(--accent);color:#0b2a24}
+.board{position:relative;height:300px;background:var(--pane);border-radius:10px;overflow:hidden}
+.pic{position:absolute;border-radius:2px;background:#cfc6bd}
+.pic.front{background:radial-gradient(ellipse 34% 40% at 50% 42%,#b89b86 0 60%,#8a7262 61% 70%,transparent 71%),linear-gradient(#d9d3cc,#bdb4ab)}
+.pic.side{background:radial-gradient(ellipse 30% 38% at 46% 42%,#a98d78 0 60%,#7d6656 61% 70%,transparent 71%),linear-gradient(#cfd5da,#aab3ba)}
+.pic.ear{background:radial-gradient(ellipse 30% 42% at 50% 50%,#c49a86 0 55%,#8f6f5d 56% 66%,transparent 67%),linear-gradient(#e2dad1,#c9bfb3)}
+.pic.note{background:var(--raised);color:var(--text);font-size:11px;padding:6px 8px;border-radius:6px}
+.sel{outline:2px solid var(--accent);outline-offset:0}
+.knob{position:absolute;width:12px;height:12px;border-radius:50%;background:var(--accent);right:-6px;bottom:-6px}
+.float{position:absolute;display:flex;gap:2px;padding:4px;background:var(--card);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+.float .ib{width:32px;height:32px}
+.zoom{position:absolute;right:8px;bottom:6px;font-size:11px;color:var(--text3)}
+.lbl{font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--text3);text-transform:uppercase}
+.labels{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.lb{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;border-radius:9px;color:var(--text2);font-size:11px}
+.lb.on{background:var(--accent-bg);color:var(--accent)}
+.seg{display:flex;background:var(--raised);border-radius:9px;padding:3px;gap:2px}
+.seg span{flex:1;text-align:center;font-size:12px;padding:6px 0;border-radius:7px;color:var(--text2)}
+.seg span.on{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.slider{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text2)}
+.slider .tr{flex:1;height:4px;border-radius:2px;background:var(--line);position:relative}
+.slider .tr i{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--accent)}
+.slider .tr b{position:absolute;top:-6px;width:16px;height:16px;border-radius:50%;background:#e9ecef}
+.tabs{display:flex;border-bottom:1px solid var(--line)}
+.tabs span{flex:1;text-align:center;padding:8px 0;font-size:13px;color:var(--text2)}
+.tabs span.on{color:var(--text);font-weight:600;box-shadow:inset 0 -2px 0 var(--accent)}
+.list{display:flex;flex-direction:column;gap:2px}
+.li{display:flex;align-items:center;gap:10px;padding:6px;border-radius:9px}
+.li.on{background:var(--accent-bg)}
+.th{width:40px;height:40px;border-radius:6px;flex:none}
+.li .n{flex:1;font-size:13px}
+.li .n small{display:block;color:var(--text3);font-size:11px}
+ul{margin:0;padding-left:18px;color:var(--text2)}
+li{margin:2px 0}
+.why{color:var(--text2);margin:0}
+.rec{max-width:1180px;margin:0 auto;padding:0 20px 40px;color:var(--text2)}
+.rec b{color:var(--text)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+<symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5M9 3h6l-1 7 4 4H6l4-4z"/></symbol>
+<symbol id="i-img" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+<symbol id="i-paste" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></symbol>
+<symbol id="i-cam" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3"/></symbol>
+<symbol id="i-note" viewBox="0 0 24 24"><path d="M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5z"/><path d="M15 3v6h6"/></symbol>
+<symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></symbol>
+<symbol id="i-fit" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/></symbol>
+<symbol id="i-flip" viewBox="0 0 24 24"><path d="M12 3v18M8 7H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h3M16 7h3a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-3"/></symbol>
+<symbol id="i-grey" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></symbol>
+<symbol id="i-turn" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+<symbol id="i-crop" viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14M18 22V8a2 2 0 0 0-2-2H2"/></symbol>
+<symbol id="i-view" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="14" rx="2"/><rect x="12" y="10" width="7" height="5" rx="1"/></symbol>
+<symbol id="i-scene" viewBox="0 0 24 24"><path d="M3 20 12 4l9 16z"/><path d="M8 20l4-7 4 7"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0"/></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></symbol>
+<symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+</svg>
+
+<style>
+.scene{position:relative;height:560px;background:var(--view);border-radius:14px;overflow:hidden;
+  background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:40px 40px}
+.ball{position:absolute;border-radius:50%;background:radial-gradient(circle at 35% 30%,#e3c7b5,#9c7b68 60%,#5e4a3f)}
+.rail{position:absolute;right:10px;top:40px;width:44px;height:380px;background:var(--card);border-radius:12px}
+.scene .card{position:absolute;top:30px;transform:scale(.72);transform-origin:top right}
+.scene .card.fl{transform-origin:top left}
+.corner{border-color:rgba(255,255,255,.32)!important}.corner.live{border-color:var(--accent)!important}
+.dots{background-color:var(--pane);background-image:radial-gradient(rgba(255,255,255,.13) 1px,transparent 1.3px);background-size:16px 16px}
+.corner{position:absolute;width:22px;height:22px;border-left:3px solid rgba(255,255,255,.18);border-bottom:3px solid rgba(255,255,255,.18);border-bottom-left-radius:14px}
+.corner.r{border-left:none;border-right:3px solid rgba(255,255,255,.18);border-bottom-left-radius:0;border-bottom-right-radius:14px}
+.corner.live{border-color:var(--accent)}
+.ghost{position:absolute;border:1.5px dashed var(--accent);border-radius:14px;pointer-events:none}
+.read{position:absolute;font-size:11px;font-weight:600;background:var(--accent);color:#0b2a24;padding:2px 7px;border-radius:999px}
+.finger{position:absolute;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.22);border:2px solid rgba(255,255,255,.5)}
+.wide{grid-template-columns:1fr}
+table{border-collapse:collapse;width:100%;font-size:13px;color:var(--text2)}
+td,th{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}
+th{color:var(--text);font-weight:600}
+</style><header>
+<h1>Resizable cards</h1>
+<p>Each card gets the toolbar's faint curved corner. Drag it to make the card wider, and taller where it floats. The References card gets the most from this, because its board grows with it. Under the one-UI-per-thing rule, every card would get the same corner, and each card keeps its own size.</p>
+</header>
+<div class="grid">
+<section class="opt"><h2>1 · At rest <span class="tag">In a column</span></h2>
+<div class="scene"><div class="ball" style="left:-120px;top:120px;width:420px;height:420px"></div><div class="rail"></div>
+<div class="card" style="right:62px;width:312px">
+    <div class="head"><svg style="width:18px;height:18px;stroke:var(--text2);fill:none;stroke-width:1.8"><use href="#i-img"/></svg><span class="t">References</span>
+      <span class="ib"><svg><use href="#i-plus"/></svg></span><span class="ib"><svg><use href="#i-grid"/></svg></span>
+      <span class="ib"><svg><use href="#i-pin"/></svg></span><span class="ib"><svg><use href="#i-x"/></svg></span></div>
+    <div class="board dots" style="height:330px"><div class="pic front sel" style="left:20px;top:40px;width:112px;height:140px"><span class="knob"></span></div>
+      <div class="pic side" style="left:142px;top:40px;width:112px;height:140px"></div>
+      <div class="pic note" style="left:20px;top:192px;width:112px;height:28px">Brow softer</div><span class="zoom">111%</span></div>
+    <div class="row"><span class="chip"><svg><use href="#i-view"/></svg>On view</span><span class="chip on"><svg><use href="#i-scene"/></svg>Front<svg style="width:14px"><use href="#i-chev"/></svg></span><span class="chip">Behind</span></div>
+    <span class="corner" style="left:-4px;bottom:-4px"></span></div></div>
+<ul><li>The corner sits at the card's bottom corner on the side facing the model, as a toolbar's does. It is faint until the pointer is on it, and a finger gets a full 44-point target.</li>
+<li>Cards start at the usual 312 points.</li></ul></section>
+
+<section class="opt"><h2>2 · Dragging the corner</h2>
+<div class="scene"><div class="ball" style="left:-180px;top:120px;width:420px;height:420px"></div><div class="rail"></div>
+<div class="card" style="right:62px;width:412px">
+    <div class="head"><svg style="width:18px;height:18px;stroke:var(--text2);fill:none;stroke-width:1.8"><use href="#i-img"/></svg><span class="t">References</span>
+      <span class="ib"><svg><use href="#i-plus"/></svg></span><span class="ib"><svg><use href="#i-grid"/></svg></span>
+      <span class="ib"><svg><use href="#i-pin"/></svg></span><span class="ib"><svg><use href="#i-x"/></svg></span></div>
+    <div class="board dots" style="height:330px"><div class="pic front sel" style="left:20px;top:40px;width:148px;height:185px"><span class="knob"></span></div>
+      <div class="pic side" style="left:178px;top:40px;width:148px;height:185px"></div>
+      <div class="pic note" style="left:20px;top:237px;width:148px;height:28px">Brow softer</div><span class="zoom">111%</span></div>
+    <div class="row"><span class="chip"><svg><use href="#i-view"/></svg>On view</span><span class="chip on"><svg><use href="#i-scene"/></svg>Front<svg style="width:14px"><use href="#i-chev"/></svg></span><span class="chip">Behind</span></div>
+    <span class="corner live" style="left:-4px;bottom:-4px"></span></div>
+<div class="ghost" style="right:62px;top:30px;width:225px;height:340px"></div>
+<span class="read" style="right:300px;top:378px">412 pt</span>
+<div class="finger" style="right:295px;top:340px"></div></div>
+<ul><li>In a column, a drag sideways changes only the width. The column's height stays the screen's, and the board takes the new room.</li>
+<li>The width snaps to 10-point steps, from 312 up to half the window. A pill shows the width while dragging.</li>
+<li>A double tap on the corner puts the card back to 312.</li></ul></section>
+
+<section class="opt"><h2>3 · Floating</h2>
+<div class="scene"><div class="ball" style="left:-60px;top:160px;width:360px;height:360px"></div><div class="rail"></div>
+<div class="card fl" style="left:20px;width:440px"><div style="height:4px;width:36px;border-radius:2px;background:var(--line);margin:0 auto -4px"></div>
+    <div class="head"><svg style="width:18px;height:18px;stroke:var(--text2);fill:none;stroke-width:1.8"><use href="#i-img"/></svg><span class="t">References</span>
+      <span class="ib"><svg><use href="#i-plus"/></svg></span><span class="ib"><svg><use href="#i-grid"/></svg></span>
+      <span class="ib"><svg><use href="#i-pin"/></svg></span><span class="ib"><svg><use href="#i-x"/></svg></span></div>
+    <div class="board dots" style="height:260px"><div class="pic front sel" style="left:20px;top:40px;width:129px;height:162px"><span class="knob"></span></div>
+      <div class="pic side" style="left:159px;top:40px;width:129px;height:162px"></div>
+      <div class="pic note" style="left:20px;top:214px;width:129px;height:28px">Brow softer</div><span class="zoom">111%</span></div>
+    <div class="row"><span class="chip"><svg><use href="#i-view"/></svg>On view</span><span class="chip on"><svg><use href="#i-scene"/></svg>Front<svg style="width:14px"><use href="#i-chev"/></svg></span><span class="chip">Behind</span></div>
+    <span class="corner r" style="right:-4px;bottom:-4px"></span></div></div>
+<ul><li>A floating card, torn out by its title, sizes both ways from its bottom-right corner, as a window in Affinity does. It can grow wide and short to sit beside the model as a strip of references.</li>
+<li>Its height is kept too, up to the window's height.</li></ul></section>
+</div>
+<div class="grid wide"><section class="opt"><h2>Where each part comes from</h2>
+<table><tr><th>Taken from</th><th>Why it still holds</th><th>Avoided</th><th>Done better</th></tr>
+<tr><td>Our toolbars' curved corner</td><td>One way to size anything in the app</td><td>Edge drags as in Blender or Figma, which are too thin for a finger</td><td>The same faint corner and look as the toolbars</td></tr>
+<tr><td>Affinity iPad's window corner</td><td>A floating card is a window</td><td>A free size in a column, which would push the column off screen</td><td>Width only in a column, both ways when floating</td></tr>
+<tr><td>PureRef's resizable window</td><td>A board is worth more the bigger it is</td><td>A separate window for references</td><td>The board stays in the card, beside the model</td></tr>
+</table>
+<p class="why"><b>Recommendation:</b> give every card the corner (one rule), with sizes kept per card in each space's layout. Cards with fixed rows (Tool, Mesh) keep their rows; only the room they have grows.</p>
+</section></div>
+</body></html>

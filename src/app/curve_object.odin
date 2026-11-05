@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:math/linalg"
 import "core:strings"
 import "core:time"
@@ -8,7 +9,6 @@ import "core:time"
 import "../camera"
 import "../geom"
 import "../gizmo"
-import "../render"
 import "../sculpt"
 
 // A curve object: cubic Bézier points that stay editable in the scene until they are
@@ -115,9 +115,10 @@ CURVE_MIN_POINTS :: 2
 // Bytes a point takes in a scene file: three vectors, three numbers and the corner byte.
 CURVE_POINT_BYTES :: 3 * size_of(Vec3) + 3 * size_of(f32) + 1
 
-// Bytes the tube's options take after the points: profile, radius mode, one, sides,
-// density, caps, flatness.
-CURVE_TUBE_BYTES :: 4 + 3 * size_of(f32)
+// Bytes the tube's options take after the points: radius mode, one, sides, density, caps,
+// then the profile's count, Mirror and every slot of it, then the width along's count and
+// every slot of it.
+CURVE_TUBE_BYTES :: 3 + 2 * size_of(f32) + 2 + geom.PROFILE_POINTS_MAX * (6 * size_of(f32) + 1) + 1 + geom.PROFILE_POINTS_MAX * (6 * size_of(f32) + 1)
 
 // Bytes the lathe's options take after the tube's: axis, through, angle, segments, caps.
 CURVE_LATHE_BYTES :: size_of(Vec3) + 1 + size_of(f32) + size_of(u16) + 1
@@ -202,7 +203,6 @@ curve_rebuild :: proc(app: ^App, obj: ^Object) -> bool {
 	start := time.tick_now()
 	autosave_settle(app)
 	obj.curve = nil
-	render.wait_idle(&app.renderer)
 	object_release_mesh(app, obj, rebuild = false)
 	ok := curve_part_attach(app, obj, cp)
 	app.curve.tube_ms = time.duration_milliseconds(time.tick_since(start))
@@ -210,14 +210,17 @@ curve_rebuild :: proc(app: ^App, obj: ^Object) -> bool {
 	return ok
 }
 
-// A tube's options made safe to build: sides 3 to TUBE_SIDES_MAX, positive density and
-// flatness, a radius of no less than zero.
+// A tube's options made safe to build: sides 3 to TUBE_SIDES_MAX, positive density, a
+// radius of no less than zero, a profile of three points or more (the round one if not), a
+// width along of two points or more (Even if not) with its points in their places.
 curve_tube_clean :: proc(o: geom.Tube_Options) -> geom.Tube_Options {
 	c := o
 	c.sides = clamp(c.sides, 3, geom.TUBE_SIDES_MAX)
 	c.one = max(c.one, 0) if c.one == c.one else geom.TUBE_DEFAULTS.one
 	c.density = clamp(c.density, 0.05, 16) if c.density == c.density else 1
-	c.flatness = clamp(c.flatness, 0.01, 1) if c.flatness == c.flatness else geom.TUBE_DEFAULTS.flatness
+	if c.profile.count < 3 || c.profile.count > geom.PROFILE_POINTS_MAX do c.profile = geom.PROFILE_ROUND
+	if c.width.count < geom.WIDTH_POINTS_MIN || c.width.count > geom.PROFILE_POINTS_MAX do c.width = geom.WIDTH_EVEN
+	for i in 0 ..< c.width.count do geom.width_hold(&c.width, i)
 	return c
 }
 
@@ -320,7 +323,7 @@ curve_bake :: proc(app: ^App, obj: ^Object) -> bool {
 // over) making `use`, as a new selected object named "Curve N" placed at their middle, as
 // one undo step. Returns false, adding nothing, for fewer than CURVE_MIN_POINTS points or
 // on a GPU failure.
-curve_object_add :: proc(app: ^App, points: []geom.Bezier_Point, closed: bool, look := CURVE_LOOK_DEFAULTS) -> bool {
+curve_object_add :: proc(app: ^App, points: []geom.Bezier_Point, closed: bool, look := CURVE_LOOK_DEFAULTS, chain := false) -> bool {
 	if len(points) < CURVE_MIN_POINTS do return false
 	stroke_finish(app)
 	bounds := geom.AABB_EMPTY
@@ -337,13 +340,12 @@ curve_object_add :: proc(app: ^App, points: []geom.Bezier_Point, closed: bool, l
 	obj := new(Object)
 	obj.transform, obj.file = {position = middle, scale = 1}, {scale = 1}
 	if !curve_part_attach(app, obj, cp) {
-		render.wait_idle(&app.renderer)
 		object_discard(app, obj)
 		return false
 	}
 	scene_append(app, obj)
 	obj.name = strings.clone(curve_name(app, obj.id))
-	history_record_swap(app, obj.id, history_snapshot(app, nil, "add curve"), kind = .Curve)
+	history_record_swap(app, obj.id, history_snapshot(app, nil, "add curve"), chain = chain, kind = .Curve)
 	app.curve.made += 1
 	app.curve.picked = 0
 	return true
@@ -371,16 +373,31 @@ curve_part_put :: proc(out: ^[dynamic]u8, cp: ^Curve_Part) {
 		geom.byte_put(out, p.radius)
 		geom.byte_put(out, p.intensity)
 		geom.byte_put(out, p.twist)
-		geom.byte_put(out, u8(p.corner))
+		geom.byte_put(out, u8(p.handles))
 	}
 	o := cp.tube
-	geom.byte_put(out, u8(o.profile))
 	geom.byte_put(out, u8(o.radius))
 	geom.byte_put(out, o.one)
 	geom.byte_put(out, u8(o.sides))
 	geom.byte_put(out, o.density)
 	geom.byte_put(out, u8(o.caps))
-	geom.byte_put(out, o.flatness)
+	// The profile: its count and Mirror, then every slot, used or not, so the block keeps
+	// one size.
+	geom.byte_put(out, u8(o.profile.count))
+	geom.byte_put(out, u8(o.profile.mirror))
+	for q in o.profile.points {
+		geom.byte_put(out, q.p)
+		geom.byte_put(out, q.h_in)
+		geom.byte_put(out, q.h_out)
+		geom.byte_put(out, u8(q.handles))
+	}
+	geom.byte_put(out, u8(o.width.count))
+	for q in o.width.points {
+		geom.byte_put(out, q.p)
+		geom.byte_put(out, q.h_in)
+		geom.byte_put(out, q.h_out)
+		geom.byte_put(out, u8(q.handles))
+	}
 	l := cp.lathe
 	geom.byte_put(out, l.axis)
 	geom.byte_put(out, u8(l.through))
@@ -418,9 +435,9 @@ curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, 
 		p.radius = geom.byte_get(r, f32)
 		p.intensity = geom.byte_get(r, f32)
 		p.twist = geom.byte_get(r, f32)
-		corner := geom.byte_get(r, u8)
-		p.corner = corner == 1
-		if !r.ok || corner > 1 || !finite(p.p) || !finite(p.h_in) || !finite(p.h_out) || !finite({p.radius, p.intensity, p.twist}) {
+		handles := geom.byte_get(r, u8)
+		p.handles = geom.Handle_Type(handles)
+		if !r.ok || int(handles) >= len(geom.Handle_Type) || !finite(p.p) || !finite(p.h_in) || !finite(p.h_out) || !finite({p.radius, p.intensity, p.twist}) {
 			damaged = true
 			break
 		}
@@ -428,14 +445,35 @@ curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, 
 	}
 	if !damaged {
 		o: geom.Tube_Options
-		profile, radius := geom.byte_get(r, u8), geom.byte_get(r, u8)
+		radius := geom.byte_get(r, u8)
 		o.one = geom.byte_get(r, f32)
 		o.sides = int(geom.byte_get(r, u8))
 		o.density = geom.byte_get(r, f32)
 		caps := geom.byte_get(r, u8)
-		o.flatness = geom.byte_get(r, f32)
-		damaged = !r.ok || int(profile) >= len(geom.Tube_Profile) || int(radius) >= len(geom.Tube_Radius) || int(caps) >= len(geom.Tube_Caps) || o.sides < 3 || o.sides > geom.TUBE_SIDES_MAX || !finite({o.one, o.density, o.flatness}) || o.one < 0 || o.density <= 0 || o.flatness <= 0
-		o.profile, o.radius, o.caps = geom.Tube_Profile(profile), geom.Tube_Radius(radius), geom.Tube_Caps(caps)
+		count, mirror := geom.byte_get(r, u8), geom.byte_get(r, u8)
+		bad_point := false
+		for &q in o.profile.points {
+			q.p = geom.byte_get(r, [2]f32)
+			q.h_in = geom.byte_get(r, [2]f32)
+			q.h_out = geom.byte_get(r, [2]f32)
+			handles := geom.byte_get(r, u8)
+			q.handles = geom.Handle_Type(handles)
+			if int(handles) >= len(geom.Handle_Type) || !finite({q.p.x, q.p.y, q.h_in.x}) || !finite({q.h_in.y, q.h_out.x, q.h_out.y}) do bad_point = true
+		}
+		o.profile.count, o.profile.mirror = int(count), mirror == 1
+		width_count := geom.byte_get(r, u8)
+		for &q in o.width.points {
+			q.p = geom.byte_get(r, [2]f32)
+			q.h_in = geom.byte_get(r, [2]f32)
+			q.h_out = geom.byte_get(r, [2]f32)
+			handles := geom.byte_get(r, u8)
+			q.handles = geom.Handle_Type(handles)
+			if int(handles) >= len(geom.Handle_Type) || !finite({q.p.x, q.p.y, q.h_in.x}) || !finite({q.h_in.y, q.h_out.x, q.h_out.y}) do bad_point = true
+		}
+		o.width.count = int(width_count)
+		bad_point ||= int(width_count) < geom.WIDTH_POINTS_MIN || int(width_count) > geom.PROFILE_POINTS_MAX
+		damaged = !r.ok || bad_point || count < 3 || int(count) > geom.PROFILE_POINTS_MAX || mirror > 1 || int(radius) >= len(geom.Tube_Radius) || int(caps) >= len(geom.Tube_Caps) || o.sides < 3 || o.sides > geom.TUBE_SIDES_MAX || !finite({o.one, o.density, 0}) || o.one < 0 || o.density <= 0
+		o.radius, o.caps = geom.Tube_Radius(radius), geom.Tube_Caps(caps)
 		cp.tube = o
 	}
 	if !damaged {
@@ -547,4 +585,114 @@ curve_counts :: proc(app: ^App) -> (curves, points: int) {
 		points += len(cp.points)
 	}
 	return
+}
+
+// The curves Add › Curve makes, as Blender's Add › Curve and Nomad's curve primitives: a
+// start for a curve that is not drawn on anything.
+Curve_Shape :: enum u8 {
+	None, // not a curve: Add makes the mesh shape
+	Line,
+	Bezier,
+	Circle,
+	Spiral,
+	Helix,
+}
+
+@(rodata)
+CURVE_SHAPE_NAMES := [Curve_Shape]string {
+	.None   = "",
+	.Line   = "Line",
+	.Bezier = "Bézier",
+	.Circle = "Circle",
+	.Spiral = "Spiral",
+	.Helix  = "Helix",
+}
+
+// The length of a quarter turn's handles on a circle of radius 1, so four smooth points make
+// a circle to within 0.03 % (4/3 · tan(π/8)).
+CURVE_CIRCLE_HANDLE :: 0.5522847
+
+// Turns, and points a turn, of the spiral and the helix.
+CURVE_SPIRAL_TURNS :: 2
+CURVE_HELIX_TURNS :: 3
+CURVE_TURN_POINTS :: 4
+
+// The points of `shape` round `middle`, `size` from its middle to its edge, laid in the
+// plane of `right` and `up` (the helix rising along `up`, turning toward `back`), each smooth
+// with `radius`. A spiral and a helix take each handle along the curve's derivative there,
+// a third of the step, as a cubic through samples of a smooth curve does.
+curve_shape_points :: proc(shape: Curve_Shape, middle, right, up, back: Vec3, size, radius: f32, allocator := context.temp_allocator) -> (points: []geom.Bezier_Point, closed: bool) {
+	at :: proc(middle, right, up: Vec3, size, x, y: f32) -> Vec3 {return middle + (right * x + up * y) * size}
+	switch shape {
+	case .None:
+		return nil, false
+	case .Line:
+		points = make([]geom.Bezier_Point, 2, allocator)
+		points[0] = {p = at(middle, right, up, size, -1, 0), h_out = right * (2 * size / 3)}
+		points[1] = {p = at(middle, right, up, size, 1, 0), h_in = -right * (2 * size / 3)}
+		points[0].h_in, points[1].h_out = -points[0].h_out, -points[1].h_in
+	case .Bezier:
+		// Blender's default: two points with handles leaning the same way, an S.
+		lean := (right + up) * (size / 2)
+		points = make([]geom.Bezier_Point, 2, allocator)
+		points[0] = {p = at(middle, right, up, size, -1, 0), h_in = -lean, h_out = lean}
+		points[1] = {p = at(middle, right, up, size, 1, 0), h_in = -lean, h_out = lean}
+	case .Circle:
+		closed = true
+		points = make([]geom.Bezier_Point, 4, allocator)
+		for &p, i in points {
+			a := f32(i) * math.PI / 2
+			c, s := math.cos(a), math.sin(a)
+			tangent := (-right * s + up * c) * (CURVE_CIRCLE_HANDLE * size)
+			p = {p = at(middle, right, up, size, c, s), h_in = -tangent, h_out = tangent}
+		}
+	case .Spiral:
+		// Archimedean, from a tenth of the size out to all of it.
+		n := CURVE_SPIRAL_TURNS * CURVE_TURN_POINTS + 1
+		step := f32(2 * math.PI / CURVE_TURN_POINTS)
+		grow := f32(0.9 / (CURVE_SPIRAL_TURNS * 2 * math.PI))
+		points = make([]geom.Bezier_Point, n, allocator)
+		for &p, i in points {
+			a := f32(i) * step
+			r := 0.1 + grow * a
+			c, s := math.cos(a), math.sin(a)
+			d := (right * (grow * c - r * s) + up * (grow * s + r * c)) * (size * step / 3)
+			p = {p = at(middle, right, up, size, r * c, r * s), h_in = -d, h_out = d}
+		}
+	case .Helix:
+		// Round `up`, rising from the bottom to the top at three fifths of the size across.
+		n := CURVE_HELIX_TURNS * CURVE_TURN_POINTS + 1
+		step := f32(2 * math.PI / CURVE_TURN_POINTS)
+		wide: f32 = 0.6
+		rise := f32(2 / (CURVE_HELIX_TURNS * 2 * math.PI))
+		points = make([]geom.Bezier_Point, n, allocator)
+		for &p, i in points {
+			a := f32(i) * step
+			c, s := math.cos(a), math.sin(a)
+			pos := middle + (right * (wide * c) + back * (wide * s) + up * (rise * a - 1)) * size
+			d := (right * (-wide * s) + back * (wide * c) + up * rise) * (size * step / 3)
+			p = {p = pos, h_in = -d, h_out = d}
+		}
+	}
+	for &p in points do p.radius, p.intensity = radius, 1
+	return
+}
+
+// Half the size, in pixels on screen, of a curve Add › Curve makes: a fifth of the view's
+// height across.
+CURVE_SHAPE_PX :: 0.1
+
+// Adds `shape` as a curve object round `at` (world space), facing the view and sized to it,
+// selected, as one undo step; the Curve tool picks its last point to edit. False only when
+// it could not be made.
+curve_shape_add :: proc(app: ^App, shape: Curve_Shape, at: Vec3) -> bool {
+	right, up, back := camera.orbit_basis(app.camera)
+	size := app.ui.viewport_size
+	per_px := camera.orbit_world_per_px(app.camera, at, max(size.y, 1))
+	half := CURVE_SHAPE_PX * max(size.y, 1) * per_px
+	radius := app.brush.radius_px * per_px * app.curve.size
+	points, closed := curve_shape_points(shape, at, right, up, back, half, radius)
+	if !curve_object_add(app, points, closed) do return false
+	app.curve.picked = 1 if closed else len(points)
+	return true
 }

@@ -83,7 +83,7 @@ macro_kind :: proc(id: Command_Id) -> Macro_Kind {
 	#partial switch id {
 	case .None, .Undo, .Redo, .Macro_Record, .Run_Macro, .Run_Plugin, .Reload_Plugins:
 		return .Skip
-	case .Inspector, .Show_Section, .Show_Panel, .Rail_Group, .Pin_Section, .Panels_Reset, .Workspace, .Workspace_Save, .Workspace_Save_As, .Workspace_Revert, .Workspace_Reset, .Workspace_Rename, .Workspace_Delete, .Workspace_Export, .Workspace_Import, .View_Pass, .View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .Render_Preview, .View_Window, .View_Windows_Close, .Settings, .Help, .Stats, .Main_Menu, .File_Chip, .Space_Tabs, .Object_Chip, .Viewport_Readout, .Coach_Tips, .Name_Controls, .Take_Tour, .Adjust_Last, .Reduce_Motion, .Left_Handed, .Macros, .Library, .New_Dock:
+	case .Open_Card, .Open_Section, .Panels_Reset, .Layout_Reset, .Layout_Save_As, .Layout_Load, .View_Pass, .View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .Render_Preview, .View_Window, .View_Windows_Close, .Settings, .Help, .Stats, .Main_Menu, .File_Chip, .Space_Tabs, .Object_Chip, .Viewport_Readout, .Readout_Gpu, .Coach_Tips, .Name_Controls, .Take_Tour, .Adjust_Last, .Reduce_Motion, .Left_Handed, .Macros, .Library, .New_Dock:
 		return .Skip
 	case .View_Axis, .Focus_Selected, .Frame_All, .Reset_Camera, .View_Back, .View_Forward:
 		return .Skip
@@ -105,10 +105,10 @@ macro_reads :: proc(app: ^App, id: Command_Id, arg: int) -> []string {
 	@(static, rodata) MIRROR := [?]string{"mirror_axis", "mirror_negative"}
 	@(static, rodata) HOLES := [?]string{"holes_leave_largest"}
 	@(static, rodata) WELD := [?]string{"weld_distance"}
-	@(static, rodata) EVEN := [?]string{"rebuild_goal", "rebuild_even", "remesh_by", "remesh_cell_mm", "remesh_smooth", "remesh_keep_detail", "remesh_keep_thin", "remesh_keep_paint", "remesh_groups", "remesh_quads", "remesh_keep_symmetry"}
+	@(static, rodata) EVEN := [?]string{"rebuild_goal", "rebuild_even", "remesh_by", "remesh_cell_mm", "remesh_smooth", "remesh_keep_detail", "remesh_keep_thin", "remesh_keep_paint", "remesh_groups", "remesh_quads", "remesh_keep_symmetry", "remesh_levels"}
 	@(static, rodata) FEWER := [?]string{"rebuild_goal", "rebuild_fewer", "decimate_by", "decimate_percent", "decimate_keep_paint", "decimate_keep_groups", "decimate_keep_borders", "decimate_use_mask", "decimate_keep_symmetry"}
-	@(static, rodata) QUADS := [?]string{"rebuild_goal", "retopo_quads", "retopo_engine", "retopo_adaptivity", "retopo_keep_symmetry", "retopo_close_first", "retopo_keep_groups", "retopo_keep_creases", "retopo_edge_degrees", "retopo_use_paint", "retopo_use_mask", "retopo_guide_strength"}
-	@(static, rodata) RETOPO := [?]string{"retopo_quads", "retopo_engine", "retopo_adaptivity", "retopo_keep_symmetry", "retopo_close_first", "retopo_keep_groups", "retopo_keep_creases", "retopo_edge_degrees", "retopo_use_paint", "retopo_use_mask", "retopo_guide_strength"}
+	@(static, rodata) QUADS := [?]string{"rebuild_goal", "retopo_quads", "retopo_engine", "retopo_adaptivity", "retopo_keep_symmetry", "retopo_close_first", "retopo_keep_borders", "retopo_keep_groups", "retopo_keep_creases", "retopo_edge_degrees", "retopo_use_paint", "retopo_use_mask", "retopo_guide_strength"}
+	@(static, rodata) RETOPO := [?]string{"retopo_quads", "retopo_engine", "retopo_adaptivity", "retopo_keep_symmetry", "retopo_close_first", "retopo_keep_borders", "retopo_keep_groups", "retopo_keep_creases", "retopo_edge_degrees", "retopo_use_paint", "retopo_use_mask", "retopo_guide_strength"}
 	@(static, rodata) EXTRACT := [?]string{"extract_thickness"}
 	@(static, rodata) BOOLEAN := [?]string{"boolean_vertices"}
 	@(static, rodata) MASK := [?]string{"mask_steps"}
@@ -548,13 +548,11 @@ macro_delete :: proc(app: ^App, slot: int) -> bool {
 	return true
 }
 
-// Opens the Macros panel in the inspector's place, unfolded and in front.
+// Opens the Macros sheet, closing Settings or Help (one sheet at a time).
 macros_open :: proc(app: ^App) {
 	k := &app.kit
 	if k.settings do settings_close(app)
-	k.help, k.macros, k.library, k.macro_armed = false, true, false, 0
-	k.windows[.Macros].minimized = false
-	window_raise(k, .Macros)
+	k.help, k.macros, k.macro_armed = false, true, 0
 }
 
 // The red chip at the top of the viewport while a recording is on: what it holds so far,
@@ -569,7 +567,7 @@ kit_macro_chip :: proc(app: ^App) {
 	shift, w, top, fits := kit_card_place(app, 340, 220)
 	if !fits do return
 	n := len(m.entries)
-	ui.begin_anchored(ctx, "macro chip", .Center, .Start, {shift, top}, {direction = .Row, gap = 10, padding = 8, width = w, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "macro chip", .Center, .Start, {shift, top}, {direction = .Row, gap = ui.SPACE_M, padding = ui.SPACE_M, width = w, radius = t.radius_large + 4, background = .Panel, center = true})
 	ui.begin(ctx, "macro dot", {width = 20, height = 20})
 	ui.end(ctx)
 	r := ctx.last_rect
@@ -595,7 +593,7 @@ kit_macro_save :: proc(app: ^App) {
 		// Closed by Escape, Back or a tap elsewhere rather than Save: as Discard.
 		if m := &app.macro; len(m.entries) > 0 && !m.recording do macro_discard(app)
 	}
-	if !ui.popover_begin(ctx, "macro save", &p.open, p.at, .Below_End, {direction = .Column, gap = 4, padding = 12, width = 300}) do return
+	if !ui.popover_begin(ctx, "macro save", &p.open, p.at, .Below_End, {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
 	m := &app.macro
 	n := len(m.entries)

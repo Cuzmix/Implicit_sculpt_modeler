@@ -1,7 +1,5 @@
 package poly
 
-import "../geom"
-
 // Why a list of polygons cannot be a cage: the half-edge structure holds only meshes
 // where each edge has one face on each side (or one, on a border), every face runs the
 // same way round as its neighbours, and the faces round a vertex form one fan.
@@ -96,13 +94,6 @@ mesh_from_polygons :: proc(positions: []Vec3, sizes: []int, corners: []u32, grou
 refuse :: proc(m: ^Mesh, err: Build_Error) -> (Mesh, Build_Error) {
 	mesh_destroy(m)
 	return {}, err
-}
-
-// A cage of the mesh's triangles, one face each, all in group 0.
-mesh_from_triangles :: proc(t: geom.Mesh, allocator := context.allocator) -> (Mesh, Build_Error) {
-	sizes := make([]int, len(t.indices) / 3, context.temp_allocator)
-	for &s in sizes do s = 3
-	return mesh_from_polygons(t.positions[:], sizes, t.indices[:], nil, allocator)
 }
 
 // The cage as a list of polygons, the inverse of mesh_from_polygons: its positions, each

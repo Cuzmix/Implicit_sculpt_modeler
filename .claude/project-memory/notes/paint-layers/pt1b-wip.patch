@@ -1,0 +1,1365 @@
+diff --git a/README.md b/README.md
+index 6ee795c..ee409af 100644
+--- a/README.md
++++ b/README.md
+@@ -695,7 +695,7 @@ The menu (the top bar's second button, after Home) opens and saves scenes (Open
+ 
+ **The Export sheet** (Menu > Export..., Ctrl+E, or Export... in Search; `src/app/lens_export.odin`, after round 2's export2 screen and round 3's presets) starts from what the file is for. Seven preset cards stand across its top, each with its icon, name and what it makes (three a row on a narrow window): **3D print** (STL, OBJ or 3MF at Scene > 3D print's size in millimetres, Z up and standing on the bed; the OBJ keeps the polypaint as vertex colours for colour slicers; a 3MF holds each object as its own part, which a slicer keeps apart to colour or set each its own way, in millimetres, and reads in the 3MF Consortium's lib3mf in strict mode without a warning), **Game engine** (glTF, or OBJ), **Blender** (the live link on the desktop, or USD), **Turntable**, **Picture** (the screenshot) and **Send** (the scene to a computer or tablet on this network, see Send; not on the web) and **Any format** (Sculpt scene, OBJ, PLY, STL, glTF and USD, as the sheet listed them before). Under them, on the left, OPTIONS: the preset's formats as tabs when it has more than one, then the format's options: for the 3D print **Only the selected objects (N)** (on at first; off, the print takes every object shown; settings file `export_print_all`), its unit and its Height to drag (the width and depth follow, every object at the scene's one print scale; Scene > 3D print sets any side), and more than one object goes out as one mesh in an STL or OBJ, standing on the bed as the objects stand together, or each its own part in a 3MF; for the game engine the selected object; for both, **Decimate for this file only** (off at first; settings file `export_decimate`), which offers a Triangles slider (half the object's triangles at first, down to 1,000; settings file `export_decimate_to`, 0 for half) and writes a copy decimated to about that many, its paint, shape keys and polygroups following the vertices kept, while the scene keeps every triangle (several printed objects share the triangles by how many each has; a quad or textured export goes out whole), and the preview counts what goes out as "40k of 81k triangles"; for the 3D print, **Hollow for this file only** (off at first; settings file `export_hollow`), with its **Wall** beside it (2 mm at first, 0.5 to 20 mm; settings file `export_hollow_wall`), which writes each object with an inside wall that thick facing the hollow, as resin slicers hollow a model (the slicer adds the drain holes): the object becomes voxels two fifths of the wall across in a copy, the surface the wall's depth inside it is meshed and added, decimated to the object's triangles when it has more, and a part thinner than two walls stays solid; the preview says "Hollow inside a 2.0 mm wall" (and when the wall is under Settings' least wall, says so), a wall too thin for an object that big (over about 400 walls across) is refused with a note, and the print's note gives the hollow solid's volume; for a mesh the selected object, its vertices and what the format carries; the link's folder, or where to set it; Turntable's frames and Without background; Picture's Render it (Scene > Render's switch, with Fast or Full) and Without background; the scene's Save as or Save a copy. On the right, the preview: the object's thumbnail (the view's middle for the scene, a picture or a turntable), the file name the dialog will suggest (the scene's name with the format's suffix, or Untitled), what goes in, its triangles and about how big, and a print's width, depth and height (of all its objects together). The foot says what Export does to the scene ("Exports a copy; the scene is not changed", or for Save as that the new file becomes the scene's own), then Cancel and Export. Export runs the format's own command, so each writes what it always did, and a mesh or print format's save dialog offers only that format. A preset comes back on the format last picked in it; the sheet opens on what was exported last, which its head names ("Last time: glTF for the game engine"), or on 3D print before anything has been. The settings file keeps `export_preset`, `export_format`, `export_ran`, `export_last_preset` and `export_last_format` (an older file's `export_format` settles into the first preset that offers it); Esc closes the sheet. **Before it prints** (`src/app/print_checks.odin`): under the preview of a 3D print stand its checks, each a tick or a warning: Watertight (every edge has two faces; or how many open edges, edges of more than two faces or flipped, or that it is inside out), its holes, with **Repair** (Close holes on every hole, one undo step), its thinnest wall against the least set in Settings > Files > 3D printer (rays from 4096 triangles spread over the surface go inward to the far side of the wall, and the third thinnest decides, so a stray pinch does not; measured once the surface is closed), and whether it fits the printer's bed, turned a quarter round if need be. They look at what the file holds (the shown level, a dynamic object's packed triangles or a voxel object's surface) and run again only when it changes; above 300k triangles they run on a thread of their own from a copy, the rows saying "Checking the print..." meanwhile (about 0.6 s at 2M triangles in a release build on four cores), and above 4M triangles they are left out. With more than one object going out, the checks are of the selected one, which the caption names, and the bed check holds them all. Exit stats: `export_open`, `export_preset`, `export_format`, `export_runs`, `export_last` (`none` before an export), `export_print_all`, `export_decimate`, `export_decimate_to` and `export_decimated` (the triangles the last decimated export wrote), `export_hollow`, `export_hollow_wall` and `export_hollowed` (the triangles the last hollow print's inside walls added). The checks add `print_checks` (checks begun), `print_open_edges`, `print_holes`, `print_wall` (in the object's units, 0 for none), `print_check_ms`, `print_bed` and `print_wall_least`. Every format's command stays in Search.
+ 
+-**Scenes** (`.sculpt`: Open scene, Save scene, Save scene as): every object with all its subdivision levels as shown and their sculpt layers, a retopologized object's quads and UVs, the mask, paint layers and polygroups of its current level, dynamic topology if on, its name and place, whether its eye is off, it is a ghost or it is locked, the spaces it is left out of, each sculpt layer's mask, a Model mode cage's polygons, creases and corners in place of its levels, its selected faces and its Smooth steps and Flat, an applied cage's Catmull-Clark rule, polygons and creases, from which its levels are built again, the sculpt a cage was taken from by Edit cage, a cage's Thickness and Bevel creases and its live mirror, its folder, the folders (names, folded or open, eye and ghost), Solo, and the camera. The file (version 39) is a list of chunks after its preview picture, the scene's own and then one an object. Until release the app opens only the version it writes: a format change replaces the reader, and a file an earlier build wrote is refused rather than converted. Each level is stored as positions, so it opens exactly as it was saved. Since the vertex numbering changes whenever a level is built, the levels above the base store their vertices in an order the topology alone decides: the vertices that continue the level below first, then those on its edges, by the edge's ends. Opening builds every level above the base again from it, as subdividing does, and moves its vertices where they were, so it takes about as long as subdividing to that size; the base itself keeps its node layout in the file, so it opens without being laid out again (see below). HD detail is not saved, only each object's number of HD steps; the HD section says so while an object has stored detail, and so does the note after saving. Nor is the undo history. Opening reads and uploads the whole new scene before the old one goes, so a damaged file leaves the scene as it was (both are in memory for a moment). Saving writes beside the file, makes sure every byte reached the disk (fsync), and then replaces the file with it (on Linux and Android the folder is synced too; on Windows the rename is write-through), so neither a failed save, a crash nor a power cut leaves a half-written file, and "Saved" shows only once that is done; exports, bakes and `.strokes` files are written the same way, screenshots are not. A save of a scene over about 1M vertices (32 MB) stops the app for a moment (about 0.6 s at 2M and 4.6 s at 10M on the VM), so it first shows "Saving head.sculpt..." at the bottom, saves once that is on the screen (a quarter of a second later, or at once when a scene change, another file action or closing the app comes first), and then replaces it with the outcome; a second Ctrl+S meanwhile is dropped.
++**Scenes** (`.sculpt`: Open scene, Save scene, Save scene as): every object with all its subdivision levels as shown and their sculpt layers, a retopologized object's quads and UVs, the mask, paint layers and polygroups of its current level, dynamic topology if on, its name and place, whether its eye is off, it is a ghost or it is locked, the spaces it is left out of, each sculpt layer's mask, a Model mode cage's polygons, creases and corners in place of its levels, its selected faces and its Smooth steps and Flat, an applied cage's Catmull-Clark rule, polygons and creases, from which its levels are built again, the sculpt a cage was taken from by Edit cage, a cage's Thickness and Bevel creases and its live mirror, its folder, the folders (names, folded or open, eye and ghost), Solo, and the camera. The file (version 40) is a list of chunks after its preview picture, the scene's own and then one an object. Until release the app opens only the version it writes: a format change replaces the reader, and a file an earlier build wrote is refused rather than converted. Each level is stored as positions, so it opens exactly as it was saved. Since the vertex numbering changes whenever a level is built, the levels above the base store their vertices in an order the topology alone decides: the vertices that continue the level below first, then those on its edges, by the edge's ends. Opening builds every level above the base again from it, as subdividing does, and moves its vertices where they were, so it takes about as long as subdividing to that size; the base itself keeps its node layout in the file, so it opens without being laid out again (see below). HD detail is not saved, only each object's number of HD steps; the HD section says so while an object has stored detail, and so does the note after saving. Nor is the undo history. Opening reads and uploads the whole new scene before the old one goes, so a damaged file leaves the scene as it was (both are in memory for a moment). Saving writes beside the file, makes sure every byte reached the disk (fsync), and then replaces the file with it (on Linux and Android the folder is synced too; on Windows the rename is write-through), so neither a failed save, a crash nor a power cut leaves a half-written file, and "Saved" shows only once that is done; exports, bakes and `.strokes` files are written the same way, screenshots are not. A save of a scene over about 1M vertices (32 MB) stops the app for a moment (about 0.6 s at 2M and 4.6 s at 10M on the VM), so it first shows "Saving head.sculpt..." at the bottom, saves once that is on the screen (a quarter of a second later, or at once when a scene change, another file action or closing the app comes first), and then replaces it with the outcome; a second Ctrl+S meanwhile is dropped.
+ 
+ **Save a copy** (Menu, or the command palette) writes the scene to another file and leaves it saving where it did: a backup, or a variation to come back to; the note says which file the scene still saves to. **Save next** (the command palette, or a bar button; `save_scene_next` in a script) saves the scene as the next numbered file beside its own and keeps saving there, so each stage of a sculpt stays as a file of its own: `dragon.sculpt` becomes `dragon_002.sculpt`, `dragon_002` becomes `dragon_003`, `head_9` becomes `head_010` (the number keeps its width, at least three digits); a name already taken is skipped, and after a thousand taken it says so and saves nothing. It needs a scene file to number from (Save scene as first), and an Android picked file, which has no folder to put the next one in, cannot. Earlier saves then lists the new file's. **Earlier saves**: saving over a scene file (Save scene, or Save scene as onto it) first keeps the file it replaces in a folder beside it, `head versions/head 2026-10-26 14.02.33.sculpt`, stamped with when that file was saved in the device's local time (a second save in the same second gets `-2`, `-3`, ...). The old file is hard-linked there, so it costs no time and no space until the new save replaces it, or copied where the file system has no links (FAT cards). The newest five are kept and older ones deleted (Settings > System > Earlier saves: Off, 3, 5 or 10; remembered as `versions_kept`); Off keeps no more and deletes none already there, and nothing else in the folder is ever touched. At 10M five versions are about 1.8 GB beside the file. If the earlier save cannot be kept (the folder cannot be made), the save still happens and its note says why in amber. Save a copy keeps no versions. **Earlier saves...** (Menu, or the command palette, once the scene's file has any) lists them under the menu button, newest first, as "Today 14:02", "Yesterday 18:40" or "12 Oct 09:15" (with the seconds when two share a minute) and their sizes; the list is read when it opens and after each save, never every frame. A tap opens that save as the scene, which still saves to its own file, so the next Save makes it the current one and keeps the one it replaces: going back loses nothing. With changes the file does not hold, the first tap turns the row red ("Discard changes and open?") and a second tap within three seconds opens it, as New scene asks. The format is little-endian binary with a version number: `scene_save` in `src/app/files.odin`, then per object `levels_write` in `src/sculpt/levels_file.odin`. Since version 22 a scene starts, right after its version, with a **preview block**, as a `.blend` keeps its thumbnail, so a list of scenes can show each by reading only the start of its file, never the whole scene (also through Android's `content://` files): its length, when it was written, how many objects and vertices it holds, and a picture of the viewport as it was last drawn (without the brush ring or gizmo), at most 320 pixels on its long side, as a PNG (`src/app/scene_preview.odin`). The picture is taken while the app rests (a second after the last press, at most every two seconds, only when the scene or the view changed), copied back from the GPU without waiting for it and shrunk by averaging every pixel it covers, about 4.6 ms in a release build on the VM at 1600 x 900; a save brings it up to date first, and an autosave writes the last one taken. A length that runs past the file, or past 4 MB, is a damaged file; a picture that does not decode only shows none. The exit stats add `previews` (pictures taken), `preview_size`, `preview_kb` and `preview_ms`.
+ 
+diff --git a/src/app/files.odin b/src/app/files.odin
+index 67d9e3b..17263ad 100644
+--- a/src/app/files.odin
++++ b/src/app/files.odin
+@@ -81,7 +81,7 @@ SCENE_MAGIC :: "SCULPTSC"
+ // after the preview block (scene_chunk_begin), each read whole. Until release a format
+ // change replaces the old reader: the writer and the reader change together, with no
+ // branch for files an earlier build wrote, which then refuse to open.
+-SCENE_VERSION :: u32(39)
++SCENE_VERSION :: u32(40)
+ // The chunks of a scene file: the scene's own fields, then one an object.
+ CHUNK_SCENE :: "SCEN"
+ CHUNK_OBJECT :: "OBJ "
+diff --git a/src/render/renderer.odin b/src/render/renderer.odin
+index b787b9d..8a63c1c 100644
+--- a/src/render/renderer.odin
++++ b/src/render/renderer.odin
+@@ -297,6 +297,11 @@ Mesh_Buffers :: struct {
+ 	// The caller's stamp for what `paint` holds (the sculptor's paint stamp); 0 when it
+ 	// holds nothing.
+ 	paint_stamp: u32,
++	// Per vertex, its painted roughness and metal (Material_Packed), read beside `paint`
++	// (4 bytes a vertex). Nil until a mesh's paint first has either; kept, with `material`
++	// false, once it has none again, so dropping it needs no wait for the GPU.
++	paint_material: ^sdl.GPUBuffer,
++	material:       bool,
+ 
+ 	// Simplified copies of groups of chunks (see Draw_Item.lod), drawn with indirect
+ 	// commands that follow the draw_count full-detail ones. Created on first upload.
+@@ -334,6 +339,20 @@ Mesh_Buffers :: struct {
+ Normal_Packed :: [2]i16
+ // Matches `paint` in mesh.vert.slang: the colour's bytes red first, then the group.
+ Paint_Packed :: [2]u32
++// Matches `paint_material` in mesh.vert.slang: roughness, its coverage, metal, its coverage,
++// a byte each, roughness lowest (sculpt.Material_Paint).
++Material_Packed :: u32
++
++// The sculpt mesh's vertex shader's storage buffers (mesh.vert.slang): paint, and the
++// painted roughness and metal.
++MESH_VERTEX_STORAGE :: 2
++
++// What a draw binds as a mesh's painted roughness and metal: its buffer, or the empty one
++// while it has none (the shader then reads nothing, by Frame_Uniforms.options.w).
++@(private)
++mesh_material_buffer :: proc(r: ^Renderer, mb: ^Mesh_Buffers) -> ^sdl.GPUBuffer {
++	return mb.paint_material if mb.paint_material != nil else r.no_paint
++}
+ VERTEX_BYTES :: size_of(geom.Vec3) + size_of(Normal_Packed)
+ 
+ // Normals go up with the vertex's mask folded in: see geom.oct_encode_masked.
+@@ -818,7 +837,7 @@ create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: sdl.GPUSamp
+ 		format              = SHADER_FORMAT,
+ 		stage               = .VERTEX,
+ 		num_uniform_buffers = 1,
+-		num_storage_buffers = 0 if textured else (SKIN_VERTEX_STORAGE if skinned else (SKIN_TESS_STORAGE if skin_tess else 1)),
++		num_storage_buffers = 0 if textured else (SKIN_VERTEX_STORAGE if skinned else (SKIN_TESS_STORAGE if skin_tess else MESH_VERTEX_STORAGE)),
+ 	})
+ 	frag := gpu_create_shader(r.device, {
+ 		code_size           = len(frag_code),
+@@ -1281,6 +1300,7 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
+ 	delete(mb.cull.expect)
+ 	if k, found := slice.linear_search(r.gpu_culling.checked[:], mb); found do unordered_remove(&r.gpu_culling.checked, k)
+ 	if mb.paint != nil do gpu_release_buffer(r.device, mb.paint)
++	if mb.paint_material != nil do gpu_release_buffer(r.device, mb.paint_material)
+ 	if mb.edges != nil do gpu_release_buffer(r.device, mb.edges)
+ 	if mb.skin_normals != nil do gpu_release_buffer(r.device, mb.skin_normals)
+ 	if mb.skin_tris != nil do gpu_release_buffer(r.device, mb.skin_tris)
+@@ -1363,12 +1383,13 @@ mesh_buffers_upload_ranges :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
+ 	}
+ }
+ 
+-// Records copies of the paint data (colours, nil for none, and the groups vertices
+-// carry, nil for none) of every vertex in `ranges` into the mesh's paint buffer, or of
+-// every vertex when `all` or when the buffer has to be made first. Packs ranges into the
+-// transfer buffer like mesh_buffers_upload_ranges. On failure the buffer is dropped, so
+-// the mesh is drawn without paint until a later upload succeeds.
+-mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, colors: [][4]u8, groups: []u16, ranges: []geom.Vertex_Range, all: bool) {
++// Records copies of the paint data (colours, nil for none, the groups vertices carry, nil
++// for none, and the roughness and metal, nil for none) of every vertex in `ranges` into the
++// mesh's paint buffers, or of every vertex when `all` or when a buffer has to be made
++// first. Packs ranges into the transfer buffer like mesh_buffers_upload_ranges, a batch's
++// materials after its paint. On failure the buffer is dropped, so the mesh is drawn
++// without paint until a later upload succeeds; the materials' failing leaves them unshown.
++mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb: ^Mesh_Buffers, colors: [][4]u8, groups: []u16, materials: [][4]u8, ranges: []geom.Vertex_Range, all: bool) {
+ 	debug_group(cmd, "Paint upload", .Uploads)
+ 	ranges, all := ranges, all
+ 	if mb.paint == nil {
+@@ -1379,11 +1400,20 @@ mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
+ 		}
+ 		all = true
+ 	}
++	if materials != nil && mb.paint_material == nil {
++		mb.paint_material = gpu_create_buffer(r.device, {usage = {.GRAPHICS_STORAGE_READ}, size = max(mb.vertex_capacity, 1) * size_of(Material_Packed)})
++		if mb.paint_material == nil do log.errorf("paint material buffer creation failed: %s", sdl.GetError())
++		all = true
++	}
++	if (materials != nil) != mb.material do all = true
++	with := materials != nil && mb.paint_material != nil
++	mb.material = with
+ 	whole := [1]geom.Vertex_Range{{0, mb.vertex_capacity}}
+ 	if all do ranges = whole[:]
+ 	r.last_version += 1
+ 	mb.version = r.last_version
+-	capacity := mb.transfer_size / size_of(Paint_Packed) // vertices per batch
++	per := u32(size_of(Paint_Packed) + (size_of(Material_Packed) if with else 0))
++	capacity := mb.transfer_size / per // vertices per batch
+ 	pending := ranges
+ 	split: geom.Vertex_Range
+ 	for len(pending) > 0 || split.count > 0 {
+@@ -1416,6 +1446,9 @@ mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
+ 			mb.paint = nil
+ 			return
+ 		}
++		// The batch's materials after its paint, so one map serves both.
++		materials_at := used * size_of(Paint_Packed)
++		dst_m := cast([^]Material_Packed)(uintptr(dst) + uintptr(materials_at))
+ 		for p in batch {
+ 			for k in 0 ..< p.r.count {
+ 				v := p.r.first + k
+@@ -1423,12 +1456,14 @@ mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, mb:
+ 				if colors != nil && int(v) < len(colors) do x[0] = transmute(u32)colors[v]
+ 				if groups != nil && int(v) < len(groups) do x[1] = u32(groups[v])
+ 				dst[p.dst + k] = x
++				if with do dst_m[p.dst + k] = transmute(u32)materials[v] if int(v) < len(materials) else 0
+ 			}
+ 		}
+ 		gpu_unmap_transfer_buffer(r.device, mb.transfer)
+ 		pass := gpu_begin_copy_pass(cmd)
+ 		for p in batch {
+ 			gpu_upload_to_buffer(pass, {transfer_buffer = mb.transfer, offset = p.dst * size_of(Paint_Packed)}, {buffer = mb.paint, offset = p.r.first * size_of(Paint_Packed), size = p.r.count * size_of(Paint_Packed)}, false)
++			if with do gpu_upload_to_buffer(pass, {transfer_buffer = mb.transfer, offset = materials_at + p.dst * size_of(Material_Packed)}, {buffer = mb.paint_material, offset = p.r.first * size_of(Material_Packed), size = p.r.count * size_of(Material_Packed)}, false)
+ 		}
+ 		gpu_end_copy_pass(pass)
+ 	}
+@@ -2092,7 +2127,8 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
+ 		mb := item.mesh
+ 		show_paint, show_groups := item.paint && mb.paint != nil, item.groups && mb.paint != nil
+ 		slotted := item.slots != nil && mb.paint != nil && !textured
+-		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), f32(int(slotted)), 0}}
++		show_material := show_paint && mb.material
++		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), f32(int(slotted)), f32(int(show_material))}}
+ 		frame.slot_group = SLOT_NONE
+ 		if slotted {
+ 			frame.slot_group = item.slots.groups
+@@ -2111,8 +2147,8 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
+ 			if item.wireframe && pipes.wire != nil {
+ 				// The wire pass draws the sculpt buffers, which hold the same surface.
+ 				gpu_push_vertex_uniform_data(cmd, 0, &frame, size_of(frame))
+-				paint := [1]^sdl.GPUBuffer{r.no_paint}
+-				gpu_bind_vertex_storage_buffers(pass, 0, &paint[0], 1)
++				paint := [MESH_VERTEX_STORAGE]^sdl.GPUBuffer{r.no_paint, r.no_paint}
++				gpu_bind_vertex_storage_buffers(pass, 0, &paint[0], len(paint))
+ 				samplers := [2]sdl.GPUTextureSamplerBinding{{texture = r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r)}
+ 				gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+ 				vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
+@@ -2126,8 +2162,8 @@ draw_items :: proc(r: ^Renderer, cmd: ^sdl.GPUCommandBuffer, pass: ^sdl.GPURende
+ 		if skinned do frame.skin = {mb.skin_meta[0], mb.skin_meta[1], mb.skin_meta[2], 0}
+ 		gpu_push_vertex_uniform_data(cmd, 0, &frame, size_of(frame))
+ 		gpu_push_fragment_uniform_data(cmd, 0, &material, size_of(material))
+-		paint := [1]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint}
+-		gpu_bind_vertex_storage_buffers(pass, 0, &paint[0], 1)
++		paint := [MESH_VERTEX_STORAGE]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint, mesh_material_buffer(r, mb)}
++		gpu_bind_vertex_storage_buffers(pass, 0, &paint[0], len(paint))
+ 		samplers := [2]sdl.GPUTextureSamplerBinding{{texture = item.matcap if item.matcap != nil else r.no_matcap, sampler = r.matcap_sampler}, environment_binding(r)}
+ 		gpu_bind_fragment_samplers(pass, 0, &samplers[0], len(samplers))
+ 		vbufs := [2]sdl.GPUBufferBinding{{buffer = mb.positions}, {buffer = mb.normals}}
+diff --git a/src/render/skin.odin b/src/render/skin.odin
+index 6568da6..7b529c6 100644
+--- a/src/render/skin.odin
++++ b/src/render/skin.odin
+@@ -12,13 +12,15 @@ import sdl "vendor:sdl3"
+ // shader pulls its vertex from the mesh's own buffers, since a pixel needs its triangle's
+ // number, which an indexed draw cannot give it.
+ 
+-// The skinned vertex shader's storage buffers: paint, indices, positions, normals.
+-SKIN_VERTEX_STORAGE :: 4
++// The skinned vertex shader's storage buffers: paint, indices, positions, normals, and the
++// painted roughness and metal.
++SKIN_VERTEX_STORAGE :: 5
+ // The skinned fragment shader's: the samples' normals and the triangles' records.
+ SKIN_FRAGMENT_STORAGE :: 2
+ // The grid's vertex shader's (skin_tess.vert.slang): paint, indices, positions, normals,
+-// and the samples' normals, the triangles' records and the samples' heights.
+-SKIN_TESS_STORAGE :: 7
++// the samples' normals, the triangles' records, the samples' heights, and the painted
++// roughness and metal.
++SKIN_TESS_STORAGE :: 8
+ 
+ // Whether `item` draws with the skinned pipeline: its mesh has a skin uploaded and its
+ // buffers can be read as storage.
+@@ -139,7 +141,7 @@ skin_tess_split :: proc(r: ^Renderer, item: Draw_Item, proj: Mat4, height: u32,
+ @(private)
+ draw_skinned_item :: proc(r: ^Renderer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_Pipelines, item: Draw_Item, stats: ^Viewport_Stats) -> (tessellated: bool) {
+ 	mb := item.mesh
+-	vertex := [SKIN_VERTEX_STORAGE]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint, mb.indices, mb.positions, mb.normals}
++	vertex := [SKIN_VERTEX_STORAGE]^sdl.GPUBuffer{mb.paint if mb.paint != nil else r.no_paint, mb.indices, mb.positions, mb.normals, mesh_material_buffer(r, mb)}
+ 	gpu_bind_vertex_storage_buffers(pass, 0, &vertex[0], len(vertex))
+ 	fragment := [SKIN_FRAGMENT_STORAGE]^sdl.GPUBuffer{mb.skin_normals, mb.skin_tris}
+ 	gpu_bind_fragment_storage_buffers(pass, 0, &fragment[0], len(fragment))
+@@ -154,7 +156,7 @@ draw_skinned_item :: proc(r: ^Renderer, pass: ^sdl.GPURenderPass, pipes: ^Mesh_P
+ 		}
+ 		if mb.tess_draw_count == 0 || pipes.skin_tess == nil do return
+ 		gpu_bind_graphics_pipeline(pass, pipes.skin_tess)
+-		grid := [SKIN_TESS_STORAGE]^sdl.GPUBuffer{vertex[0], mb.indices, mb.positions, mb.normals, mb.skin_normals, mb.skin_tris, mb.skin_heights}
++		grid := [SKIN_TESS_STORAGE]^sdl.GPUBuffer{vertex[0], mb.indices, mb.positions, mb.normals, mb.skin_normals, mb.skin_tris, mb.skin_heights, vertex[4]}
+ 		gpu_bind_vertex_storage_buffers(pass, 0, &grid[0], len(grid))
+ 		gpu_draw_primitives_indirect(pass, mb.indirect, (mb.draw_count + mb.lod_draw_count) * STRIDE, mb.tess_draw_count, STRIDE)
+ 		if stats != nil {
+diff --git a/src/sculpt/adjust.odin b/src/sculpt/adjust.odin
+index 1d3ba76..102990a 100644
+--- a/src/sculpt/adjust.odin
++++ b/src/sculpt/adjust.odin
+@@ -79,6 +79,13 @@ adjust_keep_after :: proc(s: ^Sculptor, step: ^Undo_Step) {
+ 	step.after_vecs = make([]Vec3, vecs, h.allocator)
+ 	step.after_masks = make([]u8, bytes, h.allocator)
+ 	step.after_colors = make([]Color, colors, h.allocator)
++	// Roughness and metal beside the colours at the same places, when any node saved them.
++	for sv in step.saved {
++		if sv.materials != nil {
++			step.after_materials = make([]Material_Paint, colors, h.allocator)
++			break
++		}
++	}
+ 	step.after_at = make([]int, len(step.saved), h.allocator)
+ 	vecs, bytes, colors = 0, 0, 0
+ 	for sv, i in step.saved {
+@@ -107,7 +114,9 @@ adjust_keep_after :: proc(s: ^Sculptor, step: ^Undo_Step) {
+ 		at := step.after_at[i]
+ 		switch {
+ 		case sv.masks != nil:  copy(step.after_masks[at:][:n.vert_count], s.mask[n.vert_first:][:n.vert_count])
+-		case sv.colors != nil: copy(step.after_colors[at:][:n.vert_count], paint_colors_by_id(s, step.paint_layer)[n.vert_first:][:n.vert_count])
++		case sv.colors != nil:
++			copy(step.after_colors[at:][:n.vert_count], paint_colors_by_id(s, step.paint_layer)[n.vert_first:][:n.vert_count])
++			if m := paint_materials_by_id(s, step.paint_layer); sv.materials != nil && m != nil do copy(step.after_materials[at:][:n.vert_count], m[n.vert_first:][:n.vert_count])
+ 		case sv.is_delta:      copy(step.after_vecs[at:][:n.vert_count], s.layers.list[sv.delta_layer].delta[sv.node])
+ 		case:                  copy(step.after_vecs[at:][:n.vert_count], s.mesh.positions[n.vert_first:][:n.vert_count])
+ 		}
+@@ -133,6 +142,11 @@ job_adjust :: proc(data: rawptr, i: int) {
+ 		live := paint_colors_by_id(s, step.paint_layer)[n.vert_first:][:count]
+ 		after := step.after_colors[at:][:count]
+ 		for &c, j in live do for ch in 0 ..< 4 do c[ch] = adjust_byte(sv.colors[j][ch], after[j][ch], k)
++		if m := paint_materials_by_id(s, step.paint_layer); sv.materials != nil && m != nil {
++			now := m[n.vert_first:][:count]
++			left := step.after_materials[at:][:count]
++			for &c, j in now do for ch in 0 ..< 4 do c[ch] = adjust_byte(sv.materials[j][ch], left[j][ch], k)
++		}
+ 	case sv.is_delta:
+ 		// A node with no displacement before the stroke saved none: it started at zero.
+ 		live := s.layers.list[sv.delta_layer].delta[sv.node]
+@@ -164,7 +178,7 @@ adjust_byte :: #force_inline proc(before, after: u8, k: f32) -> u8 {
+ // What the copies an adjust keeps beside a step take.
+ @(private)
+ adjust_bytes :: proc(step: Undo_Step) -> int {
+-	return len(step.after_vecs) * size_of(Vec3) + len(step.after_masks) + len(step.after_colors) * size_of(Color) + len(step.after_at) * size_of(int)
++	return len(step.after_vecs) * size_of(Vec3) + len(step.after_masks) + (len(step.after_colors) + len(step.after_materials)) * size_of(Color) + len(step.after_at) * size_of(int)
+ }
+ 
+ // Drops the copies an adjust kept, ending it: the step moved to the other list, or went.
+@@ -174,7 +188,8 @@ adjust_free :: proc(h: ^Undo_History, step: ^Undo_Step) {
+ 	delete(step.after_vecs, h.allocator)
+ 	delete(step.after_masks, h.allocator)
+ 	delete(step.after_colors, h.allocator)
++	delete(step.after_materials, h.allocator)
+ 	delete(step.after_at, h.allocator)
+-	step.after_vecs, step.after_masks, step.after_colors, step.after_at = nil, nil, nil, nil
++	step.after_vecs, step.after_masks, step.after_colors, step.after_materials, step.after_at = nil, nil, nil, nil, nil
+ 	step.adjusting = false
+ }
+diff --git a/src/sculpt/brush.odin b/src/sculpt/brush.odin
+index ac4fef2..a200324 100644
+--- a/src/sculpt/brush.odin
++++ b/src/sculpt/brush.odin
+@@ -144,6 +144,9 @@ Brush :: struct {
+ 	facing:   Vec3,
+ 	// Paint: the colour it paints, sRGB; any other brush paints it too when `channel` says.
+ 	color:    [3]u8,
++	// Paint: the roughness and metal it paints where the picked layer's dots say (0 to 255).
++	roughness: u8,
++	metal:     u8,
+ 	// Paint: even the colours out instead of laying `color`, as Smooth evens the surface:
+ 	// each vertex mixes toward the average of its neighbours' paint (the inverted brush
+ 	// still takes paint off). Paint's Smooth in the dial, as ZBrush's and Nomad's do.
+@@ -378,6 +381,11 @@ Sculptor :: struct {
+ 	hide:        Hide,
+ 	// Per vertex: its polypaint (paint.odin); nil until something is first painted.
+ 	color:        []Color,
++	// Per vertex: the picked paint layer's roughness and metal; nil until either is first
++	// painted on that layer.
++	material:     []Material_Paint,
++	// What the dab being laid writes, the picked layer's channel dots (paint_dab).
++	paint_writes: Paint_Channels,
+ 	color_edited: bool, // painted since the level became current, so a level change carries the colours
+ 	paint_stamp:  u32,  // see sculptor_paint_stamp
+ 	// The paint layers, of which `color` is the picked one's (paint_layers.odin).
+@@ -500,6 +508,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
+ 	layers_destroy(s)
+ 	paint_layers_destroy(s)
+ 	delete(s.color, s.history.allocator)
++	delete(s.material, s.history.allocator)
+ 	delete(s.mask, s.history.allocator)
+ 	delete(s.layer, s.history.allocator)
+ 	delete(s.morph, s.history.allocator)
+diff --git a/src/sculpt/dyntopo.odin b/src/sculpt/dyntopo.odin
+index 84e24fc..e6e5409 100644
+--- a/src/sculpt/dyntopo.odin
++++ b/src/sculpt/dyntopo.odin
+@@ -190,7 +190,8 @@ sculptor_dyn_enable :: proc(s: ^Sculptor, allocator := context.allocator) -> boo
+ 	groups_destroy(s)
+ 	paint_layers_destroy(s)
+ 	delete(s.color, s.history.allocator)
+-	s.color = nil
++	delete(s.material, s.history.allocator)
++	s.color, s.material = nil, nil
+ 	s.paint_stamp += 1
+ 	sculptor_morph_clear(s) // the vertices are about to be renumbered
+ 	sculptor_recall_clear(s)
+diff --git a/src/sculpt/levels_file.odin b/src/sculpt/levels_file.odin
+index 5450bde..7ac35db 100644
+--- a/src/sculpt/levels_file.odin
++++ b/src/sculpt/levels_file.odin
+@@ -288,8 +288,9 @@ read_sets :: proc(r: ^geom.Byte_Reader, l: ^Levels, canon: []([]u32)) -> bool {
+ }
+ 
+ // A sculptor's paint layers (paint_layers.odin): how many, the picked one (index + 1, 0 for
+-// none), the next id and how many were named; then per layer its name, id, eye and
+-// opacity, a byte saying whether it has colours and those per vertex in file order.
++// none), the next id and how many were named; then per layer its name, id, eye, opacity
++// and channel dots, a byte saying whether it has colours and those per vertex in file
++// order, and likewise its roughness and metal.
+ @(private = "file")
+ write_paint :: proc(w: ^Writer, s: ^Sculptor, canon: []u32) -> bool {
+ 	out := w.out
+@@ -303,20 +304,22 @@ write_paint :: proc(w: ^Writer, s: ^Sculptor, canon: []u32) -> bool {
+ 		geom.byte_put(out, l.id)
+ 		geom.byte_put(out, u8(l.visible))
+ 		geom.byte_put(out, l.opacity)
+-		colors := sculptor_paint_layer_colors(s, i)
+-		geom.byte_put(out, u8(colors != nil))
+-		if colors == nil do continue
+-		Colors :: struct {
+-			from:  []Color,
+-			to:    []Color,
+-			canon: []u32,
++		geom.byte_put(out, transmute(u8)l.channels)
++		for values in ([2][]Color{sculptor_paint_layer_colors(s, i), sculptor_paint_layer_materials(s, i)}) {
++			geom.byte_put(out, u8(values != nil))
++			if values == nil do continue
++			Values :: struct {
++				from:  []Color,
++				to:    []Color,
++				canon: []u32,
++			}
++			c := Values{values, slice.reinterpret([]Color, geom.byte_put_bytes(out, len(values) * size_of(Color))), canon}
++			ranged := ranges(w.pool, w.abort, len(values), &c, proc(data: rawptr, lo, hi: int) {
++				c := cast(^Values)data
++				for u in lo ..< hi do c.to[place(c.canon, u32(u))] = c.from[u]
++			}, geom.RANGE_GRAIN)
++			if !ranged do return false
+ 		}
+-		c := Colors{colors, slice.reinterpret([]Color, geom.byte_put_bytes(out, len(colors) * size_of(Color))), canon}
+-		ranged := ranges(w.pool, w.abort, len(colors), &c, proc(data: rawptr, lo, hi: int) {
+-			c := cast(^Colors)data
+-			for u in lo ..< hi do c.to[place(c.canon, u32(u))] = c.from[u]
+-		}, geom.RANGE_GRAIN)
+-		if !ranged do return false
+ 	}
+ 	return true
+ }
+@@ -337,17 +340,25 @@ read_paint :: proc(r: ^geom.Byte_Reader, s: ^Sculptor, canon: []u32) -> bool {
+ 		l.id = geom.byte_get(r, u32)
+ 		visible := geom.byte_get(r, u8)
+ 		l.opacity = geom.byte_get(r, f32)
+-		has := geom.byte_get(r, u8)
+-		if !r.ok || visible > 1 || has > 1 || l.id == 0 || l.id > next_id || paint_index(s, l.id) >= 0 || !(l.opacity >= 0 && l.opacity <= 1) do return false
++		channels := geom.byte_get(r, u8)
++		if !r.ok || visible > 1 || channels & ~transmute(u8)PAINT_CHANNELS_ALL != 0 || l.id == 0 || l.id > next_id || paint_index(s, l.id) >= 0 || !(l.opacity >= 0 && l.opacity <= 1) do return false
+ 		l.visible = visible == 1
++		l.channels = transmute(Paint_Channels)channels
+ 		l.name[len(l.name) - 1] = 0
+-		if has == 1 {
++		// In the stack before its arrays, so a damaged file frees what was read with it.
++		append(&s.paint.list, l)
++		layer := &s.paint.list[len(s.paint.list) - 1]
++		for k in 0 ..< 2 {
++			has := geom.byte_get(r, u8)
++			if !r.ok || has > 1 do return false
++			if has == 0 do continue
+ 			saved := geom.byte_get_bytes(r, n * size_of(Color))
+ 			if !r.ok do return false
+-			l.color = make([]Color, n, a)
+-			for u in 0 ..< n do l.color[u] = intrinsics.unaligned_load(cast(^Color)&saved[size_of(Color) * int(canon[u])])
++			values := make([]Color, n, a)
++			for u in 0 ..< n do values[u] = intrinsics.unaligned_load(cast(^Color)&saved[size_of(Color) * int(canon[u])])
++			if k == 0 do layer.color = values
++			else do layer.material = values
+ 		}
+-		append(&s.paint.list, l)
+ 	}
+ 	s.paint.next_id, s.paint.named = next_id, int(named)
+ 	if picked > 0 do paint_pick_id(s, s.paint.list[picked - 1].id)
+diff --git a/src/sculpt/paint.odin b/src/sculpt/paint.odin
+index 99f90f4..6902320 100644
+--- a/src/sculpt/paint.odin
++++ b/src/sculpt/paint.odin
+@@ -51,12 +51,32 @@ color_ensure :: proc(s: ^Sculptor) {
+ 	s.paint.whole = true
+ }
+ 
++// Gives the picked layer roughness and metal, none covering, if it has none yet, for the
++// first stroke that writes either. The caller made sure of colours first.
++@(private)
++material_ensure :: proc(s: ^Sculptor) {
++	if s.material != nil do return
++	s.material = make([]Material_Paint, len(s.mesh.positions), s.history.allocator)
++	s.paint_stamp += 1
++	s.paint.whole = true
++}
++
++// What a stroke on the picked layer writes, with its roughness and metal made ready when
++// it writes either.
++@(private)
++paint_writes :: proc(s: ^Sculptor) -> Paint_Channels {
++	writes := sculptor_paint_channels(s)
++	if writes & {.Roughness, .Metal} != {} do material_ensure(s)
++	return writes
++}
++
+ // One Paint dab, called by dab_once with the hit leaves found. Returns how many
+ // vertices changed colour.
+ @(private)
+ paint_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
+ 	if s.dyn != nil do return 0
+ 	color_ensure(s)
++	s.paint_writes = paint_writes(s)
+ 	if s.history.recording {
+ 		for leaf in s.hit do record_color(s, s.node_of[leaf])
+ 	}
+@@ -70,8 +90,19 @@ paint_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
+ 			total += s.nodes[s.node_of[leaf]].vert_count
+ 		}
+ 		resize(&s.blur_to, int(total))
+-		jobs.parallel_for(pool, len(s.hit), d, job_blur_targets)
+-		jobs.parallel_for(pool, len(s.hit), d, job_blur_apply)
++		if .Color in s.paint_writes {
++			jobs.parallel_for(pool, len(s.hit), d, job_blur_targets)
++			jobs.parallel_for(pool, len(s.hit), d, job_blur_apply)
++		}
++		if s.paint_writes & {.Roughness, .Metal} != {} {
++			// The colour's count of changed vertices is kept: a vertex whose roughness
++			// changed too counts once more, which only says more than nothing changed.
++			moved := make([]u32, len(s.partials), context.temp_allocator)
++			for p, i in s.partials do moved[i] = p.moved
++			jobs.parallel_for(pool, len(s.hit), d, job_blur_material_targets)
++			jobs.parallel_for(pool, len(s.hit), d, job_blur_material_apply)
++			for &p, i in s.partials do p.moved += moved[i]
++		}
+ 	} else {
+ 		jobs.parallel_for(pool, len(s.hit), d, job_paint)
+ 	}
+@@ -113,9 +144,98 @@ job_paint :: proc(data: rawptr, i: int) {
+ 		if d2 >= d.r2 do continue
+ 		w := d.brush.strength * dab_weight(d, delta, d2) * facing_weight(d, m.normals[:], v) * shield(s.fade, s.mask, v)
+ 		if w <= 0 do continue
+-		next := paint_mix(s.color[v], d.brush.color, w, d.brush.invert)
+-		if next == s.color[v] do continue
+-		s.color[v] = next
++		changed := false
++		if .Color in s.paint_writes {
++			next := paint_mix(s.color[v], d.brush.color, w, d.brush.invert)
++			if next != s.color[v] {
++				s.color[v] = next
++				changed = true
++			}
++		}
++		if s.paint_writes & {.Roughness, .Metal} != {} {
++			next := material_mix(s.material[v], {d.brush.roughness, d.brush.metal}, s.paint_writes, w, d.brush.invert)
++			if next != s.material[v] {
++				s.material[v] = next
++				changed = true
++			}
++		}
++		if changed do painted += 1
++	}
++	s.partials[i].moved = painted
++}
++
++// Roughness and metal laid over a vertex's as paint_mix lays colour, each channel the
++// layer writes over its own coverage; `erase` takes coverage off those channels.
++@(private)
++material_mix :: #force_inline proc(m: Material_Paint, value: [2]u8, writes: Paint_Channels, w: f32, erase: bool) -> Material_Paint {
++	out := m
++	for c in 0 ..< 2 {
++		if Paint_Channel(1 + c) not_in writes do continue
++		x := Color{m[2 * c], 0, 0, m[2 * c + 1]}
++		y := paint_mix(x, {value[c], 0, 0}, w, erase)
++		out[2 * c], out[2 * c + 1] = y.r, y.a
++	}
++	return out
++}
++
++// The roughness and metal each vertex in the dab blurs toward, as job_blur_targets finds
++// colour: each channel's neighbours averaged as far as they cover, coverage plainly.
++@(private)
++job_blur_material_targets :: proc(data: rawptr, i: int) {
++	d := cast(^Dab)data
++	s := d.s
++	m := s.mesh
++	first, last := owned(s, s.hit[i])
++	out := s.blur_to[s.offsets[i]:]
++	for v in first ..< last {
++		delta := m.positions[v] - d.center
++		if linalg.dot(delta, delta) >= d.r2 do continue
++		value, cover: [2]f32
++		n: f32
++		for f in faces_of(s, v) {
++			for k in 0 ..< 3 {
++				x := s.material[m.indices[3 * f + u32(k)]]
++				for c in 0 ..< 2 {
++					a := f32(x[2 * c + 1])
++					value[c] += f32(x[2 * c]) * a
++					cover[c] += a
++				}
++				n += 1
++			}
++		}
++		own := s.material[v]
++		target := [4]f32{f32(own[0]), f32(own[1]), f32(own[2]), f32(own[3])}
++		for c in 0 ..< 2 {
++			if cover[c] > 0 do target[2 * c] = value[c] / cover[c]
++			if n > 0 do target[2 * c + 1] = cover[c] / n
++		}
++		out[v - first] = target
++	}
++}
++
++@(private)
++job_blur_material_apply :: proc(data: rawptr, i: int) {
++	d := cast(^Dab)data
++	s := d.s
++	m := s.mesh
++	first, last := owned(s, s.hit[i])
++	targets := s.blur_to[s.offsets[i]:]
++	painted: u32
++	for v in first ..< last {
++		delta := m.positions[v] - d.center
++		d2 := linalg.dot(delta, delta)
++		if d2 >= d.r2 do continue
++		w := clamp(d.brush.strength * dab_weight(d, delta, d2), 0, 1) * facing_weight(d, m.normals[:], v) * shield(s.fade, s.mask, v)
++		if w <= 0 do continue
++		x := s.material[v]
++		target := targets[v - first]
++		next := x
++		for c in 0 ..< 2 {
++			if Paint_Channel(1 + c) not_in s.paint_writes do continue
++			for k in 2 * c ..< 2 * c + 2 do next[k] = paint_toward(x[k], u8(clamp(target[k] + 0.5, 0, 255)), f32(x[k]) + (target[k] - f32(x[k])) * w)
++		}
++		if next == x do continue
++		s.material[v] = next
+ 		painted += 1
+ 	}
+ 	s.partials[i].moved = painted
+@@ -206,21 +326,27 @@ paint_mix :: #force_inline proc(c: Color, paint: [3]u8, w: f32, erase: bool) ->
+ // Fills or clears the paint of every vertex the brush could reach, or fills it with
+ // `gradient` (Gradient), weighted by the mask and hiding as a dab is, as one undo step.
+ // Returns true when it changed a colour. Refused (false) under dynamic topology.
+-sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u8, gradient := Paint_Gradient{}) -> bool {
++sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u8, gradient := Paint_Gradient{}, material := [2]u8{}) -> bool {
+ 	_ = sculptor_stroke_end(s)
+ 	if s.dyn != nil do return false
+ 	if s.color == nil && command == .Clear do return false
+ 	color_ensure(s)
++	writes := sculptor_paint_channels(s)
++	// Clear makes no roughness and metal to take off.
++	if command == .Clear && s.material == nil do writes -= {.Roughness, .Metal}
++	if writes & {.Roughness, .Metal} != {} do material_ensure(s)
+ 	Job :: struct {
+-		s:       ^Sculptor,
+-		command: Paint_Command,
+-		color:   [3]u8,
+-		changes: []bool,
+-		to:      [3]u8,
+-		axis:    Vec3,
+-		lo, per: f32, // the axis' first shown value, and 1 over its span
++		s:        ^Sculptor,
++		command:  Paint_Command,
++		color:    [3]u8,
++		changes:  []bool,
++		to:       [3]u8,
++		axis:     Vec3,
++		lo, per:  f32, // the axis' first shown value, and 1 over its span
++		writes:   Paint_Channels,
++		material: [2]u8,
+ 	}
+-	job := Job{s, command, color, make([]bool, len(s.nodes), context.temp_allocator), gradient.to, gradient.axis, 0, 0}
++	job := Job{s, command, color, make([]bool, len(s.nodes), context.temp_allocator), gradient.to, gradient.axis, 0, 0, writes, material}
+ 	if command == .Gradient {
+ 		// The span over the vertices shown: a serial pass, as a min and a max are the same
+ 		// whichever thread finds them, and one pass over 10M positions is a few ms.
+@@ -234,7 +360,7 @@ sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u
+ 	}
+ 	after :: #force_inline proc(job: ^Job, v: u32) -> Color {
+ 		w := shield(job.s.fade, job.s.mask, v)
+-		if w <= 0 do return job.s.color[v]
++		if w <= 0 || .Color not_in job.writes do return job.s.color[v]
+ 		paint := job.color
+ 		if job.command == .Gradient {
+ 			f := clamp((linalg.dot(job.s.mesh.positions[v], job.axis) - job.lo) * job.per, 0, 1)
+@@ -242,13 +368,20 @@ sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u
+ 		}
+ 		return paint_mix(job.s.color[v], paint, w, job.command == .Clear)
+ 	}
++	// Roughness and metal take the brush's values whole, a gradient running the colour only.
++	after_material :: #force_inline proc(job: ^Job, v: u32) -> Material_Paint {
++		m := job.s.material[v] if job.s.material != nil else {}
++		w := shield(job.s.fade, job.s.mask, v)
++		if w <= 0 || job.writes & {.Roughness, .Metal} == {} do return m
++		return material_mix(m, job.material, job.writes, w, job.command == .Clear)
++	}
+ 	// Twice: first to find the nodes that change, so only those are saved.
+ 	jobs.parallel_ranges(s.pool, len(s.nodes), &job, proc(data: rawptr, lo, hi: int) {
+ 		job := cast(^Job)data
+ 		for id in lo ..< hi {
+ 			n := job.s.nodes[id]
+ 			for v in n.vert_first ..< n.vert_first + n.vert_count {
+-				if after(job, v) != job.s.color[v] {
++				if after(job, v) != job.s.color[v] || (job.s.material != nil && after_material(job, v) != job.s.material[v]) {
+ 					job.changes[id] = true
+ 					break
+ 				}
+@@ -262,7 +395,10 @@ sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u
+ 		for id in lo ..< hi {
+ 			if !job.changes[id] do continue
+ 			n := job.s.nodes[id]
+-			for v in n.vert_first ..< n.vert_first + n.vert_count do job.s.color[v] = after(job, v)
++			for v in n.vert_first ..< n.vert_first + n.vert_count {
++				job.s.color[v] = after(job, v)
++				if job.s.material != nil do job.s.material[v] = after_material(job, v)
++			}
+ 		}
+ 	}, NODE_GRAIN)
+ 	for c, id in job.changes {
+@@ -279,9 +415,17 @@ sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u
+ // clay, as everywhere in polypaint). `hit` is false when the ray misses; with no paint the
+ // colour is zero, which the caller shows as the clay. For the eyedropper.
+ sculptor_color_at :: proc(s: ^Sculptor, origin, dir: Vec3) -> (c: Color, hit: bool) {
++	c, _, hit = sculptor_paint_at(s, origin, dir)
++	return
++}
++
++// The paint as it shows where the ray meets the surface, as sculptor_color_at: its colour,
++// and its roughness and metal (Material_Paint, zero with none). For the eyedropper.
++sculptor_paint_at :: proc(s: ^Sculptor, origin, dir: Vec3) -> (c: Color, material: Material_Paint, hit: bool) {
+ 	along, tri, on := geom.bvh_raycast(&s.bvh, s.mesh^, origin, dir, sculptor_hidden_tris(s))
+ 	hit = on
+ 	colors := sculptor_paint_shown(s)
++	materials := sculptor_paint_shown_material(s)
+ 	if !hit || colors == nil do return
+ 	m := s.mesh
+ 	i := m.indices[3 * tri:][:3]
+@@ -292,16 +436,22 @@ sculptor_color_at :: proc(s: ^Sculptor, origin, dir: Vec3) -> (c: Color, hit: bo
+ 	area := linalg.dot(n, n)
+ 	if area <= 0 {
+ 		c = colors[i[0]]
++		if materials != nil do material = materials[i[0]]
+ 		return
+ 	}
+ 	wb := linalg.dot(linalg.cross(p - a, cc - a), n) / area
+ 	wc := linalg.dot(linalg.cross(b - a, p - a), n) / area
+ 	w := [3]f32{clamp(1 - wb - wc, 0, 1), clamp(wb, 0, 1), clamp(wc, 0, 1)}
+ 	sum := w[0] + w[1] + w[2]
+-	for k in 0 ..< 4 {
+-		x := (f32(colors[i[0]][k]) * w[0] + f32(colors[i[1]][k]) * w[1] + f32(colors[i[2]][k]) * w[2]) / max(sum, 1e-6)
+-		c[k] = u8(clamp(x + 0.5, 0, 255))
++	blend :: proc(x: []Color, i: []u32, w: [3]f32, sum: f32) -> (c: Color) {
++		for k in 0 ..< 4 {
++			v := (f32(x[i[0]][k]) * w[0] + f32(x[i[1]][k]) * w[1] + f32(x[i[2]][k]) * w[2]) / max(sum, 1e-6)
++			c[k] = u8(clamp(v + 0.5, 0, 255))
++		}
++		return
+ 	}
++	c = blend(colors, i, w, sum)
++	if materials != nil do material = blend(materials, i, w, sum)
+ 	return
+ }
+ 
+@@ -315,7 +465,12 @@ record_color :: proc(s: ^Sculptor, id: u32) {
+ 	n := s.nodes[id]
+ 	saved := make([]Color, n.vert_count, h.allocator)
+ 	copy(saved, s.color[n.vert_first:][:n.vert_count])
+-	append(&h.current.saved, Saved_Node{node = id, colors = saved})
++	materials: []Material_Paint
++	if s.material != nil {
++		materials = make([]Material_Paint, n.vert_count, h.allocator)
++		copy(materials, s.material[n.vert_first:][:n.vert_count])
++	}
++	append(&h.current.saved, Saved_Node{node = id, colors = saved, materials = materials})
+ }
+ 
+ // Changes to the colours or groups that need every vertex's paint data uploaded again
+@@ -363,15 +518,25 @@ levels_carry_color :: proc(l: ^Levels, from, to: int, all := true) {
+ 		missing := paint_mirror(src, dst)
+ 		for _, i in src.paint.list {
+ 			if !all && !missing[i] do continue
+-			from_colors := sculptor_paint_layer_colors(src, i)
+-			if from_colors == nil do continue
+-			to_colors := sculptor_paint_layer_colors(dst, i)
+-			if to_colors == nil {
+-				to_colors = make([]Color, len(dst.mesh.positions), dst.history.allocator)
+-				if dst.paint.list[i].id == dst.paint.picked do dst.color = to_colors
+-				else do dst.paint.list[i].color = to_colors
++			picked := dst.paint.list[i].id == dst.paint.picked
++			if from_colors := sculptor_paint_layer_colors(src, i); from_colors != nil {
++				to_colors := sculptor_paint_layer_colors(dst, i)
++				if to_colors == nil {
++					to_colors = make([]Color, len(dst.mesh.positions), dst.history.allocator)
++					if picked do dst.color = to_colors
++					else do dst.paint.list[i].color = to_colors
++				}
++				carry_colors(l, l.levels[j], l.levels[j + step], step > 0, from_colors, to_colors)
++			}
++			if from := sculptor_paint_layer_materials(src, i); from != nil {
++				to := sculptor_paint_layer_materials(dst, i)
++				if to == nil {
++					to = make([]Material_Paint, len(dst.mesh.positions), dst.history.allocator)
++					if picked do dst.material = to
++					else do dst.paint.list[i].material = to
++				}
++				carry_colors(l, l.levels[j], l.levels[j + step], step > 0, from, to)
+ 			}
+-			carry_colors(l, l.levels[j], l.levels[j + step], step > 0, from_colors, to_colors)
+ 		}
+ 		dst.paint_stamp += 1
+ 	}
+diff --git a/src/sculpt/paint_layers.odin b/src/sculpt/paint_layers.odin
+index 356f342..a5eed50 100644
+--- a/src/sculpt/paint_layers.odin
++++ b/src/sculpt/paint_layers.odin
+@@ -26,14 +26,30 @@ import "../jobs"
+ // How many paint layers one sculptor keeps.
+ MAX_PAINT_LAYERS :: 32
+ 
++// What a layer's strokes write, its channel dots: colour, roughness and metal, as Wafer's
++// layers pick theirs. Each channel has a coverage of its own, so a stroke with a dot off
++// leaves that channel as it was.
++Paint_Channel :: enum u8 {Color, Roughness, Metal}
++Paint_Channels :: bit_set[Paint_Channel; u8]
++PAINT_CHANNELS_ALL :: Paint_Channels{.Color, .Roughness, .Metal}
++
++// A vertex's roughness and metal paint: roughness, its coverage, metal, its coverage, one
++// byte each (the GPU's render.Mesh_Buffers.paint_material). The same four bytes as a
++// Color, so the carries and undo saves move both alike.
++Material_Paint :: Color
++
+ Paint_Layer :: struct {
+ 	id:      u32, // from 1, kept through moves, so an undo step finds its layer (Undo_Step.paint_layer)
+ 	name:    [32]u8, // zero-terminated
+-	visible: bool,
+-	opacity: f32, // 0 to 1
++	visible:  bool,
++	opacity:  f32, // 0 to 1
++	channels: Paint_Channels, // what its strokes write
+ 	// Per vertex, the layer's colour and coverage; nil until painted, and nil while the
+ 	// layer is picked (its colours are then Sculptor.color).
+-	color:   []Color,
++	color:    []Color,
++	// Per vertex, its roughness and metal (Material_Paint); nil until either is first
++	// painted, and nil while picked (Sculptor.material then).
++	material: []Material_Paint,
+ }
+ 
+ Paint_Layers :: struct {
+@@ -41,8 +57,10 @@ Paint_Layers :: struct {
+ 	picked:  u32, // the id of the layer whose colours are Sculptor.color; 0 for none
+ 	next_id: u32, // the id the next new layer takes, less one
+ 	named:   int, // layers named so far, for the next "Paint N"
+-	// The composite per vertex while the stack is not plain; nil while it is.
+-	shown:   []Color,
++	// The composite per vertex while the stack is not plain; nil while it is. Its roughness
++	// and metal likewise, nil also while no shown layer has any.
++	shown:          []Color,
++	shown_material: []Material_Paint,
+ 	// Per node: its paint changed since the composite was brought up to date (listed in
+ 	// `dirty` once); nil while the stack is plain.
+ 	marked:  []bool,
+@@ -67,11 +85,13 @@ Paint_Op :: struct {
+ 	name:      [32]u8,
+ 	visible:   bool,
+ 	opacity:   f32,
++	channels:  Paint_Channels,
+ 	move:      bool,
+ 	a, b:      int,
+ 	recolor:   bool,
+ 	colors_of: int,
+ 	colors:    []Color,
++	materials: []Material_Paint,
+ 	picked:    u32,
+ }
+ 
+@@ -94,6 +114,18 @@ sculptor_paint_layer_colors :: proc(s: ^Sculptor, index: int) -> []Color {
+ 	return s.color if l.id == s.paint.picked else l.color
+ }
+ 
++// Layer `index`'s roughness and metal wherever they are, as sculptor_paint_layer_colors.
++sculptor_paint_layer_materials :: proc(s: ^Sculptor, index: int) -> []Material_Paint {
++	l := s.paint.list[index]
++	return s.material if l.id == s.paint.picked else l.material
++}
++
++// What the picked layer's strokes write: its channel dots, colour alone with no layer.
++sculptor_paint_channels :: proc(s: ^Sculptor) -> Paint_Channels {
++	i := paint_index(s, s.paint.picked)
++	return s.paint.list[i].channels if i >= 0 else {.Color}
++}
++
+ // Whether the stack shows as the picked layer alone: no layers, or one shown at full
+ // opacity. Its composite is then Sculptor.color itself.
+ paint_plain :: proc(s: ^Sculptor) -> bool {
+@@ -112,6 +144,14 @@ sculptor_paint_shown :: proc(s: ^Sculptor) -> []Color {
+ 	return s.paint.shown
+ }
+ 
++// The roughness and metal as they show, per vertex, as sculptor_paint_shown: nil when no
++// shown layer has any. The same rule for flushing first.
++sculptor_paint_shown_material :: proc(s: ^Sculptor) -> []Material_Paint {
++	if paint_plain(s) do return s.material
++	if s.paint.whole || len(s.paint.dirty) > 0 || s.paint.shown == nil do paint_flush(s)
++	return s.paint.shown_material
++}
++
+ // Whether any paint shows (sculptor_has_color says only that the picked layer has colours).
+ sculptor_paint_shows :: proc(s: ^Sculptor) -> bool {return sculptor_paint_shown(s) != nil}
+ 
+@@ -132,13 +172,21 @@ paint_colors_by_id :: proc(s: ^Sculptor, id: u32) -> []Color {
+ 	return s.paint.list[i].color if i >= 0 else nil
+ }
+ 
++// The roughness and metal of the layer with id `id` wherever they are, as paint_colors_by_id.
++@(private)
++paint_materials_by_id :: proc(s: ^Sculptor, id: u32) -> []Material_Paint {
++	if id == 0 || id == s.paint.picked do return s.material
++	i := paint_index(s, id)
++	return s.paint.list[i].material if i >= 0 else nil
++}
++
+ // Puts the picked layer's colours back in it, picking none. Returns the id it was.
+ @(private)
+ paint_unpick :: proc(s: ^Sculptor) -> u32 {
+ 	id := s.paint.picked
+ 	if i := paint_index(s, id); i >= 0 {
+-		s.paint.list[i].color = s.color
+-		s.color = nil
++		s.paint.list[i].color, s.paint.list[i].material = s.color, s.material
++		s.color, s.material = nil, nil
+ 	}
+ 	s.paint.picked = 0
+ 	return id
+@@ -148,10 +196,11 @@ paint_unpick :: proc(s: ^Sculptor) -> u32 {
+ // sculptor's. The caller unpicked first.
+ @(private)
+ paint_pick_id :: proc(s: ^Sculptor, id: u32) {
+-	assert(s.paint.picked == 0 && s.color == nil, "unpick first")
++	assert(s.paint.picked == 0 && s.color == nil && s.material == nil, "unpick first")
+ 	i := paint_index(s, id)
+ 	if i < 0 do return
+ 	s.color, s.paint.list[i].color = s.paint.list[i].color, nil
++	s.material, s.paint.list[i].material = s.paint.list[i].material, nil
+ 	s.paint.picked = id
+ }
+ 
+@@ -160,7 +209,7 @@ paint_pick_id :: proc(s: ^Sculptor, id: u32) {
+ paint_layer_make :: proc(s: ^Sculptor) -> Paint_Layer {
+ 	s.paint.next_id += 1
+ 	s.paint.named += 1
+-	l := Paint_Layer{id = s.paint.next_id, visible = true, opacity = 1}
++	l := Paint_Layer{id = s.paint.next_id, visible = true, opacity = 1, channels = {.Color}}
+ 	copy(l.name[:len(l.name) - 1], "Paint ")
+ 	digits: [8]u8
+ 	k, n := len(digits), s.paint.named
+@@ -246,13 +295,26 @@ sculptor_paint_set :: proc(s: ^Sculptor, index: int, visible: bool, wanted: f32)
+ 	if l.visible == visible && l.opacity == opacity do return true
+ 	if !h.recording {
+ 		sculptor_stroke_begin(s)
+-		h.current.paint_op = {active = true, set = true, set_index = index, name = l.name, visible = l.visible, opacity = l.opacity, picked = s.paint.picked}
++		h.current.paint_op = {active = true, set = true, set_index = index, name = l.name, visible = l.visible, opacity = l.opacity, channels = l.channels, picked = s.paint.picked}
+ 	}
+ 	l.visible, l.opacity = visible, opacity
+ 	paint_touch_layer(s, index)
+ 	return true
+ }
+ 
++// Sets what layer `index`'s strokes write (its channel dots), as an undo step. Nothing that
++// shows changes. Returns false when dynamic topology is on or nothing changed.
++sculptor_paint_set_channels :: proc(s: ^Sculptor, index: int, channels: Paint_Channels) -> bool {
++	_ = sculptor_stroke_end(s)
++	if s.dyn != nil || index < 0 || index >= len(s.paint.list) do return false
++	l := &s.paint.list[index]
++	if l.channels == channels do return false
++	sculptor_stroke_begin(s)
++	s.history.current.paint_op = {active = true, set = true, set_index = index, name = l.name, visible = l.visible, opacity = l.opacity, channels = l.channels, picked = s.paint.picked}
++	l.channels = channels
++	return sculptor_stroke_end(s)
++}
++
+ // Swaps layers `index` and `index + 1` (moves one up), as an undo step.
+ sculptor_paint_move :: proc(s: ^Sculptor, index: int) -> bool {
+ 	_ = sculptor_stroke_end(s)
+@@ -276,27 +338,41 @@ sculptor_paint_merge_down :: proc(s: ^Sculptor, index: int) -> bool {
+ 	merged := make([]Color, n, s.history.allocator)
+ 	pair := [2]int{index - 1, index}
+ 	Job :: struct {
+-		s:      ^Sculptor,
+-		layers: [2][]Color,
+-		weight: [2]f32,
+-		count:  int,
+-		out:    []Color,
++		s:         ^Sculptor,
++		layers:    [2][]Color,
++		weight:    [2]f32,
++		count:     int,
++		out:       []Color,
++		materials: [2][]Material_Paint,
++		with:      int,
++		weigh:     [2]f32,
++		out_m:     []Material_Paint,
+ 	}
+ 	job := Job{s = s, out = merged}
+ 	for k in 0 ..< 2 {
+ 		l := s.paint.list[pair[k]]
+ 		w := l.opacity if l.visible else 0
+-		colors := sculptor_paint_layer_colors(s, pair[k])
+-		if w <= 0 || colors == nil do continue
+-		job.layers[job.count], job.weight[job.count] = colors, w
+-		job.count += 1
++		if w <= 0 do continue
++		if colors := sculptor_paint_layer_colors(s, pair[k]); colors != nil {
++			job.layers[job.count], job.weight[job.count] = colors, w
++			job.count += 1
++		}
++		if m := sculptor_paint_layer_materials(s, pair[k]); m != nil {
++			job.materials[job.with], job.weigh[job.with] = m, w
++			job.with += 1
++		}
+ 	}
++	if job.with > 0 do job.out_m = make([]Material_Paint, n, s.history.allocator)
+ 	jobs.parallel_ranges(s.pool, n, &job, proc(data: rawptr, lo, hi: int) {
+ 		job := cast(^Job)data
+-		for v in lo ..< hi do job.out[v] = paint_composite(job.layers[:job.count], job.weight[:job.count], u32(v), job.s.mesh.positions[v])
++		for v in lo ..< hi {
++			p := job.s.mesh.positions[v]
++			job.out[v] = paint_composite(job.layers[:job.count], job.weight[:job.count], u32(v), p)
++			if job.out_m != nil do job.out_m[v] = paint_composite_material(job.materials[:job.with], job.weigh[:job.with], u32(v), p)
++		}
+ 	}, 1 << 14)
+ 	sculptor_stroke_begin(s)
+-	s.history.current.paint_op = {active = true, toggle = true, index = index, recolor = true, colors_of = index - 1, colors = merged, picked = picked}
++	s.history.current.paint_op = {active = true, toggle = true, index = index, recolor = true, colors_of = index - 1, colors = merged, materials = job.out_m, picked = picked}
+ 	op := &s.history.current.paint_op
+ 	paint_op_swap(s, op)
+ 	// The lower layer shows at full opacity now: its old opacity and eye are the step's to
+@@ -322,10 +398,12 @@ paint_op_swap :: proc(s: ^Sculptor, op: ^Paint_Op) {
+ 		l.name, op.name = op.name, l.name
+ 		l.visible, op.visible = op.visible, l.visible
+ 		l.opacity, op.opacity = op.opacity, l.opacity
++		l.channels, op.channels = op.channels, l.channels
+ 	}
+ 	if op.recolor {
+ 		l := &list[op.colors_of]
+ 		l.color, op.colors = op.colors, l.color
++		l.material, op.materials = op.materials, l.material
+ 	}
+ 	if op.move do list[op.a], list[op.b] = list[op.b], list[op.a]
+ 	if op.toggle {
+@@ -366,25 +444,37 @@ paint_touch :: #force_inline proc(s: ^Sculptor, id: u32) {
+ paint_touch_layer :: proc(s: ^Sculptor, index: int) {
+ 	s.color_edited = true
+ 	colors := sculptor_paint_layer_colors(s, index)
+-	if colors == nil do return
++	materials := sculptor_paint_layer_materials(s, index)
++	if colors == nil && materials == nil do return
+ 	if !paint_plain(s) && s.paint.shown == nil {
+ 		s.paint.whole = true
+ 		return
+ 	}
+ 	Job :: struct {
+-		s:      ^Sculptor,
+-		colors: []Color,
+-		covers: []bool,
++		s:         ^Sculptor,
++		colors:    []Color,
++		materials: []Material_Paint,
++		covers:    []bool,
+ 	}
+-	job := Job{s, colors, make([]bool, len(s.nodes), context.temp_allocator)}
++	job := Job{s, colors, materials, make([]bool, len(s.nodes), context.temp_allocator)}
+ 	jobs.parallel_ranges(s.pool, len(s.nodes), &job, proc(data: rawptr, lo, hi: int) {
+ 		job := cast(^Job)data
+ 		for id in lo ..< hi {
+ 			n := job.s.nodes[id]
+-			for c in job.colors[n.vert_first:][:n.vert_count] {
+-				if c.a != 0 {
+-					job.covers[id] = true
+-					break
++			if job.colors != nil {
++				for c in job.colors[n.vert_first:][:n.vert_count] {
++					if c.a != 0 {
++						job.covers[id] = true
++						break
++					}
++				}
++			}
++			if job.materials != nil && !job.covers[id] {
++				for m in job.materials[n.vert_first:][:n.vert_count] {
++					if m[1] != 0 || m[3] != 0 {
++						job.covers[id] = true
++						break
++					}
+ 				}
+ 			}
+ 		}
+@@ -414,6 +504,29 @@ paint_composite :: #force_inline proc(layers: []([]Color), weight: []f32, v: u32
+ 	return paint_quantize(rgb / a, min(a, 1), p)
+ }
+ 
++// One vertex's roughness and metal composited as paint_composite does colour, each channel
++// over its own coverage, front to back until both are fully covered.
++@(private)
++paint_composite_material :: #force_inline proc(layers: []([]Material_Paint), weight: []f32, v: u32, p: Vec3) -> Material_Paint {
++	value, cover: [2]f32
++	for k := len(layers) - 1; k >= 0; k -= 1 {
++		m := layers[k][v]
++		for c in 0 ..< 2 {
++			x := f32(m[2 * c + 1]) * (1.0 / 255) * weight[k] * (1 - cover[c])
++			value[c] += f32(m[2 * c]) * x
++			cover[c] += x
++		}
++		if cover[0] >= 1 && cover[1] >= 1 do break
++	}
++	out: Material_Paint
++	for c in 0 ..< 2 {
++		if cover[c] <= 0 do continue
++		q := paint_quantize({value[c] / cover[c], 0, 0}, min(cover[c], 1), p)
++		out[2 * c], out[2 * c + 1] = q.r, q.a
++	}
++	return out
++}
++
+ // A composited colour as bytes, with an ordered dither so soft gradients of several 8-bit
+ // layers do not band. The dither's cell comes from the vertex's position, not its number,
+ // so the same surface composites to the same bytes however a build numbered it (a scene
+@@ -442,8 +555,9 @@ paint_flush :: proc(s: ^Sculptor) {
+ 	if paint_plain(s) {
+ 		if p.shown != nil {
+ 			delete(p.shown, s.history.allocator)
++			delete(p.shown_material, s.history.allocator)
+ 			delete(p.marked, s.history.allocator)
+-			p.shown, p.marked = nil, nil
++			p.shown, p.shown_material, p.marked = nil, nil, nil
+ 			s.paint_stamp += 1
+ 		}
+ 		clear(&p.dirty)
+@@ -460,21 +574,43 @@ paint_flush :: proc(s: ^Sculptor) {
+ 		for id in 0 ..< len(s.nodes) do append(&p.dirty, u32(id))
+ 		s.paint_stamp += 1
+ 	}
+-	if len(p.dirty) == 0 do return
+ 	Job :: struct {
+-		s:      ^Sculptor,
+-		layers: [MAX_PAINT_LAYERS][]Color,
+-		weight: [MAX_PAINT_LAYERS]f32,
+-		count:  int,
++		s:         ^Sculptor,
++		layers:    [MAX_PAINT_LAYERS][]Color,
++		weight:    [MAX_PAINT_LAYERS]f32,
++		count:     int,
++		materials: [MAX_PAINT_LAYERS][]Material_Paint,
++		weigh:     [MAX_PAINT_LAYERS]f32,
++		with:      int,
+ 	}
+ 	job := Job{s = s}
+ 	for l, i in p.list {
+ 		w := l.opacity if l.visible else 0
+-		colors := sculptor_paint_layer_colors(s, i)
+-		if w <= 0 || colors == nil do continue
+-		job.layers[job.count], job.weight[job.count] = colors, w
+-		job.count += 1
++		if w <= 0 do continue
++		if colors := sculptor_paint_layer_colors(s, i); colors != nil {
++			job.layers[job.count], job.weight[job.count] = colors, w
++			job.count += 1
++		}
++		if m := sculptor_paint_layer_materials(s, i); m != nil {
++			job.materials[job.with], job.weigh[job.with] = m, w
++			job.with += 1
++		}
++	}
++	// Roughness and metal are composited once a shown layer has any, and dropped once none
++	// has: either way everything goes up again.
++	if (job.with > 0) != (p.shown_material != nil) {
++		if job.with > 0 do p.shown_material = make([]Material_Paint, len(s.mesh.positions), s.history.allocator)
++		else {
++			delete(p.shown_material, s.history.allocator)
++			p.shown_material = nil
++		}
++		if !p.whole {
++			clear(&p.dirty)
++			for id in 0 ..< len(s.nodes) do append(&p.dirty, u32(id))
++			s.paint_stamp += 1
++		}
+ 	}
++	if len(p.dirty) == 0 do return
+ 	verts: u32
+ 	for id in p.dirty do verts += s.nodes[id].vert_count
+ 	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(p.dirty), &job, proc(data: rawptr, i: int) {
+@@ -482,6 +618,8 @@ paint_flush :: proc(s: ^Sculptor) {
+ 		s := job.s
+ 		n := s.nodes[s.paint.dirty[i]]
+ 		for v in n.vert_first ..< n.vert_first + n.vert_count do s.paint.shown[v] = paint_composite(job.layers[:job.count], job.weight[:job.count], v, s.mesh.positions[v])
++		if job.with == 0 do return
++		for v in n.vert_first ..< n.vert_first + n.vert_count do s.paint.shown_material[v] = paint_composite_material(job.materials[:job.with], job.weigh[:job.with], v, s.mesh.positions[v])
+ 	})
+ 	for id in p.dirty do p.marked[id] = false
+ 	clear(&p.dirty)
+@@ -493,9 +631,13 @@ paint_flush :: proc(s: ^Sculptor) {
+ @(private)
+ paint_layers_destroy :: proc(s: ^Sculptor) {
+ 	a := s.history.allocator
+-	for l in s.paint.list do delete(l.color, a)
++	for l in s.paint.list {
++		delete(l.color, a)
++		delete(l.material, a)
++	}
+ 	delete(s.paint.list)
+ 	delete(s.paint.shown, a)
++	delete(s.paint.shown_material, a)
+ 	delete(s.paint.marked, a)
+ 	delete(s.paint.dirty)
+ 	s.paint = {}
+@@ -504,16 +646,20 @@ paint_layers_destroy :: proc(s: ^Sculptor) {
+ // Frees what a stack step holds (a layer taken out, a merged layer's old colours).
+ @(private)
+ paint_op_free :: proc(h: ^Undo_History, op: ^Paint_Op) {
+-	if op.held do delete(op.layer.color, h.allocator)
++	if op.held {
++		delete(op.layer.color, h.allocator)
++		delete(op.layer.material, h.allocator)
++	}
+ 	delete(op.colors, h.allocator)
++	delete(op.materials, h.allocator)
+ 	op^ = {}
+ }
+ 
+ // Bytes a stack step holds.
+ @(private)
+ paint_op_bytes :: proc(op: Paint_Op) -> int {
+-	n := len(op.colors) * size_of(Color)
+-	if op.held do n += len(op.layer.color) * size_of(Color)
++	n := (len(op.colors) + len(op.materials)) * size_of(Color)
++	if op.held do n += (len(op.layer.color) + len(op.layer.material)) * size_of(Color)
+ 	return n
+ }
+ 
+@@ -530,15 +676,18 @@ paint_mirror :: proc(src, dst: ^Sculptor, allocator := context.temp_allocator) -
+ 	list := make([dynamic]Paint_Layer, 0, len(src.paint.list))
+ 	for l, i in src.paint.list {
+ 		mine := l
+-		mine.color = nil
++		mine.color, mine.material = nil, nil
+ 		if j := paint_index(dst, l.id); j >= 0 {
+-			mine.color = dst.paint.list[j].color
+-			dst.paint.list[j].color = nil
++			mine.color, mine.material = dst.paint.list[j].color, dst.paint.list[j].material
++			dst.paint.list[j].color, dst.paint.list[j].material = nil, nil
+ 		}
+-		missing[i] = mine.color == nil && l.color != nil
++		missing[i] = (mine.color == nil && l.color != nil) || (mine.material == nil && l.material != nil)
+ 		append(&list, mine)
+ 	}
+-	for l in dst.paint.list do delete(l.color, a)
++	for l in dst.paint.list {
++		delete(l.color, a)
++		delete(l.material, a)
++	}
+ 	delete(dst.paint.list)
+ 	dst.paint.list = list
+ 	dst.paint.next_id, dst.paint.named = src.paint.next_id, src.paint.named
+@@ -555,7 +704,7 @@ paint_same_stack :: proc(a, b: ^Sculptor) -> bool {
+ 	if len(a.paint.list) != len(b.paint.list) || a.paint.picked != b.paint.picked do return false
+ 	for l, i in a.paint.list {
+ 		m := b.paint.list[i]
+-		if l.id != m.id || l.name != m.name || l.visible != m.visible || l.opacity != m.opacity do return false
++		if l.id != m.id || l.name != m.name || l.visible != m.visible || l.opacity != m.opacity || l.channels != m.channels do return false
+ 	}
+ 	return true
+ }
+@@ -563,7 +712,7 @@ paint_same_stack :: proc(a, b: ^Sculptor) -> bool {
+ // The bytes the stack's layers other than the picked one hold, and the composite: for the
+ // memory count.
+ sculptor_paint_bytes :: proc(s: ^Sculptor) -> int {
+-	n := len(s.paint.shown) * size_of(Color)
+-	for l in s.paint.list do n += len(l.color) * size_of(Color)
++	n := (len(s.paint.shown) + len(s.paint.shown_material)) * size_of(Color)
++	for l in s.paint.list do n += (len(l.color) + len(l.material)) * size_of(Color)
+ 	return n
+ }
+diff --git a/src/sculpt/paint_layers_test.odin b/src/sculpt/paint_layers_test.odin
+index 1ceb077..a87373f 100644
+--- a/src/sculpt/paint_layers_test.odin
++++ b/src/sculpt/paint_layers_test.odin
+@@ -177,3 +177,61 @@ paint_layers_follow_levels_and_files :: proc(t: ^testing.T) {
+ 	_ = sculptor_flush(b)
+ 	testing.expect_value(t, len(sculptor_paint_shown(b)), len(want))
+ }
++
++// A layer with its roughness and metal dots on lays the brush's values with their own
++// coverage and leaves the colour alone when its colour dot is off; undo takes them back,
++// another layer composites over them channel by channel, and the file keeps them.
++@(test)
++paint_layers_roughness_and_metal :: proc(t: ^testing.T) {
++	pool: jobs.Pool
++	jobs.pool_init(&pool, 3)
++	defer jobs.pool_destroy(&pool)
++	l: Levels
++	levels_init(&l, geom.icosphere(3), &pool, 64)
++	defer levels_destroy(&l)
++	s := &levels_current(&l).sculptor
++	dab_at(s, UP, {200, 20, 10})
++	colors := slice.clone(s.color, context.temp_allocator)
++	testing.expect(t, sculptor_paint_set_channels(s, 0, {.Roughness, .Metal}))
++	sculptor_stroke_begin(s)
++	_ = apply_dab(s, {kind = .Paint, radius = 0.6, strength = 1, color = {0, 255, 0}, roughness = 40, metal = 230}, UP)
++	_ = sculptor_stroke_end(s)
++	_ = sculptor_flush(s)
++	testing.expect(t, slice.equal(s.color, colors), "a stroke with the colour dot off changed the colour")
++	m := sculptor_paint_shown_material(s)
++	testing.expect(t, m != nil, "no roughness and metal")
++	top := -1
++	for p, v in s.mesh.positions do if p.z > 0.99 do top = v
++	laid := m[top]
++	testing.expect(t, laid[0] == 40 && laid[2] == 230 && laid[1] > 200 && laid[3] == laid[1], "the brush's roughness and metal were not laid")
++	testing.expect(t, sculptor_undo(s))
++	testing.expect_value(t, s.material[top], Material_Paint{})
++	testing.expect(t, sculptor_redo(s))
++	testing.expect_value(t, s.material[top], laid)
++
++	// A metal-only layer at half opacity over it: roughness shows the lower layer's alone,
++	// metal a mix of both.
++	_ = sculptor_paint_add(s)
++	testing.expect(t, sculptor_paint_set_channels(s, 1, {.Metal}))
++	sculptor_stroke_begin(s)
++	_ = apply_dab(s, {kind = .Paint, radius = 0.6, strength = 1, metal = 30}, UP)
++	_ = sculptor_stroke_end(s)
++	testing.expect(t, sculptor_paint_set(s, 1, true, 0.5))
++	_ = sculptor_stroke_end(s)
++	_ = sculptor_flush(s)
++	shown := sculptor_paint_shown_material(s)[top]
++	testing.expect_value(t, shown[0], 40)
++	testing.expect(t, shown[2] > 30 && shown[2] < 230 && shown[3] > laid[3], "metal did not mix")
++
++	out := make([dynamic]u8)
++	defer delete(out)
++	levels_write(&l, &out)
++	back: Levels
++	r := geom.byte_reader(out[:])
++	testing.expect(t, levels_read(&back, &r, &pool, 64), "read failed")
++	defer levels_destroy(&back)
++	b := &levels_current(&back).sculptor
++	testing.expect_value(t, b.paint.list[1].channels, Paint_Channels{.Metal})
++	_ = sculptor_flush(b)
++	testing.expect_value(t, sculptor_paint_shown_material(b)[top], shown)
++}
+diff --git a/src/sculpt/undo.odin b/src/sculpt/undo.odin
+index 3ad658f..628b369 100644
+--- a/src/sculpt/undo.odin
++++ b/src/sculpt/undo.odin
+@@ -63,6 +63,7 @@ Undo_Step :: struct {
+ 	after_vecs:   []Vec3, // positions, or a recording layer's displacement
+ 	after_masks:  []u8,
+ 	after_colors: []Color,
++	after_materials: []Material_Paint, // beside after_colors, nil while no node saved any
+ 	after_at:     []int,
+ }
+ 
+@@ -80,6 +81,7 @@ Saved_Node :: struct {
+ 	masks:      []u8,
+ 	hidden:     []bool, // the node's triangles' hidden flags, for a hiding step
+ 	colors:     []Color, // the node's owned vertices' colours, for a painting step
++	materials:  []Material_Paint, // and their roughness and metal, nil while the layer had none
+ 	groups:     []u16,   // the node's triangles' groups, for a grouping step
+ 	heights:    []f16,   // the node's detail skin heights (skin_node_ranges), for a skin stroke
+ 	side:       [][2]f16, // and its sideways offsets (Skin.side), nil while the skin has none
+@@ -239,6 +241,9 @@ sculptor_last_step_bounds :: proc(s: ^Sculptor) -> geom.Aabb {
+ 		case sv.colors != nil:
+ 			colors := paint_colors_by_id(s, st.paint_layer)
+ 			for j in 0 ..< min(count, len(sv.colors), len(colors) - first) do if colors[first + j] != sv.colors[j] do geom.aabb_grow(&b, positions[first + j])
++			if m := paint_materials_by_id(s, st.paint_layer); m != nil && sv.materials != nil {
++				for j in 0 ..< min(count, len(sv.materials), len(m) - first) do if m[first + j] != sv.materials[j] do geom.aabb_grow(&b, positions[first + j])
++			}
+ 		}
+ 	}
+ 	if b.lo.x <= b.hi.x do return b
+@@ -267,6 +272,7 @@ sculptor_stroke_restore :: proc(s: ^Sculptor) -> bool {
+ 			copy(s.mask[n.vert_first:][:n.vert_count], sv.masks)
+ 		} else if sv.colors != nil {
+ 			copy(s.color[n.vert_first:][:n.vert_count], sv.colors)
++			if sv.materials != nil && s.material != nil do copy(s.material[n.vert_first:][:n.vert_count], sv.materials)
+ 		} else if sv.heights != nil {
+ 			skin_saved_restore(s, sv)
+ 		} else {
+@@ -311,6 +317,7 @@ sculptor_stroke_discard :: proc(s: ^Sculptor) -> bool {
+ 			copy(s.mask[n.vert_first:][:n.vert_count], sv.masks)
+ 		} else if sv.colors != nil {
+ 			copy(s.color[n.vert_first:][:n.vert_count], sv.colors)
++			if sv.materials != nil && s.material != nil do copy(s.material[n.vert_first:][:n.vert_count], sv.materials)
+ 		} else if sv.heights != nil {
+ 			skin_saved_restore(s, sv)
+ 		} else {
+@@ -386,6 +393,10 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
+ 				live := colors[n.vert_first:][:n.vert_count]
+ 				for &c, i in live do c, sv.colors[i] = sv.colors[i], c
+ 			}
++			if materials := paint_materials_by_id(s, step.paint_layer); materials != nil && sv.materials != nil {
++				live := materials[n.vert_first:][:n.vert_count]
++				for &c, i in live do c, sv.materials[i] = sv.materials[i], c
++			}
+ 			s.color_edited = true
+ 			continue
+ 		}
+@@ -545,7 +556,7 @@ step_bytes :: proc(step: Undo_Step) -> int {
+ 	bytes := len(step.saved) * size_of(Saved_Node) + (len(step.nodes) + len(step.painted) + len(step.shown) + len(step.grouped)) * size_of(u32)
+ 	for sv in step.saved {
+ 		bytes += len(sv.positions) * size_of(Vec3) + len(sv.masks) + len(sv.hidden) + len(sv.indices) * size_of(u32)
+-		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3) + len(sv.heights) * size_of(f16) + len(sv.side) * size_of([2]f16)
++		bytes += (len(sv.colors) + len(sv.materials)) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3) + len(sv.heights) * size_of(f16) + len(sv.side) * size_of([2]f16)
+ 	}
+ 	if step.layer_op.held do bytes += layer_bytes(step.layer_op.layer)
+ 	bytes += paint_op_bytes(step.paint_op)
+@@ -565,6 +576,7 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
+ 		delete(sv.masks, h.allocator)
+ 		delete(sv.hidden, h.allocator)
+ 		delete(sv.colors, h.allocator)
++		delete(sv.materials, h.allocator)
+ 		delete(sv.groups, h.allocator)
+ 		delete(sv.indices, h.allocator)
+ 		delete(sv.delta, h.allocator)
+@@ -598,6 +610,7 @@ step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
+ 		delete(sv.masks, h.allocator)
+ 		delete(sv.hidden, h.allocator)
+ 		delete(sv.colors, h.allocator)
++		delete(sv.materials, h.allocator)
+ 		delete(sv.groups, h.allocator)
+ 		delete(sv.indices, h.allocator)
+ 		delete(sv.delta, h.allocator)

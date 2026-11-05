@@ -19,16 +19,9 @@ import "../ui"
 // The interface: one layout for every screen, drawn by the ui kit over a viewport that
 // fills the window (the design spec "Sculpt UI redesign", laid out as ZBrush for iPad).
 // The top bar holds files and the app's panels, the brush bar runs down the left and the
-// view bar down the right, the palette tray (the tool, the object and the scene) sits
-// beside the view bar, the bottom bar holds the brushes and the mesh tools, and the
+// view bar down the right, the cards open beside the dock buttons that ask for them
+// (cards.odin, column.odin), the bottom bar holds the brushes and the mesh tools, and the
 // History opens over it. Everything the app shows is drawn by the kit (src/ui).
-
-// The palette tray's palettes (kit_tray.odin).
-Kit_Tab :: enum u8 {
-	Tool,
-	Object,
-	Scene,
-}
 
 Kit_State :: struct {
 	ctx:        ui.Context,
@@ -36,17 +29,14 @@ Kit_State :: struct {
 	scale:      f32, // window coordinates per point, this frame
 	last_frame: time.Tick, // for the animations' clock
 	fixed_dt:   f32, // seconds a frame on that clock instead, when above 0 (--ui-dt)
-	inspector:  bool, // the panel stack is open
-	object_page: Object_Page, // the page of the Object palette's section, for the exit stats
 	pen_page:    int, // the Brush card's Pen section's page: 0 Strength, 1 Size, 2 Response, 3 Lean
-	// Search's Show where (tray_show): the command whose control the tray marks, since
-	// when; and whether the tray's content is being drawn, where the mark is looked for.
+	// Search's Show where (card_show): the command whose control a card marks, and since
+	// when.
 	pointed:    struct {
 		id:    Command_Id,
 		arg:   int,
 		since: f64,
 	},
-	in_tray:    bool,
 	nav:        Nav_State, // the navigation head (nav_head.odin)
 	light_sphere: Light_Sphere_State, // a press on the Lights section's sphere (kit_lights.odin)
 	recover_shown: bool, // the recovery card showed this frame (kit_recover.odin)
@@ -88,8 +78,6 @@ Kit_State :: struct {
 	// opens beside it, from search and keys too.
 	bar_at:     [Bar_Pop_Kind]ui.Rect,
 	bar_side:   [Bar_Pop_Kind]ui.Side,
-	// The card popped out of a dock's button (card_pop.odin).
-	card_pop:   Card_Pop,
 	bar_pop:    Bar_Pop, // the side bars' popover (kit_bars.odin)
 	look:       Look, // the built-in theme chosen, or the one the chosen theme of the person's own began as
 	themes:     Theme_State, // the themes (Settings > Interface > Look, themes.odin)
@@ -105,15 +93,14 @@ Kit_State :: struct {
 	value_scrubs:    int,
 	value_scrubbing: ui.Id,
 	pie_quicks: int, // quick settings opened by resting on the brush pie, for the exit stats
-	stack:      Lens_Stack, // the tray, as a stack of cards (lens_stack.odin)
+	cards:      Cards, // the cards and the columns they open in (cards.odin, column.odin)
+	moving:     Panel_Motion, // cards and docks sliding in and out (panel_motion.odin)
 	new_panes:  New_Panes, // what a pane a view layout adds starts as (lens_panes.odin)
 	pane_menu:  Pane_Menu, // a view pane's camera or pass list
-	in_stack:   bool, // the Brush card's groups are being drawn: sections leave out what it shows above them
-	// The mini view (lens_chrome.odin): its choices shown under the picture, and how
-	// often a tap on it swapped it with the main view, for the exit stats.
-	mini_rows:  bool,
-	mini_swaps: int,
 	bars_edit:  bool,
+	// The one dock whose buttons are being edited, when Edit buttons in its menu began it;
+	// nil while Edit docks edits every dock.
+	edit_dock:  Maybe(Dock_Id),
 	arrange:           Arrange_State, // Lens's Arrange: the zone picked, the Library (lens_arrange.odin)
 	bar_slot:   Bar_Slot_Menu,
 	// Drag and drop on the bars (bar_drag.odin): the button carried, where each bar's
@@ -151,12 +138,13 @@ Kit_State :: struct {
 	pie_scroll: f32,
 	pie_runs:   int, // commands run from a user pie, for the exit stats
 	laying_out: bool, // kit_layout is running: a command run now came from a control
-	stats:      bool, // the Stats panel (F11)
-	stats_advanced: bool, // ...showing every measurement by its exact name, not the simple view
+	stats_advanced: bool, // the Details card shows every measurement by its exact name, not the simple view
+	details_scroll: f32, // how far the Details card's numbers are scrolled
 	settings:   bool, // the Settings panel (Menu > Settings)
-	settings_tab: Settings_Tab,
-	// Lens's sheet (lens_settings.odin): the section open and what Search settings holds.
+	// The section open (settings_sections.odin), whether the narrow panel shows it rather
+	// than the list of sections, and what Search settings holds.
 	settings_section: Settings_Section,
+	settings_drill:   bool,
 	settings_find:    [64]u8,
 	settings_side_scroll: f32,
 	export:           Export_Sheet, // lens_export.odin
@@ -196,24 +184,22 @@ Kit_State :: struct {
 	symmetry_line: bool, // the mirror planes' lines show across the selected object (symmetry.odin)
 	panes_work:   bool, // a press in a view pane works there (grid_work)
 	panels_faded: int, // panels a stroke passed under (Lens), for the exit stats
-	// Clean view (Lens: Tab or a four-finger tap): every control hidden, the modifier
-	// wheel aside while `clean_dial`; `clean_at` is when it began, for its hint.
+	// Clean view (Lens: Tab or a four-finger tap): every control hidden but what
+	// `clean_keep` keeps; `clean_at` is when it began, for its hint. Keeping the shelf
+	// hides only the side zones (`focus_mode`), so `clean` is false then.
 	clean:        bool,
-	clean_dial:   bool,
+	clean_keep:   Clean_Keep,
 	clean_at:     f64,
 	view_started: bool, // Lens drew the model in the free area at the start (lens_view_frame)
-	// On a window narrower than COLUMNS_MIN_W the docked stack pops over the view only
-	// while asked for, as popovers from the rails do (Settings > Interface; panels.odin).
-	column_popovers: bool,
 	// The proportion guide tag held (guides.odin), 0 for none, never kept; the guide
 	// lines drawn this frame and the frames a guide moved, for the exit stats.
 	guide_held:  ui.Id,
 	guide_lines: int,
 	guide_drags: int,
 	rail_side:  Rail_Side, // where the modifier wheel sits, if anywhere (modifiers.odin)
-	// What the workspace hides, and the workspaces (workspaces.odin).
+	// What the layout hides, and each space's layout (layouts.odin).
 	hidden:     bit_set[Zone],
-	workspaces: Workspaces,
+	layouts:    Layouts,
 	// The working space (spaces.odin), and the view toggles Focus and Inspect, which hide
 	// bars or show the form four ways without changing the layout.
 	spaces:     Spaces,
@@ -237,7 +223,6 @@ Kit_State :: struct {
 	// Its size across and its turn when two fingers began resizing and turning it.
 	wheel_from_size: f32,
 	wheel_from_turn: f32,
-	history:    bool, // the History panel, over the dock
 	// The command palette (palette.odin): open, what is typed, the picked result and the
 	// first shown, the recents (most recent first), and for the exit stats how many
 	// entries it ran and the last one.
@@ -262,11 +247,13 @@ Kit_State :: struct {
 	scene_filter:   [48]u8,
 	// The Scene card's rows as tall pictures (the Objects card's) rather than compact ones.
 	scene_pictures: bool,
+	// The References board's ground: dots, lines or plain (refs_background in the settings).
+	refs_ground:    Ref_Ground,
 	scene_query:    bool,
 	scene_rows:     int,
 	outliner:       Outliner, // the Scene card's chips, lights' row and Add menu (lens_scene.odin)
+	stack:          Stack_Card, // the Live stack card's open row and its menus (stack.odin)
 	material_card:  Material_Card, // the Material card's tab and scrub (lens_materials.odin)
-	tools_tab:      Tools_Tab, // the Lens Tools card's tab
 	layer_rows:     int,
 	layer_panel:    Layer_Panel, // the Layers panel's state between frames (lens_layers.odin)
 	palette_bar_puts: int,
@@ -274,13 +261,10 @@ Kit_State :: struct {
 	// rather than running anything (palette_open_for, from Settings > Touch's Any
 	// command...; bar_choose, from a bar's slot while customising).
 	palette_for:    Palette_For,
-	// The panels as windows: where each was dragged to and whether it is folded
-	// (remembered by settings.odin), and the order every floating thing is drawn in, the
-	// last on top: windows and the stack's floated cards in one
-	// order, so whichever was touched last is in front of all the others.
-	windows:    [Kit_Window]ui.Window,
-	order:      [dynamic; len(Kit_Window) + len(Panel_Kind)]Float_Ref,
-	// Lens's panels: the two columns and the panel menu (panels.odin).
+	// The order the floating cards are drawn in, the last on top, so whichever was touched
+	// last is in front of all the others.
+	order:      [dynamic; len(Card)]Card,
+	// The floating panels' state and the panel menu (panels.odin).
 	panels:     Panels,
 	text_input: bool, // SDL's text input is on, for the text field that has the keys
 	// The on-screen keyboard is away while text input is on (SDL_EVENT_SCREEN_KEYBOARD_HIDDEN
@@ -306,6 +290,12 @@ Kit_State :: struct {
 	// was last laid out (the Object menu command opens there off the view), and the scene
 	// menu, empty space's menu: open, and where.
 	object_menu_by: Menu_Opener,
+	// Where on the view the object or scene menu was opened, in the world, for Add object
+	// to put the new object there: the surface point under an object menu, the point at the
+	// depth the view turns about under the scene menu. Not set when a menu opened away
+	// from the view (the object chip, the Scene card).
+	menu_point:     Vec3,
+	menu_point_set: bool,
 	// The offer standing last frame (its fix, None for none) and the fixes tapped (offers.odin).
 	offer:          Command_Id,
 	offer_fixes:    int,
@@ -318,6 +308,13 @@ Kit_State :: struct {
 	readout: Readout, // the view corner's camera, shading and live numbers (readout.odin)
 	// The readout is hidden (Menu > More > Viewport readout).
 	readout_hidden: bool,
+	// No keyboard is attached (a tablet's own screen, or --no-keyboard), so key shortcuts
+	// are left out wherever they would show: they name keys nobody can press.
+	keyless:     bool,
+	no_keyboard: bool, // --no-keyboard
+	// The readout adds the GPU's time a frame (Menu > More > GPU time in the readout): a
+	// developer's number, so off unless asked for.
+	readout_gpu: bool,
 	// A folder's menu in the Scene card, the rename field over a row, and how many rows
 	// the tree drew last (for the exit stats).
 	folder_menu:    bool,
@@ -332,9 +329,8 @@ Kit_State :: struct {
 	macros_scroll:  f32,
 	macro_armed:    int,
 	macro_armed_at: f64,
-	// The Library panel (kit_library.odin): open, how far its list is scrolled, and the
-	// pack whose Remove a first tap armed (from 1), and when.
-	library:        bool,
+	// The Library's Manage packs page (kit_library.odin): how far its list is scrolled, and
+	// the pack whose Remove a first tap armed (from 1), and when.
 	library_scroll: f32,
 	pack_armed:     int,
 	pack_armed_at:  f64,
@@ -346,56 +342,31 @@ Kit_State :: struct {
 	// object, adds it to the selection or takes it out, as Shift does.
 	select_several: bool,
 	// A row dragged by its grip and an eye or ghost column being dragged down
-	// (kit_scene.odin), and the inspector's body as last laid out and how far it scrolls,
-	// which a drag near its edge scrolls.
+	// (kit_scene.odin).
 	tree_drag:      Tree_Drag,
 	tree_column:    Tree_Column,
-	// The Objects card (kit_objects_card.odin): open, and its list, menus and size.
-	objects_card:   bool,
+	// The Scene card's pictures' menus and Actions (scene_pictures.odin).
 	card:           Objects_Card,
-	// The view rail's panel groups (rail_groups.odin), where each rail slot was laid out
-	// this frame (for a group opened from Search) and, for the exit stats, the joins.
-	rail_groups:    [RAIL_GROUPS]Rail_Group,
-	rail_group_at:  [VIEW_RAIL_MAX]ui.Rect,
-	rail_joins:     int,
-	// The rail palette the panel stack's column shows (nil for Main), its body's scroll,
-	// how many times a rail button docked one, and whether the rail just read needs Main
-	// put on it (rail_dock.odin).
-	rail_dock:        Rail_Dock,
-	rail_dock_scroll: f32,
-	rail_docks:       int,
 	// The brush browser's categories, search, Recent and Favorites (kit_brushes.odin).
 	brushes:        Brush_Palette,
 	// The Colors card (kit_colors.odin): open, and its tab, history and palettes.
-	colors_card:    bool,
 	colors:         Colors_Card,
-	// The second view (thumbnail.odin): open, its camera and pass, mirrored, and its
-	// picture's size in pixels as laid out this frame (zero while it is not).
-	thumbnail:        bool,
-	second:           Second_View,
-	// The layout put in place names the second view's camera and pass (a `thumbnail`
-	// line, as Studio's does in Lens), so it writes them back; other layouts leave them to
-	// the settings.
-	second_in_layout: bool,
+	// The References card's board: where it looks and what is picked (kit_references.odin).
+	board:          Ref_Board,
 	grid:             View_Grid,
-	thumbnail_flip:   bool,
-	thumbnail_px:     [2]u32,
-	inspector_body: ui.Rect,
-	inspector_limit:  f32,
-	inspector_shown:  f32, // how far the body is scrolled as drawn (the scroll tweens toward k.scroll)
-	// Which Stats sections are open, and which tray sections show their More options;
-	// with all_options (Settings > Interface) every section shows everything.
-	open:       [Kit_Section]bool,
-	more:       [Kit_Section]bool,
+	// Which Stats sections are open, and which sections show their More options; with
+	// all_options (Settings > Interface) every section shows everything.
+	stats_open: [Stats_Section]bool,
+	more:       [Section]bool,
 	all_options: bool,
 	// Every paragraph of the cards and Settings shown whole rather than as a one-line hint
-	// with a ? (Settings > Interface > Inspector, ui.hint_line).
+	// with a ? (Settings > Interface > Cards, ui.hint_line).
 	explain_all: bool,
 	// Search in the top bar as the field naming what it finds rather than its icon
 	// (Settings > Interface > Top bar); the field gives way to the icon when the bar is narrow.
 	search_field: bool,
 	// The brush values the off-hand island showed as sliders, and the frame it last drew,
-	// so the Brush card leaves Size and Strength to it (stack_brush).
+	// so the Tool card leaves Size and Strength to it (card_brush).
 	island_sliders: bit_set[Brush_Value],
 	island_frame:   int,
 	// When the safe zone's Edge width last changed in Settings, so the view outlines the band
@@ -412,7 +383,6 @@ Kit_State :: struct {
 	history_at:  ui.Rect, // where the History button was drawn last, which the tour lights
 	coach_shown: bool,
 	coach_last:  Coach_Step,
-	scroll:     f32, // the inspector's scroll, where it is heading
 	add_shape:  geom.Primitive,
 	add_mesh:   int, // a content pack's mesh to add instead (Library.meshes, from 1), or 0
 	add_size:   int, // into SPHERE_PRESETS
@@ -431,61 +401,8 @@ Kit_State :: struct {
 	ms:         f64, // last frame's layout and tessellation, CPU
 }
 
-// The panels that behave as windows (ui.Window): each has a title bar to drag it by,
-// Minimise and Close.
-Kit_Window :: enum u8 {
-	Inspector,
-	Stats,
-	History,
-	Settings,
-	Help,
-	Macros,
-	Library,
-	Objects, // the Objects card (kit_objects_card.odin), a card rather than a window
-	Colors, // the Colors card (kit_colors.odin), beside the brush bar
-	Thumbnail, // the thumbnail window (thumbnail.odin), a card under the object's readout
-}
-
-// The order the windows start in, back to front: Settings, Help, Macros and Library over
-// the rest, as they opened.
-KIT_WINDOW_ORDER :: [len(Kit_Window)]Kit_Window{.Inspector, .Objects, .Colors, .Thumbnail, .Stats, .History, .Settings, .Help, .Macros, .Library}
-
-// Settings, Help, Macros and Library share the inspector's place on the right: one at a
-// time, with the inspector hidden while one is open.
-side_panel_open :: proc(k: ^Kit_State) -> bool {
-	return k.settings || k.help || k.macros || k.library
-}
-
-// Closes Settings, Help, Macros or Library, whichever is open, giving the place back to
-// the inspector.
-side_panel_close :: proc(app: ^App) {
-	if app.kit.settings do settings_close(app)
-	app.kit.help, app.kit.macros, app.kit.library = false, false, false
-}
-
-// Something that floats over the view and comes to the front when touched: a window or
-// a card floated out of Lens's stack.
-Float_Ref :: union {
-	Kit_Window,
-	Panel_Kind,
-}
-
-// A panel as the floating order holds it.
-float_of :: proc(ref: Panel_Ref) -> Float_Ref {
-	switch r in ref {
-	case Kit_Window: return r
-	}
-	return nil
-}
-
-// Brings `which` (a window, or a floating card of the stack) in front of the others.
-window_raise :: proc(k: ^Kit_State, which: Panel_Ref) {
-	float_raise(k, float_of(which))
-}
-
-// Brings `which` in front of every other floating thing, the stack's cards too.
-float_raise :: proc(k: ^Kit_State, which: Float_Ref) {
-	if which == nil do return
+// Brings floating card `which` in front of the others.
+float_raise :: proc(k: ^Kit_State, which: Card) {
 	for w, i in k.order {
 		if w != which do continue
 		ordered_remove(&k.order, i)
@@ -494,14 +411,12 @@ float_raise :: proc(k: ^Kit_State, which: Float_Ref) {
 	if len(k.order) < cap(k.order) do append(&k.order, which)
 }
 
-// Puts every window back where it starts, open and in the starting order, the stack back
-// docked on the right (panels_default) and every bar shown.
+// Puts every floating card back where a card is torn out to, in the starting order
+// (panels_default), and every bar shown.
 windows_reset :: proc(k: ^Kit_State) {
-	k.windows = {}
+	k.cards.windows = {}
 	panels_default(k)
-	if !k.stack.set do stack_default(k)
-	k.stack.place = .Right
-	// Every bar comes back too, so a workspace that hides them is never a dead end.
+	// Every bar comes back too, so a layout that hides them is never a dead end.
 	k.hidden = {}
 }
 
@@ -570,70 +485,12 @@ kit_scroll_end :: proc(ctx: ^ui.Context, s: Kit_Scroll) {
 	}
 }
 
-// Which way a window slides as it opens and closes: in from the side it keeps to (+1 the
-// right, -1 the left), `default` (as the layout mirrors it) until it is moved.
-window_slide :: proc(ctx: ^ui.Context, w: ui.Window, default: ui.Anchor) -> f32 {
-	side, _ := ui.mirrored(ctx, default, {})
-	return 1 if (w.x if w.moved else side) == .End else -1
-}
-
-// The sections of the tray's palettes, then the Stats panel's: the tray's come first and
-// end with Background (TRAY_SECTIONS), each palette's together (section_palette).
-Kit_Section :: enum u8 {
-	// The Brush card's.
-	Preset,
-	Stroke,
-	Paint_Color,
-	Recall,
-	Falloff,
-	Samples,
-	Alpha,
-	Pen,
-	Options,
-	Recorder,
-	// The Object palette's.
-	Transform,
-	Levels,
-	Hd,
-	Topology,
-	Mask,
-	Sets,
-	Visibility,
-	Paint,
-	Groups,
-	Morph,
-	Layers,
-	Deform,
-	Physics,
-	Deformers,
-	Remesh,
-	Mirror,
-	Voxels,
-	Retopo,
-	Textures,
-	Project,
-	Booleans,
-	Extract,
-	// The Scene card's.
-	Objects,
-	Add,
-	Look,
-	Material,
-	Lights,
-	Environment,
-	Render,
-	Lens,
-	Finish,
-	Camera,
-	Turntable,
-	Print,
-	Floor,
-	Background,
-	// The Stats panel's.
+// The Stats panel's sections, each folding (kit_stats.odin).
+Stats_Section :: enum u8 {
 	Frame,
 	Drawing,
 	Sculpting,
-	Stats_Help,
+	Help,
 }
 
 // One scripted input event (--ui-events), pushed into SDL's queue at the start of its
@@ -1044,10 +901,8 @@ KIT_NAV_HEAD_IMAGE :: 2
 KIT_THUMBS_IMAGE :: 3
 // ...and the atlas of the Home screen's pictures of scenes (home.odin).
 KIT_PICTURES_IMAGE :: 4
-// ...and the thumbnail window's picture of the scene (thumbnail.odin).
-KIT_THUMBNAIL_IMAGE :: 5
 // The view panes' pictures (grid.odin), one id each from here.
-KIT_PANE_IMAGE :: 6
+KIT_PANE_IMAGE :: 5
 
 // The inspector's width, and the toolbars' height: one touch target.
 KIT_INSPECTOR_W :: 312
@@ -1055,17 +910,15 @@ KIT_INSPECTOR_W :: 312
 kit_init :: proc(app: ^App) {
 	ui.init(&app.kit.ctx)
 	k := &app.kit
-	k.inspector = true
 	themes_init(k)
 	// The Stats panel starts with its commonest sections open.
-	for s in ([?]Kit_Section{.Frame, .Sculpting}) do k.open[s] = true
+	k.stats_open[.Frame], k.stats_open[.Sculpting] = true, true
 	k.add_size = 2 // 1M
 	k.ui_scale = 1
 	k.surface_ring = true
 	k.symmetry_line = true
 	k.panes_work = true
-	k.column_popovers = true
-	k.clean_dial = true
+	k.clean_keep = .Dial
 	k.rail_side, k.wheel_size = .Left, .Medium
 	k.dials = DIAL_DEFAULTS
 	k.action_bar = true
@@ -1078,8 +931,8 @@ kit_init :: proc(app: ^App) {
 	grid_reset(&k.grid)
 	k.pies = PIE_DEFAULTS
 	panels_default(k)
-	stack_default(k)
-	workspaces_init(k)
+	cards_default(k)
+	layouts_init(k)
 	k.last_frame = time.tick_now()
 }
 
@@ -1093,9 +946,9 @@ kit_floats_close :: proc(k: ^Kit_State) {
 	k.bind.open, k.pie_editor, k.adjust_pop, k.gizmo_entry.open = false, false, false, false
 	k.folder_menu, k.rename.open, k.macro_save.open, k.home_menu = false, false, false, false
 	k.colors.palette_menu, k.colors.swatch_menu, k.colors.pop = false, false, false
-	k.panels.menu, k.workspaces.menu, k.passes.menu = false, false, false
-	k.shelf.quick, k.shelf.menu, k.stack.menu, k.export.open = false, false, false, false
-	k.stack.tab_open, k.pane_menu.open, k.grid.areas.menu.open = false, false, false
+	k.panels.menu, k.layouts.menu, k.passes.menu = false, false, false
+	k.shelf.quick, k.shelf.menu, k.export.open = false, false, false
+	k.pane_menu.open, k.grid.areas.menu.open = false, false
 	k.ctx.select_open = 0
 }
 
@@ -1104,7 +957,7 @@ kit_floats_close :: proc(k: ^Kit_State) {
 // first-run tip hides under it.
 kit_floating :: proc(app: ^App) -> bool {
 	k := &app.kit
-	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.bind.open || k.pie_editor || k.object_menu || k.scene_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.themes.menu || k.themes.code.open || k.colors.pop || k.home_menu || k.panels.menu || k.workspaces.menu || k.passes.menu || k.shelf.quick || k.shelf.menu || k.stack.menu || k.stack.tab_open || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
+	return app.ui.pie.open || app.ui.adjust.kind != .None || k.action_pop || k.adjust_pop || k.menu || k.versions || k.browser || k.bind.open || k.pie_editor || k.object_menu || k.scene_menu || k.folder_menu || k.rename.open || k.macro_save.open || k.palette || k.gizmo_entry.open || k.bar_pop.open || k.bar_slot.open || k.colors.palette_menu || k.colors.swatch_menu || k.themes.menu || k.themes.code.open || k.colors.pop || k.home_menu || k.panels.menu || k.layouts.menu || k.passes.menu || k.shelf.quick || k.shelf.menu || k.pane_menu.open || k.grid.areas.menu.open || k.export.open || k.ctx.select_open != 0
 }
 
 kit_destroy :: proc(app: ^App) {
@@ -1116,7 +969,8 @@ kit_destroy :: proc(app: ^App) {
 	delete(app.kit.events)
 	render.ui_pass_destroy(&app.renderer, &app.kit.pass)
 	ui.destroy(&app.kit.ctx)
-	workspaces_destroy(&app.kit)
+	layouts_destroy(&app.kit)
+	panel_motion_destroy(&app.kit.moving)
 }
 
 // Window coordinates per interface point. SDL gives the pointer and the window's size in
@@ -1152,6 +1006,8 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	_ = sdl.GetWindowSizeInPixels(window, &pw, &ph)
 	scale := kit_content_scale(window) * k.ui_scale
 	k.frame += 1
+	// A desktop always has its keyboard; a tablet or phone may have one attached or not.
+	k.keyless = k.no_keyboard || (MOBILE && !sdl.HasKeyboard())
 	d := &app.device
 	in_ := ui.Input {
 		mouse         = d.mouse / scale,
@@ -1224,7 +1080,7 @@ kit_theme :: proc(app: ^App) -> ui.Theme {
 kit_mirror :: proc(k: ^Kit_State) {
 	if k.ctx.mirror == k.placed_mirrored do return
 	k.placed_mirrored = k.ctx.mirror
-	for &w in k.windows do window_mirror(&w)
+	for &w in k.cards.windows do window_mirror(&w)
 	k.wheel_offset.x = -k.wheel_offset.x
 }
 
@@ -1248,6 +1104,8 @@ kit_results :: proc(app: ^App) {
 	if serial := ui.toast_take_action(ctx); serial != 0 && serial == k.undo_toast.serial {
 		if undo_mark_on_top(app.history.done[:], k.undo_toast.mark) do command_run(app, .Undo)
 		k.undo_toast = {}
+	} else if serial != 0 && serial == k.layouts.undo.serial {
+		layout_undo(app)
 	} else if serial != 0 && serial == k.bar_removed.serial {
 		// A button let go clear of every bar goes back where it was.
 		bar_removed_undo(app)
@@ -1321,6 +1179,9 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	floating := kit_floating(app)
 	input := kit_viewport_input(app, pane)
 	pen_roll_frame(app, input)
+	// A G, R or S on a curve's points under way takes Escape for itself (curve_keys puts the
+	// points back), so the Escape below must not also drop the pick.
+	curve_moving := app.curve.xform.handle != .None || app.model.xform.handle != .None
 	if !typed do commands_handle_keys(app)
 	layer_drag_end(app)
 	layer_mask_frame(app)
@@ -1332,6 +1193,7 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	pose_physics_frame(app)
 	physics_card_frame(app)
 	transform_drag_end(app)
+	stack_drag_end(app)
 	light_drag_end(app)
 	tree_column_send(app)
 	// Text input (and with it a tablet's on-screen keyboard) is on only while a text
@@ -1370,27 +1232,29 @@ kit_frame :: proc(app: ^App, window: ^sdl.Window) -> Viewport_Input {
 	if edit_waits && quiet && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)) do stroke_edit_validate(app)
 	// Points placed one by one for a curve end as a curve by Enter, and go by Escape.
 	placing := len(app.curve.placing) > 0
+	// Points picked on the selected curve in the Curve tool are let go by Escape next.
+	picked_points := app.tool == .Curve && selected_curve(app) != nil && curve_selected_count(selected_curve(app).curve) > 0
 	if placing && quiet && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)) do curve_place_finish(app, false)
 	// Escape, or Android's back gesture (the AC Back key), closes whatever floats, before
 	// Escape stops a replay; during a gizmo drag or a topological mask Escape only puts
 	// the object or the mask back (move_tool_frame).
-	if (key_pressed(d, KEY_ESCAPE) && app.move.drag.handle == .None && !topo_held(app)) || key_pressed(d, KEY_AC_BACK) {
+	if (key_pressed(d, KEY_ESCAPE) && app.move.drag.handle == .None && !curve_moving && !topo_held(app)) || key_pressed(d, KEY_AC_BACK) {
 		// The topmost goes first: what floats, then a waiting shape, and only then
 		// Settings or Help. An Escape that ended typing in a field (Settings > Keys'
 		// search) was the field's. The recovery card, when nothing is above it, waits
 		// for the next start.
-		if k.recover_shown && quiet && !shape_waits && !side_panel_open(k) do app.autosave.offer_hidden = true
+		if k.recover_shown && quiet && !shape_waits && !sheet_open(k) do app.autosave.offer_hidden = true
 		if app.diag.open && quiet do diag_close(app)
 		else if k.home && quiet do home_close(app)
-		else if k.clean && quiet do clean_view_set(app, false)
-		else if k.panels.popped && quiet do stack_pop(app, false)
+		else if clean_view_on(k) && quiet do clean_view_set(app, false)
 		else if k.bars_edit && quiet && !k.palette do k.bars_edit = false
 		else if edit_waits && quiet do stroke_edit_cancel(app)
 		else if placing && quiet {
 			clear(&app.curve.placing)
 			clear(&app.curve.placing_n)
-		} else if shape_waits && quiet do app.shape_pending.request = .Cancel
-		else if side_panel_open(k) && quiet do side_panel_close(app)
+		} else if picked_points && quiet do curve_select_none(selected_curve(app).curve)
+		else if shape_waits && quiet do app.shape_pending.request = .Cancel
+		else if sheet_open(k) && quiet do sheet_close(app)
 		// A job is cancelled last, once nothing else took the key.
 		else if long_job_busy(app) && quiet do long_job_cancel(app)
 		if k.palette do palette_close(app)
@@ -1477,8 +1341,12 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 		input.alt = input.primary && d.alt
 		input.press = input.primary && .Left in d.pressed
 		input.smooth = input.primary && d.shift
-		input.invert = input.primary && d.ctrl
-		input.mask_shape = input.invert && !d.shift
+		// Ctrl+Alt with a brush paints the mask, as Ctrl does in ZBrush, and from empty space
+		// still draws the unmasking shape (Alt, mask_shape.odin); Ctrl alone inverts.
+		mask_keys := input.primary && d.ctrl && d.alt && !d.shift && app.tool == .Brush
+		input.mask = mask_keys
+		input.invert = input.primary && d.ctrl && !mask_keys
+		input.mask_shape = (input.invert && !d.shift) || mask_keys
 		// The modifier rail sets what the keys would, for this press (modifiers.odin).
 		rail_press(app, &input)
 	}
@@ -1519,23 +1387,32 @@ kit_layout :: proc(app: ^App) {
 	}
 	if k.clean {
 		kit_clean_view(app)
+		docks_leaving(app)
 		return
 	}
 	// Home just closed: the scene grows out of the tile it closed from, under the bars.
 	kit_home_reveal(app)
 
+	// The reference pictures over the view first of all, under every bar and card.
+	refs_view(app)
 	// First, so that every panel and popover laid out after it is above it.
+	pop := ui.motion_mark(ctx)
 	kit_shape_bar(app)
+	pop_motion_end(app, .Shape, pop)
 
 	// Round the edges: the top bar (kit_top_lens.odin), then what stands round the view.
-	// A bar the workspace hides is not laid out (workspaces.odin): what opened from it opens
+	// A bar the layout hides is not laid out (layouts.odin): what opened from it opens
 	// from the top bar, which takes Undo, Redo, Search and the tray's button in its place.
-	workspaces_frame(k)
+	layouts_frame(k)
 	// Each bar notes where its buttons stand as it is drawn (bar_spot).
 	k.bar_spot_count = 0
 	menu_anchor, search_anchor := kit_top_bar(app)
+	pop = ui.motion_mark(ctx)
 	kit_job_pill(app)
+	pop_motion_end(app, .Job, pop)
+	pop = ui.motion_mark(ctx)
 	kit_send_pill(app)
+	pop_motion_end(app, .Send, pop)
 	// Round the view: the readout at the top corner on the off-hand side (readout.odin), the
 	// off-hand island down the off-hand side, the navigation head at the pen side's top and
 	// the view rail of cards down the pen side. Focused (kit_top_lens.odin), the readout
@@ -1543,8 +1420,10 @@ kit_layout :: proc(app: ^App) {
 	// reaches for while sculpting.
 	focus := lens_focus(k)
 	k.nav.placed = false
+	pop = ui.motion_mark(ctx)
 	if focus do k.readout.shown = false
 	else do kit_readout(app)
+	pop_motion_end(app, .Readout, pop)
 	if focus || !zone_hidden(k, .Brush_Bar) do kit_dock(app, .Offhand)
 	kit_nav_head(app)
 	if !zone_hidden(k, .View_Bar) {
@@ -1564,6 +1443,8 @@ kit_layout :: proc(app: ^App) {
 	}
 	// Over the dock, the next steps for what is active (kit_action_bar.odin); notes rise
 	// above both.
+	// A dock that stopped showing slides off its edge (panel_motion.odin).
+	docks_leaving(app)
 	kit_colour_island(app)
 	kit_action_bar(app)
 	stack_h := dock_stack(app)
@@ -1574,29 +1455,23 @@ kit_layout :: proc(app: ^App) {
 	coach_update(app)
 	kit_coach(app)
 	kit_recover(app)
+	pop = ui.motion_mark(ctx)
 	kit_macro_chip(app)
+	pop_motion_end(app, .Macro, pop)
 
-	// The docked stack, under the windows (panels.odin); then the windows and floating
-	// panels, back to front: the last drawn is hit tested first. One pressed comes to the
-	// front from the next frame on. The docked stack is its column's, shown or not.
-	stack_frame_begin(k)
-	kit_stack_dock(app, panel_draw)
-	// A card floated out of the stack another way than by hand (a layout read, a pane
-	// closed) joins the order on top.
-	for c in k.stack.floated do if !slice.contains(k.order[:], Float_Ref(c)) do float_raise(k, c)
-	top: Float_Ref
+	// The cards in their columns, under the windows (column.odin): a press on the view
+	// closes those not pinned first, so it never sculpts. Then the windows, back to front:
+	// the last drawn is hit tested first. One pressed comes to the front from the next frame
+	// on.
+	columns_update(app)
+	// The History card lights the steps it shows; its tint follows every frame, card or none.
+	history_tint_frame(app)
+	kit_columns(app)
+	top: Maybe(Card)
 	order := k.order
-	for which in order {
-		switch w in which {
-		case Kit_Window: if panel_float_draw(app, w) do top = which
-		case Panel_Kind:
-			// The stack's floating cards (lens_stack.odin), among the panels.
-			if stack_float_card(app, w) do top = which
-		}
-	}
-	float_raise(k, top)
-	// While a palette is carried, where it would go.
-	stack_carry_update(app)
+	for c in order do if card_float_draw(app, c) do top = c
+	floats_leaving(app)
+	if c, ok := top.?; ok do float_raise(k, c)
 	// A finger held still on the view, filling toward its menu.
 	kit_hold_menu_ring(app)
 	// The dial over every bar, panel, window and card, so a finger on it is always its
@@ -1606,9 +1481,11 @@ kit_layout :: proc(app: ^App) {
 	// aside while one is open).
 	kit_modifier_rail(app)
 
-	// What floats over the panels comes last, so it is drawn and hit tested on top.
+	// What floats over the panels comes last, so it is drawn and hit tested on top: first
+	// the sheet that is open, then what floats from it.
+	kit_sheets(app)
 	// The Library, over the shelf, or under the menu while the shelf is hidden.
-	kit_brush_sheet(app, dock_anchor, .Below if zone_hidden(k, .Dock) else .Above_Center)
+	kit_brush_sheet(app, dock_anchor, .Below if zone_hidden(k, .Dock) || dock_side(app, .Shelf) == .Below else .Above_Center)
 	kit_shelf_quick(app)
 	kit_shelf_page_menu(app)
 	kit_arrange_ghosts(app)
@@ -1618,18 +1495,20 @@ kit_layout :: proc(app: ^App) {
 	kit_color_popover(app)
 	kit_bar_slot_menu(app)
 	kit_menu_lens(app, menu_anchor)
-	kit_workspace_menu(app)
+	kit_layout_menu(app)
 	kit_pass_menu(app)
 	kit_history_menu(app)
+	refs_card_menus(app)
 	kit_layer_menu(app)
 	kit_scene_add_menu(app)
+	kit_stack_menus(app)
 	kit_scene_spaces_menu(app)
 	quick_scrub_frame(app)
 	kit_quick_scrub(app)
 	kit_versions(app, menu_anchor)
 	kit_object_menu(app)
 	kit_scene_menu(app)
-	kit_objects_card_menus(app)
+	kit_scene_pictures_menus(app)
 	kit_folder_menu(app)
 	kit_theme_menus(app)
 	kit_rename(app)
@@ -1637,96 +1516,21 @@ kit_layout :: proc(app: ^App) {
 	// After every bar and Search, which lift what it carries.
 	bar_carry_update(app)
 	kit_action_popover(app)
+	kit_pivot_row(app)
 	kit_gizmo_entry(app)
 	kit_adjust_popover(app)
 	kit_bind_popover(app)
 	kit_macro_save(app)
 	kit_pie_editor(app)
 	kit_panel_menu(app)
-	kit_stack_menu(app)
-	kit_stack_tab(app)
 	kit_pane_menu(app)
 	kit_divider_menu(app)
 	kit_export_sheet(app)
+	// Over everything: it holds back a step until it is answered.
+	kit_memory_ask(app)
 	tour_update(app)
 	kit_tour(app)
 	kit_help_labels_note(app)
-}
-
-// Lays out panel `which` where it floats, if it does (the docked stack is its column's).
-// Returns true when a press landed on it, to bring it to the front.
-panel_float_draw :: proc(app: ^App, which: Panel_Ref) -> bool {
-	if _, docked := stack_docked(&app.kit); docked && which == Panel_Ref(Kit_Window.Inspector) do return false
-	return panel_draw(app, which)
-}
-
-// Lays out panel `which` by its own proc, docked or floating as it is placed. Returns
-// true when a press landed on it, to bring it to the front.
-panel_draw :: proc(app: ^App, which: Panel_Ref) -> (raised: bool) {
-	switch w in which {
-	case Kit_Window:
-		switch w {
-		case .Inspector: return kit_inspector(app)
-		case .Stats:     return kit_stats(app)
-		case .History:   return kit_history_panel(app)
-		case .Settings:  return kit_settings(app)
-		case .Help:      return kit_help(app)
-		case .Macros:    return kit_macros(app)
-		case .Library:   return kit_library(app)
-		case .Objects:   return kit_objects_card(app)
-		case .Colors:    return kit_colors_card(app)
-		case .Thumbnail: return kit_mini_view(app)
-		}
-	}
-	return false
-}
-
-// The palette tray, laid out as the panel stack (lens_stack.odin): its cards down the pen
-// side under the top bar, sliding in from the right (Tab or Close hides it, the Palettes
-// button brings it back). Floating, it scrolls when its cards are taller than the room
-// under the title bar, with the wheel or by dragging it (a finger or a pen has no wheel).
-// Returns true when a press landed on it, to bring it to the front.
-@(private = "file")
-kit_inspector :: proc(app: ^App) -> (raised: bool) {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	// Settings or Help takes its place while open.
-	shown := ui.presence(ctx, panel_id(Kit_Window.Inspector), k.inspector && !side_panel_open(k), t.panel_time)
-	if shown <= 0 do return
-	win := &k.windows[.Inspector]
-	top := kit_top()
-	right := kit_right(app)
-	PADDING :: 12
-
-	mark := ui.vertex_mark(ctx)
-	// The tray is the stack of cards (lens_stack.odin): bare in its column, each card its
-	// own surface; floating, one window round them all.
-	strip := stack_strip_shown(app)
-	stack_w := STACK_STRIP_W if strip else stack_width(k)
-	box := ui.Box{direction = .Column, gap = COLUMN_GAP, width = stack_w, inert = !k.inspector || side_panel_open(k)}
-	if _, docked := stack_docked(k); !docked do box.padding, box.radius, box.background = PADDING, t.radius_large, .Panel
-	p := panel_begin(app, Kit_Window.Inspector, "Panels", .End, .Start, {right, top}, box, command_keys(app, .Inspector))
-	raised = p.raised
-	if p.closed do k.inspector = false
-	if p.body {
-		s: Kit_Scroll
-		if !p.docked do s = kit_scroll_begin(ctx, "stack body", &k.scroll, p.owner, stack_w - 2 * PADDING, max(p.room, PANEL_BODY_MIN), COLUMN_GAP)
-		if strip do kit_stack_strip(app)
-		else if _, rail := rail_dock_valid(k).?; rail do kit_rail_dock(app, stack_w - 2 * box.padding, max(p.room, PANEL_BODY_MIN))
-		else do kit_stack(app, stack_w - 2 * box.padding, p.owner)
-		if !p.docked do kit_scroll_end(ctx, s)
-	}
-	panel_end(app, &p)
-	if k.inspector && !side_panel_open(k) && p.body && !strip do stack_edge(app, ui.prev_rect(ctx, panel_name(Kit_Window.Inspector)))
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
-	return
-}
-
-// The tray's width, as the stack it shows is sized (lens_resize.odin), for what keeps
-// clear of it.
-tray_width :: proc(app: ^App) -> f32 {
-	return stack_width(&app.kit)
 }
 
 // SPHERE_PRESETS' labels as strings, for selects.
@@ -1745,7 +1549,7 @@ menu_new_scenes :: proc(app: ^App, body_w: f32) -> (pick: bool) {
 	w := (body_w - 2 * 6) / 3
 	starts := len(NEW_SCENES)
 	for row in 0 ..< (starts + 2) / 3 {
-		ui.begin(ctx, fmt.tprintf("new scene row %d", row), {direction = .Row, gap = 6})
+		ui.begin(ctx, fmt.tprintf("new scene row %d", row), {direction = .Row, gap = ui.SPACE_S})
 		for i in row * 3 ..< min(row * 3 + 3, starts) {
 			armed := new_scene_armed(app, i)
 			label := "Discard?" if armed else NEW_SCENES[i].name
@@ -1760,7 +1564,7 @@ menu_new_scenes :: proc(app: ^App, body_w: f32) -> (pick: bool) {
 		n := 0
 		for m, j in app.library.meshes {
 			if m.gone || m.pack != pack.id do continue
-			if n % 3 == 0 do ui.begin(ctx, fmt.tprintf("new scene pack %d row %d", p, n / 3), {direction = .Row, gap = 6})
+			if n % 3 == 0 do ui.begin(ctx, fmt.tprintf("new scene pack %d row %d", p, n / 3), {direction = .Row, gap = ui.SPACE_S})
 			armed := new_mesh_armed(app, j)
 			label := "Discard?" if armed else ui.text_fit(ctx, m.stem, ctx.theme.text_size, w - 12)
 			if ui.button(ctx, fmt.tprintf("%s##new scene mesh %d", label, j), .Solid if armed else .Flat, .Danger if armed else .Neutral, width = w) {
@@ -1795,19 +1599,19 @@ kit_shading_menu :: proc(app: ^App) {
 	if ui.menu_item(&app.kit.ctx, "Lights and look settings", glyph = ui.ICON_SETTINGS) {
 		at := app.kit.bar_pop.at
 		app.kit.bar_pop.open = false
-		card_pop_section(app, .Look, at, .Left)
+		card_toggle(app, .Look, at, .Left)
 	}
 }
 
 // The Camera menu (the right bar's Camera button): the projection and its field of view,
-// framing, the views stepped through, the thumbnail, the view grid and the camera's settings.
+// framing, the views stepped through, the second view, the view grid and the camera's settings.
 kit_camera_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	ui.caption(ctx, "  CAMERA")
 	_ = command_menu_item(app, .Ortho_Toggle)
 	// Inset as the menu's rows are.
-	ui.begin(ctx, "camera menu fov", {direction = .Column, padding = 10})
+	ui.begin(ctx, "camera menu fov", {direction = .Column, padding = ui.SPACE_L})
 	kit_field_of_view(app)
 	ui.end(ctx)
 	if command_menu_item(app, .Focus_Selected) do k.bar_pop.open = false
@@ -1817,7 +1621,7 @@ kit_camera_menu :: proc(app: ^App) {
 	// The menu stays open over these, to step back or forward several views.
 	_ = command_menu_item(app, .View_Back)
 	_ = command_menu_item(app, .View_Forward)
-	_ = command_menu_item(app, .Thumbnail)
+	_ = command_menu_item(app, .Second_View)
 	_ = command_menu_item(app, .View_Guides)
 	if app.scene.guides.shown do _ = command_menu_item(app, .View_Guides_Reset)
 	// The view grid's presets, the menu staying open to try them.
@@ -1841,13 +1645,11 @@ kit_field_of_view :: proc(app: ^App) {
 	if ui.slider(ctx, "Field of view", &degrees, lo, hi, .Linear, fmt.tprintf("%.0f°", degrees)) do camera.orbit_set_fov(&app.camera, math.to_radians(math.round(degrees)))
 }
 
-// Picks brush `kind` and shows its settings: the tray, on the tool's palette, from the top.
+// Picks brush `kind` and shows its settings: the Tool card, from its top.
 brush_settings_open :: proc(app: ^App, kind: sculpt.Brush_Kind) {
-	k := &app.kit
 	command_run(app, .Brush, int(kind))
-	side_panel_close(app)
-	k.inspector, k.stack.revealed = true, nil
-	stack_reveal_card(app, .Brush)
+	sheet_close(app)
+	card_reveal(app, .Brush)
 }
 
 // Opens folder `id`'s menu at `at`.
@@ -1864,7 +1666,7 @@ kit_folder_menu :: proc(app: ^App) {
 	ctx := &k.ctx
 	f := folder_by_id(app, k.folder_menu_id)
 	if f == nil do k.folder_menu = false
-	if !ui.popover_begin(ctx, "folder menu", &k.folder_menu, k.folder_menu_at, .Pointer, {direction = .Column, padding = 6, width = 232}) do return
+	if !ui.popover_begin(ctx, "folder menu", &k.folder_menu, k.folder_menu_at, .Pointer, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	if ui.menu_item(ctx, "Rename...##folder", glyph = ui.ICON_PENCIL) {
 		rename_open(app, -f.id, k.folder_menu_at)
@@ -1914,11 +1716,11 @@ Rename_Entry :: struct {
 	typing: bool, // its field had the keys, which go back when it closes
 	id:     int, // the object, or minus the folder; the slot for a macro
 	macro:  bool,
-	workspace: bool, // the slot of an own workspace
 	step:   time.Tick, // a History step's bookmark, by its first entry's time (history_menu.odin)
 	layer:  int, // a sculpt layer of object `id`, its index + 1 (lens_layers.odin)
 	shelf_page: int, // a page of the shelf, its Shelf_Page + 1 (lens_shelf.odin)
 	theme:  int, // a theme of the person's own, its place + 1 (themes.odin)
+	layout: int, // a layout of the person's own, its slot + 1 (layouts.odin)
 	at:     ui.Rect,
 	text:   [NAME_BYTES]u8,
 }
@@ -1936,7 +1738,6 @@ kit_rename :: proc(app: ^App) {
 	r := &k.rename
 	gone := object_by_id(app, r.id) == nil && folder_by_id(app, -r.id) == nil
 	if r.macro do gone = app.macro.slots[r.id].name == ""
-	if r.workspace do gone = !k.workspaces.list[r.id].used
 	step, _, has_step := history_step_of(app, r.step)
 	if r.step != {} do gone = !has_step
 	layer_s: ^sculpt.Sculptor
@@ -1950,17 +1751,20 @@ kit_rename :: proc(app: ^App) {
 	page := Shelf_Page(max(r.shelf_page - 1, 0))
 	if r.shelf_page > 0 do gone = !shelf_page_used(k, page)
 	if r.theme > 0 do gone = r.theme > k.themes.count
+	if r.layout > 0 do gone = k.layouts.saved[r.layout - 1].name == ""
 	if r.open && gone do r.open = false
 	if !r.open && r.typing {
 		ctx.text_focus = 0
 		r.typing = false
 	}
-	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = 4, padding = 12, width = 280}) do return
+	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
-	ui.caption(ctx, "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "RENAME WORKSPACE" if r.workspace else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
+	ui.caption(ctx, "RENAME LAYOUT" if r.layout > 0 else "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
 	now := ""
 	if r.step != {} {
 		if has_step do now = history_entry_at(app, step).bookmark
+	} else if r.layout > 0 {
+		now = k.layouts.saved[r.layout - 1].name
 	} else if r.theme > 0 {
 		now = theme_ref_name(k, {.Lens, i32(r.theme - 1)})
 	} else if r.shelf_page > 0 {
@@ -1969,8 +1773,6 @@ kit_rename :: proc(app: ^App) {
 		now = sculpt.sculptor_layer_name(&sculpt.sculptor_layers(layer_s)[r.layer - 1])
 	} else if r.macro {
 		now = app.macro.slots[r.id].name
-	} else if r.workspace {
-		now = workspace_name(k, r.id)
 	} else {
 		if obj := object_by_id(app, r.id); obj != nil do now = object_label(obj)
 		if f := folder_by_id(app, -r.id); f != nil do now = folder_label(f)
@@ -1988,6 +1790,9 @@ kit_rename :: proc(app: ^App) {
 		name := rename_text(r.text[:])
 		if name == "" do name = history_bookmark_default(app) if fresh else now
 		history_bookmark_set(app, step, name)
+	} else if apply && r.open && r.layout > 0 {
+		// A layout is the settings', no part of the scene; a name another layout has is refused.
+		if name := rename_text(r.text[:]); name != "" && !layout_rename(app, r.layout - 1, name) do apply = false
 	} else if apply && r.open && r.theme > 0 {
 		// A theme is the settings', no part of the scene; a name another theme has is refused.
 		if name := rename_text(r.text[:]); name != "" && !theme_rename(k, r.theme - 1, name) do apply = false
@@ -2001,9 +1806,6 @@ kit_rename :: proc(app: ^App) {
 	} else if apply && r.open && r.macro && rename_text(r.text[:]) != "" {
 		// A macro is no part of the scene: its file changes at once, outside the History.
 		_ = macro_rename(app, r.id, rename_text(r.text[:]))
-	} else if apply && r.open && r.workspace {
-		// A workspace is no part of the scene either: the settings keep its name.
-		workspace_rename(k, r.id, rename_text(r.text[:]))
 	} else if apply && r.open && rename_text(r.text[:]) != "" {
 		cmd := Scene_Command{kind = .Arrange, arrange = .Rename_Folder if r.id < 0 else .Rename_Object, id = abs(r.id)}
 		copy(cmd.name[:], r.text[:])
@@ -2016,13 +1818,12 @@ kit_rename :: proc(app: ^App) {
 // studio render's or live occlusion's while on, viewport_shown) where the kit drew
 // KIT_VIEWPORT_IMAGE, the navigation head's where it drew KIT_NAV_HEAD_IMAGE, the
 // objects' pictures where it drew KIT_THUMBS_IMAGE, the scenes' where it drew
-// KIT_PICTURES_IMAGE, the thumbnail window's where it drew KIT_THUMBNAIL_IMAGE and the
-// History's pictures of steps and the Layers panel's of layers where it drew
+// KIT_PICTURES_IMAGE, the History's pictures of steps and the Layers panel's of layers where it drew
 // KIT_STEP_PICTURES_IMAGE and KIT_LAYER_PICTURES_IMAGE, and the MatCaps' pictures where the
 // Material card drew KIT_MATCAP_IMAGE plus one's number.
 kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 	shown := app.target.color
-	if tex := viewport_shown(app); tex != nil do shown = tex
+	if tex := viewport_shown(app); tex != 0 do shown = tex
 	cross_fade_shown(app, shown)
 	draws := make([]render.Ui_Draw, len(dl.cmds), context.temp_allocator)
 	for c, i in dl.cmds {
@@ -2030,54 +1831,67 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 			first_index = c.first_index,
 			index_count = c.index_count,
 			clip        = {i32(c.clip.x), i32(c.clip.y), i32(c.clip.w + 0.5), i32(c.clip.h + 0.5)},
-			image       = shown if c.texture == .Image else nil,
+			image       = shown if c.texture == .Image else 0,
 		}
 		if c.texture == .Image && c.image == KIT_NAV_HEAD_IMAGE {
 			draws[i].image, draws[i].smooth = app.nav_shown, true
 			// Without its texture, the head is not drawn at all: a nil image is the atlas.
-			if app.nav_shown == nil do draws[i].index_count = 0
+			if app.nav_shown == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_THUMBS_IMAGE {
 			draws[i].image, draws[i].smooth = app.thumbs.atlas, true
-			if app.thumbs.atlas == nil do draws[i].index_count = 0
-		}
-		if c.texture == .Image && c.image == KIT_THUMBNAIL_IMAGE {
-			draws[i].image, draws[i].smooth = picture_shown(&app.thumbnail), true
-			if app.thumbnail.shown == nil do draws[i].index_count = 0
+			if app.thumbs.atlas == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image >= KIT_PANE_IMAGE && c.image < KIT_PANE_IMAGE + GRID_VIEWS {
 			pic := picture_shown(&app.panes[c.image - KIT_PANE_IMAGE])
 			draws[i].image, draws[i].smooth = pic, true
-			if pic == nil do draws[i].index_count = 0
+			if pic == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_FADE_STILL_IMAGE {
 			draws[i].image = app.cross_fade.still.color
-			if !app.cross_fade.on || app.cross_fade.still.color == nil do draws[i].index_count = 0
+			if !app.cross_fade.on || app.cross_fade.still.color == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_WORK_STILL_IMAGE {
 			draws[i].image = app.work_still.color
-			if app.work_still.color == nil do draws[i].index_count = 0
+			if app.work_still.color == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_LAYER_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.layer_pictures.atlas, true
-			if app.layer_pictures.atlas == nil do draws[i].index_count = 0
+			if app.layer_pictures.atlas == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_STEP_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.step_pictures.atlas, true
-			if app.step_pictures.atlas == nil do draws[i].index_count = 0
+			if app.step_pictures.atlas == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image >= KIT_MATCAP_IMAGE && c.image < KIT_MATCAP_IMAGE_END {
 			tex := material_matcap(app, {matcap = int(c.image - KIT_MATCAP_IMAGE)})
 			draws[i].image, draws[i].smooth = tex, true
-			if tex == nil do draws[i].index_count = 0
+			if tex == 0 do draws[i].index_count = 0
+		}
+		if c.texture == .Image && c.image >= KIT_TAB_IMAGE && c.image < KIT_TAB_IMAGE_END {
+			// A Texture tab's map: smoothed until its texels show as squares.
+			tab := pane_tab_shown(&app.kit.grid, int(c.image - KIT_TAB_IMAGE) + 1)
+			tex, _ := flat_texture(app, &tab.flat)
+			draws[i].image, draws[i].smooth = tex, tab.flat.zoom < TEXEL_GRID_ZOOM
+			if tex == 0 || tab.kind != .Texture do draws[i].index_count = 0
+		}
+		if c.texture == .Image && c.image == KIT_BRUSH_ICONS_IMAGE {
+			draws[i].image, draws[i].smooth = app.brush_icons.atlas, true
+			if app.brush_icons.atlas == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_BRUSH_PREVIEWS_IMAGE {
 			draws[i].image, draws[i].smooth = app.brush_previews.atlas, true
-			if app.brush_previews.atlas == nil do draws[i].index_count = 0
+			if app.brush_previews.atlas == 0 do draws[i].index_count = 0
+		}
+		if c.texture == .Image && c.image >= KIT_REF_IMAGE && c.image < KIT_REF_IMAGE_END {
+			// A reference picture: nothing until its GPU copy is made.
+			tex := refs_texture(app, int(c.image - KIT_REF_IMAGE))
+			draws[i].image, draws[i].smooth = tex, true
+			if tex == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image == KIT_PICTURES_IMAGE {
 			draws[i].image, draws[i].smooth = app.home.pictures.atlas, true
-			if app.home.pictures.atlas == nil do draws[i].index_count = 0
+			if app.home.pictures.atlas == 0 do draws[i].index_count = 0
 		}
 	}
 	return draws

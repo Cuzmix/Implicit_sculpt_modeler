@@ -11,7 +11,7 @@ import "../ui"
 // viewport passes and ZBrush's normal and depth views. The shading chip over the view names
 // the mode, or the pass while one shows; a tap opens the list, and a hold peeks at the last
 // other pass for as long as it is held, as Marmoset's and Substance's hold-to-compare do; a
-// held backquote peeks too. The mode and the pass are part of the workspace's layout. Only the viewport shows it: the thumbnail window, the navigation
+// held backquote peeks too. The mode and the pass are part of the space's layout. Only the viewport shows it: the view panes, the navigation
 // head and object pictures stay shaded, and the studio render and render mode wait,
 // since what they build is the shaded picture.
 
@@ -89,7 +89,7 @@ pass_peeked :: proc(k: ^Kit_State) -> render.View_Pass {
 viewport_pass :: proc(k: ^Kit_State) -> render.View_Pass {
 	ps := &k.passes
 	// The pane worked in shows its own pass (grid_work).
-	if g := &k.grid; g.work != 0 do return second_view_pass(g.views[g.work - 1].pass)
+	if g := &k.grid; g.work != 0 do return second_view_pass(grid_view(g, g.work).pass)
 	if (ps.chip_held || ps.key_held) && !ps.recording && !wipe_shown(k) do return pass_peeked(k)
 	return ps.pass
 }
@@ -126,7 +126,7 @@ pass_shaded :: proc(app: ^App) -> bool {
 
 // What the studio render's and render mode's sections say while a pass pauses them.
 pass_paused_note :: proc(app: ^App) -> string {
-	return fmt.tprintf("Paused while the viewport shows %s; it starts again once the pass is put away.", PASS_LABELS[viewport_pass(&app.kit)])
+	return fmt.tprintf("Paused while the viewport shows %s; it starts again once that shading is put away.", PASS_LABELS[viewport_pass(&app.kit)])
 }
 
 // Live occlusion runs while it is on and the viewport is shaded, and always in the AO pass
@@ -233,7 +233,7 @@ kit_pass_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	ps := &k.passes
-	if !ui.popover_begin(ctx, "pass menu", &ps.menu, ps.menu_at, ps.menu_side, {direction = .Column, gap = 0, padding = 6, width = 260}) do return
+	if !ui.popover_begin(ctx, "pass menu", &ps.menu, ps.menu_at, ps.menu_side, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	lens_pass_menu(app)
 }
@@ -258,7 +258,7 @@ DIAGNOSTIC_PASSES := [?]render.View_Pass{.Normals, .Curvature, .AO, .Depth, .Sil
 
 // Lens's list (round 2's inspect2 screen, with Blender's shading modes): RECENT, the pass
 // shown and the last other one, to flip between; SHADING, the four modes, and under Solid
-// its lighting, its MatCap and its colour; INSPECT, the passes that check the form. Each row
+// its lighting, its MatCap and its colour; INSPECT, the passes that check the form and Four views. Each row
 // shows its keys; the one shown is highlighted.
 @(private = "file")
 lens_pass_menu :: proc(app: ^App) {
@@ -291,11 +291,12 @@ lens_pass_menu :: proc(app: ^App) {
 	if shown == .Solid && ps.pass == .Shaded do solid_options(app, &ps.shading, true)
 	ui.caption(ctx, "  INSPECT")
 	for p in DIAGNOSTIC_PASSES do if row(app, p, "diagnostic") do picked = true
+	if command_menu_item(app, .Inspect_Mode) do picked = true
 	ui.divider(ctx, across = true)
 	if command_menu_item(app, .Flat_Shading) do picked = true
 	if command_menu_item(app, .View_Pass_Last) do picked = true
 	if command_menu_item(app, .View_Wipe) do picked = true
-	ui.paragraph(ctx, "Hold the shading chip, or the ` key, to peek at your last pass; release to come back.")
+	ui.paragraph(ctx, "Hold the shading chip, or the ` key, to peek at your last shading; release to come back.")
 	if picked do ps.menu = false
 }
 
@@ -306,10 +307,10 @@ lens_pass_menu :: proc(app: ^App) {
 solid_options :: proc(app: ^App, s: ^View_Shading, main: bool) {
 	ctx := &app.kit.ctx
 	named :: proc(ctx: ^ui.Context, name: string) {
-		ui.begin(ctx, fmt.tprintf("%s option##solid", name), {direction = .Column, gap = 4})
+		ui.begin(ctx, fmt.tprintf("%s option##solid", name), {direction = .Column, gap = ui.SPACE_XS})
 		ui.label(ctx, name, ctx.theme.small_size)
 	}
-	ui.begin(ctx, "solid options", {direction = .Column, gap = 6, padding = 8})
+	ui.begin(ctx, "solid options", {direction = .Column, gap = ui.SPACE_S, padding = ui.SPACE_M})
 	names: [len(Solid_Lighting)]string
 	hints: [len(Solid_Lighting)]string
 	for l in Solid_Lighting do names[l], hints[l] = SOLID_LIGHTING_NAMES[l], command_hint(app, .Solid_Lighting, int(l)) if main else ""
@@ -325,7 +326,7 @@ solid_options :: proc(app: ^App, s: ^View_Shading, main: bool) {
 		at := (s.matcap if s.matcap > 0 && s.matcap <= len(MATCAP_RECIPES) else SHADING_MATCAP_DEFAULT) - 1
 		named(ctx, "MatCap")
 		// Two rows of three, as six names do not fit across the list.
-		ui.begin(ctx, "matcaps##solid", {direction = .Column, gap = 4})
+		ui.begin(ctx, "matcaps##solid", {direction = .Column, gap = ui.SPACE_XS})
 		for row in 0 ..< 2 {
 			if picked := ui.tabs(ctx, fmt.tprintf("MatCap %d", row), caps[row * 3:row * 3 + 3], at - row * 3 if at / 3 == row else -1); picked >= 0 do s.matcap = row * 3 + picked + 1
 		}

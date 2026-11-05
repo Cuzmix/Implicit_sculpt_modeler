@@ -15,26 +15,26 @@ palette_where_names_each_home :: proc(t: ^testing.T) {
 	cmd :: proc(id: Command_Id, arg := 0) -> Palette_Entry {return {.Command, id, arg}}
 	testing.expect_value(t, palette_where(&a, cmd(.Brush, int(sculpt.Brush_Kind.Clay))), "Shelf · Brushes")
 	testing.expect_value(t, palette_where(&a, cmd(.Brush, int(sculpt.Brush_Kind.Morph))), "Brush picker")
-	testing.expect_value(t, palette_where(&a, cmd(.Floor_Grid)), "Floor grid card")
-	testing.expect_value(t, palette_where(&a, cmd(.Show_Panel, int(Panel_Kind.Scene))), "View rail")
+	testing.expect_value(t, palette_where(&a, cmd(.Floor_Grid)), "Look card · Floor grid")
+	testing.expect_value(t, palette_where(&a, cmd(.Open_Card, int(Card.Scene))), "View toolbar")
 	testing.expect_value(t, palette_where(&a, cmd(.Save_Scene)), "Menu")
 	testing.expect_value(t, palette_where(&a, cmd(.Export_Mesh)), "Menu · Export...")
 	testing.expect_value(t, palette_where(&a, cmd(.Undo)), "Top bar")
 	testing.expect_value(t, palette_where(&a, cmd(.Flat_Shading)), "")
-	testing.expect_value(t, palette_where(&a, {kind = .Settings_Tab, arg = int(Settings_Tab.Touch)}), "Settings")
-	testing.expect_value(t, palette_where(&a, cmd(.Show_Section, int(Kit_Section.Layers))), "Panel · Layers card")
-	testing.expect_value(t, palette_where(&a, cmd(.Show_Section, int(Kit_Section.Remesh))), "Panel · Rebuild card")
-	testing.expect_value(t, palette_where(&a, cmd(.New_Layer)), "Layers card")
-	testing.expect_value(t, palette_where(&a, cmd(.Front_Only)), "Brush card · Options")
+	testing.expect_value(t, palette_where(&a, {kind = .Settings_Section, arg = int(Settings_Section.Touch)}), "Settings")
+	testing.expect_value(t, palette_where(&a, cmd(.Open_Card, int(Card.Layers))), "View toolbar")
+	testing.expect_value(t, palette_where(&a, cmd(.Open_Section, int(Section.Remesh))), "Mesh card")
+	testing.expect_value(t, palette_where(&a, cmd(.New_Layer)), "Layers card · Layers")
+	testing.expect_value(t, palette_where(&a, cmd(.Front_Only)), "Tool card · Options")
 }
 
-// Grouping puts commands, then brushes, then panels and settings, each in the order it
-// ranked, and says which groups there are.
+// Grouping puts the groups in the order of their best hits (here brushes, then panels and
+// settings, then commands), each in the order it ranked, and says which groups there are.
 @(test)
 palette_groups_keep_rank_inside_each :: proc(t: ^testing.T) {
 	entries := []Palette_Entry{
 		{.Command, .Brush, int(sculpt.Brush_Kind.Clay)},
-		{kind = .Settings_Tab, arg = 0},
+		{kind = .Settings_Section, arg = 0},
 		{.Command, .Wireframe, 0},
 		{.Command, .Brush, int(sculpt.Brush_Kind.Draw)},
 		{.Command, .Remesh, 0},
@@ -43,7 +43,7 @@ palette_groups_keep_rank_inside_each :: proc(t: ^testing.T) {
 	out, groups := palette_group_hits(hits, entries)
 	order: [5]int
 	for h, i in out do order[i] = h.entry
-	testing.expect_value(t, order, [5]int{2, 4, 0, 3, 1})
+	testing.expect_value(t, order, [5]int{0, 3, 1, 2, 4})
 	testing.expect_value(t, groups, bit_set[Palette_Group]{.Commands, .Brushes, .Panels})
 }
 
@@ -66,7 +66,7 @@ put_on_a_bar_goes_where_it_belongs :: proc(t: ^testing.T) {
 	wire := Palette_Entry{.Command, .Flat_Shading, 0}
 	testing.expect(t, palette_put_on_bar(&a, wire))
 	testing.expect_value(t, bar_count(&a, .View_Rail)^, rail + 1)
-	testing.expect_value(t, palette_where(&a, wire), "View rail")
-	testing.expect(t, !palette_put_on_bar(&a, {kind = .Settings_Tab}))
+	testing.expect_value(t, palette_where(&a, wire), "View toolbar")
+	testing.expect(t, !palette_put_on_bar(&a, {kind = .Settings_Section}))
 	testing.expect_value(t, a.kit.palette_bar_puts, 2)
 }

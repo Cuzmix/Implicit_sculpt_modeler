@@ -1,0 +1,578 @@
+<title>Model Mode Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column with wide tables and figures; the hover colours (point blue, edge amber, face teal) are the page's only accents besides cobalt. */
+:root {
+  --bg: #F5F6F8;
+  --surface: #FFFFFF;
+  --sunk: #EBEEF2;
+  --fg: #151920;
+  --muted: #586172;
+  --line: #D7DCE3;
+  --accent: #2A52D0;
+  --accent-soft: #E3E9FB;
+  --point: #2F6BFF;
+  --edge: #D99400;
+  --face: #0E9C83;
+  --face-tint: rgba(14,156,131,.18);
+  --cage: #3A4250;
+  --cage-fill: #DDE2E9;
+  --cage-side: #C9D0DA;
+  --ok: #18794E;
+  --warn: #A15C00;
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E1116; --surface: #161A21; --sunk: #1D222B; --fg: #E6E9EF; --muted: #9AA3B3; --line: #2A303B;
+    --accent: #85A2FF; --accent-soft: #1F2A4A; --point: #6F9BFF; --edge: #F2B53A; --face: #3BCFB0;
+    --face-tint: rgba(59,207,176,.22); --cage: #B9C2D0; --cage-fill: #2A313C; --cage-side: #222832;
+    --ok: #4FC48A; --warn: #E5A04A; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1116; --surface: #161A21; --sunk: #1D222B; --fg: #E6E9EF; --muted: #9AA3B3; --line: #2A303B;
+  --accent: #85A2FF; --accent-soft: #1F2A4A; --point: #6F9BFF; --edge: #F2B53A; --face: #3BCFB0;
+  --face-tint: rgba(59,207,176,.22); --cage: #B9C2D0; --cage-fill: #2A313C; --cage-side: #222832;
+  --ok: #4FC48A; --warn: #E5A04A; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--f-body); font-size: 16px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 64px;
+}
+.wrap { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+.prose { max-width: 68ch; }
+header { padding-top: 48px; display: flex; flex-direction: column; gap: 16px; }
+.eyebrow { font: 500 12px/1 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 500 12px/1.2 var(--f-mono); letter-spacing: .02em; text-transform: none; }
+h1 { font: 700 clamp(36px, 6vw, 60px)/1.02 var(--f-display); letter-spacing: -.02em; margin: 0; text-wrap: balance; }
+h2 { font: 700 clamp(24px, 3.4vw, 32px)/1.15 var(--f-display); letter-spacing: -.01em; margin: 0 0 12px; text-wrap: balance; }
+h3 { font: 600 18px/1.3 var(--f-body); margin: 24px 0 8px; }
+p { margin: 0 0 12px; }
+.lede { font-size: 19px; line-height: 1.55; max-width: 64ch; }
+a { color: var(--accent); }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+code { font-family: var(--f-mono); font-size: .88em; background: var(--sunk); padding: 1px 5px; border-radius: 4px; }
+.muted { color: var(--muted); }
+section { display: flex; flex-direction: column; gap: 8px; }
+
+/* The pen rules */
+.rules { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.rules li { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rules b { font: 600 16px/1.35 var(--f-body); }
+.rules span { color: var(--muted); font-size: 15px; line-height: 1.5; }
+
+/* Figures */
+figure { margin: 8px 0 0; display: flex; flex-direction: column; gap: 10px; }
+figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
+.hover-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 720px) { .hover-row { grid-template-columns: 1fr; } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.panel h4 { margin: 0; font: 600 14px/1.3 var(--f-body); display: flex; align-items: center; gap: 8px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+.panel p { margin: 0; font-size: 14px; color: var(--muted); line-height: 1.5; }
+svg { display: block; width: 100%; height: auto; }
+.s-cage { fill: none; stroke: var(--cage); stroke-width: 1.6; stroke-linejoin: round; }
+.s-cage-thin { fill: none; stroke: var(--cage); stroke-width: 1; opacity: .55; }
+.s-top { fill: var(--cage-fill); }
+.s-side { fill: var(--cage-side); }
+.s-point { fill: var(--point); }
+.s-point-ring { fill: none; stroke: var(--point); stroke-width: 1.5; opacity: .45; }
+.s-edge { fill: none; stroke: var(--edge); stroke-width: 4; stroke-linecap: round; }
+.s-face { fill: var(--face-tint); stroke: var(--face); stroke-width: 2; }
+.s-ghost { fill: none; stroke: var(--face); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.s-normal { stroke: var(--face); stroke-width: 2; }
+.s-label-bg { fill: var(--fg); }
+.s-label { fill: var(--bg); font: 500 12px var(--f-mono); }
+.s-value-bg { fill: var(--accent); }
+.s-value { fill: var(--surface); font: 600 12px var(--f-mono); }
+.s-ui { fill: var(--surface); stroke: var(--line); stroke-width: 1; }
+.s-ui-sunk { fill: var(--sunk); }
+.s-text { fill: var(--fg); font: 500 13px var(--f-body); }
+.s-text-s { fill: var(--muted); font: 400 11px var(--f-body); }
+.s-text-b { fill: var(--fg); font: 600 12px var(--f-body); }
+.s-accent { fill: var(--accent); }
+.s-accent-text { fill: var(--accent); font: 600 12px var(--f-body); }
+.s-view { fill: var(--sunk); }
+.s-tile { fill: var(--sunk); stroke: var(--line); }
+.s-tile-on { fill: var(--accent-soft); stroke: var(--accent); }
+.s-sector { fill: var(--surface); stroke: var(--line); }
+.s-sector-on { fill: var(--accent-soft); stroke: var(--accent); }
+.s-divider { stroke: var(--line); stroke-width: 1; }
+.fig-scroll { overflow-x: auto; }
+.fig-scroll svg { min-width: 640px; }
+
+/* Stroke steps */
+.steps { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 10px; counter-reset: step; }
+@media (max-width: 860px) { .steps { grid-template-columns: 1fr; } }
+.steps li { counter-increment: step; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.steps li::before { content: counter(step); font: 600 12px var(--f-mono); color: var(--accent); }
+.steps b { font-size: 15px; }
+.steps span { font-size: 14px; color: var(--muted); line-height: 1.5; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.45; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font: 600 12px/1.3 var(--f-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); background: var(--sunk); white-space: nowrap; }
+td.name { font-weight: 600; white-space: nowrap; }
+td.num { font-variant-numeric: tabular-nums; font-family: var(--f-mono); white-space: nowrap; }
+.el { display: inline-flex; align-items: center; gap: 6px; font: 600 12px var(--f-mono); text-transform: uppercase; letter-spacing: .06em; }
+tr.group td { background: var(--sunk); padding-block: 8px; }
+.tag { display: inline-block; font: 500 11px/1.2 var(--f-mono); padding: 3px 7px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.tag.p1 { color: var(--accent); border-color: var(--accent); }
+.from { color: var(--muted); font-size: 13px; }
+
+/* Kept / dropped */
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.two > div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; min-width: 0; }
+.two h3 { margin-top: 0; }
+.two ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; }
+
+/* Code changes */
+.code-list { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 10px; }
+.code-list li { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; display: grid; grid-template-columns: 200px minmax(0,1fr); gap: 6px 18px; }
+@media (max-width: 680px) { .code-list li { grid-template-columns: minmax(0,1fr); } }
+.code-list .what { font-weight: 600; }
+.code-list .why { font-size: 15px; }
+pre { margin: 8px 0 0; padding: 12px 14px; background: var(--sunk); border-radius: 8px; overflow-x: auto; font: 13px/1.5 var(--f-mono); }
+
+/* Phases */
+.phase { display: flex; flex-direction: column; gap: 8px; }
+.phase-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.phase-head h3 { margin: 0; }
+.phase-head .try { font-size: 14px; color: var(--muted); }
+.review { border-left: 3px solid var(--warn); background: var(--surface); padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 15px; }
+
+/* Defaults */
+.defaults { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.defaults > div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.defaults b { font-size: 15px; }
+.defaults span { font-size: 14px; color: var(--muted); }
+.risk { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.risk li { display: grid; grid-template-columns: 180px minmax(0,1fr); gap: 4px 16px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 15px; }
+.risk li:last-child { border-bottom: 0; }
+@media (max-width: 680px) { .risk li { grid-template-columns: minmax(0,1fr); } }
+.ask { background: var(--accent-soft); border-radius: 12px; padding: 20px 22px; display: flex; flex-direction: column; gap: 8px; }
+.ask h2 { margin: 0; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow"><span>Sculpt · poly modeling</span><span class="pill">Final plan · waiting for Bolt's approval</span><span>28 Oct 2026</span></div>
+  <h1>Model mode: a pen-first poly modeler</h1>
+  <p class="lede">A new Model page on the shelf turns an object into an editable cage of quads and polygons. You hover a point, an edge or a face, see what will happen, and press and drag with the pen to do it, as in ZBrush's ZModeler. The cage shows a live smooth surface with sharp creases, and one tap turns it into a sculptable object with subdivision levels. Retopology over a sculpt uses the same cage and the same actions.</p>
+  <p class="muted prose">This plan builds on what I read: <a href="https://claude.ai/artifact/HyMakwsdpk7zC9MhoUAPob">ZModeler and poly modeling: what I read</a>, which now also covers Shapr3D, Blender, Plasticity, 3D-Coat, Maya's Quad Draw and Modo's Topology Pen, and says what each adds for a pen. It uses the default answers to the seven questions at the end of that doc, which are listed again at the bottom of this page. Nothing gets built until you approve.</p>
+</header>
+
+<section id="rules">
+  <h2>The pen rules</h2>
+  <p class="prose">Every feature below had to pass these rules. They come from what makes ZModeler work on an XP-Pen, and from what makes Blender, Maya and Plasticity hard to use with one.</p>
+  <ul class="rules">
+    <li><b>One press-drag does the job.</b><span>Hover the element, press, drag, lift. No action needs a separate selection step or a key held down.</span></li>
+    <li><b>The drag sets the amount.</b><span>The distance sets how far or how wide, and dragging sideways sets a count (loops, segments) where an action has one. The value floats beside the pen.</span></li>
+    <li><b>A number is one tap away.</b><span>Tap the floating value to type it, as in Shapr3D and Plasticity. After you lift, Adjust Last keeps every setting editable, as in Blender.</span></li>
+    <li><b>You see it before you do it.</b><span>Hover shows the element in its colour and a label such as "Extrude · Island". On a pen without hover, tap the element to get a handle on it, as Shapr3D does: an arrow on a face, a double arrow on an edge.</span></li>
+    <li><b>Timing never changes meaning.</b><span>A pause before you move never turns one action into another, which is Shapr3D's most common complaint. Holding still only shows a preview.</span></li>
+    <li><b>Variants never need a keyboard.</b><span>ZModeler's Alt, Shift and Ctrl become the three sectors of the modifier wheel you already have. A thumb holds one while the pen drags; keys and pen buttons are only shortcuts.</span></li>
+    <li><b>Tap repeats or adds.</b><span>After Extrude or Insert loop, a tap on another element repeats it with the same amount, as in ZModeler. After Bevel, Crease or Inset, a tap adds the element to the same action until you tap empty space, as in Shapr3D. A movement tolerance stops stray taps, and you can turn repeating off.</span></li>
+    <li><b>A selection suggests what to do.</b><span>When you select instead of hovering, a short strip of the actions that fit it appears beside the pen, as Plasticity's Suggested Commands do. Repeated drags on the same handle add up to one total instead of starting again at zero.</span></li>
+    <li><b>Touch helps.</b><span>Fingers orbit, pan and zoom as now, hold wheel sectors, and tap shelf tiles. Fingers never need to hit a small edge.</span></li>
+  </ul>
+</section>
+
+<section id="hover">
+  <h2>What hover shows</h2>
+  <p class="prose">The pen picks whatever is nearest: a point within 10 pixels, else an edge within 8, else the face under it. Each kind has its own colour, as in the newer ZBrush highlights, so you know what the next drag will touch. Where things overlap, a second tap on the same spot picks the next one underneath.</p>
+  <figure>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <defs>
+        <g id="cube">
+          <polygon class="s-top" points="200,60 290,105 200,150 110,105"/>
+          <polygon class="s-side" points="110,105 200,150 200,260 110,215"/>
+          <polygon class="s-side" points="200,150 290,105 290,215 200,260" opacity=".75"/>
+          <polygon class="s-cage" points="200,60 290,105 290,215 200,260 110,215 110,105"/>
+          <polyline class="s-cage" points="110,105 200,150 290,105"/>
+          <line class="s-cage" x1="200" y1="150" x2="200" y2="260"/>
+          <line class="s-cage-thin" x1="245" y1="82.5" x2="155" y2="127.5"/>
+          <line class="s-cage-thin" x1="155" y1="82.5" x2="245" y2="127.5"/>
+          <line class="s-cage-thin" x1="155" y1="127.5" x2="155" y2="237.5"/>
+          <line class="s-cage-thin" x1="110" y1="160" x2="200" y2="205"/>
+          <line class="s-cage-thin" x1="245" y1="127.5" x2="245" y2="237.5"/>
+          <line class="s-cage-thin" x1="200" y1="205" x2="290" y2="160"/>
+        </g>
+      </defs>
+    </svg>
+    <div class="hover-row">
+      <div class="panel">
+        <h4><span class="dot" style="background:var(--point)"></span>Point</h4>
+        <svg viewBox="40 30 330 260" role="img" aria-label="A cube cage with one corner point highlighted in blue and the label Move, Single">
+          <use href="#cube"/>
+          <circle class="s-point-ring" cx="200" cy="150" r="14"/>
+          <circle class="s-point" cx="200" cy="150" r="6"/>
+          <rect class="s-label-bg" x="214" y="40" width="112" height="24" rx="5"/>
+          <text class="s-label" x="224" y="56">Move · Single</text>
+        </svg>
+        <p>A blue dot. Drag moves it, and its neighbours can follow with a soft falloff.</p>
+      </div>
+      <div class="panel">
+        <h4><span class="dot" style="background:var(--edge)"></span>Edge</h4>
+        <svg viewBox="40 30 330 260" role="img" aria-label="A cube cage with a horizontal edge loop highlighted in amber and the label Insert loop, Multiple">
+          <use href="#cube"/>
+          <polyline class="s-edge" points="110,160 200,205 290,160"/>
+          <rect class="s-label-bg" x="150" y="268" width="176" height="24" rx="5" transform="translate(0,-14)"/>
+          <text class="s-label" x="160" y="270">Insert loop · Multiple</text>
+          <rect class="s-value-bg" x="296" y="140" width="48" height="22" rx="11"/>
+          <text class="s-value" x="306" y="155">× 3</text>
+        </svg>
+        <p>An amber edge, and the whole loop when the target is a loop. Dragging sideways sets how many loops.</p>
+      </div>
+      <div class="panel">
+        <h4><span class="dot" style="background:var(--face)"></span>Face</h4>
+        <svg viewBox="40 30 330 260" role="img" aria-label="A cube cage with one face highlighted in teal, its normal shown as a tick, a dashed ghost of the extrusion and a value of plus 0.24">
+          <use href="#cube"/>
+          <polygon class="s-face" points="200,150 245,127.5 245,182.5 200,205"/>
+          <polygon class="s-ghost" points="230,165 275,142.5 275,197.5 230,220"/>
+          <line class="s-normal" x1="222.5" y1="166" x2="256" y2="183"/>
+          <circle class="s-point" cx="256" cy="183" r="0"/>
+          <rect class="s-label-bg" x="60" y="40" width="130" height="24" rx="5"/>
+          <text class="s-label" x="70" y="56">Extrude · Island</text>
+          <rect class="s-value-bg" x="284" y="196" width="60" height="22" rx="11"/>
+          <text class="s-value" x="294" y="211">+0.24</text>
+        </svg>
+        <p>A teal face with a tick for its normal. The dashed ghost shows the result while you drag.</p>
+      </div>
+    </div>
+    <figcaption>The label names the action and the target. The blue pill is the live value; tap it to type a number.</figcaption>
+  </figure>
+</section>
+
+<section id="stroke">
+  <h2>One action, start to finish</h2>
+  <ol class="steps">
+    <li><b>Hover</b><span>The element lights up and the label says what will happen. On a pen without hover, tap it to get its handle instead.</span></li>
+    <li><b>Press and drag</b><span>The amount follows the pen. Dragging the other way gives the opposite where it makes sense, such as extruding in instead of out.</span></li>
+    <li><b>Hold a sector if needed</b><span>Your thumb holds Alt for the variant, or Snap to lock steps and weld. It can change in the middle of the drag.</span></li>
+    <li><b>Lift</b><span>The action commits as one undo step. Its main values stay on the canvas, and its card holds every value it used.</span></li>
+    <li><b>Tap to repeat or add</b><span>Tap another element to repeat the action, or to add it to a bevel or crease. Tap empty space to finish.</span></li>
+  </ol>
+</section>
+
+<section id="screen">
+  <h2>Where things sit</h2>
+  <p class="prose">Model mode fits the Lens round 2 layout you approved. The shelf gets a fifth page, Model, and its tiles are the ZModeler presets. The wheel's sectors are relabelled for modeling. The panel stack gets a Model panel with the live surface settings.</p>
+  <figure>
+    <div class="fig-scroll">
+      <svg viewBox="0 0 1000 620" role="img" aria-label="Screen layout in Model mode: a see-through top bar, a cube cage in the middle, the Model panel on the right, the modifier wheel at the bottom left with Snap, Select, Alt and Actions sectors, and the shelf at the bottom centre with face, edge and point tiles">
+        <rect class="s-view" x="0" y="0" width="1000" height="620" rx="12"/>
+        <rect class="s-ui" x="12" y="12" width="976" height="40" rx="8" opacity=".9"/>
+        <text class="s-text" x="28" y="37">☰  File   ↶  ↷</text>
+        <text class="s-text-b" x="440" y="37">Model workspace ▾</text>
+        <text class="s-text" x="840" y="37">Search  History  ⚙</text>
+
+        <g transform="translate(250,95) scale(1.35)">
+          <use href="#cube"/>
+          <polygon class="s-face" points="200,150 245,127.5 245,182.5 200,205"/>
+          <polygon class="s-ghost" points="230,165 275,142.5 275,197.5 230,220"/>
+        </g>
+        <rect class="s-label-bg" x="545" y="215" width="130" height="24" rx="5"/>
+        <text class="s-label" x="555" y="231">Extrude · Island</text>
+        <rect class="s-value-bg" x="640" y="370" width="60" height="22" rx="11"/>
+        <text class="s-value" x="650" y="385">+0.24</text>
+
+        <rect class="s-ui" x="770" y="66" width="216" height="318" rx="10"/>
+        <text class="s-text-b" x="786" y="92">Model</text>
+        <text class="s-text-s" x="786" y="116">LIVE SURFACE</text>
+        <text class="s-text" x="786" y="140">Mirror</text><text class="s-accent-text" x="930" y="140">X</text>
+        <text class="s-text" x="786" y="164">Smooth</text><text class="s-accent-text" x="930" y="164">2</text>
+        <text class="s-text" x="786" y="188">Creases</text><text class="s-accent-text" x="930" y="188">On</text>
+        <text class="s-text" x="786" y="212">Bevel creases</text><text class="s-text-s" x="930" y="212">Off</text>
+        <text class="s-text" x="786" y="236">Thickness</text><text class="s-text-s" x="930" y="236">Off</text>
+        <line class="s-divider" x1="786" y1="252" x2="970" y2="252"/>
+        <text class="s-text-s" x="786" y="272">CURRENT ACTIONS</text>
+        <circle class="s-point" cx="790" cy="292" r="4" style="fill:var(--face)"/><text class="s-text" x="802" y="296">Face: Extrude · Island</text>
+        <circle class="s-point" cx="790" cy="316" r="4" style="fill:var(--edge)"/><text class="s-text" x="802" y="320">Edge: Loop · Single, Half</text>
+        <circle class="s-point" cx="790" cy="340" r="4"/><text class="s-text" x="802" y="344">Point: Move · Single</text>
+        <rect class="s-tile-on" x="786" y="352" width="184" height="24" rx="6"/>
+        <text class="s-accent-text" x="826" y="369">Apply to sculpt</text>
+
+        <g transform="translate(96,520)">
+          <path class="s-sector-on" d="M -44,-44 A 62 62 0 0 1 44,-44 L 20,-20 A 28 28 0 0 0 -20,-20 Z"/>
+          <path class="s-sector" d="M -44,-44 L -20,-20 A 28 28 0 0 0 -20,20 L -44,44 A 62 62 0 0 1 -44,-44 Z"/>
+          <path class="s-sector" d="M -44,44 L -20,20 A 28 28 0 0 0 20,20 L 44,44 A 62 62 0 0 1 -44,44 Z"/>
+          <path class="s-sector" d="M 44,-44 A 62 62 0 0 1 44,44 L 20,20 A 28 28 0 0 0 20,-20 Z"/>
+          <text class="s-accent-text" x="-15" y="-36">Snap</text>
+          <text class="s-text-b" x="-60" y="4">Select</text>
+          <text class="s-text-b" x="-8" y="48">Alt</text>
+          <text class="s-text-b" x="30" y="4" style="font-size:10px">Pie</text>
+        </g>
+
+        <rect class="s-ui" x="270" y="500" width="470" height="100" rx="12"/>
+        <text class="s-text-s" x="290" y="522">FACE</text>
+        <text class="s-text-s" x="502" y="522">EDGE</text>
+        <text class="s-text-s" x="672" y="522">POINT</text>
+        <rect class="s-tile-on" x="290" y="530" width="46" height="40" rx="6"/><text class="s-text-s" x="295" y="555">Extrude</text>
+        <rect class="s-tile" x="340" y="530" width="46" height="40" rx="6"/><text class="s-text-s" x="350" y="555">Inset</text>
+        <rect class="s-tile" x="390" y="530" width="46" height="40" rx="6"/><text class="s-text-s" x="395" y="555">Bridge</text>
+        <rect class="s-tile" x="440" y="530" width="46" height="40" rx="6"/><text class="s-text-s" x="446" y="555">Group</text>
+        <line class="s-divider" x1="493" y1="530" x2="493" y2="570"/>
+        <rect class="s-tile-on" x="502" y="530" width="46" height="40" rx="6"/><text class="s-text-s" x="510" y="555">Loop</text>
+        <rect class="s-tile" x="552" y="530" width="46" height="40" rx="6"/><text class="s-text-s" x="560" y="555">Bevel</text>
+        <rect class="s-tile" x="602" y="530" width="46" height="40" rx="6"/><text class="s-text-s" x="606" y="555">Crease</text>
+        <line class="s-divider" x1="660" y1="530" x2="660" y2="570"/>
+        <rect class="s-tile-on" x="668" y="530" width="62" height="40" rx="6"/><text class="s-text-s" x="682" y="555">Move</text>
+        <text class="s-text-s" x="330" y="592">Sculpt   Paint   Move   Curve</text>
+        <text class="s-accent-text" x="520" y="592">Model</text>
+      </svg>
+    </div>
+    <figcaption>Schematic, not a final design. The wheel keeps its place and its sectors change names in Model mode: Smooth becomes Snap, Mask becomes Select, Invert becomes Alt, and the right sector opens the action pie. One face, one edge and one point tile are lit at a time, since hover decides which of the three applies. A long press on a tile (0.3 s, as on other shelf tiles) opens its target and options.</figcaption>
+  </figure>
+
+  <h3>How each thing is reached</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>You want to</th><th>With the pen</th><th>With a finger</th><th>Shortcut</th></tr></thead>
+      <tbody>
+        <tr><td>Pick an action</td><td>Tap a shelf tile, or press the pen's side button over an element for a pie of that element's actions</td><td>Tap a tile; the wheel's Pie sector</td><td>Keys from the keymap</td></tr>
+        <tr><td>Change its target or options</td><td>Long press the tile, slide to the choice and lift</td><td>Same</td><td>None needed</td></tr>
+        <tr><td>Save a combination</td><td>Long press a tile, then Save as preset; it becomes a new tile</td><td>Same</td><td>None needed</td></tr>
+        <tr><td>Do the opposite or the variant</td><td>Drag the other way, where that is meaningful</td><td>Hold the Alt sector while the pen drags</td><td>Alt</td></tr>
+        <tr><td>Snap, weld or step</td><td>A pen button, if you bind one to Snap</td><td>Hold the Snap sector; tapping it mid-drag cycles Half, Quarter and Custom for loop inserts</td><td>Shift; Ctrl cycles</td></tr>
+        <tr><td>Select several things</td><td>Hold Select and draw over faces, edges or points; chips filter by kind, and only visible elements are hit. Every selection change can be undone</td><td>Hold the Select sector</td><td>Ctrl drag</td></tr>
+        <tr><td>Type an exact value</td><td>Tap the floating value or a card field; fields take sums such as 2*0.15, scrub when dragged, and have + and − buttons</td><td>Same</td><td>Type digits during the drag</td></tr>
+        <tr><td>Use a pen without hover</td><td>Tap the element for its handle, then drag the handle</td><td>Same</td><td></td></tr>
+        <tr><td>Undo</td><td>The top bar</td><td>The touch gesture you set for undo</td><td>Ctrl Z</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="features">
+  <h2>Features</h2>
+  <p class="prose">Each action works on its element and on a target. The <span class="tag p1">Phase</span> column says which build phase adds it (see the build order below). "Later" means after the first full release, chosen by need.</p>
+
+  <h3>Targets</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Target</th><th>Reaches</th><th>From</th></tr></thead>
+      <tbody>
+        <tr><td class="name">Single</td><td>The hovered point, edge or face</td><td class="from">ZModeler</td></tr>
+        <tr><td class="name">Loop</td><td>The edge loop or face loop through it, stopping at poles, borders or another polygroup</td><td class="from">ZModeler, Blender</td></tr>
+        <tr><td class="name">Ring</td><td>The edges across a face loop, for loop cuts and bevels</td><td class="from">Blender</td></tr>
+        <tr><td class="name">Island</td><td>Every face connected to it</td><td class="from">ZModeler, Blender select linked</td></tr>
+        <tr><td class="name">Flat island</td><td>Connected faces within 15° of it, ZModeler's default tolerance</td><td class="from">ZModeler</td></tr>
+        <tr><td class="name">Group island / Group all</td><td>Its polygroup where connected, or everywhere</td><td class="from">ZModeler</td></tr>
+        <tr><td class="name">Between two</td><td>The shortest path from the first tap to the second</td><td class="from">Blender, ZModeler Crease shortest path</td></tr>
+        <tr><td class="name">Border</td><td>The open edge loop it sits on</td><td class="from">ZModeler</td></tr>
+        <tr><td class="name">Selection</td><td>What you painted with the Select sector, even when you drag on one face of it</td><td class="from">ZModeler temporary groups, kept separate from real groups</td></tr>
+        <tr><td class="name">Similar</td><td>Faces like it anywhere on the cage: same number of sides, area or direction, or whole regions with the same topology</td><td class="from">Blender select similar, Plasticity parallel faces</td></tr>
+        <tr><td class="name">Last inputs</td><td>What the last action used; tapping again steps back through earlier actions</td><td class="from">Plasticity select previous</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Actions</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Action</th><th>What the drag does</th><th>Variant (Alt) and Snap</th><th>From</th><th>Phase</th></tr></thead>
+      <tbody>
+        <tr class="group"><td colspan="5"><span class="el" style="color:var(--face)"><span class="dot" style="background:var(--face)"></span>Face</span></td></tr>
+        <tr><td class="name">Extrude</td><td>Pulls the faces along their normals; pushing in through other faces cuts a hole, and touching another surface welds to it</td><td>Alt: sides get a new polygroup. Snap: steps of the face size</td><td class="from">ZModeler QMesh, Shapr3D push and pull, Blender</td><td class="num">3</td></tr>
+        <tr><td class="name">Inset</td><td>Shrinks the faces inward, leaving a border ring</td><td>Alt: each face on its own. Option: crease new edges or the inner face</td><td class="from">ZModeler, Blender</td><td class="num">3</td></tr>
+        <tr><td class="name">Move, turn, scale</td><td>The target follows the drag along its normal and the faces around it stretch, so the shape stays closed; a tap brings up the existing move gizmo on the target</td><td>Snap: grid steps</td><td class="from">Shapr3D, Valence, our gizmo</td><td class="num">3</td></tr>
+        <tr><td class="name">Delete</td><td>Tap removes the faces</td><td>Alt: closes the gap with one face instead of leaving a hole</td><td class="from">ZModeler, Shapr3D delete face</td><td class="num">3</td></tr>
+        <tr><td class="name">Flatten to face</td><td>Tap the target, then a face to line it up with: the target moves onto that face's plane</td><td></td><td class="from">Shapr3D replace face</td><td class="num">4</td></tr>
+        <tr><td class="name">Polygroup</td><td>Tap or draw paints the faces with the current group</td><td>Alt: a new group</td><td class="from">ZModeler</td><td class="num">3</td></tr>
+        <tr><td class="name">Flip</td><td>Tap turns the faces over</td><td></td><td class="from">ZModeler</td><td class="num">3</td></tr>
+        <tr><td class="name">Bridge</td><td>Tap one face, drag to another; the drag sets how many segments, sideways sets the twist</td><td>Alt: curved bridge</td><td class="from">ZModeler, Blender</td><td class="num">4</td></tr>
+        <tr><td class="name">Crease</td><td>Tap creases the border of the target</td><td>Alt: removes creases</td><td class="from">ZModeler</td><td class="num">6</td></tr>
+        <tr><td class="name">Spine</td><td>Draw a path from the faces; each point on it is one extrusion step, and sideways at a point scales the loop there</td><td>Alt: an arc instead of a free path</td><td class="from">3D-Coat Spine, Blender extrude along a curve</td><td class="num">8</td></tr>
+        <tr><td class="name">Detach, poke, spin, equalize, spherize, inflate, insert mesh</td><td>As ZModeler</td><td></td><td class="from">ZModeler</td><td class="num">Later</td></tr>
+
+        <tr class="group"><td colspan="5"><span class="el" style="color:var(--edge)"><span class="dot" style="background:var(--edge)"></span>Edge</span></td></tr>
+        <tr><td class="name">Insert loop</td><td>Places a loop where you drag; sideways adds more loops</td><td>Snap: Half, Quarter or a Custom fraction, cycled by tapping the sector mid-drag. Option: crease new loops</td><td class="from">ZModeler, Blender loop cut</td><td class="num">4</td></tr>
+        <tr><td class="name">Slide</td><td>Slides the edge or loop along its neighbours</td><td>Alt: keeps even spacing</td><td class="from">ZModeler, Blender</td><td class="num">4</td></tr>
+        <tr><td class="name">Remove loop</td><td>Tap dissolves the edge or the loop and joins the faces, leaving no hole</td><td>Alt: dissolve everything flatter than an angle, stopping at creases and group borders</td><td class="from">Blender dissolve and limited dissolve</td><td class="num">4</td></tr>
+        <tr><td class="name">Collapse</td><td>Tap merges its two points</td><td></td><td class="from">ZModeler</td><td class="num">4</td></tr>
+        <tr><td class="name">Close hole</td><td>Tap a border to fill it</td><td>Alt: a quad grid instead of one polygon</td><td class="from">ZModeler, Blender grid fill</td><td class="num">4</td></tr>
+        <tr><td class="name">Extrude border</td><td>Drags a new strip out of an open edge</td><td>Snap: along the surface</td><td class="from">ZModeler, Retopo brush</td><td class="num">4</td></tr>
+        <tr><td class="name">Spin</td><td>Tap turns the edge inside its two faces</td><td></td><td class="from">ZModeler</td><td class="num">4</td></tr>
+        <tr><td class="name">Bridge, stitch, weld, unweld, split</td><td>Join two borders, close a seam, or cut along edges</td><td></td><td class="from">ZModeler</td><td class="num">4</td></tr>
+        <tr><td class="name">Bevel</td><td>Drag sets the width, sideways sets the segments; dragging below zero gives a flat chamfer. Taps on more edges join the same bevel</td><td>Alt: profile shape. Snap: width steps. Corners use Blender's miters, and widths are clamped so they never overlap</td><td class="from">ZModeler, Blender bevel, Shapr3D and Plasticity fillet and chamfer handle</td><td class="num">6</td></tr>
+        <tr><td class="name">Crease</td><td>Tap creases, and taps on more edges join it; drag up and down sets how sharp, from soft to fully sharp</td><td>Alt: removes</td><td class="from">ZModeler, Blender</td><td class="num">6</td></tr>
+        <tr><td class="name">Shape a loop</td><td>Tap rounds the loop into a circle, spaces its points evenly, or flattens it, picked in the pie</td><td>Alt: fit inside instead of best fit</td><td class="from">Blender To Circle and Space Loops Evenly, ZModeler Align</td><td class="num">8</td></tr>
+        <tr><td class="name">Curves along edges</td><td>Draw tubes along edges</td><td></td><td class="from">ZModeler</td><td class="num">Later</td></tr>
+
+        <tr class="group"><td colspan="5"><span class="el" style="color:var(--point)"><span class="dot" style="background:var(--point)"></span>Point</span></td></tr>
+        <tr><td class="name">Move</td><td>Moves the point; with soft falloff the neighbours follow</td><td>Snap: onto another point, which welds them</td><td class="from">ZModeler, Blender proportional editing</td><td class="num">3</td></tr>
+        <tr><td class="name">Connect</td><td>Tap a point, then another on the same face, to cut between them</td><td></td><td class="from">ZModeler point bridge, Maya multi-cut</td><td class="num">4</td></tr>
+        <tr><td class="name">Remove, split, slide, weld</td><td>Dissolve it, chamfer it, slide it along an edge, or merge it with its nearest point</td><td>Alt on weld: merge every point closer than a distance</td><td class="from">ZModeler, Blender merge by distance</td><td class="num">4</td></tr>
+        <tr><td class="name">Crease</td><td>Makes a sharp corner at the point</td><td></td><td class="from">ZModeler, OpenSubdiv corners</td><td class="num">6</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Live surface, as ZBrush's Dynamic Subdivision and Blender's modifiers</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Setting</th><th>What it does</th><th>Phase</th></tr></thead>
+      <tbody>
+        <tr><td class="name">Smooth 0–4</td><td>Catmull-Clark subdivision drawn live over the cage, with the cage edges still shown and picked. Creases keep edges sharp.</td><td class="num">6</td></tr>
+        <tr><td class="name">Creases</td><td>Sharpness per edge from soft to fully sharp, as OpenSubdiv and Blender do. Also: crease by angle, crease polygroup borders, crease the path between two taps.</td><td class="num">6</td></tr>
+        <tr><td class="name">Mirror</td><td>Live mirror on X, Y or Z, drawn as a ghost until you apply it; seam points stay on the plane. Every action also works with the app's symmetry.</td><td class="num">5</td></tr>
+        <tr><td class="name">Bevel creases</td><td>Rounds every creased edge by a width and segment count, like ZBrush's QGrid and Blender's bevel modifier.</td><td class="num">8</td></tr>
+        <tr><td class="name">Thickness</td><td>Gives a one-sided shell a thickness, with segments and a side for the offset.</td><td class="num">8</td></tr>
+        <tr><td class="name">Flat</td><td>Splits faces without smoothing, for hard surfaces.</td><td class="num">6</td></tr>
+        <tr><td class="name">Apply to sculpt</td><td>Turns the cage and its live surface into a real object with subdivision levels you can sculpt, keeping polygroups and UVs.</td><td class="num">7</td></tr>
+        <tr><td class="name">Array</td><td>Repeats the cage in a line, a circle or along a curve.</td><td class="num">Later</td></tr>
+        <tr><td class="name">Mesh check</td><td>Colours open edges, poles, triangles, polygons over four sides and faces that are not flat; for printing, overhangs and thin walls.</td><td class="num">6</td></tr>
+        <tr><td class="name">Zebra stripes</td><td>A display mode for judging how smooth a surface is.</td><td class="num">Later</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Making cages and retopology</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Feature</th><th>What it does</th><th>From</th><th>Phase</th></tr></thead>
+      <tbody>
+        <tr><td class="name">Primitives</td><td>Cube, plane, cylinder, quad sphere, torus and cone as cages; drag the handles to set segments before you start</td><td class="from">ZBrush Initialize, Nomad</td><td class="num">2</td></tr>
+        <tr><td class="name">Lathe</td><td>Turn a drawn profile around an axis into a cage, with a step count</td><td class="from">Blender spin, Plasticity revolve</td><td class="num">Later</td></tr>
+        <tr><td class="name">Open as cage</td><td>OBJ files with quads and polygons open as cages instead of being split into triangles</td><td class="from">Blender</td><td class="num">2</td></tr>
+        <tr><td class="name">Cage from sculpt</td><td>The existing automatic retopology result becomes an editable cage</td><td class="from">ZRemesher then ZModeler</td><td class="num">7</td></tr>
+        <tr><td class="name">Align parts</td><td>Tap a face, edge or point of one part and drag a line to another; they join centre to centre, then turn or flip</td><td class="from">Shapr3D align</td><td class="num">8</td></tr>
+        <tr><td class="name">Knife</td><td>Draw a stroke across faces to cut along it; tap points to cut a path; later, cut a drawn outline into the faces along the view</td><td class="from">Blender knife, Maya multi-cut</td><td class="num">8</td></tr>
+        <tr><td class="name">Topo pen</td><td>One tool for retopology: tap drops a point on the sculpt, a drag across points makes a face, a drag on a border edge extends it (sideways: the whole border), the Smooth sector relaxes and pins the border or the inside by where you start, and welds show in colour while dragging and happen on lift</td><td class="from">ZBrush Retopo brush, Maya Quad Draw, Modo Topology Pen, Blender Poly Build</td><td class="num">9</td></tr>
+        <tr><td class="name">Strips and patches</td><td>Draw strokes to make strips of quads; draw rings around a limb and one stroke along it to make a tube; draw a closed outline to fill it with quads; stamp a grid or circle patch and fit it with corner and edge handles</td><td class="from">ZBrush Retopo brush, 3D-Coat strokes, Smart Retopo and RFill</td><td class="num">10</td></tr>
+        <tr><td class="name">Face patches</td><td>Ready-made eye, mouth and ear loops</td><td class="from">ZBrush Human patches</td><td class="num">Later</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="others">
+  <h2>Ideas from other apps</h2>
+  <div class="two">
+    <div>
+      <h3 style="color:var(--ok)">Kept, because they work with a pen</h3>
+      <ul>
+        <li><b>Blender:</b> Adjust Last, loop cut with a count, dissolve, grid fill, shortest path, select linked, proportional editing, the bevel's quality and profile, the knife as a pen stroke, n-gons while blocking out, bevel miters and clamping, limited dissolve, merge by distance, select similar, loop shaping, mirror clipping and the mesh analysis colours.</li>
+        <li><b>Shapr3D:</b> handles on the tapped face or edge for pens without hover, the sign of a bevel picking round or flat, values you tap to type with sums and scrubbing, parameter cards that keep values on the canvas, actions that take more taps until you tap empty space, faces that move while the shape stays closed, and Align.</li>
+        <li><b>Plasticity:</b> the drag handle with a typed value beside it, the selection that readies the likely action, suggested actions for a selection, one handle for round and flat, drags that add up, and reselecting the last inputs.</li>
+        <li><b>Valence 3D:</b> loops picked automatically from one tap.</li>
+        <li><b>Maya:</b> Quad Draw's pen strokes on the live surface for retopology, multi-cut's tap to tap cutting, marking menus (our pie).</li>
+        <li><b>3D-Coat:</b> strokes that become strips, tubes and filled areas of quads, Spine, the mirror ghost, open edges in red, and hover-and-tap tweak tools.</li>
+        <li><b>Modo:</b> the Topology Pen's loop switch, welds shown while dragging and made on lift, and never picking hidden surfaces.</li>
+        <li><b>Nomad:</b> primitives with handles for their settings, and a clear step from a cage to a sculpt.</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="color:var(--warn)">Dropped, because they need a keyboard or a mouse</h3>
+      <ul>
+        <li>Blender's G, R and S with typed axes, and box select as the main way to choose things.</li>
+        <li>Selecting first and then running a command from a menu, which every desktop modeler relies on. Hover and target replace it.</li>
+        <li>Maya's option dialogs before an action runs. Adjust Last comes after the action.</li>
+        <li>ZModeler's TransPose actions, which our move gizmo already covers.</li>
+        <li>Modo's action centres and falloff setup panels. The Snap sector and soft falloff cover the common cases.</li>
+        <li>Shapr3D's double tap that selects a whole body, and its tap, hold and drag rules that depend on timing.</li>
+        <li>Maya's and Modo's mouse-button grammar (Tab with a middle drag, Ctrl Shift click) and Plasticity's letter keys inside a command. Their jobs move to the wheel sectors and the pie.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="code">
+  <h2>What changes in the code</h2>
+  <p class="prose">Today everything is triangles: <code>geom.Mesh</code> stores triangles only, OBJ files are split into triangles on import, and the quads from retopology are kept on the side in <code>sculpt.Levels.faces</code> and drawn as triangle pairs. Subdivision levels use Loop subdivision, which only works on triangles and has no creases. Polygroups are stored per triangle, and the wireframe draws triangle edges. Modeling needs real polygons, so the cage lives in its own structure and sculpting stays on triangles.</p>
+  <ul class="code-list">
+    <li><span class="what">New package <code>src/poly</code></span><span class="why">A half-edge mesh for the cage: polygons of any size, with fast walks around faces, points and loops. Pure geometry, like <code>geom</code>: no rendering, no interface. Edges with more than two faces are split when a cage is made, and the reason is shown.
+<pre>Poly_Mesh :: struct {
+	positions:  [dynamic][3]f32,
+	vert_out:   [dynamic]u32, // one half-edge leaving each point
+	he_next:    [dynamic]u32, // next half-edge around its face
+	he_from:    [dynamic]u32, // the point it leaves
+	he_face:    [dynamic]u32, // NONE on a border
+	face_first: [dynamic]u32,
+	face_group: [dynamic]u16,
+	crease:     [dynamic]f32, // per edge, edge = he >> 1, twin = he ~ 1
+	...
+}</pre></span></li>
+    <li><span class="what">Actions as pure procedures</span><span class="why">Each action takes the cage, a resolved target and its values, and returns what changed. Targets (loops, rings, islands, flat islands, groups, shortest path) are queries in the same package. Results are deterministic, so serial and parallel runs match and tests can compare them.</span></li>
+    <li><span class="what">Drawing and picking</span><span class="why">The cage is cut into triangles for drawing and hit testing, with a map from each triangle back to its face. Cage edges are drawn as thin screen-space strips by a small new pipeline, so they show on devices that cannot draw lines (the current wireframe turns off there) and can carry crease, selection and hover colours.</span></li>
+    <li><span class="what">Catmull-Clark subdivision</span><span class="why">The smooth surface with semi-sharp creases follows the OpenSubdiv rules, so it matches Blender. During a drag only the faces near the change are recomputed. Results are checked against Blender's Subdivision Surface using the Blender we already use in <code>scripts/export_check.py</code>.</span></li>
+    <li><span class="what">Subdivision levels learn Catmull-Clark</span><span class="why"><code>sculpt.Levels</code> gets a second scheme beside Loop, and <code>Quad_Faces</code> becomes a general face list. Apply to sculpt then builds levels from the cage. This also gives sculpting on quad levels, which ZBrush uses.</span></li>
+    <li><span class="what">Objects keep their cage</span><span class="why">An object can hold a cage and its live surface settings. The sculptor renumbers points for speed, so a stored map links cage points to mesh points. Polygroups go from cage faces to their triangles.</span></li>
+    <li><span class="what">Undo</span><span class="why">Each action records a snapshot of the cage in the History as one entry. A cage of 100,000 faces is a few megabytes. Adjust Last replaces that entry instead of adding one.</span></li>
+    <li><span class="what">Scene file version 26</span><span class="why">Adds the cage (points, faces, groups, creases, live settings) to objects. Every older file still opens. OBJ and USD export write real quads and polygons; glTF splits them into triangles as it must.</span></li>
+    <li><span class="what">Interface</span><span class="why">A <code>Model</code> tool and shelf page, the wheel's modeling labels, the element pie, presets as tiles, handles for pens without hover, the floating value, a parameter card per action built on Adjust Last, and Settings for tap-to-repeat and pick distances. Selection changes are recorded in the History so they can be undone. New scene commands for making a cage and applying it.</span></li>
+  </ul>
+</section>
+
+<section id="order">
+  <h2>Build order</h2>
+  <p class="prose">Ten phases, each made of pull requests small enough to review, each one leaving the app working. After each phase you can try something new on the XP-Pen. Every pull request runs the full gate, saves pictures of the cage that I describe, and adds pen scenarios to the touch checks as a desktop simulation.</p>
+  <div class="review">Before phase 1, a short design note goes through the architect review that the project rules require, since this adds a package, a History entry, scene commands, a shader and scene version 26.</div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Phase</th><th>Pull requests</th><th>What you can try after it</th></tr></thead>
+      <tbody>
+        <tr><td class="num">1</td><td><b>Cage core.</b> <code>src/poly</code> half-edge mesh, building from quads, polygons and triangles, the mesh check, cutting into triangles. Then the target queries: loops, rings, islands, flat islands, groups, borders, shortest path.</td><td>Nothing visible; tests only</td></tr>
+        <tr><td class="num">2</td><td><b>Model mode shell.</b> Primitives as cages, cage edges drawn, the Model shelf page and tool, saving and opening (version 26), undo of cage snapshots, OBJ opened as a cage.</td><td>Make a cube or cylinder, see its cage, save and reopen it</td></tr>
+        <tr><td class="num">3</td><td><b>Pen grammar and face actions.</b> Hover picking with colours and the label, handles for pens without hover, wheel relabelling, the element pie, presets as tiles. Then Extrude, Inset, Move, Delete, Polygroup and Flip with their targets.</td><td>Box-model a simple shape with one pen</td></tr>
+        <tr><td class="num">4</td><td><b>Edge and point actions.</b> Insert loop with snapping, slide, remove, collapse, close hole, extrude border, spin, bridge, stitch, weld, unweld, connect points, dissolve by angle, merge by distance.</td><td>Add and remove loops, close holes, bridge parts</td></tr>
+        <tr><td class="num">5</td><td><b>Selection, values and symmetry.</b> The Select sector with filters and undoable selections, the Selection, Similar and Last inputs targets, suggested actions for a selection, grow and shrink, the floating value and number fields with sums, the parameter card for every action, tap to repeat or add, live mirror with its ghost and clipping, and symmetry for every action.</td><td>Model one half and see both; type exact values</td></tr>
+        <tr><td class="num">6</td><td><b>Smooth surface.</b> Catmull-Clark with semi-sharp creases, the live Smooth and Flat settings, crease actions and crease options on loops and insets, the mesh check colours. Then edge and point bevel with miters and clamping.</td><td>Hard-surface shapes with sharp and soft edges</td></tr>
+        <tr><td class="num">7</td><td><b>Bridge to sculpting.</b> Catmull-Clark levels in the sculptor, Apply to sculpt keeping groups and UVs, the automatic retopology result as a cage. Then editing a cage under existing levels and projecting the sculpted detail back.</td><td>Model a base, sculpt it, change the base, keep the detail</td></tr>
+        <tr><td class="num">8</td><td><b>Live stack, cutting and parts.</b> Bevel creases, thickness, the knife stroke and tap-to-tap cuts, Align parts, Spine, shaping loops.</td><td>Panels and shells without extra loops</td></tr>
+        <tr><td class="num">9</td><td><b>Topo pen.</b> Points on a sculpt, faces by dragging over them, extending edges and borders, relaxing with the border or inside pinned, welds on lift, the cage drawn over the sculpt in its own colour.</td><td>Retopologise a sculpt by hand</td></tr>
+        <tr><td class="num">10</td><td><b>Strips and patches.</b> Strokes to strips of quads, rings and a stroke to tubes, outlines filled with quads, grid and circle patches with handles.</td><td>Faster retopology of large areas</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="muted prose">My rough size: about 28 pull requests in all. Phases 1 to 6 are the core that makes Model mode useful by itself; 7 connects it to sculpting; 8 to 10 can be reordered if you want retopology sooner.</p>
+</section>
+
+<section id="defaults">
+  <h2>Defaults I am using</h2>
+  <p class="prose">These answer the questions in the findings doc. Change any of them and I will adjust the plan before building.</p>
+  <div class="defaults">
+    <div><b>Your XP-Pen hovers</b><span>Plan for hover on Windows and Linux; tap-for-handle where there is none; pen buttons and express keys can be bound to Alt, Snap, the pie and Repeat.</span></div>
+    <div><b>N-gons are allowed</b><span>The cage keeps polygons of any size and shows them; smoothing turns them into quads.</span></div>
+    <div><b>Selection is its own layer</b><span>Painted like ZModeler's white groups, but your real polygroups never change.</span></div>
+    <div><b>Tap repeats</b><span>Kept, with a movement tolerance, a time window and a setting to turn it off.</span></div>
+    <div><b>Editing under sculpt levels</b><span>Comes in phase 7. Before that, a cage edit asks to drop the levels, as ZBrush does.</span></div>
+    <div><b>Box modeling first</b><span>Retopology comes in phases 9 and 10 and reuses everything before it.</span></div>
+    <div><b>Videos I could not watch</b><span>I planned from the doc pages, which cover the same features.</span></div>
+  </div>
+</section>
+
+<section id="risks">
+  <h2>Risks</h2>
+  <ul class="risk">
+    <li><b>Bevel quality</b><span>Clean bevel corners are hard; Blender spent years on them. The first version handles loops and corners where three or four edges meet, and says when it cannot bevel something rather than making bad geometry.</span></li>
+    <li><b>Creases matching other apps</b><span>Semi-sharp creases have exact rules. Tests compare our surface with Blender's for the same cage.</span></li>
+    <li><b>Picking small edges</b><span>On a tablet an edge can be a few pixels wide. Pick distances are settings, and the label always shows what will be hit.</span></li>
+    <li><b>Live smoothing while dragging</b><span>Recomputing a big smooth surface every frame is slow, so only the faces near the change are redone. If that is not enough, the drag shows one level less until you lift.</span></li>
+    <li><b>Pens without hover on Android</b><span>Handles cover it, but they take one more tap. That is worth trying on your tablet early, after phase 3.</span></li>
+  </ul>
+</section>
+
+<section class="ask" id="approve">
+  <h2>To start building</h2>
+  <p class="prose">Say go and I begin with the design note for the architect review, then phase 1. You can also change the order or any default first. Each pull request merges into <code>odin-sculpt</code> as usual.</p>
+</section>
+
+</div>

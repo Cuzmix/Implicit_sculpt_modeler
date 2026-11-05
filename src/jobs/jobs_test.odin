@@ -44,3 +44,35 @@ progress_reports_shares_and_cancel :: proc(t: ^testing.T) {
 	progress_cancel(nil)
 	testing.expect(t, progress_get(nil) == 0 && !progress_cancelled(nil), "a nil progress said something")
 }
+
+// A worker that read the claim of a job already handed out, and then the fields of the
+// next one, must not run an index of that next job before it is published: that index ran
+// twice, and the dispatch returned while it still ran, reading its caller's dead stack
+// (a crash in record_hit's copy at 23.7M vertices). Larger jobs after smaller ones, on
+// more workers than cores so they are preempted between those reads.
+@(test)
+a_job_never_runs_an_index_of_the_next_one :: proc(t: ^testing.T) {
+	p: Pool
+	pool_init(&p, 4 * thread_count_hint())
+	defer pool_destroy(&p)
+	// Each dispatch counts into its own slot of a ring, so a straggler writes where the
+	// test can see it rather than into a later dispatch's counts.
+	SLOTS :: 64
+	Slot :: struct {
+		hits: [64]i32,
+	}
+	ring := make([]Slot, SLOTS)
+	defer delete(ring)
+	bad := 0
+	for d in 0 ..< 20_000 {
+		slot := &ring[d % SLOTS]
+		slot^ = {}
+		count := 2 if d % 2 == 0 else 64
+		parallel_for(&p, count, slot, proc(data: rawptr, i: int) {
+			s := cast(^Slot)data
+			sync.atomic_add(&s.hits[i], 1)
+		})
+		for &h in slot.hits[:count] do if sync.atomic_load(&h) != 1 do bad += 1
+	}
+	testing.expectf(t, bad == 0, "%d indices ran other than once by the time their dispatch returned", bad)
+}

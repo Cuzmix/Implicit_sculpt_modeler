@@ -1,6 +1,6 @@
 package retopo
 
-@(require) import "core:log" // used only where AutoRemesher is not built
+import "core:log"
 import "core:math"
 import "core:testing"
 
@@ -20,15 +20,13 @@ polygons_closed :: proc(m: quadmesh.Polygon_Mesh) -> bool {
 	return true
 }
 
-// Keep symmetry lands the count asked: the flat caps over the cut take none of it (they
-// took a third more than their area's share before), on one plane and on two, and every
-// face comes back a quad over a closed surface.
+// Keep symmetry lands the count asked, on one plane, two and three, and every face comes
+// back a quad over a closed surface with no fall back to the whole: the half goes in open
+// and lands within 2 % from 4,000 quads; below that a hemisphere's cells go in steps (the
+// rows between its border and its singular vertices are whole, each a ring of quads, 9 %
+// of 1,000 at a time), and it lands within 5 %.
 @(test)
 quad_remesh_mirrored_lands_the_count :: proc(t: ^testing.T) {
-	when !quadmesh.AVAILABLE {
-		log.info("quadmesh is not built on this platform")
-		return
-	}
 	m := geom.icosphere(5)
 	defer geom.mesh_destroy(&m)
 	resize(&m.normals, len(m.positions))
@@ -37,13 +35,23 @@ quad_remesh_mirrored_lands_the_count :: proc(t: ^testing.T) {
 		quads: int,
 		axes:  [3]bool,
 	}
-	for c in ([]Case{{1000, {true, false, false}}, {2000, {true, false, false}}, {4000, {true, false, false}}, {4000, {true, true, false}}}) {
-		r := compute(m, c.quads, {engine = .Auto, mirror = {axes = c.axes}}, nil)
+	cases := []Case {
+		{1000, {true, false, false}},
+		{2000, {true, false, false}},
+		{4000, {true, false, false}},
+		{4000, {true, true, false}},
+		{8000, {true, false, false}},
+		{8000, {true, true, false}},
+		{8000, {true, true, true}},
+	}
+	for c in cases {
+		r := compute(m, c.quads, {engine = .Flow, mirror = {axes = c.axes}}, nil)
 		defer result_destroy(&r)
 		check := geom.mesh_check(r.mesh)
-		log.infof("mirrored %v at %d: %d faces (%.1f %%), %d quads", c.axes, c.quads, r.faces, 100 * f32(r.faces) / f32(c.quads), r.quads)
+		log.infof("mirrored %v at %d: %d faces (%.1f %%), %d quads, closed %v", c.axes, c.quads, r.faces, 100 * f32(r.faces) / f32(c.quads), r.quads, check.closed)
 		testing.expectf(t, r.mirrored, "%v at %d was not mirrored: %s", c.axes, c.quads, r.unmirrored)
-		testing.expectf(t, abs(r.faces - c.quads) * 20 <= c.quads, "%v gave %d faces for %d asked", c.axes, r.faces, c.quads)
+		within := 50 if c.quads >= 4000 else 20
+		testing.expectf(t, abs(r.faces - c.quads) * within <= c.quads, "%v gave %d faces for %d asked", c.axes, r.faces, c.quads)
 		testing.expectf(t, r.quads == r.faces, "%v at %d: %d of %d faces are quads", c.axes, c.quads, r.quads, r.faces)
 		testing.expectf(t, check.closed && check.non_manifold_edges == 0, "%v at %d is not closed", c.axes, c.quads)
 	}
@@ -54,10 +62,6 @@ quad_remesh_mirrored_lands_the_count :: proc(t: ^testing.T) {
 // closed, with a few quads more for the path cut between the two.
 @(test)
 quad_fill_odd_joins_two_triangles :: proc(t: ^testing.T) {
-	when !quadmesh.AVAILABLE {
-		log.info("quadmesh is not built on this platform")
-		return
-	}
 	s := geom.icosphere(4)
 	defer geom.mesh_destroy(&s)
 	m, _, err, _ := quadmesh.remesh(s.positions[:], s.indices[:], {quads = 600, sharp_degrees = 90, threads = 1})
@@ -128,18 +132,14 @@ add_rod :: proc(m: ^geom.Mesh, radius, reach: f32, around, rings: int) {
 // to both ends, its vertices on its surface, with the count kept and every face a quad.
 @(test)
 quad_remesh_keeps_thin_parts :: proc(t: ^testing.T) {
-	when !quadmesh.AVAILABLE {
-		log.info("quadmesh is not built on this platform")
-		return
-	}
 	m := geom.icosphere(5)
 	defer geom.mesh_destroy(&m)
 	add_rod(&m, 0.03, 1.3, 24, 61)
 	resize(&m.normals, len(m.positions))
 	geom.mesh_recompute_normals(&m)
-	r := compute(m, 2000, {engine = .Auto}, nil)
+	r := compute(m, 2000, {engine = .Flow}, nil)
 	defer result_destroy(&r)
-	if !testing.expect(t, r.built && r.engine == .Auto, "AutoRemesher did not build it") do return
+	if !testing.expect(t, r.built && r.engine == .Flow, "Flow did not build it") do return
 	outside, ends: [2]int
 	off: f32
 	for p in r.mesh.positions {
@@ -197,4 +197,34 @@ dissolve_doublets_mends_a_split_quad :: proc(t: ^testing.T) {
 	testing.expectf(t, quads == 6 && triangles == 0 && ngons == 0, "%d quads, %d triangles, %d larger", quads, triangles, ngons)
 	testing.expect(t, polygons_closed(m), "the cube is not closed")
 	for p in planes do testing.expect(t, p == 0, "the dissolved vertex's plane entry stayed")
+}
+
+// The corners on the surface: the extraction puts them on the isotropic mesh, whose
+// chords cut a bumpy sphere's creases (0.0042 off it at 1,000 quads); put onto the mesh
+// last, none lies more than a rounding off it, and none of their faces turned over.
+@(test)
+quad_remesh_puts_the_corners_on_the_surface :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	defer geom.mesh_destroy(&m)
+	for &p in m.positions {
+		bump := 1 + 0.08 * math.sin(7 * p.x) * math.sin(5 * p.y) * math.cos(6 * p.z) + 0.04 * math.cos(11 * p.x + 3 * p.z)
+		p *= bump
+	}
+	resize(&m.normals, len(m.positions))
+	geom.mesh_recompute_normals(&m)
+	r := compute(m, 1000, {engine = .Flow}, nil)
+	defer result_destroy(&r)
+	if !testing.expect(t, r.built && r.engine == .Flow, "Flow did not build it") do return
+	bvh := geom.bvh_build_morton(m, geom.BVH_LEAF_SIZE, nil)
+	defer geom.bvh_destroy(&bvh)
+	off: f32
+	for p in r.mesh.positions {
+		_, _, d, ok := geom.bvh_closest(bvh, m, p, max(f32))
+		if ok do off = max(off, d)
+	}
+	check := geom.mesh_check(r.mesh)
+	log.infof("bumpy: %d faces, the corners at most %.6f off the surface", r.faces, off)
+	testing.expectf(t, off < 1e-4, "a corner lies %.6f off the surface", off)
+	testing.expectf(t, r.quads == r.faces, "%d of %d faces are quads", r.quads, r.faces)
+	testing.expect(t, check.closed && check.non_manifold_edges == 0 && !check.inverted && check.inconsistent_edges == 0, "not closed, or turned")
 }

@@ -231,7 +231,7 @@ environment_destroy :: proc(app: ^App) {
 environment_view :: proc(app: ^App) {
 	r := &app.renderer
 	e := &app.env
-	if e.kind != .Image || e.gpu.source == nil {
+	if e.kind != .Image || e.gpu.source == 0 {
 		r.environment, r.environment_look = nil, {}
 		return
 	}
@@ -265,7 +265,7 @@ environment_rotation :: proc(app: ^App) -> [3][4]f32 {
 // whole (Material Preview or Rendered), where it is seen. Alt and right still pans.
 environment_drag_turns :: proc(app: ^App) -> bool {
 	e := &app.env
-	if e.kind != .Image || e.gpu.source == nil do return false
+	if e.kind != .Image || e.gpu.source == 0 do return false
 	s, pane := main_draw_shading(app)
 	m := shading_mode_shown(app, s, pane)
 	return m == .Material_Preview || m == .Rendered
@@ -337,7 +337,7 @@ kit_environment :: proc(app: ^App) {
 	switch {
 	case e.decode != nil:
 		ui.paragraph(ctx, fmt.tprintf("Reading %s...", filepath.base(e.decode.path)))
-	case e.gpu.source != nil:
+	case e.gpu.source != 0:
 		mb := f32(render.environment_bytes(e.gpu)) / (1024 * 1024)
 		ui.paragraph(ctx, fmt.tprintf("%s, %d x %d (%.1f MB on the GPU).", filepath.base(e.path), e.gpu.width, e.gpu.height, mb))
 	case:

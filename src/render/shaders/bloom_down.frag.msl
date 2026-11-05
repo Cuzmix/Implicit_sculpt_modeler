@@ -1,185 +1,376 @@
-// SDL_shadercross 1ff05bec5739 from bloom_down.frag.spv sha256 0c6a396d73d52306182f7627e1d56be1719f216013f99d27b551d21626fa98f3
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-
+// slangc metal from bloom_down.frag.spv sha256 0c6a396d73d52306182f7627e1d56be1719f216013f99d27b551d21626fa98f3
+// slots s=0:0 rt= wt= rb= wb= u=0 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-struct SLANG_ParameterGroup_Bloom_Down_Uniforms_std140
+#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
-    float4 params;
-    float4 size;
+
+#line 10
+    thread uint w_0;
+
+#line 10
+    thread uint h_0;
+
+#line 10
+    thread uint levels_0;
+
+#line 10
+    (*((&w_0)) = (t_texture_0).get_width((0U))),(*((&h_0)) = (t_texture_0).get_height((0U))),(*((&levels_0)) = (t_texture_0).get_num_mip_levels());
+
+    return int2(int(w_0), int(h_0));
+}
+
+
+#line 34 "/home/user/Implicit_sculpt_modeler/src/render/shaders/display.slang"
+float3 srgb_decode_0(float3 c_0)
+{
+
+#line 35
+    return mix(c_0 / float3(12.92000007629394531f) , pow((c_0 + float3(0.05499999970197678f) ) / float3(1.0549999475479126f) , float3(2.40000009536743164f) ), step(float3(0.04044999927282333f) , c_0));
+}
+
+
+#line 46
+float3 neutral_inverse_0(float3 y_0)
+{
+
+
+
+    float _S1 = min(max(y_0.x, max(y_0.y, y_0.z)), 0.99554997682571411f);
+
+#line 51
+    float3 c_1;
+    if(_S1 >= 0.75999999046325684f)
+    {
+
+        float peak_0 = 0.51999998092651367f + 0.0576000027358532f / (1.0f - _S1);
+        float g_0 = 1.0f - 1.0f / (0.15000000596046448f * (peak_0 - _S1) + 1.0f);
+
+#line 56
+        c_1 = (min(y_0, float3(_S1) ) - float3((g_0 * _S1)) ) / float3((1.0f - g_0))  * float3((peak_0 / _S1)) ;
+
+#line 52
+    }
+    else
+    {
+
+#line 52
+        c_1 = y_0;
+
+#line 52
+    }
+
+#line 62
+    float _S2 = max(min(c_1.x, min(c_1.y, c_1.z)), 0.0f);
+
+#line 62
+    float offset_0;
+    if(_S2 < 0.03999999910593033f)
+    {
+
+#line 63
+        offset_0 = 0.40000000596046448f * sqrt(_S2) - _S2;
+
+#line 63
+    }
+    else
+    {
+
+#line 63
+        offset_0 = 0.03999999910593033f;
+
+#line 63
+    }
+    return max(c_1 + float3(offset_0) , float3(0.0f) );
+}
+
+
+#line 18
+float3 tone_map_0(float3 c_2)
+{
+
+    float _S3 = min(c_2.x, min(c_2.y, c_2.z));
+
+#line 21
+    float offset_1;
+    if(_S3 < 0.07999999821186066f)
+    {
+
+#line 22
+        offset_1 = _S3 - 6.25f * _S3 * _S3;
+
+#line 22
+    }
+    else
+    {
+
+#line 22
+        offset_1 = 0.03999999910593033f;
+
+#line 22
+    }
+    float3 _S4 = c_2 - float3(offset_1) ;
+    float _S5 = max(_S4.x, max(_S4.y, _S4.z));
+    if(_S5 < 0.75999999046325684f)
+    {
+
+#line 25
+        return _S4;
+    }
+    float new_peak_0 = 1.0f - 0.0576000027358532f / (_S5 + 0.24000000953674316f - 0.75999999046325684f);
+
+
+    return mix(_S4 * float3((new_peak_0 / _S5)) , float3(new_peak_0) , float3((1.0f - 1.0f / (0.15000000596046448f * (_S5 - new_peak_0) + 1.0f))) );
+}
+
+
+#line 19 "/home/user/Implicit_sculpt_modeler/src/render/shaders/bloom.slang"
+float3 bloom_decode_0(float3 v_0)
+{
+
+#line 20
+    float3 shown_0 = srgb_decode_0(v_0);
+    float3 c_3 = neutral_inverse_0(shown_0);
+    float3 residual_0 = shown_0 - tone_map_0(c_3);
+
+
+    float3 weights_0 = float3(0.2125999927520752f, 0.71520000696182251f, 0.07220000028610229f);
+
+    return mix(c_3, shown_0 * float3(dot(c_3, weights_0))  / float3(max(dot(shown_0, weights_0), 0.00009999999747379f)) , float3(max(smoothstep(0.00999999977648258f, 0.05000000074505806f, max(abs(residual_0.x), max(abs(residual_0.y), abs(residual_0.z)))), smoothstep(0.85000002384185791f, 0.97000002861022949f, max(shown_0.x, max(shown_0.y, shown_0.z))))) );
+}
+
+
+#line 6
+float3 above_threshold_0(float3 c_4, float threshold_0)
+{
+
+#line 7
+    if(threshold_0 <= 0.0f)
+    {
+
+#line 7
+        return c_4;
+    }
+
+#line 8
+    float _S6 = max(c_4.x, max(c_4.y, c_4.z));
+    float knee_0 = 0.5f * threshold_0;
+    float _S7 = _S6 - threshold_0;
+
+#line 10
+    float q_0 = clamp(_S7 + knee_0, 0.0f, 2.0f * knee_0);
+
+    return c_4 * float3(max(q_0 * q_0 / (4.0f * knee_0), _S7))  / float3(max(_S6, 0.00009999999747379f)) ;
+}
+
+
+#line 12 "/home/user/Implicit_sculpt_modeler/src/render/shaders/bloom_down.frag.slang"
+struct SLANG_ParameterGroup_Bloom_Down_Uniforms_0
+{
+    float4 params_0;
+    float4 size_0;
 };
 
-struct main0_out
+
+#line 1084 "core"
+struct KernelContext_0
 {
-    float4 entryPointParam_main [[color(0)]];
+    SLANG_ParameterGroup_Bloom_Down_Uniforms_0 constant* Bloom_Down_Uniforms_0;
+    texture2d<float, access::sample> input_texture_0;
+    sampler input_sampler_0;
 };
 
-static inline __attribute__((always_inline))
-int2 texture_size(texture2d<float> _input, sampler _inputSmplr)
-{
-    uint2 _vecSize = uint2(_input.get_width(0u), _input.get_height(0u));
-    uint w = _vecSize.x;
-    uint h = _vecSize.y;
-    uint levels = uint(_input.get_num_mip_levels());
-    return int2(int(w), int(h));
-}
 
-static inline __attribute__((always_inline))
-float3 srgb_decode(float3 c)
+#line 24 "/home/user/Implicit_sculpt_modeler/src/render/shaders/bloom_down.frag.slang"
+float3 light_0(float2 uv_0, KernelContext_0 thread* kernelContext_0)
 {
-    return mix(c / float3(12.9200000762939453125), powr((c + float3(0.054999999701976776123046875)) / float3(1.05499994754791259765625), float3(2.400000095367431640625)), step(float3(0.040449999272823333740234375), c));
-}
 
-static inline __attribute__((always_inline))
-float3 neutral_inverse(float3 y)
-{
-    float _140 = fast::min(fast::max(y.x, fast::max(y.y, y.z)), 0.995549976825714111328125);
-    float3 c;
-    if (_140 >= 0.7599999904632568359375)
+#line 25
+    float3 c_5 = ((kernelContext_0->input_texture_0).sample((kernelContext_0->input_sampler_0), (uv_0), level((0.0f)))).xyz;
+    if((kernelContext_0->Bloom_Down_Uniforms_0->params_0.x) < 0.5f)
     {
-        float peak = 0.519999980926513671875 + (0.0576000027358531951904296875 / (1.0 - _140));
-        float g = 1.0 - (1.0 / ((0.1500000059604644775390625 * (peak - _140)) + 1.0));
-        c = ((fast::min(y, float3(_140)) - float3(g * _140)) / float3(1.0 - g)) * (peak / _140);
+
+#line 26
+        return c_5;
+    }
+
+#line 26
+    float3 c_6;
+    if((kernelContext_0->Bloom_Down_Uniforms_0->params_0.y) < 0.5f)
+    {
+
+#line 27
+        c_6 = bloom_decode_0(c_5);
+
+#line 27
     }
     else
     {
-        c = y;
+
+#line 27
+        c_6 = c_5;
+
+#line 27
     }
-    float _178 = fast::max(fast::min(c.x, fast::min(c.y, c.z)), 0.0);
-    float offset;
-    if (_178 < 0.039999999105930328369140625)
+
+    return above_threshold_0(clamp(c_6, float3(0.0f) , float3(30000.0f) ), kernelContext_0->Bloom_Down_Uniforms_0->params_0.z);
+}
+
+
+float3 box_0(float3 a_0, float3 b_0, float3 c_7, float3 d_0, float thread* weight_0, KernelContext_0 thread* kernelContext_1)
+{
+
+#line 34
+    float3 m_0 = float3(0.25f)  * (a_0 + b_0 + c_7 + d_0);
+
+#line 34
+    float _S8;
+    if((kernelContext_1->Bloom_Down_Uniforms_0->params_0.x) > 0.5f)
     {
-        offset = (0.4000000059604644775390625 * sqrt(_178)) - _178;
+
+#line 35
+        _S8 = 1.0f / (1.0f + dot(m_0, float3(0.2125999927520752f, 0.71520000696182251f, 0.07220000028610229f)));
+
+#line 35
     }
     else
     {
-        offset = 0.039999999105930328369140625;
+
+#line 35
+        _S8 = 1.0f;
+
+#line 35
     }
-    return fast::max(c + float3(offset), float3(0.0));
+
+#line 35
+    *weight_0 = _S8;
+    return m_0;
 }
 
-static inline __attribute__((always_inline))
-float3 tone_map(float3 c)
-{
-    float _211 = fast::min(c.x, fast::min(c.y, c.z));
-    float offset;
-    if (_211 < 0.07999999821186065673828125)
-    {
-        offset = _211 - ((6.25 * _211) * _211);
-    }
-    else
-    {
-        offset = 0.039999999105930328369140625;
-    }
-    float3 _225 = c - float3(offset);
-    float _230 = fast::max(_225.x, fast::max(_225.y, _225.z));
-    if (_230 < 0.7599999904632568359375)
-    {
-        return _225;
-    }
-    float new_peak = 1.0 - (0.0576000027358531951904296875 / ((_230 + 0.2400000095367431640625) - 0.7599999904632568359375));
-    return mix(_225 * (new_peak / _230), float3(new_peak), float3(1.0 - (1.0 / ((0.1500000059604644775390625 * (_230 - new_peak)) + 1.0))));
-}
 
-static inline __attribute__((always_inline))
-float3 bloom_decode(float3 v)
+#line 36
+struct pixelOutput_0
 {
-    float3 shown = srgb_decode(v);
-    float3 c = neutral_inverse(shown);
-    float3 residual = shown - tone_map(c);
-    return mix(c, (shown * dot(c, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875))) / float3(fast::max(dot(shown, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)), 9.9999997473787516355514526367188e-05)), float3(fast::max(smoothstep(0.00999999977648258209228515625, 0.0500000007450580596923828125, fast::max(abs(residual.x), fast::max(abs(residual.y), abs(residual.z)))), smoothstep(0.85000002384185791015625, 0.9700000286102294921875, fast::max(shown.x, fast::max(shown.y, shown.z))))));
-}
+    float4 output_0 [[color(0)]];
+};
 
-static inline __attribute__((always_inline))
-float3 above_threshold(float3 c, float threshold)
-{
-    if (threshold <= 0.0)
-    {
-        return c;
-    }
-    float _311 = fast::max(c.x, fast::max(c.y, c.z));
-    float knee = 0.5 * threshold;
-    float _313 = _311 - threshold;
-    float _317 = fast::clamp(_313 + knee, 0.0, 2.0 * knee);
-    return (c * fast::max((_317 * _317) / (4.0 * knee), _313)) / float3(fast::max(_311, 9.9999997473787516355514526367188e-05));
-}
 
-static inline __attribute__((always_inline))
-float3 light(float2 uv, constant SLANG_ParameterGroup_Bloom_Down_Uniforms_std140& Bloom_Down_Uniforms, texture2d<float> _input, sampler _inputSmplr)
+#line 39
+[[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], SLANG_ParameterGroup_Bloom_Down_Uniforms_0 constant* Bloom_Down_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> input_texture_1 [[texture(0)]], sampler input_sampler_1 [[sampler(0)]])
 {
-    float4 _81 = _input.sample(_inputSmplr, uv, level(0.0));
-    if (Bloom_Down_Uniforms.params.x < 0.5)
-    {
-        return _81.xyz;
-    }
-    float3 c;
-    if (Bloom_Down_Uniforms.params.y < 0.5)
-    {
-        c = bloom_decode(_81.xyz);
-    }
-    else
-    {
-        c = _81.xyz;
-    }
-    return above_threshold(fast::clamp(c, float3(0.0), float3(30000.0)), Bloom_Down_Uniforms.params.z);
-}
 
-static inline __attribute__((always_inline))
-float3 box(float3 a, float3 b, float3 c, float3 d, thread float& weight, constant SLANG_ParameterGroup_Bloom_Down_Uniforms_std140& Bloom_Down_Uniforms)
-{
-    float3 m = (((a + b) + c) + d) * 0.25;
-    float _382;
-    if (Bloom_Down_Uniforms.params.x > 0.5)
-    {
-        _382 = 1.0 / (1.0 + dot(m, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)));
-    }
-    else
-    {
-        _382 = 1.0;
-    }
-    weight = _382;
-    return m;
-}
+#line 39
+    thread KernelContext_0 kernelContext_2;
 
-fragment main0_out main0(constant SLANG_ParameterGroup_Bloom_Down_Uniforms_std140& Bloom_Down_Uniforms [[buffer(0)]], texture2d<float> _input [[texture(0)]], sampler _inputSmplr [[sampler(0)]], float4 gl_FragCoord [[position]])
-{
-    main0_out out = {};
-    float2 uv = gl_FragCoord.xy * Bloom_Down_Uniforms.size.xy;
-    float2 t = float2(1.0) / float2(texture_size(_input, _inputSmplr));
-    float3 b = light(uv + (t * float2(0.0, -2.0)), Bloom_Down_Uniforms, _input, _inputSmplr);
-    float3 d = light(uv + (t * float2(-2.0, 0.0)), Bloom_Down_Uniforms, _input, _inputSmplr);
-    float3 e = light(uv, Bloom_Down_Uniforms, _input, _inputSmplr);
-    float3 f = light(uv + (t * float2(2.0, 0.0)), Bloom_Down_Uniforms, _input, _inputSmplr);
-    float3 h = light(uv + (t * float2(0.0, 2.0)), Bloom_Down_Uniforms, _input, _inputSmplr);
-    float w0;
-    float3 inner = box(light(uv + (t * float2(-1.0)), Bloom_Down_Uniforms, _input, _inputSmplr), light(uv + (t * float2(1.0, -1.0)), Bloom_Down_Uniforms, _input, _inputSmplr), light(uv + (t * float2(-1.0, 1.0)), Bloom_Down_Uniforms, _input, _inputSmplr), light(uv + t, Bloom_Down_Uniforms, _input, _inputSmplr), w0, Bloom_Down_Uniforms);
-    float w1;
-    float3 b1 = box(light(uv + (t * float2(-2.0)), Bloom_Down_Uniforms, _input, _inputSmplr), b, d, e, w1, Bloom_Down_Uniforms);
-    float w2;
-    float3 b2 = box(b, light(uv + (t * float2(2.0, -2.0)), Bloom_Down_Uniforms, _input, _inputSmplr), e, f, w2, Bloom_Down_Uniforms);
-    float w3;
-    float3 b3 = box(d, e, light(uv + (t * float2(-2.0, 2.0)), Bloom_Down_Uniforms, _input, _inputSmplr), h, w3, Bloom_Down_Uniforms);
-    float w4;
-    float3 b4 = box(e, f, h, light(uv + (t * float2(2.0)), Bloom_Down_Uniforms, _input, _inputSmplr), w4, Bloom_Down_Uniforms);
-    float _411 = w0;
-    float _412 = _411 * 0.5;
-    w0 = _412;
-    float _414 = w1;
-    float _415 = _414 * 0.125;
-    w1 = _415;
-    float _418 = w2;
-    float _419 = _418 * 0.125;
-    w2 = _419;
-    float _421 = w3;
-    float _422 = _421 * 0.125;
-    w3 = _422;
-    float _424 = w4;
-    float _425 = _424 * 0.125;
-    w4 = _425;
-    out.entryPointParam_main = float4((((((inner * _412) + (b1 * _415)) + (b2 * _419)) + (b3 * _422)) + (b4 * _425)) / float3((((_412 + _415) + _419) + _422) + _425), 1.0);
-    return out;
+#line 39
+    (&kernelContext_2)->Bloom_Down_Uniforms_0 = Bloom_Down_Uniforms_1;
+
+#line 39
+    (&kernelContext_2)->input_texture_0 = input_texture_1;
+
+#line 39
+    (&kernelContext_2)->input_sampler_0 = input_sampler_1;
+    float2 uv_1 = frag_coord_0.xy * Bloom_Down_Uniforms_1->size_0.xy;
+    float2 t_0 = float2(1.0f)  / float2(texture_size_0(input_texture_1, input_sampler_1));
+
+#line 41
+    float3 _S9 = light_0(uv_1 + t_0 * float2(-2.0f, -2.0f), &kernelContext_2);
+
+#line 41
+    float3 _S10 = light_0(uv_1 + t_0 * float2(0.0f, -2.0f), &kernelContext_2);
+
+#line 41
+    float3 _S11 = light_0(uv_1 + t_0 * float2(2.0f, -2.0f), &kernelContext_2);
+
+#line 41
+    float3 _S12 = light_0(uv_1 + t_0 * float2(-2.0f, 0.0f), &kernelContext_2);
+
+#line 41
+    float3 _S13 = light_0(uv_1, &kernelContext_2);
+
+#line 41
+    float3 _S14 = light_0(uv_1 + t_0 * float2(2.0f, 0.0f), &kernelContext_2);
+
+#line 41
+    float3 _S15 = light_0(uv_1 + t_0 * float2(-2.0f, 2.0f), &kernelContext_2);
+
+#line 41
+    float3 _S16 = light_0(uv_1 + t_0 * float2(0.0f, 2.0f), &kernelContext_2);
+
+#line 41
+    float3 _S17 = light_0(uv_1 + t_0 * float2(2.0f, 2.0f), &kernelContext_2);
+
+#line 41
+    float3 _S18 = light_0(uv_1 + t_0 * float2(-1.0f, -1.0f), &kernelContext_2);
+
+#line 41
+    float3 _S19 = light_0(uv_1 + t_0 * float2(1.0f, -1.0f), &kernelContext_2);
+
+#line 41
+    float3 _S20 = light_0(uv_1 + t_0 * float2(-1.0f, 1.0f), &kernelContext_2);
+
+#line 41
+    float3 _S21 = light_0(uv_1 + t_0, &kernelContext_2);
+
+#line 56
+    thread float w0_0;
+
+#line 56
+    float3 _S22 = box_0(_S18, _S19, _S20, _S21, &w0_0, &kernelContext_2);
+
+#line 56
+    thread float w1_0;
+
+#line 56
+    float3 _S23 = box_0(_S9, _S10, _S12, _S13, &w1_0, &kernelContext_2);
+
+#line 56
+    thread float w2_0;
+
+#line 56
+    float3 _S24 = box_0(_S10, _S11, _S13, _S14, &w2_0, &kernelContext_2);
+
+#line 56
+    thread float w3_0;
+
+#line 56
+    float3 _S25 = box_0(_S12, _S13, _S15, _S16, &w3_0, &kernelContext_2);
+
+#line 56
+    thread float w4_0;
+
+#line 56
+    float3 _S26 = box_0(_S13, _S14, _S16, _S17, &w4_0, &kernelContext_2);
+
+#line 62
+    float _S27 = w0_0 * 0.5f;
+
+#line 62
+    w0_0 = _S27;
+    float _S28 = w1_0 * 0.125f;
+
+#line 63
+    w1_0 = _S28;
+    float _S29 = w2_0 * 0.125f;
+
+#line 64
+    w2_0 = _S29;
+    float _S30 = w3_0 * 0.125f;
+
+#line 65
+    w3_0 = _S30;
+    float _S31 = w4_0 * 0.125f;
+
+#line 66
+    w4_0 = _S31;
+
+#line 66
+    pixelOutput_0 _S32 = { float4((_S22 * float3(_S27)  + _S23 * float3(_S28)  + _S24 * float3(_S29)  + _S25 * float3(_S30)  + _S26 * float3(_S31) ) / float3((_S27 + _S28 + _S29 + _S30 + _S31)) , 1.0f) };
+
+    return _S32;
 }
 

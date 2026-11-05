@@ -53,6 +53,10 @@ Undo_Step :: struct {
 	// whose mask was picked when it was made (layer_masks.odin).
 	mask_layer: int,
 	mask_moved: bool, // a change of that layer's mask moved the surface (never into a recording layer)
+	// The id of the paint layer its saved colours belong to: the one picked when it was made
+	// (paint_layers.odin).
+	paint_layer: u32,
+	paint_op:    Paint_Op, // the paint layer stack changed (paint_layers.odin)
 	// Adjust last stroke (adjust.odin): set once the newest step is adjusted, with what
 	// the stroke left of each saved node, at after_at[i] in the block of its kind.
 	adjusting:    bool,
@@ -141,6 +145,7 @@ sculptor_stroke_begin :: proc(s: ^Sculptor) {
 	if h.recording do return
 	h.recording = true
 	h.current.mask_layer = s.layers.picked
+	h.current.paint_layer = s.paint.picked
 	h.stamp += 1
 	if h.stamp == 0 { 	// wrapped: stamps from long ago would look current
 		slice.zero(h.saved)
@@ -159,7 +164,7 @@ sculptor_stroke_end :: proc(s: ^Sculptor) -> bool {
 	h := &s.history
 	if !h.recording do return false
 	h.recording = false
-	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 && len(h.current.shown) == 0 && len(h.current.grouped) == 0 && !h.current.skinned && !h.current.skin_op.active && !h.current.layer_op.active && !h.current.layer_set.active && !h.current.layer_move.active && !h.current.layer_stack.active {
+	if len(h.current.nodes) == 0 && len(h.current.painted) == 0 && len(h.current.shown) == 0 && len(h.current.grouped) == 0 && !h.current.skinned && !h.current.skin_op.active && !h.current.layer_op.active && !h.current.layer_set.active && !h.current.layer_move.active && !h.current.layer_stack.active && !h.current.paint_op.active {
 		step_reset(h, &h.current)
 		return false
 	}
@@ -232,7 +237,8 @@ sculptor_last_step_bounds :: proc(s: ^Sculptor) -> geom.Aabb {
 			mask := step_mask(s, st.mask_layer)
 			for j in 0 ..< min(count, len(sv.masks)) do if mask[first + j] != sv.masks[j] do geom.aabb_grow(&b, positions[first + j])
 		case sv.colors != nil:
-			for j in 0 ..< min(count, len(sv.colors)) do if s.color[first + j] != sv.colors[j] do geom.aabb_grow(&b, positions[first + j])
+			colors := paint_colors_by_id(s, st.paint_layer)
+			for j in 0 ..< min(count, len(sv.colors), len(colors) - first) do if colors[first + j] != sv.colors[j] do geom.aabb_grow(&b, positions[first + j])
 		}
 	}
 	if b.lo.x <= b.hi.x do return b
@@ -353,6 +359,7 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 	if s.layers.picked != 0 && (step.layer_op.active || step.layer_move.active || step.layer_stack.active) do _ = sculptor_layer_mask_pick(s, -1)
 	layer_step_swap(s, &step)
 	skin_step_swap(s, &step)
+	paint_op_swap(s, &step.paint_op)
 	positions := 0
 	for &sv in step.saved {
 		n := s.nodes[sv.node]
@@ -374,8 +381,11 @@ step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
 			continue
 		}
 		if sv.colors != nil {
-			live := s.color[n.vert_first:][:n.vert_count]
-			for &c, i in live do c, sv.colors[i] = sv.colors[i], c
+			// The colours of the layer the step painted, wherever it is now.
+			if colors := paint_colors_by_id(s, step.paint_layer); colors != nil {
+				live := colors[n.vert_first:][:n.vert_count]
+				for &c, i in live do c, sv.colors[i] = sv.colors[i], c
+			}
 			s.color_edited = true
 			continue
 		}
@@ -456,6 +466,7 @@ record_hit :: proc(s: ^Sculptor, masks: bool) {
 		append(&h.current.saved, Saved_Node{node = id})
 		verts += int(s.nodes[id].vert_count)
 	}
+	s.work.saved += u64(verts)
 	if masks || s.dyn != nil || verts == 0 do return
 	// The copies are filled below, after allocating: a hit as large as a whole-mesh clip
 	// saves millions of positions, which one allocation and a parallel copy make quick
@@ -538,6 +549,7 @@ step_bytes :: proc(step: Undo_Step) -> int {
 		bytes += len(sv.colors) * size_of(Color) + len(sv.groups) * size_of(u16) + len(sv.delta) * size_of(Vec3) + len(sv.heights) * size_of(f16) + len(sv.side) * size_of([2]f16)
 	}
 	if step.layer_op.held do bytes += layer_bytes(step.layer_op.layer)
+	bytes += paint_op_bytes(step.paint_op)
 	bytes += skin_bytes(step.skin_op.skin)
 	for l in step.layer_stack.list do bytes += layer_bytes(l)
 	return bytes + len(step.layer_set.mask) + adjust_bytes(step)
@@ -565,6 +577,7 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	skin_free(step.skin_op.skin, h.allocator)
 	delete(step.layer_set.mask, h.allocator)
 	delete(step.layer_stack.list)
+	paint_op_free(h, &step.paint_op)
 	adjust_free(h, step)
 	clear(&step.saved)
 	clear(&step.nodes)
@@ -572,7 +585,7 @@ step_reset :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	clear(&step.shown)
 	clear(&step.grouped)
 	step.layer_op, step.layer_set, step.layer_move, step.layer_stack, step.skin_op = {}, {}, {}, {}, {}
-	step.mask_layer, step.mask_moved, step.skinned = 0, false, false
+	step.mask_layer, step.mask_moved, step.skinned, step.paint_layer = 0, false, false, 0
 }
 
 @(private)
@@ -597,6 +610,7 @@ step_destroy :: proc(h: ^Undo_History, step: ^Undo_Step) {
 	skin_free(step.skin_op.skin, h.allocator)
 	delete(step.layer_set.mask, h.allocator)
 	delete(step.layer_stack.list)
+	paint_op_free(h, &step.paint_op)
 	adjust_free(h, step)
 	delete(step.saved)
 	delete(step.nodes)

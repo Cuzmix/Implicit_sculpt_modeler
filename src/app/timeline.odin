@@ -278,6 +278,8 @@ KIND_COLORS := [History_Kind][4]f32 {
 	.Lights    = {1, 0.95, 0.6, 1},
 	.Model     = {0.4, 0.8, 1, 1},
 	.Curve     = {0.55, 0.95, 0.7, 1},
+	.References = {0.8, 0.75, 0.95, 1},
+	.Stack      = {0.55, 0.8, 0.95, 1},
 }
 
 // How a step reads in the panel: "Clay stroke", "Blur mask", "remesh", on a layer's mask
@@ -311,55 +313,23 @@ timeline_seek_done :: proc(app: ^App) {
 	if !tl.playing do history_camera_follow(app, tl.seek_from)
 }
 
-// The interface's History panel. Its List view (history_list.odin, the default) stands at
-// the pen side under the top bar: a row a step, a tap on one going there. Its Strip view
-// starts over the dock: step through the History, scrub it on the bar, play it back, and
-// record it as a time-lapse. Returns true when a press landed on it, to bring it to the
-// front.
-kit_history_panel :: proc(app: ^App) -> (raised: bool) {
+// The History card's body (Card.History, drawn by its column or as it floats), `inner`
+// wide and at most `room` tall. Its List view (history_list.odin, the default) is a row a
+// step, a tap on one going there; its Strip view steps through the History, scrubs it on
+// the bar, plays it back and records it as a time-lapse. `owner` is the card's root.
+history_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	history_tint_frame(app)
-	shown := ui.presence(ctx, panel_id(Kit_Window.History), k.history, t.panel_time)
-	if shown <= 0 do return
 	tl := &app.timeline
 	lapse := &tl.lapse
 	done, total := len(app.history.done), history_total(app)
 	recording := lapse.state != .Off
 	can := !recording && !app.stroke.active
-	// The Settings page stands where the list does, which has the height for it.
-	list := tl.view == .List || tl.settings
-	mark := ui.vertex_mark(ctx)
-	p: Panel_Frame
-	width: f32
-	if list {
-		// The list stands at the pen side under the top bar, near History's button, as tall
-		// as the window has room for.
-		width = KIT_HISTORY_LIST_W
-		p = panel_begin(app, Kit_Window.History, "History", .End, .Start, {kit_right(app), TOP_BAR_H + 6}, {direction = .Column, gap = 6, padding = 10, width = width, radius = t.radius_large, background = .Panel, inert = !k.history})
-	} else {
-		dock := shelf_bottom_size(app)
-		// Centred over the dock, as wide as fits between the panel on the right (Settings or
-		// Help in the inspector's place, else the inspector) and the same margin on the other
-		// side, within its least and most.
-		right: f32 = KIT_SETTINGS_W + 8 if side_panel_open(k) else tray_width(app) + 8 if k.inspector else 0
-		side := max(kit_right(app) + right, kit_left(app))
-		width = clamp(ui.safe_area(ctx).w - 2 * side, KIT_HISTORY_MIN_W, KIT_HISTORY_W)
-		p = panel_begin(app, Kit_Window.History, "History", .Center, .End, {0, t.edge + dock.y + 8}, {direction = .Column, gap = 4, padding = 10, width = width, radius = t.radius_large, background = .Panel, inert = !k.history})
-	}
-	raised = p.raised
-	if p.closed do k.history = false
-	// Docked, its rows take the column's width.
-	if p.docked && p.body do width = p.scroll.at.w + 2 * 10
-	if !p.body {
-		panel_end(app, &p)
-		ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})
-		return
-	}
+	list := tl.view == .List
 
 	// The view, List or Strip, and in the list which object's steps it shows.
-	ui.begin(ctx, "history head", {direction = .Row, gap = 8, center = true, width = width - 20})
+	ui.begin(ctx, "history head", {direction = .Row, gap = ui.SPACE_M, center = true, width = inner})
 	views := [len(History_View)]string{"List", "Strip"}
 	glyphs := [len(History_View)]rune{ICON_HISTORY_LIST, ICON_HISTORY_STRIP}
 	// A view's tab also leaves the Settings page.
@@ -368,7 +338,7 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	if list && !tl.settings {
 		obj := selected_object(app)
 		label := fmt.tprintf("%s only", object_label(obj)) if tl.only_selected && obj != nil else "All objects"
-		label = ui.text_fit(ctx, label, t.small_size, 120)
+		label = ui.text_fit(ctx, label, t.small_size, max(ui.row_room(ctx) - gear - 8 - 40, 40))
 		// The chip at the row's end, before the gear.
 		ui.spacer(ctx, max(ui.row_room(ctx) - lens_chip_width(ctx, label, chevron = true) - gear - 8, 0))
 		if a := lens_chip(ctx, "Every object's steps, or only the selected one's##history", label, chevron = true, lit = tl.only_selected); a.clicked {
@@ -381,19 +351,13 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 	if ui.icon_button(ctx, "History settings", ui.ICON_SETTINGS, selected = tl.settings) do tl.settings = !tl.settings
 	ui.end(ctx)
 	if tl.settings {
-		inner := width - 20
-		room := max(p.room - t.target - 20, 200)
-		s := kit_scroll_begin(ctx, "history settings scroll", &tl.settings_scroll, p.owner, inner, room, 0)
+		s := kit_scroll_begin(ctx, "history settings scroll", &tl.settings_scroll, owner, inner, max(room - t.target - 6, 200), 0)
 		kit_history_settings(app, inner)
 		kit_scroll_end(ctx, s)
-		panel_end(app, &p)
-		ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})
 		return
 	}
 	if list {
-		kit_history_list(app, &p, width, can)
-		panel_end(app, &p)
-		ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})
+		kit_history_list(app, inner, room, owner, can)
 		return
 	}
 
@@ -405,10 +369,10 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 
 	kit_timeline_bar(app, can)
 
-	// Two rows of controls, each fitting the narrowest panel: playback speed and the
-	// time-lapse's start or stop, then the time-lapse's steps and turn.
-	half := (width - 20 - 12) * 0.5
-	ui.begin(ctx, "history options", {direction = .Row, gap = 12, center = true})
+	// Two rows of controls, each half the card: playback speed and the time-lapse's start
+	// or stop, then the time-lapse's steps and turn.
+	half := (inner - 12) * 0.5
+	ui.begin(ctx, "history options", {direction = .Row, gap = ui.SPACE_L, center = true})
 	ui.begin(ctx, "speed", {direction = .Column, width = half})
 	_ = ui.slider(ctx, "Steps a second", &tl.speed, 1, TIMELINE_SPEED_MAX, .Logarithmic, fmt.tprintf("%.0f", tl.speed), enabled = can)
 	ui.end(ctx)
@@ -422,7 +386,7 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 		frames := lapse.end / int(max(lapse.steps, 1)) + 1
 		ui.label(ctx, "Rewinding..." if lapse.state == .Rewinding else fmt.tprintf("Frame %d of %d", lapse.frame, frames), t.small_size)
 	} else {
-		ui.begin(ctx, "lapse options", {direction = .Row, gap = 12})
+		ui.begin(ctx, "lapse options", {direction = .Row, gap = ui.SPACE_L})
 		ui.begin(ctx, "lapse steps", {direction = .Column, width = half})
 		steps := f32(lapse.steps)
 		if ui.slider(ctx, "Steps a frame", &steps, 1, 20, .Linear, fmt.tprintf("%d", lapse.steps)) do lapse.steps = i32(steps + 0.5)
@@ -432,16 +396,12 @@ kit_history_panel :: proc(app: ^App) -> (raised: bool) {
 		ui.end(ctx)
 		ui.end(ctx)
 	}
-	ui.paragraph(ctx, "Record time-lapse asks for a folder, replays the History from the start to where the bar stands, and saves the viewport each frame as numbered PNGs (frame_00000.png...) that any video tool turns into a film; Turn spins the camera a little each frame.", width - 20)
-	panel_end(app, &p)
-	ui.transform_since(ctx, mark, shown, 1, {}, {0, (1 - shown) * 16})
-	return
+	ui.paragraph(ctx, "Record time-lapse asks for a folder, replays the History from the start to where the bar stands, and saves the viewport each frame as numbered PNGs (frame_00000.png...) that any video tool turns into a film; Turn spins the camera a little each frame.", inner)
 }
 
-// The History panel's width at most, which gives the bar room to tell steps apart, and
-// at least, which its rows of controls need.
-KIT_HISTORY_W :: 720
-KIT_HISTORY_MIN_W :: 440
+
+// The History card's width: what the Strip view's rows of controls need, two to a row.
+KIT_HISTORY_CARD_W :: 440
 
 // The bookmarks as flags over the bar, each with its name, at its step's place: a tap on
 // one goes there. Only while there is a bookmark, so the bar stays where it was without.
@@ -581,9 +541,9 @@ timeline_step_card :: proc(app: ^App, head: int, x, top: f32) {
 	W, H :: 260, 96
 	window := ctx.input.window
 	at := [2]f32{clamp(x - W * 0.5, 8, max(window.x - W - 8, 8)), max(top - H - 30, 8)}
-	ui.begin_at(ctx, "timeline step card", at, {direction = .Row, gap = 10, padding = 12, width = W, height = H, radius = t.radius_large, background = .Panel, center = true, inert = true})
+	ui.begin_at(ctx, "timeline step card", at, {direction = .Row, gap = ui.SPACE_M, padding = ui.SPACE_L, width = W, height = H, radius = t.radius_large, background = .Panel, center = true, inert = true})
 	_ = step_picture_draw(app, e.at, ui.place(ctx, {72, 72}))
-	ui.begin(ctx, "timeline step card words", {direction = .Column, gap = 3})
+	ui.begin(ctx, "timeline step card words", {direction = .Column, gap = ui.SPACE_XS})
 	room := f32(W - 12 * 2 - 72 - 10)
 	ui.label(ctx, ui.text_fit(ctx, entry_label(e), t.small_size, room, .Semibold), t.small_size, t.text, .Semibold)
 	obj := object_by_id(app, e.id)

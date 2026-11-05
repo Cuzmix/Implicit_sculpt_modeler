@@ -54,7 +54,7 @@ render_toggle :: proc(app: ^App) {
 // traced scene.
 render_mode_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, items: []render.Draw_Item, changed: bool) {
 	if !app.render_on {
-		if app.path.pipeline != nil do render.path_render_destroy(&app.renderer, &app.path)
+		if app.path.pipeline != 0 do render.path_render_destroy(&app.renderer, &app.path)
 		return
 	}
 	// A pass pauses it, keeping what it holds on the device; it starts over once the
@@ -67,7 +67,7 @@ render_mode_frame :: proc(app: ^App, cmd: render.Cmd, view, proj: render.Mat4, i
 
 // Whether render mode's bands go to the compute queue: Async compute where the device has
 // a second queue, or --async-compute wherever the backend has a compute queue at all.
-// The pictures (view panes, the thumbnail window) keep theirs in the frame by choice.
+// The pictures (view panes and view windows) keep theirs in the frame by choice.
 render_async :: proc(app: ^App) -> bool {
 	switch render.caps(&app.renderer).async_compute {
 	case .Off:          return false

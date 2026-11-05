@@ -57,11 +57,16 @@ SHELF_PAGE_NAMES := [Shelf_Page]string {
 }
 
 // The most tiles a page holds, and how many full-width tiles' room a tablet-shaped window
-// gives the page's row, so the shelf ends before the pen hand's palm (which holds twelve
-// at SHELF_TILE_MIN; Settings > Bars > Keep the shelf clear of the palm off gives it the
-// window's width). A desktop's window shows them all.
+// gives the page's row, so the shelf ends before the pen hand's palm (Settings > Bars >
+// Keep the shelf clear of the palm off gives it the window's width). Ten keeps a fresh
+// page's twelve tiles wide enough for their whole names on an iPad. A desktop's window
+// shows them all.
 SHELF_MAX :: 24
-SHELF_TABLET :: 8
+SHELF_TABLET :: 10
+// How far a tablet-shaped window's shelf stands toward the off-hand side, as a share of
+// the window's width: enough to clear the pen hand's palm, little enough that the dial's
+// side leaves the row its SHELF_TABLET tiles.
+SHELF_PALM_SHIFT :: 0.05
 // The narrowest a tile gets: a page with more tiles than fit at full width narrows them,
 // down to this, before any is left out, so a tile added in Arrange is never added out of
 // sight. Wide enough for the icon and a cut name, and still a finger's target.
@@ -80,7 +85,7 @@ SHELF_SCULPT :: [?]Bar_Slot {
 }
 SHELF_PAINT :: [?]Bar_Slot {
 	{.Brush, int(sculpt.Brush_Kind.Paint)}, {.Brush, int(sculpt.Brush_Kind.Mask)}, {.Brush, int(sculpt.Brush_Kind.Smooth)},
-	{.Colors_Card, 0}, {.Swap_Colors, 0}, {.Paint_Channel, 0},
+	{.Open_Card, int(Card.Colours)}, {.Swap_Colors, 0}, {.Paint_Channel, 0},
 }
 SHELF_MOVE :: [?]Bar_Slot {
 	{.Brush, int(sculpt.Brush_Kind.Grab)}, {.Brush, int(sculpt.Brush_Kind.Snake_Hook)}, {.Brush, int(sculpt.Brush_Kind.Cloth)},
@@ -101,7 +106,7 @@ SHELF_MODEL :: [?]Bar_Slot {
 // app. A brush picked from All goes back to Sculpt, as the space follows the tool.
 SHELF_RENDER :: [?]Bar_Slot {
 	{.Studio_Render, 0}, {.Render_Mode, 0}, {.Shading_Mode, int(Shading_Mode.Material_Preview)}, {.Shading_Mode, int(Shading_Mode.Solid)},
-	{.Show_Panel, int(Panel_Kind.Material)}, {.Show_Panel, int(Panel_Kind.Lights)}, {.Show_Panel, int(Panel_Kind.Environment)},
+	{.Open_Section, int(Section.Material)}, {.Open_Section, int(Section.Lights)}, {.Open_Section, int(Section.Environment)},
 	{.Brush_Value, int(Brush_Value.Exposure)}, {.Pick_Focus, 0}, {.Screenshot, 0}, {.Record_Turntable, 0}, {.Render_Preview, 0},
 }
 
@@ -340,10 +345,20 @@ shelf_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	// card and the action bar.
 	#partial switch s.id {
 	case .Dyntopo_Toggle: return "Dyntopo"
+	case .Remesh:         return "Voxel"
+	// Render's page: one word each, so a tablet's tile shows the whole of it.
+	case .Render_Mode:      return "Final"
+	case .Pick_Focus:       return "Focus"
+	case .Screenshot:       return "Snapshot"
+	case .Record_Turntable: return "Turntable"
+	case .Render_Preview:   return "Split"
+	case .Place_Light:      return "Highlight"
+	case .Open_Section:     if Section(s.arg) == .Environment do return "HDRI"
 	case .Model_Action:
 		#partial switch Model_Action(s.arg) {
 		case .Insert_Loop:  return "Add loop"
 		case .Remove_Loop:  return "Cut loop"
+		case .Close_Hole:   return "Fill hole"
 		}
 	}
 	return bar_label(app, s)
@@ -399,6 +414,8 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	ctx := &k.ctx
 	t := ctx.theme
 	sh := &k.shelf
+	motion := ui.motion_mark(ctx)
+	defer dock_motion_end(app, .Shelf, motion)
 	pages := shelf_pages(k, k.spaces.current)
 	if !shelf_page_used(k, sh.page) || shelf_page_space(k, sh.page) != k.spaces.current do sh.page = pages[0]
 	which := shelf_which(sh.page)
@@ -409,7 +426,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	row: f32 = SHELF_TABLET * ui.BRUSH_TILE.x if palm else 0
 	area := ui.safe_area(ctx)
 	shift: f32 = 0
-	if palm do shift = -area.w * 0.09
+	if palm do shift = -area.w * SHELF_PALM_SHIFT
 	// Between the dial's reach and as much on the other side, of the window or, with panes
 	// beside the main one, of the main pane, under which the shelf then stands, as the
 	// off-hand set stays with it.
@@ -442,15 +459,16 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	if focus do n = min(n, SHELF_FOCUS)
 	// The Add tile shows while arranging, and on an empty page (one just added) always, so
 	// the page says what it is for and a tap fills it.
-	adding := (k.bars_edit || n == 0) && !focus
-	// Its lines stand the tiles in rows, as many to a row as fit.
+	adding := (dock_editing(k, .Shelf) || n == 0) && !focus
+	// Its lines stand the tiles in rows, as many to a row as fit, after its grip.
 	lines := dock_lines(k, .Shelf)
+	room = max(room - DOCK_GRIP_H, 0)
 	tile: f32
 	n, tile = shelf_lines_layout(n, lines, room, adding, row)
 	// A brush picked from All, Search or the pie that is not among the tiles shown visits
 	// the shelf as the first tile after All, so what the pen holds is always in sight; the
 	// shelf grows toward the off-hand side for it, so the tiles under the pen hand stay put.
-	active, active_on := shelf_active_item(app, used[:n], k.bars_edit)
+	active, active_on := shelf_active_item(app, used[:n], dock_editing(k, .Shelf))
 	if active_on {
 		room = max(room - ui.BRUSH_TILE.x, 0)
 		n, tile = shelf_lines_layout(len(used) if !focus else min(len(used), SHELF_FOCUS), lines, room, adding, row)
@@ -485,6 +503,11 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 		}
 	}
 	ui.begin_anchored(ctx, "dock", place_x, place_y, place_at, {direction = .Row, gap = 0, padding = SHELF_PAD, radius = t.radius_large + 4, background = .Panel, center = true, drag_scroll = true})
+	// The grip at its start moves it as any dock's does; it takes the press, so a drag on it
+	// never turns the page.
+	cols := max((n + int(adding) + lines - 1) / lines, 1)
+	rows := (n + int(adding) + cols - 1) / cols
+	dock_grip(app, .Shelf, {DOCK_GRIP_H, f32(max(rows, 1)) * ui.BRUSH_TILE.y}, row = true)
 	// All at the off-hand end beside the dial, a thumb's reach (first, or last when
 	// left-handed), then the visiting tile; All is never taken off, as every page's way to
 	// the rest.
@@ -493,8 +516,6 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 	// Asked for in the shelf, as the row's id is the shelf's child.
 	sh.row = ui.prev_rect(ctx, "shelf brushes")
 	brushes_at := sh.row
-	cols := max((n + int(adding) + lines - 1) / lines, 1)
-	rows := (n + int(adding) + cols - 1) / cols
 	ui.begin(ctx, "shelf brushes", {direction = .Column if lines > 1 else .Row, gap = 0, width = f32(cols) * tile, height = f32(max(rows, 1)) * ui.BRUSH_TILE.y, clip = true})
 	mark := ui.vertex_mark(ctx)
 	sh.shown, sh.tile_w = n, tile
@@ -514,19 +535,23 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 			continue
 		}
 		name := fmt.tprintf("%s##shelf %v %d", shelf_label(app, s), sh.page, i)
-		if ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), width = tile) {
+		// A command that cannot run now stands dimmed, as on any bar (Model's actions on a
+		// sculpt mesh); while pinning or arranging every tile takes the tap.
+		_, pin_on := sh.pinning.?
+		enabled := pin_on || dock_editing(k, .Shelf) || bar_enabled(app, s)
+		if ui.brush_tile(ctx, name, bar_icon(app, s), bar_lit(app, s), command_hint(app, s.id, s.arg), enabled = enabled, width = tile, picture = bar_picture(app, s)) {
 			if pin, pinning := sh.pinning.?; pinning {
 				// Pinning to a full page: the tile tapped gives its place to the brush.
 				bar_list(app, which).slots[i] = pin
 				sh.pinning = nil
 				report(app, nil, {}, "%s is on %s in place of %s", shelf_label(app, pin), shelf_page_name(k, sh.page), shelf_label(app, s))
 				sh.pins += 1
-			} else if k.bars_edit do bar_slot_open(app, which, i, ctx.last_rect)
-			else do bar_slot_run(app, s, ctx.last_rect, .Above_Center)
+			} else if dock_editing(k, .Shelf) do bar_slot_open(app, which, i, ctx.last_rect)
+			else do bar_slot_run(app, s, ctx.last_rect, dock_side(app, .Shelf))
 		}
 		if sh.pinning != nil do ui.stroke_rect(ctx, ctx.last_rect, t.radius_medium + 2, t.warning, 1)
 		sh.tiles[i] = ctx.last_rect
-		if k.bars_edit {
+		if dock_editing(k, .Shelf) {
 			bar_edit_ring(app, ctx.last_rect)
 		} else if ctx.last_id != 0 && ui.secondary(ctx) {
 			// A brush's long press picks it and shows its quick settings over the tile; a
@@ -536,7 +561,7 @@ kit_shelf :: proc(app: ^App) -> (sheet_anchor: ui.Rect) {
 				kit_floats_close(k)
 				sh.quick, sh.quick_at = true, ctx.last_rect
 			} else if bar_has_more(s.id) {
-				bar_slot_more(app, s, ctx.last_rect, .Above_Center)
+				bar_slot_more(app, s, ctx.last_rect, dock_side(app, .Shelf))
 			}
 		}
 		// The card carried from the picker lands on the tile it is let go over.
@@ -644,7 +669,7 @@ shelf_visiting_tile :: proc(app: ^App, it: Brush_Item, which: Bar_Which) -> ui.R
 	t := ctx.theme
 	sh := &k.shelf
 	name := fmt.tprintf("%s##shelf visiting", brush_item_name(app, it))
-	tapped := ui.brush_tile(ctx, name, brush_item_icon(app, it), true, brush_item_hint(app, it))
+	tapped := ui.brush_tile(ctx, name, brush_item_icon(app, it), true, brush_item_hint(app, it), picture = brush_item_picture(app, it))
 	at := ctx.last_rect
 	if tapped || (ctx.last_id != 0 && ui.secondary(ctx)) {
 		if it.what == .Slot {
@@ -792,7 +817,7 @@ shelf_peek :: proc(app: ^App, at: ui.Rect, slide: f32, page_by: int) {
 	mark := ui.vertex_mark(ctx)
 	tile := k.shelf.tile_w if k.shelf.tile_w > 0 else ui.BRUSH_TILE.x
 	for s, j in used[:min(len(used), int(at.w / tile) + 1)] {
-		_ = ui.brush_tile(ctx, fmt.tprintf("%s##peek %v %d", shelf_label(app, s), page, j), bar_icon(app, s), false, width = tile)
+		_ = ui.brush_tile(ctx, fmt.tprintf("%s##peek %v %d", shelf_label(app, s), page, j), bar_icon(app, s), false, width = tile, picture = bar_picture(app, s))
 	}
 	ui.end(ctx)
 	ui.transform_since(ctx, mark, opacity = min(abs(slide) / at.w, 1), offset = {slide + f32(page_by) * at.w, 0}, follows = true)
@@ -807,23 +832,25 @@ lens_shelf_pages :: proc(app: ^App, x, y: ui.Anchor, at: [2]f32) {
 	ctx := &k.ctx
 	t := ctx.theme
 	sh := &k.shelf
-	ui.begin_anchored(ctx, "dock pages", x, y, at, {direction = .Row, gap = 2, padding = 2, radius = t.radius_large, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "dock pages", x, y, at, {direction = .Row, gap = ui.SPACE_2XS, padding = ui.SPACE_2XS, radius = t.radius_large, background = .Panel, center = true})
 	pages := shelf_pages(k, k.spaces.current)
 	here := shelf_page_index(pages, sh.page)
 	for p, i in pages {
 		name := ui.text_fit(ctx, shelf_page_name(k, p), t.small_size, SHELF_PAGE_NAME_W, .Semibold)
-		w := ui.text_width(ctx, name, t.small_size, .Semibold) + 26
+		w := ui.text_width(ctx, name, t.small_size, .Semibold) + 20
 		// By the page, not its name, so a renamed page keeps its press.
 		a := ui.area(ctx, fmt.tprintf("page %v##shelf", p), {w, 24})
 		on := p == sh.page
-		if a.hovered && !on do ui.fill_rect(ctx, a.rect, t.radius_medium, t.fill_hover)
-		ui.fill_circle(ctx, {a.rect.x + 9, a.rect.y + a.rect.h * 0.5}, 3, t.accent if on else t.text_tertiary)
-		ui.text(ctx, name, a.rect.x + 16, a.rect.y + a.rect.h * 0.5, t.small_size, t.text if on else t.text_secondary, .Semibold if on else .Regular)
+		// The page shown wears the one chosen look, the chosen fill and ink, as a chosen
+		// tile or tab does.
+		if on do ui.fill_rect(ctx, a.rect, t.radius_medium, t.chosen)
+		else if a.hovered do ui.fill_rect(ctx, a.rect, t.radius_medium, t.fill_hover)
+		ui.text(ctx, name, a.rect.x + a.rect.w * 0.5, a.rect.y + a.rect.h * 0.5, t.small_size, t.on_chosen if on else t.text_secondary, .Semibold if on else .Regular, .Center)
 		ui.tip(ctx, a.id, a.rect, shelf_page_name(k, p), "Long press or right click to rename it or add a page")
 		if a.clicked && !on do shelf_turn(app, i - here)
 		if ui.secondary(ctx) do shelf_page_menu_open(k, p, a.rect)
 	}
-	if k.bars_edit && !lens_focus(k) {
+	if dock_editing(k, .Shelf) && !lens_focus(k) {
 		a := ui.area(ctx, "add page##shelf", {28, 24})
 		if a.hovered do ui.fill_rect(ctx, a.rect, t.radius_medium, t.fill_hover)
 		ui.icon(ctx, ui.ICON_PLUS, {a.rect.x + a.rect.w * 0.5, a.rect.y + a.rect.h * 0.5}, t.icon_small - 2, t.text_secondary)
@@ -832,14 +859,14 @@ lens_shelf_pages :: proc(app: ^App, x, y: ui.Anchor, at: [2]f32) {
 	}
 	// The shelf's ⋯ ends its page names rather than its row, which keeps every tile's room
 	// on a tablet.
-	if (k.bars_edit || !k.docks[.Shelf].more_off) && !lens_focus(k) {
+	if (dock_editing(k, .Shelf) || !k.docks[.Shelf].more_off) && !lens_focus(k) {
 		a := ui.area(ctx, "More##shelf", {28, 24})
 		open := bar_pop_showing(app, .Dock_Menu) && k.bar_pop.dock == .Shelf
 		if a.hovered || open do ui.fill_rect(ctx, a.rect, t.radius_medium, t.fill_hover)
 		ui.icon(ctx, ui.ICON_MORE, {a.rect.x + a.rect.w * 0.5, a.rect.y + a.rect.h * 0.5}, t.icon_small - 2, t.text_secondary)
 		ui.tip(ctx, a.id, a.rect, "More", "Add a button, or stand the tiles in more rows")
 		if a.clicked do dock_menu_toggle(app, .Shelf, a.rect)
-		dock_more_hold(app)
+		dock_more_hold(app, .Shelf)
 	}
 	ui.end(ctx)
 }
@@ -876,7 +903,7 @@ kit_shelf_page_menu :: proc(app: ^App) {
 	sh := &k.shelf
 	p := sh.menu_page
 	if sh.menu && (!shelf_page_used(k, p) || shelf_page_space(k, p) != k.spaces.current) do sh.menu = false
-	if !ui.popover_begin(ctx, "shelf page menu", &sh.menu, sh.menu_at, .Above_Center, {direction = .Column, gap = 0, padding = 6, width = 240}) do return
+	if !ui.popover_begin(ctx, "shelf page menu", &sh.menu, sh.menu_at, dock_side(app, .Shelf), {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	picked := false
 	name := shelf_page_name(k, p)
@@ -933,20 +960,20 @@ brush_picker_toggle :: proc(app: ^App) {
 }
 
 // A long-pressed tile's quick settings, over it: the brush's name with its favourite star,
-// Radius and Strength, its stroke kind, its alpha and the lazy mouse; Pin to the stack keeps
-// the stroke's section as a card of the stack, and All settings opens the brush's.
+// Radius and Strength, its stroke kind, its alpha and the lazy mouse; Stroke settings opens
+// the Tool card on the Stroke section, and All settings opens the brush's.
 kit_shelf_quick :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	sh := &k.shelf
-	if !ui.popover_begin(ctx, "shelf quick", &sh.quick, sh.quick_at, .Above_Center, {direction = .Column, gap = 6, padding = 12, width = 360}) do return
+	if !ui.popover_begin(ctx, "shelf quick", &sh.quick, sh.quick_at, dock_side(app, .Shelf), {direction = .Column, gap = ui.SPACE_S, padding = ui.POPOVER_PAD, width = ui.POPOVER_WIDE_W}) do return
 	defer ui.popover_end(ctx)
 	kind := app.brush.kind
 	cur := brush_item_current(app)
 	key := brush_item_key(app, cur)
 	_, favourite := brush_favorite(&k.brushes, key)
-	ui.begin(ctx, "shelf quick head", {direction = .Row, gap = 8, center = true, width = 336})
+	ui.begin(ctx, "shelf quick head", {direction = .Row, gap = ui.SPACE_M, center = true, width = 336})
 	r := ui.place(ctx, {32, 32})
 	lens_stroke_preview(ctx, r, cur, app)
 	ui.label(ctx, ui.text_fit(ctx, brush_item_name(app, cur), t.title_size, 360 - 24 - 40 - 8 - t.target, .Semibold), t.title_size, t.text, .Semibold)
@@ -977,7 +1004,7 @@ kit_shelf_quick :: proc(app: ^App) {
 		painting := app.brush.channel != .Sculpt
 		if ui.switch_row(ctx, "Also paint colour", &painting, keys = command_hint(app, .Paint_Toggle)) do command_run(app, .Paint_Toggle)
 	}
-	ui.begin(ctx, "shelf quick actions", {direction = .Row, gap = 6})
+	ui.begin(ctx, "shelf quick actions", {direction = .Row, gap = ui.SPACE_S})
 	// Pin to shelf keeps the brush on the page shown, Remove from shelf takes it off.
 	if slot, ok := shelf_slot_of(cur); ok {
 		which := shelf_which(sh.page)
@@ -988,8 +1015,7 @@ kit_shelf_quick :: proc(app: ^App) {
 			else do shelf_pin(app, slot, which)
 		}
 	}
-	pinned := command_checked(app, .Pin_Section, int(Kit_Section.Stroke))
-	if command_button(app, .Pin_Section, int(Kit_Section.Stroke), label = "Unpin from the stack" if pinned else "Pin to the stack", variant = .Bordered, glyph = ui.ICON_PANEL) do sh.quick = false
+	if command_button(app, .Open_Section, int(Section.Stroke), label = "Stroke settings", variant = .Bordered, glyph = ui.ICON_PANEL) do sh.quick = false
 	if ui.button(ctx, "All settings", .Bordered, glyph = ui.ICON_SETTINGS) {
 		sh.quick = false
 		brush_item_settings(app, cur)
@@ -1022,7 +1048,8 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	p := &k.brushes
 	sh := &k.shelf
 	brush_recent_track(app)
-	if p.category == .Pack && p.pack >= len(app.library.packs) do p.category = .All
+	// A pack removed leaves its page for All; Manage packs (PACKS_MANAGE) stays.
+	if p.category == .Pack && (p.pack >= len(app.library.packs) || p.pack < PACKS_MANAGE) do p.category = .All
 	shelf_carry_update(app)
 	if !k.browser {
 		p.adding = nil
@@ -1038,7 +1065,7 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	all := brush_items_all(app, buttons = true)
 	side := brush_palette_categories(app, owner, all[:], room)
 	main_w := width - side
-	ui.begin(ctx, "brush sheet main", {direction = .Column, gap = 8, padding = 12, width = main_w})
+	ui.begin(ctx, "brush sheet main", {direction = .Column, gap = ui.SPACE_M, padding = ui.SPACE_L, width = main_w})
 	// The head fits the sheet's width (a narrow window, an iPad held upright): the search
 	// field first gives up its room down to SHEET_FIELD_MIN, then Import becomes its icon,
 	// then the page tabs go to a row of their own under the head.
@@ -1058,7 +1085,7 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	field_w := clamp(free - import_w, 0, min(300, main_w * 0.36))
 	ui.begin(ctx, "brush sheet head", {direction = .Row, gap = GAP, center = true, width = head_w})
 	p.searching = true
-	_ = ui.text_field(ctx, "Search brushes", p.search[:], field_w, hold = p.search_focus, hint = fmt.tprintf("Search %d", len(all)))
+	_ = ui.text_field(ctx, "Search brushes", p.search[:], field_w, hold = p.search_focus, hint = "Search brushes and tools")
 	p.search_focus = false
 	names := make([]string, len(pages), context.temp_allocator)
 	for p, i in pages do names[i] = ui.text_fit(ctx, shelf_page_name(k, p), t.small_size, SHEET_TAB_W - 8)
@@ -1084,10 +1111,23 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 	grid_h := room - 24 - t.target - 8 - 36
 	// The tabs' own row, when they went under the head.
 	if wrap do grid_h -= t.control + 8
+	// The packs' pages: Manage packs in place of the cards, and a pack's own row (who made
+	// it, its licence, Remove) above its presets.
+	on_packs := p.category == .Pack && brush_query(p) == "" && !adding
+	if on_packs && p.pack == PACKS_MANAGE {
+		kit_library_manage(app, owner, inner, grid_h + 36)
+		ui.end(ctx)
+		return
+	}
+	if on_packs {
+		_, row := ui.prev_layout(ctx, fmt.tprintf("library row %d", p.pack + 1))
+		kit_library_row(app, p.pack, inner)
+		grid_h -= row.y + 8
+	}
 	scroll := kit_scroll_begin(ctx, "brush sheet grid", &k.grid_scroll, owner, inner, grid_h, 10)
 	pick, settings: Maybe(Brush_Item)
 	for l, i in list {
-		if i % SHEET_COLUMNS == 0 do ui.begin(ctx, fmt.tprintf("brush sheet row %d", i / SHEET_COLUMNS), {direction = .Row, gap = 10})
+		if i % SHEET_COLUMNS == 0 do ui.begin(ctx, fmt.tprintf("brush sheet row %d", i / SHEET_COLUMNS), {direction = .Row, gap = ui.SPACE_M})
 		// A card does not take the drag on the press, so a finger or a pen swiped up or down
 		// over the cards scrolls the grid (drag = false); one going sideways first carries it.
 		a := ui.area(ctx, fmt.tprintf("%s##sheet %s", l.name, l.key), {card_w, CARD_H}, drag = false)
@@ -1095,7 +1135,8 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 		on := library_on_bar(app, l.item) if adding else brush_item_on(app, l.item)
 		ui.fill_rect(ctx, a.rect, t.radius_large, t.accent_soft if on else t.surface)
 		if a.hovered && !on do ui.fill_rect(ctx, a.rect, t.radius_large, t.fill_hover)
-		ui.stroke_rect(ctx, a.rect, t.radius_large, t.accent if on else t.border, 1)
+		// The one selected look, a soft fill with the name in the accent; no ring of its own.
+		if !on do ui.stroke_rect(ctx, a.rect, t.radius_large, t.border, 1)
 		lens_stroke_preview(ctx, {a.rect.x + 8, a.rect.y + 8, a.rect.w - 16, 70}, l.item, app)
 		name := ui.text_fit(ctx, l.name, t.small_size, a.rect.w - 40, .Semibold)
 		ui.text(ctx, name, a.rect.x + 10, a.rect.y + a.rect.h - 16, t.small_size, t.accent if on else t.text, .Semibold)

@@ -1,4 +1,4 @@
-// slangc wgsl from dab_reduce.comp.spv sha256 8ad3a07de6e07fbcba1e2c518001c3b95cb158151062bb52d760ca358db60365
+// slangc wgsl from dab_reduce.comp.spv sha256 f1eafbd2b49beb23c595af521dad0feb2beb4ff817dae283b4ab3ba37ac6fb18
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Params_std140_0
 {
@@ -9,6 +9,14 @@ struct SLANG_ParameterGroup_Params_std140_0
 };
 
 @binding(0) @group(2) var<uniform> Params_0 : SLANG_ParameterGroup_Params_std140_0;
+@binding(0) @group(0) var<storage, read> indices_0 : array<u32>;
+
+@binding(2) @group(0) var<storage, read> offsets_0 : array<u32>;
+
+@binding(4) @group(0) var<storage, read> tris_0 : array<u32>;
+
+@binding(6) @group(0) var<storage, read> slabs_0 : array<vec2<u32>>;
+
 struct Dab_std430_0
 {
     @align(16) center_r2_0 : vec4<f32>,
@@ -18,14 +26,34 @@ struct Dab_std430_0
     @align(16) tilt1_0 : vec4<f32>,
     @align(16) tilt2_0 : vec4<f32>,
     @align(16) misc_0 : vec4<f32>,
-    @align(16) slabs_0 : vec4<u32>,
+    @align(16) alpha_up_0 : vec4<f32>,
+    @align(16) slabs_1 : vec4<u32>,
 };
 
 @binding(8) @group(0) var<storage, read> dabs_0 : array<Dab_std430_0>;
 
+@binding(10) @group(0) var<storage, read> normals_0 : array<u32>;
+
+@binding(12) @group(0) var<storage, read> mask_0 : array<u32>;
+
+@binding(16) @group(0) var<storage, read> fade_0 : array<u32>;
+
+@binding(0) @group(1) var<storage, read_write> positions_0 : array<f32>;
+
+@binding(14) @group(0) var<storage, read> tables_0 : array<f32>;
+
 @binding(2) @group(1) var<storage, read_write> partials_0 : array<vec4<f32>>;
 
 @binding(4) @group(1) var<storage, read_write> areas_0 : array<vec4<f32>>;
+
+fn keep_bindings_0()
+{
+    if((Params_0.groups_x_0) == u32(0))
+    {
+        positions_0[i32(0)] = f32(indices_0[i32(0)] + offsets_0[i32(0)] + tris_0[i32(0)] + slabs_0[i32(0)].x + dabs_0[i32(0)].slabs_1.x + normals_0[i32(0)] + mask_0[i32(0)] + fade_0[i32(0)]) + tables_0[i32(0)];
+    }
+    return;
+}
 
 var<workgroup> lane_normal_0 : array<vec4<f32>, i32(256)>;
 
@@ -51,7 +79,7 @@ fn normalize0_0( v_0 : vec3<f32>) -> vec3<f32>
 fn main(@builtin(local_invocation_id) local_id_0 : vec3<u32>)
 {
     var _S2 : vec4<u32>;
-    var d_0 : Dab_std430_0 = dabs_0[Params_0.dab_0];
+    keep_bindings_0();
     var _S3 : vec4<f32> = vec4<f32>(0.0f);
     var _S4 : u32 = local_id_0.x;
     var k_0 : u32 = _S4;
@@ -59,17 +87,18 @@ fn main(@builtin(local_invocation_id) local_id_0 : vec3<u32>)
     var c_0 : vec4<f32> = _S3;
     for(;;)
     {
-        _S2 = d_0.slabs_0;
-        if(k_0 < (d_0.slabs_0.y))
+        var _S5 : vec4<u32> = dabs_0[Params_0.dab_0].slabs_1;
+        _S2 = dabs_0[Params_0.dab_0].slabs_1;
+        if(k_0 < (dabs_0[Params_0.dab_0].slabs_1.y))
         {
         }
         else
         {
             break;
         }
-        var _S5 : u32 = u32(2) * (d_0.slabs_0.x + k_0);
-        var n_1 : vec4<f32> = n_0 + partials_0[_S5];
-        var c_1 : vec4<f32> = c_0 + partials_0[_S5 + u32(1)];
+        var _S6 : u32 = u32(2) * (_S5.x + k_0);
+        var n_1 : vec4<f32> = n_0 + partials_0[_S6];
+        var c_1 : vec4<f32> = c_0 + partials_0[_S6 + u32(1)];
         k_0 = k_0 + u32(256);
         n_0 = n_1;
         c_0 = c_1;
@@ -100,28 +129,76 @@ fn main(@builtin(local_invocation_id) local_id_0 : vec3<u32>)
         sum_c_0 = sum_c_1;
     }
     var normal_0 : vec3<f32> = normalize0_0(sum_n_0.xyz);
-    var _S6 : f32 = sum_n_0.w;
+    var _S7 : f32 = sum_n_0.w;
     var plane_0 : vec3<f32>;
-    if(_S6 > 0.0f)
+    if(_S7 > 0.0f)
     {
-        plane_0 = sum_c_0.xyz / vec3<f32>(_S6);
+        plane_0 = sum_c_0.xyz / vec3<f32>(_S7);
     }
     else
     {
         plane_0 = vec3<f32>(0.0f);
     }
+    var _S8 : u32 = _S2.w;
     var normal_1 : vec3<f32>;
-    if((((_S2.w) & (u32(8)))) != u32(0))
+    if(((_S8 & (u32(8)))) != u32(0))
     {
-        normal_1 = normalize0_0((((normal_0) * (mat3x3<f32>(d_0.tilt0_0.xyz, d_0.tilt1_0.xyz, d_0.tilt2_0.xyz)))));
+        normal_1 = normalize0_0((((normal_0) * (mat3x3<f32>(dabs_0[Params_0.dab_0].tilt0_0.xyz, dabs_0[Params_0.dab_0].tilt1_0.xyz, dabs_0[Params_0.dab_0].tilt2_0.xyz)))));
     }
     else
     {
         normal_1 = normal_0;
     }
-    var plane_1 : vec3<f32> = plane_0 + normal_1 * vec3<f32>(d_0.tilt2_0.w);
-    areas_0[u32(2) * Params_0.dab_0] = vec4<f32>(normal_1, 0.0f);
-    areas_0[u32(2) * Params_0.dab_0 + u32(1)] = vec4<f32>(plane_1, 0.0f);
+    var plane_1 : vec3<f32> = plane_0 + normal_1 * vec3<f32>(dabs_0[Params_0.dab_0].tilt2_0.w);
+    areas_0[u32(5) * Params_0.dab_0] = vec4<f32>(normal_1, 0.0f);
+    areas_0[u32(5) * Params_0.dab_0 + u32(1)] = vec4<f32>(plane_1, 0.0f);
+    if(((_S8 & (u32(256)))) == u32(0))
+    {
+        return;
+    }
+    var an_0 : vec3<f32>;
+    if((all((normal_1 == vec3<f32>(0.0f)))))
+    {
+        an_0 = vec3<f32>(0.0f, 0.0f, 1.0f);
+    }
+    else
+    {
+        an_0 = normal_1;
+    }
+    var _S9 : vec3<f32> = dabs_0[Params_0.dab_0].alpha_up_0.xyz;
+    var up_0 : vec3<f32> = _S9 - an_0 * vec3<f32>(dot(_S9, an_0));
+    var up_1 : vec3<f32>;
+    if((dot(up_0, up_0)) < 9.999999960041972e-13f)
+    {
+        if((abs(an_0.x)) < 0.89999997615814209f)
+        {
+            up_1 = vec3<f32>(1.0f, 0.0f, 0.0f);
+        }
+        else
+        {
+            up_1 = vec3<f32>(0.0f, 1.0f, 0.0f);
+        }
+        up_1 = cross(an_0, up_1);
+    }
+    else
+    {
+        up_1 = up_0;
+    }
+    var v_1 : vec3<f32> = up_1 / vec3<f32>(length(up_1));
+    var u_0 : vec3<f32> = cross(v_1, an_0);
+    var u_1 : vec3<f32>;
+    if(((_S8 & (u32(512)))) != u32(0))
+    {
+        u_1 = (vec3<f32>(0) - u_0);
+    }
+    else
+    {
+        u_1 = u_0;
+    }
+    var _S10 : vec3<f32> = vec3<f32>((1.0f / dabs_0[Params_0.dab_0].misc_0.z));
+    areas_0[u32(5) * Params_0.dab_0 + u32(2)] = vec4<f32>(u_1 * _S10, 0.0f);
+    areas_0[u32(5) * Params_0.dab_0 + u32(3)] = vec4<f32>(v_1 * _S10, 0.0f);
+    areas_0[u32(5) * Params_0.dab_0 + u32(4)] = vec4<f32>(an_0 * _S10, 0.0f);
     return;
 }
 

@@ -351,7 +351,9 @@ autosave_guard :: proc(app: ^App) {
 	sync.lock(&w.lock)
 	reading := w.phase == .Serializing
 	sync.unlock(&w.lock)
-	if reading && !autosave_quiet(app) do autosave_settle(app)
+	// Continue anyway's autosave holds the scene still (memory_ask_holds), so a press then
+	// changes nothing it reads.
+	if reading && !autosave_quiet(app) && !memory_ask_holds(app) do autosave_settle(app)
 }
 
 // At the end of each frame: takes the thread's result, and starts an autosave when one
@@ -407,6 +409,29 @@ autosave_background :: proc(app: ^App) {
 		return
 	}
 	autosave_start(app, fp)
+}
+
+// An autosave now, whatever the interval and the rest, for the memory check's Continue
+// anyway (memory_check.odin), so a step the system may end the app over leaves the scene
+// as it was just before it: as autosave_background starts one, but true only when one was
+// started (the scene changed since the last), which the caller waits out with
+// autosave_busy. False also where this run keeps no session.
+autosave_now :: proc(app: ^App) -> bool {
+	a := &app.autosave
+	w := a.worker
+	if !a.on || w == nil do return false
+	fp := scene_fingerprint(app)
+	sync.lock(&w.lock)
+	w.hold = false
+	current := w.phase == .Serializing && a.pending == fp
+	sync.unlock(&w.lock)
+	if current do return true
+	autosave_settle(app)
+	autosave_wait(w)
+	autosave_collect(app)
+	if fp == a.clean do return false
+	autosave_start(app, fp)
+	return true
 }
 
 // Whether the thread has an autosave under way, read or written (the iPad's background

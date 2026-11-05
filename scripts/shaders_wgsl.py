@@ -5,8 +5,9 @@
     python scripts/shaders_wgsl.py --all     # remake every .wgsl
     python scripts/shaders_wgsl.py --check   # fail on a missing or stale .wgsl, without slangc (build check runs it)
 
-The web version draws with WebGPU (src/render/wgpu_*.odin), which takes WGSL, so each
-src/render/shaders/name.stage.slang has a name.stage.wgsl beside its .spv and .msl, made by
+The web version draws with WebGPU (src/gpu/wgpu_*.odin), which takes WGSL, so each
+src/render/shaders/name.stage.slang has a name.stage.wgsl beside its .spv and .msl (but one
+whose first line is "// vulkan only", which the web never loads), made by
 slangc's own WGSL target with the flags the .spv is made with, and the web build embeds those
 (src/render/shaders.odin). The first line names the .spv made from the same source and its
 SHA-256, so --check finds a missing or stale one with no slangc installed, as shaders_msl.py
@@ -17,7 +18,7 @@ fragment resources 2, fragment uniforms 3; compute read-only 0, read-write 1, un
 WGSL has no combined texture and sampler: slangc splits each into a texture at the binding the
 source gave and a sampler at the next, which collides with the binding after. So every binding
 is renumbered here: the resource at SPIR-V binding n goes to 2n and a split sampler to 2n + 1,
-the rule the WebGPU backend binds by (wgpu_binding in src/render/wgpu_resources.odin).
+the rule the WebGPU backend binds by (wgpu_binding in src/gpu/wgpu_resources.odin).
 
 Some shaders cannot be WGSL: ray queries, barycentrics and read-write storage textures of
 some formats have no WebGPU form. Their .wgsl is the header and a second line
@@ -53,8 +54,16 @@ def sha256(path):
         return hashlib.sha256(f.read()).hexdigest()
 
 
+def vulkan_only(source):
+    """Whether the Slang source marks itself as the Vulkan backend's alone (its first line),
+    as shaders_msl.py reads it: the web build never loads one, so it has no .wgsl."""
+    with open(os.path.join(SHADERS, source), encoding="utf-8") as f:
+        return f.readline().startswith("// vulkan only")
+
+
 def sources():
-    return sorted(f for f in os.listdir(SHADERS) if f.endswith(".slang") and f.split(".")[-2] in STAGES)
+    return sorted(f for f in os.listdir(SHADERS)
+                  if f.endswith(".slang") and f.split(".")[-2] in STAGES and not vulkan_only(f))
 
 
 def problem(source):

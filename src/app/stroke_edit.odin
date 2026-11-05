@@ -453,7 +453,7 @@ edit_release :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 	if !d.moved {
 		#partial switch d.handle {
 		case .Point:
-			if e.points[d.index].corner do geom.bezier_make_smooth(e.points[:], false, d.index)
+			if geom.bezier_is_corner(e.points[d.index]) do geom.bezier_make_smooth(e.points[:], false, d.index)
 			else do geom.bezier_make_corner(e.points[:], false, d.index)
 			e.version += 1
 		case .Curve:
@@ -528,7 +528,7 @@ draw_stroke_edit :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		r := 6.5 * o.scale
 		chosen := e.drag.handle == .Point && e.drag.index == i
 		fill := overlay_color({1, 1, 1, 1}) if chosen else curve
-		if p.corner {
+		if geom.bezier_is_corner(p) {
 			diamond := [4][2]f32{sc.point + {0, -r * 1.3}, sc.point + {r * 1.3, 0}, sc.point + {0, r * 1.3}, sc.point + {-r * 1.3, 0}}
 			overlay_fill(o, diamond[:], fill)
 			overlay_polyline(o, diamond[:], dark, 1.5 * o.scale, closed = true)

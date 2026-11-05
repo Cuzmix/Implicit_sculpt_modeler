@@ -5,10 +5,9 @@ import "core:math"
 import "core:time"
 
 import "../geom"
-import "../quadmesh"
+import "../retopo"
 import "../sculpt"
 import "../ui"
-@(require) import "../retopo" // used only where AutoRemesher is built
 
 // Rebuild (Object > Shape): one section for the three ways to replace an object's
 // topology, by the goal rather than the algorithm (UX research 08): an Even mesh (voxel
@@ -32,7 +31,7 @@ REBUILD_GOAL_NAMES := [Rebuild_Goal]string {
 // What Apply is called for each goal: the operation it runs. Quads says it makes a new
 // object, where the other two replace this one.
 REBUILD_VERBS := [Rebuild_Goal]string {
-	.Even  = "Remesh",
+	.Even  = "Voxel remesh",
 	.Fewer = "Decimate",
 	.Quads = "Quad Remesh (new object)",
 }
@@ -238,7 +237,7 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 		{
 			faces := object_face_count(obj)
 			third := (ui.fill_width(ctx) - 16) / 3
-			ui.begin(ctx, "half same double", {direction = .Row, gap = 8})
+			ui.begin(ctx, "half same double", {direction = .Row, gap = ui.SPACE_M})
 			if ui.button(ctx, "Half", .Flat, .Neutral, width = third, enabled = faces > 0) do app.ui.retopo_quads = i32(clamp(faces / 2, 100, 1_000_000))
 			if ui.button(ctx, "Same", .Flat, .Neutral, width = third, enabled = faces > 0) do app.ui.retopo_quads = i32(clamp(faces, 100, 1_000_000))
 			if ui.button(ctx, "Double", .Flat, .Neutral, width = third, enabled = faces > 0) do app.ui.retopo_quads = i32(clamp(faces * 2, 100, 1_000_000))
@@ -247,38 +246,39 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 		// The engine, Adaptive size, Close first and Keep symmetry under the same fold, for the
 		// same reasons.
 		if kit_more(app, .Remesh) {
-			// Where only the built-in engine is compiled there is nothing to choose.
-			when quadmesh.AVAILABLE {
-				engines: [len(retopo.Engine)]string
-				for e in retopo.Engine do engines[int(e)] = retopo.ENGINE_NAMES[e]
-				if picked := ui.tabs(ctx, "quad engine", engines[:], int(app.ui.retopo_engine)); picked >= 0 do app.ui.retopo_engine = retopo.Engine(picked)
-				if app.ui.retopo_engine == .Auto {
-					a := app.ui.retopo_adaptivity
-					_ = ui.slider(ctx, "Adaptive size", &app.ui.retopo_adaptivity, 0, 1, .Linear, "Even" if a == 0 else fmt.tprintf("%.0f%%", 100 * a))
-					// Keep groups, Keep creases and Edge angle, as ZRemesher's KeepGroups,
-					// KeepCreases and its hard-edge detection: the quads' edges run along
-					// them. The object's own groups and creases decide what there is to keep.
-					groups, creases := quad_source_counts(obj)
-					_ = ui.switch_row(ctx, "Keep groups" if groups > 1 else "Keep groups (none)", &app.ui.retopo_keep_groups, enabled = groups > 1)
-					_ = ui.switch_row(ctx, "Keep creases" if creases > 0 else "Keep creases (none)", &app.ui.retopo_keep_creases, enabled = creases > 0)
-					d := app.ui.retopo_edge_degrees
-					_ = ui.slider(ctx, "Edge angle", &app.ui.retopo_edge_degrees, RETOPO_EDGE_DEGREES_MIN, 90, .Linear, "90° and sharper" if d >= 90 else fmt.tprintf("%.0f°", d))
-					app.ui.retopo_edge_degrees = math.round(app.ui.retopo_edge_degrees)
-					// Use paint and Use mask, as ZRemesher's Use PolyPaint: red asks more quads,
-					// blue fewer, a mask more. A dynamic layout's packing keeps no paint.
-					s := object_sculptor(obj)
-					painted := obj.voxel == nil && sculpt.sculptor_has_color(s)
-					masked := obj.voxel == nil && s.mask != nil
-					_ = ui.switch_row(ctx, "Use paint" if painted else "Use paint (none)", &app.ui.retopo_use_paint, enabled = painted && !object_dynamic(obj))
-					_ = ui.switch_row(ctx, "Use mask" if masked else "Use mask (none)", &app.ui.retopo_use_mask, enabled = masked)
-					// Guide strength, as ZRemesher's Curves Strength: how hard the Guide
-					// curves (a curve's use) pull the loops along them.
-					guides := quad_guide_count(app)
-					g := app.ui.retopo_guide_strength
-					_ = ui.slider(ctx, "Guide strength" if guides > 0 else "Guide strength (no guides)", &app.ui.retopo_guide_strength, 0, 1, .Linear, "Off" if g == 0 else fmt.tprintf("%.0f%%", 100 * g), enabled = guides > 0)
-				}
+			engines: [len(retopo.Engine)]string
+			for e in retopo.Engine do engines[int(e)] = retopo.ENGINE_NAMES[e]
+			if picked := ui.tabs(ctx, "quad engine", engines[:], int(app.ui.retopo_engine)); picked >= 0 do app.ui.retopo_engine = retopo.Engine(picked)
+			if app.ui.retopo_engine == .Flow {
+				a := app.ui.retopo_adaptivity
+				_ = ui.slider(ctx, "Adaptive size", &app.ui.retopo_adaptivity, 0, 1, .Linear, "Even" if a == 0 else fmt.tprintf("%.0f%%", 100 * a))
+				// Keep groups, Keep creases and Edge angle, as ZRemesher's KeepGroups,
+				// KeepCreases and its hard-edge detection: the quads' edges run along
+				// them. The object's own groups and creases decide what there is to keep.
+				groups, creases := quad_source_counts(obj)
+				_ = ui.switch_row(ctx, "Keep groups" if groups > 1 else "Keep groups (none)", &app.ui.retopo_keep_groups, enabled = groups > 1)
+				_ = ui.switch_row(ctx, "Keep creases" if creases > 0 else "Keep creases (none)", &app.ui.retopo_keep_creases, enabled = creases > 0)
+				d := app.ui.retopo_edge_degrees
+				_ = ui.slider(ctx, "Edge angle", &app.ui.retopo_edge_degrees, RETOPO_EDGE_DEGREES_MIN, 90, .Linear, "90° and sharper" if d >= 90 else fmt.tprintf("%.0f°", d))
+				app.ui.retopo_edge_degrees = math.round(app.ui.retopo_edge_degrees)
+				// Use paint and Use mask, as ZRemesher's Use PolyPaint: red asks more quads,
+				// blue fewer, a mask more. A dynamic layout's packing keeps no paint.
+				s := object_sculptor(obj)
+				painted := obj.voxel == nil && sculpt.sculptor_paint_shows(s)
+				masked := obj.voxel == nil && s.mask != nil
+				_ = ui.switch_row(ctx, "Use paint" if painted else "Use paint (none)", &app.ui.retopo_use_paint, enabled = painted && !object_dynamic(obj))
+				_ = ui.switch_row(ctx, "Use mask" if masked else "Use mask (none)", &app.ui.retopo_use_mask, enabled = masked)
+				// Guide strength, as ZRemesher's Curves Strength: how hard the Guide
+				// curves (a curve's use) pull the loops along them.
+				guides := quad_guide_count(app)
+				g := app.ui.retopo_guide_strength
+				_ = ui.slider(ctx, "Guide strength" if guides > 0 else "Guide strength (no guides)", &app.ui.retopo_guide_strength, 0, 1, .Linear, "Off" if g == 0 else fmt.tprintf("%.0f%%", 100 * g), enabled = guides > 0)
 			}
 			_ = ui.switch_row(ctx, "Close first", &app.ui.retopo_close_first)
+			// Keep borders, as ZRemesher's FreezeBorder: an open mesh's border comes back
+			// as it was, so the result welds onto what it was cut from. Close first leaves
+			// no border to keep.
+			if app.ui.retopo_engine == .Flow do _ = ui.switch_row(ctx, "Keep borders", &app.ui.retopo_keep_borders, enabled = !app.ui.retopo_close_first)
 			kit_keep_symmetry(app, &app.ui.retopo_keep_symmetry)
 			kit_more_end(app)
 		}
@@ -330,7 +330,7 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 	}
 	_ = command_button(app, .Rebuild, label = REBUILD_VERBS[goal^], tone = .Accent)
 	kit_last_result(app, .Retopo if goal^ == .Quads else .Remesh)
-	if goal^ != .Quads do ui.paragraph(ctx, fmt.tprintf("Levels, mask and strokes go; Ctrl+Z brings them back. %s remeshes again at the object's own cell.", command_keys(app, .Remesh)))
+	if goal^ != .Quads do ui.paragraph(ctx, fmt.tprintf("Levels, mask and strokes go; %s brings them back. %s remeshes again at the object's own cell.", keys_or_name(app, .Undo), keys_or_name(app, .Remesh)))
 }
 
 // Rebuild's Even density, the same row in the Rebuild section and the Remesh quick menu: a
@@ -339,7 +339,8 @@ kit_rebuild :: proc(app: ^App, obj: ^Object) {
 kit_remesh_density :: proc(app: ^App, obj: ^Object, label: string) {
 	ctx := &app.kit.ctx
 	if app.ui.remesh_by == .Vertices {
-		_ = kit_count(ctx, label, &app.ui.rebuild_even, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES)
+		// The slider stops at Largest remesh (Settings > Performance > Mesh size).
+		_ = kit_count(ctx, label, &app.ui.rebuild_even, REBUILD_MIN_VERTICES, i32(mesh_remesh_most(app)))
 		return
 	}
 	mm := &app.ui.remesh_cell_mm
@@ -356,13 +357,6 @@ remesh_cell_vertices :: proc(app: ^App, obj: ^Object, cell: f32) -> int {
 	return object_vertex_count(obj)
 }
 
-// The Remesh button's quick menu, its long press on the bottom bar, after Nomad's voxel
-// popup and the reference app's long press on its remesh: the density with the object's
-// own count a tap away, the checkerboard on the object while Density is held (as in the
-// Rebuild section, whose even goal it sets), and one big Remesh. Fewer polygons and quads
-// are under More options, the Rebuild section itself.
-REMESH_QUICK_W :: 300
-
 remesh_quick_open :: proc(app: ^App, at: ui.Rect, side := ui.Side.Above_Center) {
 	if bar_pop_showing(app, .Remesh_Quick) {
 		app.kit.bar_pop.open = false
@@ -376,10 +370,10 @@ kit_remesh_quick :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	inner := f32(REMESH_QUICK_W - 24)
+	inner := f32(ui.POPOVER_W - 24)
 	ui.begin(ctx, "remesh quick head", {direction = .Row, center = true})
 	ui.begin(ctx, "remesh quick title", {direction = .Column, width = inner - t.target})
-	ui.label(ctx, "Remesh", t.title_size, t.text, .Semibold)
+	ui.label(ctx, "Voxel remesh", t.title_size, t.text, .Semibold)
 	ui.end(ctx)
 	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do k.bar_pop.open = false
 	ui.end(ctx)
@@ -400,7 +394,7 @@ kit_remesh_quick :: proc(app: ^App) {
 	own_mm := remesh_cell_mm(app, obj, obj.remesh_cell) if obj.remesh_cell > 0 else app.ui.remesh_cell_mm
 	cell_mm := &app.ui.remesh_cell_mm
 	by_cell := app.ui.remesh_by == .Cell
-	ui.begin(ctx, "remesh quick steps", {direction = .Row, gap = 8})
+	ui.begin(ctx, "remesh quick steps", {direction = .Row, gap = ui.SPACE_M})
 	if ui.button(ctx, "Half", .Bordered, width = third) {
 		if by_cell do cell_mm^ = clamp(own_mm * math.SQRT_TWO, REMESH_CELL_MM_MIN, REMESH_CELL_MM_MAX)
 		else do even^ = rebuild_count(now / 2)
@@ -421,7 +415,7 @@ kit_remesh_quick :: proc(app: ^App) {
 	} else {
 		ui.paragraph(ctx, fmt.tprintf("Now %s vertices. Hold Density to see its cells.", count_label(now)))
 	}
-	if ui.button(ctx, "Remesh##quick", .Flat, .Accent, inner, ICON_REMESH, enabled = command_enabled(app, .Remesh), keys = command_hint(app, .Rebuild)) {
+	if ui.button(ctx, "Voxel remesh##quick", .Flat, .Accent, inner, ICON_REMESH, enabled = command_enabled(app, .Remesh), keys = command_hint(app, .Rebuild)) {
 		app.ui.rebuild_goal = .Even
 		rebuild_command(app)
 	}
@@ -429,7 +423,7 @@ kit_remesh_quick :: proc(app: ^App) {
 	if ui.menu_item(ctx, "More options", glyph = ui.ICON_SETTINGS) {
 		at, side := k.bar_pop.at, k.bar_pop.side
 		k.bar_pop.open = false
-		card_pop_section(app, .Remesh, at, side)
+		bar_section_toggle(app, .Remesh, at, side)
 	}
 }
 

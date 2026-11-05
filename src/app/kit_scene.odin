@@ -159,9 +159,8 @@ tree_drop :: proc(spots: []Tree_Spot, dragged: int, at: [2]f32, indent: f32 = ui
 
 // Notes what a row's grip and toggles hold this frame: `grip`, whether whatever drags the
 // row is held, and `held_toggle`, which toggle is (0 the ghost, 1 the eye; -1 none).
-// `rect` is the row's and `key` the object's id, or minus the folder's. The Scene card's tree and the
-// Objects card both drag through this, never both at once (the card and the tray share
-// their place, so only one is open).
+// `rect` is the row's and `key` the object's id, or minus the folder's. The Scene card's tree and its
+// pictures both drag through this, never both at once (the card shows one of them).
 kit_row_drags :: proc(app: ^App, grip: bool, held_toggle: int, rect: ui.Rect, key: int, ghost, off: bool) {
 	k := &app.kit
 	if grip {
@@ -299,7 +298,7 @@ kit_tree_autoscroll :: proc(app: ^App, scroll: Tree_Scroll) {
 // The Scene card's sections in the order listed, after Objects.
 @(rodata)
 SCENE_SECTIONS := [?]Kit_Tab_Section {
-	{.Add, "Add object", kit_lens_scene, nil},
+	{.Scene, "Add object", kit_lens_scene, nil},
 	{.Look, "Look", kit_look, nil},
 	{.Material, "Material", kit_lens_material, nil},
 	{.Lights, "Lights", kit_lights, nil},
@@ -369,7 +368,7 @@ kit_floor :: proc(app: ^App) {
 	on := f.on
 	if ui.switch_row(ctx, "Floor grid", &on, keys = command_hint(app, .Floor_Grid)) do command_run(app, .Floor_Grid)
 	ui.caption(ctx, "PLANES")
-	ui.begin(ctx, "floor planes", {direction = .Row, gap = 4})
+	ui.begin(ctx, "floor planes", {direction = .Row, gap = ui.SPACE_XS})
 	planes := [3]struct {
 		name, tip: string,
 	}{{"Side", "The wall square to X, on the far side"}, {"Floor", "The floor, under the scene"}, {"Back", "The wall square to Z, behind the scene"}}

@@ -9,7 +9,7 @@ import "../sculpt"
 import "../ui"
 
 // Each shelf page is a bar of its own: a fresh install's brushes, changed by the bars'
-// procs, kept whole in settings.txt, and left out of a workspace's layout.
+// procs, kept whole in settings.txt, and left out of a space's layout.
 @(test)
 shelf_pages_are_bars_kept_in_settings_not_layouts :: proc(t: ^testing.T) {
 	path := "build/shelf_test.txt"
@@ -38,7 +38,7 @@ shelf_pages_are_bars_kept_in_settings_not_layouts :: proc(t: ^testing.T) {
 	testing.expect_value(t, bar_names(&b, .Shelf_Paint), bar_names(&a, .Shelf_Paint))
 	testing.expect_value(t, bar_names(&b, .Shelf_Sculpt), bar_names(&a, .Shelf_Sculpt))
 
-	// A workspace's layout neither carries the pages nor puts them back.
+	// A space's layout neither carries the pages nor puts them back.
 	text := kit_layout_text(&a.kit)
 	c: App
 	defer results_destroy(&c)
@@ -172,7 +172,7 @@ b_opens_the_brush_picker :: proc(t: ^testing.T) {
 }
 
 // Lens's brush pie is a bar of eight: a fresh install's brushes clockwise from the top,
-// kept in settings.txt and left out of a workspace's layout, as the shelf's pages are.
+// kept in settings.txt and left out of a space's layout, as the shelf's pages are.
 @(test)
 brush_pie_is_a_bar_kept_in_settings :: proc(t: ^testing.T) {
 	path := "build/brush_pie_test.txt"
@@ -214,7 +214,7 @@ shelf_fit_keeps_three_brushes :: proc(t: ^testing.T) {
 }
 
 // Every tile shows while it can: at full width with room, then narrower; only past the
-// narrowest are tiles left out. A tablet's row keeps to eight full tiles' width. An iPad
+// narrowest are tiles left out. A tablet's row keeps to ten full tiles' width. An iPad
 // Air's room (628 points) shows all ten of a fresh Sculpt page. In lines, each row holds
 // its share.
 @(test)
@@ -227,7 +227,11 @@ shelf_layout_narrows_tiles_before_hiding_them :: proc(t: ^testing.T) {
 	testing.expect(t, b == 10, "an iPad Air's shelf shows the whole page")
 	b, tile = shelf_layout(30, 628, false, SHELF_TABLET * ui.BRUSH_TILE.x)
 	testing.expect(t, b < 30 && tile == SHELF_TILE_MIN, "past the narrowest, tiles are left out")
-	// The row on a tablet keeps to eight full tiles' width, however wide the window.
+	// An iPad Air's palm-safe room (699 points) gives a fresh page's twelve tiles 52 points
+	// each, wide enough for their whole names.
+	b, tile = shelf_layout(12, 699, false, SHELF_TABLET * ui.BRUSH_TILE.x)
+	testing.expect(t, b == 12 && tile >= 52, "a fresh page's names are cut on an iPad")
+	// The row on a tablet keeps to ten full tiles' width, however wide the window.
 	b, tile = shelf_layout(12, 2000, false, SHELF_TABLET * ui.BRUSH_TILE.x)
 	testing.expect(t, b == 12 && f32(b) * tile <= SHELF_TABLET * ui.BRUSH_TILE.x)
 	// Two lines: twelve tiles in two rows of six at full width.

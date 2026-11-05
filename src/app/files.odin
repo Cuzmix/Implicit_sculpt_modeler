@@ -58,8 +58,7 @@ File_Kind :: enum u8 {
 	Link_Send,    // the selected objects go to the Blender link's folder (link.odin); no path
 	Link_Get,     // what Blender left in the link's folder comes in; the path is LINK_AUTO for the focus check's
 	Environment,  // a panorama lights the physically based materials (environment.odin)
-	Export_Workspace, // the current workspace goes to a .workspace file (workspace_file.odin)
-	Import_Workspace, // a .workspace file becomes a workspace of the user's own
+	Reference,    // an image goes on the References card's board (references.odin)
 	Diagnostic_Report, // the Input diagnostics report goes to a ZIP file (diagnostics.odin)
 	Crash_Log,    // the last crash's log goes to a text file (crash_log.odin)
 	Export_Vdm,   // the brush's VDM alpha goes to an OpenEXR file, laid out for the app vdm_axes names (vdm_files.odin)
@@ -81,7 +80,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(39)
+SCENE_VERSION :: u32(52)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -132,6 +131,9 @@ SCENE_FILTERS := [?]sdl.DialogFileFilter{{"Sculpt scene", "sculpt"}}
 PNG_FILTERS := [?]sdl.DialogFileFilter{{"PNG image", "png"}}
 @(private = "file")
 IMAGE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI)", "png;jpg;jpeg;bmp;tga;qoi"}}
+// Add pictures takes another scene too, whose References board it copies in.
+@(private = "file")
+REFERENCE_FILTERS := [?]sdl.DialogFileFilter{{"Images (PNG, JPEG, BMP, TGA, QOI) or a scene's references", "png;jpg;jpeg;bmp;tga;qoi;sculpt"}}
 @(private = "file")
 EXR_FILTERS := [?]sdl.DialogFileFilter{{"OpenEXR vector displacement map", "exr"}}
 BARY_FILTERS := [?]sdl.DialogFileFilter{{"NVIDIA displacement micro-map", "bary"}}
@@ -148,13 +150,6 @@ when ODIN_PLATFORM_SUBTARGET == .Android {
 	ENVIRONMENT_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
 } else {
 	ENVIRONMENT_FILTERS := [?]sdl.DialogFileFilter{{"Panoramas (OpenEXR, Radiance HDR, PNG, JPEG, BMP, TGA, QOI)", "exr;hdr;png;jpg;jpeg;bmp;tga;qoi"}}
-}
-// On Android SDL turns an extension it does not know into no MIME type at all, so there
-// every file is offered and the file's own first line decides, as for packs.
-when ODIN_PLATFORM_SUBTARGET == .Android {
-	WORKSPACE_FILTERS := [?]sdl.DialogFileFilter{{"All files", "*"}}
-} else {
-	WORKSPACE_FILTERS := [?]sdl.DialogFileFilter{{"Workspaces", "workspace"}}
 }
 @(private = "file")
 DIAGNOSTIC_FILTERS := [?]sdl.DialogFileFilter{{"Diagnostic report (ZIP)", "zip"}}
@@ -269,7 +264,8 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Save, .Save_Copy:                                      dialog_save(app, userdata, SCENE_FILTERS[:])
 	case .Open:                                                  dialog_open(app, userdata, SCENE_FILTERS[:])
 	case .Alpha, .Skin_Map:                                      dialog_open(app, userdata, ALPHA_FILTERS[:])
-	case .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map:        dialog_open(app, userdata, IMAGE_FILTERS[:])
+	case .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map:       dialog_open(app, userdata, IMAGE_FILTERS[:])
+	case .Reference:                                             dialog_open(app, userdata, REFERENCE_FILTERS[:])
 	case .Environment:                                           dialog_open(app, userdata, ENVIRONMENT_FILTERS[:])
 	case .Screenshot:                                            dialog_save(app, userdata, PNG_FILTERS[:])
 	case .Save_Strokes:                                          dialog_save(app, userdata, STROKES_FILTERS[:])
@@ -279,13 +275,31 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Make_Pack:                                             dialog_save(app, userdata, PACK_FILTERS[:])
 	case .Export_Vdm:                                            dialog_save(app, userdata, EXR_FILTERS[:])
 	case .Export_Bary:                                           dialog_save(app, userdata, BARY_FILTERS[:])
-	case .Export_Workspace:                                      dialog_save(app, userdata, WORKSPACE_FILTERS[:])
-	case .Import_Workspace:                                      dialog_open(app, userdata, WORKSPACE_FILTERS[:])
 	case .Diagnostic_Report:                                     dialog_save(app, userdata, DIAGNOSTIC_FILTERS[:], diag_report_name(app))
 	case .Crash_Log:                                             dialog_save(app, userdata, TEXT_FILTERS[:], "sculpt-log-crash.txt")
 	case .Timelapse, .Turntable, .Bake:                          dialog_folder(app, userdata)
 	}
 }
+
+// The References board's Add from Photos: the system's photo picker on the iPad, answering
+// as a file dialog does with every photo picked; false where there is none (every other
+// platform's file dialog shows the photos the system keeps).
+file_dialog_photos :: proc(app: ^App) -> bool {
+	when ODIN_PLATFORM_SUBTARGET_IOS {
+		sync.lock(&pending.lock)
+		busy := pending.dialog
+		pending.dialog = true
+		sync.unlock(&pending.lock)
+		if busy do return true
+		sculpt_ios_open_photos_dialog(file_dialog_done, rawptr(uintptr(File_Kind.Reference)), app.window)
+		return true
+	} else {
+		return false
+	}
+}
+
+// Whether this platform has a photo picker of its own beside its file dialog (the iPad's).
+PHOTOS_PICKER :: ODIN_PLATFORM_SUBTARGET_IOS
 
 // SDL's answer to a dialog, on whichever thread SDL likes: a nil list is a failure, an
 // empty one a cancel. A name typed without an extension gets the one asked for.
@@ -307,6 +321,18 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 	}
 	if filelist[0] == nil do return
 	path := string(filelist[0])
+	// Several pictures for the References board (the iPad's photo picker) go in one
+	// request, a path a line.
+	if kind == .Reference && filelist[1] != nil {
+		lines := strings.builder_make(heap)
+		for i := 0; filelist[i] != nil; i += 1 {
+			if i > 0 do strings.write_byte(&lines, '\n')
+			strings.write_string(&lines, string(filelist[i]))
+		}
+		delete(pending.req.path, heap)
+		pending.req = {kind, strings.to_string(lines), sheet}
+		return
+	}
 	suffix := ""
 	if filepath.ext(path) == "" {
 		#partial switch kind {
@@ -323,7 +349,6 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		case .Make_Pack: suffix = ".sculptpack"
 		case .Export_Vdm: suffix = ".exr"
 		case .Export_Bary: suffix = ".bary"
-		case .Export_Workspace: suffix = WORKSPACE_FILE_SUFFIX
 		case .Diagnostic_Report: suffix = ".zip"
 		case .Crash_Log: suffix = ".txt"
 		}
@@ -505,6 +530,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = matcap_load(app, req.path)
 	case .Environment:
 		_ = environment_load(app, req.path)
+	case .Reference:
+		for path in strings.split_lines(req.path, context.temp_allocator) do if path != "" do _ = refs_add_file(app, path)
 	case .Base_Color_Map, .Orm_Map, .Normal_Map:
 		for kind, m in TEXTURE_FILE_KINDS do if kind == req.kind {
 			if why := texture_load(app, selected_object(app), m, req.path); why != "" do file_note(app, true, "%s", why)
@@ -532,10 +559,6 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = skin_map_load(app, req.path)
 	case .Export_Bary:
 		_ = skin_bary_export(app, req.path)
-	case .Export_Workspace:
-		_ = workspace_export(app, req.path)
-	case .Import_Workspace:
-		_ = workspace_import(app, req.path)
 	case .Diagnostic_Report:
 		_ = diag_export(app, req.path)
 	case .Crash_Log:
@@ -564,8 +587,14 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 // A file dropped on the window from the desktop: a mesh imports as Import mesh would,
 // anything else says what a drop takes.
 file_drop :: proc(app: ^App, path: string) {
+	if image_path_known(path) {
+		// A picture dropped on the window goes on the References board, as a photo
+		// dropped on PureRef's does.
+		_ = refs_add_file(app, path)
+		return
+	}
 	if mesh_file_kind(path, nil) == .None {
-		file_note(app, true, "Cannot import %s: drop .obj, .ply, .stl, glTF or USD files to import them", filepath.base(path))
+		file_note(app, true, "Cannot import %s: drop .obj, .ply, .stl, glTF or USD files to import them, or pictures to add them to References", filepath.base(path))
 		return
 	}
 	// Never over a dialog's answer, which would be lost.
@@ -1154,7 +1183,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	// the two.
 	material := export_material(object_material(app, obj))
 	colors: [][3]u8
-	if c := lv.sculptor.color; c != nil && !object_dynamic(obj) {
+	if c := sculpt.sculptor_paint_shown(&lv.sculptor); c != nil && !object_dynamic(obj) {
 		under := [3]u32{255, 255, 255}
 		if ext == ".glb" || ext == ".usda" {
 			for k in 0 ..< 3 do under[k] = u32(math.round(geom.srgb_encode(material.base[k]) * 255))
@@ -1169,6 +1198,27 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 		delete(mask)
 		positions, normals, indices = packed.positions[:], packed.normals[:], packed.indices[:]
 	}
+	// The live stack as it shows, unless the Export sheet keeps it out: a mirror welded and
+	// every copy joined in, the paint going by each vertex's source (`baked_from`), so
+	// what goes out is what the view shows.
+	baked_from: [dynamic]u32
+	defer delete(baked_from)
+	baked_mesh: geom.Mesh
+	defer geom.mesh_destroy(&baked_mesh)
+	baked := false
+	if !once.keep_stack && stack_shows(app, obj) {
+		baked_mesh, baked = stack_bake(app, obj, positions, indices, &baked_from)
+		if baked {
+			positions, normals, indices = baked_mesh.positions[:], baked_mesh.normals[:], baked_mesh.indices[:]
+			if colors != nil {
+				moved := make([][3]u8, len(baked_from), context.temp_allocator)
+				for v, k in baked_from do moved[k] = colors[v]
+				colors = moved
+			}
+		} else {
+			file_note(app, true, "%s's live stack is too big to bake, so it went out as the object holds it", object_label(obj))
+		}
+	}
 	// Decimate for this file only: a copy with fewer triangles whose vertices are the
 	// object's own (geom.mesh_decimate's `from`), so its paint, shape keys and groups
 	// follow them. A retopologized base going out as its quads, and a textured glTF whose
@@ -1177,10 +1227,10 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	defer delete(from)
 	decimated: geom.Mesh
 	defer geom.mesh_destroy(&decimated)
-	quads_out := ext == ".obj" && !print && obj.levels.current == 0 && sculpt.levels_has_quads(&obj.levels) && !object_dynamic(obj)
-	textured := ext == ".glb" && object_exports_textures(obj)
+	quads_out := ext == ".obj" && !print && obj.levels.current == 0 && sculpt.levels_has_quads(&obj.levels) && !object_dynamic(obj) && !baked
+	textured := ext == ".glb" && object_exports_textures(obj) && !baked
 	if once.decimate > 0 && len(indices) / 3 > once.decimate && !quads_out && !textured {
-		src := packed if obj.voxel != nil || object_dynamic(obj) else lv.mesh
+		src := baked_mesh if baked else packed if obj.voxel != nil || object_dynamic(obj) else lv.mesh
 		ok: bool
 		decimated, _, ok = geom.mesh_decimate(src, once.decimate, &app.pool, from = &from)
 		if ok {
@@ -1196,6 +1246,15 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 			clear(&from)
 		}
 	}
+	// From here `from` gives each vertex that goes out its vertex of the level, through
+	// the bake and the decimation both.
+	if baked {
+		if len(from) > 0 {
+			for &v in from do v = baked_from[v]
+		} else {
+			append(&from, ..baked_from[:])
+		}
+	}
 	out := make([dynamic]u8)
 	defer delete(out)
 	layers := 0
@@ -1208,7 +1267,9 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	case ext == ".glb" || ext == ".usda":
 		// Dynamic topology bakes the layers, so a dynamic object has none to write.
 		sculpt.sculptor_refresh_normals(&lv.sculptor)
-		list := sculpt.sculptor_layers(&lv.sculptor)
+		// A baked stack's copies share their vertices' shape keys, which glTF and USD give
+		// one vertex each, so the layers go out baked in as shown.
+		list := sculpt.sculptor_layers(&lv.sculptor) if !baked else nil
 		morphs := make([]geom.Morph_Target, len(list), context.temp_allocator)
 		// After a decimation a shape key keeps the vertices still there, by their new numbers.
 		kept: []u32
@@ -1228,10 +1289,9 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 			// where the UVs are, as a bake's own .glb has them (retopo.odin), with the
 			// polypaint unless a base colour map stands for it (glTF would multiply the
 			// two); polygroup materials stay out, since the maps give one material.
-			q := sculpt.levels_quad_mesh(&obj.levels)
 			paint := colors if obj.textures.image[.Base_Color] == nil else nil
 			written: bool
-			vertices, written = quad_object_glb(&out, obj, q, object_label(obj), obj.textures.image, material, true, morphs, paint, export_lights(app, obj.transform))
+			vertices, written = textured_object_glb(&out, obj, obj.levels.current, object_label(obj), obj.textures.image, material, true, morphs, paint, export_lights(app, obj.transform))
 			if !written {
 				free_all(context.temp_allocator)
 				file_note(app, true, "Cannot export %s: a glTF file holds at most 4 GB", name)
@@ -1254,7 +1314,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 		if ext == ".usda" && len(from) == 0 do usd_extras(obj, lv, &m)
 		if object_shows_group_materials(obj) && !object_dynamic(obj) {
 			faces := m.groups if ext == ".usda" else lv.sculptor.groups.tris
-			paint := lv.sculptor.color
+			paint := sculpt.sculptor_paint_shown(&lv.sculptor)
 			if len(from) > 0 {
 				// A decimated copy's triangles are new: each takes the group of its first
 				// corner's vertex, and the paint goes by the new vertex numbers.
@@ -1312,7 +1372,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 		// A retopologized object's base level goes as its quads, with their UVs.
 		q := sculpt.levels_quad_mesh(&obj.levels)
 		layout, _ := sculpt.levels_quad_uvs(&obj.levels)
-		geom.quad_mesh_write_obj(&out, q.positions, q.quads, layout.uvs, obj.file.scale, obj.file.position)
+		geom.faces_write_obj(&out, q.positions, q.quads, layout.uvs, obj.file.scale, obj.file.position)
 	case ext == ".obj":
 		geom.mesh_write_obj(&out, positions, indices, obj.file.scale, obj.file.position, &app.pool, colors)
 	case ext == ".stl":
@@ -1326,7 +1386,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	// The times shown are this action's alone.
 	app.stats.file_read_ms, app.stats.file_parse_ms = 0, 0
 	app.stats.file_write_ms = time.duration_milliseconds(time.tick_since(start))
-	with := fmt.tprintf(", %d %s as shape keys", layers, "layer" if layers == 1 else "layers") if layers > 0 else ""
+	with := fmt.tprintf(", %d %s as shape keys", layers, "layer" if layers == 1 else "layers") if layers > 0 else ", its live stack baked" if baked else ""
 	if print {
 		app.print_exports += 1
 		file_note(app, false, "Exported %s for printing: %s; %d triangles in %.0f ms", name, printed, len(indices) / 3, app.stats.file_write_ms)
@@ -1347,10 +1407,10 @@ sparse_keep :: proc(vertices: []u32, deltas: []Vec3, kept: []u32) -> ([]u32, []V
 	return vertices[:n], deltas[:n]
 }
 
-// Whether a .glb export of `obj` carries its maps: it has some and shows its base level,
-// whose quads and UVs they follow, without dynamic topology.
+// Whether a .glb export of `obj` carries its maps: it has some, and UVs they follow on the
+// level it shows (sculpt.levels_uvs_at), without dynamic topology.
 object_exports_textures :: proc(obj: ^Object) -> bool {
-	return object_has_textures(obj) && obj.voxel == nil && obj.levels.current == 0 && !object_dynamic(obj) && !object_in_hd(obj) && texture_target_check(obj) == ""
+	return object_has_textures(obj) && obj.voxel == nil && !object_dynamic(obj) && !object_in_hd(obj) && texture_target_check(obj) == ""
 }
 
 // What USD carries beyond glTF: a retopologized base level's quads and UVs, as OBJ
@@ -1511,7 +1571,6 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	geom.byte_put(out, SCENE_VERSION)
 	preview_block_put(app, out)
 	at := scene_chunk_begin(out, CHUNK_SCENE)
-	defer scene_chunk_end(out, at)
 	curves, _ := curve_counts(app)
 	geom.byte_put(out, u32(len(app.scene.objects) - curves))
 	geom.byte_put(out, i32(scene_selected_without_curves(app)))
@@ -1545,6 +1604,10 @@ scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	geom.byte_put(out, i32(curves))
 	geom.byte_put(out, i32(app.scene.selected))
 	lights_more_put(out, app.scene.lights)
+	scene_chunk_end(out, at)
+	// The reference pictures belong to the scene, so every writer of one (a save, the
+	// autosave, Send) carries them after its own chunk.
+	refs_put(out, &app.scene.refs)
 }
 
 // What each light keeps besides lights_put's, at the scene chunk's end: how many lights, then each one's kind (an area light is a
@@ -1854,7 +1917,6 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	defer scene_fields_destroy(&f)
 	objects := make([dynamic]^Object, 0, 16)
 	defer delete(objects)
-	render.wait_idle(&app.renderer)
 	missing := 0
 	damaged := ""
 	// Each object is read and built as it comes; one that is damaged, or a GPU failure,
@@ -1871,6 +1933,9 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	// app does not know is stepped over.
 	seen := false
 	curves_read := 0
+	refs: References
+	refs_seen := false
+	defer refs_free(&refs)
 	for damaged == "" {
 		tag, chunk, more := scene_chunk_next(&r)
 		if !more {
@@ -1883,6 +1948,11 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 			if !seen do f, fields_ok = scene_fields_get(app, &chunk)
 			if seen || !fields_ok || f.count > len(data) do damaged = "it is damaged"
 			seen = true
+		case CHUNK_REFS:
+			refs_ok: bool
+			if !refs_seen do refs, refs_ok = refs_get(&chunk)
+			if !seen || refs_seen || !refs_ok do damaged = "its reference pictures are damaged"
+			refs_seen = true
 		case CHUNK_OBJECT, CHUNK_CURVE:
 			curve := tag == CHUNK_CURVE
 			if !seen || (curve && curves_read >= f.curves) || (!curve && len(objects) - curves_read >= f.count) {
@@ -1898,7 +1968,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 			}
 		}
 	}
-	if damaged == "" && (!seen || len(objects) != f.count + f.curves || curves_read != f.curves) do damaged = "it is damaged"
+	if damaged == "" && (!seen || !refs_seen || len(objects) != f.count + f.curves || curves_read != f.curves) do damaged = "it is damaged"
 	if damaged != "" {
 		file_note(app, true, "Cannot open %s: %s", name, damaged)
 		for other in objects do object_discard(app, other)
@@ -1923,6 +1993,8 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	app.scene.lights, app.scene.lights_own = lights, true
 	app.scene.print_mm = print_mm
 	app.scene.guides = guides
+	refs_take(app, &refs)
+	app.kit.board.zoom = 0
 	scene_folders_normalize(app)
 	scene_selection_fix(app)
 	autosave_scene_saved(app, path)
@@ -1949,7 +2021,6 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	stroke_finish(app)
 	timelapse_stop(app, "the scene was replaced")
 	app.timeline.playing, app.timeline.seeking = false, false
-	render.wait_idle(&app.renderer)
 	history_clear(&app.history)
 	for obj in app.scene.objects do object_free(app, obj)
 	clear(&app.scene.objects)
@@ -1966,6 +2037,8 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	app.scene.print_mm = PRINT_MM_DEFAULT
 	// A new scene has no guides until they are shown; an opened one gets its own back.
 	app.scene.guides = {}
+	// A new scene has no reference pictures; an opened one gets its own back.
+	refs_clear(app)
 	// A new scene is lit by the starting lights; an opened one gets its own back. A change
 	// to the old scene's lights still under way goes with its History.
 	app.scene.lights, app.scene.lights_own = app.start_lights, false
@@ -2060,11 +2133,15 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	put_transform(out, obj.transform)
 	put_transform(out, obj.file)
 	geom.byte_put(out, obj.transform.rotation)
+	geom.byte_put(out, u8(obj.pivot.set))
+	geom.byte_put(out, obj.pivot.at)
+	geom.byte_put(out, obj.pivot.normal)
 	geom.byte_put(out, u8(obj.boolean))
 	geom.byte_put(out, object_view_bits(obj))
 	geom.byte_put(out, i32(obj.folder))
 	geom.byte_put(out, obj.vis_off)
 	geom.byte_put(out, obj.remesh_cell)
+	stack_put(out, obj.stack)
 	physics_put(out, object_physics(obj))
 	geom.byte_put(out, u8(object_kind(obj)))
 	material_put(out, obj.material, refs[0] if len(refs) > 0 else {})
@@ -2143,6 +2220,7 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	n := len(s.mesh.positions)
 	if s.mask != nil do bytes += n
 	if s.color != nil do bytes += size_of(sculpt.Color) * n
+	bytes += sculpt.sculptor_paint_bytes(s)
 	if s.groups.tris != nil do bytes += size_of(u16) * len(s.groups.tris)
 	// A set is written again in file order, at most a byte a vertex.
 	for set in sculpt.levels_sets(&obj.levels) do bytes += 64 + set.vertices
@@ -2198,10 +2276,10 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source 
 			free_all(context.temp_allocator)
 			return obj, true, made
 		}
-	} else if fields_ok && sculpt.levels_read(&obj.levels, r, &app.pool) && (sculpt.levels_has_quad_uvs(&obj.levels) || !object_has_textures(obj)) {
+	} else if fields_ok && sculpt.levels_read(&obj.levels, r, &app.pool) && (sculpt.levels_has_uvs(&obj.levels) || !object_has_textures(obj)) {
 		// A damaged skin is left out, and the object opens without it.
 		if sculpt.levels_skin_follows(r) && !sculpt.levels_skin_read(&obj.levels, r) {
-			report(app, Kit_Section.Hd, {.Warning}, "The detail skin of %s is damaged: it opens without it", obj.name)
+			report(app, Section.Hd, {.Warning}, "The detail skin of %s is damaged: it opens without it", obj.name)
 		}
 		lv := sculpt.levels_current(&obj.levels)
 		obj.gpu[obj.levels.current], made = render.mesh_buffers_create(&app.renderer, lv.mesh, lv.sculptor.mask)
@@ -2218,8 +2296,9 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source 
 	return nil, false, false
 }
 
-// Reads what object_put writes before the levels: the id, name, placement, boolean mode,
-// view flags, folder, stored eyes, last remesh cell and Physics card; r.ok goes false on damage. The caller owns
+// Reads what object_put writes before the levels: the id, name, placement, pivot, boolean mode,
+// view flags, folder, stored eyes, last remesh cell, live stack and Physics card; r.ok goes
+// false on damage. The caller owns
 // obj.name.
 object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 	obj.id = int(geom.byte_get(r, i32))
@@ -2228,6 +2307,11 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 	obj.file = get_transform(r)
 	obj.transform.rotation = geom.byte_get(r, Vec3)
 	if !finite(obj.transform.rotation) do r.ok = false
+	pivot_set := geom.byte_get(r, u8)
+	obj.pivot.set = pivot_set == 1
+	obj.pivot.at = geom.byte_get(r, Vec3)
+	obj.pivot.normal = geom.byte_get(r, Vec3)
+	if pivot_set > 1 || !finite(obj.pivot.at) || !finite(obj.pivot.normal) do r.ok = false
 	mode := geom.byte_get(r, u8)
 	if mode > u8(max(Boolean_Mode)) do r.ok = false
 	else do obj.boolean = Boolean_Mode(mode)
@@ -2240,11 +2324,14 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 	obj.vis_off = geom.byte_get(r, u8)
 	obj.remesh_cell = geom.byte_get(r, f32)
 	if !(obj.remesh_cell >= 0 && obj.remesh_cell <= max(f32)) do r.ok = false
+	stack, stack_ok := stack_get(r)
+	if !stack_ok do r.ok = false
+	obj.stack = stack
 	obj.physics = physics_get(r)
 }
 
 // Frees an object read for a scene that never got it: it has no history and draws
-// nothing yet. The caller has waited for the GPU.
+// nothing yet.
 object_discard :: proc(app: ^App, obj: ^Object) {
 	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
 	texture_preview_release(app, obj)

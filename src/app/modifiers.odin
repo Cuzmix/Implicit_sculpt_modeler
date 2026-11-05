@@ -31,10 +31,6 @@ Modifier :: enum u8 {
 }
 Modifiers :: bit_set[Modifier;u8]
 
-// Smooth, Mask and Hide are what a press does, one at a time (Smooth and Mask together
-// being Hide); Invert turns any of them (or the brush) the other way.
-RAIL_MODES :: Modifiers{.Smooth, .Mask, .Hide}
-
 // A press of a rail button shorter than this that sculpted nothing is a tap, which
 // latches; longer, or with a stroke made meanwhile, it only acted while held.
 RAIL_TAP :: 0.25 // seconds
@@ -75,6 +71,16 @@ Modifier_Rail :: struct {
 	// finger lifted mid-stroke never changes the brush the stroke uses; Smooth put down
 	// mid-stroke makes the stroke a straight line instead (rail_press).
 	press:   Rail_Press,
+	// The Mask key (Mask_Key, M) held as a finger on the Mask sector would be: since when,
+	// and whether a press on the viewport went down meanwhile, so its release never latches.
+	key:     Rail_Key,
+	key_code: Key, // the key that went down for it, whose release ends it
+}
+
+Rail_Key :: struct {
+	held: bool,
+	at:   f64,
+	used: bool,
 }
 
 Rail_Finger :: struct {
@@ -129,7 +135,7 @@ modifier_name :: proc(app: ^App, m: Modifier) -> string {
 MODIFIER_ICONS := [Modifier]rune {
 	.Smooth = 0xe283, // waves
 	.Invert = 0xe30c, // diff: plus over minus
-	.Mask   = 0xe0a1, // contrast
+	.Mask   = ICON_MASK,
 	.Hide   = 0xe0bf, // eye-off
 }
 
@@ -159,7 +165,7 @@ rail_toggle :: proc(r: ^Modifier_Rail, which: Modifier) {
 
 // What a sector of the wheel (the dial) does: hold or latch a modifier, or run a command
 // on a tap, as the brush pie's sector runs Brush_Pie. Which sector does what is a setting
-// (Settings > Dial), not part of a workspace, since it belongs to the hand
+// (Settings > Dial), not part of a layout, since it belongs to the hand
 // rather than the screen. Each space has its own four (PR 3b), as each asks something
 // else of the off hand: Model snaps and selects, Render places light and focus.
 Dial_Sector :: union {
@@ -310,10 +316,23 @@ rail_remove :: proc(r: ^Modifier_Rail, i: int) {
 	if r.count == 0 do r.gesture, r.began = false, false
 }
 
+// The Mask key went down (`down`) or up at `now`: held, it masks as a finger held on the
+// dial's Mask; let go quickly with no press made meanwhile, it latches Mask (or lets it go).
+rail_key :: proc(r: ^Modifier_Rail, down: bool, now: f64) {
+	if down {
+		if !r.key.held do r.key = {held = true, at = now}
+		return
+	}
+	if !r.key.held do return
+	if !r.key.used && now - r.key.at < RAIL_TAP do rail_toggle(r, .Mask)
+	r.key = {}
+}
+
 // Forgets every finger, as when the app loses focus and their lifts never come.
 rail_forget :: proc(r: ^Modifier_Rail) {
 	r.count = 0
 	r.press = {}
+	r.key = {}
 	r.gesture, r.began = false, false
 }
 
@@ -327,6 +346,7 @@ rail_holds :: proc(r: ^Modifier_Rail, f: Rail_Finger) -> bool {
 // What is on, to light the buttons: latched, or held by a finger.
 rail_mods :: proc(r: ^Modifier_Rail) -> Modifiers {
 	on := r.latched
+	if r.key.held do on += {.Mask}
 	for f in r.fingers[:r.count] do if rail_holds(r, f) do on += {f.which}
 	return on
 }
@@ -338,6 +358,8 @@ rail_press_mods :: proc(r: ^Modifier_Rail) -> (mods: Modifiers, held: bool) {
 	mods = r.latched & {.Invert}
 	mode, has := rail_mode(r.latched).?
 	holding: Modifiers
+	// The Mask key held comes first: a finger put down on the dial since wins.
+	if r.key.held do mode, has, held, holding = .Mask, true, true, {.Mask}
 	for f in r.fingers[:r.count] {
 		if !rail_holds(r, f) do continue
 		if f.which == .Invert {
@@ -376,6 +398,7 @@ rail_press :: proc(app: ^App, input: ^Viewport_Input) {
 			}
 		}
 		for &f in r.fingers[:r.count] do f.used = true
+		if r.key.held do r.key.used = true
 	} else if .Left not_in d.down {
 		r.press = {}
 	}
@@ -483,9 +506,12 @@ WHEEL_SIZE_NAMES := [Wheel_Size]string {
 	.XL3    = "3XL",
 }
 
-// What the wheel's sectors show (Settings > Interface): their icons, the icons over their
-// names, or the names alone, for someone still learning which is which.
+// What the wheel's sectors show (Settings > Interface): as it comes (Auto) the icons over
+// their names on a touch screen, where no tooltip names them, and the icons alone with a
+// mouse; or always the icons, the icons over their names, or the names alone, for someone
+// still learning which is which.
 Wheel_Labels :: enum u8 {
+	Auto,
 	Icons,
 	Icons_And_Names,
 	Names,
@@ -565,7 +591,7 @@ rail_inset :: proc(app: ^App, lift: f32) -> f32 {
 	if rail_shown(k) != .Left || k.docks[.Offhand].edge != .Default do return t.edge
 	area := ui.safe_area(ctx)
 	bar, _ := ui.prev_layout(ctx, "brush bar")
-	// No brush bar (the workspace hides it), nothing to keep clear of.
+	// No brush bar (the layout hides it), nothing to keep clear of.
 	if bar.y <= 0 do return t.edge
 	if brush_bar_top(app) + bar.y + 8 > area.h - lift - rail_size(app).y do return kit_left(app)
 	return t.edge
@@ -621,7 +647,8 @@ kit_modifier_rail :: proc(app: ^App) {
 			} else {
 				// A command's own icon and label, lit while it is on (Symmetry X, say).
 				look := ui.Modifier_Look.Lit if command_checked(app, v.id, v.arg) else .Off
-				sectors[i] = {name = bar_label(app, v), glyph = bar_icon(app, v), caption = bar_label(app, v), look = look, keys = command_hint(app, v.id, v.arg)}
+				// The caption is the shelf's short word, which fits a sector as it fits a tile.
+				sectors[i] = {name = bar_label(app, v), glyph = bar_icon(app, v), caption = shelf_label(app, v), look = look, keys = command_hint(app, v.id, v.arg)}
 			}
 		case Modifier:
 			look := ui.Modifier_Look.Latched if lit_of(v, r.latched) else (.Lit if lit_of(v, held) || lit_of(v, keys) else .Off)
@@ -629,6 +656,7 @@ kit_modifier_rail :: proc(app: ^App) {
 			sectors[i] = {name = name, glyph = MODIFIER_ICONS[v], caption = name, look = look, keys = MODIFIER_KEYS[v]}
 		}
 		switch k.wheel_labels {
+		case .Auto:            if !(MOBILE || k.keyless) do sectors[i].caption = ""
 		case .Icons:           sectors[i].caption = ""
 		case .Icons_And_Names:
 		case .Names:           sectors[i].glyph = 0

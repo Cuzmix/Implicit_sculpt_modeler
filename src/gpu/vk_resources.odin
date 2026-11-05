@@ -1,0 +1,1006 @@
+#+build !js
+package gpu
+
+import "core:log"
+import "core:mem"
+import "core:strings"
+
+import vk "vendor:vulkan"
+
+// Buffers, textures, samplers, shaders and pipelines of the Vulkan backend. A handle the app
+// holds is a container: SDL_GPU lets a write "cycle" a resource the GPU may still be
+// reading, which swaps in another backing object (made on demand, reused once idle) so the
+// write never waits. Each backing counts the command buffers that use it; a released
+// resource is destroyed once its last backing is idle.
+
+Vk_Host :: enum u8 {
+	None,     // device-local
+	Upload,   // a transfer buffer the CPU writes
+	Download, // a transfer buffer the CPU reads
+	// A device buffer the CPU fills once through a mapping, before its first use, from the
+	// memory type vk_pick_shared_type chose (device-local and host-visible); only its first
+	// backing is made there, so a cycle never fills that heap.
+	Shared,
+}
+
+Vk_Buffer_Backing :: struct {
+	buffer: vk.Buffer,
+	memory: Vk_Memory,
+	mapped: [^]u8,
+	refs:   i32,
+	stamp:  u64,
+	owner:  ^Vk_Buffer,
+	// The compute queue's last submission to write it, for vk_submit's cross-queue check.
+	compute_write: u64,
+}
+
+Vk_Buffer :: struct {
+	backings: [dynamic]^Vk_Buffer_Backing,
+	active:   ^Vk_Buffer_Backing,
+	size:     u32,
+	usage:    vk.BufferUsageFlags,
+	host:     Vk_Host,
+	released: bool,
+	name:     cstring, // for capture tools, given to every backing; a literal, never freed
+}
+
+Vk_Image :: struct {
+	image:       vk.Image,
+	memory:      Vk_Memory,
+	view:        vk.ImageView,   // every level, for sampling; 0 for textures never sampled
+	level_views: []vk.ImageView, // one per level, for render targets and storage writes
+	refs:        i32,
+	stamp:       u64,
+	owner:       ^Vk_Texture,
+	compute_write: u64, // as Vk_Buffer_Backing's
+}
+
+Vk_Texture :: struct {
+	info:           Texture_Desc,
+	format:         vk.Format,
+	aspect:         vk.ImageAspectFlags,
+	usage:          vk.ImageUsageFlags,
+	default_layout: vk.ImageLayout,
+	backings:       [dynamic]^Vk_Image,
+	active:         ^Vk_Image,
+	swapchain:      bool, // owned by a window's swapchain: never cycled or destroyed here
+	handle:         Texture, // a swapchain texture's handle, made at its first acquire
+	// Its contents live only inside a pass (create_texture_transient): every backing,
+	// cycled ones too, is a transient attachment in lazily allocated memory where offered.
+	transient:      bool,
+	name:           cstring, // for capture tools, given to every backing; a literal, never freed
+	released:       bool,
+}
+
+Vk_Sampler :: struct {
+	sampler:  vk.Sampler,
+	refs:     i32,
+	stamp:    u64,
+	released: bool,
+}
+
+Vk_Shader :: struct {
+	module: vk.ShaderModule,
+	entry:  cstring,
+	stage:  Shader_Stage,
+	counts: [4]u32, // samplers, storage textures, storage buffers, uniform buffers
+}
+
+// Descriptor set layouts are shared by their binding counts. Read resources come first
+// (samplers, then storage textures, then storage buffers), as SDL_GPU numbers them.
+Vk_Set_Key :: struct {
+	stage:           vk.ShaderStageFlags,
+	samplers:        u32,
+	storage_tex:     u32,
+	storage_buf:     u32,
+	write_tex:       u32,
+	write_buf:       u32,
+	uniform_buffers: u32,
+	// A set of one binding, an array of up to this many sampled textures whose count is
+	// given when the set is allocated (bind_compute_texture_array); 0 for none.
+	array:           u32,
+	// An acceleration structure at binding 0 (bind_compute_accel), the array then at
+	// binding 1, since a binding of variable count must be the set's last.
+	accel:           bool,
+}
+
+// The most textures one array binding holds: a command buffer's descriptor pools hold 1024
+// sampled textures each, so an array set always fits a fresh pool beside the named ones.
+VK_TEXTURE_ARRAY_MAX :: 256
+
+Vk_Graphics_Layout_Key :: [8]u32 // the vertex shader's four counts, then the fragment shader's
+// Samplers, read-only textures and buffers, read-write textures and buffers, uniforms, the
+// texture array's capacity (0 for none) and 1 for an acceleration structure, both in the
+// fourth set.
+Vk_Compute_Layout_Key :: [8]u32
+
+Vk_Pipeline_Layout :: struct {
+	layout: vk.PipelineLayout,
+	sets:   [4]vk.DescriptorSetLayout,
+	counts: [8]u32,
+}
+
+Vk_Pipeline :: struct {
+	pipeline: vk.Pipeline,
+	// Its own winding (Rasterizer_State.front_face), which every bind sets again since the
+	// front face is dynamic state, turned over while the pass draws reflected (set_front_face).
+	clockwise: bool,
+	layout:   ^Vk_Pipeline_Layout,
+	compute:  bool,
+	refs:     i32,
+	stamp:    u64,
+	released: bool,
+}
+
+vk_set_layout :: proc(key: Vk_Set_Key) -> vk.DescriptorSetLayout {
+	if layout, ok := vk_state.set_layouts[key]; ok do return layout
+	bindings: [64]vk.DescriptorSetLayoutBinding
+	n: u32
+	add :: proc(bindings: ^[64]vk.DescriptorSetLayoutBinding, n: ^u32, count: u32, type: vk.DescriptorType, stage: vk.ShaderStageFlags) {
+		for _ in 0 ..< count {
+			bindings[n^] = {binding = n^, descriptorType = type, descriptorCount = 1, stageFlags = stage}
+			n^ += 1
+		}
+	}
+	add(&bindings, &n, key.samplers, .COMBINED_IMAGE_SAMPLER, key.stage)
+	// SDL_GPU declares read-only storage textures as sampled images.
+	add(&bindings, &n, key.storage_tex, .SAMPLED_IMAGE, key.stage)
+	add(&bindings, &n, key.storage_buf, .STORAGE_BUFFER, key.stage)
+	add(&bindings, &n, key.write_tex, .STORAGE_IMAGE, key.stage)
+	add(&bindings, &n, key.write_buf, .STORAGE_BUFFER, key.stage)
+	add(&bindings, &n, key.uniform_buffers, .UNIFORM_BUFFER_DYNAMIC, key.stage)
+	info := vk.DescriptorSetLayoutCreateInfo{sType = .DESCRIPTOR_SET_LAYOUT_CREATE_INFO, bindingCount = n, pBindings = &bindings[0]}
+	flags := [2]vk.DescriptorBindingFlags{}
+	array_flags := vk.DescriptorSetLayoutBindingFlagsCreateInfo{sType = .DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO, pBindingFlags = &flags[0]}
+	if key.accel || key.array > 0 {
+		n = 0
+		if key.accel {
+			bindings[n] = {binding = n, descriptorType = .ACCELERATION_STRUCTURE_KHR, descriptorCount = 1, stageFlags = key.stage}
+			n += 1
+		}
+		if key.array > 0 {
+			bindings[n] = {binding = n, descriptorType = .COMBINED_IMAGE_SAMPLER, descriptorCount = key.array, stageFlags = key.stage}
+			flags[n] = {.VARIABLE_DESCRIPTOR_COUNT}
+			n += 1
+		}
+		info.bindingCount, info.pNext = n, &array_flags
+		array_flags.bindingCount = n
+	}
+	layout: vk.DescriptorSetLayout
+	if vk.CreateDescriptorSetLayout(vk_state.device, &info, nil, &layout) != .SUCCESS do return 0
+	vk_state.set_layouts[key] = layout
+	return layout
+}
+
+@(private = "file")
+vk_pipeline_layout_make :: proc(sets: [4]vk.DescriptorSetLayout, set_count: u32, counts: [8]u32) -> ^Vk_Pipeline_Layout {
+	sets := sets
+	for s in sets[:set_count] do if s == 0 do return nil
+	info := vk.PipelineLayoutCreateInfo{sType = .PIPELINE_LAYOUT_CREATE_INFO, setLayoutCount = set_count, pSetLayouts = &sets[0]}
+	layout := new(Vk_Pipeline_Layout)
+	layout.sets, layout.counts = sets, counts
+	if vk.CreatePipelineLayout(vk_state.device, &info, nil, &layout.layout) != .SUCCESS {
+		free(layout)
+		return nil
+	}
+	return layout
+}
+
+vk_graphics_layout :: proc(vertex, fragment: ^Vk_Shader) -> ^Vk_Pipeline_Layout {
+	key: Vk_Graphics_Layout_Key
+	copy(key[0:4], vertex.counts[:])
+	copy(key[4:8], fragment.counts[:])
+	if layout, ok := vk_state.graphics_layouts[key]; ok do return layout
+	sets := [4]vk.DescriptorSetLayout {
+		vk_set_layout({stage = {.VERTEX}, samplers = key[0], storage_tex = key[1], storage_buf = key[2]}),
+		vk_set_layout({stage = {.VERTEX}, uniform_buffers = key[3]}),
+		vk_set_layout({stage = {.FRAGMENT}, samplers = key[4], storage_tex = key[5], storage_buf = key[6]}),
+		vk_set_layout({stage = {.FRAGMENT}, uniform_buffers = key[7]}),
+	}
+	layout := vk_pipeline_layout_make(sets, 4, key)
+	if layout != nil do vk_state.graphics_layouts[key] = layout
+	return layout
+}
+
+vk_compute_layout :: proc(info: Compute_Pipeline_Desc, array: u32, accel: bool) -> ^Vk_Pipeline_Layout {
+	key := Vk_Compute_Layout_Key{info.num_samplers, info.num_readonly_storage_textures, info.num_readonly_storage_buffers, info.num_readwrite_storage_textures, info.num_readwrite_storage_buffers, info.num_uniform_buffers, array, u32(accel)}
+	if layout, ok := vk_state.compute_layouts[key]; ok do return layout
+	fourth := array > 0 || accel
+	sets := [4]vk.DescriptorSetLayout {
+		vk_set_layout({stage = {.COMPUTE}, samplers = key[0], storage_tex = key[1], storage_buf = key[2]}),
+		vk_set_layout({stage = {.COMPUTE}, write_tex = key[3], write_buf = key[4]}),
+		vk_set_layout({stage = {.COMPUTE}, uniform_buffers = key[5]}),
+		vk_set_layout({stage = {.COMPUTE}, array = array, accel = accel}) if fourth else 0,
+	}
+	layout := vk_pipeline_layout_make(sets, 4 if fourth else 3, key)
+	if layout != nil do vk_state.compute_layouts[key] = layout
+	return layout
+}
+
+// ---- Buffers ------------------------------------------------------------------------
+
+@(private = "file")
+vk_buffer_backing_make :: proc(b: ^Vk_Buffer) -> ^Vk_Buffer_Backing {
+	info := vk.BufferCreateInfo{sType = .BUFFER_CREATE_INFO, size = vk.DeviceSize(max(b.size, 4)), usage = b.usage, sharingMode = .EXCLUSIVE}
+	backing := new(Vk_Buffer_Backing)
+	backing.owner = b
+	if vk.CreateBuffer(vk_state.device, &info, nil, &backing.buffer) != .SUCCESS {
+		free(backing)
+		return nil
+	}
+	reqs: vk.MemoryRequirements
+	vk.GetBufferMemoryRequirements(vk_state.device, backing.buffer, &reqs)
+	ok: bool
+	host := b.host
+	if host == .Shared && len(b.backings) > 0 do host = .None
+	address := .SHADER_DEVICE_ADDRESS in b.usage
+	switch host {
+	case .None:     backing.memory, ok = vk_allocate(reqs, {.DEVICE_LOCAL}, {}, address)
+	case .Upload:   backing.memory, ok = vk_allocate(reqs, {.HOST_VISIBLE, .HOST_COHERENT}, {}, address)
+	case .Download: backing.memory, ok = vk_allocate(reqs, {.HOST_VISIBLE, .HOST_COHERENT}, {.HOST_CACHED}, address)
+	case .Shared:
+		// Exactly the type caps chose, never another that happens to match its flags on a
+		// smaller heap.
+		if vk_state.shared_buffers && reqs.memoryTypeBits & (1 << vk_state.shared_type) != 0 {
+			backing.memory, ok = vk_memory_take(reqs, vk_state.shared_type, address, false)
+		}
+	}
+	if !ok && host == .None do backing.memory, ok = vk_allocate(reqs, {}, {}, address)
+	if !ok || vk.BindBufferMemory(vk_state.device, backing.buffer, backing.memory.memory, backing.memory.offset) != .SUCCESS {
+		vk_buffer_backing_destroy(backing)
+		return nil
+	}
+	if host != .None {
+		// Every host type is host-visible, so its block is mapped already.
+		if backing.memory.mapped == nil {
+			vk_buffer_backing_destroy(backing)
+			return nil
+		}
+		backing.mapped = backing.memory.mapped
+	}
+	vk_name(.BUFFER, u64(backing.buffer), b.name)
+	append(&b.backings, backing)
+	return backing
+}
+
+@(private = "file")
+vk_buffer_backing_destroy :: proc(backing: ^Vk_Buffer_Backing) {
+	if backing.buffer != 0 do vk.DestroyBuffer(vk_state.device, backing.buffer, nil)
+	vk_memory_give(backing.memory)
+	free(backing)
+}
+
+vk_buffer_make :: proc(size: u32, usage: vk.BufferUsageFlags, host: Vk_Host) -> ^Vk_Buffer {
+	b := new(Vk_Buffer)
+	b.size, b.usage, b.host = size, usage, host
+	b.active = vk_buffer_backing_make(b)
+	if b.active == nil {
+		delete(b.backings)
+		free(b)
+		return nil
+	}
+	return b
+}
+
+// Names a Vulkan object for capture tools when debug utils are on.
+@(private = "file")
+vk_name :: proc(type: vk.ObjectType, handle: u64, name: cstring) {
+	if name == nil || !vk_state.labels || vk.SetDebugUtilsObjectNameEXT == nil do return
+	info := vk.DebugUtilsObjectNameInfoEXT {
+		sType        = .DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+		objectType   = type,
+		objectHandle = handle,
+		pObjectName  = name,
+	}
+	_ = vk.SetDebugUtilsObjectNameEXT(vk_state.device, &info)
+}
+
+vk_set_buffer_name :: proc(buffer: Buffer, text: cstring) {
+	b := (^Vk_Buffer)(object(buffer))
+	b.name = text
+	for backing in b.backings do vk_name(.BUFFER, u64(backing.buffer), text)
+}
+
+vk_set_texture_name :: proc(texture: Texture, text: cstring) {
+	t := (^Vk_Texture)(object(texture))
+	t.name = text
+	for img in t.backings do vk_name(.IMAGE, u64(img.image), text)
+}
+
+// Every buffer can be copied into and out of, as SDL_GPU's are. An acceleration structure
+// build input (build_blas reads vertices and indices through their addresses) also gets
+// the two usages that needs, where ray queries are on.
+@(private = "file")
+vk_buffer_usage :: proc(usage: Buffer_Usages, accel_input: bool) -> vk.BufferUsageFlags {
+	flags := vk.BufferUsageFlags{.TRANSFER_SRC, .TRANSFER_DST}
+	if accel_input && vk_state.ray_query do flags += {.SHADER_DEVICE_ADDRESS, .ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR}
+	if .Vertex in usage do flags += {.VERTEX_BUFFER}
+	if .Index in usage do flags += {.INDEX_BUFFER}
+	if .Indirect in usage do flags += {.INDIRECT_BUFFER}
+	if usage & {.Graphics_Storage_Read, .Storage_Read, .Storage_Write} != {} do flags += {.STORAGE_BUFFER}
+	return flags
+}
+
+vk_create_buffer :: proc(#by_ptr info: Buffer_Desc, accel_input := false) -> rawptr {
+	b := vk_buffer_make(info.size, vk_buffer_usage(info.usage, accel_input), .None)
+	if b == nil do log.errorf("Vulkan: a %d byte buffer could not be made", info.size)
+	return b
+}
+
+// A device buffer mapped for its first fill, or nil where the device has no shared memory
+// type or that heap is full; the caller then makes a plain one.
+vk_create_buffer_mapped :: proc(#by_ptr info: Buffer_Desc, accel_input := false) -> (rawptr, rawptr) {
+	if !vk_state.shared_buffers do return nil, nil
+	b := vk_buffer_make(info.size, vk_buffer_usage(info.usage, accel_input), .Shared)
+	if b == nil do return nil, nil
+	return b, b.active.mapped
+}
+
+// Ends a mapped buffer's fill: the buffer forgets its mapping (its block stays mapped for
+// its neighbours), so nothing writes the buffer after the GPU may have begun to read it.
+vk_buffer_filled :: proc(buffer: Buffer) {
+	b := (^Vk_Buffer)(object(buffer))
+	if b == nil || b.active.mapped == nil || b.host != .Shared do return
+	b.active.mapped = nil
+}
+
+vk_create_transfer_buffer :: proc(#by_ptr info: Transfer_Buffer_Desc) -> rawptr {
+	b := vk_buffer_make(info.size, {.TRANSFER_SRC, .TRANSFER_DST}, .Upload if info.usage == .Upload else .Download)
+	if b == nil do log.errorf("Vulkan: a %d byte transfer buffer could not be made", info.size)
+	return b
+}
+
+// Frees what of a released buffer the GPU no longer uses, and the buffer with its last
+// backing.
+vk_buffer_reap :: proc(b: ^Vk_Buffer) {
+	if !b.released do return
+	for i := 0; i < len(b.backings); {
+		if b.backings[i].refs > 0 {
+			i += 1
+			continue
+		}
+		vk_buffer_backing_destroy(b.backings[i])
+		unordered_remove(&b.backings, i)
+	}
+	if len(b.backings) == 0 {
+		delete(b.backings)
+		free(b)
+	}
+}
+
+vk_release_buffer :: proc(buffer: rawptr) {
+	b := (^Vk_Buffer)(buffer)
+	if b == nil do return
+	b.released = true
+	vk_buffer_reap(b)
+}
+
+vk_release_transfer_buffer :: proc(transfer_buffer: rawptr) {
+	vk_release_buffer(transfer_buffer)
+}
+
+// Swaps in a backing no command buffer uses, making one if every backing is in use.
+vk_buffer_cycle :: proc(b: ^Vk_Buffer) {
+	for backing in b.backings {
+		if backing.refs == 0 {
+			b.active = backing
+			return
+		}
+	}
+	if backing := vk_buffer_backing_make(b); backing != nil do b.active = backing
+}
+
+vk_map_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer, cycle: bool) -> rawptr {
+	b := (^Vk_Buffer)(object(transfer_buffer))
+	if cycle && b.active.refs > 0 do vk_buffer_cycle(b)
+	return b.active.mapped
+}
+
+// Transfer memory is host-coherent, so writes need no flush.
+vk_unmap_transfer_buffer :: proc(transfer_buffer: Transfer_Buffer) {}
+
+// ---- Textures -----------------------------------------------------------------------
+
+vk_default_layout :: proc(usage: Texture_Usages) -> vk.ImageLayout {
+	// SDL_GPU's order: a texture rests in the layout its first listed use needs.
+	switch {
+	case .Sampled in usage:               return .SHADER_READ_ONLY_OPTIMAL
+	case .Graphics_Storage_Read in usage: return .GENERAL
+	case .Color_Target in usage:          return .COLOR_ATTACHMENT_OPTIMAL
+	case .Depth_Target in usage:  return .DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+	}
+	return .GENERAL
+}
+
+@(private = "file")
+vk_view_make :: proc(t: ^Vk_Texture, image: vk.Image, base_level, levels: u32) -> vk.ImageView {
+	info := vk.ImageViewCreateInfo {
+		sType = .IMAGE_VIEW_CREATE_INFO,
+		image = image,
+		viewType = .D2,
+		format = t.format,
+		subresourceRange = {aspectMask = t.aspect - {.STENCIL}, baseMipLevel = base_level, levelCount = levels, layerCount = 1},
+	}
+	view: vk.ImageView
+	if vk.CreateImageView(vk_state.device, &info, nil, &view) != .SUCCESS do return 0
+	return view
+}
+
+// Records, in `cmd` (or the setup command buffer when nil), the move of a new image out
+// of the undefined layout into its texture's default one.
+vk_image_backing_make :: proc(t: ^Vk_Texture, cmd: ^Vk_Cmd) -> ^Vk_Image {
+	info := vk.ImageCreateInfo {
+		sType = .IMAGE_CREATE_INFO,
+		imageType = .D2,
+		format = t.format,
+		extent = {t.info.width, t.info.height, 1},
+		mipLevels = t.info.num_levels,
+		arrayLayers = 1,
+		samples = vk_samples(t.info.sample_count),
+		tiling = .OPTIMAL,
+		usage = t.usage,
+		sharingMode = .EXCLUSIVE,
+		initialLayout = .UNDEFINED,
+	}
+	img := new(Vk_Image)
+	img.owner = t
+	if vk.CreateImage(vk_state.device, &info, nil, &img.image) != .SUCCESS {
+		free(img)
+		return nil
+	}
+	reqs: vk.MemoryRequirements
+	vk.GetImageMemoryRequirements(vk_state.device, img.image, &reqs)
+	ok: bool
+	// A transient attachment's lazily allocated memory is its own: it may take none at all.
+	img.memory, ok = vk_allocate(reqs, {.DEVICE_LOCAL}, {.LAZILY_ALLOCATED} if t.transient else {}, image = true, dedicated = t.transient)
+	if !ok || vk.BindImageMemory(vk_state.device, img.image, img.memory.memory, img.memory.offset) != .SUCCESS {
+		vk_image_backing_destroy(img)
+		return nil
+	}
+	if .SAMPLED in t.usage {
+		img.view = vk_view_make(t, img.image, 0, t.info.num_levels)
+		if img.view == 0 {
+			vk_image_backing_destroy(img)
+			return nil
+		}
+	}
+	if t.usage & {.COLOR_ATTACHMENT, .DEPTH_STENCIL_ATTACHMENT, .STORAGE} != {} {
+		img.level_views = make([]vk.ImageView, t.info.num_levels)
+		for &view, level in img.level_views {
+			view = vk_view_make(t, img.image, u32(level), 1)
+			if view == 0 {
+				vk_image_backing_destroy(img)
+				return nil
+			}
+		}
+	}
+	vk_name(.IMAGE, u64(img.image), t.name)
+	append(&t.backings, img)
+	target := cmd if cmd != nil else vk_setup_cmd()
+	vk_cmd_track_image(target, img)
+	vk_image_barrier(target, img, .UNDEFINED, t.default_layout)
+	return img
+}
+
+vk_image_backing_destroy :: proc(img: ^Vk_Image) {
+	for view in img.level_views do if view != 0 do vk.DestroyImageView(vk_state.device, view, nil)
+	delete(img.level_views)
+	if img.view != 0 do vk.DestroyImageView(vk_state.device, img.view, nil)
+	if img.image != 0 do vk.DestroyImage(vk_state.device, img.image, nil)
+	vk_memory_give(img.memory)
+	free(img)
+}
+
+vk_create_texture :: proc(#by_ptr info: Texture_Desc) -> rawptr {
+	return vk_texture_make(info, false)
+}
+
+// A transient attachment allows only attachment usage beside it, so it can be neither
+// copied nor sampled; the backend never does either to a render target unasked.
+vk_create_texture_transient :: proc(#by_ptr info: Texture_Desc) -> rawptr {
+	return vk_texture_make(info, true)
+}
+
+@(private = "file")
+vk_texture_make :: proc(info: Texture_Desc, transient: bool) -> rawptr {
+	if info.type != .D2 || info.layer_count_or_depth > 1 {
+		log.errorf("Vulkan: only 2D textures are supported (asked for %v)", info.type)
+		return nil
+	}
+	t := new(Vk_Texture)
+	t.info = info
+	t.format = vk_format(info.format)
+	t.aspect = {.DEPTH} if format_is_depth(info.format) else {.COLOR}
+	if info.format == .D24_Unorm_S8 || info.format == .D32_Float_S8 do t.aspect += {.STENCIL}
+	t.transient = transient
+	t.usage = {.TRANSIENT_ATTACHMENT} if transient else {.TRANSFER_SRC, .TRANSFER_DST}
+	if info.usage & {.Sampled, .Graphics_Storage_Read, .Storage_Read} != {} && !transient do t.usage += {.SAMPLED}
+	if .Color_Target in info.usage do t.usage += {.COLOR_ATTACHMENT}
+	if .Depth_Target in info.usage do t.usage += {.DEPTH_STENCIL_ATTACHMENT}
+	if info.usage & {.Storage_Write, .Storage_Read_Write} != {} && !transient do t.usage += {.STORAGE}
+	t.default_layout = vk_default_layout(info.usage)
+	t.active = vk_image_backing_make(t, nil)
+	if t.active == nil {
+		log.errorf("Vulkan: a %dx%d %v texture could not be made", info.width, info.height, info.format)
+		delete(t.backings)
+		free(t)
+		return nil
+	}
+	return t
+}
+
+vk_texture_reap :: proc(t: ^Vk_Texture) {
+	if !t.released || t.swapchain do return
+	for i := 0; i < len(t.backings); {
+		if t.backings[i].refs > 0 {
+			i += 1
+			continue
+		}
+		vk_image_backing_destroy(t.backings[i])
+		unordered_remove(&t.backings, i)
+	}
+	if len(t.backings) == 0 {
+		delete(t.backings)
+		free(t)
+	}
+}
+
+vk_release_texture :: proc(texture: rawptr) {
+	t := (^Vk_Texture)(texture)
+	if t == nil do return
+	t.released = true
+	vk_texture_reap(t)
+}
+
+// Points `t` at a backing no command buffer uses, as SDL_GPU's cycling does.
+vk_texture_cycle :: proc(t: ^Vk_Texture, cmd: ^Vk_Cmd) {
+	for img in t.backings {
+		if img.refs == 0 {
+			t.active = img
+			return
+		}
+	}
+	if img := vk_image_backing_make(t, cmd); img != nil do t.active = img
+}
+
+// ---- Samplers and shaders -----------------------------------------------------------
+
+vk_create_sampler :: proc(#by_ptr info: Sampler_Desc) -> rawptr {
+	filter :: proc(f: Filter) -> vk.Filter {return .LINEAR if f == .Linear else .NEAREST}
+	address :: proc(a: Address_Mode) -> vk.SamplerAddressMode {
+		switch a {
+		case .Repeat:          return .REPEAT
+		case .Mirrored_Repeat: return .MIRRORED_REPEAT
+		case .Clamp_To_Edge:   return .CLAMP_TO_EDGE
+		}
+		return .REPEAT
+	}
+	create := vk.SamplerCreateInfo {
+		sType            = .SAMPLER_CREATE_INFO,
+		magFilter        = filter(info.mag_filter),
+		minFilter        = filter(info.min_filter),
+		mipmapMode       = .LINEAR if info.mipmap_mode == .Linear else .NEAREST,
+		addressModeU     = address(info.address_mode_u),
+		addressModeV     = address(info.address_mode_v),
+		addressModeW     = address(info.address_mode_w),
+		mipLodBias       = info.mip_lod_bias,
+		anisotropyEnable = b32(info.enable_anisotropy),
+		maxAnisotropy    = info.max_anisotropy,
+		compareEnable    = b32(info.enable_compare),
+		compareOp        = vk_compare(info.compare_op),
+		minLod           = info.min_lod,
+		maxLod           = info.max_lod,
+		borderColor      = .FLOAT_TRANSPARENT_BLACK,
+	}
+	s := new(Vk_Sampler)
+	if vk.CreateSampler(vk_state.device, &create, nil, &s.sampler) != .SUCCESS {
+		free(s)
+		return nil
+	}
+	return s
+}
+
+vk_sampler_reap :: proc(s: ^Vk_Sampler) {
+	if !s.released || s.refs > 0 do return
+	vk.DestroySampler(vk_state.device, s.sampler, nil)
+	free(s)
+}
+
+vk_release_sampler :: proc(sampler: rawptr) {
+	s := (^Vk_Sampler)(sampler)
+	if s == nil do return
+	s.released = true
+	vk_sampler_reap(s)
+}
+
+@(private = "file")
+vk_module :: proc(code: []u8) -> vk.ShaderModule {
+	// SPIR-V words must be 4-byte aligned; an embedded blob may not be.
+	words := make([]u32, (len(code) + 3) / 4, context.temp_allocator)
+	mem.copy(raw_data(words), raw_data(code), len(code))
+	info := vk.ShaderModuleCreateInfo{sType = .SHADER_MODULE_CREATE_INFO, codeSize = len(code), pCode = raw_data(words)}
+	module: vk.ShaderModule
+	if vk.CreateShaderModule(vk_state.device, &info, nil, &module) != .SUCCESS do return 0
+	return module
+}
+
+vk_create_shader :: proc(#by_ptr info: Shader_Desc) -> rawptr {
+	if info.format != .Spirv do return nil
+	module := vk_module(transmute([]u8)info.code)
+	if module == 0 do return nil
+	s := new(Vk_Shader)
+	s.module, s.stage = module, info.stage
+	s.entry = strings.clone_to_cstring(string(info.entrypoint) if info.entrypoint != nil else "main")
+	s.counts = {info.num_samplers, info.num_storage_textures, info.num_storage_buffers, info.num_uniform_buffers}
+	return s
+}
+
+// A shader is only read while pipelines are made from it, so it goes at once.
+vk_release_shader :: proc(shader: rawptr) {
+	s := (^Vk_Shader)(shader)
+	if s == nil do return
+	vk.DestroyShaderModule(vk_state.device, s.module, nil)
+	delete(s.entry)
+	free(s)
+}
+
+// ---- Pipelines ----------------------------------------------------------------------
+
+vk_compare :: proc(op: Compare_Op) -> vk.CompareOp {
+	switch op {
+	case .Invalid, .Never:    return .NEVER
+	case .Less:               return .LESS
+	case .Equal:              return .EQUAL
+	case .Less_Or_Equal:      return .LESS_OR_EQUAL
+	case .Greater:            return .GREATER
+	case .Not_Equal:          return .NOT_EQUAL
+	case .Greater_Or_Equal:   return .GREATER_OR_EQUAL
+	case .Always:             return .ALWAYS
+	}
+	return .NEVER
+}
+
+@(private = "file")
+vk_blend_factor :: proc(f: Blend_Factor) -> vk.BlendFactor {
+	switch f {
+	case .Invalid, .Zero:            return .ZERO
+	case .One:                       return .ONE
+	case .Src_Color:                 return .SRC_COLOR
+	case .One_Minus_Src_Color:       return .ONE_MINUS_SRC_COLOR
+	case .Dst_Color:                 return .DST_COLOR
+	case .One_Minus_Dst_Color:       return .ONE_MINUS_DST_COLOR
+	case .Src_Alpha:                 return .SRC_ALPHA
+	case .One_Minus_Src_Alpha:       return .ONE_MINUS_SRC_ALPHA
+	case .Dst_Alpha:                 return .DST_ALPHA
+	case .One_Minus_Dst_Alpha:       return .ONE_MINUS_DST_ALPHA
+	case .Constant_Color:            return .CONSTANT_COLOR
+	case .One_Minus_Constant_Color:  return .ONE_MINUS_CONSTANT_COLOR
+	case .Src_Alpha_Saturate:        return .SRC_ALPHA_SATURATE
+	}
+	return .ZERO
+}
+
+@(private = "file")
+vk_blend_op :: proc(op: Blend_Op) -> vk.BlendOp {
+	switch op {
+	case .Invalid, .Add:     return .ADD
+	case .Subtract:          return .SUBTRACT
+	case .Reverse_Subtract:  return .REVERSE_SUBTRACT
+	case .Min:               return .MIN
+	case .Max:               return .MAX
+	}
+	return .ADD
+}
+
+@(private = "file")
+vk_stencil_op :: proc(op: Stencil_Op) -> vk.StencilOp {
+	switch op {
+	case .Invalid, .Keep:        return .KEEP
+	case .Zero:                  return .ZERO
+	case .Replace:               return .REPLACE
+	case .Increment_And_Clamp:   return .INCREMENT_AND_CLAMP
+	case .Decrement_And_Clamp:   return .DECREMENT_AND_CLAMP
+	case .Invert:                return .INVERT
+	case .Increment_And_Wrap:    return .INCREMENT_AND_WRAP
+	case .Decrement_And_Wrap:    return .DECREMENT_AND_WRAP
+	}
+	return .KEEP
+}
+
+@(private = "file")
+vk_vertex_format :: proc(f: Vertex_Format) -> vk.Format {
+	#partial switch f {
+	case .Int:          return .R32_SINT
+	case .Int2:         return .R32G32_SINT
+	case .Int3:         return .R32G32B32_SINT
+	case .Int4:         return .R32G32B32A32_SINT
+	case .Uint:         return .R32_UINT
+	case .Uint2:        return .R32G32_UINT
+	case .Uint3:        return .R32G32B32_UINT
+	case .Uint4:        return .R32G32B32A32_UINT
+	case .Float:        return .R32_SFLOAT
+	case .Float2:       return .R32G32_SFLOAT
+	case .Float3:       return .R32G32B32_SFLOAT
+	case .Float4:       return .R32G32B32A32_SFLOAT
+	case .Ubyte4:       return .R8G8B8A8_UINT
+	case .Ubyte4_Norm:  return .R8G8B8A8_UNORM
+	case .Byte4_Norm:   return .R8G8B8A8_SNORM
+	case .Short2_Norm:  return .R16G16_SNORM
+	case .Short4_Norm:  return .R16G16B16A16_SNORM
+	case .Ushort2_Norm: return .R16G16_UNORM
+	case .Ushort4_Norm: return .R16G16B16A16_UNORM
+	case .Half2:        return .R16G16_SFLOAT
+	case .Half4:        return .R16G16B16A16_SFLOAT
+	}
+	return .UNDEFINED
+}
+
+vk_create_graphics_pipeline :: proc(#by_ptr info: Graphics_Pipeline_Desc) -> rawptr {
+	vertex, fragment := (^Vk_Shader)(object(info.vertex_shader)), (^Vk_Shader)(object(info.fragment_shader))
+	if vertex == nil || fragment == nil do return nil
+	layout := vk_graphics_layout(vertex, fragment)
+	if layout == nil do return nil
+	stages := [2]vk.PipelineShaderStageCreateInfo {
+		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.VERTEX}, module = vertex.module, pName = vertex.entry},
+		{sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.FRAGMENT}, module = fragment.module, pName = fragment.entry},
+	}
+	vi := info.vertex_input
+	buffers := make([]vk.VertexInputBindingDescription, len(vi.buffers), context.temp_allocator)
+	for &b, i in buffers {
+		d := vi.buffers[i]
+		b = {binding = d.slot, stride = d.pitch, inputRate = .INSTANCE if d.input_rate == .Instance else .VERTEX}
+	}
+	attributes := make([]vk.VertexInputAttributeDescription, len(vi.attributes), context.temp_allocator)
+	for &a, i in attributes {
+		d := vi.attributes[i]
+		a = {location = d.location, binding = d.buffer_slot, format = vk_vertex_format(d.format), offset = d.offset}
+	}
+	vertex_input := vk.PipelineVertexInputStateCreateInfo {
+		sType                           = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+		vertexBindingDescriptionCount   = u32(len(buffers)),
+		pVertexBindingDescriptions      = raw_data(buffers),
+		vertexAttributeDescriptionCount = u32(len(attributes)),
+		pVertexAttributeDescriptions    = raw_data(attributes),
+	}
+	topology: vk.PrimitiveTopology
+	switch info.primitive {
+	case .Triangle_List:  topology = .TRIANGLE_LIST
+	case .Triangle_Strip: topology = .TRIANGLE_STRIP
+	case .Line_List:      topology = .LINE_LIST
+	case .Line_Strip:     topology = .LINE_STRIP
+	case .Point_List:     topology = .POINT_LIST
+	}
+	assembly := vk.PipelineInputAssemblyStateCreateInfo{sType = .PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO, topology = topology}
+	viewport := vk.PipelineViewportStateCreateInfo{sType = .PIPELINE_VIEWPORT_STATE_CREATE_INFO, viewportCount = 1, scissorCount = 1}
+	rs := info.rasterizer_state
+	if rs.fill_mode == .Line && !vk_state.wireframe do return nil
+	cull: vk.CullModeFlags
+	switch rs.cull_mode {
+	case .None:
+	case .Front: cull = {.FRONT}
+	case .Back:  cull = {.BACK}
+	}
+	raster := vk.PipelineRasterizationStateCreateInfo {
+		sType                   = .PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+		depthClampEnable        = b32(!rs.enable_depth_clip && vk_state.depth_clamp),
+		polygonMode             = .LINE if rs.fill_mode == .Line else .FILL,
+		cullMode                = cull,
+		frontFace               = .CLOCKWISE if rs.front_face == .Clockwise else .COUNTER_CLOCKWISE,
+		depthBiasEnable         = b32(rs.enable_depth_bias),
+		depthBiasConstantFactor = rs.depth_bias_constant_factor,
+		depthBiasClamp          = rs.depth_bias_clamp,
+		depthBiasSlopeFactor    = rs.depth_bias_slope_factor,
+		lineWidth               = 1,
+	}
+	sample_mask := vk.SampleMask(0xFFFFFFFF)
+	multisample := vk.PipelineMultisampleStateCreateInfo {
+		sType                 = .PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+		rasterizationSamples  = vk_samples(info.multisample_state.sample_count),
+		minSampleShading      = 1,
+		pSampleMask           = &sample_mask,
+	}
+	ds := info.depth_stencil_state
+	stencil :: proc(s: Stencil_Op_State, ds: Depth_Stencil_State) -> vk.StencilOpState {
+		return {failOp = vk_stencil_op(s.fail_op), passOp = vk_stencil_op(s.pass_op), depthFailOp = vk_stencil_op(s.depth_fail_op), compareOp = vk_compare(s.compare_op), compareMask = u32(ds.compare_mask), writeMask = u32(ds.write_mask)}
+	}
+	depth := vk.PipelineDepthStencilStateCreateInfo {
+		sType             = .PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+		depthTestEnable   = b32(ds.enable_depth_test),
+		depthWriteEnable  = b32(ds.enable_depth_write),
+		depthCompareOp    = vk_compare(ds.compare_op),
+		stencilTestEnable = b32(ds.enable_stencil_test),
+		front             = stencil(ds.front_stencil_state, ds),
+		back              = stencil(ds.back_stencil_state, ds),
+	}
+	ti := info.targets
+	blends := make([]vk.PipelineColorBlendAttachmentState, len(ti.color_targets), context.temp_allocator)
+	formats := make([]vk.Format, len(ti.color_targets), context.temp_allocator)
+	for d, i in ti.color_targets {
+		b := d.blend_state
+		mask := b.color_write_mask if b.enable_color_write_mask else Color_Components{.R, .G, .B, .A}
+		blends[i] = {
+			blendEnable         = b32(b.enable_blend),
+			srcColorBlendFactor = vk_blend_factor(b.src_color_blendfactor),
+			dstColorBlendFactor = vk_blend_factor(b.dst_color_blendfactor),
+			colorBlendOp        = vk_blend_op(b.color_blend_op),
+			srcAlphaBlendFactor = vk_blend_factor(b.src_alpha_blendfactor),
+			dstAlphaBlendFactor = vk_blend_factor(b.dst_alpha_blendfactor),
+			alphaBlendOp        = vk_blend_op(b.alpha_blend_op),
+			colorWriteMask      = transmute(vk.ColorComponentFlags)u32(transmute(u8)mask),
+		}
+		formats[i] = vk_format(d.format)
+	}
+	blend := vk.PipelineColorBlendStateCreateInfo {
+		sType           = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+		attachmentCount = u32(len(ti.color_targets)),
+		pAttachments    = raw_data(blends),
+		blendConstants  = {1, 1, 1, 1},
+	}
+	// The front face is dynamic (core in Vulkan 1.3) so a reflected item can turn it over
+	// without a second pipeline (set_front_face).
+	dynamic_states := [3]vk.DynamicState{.VIEWPORT, .SCISSOR, .FRONT_FACE}
+	dynamics := vk.PipelineDynamicStateCreateInfo{sType = .PIPELINE_DYNAMIC_STATE_CREATE_INFO, dynamicStateCount = len(dynamic_states), pDynamicStates = &dynamic_states[0]}
+	rendering := vk.PipelineRenderingCreateInfo {
+		sType                   = .PIPELINE_RENDERING_CREATE_INFO,
+		colorAttachmentCount    = u32(len(ti.color_targets)),
+		pColorAttachmentFormats = raw_data(formats),
+	}
+	if ti.has_depth_stencil_target {
+		rendering.depthAttachmentFormat = vk_format(ti.depth_stencil_format)
+		if ti.depth_stencil_format == .D24_Unorm_S8 || ti.depth_stencil_format == .D32_Float_S8 do rendering.stencilAttachmentFormat = rendering.depthAttachmentFormat
+	}
+	create := vk.GraphicsPipelineCreateInfo {
+		sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
+		pNext               = &rendering,
+		stageCount          = 2,
+		pStages             = &stages[0],
+		pVertexInputState   = &vertex_input,
+		pInputAssemblyState = &assembly,
+		pViewportState      = &viewport,
+		pRasterizationState = &raster,
+		pMultisampleState   = &multisample,
+		pDepthStencilState  = &depth,
+		pColorBlendState    = &blend,
+		pDynamicState       = &dynamics,
+		layout              = layout.layout,
+	}
+	p := new(Vk_Pipeline)
+	p.layout = layout
+	p.clockwise = rs.front_face == .Clockwise
+	if r := vk.CreateGraphicsPipelines(vk_state.device, 0, 1, &create, nil, &p.pipeline); r != .SUCCESS {
+		log.errorf("Vulkan: vkCreateGraphicsPipelines failed: %v", r)
+		free(p)
+		return nil
+	}
+	return p
+}
+
+vk_create_compute_pipeline :: proc(#by_ptr info: Compute_Pipeline_Desc) -> rawptr {
+	return vk_compute_pipeline_make(info, .Plain, 0)
+}
+
+// A kernel that traces rays against the acceleration structure at set 3, binding 0
+// (bind_compute_accel), and reads an array of up to `capacity` sampled textures at
+// binding 1 when capacity is not 0.
+vk_create_compute_pipeline_traced :: proc(#by_ptr info: Compute_Pipeline_Desc, capacity: u32) -> rawptr {
+	return vk_compute_pipeline_make(info, .Traced, capacity)
+}
+
+// A kernel that also reads an array of up to `capacity` sampled textures from set 3,
+// binding 0 (create_compute_pipeline_array).
+vk_create_compute_pipeline_array :: proc(#by_ptr info: Compute_Pipeline_Desc, capacity: u32) -> rawptr {
+	return vk_compute_pipeline_make(info, .Array, capacity)
+}
+
+@(private = "file")
+vk_compute_pipeline_make :: proc(info: Compute_Pipeline_Desc, kind: Compute_Kind, capacity: u32) -> rawptr {
+	b: Vk_Compute_Build
+	if !vk_compute_prepare(info, kind, capacity, &b) do return nil
+	vk_compute_compile(&b)
+	return vk_compute_wrap(&b)
+}
+
+// A compute pipeline on its way (compute_build_start): what vkCreateComputePipelines reads,
+// laid out on the main thread, and what it made. The create info points into the struct
+// itself, so it stays where it was prepared until it is wrapped.
+Vk_Compute_Build :: struct {
+	layout:  ^Vk_Pipeline_Layout,
+	module:  vk.ShaderModule,
+	entries: [COMPUTE_CONSTANTS_MAX]vk.SpecializationMapEntry,
+	special: vk.SpecializationInfo,
+	create:  vk.ComputePipelineCreateInfo,
+	result:  vk.Result,
+	pipeline: vk.Pipeline,
+}
+
+// Checks the kernel against the device and makes its layout and module, on the main
+// thread (the layout cache is not shared); false, with last_error, when it cannot be made.
+// `info.constants` and `info.entrypoint` are read again by vk_compute_compile.
+vk_compute_prepare :: proc(info: Compute_Pipeline_Desc, kind: Compute_Kind, capacity: u32, b: ^Vk_Compute_Build) -> bool {
+	switch kind {
+	case .Plain:
+	case .Traced:
+		if !vk_state.ray_query {
+			fail(.Unsupported, "Vulkan: this device has no ray queries")
+			return false
+		}
+		if capacity > vk_state.texture_arrays {
+			fail(.Unsupported, "Vulkan: this device cannot bind an array of %d textures", capacity)
+			return false
+		}
+	case .Array:
+		if capacity == 0 || capacity > vk_state.texture_arrays {
+			fail(.Unsupported, "Vulkan: this device cannot bind an array of %d textures", capacity)
+			return false
+		}
+	}
+	if info.format != .Spirv do return false
+	// The command buffer holds that many read-only buffers' bindings (Vk_Cmd.compute_storage).
+	if info.num_readonly_storage_buffers > VK_COMPUTE_STORAGE_BUFFERS {
+		fail(.Unsupported, "Vulkan: a kernel binds more than %d read-only storage buffers", VK_COMPUTE_STORAGE_BUFFERS)
+		return false
+	}
+	if len(info.constants) > COMPUTE_CONSTANTS_MAX {
+		fail(.Unsupported, "Vulkan: a kernel takes at most %d specialization constants", COMPUTE_CONSTANTS_MAX)
+		return false
+	}
+	b.layout = vk_compute_layout(info, capacity, kind == .Traced)
+	if b.layout == nil do return false
+	b.module = vk_module(transmute([]u8)info.code)
+	if b.module == 0 do return false
+	// Constant i is the 32 bits at offset 4i, with constant_id i.
+	for &e, i in b.entries[:len(info.constants)] do e = {constantID = u32(i), offset = u32(4 * i), size = 4}
+	b.special = {
+		mapEntryCount = u32(len(info.constants)),
+		pMapEntries   = &b.entries[0],
+		dataSize      = 4 * len(info.constants),
+		pData         = raw_data(info.constants),
+	}
+	entry := info.entrypoint if info.entrypoint != nil else "main"
+	b.create = {
+		sType  = .COMPUTE_PIPELINE_CREATE_INFO,
+		stage  = {sType = .PIPELINE_SHADER_STAGE_CREATE_INFO, stage = {.COMPUTE}, module = b.module, pName = entry, pSpecializationInfo = &b.special if len(info.constants) > 0 else nil},
+		layout = b.layout.layout,
+	}
+	return true
+}
+
+// The driver's compile alone, which Vulkan allows on any thread: it touches nothing of
+// ours but `b`, allocates nothing and reports nothing, so it may run off the main thread.
+vk_compute_compile :: proc(b: ^Vk_Compute_Build) {
+	b.result = vk.CreateComputePipelines(vk_state.device, 0, 1, &b.create, nil, &b.pipeline)
+}
+
+// The compiled pipeline as the backend's object, on the main thread; nil with last_error
+// when the driver refused it.
+vk_compute_wrap :: proc(b: ^Vk_Compute_Build) -> rawptr {
+	vk.DestroyShaderModule(vk_state.device, b.module, nil)
+	if b.result != .SUCCESS {
+		log.errorf("Vulkan: vkCreateComputePipelines failed: %v", b.result)
+		fail(.Refused, "Vulkan: a compute pipeline could not be made")
+		return nil
+	}
+	p := new(Vk_Pipeline)
+	p.layout, p.compute, p.pipeline = b.layout, true, b.pipeline
+	return p
+}
+
+vk_pipeline_reap :: proc(p: ^Vk_Pipeline) {
+	if !p.released || p.refs > 0 do return
+	vk.DestroyPipeline(vk_state.device, p.pipeline, nil)
+	free(p)
+}
+
+vk_release_graphics_pipeline :: proc(pipeline: rawptr) {
+	p := (^Vk_Pipeline)(pipeline)
+	if p == nil do return
+	p.released = true
+	vk_pipeline_reap(p)
+}
+
+vk_release_compute_pipeline :: proc(pipeline: rawptr) {
+	p := (^Vk_Pipeline)(pipeline)
+	if p == nil do return
+	p.released = true
+	vk_pipeline_reap(p)
+}

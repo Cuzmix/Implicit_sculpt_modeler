@@ -385,18 +385,33 @@ quad_mesh_triangulate :: proc(q: Quad_Mesh, allocator := context.allocator) -> (
 	return
 }
 
-// The two triangles a quad is drawn as: along its shorter diagonal.
+// The two triangles a quad is drawn as: along its shorter diagonal, unless that leaves a
+// triangle all but without area (three corners in a line, as a quad Quad Remesh extracts
+// has where a vertex sits on its neighbours' edge, which mesh_check would count as a hole)
+// and the other diagonal does not.
 quad_split :: proc(positions: []Vec3, f: [4]u32) -> [6]u32 {
-	if linalg.length2(positions[f[2]] - positions[f[0]]) <= linalg.length2(positions[f[3]] - positions[f[1]]) {
-		return {f[0], f[1], f[2], f[0], f[2], f[3]}
+	p0, p1, p2, p3 := positions[f[0]], positions[f[1]], positions[f[2]], positions[f[3]]
+	// Each cut's two triangles' doubled areas, squared, against each other.
+	flat :: proc(a, b, c, d: Vec3) -> bool {
+		x, y := linalg.length2(linalg.cross(b - a, c - a)), linalg.length2(linalg.cross(c - a, d - a))
+		return min(x, y) < QUAD_SPLIT_FLAT * max(x, y)
 	}
+	along_02 := linalg.length2(p2 - p0) <= linalg.length2(p3 - p1)
+	if along_02 && flat(p0, p1, p2, p3) && !flat(p1, p2, p3, p0) do along_02 = false
+	else if !along_02 && flat(p1, p2, p3, p0) && !flat(p0, p1, p2, p3) do along_02 = true
+	if along_02 do return {f[0], f[1], f[2], f[0], f[2], f[3]}
 	return {f[0], f[1], f[3], f[1], f[2], f[3]}
 }
 
-// Appends the quads to `out` as OBJ text: `v` lines (each position as `scale * p +
-// offset`), with `uvs` (per quad corner) a `vt` line a corner and `f` lines naming both,
-// else plain `f` lines.
-quad_mesh_write_obj :: proc(out: ^[dynamic]u8, positions: []Vec3, quads: [][4]u32, uvs: [][4][2]f32 = nil, scale: f32 = 1, offset := Vec3{}) {
+// Below this ratio of a quad's two triangles' squared areas (a millionth of the area) the
+// smaller counts as flat for quad_split.
+@(private = "file")
+QUAD_SPLIT_FLAT :: f32(1e-12)
+
+// Appends the faces (quads, or triangles, all with N corners) to `out` as OBJ text: `v`
+// lines (each position as `scale * p + offset`), with `uvs` (per face corner) a `vt` line
+// a corner and `f` lines naming both, else plain `f` lines.
+faces_write_obj :: proc(out: ^[dynamic]u8, positions: []Vec3, faces: [][$N]u32, uvs: [][N][2]f32 = nil, scale: f32 = 1, offset := Vec3{}) {
 	tmp: [32]u8
 	number :: proc(out: ^[dynamic]u8, tmp: []u8, x: f32) {
 		append(out, ' ')
@@ -418,14 +433,14 @@ quad_mesh_write_obj :: proc(out: ^[dynamic]u8, positions: []Vec3, quads: [][4]u3
 			}
 		}
 	}
-	for f, i in quads {
+	for f, i in faces {
 		append(out, 'f')
 		for v, k in f {
 			append(out, ' ')
 			append(out, ..tmp[:format_u32(tmp[:], v + 1)])
 			if uvs != nil {
 				append(out, '/')
-				append(out, ..tmp[:format_u32(tmp[:], u32(4 * i + k + 1))])
+				append(out, ..tmp[:format_u32(tmp[:], u32(N * i + k + 1))])
 			}
 		}
 		append(out, '\n')

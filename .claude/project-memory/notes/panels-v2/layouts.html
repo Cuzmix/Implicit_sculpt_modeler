@@ -1,0 +1,252 @@
+<title>One layout per space</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a short header, then the iPad screen (scaled to fit) beside a guide and the "today" comparison.
+   One dark world on purpose, the app's own (Lens). */
+:root{
+  --frame:#0D0F12; --surface:#161A1F; --raised:#1E242B; --line:#2A3139; --text:#E7ECF0; --dim:#8C98A4; --faint:#56616C;
+  --glaze:#5ED6C4; --glaze-ink:#06201C; --warn:#F3B54A; --gone:#F07A6E;
+  --sculpt:#5ED6C4; --model:#7FA8FF; --render:#F3B54A;
+  --page:#0A0C0F; --page-text:#D9E0E6;
+  --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{background:var(--page);color:var(--page-text);font-family:var(--sans)}
+body{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 48px}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit}
+button:focus-visible{outline:2px solid var(--glaze);outline-offset:2px}
+.wrap{max-width:1320px;margin:0 auto}
+header h1{font-size:24px;margin:0;letter-spacing:-.01em}
+header p{margin:6px 0 20px;color:var(--dim);max-width:72ch;line-height:1.5}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:20px;align-items:start}
+@media (max-width:1050px){.layout{grid-template-columns:minmax(0,1fr)}}
+#stage{position:relative;width:100%;aspect-ratio:1180/820;border-radius:14px;border:1px solid var(--line);overflow:hidden;background:#000}
+#dev{position:absolute;left:0;top:0;width:1180px;height:820px;transform-origin:0 0;overflow:hidden;color:var(--text);
+  background:radial-gradient(120% 90% at 50% 40%,#232A31 0%,#14181D 60%,#0D0F12 100%);user-select:none;-webkit-user-select:none;touch-action:none}
+.model{position:absolute;left:420px;top:190px;width:340px;height:340px;border-radius:50%;background:radial-gradient(circle at 38% 32%,#F2E6DC 0%,#D8C2B0 30%,#A88C78 70%,#6E5A4C 100%);box-shadow:0 30px 80px rgba(0,0,0,.45)}
+.model.cage{border-radius:24px;background:linear-gradient(135deg,#9BB4E8,#4C6596);transform:rotate(12deg)}
+.model.lit{background:radial-gradient(circle at 30% 28%,#FFF6E4 0%,#E7B98A 28%,#9A5E3C 70%,#3C2318 100%)}
+.island{position:absolute;display:flex;align-items:center;gap:2px;background:rgba(22,26,31,.94);border:1px solid var(--line);border-radius:14px;padding:4px}
+.tabs button{border:0;background:none;padding:0 14px;height:36px;border-radius:10px;cursor:pointer;color:var(--dim);font-size:14px;font-weight:500;position:relative;display:flex;align-items:center;gap:6px}
+.tabs button.on{color:var(--text);background:rgba(255,255,255,.06)}
+.tabs button .sw{width:8px;height:8px;border-radius:50%}
+.tabs button .dot{width:7px;height:7px;border-radius:50%;background:var(--warn);position:absolute;right:4px;top:6px}
+.chev{width:32px;height:36px;border:0;background:none;color:var(--dim);cursor:pointer;border-radius:10px;font-size:14px}
+.chev:hover,.tabs button:hover{color:var(--text)}
+.ic{width:24px;height:24px;border-radius:7px;background:#2B333C}
+.b{width:44px;height:44px;border:0;background:none;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:2px;cursor:pointer;color:var(--dim);font-size:9.5px}
+.b .g{width:22px;height:22px;border-radius:6px;background:#2B333C}
+.b.on{color:var(--glaze);background:rgba(94,214,196,.12)}
+.b.on .g{background:rgba(94,214,196,.5)}
+.dock{position:absolute;display:flex;gap:2px;background:rgba(22,26,31,.94);border:1px solid var(--line);border-radius:14px;padding:4px;transition:left .22s,top .22s}
+.dock.v{flex-direction:column;align-items:center;padding-top:14px}
+.dock.h{flex-direction:row;align-items:center;padding-left:14px}
+.grip{position:absolute;background:rgba(231,236,240,.28);border-radius:4px;cursor:grab}
+.dock.v .grip{left:50%;top:5px;width:22px;height:4px;transform:translateX(-50%)}
+.dock.h .grip{top:50%;left:5px;width:4px;height:22px;transform:translateY(-50%)}
+.dock.dragging{transition:none;opacity:.9;box-shadow:0 10px 40px rgba(0,0,0,.6)}
+.edgehint{position:absolute;border:2px dashed rgba(94,214,196,.6);border-radius:14px;background:rgba(94,214,196,.06);pointer-events:none}
+.card{position:absolute;width:300px;background:rgba(22,26,31,.97);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+.card .hd{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;cursor:grab}
+.card .hd .sp{flex:1}
+.card .pin,.card .x{border:1px solid var(--line);background:none;border-radius:7px;width:28px;height:28px;cursor:pointer;color:var(--dim);font-size:12px}
+.card .pin.on{background:var(--glaze);color:var(--glaze-ink);border-color:var(--glaze)}
+.card .sec{font-size:10.5px;letter-spacing:.08em;color:var(--faint);text-transform:uppercase}
+.row{height:26px;border-radius:7px;background:#232A31}
+.row.acc{background:linear-gradient(90deg,rgba(94,214,196,.5) 58%,#232A31 58%)}
+.row.s{width:68%}
+.menu{position:absolute;width:250px;background:rgba(30,36,43,.99);border:1px solid var(--line);border-radius:12px;padding:6px;box-shadow:0 14px 40px rgba(0,0,0,.55);z-index:5}
+.menu .cap{font-size:10.5px;letter-spacing:.08em;color:var(--faint);text-transform:uppercase;padding:6px 10px 4px}
+.menu button{display:flex;width:100%;text-align:left;border:0;background:none;padding:9px 10px;border-radius:8px;cursor:pointer;font-size:13.5px;gap:8px;align-items:center}
+.menu button:hover{background:rgba(255,255,255,.06)}
+.menu button[disabled]{color:var(--faint);cursor:default;background:none}
+.menu .hint{font-size:12px;color:var(--dim);padding:2px 10px 8px;line-height:1.4}
+.shelf{position:absolute;display:flex;gap:4px;padding:6px;background:rgba(22,26,31,.94);border:1px solid var(--line);border-radius:14px}
+.tile{width:58px;height:52px;border-radius:9px;background:#232A31;display:flex;align-items:flex-end;justify-content:center;font-size:10.5px;color:var(--dim);padding-bottom:5px}
+.tile.on{background:rgba(94,214,196,.22);color:var(--text)}
+.toast{position:absolute;left:50%;bottom:110px;transform:translateX(-50%);background:rgba(30,36,43,.98);border:1px solid var(--line);border-radius:10px;padding:9px 14px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap}
+.toast.on{opacity:1}
+aside{display:grid;gap:14px;min-width:0}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;font-size:13.5px;line-height:1.5}
+.panel h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:0 0 8px}
+.panel ol,.panel ul{margin:0;padding-left:20px;display:grid;gap:6px}
+.panel li b{color:var(--text)}
+.panel .gone{color:var(--gone)}
+.state{font-family:var(--mono);font-size:12px;display:grid;gap:4px}
+.state div{display:flex;gap:8px;align-items:center}
+.state i{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.state .d{color:var(--warn)}
+kbd{font-family:var(--mono);font-size:11px;background:var(--raised);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>One layout per space</h1>
+  <p>Each space remembers its own layout. Shape Sculpt one way and Render another, then switch tabs and each comes back as you left it. There are no named workspaces to save, pick or rename. The tab's chevron has <b>Reset layout</b>, and an amber dot shows a space that differs from how it ships.</p>
+</header>
+<div class="layout">
+  <div id="stage"><div id="dev"></div></div>
+  <aside>
+    <div class="panel">
+      <h2>Try this</h2>
+      <ol>
+        <li>In <b>Sculpt</b>, drag the dock's faint grip to the left or top edge.</li>
+        <li>Tap a dock button to open a card, then pin it with the square.</li>
+        <li>Switch to <b>Render</b> and change something there too.</li>
+        <li>Switch back. Each space kept its own layout, and the changed ones carry the amber dot.</li>
+        <li>Open the chevron beside the tabs and pick <b>Reset layout</b>.</li>
+      </ol>
+    </div>
+    <div class="panel">
+      <h2>Each space now</h2>
+      <div class="state" id="state"></div>
+    </div>
+    <div class="panel">
+      <h2>What goes</h2>
+      <ul>
+        <li class="gone">Named workspaces ("My sculpt 2", "Paint setup") and the Workspaces menu.</li>
+        <li class="gone">Save as, Rename, Revert, Delete, Export and Import workspace.</li>
+        <li>A layout is kept as you shape it, with no Save step. It lives in the settings, so it survives a restart and an update.</li>
+      </ul>
+    </div>
+  </aside>
+</div>
+</div>
+
+<script>
+const SPACES = {
+  Sculpt: {tint: 'var(--sculpt)', model: '', cards: ['Tool', 'Layers', 'Mask', 'Symmetry', 'Mesh', 'History'],
+    ships: {edge: 'right', pinned: 'Tool', open: null}},
+  Model: {tint: 'var(--model)', model: 'cage', cards: ['Mesh', 'Scene', 'Symmetry', 'Deform', 'Layers', 'History'],
+    ships: {edge: 'right', pinned: null, open: null}},
+  Render: {tint: 'var(--render)', model: 'lit', cards: ['Look', 'Render', 'Scene', 'Paint', 'Colours', 'History'],
+    ships: {edge: 'right', pinned: 'Look', open: null}},
+};
+const clone = o => JSON.parse(JSON.stringify(o));
+const st = {space: 'Sculpt', menu: false, layouts: {}, toast: ''};
+for (const s in SPACES) st.layouts[s] = clone(SPACES[s].ships);
+const changed = s => JSON.stringify({...st.layouts[s], open: null}) !== JSON.stringify({...SPACES[s].ships, open: null});
+
+const dev = document.getElementById('dev');
+function fit() {
+  const w = document.getElementById('stage').clientWidth;
+  dev.style.transform = `scale(${w / 1180})`;
+}
+new ResizeObserver(fit).observe(document.getElementById('stage'));
+
+// Where the dock sits on each edge, and where its card opens beside it.
+function dockBox(edge, n) {
+  const len = 14 + n * 46 + 8;
+  if (edge === 'right') return {x: 1124, y: 90, w: 52, h: len, v: true};
+  if (edge === 'left') return {x: 4, y: 160, w: 52, h: len, v: true};
+  if (edge === 'top') return {x: 590 - len / 2, y: 64, w: len, h: 52, v: false};
+  return {x: 590 - len / 2, y: 660, w: len, h: 52, v: false};
+}
+function cardBox(edge, d, slot) {
+  const h = slot === 'pinned' ? 300 : 260;
+  if (edge === 'right') return {x: d.x - 312, y: d.y + (slot === 'pinned' ? 0 : 0), h};
+  if (edge === 'left') return {x: d.x + d.w + 10, y: d.y, h};
+  if (edge === 'top') return {x: d.x + d.w - 300, y: d.y + d.h + 10, h};
+  return {x: d.x + d.w - 300, y: d.y - h - 10, h};
+}
+
+function cardHtml(name, pinned, box) {
+  const rows = Array.from({length: Math.floor((box.h - 60) / 34)}, (_, i) => `<div class="row${i === 1 ? ' acc' : i % 3 === 2 ? ' s' : ''}"></div>`).join('');
+  return `<div class="card" style="left:${box.x}px;top:${box.y}px;height:${box.h}px">
+    <div class="hd">${name}<span class="sp"></span><button class="pin${pinned ? ' on' : ''}" data-act="pin:${name}" aria-label="Pin ${name}">▣</button><button class="x" data-act="close:${name}" aria-label="Close ${name}">✕</button></div>
+    <div class="sec">${name === 'Tool' ? 'Stroke' : name === 'Look' ? 'Material' : 'Section'}</div>${rows}</div>`;
+}
+
+function render() {
+  const sp = SPACES[st.space], L = st.layouts[st.space];
+  const d = dockBox(L.edge, sp.cards.length);
+  const shown = L.open || L.pinned;
+  let h = `<div class="model ${sp.model}"></div>`;
+  h += `<div class="island" style="left:8px;top:8px;width:250px;height:48px;justify-content:space-evenly">${'<div class="ic"></div>'.repeat(5)}</div>`;
+  h += `<div class="island tabs" style="left:${590 - 190}px;top:8px;height:48px">` + Object.keys(SPACES).map(s =>
+    `<button class="${s === st.space ? 'on' : ''}" data-act="space:${s}"><span class="sw" style="background:${SPACES[s].tint}"></span>${s}${changed(s) ? '<span class="dot" aria-label="changed"></span>' : ''}</button>`).join('') +
+    `<button class="chev" data-act="menu" aria-label="Layout menu">▾</button></div>`;
+  h += `<div class="island" style="left:1030px;top:8px;width:142px;height:48px;justify-content:space-evenly">${'<div class="ic"></div>'.repeat(3)}</div>`;
+  h += `<div class="island" style="left:8px;top:${L.edge === 'left' ? 520 : 260}px;width:50px;flex-direction:column;padding:6px 4px;gap:10px">${'<div class="ic"></div>'.repeat(4)}</div>`;
+  if (L.edge !== 'bottom') h += `<div class="shelf" style="left:${590 - 255}px;top:730px">${['All', 'Clay', 'Draw', 'Smooth', 'Move', 'Pinch', 'Inflate', 'Mask'].map((t, i) => `<div class="tile${i === 1 ? ' on' : ''}">${t}</div>`).join('')}</div>`;
+  h += `<div class="dock ${d.v ? 'v' : 'h'}" id="dock" style="left:${d.x}px;top:${d.y}px"><div class="grip" id="grip" title="Drag to move the dock"></div>` +
+    sp.cards.map(c => `<button class="b${c === shown ? ' on' : ''}" data-act="open:${c}"><span class="g"></span>${c}</button>`).join('') + `</div>`;
+  if (shown) h += cardHtml(shown, shown === L.pinned, cardBox(L.edge, d, shown === L.pinned ? 'pinned' : 'open'));
+  if (st.menu) {
+    h += `<div class="menu" style="left:${590 + 120}px;top:60px"><div class="cap">${st.space} layout</div>
+      <button data-act="reset" ${changed(st.space) ? '' : 'disabled'}>Reset layout</button>
+      <div class="hint">${changed(st.space) ? `Puts ${st.space}'s docks and cards back as they ship. The other spaces keep theirs.` : `${st.space} is as it ships.`}</div></div>`;
+  }
+  h += `<div class="toast${st.toast ? ' on' : ''}">${st.toast}</div>`;
+  dev.innerHTML = h;
+  document.getElementById('state').innerHTML = Object.keys(SPACES).map(s => {
+    const l = st.layouts[s];
+    return `<div><i style="background:${SPACES[s].tint}"></i><b style="width:56px;display:inline-block">${s}</b><span>dock ${l.edge}, ${l.pinned ? l.pinned + ' pinned' : 'nothing pinned'}</span>${changed(s) ? '<span class="d">· changed</span>' : ''}</div>`;
+  }).join('');
+}
+
+let toastTimer = 0;
+function toast(t) {
+  st.toast = t; render();
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { st.toast = ''; render(); }, 1600);
+}
+
+dev.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]');
+  const L = st.layouts[st.space];
+  if (!b) { if (st.menu) { st.menu = false; render(); } else if (L.open) { L.open = null; render(); } return; }
+  const [act, arg] = b.dataset.act.split(':');
+  if (act === 'space') { st.space = arg; st.menu = false; st.layouts[arg].open = null; toast(`${arg} as you left it`); return; }
+  if (act === 'menu') { st.menu = !st.menu; }
+  if (act === 'reset') { st.layouts[st.space] = clone(SPACES[st.space].ships); st.menu = false; toast(`${st.space} layout reset`); return; }
+  if (act === 'open') {
+    if ((L.open || L.pinned) === arg) { if (L.open === arg) L.open = null; }
+    else L.open = arg === L.pinned ? null : arg;
+  }
+  if (act === 'pin') {
+    if (L.pinned === arg) { L.pinned = null; L.open = arg; }
+    else { L.pinned = arg; L.open = null; }
+  }
+  if (act === 'close') { if (L.pinned === arg) L.pinned = null; if (L.open === arg) L.open = null; }
+  render();
+});
+
+// The grip: drag the dock, see the edge it will take, let go to snap there.
+let drag = null;
+dev.addEventListener('pointerdown', e => {
+  if (e.target.id !== 'grip') return;
+  e.preventDefault();
+  const scale = dev.getBoundingClientRect().width / 1180;
+  const dock = document.getElementById('dock');
+  const r = dock.getBoundingClientRect();
+  drag = {scale, dx: (e.clientX - r.left) / scale, dy: (e.clientY - r.top) / scale, edge: st.layouts[st.space].edge, hint: null};
+  dock.classList.add('dragging');
+  dev.setPointerCapture(e.pointerId);
+});
+dev.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dr = dev.getBoundingClientRect();
+  const x = (e.clientX - dr.left) / drag.scale, y = (e.clientY - dr.top) / drag.scale;
+  const dock = document.getElementById('dock');
+  dock.style.left = `${x - drag.dx}px`; dock.style.top = `${y - drag.dy}px`;
+  const dist = {left: x, right: 1180 - x, top: y - 60, bottom: 820 - y};
+  drag.edge = Object.keys(dist).reduce((a, k) => dist[k] < dist[a] ? k : a, 'left');
+  const n = SPACES[st.space].cards.length, b = dockBox(drag.edge, n);
+  if (!drag.hint) { drag.hint = document.createElement('div'); drag.hint.className = 'edgehint'; dev.appendChild(drag.hint); }
+  Object.assign(drag.hint.style, {left: `${b.x}px`, top: `${b.y}px`, width: `${b.w}px`, height: `${b.h}px`});
+});
+const end = () => {
+  if (!drag) return;
+  const L = st.layouts[st.space], moved = L.edge !== drag.edge;
+  L.edge = drag.edge; drag = null;
+  if (moved) toast(`Dock on the ${L.edge} edge${L.edge === 'top' || L.edge === 'bottom' ? ': a row' : ''}`); else render();
+};
+dev.addEventListener('pointerup', end);
+dev.addEventListener('pointercancel', end);
+render();
+fit();
+</script>

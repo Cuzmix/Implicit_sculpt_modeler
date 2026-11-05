@@ -18,7 +18,24 @@ Bezier_Point :: struct {
 	radius:    f32,
 	intensity: f32,
 	twist:     f32, // radians about the curve, added to the frame there
-	corner:    bool, // the handles turn freely; a smooth point keeps them in one line
+	handles:   Handle_Type,
+	// Picked for editing (the Curve tool's selection, as Blender keeps a select flag on each
+	// point): it follows the point through inserts, deletes and undo, and is never saved.
+	selected:  bool,
+}
+
+// How a point's two handles behave, as Blender's handle types: the zero value is Aligned,
+// which drawn and fitted curves' points are.
+Handle_Type :: enum u8 {
+	Aligned, // the two stay in one line, each its own length: a smooth point
+	Auto,    // set from the neighbours (Catmull-Rom's tangent, a third of the way each), again whenever a point moves
+	Vector,  // each points straight at its neighbour, a third of the way, again whenever a point moves: a corner that follows
+	Free,    // each turns and stretches on its own: a corner
+}
+
+// Whether a point is a corner, whose handles need not be in one line: Vector and Free.
+bezier_is_corner :: proc(p: Bezier_Point) -> bool {
+	return p.handles == .Vector || p.handles == .Free
 }
 
 // A point along a sampled curve: where, which way the curve runs, how far along it, which
@@ -251,9 +268,20 @@ bezier_insert :: proc(points: ^[dynamic]Bezier_Point, closed: bool, u: f32) -> i
 }
 
 // Keeps a smooth point's handles in one line after one of them moved: the other turns to
-// point the opposite way and keeps its own length. A corner point is left as it is.
+// point the opposite way and keeps its own length. A handle moved by hand stops following
+// the neighbours, as in Blender: Auto becomes Aligned and Vector becomes Free. A Free
+// point is left as it is.
 bezier_align_handles :: proc(point: ^Bezier_Point, moved_out: bool) {
-	if point.corner do return
+	switch point.handles {
+	case .Free:
+		return
+	case .Vector:
+		point.handles = .Free
+		return
+	case .Auto:
+		point.handles = .Aligned
+	case .Aligned:
+	}
 	if moved_out {
 		l := linalg.length(point.h_in)
 		point.h_in = -l * linalg.normalize0(point.h_out)
@@ -263,14 +291,21 @@ bezier_align_handles :: proc(point: ^Bezier_Point, moved_out: bool) {
 	}
 }
 
-// Makes point `i` smooth: its handles in one line, along the line between its neighbours
-// (Catmull-Rom's tangent), each a third of the way to its neighbour. The ends of an open
-// curve point at their one neighbour.
+// Makes point `i` an Auto point: its handles in one line, along the line between its
+// neighbours (Catmull-Rom's tangent), each a third of the way to its neighbour, set again
+// whenever a point moves (bezier_auto_handles). The ends of an open curve point at their one
+// neighbour.
 bezier_make_smooth :: proc(points: []Bezier_Point, closed: bool, i: int) {
+	if len(points) < 2 do return
+	points[i].handles = .Auto
+	bezier_set_auto(points, closed, i)
+}
+
+// Point `i`'s handles as an Auto point's.
+@(private = "file")
+bezier_set_auto :: proc(points: []Bezier_Point, closed: bool, i: int) {
 	n := len(points)
-	if n < 2 do return
 	p := &points[i]
-	p.corner = false
 	has_prev, has_next := closed || i > 0, closed || i < n - 1
 	prev := points[(i + n - 1) % n].p if has_prev else p.p
 	next := points[(i + 1) % n].p if has_next else p.p
@@ -279,15 +314,62 @@ bezier_make_smooth :: proc(points: []Bezier_Point, closed: bool, i: int) {
 	p.h_out = dir * linalg.length(next - p.p) / 3 if has_next else {}
 }
 
-// Makes point `i` a corner whose handles point straight at its neighbours, a third of the
-// way, so the segments either side leave it in straight lines.
+// Makes point `i` a Vector point: a corner whose handles point straight at its neighbours,
+// a third of the way, so the segments either side leave it in straight lines, set again
+// whenever a point moves (bezier_auto_handles).
 bezier_make_corner :: proc(points: []Bezier_Point, closed: bool, i: int) {
+	if len(points) < 2 do return
+	points[i].handles = .Vector
+	bezier_set_vector(points, closed, i)
+}
+
+// Point `i`'s handles as a Vector point's.
+@(private = "file")
+bezier_set_vector :: proc(points: []Bezier_Point, closed: bool, i: int) {
 	n := len(points)
-	if n < 2 do return
 	p := &points[i]
-	p.corner = true
 	p.h_in = (points[(i + n - 1) % n].p - p.p) / 3 if closed || i > 0 else {}
 	p.h_out = (points[(i + 1) % n].p - p.p) / 3 if closed || i < n - 1 else {}
+}
+
+// Turns a run of points round, its last first: each point's handles swap, as the way in
+// becomes the way out.
+bezier_reverse :: proc(points: []Bezier_Point) {
+	slice_reverse(points)
+	for &p in points do p.h_in, p.h_out = p.h_out, p.h_in
+}
+
+@(private = "file")
+slice_reverse :: proc(s: []Bezier_Point) {
+	for i in 0 ..< len(s) / 2 do s[i], s[len(s) - 1 - i] = s[len(s) - 1 - i], s[i]
+}
+
+// Sets the handles of every Auto and Vector point from its neighbours, as they stand now:
+// after any point moved, so those points follow. Aligned and Free points keep theirs.
+bezier_auto_handles :: proc(points: []Bezier_Point, closed: bool) {
+	if len(points) < 2 do return
+	for p, i in points {
+		#partial switch p.handles {
+		case .Auto:   bezier_set_auto(points, closed, i)
+		case .Vector: bezier_set_vector(points, closed, i)
+		}
+	}
+}
+
+// Sets point `i` to `kind`: Auto and Vector take their handles from the neighbours now; an
+// Aligned point turns its in handle into line with its out handle (or the out with the in
+// when the out has no length), each keeping its length; a Free point keeps its handles.
+bezier_set_handles :: proc(points: []Bezier_Point, closed: bool, i: int, kind: Handle_Type) {
+	if len(points) < 2 do return
+	p := &points[i]
+	p.handles = kind
+	switch kind {
+	case .Auto:   bezier_set_auto(points, closed, i)
+	case .Vector: bezier_set_vector(points, closed, i)
+	case .Aligned:
+		bezier_align_handles(p, linalg.length(p.h_out) > 1e-9)
+	case .Free:
+	}
 }
 
 // The fewest cubic segments through `input` that stay within `tolerance` of every input

@@ -6,7 +6,6 @@ import "core:math/linalg"
 import "core:time"
 
 import "../geom"
-import "../render"
 import "../sculpt"
 
 // The detail skin (sculpt/skin.odin) in the app: where a brush's detail goes, and adding,
@@ -73,11 +72,11 @@ skin_stroke_allowed :: proc(app: ^App, obj: ^Object, kind: sculpt.Brush_Kind, sa
 	if obj.voxel != nil do return true
 	label := BRUSHES[kind].name
 	if object_skin(obj) == nil {
-		if say do report(app, Kit_Section.Hd, {.Warning}, "%s puts its detail in the skin, and %s has none: add a detail skin (HD detail card) or set Detail goes to Auto", label, object_label(obj))
+		if say do report(app, Section.Hd, {.Warning}, "%s puts its detail in the skin, and %s has none: add a detail skin (HD detail card) or set Detail goes to Auto", label, object_label(obj))
 		return false
 	}
 	if sculpt.sculptor_layer_recording(object_sculptor(obj)) >= 0 {
-		if say do report(app, Kit_Section.Layers, {.Warning}, "%s puts its detail in the skin, and sculpt layers record vertex moves only: stop the recording or set Detail goes to Auto", label)
+		if say do report(app, Section.Layers, {.Warning}, "%s puts its detail in the skin, and sculpt layers record vertex moves only: stop the recording or set Detail goes to Auto", label)
 		return false
 	}
 	return true
@@ -103,13 +102,13 @@ skin_set :: proc(app: ^App, segments: u32, why := "") -> bool {
 	stroke_finish(app)
 	obj := selected_object(app)
 	if refused := skin_refusal(obj); refused != "" {
-		if segments != 0 || object_skin(obj) != nil do report(app, Kit_Section.Hd, {.Warning}, "%s", refused)
+		if segments != 0 || object_skin(obj) != nil do report(app, Section.Hd, {.Warning}, "%s", refused)
 		return false
 	}
 	s := object_sculptor(obj)
 	if !sculpt.sculptor_skin_change(s, segments) {
 		if sk := sculpt.sculptor_skin(s); segments != 0 && (sk == nil || sk.segments != segments) {
-			report(app, Kit_Section.Hd, {.Warning}, "%s needs a closed mesh for a skin: Rebuild or Close holes first", object_label(obj))
+			report(app, Section.Hd, {.Warning}, "%s needs a closed mesh for a skin: Rebuild or Close holes first", object_label(obj))
 		}
 		return false
 	}
@@ -119,7 +118,7 @@ skin_set :: proc(app: ^App, segments: u32, why := "") -> bool {
 	if segments == 0 {
 		report(app, nil, {.Undo}, "Took the detail skin off %s", object_label(obj))
 	} else if why != "" {
-		report(app, Kit_Section.Hd, {.Undo}, "%s", why)
+		report(app, Section.Hd, {.Undo}, "%s", why)
 	} else {
 		report(app, nil, {.Undo}, "%s has a detail skin of %d segments", object_label(obj), segments)
 	}
@@ -137,8 +136,8 @@ skin_apply_refusal :: proc(obj: ^Object) -> string {
 	case len(levels.levels) + steps > sculpt.MAX_LEVELS: return fmt.tprintf("Apply adds %d levels and the object has room for %d.", steps, sculpt.MAX_LEVELS - len(levels.levels))
 	case levels.rule != .Loop: return "Apply builds Loop levels, and this object subdivides as Catmull-Clark."
 	}
-	if _, _, bytes := sculpt.levels_skin_apply_estimate(levels); bytes > MAX_SUBDIVIDE_BYTES {
-		return fmt.tprintf("Apply would need about %s; the limit is %s.", bytes_label(bytes), bytes_label(MAX_SUBDIVIDE_BYTES))
+	if _, _, bytes := sculpt.levels_skin_apply_estimate(levels); bytes > mesh_bytes_most() {
+		return fmt.tprintf("Apply would need about %s; the limit is %s.", bytes_label(bytes), bytes_label(mesh_bytes_most()))
 	}
 	return ""
 }
@@ -149,7 +148,7 @@ skin_apply :: proc(app: ^App) -> bool {
 	obj := selected_object(app)
 	if obj == nil do return true
 	if why := skin_apply_refusal(obj); why != "" {
-		report(app, Kit_Section.Hd, {.Warning}, "%s", why)
+		report(app, Section.Hd, {.Warning}, "%s", why)
 		return true
 	}
 	stroke_finish(app)
@@ -159,7 +158,7 @@ skin_apply :: proc(app: ^App) -> bool {
 	before := history_snapshot(app, obj, "apply detail skin")
 	if !sculpt.levels_skin_apply(levels, carry_layers = layers > 0) {
 		history_snapshot_drop(before)
-		report(app, Kit_Section.Hd, {.Warning}, "%s needs a closed mesh to apply its skin: Rebuild or Close holes first", object_label(obj))
+		report(app, Section.Hd, {.Warning}, "%s needs a closed mesh to apply its skin: Rebuild or Close holes first", object_label(obj))
 		return true
 	}
 	history_record_swap(app, obj.id, before)
@@ -227,15 +226,37 @@ skin_auto_add :: proc(app: ^App, obj: ^Object, kind: sculpt.Brush_Kind, radius: 
 	if obj.voxel != nil || sculpt.sculptor_layer_recording(object_sculptor(obj)) >= 0 do return false
 	m := object_mesh(obj)
 	tris := len(m.indices) / 3
-	if tris == 0 do return false
-	// The mean edge from the area, as if the triangles were equilateral: one pass, and close
-	// enough to judge a dab by.
-	area, _ := geom.mesh_area_bounds(m^, &app.pool)
-	edge := f32(math.sqrt(4 * area / (math.sqrt(f64(3)) * f64(tris))))
+	// A mesh too dense for even the coarsest skin within SKIN_AUTO_BYTES (about 22M
+	// triangles) never gets one, so it is not measured: this runs at every press.
+	if tris == 0 || skin_auto_bytes(tris, SKIN_SEGMENTS[1]) > SKIN_AUTO_BYTES do return false
+	// The mean edge from the mean triangle area, as if the triangles were equilateral, the
+	// mean taken over at most SKIN_AUTO_SAMPLES triangles spread over the mesh: close
+	// enough to judge a dab by, and well under a millisecond where measuring every
+	// triangle took 130 ms a press at 25M.
+	edge := f32(math.sqrt(4 * skin_mean_area(m^, tris) / math.sqrt(f64(3))))
 	segments := skin_auto_segments(tris, edge, radius)
 	if segments == 0 do return false
 	why := fmt.tprintf("Added a detail skin of %d segments to %s: %s's dab is finer than its mesh, so the detail goes into the skin (Detail skin section; Add a skin by itself turns this off)", segments, object_label(obj), BRUSHES[kind].name)
 	return skin_set(app, segments, why)
+}
+
+// Triangles skin_mean_area measures at most.
+SKIN_AUTO_SAMPLES :: 1 << 12
+
+// The mean area of `m`'s `tris` triangles, measured on every triangle up to
+// SKIN_AUTO_SAMPLES of them and on evenly spaced ones past that.
+@(private = "file")
+skin_mean_area :: proc(m: geom.Mesh, tris: int) -> f64 {
+	step := max(1, tris / SKIN_AUTO_SAMPLES)
+	sum, count := f64(0), 0
+	for t := 0; t < tris; t += step {
+		a := m.positions[m.indices[3 * t]]
+		b := m.positions[m.indices[3 * t + 1]]
+		c := m.positions[m.indices[3 * t + 2]]
+		sum += 0.5 * f64(linalg.length(linalg.cross(b - a, c - a)))
+		count += 1
+	}
+	return sum / f64(count)
 }
 
 // Squeeze: a dense sculpt becomes a lighter mesh holding its forms and a detail skin
@@ -265,7 +286,7 @@ SQUEEZE_MIN_VERTICES :: 20_000
 skin_squeeze :: proc(app: ^App, share: int) -> bool {
 	obj := selected_object(app)
 	if why := skin_squeeze_refusal(obj); why != "" {
-		report(app, Kit_Section.Hd, {.Warning}, "%s", why)
+		report(app, Section.Hd, {.Warning}, "%s", why)
 		return true
 	}
 	stroke_finish(app)
@@ -282,19 +303,18 @@ skin_squeeze :: proc(app: ^App, share: int) -> bool {
 	setup := Remesh_Setup{smooth = geom.REMESH_SMOOTH_DEFAULT, keep_thin = true}
 	mesh, built := geom.remesh_voxel_measured(source, area, bounds, max(samples / max(share, 1), 1000), &app.pool, options = remesh_options(setup, groups), report = &report_)
 	if !built {
-		report(app, Kit_Section.Hd, {.Warning}, "%s has no volume to squeeze: close its holes first", object_label(obj))
+		report(app, Section.Hd, {.Warning}, "%s has no volume to squeeze: close its holes first", object_label(obj))
 		return true
 	}
-	surface := remesh_surface(report_, mesh, source, s.color, groups)
+	surface := remesh_surface(report_, mesh, source, sculpt.sculptor_paint_shown(s), groups)
 	defer surface_free(&surface)
 	segments := skin_carry_segments(len(mesh.indices) / 3, samples)
 	if segments == 0 {
 		geom.mesh_destroy(&mesh)
-		report(app, Kit_Section.Hd, {.Warning}, "The skin %s needs is past %s: squeeze by less", object_label(obj), bytes_label(SKIN_AUTO_BYTES))
+		report(app, Section.Hd, {.Warning}, "The skin %s needs is past %s: squeeze by less", object_label(obj), bytes_label(SKIN_AUTO_BYTES))
 		return true
 	}
 	before := history_snapshot(app, obj, "squeeze")
-	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, mesh, start, normals = true, surface = surface, squeeze = segments) {
 		history_snapshot_drop(before)
 		scene_delete_selected(app, undoable = false)

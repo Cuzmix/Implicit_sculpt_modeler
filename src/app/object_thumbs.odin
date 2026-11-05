@@ -63,7 +63,7 @@ thumb_shape :: proc(obj: ^Object) -> (gpu: ^render.Mesh_Buffers, local: geom.Aab
 	lv := sculpt.levels_current(&obj.levels)
 	for c in lv.sculptor.chunks do local = geom.aabb_union(local, c.bounds)
 	if len(lv.sculptor.chunks) == 0 do for p in lv.mesh.positions do geom.aabb_grow(&local, p)
-	return &obj.gpu[obj.levels.current], local, sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off
+	return &obj.gpu[obj.levels.current], local, sculpt.sculptor_paint_shows(&lv.sculptor) && !obj.paint_off
 }
 
 // The atlas cell showing `obj`, as texture coordinates, giving it one when it has none;

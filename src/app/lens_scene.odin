@@ -44,10 +44,12 @@ SCENE_KIND_NAMES := [Scene_Kind]string{.All = "All", .Meshes = "Meshes", .Voxels
 Outliner :: struct {
 	kind:        Scene_Kind,
 	lights_open: bool,
+	refs_open:   bool, // the reference planes' row is unfolded
 	add:         bool,
 	add_at:      ui.Rect,
 	starters:    bool, // the Add menu's starter shapes are unfolded
 	cages:       bool, // and its cages
+	curves:      bool, // and its curves
 	adds:        int, // things added from the Add menu
 	switches:    int, // lights switched on or off from their rows
 	menus:       int, // object menus opened by a row's ⋯
@@ -66,7 +68,7 @@ object_scene_kind :: proc(obj: ^Object) -> Scene_Kind {
 	return .Meshes
 }
 
-// The card's content, as the stack draws it.
+// The Scene section's content, as the Scene card draws it.
 kit_lens_scene :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -75,7 +77,7 @@ kit_lens_scene :: proc(app: ^App) {
 	lights := int(app.scene.lights.count)
 	// Find, Add, Pictures and More, the field taking what the buttons leave.
 	t := ctx.theme
-	ui.begin(ctx, "scene head", {direction = .Row, gap = 8, width = ui.fill_width(ctx), center = true})
+	ui.begin(ctx, "scene head", {direction = .Row, gap = ui.SPACE_M, width = ui.fill_width(ctx), center = true})
 	_ = ui.text_field(ctx, "Find an object##scene", k.scene_filter[:], width = ui.row_room(ctx) - 3 * t.target - 24, hint = "Find an object")
 	if ui.icon_button(ctx, "Add##scene add", ui.ICON_PLUS, ol.add) {
 		ol.add, ol.add_at = !ol.add, ctx.last_rect
@@ -120,9 +122,10 @@ kit_lens_scene :: proc(app: ^App) {
 				k.tree_rows += 1
 			}
 		}
-		kit_tree_drags(app, spots[:], {k.inspector_body, &k.scroll, k.inspector_limit}, ui.THUMB_INDENT)
+		if scroll := card_scroll(k, .Scene); scroll != nil do kit_tree_drags(app, spots[:], {k.cards.bodies[.Scene].at, scroll, k.cards.bodies[.Scene].limit}, ui.THUMB_INDENT)
 	}
 	if kind == .All || kind == .Lights do scene_light_rows(app, query, kind == .Lights)
+	if kind == .All do scene_ref_rows(app, query)
 	switch {
 	case len(objects) == 0 && kind != .Lights:
 		ui.paragraph(ctx, "The scene is empty. Add a shape with Add, or open a scene from the menu.")
@@ -162,14 +165,14 @@ scene_kind_chips :: proc(app: ^App, lights: int) {
 	ui.begin(ctx, "scene kinds", {direction = .Column, gap = 0, width = width})
 	defer ui.end(ctx)
 	row := 0
-	ui.begin(ctx, "scene kinds 0", {direction = .Row, gap = 6, width = width})
+	ui.begin(ctx, "scene kinds 0", {direction = .Row, gap = ui.SPACE_S, width = width})
 	for c, kind in counts {
 		if c == 0 do continue
 		name, sub := SCENE_KIND_NAMES[kind], fmt.tprint(c)
 		if ui.row_room(ctx) < lens_chip_width(ctx, name, sub) {
 			ui.end(ctx)
 			row += 1
-			ui.begin(ctx, fmt.tprintf("scene kinds %d", row), {direction = .Row, gap = 6, width = width})
+			ui.begin(ctx, fmt.tprintf("scene kinds %d", row), {direction = .Row, gap = ui.SPACE_S, width = width})
 		}
 		if lens_chip(ctx, fmt.tprintf("Show %s##scene kind", strings.to_lower(name, context.temp_allocator)), name, sub, lit = ol.kind == kind).clicked {
 			ol.kind = kind
@@ -317,7 +320,7 @@ scene_light_rows :: proc(app: ^App, query: string, only: bool) {
 		}
 		if row.clicked || row.menu {
 			app.light_pick = i
-			tray_open(app, .Lights)
+			card_reveal(app, .Lights)
 		}
 		k.scene_rows += 1
 	}
@@ -345,7 +348,7 @@ scene_foot :: proc(app: ^App) {
 	if len(app.scene.objects) == 0 do return
 	width := ui.fill_width(ctx)
 	each := (width - 2 * 6) / 3
-	ui.begin(ctx, "scene foot", {direction = .Row, gap = 6, width = width})
+	ui.begin(ctx, "scene foot", {direction = .Row, gap = ui.SPACE_S, width = width})
 	_ = command_button(app, .New_Folder, label = "Group", glyph = ui.ICON_FOLDER_PLUS, width = each, variant = .Light)
 	_ = command_button(app, .Duplicate_Object, width = each, variant = .Light)
 	_ = command_button(app, .Delete_Object, width = each, variant = .Light, tone = .Danger)
@@ -365,7 +368,7 @@ scene_notes :: proc(app: ^App) {
 	off, ghosts := scene_view_counts(app)
 	if off > 0 || app.scene.solo do _ = command_button(app, .Show_All_Objects, width = ui.fill_width(ctx), glyph = ui.ICON_EYE, variant = .Light)
 	if app.scene.solo {
-		ui.paragraph(ctx, fmt.tprintf("Solo shows only the selected object. %s turns it off.", command_keys(app, .Solo_Object)))
+		ui.paragraph(ctx, fmt.tprintf("Solo shows only the selected object. %s turns it off.", keys_or_name(app, .Solo_Object)))
 	} else if ghosts > 0 {
 		ui.paragraph(ctx, "Ghosts are dimmed and let presses through; their ghost icon makes them solid.")
 	}
@@ -380,17 +383,17 @@ scene_notes :: proc(app: ^App) {
 }
 
 // The Add menu, over every panel: the mesh shapes at the Add object section's size, the
-// starters folded under one row, a voxel sphere, the cages folded under one row, and a
-// light of each kind; each added at once as one undo step, selected.
+// starters folded under one row, a voxel sphere, the cages and the curves folded under a row
+// each, and a light of each kind; each added at once as one undo step, selected.
 kit_scene_add_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	ol := &k.outliner
 	if !ol.add do return
-	// Opened by Show section (Add object) before the card was laid out: under its Add.
+	// Opened before the card was laid out: under its Add.
 	if ol.add_at.w <= 0 do ol.add_at = ui.prev_rect(ctx, "Add##scene add")
-	if !ui.popover_begin(ctx, "scene add menu", &ol.add, ol.add_at, .Below, {direction = .Column, gap = 0, padding = 6, width = 260}) do return
+	if !ui.popover_begin(ctx, "scene add menu", &ol.add, ol.add_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	picked := false
 	vertices := int(SPHERE_PRESETS[k.add_size].vertices)
@@ -424,6 +427,16 @@ kit_scene_add_menu :: proc(app: ^App) {
 		for p in poly.Primitive {
 			if ui.menu_item(ctx, fmt.tprintf("%s cage##scene add", poly.PRIMITIVE_NAMES[p]), glyph = ui.ICON_GRID, hint = command_hint(app, .Add_Cage, int(p))) {
 				_ = command_run(app, .Add_Cage, int(p))
+				picked = true
+			}
+		}
+	}
+	if ui.menu_item(ctx, "Curve##scene add", glyph = ui.ICON_CHEVRON_DOWN if ol.curves else ui.ICON_CHEVRON_RIGHT, trailing = true) do ol.curves = !ol.curves
+	if ol.curves {
+		for shape in Curve_Shape {
+			if shape == .None do continue
+			if ui.menu_item(ctx, fmt.tprintf("%s curve##scene add", CURVE_SHAPE_NAMES[shape]), glyph = ui.ICON_SPLINE, hint = command_hint(app, .Add_Curve, int(shape) - 1)) {
+				_ = command_run(app, .Add_Curve, int(shape) - 1)
 				picked = true
 			}
 		}
@@ -474,7 +487,7 @@ lens_scene_sets :: proc(app: ^App) {
 		}
 		if row.menu {
 			app.ui.set_selected = i
-			tray_open(app, .Sets)
+			card_reveal(app, .Sets)
 		}
 	}
 	_ = command_button(app, .Store_Selection_Set, glyph = ui.ICON_PLUS, width = ui.fill_width(ctx), variant = .Light)
@@ -494,7 +507,7 @@ kit_scene_spaces_menu :: proc(app: ^App) {
 		ol.spaces = false
 		return
 	}
-	if !ui.popover_begin(ctx, "scene spaces menu", &ol.spaces, ol.spaces_at, .Below, {direction = .Column, gap = 0, padding = 6, width = 260}) do return
+	if !ui.popover_begin(ctx, "scene spaces menu", &ol.spaces, ol.spaces_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	ui.label(ctx, fmt.tprintf("SHOW %s IN", strings.to_upper(object_label(obj), context.temp_allocator)), t.caption_size, t.text_tertiary, .Semibold)
 	for s in Space {

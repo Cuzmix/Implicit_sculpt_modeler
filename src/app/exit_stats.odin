@@ -10,6 +10,7 @@ import "core:time"
 import "../geom"
 import "../poly"
 import "../render"
+import "../uv"
 import "../sculpt"
 import "../ui"
 import "../voxel"
@@ -29,16 +30,15 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	// The scene file's preview picture: how many were taken, the last one's size and the
 	// milliseconds it took to shrink and encode.
 	fmt.printfln("previews=%d preview_size=%dx%d preview_kb=%.1f preview_ms=%.2f", app.preview.taken, app.preview.w, app.preview.h, f64(len(app.preview.png)) / 1024, app.preview.ms)
-	sv := app.kit.second
-	fmt.printfln("thumbnail=%d thumbnail_draws=%d thumbnail_ms=%.2f thumbnail_px=%dx%d thumbnail_flip=%d second_camera=%v second_pass=%v second_turns=%d second_linked=%d", int(app.kit.thumbnail), app.thumbnail.draws, app.thumbnail.ms, app.kit.thumbnail_px.x, app.kit.thumbnail_px.y, int(app.kit.thumbnail_flip), sv.camera, sv.pass, sv.turns, sv.linked)
 	{
 		g := &app.kit.grid
 		draws, ms, turns, links, linked := 0, 0.0, 0, 0, 0
 		for pic in app.panes do draws, ms = draws + pic.draws, max(ms, pic.ms)
 		n := grid_panes(g)
-		for &v, i in g.views {
+		for &p, i in g.tabs do for &tab in p.tabs[:p.count] {
+			v := &tab.view
 			turns, linked = turns + v.turns, linked + v.linked
-			if i + 1 < n && second_linked(&v) do links += 1
+			if i + 1 < n && tab.view == grid_view(g, i + 1)^ && second_linked(v) do links += 1
 		}
 		// The shares of the first two splits, in the tree's order.
 		split: [2]f32
@@ -48,8 +48,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			found += 1
 		}
 		heavy := 0
-		for v, i in g.views do if i + 1 < n && second_pass_heavy(v.pass) do heavy += 1
-		fmt.printfln("grid=%v grid_panes=%d grid_split=%.3f,%.3f grid_max=%d grid_drags=%d pane_draws=%d pane_ms=%.2f pane_px=%dx%d pane_camera=%v pane_turns=%d pane_links=%d linked_turns=%d viewport_origin=%.0f,%.0f grid_main=%.0fx%.0f pane_work=%d pane_works=%d pane_work_dabs=%d pane_samples=%d pane_heavy=%d pane_render_samples=%d", grid_shape_name(g), n, split.x, split.y, g.maximised, g.drags, draws, ms, g.px[0].x, g.px[0].y, g.views[0].camera, turns, links, linked, app.ui.viewport_origin.x, app.ui.viewport_origin.y, g.main.w, g.main.h, g.work, g.works, g.work_dabs + (app.stats.dabs_total - g.work_dabs_from if g.work != 0 else 0), app.panes[0].studio.samples, heavy, app.panes[0].path.samples)
+		for i in 1 ..< n do if pane_shows_view(g, i) && second_pass_heavy(grid_view(g, i).pass) do heavy += 1
+		fmt.printfln("grid=%v grid_panes=%d grid_split=%.3f,%.3f grid_max=%d grid_drags=%d pane_draws=%d pane_ms=%.2f pane_px=%dx%d pane_camera=%v pane_turns=%d pane_links=%d linked_turns=%d viewport_origin=%.0f,%.0f grid_main=%.0fx%.0f pane_work=%d pane_works=%d pane_work_dabs=%d pane_samples=%d pane_heavy=%d pane_render_samples=%d", grid_shape_name(g), n, split.x, split.y, g.maximised, g.drags, draws, ms, g.px[0].x, g.px[0].y, grid_view(g, 1).camera, turns, links, linked, app.ui.viewport_origin.x, app.ui.viewport_origin.y, g.main.w, g.main.h, g.work, g.works, g.work_dabs + (app.stats.dabs_total - g.work_dabs_from if g.work != 0 else 0), app.panes[0].studio.samples, heavy, app.panes[0].path.samples)
 		ar := &g.areas
 		tree := strings.builder_make(context.temp_allocator)
 		grid_tree_write(&tree, &g.tree)
@@ -59,13 +59,20 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// What each view pane shows, its shading mode or pass, with no spaces so the stat
 		// stays one word.
 		shows := strings.builder_make(context.temp_allocator)
-		for &v, i in g.views[:n - 1] {
-			if i > 0 do strings.write_byte(&shows, ',')
-			name, _ := strings.replace_all(second_shows_name(&v), " ", "_", context.temp_allocator)
+		// And how many tabs each view pane holds, which one it shows (from 1).
+		tabs := strings.builder_make(context.temp_allocator)
+		for i in 1 ..< n {
+			if i > 1 {
+				strings.write_byte(&shows, ',')
+				strings.write_byte(&tabs, ',')
+			}
+			name, _ := strings.replace_all(second_shows_name(grid_view(g, i)), " ", "_", context.temp_allocator)
 			strings.write_string(&shows, name)
+			fmt.sbprintf(&tabs, "%d", g.tabs[i - 1].count)
 		}
-		fmt.printfln("pane_shows=%s pane_lighting=%v", strings.to_string(shows) if n > 1 else "none", g.views[0].shading.lighting)
-		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d stack_strip=%d stack_tab=%s stack_tabs=%d", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open), int(stack_strip_shown(app)), fmt.tprint(app.kit.stack.tab) if app.kit.stack.tab_open else "none", app.kit.stack.tabs)
+		fmt.printfln("pane_shows=%s pane_lighting=%v", strings.to_string(shows) if n > 1 else "none", grid_view(g, 1).shading.lighting)
+		fmt.printfln("pane_tabs=%s pane_tab=%d pane_tab_kind=%v pane_tab_camera=%v pane_tab_switches=%d pane_tab_adds=%d pane_tab_closes=%d", strings.to_string(tabs) if n > 1 else "none", g.tabs[0].active + 1, pane_tab_shown(g, 1).kind, grid_view(g, 1).camera, g.tab_switches, g.tab_adds, g.tab_closes)
+		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open))
 	}
 	{
 		vws := &app.view_windows
@@ -115,7 +122,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	for _, slot in app.plugins.slots do plugin_commands += int(plugin_slot_loaded(app, slot))
 	fmt.printfln("plugins=%d plugin_commands=%d plugin_errors=%d plugin_runs=%d plugin_steps=%d", len(app.plugins.plugins) - plugins_failed(app), plugin_commands, app.plugins.errors, app.plugins.runs, app.plugins.steps)
 	fmt.printfln("frames=%d dabs=%d objects=%d vertices=%d", loop.frame_index, app.stats.dabs_total, len(app.scene.objects), vertices)
-	fmt.printfln("one_taps=%d tap_switches=%d", app.one_taps, app.tap_switches)
+	fmt.printfln("one_taps=%d tap_switches=%d alt_switches=%d", app.one_taps, app.tap_switches, app.alt_switches)
 	diag_stats(app)
 	{
 		// The voxel objects: how many, their bricks, and what their fields, surfaces and undo
@@ -160,6 +167,16 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		}
 		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d cage_smooth=%d cage_creases=%d cage_corners=%d cage_live_faces=%d cage_live_broken=%d cage_mirrored=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces, live_broken, mirrored, app.tool)
 		fmt.printfln("model_action=%v model_target=%v model_done=%d model_refused=%d model_follows=%d model_loop_curves=%d", app.model.action, model_target(&app.model, app.model.action), app.model.done, app.model.refused, app.model.follows, app.model.loop_curves)
+		// The picked points, the gizmo's drags of the selection, and the selected cage's
+		// bounds in its own space, which those drags change.
+		picked: int
+		for obj in app.scene.objects do if obj.cage != nil do for x in obj.cage.mesh.picked do picked += int(x)
+		lo, hi: Vec3
+		if obj := selected_object(app); obj != nil && obj.cage != nil {
+			b := poly.mesh_bounds(&obj.cage.mesh)
+			lo, hi = b.lo, b.hi
+		}
+		fmt.printfln("cage_picked=%d model_pick=%v model_falloff=%.2f model_xforms=%d cage_lo=%.4f,%.4f,%.4f cage_hi=%.4f,%.4f,%.4f", picked, app.model.pick, app.model.falloff, app.model.xforms, lo.x, lo.y, lo.z, hi.x, hi.y, hi.z)
 		// Where the selected object sits, which Align parts moves a whole cage to.
 		at: Vec3
 		if obj := selected_object(app); obj != nil do at = obj.transform.position
@@ -194,7 +211,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		spaced, _ := strings.replace_all(strings.to_string(names), " ", "_", context.temp_allocator)
 		fmt.printfln("folders=%d tree_rows=%d scene_order=%s scene_folders=%s scene_names=%s scene_positions=%s folder_parents=%s", len(app.scene.folders), app.kit.tree_rows, strings.to_string(order), strings.to_string(folders), spaced, strings.to_string(places), strings.to_string(parents))
 		fmt.printfln("import_folders=%d import_skins=%d import_animations=%d import_shapes=%d import_quads_joined=%d", app.import_folders, app.import_rig.skins, app.import_rig.animations, app.import_rig.shapes, app.import_joined)
-		// The Objects card: rows drawn last frame, pictures drawn, its row menu, what Copy holds,
+		// The Scene card's pictures: rows drawn last frame, pictures drawn, its row menu, what Copy holds,
 		// how many objects have their polypaint left out, and how many take part in booleans.
 		paint_off, booleans := 0, 0
 		for obj in app.scene.objects {
@@ -213,9 +230,11 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// Motion II's moves as the run ends: how far the pie has unfolded, how far from its
 		// place the hand switch still draws the bars, how many times view panes faded in, and
 		// how many times Arrange opened (its outlines drawing in each time).
-		fmt.printfln("pie_unfold=%.2f hand_slide=%.2f pane_fades=%d arrange_openings=%d", pie_unfolded(app), app.kit.ctx.mirror_slide, app.kit.grid.fades, app.kit.arrange.openings)
-		fmt.printfln("long_job_running=%d long_jobs=%d long_job_cancels=%d long_job_ms=%.0f long_job_progress=%.2f", int(app.long_job.on), app.long_job.runs, app.long_job.cancels, app.long_job.ms, long_job_progress(app))
-		fmt.printfln("cross_fading=%d look_fades=%d mesh_fades=%d", int(app.cross_fade.on), app.cross_fade.looks, app.cross_fade.meshes)
+		fmt.printfln("pie_unfold=%.2f hand_slide=%.2f pane_fades=%d pane_grows=%d arrange_openings=%d", pie_unfolded(app), app.kit.ctx.mirror_slide, app.kit.grid.fades, app.kit.grid.grows, app.kit.arrange.openings)
+		fmt.printfln("long_job_running=%d long_jobs=%d long_job_cancels=%d long_job_ms=%.0f long_job_progress=%.2f long_job_holds=%d", int(app.long_job.on), app.long_job.runs, app.long_job.cancels, app.long_job.ms, long_job_progress(app), app.long_job.holds)
+		d := app.undo_disk
+		fmt.printfln("undo_disk=%d undo_disk_written=%d undo_disk_reads=%d undo_disk_failed=%d undo_disk_mb=%.1f undo_disk_write_ms=%.0f undo_disk_read_ms=%.0f", int(d.folder != ""), d.written, d.reads, d.failed, f64(history_disk_bytes(&app.history)) / (1 << 20), d.write_ms, d.read_ms)
+		fmt.printfln("cross_fading=%d look_fades=%d mesh_fades=%d view_holds=%d", int(app.cross_fade.on), app.cross_fade.looks, app.cross_fade.meshes, app.cross_fade.holds)
 		fmt.printfln("flashing=%d undo_flashes=%d mask_wipes=%d selection_outlines=%d save_ticks=%d", int(flashing(app)), app.flashes.undos, app.flashes.masks, app.flashes.selections, app.flashes.saves)
 		tw := app.pen_twist
 		h := tw.hit.? or_else {}
@@ -240,14 +259,16 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 				pivot = fmt.tprintf("%.3f,%.3f,%.3f", at.x, at.y, at.z)
 			}
 			e := app.kit.gizmo_entry
-			fmt.printfln("gizmo_pivot=%s gizmo_pivot_latch=%d gizmo_entry=%s", pivot, int(m.pivot_latch), lower(e.handle) if e.open else "none")
+			fmt.printfln("gizmo_pivot=%s gizmo_pivot_latch=%d gizmo_pivot_edit=%d pivot_row=%d gizmo_orient=%s gizmo_entry=%s", pivot, int(m.pivot_latch), int(m.pivot_edit), int(pivot_row_shown(app)), lower(m.orient), lower(e.handle) if e.open else "none")
 			// The sum of the selected object's coordinates, so a scenario can tell a mesh that
 			// moved from one put back exactly.
 			mesh_sum: f64
 			if obj := selected_object(app); obj != nil do for q in object_sculptor(obj).mesh.positions do mesh_sum += f64(q.x) + f64(q.y) + f64(q.z)
 			fmt.printfln("stroke_lines=%d stroke_joins=%d stroke_edits=%d stamp_edits=%d stroke_edit_open=%v", app.stroke_end.lines, app.stroke_end.joins, app.stroke_end.edits, app.stroke_end.stamp_edits, app.stroke_edit.open)
 			curves, curve_points := curve_counts(app)
-			fmt.printfln("curves=%d curve_points=%d curves_made=%d curve_placing=%d curve_edits=%d", curves, curve_points, app.curve.made, len(app.curve.placing), app.curve.edits)
+			curve_picked := 0
+			if obj := selected_curve(app); obj != nil do curve_picked = curve_selected_count(obj.curve)
+			fmt.printfln("curves=%d curve_points=%d curves_made=%d curve_placing=%d curve_edits=%d curve_picked=%d curve_editing=%v", curves, curve_points, app.curve.made, len(app.curve.placing), app.curve.edits, curve_picked, app.curve.editing)
 			tubes, lathes, alongs, tube_vertices, lathe_vertices, along_vertices := 0, 0, 0, 0, 0, 0
 			for obj in app.scene.objects do if obj.curve != nil && object_draws_triangles(obj) {
 				n := len(sculpt.levels_current(&obj.levels).mesh.positions)
@@ -307,7 +328,10 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			preset := "none"
 			if p, on := brush_preset(app); on do preset, _ = strings.replace_all(preset_name(p), " ", "_", context.temp_allocator)
 			fmt.printfln("presets=%d preset=%d preset_name=%s preset_changed=%d", app.preset_count, app.brush.preset, preset, int(preset_changed(app)))
-			fmt.printfln("browser=%d bars_edit=%d bar_slot_menu=%d bar_lifts=%d bar_drops=%d bar_refusals=%d bar_drops_off=%d bar_carry=%d", int(app.kit.browser), int(app.kit.bars_edit), int(app.kit.bar_slot.open),
+			// The dock whose buttons alone are being edited, "all" in Edit docks.
+			edit_dock := "all"
+			if d, only := app.kit.edit_dock.?; only do edit_dock = strings.to_lower(fmt.tprint(d), context.temp_allocator)
+			fmt.printfln("browser=%d bars_edit=%d edit_dock=%s bar_slot_menu=%d bar_lifts=%d bar_drops=%d bar_refusals=%d bar_drops_off=%d bar_carry=%d", int(app.kit.browser), int(app.kit.bars_edit), edit_dock, int(app.kit.bar_slot.open),
 				app.kit.bar_lifts, app.kit.bar_drops, app.kit.bar_refusals, app.kit.bar_drops_off, int(app.kit.bar_carry != nil))
 			// The island's items and how its values show, the values on every bar, and the
 			// value popovers opened, the chips scrubbed and the value the popover is on.
@@ -340,15 +364,43 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("render_switch=%d render_quality=%s studio=%d", int(render_switch_on(app)), "full" if app.render_quality == .Full else "fast", int(app.studio_on))
 			st := &app.studio
 			fmt.printfln("studio_samples=%d studio_sequence=%d studio_carried=%d studio_carries=%d studio_carried_bare=%d studio_restarts=%d", st.samples, st.sequence, int(st.carried), st.carries, st.carried_bare, st.restarts)
-			fmt.printfln("finish=%d finish_curve=%v finish_passes=%d finish_failed=%d finish_bloomed=%d finish_bloom_levels=%d finish_sharpened=%d thumbnail_finish_passes=%d", int(finish_wanted(app)), app.finish.curve, app.finished.passes, int(app.finished.failed), app.finished.bloomed, app.finished.levels, app.finished.sharpened, app.thumbnail.finished.passes)
-			fmt.printfln("render=%d render_samples=%d render_ms=%.1f render_mb=%.1f render_failed=%d render_rq=%d", int(app.render_on), pr.total_samples, pr.total_ms / f64(max(pr.total_samples, 1)), f64(pr.bytes) / (1 << 20), int(pr.failed), pr.rq_samples)
+			pane_finish_passes := 0
+			for pic in app.panes do pane_finish_passes += pic.finished.passes
+			fmt.printfln("finish=%d finish_curve=%v finish_passes=%d finish_failed=%d finish_bloomed=%d finish_bloom_levels=%d finish_sharpened=%d pane_finish_passes=%d", int(finish_wanted(app)), app.finish.curve, app.finished.passes, int(app.finished.failed), app.finished.bloomed, app.finished.levels, app.finished.sharpened, pane_finish_passes)
+			fmt.printfln("render=%d render_samples=%d render_ms=%.1f render_mb=%.1f render_failed=%d render_rq=%d render_variant=%s render_variants_built=%d", int(app.render_on), pr.total_samples, pr.total_ms / f64(max(pr.total_samples, 1)), f64(pr.bytes) / (1 << 20), int(pr.failed), pr.rq_samples, render.render_variant_name(&pr), pr.variants_built)
 			// Depth of field, whether a point was picked to focus on and where the focus is,
 			// and whether Pick focus still waits for a press.
 			focus := focus_point(app)
 			_, picked := app.focus.?
 			fmt.printfln("render_dof=%d render_blur=%.2f focus_picked=%d focus=%.3f,%.3f,%.3f focus_armed=%d", int(app.render_dof), app.render_blur, int(picked), focus.x, focus.y, focus.z, int(app.ui.focus_armed))
 			env := app.env
-			fmt.printfln("environment=%s environment_size=%dx%d environment_background=%d environment_mb=%.1f", "image" if env.kind == .Image && env.gpu.source != nil else "built_in", env.gpu.width, env.gpu.height, int(env.background), f32(render.environment_bytes(env.gpu)) / (1024 * 1024))
+			fmt.printfln("environment=%s environment_size=%dx%d environment_background=%d environment_mb=%.1f", "image" if env.kind == .Image && env.gpu.source != 0 else "built_in", env.gpu.width, env.gpu.height, int(env.background), f32(render.environment_bytes(env.gpu)) / (1024 * 1024))
+			{
+				sel := selected_object(app)
+				uv_islands, uv_filled, uv_density := -1, f32(0), f64(0)
+				if sel != nil && sel.voxel == nil && uv.has(sel.levels.uvs) {
+					uv_islands, uv_filled = sel.levels.uvs.islands, sel.levels.uvs.filled
+					uv_density = uv_readout(app, sel).density
+				}
+				fmt.printfln("unwraps=%d unwrap_islands=%d unwrap_ms=%.1f uv_islands=%d uv_filled=%.3f uv_density=%.4f", app.unwraps.runs, app.unwraps.islands, app.unwraps.ms, uv_islands, uv_filled, uv_density)
+			}
+			{
+				sel := selected_object(app)
+				stack_rows, mirror, array, radial, along := 0, "none", 0, 0, 0
+				if sel != nil {
+					s := sel.stack
+					stack_rows = int(s.mirror.added) + int(s.array.added) + int(s.radial.added) + int(s.along.added)
+					if s.mirror.added do mirror = strings.to_lower(stack_axes_label(s.mirror.axes), context.temp_allocator) if s.mirror.shown else "hidden"
+					if stack_array_on(sel) do array = s.array.count
+					if stack_radial_on(sel) do radial = s.radial.count
+					if stack_along_on(app, sel) do along = s.along.count
+				}
+				fmt.printfln("stack_rows=%d stack_mirror=%s stack_array=%d stack_radial=%d stack_along=%d stack_copies=%d stack_bakes=%d", stack_rows, strings.join(strings.fields(mirror, context.temp_allocator), "_", context.temp_allocator), array, radial, along, app.stats.stack_copies, app.stack_bakes)
+				step, pivot, minus := Vec3{}, Vec3{}, false
+				if sel != nil do step, pivot, minus = sel.stack.array.offset, sel.stack.radial.pivot, sel.stack.mirror.minus
+				fmt.printfln("stack_step=%.3f,%.3f,%.3f stack_pivot=%.3f,%.3f,%.3f stack_minus=%d stack_handle_moves=%d", step.x, step.y, step.z, pivot.x, pivot.y, pivot.z, int(minus), app.ui.stack_press.moves)
+			}
+			fmt.printfln("refs=%d ref_images=%d refs_shown=%d refs_gpu_mb=%.1f refs_decode_ms=%.0f refs_selected=%d refs_moves=%d ref_notes=%d refs_grey=%d refs_shrunk=%d refs_small=%d ref_planes=%d ref_planes_through=%d", len(app.scene.refs.refs), len(app.scene.refs.images), refs_shown_count(app), refs_gpu_mb(app), app.refs_decode_ms, len(app.kit.board.selected), app.kit.board.moves, refs_note_count(app), refs_grey_count(app), app.refs_shrunk, refs_small_count(app), refs_plane_count(app, false), refs_plane_count(app, true))
 			fmt.printfln("environment_turn=%.1f environment_tilt=%.1f environment_turns=%d environment_recent=%d environment_backdrop=%s", env.turn, env.tilt, env.turns, len(env.recent), strings.to_lower(fmt.tprint(environment_backdrop(&env)), context.temp_allocator))
 		}
 		{
@@ -385,19 +437,19 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		hover_tip, _ := strings.replace_all(ui.tip_showing(&app.kit.ctx), " ", "_", context.temp_allocator)
 		fmt.printfln("tip_showing=%s", hover_tip if hover_tip != "" else "none")
 		fmt.printfln("labels_on=%d labels_kept=%d labels_shows=%d labels_drawn=%d labels_dropped=%d", int(help_labels_on(&app.kit)), int(app.kit.labels.latched), app.kit.labels.shows, app.kit.ctx.labels.drawn, app.kit.ctx.labels.dropped)
-		fmt.printfln("long_tip=%s object_menu=%d object_menu_type=%v object_menu_rows=%d inspector_tab=%s brush_kind=%s", long_tip if long_tip != "" else "none", int(app.kit.object_menu), app.kit.object_menu_type, app.kit.object_menu_rows, strings.to_lower(fmt.tprint(section_palette(app.kit.stack.revealed.? or_else .Preset)), context.temp_allocator), strings.to_lower(fmt.tprint(app.brush.kind), context.temp_allocator))
+		fmt.printfln("long_tip=%s object_menu=%d object_menu_type=%v object_menu_rows=%d card_front=%s brush_kind=%s", long_tip if long_tip != "" else "none", int(app.kit.object_menu), app.kit.object_menu_type, app.kit.object_menu_rows, card_front_text(&app.kit), strings.to_lower(fmt.tprint(app.brush.kind), context.temp_allocator))
 		fmt.printfln("scene_menu=%d object_menu_opened_by=%s right_click=%s", int(app.kit.scene_menu), strings.to_lower(fmt.tprint(app.kit.object_menu_by), context.temp_allocator), strings.to_lower(fmt.tprint(app.nav.right_click), context.temp_allocator))
 		fmt.printfln("offer=%v offer_fixes=%d colour_island=%d paint_on=%s", app.kit.offer, app.kit.offer_fixes, int(app.kit.colour_island), strings.to_lower(fmt.tprint(app.brush.paint_on), context.temp_allocator))
 		fmt.printfln("motion=%s motion_off=%s", strings.to_lower(fmt.tprint(app.kit.ctx.motion), context.temp_allocator), strings.join(strings.fields(motion_off_text(&app.kit.ctx), context.temp_allocator), ",", context.temp_allocator) if motion_off_text(&app.kit.ctx) != "" else "none")
-		// The stack scrolls in its column's body while docked and in its own while floating.
-		tray_scroll := app.kit.scroll
-		if _, docked := stack_docked(&app.kit); docked do tray_scroll = app.kit.panels.scroll
-		fmt.printfln("inspector_scroll=%.1f settings_scroll=%.1f settings_open=%d", tray_scroll, app.kit.settings_scroll, int(app.kit.settings))
+		// How far the card in front of the pen side's column is scrolled.
+		card_scroll: f32
+		if col := &app.kit.cards.columns[.Right]; col.count > 0 do card_scroll = col.scrolls[col.cards[col.count - 1].card]
+		fmt.printfln("card_scroll=%.1f settings_scroll=%.1f settings_open=%d", card_scroll, app.kit.settings_scroll, int(app.kit.settings))
 		n := app.cursor.normal
 		fmt.printfln("cursor_hit=%d cursor_normal=%.4f,%.4f,%.4f", int(app.cursor.ok), n.x, n.y, n.z)
 		k := &app.kit
 		fmt.printfln("keyboard_down=%d keyboard_restarts=%d", int(k.keyboard_down), k.keyboard_restarts)
-		fmt.printfln("palette=%d palette_runs=%d palette_last=%s settings_tab=%v settings_section=%v settings_found=%s tool=%s", int(k.palette), k.palette_runs, palette_entry_name(k.palette_last) if k.palette_ran else "none", k.settings_tab, k.settings_section, settings_found_text(k), strings.to_lower(fmt.tprint(app.tool), context.temp_allocator))
+		fmt.printfln("palette=%d palette_runs=%d palette_last=%s settings_section=%v settings_drill=%d settings_found=%s tool=%s", int(k.palette), k.palette_runs, palette_entry_name(k.palette_last) if k.palette_ran else "none", k.settings_section, int(k.settings_drill), settings_found_text(k), strings.to_lower(fmt.tprint(app.tool), context.temp_allocator))
 		fmt.printfln("export_open=%d export_preset=%v export_format=%v export_runs=%d export_last=%s export_print_all=%d export_decimate=%d export_decimate_to=%d export_decimated=%d export_hollow=%d export_hollow_wall=%.2f export_hollowed=%d", int(k.export.open), k.export.preset, k.export.format, k.export.runs, fmt.tprint(k.export.last_format) if k.export.ran else "none", int(k.export.print_all), int(k.export.decimate), k.export.decimate_to, app.export_decimated, int(k.export.hollow), export_hollow_wall(&k.export), app.export_hollowed)
 		dial := strings.builder_make(context.temp_allocator)
 		for d, i in dial_of(k) {
@@ -428,13 +480,13 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		for obj in app.scene.objects do if obj.locked do locks += 1
 		recording, level := -1, -1
 		if obj := selected_object(app); obj != nil do recording, level = sculpt.sculptor_layer_recording(object_sculptor(obj)), obj.levels.current
-		fmt.printfln("scene_filter=%d scene_rows=%d object_locks=%d layer_rows=%d layer_picked=%d layer_recording=%d layer_swipes=%d layer_menus=%d layer_tints=%d layer_pictures_drawn=%d tools_tab=%s mask_hidden=%d selected_level=%d", int(k.scene_query), k.scene_rows, locks, k.layer_rows, app.ui.layer_selected, recording, k.layer_panel.swipes, k.layer_panel.menus, k.layer_panel.tints, app.layer_picture_slots.drawn, strings.to_lower(TOOLS_TAB_NAMES[k.tools_tab], context.temp_allocator), int(app.ui.mask_hidden), level)
+		fmt.printfln("scene_filter=%d scene_rows=%d object_locks=%d layer_rows=%d layer_picked=%d layer_recording=%d layer_swipes=%d layer_menus=%d layer_tints=%d layer_pictures_drawn=%d mask_hidden=%d selected_level=%d", int(k.scene_query), k.scene_rows, locks, k.layer_rows, app.ui.layer_selected, recording, k.layer_panel.swipes, k.layer_panel.menus, k.layer_panel.tints, app.layer_picture_slots.drawn, int(app.ui.mask_hidden), level)
 		spaces_off := 0
 		for obj in app.scene.objects do if obj.spaces_off != {} do spaces_off += 1
 		fmt.printfln("scene_kind=%s scene_adds=%d scene_light_switches=%d scene_row_menus=%d scene_space_changes=%d objects_spaces_off=%d", strings.to_lower(SCENE_KIND_NAMES[k.outliner.kind], context.temp_allocator), k.outliner.adds, k.outliner.switches, k.outliner.menus, k.outliner.space_changes, spaces_off)
 		fmt.printfln("lens_focus=%d menu_sub=%v menu_subs=%d menu_recent_opens=%d palette_bar_puts=%d palette_groups=%s palette_pick=%s", int(lens_focus(k)), k.menu_sub, k.menu_subs, k.menu_recent_opens, k.palette_bar_puts, strings.to_string(groups) if strings.builder_len(groups) > 0 else "none", palette_entry_name(k.palette_picked.?) if k.palette_picked != nil && k.palette else "none")
-		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f object_page=%v", int(k.help), k.help_tab, k.help_scroll, k.object_page)
-		// The inspector sections showing their More options, as Kit_Section names.
+		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f", int(k.help), k.help_tab, k.help_scroll)
+		// The sections showing their More options, as Section names.
 		more := "none"
 		for open, sec in k.more {
 			if !open do continue
@@ -442,9 +494,9 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			more = name if more == "none" else strings.concatenate({more, "+", name}, context.temp_allocator)
 		}
 		fmt.printfln("more=%s all_options=%d", more, int(k.all_options))
-		// The section the tray's open palette shows, whether Show where's mark is on a
-		// control, and the Mask section's Steps and Mask by kind.
-		fmt.printfln("tray_section=%s tray_marked=%d mask_steps=%d mask_by=%s nav_taps=%d", fmt.tprint(k.stack.revealed.? or_else .Preset) if k.stack.revealed != nil else "none", int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps, mask_by_word(app.ui.mask_by.kind), k.nav.taps)
+		// The section Show where opened last, whether its mark is on a control, and the Mask
+		// section's Steps and Mask by kind.
+		fmt.printfln("card_section=%s card_marked=%d mask_steps=%d mask_by=%s nav_taps=%d view_gizmo=%v", fmt.tprint(k.cards.revealed.? or_else .Brush) if k.cards.revealed != nil else "none", int(k.pointed.id != .None && k.ctx.marked.found), app.ui.mask_steps, mask_by_word(app.ui.mask_by.kind), k.nav.taps, app.nav.view_gizmo)
 		fmt.printfln("tour=%d tour_shown=%d tour_step=%s tour_done=%d tour_finished=%d", k.tour.step, int(k.tour.shown), strings.to_lower(fmt.tprint(k.tour.showing), context.temp_allocator) if k.tour.shown else "none", int(k.tour.done), k.tour.finished)
 		fmt.printfln("coach=%d coach_shown=%d coach_step=%s", k.coach, int(k.coach_shown), strings.to_lower(fmt.tprint(k.coach_last), context.temp_allocator) if k.coach_shown else "none")
 		// The action bar's groups as it last showed them (none while it waits for room), and
@@ -479,37 +531,36 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// The History panel's view, how many rows its list holds (an opened group's strokes
 		// among them), what the History holds and how many old steps it dropped.
 		history_bytes, _ := history_memory(app)
+		m := app.memory_ask
+		fmt.printfln("memory_asks=%d memory_asking=%d memory_freed=%d memory_smaller=%d memory_continued=%d memory_cancelled=%d memory_short=%s remesh_most=%d subdivide_most=%d mesh_limited=%d memory_low_warnings=%d", m.asks, int(m.on), m.freed, m.smaller_runs, m.continued, m.cancelled, strings.to_lower(fmt.tprint(app.memory_short), context.temp_allocator), mesh_remesh_most(app), app.subdivide_most, app.mesh_limited, app.memory_low_warnings)
 		fmt.printfln("history_view=%s history_rows=%d history_bytes=%d history_dropped=%d history_bookmarks=%d history_menus=%d history_tints=%d history_tint=%d history_page=%s history_limit_mb=%d history_quick_scrubs=%d history_quick_last=%d history_quick=%s history_pictures_drawn=%d history_picture=%d history_pictures=%d", strings.to_lower(fmt.tprint(app.timeline.view), context.temp_allocator), len(history_rows(app, open_at = app.timeline.open_at, group = !app.history_ungrouped)), history_bytes, app.history.dropped, history_bookmarks(app), app.timeline.menus, app.timeline.tints, int(history_tint_step(app) != {}), "settings" if app.timeline.settings else "steps", app.history_limit_mb, app.timeline.quick.scrubs, app.timeline.quick.last, strings.to_lower(fmt.tprint(app.timeline.quick.by), context.temp_allocator), app.step_picture_slots.drawn, int(newest_step_pictured(app)), int(app.history_pictures))
-		open := [Kit_Window]bool{.Inspector = k.inspector && !side_panel_open(k), .Stats = k.stats, .History = k.history, .Settings = k.settings, .Help = k.help, .Macros = k.macros, .Library = k.library, .Objects = k.objects_card, .Colors = k.colors_card, .Thumbnail = k.thumbnail}
-		names := [Kit_Window]string{.Inspector = "inspector", .Stats = "stats", .History = "history panel", .Settings = "settings", .Help = "help", .Macros = "macros", .Library = "library", .Objects = "objects card", .Colors = "colors card", .Thumbnail = "thumbnail"}
-		for w, which in k.windows {
-			r := ui.prev_rect(&k.ctx, names[which])
-			if which in PANEL_WINDOWS do r = panel_rect(app, which)
-			fmt.printf("window_%s=%d,%d,%.0f,%.0f ", strings.to_lower(fmt.tprint(which), context.temp_allocator), int(open[which]), int(w.minimized), r.x, r.y)
-		}
-		fmt.println()
-		// Where the stack goes (in layout terms), and which sections are kept in it.
-		fmt.printf("stack_place=%s ", strings.to_lower(fmt.tprint(k.stack.place), context.temp_allocator))
-		pins := strings.builder_make(context.temp_allocator)
-		for c in k.stack.order {
-			sec, is := panel_section(c)
-			if !is || !k.stack.set || !stack_kept(&k.stack, c) do continue
-			if strings.builder_len(pins) > 0 do strings.write_byte(&pins, ',')
-			strings.write_string(&pins, strings.to_lower(fmt.tprint(sec), context.temp_allocator))
-		}
-		fmt.printfln("panel_pins=%s panel_moves=%d panel_menu=%d", strings.to_string(pins) if strings.builder_len(pins) > 0 else "none", k.panels.moves, int(k.panels.menu))
-		// On a narrow window, the side whose docked stack is popped over the view.
-		popped := "none"
-		if side, docked := stack_docked(k); docked && k.panels.popped do popped = "left" if side == .Left else "right"
-		fmt.printfln("columns_narrow=%d column_popped=%s column_pops=%d", int(stack_narrow(app)), popped, k.panels.pops)
-		// The workspace (its name escaped, as it may hold spaces), whether its layout has
-		// changes not saved, how many there are, and the zones hidden (by it or a view toggle).
-		if w := &k.workspaces; len(w.list) > 0 {
-			count := 0
-			for ws in w.list do if ws.used do count += 1
+		// The sheet that is open (sheet.odin) and where it is.
+		sheet := "settings" if k.settings else "help" if k.help else "macros" if k.macros else "export" if k.export.open else "none"
+		sheet_rect := ui.prev_rect(&k.ctx, "export sheet" if sheet == "export" else sheet)
+		fmt.printfln("sheet=%s sheet_at=%.0f,%.0f,%.0f", sheet, sheet_rect.x, sheet_rect.y, sheet_rect.w)
+		// The cards in their columns (pinned ones marked *), the sections folded, and how
+		// often cards opened, folded, pinned and closed; the floating cards, and how many were
+		// torn out of a column and put back.
+		fmt.printfln("cards=%s cards_shut=%s card_opens=%d card_folds=%d card_pins=%d card_closes=%d cards_float=%s card_floated=%d card_returned=%d panel_menu=%d card_sizes=%s card_resizes=%d", columns_text(k), cards_shut_text(k), k.cards.opens, k.cards.folds, k.cards.pins, k.cards.closes, cards_float_text(k), k.cards.floated, k.cards.returned, int(k.panels.menu), cards_size_text(k), k.cards.resizes)
+		// Panels sliding (panel_motion.odin): cards and docks that slid in, that left from a
+		// copy of their drawing, and narrow-window sheets put away by a drag.
+		fmt.printfln("panel_slides=%d panel_leaves=%d sheet_pulls=%d card_glides=%d card_lifts=%d dock_glides=%d slot_moves=%d pills_in=%d pills_out=%d", k.moving.slides, k.moving.leaves, k.moving.pulled_away, k.moving.glides, k.moving.lifts, k.moving.dock_glides, k.moving.slot_moves, k.moving.popped, k.moving.unpopped)
+		// Each space's layout: which differ from how they ship (the current one's dot), the
+		// layout menu, Reset layout's runs, and the zones hidden (by it or a view toggle).
+		{
+			l := &k.layouts
+			changed := strings.builder_make(context.temp_allocator)
+			for s in Space do if layout_changed(k, s) do fmt.sbprintf(&changed, "%s%s", "," if strings.builder_len(changed) > 0 else "", strings.to_lower(SPACE_NAMES[s], context.temp_allocator))
 			zones := strings.builder_make(context.temp_allocator)
 			for z in Zone do if zone_hidden(k, z) do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
-			fmt.printfln("workspace=%s workspace_modified=%d workspace_count=%d workspace_menu=%d workspace_switches=%d workspace_exports=%d workspace_imports=%d zones_hidden=%s", preset_escape(workspace_name(k, w.current)), int(w.modified), count, int(w.menu), w.switches, w.exports, w.imports, strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
+			fmt.printfln("layout_modified=%d layouts_changed=%s layout_menu=%d layout_resets=%d zones_hidden=%s", int(l.modified), strings.to_string(changed) if strings.builder_len(changed) > 0 else "none", int(l.menu), l.resets, strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
+			// The person's own layouts: how many, saved and loaded this run, and the one the
+			// space in front is exactly (by name, spaces as underscores), if any.
+			kept_n := 0
+			for s in l.saved do if s.name != "" do kept_n += 1
+			matching := "none"
+			if l.matching > 0 do matching, _ = strings.replace_all(l.saved[l.matching - 1].name, " ", "_", context.temp_allocator)
+			fmt.printfln("layouts_saved=%d layout_saves=%d layout_loads=%d layout_matching=%s", kept_n, l.saves, l.loads, matching)
 			// The working space, how many times it changed, and the view toggles.
 			// The interface's layout faults in the last whole frame (ui.layout_fault): rows
 			// whose children lie over each other or spill out of a fixed size.
@@ -518,20 +569,14 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("space=%s space_switches=%d focus_mode=%d inspect_mode=%d object_chip=%s readout=%d readout_at=%.0f,%.0f readout_menus=%d readout_memory_mb=%.0f", strings.to_lower(SPACE_NAMES[k.spaces.current], context.temp_allocator), k.spaces.switches, int(k.focus_mode), int(k.inspect.on), object_chip_stat(app), int(k.readout.shown), k.readout.at.x, k.readout.at.y, k.readout.menus, f64(k.readout.memory) / (1 << 20))
 			// The second line of the top bar's file block.
 			fmt.printfln("file_status=%s clean_view=%d panels_faded=%d camera_shift=%.3f,%.3f", preset_escape(file_status(app, time.now())), int(k.clean), k.panels_faded, app.camera.shift.x, app.camera.shift.y)
-			// The chrome round the view: the view rail's slots, the mini view's swaps, the
-			// main camera's projection, and where the island, the readout, the navigation head and
-			// the mini view stood last, in points.
+			// The chrome round the view: the view rail's slots, the main camera's projection,
+			// and where the island, the readout and the navigation head stood last, in points.
 			island, chips, head := ui.prev_rect(&k.ctx, "brush bar"), ui.prev_rect(&k.ctx, "points"), ui.prev_rect(&k.ctx, "navigation head")
-			mini := panel_rect(app, Kit_Window.Thumbnail)
-			fmt.printfln("view_rail=%s rail_named=%d mini_swaps=%d mini_rows=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f mini=%.0f,%.0f,%.0f,%.0f", bar_names(app, .View_Rail), int(dock_named(app, .Rail)), k.mini_swaps, int(k.mini_rows), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y, mini.x, mini.y, mini.w, mini.h)
-			fmt.printfln("rail_groups=%s rail_joins=%d rail_dock=%s rail_docks=%d", rail_groups_text(k), k.rail_joins, rail_dock_text(app), k.rail_docks)
+			fmt.printfln("view_rail=%s rail_named=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f", bar_names(app, .View_Rail), int(dock_named(app, .Rail)), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y)
 			sh := &k.shelf
 			page_word, _ := strings.replace_all(shelf_page_name(k, sh.page), " ", "_", context.temp_allocator)
 			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_pins=%d shelf_shown=%d shelf_fits=%d shelf_tile=%.0f brush_grid_scroll=%.0f shelf_active=%d shelf_pages=%d shelf_page_name=%s shelf_pages_added=%d", sh.page, bar_names(app, shelf_which(sh.page)), int(sh.quick), int(k.browser), sh.drops, sh.turns, sh.swipes, sh.pins, sh.shown, sh.fits, sh.tile_w, k.grid_scroll, int(sh.active), len(shelf_pages(k, k.spaces.current)), page_word, sh.added)
 			fmt.printfln("brush_pie=%s pie_quicks=%d", bar_names(app, .Brush_Pie), k.pie_quicks)
-			fmt.printfln("stack_visit=%s stack_visits=%d", stack_visit_text(k), k.stack.visits)
-			fmt.printfln("stack=%s stack_shut=%s stack_menu=%d stack_folds=%d stack_moves=%d stack_joins=%d stack_shown=%s stack_sections=%s stack_section_folds=%d stack_drops=%d stack_carry=%s stack_target=%v", stack_text(k), stack_shut_text(k), int(k.stack.menu), k.stack.folds, k.stack.moves, k.stack.joins, stack_shown_text(k), stack_sections_text(k), k.stack.section_folds, k.stack.drops, stack_carry_text(k), k.stack.target.kind)
-			fmt.printfln("stack_width=%d stack_sizes=%s stack_resizes=%d tray_width=%d", int(stack_width(k)), stack_sizes_text(k), k.stack.resizes, int(tray_width(app)))
 			// What floats in front of everything else, as the floating order ends.
 			front := "none"
 			if n := len(k.order); n > 0 do front = fmt.tprint(k.order[n - 1])
@@ -541,11 +586,10 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("wipe=%d wipe_at=%.3f wipe_right=%v wipe_drags=%d", int(wipe_shown(k)), k.passes.wipe_at, wipe_right(k), k.passes.wipe_drags)
 			fmt.printfln("guides=%d guide_heights=%s guide_lines=%d guide_drags=%d", int(app.scene.guides.shown), guides_heights_text(app.scene.guides), k.guide_lines, k.guide_drags)
 		}
-		// The side bars' popover: what it shows, or none; the card popped out of a button
-		// and how many times one popped; the look.
+		// The side bars' popover: what it shows, or none; the look.
 		pop := "none"
 		if p := k.bar_pop; p.open do pop = strings.to_lower(fmt.tprint(p.kind), context.temp_allocator)
-		fmt.printfln("bar_pop=%s card_pop=%s card_pops=%d look=%s symmetry=%s live_boolean=%d dynamic=%d", pop, strings.to_lower(card_pop_text(k), context.temp_allocator), k.card_pop.pops, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), symmetry_label(app),
+		fmt.printfln("bar_pop=%s look=%s symmetry=%s live_boolean=%d dynamic=%d", pop, strings.to_lower(fmt.tprint(k.look), context.temp_allocator), symmetry_label(app),
 			int(app.ui.boolean.live), int(command_checked(app, .Dyntopo_Toggle)))
 		// The theme shown: its name, whether a control moved it from what was saved, its mode
 		// and accent, and how many themes of their own the settings hold.
@@ -570,13 +614,17 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("brush_category=%s brush_recent=%d brush_favorites=%d brush_search=%d brush_browser_picks=%d library_for=%s library_puts=%d", strings.to_lower(fmt.tprint(k.brushes.category), context.temp_allocator), k.brushes.recent_count, k.brushes.favorite_count, int(k.brushes.searching), k.brushes.picks, library_for_text(app), k.brushes.puts)
 		// Where the modifier rail and what must stay clear of it ended up, in points, for
 		// touch_check's window size scenarios.
-		for name in ([?]string{"modifier rail", "brush bar", "dock", "dock pages", "points", "inspector", "action bar", "coach", "view bar", "top bar", "adjust last", "shape bar"}) {
+		for name in ([?]string{"modifier rail", "brush bar", "dock", "dock pages", "points", "action bar", "coach", "view bar", "top bar", "adjust last", "shape bar"}) {
 			r := ui.prev_rect(&k.ctx, name)
-			if name == "inspector" do r = panel_rect(app, Kit_Window.Inspector)
 			key, _ := strings.replace_all(name, " ", "_", context.temp_allocator)
 			fmt.printf("layout_%s=%.0f,%.0f,%.0f,%.0f ", key, r.x, r.y, r.w, r.h)
 		}
-		for r, side in k.panels.rect do fmt.printf("layout_%s_column=%.0f,%.0f,%.0f,%.0f ", "left" if side == .Left else "right", r.x, r.y, r.w, r.h)
+		// Each column's front card, where it was laid out.
+		for &col, side in k.cards.columns {
+			r: ui.Rect
+			if col.count > 0 && col.frame >= k.frame - 1 do r = col.rects[col.count - 1]
+			fmt.printf("layout_%s_column=%.0f,%.0f,%.0f,%.0f ", "left" if side == .Left else "right", r.x, r.y, r.w, r.h)
+		}
 		fmt.println()
 	}
 	if opts.check_mesh {
@@ -668,10 +716,15 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	fmt.printfln("low_latency=%v frames_in_flight=%d present_timing=%v", app.low_latency, caps.frames_in_flight, caps.present_timing)
 	if linked, known := render.display_link_frames(&app.renderer); known do fmt.printfln("display_link=%v display_link_frames=%d", app.display_link, linked)
 	print_stat("frame_ms", app.stats.frame_ms)
+	if app.stats.interval_ms.count > 0 do print_stat("interval_ms", app.stats.interval_ms)
 	print_stat("cpu_ms", app.stats.cpu_ms)
 	print_stat("wait_ms", app.stats.wait_ms)
 	if app.time_gpu do print_stat("gpu_ms", app.stats.gpu_ms)
-	fmt.printfln("gpu_timestamps=%v gpu_subgroup_size=%d gpu_int64_atomics=%v shared_buffers=%v transient_targets=%v texture_arrays=%d async_compute=%v render_async=%v ray_query=%v ray_query_check=%v", render.caps(&app.renderer).timestamps, render.caps(&app.renderer).subgroup_size, render.caps(&app.renderer).int64_atomics, render.caps(&app.renderer).shared_buffers, render.caps(&app.renderer).transient_targets, render.caps(&app.renderer).texture_arrays, render.caps(&app.renderer).async_compute, render_async(app), render.caps(&app.renderer).ray_query, app.renderer.ray_query_check)
+	// The GPU seam's own counts (render/gpu_counters.odin): the CPU time spent recording
+	// command buffers, the stalls on the whole GPU or on one submission, memory allocations and barriers.
+	gc := render.gpu_counters()
+	fmt.printfln("encode_ms=%.2f encode_cmds=%d encode_ms_per_cmd=%.3f gpu_idle_waits=%d gpu_ticket_waits=%d gpu_allocations=%d gpu_allocated_mb=%.1f gpu_barriers=%d", f64(gc.encode_ns) / 1e6, gc.command_buffers, f64(gc.encode_ns) / 1e6 / f64(max(gc.command_buffers, 1)), gc.idle_waits, gc.ticket_waits, gc.allocations, f64(gc.allocated_bytes) / (1 << 20), gc.barriers)
+	fmt.printfln("gpu_timestamps=%v shared_buffers=%v transient_targets=%v texture_arrays=%d async_compute=%v render_async=%v ray_query=%v ray_query_check=%v", render.caps(&app.renderer).timestamps, render.caps(&app.renderer).shared_buffers, render.caps(&app.renderer).transient_targets, render.caps(&app.renderer).texture_arrays, render.caps(&app.renderer).async_compute, render_async(app), render.caps(&app.renderer).ray_query, app.renderer.ray_query_check)
 	for r, span in app.stats.gpu_spans do if r.count > 0 do print_stat(fmt.tprintf("gpu_%s_ms", render.GPU_SPAN_NAMES[span]), r)
 	if app.stats.ui_ms.count > 0 {
 		print_stat("ui_ms", app.stats.ui_ms)
@@ -689,6 +742,19 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		print_stat("normals_ms", app.stats.normals_ms)
 		print_stat("upload_kb", app.stats.upload_kb)
 		print_stat("latency_ms", app.stats.latency_ms)
+		// How much of the per-node work landed on vertices that moved (sculpt.Work_Counts),
+		// over the run, for every object's current level; voxel clay is not counted.
+		work: sculpt.Work_Counts
+		for obj in app.scene.objects {
+			if obj.voxel != nil do continue
+			w := object_sculptor(obj).work
+			work.dabs += w.dabs
+			work.scanned += w.scanned
+			work.moved += w.moved
+			work.renormalised += w.renormalised
+			work.saved += w.saved
+		}
+		fmt.printfln("work_dabs=%d work_scanned=%d work_moved=%d work_renormalised=%d work_saved=%d", work.dabs, work.scanned, work.moved, work.renormalised, work.saved)
 	}
 	sg := app.renderer.sculpt_gpu.stats
 	fmt.printfln("gpu_sculpt=%v gpu_sculpt_strokes=%d gpu_dab_strokes=%d cpu_sculpt_strokes=%d gpu_sculpt_dabs=%d gpu_sculpt_dispatches=%d", app.gpu_sculpt && render.caps(&app.renderer).gpu_sculpt && !app.renderer.sculpt_gpu.failed, sg.strokes_gpu, sg.strokes_dabs, sg.strokes_cpu, sg.dabs, sg.dispatches)

@@ -16,7 +16,7 @@ import "../ui"
 Tour_Step :: enum u8 {
 	Spaces,
 	Dial,
-	Palettes,
+	Cards,
 	History,
 	Paint,
 }
@@ -30,7 +30,7 @@ TOUR_DONE_HOLD :: 0.9
 Tour :: struct {
 	step:     i32, // the next step to show; TOUR_DONE when over (remembered)
 	run:      bool, // this run shows the tour: interactive, --tour, or Take the tour
-	since:    i32, // the step `since_at` was taken for, -1 for none yet
+	since:    i32, // the step whose switches and paint were taken, -1 for none yet
 	switches: int, // the space switches when the step came, to see one made
 	paint:    bool, // whether painting was on when the step came
 	done:     bool, // the step was done; it moves on TOUR_DONE_HOLD after done_at
@@ -43,7 +43,7 @@ Tour :: struct {
 TOUR_TITLES := [Tour_Step]string {
 	.Spaces   = "Three spaces, one model",
 	.Dial     = "The dial is under your thumb",
-	.Palettes = "Palettes down the side",
+	.Cards    = "Cards beside the toolbars",
 	.History  = "Every step, kept",
 	.Paint    = "Paint with the same brushes",
 }
@@ -51,7 +51,7 @@ TOUR_TITLES := [Tour_Step]string {
 TOUR_TEXT := [Tour_Step]string {
 	.Spaces   = "Sculpt, Model and Render each keep their own tools and layout. Tap Model, then Sculpt to come back.",
 	.Dial     = "Hold Smooth while you draw to smooth, Invert to dig, Mask to mask; tap one to keep it on. Try it now on the model.",
-	.Palettes = "Each card is a palette: fold it to its header, drag it out to float it, or join it to the card above as a tab. Search finds any section by name. Tap one to try it.",
+	.Cards    = "A toolbar button opens its card beside it, and a tap on the view closes it again. Pin keeps a card open while you sculpt, and Search opens any section by name. Tap one to try it.",
 	.History  = "History lists what you did: tap a step to go back to it, or hold Undo to scrub. Open it now.",
 	.Paint    = "The shelf's Paint page holds the painting brushes, and Also paint colour in any brush's quick settings (a long press on its tile) makes it paint too. Pick Paint and paint a stroke.",
 }
@@ -75,8 +75,8 @@ tour_target :: proc(app: ^App, s: Tour_Step) -> ui.Rect {
 		r := &app.rail
 		if r.outer <= 0 do return {}
 		return {r.center.x - r.outer * 0.5, r.center.y - r.outer * 0.5, r.outer, r.outer}
-	case .Palettes:
-		for c in k.panels.rect do if c.w > 0 do return c
+	case .Cards:
+		for s in Column_Side do if c := column_rest_rect(app, s); c.w > 0 do return c
 		return ui.prev_rect(&k.ctx, "view bar")
 	case .History:
 		return k.history_at
@@ -122,8 +122,8 @@ tour_update :: proc(app: ^App) {
 		switch s {
 		case .Spaces:   did = k.spaces.switches > tr.switches
 		case .Dial:     did = app.stroke.active && (app.rail.press.mods != {} || app.rail.latched != {})
-		case .Palettes: did = pressed_in
-		case .History:  did = k.history
+		case .Cards:    did = pressed_in
+		case .History:  did = card_shown(app, .History)
 		case .Paint:    did = (app.brush.channel != .Sculpt || .Paint in BRUSHES[app.brush.kind].flags) && (app.stroke.active || tr.paint)
 		}
 		if did do tr.done, tr.done_at = true, ctx.time
@@ -185,13 +185,13 @@ kit_tour :: proc(app: ^App) {
 		x = hole.x - 12 - W if hole.x - 12 - W >= 8 else hole.x + hole.w + 12
 	}
 	mark := ui.vertex_mark(ctx)
-	ui.begin_at(ctx, "tour card", {x, y}, {direction = .Column, gap = 6, padding = 16, width = W, radius = t.radius_large, background = .Panel})
+	ui.begin_at(ctx, "tour card", {x, y}, {direction = .Column, gap = ui.SPACE_S, padding = ui.SPACE_XL, width = W, radius = t.radius_large, background = .Panel})
 	ui.label(ctx, fmt.tprintf("%d of %d", int(s) + 1, len(Tour_Step)), t.small_size, t.text_secondary)
-	ui.label(ctx, TOUR_TITLES[s], t.text_size + 2, t.text, .Semibold)
+	ui.label(ctx, TOUR_TITLES[s], t.title_size, t.text, .Semibold)
 	ui.paragraph(ctx, TOUR_TEXT[s])
 	if tr.done do ui.label(ctx, "That's it", t.small_size, t.accent, .Semibold)
 	ui.spacer(ctx, 4)
-	ui.begin(ctx, "tour card foot", {direction = .Row, gap = 8, center = true, width = W - 32})
+	ui.begin(ctx, "tour card foot", {direction = .Row, gap = ui.SPACE_M, center = true, width = W - 32})
 	dots := ui.place(ctx, {len(Tour_Step) * 12, 12})
 	for d in Tour_Step {
 		at := [2]f32{dots.x + f32(d) * 12 + 4, dots.y + 6}

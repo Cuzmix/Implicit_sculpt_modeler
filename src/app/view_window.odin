@@ -15,7 +15,7 @@ import "../ui"
 // and the torn-off viewports of 3D-Coat and Marmoset. Each has its own camera and pass and
 // a small head to change them, drawn by an interface context of its own at its monitor's
 // scale; its picture follows the view panes' rules (drawn whole, only at rest, one picture
-// a frame). It is a view, not a second workspace: brushes stay in the main window, and keys
+// a frame). It is a view, not a second layout: brushes stay in the main window, and keys
 // typed while it has the focus are the main window's. Desktop only: Android gives an app
 // one window.
 VIEW_WINDOWS_MAX :: 3
@@ -92,7 +92,7 @@ view_window_request :: proc(app: ^App, sv: Second_View) {
 // with panes, else the main camera, shaded.
 view_window_default :: proc(app: ^App) -> Second_View {
 	g := &app.kit.grid
-	if grid_panes(g) > 1 do return g.views[0]
+	if grid_panes(g) > 1 && pane_shows_view(g, 1) do return grid_view(g, 1)^
 	return {camera = .Follow, pass = .Shaded, shading = app.kit.passes.shading}
 }
 
@@ -162,9 +162,8 @@ view_window_close :: proc(app: ^App, i: int) {
 	vws := &app.view_windows
 	w := vws.open[i]
 	if w == nil do return
-	// Its picture and interface buffers may still be read by work in flight; this wait
-	// covers the destroys below and the window's release.
-	render.wait_idle(&app.renderer)
+	// Its picture and interface buffers may still be read by work in flight; the GPU layer
+	// frees them once that work is done, and releasing the window waits for its frames.
 	vws.draws += w.pic.draws
 	vws.presents += w.presents
 	if w.laid_out do _ = ui.frame_end(&w.ctx)
@@ -318,10 +317,10 @@ view_window_layout :: proc(app: ^App, w: ^View_Window) {
 	ui.begin_at(ctx, "view window", {0, 0}, {width = room.x, height = room.y})
 	a := ui.area(ctx, "picture", room)
 	ui.fill_rect(ctx, a.rect, 0, t.pane)
-	if w.pic.shown != nil do ui.image(ctx, a.rect, VIEW_WINDOW_IMAGE)
+	if w.pic.shown != 0 do ui.image(ctx, a.rect, VIEW_WINDOW_IMAGE)
 	second_view_input(app, ctx, scale, &w.view, a)
 	ui.end(ctx)
-	ui.begin_at(ctx, "view window head", {6, 6}, {direction = .Row, center = true, gap = 4, padding = 4, radius = t.radius_large, background = .Panel})
+	ui.begin_at(ctx, "view window head", {6, 6}, {direction = .Row, center = true, gap = ui.SPACE_XS, padding = ui.SPACE_XS, radius = t.radius_large, background = .Panel})
 	view_head_camera(app, ctx, &w.view, GRID_VIEWS + w.number)
 	view_head_pass(ctx, &w.view)
 	view_head_link(app, ctx, &w.view)
@@ -335,7 +334,7 @@ view_windows_pictures :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_I
 	for w in app.view_windows.open {
 		if w == nil || w.close || w.pixels.x <= 0 || w.pixels.y <= 0 || view_window_hidden(w) do continue
 		if app.kit.home {
-			w.pic.shown, w.pic.due = nil, false
+			w.pic.shown, w.pic.due = 0, false
 			continue
 		}
 		picture_frame(app, cmd, draws, froms, &w.view, &w.pic, view_window_picture_size(w.pixels), 1)
@@ -379,7 +378,7 @@ view_window_present :: proc(app: ^App, w: ^View_Window, dl: ^ui.Draw_List) -> bo
 		_ = render.cmd_cancel(cmd)
 		return false
 	}
-	if swapchain == nil {
+	if swapchain == 0 {
 		w.stale = true
 		return render.cmd_cancel(cmd)
 	}
@@ -415,7 +414,7 @@ view_window_draws :: proc(w: ^View_Window, dl: ^ui.Draw_List) -> []render.Ui_Dra
 		}
 		if c.texture != .Image do continue
 		draws[i].image, draws[i].smooth = picture_shown(&w.pic), true
-		if c.image != VIEW_WINDOW_IMAGE || w.pic.shown == nil do draws[i].index_count = 0
+		if c.image != VIEW_WINDOW_IMAGE || w.pic.shown == 0 do draws[i].index_count = 0
 	}
 	return draws
 }

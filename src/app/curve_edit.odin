@@ -9,11 +9,14 @@ import "../geom"
 import "../gizmo"
 
 // Editing a selected curve object with the pen, in the Curve tool: its points, their
-// orange handles and white radius dots are drawn over the model and can be dragged, and
-// the line between points pulls like a rope, as ZBrush's curves do. A tap on a point
-// makes it a corner (a diamond) or smooth again (a square) and picks it for the context
-// bar; a tap on the line adds a point there; a point dropped on its neighbour merges with
-// it. Each edit, on release, is one undo step of the curve (a swap entry).
+// handles (coloured by type) and white radius dots are drawn over the model and can be dragged, and
+// the line between points pulls like a rope, as ZBrush's curves do. A tap on a point picks
+// it (Shift adds it to the picked points, and in the Edit tab a box dragged over empty space
+// picks those inside, as Blender's edit mode does), and the picked points move together; a
+// double tap makes them corners (diamonds) or smooth again (squares). Handles show on the
+// picked points and their neighbours. A tap on the line adds a point there; a point dropped
+// on its neighbour merges with it. Each edit, on release, is one undo step of the curve (a
+// swap entry); picking alone is not.
 
 Curve_Handle :: enum u8 {
 	None,
@@ -22,6 +25,7 @@ Curve_Handle :: enum u8 {
 	Out,
 	Radius,
 	Line, // the line between points: a drag pulls it, a tap adds a point
+	Nub,  // the ＋ past an open curve's end in the Edit tab: a press adds a point there
 }
 
 // A press on the selected curve: what it holds, of which point (or at which place `u` of
@@ -36,6 +40,23 @@ Curve_Drag :: struct {
 	id:     int,
 	before: ^Object_Snapshot,
 }
+
+// A box dragged over empty space in the Edit tab, in viewport pixels; `add` (Shift) adds
+// to the picked points rather than replacing them.
+Curve_Box :: struct {
+	active:   bool,
+	from, to: [2]f32,
+	add:      bool,
+}
+
+// The last tap on a point: which object and point, and when, in seconds.
+Curve_Tap :: struct {
+	id, index: int,
+	at:        f64,
+}
+
+// How soon, in seconds, a second tap on the same point makes a double tap.
+CURVE_DOUBLE_TAP_S :: 0.35
 
 // How near, in pixels, a press must be to take a point, handle, dot or the line.
 CURVE_GRAB_PX :: 14
@@ -99,7 +120,13 @@ curve_hit :: proc(app: ^App, obj: ^Object, size, pos: [2]f32) -> (d: Curve_Drag)
 		if sc.ok do try(&d, &best, sc.point, pos, .Point, i)
 	}
 	if d.handle != .None do return
+	n := len(cp.points)
+	for last in ([2]bool{false, true}) {
+		if at, ok := curve_nub_screen(app, obj, view_proj, size, last); ok do try(&d, &best, at, pos, .Nub, n - 1 if last else 0)
+	}
+	if d.handle != .None do return
 	for i in 0 ..< len(cp.points) {
+		if !curve_handles_shown(app, cp, i) do continue
 		sc := curve_point_screen(app, obj, view_proj, size, i)
 		if !sc.ok do continue
 		if curve_has_handle(cp, i, false) do try(&d, &best, sc.h_in, pos, .In, i)
@@ -134,8 +161,33 @@ curve_edit_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 		if hit.handle == .None do return false
 		hit.from, hit.id = input.mouse_pos, obj.id
 		hit.before = history_snapshot(app, obj, "edit curve")
+		if hit.handle == .Nub {
+			// A new point past the end, which the rest of the press drags as a point.
+			index, ok := curve_grow(app, obj, hit.index > 0, input.mouse_pos, input.size)
+			if !ok {
+				history_snapshot_drop(hit.before)
+				return true
+			}
+			curve_select_none(obj.curve)
+			obj.curve.points[index].selected = true
+			hit.handle, hit.index, hit.moved = .Point, index, true
+			c.picked = index + 1
+			d^ = hit
+			curve_changed(app, obj)
+			return true
+		}
 		d^ = hit
-		if hit.handle == .Point do c.picked = hit.index + 1
+		if hit.handle == .Point {
+			// Shift adds the point to the picked ones or takes it away; a press on a point not
+			// picked picks it alone; a press on a picked one keeps them all, to move together.
+			p := &obj.curve.points[hit.index]
+			if input.smooth do p.selected = !p.selected
+			else if !p.selected {
+				curve_select_none(obj.curve)
+				p.selected = true
+			}
+			c.picked = hit.index + 1
+		}
 		return true
 	}
 	if d.handle == .None do return false
@@ -176,12 +228,17 @@ curve_drag_to :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 		return lo + ld * (linalg.dot(at - lo, facing) / den)
 	}
 	switch d.handle {
-	case .None:
+	case .None, .Nub:
 	case .Point:
 		p := &cp.points[d.index]
-		// Onto the surface under the pointer when there is one, else the view plane.
-		if _, hit, _, ok := scene_raycast_surface(app, origin, dir, skip_curves = true); ok do p.p = to_local(t, hit)
-		else do p.p = on_plane(app, t, lo, ld, p.p)
+		// Onto the surface under the pointer with Surface, else the Draw on plane through
+		// where the point is (with Surface, the plane facing the view).
+		if hit, _, ok := curve_land(app, input.mouse_pos, input.size, to_world(t, p.p)); ok {
+			// The other picked points move by as much, so a picked group keeps its shape.
+			delta := to_local(t, hit) - p.p
+			for &q, j in cp.points do if j != d.index && q.selected && p.selected do q.p += delta
+			p.p = to_local(t, hit)
+		}
 	case .In, .Out:
 		p := &cp.points[d.index]
 		h := on_plane(app, t, lo, ld, p.p) - p.p
@@ -220,8 +277,9 @@ curve_rope_pull :: proc(cp: ^Curve_Part, u: f32, delta: Vec3) {
 	cp.points[b].p += delta * (tt * share)
 }
 
-// Ends the press: a tap toggles a point between smooth and corner or adds a point on the
-// line; a point dropped on its neighbour merges into it. A change is one undo step.
+// Ends the press: a tap picks a point (a double tap turns the picked points between smooth
+// and corner) or adds a point on the line; a point dropped on its neighbour merges into it.
+// A change is one undo step.
 @(private = "file")
 curve_release :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 	c := &app.curve
@@ -232,9 +290,20 @@ curve_release :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 	if !d.moved {
 		#partial switch d.handle {
 		case .Point:
-			if cp.points[d.index].corner do geom.bezier_make_smooth(cp.points[:], cp.closed, d.index)
-			else do geom.bezier_make_corner(cp.points[:], cp.closed, d.index)
-			changed = true
+			// A double tap turns the picked points into corners or back into smooth ones (as the
+			// tapped one goes); a single tap on one of several picked points picks it alone.
+			now := input_clock(app)
+			if c.tap.id == obj.id && c.tap.index == d.index && now - c.tap.at < CURVE_DOUBLE_TAP_S {
+				curve_corners_flip(cp, d.index)
+				changed = true
+				c.tap = {}
+			} else {
+				if !input.smooth {
+					curve_select_none(cp)
+					cp.points[d.index].selected = true
+				}
+				c.tap = {obj.id, d.index, now}
+			}
 		case .Line:
 			if at := geom.bezier_insert(&cp.points, cp.closed, d.u); at >= 0 {
 				c.picked = at + 1
@@ -267,14 +336,64 @@ curve_release :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 	curve_changed(app, obj)
 }
 
-// Deletes the picked point of the selected curve, as one undo step, when it keeps at least
-// CURVE_MIN_POINTS (three for a closed curve).
+// The points the context bar's commands work on: the picked points of `cp`, or with none
+// picked, the one the Curve tool picked last (app.curve.picked, from 1), or none.
+curve_targets :: proc(app: ^App, cp: ^Curve_Part) -> []int {
+	out := make([dynamic]int, 0, len(cp.points), context.temp_allocator)
+	for p, i in cp.points do if p.selected do append(&out, i)
+	if len(out) == 0 && app.curve.picked >= 1 && app.curve.picked <= len(cp.points) do append(&out, app.curve.picked - 1)
+	return out[:]
+}
+
+curve_select_none :: proc(cp: ^Curve_Part) {
+	for &p in cp.points do p.selected = false
+}
+
+curve_selected_count :: proc(cp: ^Curve_Part) -> (n: int) {
+	for p in cp.points do if p.selected do n += 1
+	return
+}
+
+// Picks every point of the selected curve, or none when all are picked already.
+curve_select_all :: proc(app: ^App) {
+	obj := selected_curve(app)
+	if obj == nil do return
+	cp := obj.curve
+	all := curve_selected_count(cp) == len(cp.points)
+	for &p in cp.points do p.selected = !all
+}
+
+// Whether point `i`'s handles and radius dot show and take presses: those of the picked
+// points and of their neighbours (whose handles shape the same segments), or every point's
+// with Show every point's handles. Twenty orange dots over the model hide more than they offer.
+curve_handles_shown :: proc(app: ^App, cp: ^Curve_Part, i: int) -> bool {
+	if app.curve.all_handles || i == app.curve.picked - 1 do return true
+	n := len(cp.points)
+	if cp.points[i].selected do return true
+	if (cp.closed || i > 0) && cp.points[(i + n - 1) % n].selected do return true
+	return (cp.closed || i < n - 1) && cp.points[(i + 1) % n].selected
+}
+
+// Turns the picked points (and `at`) into corners, or all back into smooth ones when `at`
+// is a corner already.
+curve_corners_flip :: proc(cp: ^Curve_Part, at: int) {
+	smooth := geom.bezier_is_corner(cp.points[at])
+	for p, i in cp.points {
+		if i != at && !p.selected do continue
+		if smooth do geom.bezier_make_smooth(cp.points[:], cp.closed, i)
+		else do geom.bezier_make_corner(cp.points[:], cp.closed, i)
+	}
+}
+
+// Deletes the picked points of the selected curve (or the last picked), as one undo step,
+// when it keeps at least CURVE_MIN_POINTS (three for a closed curve).
 curve_delete_point :: proc(app: ^App) {
 	obj := selected_curve(app)
 	if obj == nil || !curve_point_deletable(app) do return
 	before := history_snapshot(app, obj, "delete curve point")
-	ordered_remove(&obj.curve.points, app.curve.picked - 1)
-	app.curve.picked = min(app.curve.picked, len(obj.curve.points))
+	targets := curve_targets(app, obj.curve)
+	#reverse for i in targets do ordered_remove(&obj.curve.points, i)
+	app.curve.picked = min(targets[0] + 1, len(obj.curve.points))
 	history_record_swap(app, obj.id, before, kind = .Curve)
 	app.curve.edits += 1
 	curve_changed(app, obj)
@@ -283,20 +402,34 @@ curve_delete_point :: proc(app: ^App) {
 curve_point_deletable :: proc(app: ^App) -> bool {
 	obj := selected_curve(app)
 	if obj == nil do return false
-	n := len(obj.curve.points)
-	return app.curve.picked >= 1 && app.curve.picked <= n && n > (3 if obj.curve.closed else CURVE_MIN_POINTS)
+	n, gone := len(obj.curve.points), len(curve_targets(app, obj.curve))
+	return gone > 0 && n - gone >= (3 if obj.curve.closed else CURVE_MIN_POINTS)
 }
 
-// Turns the picked point into a corner or back into a smooth one, as one undo step.
+// Turns the picked points into corners or back into smooth ones (as the last picked goes),
+// as one undo step.
 curve_toggle_corner :: proc(app: ^App) {
 	obj := selected_curve(app)
 	if obj == nil do return
-	i := app.curve.picked - 1
-	if i < 0 || i >= len(obj.curve.points) do return
+	targets := curve_targets(app, obj.curve)
+	if len(targets) == 0 do return
 	before := history_snapshot(app, obj, "curve point corner")
-	cp := obj.curve
-	if cp.points[i].corner do geom.bezier_make_smooth(cp.points[:], cp.closed, i)
-	else do geom.bezier_make_corner(cp.points[:], cp.closed, i)
+	at := app.curve.picked - 1 if app.curve.picked >= 1 && app.curve.picked <= len(obj.curve.points) else targets[0]
+	obj.curve.points[at].selected = true
+	curve_corners_flip(obj.curve, at)
+	history_record_swap(app, obj.id, before, kind = .Curve)
+	app.curve.edits += 1
+	curve_changed(app, obj)
+}
+
+// Sets the picked points' handle type (or the last picked one's), as one undo step.
+curve_set_handles :: proc(app: ^App, kind: geom.Handle_Type) {
+	obj := selected_curve(app)
+	if obj == nil do return
+	if len(curve_targets(app, obj.curve)) == 0 do return
+	// The snapshot first: it may use the frame's scratch memory the targets live in.
+	before := history_snapshot(app, obj, "curve handles")
+	for i in curve_targets(app, obj.curve) do geom.bezier_set_handles(obj.curve.points[:], obj.curve.closed, i, kind)
 	history_record_swap(app, obj.id, before, kind = .Curve)
 	app.curve.edits += 1
 	curve_changed(app, obj)
@@ -314,14 +447,23 @@ curve_toggle_closed :: proc(app: ^App) {
 	curve_changed(app, obj)
 }
 
-// Draws the selected curve's editing handles: orange handles on lines to their point, a
+// Each handle type's colour, so a point's kind reads at a glance as in Blender: Aligned
+// orange (as every handle was), Auto yellow, Vector green, Free red.
+@(rodata)
+CURVE_HANDLE_COLORS := [geom.Handle_Type][4]f32 {
+	.Aligned = {0.95, 0.66, 0.23, 1},
+	.Auto    = {0.98, 0.9, 0.3, 1},
+	.Vector  = {0.45, 0.85, 0.4, 1},
+	.Free    = {0.95, 0.4, 0.4, 1},
+}
+
+// Draws the selected curve's editing handles: handles in their type's colour on lines to their point, a
 // white radius dot per point, the picked point ringed.
 draw_curve_edit :: proc(app: ^App, o: Overlay, size: [2]f32) {
 	obj := selected_curve(app)
 	if obj == nil do return
 	cp := obj.curve
 	view_proj := edit_view_proj(app, size)
-	orange := overlay_color({0.95, 0.66, 0.23, 1})
 	white := overlay_color({1, 1, 1, 1})
 	dark := overlay_color({0.04, 0.06, 0.08, 0.8})
 	blue := overlay_color({0.4, 0.85, 1, 1})
@@ -329,19 +471,24 @@ draw_curve_edit :: proc(app: ^App, o: Overlay, size: [2]f32) {
 	for i in 0 ..< len(cp.points) {
 		sc := curve_point_screen(app, obj, view_proj, size, i)
 		if !sc.ok do continue
+		if cp.points[i].selected do overlay_disc(o, sc.point, 6 * o.scale, white)
+		if i == app.curve.picked - 1 do overlay_circle(o, sc.point, 9 * o.scale, blue, 2 * o.scale)
+		if !curve_handles_shown(app, cp, i) do continue
 		ways := [2]bool{false, true}
 		for out in ways {
 			if !curve_has_handle(cp, i, out) do continue
 			h := sc.h_out if out else sc.h_in
-			overlay_line(o, sc.point, h, orange, 1 * o.scale)
+			color := overlay_color(CURVE_HANDLE_COLORS[cp.points[i].handles])
+			overlay_line(o, sc.point, h, color, 1 * o.scale)
 			overlay_disc(o, h, 5 * o.scale, dark)
-			overlay_disc(o, h, 3.5 * o.scale, orange)
+			overlay_disc(o, h, 3.5 * o.scale, color)
 		}
 		overlay_line(o, sc.point, sc.radius, overlay_color({1, 1, 1, 0.35}), 1 * o.scale)
 		overlay_disc(o, sc.radius, 5.5 * o.scale, dark)
 		overlay_disc(o, sc.radius, 4 * o.scale, white)
-		if i == app.curve.picked - 1 do overlay_circle(o, sc.point, 9 * o.scale, blue, 2 * o.scale)
 	}
+	draw_curve_nubs(app, o, obj, view_proj, size)
+	if b := app.curve.box; b.active do overlay_box(o, b.from, b.to, blue, overlay_color({0.4, 0.85, 1, 0.12}), 1 * o.scale)
 }
 
 // A lathe's axis as a dashed line over the view, a little longer than the curve reaches
@@ -373,6 +520,74 @@ draw_lathe_axis :: proc(app: ^App, o: Overlay, obj: ^Object, view_proj: matrix[4
 // Makes the selected curve's tube or lathe again after an edit, when it makes one. A GPU failure
 // leaves the curve with an empty level, drawn as its line, and says so in the log.
 curve_changed :: proc(app: ^App, obj: ^Object) {
-	if obj.curve == nil || obj.curve.use == .None || obj.curve.use == .Guide do return
+	if obj.curve == nil do return
+	// Auto and Vector points follow the points round them.
+	geom.bezier_auto_handles(obj.curve.points[:], obj.curve.closed)
+	if obj.curve.use == .None || obj.curve.use == .Guide do return
 	if !curve_rebuild(app, obj) do log.errorf("curve: could not make the tube of %s on the GPU", object_label(obj))
+}
+
+// The Edit tab's box over empty space: a press starts it, the drag stretches it, and the
+// release picks the points inside (Shift: adds them); a tap without a drag picks none.
+curve_box_frame :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
+	b := &app.curve.box
+	if input.primary {
+		if input.press do b^ = {active = true, from = input.mouse_pos, add = input.smooth}
+		if b.active do b.to = input.mouse_pos
+		return
+	}
+	if !b.active do return
+	defer b^ = {}
+	cp := obj.curve
+	if !b.add do curve_select_none(cp)
+	lo := [2]f32{min(b.from.x, b.to.x), min(b.from.y, b.to.y)}
+	hi := [2]f32{max(b.from.x, b.to.x), max(b.from.y, b.to.y)}
+	if hi.x - lo.x < CURVE_TAP_PX && hi.y - lo.y < CURVE_TAP_PX do return
+	view_proj := edit_view_proj(app, input.size)
+	for &p, i in cp.points {
+		sc := curve_point_screen(app, obj, view_proj, input.size, i)
+		if sc.ok && sc.point.x >= lo.x && sc.point.x <= hi.x && sc.point.y >= lo.y && sc.point.y <= hi.y {
+			p.selected = true
+			app.curve.picked = i + 1
+		}
+	}
+}
+
+// The Curve tool's own keys while it edits a selected curve, before the bindings: Tab
+// switches Draw and Edit (as Blender's Tab into edit mode), and in the Edit tab A picks
+// every point or none and Delete or Backspace deletes the picked points. True for a chord
+// they take, which the bindings then pass over.
+curve_key_taken :: proc(app: ^App, chord: Chord) -> bool {
+	if app.tool != .Curve || app.curve.kind != .Curve || selected_curve(app) == nil || chord.mods != {} do return false
+	switch chord.key {
+	case KEY_TAB:
+		return true
+	case KEY_A, KEY_DELETE, KEY_BACKSPACE:
+		return app.curve.editing
+	case KEY_G, KEY_R, KEY_S:
+		return curve_gizmo_shown(app)
+	case KEY_X, KEY_Y, KEY_Z, KEY_RETURN, KEY_KP_ENTER, KEY_ESCAPE:
+		return app.curve.xform.keys
+	}
+	return false
+}
+
+curve_keys :: proc(app: ^App) {
+	d := &app.device
+	if !curve_key_taken(app, {key = KEY_TAB}) do return
+	if chord_down(d, {key = KEY_TAB}) do app.curve.editing = !app.curve.editing
+	if !app.curve.editing do return
+	// G, R and S move, turn and scale the picked points with the pointer; X, Y and Z keep
+	// it to an axis; Enter keeps it and Escape puts the points back.
+	if chord_down(d, {key = KEY_G}) do curve_xform_key(app, .View)
+	if chord_down(d, {key = KEY_R}) do curve_xform_key(app, .Turn_View)
+	if chord_down(d, {key = KEY_S}) do curve_xform_key(app, .Scale)
+	if app.curve.xform.keys {
+		for k, i in ([3]Key{KEY_X, KEY_Y, KEY_Z}) do if chord_down(d, {key = k}) do curve_xform_axis(app, i)
+		if chord_down(d, {key = KEY_RETURN}) || chord_down(d, {key = KEY_KP_ENTER}) do curve_xform_end(app)
+		if chord_down(d, {key = KEY_ESCAPE}) do curve_xform_cancel(app)
+		return
+	}
+	if chord_down(d, {key = KEY_A}) do curve_select_all(app)
+	if chord_down(d, {key = KEY_DELETE}) || chord_down(d, {key = KEY_BACKSPACE}) do curve_delete_point(app)
 }

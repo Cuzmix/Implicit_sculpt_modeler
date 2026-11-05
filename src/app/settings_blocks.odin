@@ -22,7 +22,6 @@ Settings_Block :: enum u8 {
 	Starting,
 	Brush_Ring,
 	Symmetry_Line,
-	Column_Popovers,
 	View_Grid,
 	Bars,
 	Action_Bar,
@@ -32,6 +31,7 @@ Settings_Block :: enum u8 {
 	Panel_Places,
 	// Camera.
 	Orbit,
+	View_Gizmo,
 	Safe_Zone,
 	Pan_Zoom,
 	Mouse,
@@ -57,6 +57,7 @@ Settings_Block :: enum u8 {
 	Frame_Rate,
 	Anti_Aliasing,
 	Graphics,
+	Mesh_Size,
 	Autosave,
 	Crash_Log,
 	Earlier_Saves,
@@ -75,41 +76,23 @@ Settings_Entry :: struct {
 }
 
 @(rodata)
-SETTINGS_CAMERA := [?]Settings_Entry{{.Orbit, "ORBIT"}, {.Safe_Zone, "SAFE ZONE"}, {.Pan_Zoom, "PAN AND ZOOM"}, {.Mouse, "WITH A MOUSE"}}
+SETTINGS_CAMERA := [?]Settings_Entry{{.Orbit, "ORBIT"}, {.View_Gizmo, "VIEW GIZMO"}, {.Safe_Zone, "SAFE ZONE"}, {.Pan_Zoom, "PAN AND ZOOM"}, {.Mouse, "WITH A MOUSE"}}
 @(rodata)
 SETTINGS_KEYS := [?]Settings_Entry{{.Keys, ""}}
-
-// The blocks of the narrow panel's tab `tab`: its sections' blocks one after another
-// (SETTINGS_SECTION_TAB), so the tabs and the sheet are one list of settings that cannot
-// drift apart. A later section whose first block has no caption, as the sheet titles it
-// with the section's name, gets that name as its caption here.
-settings_tab_entries :: proc(tab: Settings_Tab) -> []Settings_Entry {
-	entries := make([dynamic]Settings_Entry, context.temp_allocator)
-	for s in Settings_Section {
-		if SETTINGS_SECTION_TAB[s] != tab do continue
-		for e, i in settings_section_entries(s) {
-			e := e
-			if i == 0 && e.caption == "" && len(entries) > 0 do e.caption = strings.to_upper(SETTINGS_SECTION_NAMES[s], context.temp_allocator)
-			append(&entries, e)
-		}
-	}
-	return entries[:]
-}
 
 // The words Search settings finds a block by, besides its caption: its rows' labels and
 // what they are called elsewhere, in lower case.
 @(rodata)
 SETTINGS_BLOCK_WORDS := [Settings_Block]string {
-	.Look             = "look theme themes colour color lens studio graphite paper midnight high contrast accent dark light match device night day tint opacity corners black oled",
-	.Size             = "size interface scale bigger text touch targets zoom",
-	.Clean_Dial       = "keep the dial in clean view tab four-finger",
+	.Look             = "look theme themes colour color lens studio graphite paper midnight high contrast accent dark light match device night day tint opacity corners black oled shadow shadows panel",
+	.Size             = "size interface scale bigger text touch targets zoom smaller",
+	.Clean_Dial       = "clean view keeps dial shelf focus mode tab four-finger hide interface",
 	.Hands            = "left-handed right-handed hand mirror screen layout",
 	.Top_Bar          = "top bar search field icon docks command palette file spaces object centred",
 	.Motion           = "reduce motion animation",
 	.Starting         = "start at home starting launch",
 	.Brush_Ring       = "brush ring cursor surface circle",
 	.Symmetry_Line    = "symmetry line plane mirror mirrored brush ring point radial axis",
-	.Column_Popovers  = "stack columns pop over narrow window panels",
 	.View_Grid        = "view grid panes views run under panels work in any view",
 	.Bars             = "bars customise customize buttons dock rail labels names shelf palm tablet width",
 	.Action_Bar       = "action bar next steps",
@@ -118,13 +101,14 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Pies             = "pies pie editor slices",
 	.Panel_Places     = "reset panel positions panels move",
 	.Orbit            = "orbit turntable trackball speed invert turn about pivot",
+	.View_Gizmo       = "view gizmo navigation head cube axes balls model orientation your own corner",
 	.Safe_Zone        = "safe zone edges edge width",
 	.Pan_Zoom         = "pan zoom speed mouse wheel pointer",
 	.Mouse            = "mouse controls",
 	.Touch_Strength   = "touch strength finger",
 	.Hold             = "press and hold delay long press",
 	.Pen_Empty        = "pen mouse empty space waits for the model",
-	.Pen_Objects      = "pen pencil stroke switch object mesh subtool select another lock selected only",
+	.Pen_Objects      = "pen pencil stroke switch pick object mesh subtool select another active lock selected only alt click",
 	.Pen_Tips         = "pen hover names tooltips",
 	.Pen_Predict      = "predict the cursor brush ring ahead latency lag pen",
 	.Pen_Buttons      = "pen barrel eraser end flip",
@@ -138,6 +122,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Frame_Rate       = "frame rate fps limit unlimited match display rest when idle battery low latency frames in flight lag",
 	.Anti_Aliasing    = "anti-aliasing antialiasing msaa display",
 	.Graphics         = "graphics gpu backend vulkan metal driver renderer async compute ray tracing hardware rtx",
+	.Mesh_Size        = "mesh size largest remesh subdivision level limit vertices memory device automatic references pictures refs gpu",
 	.Autosave         = "autosave recovery copy",
 	.Crash_Log        = "crash log crashed bug report send",
 	.Earlier_Saves    = "earlier saves versions kept",
@@ -204,13 +189,15 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		}
 		if picked := ui.select(ctx, "Interface size", names[:], chosen); picked >= 0 do k.ui_scale = UI_SCALES[picked]
 		ui.paragraph(ctx, "How big panels, text and touch targets are, on top of the size the screen asks for.")
+		if k.ui_scale < 1 do ui.paragraph(ctx, "Below 100% the buttons are smaller than a fingertip: best with a mouse or a pen.", color = t.warning)
 	case .Clean_Dial:
-		_ = ui.switch_row(ctx, "Keep the dial in clean view", &k.clean_dial)
-		ui.paragraph(ctx, "Clean view (Tab, or a four-finger tap) hides every control so you can judge the form; the dial stays unless this is off, so you can still smooth and mask.")
+		keeps := [len(Clean_Keep)]string{"Nothing", "The dial", "Shelf and dial"}
+		if picked := ui.tabs(ctx, "Clean view keeps", keeps[:], int(k.clean_keep)); picked >= 0 do k.clean_keep = Clean_Keep(picked)
+		ui.paragraph(ctx, "Clean view (Tab, or a four-finger tap) hides the controls so you can judge the form. Keeping the dial leaves smoothing and masking to hand; keeping the shelf and dial hides only the side toolbars, the cards and the next steps, so brushes stay in reach.")
 	case .Hands:
 		hands := [2]string{"Right-handed", "Left-handed"}
 		if picked := ui.tabs(ctx, "Screen layout", hands[:], int(ctx.mirror)); picked >= 0 do ctx.mirror = picked == 1
-		ui.paragraph(ctx, "Left-handed swaps the sides: Size and Strength, the dial and the readout go to the right; the navigation, the view rail and the panels to the left.")
+		ui.paragraph(ctx, "Left-handed swaps the sides: Size and Strength, the dial and the view info go to the right; the view gizmo, the view toolbar and the cards to the left.")
 	case .Motion:
 		settings_motion(app)
 	case .Starting:
@@ -222,26 +209,22 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Symmetry_Line:
 		_ = ui.switch_row(ctx, "Show the symmetry line", &k.symmetry_line)
 		ui.paragraph(ctx, "While symmetry is on, a thin line in each plane's colour (X red, Y green, Z blue) runs where the plane crosses the selected object, and with Radial a line along its axis. The brush ring always shows a copy with a dot at every mirrored spot.")
-	case .Column_Popovers:
-		_ = ui.switch_row(ctx, "The stack pops over a narrow window", &k.column_popovers)
-		ui.paragraph(ctx, "On a window under 1180 points wide, the docked panel stack shows only while you ask for it: from the tab at its top, by opening a card or a section, or with Palettes; a press on the view, or Escape, puts it away. Off, it stays beside the view as on a wide window.")
 	case .View_Grid:
 		_ = ui.switch_row(ctx, "Work in any view", &k.panes_work)
 		ui.paragraph(ctx, "A press in any pane works there, as Blender's quad views each take the tools; off, the other panes only show.")
 	case .Bars:
 		_ = command_button(app, .Customise_Bars, glyph = ICON_CUSTOMISE)
-		ui.paragraph(ctx, "Choose the buttons on every dock: down the view rail and the brush bar and on each of the shelf's pages: any command, in any order.")
-		ui.paragraph(ctx, "Each dock's ⋯ sets how many lines its buttons stand in and when they show their names: Wide names them on a desktop's window, where the room is there, and keeps a tablet's docks to their icons.")
+		ui.paragraph(ctx, "Choose the buttons on every toolbar: down the view toolbar and the brush toolbar and on each of the shelf's pages: any command, in any order.")
+		ui.paragraph(ctx, "Each toolbar's ⋯ sets how many lines its buttons stand in and when they show their names: Wide names them on a desktop's window, where the room is there, and names the view toolbar's on a touch screen, where no tooltip does; a tablet's other toolbars keep to their icons.")
 		_ = ui.switch_row(ctx, "Keep the shelf clear of the palm", &k.shelf_palm)
 		ui.paragraph(ctx, "On a tablet the shelf stands left of the middle and holds as many tiles as fit before the pen hand rests, twelve at their narrowest; the rest of a page waits in All and Search. Off, it takes the window's width, so a page of up to 24 tiles shows more of them.")
-		// What the edit mode's own sheet held: which bars this workspace shows, the panels'
-		// places and the person's docks, so the Library is the one picker.
+		// What the edit mode's own sheet held: which bars this space's layout shows and the
+		// person's docks, so the Library is the one picker.
 		arrange_show_chips(app)
-		arrange_panel_rows(app)
 		_ = command_button(app, .Panels_Reset, label = "Put the panels back as they come", variant = .Bordered, width = ui.fill_width(ctx))
 		your_docks_rows(app, ui.fill_width(ctx))
 	case .Top_Bar:
-		ui.paragraph(ctx, "The top bar is three docks: the menu, the file, Save, Undo and Redo at the start; the spaces and the selected object in the middle; Search, History and Settings at the end. Edit docks changes their buttons as any dock's. As the window narrows the middle keeps its place while the chips give up their least needed parts.")
+		ui.paragraph(ctx, "The top bar is three toolbars: the menu, the file, Save, Undo and Redo at the start; the spaces and the selected object in the middle; Search, History and Settings at the end. Edit toolbars changes their buttons as any toolbar's. As the window narrows the middle keeps its place while the chips give up their least needed parts.")
 		_ = ui.switch_row(ctx, "Search as a field in the top bar", &k.search_field)
 		ui.paragraph(ctx, "Off, Search is an icon, which leaves the space tabs and the object chip their room. On, it is the wider field naming what it finds, which gives way to the icon while the bar is too narrow for it.")
 	case .Action_Bar:
@@ -254,19 +237,19 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		on_screen :: proc(side: int, mirror: bool) -> int {
 			return 3 - side if mirror && side > 0 else side
 		}
-		if picked := ui.tabs(ctx, "Modifier wheel", sides[:], on_screen(int(k.rail_side), ctx.mirror)); picked >= 0 {
+		if picked := ui.tabs(ctx, "Dial side", sides[:], on_screen(int(k.rail_side), ctx.mirror)); picked >= 0 {
 			k.rail_side, k.wheel_offset = Rail_Side(on_screen(picked, ctx.mirror)), {}
 		}
 		ui.label(ctx, "Size")
 		sizes: [len(Wheel_Size)]string
 		for name, s in WHEEL_SIZE_NAMES do sizes[s] = name
-		if picked := ui.tabs(ctx, "Wheel size", sizes[:], int(k.wheel_size)); picked >= 0 do k.wheel_size = Wheel_Size(picked)
+		if picked := ui.tabs(ctx, "Dial size", sizes[:], int(k.wheel_size)); picked >= 0 do k.wheel_size = Wheel_Size(picked)
 		ui.label(ctx, "Sectors show")
-		labels := [len(Wheel_Labels)]string{"Icons", "Icons and names", "Names"}
-		if picked := ui.tabs(ctx, "Wheel sectors show", labels[:], int(k.wheel_labels)); picked >= 0 do k.wheel_labels = Wheel_Labels(picked)
-		if ui.slider(ctx, "Wheel turn", &k.wheel_turn, -180, 180, .Linear, fmt.tprintf("%.0f°", k.wheel_turn)) do k.wheel_turn = wheel_turn_snapped(k.wheel_turn)
+		labels := [len(Wheel_Labels)]string{"Auto", "Icons", "Icons and names", "Names"}
+		if picked := ui.tabs(ctx, "Dial sectors show", labels[:], int(k.wheel_labels)); picked >= 0 do k.wheel_labels = Wheel_Labels(picked)
+		if ui.slider(ctx, "Dial turn", &k.wheel_turn, -180, 180, .Linear, fmt.tprintf("%.0f°", k.wheel_turn)) do k.wheel_turn = wheel_turn_snapped(k.wheel_turn)
 		dial_sector_rows(app, ui.fill_width(ctx))
-		ui.paragraph(ctx, "As it comes: Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right; the sectors above put any of them, the brush pie or a command on each. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the wheel; picking a side puts it back. Two fingers on the ring spread or pinch to resize it and twist to turn it.")
+		ui.paragraph(ctx, "As it comes: Smooth (top), Mask (left) and Invert (bottom) for what Shift, Ctrl and Alt do, and the brush pie on the right; the sectors above put any of them, the brush pie or a command on each. Tap one to keep it on until tapped again; hold one with a finger to use it only while held, sculpting with the pen or another finger. Smooth and Mask together hide, as Shift and Ctrl do. Drag the middle to move the dial; picking a side puts it back. Two fingers on the ring spread or pinch to resize it and twist to turn it.")
 	case .Inspector:
 		_ = ui.switch_row(ctx, "Show every option", &k.all_options)
 		ui.paragraph(ctx, "Each section of the tray shows its common controls and keeps the rest under More options. On, every section shows everything.")
@@ -325,6 +308,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		if n.pivot == .Pointer do ui.paragraph(ctx, "A drag that starts off the model turns about the point under it, as deep as the middle of the view." if n.air_pivot else "A drag that starts off the model turns about the last stroke.")
 		_ = ui.switch_row(ctx, "Show the pivot dot", &n.pivot_dot)
 		ui.paragraph(ctx, "A double tap on the model pins the pivot there until the next stroke, whatever Turn about says.")
+	case .View_Gizmo:
+		view_gizmo_controls(app)
 	case .Safe_Zone:
 		_ = ui.switch_row(ctx, "Edges always turn the view", &n.edge_orbit)
 		if ui.slider(ctx, "Edge width", &n.edge_size, EDGE_MIN, EDGE_MAX, .Linear, fmt.tprintf("%.0f pt", n.edge_size), enabled = n.edge_orbit) do app.kit.edge_set_at = ctx.time
@@ -347,7 +332,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Hold:
 		// In steps of 0.05 s, so the value shown is the value used.
 		if ui.slider(ctx, "Hold delay", &n.hold_delay, HOLD_DELAY_MIN, HOLD_DELAY_MAX, .Linear, fmt.tprintf("%.2f s", n.hold_delay)) do n.hold_delay = f32(int(n.hold_delay * 20 + 0.5)) / 20
-		ui.paragraph(ctx, "How long a finger or the pen holds a button still before its long press: a button's menu, a name and shortcut, or a brush value's menu (a drag on the island's sliders or across a value chip sets the value at once, with no hold). Shorter is quicker; below about 0.2 s a slow tap may open the menu instead, so longer leaves more time for one.")
+		ui.paragraph(ctx, "How long a finger or the pen holds a button still before its long press: a button's menu, a name and shortcut, or a brush value's menu (a drag on the brush toolbar's sliders or across a value chip sets the value at once, with no hold). Shorter is quicker; below about 0.2 s a slow tap may open the menu instead, so longer leaves more time for one.")
 	case .Pen_Empty:
 		empty := [len(Empty_Drag)]string{"Turns the view", "Waits for the model"}
 		ui.label(ctx, "Pen")
@@ -356,8 +341,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		if picked := ui.tabs(ctx, "Mouse on empty space", empty[:], int(n.empty_drag[.Mouse])); picked >= 0 do n.empty_drag[.Mouse] = Empty_Drag(picked)
 		ui.paragraph(ctx, "Waits for the model: a stroke that starts off the model begins once it reaches it.")
 	case .Pen_Objects:
-		_ = ui.switch_row(ctx, "A stroke on another object switches to it", &n.stroke_switches)
-		ui.paragraph(ctx, "On, a stroke that starts on an object other than the selected one selects it and sculpts it. Off, the pen, the mouse and a sculpting finger work on the selected object alone, even through another object in front of it, as ZBrush's active subtool does; change objects from the Scene card, the object chip, or a finger's tap when Tap another object is on.")
+		_ = ui.switch_row(ctx, "The pen picks the object it strokes", &n.stroke_picks)
+		ui.paragraph(ctx, "Off, the pen, the mouse and a sculpting finger work on the selected object alone, even through another object in front of it, as ZBrush's active subtool does: change objects with a finger's tap (Tap another object), an Alt click, the Scene card or the object chip. On, a stroke that starts on another object selects it and sculpts it, as a finger's touch does.")
 	case .Pen_Tips:
 		ui.label(ctx, "Names while the pen hovers")
 		tips := [len(Pen_Tips)]string{"Always", "With a keyboard", "Never"}
@@ -394,10 +379,11 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		settings_keys(app)
 
 	case .Statistics:
-		_ = ui.switch_row(ctx, "Show statistics", &k.stats, keys = command_hint(app, .Stats))
+		shown := card_shown(app, .Details)
+		if ui.switch_row(ctx, "Show the Details card", &shown, keys = command_hint(app, .Stats)) do command_run(app, .Stats)
 		detail := [2]string{"Simple", "Advanced"}
 		if picked := ui.tabs(ctx, "Statistics detail", detail[:], int(k.stats_advanced)); picked >= 0 do k.stats_advanced = picked == 1
-		ui.paragraph(ctx, "Simple shows how smooth the app runs in plain words; Advanced shows every measurement by its exact name, the drawing switches for comparing speed included. F11 shows and hides the panel.")
+		ui.paragraph(ctx, "Simple shows how smooth the app runs in plain words; Advanced shows every measurement by its exact name, the drawing switches for comparing speed included. F11 shows and hides the card.")
 		if app.diag.allowed {
 			_ = command_button(app, .Input_Diagnostics)
 			ui.paragraph(ctx, "A developer's screen of guided touch, Pencil and keyboard tests, with a report to export.")
@@ -428,6 +414,8 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.paragraph(ctx, fmt.tprintf("The last start found a crash: %s.", last) if last != "" else ("A crash log from an earlier run is kept." if crash_log_kept() else "No crash has been recorded."))
 		ui.paragraph(ctx, CRASH_LOG_WHERE)
 		_ = command_button(app, .Save_Crash_Log)
+	case .Mesh_Size:
+		kit_mesh_size(app)
 	case .Earlier_Saves:
 		kept := versions_kept(app.versions_kept)
 		chosen := 0
@@ -445,6 +433,9 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		ui.label(ctx, "Undo steps kept")
 		if picked := ui.select(ctx, "Undo steps kept", UNDO_STEPS_NAMES[:], chosen); picked >= 0 do app.undo_steps = UNDO_STEPS[picked]
 		ui.paragraph(ctx, "Past either limit the oldest steps are forgotten, and the memory their strokes hold comes back; a bookmarked step is kept, and a note says so. Automatic gives each object's strokes and the rebuild copies their own share. A step's menu in the History panel has Delete everything older.")
+		ui.label(ctx, "When Remesh or Subdivide needs memory the history holds")
+		if picked := ui.select(ctx, "When a step needs memory", MEMORY_SHORT_NAMES[:], int(app.memory_short)); picked >= 0 do app.memory_short = Memory_Short(picked)
+		ui.paragraph(ctx, "Before a remesh or a subdivision that would not fit what this device leaves Sculpt, Ask shows what it needs and offers to free the history, a smaller count, or to continue anyway after an autosave. A step too big even with the history freed always asks.")
 		history_memory_rows(app)
 	case .History_Steps:
 		lights, tree := !app.history_no_lights, !app.history_no_tree
@@ -471,7 +462,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 				link_copy_path(app)
 			}
 			half := (width - 8) / 2
-			ui.begin(ctx, "link buttons", {direction = .Row, gap = 8})
+			ui.begin(ctx, "link buttons", {direction = .Row, gap = ui.SPACE_M})
 			_ = command_button(app, .Send_To_Blender, width = half)
 			_ = command_button(app, .Get_From_Blender, width = half)
 			ui.end(ctx)
@@ -506,7 +497,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	switch b {
 	case .Look:            themes_reset(k)
 	case .Size:            k.ui_scale = 1
-	case .Clean_Dial:      k.clean_dial = true
+	case .Clean_Dial:      k.clean_keep = .Dial
 	case .Hands:           k.ctx.mirror = false
 	case .Top_Bar:
 		k.search_field = false
@@ -515,7 +506,6 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Starting:        app.start_home = true
 	case .Brush_Ring:      k.surface_ring = true
 	case .Symmetry_Line:   k.symmetry_line = true
-	case .Column_Popovers: k.column_popovers = true
 	case .View_Grid:       k.panes_work = true
 	case .Bars:
 		bars_reset(k)
@@ -524,7 +514,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Action_Bar:      k.action_bar = true
 	case .Wheel:
 		k.rail_side, k.wheel_size, k.wheel_offset = .Left, .Medium, {}
-		k.wheel_labels, k.wheel_turn = .Icons, 0
+		k.wheel_labels, k.wheel_turn = .Auto, 0
 		k.dials = DIAL_DEFAULTS
 	case .Inspector:       k.all_options, k.explain_all = false, false
 	case .Pies, .Mouse, .Blender_Link:
@@ -535,12 +525,13 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		n.orbit_style, n.limit_pitch, n.turntable_roll, n.orbit_speed = d.orbit_style, d.limit_pitch, d.turntable_roll, d.orbit_speed
 		n.invert_x, n.invert_y = d.invert_x, d.invert_y
 		n.pivot, n.air_pivot, n.pivot_dot = d.pivot, d.air_pivot, d.pivot_dot
+	case .View_Gizmo:      n.view_gizmo, n.gizmo_model, n.gizmo_axes = d.view_gizmo, d.gizmo_model, d.gizmo_axes
 	case .Safe_Zone:       n.edge_orbit, n.edge_size, n.edge_show = d.edge_orbit, d.edge_size, d.edge_show
 	case .Pan_Zoom:        n.pan_speed, n.zoom_speed, n.invert_wheel, n.wheel_toward = d.pan_speed, d.zoom_speed, d.invert_wheel, d.wheel_toward
 	case .Touch_Strength:  n.touch_strength = d.touch_strength
 	case .Hold:            n.hold_delay = d.hold_delay
 	case .Pen_Empty:       n.empty_drag = d.empty_drag
-	case .Pen_Objects:     n.stroke_switches = d.stroke_switches
+	case .Pen_Objects:     n.stroke_picks = d.stroke_picks
 	case .Pen_Tips:        n.pen_tips = d.pen_tips
 	case .Pen_Predict:     n.predict_cursor = d.predict_cursor
 	case .Pen_Buttons:     n.eraser = d.eraser
@@ -559,7 +550,9 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		bind_reset_all(app)
 		n.mouse_scheme, n.right_click = d.mouse_scheme, d.right_click
 		k.keys_query = {}
-	case .Statistics:      k.stats, k.stats_advanced = false, false
+	case .Statistics:
+		card_close(app, .Details)
+		k.stats_advanced = false
 	case .Frame_Rate:
 		app.frame_rate, app.frame_limit = .Match_Display, FRAME_LIMIT_DEFAULT
 		app.low_latency = LOW_LATENCY_DEFAULT
@@ -567,10 +560,11 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		app.idle_sleep = true
 	case .Anti_Aliasing:   app.msaa = MSAA_DEFAULT
 	case .Graphics:        app.async_compute, app.ray_query = true, RAY_QUERY_DEFAULT
+	case .Mesh_Size:       app.remesh_most, app.subdivide_most, app.refs_memory_mb = 0, 0, 0
 	case .Autosave:        app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 	case .Crash_Log:
 	case .Earlier_Saves:   app.versions_kept = VERSIONS_DEFAULT
-	case .Undo_History:    app.undo_steps, app.history_limit_mb = 0, 0
+	case .Undo_History:    app.undo_steps, app.history_limit_mb, app.memory_short = 0, 0, .Ask
 	case .History_Steps:   app.history_no_lights, app.history_no_tree = false, false
 	case .History_Back:    app.history_camera, app.history_ungrouped, app.history_no_finger_scrub, app.history_pictures = false, false, false, false
 	}

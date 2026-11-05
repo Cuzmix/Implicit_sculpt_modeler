@@ -1,0 +1,613 @@
+#+build !js
+package gpu
+
+import "base:runtime"
+import "core:fmt"
+import "core:log"
+import "core:strings"
+
+import sdl "vendor:sdl3"
+import vk "vendor:vulkan"
+
+// The Vulkan backend (notes/vulkan/backend-design.md): answers the gpu_* procs of hal.odin
+// with Vulkan 1.3 directly, keeping SDL_GPU's model so the render code above it stays the
+// same and both backends draw the same images from the same SPIR-V. It follows SDL_GPU's
+// own Vulkan backend where the model leaves a choice open (descriptor set numbering,
+// default layouts, cycling, the flipped viewport), since matching it pixel for pixel is
+// the test. Everything runs on the thread that drives render, as the app's frame loop does.
+
+// What one pushed uniform block may hold, and the size of the buffers they are packed
+// into; SDL_GPU binds 4 KiB per slot too.
+VK_UNIFORM_RANGE :: 4096
+VK_UNIFORM_BLOCK :: 256 * 1024
+
+Vk_State :: struct {
+	instance:          vk.Instance,
+	messenger:         vk.DebugUtilsMessengerEXT,
+	physical:          vk.PhysicalDevice,
+	device:            vk.Device,
+	queue:             vk.Queue,
+	family:            u32,
+	// The queue compute command buffers go to (acquire_compute_command_buffer): a
+	// second queue of the graphics family where it has one, so the two share every
+	// resource with no ownership transfer, else the graphics queue itself (.Same_Queue),
+	// where the split still runs but nothing overlaps.
+	compute_queue:     vk.Queue,
+	async_compute:     Async_Compute,
+	// Validation is on (--gpu-debug): the cross-queue check in vk_submit runs.
+	validation:        bool,
+	frames:            u32, // frames a window may have in flight before its next acquire waits
+	labels:            bool, // VK_EXT_debug_utils is on: passes and objects carry names for capture tools
+	present_timing:    Present_Timing, // which present timing extension is on (vk_swapchain.odin)
+	timing:            Vk_Timing, // GPU timestamps (vk_timing.odin); no pools where the device cannot time
+	properties:        vk.PhysicalDeviceProperties,
+	driver:            vk.PhysicalDeviceDriverProperties,
+	memory:            vk.PhysicalDeviceMemoryProperties,
+	multi_draw:        bool, // multiDrawIndirect; without it indirect draws are issued one by one
+	indirect_count:    bool, // drawIndirectCount: an indirect draw reads its count from a buffer
+	wireframe:         bool, // fillModeNonSolid
+	barycentric:       bool, // VK_KHR_fragment_shader_barycentric, enabled (Gpu_Caps.barycentric)
+	depth_clamp:       bool,
+	anisotropy:        bool,
+	// A device-local, host-visible memory type on a heap big enough to hold meshes
+	// (vk_pick_shared_type): loads write mesh buffers there directly.
+	shared_buffers:    bool,
+	shared_type:       u32,
+	lazy_memory:       bool, // a lazily allocated memory type: transient attachments take no memory
+	texture_arrays:    u32, // textures one compute array binding may hold (Gpu_Caps.texture_arrays), 0 for none
+	// Acceleration structures and ray queries are on (Gpu_Caps.ray_query, vk_accel.odin),
+	// with buffer device addresses, which their builds read their inputs through.
+	ray_query:         bool,
+	scratch_align:     u32, // minAccelerationStructureScratchOffsetAlignment
+	// A timeline semaphore counts submissions: each signals the next serial, so "has the GPU
+	// finished submission n" is one comparison.
+	timeline:          vk.Semaphore,
+	submitted:         u64,
+	completed:         u64,
+	// The compute queue's own timeline: two queues cannot signal one, since their work
+	// finishes out of order and a timeline's value only rises.
+	compute_timeline:  vk.Semaphore,
+	compute_submitted: u64,
+	compute_completed: u64,
+	command_pool:      vk.CommandPool,
+	free_cmds:         [dynamic]^Vk_Cmd,
+	in_flight:         [dynamic]^Vk_Cmd,
+	// New textures start in an undefined layout; this command buffer moves them to their
+	// default one and goes to the GPU just ahead of the next submission.
+	setup:             ^Vk_Cmd,
+	windows:           [dynamic]^Vk_Window,
+	set_layouts:       map[Vk_Set_Key]vk.DescriptorSetLayout,
+	graphics_layouts:  map[Vk_Graphics_Layout_Key]^Vk_Pipeline_Layout,
+	compute_layouts:   map[Vk_Compute_Layout_Key]^Vk_Pipeline_Layout,
+}
+
+vk_state: Vk_State
+
+// Validation errors the run has seen (--gpu-debug with the Khronos layer installed); kept
+// past the device's end so the app can fail on them.
+@(private = "file")
+vk_validation_errors: int
+
+validation_errors :: proc() -> int {
+	return vk_validation_errors
+}
+
+// A misuse the backend finds itself under --gpu-debug, counted and logged as the layer's
+// errors are, so the same checks (parity_check.py, smoke) fail on it.
+vk_validation_error :: proc(format: string, args: ..any) {
+	vk_validation_errors += 1
+	log.errorf("Vulkan validation: %s", fmt.tprintf(format, ..args))
+}
+
+// Logs why Vulkan cannot be used and keeps the reason for backend_error.
+@(private = "file")
+vk_fail :: proc(format: string, args: ..any) {
+	backend_fail("Vulkan", format, ..args)
+}
+
+@(private = "file")
+vk_debug_callback :: proc "system" (severity: vk.DebugUtilsMessageSeverityFlagsEXT, types: vk.DebugUtilsMessageTypeFlagsEXT, data: ^vk.DebugUtilsMessengerCallbackDataEXT, user: rawptr) -> b32 {
+	context = (^runtime.Context)(user)^
+	if .ERROR in severity {
+		vk_validation_errors += 1
+		log.errorf("Vulkan validation: %s", data.pMessage)
+	} else {
+		log.warnf("Vulkan validation: %s", data.pMessage)
+	}
+	return false
+}
+
+@(private = "file")
+vk_debug_context: runtime.Context
+
+@(private = "file")
+vk_has_layer :: proc(name: string) -> bool {
+	count: u32
+	if vk.EnumerateInstanceLayerProperties(&count, nil) != .SUCCESS do return false
+	layers := make([]vk.LayerProperties, count, context.temp_allocator)
+	if vk.EnumerateInstanceLayerProperties(&count, raw_data(layers)) != .SUCCESS do return false
+	for &layer in layers {
+		if strings.truncate_to_byte(string(layer.layerName[:]), 0) == name do return true
+	}
+	return false
+}
+
+@(private = "file")
+vk_has_extension :: proc(extensions: []vk.ExtensionProperties, name: string) -> bool {
+	for &e in extensions {
+		if strings.truncate_to_byte(string(e.extensionName[:]), 0) == name do return true
+	}
+	return false
+}
+
+// Why a physical device cannot run the backend, or "" when it can.
+@(private = "file")
+vk_unfit :: proc(physical: vk.PhysicalDevice, family: ^u32) -> string {
+	props: vk.PhysicalDeviceProperties
+	vk.GetPhysicalDeviceProperties(physical, &props)
+	if props.apiVersion < vk.API_VERSION_1_3 do return "Vulkan 1.3 is missing"
+	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES}
+	f13 := vk.PhysicalDeviceVulkan13Features{sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, pNext = &f12}
+	features := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &f13}
+	vk.GetPhysicalDeviceFeatures2(physical, &features)
+	if !f13.dynamicRendering || !f13.synchronization2 || !f12.timelineSemaphore do return "dynamic rendering, synchronization2 or timeline semaphores are missing"
+	if !features.features.independentBlend do return "independent blending is missing"
+	count: u32
+	vk.EnumerateDeviceExtensionProperties(physical, nil, &count, nil)
+	extensions := make([]vk.ExtensionProperties, count, context.temp_allocator)
+	vk.EnumerateDeviceExtensionProperties(physical, nil, &count, raw_data(extensions))
+	if !vk_has_extension(extensions, vk.KHR_SWAPCHAIN_EXTENSION_NAME) do return "it cannot present"
+	vk.GetPhysicalDeviceQueueFamilyProperties(physical, &count, nil)
+	families := make([]vk.QueueFamilyProperties, count, context.temp_allocator)
+	vk.GetPhysicalDeviceQueueFamilyProperties(physical, &count, raw_data(families))
+	for f, i in families {
+		if f.queueFlags >= {.GRAPHICS, .COMPUTE} && sdl.Vulkan_GetPresentationSupport(vk_state.instance, physical, u32(i)) {
+			family^ = u32(i)
+			return ""
+		}
+	}
+	return "no queue both draws and presents"
+}
+
+// Creates the instance and the device, or returns false with the reason logged and kept for
+// backend_error (and the app then says why it cannot start).
+vk_create_device :: proc(debug: bool, want_anisotropy: bool) -> bool {
+	vk.load_proc_addresses_global(rawptr(sdl.Vulkan_GetVkGetInstanceProcAddr()))
+	if vk.CreateInstance == nil {
+		vk_fail("the loader has no vkCreateInstance")
+		return false
+	}
+	count: u32
+	sdl_extensions := sdl.Vulkan_GetInstanceExtensions(&count)
+	extensions := make([dynamic]cstring, context.temp_allocator)
+	for i in 0 ..< count do append(&extensions, sdl_extensions[i])
+	layers := make([dynamic]cstring, context.temp_allocator)
+	validation := debug && vk_has_layer("VK_LAYER_KHRONOS_validation")
+	vk_state.validation = validation
+	if validation {
+		append(&layers, "VK_LAYER_KHRONOS_validation")
+		append(&extensions, vk.EXT_DEBUG_UTILS_EXTENSION_NAME)
+		append(&extensions, vk.EXT_VALIDATION_FEATURES_EXTENSION_NAME)
+	} else if debug {
+		log.warn("Vulkan: the validation layer is not installed; running without it")
+	}
+	// Names for capture tools (RenderDoc, Nsight) wherever the loader offers them, as
+	// SDL_GPU does; they cost nothing when no tool is attached.
+	vk_state.labels = validation
+	if !validation {
+		instance_count: u32
+		if vk.EnumerateInstanceExtensionProperties(nil, &instance_count, nil) == .SUCCESS {
+			offered := make([]vk.ExtensionProperties, instance_count, context.temp_allocator)
+			if vk.EnumerateInstanceExtensionProperties(nil, &instance_count, raw_data(offered)) == .SUCCESS && vk_has_extension(offered, vk.EXT_DEBUG_UTILS_EXTENSION_NAME) {
+				append(&extensions, vk.EXT_DEBUG_UTILS_EXTENSION_NAME)
+				vk_state.labels = true
+			}
+		}
+	}
+	app := vk.ApplicationInfo {
+		sType            = .APPLICATION_INFO,
+		pApplicationName = "Sculpt",
+		pEngineName      = "Sculpt",
+		apiVersion       = vk.API_VERSION_1_3,
+	}
+	// Synchronization validation too: a missing barrier is the backend's likeliest bug.
+	sync_validation := vk.ValidationFeatureEnableEXT.SYNCHRONIZATION_VALIDATION
+	validation_features := vk.ValidationFeaturesEXT {
+		sType                         = .VALIDATION_FEATURES_EXT,
+		enabledValidationFeatureCount = 1,
+		pEnabledValidationFeatures    = &sync_validation,
+	}
+	instance_info := vk.InstanceCreateInfo {
+		sType                   = .INSTANCE_CREATE_INFO,
+		pNext                   = &validation_features if validation else nil,
+		pApplicationInfo        = &app,
+		enabledLayerCount       = u32(len(layers)),
+		ppEnabledLayerNames     = raw_data(layers),
+		enabledExtensionCount   = u32(len(extensions)),
+		ppEnabledExtensionNames = raw_data(extensions),
+	}
+	if r := vk.CreateInstance(&instance_info, nil, &vk_state.instance); r != .SUCCESS {
+		vk_fail("vkCreateInstance failed (%v)", r)
+		return false
+	}
+	vk.load_proc_addresses_instance(vk_state.instance)
+	if validation {
+		vk_debug_context = context
+		messenger := vk.DebugUtilsMessengerCreateInfoEXT {
+			sType           = .DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+			messageSeverity = {.WARNING, .ERROR},
+			messageType     = {.GENERAL, .VALIDATION, .PERFORMANCE},
+			pfnUserCallback = vk_debug_callback,
+			pUserData       = &vk_debug_context,
+		}
+		if vk.CreateDebugUtilsMessengerEXT(vk_state.instance, &messenger, nil, &vk_state.messenger) != .SUCCESS {
+			log.warn("Vulkan: no debug messenger; validation messages go unseen")
+		}
+	}
+
+	// The first discrete GPU that qualifies, else the first that does.
+	vk.EnumeratePhysicalDevices(vk_state.instance, &count, nil)
+	physicals := make([]vk.PhysicalDevice, count, context.temp_allocator)
+	vk.EnumeratePhysicalDevices(vk_state.instance, &count, raw_data(physicals))
+	best_rank := -1
+	reason := "no Vulkan device"
+	for physical in physicals {
+		family: u32
+		why := vk_unfit(physical, &family)
+		if why != "" {
+			props: vk.PhysicalDeviceProperties
+			vk.GetPhysicalDeviceProperties(physical, &props)
+			reason = fmt.tprintf("%s: %s", strings.truncate_to_byte(string(props.deviceName[:]), 0), why)
+			continue
+		}
+		props: vk.PhysicalDeviceProperties
+		vk.GetPhysicalDeviceProperties(physical, &props)
+		rank := 2 if props.deviceType == .DISCRETE_GPU else 1 if props.deviceType == .INTEGRATED_GPU else 0
+		if rank > best_rank {
+			best_rank = rank
+			vk_state.physical, vk_state.family = physical, family
+		}
+	}
+	if vk_state.physical == nil {
+		vk_fail("no device qualifies (%s)", reason)
+		vk_destroy_instance()
+		return false
+	}
+
+	// Present timing (Gpu_Caps.present_timing): present_wait where offered, which also
+	// paces the frames queued for the screen; otherwise display timing, whose times are
+	// CLOCK_MONOTONIC's and so read only on Linux and Android (vk_clock_linux.odin).
+	vk.EnumerateDeviceExtensionProperties(vk_state.physical, nil, &count, nil)
+	offered := make([]vk.ExtensionProperties, count, context.temp_allocator)
+	vk.EnumerateDeviceExtensionProperties(vk_state.physical, nil, &count, raw_data(offered))
+	have_wait := vk.PhysicalDevicePresentWaitFeaturesKHR{sType = .PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR}
+	have_id := vk.PhysicalDevicePresentIdFeaturesKHR{sType = .PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR, pNext = &have_wait}
+	have := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2}
+	if vk_has_extension(offered, vk.KHR_PRESENT_ID_EXTENSION_NAME) && vk_has_extension(offered, vk.KHR_PRESENT_WAIT_EXTENSION_NAME) do have.pNext = &have_id
+	vk.GetPhysicalDeviceFeatures2(vk_state.physical, &have)
+	device_extensions := make([dynamic]cstring, context.temp_allocator)
+	append(&device_extensions, vk.KHR_SWAPCHAIN_EXTENSION_NAME)
+	want_id := vk.PhysicalDevicePresentIdFeaturesKHR{sType = .PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR, presentId = true}
+	want_wait := vk.PhysicalDevicePresentWaitFeaturesKHR{sType = .PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR, pNext = &want_id, presentWait = true}
+	if have_id.presentId && have_wait.presentWait {
+		append(&device_extensions, vk.KHR_PRESENT_ID_EXTENSION_NAME, vk.KHR_PRESENT_WAIT_EXTENSION_NAME)
+		vk_state.present_timing = .Present_Wait
+	} else if VK_CLOCK_MONOTONIC && vk_has_extension(offered, vk.GOOGLE_DISPLAY_TIMING_EXTENSION_NAME) {
+		append(&device_extensions, vk.GOOGLE_DISPLAY_TIMING_EXTENSION_NAME)
+		vk_state.present_timing = .Display_Timing
+	}
+	// Host query reset lets GPU timestamps reset their pools without a command buffer.
+	have12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES}
+	have_chain := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &have12}
+	vk.GetPhysicalDeviceFeatures2(vk_state.physical, &have_chain)
+	f12 := vk.PhysicalDeviceVulkan12Features{sType = .PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, timelineSemaphore = true, hostQueryReset = have12.hostQueryReset, drawIndirectCount = have12.drawIndirectCount}
+	// Arrays of sampled textures a kernel indexes per pixel (bind_compute_texture_array):
+	// sized when the array is bound, every element written, so not partially bound.
+	arrays := have12.runtimeDescriptorArray && have12.descriptorBindingVariableDescriptorCount && have12.shaderSampledImageArrayNonUniformIndexing
+	f12.runtimeDescriptorArray, f12.descriptorBindingVariableDescriptorCount, f12.shaderSampledImageArrayNonUniformIndexing = arrays, arrays, arrays
+	f13 := vk.PhysicalDeviceVulkan13Features{sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, pNext = &f12, dynamicRendering = true, synchronization2 = true}
+	features := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &f13}
+	if vk_state.present_timing == .Present_Wait do f12.pNext = &want_wait
+	// Ray queries against acceleration structures (vk_accel.odin), where the device offers
+	// all three extensions, buffer device addresses and 64-bit integers in shaders (a kernel
+	// reads a mesh's indices through their address). Only the features used are asked for:
+	// no host builds, indirect builds or capture replay.
+	want_accel := vk.PhysicalDeviceAccelerationStructureFeaturesKHR{sType = .PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR, accelerationStructure = true}
+	want_rq := vk.PhysicalDeviceRayQueryFeaturesKHR{sType = .PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR, pNext = &want_accel, rayQuery = true}
+	if have12.bufferDeviceAddress && have.features.shaderInt64 && vk_has_extension(offered, vk.KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) && vk_has_extension(offered, vk.KHR_RAY_QUERY_EXTENSION_NAME) && vk_has_extension(offered, vk.KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) {
+		have_accel := vk.PhysicalDeviceAccelerationStructureFeaturesKHR{sType = .PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR}
+		have_rq := vk.PhysicalDeviceRayQueryFeaturesKHR{sType = .PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR, pNext = &have_accel}
+		rq_chain := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &have_rq}
+		vk.GetPhysicalDeviceFeatures2(vk_state.physical, &rq_chain)
+		if have_accel.accelerationStructure && have_rq.rayQuery {
+			append(&device_extensions, vk.KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, vk.KHR_RAY_QUERY_EXTENSION_NAME, vk.KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME)
+			want_accel.pNext = f12.pNext
+			f12.pNext = &want_rq
+			f12.bufferDeviceAddress = true
+			features.features.shaderInt64 = true
+			vk_state.ray_query = true
+		}
+	}
+	// Where each pixel lies between its triangle's corners, read by the wireframe drawn in
+	// the shading (mesh_wire.frag.slang, Gpu_Caps.barycentric): one pass instead of the
+	// triangles again as lines. It also reads the triangle's number, to leave out a quad's
+	// diagonal: the primitive id, which the fragment stage has with geometryShader, plus
+	// the draw's first instance, which indirect draws carry with drawIndirectFirstInstance.
+	want_bary := vk.PhysicalDeviceFragmentShaderBarycentricFeaturesKHR{sType = .PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR, fragmentShaderBarycentric = true}
+	if have.features.geometryShader && have.features.drawIndirectFirstInstance && vk_has_extension(offered, vk.KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) {
+		have_bary := vk.PhysicalDeviceFragmentShaderBarycentricFeaturesKHR{sType = .PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR}
+		bary_chain := vk.PhysicalDeviceFeatures2{sType = .PHYSICAL_DEVICE_FEATURES_2, pNext = &have_bary}
+		vk.GetPhysicalDeviceFeatures2(vk_state.physical, &bary_chain)
+		if have_bary.fragmentShaderBarycentric {
+			append(&device_extensions, vk.KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME)
+			want_bary.pNext = f12.pNext
+			f12.pNext = &want_bary
+			features.features.geometryShader = true
+			vk_state.barycentric = true
+		}
+	}
+	// The optional features SDL_GPU asks for, each where offered.
+	features.features.independentBlend = true
+	features.features.imageCubeArray = have.features.imageCubeArray
+	features.features.depthClamp = have.features.depthClamp
+	features.features.shaderClipDistance = have.features.shaderClipDistance
+	features.features.drawIndirectFirstInstance = have.features.drawIndirectFirstInstance
+	features.features.samplerAnisotropy = have.features.samplerAnisotropy && b32(want_anisotropy)
+	features.features.fillModeNonSolid = have.features.fillModeNonSolid
+	features.features.multiDrawIndirect = have.features.multiDrawIndirect
+	vk_state.multi_draw = bool(have.features.multiDrawIndirect)
+	vk_state.indirect_count = bool(have12.drawIndirectCount)
+	vk_state.wireframe = bool(have.features.fillModeNonSolid)
+	vk_state.depth_clamp = bool(have.features.depthClamp)
+	vk_state.anisotropy = bool(features.features.samplerAnisotropy)
+	// A second queue of the family for compute where it has one, at a lower priority so
+	// the frame keeps precedence where the driver honours it.
+	family_count: u32
+	vk.GetPhysicalDeviceQueueFamilyProperties(vk_state.physical, &family_count, nil)
+	families := make([]vk.QueueFamilyProperties, family_count, context.temp_allocator)
+	vk.GetPhysicalDeviceQueueFamilyProperties(vk_state.physical, &family_count, raw_data(families))
+	priorities := [2]f32{1, 0.5}
+	queue := vk.DeviceQueueCreateInfo {
+		sType            = .DEVICE_QUEUE_CREATE_INFO,
+		queueFamilyIndex = vk_state.family,
+		queueCount       = 2 if families[vk_state.family].queueCount >= 2 else 1,
+		pQueuePriorities = &priorities[0],
+	}
+	device_info := vk.DeviceCreateInfo {
+		sType                   = .DEVICE_CREATE_INFO,
+		pNext                   = &features,
+		queueCreateInfoCount    = 1,
+		pQueueCreateInfos       = &queue,
+		enabledExtensionCount   = u32(len(device_extensions)),
+		ppEnabledExtensionNames = raw_data(device_extensions),
+	}
+	if r := vk.CreateDevice(vk_state.physical, &device_info, nil, &vk_state.device); r != .SUCCESS {
+		vk_fail("vkCreateDevice failed (%v)", r)
+		vk_destroy_instance()
+		return false
+	}
+	vk.load_proc_addresses_device(vk_state.device)
+	vk.GetDeviceQueue(vk_state.device, vk_state.family, 0, &vk_state.queue)
+	vk_state.compute_queue, vk_state.async_compute = vk_state.queue, .Same_Queue
+	if queue.queueCount == 2 {
+		vk.GetDeviceQueue(vk_state.device, vk_state.family, 1, &vk_state.compute_queue)
+		vk_state.async_compute = .Second_Queue
+	}
+
+	vk_state.driver = {sType = .PHYSICAL_DEVICE_DRIVER_PROPERTIES}
+	props2 := vk.PhysicalDeviceProperties2{sType = .PHYSICAL_DEVICE_PROPERTIES_2, pNext = &vk_state.driver}
+	vk.GetPhysicalDeviceProperties2(vk_state.physical, &props2)
+	if vk_state.ray_query {
+		accel_props := vk.PhysicalDeviceAccelerationStructurePropertiesKHR{sType = .PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR}
+		props_chain := vk.PhysicalDeviceProperties2{sType = .PHYSICAL_DEVICE_PROPERTIES_2, pNext = &accel_props}
+		vk.GetPhysicalDeviceProperties2(vk_state.physical, &props_chain)
+		vk_state.scratch_align = max(accel_props.minAccelerationStructureScratchOffsetAlignment, 1)
+	}
+	vk_state.properties = props2.properties
+	if arrays {
+		// Room is left for the 16 named slots a stage may also bind.
+		l := vk_state.properties.limits
+		room := min(l.maxPerStageDescriptorSamplers, l.maxPerStageDescriptorSampledImages, l.maxPerStageResources, l.maxDescriptorSetSamplers, l.maxDescriptorSetSampledImages)
+		vk_state.texture_arrays = min(VK_TEXTURE_ARRAY_MAX, room - 16) if room > 16 else 0
+	}
+	vk.GetPhysicalDeviceMemoryProperties(vk_state.physical, &vk_state.memory)
+	vk_state.shared_type, vk_state.shared_buffers = vk_pick_shared_type(vk_state.memory)
+	for i in 0 ..< vk_state.memory.memoryTypeCount do if .LAZILY_ALLOCATED in vk_state.memory.memoryTypes[i].propertyFlags do vk_state.lazy_memory = true
+
+	timeline_type := vk.SemaphoreTypeCreateInfo{sType = .SEMAPHORE_TYPE_CREATE_INFO, semaphoreType = .TIMELINE}
+	semaphore := vk.SemaphoreCreateInfo{sType = .SEMAPHORE_CREATE_INFO, pNext = &timeline_type}
+	pool := vk.CommandPoolCreateInfo{sType = .COMMAND_POOL_CREATE_INFO, flags = {.RESET_COMMAND_BUFFER}, queueFamilyIndex = vk_state.family}
+	if vk.CreateSemaphore(vk_state.device, &semaphore, nil, &vk_state.timeline) != .SUCCESS || vk.CreateSemaphore(vk_state.device, &semaphore, nil, &vk_state.compute_timeline) != .SUCCESS || vk.CreateCommandPool(vk_state.device, &pool, nil, &vk_state.command_pool) != .SUCCESS {
+		vk_fail("the timeline semaphores or command pool could not be made")
+		vk_destroy_device()
+		return false
+	}
+
+	device_info_set(strings.truncate_to_byte(string(vk_state.properties.deviceName[:]), 0), strings.truncate_to_byte(string(vk_state.driver.driverInfo[:]), 0))
+	vk_state.frames = FRAMES_IN_FLIGHT_DEFAULT
+	if have12.hostQueryReset do _ = vk_timing_init(families[vk_state.family].timestampValidBits)
+	log.infof("Vulkan: present timing: %v; GPU timestamps: %v; async compute: %v; ray query: %v; barycentrics: %v", vk_state.present_timing, vk_state.timing.slots[0].pool != 0, vk_state.async_compute, vk_state.ray_query, vk_state.barycentric)
+	return true
+}
+
+@(private = "file")
+vk_destroy_instance :: proc() {
+	if vk_state.messenger != 0 do vk.DestroyDebugUtilsMessengerEXT(vk_state.instance, vk_state.messenger, nil)
+	if vk_state.instance != nil do vk.DestroyInstance(vk_state.instance, nil)
+	vk_state = {}
+}
+
+// Waits for the GPU, then frees everything the backend still holds.
+vk_destroy_device :: proc() {
+	if vk_state.device == nil {
+		vk_destroy_instance()
+		return
+	}
+	vk_wait_for_idle()
+	for len(vk_state.windows) > 0 do vk_release_window(vk_state.windows[0].window)
+	delete(vk_state.windows)
+	for cmd in vk_state.free_cmds do vk_cmd_free(cmd)
+	delete(vk_state.free_cmds)
+	delete(vk_state.in_flight)
+	for _, layout in vk_state.graphics_layouts {
+		vk.DestroyPipelineLayout(vk_state.device, layout.layout, nil)
+		free(layout)
+	}
+	for _, layout in vk_state.compute_layouts {
+		vk.DestroyPipelineLayout(vk_state.device, layout.layout, nil)
+		free(layout)
+	}
+	for _, layout in vk_state.set_layouts do vk.DestroyDescriptorSetLayout(vk_state.device, layout, nil)
+	delete(vk_state.graphics_layouts)
+	delete(vk_state.compute_layouts)
+	delete(vk_state.set_layouts)
+	vk_timing_destroy()
+	vk_accel_destroy()
+	vk_memory_destroy()
+	if vk_state.command_pool != 0 do vk.DestroyCommandPool(vk_state.device, vk_state.command_pool, nil)
+	if vk_state.timeline != 0 do vk.DestroySemaphore(vk_state.device, vk_state.timeline, nil)
+	if vk_state.compute_timeline != 0 do vk.DestroySemaphore(vk_state.device, vk_state.compute_timeline, nil)
+	vk.DestroyDevice(vk_state.device, nil)
+	vk_destroy_instance()
+}
+
+// The Vulkan format of each of the gpu package's formats.
+vk_format :: proc(format: Format) -> vk.Format {
+	#partial switch format {
+	case .RGBA8_Unorm:      return .R8G8B8A8_UNORM
+	case .RGBA8_Srgb: return .R8G8B8A8_SRGB
+	case .BGRA8_Unorm:      return .B8G8R8A8_UNORM
+	case .BGRA8_Srgb: return .B8G8R8A8_SRGB
+	case .R8_Unorm:            return .R8_UNORM
+	case .RG8_Unorm:          return .R8G8_UNORM
+	case .R16_Float:           return .R16_SFLOAT
+	case .RG16_Float:        return .R16G16_SFLOAT
+	case .RGBA16_Float:  return .R16G16B16A16_SFLOAT
+	case .RG11B10_Float:    return .B10G11R11_UFLOAT_PACK32
+	case .R32_Float:           return .R32_SFLOAT
+	case .RG32_Float:        return .R32G32_SFLOAT
+	case .RGBA32_Float:  return .R32G32B32A32_SFLOAT
+	case .R32_Uint:            return .R32_UINT
+	case .RGB10A2_Unorm:   return .A2B10G10R10_UNORM_PACK32
+	case .D16_Unorm:           return .D16_UNORM
+	case .D24_Unorm:           return .X8_D24_UNORM_PACK32
+	case .D32_Float:           return .D32_SFLOAT
+	case .D24_Unorm_S8:   return .D24_UNORM_S8_UINT
+	case .D32_Float_S8:   return .D32_SFLOAT_S8_UINT
+	}
+	return .UNDEFINED
+}
+
+vk_texture_supports_format :: proc(format: Format, type: Texture_Type, usage: Texture_Usages) -> bool {
+	f := vk_format(format)
+	if f == .UNDEFINED do return false
+	flags: vk.ImageUsageFlags
+	if .Sampled in usage do flags += {.SAMPLED}
+	if .Color_Target in usage do flags += {.COLOR_ATTACHMENT}
+	if .Depth_Target in usage do flags += {.DEPTH_STENCIL_ATTACHMENT}
+	if usage & {.Graphics_Storage_Read, .Storage_Read, .Storage_Write, .Storage_Read_Write} != {} do flags += {.STORAGE}
+	create: vk.ImageCreateFlags
+	if type == .Cube || type == .Cube_Array do create += {.CUBE_COMPATIBLE}
+	props: vk.ImageFormatProperties
+	return vk.GetPhysicalDeviceImageFormatProperties(vk_state.physical, f, .D3 if type == .D3 else .D2, .OPTIMAL, flags, create, &props) == .SUCCESS
+}
+
+vk_texture_supports_sample_count :: proc(format: Format, sample_count: Sample_Count) -> bool {
+	limits := &vk_state.properties.limits
+	counts := limits.framebufferDepthSampleCounts if format_is_depth(format) else limits.framebufferColorSampleCounts
+	return vk_samples(sample_count) <= counts
+}
+
+vk_samples :: proc(count: Sample_Count) -> vk.SampleCountFlags {
+	switch count {
+	case ._1: return {._1}
+	case ._2: return {._2}
+	case ._4: return {._4}
+	case ._8: return {._8}
+	}
+	return {._1}
+}
+
+// A memory type among `bits` with every property in `want`, preferring one that also has
+// those in `prefer`.
+vk_memory_type :: proc(bits: u32, want, prefer: vk.MemoryPropertyFlags) -> (u32, bool) {
+	for pass in 0 ..< 2 {
+		need := want + prefer if pass == 0 else want
+		for i in 0 ..< vk_state.memory.memoryTypeCount {
+			if bits & (1 << i) != 0 && vk_state.memory.memoryTypes[i].propertyFlags >= need do return i, true
+		}
+	}
+	return 0, false
+}
+
+// Memory for `reqs` of a type with every property in `want`, preferring `prefer`
+// (vk_memory.odin): `device_address` for a buffer whose address a shader or an acceleration
+// structure build reads, which the memory must allow, `image` for an image's, and `dedicated`
+// for memory of its own.
+vk_allocate :: proc(reqs: vk.MemoryRequirements, want, prefer: vk.MemoryPropertyFlags, device_address := false, image := false, dedicated := false) -> (Vk_Memory, bool) {
+	index, ok := vk_memory_type(reqs.memoryTypeBits, want, prefer)
+	if !ok do return {}, false
+	return vk_memory_take(reqs, index, device_address, image, dedicated)
+}
+
+// Records the GPU's progress on both queues and recycles the command buffers it has
+// finished, each against its own queue's timeline.
+vk_collect :: proc() {
+	value: u64
+	if vk.GetSemaphoreCounterValue(vk_state.device, vk_state.timeline, &value) == .SUCCESS do vk_state.completed = value
+	if vk_state.compute_submitted > 0 && vk.GetSemaphoreCounterValue(vk_state.device, vk_state.compute_timeline, &value) == .SUCCESS do vk_state.compute_completed = value
+	for i := 0; i < len(vk_state.in_flight); {
+		cmd := vk_state.in_flight[i]
+		if !vk_serial_done(cmd.queue, cmd.serial) {
+			i += 1
+			continue
+		}
+		ordered_remove(&vk_state.in_flight, i)
+		vk_cmd_recycle(cmd)
+	}
+}
+
+// Whether `queue` has finished its submission `serial`, as last collected.
+vk_serial_done :: proc(queue: Queue, serial: u64) -> bool {
+	return serial <= (vk_state.completed if queue == .Graphics else vk_state.compute_completed)
+}
+
+// Waits for submission `serial` of `queue`.
+vk_wait_serial :: proc(serial: u64, queue := Queue.Graphics) -> bool {
+	if vk_serial_done(queue, serial) do return true
+	value := serial
+	timeline := vk_state.timeline if queue == .Graphics else vk_state.compute_timeline
+	info := vk.SemaphoreWaitInfo{sType = .SEMAPHORE_WAIT_INFO, semaphoreCount = 1, pSemaphores = &timeline, pValues = &value}
+	ok := vk.WaitSemaphores(vk_state.device, &info, max(u64)) == .SUCCESS
+	vk_collect()
+	return ok
+}
+
+vk_wait_for_idle :: proc() -> bool {
+	ok := vk_wait_serial(vk_state.submitted)
+	ok = vk_wait_serial(vk_state.compute_submitted, .Compute) && ok
+	vk_collect()
+	return ok
+}
+
+// The memory type mesh buffers are filled through directly: device-local, host-visible
+// and coherent, on a heap at least half the size of the largest device-local one. That is
+// every heap of a unified-memory GPU (Android's, integrated ones, llvmpipe) and the
+// whole of video memory under Resizable BAR; a desktop without it maps only a 256 MB
+// window, which fails the size test and keeps the copies. Protected memory and AMD's
+// uncached memory are left out.
+vk_pick_shared_type :: proc(memory: vk.PhysicalDeviceMemoryProperties) -> (index: u32, ok: bool) {
+	largest: vk.DeviceSize
+	for i in 0 ..< memory.memoryHeapCount {
+		h := memory.memoryHeaps[i]
+		if .DEVICE_LOCAL in h.flags do largest = max(largest, h.size)
+	}
+	want := vk.MemoryPropertyFlags{.DEVICE_LOCAL, .HOST_VISIBLE, .HOST_COHERENT}
+	avoid := vk.MemoryPropertyFlags{.PROTECTED, .DEVICE_UNCACHED_AMD}
+	for i in 0 ..< memory.memoryTypeCount {
+		t := memory.memoryTypes[i]
+		if t.propertyFlags & want != want || t.propertyFlags & avoid != {} do continue
+		if 2 * memory.memoryHeaps[t.heapIndex].size >= largest do return i, true
+	}
+	return 0, false
+}

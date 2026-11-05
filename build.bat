@@ -31,8 +31,6 @@ rem And ufbx for FBX import, with the app's shim round it (scripts\build_ufbx.py
 if not exist "%DEPS%\ufbx\ufbx.lib" ( echo ufbx missing: run scripts\setup_deps.bat, which builds deps\ufbx & exit /b 1 )
 rem A shim changed since the library was built is compiled again (cl must be on the PATH then).
 python "%ROOT%scripts\build_ufbx.py" >nul || ( echo ufbx: src\fbx\fbx_shim.c changed and rebuilding deps\ufbx failed: run python scripts\build_ufbx.py from a developer prompt & exit /b 1 )
-rem And AutoRemesher's core for Quad Remesh, with its boundary (scripts\build_autoremesher.py).
-if not exist "%DEPS%\autoremesher\autoremesher.lib" ( echo AutoRemesher missing: run scripts\setup_deps.bat, which builds deps\autoremesher & exit /b 1 )
 
 rem Recompile the Slang shaders when slangc is in deps\slang\bin or on the PATH (the Vulkan SDK
 rem installs it); otherwise use the committed .spv files. build.sh describes the rules.
@@ -62,6 +60,7 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\bench" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\fbx" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\quadmesh" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\sparse" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\geom" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\camera" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\gizmo" -no-entry-point %COMMON% || exit /b 1
@@ -69,6 +68,7 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\luau" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\png_write" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\poly" -no-entry-point %COMMON% || exit /b 1
+"%ODIN%" check "%ROOT%src\gpu" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\render" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\sculpt" -no-entry-point %COMMON% || exit /b 1
 "%ODIN%" check "%ROOT%src\ui" -no-entry-point %COMMON% || exit /b 1
@@ -81,12 +81,15 @@ rem Library packages have no main, hence -no-entry-point; it is harmless on the 
 "%ODIN%" check "%ROOT%src\send" -no-entry-point %COMMON% || exit /b 1
 python "%ROOT%scripts\agents_sync.py" --check || exit /b 1
 python "%ROOT%scripts\boundary_check.py" || exit /b 1
+rem The interface's computed qualities (contrast, literal sizes, shared icons) only get better.
+python "%ROOT%scripts\ui_audit.py" --quiet || exit /b 1
 python "%ROOT%scripts\shaders_msl.py" --check || exit /b 1
 python "%ROOT%scripts\shaders_wgsl.py" --check || exit /b 1
+python "%ROOT%scripts\shaders_gen.py" --check || exit /b 1
 rem The web version compiles the engine for js, where a core:os or core:thread call on a
 rem sculpt path would fail; checking it here keeps that from going unnoticed.
 python "%ROOT%scripts\web_build.py" --check || exit /b 1
-echo check: 21 packages type-check, agent mirror current, only render names the GPU API and only the platform files import SDL, Metal and WGSL shaders current, the web version type-checks
+echo check: 23 packages type-check, agent mirror current, only src/gpu talks to the GPU and only the platform files import SDL, Metal and WGSL shaders and their descriptions current, the web version type-checks
 exit /b 0
 
 :web
@@ -132,7 +135,10 @@ rem A Vulkan validation message fails it.
 exit /b 0
 
 :release
-"%ODIN%" build "%ROOT%src\app" -out:"%ROOT%build\sculpt.exe" -o:speed -no-bounds-check %COMMON% || exit /b 1
+rem The linker map (build\sculpt.map) names every procedure's address without changing the
+rem code, so scripts\crash_symbolize.py can name a crash log's frames; -debug would also
+rem define ODIN_DEBUG, which turns on the tracking allocator.
+"%ODIN%" build "%ROOT%src\app" -out:"%ROOT%build\sculpt.exe" -o:speed -no-bounds-check %COMMON% -extra-linker-flags:"/MAP:%ROOT%build\sculpt.map" || exit /b 1
 exit /b 0
 
 :test
@@ -151,6 +157,7 @@ exit /b 0
 "%ODIN%" test "%ROOT%src\luau" -out:"%ROOT%build\test_luau.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\usd" -out:"%ROOT%build\test_usd.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\fbx" -out:"%ROOT%build\test_fbx.exe" %COMMON% || exit /b 1
+"%ODIN%" test "%ROOT%src\sparse" -out:"%ROOT%build\test_sparse.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\quadmesh" -out:"%ROOT%build\test_quadmesh.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\retopo" -out:"%ROOT%build\test_retopo.exe" %COMMON% || exit /b 1
 "%ODIN%" test "%ROOT%src\send" -out:"%ROOT%build\test_send.exe" %COMMON% || exit /b 1
@@ -238,11 +245,13 @@ rem Each name.stage.slang to the name.stage.spv the renderer embeds (build.sh ha
 for %%s in ("%ROOT%src\render\shaders\*.vert.slang") do call :shader "%%s" vertex || exit /b 1
 for %%s in ("%ROOT%src\render\shaders\*.frag.slang") do call :shader "%%s" fragment || exit /b 1
 for %%s in ("%ROOT%src\render\shaders\*.comp.slang") do call :shader "%%s" compute || exit /b 1
-rem Each new .spv's Metal source for the iPad build: the .msl when SDL_shadercross is built, a ray
-rem query kernel's .metal with slangc alone (build.sh says more).
+rem Each new .spv's Metal source for the Mac and iPad builds, made by slangc with its slot table
+rem (build.sh says more).
 python "%ROOT%scripts\shaders_msl.py" || exit /b 1
 rem And its WGSL for the web version, likewise checked.
 python "%ROOT%scripts\shaders_wgsl.py" || exit /b 1
+rem And its description in src\render\shaders_gen.odin from slangc's reflection, likewise checked.
+python "%ROOT%scripts\shaders_gen.py" || exit /b 1
 exit /b 0
 
 :shader

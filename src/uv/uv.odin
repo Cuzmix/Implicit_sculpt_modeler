@@ -53,7 +53,6 @@ clone :: proc(u: Uvs, allocator := context.allocator) -> (c: Uvs) {
 }
 
 // Room for `triangles`, every coordinate zero, no seams, one island, nothing pinned.
-@(private)
 make_uvs :: proc(triangles: int, allocator := context.allocator) -> (u: Uvs) {
 	u.corner = make([][3][2]f32, triangles, allocator)
 	u.seam = make([]Seams, triangles, allocator)

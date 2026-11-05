@@ -6,7 +6,6 @@ import "core:strings"
 import "core:time"
 
 import "../geom"
-import "../render"
 import "../sculpt"
 import "../ui"
 
@@ -154,7 +153,6 @@ object_repair :: proc(app: ^App, obj: ^Object, cmd: Scene_Command) -> (changed, 
 	}
 	free_all(context.temp_allocator)
 	made := time.tick_now()
-	render.wait_idle(&app.renderer)
 	if !object_rebuild(app, obj, mesh, made, normals = true, surface = surface) do return true, false
 	app.repair.ms = time.duration_milliseconds(time.tick_diff(start, made))
 	repair_done(app, obj, kind, start, what)
@@ -175,9 +173,9 @@ repair_done :: proc(app: ^App, obj: ^Object, kind: Repair_Kind, start: time.Tick
 // after the highest), as ZBrush's Close Holes gives them, even on an object that had
 // none. Heap memory, or nil for what there is none of.
 repair_surface :: proc(s: ^sculpt.Sculptor, from: geom.Repair_Map) -> (surface: Surface) {
-	if s.color != nil {
+	if shown := sculpt.sculptor_paint_shown(s); shown != nil {
 		surface.color = make([]sculpt.Color, len(from.vertex_from))
-		for v, i in from.vertex_from do surface.color[i] = s.color[v]
+		for v, i in from.vertex_from do surface.color[i] = shown[v]
 	}
 	groups := sculpt.sculptor_groups(s)
 	capped := false
@@ -268,20 +266,19 @@ plural :: proc(n: int) -> string {return "" if n == 1 else "s"}
 // repairs; Close holes and Delete hidden in sight, the rest under More.
 kit_topology :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	axes := [3]string{"X", "Y", "Z"}
-	if picked := ui.tabs(ctx, "mirror axis", axes[:], int(app.ui.mirror_axis)); picked >= 0 do app.ui.mirror_axis = i32(picked)
-	_ = ui.switch_row(ctx, "Keep the - side", &app.ui.mirror_negative)
-	_ = command_button(app, .Mirror_Weld, tone = .Accent)
 	_ = command_button(app, .Close_Holes)
 	_ = command_button(app, .Delete_Hidden, tone = .Danger)
-	ui.paragraph(ctx, "Mirror and weld replaces one half with a mirror image of the other, across the object's own plane on the axis (the one symmetry uses). Close holes caps every opening with a surface as even as the one around it, each cap a polygroup of its own. Each rebuilds the object: levels and mask go; Ctrl+Z brings them back.")
+	ui.paragraph(ctx, "Close holes caps every opening with a surface as even as the one around it, each cap a polygroup of its own. It rebuilds the object: levels and mask go; Ctrl+Z brings them back. Mirroring is the Live stack card's Mirror, whose Apply welds the halves.")
 	if kit_more(app, .Mirror) {
 		_ = ui.switch_row(ctx, "Leave the largest hole", &app.ui.holes_leave_largest)
+		axes := [3]string{"X", "Y", "Z"}
+		if picked := ui.tabs(ctx, "mirror axis", axes[:], int(app.ui.mirror_axis)); picked >= 0 do app.ui.mirror_axis = i32(picked)
+		_ = ui.switch_row(ctx, "Keep the - side", &app.ui.mirror_negative)
 		_ = command_button(app, .Delete_Half, tone = .Danger)
 		_ = ui.slider(ctx, "Weld distance", &app.ui.weld_distance, WELD_DISTANCE_MIN, WELD_DISTANCE_MAX, .Logarithmic, fmt.tprintf("%.3g %%", 100 * app.ui.weld_distance))
 		_ = command_button(app, .Weld_Points)
 		kit_command_pair(app, .Check_Mesh, .Fix_Mesh)
-		ui.paragraph(ctx, "Delete half deletes the side the axis and Keep the - side do not keep, leaving it open for Mirror and weld or Close holes. Weld points joins vertices closer than the distance (a share of the object's size). Check mesh counts holes, pieces and broken edges; Fix mesh drops broken and duplicate triangles and turns the ones facing the wrong way.")
+		ui.paragraph(ctx, "Delete half deletes the side the axis and Keep the - side do not keep, leaving it open for the Live stack's Mirror or Close holes. Weld points joins vertices closer than the distance (a share of the object's size). Check mesh counts holes, pieces and broken edges; Fix mesh drops broken and duplicate triangles and turns the ones facing the wrong way.")
 		kit_more_end(app)
 	}
 	kit_last_result(app, .Mirror)

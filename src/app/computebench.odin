@@ -33,12 +33,6 @@ COMPUTEBENCH_ROUGHNESS :: 0.01
 COMPUTEBENCH_WEIGHT :: 0.5
 
 @(private = "file")
-Computebench_Gpu :: struct {
-	timing: render.Smooth_Timing,
-	ok:     bool,
-}
-
-@(private = "file")
 Computebench_Row :: struct {
 	vertices: int,
 	steps:    int,

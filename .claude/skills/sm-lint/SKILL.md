@@ -15,8 +15,8 @@ check` and `build.bat test` again. Report the items you could not verify.
   (`src/app/main.odin`).
 
 ## 2. Boundaries (the `import` lines)
-- `geom` imports only `core:` and `../jobs`; `uv` (UVs on any mesh) imports only `core:`, `geom` and `jobs`; `camera`, `gizmo` and `jobs` import nothing of ours; `zip` imports only `core:` (its tests use `../png_write` to deflate); `hdri` (panoramas in) imports only `core:` and `geom` (its tests also `../png_write`) and is imported only by `app`; `luau` (the Luau binding) imports only `core:` and is imported only by `app`; `usd` (USD in) imports only `core:`, `geom` and `zip` and is imported only by `app`; `fbx` (FBX in, the ufbx binding) imports only `core:` and `geom` and is imported only by `app`; `quadmesh` (the AutoRemesher binding) imports only `core:`, `geom` and `jobs` and is imported only by `app`, `retopo` and `bench` (`--quadremesh`); `retopo` (Quad Remesh's work) imports only `core:`, `geom`, `jobs`, `quadmesh` and `sculpt` and is imported only by `app` and `bench`; `sculpt`, `voxel` and `poly` import `geom`
-  and `jobs` (`poly` never imports `sculpt`; `sculpt` may import `poly`); `render` imports `geom` and is, with `app`, the only package importing `vendor:sdl3`; `bench` imports `camera`, `geom`, `jobs`, `quadmesh`, `sculpt`, `voxel` and never `render` or `app`; `ui` imports only `core:`, `vendor:fontstash` and `vendor:stb/truetype`, never SDL or `render`. No new package without a design (AGENTS.md).
+- `geom` imports only `core:` and `../jobs`; `uv` (UVs on any mesh) imports only `core:`, `geom`, `jobs` and `sparse`; `camera`, `gizmo` and `jobs` import nothing of ours; `zip` imports only `core:` (its tests use `../png_write` to deflate); `hdri` (panoramas in) imports only `core:` and `geom` (its tests also `../png_write`) and is imported only by `app`; `luau` (the Luau binding) imports only `core:` and is imported only by `app`; `usd` (USD in) imports only `core:`, `geom` and `zip` and is imported only by `app`; `fbx` (FBX in, the ufbx binding) imports only `core:` and `geom` and is imported only by `app`; `quadmesh` (Quad Remesh's engine, AutoRemesher ported) imports only `core:`, `geom`, `jobs` and `sparse` and is imported only by `retopo` and `bench` (`--quadremesh`); `retopo` (Quad Remesh's work) imports only `core:`, `geom`, `jobs`, `quadmesh` and `sculpt` and is imported only by `app` and `bench`; `sculpt`, `voxel` and `poly` import `geom`
+  and `jobs` (`poly` never imports `sculpt`; `sculpt` may import `poly`); `render` imports `geom` and is, with `app`, the only package importing `vendor:sdl3`; `bench` imports `camera`, `geom`, `jobs`, `quadmesh`, `sculpt`, `uv`, `voxel` and never `render` or `app`; `ui` imports only `core:`, `vendor:fontstash` and `vendor:stb/truetype`, never SDL or `render`. No new package without a design (AGENTS.md).
 - No new package-level mutable state; no second way to do something that already has a way.
 
 ## 3. Lifetimes and memory
@@ -24,7 +24,7 @@ check` and `build.bat test` again. Report the items you could not verify.
   are cloned; nothing from `context.temp_allocator` outlives the frame or sits in a struct; the slices `sculptor_flush`
   and `sculptor_lod_update` return are used before the next call.
 - Per-job scratch uses `runtime.heap_allocator()` for both make and delete (sm-odin's trap table says why).
-- `render.wait_idle` (SDL's `WaitForGPUIdle` inside `render`) before destroying any buffer or texture that may be in flight; `viewport_target_resize` only where
+- No wait for the whole GPU before a release: `gpu.release_*` is safe with work in flight (`src/gpu/hal.odin` says why); `viewport_target_resize` only where
   the frame loop does it; every `sdl.*GPU*` result consumed.
 
 ## 4. Behaviour

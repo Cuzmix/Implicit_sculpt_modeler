@@ -12,12 +12,12 @@ import "../jobs"
 // symmetry. Remesh keeps it its own way, on a lattice even about the planes. The planes
 // are a Remesh_Mirror: each axis set is the plane through `center` square to it.
 
-// The part of `m` on the + side of each plane `mirror` names, cut along each in turn
-// (mesh_slice) and with `close` capped flat on each, with where each of its vertices and
-// triangles came from in `from` when asked (SLICE_NONE for a cap's). ok false, with
-// nothing made, when no plane is named or one leaves the mesh wholly on one side: there
-// is nothing to mirror across it.
-mirror_cut :: proc(m: Mesh, mirror: Remesh_Mirror, close: bool, pool: ^jobs.Pool, allocator := context.allocator, from: ^Slice_From = nil) -> (half: Mesh, ok: bool) {
+// The part of `m` on the + side of each plane `mirror` names, cut open along each in turn
+// (mesh_slice), with where each of its vertices and triangles came from in `from` when
+// asked (SLICE_NONE for a point the cut made). ok false, with nothing made, when no plane
+// is named or one leaves the mesh wholly on one side: there is nothing to mirror across
+// it.
+mirror_cut :: proc(m: Mesh, mirror: Remesh_Mirror, pool: ^jobs.Pool, allocator := context.allocator, from: ^Slice_From = nil) -> (half: Mesh, ok: bool) {
 	half = m
 	owned := false
 	sources: Slice_From
@@ -26,7 +26,7 @@ mirror_cut :: proc(m: Mesh, mirror: Remesh_Mirror, close: bool, pool: ^jobs.Pool
 		normal: Vec3
 		normal[a] = 1
 		step: Slice_From
-		front, back, cut := mesh_slice(half, mirror.center, normal, close, pool, allocator, &step if from != nil else nil)
+		front, back, cut := mesh_slice(half, mirror.center, normal, false, pool, allocator, &step if from != nil else nil)
 		mesh_destroy(&back)
 		if !cut {
 			if owned do mesh_destroy(&half)
@@ -50,7 +50,7 @@ mirror_cut :: proc(m: Mesh, mirror: Remesh_Mirror, close: bool, pool: ^jobs.Pool
 	return half, true
 }
 
-// Which planes of `mirror` each vertex of a cut half (mirror_cut without `close`) lies
+// Which planes of `mirror` each vertex of a cut half (mirror_cut) lies
 // on as its seam: bit a for the plane across axis a when the vertex ends an open edge
 // whose two ends both lie within `snap` of that plane. A vertex that only touches a plane
 // (a surface meeting it at a point) or ends an open edge of a hole elsewhere gets none.

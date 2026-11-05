@@ -99,8 +99,7 @@ empty_mesh :: proc() -> geom.Mesh {
 	return {positions = make([dynamic]Vec3), normals = make([dynamic]Vec3), indices = make([dynamic]u32)}
 }
 
-// Frees the object's clay and its GPU copy, if it has them. The caller waits for the GPU
-// first.
+// Frees the object's clay and its GPU copy, if it has them.
 voxel_part_free :: proc(app: ^App, obj: ^Object) {
 	vp := obj.voxel
 	if vp == nil do return
@@ -144,7 +143,6 @@ voxel_upload :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, vp: ^Voxel_Part) 
 	mask: []u8
 	if object_has_mask(app, obj) do mask = vp.clay.surface.mask[:]
 	if f.regrow || u32(len(m.positions)) > vp.gpu.vertex_capacity || u32(len(m.indices)) > vp.gpu.index_count {
-		render.wait_idle(&app.renderer)
 		render.mesh_buffers_destroy(&app.renderer, &vp.gpu)
 		vp.gpu = render.mesh_buffers_create(&app.renderer, m, mask) or_return
 		render.viewport_invalidate(&app.target)
@@ -186,7 +184,7 @@ voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: b
 // not, so the press does nothing in silence.
 voxel_brush_allowed :: proc(app: ^App, kind: sculpt.Brush_Kind, say: bool) -> bool {
 	if _, ok := voxel_brush_of({kind = kind}, {}); ok do return true
-	if say do report(app, Kit_Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Smooth, Flatten, Inflate and Mask; convert the object to a mesh for the rest", BRUSHES[kind].name)
+	if say do report(app, Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Smooth, Flatten, Inflate and Mask; convert the object to a mesh for the rest", BRUSHES[kind].name)
 	return false
 }
 
@@ -274,7 +272,6 @@ RESAMPLE_DOWN_FIELD_SHARE :: 0.65
 // not be uploaded.
 voxels_apply :: proc(app: ^App, obj: ^Object, vp: ^Voxel_Part, start: time.Tick) -> bool {
 	vp.clay.pool = &app.pool
-	render.wait_idle(&app.renderer)
 	// The groups go with the mesh, and their table with them: a voxel object with group
 	// materials is a scene file the app refuses (the swap step keeps the table).
 	autosave_settle(app)
@@ -358,7 +355,6 @@ object_voxel_to_mesh :: proc(app: ^App, obj: ^Object) -> bool {
 // it had one. A long job's first half is clay_to_mesh on a flushed clay, which it only
 // reads. False only when the mesh could not be uploaded.
 voxel_mesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, values: []u8, start: time.Tick, prepared: ^sculpt.Levels = nil) -> bool {
-	render.wait_idle(&app.renderer)
 	object_release_mesh(app, obj)
 	if !object_build_from(app, obj, mesh, start, normals = true, prepared = prepared) do return false
 	if values != nil do _ = sculpt.sculptor_mask_values(object_sculptor(obj), values, .Replace)
@@ -398,7 +394,7 @@ kit_voxels :: proc(app: ^App, obj: ^Object) {
 // Whether the Object palette offers section `sec` for the selected object: a voxel object
 // has its placement, its Voxels section and Booleans (which work on clay), and a mesh every
 // section (Voxels then says what voxel objects are).
-object_section_offered :: proc(app: ^App, sec: Kit_Section) -> bool {
+object_section_offered :: proc(app: ^App, sec: Section) -> bool {
 	obj := selected_object(app)
 	if obj != nil && obj.voxel != nil do return sec == .Transform || sec == .Voxels || sec == .Booleans
 	return true

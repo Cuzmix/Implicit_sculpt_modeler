@@ -1,12 +1,12 @@
 ---
 name: sm-render
-description: Rendering in src/render (its own Vulkan and Metal backends) — the device and pipelines, the offscreen viewport target the interface shows, 16-byte vertices in two buffers, the 16 MB cycled transfer buffer and range uploads, index-page uploads and buffer regrowth for dynamic topology, indirect draws per visible chunk run, simplified-copy (LOD) index buffers, partial redraw by damage rect, the idle-object cache, present modes, Slang shaders with committed .spv and .msl, the frame's two command buffers, GPU timing, viewport download, screenshots (--dump-viewport PNG or PPM, src/png_write) and scripts/ppm.py. Load for ANY task that draws, uploads, changes what is on screen or judges it, e.g. "it renders black", "add wireframe", "change the material", "upload is slow", "the partial redraw leaves garbage", "the mask does not show", "take a screenshot", "add a shader". Requires sm-odin and sm-build; culling math lives in sm-geom; the frame loop's input and panels are sm-ui.
+description: Rendering in src/render (its own Vulkan and Metal backends) — the device and pipelines, the offscreen viewport target the interface shows, 16-byte vertices in two buffers, the GPU layer's upload memory and range uploads, index-page uploads and buffer regrowth for dynamic topology, indirect draws per visible chunk run, simplified-copy (LOD) index buffers, partial redraw by damage rect, the idle-object cache, present modes, Slang shaders with committed .spv and .msl, the frame's two command buffers, GPU timing, viewport download, screenshots (--dump-viewport PNG or PPM, src/png_write) and scripts/ppm.py. Load for ANY task that draws, uploads, changes what is on screen or judges it, e.g. "it renders black", "add wireframe", "change the material", "upload is slow", "the partial redraw leaves garbage", "the mask does not show", "take a screenshot", "add a shader". Requires sm-odin and sm-build; culling math lives in sm-geom; the frame loop's input and panels are sm-ui.
 ---
 
 # Rendering
 
 ## Model (README: the render row of "Layout", "Idle objects", "Simplified drawing while the view moves", "GPU benchmark and frame timing")
-- `Renderer{device, window, depth_format, single, multi: Mesh_Pipelines{mesh, wire, clear}, samples, last_version,
+- `Renderer{has_device, window, depth_format, single, multi: Mesh_Pipelines{mesh, wire, clear}, samples, last_version,
   cull, partial, present_mode, lod_px}` (`src/render/renderer.odin`); `BACKGROUND`; `PARTIAL_MAX_AREA 0.6`;
   `Viewport_Target{color, depth, multi_color, samples, width, height, cache, frame_key}`; `Static_Cache`.
 - MSAA (`renderer_set_msaa`, app side `src/app/msaa.odin`, setting `msaa`): a pipeline only draws into targets of its
@@ -15,15 +15,15 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   MSAA the viewport draws into `multi_color` + MSAA `depth` (kept with STORE so partial redraw can LOAD them) and every
   pass resolves into the 1x `color` (`target_pass`: RESOLVE_AND_STORE, `cycle_resolve_texture`); the cache is MSAA and
   copied MSAA->MSAA (fine on Vulkan, equal sample counts); `render_rect` draws meshes 1 px past the cleared rect
-  (llvmpipe scissors per sample); the studio draws its own 1x camera depth (`studio_view_depth`) at `samples == 0`.
+  (llvmpipe scissors per sample); the studio draws its own 1x camera depth (`view_depth_draw` into `Studio.view_depth`) at `samples == 0`.
   MSAA depth cannot be resolved or sampled. `set msaa off` gives the old images bit for bit.
 - `Mesh_Buffers` (`:67-96`): `positions` (FLOAT3) and `normals` (octahedral SHORT2_NORM) in two vertex buffers, 32-bit
-  `indices`, one `transfer` of `TRANSFER_BUFFER_SIZE = 16 MB` (`:104-106`), `version`/`drawn_version`, the `indirect`
+  `indices`, `version`/`drawn_version`, the `indirect`
   command buffer sized for every chunk, `lod_indices` for the copies. `VERTEX_BYTES = 16`.
 - The mask rides in the normals: `pack_normal :: geom.oct_encode_masked` (`:102`) keeps 12 bits of each octahedral half
   for the normal and 4 for a nibble of the mask, so `VERTEX_BYTES` stays 16. `mesh_buffers_create(r, mesh, mask)` and
   `mesh_buffers_upload_ranges(…, ranges, mask)` take the sculptor's `mask` (nil = unmasked). `mesh.vert.slang` rebuilds both
-  (`raw & ~15` is the normal; the nibbles give `out_mask` at location 2) and `mesh.frag.slang` darkens masked clay
+  (`raw & ~15` is the normal; the nibbles give the `mask` at location 2, `decode_normal_mask` in `mesh_io.slang`) and `mesh.frag.slang` darkens masked clay
   (`albedo · (1 − 0.7 · mask)`, highlights `· (1 − 0.5 · mask)`).
 - Paint (`Mesh_Buffers.paint`, nil until an object has polypaint or polygroups): a `GRAPHICS_STORAGE_READ` buffer of
   `Paint_Packed` (`[2]u32`: RGBA8 colour, group) per vertex that `mesh.vert.slang` reads by `gl_VertexIndex` (set 0 binding 0) when
@@ -31,7 +31,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   uploads all when `paint_stamp` differs). The group colour is a `flat` output, taken from the triangle's first index, which
   the sculptor's packed indices make a corner carrying the triangle's group. `Draw_Item.paint`/`groups` are in both keys.
 - Uniforms: `Frame_Uniforms{view_proj, view, model, options}` (std140, column-major, `renderer.odin:108-113`) pushed per draw; `Material_Uniforms
-  {base_color, params (ambient, specular strength, power, wrap), surface (metallic, roughness, flat), checker (lattice origin xyz, cell size w; 0 off), look (exposure in stops, cavity, ridge: `Draw_Item.look`, in both frame keys; zero is plain), lights (`Draw_Item.lights: render.Lights`, 816 bytes at offset 80, `maps` at 896, the block 1152 (asserted), `style` last: light_x/y/z the studio's turn into view space as columns with the ambient in light_x.w, then for LIGHT_COUNT (8) lights `light_pos` (toward a sun, unit length, or a point/spot's view-space position; kind LIGHT_SUN/POINT/SPOT in .w), `light_color` (linear rgb, strength in .w, 0 off and skipped), `light_spot` (a spot's axis, cos of half its cone in .w) and `light_shape` (x the distance it equals a sun of its strength, y reach with Karis's window, 0 none, z the inner cosine, kept above the outer, w the light's size: the sine of a sun's angular radius from `Light.angle`, a point/spot's radius from `Light.radius`, 0 none), then `light_axis` (an area light's width edge, half width in .w) and `light_extra` (x Highlight less or more, -1 to 1, 0 as usual; y 1 for Shadows off; z an area's half height; w 1 for a disc; all zero shades as before); LIGHT_AREA (3) faces `light_spot.xyz` and its code (`area_at`, `area_mirror`, a rectangle representative point) is only in `mesh_area`/`textured_area.frag` under `AREA_LIGHTS`, whose pipelines (`Mesh_Pipelines.area`) are made the first time `lights_have_area` holds for a drawn item: compiled into the plain shader, even never taken, it cost every scene about a third more fragment time on SwiftShader; render mode and the studio trace an area light as the sphere of its disc's area with `light_window`'s face cosine, and a light with Shadows off goes to `Shadow_Lights` with its chance negated (never picked, counted with the ambient) and is lit by next-event estimation alone in render mode; `light_at` in mesh_shading.slang gives the direction, falloff and `spread` (the size's sine as seen from the pixel) for both lit paths; a light with `spread > 0` takes its specular from Karis's representative point (`nearest_in_light`) normalized by `widened` (both the GGX `direct_sized` and the classic Blinn-Phong, whose power maps to a GGX width), while `spread == 0` runs the old code path, so size 0 is bit-identical (checked with `ppm.py diff` on Classic and Steel); the app builds it on the CPU (`viewport_lights`, `src/app/lights.odin`: camera lights through the Turn/Height rig, scene lights through the view), so the shader turns only its studio lookups; zero means `lights_default()`, the key and fill suns fixed to the camera; `studio_frame` takes it and `lights_key(lights, centre)` picks the brightest light on for the shadow, from the scene's centre toward a point or spot, none on meaning no shadow samples)}`; every lit path ends in `display()`: exposure, Khronos PBR Neutral tone map, exact sRGB encode (never `pow(1/2.2)`), and cavity/ridge come from `curvature()` (normal turn per pixel from `dFdx`/`dFdy`), so they stay per-pixel and rect-safe; `mesh.vert.slang` passes the mesh-space position at location 5 for the checker (Rebuild's density preview: alternate cells darker, edge lines from 16 px cells, fading to the mean under ~3 px; `Draw_Item.checker` is in both frame keys); `params.y < 0` makes `mesh.frag.slang` write the flat colour (the wireframe); `surface.y > 0` takes the physically based path (GGX from each light that is on, at 3x its strength, with specular anti-aliasing, a procedural studio of sky, floor and three light lobes blurred by roughness, Karis's environment BRDF fit), 0 the classic wrap-Lambert and Blinn-Phong one; `surface.z` shades with the face normal from `dFdx`/`dFdy` of the view position (no vertex data); `surface.w > 0` takes the MatCap path before both: the fragment stage has one sampler (set 2, binding 0), always bound to `Draw_Item.matcap` or the 1x1 white `r.no_matcap`, with `r.matcap_sampler` (linear, mipmapped, clamped), looked up with Blender's perspective-correct basis and multiplied by albedo, relief and exposure (no tone map: the picture is the final look) (`renderer.odin:154-158`). Matcap textures (`render/matcap.odin`) are RGBA8 sRGB with a GPU-built mip chain (usage SAMPLER + COLOR_TARGET, which `GenerateMipmapsForGPUTexture` needs), uploaded on their own command buffer behind a fence so they can be made outside a frame; `Draw_Item.matcap` is in both frame keys by address, so whoever replaces one calls `viewport_invalidate`. Shaders are `.spv` (`.msl` on Darwin, `shaders.odin`) embedded with `#load`
+  {base_color, params (ambient, specular strength, power, wrap), surface (metallic, roughness, flat), checker (lattice origin xyz, cell size w; 0 off), look (exposure in stops, cavity, ridge: `Draw_Item.look`, in both frame keys; zero is plain), lights (`Draw_Item.lights: render.Lights`, 816 bytes at offset 80, `maps` at 896, the block 1152 (asserted), `style` last: light_x/y/z the studio's turn into view space as columns with the ambient in light_x.w, then for LIGHT_COUNT (8) lights `light_pos` (toward a sun, unit length, or a point/spot's view-space position; kind LIGHT_SUN/POINT/SPOT in .w), `light_color` (linear rgb, strength in .w, 0 off and skipped), `light_spot` (a spot's axis, cos of half its cone in .w) and `light_shape` (x the distance it equals a sun of its strength, y reach with Karis's window, 0 none, z the inner cosine, kept above the outer, w the light's size: the sine of a sun's angular radius from `Light.angle`, a point/spot's radius from `Light.radius`, 0 none), then `light_axis` (an area light's width edge, half width in .w) and `light_extra` (x Highlight less or more, -1 to 1, 0 as usual; y 1 for Shadows off; z an area's half height; w 1 for a disc; all zero shades as before); LIGHT_AREA (3) faces `light_spot.xyz` and its code (`area_at`, `area_mirror`, a rectangle representative point) is only in `mesh_area`/`textured_area.frag` under `AREA_LIGHTS`, whose pipelines (`Mesh_Pipelines.area`) are made the first time `lights_have_area` holds for a drawn item: compiled into the plain shader, even never taken, it cost every scene about a third more fragment time on SwiftShader; render mode and the studio trace an area light as the sphere of its disc's area with `light_window`'s face cosine, and a light with Shadows off goes to `Shadow_Lights` with its chance negated (never picked, counted with the ambient) and is lit by next-event estimation alone in render mode; `light_at` in mesh_shading.slang gives the direction, falloff and `spread` (the size's sine as seen from the pixel) for both lit paths; a light with `spread > 0` takes its specular from Karis's representative point (`nearest_in_light`) normalized by `widened` (both the GGX `direct_sized` and the classic Blinn-Phong, whose power maps to a GGX width), while `spread == 0` runs the old code path, so size 0 is bit-identical (checked with `ppm.py diff` on Classic and Steel); the app builds it on the CPU (`viewport_lights`, `src/app/lights.odin`: camera lights through the Turn/Height rig, scene lights through the view), so the shader turns only its studio lookups; zero means `lights_default()`, the key and fill suns fixed to the camera; `studio_frame` takes it and `lights_key(lights, centre)` picks the brightest light on for the shadow, from the scene's centre toward a point or spot, none on meaning no shadow samples)}`; every lit path ends in `display()`: exposure, Khronos PBR Neutral tone map, exact sRGB encode (never `pow(1/2.2)`), and cavity/ridge come from `curvature()` (normal turn per pixel from `dFdx`/`dFdy`), so they stay per-pixel and rect-safe; `mesh.vert.slang` passes the mesh-space position at location 5 for the checker (Rebuild's density preview: alternate cells darker, edge lines from 16 px cells, fading to the mean under ~3 px; `Draw_Item.checker` is in both frame keys); `params.y < 0` makes `mesh.frag.slang` write the flat colour (the wireframe); `surface.y > 0` takes the physically based path (GGX from each light that is on, at 3x its strength, with specular anti-aliasing, a procedural studio of sky, floor and three light lobes blurred by roughness, Karis's environment BRDF fit), 0 the classic wrap-Lambert and Blinn-Phong one; `surface.z` shades with the face normal from `dFdx`/`dFdy` of the view position (no vertex data); `surface.w > 0` takes the MatCap path before both: the fragment stage has one sampler (set 2, binding 0), always bound to `Draw_Item.matcap` or the 1x1 white `r.no_matcap`, with `r.matcap_sampler` (linear, mipmapped, clamped), looked up with Blender's perspective-correct basis and multiplied by albedo, relief and exposure (no tone map: the picture is the final look) (`renderer.odin:154-158`). Matcap textures (`render/matcap.odin`) are RGBA8 sRGB with a GPU-built mip chain (usage SAMPLER + COLOR_TARGET, which `GenerateMipmapsForGPUTexture` needs), uploaded with `gpu.upload_texture` on a command buffer of their own, submitted at once (no wait), so they can be made outside a frame; `Draw_Item.matcap` is in both frame keys by address, so whoever replaces one calls `viewport_invalidate`. Shaders are `.spv` (`.msl` on Darwin, `shaders.odin`) embedded with `#load`
   (`renderer.odin`), compiled from the Slang sources `src/render/shaders/*.vert.slang|*.frag.slang|*.comp.slang` (rules below; sm-build).
 - Group materials (`Draw_Item.slots: ^Material_Slots`, nil for none; app side `src/app/group_materials.odin`): slot 0 is the
   draw's own material, slots 1-15 polygroups'. The groups ride in `Frame_Uniforms.slot_group` (`uvec4[4]`, `SLOT_NONE` unused;
@@ -43,7 +43,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
 - `Draw_Item{mesh, model, color, material, surface, flat, wireframe, live, chunks, damage, lod, hidden}` (`renderer.odin:115-137`): `surface` is metallic and roughness (roughness 0 = classic), `flat` faceted shading; both are in the frame and cache keys; `material` is
   ambient, specular, power and wrap (zero = `DEFAULT_MATERIAL`, the app's presets in `src/app/material.odin`); `wireframe` (the app sets it on
   the active object only, or every object in Wireframe shading) is drawn in the shading pass by `Mesh_Pipelines.mesh_wire`
-  (`mesh_wire.frag.slang`, first line `// barycentric`: `SV_Barycentrics`, `Material_Uniforms.wire`, MSL 2.3; made lazily by
+  (`mesh_wire.vert/frag.slang`, first line `// barycentric`: `SV_Barycentrics`, `SV_PrimitiveID` + `tri_base` from the command's first instance (= first_index/3, `WIRE_ALL_EDGES` for LOD runs; cull_write sets it when `counts.z`), `Mesh_Buffers.tri_edges` (4 bits a triangle: polygon edges, so quad diagonals are left out; `wire.w` 1) for a polygon level's `cage_lines`, `Material_Uniforms.wire`, MSL 2.3; made lazily by
   `wire_pipeline` where `Gpu_Caps.barycentric`, i.e. VK_KHR_fragment_shader_barycentric or Metal's barycentric coords) for a
   plain opaque item; otherwise (textured, see-through, skinned, area-lit, no barycentrics, `Renderer.wire_as_lines`) it
   draws the same chunks again through `pipes.wire` (`.LINE` fill, depth bias, no depth write), optional: if a backend refuses
@@ -59,7 +59,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   in `render_rect`; `clear.frag.slang` dithers a gradient with a 4x4 Bayer pattern keyed on `gl_FragCoord`, so partial and full
   redraws match bit for bit. The background is in `frame_key` and `static_key` (the cache holds it); thumbnails and the
   nav head pass a transparent `background` to `begin_mesh_pass` and never draw it. `renderer_init` creates the device with `SHADER_FORMAT` (`shaders.odin`: `{.MSL}` on Darwin, `{.SPIRV}` elsewhere) and the debug flag from
-  `--gpu-debug` (`renderer.odin:165-186`); failures are `log.errorf(…, sdl.GetError())` and `return false`.
+  `--gpu-debug` (`renderer.odin:165-186`); failures are `log.errorf(…, gpu.last_error())` and `return false` (a backend records each with `gpu.fail(kind, …)`, `src/gpu/errors.odin`); no `gpu.*` call takes a device.
 - Blending passes (`Mesh_Pipelines.see`, `.floor`, both optional: nil logs a warning and the feature degrades): see-through
   items are those with `Draw_Item.look.w > 0` (the app's Transparency; `mesh.frag.slang` writes it as alpha via `opacity()`), drawn
   with `BLEND_OVER` (colour by source alpha, target alpha kept at 1, since the interface blends the viewport by its alpha)
@@ -68,16 +68,16 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   `gl_FragDepth`, takes `fwidth` before any `discard`), then see-through items; in `render_rect` those blended layers stay
   inside the cleared rect, not the 1 px MSAA ring. `Renderer.floor` is in `frame_key` only; the grid is never drawn into
   the idle cache (the live items would cover it), any see-through item skips the cache, and with MSAA it skips partial
-  redraw too. `studio_view_depth` leaves see-through items out; nav head and thumbnails never draw the grid or blend.
+  redraw too. `view_depth_draw` leaves see-through items out; nav head and thumbnails never draw the grid or blend.
 - The frame (`frame_step` in `src/app/frame.odin`; `run` in `main.odin` only sets up, loops and tears down): apply the scene command (`frame_settle`) → change vsync before acquiring (`frame_pace`;
-  `renderer_set_vsync` recreates the swapchain, `src/render/renderer.odin:197-204`) → wait the previous fence when timing
+  `renderer_set_vsync` recreates the swapchain, `src/render/renderer.odin:197-204`) → wait the previous frame's ticket when timing
   → acquire `present_cmd` and the swapchain texture → events (`frame_events`) → `viewport_target_resize`
   before the interface references the texture → the interface (`kit_frame`), the tools and the viewport overlay → a second command buffer `cmd` for the 3D
   work → per object and part (current level, plus the HD window): `sculptor_flush` → `level_upload`
   (`src/app/scene.odin:217`: vertex ranges with the mask, dynamic topology's index pages, new buffers when the mesh
   outgrew them), then once per frame and never during a stroke `sculptor_lod_update` → `mesh_buffers_upload_lod`
   → a `Draw_Item` per part, each object's own material (`object_material`; `Object.material`, set through the `.Material` Scene_Command, saved from scene version 14; its groups' in `Object.group_materials`, `.Group_Material`, version 15, drawn through `object_material_slots`; selected colour, idle when `dim_others`) and `wireframe` on the selected one →
-  `render_viewport` → submit, with a fence when `time_gpu` → `kit_upload` and the interface's
+  `render_viewport` → submit, waited for when `time_gpu` → `kit_upload` and the interface's
   pass (`ui_pass_draw`) into the swapchain on `present_cmd`. View windows (`src/app/view_window.odin`) are other
   swapchains on the same device (`render.window_claim`/`window_release`, mailbox where offered): each has its own
   `Ui_Pass` and its own command buffer submitted after `present_cmd`, acquired with the non-waiting
@@ -89,17 +89,18 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   (rebuilt when its key changes) and draws the live ones. `viewport_invalidate` zeroes both keys for changes the keys
   cannot see, such as which chunks are hidden (`:652-657`).
 - `prepare_draws` writes one `GPUIndexedIndirectDrawCommand` per visible run of chunks, LOD runs after the fine ones,
-  inside a copy pass before the render pass; `mesh_buffers_create` uploads a whole mesh in chunks, waiting for the GPU
-  after each, for loading only (`:395`); `mesh_buffers_upload_ranges` packs up to 256 ranges a batch into the
-  cycled transfer buffer and bumps `version` (`:488`); `mesh_buffers_upload_indices` uploads index ranges (dynamic
+  inside a copy pass before the render pass; `mesh_buffers_create` uploads a whole mesh through `upload_now`: `UPLOAD_CHUNK` (16 MB) command buffers
+  submitted at once, each waiting only for the one two before it, for loading only; `mesh_buffers_upload_ranges` stages
+  each range's positions and packed normals with `gpu.stage_buffer`, records them inside its timing group
+  (`gpu.flush_uploads`) and bumps `version`; `mesh_buffers_upload_indices` uploads index ranges (dynamic
   topology's whole changed pages, `sculptor_index_ranges`) and asserts they fit `index_count` (`:575`); `mesh_buffers_upload_lod` drops the LOD buffer on failure so the mesh
   draws at full detail; `viewport_download` returns RGBA8 rows top to bottom after waiting for the GPU (tests and dumps);
   `Readback` (`readback_start`/`readback_poll`/`readback_cancel`) reads a texture back without waiting, on its own
-  command buffer submitted after the frame's and collected once its fence signals (the scene preview, at rest).
+  command buffer submitted after the frame's and collected once its ticket is done (the scene preview, at rest).
 - Textured preview (`src/render/textured.odin`, app `src/app/textures.odin`; design notes/rendering/textured-preview-design.md):
   `Textured_Mesh` (one interleaved 32-byte `Textured_Vertex`: FLOAT3 position, SHORT2_NORM masked octahedral normal,
-  SHORT4_NORM tangent with w ±1, FLOAT2 UV v-up; buffers grown by powers of two and uploaded in a copy pass on the
-  frame's `cmd` with a cycled transfer buffer; `maps` per `Texture_Map{Base_Color (sRGB), Orm, Normal}` made by
+  SHORT4_NORM tangent with w ±1, FLOAT2 UV v-up; buffers grown by powers of two and uploaded with `gpu.upload` on the
+  frame's `cmd`; `maps` per `Texture_Map{Base_Color (sRGB), Orm, Normal}` made by
   `texture_create` with GPU mips, also behind `matcap_create`; `stamp` for vertices, `maps_stamp` for maps). A
   `Draw_Item` with `textured` and `texture_view != .Off` draws it whole with `Mesh_Pipelines.textured`/`textured_see`
   (`create_mesh_pipeline(…, textured = true)`: no storage buffer, 5 fragment samplers: MatCap, environment, then the maps, defaults
@@ -123,7 +124,7 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   pi, in the panorama's axes); all zero keeps the studio branch, bit-identical. The source is RGBA16F with full mips;
   `prefiltered` is half size with up to `ENV_LEVELS` = 6 levels (fewer when the height runs out), level k roughness
   k/(levels-1), made once by `env_prefilter.frag.slang` into `mip_level` targets (64 Hammersley GGX samples, Colbert-Krivanek
-  lod) on its own command buffer behind a fence. Equirect mapping lives in `panorama.slang` (`u = atan(x, -z)/2pi + 0.5`,
+  lod) on its own command buffer, waited for. Equirect mapping lives in `panorama.slang` (`u = atan(x, -z)/2pi + 0.5`,
   `v = acos(y)/pi`, row 0 up), the display curve in `display.slang` (`display_color(c, stops)`), both included by
   `mesh_shading.slang` and `clear.frag.slang`. `clear.frag.slang` shows the background from `Clear_Uniforms.env` and `clip_to_env`
   (rotation transpose times inverse projection, unprojected like `floor.frag.slang`); `draw_background` skips its flat early
@@ -190,6 +191,15 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   at the viewport's size (`view_width`); the kernel derives rays from `textureSize(prev)`. render_display.frag.slang blends
   the four traced texels premultiplied by coverage when `params.w` is 1; at 0 it keeps the exact full-size path
   (0 px against the old display: keep it so).
+  Specialization constants (`RT_ITEMS`, `RT_ENV_IMAGE`, `RT_LENS`, `RT_SPHERE_LIGHTS` in render_trace.slang, constant_id
+  0 to 3, all uint): unset they allow everything (the general kernel); a kernel made with
+  `gpu.Compute_Pipeline_Desc.constants` (an array indexed by shaders_gen's `Name_Constants` enum) has the branches they rule
+  out folded by the driver (Vulkan's VkSpecializationInfo, Metal's function constants; WebGPU refuses them). A new
+  feature branch in the kernel gets a constant of its own; measure it with `scripts/kernel_stats.py` (sm-perf).
+  path.odin computes a run's `Render_Features` in path_scene_build and picks its variant at each sample's start
+  (path_kernel_pick): built off the frame by `gpu.compute_build_start`/`_ready`/`_finish` (checks, layout and
+  module on the main thread, only the driver's compile on a thread), waited for when `Renderer.kernel_builds_wait`
+  (scripted runs), up to 8 kept. A new feature's flag must reach Render_Features, or its variant folds it away.
   Textured items (ITEM_TEXTURED): `Textured_Mesh.corners` (geom.quad_mesh_triangle_corners, 3 slots a base-level
   triangle in its own corner order, uploaded with the preview) and its vertices are gpu-copied into Scene_Buffer
   `.Textured` (the 8th storage buffer: the per-stage limit is 8, none left). `Item_Record.tex` = first tri, corner
@@ -197,10 +207,10 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   binds 9 named samplers `map0..map8` through a switch (RENDER_TEXTURED_MAX 3, 14 of 16 samplers; every backend; its
   .spv must stay byte-identical when the include changes), and `render_trace_maps.comp` (MAP_ARRAY, first line
   `// vulkan only`: no .msl, slangc's profile warning quieted, loaded only off Darwin) reads `maps[]` at set 3 with
-  NonUniformResourceIndex, through `gpu_create_compute_pipeline_array`/`gpu_bind_compute_texture_array` (own Vulkan
+  NonUniformResourceIndex, through `gpu.create_compute_pipeline_array`/`gpu.bind_compute_texture_array` (own Vulkan
   with runtime arrays, variable counts and non-uniform sampled-image indexing; `Gpu_Caps.texture_arrays`, capped at
   `VK_TEXTURE_ARRAY_MAX` 256), up to RENDER_TEXTURED_ARRAY 64 items, `pr.textured_max` in force. Metal would need our
-  own argument buffers (shadercross refuses set 3). A map's maps_stamp change
+  own argument buffers. A map's maps_stamp change
   restarts the view (`pr.tex_stamps`). The normal-map bend (reflect below ng) applies to textured hits only.
   Depth of field (`render.Lens`, app `lens.odin`): uniforms `lens_eye..lens_fwd` (radius 0 = pinhole, exactly the
   old path: the lens draws its two `rnd()` only when on, after the jitter). Guides are two ping-pong pairs
@@ -241,10 +251,10 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   compute pass with a dispatch per item that only stores 0, then an additive pass into `accum` in the gather's encoding.
   Check: `--no-trace` equals the base to the bit; traced vs gather within ~12/255 off silhouettes; two runs 0 px.
 - Compute (the GPU compute trial, `src/render/smooth_compute.odin`): `Smooth_Compute` holds the `smooth_all.comp.slang` pipeline,
-  six storage buffers (indices, CSR offsets and tris, weights, two position buffers) and an upload and a download transfer
-  buffer, all grown on demand and kept; `smooth_compute_run` uploads (topology only when its key changed or is 0),
+  six storage buffers (indices, CSR offsets and tris, weights, two position buffers), grown on demand and kept, its
+  uploads and readback through the GPU layer; `smooth_compute_run` uploads (topology only when its key changed or is 0),
   dispatches one compute pass a step (the own backends put a full barrier after every dispatch, so dependent dispatches may chain inside one pass, as the sculpt kernels do) in rows of at most 65535
-  groups, downloads, and waits on a fence after each part to time it (`Smooth_Timing`). SDL's SPIR-V compute layout:
+  groups, downloads, and waits for each part's ticket to time it (`Smooth_Timing`). SDL's SPIR-V compute layout:
   set 0 read-only storage, set 1 read-write storage, set 2 uniforms. `build.sh` compiles `*.comp.slang` with the other shaders.
 
 - The interface's pass (`src/render/ui_pass.odin`, `ui.vert.slang`/`ui.frag.slang`): `ui_pass_upload` copies the kit's 20-byte
@@ -253,7 +263,8 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   scissor, the atlas or the viewport texture bound. Atlas texture coordinates arrive in atlas pixels and the vertex
   shader divides by the size in its uniforms, so glyphs placed before a mid-frame atlas growth stay right. NDC y is
   flipped in the shader. `ui_pass_capture` redraws the same lists into an offscreen RGBA8 target for `--dump-screen`.
-- The navigation head (`src/render/nav_head.odin`, built and laid out by `src/app/nav_head.odin`): a small head mesh
+- The view gizmo's Model style (`src/render/nav_head.odin`, built by `src/app/nav_head.odin`, laid out with the Axes and Cube
+  styles, which the interface draws itself, by `src/app/view_gizmo.odin`): the head mesh or the person's own model
   drawn with the mesh pipeline into its own target, `NAV_HEAD_SUPERSAMPLE` (2) times the size shown, cleared to
   transparent (`begin_mesh_pass`'s `background`), and only when its key (the camera's turn, size, colour) changes. The
   kit shows it as image id `KIT_NAV_HEAD_IMAGE`; its `Ui_Draw.smooth` binds a linear sampler (a 2x2 box filter at
@@ -270,8 +281,8 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   view's projection narrowed to the step's square (a pre-multiplied crop matrix), in the step's own frame.
 - `Thumbnail_View` (`thumbnail_view.odin`): the frame's draw items again into a small target of its own at a
   supersample (`THUMBNAIL_SUPERSAMPLE`, 1 maximised), whole (chunks, groups, hidden and LOD cleared, as thumbnails
-  are), with the view, projection, items and ground the app gives. The app's second view (thumbnail.odin) picks its
-  camera (`second_orbit`: Follow, axis presets ortho, Free in `App.second_orbit`), builds the lights for that camera,
+  are), with the view, projection, items and ground the app gives. Each view pane and view window (a `Second_View`,
+  thumbnail.odin) picks its camera (`second_orbit`: Follow, axis presets ortho, Free in `sv.orbit`), builds the lights for that camera,
   and marks the items with `pass_items` (Silhouette is the shader's pass, with `pass_ground`'s paper); it draws only
   at rest, or every frame while its own camera is dragged.
 - Transparent screenshots (app `capture.odin`): `render_viewport` again, after the frame's viewport and live AO, into a
@@ -284,8 +295,8 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   start and its pixels arrive in `capture_finish` the same frame. `png_write.apng_*` streams the animated PNG.
 - `Pictures` (`pictures.odin`): an atlas of pictures the CPU decoded (Home's scene previews), 6 x 6 cells of
   `PICTURE_PX`, filled by `pictures_upload` on the frame's own command buffer at most `PICTURES_PER_FRAME` a frame
-  through one transfer buffer mapped with `cycle = true`; a picture sits at its cell's top left (`picture_uv`). The
-  kit shows it as `KIT_PICTURES_IMAGE`; Home frees it on close (`pictures_destroy` waits for the GPU).
+  through `gpu.upload_texture`; a picture sits at its cell's top left (`picture_uv`). The
+  kit shows it as `KIT_PICTURES_IMAGE`; Home frees it on close (`pictures_destroy`).
 - Kept pictures: `viewport_copy` copies a viewport-format texture into a `Viewport_Target` on its own command buffer,
   submitted before the frame draws over the source. The still a worked view pane leaves (`grid_work_gpu`) and the
   cross-fade (app `cross_fade.odin`: last frame's shown texture, copied after the interface, drawn over the main pane
@@ -308,28 +319,69 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
 | garbage inside a rectangle | the damage box missed a moved vertex: `changed_bounds` must cover before and after (`src/sculpt/brush.odin:149-151, 457, 492`); `PAD` |
 | lighting wrong after a stroke | normals not re-uploaded: only dirty nodes' ranges are uploaded, so a node that moved must be marked stale |
 | an idle object does not update | its cache key did not change: bump `version` or `viewport_invalidate` |
-| validation errors in `smoke` | a buffer released while in flight (`render.wait_idle` before every destroy, as `src/app/scene.odin` does), an upload outside a copy pass, a transfer buffer mapped without `cycle` |
+| validation errors in `smoke` | an upload or download staged while a pass is open, a copy into a staged range past its end, a backend that frees a released object while a recording or the GPU still uses it (each counts uses: `vk_buffer_reap`, `mtl_release_later`) |
 | swapchain errors after toggling VSync | `renderer_set_vsync` called after the swapchain texture was acquired |
 
 ## Rules
-- Only `render` names the GPU API; `app` imports `vendor:sdl3` for windows, events and the pen only, and reaches
-  the GPU through `src/render/gpu.odin`: the handles `Cmd`, `Texture`, `Fence`, `Sample_Count`, and `wait_idle`,
-  `cmd_begin`/`cmd_submit`/`cmd_submit_fenced`/`cmd_cancel`, `fence_finish`, `swapchain_acquire`, `ui_present`
-  (each window's present pass), `renderer_ready`. `scripts/boundary_check.py` (run by `check`) fails on any
-  `sdl.*GPU*` name or native GPU import outside `src/render`; a new GPU need is a render proc, never an app call.
-  SDL_GPU is retired: render calls the GPU only through the seam `hal.odin`, whose `gpu_*` procs keep SDL_GPU's
-  names and arguments (`gpu_create_texture` for `sdl.CreateGPUTexture`) and hand each call to the Metal backend
-  under `when METAL` (Darwin) and to the Vulkan backend otherwise; nothing else chooses a backend. The check fails
-  on any `sdl.*GPU*(` call anywhere in render, the seam included. SDL's types and info structs stay, as opaque
-  handles render never dereferences.
+- Only `src/gpu` talks to the GPU, and only `render` imports it; `app` imports `vendor:sdl3` for windows, events
+  and the pen only, and reaches the GPU through `src/render/gpu.odin`: the handles `Cmd`, `Texture`, `Ticket`,
+  `Sample_Count`, and `cmd_begin`/`cmd_submit`/`cmd_submit_ticket`/`cmd_cancel`, `ticket_wait`,
+  `swapchain_acquire`, `ui_present` (each window's present pass), `renderer_ready`; the backend's own procs the app
+  needs (`backend_select`, `backend_error`, `window_flags`, `validation_errors`, `gpu_counters`) are named again
+  in `src/render/backend.odin`. `scripts/boundary_check.py` (run by `check`) fails on any native GPU import outside
+  `src/gpu`, any import of `gpu` outside render, and any `sdl.*GPU*` name outside the two; a new GPU need is a render
+  proc, never an app call.
+  SDL_GPU is retired: render calls the GPU only through the seam `src/gpu/hal.odin`, whose procs keep SDL_GPU's
+  names without the prefix and its arguments (`gpu.create_texture` for `sdl.CreateGPUTexture`) and hand each call to
+  the Metal backend under `when METAL` (Darwin), the WebGPU one under `when WEBGPU` and the Vulkan one otherwise;
+  nothing else chooses a backend. The check fails on any `sdl.*GPU*(` call anywhere and on any `sdl.GPU*` type in render: the seam
+  speaks `src/gpu/types.odin` (`gpu.Format`, `gpu.Texture_Desc`, `gpu.Color_Target`, ...; Ada_Case members such
+  as `.RGBA8_Unorm`, `.Clear`, `.Triangle_List`). Resources (`gpu.Buffer`, `gpu.Texture`, `gpu.Sampler`,
+  `gpu.Shader`, the pipelines, `gpu.Transfer_Buffer`) are generational `u32` handles into `src/gpu/pool.odin`
+  (0 is none; a released handle stops resolving), compared with 0, never nil; `gpu.Cmd` and the passes
+  stay opaque pointers for one frame's use. `gpu.submit` hands back a `gpu.Ticket` (`{value, queue}`, a plain
+  value, nothing to release; zero is done): `gpu.done(t)` polls it, `gpu.wait(..t)` blocks (at once under WebGPU,
+  whose readbacks poll), `gpu.wait_on(cmd, t)` makes graphics wait for compute. A failed call returns 0, nil or false and `gpu.last_error()` says why.
   `render` never reads UI state.
-- Every `gpu_*` result is consumed (`require_results`, sm-odin); wait for the GPU before destroying anything drawn this frame;
-  `renderer_destroy` waits and releases in reverse order.
-- Shaders are Slang (one source for SPIR-V, Metal through it, WGSL later). `name.stage.slang` (vert, frag, comp) is an
-  entry file whose `main` builds `name.stage.spv`, and `scripts/shaders_msl.py` turns that into `name.stage.msl` with
-  SDL_shadercross (`main` becomes `main0`; SDL's sets map to SDL_GPU's Metal slots); render `#load`s
-  `"shaders/name.stage" + SHADER_EXT` with `SHADER_ENTRY` and `SHADER_FORMAT` (`shaders.odin`), so Darwin embeds only
-  `.msl` and everything else only `.spv`; other `.slang` files are includes
+- New uploads go through the GPU layer's upload memory (`src/gpu/staging.odin`): `gpu.upload(cmd, buffer, offset, bytes)`,
+  `gpu.upload_texture(cmd, region, bytes)`, or `gpu.stage_buffer`/`gpu.stage_texture` to write in place; the copies are
+  recorded in one copy pass just before the command buffer's next pass, mipmap build, acceleration build or submit, so
+  make no transfer buffer and open no copy pass for an upload: transfer buffers are private to `src/gpu` (every upload
+  in render goes this way, GPU sculpting's and the indirect draws' included; `gpu.flush_uploads` records them early, inside a timing group).
+- Readbacks go through the same layer: `gpu.reserve_readback(cmd, size)` then `gpu.download(cmd, rb, at, buffer,
+  offset, size)` or `gpu.download_texture(cmd, rb, at, region, size)` (or `gpu.download_buffer` for one copy); the copies
+  are recorded in order with the uploads, so a download sees the passes before it. `gpu.readback(rb)` gives the bytes once
+  the submission's ticket is done ((nil, false) before; (nil, true) when refused or cancelled), valid until
+  `gpu.release_readback(rb)`, which is safe any time. Reserve before recording work that a refusal should undo (GPU
+  sculpting does), and release every readback before `renderer_destroy` (the tracking allocator reports one kept).
+- Every `gpu_*` result is consumed (`require_results`, sm-odin); release any time, even what this frame drew (the
+  backends free it once no work uses it); only `renderer_destroy` waits for the GPU, then releases in reverse order.
+- Sculpt on the GPU (`sculpt_gpu*.odin`) is offered only where the device binds `SCULPT_STORAGE_BUFFERS` and runs
+  `SCULPT_SLAB` threads in a workgroup (`gpu.storage_buffers_per_stage`, `gpu.compute_group_threads`), and starts on
+  wherever it is offered in a person's run (scripted runs keep the CPU as their oracle). A new kernel buffer raises
+  the constant and both backends' binding arrays; a new per-mesh buffer joins `sculpt_lookup_make`'s budget check
+  (a quarter of a card's memory, an eighth of a unified device's), past which that mesh sculpts on the CPU.
+- Shaders are Slang (one source for SPIR-V, Metal and WGSL, all by slangc). `name.stage.slang` (vert, frag, comp) is an
+  entry file whose `main` builds `name.stage.spv`; `scripts/shaders_msl.py` makes `name.stage.msl` with slangc's Metal
+  target (`main` becomes `main_0`), whose second line `// slots s=T:S rt= wt= rb= wb= u= a=` maps each binding, in SPIR-V
+  set and binding order within its kind, to the Metal slot slangc gave it (`Mtl_Slots`, `mtl_slots_parse`; a pipeline
+  whose counts differ from its table is refused), and refuses a block laid out differently for Metal or a vertex
+  shader's buffer at or past `MTL_FIRST_VERTEX_BUFFER`. Varyings meet by semantic (`: NORMAL` becomes `user(NORMAL)`),
+  so a vertex and fragment shader drawn together share their semantics. Metal leaves out a binding nothing reads,
+  so kernels sharing one layout read each binding (`dab.slang`'s `keep_bindings`). `scripts/shaders_gen.py` writes each
+  shader's description into `shaders_gen.odin` from slangc's reflection: `NAME_STAGE` (`MESH_VERT`, `DAB_MOVE_COMP`), a
+  `gpu.Shader_Desc` or `gpu.Compute_Pipeline_Desc` with the `#load` of `"shaders/name.stage" + SHADER_EXT` (the `.spv` under
+  `when gpu.VULKAN` for a vulkan-only one), `SHADER_ENTRY`, `SHADER_FORMAT`
+  (`shaders.odin`), every count by SDL's sets and `numthreads`. Make pipelines from it (`gpu.create_shader(MESH_VERT)`)
+  and never write a count by hand; a constant the renderer dispatches or binds by (`SCULPT_SLAB`, `RENDER_SAMPLERS`)
+  is `#assert`ed against it. Beside each it writes one enum per kind of slot the shader binds, its members the
+  parameters' names in slot order (`Cull_Write_Comp_Buffers :: enum u32 {chunks, groups, totals}`; kinds `_Samplers`,
+  `_Textures`, `_Buffers`, `_Write_Textures`, `_Write_Buffers`, `_Uniforms`). Bind through them (`slots.odin`): a
+  binding array is an enumerated array with every member named, bound whole by `bind_compute_storage`,
+  `bind_fragment_samplers`, `begin_compute` and the rest, and a uniform push names its block
+  (`push_compute(cmd, Cull_Write_Comp_Uniforms.Cull_Uniforms, &u)`), so a renamed, added or reordered parameter fails to
+  compile where it is bound; an array one family of shaders shares is `#assert`ed against the others' enums (the mesh
+  shaders in renderer.odin, the dab kernels, the render kernels). Never bind by a positional array. Darwin embeds only `.msl` and everything else only `.spv`; other `.slang` files are includes
   (`#include`, `#define TEXTURED` before `mesh_shading.slang`). Bindings are SDL's sets, written
   `[[vk::binding(binding, set)]]`; varyings carry `[[vk::location(n)]]`; vertex index is `SV_VulkanVertexID` (with
   base vertex, as GLSL's); globals that are not resources are `static`. slangc runs with `-matrix-layout-row-major
@@ -337,9 +389,9 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   `float3x3(a, b, c)` takes columns and `M[i]` is column i, exactly as GLSL; `-O0` because spirv-opt turns `x / c`
   into `x * (1 / c)`, which moved pixels. Write constants Slang would compute per pixel (`normalize` of a literal) as
   their folded values (`studio_env.slang`). A first line `// slangc: -fp-mode precise` keeps every multiply and add
-  unfused (`smooth_all.comp.slang`, which must equal the CPU). Commit the regenerated `.spv` and `.msl` with the source; never
-  hand-edit either (`check` fails on a `.msl` whose first line does not name its `.spv`'s hash). Metal compiles them with
-  fast math; a kernel that must equal the CPU is made with `gpu_create_compute_pipeline_exact` (fast maths off under the
+  unfused (`smooth_all.comp.slang`, which must equal the CPU). Commit the regenerated `.spv`, `.msl`, `.wgsl` and `shaders_gen.odin`
+  with the source; never hand-edit any (`check` fails on a `.msl` whose first line does not name its `.spv`'s hash). Metal compiles them with
+  fast math; a kernel that must equal the CPU is made with `gpu.create_compute_pipeline_exact` (fast maths off under the
   own Metal backend). A shader change that should not move a pixel passes `scripts/parity_check.py` (19 scenes, viewport
   and window, against a baseline drawn by the old build; `--app` picks the binary) at 0 px.
 - The backends themselves, each capability only they offer (async compute, ray queries and Metal ray tracing, GPU
@@ -348,16 +400,16 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   says why in the system's message box and ends (no fallback), and the app branches on `render.caps`, never on a
   backend's name.
 - A new top-level pass function starts with `debug_group(cmd, "Name")` (`gpu.odin`, popped as the scope ends, so
-  call it outside any pass), and a long-lived texture or buffer gets `gpu_set_texture_name`/`gpu_set_buffer_name`
+  call it outside any pass), and a long-lived texture or buffer gets `gpu.set_texture_name`/`gpu.set_buffer_name`
   with a literal (the backends keep the pointer for later backings), so captures in Xcode and RenderDoc read.
 - GPU timing (`--time-gpu`) serialises frames; leave it off except when measuring (sm-perf). Timestamps
   (`Gpu_Caps.timestamps`, `timing.odin`, `vk_timing.odin`) do not: a pass that should show in Stats passes a
   `Gpu_Span` to its `debug_group`; spans never nest (an inner one is left untimed), so their sum is the frame.
-- A target drawn by one pass and never read after makes its depth with `gpu_create_texture_transient`
+- A target drawn by one pass and never read after makes its depth with `gpu.create_texture_transient`
   (`viewport_target_resize(..., transient_depth = true)`): CLEAR/DONT_CARE only, never sampled or copied; debug checks it.
   A `Viewport_Target.tile` target (MSAA, transient targets, partial off; `--tile-msaa` forces it) keeps neither samples
   nor depth: `target_pass` must never load it, so a new viewport pass that loads goes after the resolve or skips tile.
-- Mapped device buffers (`gpu_create_buffer_mapped`, `Gpu_Caps.shared_buffers`) are filled once before first use
-  and closed with `gpu_buffer_filled`; never keep the pointer or write them later (strokes use the transfer buffer).
-- A compute kernel that wants subgroup operations or 64-bit atomics checks `Gpu_Caps.subgroup_size` (0 = unknown,
-  keep a plain path) and `int64_atomics`; never sum floats with atomics (order breaks determinism).
+- Mapped device buffers (`gpu.create_buffer_mapped`, `Gpu_Caps.shared_buffers`) are filled once before first use
+  and closed with `gpu.buffer_filled`; never keep the pointer or write them later (strokes go through `gpu.stage_buffer`).
+- A compute kernel never sums floats with atomics (order breaks determinism); one that wants subgroup operations or
+  64-bit atomics adds the capability to `Gpu_Caps` with a plain path where it is missing.

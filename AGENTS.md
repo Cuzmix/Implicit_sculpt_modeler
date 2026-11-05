@@ -4,6 +4,12 @@ A performance-focused sculpting prototype in Odin (SDL3 for windows and input, i
 ZBrush as the behaviour model. README.md is the only document and describes what exists now; this file is the map and
 the skills hold the detail. It builds and runs on Windows (`build.bat`) and Linux (`build.sh`).
 
+## 0. Project memory
+`.claude/project-memory/` is a snapshot (2026-11-05) of what the cloud project's threads knew: read its
+`README.md`, then `memory/MEMORY.md` (Bolt's standing working rules and every plan with its PRs) before
+planning, and the memory file or `notes/` design a task touches. It does not update itself; where it
+and the code disagree, the code wins.
+
 ## 1. Before you plan: load skills
 Skills live in `.claude/skills/<name>/SKILL.md` (mirrored to `.agents/skills/` by `scripts/agents_sync.py`, which also writes the agents as Codex's `.codex/agents/*.toml`). Load every
 skill whose description fits the request BEFORE you form a plan.
@@ -15,10 +21,11 @@ skill whose description fits the request BEFORE you form a plan.
   How fast anything is: `sm-perf`. Anything that ships to users (dependencies, permissions, files, network, data,
   payments, platform builds, new screens or controls, app lifecycle): `sm-store`. Fingers, the pen, gestures, the
   camera's feel, or anything to try on a tablet: `sm-touch-testing`. Designing or changing a screen, panel or control
-  in Figma, or building one from a Figma design: `sm-figma-ui`. Before calling anything done: `sm-lint`.
+  in Figma, or building one from a Figma design: `sm-figma-ui`. Changing how anything in the interface looks or reads, or judging whether it got better: `sm-ui-review`
+  (the screenshot corpus, the audit, three critics scoring against other apps). Before calling anything done: `sm-lint`.
 - Subagents (`.claude/agents/`): `sm-architect` reviews designs (read-only), `sm-investigator` root-causes bugs with a
   hypothesis ledger, `sm-verifier` builds, runs, dumps the viewport and describes what it saw, `sm-reviewer` reviews a
-  finished diff against these rules (read-only). Where a role is not offered by name, start a general-purpose agent
+  finished diff against these rules (read-only), `sm-ui-critic` scores interface screenshots against the rubric (read-only). Where a role is not offered by name, start a general-purpose agent
   whose prompt says to read `.claude/agents/<role>.md` first and act as it.
 
 ## 2. First reply to a feature request
@@ -32,10 +39,12 @@ skill whose description fits the request BEFORE you form a plan.
     python scripts\gate.py --changed                # each PR of a series: only what the branch's changes reach; the full gate ends the series
     build.bat check                                   # the gate: odin check of every package + the skill mirror check
     build.bat                                         # debug app -> build\sculpt.exe (tracking allocator: a leak exits 1)
-    build.bat test                                    # odin test on geom, uv, poly, camera, sculpt, jobs, gizmo, png_write, zip, hdri, voxel, ui, luau, usd, fbx, quadmesh, retopo, send, app
+    build.bat test                                    # odin test on geom, uv, poly, camera, sculpt, jobs, gizmo, png_write, zip, hdri, voxel, ui, luau, usd, fbx, sparse, quadmesh, retopo, send, app
     python scripts\test_only.py sculpt 'deform_*'     # just those tests of one package, while working
     build.bat smoke                                   # 300 frames under GPU validation, SDL_ASSERT=abort
     python scripts\touch_check.py ['long_press*']    # scripted finger, pen and mouse scenarios (a desktop simulation), in parallel on Linux
+    python scripts\ui_shots.py [screens]            # the interface's screenshot corpus (desktop and tablet, Lens and Paper); `sheet` boxes what changed
+    python scripts\ui_audit.py                       # the interface's computed qualities against their baseline (check runs it)
     build.bat run -- --vertices=1000000 --frames=120  # at most five arguments here; otherwise run build\sculpt.exe
     build\sculpt.exe --vertices=500000 --frames=60 --dump-viewport=build\v.ppm --check-mesh
     python scripts\ppm.py to-png build\v.ppm build\v.png     # then open the PNG and describe it; diff/crop/pixel/uniform too
@@ -45,7 +54,7 @@ skill whose description fits the request BEFORE you form a plan.
     build.bat web | webcheck                          # the web version into build\web\site (scripts/web_build.py: --serve, --test)
     build.bat iphonecheck                             # the app compiled for the iPad to an object (no Mac): iOS-only compile errors
     build.bat maccheck                                # the app compiled for the Mac (Apple silicon) to an object: Mac-only compile errors
-    python scripts\try_it.py [names] [--debug]      # on a real machine: 11 checks on its own GPU, build\try_it\report.md and build\try_it.zip
+    python scripts\try_it.py [names] [--debug]      # on a real machine: 12 checks on its own GPU, build\try_it\report.md and build\try_it.zip
     python scripts\ipad_build.py [--latest]           # the pushed branch's IPA built on GitHub, saved as build\ios\Sculpt.ipa
     build.bat all | clean                             # everything that builds (no display needed); remove build\ and Android's outputs
     (Linux: ./build.sh <mode>, plus wincheck and androidcheck; macOS: ./build.sh ios | iosupload | mac | macnotarize, the iPad IPA
@@ -56,7 +65,8 @@ skill whose description fits the request BEFORE you form a plan.
 | Path | What |
 |---|---|
 | `src/app` | entry point and set-up (`main.odin` `run`), the frame (`frame.odin`: `frame_settle`, `frame_events`, `frame_step`), the exit stats (`exit_stats.odin`), `Options` flags, scene of objects, the tools, the interface's panels (`new_ui.odin`, `kit_*.odin`), keys (`Key`, `keys.odin`) and pointer (`device.odin`), system services (`platform.odin`), `Viewport_Input`, cross-object `History`, `--gpubench` |
-| `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache; the seam `hal.odin` answered by the own Vulkan backend (`vk_*.odin`), on Darwin the own Metal backend (`mtl_*.odin`) or on the web the WebGPU one (`wgpu_*.odin`), SDL_GPU retired (`backend.odin`); `shaders/` Slang with committed `.spv`, `.msl` and `.wgsl` (`shaders.odin` picks per platform) |
+| `src/render` | every GPU object the app creates: device, pipelines, viewport target, mesh buffers, indirect draws, partial redraw, the idle cache, all through `gpu`; `shaders/` Slang with committed `.spv`, `.msl` and `.wgsl` (`shaders.odin` picks per platform) |
+| `src/gpu` | the GPU itself, imported by `render` alone: the seam `hal.odin` (SDL_GPU's names without the prefix: `gpu.create_texture`) in its own types (`types.odin`: `gpu.Format`, `gpu.Texture_Desc`) answered by the own Vulkan backend (`vk_*.odin`), on Darwin the own Metal backend (`mtl_*.odin`) or on the web the WebGPU one (`wgpu_*.odin`), SDL_GPU retired (`backend.odin`); its counters (`gpu_counters.odin`). The GPU abstraction's plan (`notes/gpu-own-model/design.md`) grows here |
 | `src/geom` | CPU geometry: `Mesh`, icosphere and geodesic fixtures, BVHs, topology, culling math, simplification, the LOD walk, `mesh_check` |
 | `src/camera`, `src/gizmo` | orbit camera math; move gizmo math (both pure, no rendering or UI) |
 | `src/poly` | Model mode's cage: half-edge polygon mesh, build and check, triangulation, targets (loops, rings, islands, paths), primitives, topology edits as polygon-list rebuilds |
@@ -64,12 +74,13 @@ skill whose description fits the request BEFORE you form a plan.
 | `src/sculpt` | brushes over a `Mesh` split into nodes, dirty ranges, undo, subdivision levels, HD windows, simplified copies |
 | `src/ui` | the interface kit: immediate-mode layout, widgets, hit testing, CPU tessellation, fonts (no SDL, no render) |
 | `src/jobs` | the persistent worker pool (`parallel_for`, `parallel_ranges`) |
+| `src/sparse` | sparse symmetric systems, no meshes: triplets to compressed columns, the AMD order (SuiteSparse's, BSD), an LDLᵀ whose symbolic pass is kept for refactoring, its Hermitian twin (complex unknowns, half the size of the paired real system), conjugate gradients, a supernodal multifrontal Cholesky on the pool (`supernodal.odin`, the same bits on any thread count); Quad Remesh's field and cover and the UV unwrap solve with it |
 | `src/zip` | ZIP archives in, as content packs come: entries, names checked against zip slip and case clashes, inflating capped by the declared size |
 | `src/bench` | the headless CPU benchmark (markdown tables) |
 | `src/luau` | the binding to Luau (script plugins): the C API the plugins use, linked from `deps/luau` on the desktop builds only (`AVAILABLE`) |
 | `src/fbx` | FBX in (Import) through ufbx (`deps/ufbx-src`, built with our C shim `fbx_shim.c` by `scripts/build_ufbx.py`, by Android's CMakeLists and by `build.sh ios`): a few C calls, each mesh node a `geom.Mesh_Part` with its polygons and its parent node as its folder, materials and textures into a `geom.Mesh_Look`, skins, animations and shape keys counted; `build.sh`/`build.bat` rebuild it when the shim changes |
-| `src/quadmesh` | Quad Remesh's engine: the binding to AutoRemesher's core (`deps/autoremesher-src` at `AUTOREMESHER_COMMIT`, patched with `patches/*.patch` (feature edges, the hole-filling fix; regenerate a patch from a git copy of the source, keeping the third-party files' CRLF) and built with our C boundary `quadmesh_shim.cpp` and the TBB stand-ins in `shim/tbb` by `scripts/build_autoremesher.py`; desktops only, `AVAILABLE`): `remesh` turns triangles into a `Polygon_Mesh` of nearly all quads, with progress and cancel |
-| `src/retopo` | Quad Remesh's work with no scene: about so many quads on a mesh by AutoRemesher or the own engine (`geom.mesh_retopo`), Close first, symmetry and UVs (`compute`, `Result`, `Options`); run by the app's long job and by `bench --quadremesh` |
+| `src/quadmesh` | Flow, Quad Remesh's engine: begun as AutoRemesher's pipeline (MIT, its notices in `assets/licenses`) ported to Odin, on every platform: `remesh` turns triangles into a `Polygon_Mesh` of quads, with progress and cancel; the driver (`driver.odin`) splits islands and lands the count, the stages thin (`thin.odin`), remesh isotropically (`isotropic.odin`), solve the frame field (`field.odin`, `singular.odin`) and the quad cover (`cover.odin`, `mixed.odin`) on `src/sparse`, and extract the quads (`extract*.odin`), each checked (`checks.odin`) and dumped on request (`dump.odin`) |
+| `src/retopo` | Quad Remesh's work with no scene: about so many quads on a mesh by Flow or Fast (`geom.mesh_retopo`), Close first, symmetry and UVs (`compute`, `Result`, `Options`); run by the app's long job and by `bench --quadremesh` |
 | `src/send` | Send to computer and Send to tablet with no sockets: frames, the hello that refuses another build, the scene file cut into content-defined chunks (FastCDC, BLAKE2b), each sent shuffled and LZ4-coded when that saves (`lz4.odin`), the offer and need lists, `Rebuild`, which rebuilds the file from a base and the chunks sent, pairing (X25519, a six-digit code both screens show), sealed frames (ChaCha20-Poly1305 per direction, sequence-checked) and the mDNS questions and answers that find a desktop; the app moves the bytes (`send_find_*.odin`: dns_sd on Apple, its own responder elsewhere) |
 | `src/hdri` | environment panoramas in: Radiance `.hdr`, OpenEXR (all but its newest compressions, HTJ2K and ZSTD) and pictures, as linear RGB halved to a width, and their nine-term diffuse light; decoded on a thread, uploaded by `app` |
 | `src/usd` | USD in (Import): `.usda` text, the `.usdc` binary crate (LZ4, integer coding) and `.usdz` through `zip`, read into a stage whose Mesh prims become `geom.Mesh_Part`s; composition not followed |
@@ -78,18 +89,18 @@ skill whose description fits the request BEFORE you form a plan.
 | `android/` | the Android app: Gradle project, manifest, `app/jni/CMakeLists.txt` (SDL3, stb and `src/app` built by Odin into `libmain.so`), `android_main.c` |
 | `ios/` | the iPad app: `Info.plist`, `PrivacyInfo.xcprivacy` (also the Mac's) and `sculpt_ios.m` (the file dialogs SDL lacks on iOS), linked with SDL3, stb and `src/app` by `./build.sh ios` on macOS |
 | `mac/` | the Mac app's `Info.plist`; `./build.sh mac` links SDL3, stb and `src/app` into `Sculpt.app` on macOS |
-| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `build_luau.py` (Luau from source, which setup_deps runs), `build_autoremesher.py` (AutoRemesher's core with our boundary, which setup_deps runs), `ipad_build.py` (the IPA from GitHub's Mac, or a TestFlight upload), `sdl_ios.sh` and `sdl_mac.sh` (SDL for the iPad and the Mac, which `build.sh ios` and `mac` run and their workflows cache), `build_shadercross.py` and `shaders_msl.py` (each shader's Metal source from its `.spv`; `check` runs `--check`), `shaders_wgsl.py` (each shader's WGSL for the web; `check` runs `--check`), `web_build.py` and `web_check.mjs` (the web version built, and driven in headless Chromium), `gate.py` (the done gate in one command; `--changed` for one PR), `headless.py` (how scripts open the app's window with no display: offscreen SDL or Xvfb), `input_report.py` (analyses an Input diagnostics report; its tests and samples beside it), `test_only.py` (some tests of one package), `try_it.py` (a real machine's run: short checks on its GPU, a report and a zip to send back), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `parity_check.py` (19 scenes against a baseline build, pixel for pixel), `touch_check.py` (touch, pen and camera scenarios), `export_check.py` (a glTF or USD export through its validator and Blender), `remesh_check.py` (Remesh and Quad Remesh over a fixture corpus, judged against the plan's acceptance), `link_check.py` (the Blender link's round trip through the add-on in bpy) |
+| `scripts/` | `setup_deps.*`, `versions.env` (the pins), `build_luau.py` (Luau from source, which setup_deps runs), `ipad_build.py` (the IPA from GitHub's Mac, or a TestFlight upload), `sdl_ios.sh` and `sdl_mac.sh` (SDL for the iPad and the Mac, which `build.sh ios` and `mac` run and their workflows cache), `shaders_msl.py` (each shader's Metal source from slangc, with its slot table; `check` runs `--check`), `shaders_wgsl.py` (each shader's WGSL for the web; `check` runs `--check`), `shaders_gen.py` (each shader's description in `src/render/shaders_gen.odin` from slangc's reflection; `check` runs `--check`), `web_build.py` and `web_check.mjs` (the web version built, and driven in headless Chromium), `gate.py` (the done gate in one command; `--changed` for one PR), `headless.py` (how scripts open the app's window with no display: offscreen SDL or Xvfb), `input_report.py` (analyses an Input diagnostics report; its tests and samples beside it), `test_only.py` (some tests of one package), `crash_symbolize.py` (a Windows crash log's frames named from the release build's `build/sculpt.map`), `try_it.py` (a real machine's run: short checks on its GPU, a report and a zip to send back), `agents_sync.py` (skill mirror and validation), `ppm.py` (view and diff viewport dumps), `parity_check.py` (19 scenes against a baseline build, pixel for pixel), `kernel_stats.py` (what an RDNA2 compiler makes of a compute kernel, registers and instructions, through Mesa's RADV with no GPU, with or without its specialization constants), `touch_check.py` (touch, pen and camera scenarios), `ui_shots.py` (the interface's screenshot corpus and before/after sheets), `ui_audit.py` (contrast, literal sizes and shared icons held to `ui_audit_baseline.json`; `check` runs it), `export_check.py` (a glTF or USD export through its validator and Blender), `remesh_check.py` (Remesh and Quad Remesh over a fixture corpus, judged against the plan's acceptance), `uv_check.py` (UV flattening against Blender's unwraps on `bench --uv`'s fixtures, through bpy), `quadmesh_view.py` (a Quad Remesh stage dump, `--quadmesh-dump`, drawn as a PNG), `link_check.py` (the Blender link's round trip through the add-on in bpy) |
 | `tools/blender/` | the Blender add-on of the Blender link (`sculpt_link`, Python, GPL-3.0-or-later as Blender requires): outside the build, never in the APK |
 | `deps/`, `build/` | ignored: the pinned toolchain and third-party sources; build outputs and dumps |
-| `.vscode/`, `.claude/`, `.agents/`, `.codex/agents/` | tasks and launch configurations by device; skills, agents and permissions; the generated skill mirror and Codex's copies of the agents (never edited by hand) |
+| `.vscode/`, `.claude/`, `.agents/`, `.codex/agents/` | tasks and launch configurations by device; skills, agents, permissions and the project-memory snapshot; the generated skill mirror and Codex's copies of the agents (never edited by hand) |
 
 ## 5. Hard rules
 - Odin is pinned (`scripts/versions.env`, `deps/odin`): never write from memory of older Odin; grep the install.
-- Package boundaries: `geom`, `uv`, `camera`, `gizmo`, `jobs`, `zip`, `hdri`, `voxel`, `poly`, `luau`, `usd`, `fbx`, `quadmesh`, `retopo` and `send` know nothing of rendering or UI; `ui` knows nothing of SDL or `render`; only `render` and, in `app`, the
-  platform files (windows, device, touch, pen, dialogs, `platform.odin`; `APP_SDL_FILES`) import `vendor:sdl3`, the rest naming keys by `Key` (`keys.odin`), and only `render` names the GPU API: `app` holds `render.Cmd`, `render.Texture`,
-  `render.Fence` and `render.Sample_Count` and calls render's procs (`render.wait_idle`, `cmd_begin`, `cmd_submit`,
-  `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render every GPU call goes through `hal.odin`'s
-  `gpu_*` (Metal on Darwin, WebGPU on the web, Vulkan elsewhere) and nothing calls SDL_GPU's procs, both enforced by `scripts/boundary_check.py` in `check`;
+- Package boundaries: `geom`, `uv`, `camera`, `gizmo`, `jobs`, `zip`, `hdri`, `voxel`, `poly`, `luau`, `usd`, `fbx`, `sparse`, `quadmesh`, `retopo` and `send` know nothing of rendering or UI, and `gpu` nothing of render, the app or UI; `ui` knows nothing of SDL or `render`; only `gpu`, `render` and, in `app`, the
+  platform files (windows, device, touch, pen, dialogs, `platform.odin`; `APP_SDL_FILES`) import `vendor:sdl3`, the rest naming keys by `Key` (`keys.odin`), and only `gpu` names the GPU API, imported by `render` alone: `app` holds `render.Cmd`, `render.Texture`,
+  `render.Ticket` and `render.Sample_Count` and calls render's procs (`cmd_begin`, `cmd_submit`,
+  `swapchain_acquire`, `ui_present`; `src/render/gpu.odin`), and inside render every GPU call goes through `src/gpu/hal.odin`
+  (`gpu.*`: Metal on Darwin, WebGPU on the web, Vulkan elsewhere) and nothing calls SDL_GPU's procs, both enforced by `scripts/boundary_check.py` in `check`;
   `bench` never imports `render` or `app`.
 - Determinism: serial and parallel results are bit-identical and tests compare them; no map order decides output.
 - Allocations inside jobs use `runtime.heap_allocator()` for both make and delete; only the frame loop and the setup
@@ -102,14 +113,15 @@ skill whose description fits the request BEFORE you form a plan.
 - The interface never owns sculpt state; panels keep no references between frames; scene changes are `Scene_Command`s and
   file actions are requests (`file_take`), both applied at the start of the next frame.
 - No backward compatibility until release: nobody uses the app yet. The `.sculpt` scene file (chunks, `SCENE_VERSION`
-  in `src/app/files.odin`), `settings.txt`, workspace layouts, `.strokes` and the cage and voxel sections read only what
+  in `src/app/files.odin`), `settings.txt`, the space layouts, `.strokes` and the cage and voxel sections read only what
   this build writes: a format change edits the writer and the reader together and deletes the old reading, with no
   version branches, optional trailing fields, renamed-line aliases or one-time default conversions. A file an earlier
   build wrote is refused (or a settings line passed over), never converted. A damaged file is refused, never asserted on.
-- GPU: consume every `gpu_*` result (in `render`; `hal.odin` marks them `require_results`); `render.wait_idle` before freeing buffers; set vsync before acquiring the
+- GPU: consume every `gpu.*` result (`hal.odin` marks them `require_results`); release any time (the GPU layer frees an object once no work in flight uses it, so nothing waits for the GPU before freeing); set vsync before acquiring the
   swapchain; `Draw_Item.model` is a similarity: rotation, translation, uniform scale (no shear or non-uniform scale).
 - No TODO or FIXME: write it or design it. Comments are full sentences giving reasons. README is updated with any flag,
-  control or panel change. No handoff, status or notes files.
+  control or panel change. No handoff, status or notes files (beyond the
+  `.claude/project-memory/` snapshot).
 - Never edit `deps/`, `build/`, `.agents/` or `.codex/agents/`; never sleep, poll, `tail -f` or kill `sculpt.exe` by name; one
   `build.bat` per shell call, never piped into `head`, `tail` or `findstr`.
 

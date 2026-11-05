@@ -20,6 +20,11 @@
 //   --brushes    instead, a stroke with each brush kind (see run_brushes)
 //   --remesh     instead, voxel remesh of a stretched sphere (see run_remesh)
 //   --quadremesh instead, Quad Remesh's engine on that sphere (see run_quadremesh)
+//   --uv         instead, UV flattening and packing; sizes are triangles, 100k and 1M by
+//                default (see run_uvs); --write=DIR also writes each fixture with the
+//                flattening as DIR/<fixture>_<triangles>.obj
+//   --measure=FILE.obj instead, the stretch of an OBJ's own UVs and of ours on it
+//                (scripts/uv_check.py runs Blender's unwrap through it)
 //   --dyntopo    instead, dynamic topology strokes (see run_dyntopo)
 //   --files      instead, OBJ, PLY and scene files written and read (see run_files)
 //   --masks      instead, every mask command on a half-masked sphere (see run_masks)
@@ -54,6 +59,7 @@ VERTEX_BYTES :: 16  // per vertex on the GPU, as render.VERTEX_BYTES
 INDIRECT_BYTES :: 20 // per indirect draw command
 
 cull_rows: [dynamic]string
+work_rows: [dynamic]string
 
 node_triangles: u32 = sculpt.NODE_TRIANGLES
 threads := 0
@@ -70,10 +76,15 @@ dyntopo := false
 files := false
 masks := false
 voxels := false
+uvs := false
 profile := false
 sends := false
 
 main :: proc() {
+	heap_count.backing = context.allocator
+	temp_count.backing = context.temp_allocator
+	context.allocator = alloc_count_allocator(&heap_count)
+	context.temp_allocator = alloc_count_allocator(&temp_count)
 	targets := make([dynamic]int)
 	defer delete(targets)
 	for arg in os.args[1:] {
@@ -97,6 +108,13 @@ main :: proc() {
 			remesh = true
 		} else if arg == "--quadremesh" {
 			quadremesh = true
+		} else if arg == "--uv" {
+			uvs = true
+		} else if strings.has_prefix(arg, "--write=") {
+			uv_write_dir = arg[8:]
+		} else if strings.has_prefix(arg, "--measure=") {
+			uvs = true
+			uv_measure = arg[10:]
 		} else if arg == "--dyntopo" {
 			dyntopo = true
 		} else if arg == "--files" {
@@ -128,6 +146,8 @@ main :: proc() {
 		for v in ([]int{50_000, 250_000, 1_000_000}) do append(&cases, Case{v, 1})
 	} else if sends && len(targets) == 0 {
 		for v in ([]int{1_000_000, 10_000_000, 25_000_000}) do append(&cases, Case{v, 1})
+	} else if uvs && len(targets) == 0 {
+		for v in ([]int{100_000, 1_000_000}) do append(&cases, Case{v, 1})
 	} else if voxels && len(targets) == 0 {
 		for v in ([]int{256, 512, 1024}) do append(&cases, Case{v, 1})
 	} else if len(targets) == 0 {
@@ -167,6 +187,16 @@ main :: proc() {
 		quadremesh_header()
 		for c in cases do if c.meshes == 1 do run_quadremesh(c.vertices, pool)
 		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
+		return
+	}
+	if uv_measure != "" {
+		uvs_header()
+		measure_uvs(uv_measure, pool)
+		return
+	}
+	if uvs {
+		uvs_header()
+		for c in cases do if c.meshes == 1 do run_uvs(c.vertices, pool)
 		return
 	}
 	if dyntopo {
@@ -233,6 +263,9 @@ main :: proc() {
 	fmt.println("| Vertices | GPU MB | View | Chunks | Triangles drawn | Draws | Cull ms, chunk by chunk | Cull ms, by groups | Cull ms, by groups in parallel |")
 	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 	for row in cull_rows do fmt.println(row)
+	fmt.println()
+	work_header()
+	for row in work_rows do fmt.println(row)
 	if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
 }
 
@@ -283,6 +316,17 @@ run :: proc(target, mesh_count: int, pool: ^jobs.Pool) {
 		upload_bytes := 0
 		eye := Vec3{0, 0, 3.5}
 		// One stroke, recorded for undo as the app does.
+		_ = sculpt.sculptor_work_take(s)
+		// Where the vertices were at the stroke's start and at the last flush, to count the
+		// distinct vertices each frame and the whole stroke moved (dabs overlap, so the
+		// work counts' `moved` counts a vertex once per dab). Copied before the allocation
+		// reading, which then counts only the stroke's own.
+		start := slice.clone(m.positions[:])
+		last := slice.clone(m.positions[:])
+		defer delete(start)
+		defer delete(last)
+		frame_moved := 0
+		allocs_from := alloc_read()
 		sculpt.sculptor_stroke_begin(s)
 		for i in 0 ..< DABS {
 			// Wavy stroke across the front of the sphere, as in the app's --bench-stroke.
@@ -300,13 +344,29 @@ run :: proc(target, mesh_count: int, pool: ^jobs.Pool) {
 			if i % DABS_PER_FRAME == DABS_PER_FRAME - 1 || i == DABS - 1 {
 				tc := time.tick_now()
 				// Every sphere is flushed, as the app does each frame; idle ones have nothing to do.
+				own: []sculpt.Vertex_Range
 				for sp in spheres {
-					for r in sculpt.sculptor_flush(&sp.sculptor) do upload_bytes += int(r.count) * VERTEX_BYTES
+					ranges := sculpt.sculptor_flush(&sp.sculptor)
+					for r in ranges do upload_bytes += int(r.count) * VERTEX_BYTES
+					if sp == spheres[0] do own = ranges
 				}
 				flush[f] = time.duration_milliseconds(time.tick_since(tc))
 				frame[f] += flush[f]
+				// Untimed: every moved vertex lies in the flush's ranges.
+				for r in own {
+					for v in r.first ..< r.first + r.count {
+						if m.positions[v] == last[v] do continue
+						last[v] = m.positions[v]
+						frame_moved += 1
+					}
+				}
 			}
 		}
+		work := sculpt.sculptor_work_take(s)
+		allocs := alloc_since(allocs_from)
+		stroke_moved := 0
+		for p, v in m.positions do if p != start[v] do stroke_moved += 1
+		append(&work_rows, work_row(vcount, radius, work, allocs, frames, frame_moved, stroke_moved))
 		_ = sculpt.sculptor_stroke_end(s)
 		// The app flushes again in the frame the stroke ends, which starts on the normal
 		// cones held back during the stroke; later frames finish them.

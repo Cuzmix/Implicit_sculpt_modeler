@@ -286,7 +286,7 @@ print_checks_rows :: proc(app: ^App, obj: ^Object, w: f32) {
 		_ = print_check_row(ctx, false, fmt.tprintf("Too big to check here: over %dM triangles", PRINT_CHECK_MAX / 3_000_000), w)
 		return
 	}
-	ui.begin(ctx, "print checks", {direction = .Column, gap = 2, width = w})
+	ui.begin(ctx, "print checks", {direction = .Column, gap = ui.SPACE_2XS, width = w})
 	switch {
 	case c.bad_edges > 0:
 		_ = print_check_row(ctx, false, fmt.tprintf("%d edge%s of more than two faces, or flipped", c.bad_edges, "" if c.bad_edges == 1 else "s"), w)
@@ -330,7 +330,7 @@ print_checks_rows :: proc(app: ^App, obj: ^Object, w: f32) {
 @(private = "file")
 print_check_row :: proc(ctx: ^ui.Context, ok: bool, text: string, w: f32, button := "", enabled := true, waiting := false) -> bool {
 	t := ctx.theme
-	ui.begin(ctx, fmt.tprintf("print check %s", text), {direction = .Row, center = true, gap = 8, width = w})
+	ui.begin(ctx, fmt.tprintf("print check %s", text), {direction = .Row, center = true, gap = ui.SPACE_M, width = w})
 	ROW_H :: 30
 	mark := ui.place(ctx, {t.icon_small, ROW_H})
 	glyph, tint := (ICON_CHECK_OK if ok else ICON_CHECK_WARN), (t.success if ok else t.warning)
@@ -351,5 +351,5 @@ print_check_row :: proc(ctx: ^ui.Context, ok: bool, text: string, w: f32, button
 ICON_CHECK_OK :: rune(0xe226)
 @(private = "file")
 ICON_CHECK_WAIT :: rune(0xe296)
-@(private = "file")
+// A warning's triangle, which the memory check's popup shows too (memory_check.odin).
 ICON_CHECK_WARN :: rune(0xe193)

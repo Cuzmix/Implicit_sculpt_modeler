@@ -1,106 +1,178 @@
-// SDL_shadercross 1ff05bec5739 from smooth_all.comp.spv sha256 5b053976a10cbb7699d06d98698f7e1577599bda5da5246fe9e2b8ab1871f7bc
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-
+// slangc metal from smooth_all.comp.spv sha256 5b053976a10cbb7699d06d98698f7e1577599bda5da5246fe9e2b8ab1871f7bc
+// slots s= rt= wt= rb=0,1,2,3,4 wb=5 u=6 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-template<typename T>
-[[clang::optnone]] T spvFAdd(T l, T r)
+#line 18 "/home/user/Implicit_sculpt_modeler/src/render/shaders/smooth_all.comp.slang"
+struct SLANG_ParameterGroup_Params_0
 {
-    return fma(T(1), l, r);
+    uint vertex_count_0;
+    uint groups_x_0;
+};
+
+
+#line 44
+struct KernelContext_0
+{
+    SLANG_ParameterGroup_Params_0 constant* Params_0;
+    float device* src_0;
+    float device* weights_0;
+    uint device* offsets_0;
+    uint device* tris_0;
+    uint device* indices_0;
+    float device* dst_0;
+};
+
+
+#line 23
+float3 at_0(uint v_0, KernelContext_0 thread* kernelContext_0)
+{
+
+#line 24
+    uint _S1 = 3U * v_0;
+
+#line 24
+    return float3(kernelContext_0->src_0[_S1], kernelContext_0->src_0[_S1 + 1U], kernelContext_0->src_0[_S1 + 2U]);
 }
 
-template<typename T>
-[[clang::optnone]] T spvFSub(T l, T r)
-{
-    return fma(T(-1), r, l);
-}
 
-struct SLANG_ParameterGroup_Params_std140
+[[kernel]] void main_0(uint3 group_id_0 [[threadgroup_position_in_grid]], uint3 local_id_0 [[thread_position_in_threadgroup]], uint3 global_id_0 [[thread_position_in_grid]], SLANG_ParameterGroup_Params_0 constant* Params_1 [[buffer(6)]], float device* src_1 [[buffer(4)]], float device* weights_1 [[buffer(3)]], uint device* offsets_1 [[buffer(1)]], uint device* tris_1 [[buffer(2)]], uint device* indices_1 [[buffer(0)]], float device* dst_1 [[buffer(5)]])
 {
-    uint vertex_count;
-    uint groups_x;
-};
 
-struct StructuredBuffer
-{
-    float _member0[1];
-};
+#line 28
+    thread KernelContext_0 kernelContext_1;
 
-struct StructuredBuffer_1
-{
-    uint _member0[1];
-};
+#line 28
+    (&kernelContext_1)->Params_0 = Params_1;
 
-struct RWStructuredBuffer
-{
-    float _member0[1];
-};
+#line 28
+    (&kernelContext_1)->src_0 = src_1;
 
-static inline __attribute__((always_inline))
-float3 at(uint v, device StructuredBuffer& src)
-{
-    uint _67 = 3u * v;
-    return float3(src._member0[_67], src._member0[_67 + 1u], src._member0[_67 + 2u]);
-}
+#line 28
+    (&kernelContext_1)->weights_0 = weights_1;
 
-kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_1& indices [[buffer(1)]], device StructuredBuffer_1& offsets [[buffer(2)]], device StructuredBuffer_1& tris [[buffer(3)]], device StructuredBuffer& weights [[buffer(4)]], device StructuredBuffer& src [[buffer(5)]], device RWStructuredBuffer& dst [[buffer(6)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
-{
-    uint v = (((gl_WorkGroupID.y * Params.groups_x) + gl_WorkGroupID.x) * 256u) + gl_LocalInvocationID.x;
-    if (v >= Params.vertex_count)
+#line 28
+    (&kernelContext_1)->offsets_0 = offsets_1;
+
+#line 28
+    (&kernelContext_1)->tris_0 = tris_1;
+
+#line 28
+    (&kernelContext_1)->indices_0 = indices_1;
+
+#line 28
+    (&kernelContext_1)->dst_0 = dst_1;
+    uint v_1 = (group_id_0.y * Params_1->groups_x_0 + group_id_0.x) * 256U + local_id_0.x;
+    if(v_1 >= (Params_1->vertex_count_0))
     {
+
+#line 30
         return;
     }
-    float3 p = at(v, src);
-    uint _95 = v + 1u;
-    bool _7;
-    if (weights._member0[v] > 0.0)
+
+#line 30
+    float3 _S2 = at_0(v_1, &kernelContext_1);
+
+    float w_0 = (&kernelContext_1)->weights_0[v_1];
+    uint first_0 = (&kernelContext_1)->offsets_0[v_1];
+    uint last_0 = (&kernelContext_1)->offsets_0[v_1 + 1U];
+
+#line 34
+    bool _S3;
+    if(w_0 > 0.0f)
     {
-        _7 = offsets._member0[_95] > offsets._member0[v];
+
+#line 35
+        _S3 = last_0 > first_0;
+
+#line 35
     }
     else
     {
-        _7 = false;
+
+#line 35
+        _S3 = false;
+
+#line 35
     }
-    float3 sum;
-    if (_7)
+
+#line 35
+    float3 p_0;
+
+#line 35
+    if(_S3)
     {
-        uint k = offsets._member0[v];
-        sum = float3(0.0);
-        for (;;)
+
+#line 36
+        float3 _S4 = float3(0.0f) ;
+
+#line 36
+        uint k_0 = first_0;
+
+#line 36
+        p_0 = _S4;
+        for(;;)
         {
-            float3 sum_1;
-            bool _23_ladder_break = false;
-            do
+
+#line 37
+            if(k_0 < last_0)
             {
-                if (!(k < offsets._member0[_95]))
-                {
-                    _23_ladder_break = true;
-                    break;
-                }
-                uint _119 = 3u * tris._member0[k];
-                sum_1 = spvFAdd(sum, spvFAdd(spvFAdd(at(indices._member0[_119], src), at(indices._member0[_119 + 1u], src)), at(indices._member0[_119 + 2u], src)));
-                break;
-            } while(false);
-            if (_23_ladder_break)
+            }
+            else
             {
+
+#line 37
                 break;
             }
-            k++;
-            sum = sum_1;
-            continue;
+            uint _S5 = 3U * (&kernelContext_1)->tris_0[k_0];
+
+#line 39
+            float3 _S6 = at_0((&kernelContext_1)->indices_0[_S5], &kernelContext_1);
+
+#line 39
+            float3 _S7 = at_0((&kernelContext_1)->indices_0[_S5 + 1U], &kernelContext_1);
+
+#line 39
+            float3 _S8 = _S6 + _S7;
+
+#line 39
+            float3 _S9 = at_0((&kernelContext_1)->indices_0[_S5 + 2U], &kernelContext_1);
+
+#line 39
+            float3 sum_0 = p_0 + (_S8 + _S9);
+
+#line 37
+            k_0 = k_0 + 1U;
+
+#line 37
+            p_0 = sum_0;
+
+#line 37
         }
-        sum = spvFAdd(p * spvFSub(1.0, weights._member0[v]), (sum / float3(float(3u * (offsets._member0[_95] - offsets._member0[v])))) * weights._member0[v]);
+
+#line 37
+        p_0 = _S2 * float3((1.0f - w_0))  + p_0 / float3(float(3U * (last_0 - first_0)))  * float3(w_0) ;
+
+#line 35
     }
     else
     {
-        sum = p;
+
+#line 35
+        p_0 = _S2;
+
+#line 35
     }
-    uint _159 = 3u * v;
-    dst._member0[_159] = sum.x;
-    dst._member0[_159 + 1u] = sum.y;
-    dst._member0[_159 + 2u] = sum.z;
+
+#line 44
+    uint _S10 = 3U * v_1;
+
+#line 44
+    *((&kernelContext_1)->dst_0+_S10) = p_0.x;
+    *((&kernelContext_1)->dst_0+(_S10 + 1U)) = p_0.y;
+    *((&kernelContext_1)->dst_0+(_S10 + 2U)) = p_0.z;
+    return;
 }
 

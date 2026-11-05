@@ -278,7 +278,7 @@ kit_shape_bar :: proc(app: ^App) {
 	if pos.y + size.y > area.y + area.h - t.edge - dock_lift(app) - dock.y - 8 do pos.y = lo.y - gap - size.y
 	pos.x = clamp(pos.x, area.x + t.edge, max(area.x + area.w - t.edge - size.x, area.x + t.edge))
 	pos.y = clamp(pos.y, area.y + t.edge, max(area.y + area.h - t.edge - size.y, area.y + t.edge))
-	ui.begin_at(ctx, "shape bar", pos, {direction = .Row, gap = 4, padding = 4, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_at(ctx, "shape bar", pos, {direction = .Row, gap = ui.SPACE_XS, padding = ui.SPACE_XS, radius = t.radius_large + 4, background = .Panel, center = true})
 	if ui.button(ctx, "Apply", .Solid, .Accent, glyph = ui.ICON_CHECK, keys = "Enter", enabled = shape_can_apply(app)) do p.request = .Apply
 	if p.kind != .Slice && ui.button(ctx, SHAPE_FLIP_NAMES[p.kind] if !p.flip else SHAPE_UNFLIP_NAMES[p.kind], .Light) do p.request = .Flip
 	if ui.button(ctx, "Cancel", .Light, glyph = ui.ICON_CLOSE, keys = "Escape") do p.request = .Cancel

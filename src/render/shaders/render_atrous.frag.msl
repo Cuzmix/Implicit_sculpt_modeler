@@ -1,206 +1,306 @@
-// SDL_shadercross 1ff05bec5739 from render_atrous.frag.spv sha256 9925bb31d909c91dc08f7950dac7a8b7a5c8e0d39104c0cfa6b4bd88507e2204
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-#pragma clang diagnostic ignored "-Wmissing-braces"
-
+// slangc metal from render_atrous.frag.spv sha256 9925bb31d909c91dc08f7950dac7a8b7a5c8e0d39104c0cfa6b4bd88507e2204
+// slots s=0:0,1:1,2:2 rt= wt= rb= wb= u=0 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-template<typename T, size_t Num>
-struct spvUnsafeArray
-{
-    T elements[Num ? Num : 1];
-    
-    thread T& operator [] (size_t pos) thread
-    {
-        return elements[pos];
-    }
-    constexpr const thread T& operator [] (size_t pos) const thread
-    {
-        return elements[pos];
-    }
-    
-    device T& operator [] (size_t pos) device
-    {
-        return elements[pos];
-    }
-    constexpr const device T& operator [] (size_t pos) const device
-    {
-        return elements[pos];
-    }
-    
-    constexpr const constant T& operator [] (size_t pos) const constant
-    {
-        return elements[pos];
-    }
-    
-    threadgroup T& operator [] (size_t pos) threadgroup
-    {
-        return elements[pos];
-    }
-    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
-    {
-        return elements[pos];
-    }
-};
+#line 24 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_atrous.frag.slang"
+constant array<float, int(3)> KERNEL_0 = { { 0.375f, 0.25f, 0.0625f } };
 
-struct SLANG_ParameterGroup_Atrous_Uniforms_std140
+#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
-    float4 params;
-};
 
-constant spvUnsafeArray<float, 3> _267 = spvUnsafeArray<float, 3>({ 0.375, 0.25, 0.0625 });
+#line 10
+    thread uint w_0;
 
-struct main0_out
-{
-    float4 entryPointParam_main [[color(0)]];
-};
+#line 10
+    thread uint h_0;
 
-static inline __attribute__((always_inline))
-int2 texture_size(texture2d<float> src, sampler srcSmplr)
-{
-    uint2 _vecSize = uint2(src.get_width(0u), src.get_height(0u));
-    uint w = _vecSize.x;
-    uint h = _vecSize.y;
-    uint levels = uint(src.get_num_mip_levels());
-    return int2(int(w), int(h));
+#line 10
+    thread uint levels_0;
+
+#line 10
+    (*((&w_0)) = (t_texture_0).get_width((0U))),(*((&h_0)) = (t_texture_0).get_height((0U))),(*((&levels_0)) = (t_texture_0).get_num_mip_levels());
+
+    return int2(int(w_0), int(h_0));
 }
 
-static inline __attribute__((always_inline))
-float3 light_at(int2 px, texture2d<float> src, sampler srcSmplr, constant SLANG_ParameterGroup_Atrous_Uniforms_std140& Atrous_Uniforms, texture2d<float> guide_albedo, sampler guide_albedoSmplr)
+
+#line 15 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_atrous.frag.slang"
+struct SLANG_ParameterGroup_Atrous_Uniforms_0
 {
-    int2 _109 = int3(px, 0).xy;
-    float4 _113 = src.read(uint2(_109), 0);
-    if (Atrous_Uniforms.params.z < 0.5)
+    float4 params_0;
+};
+
+
+#line 1084 "core"
+struct KernelContext_0
+{
+    texture2d<float, access::sample> src_texture_0;
+    sampler src_sampler_0;
+    SLANG_ParameterGroup_Atrous_Uniforms_0 constant* Atrous_Uniforms_0;
+    texture2d<float, access::sample> guide_albedo_texture_0;
+    sampler guide_albedo_sampler_0;
+    texture2d<float, access::sample> guide_normal_texture_0;
+    sampler guide_normal_sampler_0;
+};
+
+
+#line 27 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_atrous.frag.slang"
+float3 light_at_0(int2 px_0, KernelContext_0 thread* kernelContext_0)
+{
+
+#line 27
+    float4 _S1 = ((kernelContext_0->src_texture_0).read(uint2((px_0))));
+
+    if((kernelContext_0->Atrous_Uniforms_0->params_0.z) < 0.5f)
     {
-        return _113.xyz;
+
+#line 29
+        return _S1.xyz;
     }
-    float3 mean = _113.xyz / float3(fast::max(_113.w, 1.0));
-    float4 _138 = guide_albedo.read(uint2(_109), 0);
-    float3 _100;
-    if (_138.w > 0.0)
+
+#line 30
+    float3 mean_0 = _S1.xyz / float3(max(_S1.w, 1.0f)) ;
+
+#line 30
+    float4 _S2 = ((kernelContext_0->guide_albedo_texture_0).read(uint2((px_0))));
+
+#line 30
+    float3 _S3;
+
+    if((_S2.w) > 0.0f)
     {
-        _100 = mean / fast::max(_138.xyz, float3(0.0199999995529651641845703125));
+
+#line 32
+        _S3 = mean_0 / max(_S2.xyz, float3(0.01999999955296516f) );
+
+#line 32
     }
     else
     {
-        _100 = mean;
+
+#line 32
+        _S3 = mean_0;
+
+#line 32
     }
-    return _100;
+
+#line 32
+    return _S3;
 }
 
-static inline __attribute__((always_inline))
-float luminance(float3 c)
+float luminance_0(float3 c_0)
 {
-    return dot(c, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+
+#line 36
+    return dot(c_0, float3(0.2125999927520752f, 0.71520000696182251f, 0.07220000028610229f));
 }
 
-fragment main0_out main0(constant SLANG_ParameterGroup_Atrous_Uniforms_std140& Atrous_Uniforms [[buffer(0)]], texture2d<float> src [[texture(0)]], texture2d<float> guide_albedo [[texture(1)]], texture2d<float> guide_normal [[texture(2)]], sampler srcSmplr [[sampler(0)]], sampler guide_albedoSmplr [[sampler(1)]], sampler guide_normalSmplr [[sampler(2)]], float4 gl_FragCoord [[position]])
+
+#line 36
+struct pixelOutput_0
 {
-    main0_out out = {};
-    int2 _63 = int2(gl_FragCoord.xy);
-    int2 _94 = texture_size(src, srcSmplr) - int2(1);
-    float3 centre = light_at(_63, src, srcSmplr, Atrous_Uniforms, guide_albedo, guide_albedoSmplr);
-    int2 _155 = int3(_63, 0).xy;
-    float4 _159 = guide_albedo.read(uint2(_155), 0);
-    if (_159.w <= 0.0)
+    float4 output_0 [[color(0)]];
+};
+
+
+#line 39
+[[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], texture2d<float, access::sample> src_texture_1 [[texture(0)]], sampler src_sampler_1 [[sampler(0)]], SLANG_ParameterGroup_Atrous_Uniforms_0 constant* Atrous_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> guide_albedo_texture_1 [[texture(1)]], sampler guide_albedo_sampler_1 [[sampler(1)]], texture2d<float, access::sample> guide_normal_texture_1 [[texture(2)]], sampler guide_normal_sampler_1 [[sampler(2)]])
+{
+
+#line 39
+    thread KernelContext_0 kernelContext_1;
+
+#line 39
+    (&kernelContext_1)->src_texture_0 = src_texture_1;
+
+#line 39
+    (&kernelContext_1)->src_sampler_0 = src_sampler_1;
+
+#line 39
+    (&kernelContext_1)->Atrous_Uniforms_0 = Atrous_Uniforms_1;
+
+#line 39
+    (&kernelContext_1)->guide_albedo_texture_0 = guide_albedo_texture_1;
+
+#line 39
+    (&kernelContext_1)->guide_albedo_sampler_0 = guide_albedo_sampler_1;
+
+#line 39
+    (&kernelContext_1)->guide_normal_texture_0 = guide_normal_texture_1;
+
+#line 39
+    (&kernelContext_1)->guide_normal_sampler_0 = guide_normal_sampler_1;
+    int2 _S4 = int2(frag_coord_0.xy);
+    int2 _S5 = texture_size_0(src_texture_1, src_sampler_1) - int2(int(1)) ;
+
+#line 41
+    float3 _S6 = light_at_0(_S4, &kernelContext_1);
+
+#line 41
+    float4 _S7 = (((&kernelContext_1)->guide_albedo_texture_0).read(uint2((_S4))));
+
+
+    if((_S7.w) <= 0.0f)
     {
-        out.entryPointParam_main = float4(centre, 1.0);
-        return out;
+
+#line 44
+        pixelOutput_0 _S8 = { float4(_S6, 1.0f) };
+        return _S8;
     }
-    float4 _172 = guide_normal.read(uint2(_155), 0);
-    float4 gn = _172;
-    if (Atrous_Uniforms.params.w > 0.5)
+
+#line 45
+    float4 _S9 = (((&kernelContext_1)->guide_normal_texture_0).read(uint2((_S4))));
+
+    thread float4 gn_0 = _S9;
+    if(((&kernelContext_1)->Atrous_Uniforms_0->params_0.w) > 0.5f)
     {
-        float4 _179 = gn;
-        float3 _184 = fast::normalize(_179.xyz + float3(0.0, 0.0, 9.9999999747524270787835121154785e-07));
-        gn.x = _184.x;
-        gn.y = _184.y;
-        gn.z = _184.z;
+
+#line 48
+        gn_0.xyz = normalize(gn_0.xyz + float3(0.0f, 0.0f, 9.99999997475242708e-07f));
+
+#line 48
     }
-    int _196 = int(Atrous_Uniforms.params.x);
-    float _197 = luminance(centre);
-    int y = -2;
-    float3 sum = float3(0.0);
-    float total = 0.0;
-    float3 sum_1;
-    float total_1;
-    for (;;)
+    int _S10 = int((&kernelContext_1)->Atrous_Uniforms_0->params_0.x);
+    float _S11 = luminance_0(_S6);
+    float3 _S12 = float3(0.0f) ;
+
+#line 51
+    int y_0 = int(-2);
+
+#line 51
+    float3 sum_0 = _S12;
+
+#line 51
+    float total_0 = 0.0f;
+
+    for(;;)
     {
-        bool _32_ladder_break = false;
-        do
+
+#line 53
+        if(y_0 <= int(2))
         {
-            if (!(y <= 2))
-            {
-                _32_ladder_break = true;
-                break;
-            }
-            int x = -2;
-            sum_1 = sum;
-            total_1 = total;
-            for (;;)
-            {
-                bool _37_ladder_break = false;
-                do
-                {
-                    if (!(x <= 2))
-                    {
-                        _37_ladder_break = true;
-                        break;
-                    }
-                    int2 _230 = clamp(_63 + (int2(x, y) * int2(_196)), int2(0), _94);
-                    int2 _233 = int3(_230, 0).xy;
-                    float4 _237 = guide_albedo.read(uint2(_233), 0);
-                    if (_237.w <= 0.0)
-                    {
-                        break;
-                    }
-                    float4 _245 = guide_normal.read(uint2(_233), 0);
-                    float4 qn = _245;
-                    if (Atrous_Uniforms.params.w > 0.5)
-                    {
-                        float4 _251 = qn;
-                        float3 _255 = fast::normalize(_251.xyz + float3(0.0, 0.0, 9.9999999747524270787835121154785e-07));
-                        qn.x = _255.x;
-                        qn.y = _255.y;
-                        qn.z = _255.z;
-                    }
-                    float3 c = light_at(_230, src, srcSmplr, Atrous_Uniforms, guide_albedo, guide_albedoSmplr);
-                    float3 da = _159.xyz - _237.xyz;
-                    float _314 = luminance(c);
-                    float w = ((((_267[abs(x)] * _267[abs(y)]) * powr(fast::max(dot(gn.xyz, qn.xyz), 0.0), 64.0)) * exp((-abs(gn.w - qn.w)) / (((0.00999999977648258209228515625 * gn.w) * float(_196)) + 9.9999999747524270787835121154785e-07))) * exp((-dot(da, da)) / 0.00999999977648258209228515625)) * exp((-(abs(_314 - _197) / ((0.5 * (_314 + _197)) + 0.001000000047497451305389404296875))) / Atrous_Uniforms.params.y);
-                    sum_1 += (c * w);
-                    total_1 += w;
-                    break;
-                } while(false);
-                if (_37_ladder_break)
-                {
-                    break;
-                }
-                x++;
-                continue;
-            }
-            break;
-        } while(false);
-        if (_32_ladder_break)
+        }
+        else
         {
+
+#line 53
             break;
         }
-        y++;
-        sum = sum_1;
-        total = total_1;
-        continue;
+
+#line 53
+        int x_0 = int(-2);
+
+#line 53
+        float3 sum_1 = sum_0;
+
+#line 53
+        float total_1 = total_0;
+        for(;;)
+        {
+
+#line 54
+            if(x_0 <= int(2))
+            {
+            }
+            else
+            {
+
+#line 54
+                break;
+            }
+
+#line 55
+            int2 q_0 = clamp(_S4 + int2(x_0, y_0) * int2(_S10) , int2(int(0)) , _S5);
+
+#line 55
+            float4 _S13 = (((&kernelContext_1)->guide_albedo_texture_0).read(uint2((q_0))));
+
+            if((_S13.w) <= 0.0f)
+            {
+
+#line 57
+                x_0 = x_0 + int(1);
+
+#line 54
+                continue;
+            }
+
+#line 54
+            float4 _S14 = (((&kernelContext_1)->guide_normal_texture_0).read(uint2((q_0))));
+
+
+
+            thread float4 qn_0 = _S14;
+            if(((&kernelContext_1)->Atrous_Uniforms_0->params_0.w) > 0.5f)
+            {
+
+#line 59
+                qn_0.xyz = normalize(qn_0.xyz + float3(0.0f, 0.0f, 9.99999997475242708e-07f));
+
+#line 59
+            }
+
+#line 59
+            float3 _S15 = light_at_0(q_0, &kernelContext_1);
+
+#line 64
+            float3 da_0 = _S7.xyz - _S13.xyz;
+
+            float _S16 = luminance_0(_S15);
+            float w_1 = KERNEL_0[abs(x_0)] * KERNEL_0[abs(y_0)] * pow(max(dot(gn_0.xyz, qn_0.xyz), 0.0f), 64.0f) * exp(- abs(gn_0.w - qn_0.w) / (0.00999999977648258f * gn_0.w * float(_S10) + 9.99999997475242708e-07f)) * exp(- dot(da_0, da_0) / 0.00999999977648258f) * exp(- (abs(_S16 - _S11) / (0.5f * (_S16 + _S11) + 0.00100000004749745f)) / (&kernelContext_1)->Atrous_Uniforms_0->params_0.y);
+
+            float total_2 = total_1 + w_1;
+
+#line 69
+            sum_1 = sum_1 + _S15 * float3(w_1) ;
+
+#line 69
+            total_1 = total_2;
+
+#line 54
+            x_0 = x_0 + int(1);
+
+#line 54
+        }
+
+#line 53
+        y_0 = y_0 + int(1);
+
+#line 53
+        sum_0 = sum_1;
+
+#line 53
+        total_0 = total_1;
+
+#line 53
     }
-    if (total > 0.0)
+
+#line 72
+    if(total_0 > 0.0f)
     {
-        sum /= float3(total);
+
+#line 72
+        sum_0 = sum_0 / float3(total_0) ;
+
+#line 72
     }
     else
     {
-        sum = centre;
+
+#line 72
+        sum_0 = _S6;
+
+#line 72
     }
-    out.entryPointParam_main = float4(sum, 1.0);
-    return out;
+
+#line 72
+    pixelOutput_0 _S17 = { float4(sum_0, 1.0f) };
+
+#line 72
+    return _S17;
 }
 

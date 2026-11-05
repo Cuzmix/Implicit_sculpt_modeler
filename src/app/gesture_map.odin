@@ -137,8 +137,8 @@ GESTURE_SLOT_NAMES := [Gesture_Slot]string {
 	.Pen_Squeeze_Panels      = "Pencil squeeze on a panel",
 	.Pen_Double_Tap_History  = "Pencil double-tap on Undo, Redo or History",
 	.Pen_Squeeze_History     = "Pencil squeeze on Undo, Redo or History",
-	.Pen_Double_Tap_Nav_Head = "Pencil double-tap on the navigation head",
-	.Pen_Squeeze_Nav_Head    = "Pencil squeeze on the navigation head",
+	.Pen_Double_Tap_Nav_Head = "Pencil double-tap on the view gizmo",
+	.Pen_Squeeze_Nav_Head    = "Pencil squeeze on the view gizmo",
 	.Pen_Double_Tap_Colors   = "Pencil double-tap on the colour Disc",
 	.Pen_Squeeze_Colors      = "Pencil squeeze on the colour Disc",
 	.Pen_Button_Empty        = "Pen side button on empty space",
@@ -146,7 +146,7 @@ GESTURE_SLOT_NAMES := [Gesture_Slot]string {
 	.Pen_Button_2_Shelf      = "Pen second button on the shelf",
 	.Pen_Button_2_Panels     = "Pen second button on a panel",
 	.Pen_Button_2_History    = "Pen second button on Undo, Redo or History",
-	.Pen_Button_2_Nav_Head   = "Pen second button on the navigation head",
+	.Pen_Button_2_Nav_Head   = "Pen second button on the view gizmo",
 	.Pen_Button_2_Colors     = "Pen second button on the colour Disc",
 }
 
@@ -175,7 +175,7 @@ GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 	.Pen_Squeeze_Shelf       = {.Pen_As_Empty, 0},
 	.Pen_Double_Tap_Panels   = {.Pen_As_Empty, 0},
 	.Pen_Squeeze_Panels      = {.Pen_As_Empty, 0},
-	.Pen_Double_Tap_History  = {.History_Panel, 0},
+	.Pen_Double_Tap_History  = {.Open_Card, int(Card.History)},
 	.Pen_Squeeze_History     = {.Pen_As_Empty, 0},
 	.Pen_Double_Tap_Nav_Head = {.Reset_Camera, 0},
 	.Pen_Squeeze_Nav_Head    = {.Pen_As_Empty, 0},
@@ -200,7 +200,7 @@ GESTURE_DEFAULTS :: [Gesture_Slot]Pie_Slot {
 @(rodata)
 GESTURE_CHOICES := [?]Pie_Slot {
 	{.Undo, 0}, {.Redo, 0}, {.Clean_View, 0}, {.Brush_Pie, 0}, {.Object_Menu, 0}, {.Pie, 0}, {.Pie, 1}, {.Pie, 2}, {.Pie, 3}, {.Command_Palette, 0},
-	{.Inspector, 0}, {.Show_Panel, int(Panel_Kind.Scene)}, {.Settings, 0}, {.Help, 0}, {.Stats, 0},
+	{.Open_Card, int(Card.Tool)}, {.Open_Card, int(Card.Scene)}, {.Settings, 0}, {.Help, 0}, {.Stats, 0},
 	{.Frame_All, 0}, {.Focus_Selected, 0}, {.Reset_Camera, 0}, {.View_Back, 0}, {.View_Forward, 0}, {.Ortho_Toggle, 0},
 	{.Wireframe, 0}, {.Polygroups, 0}, {.Floor_Grid, 0}, {.Transparency, 0}, {.Flat_Shading, 0}, {.Studio_Render, 0}, {.Screenshot, 0}, {.Symmetry_X, 0}, {.Local_Symmetry, 0}, {.Radial_Symmetry, 0}, {.Brush_Subtract, 0}, {.Brush_Add, 0}, {.Paint_Channel, 0}, {.Swap_Colors, 0},
 	{.Solo_Object, 0}, {.Show_All_Objects, 0}, {.New_Folder, 0},

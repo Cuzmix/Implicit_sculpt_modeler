@@ -223,6 +223,8 @@ SETTINGS := [?]Setting {
 	{"show_groups", offset_of(App, show_groups), bool, 0, 0},
 	{"gizmo_mode", offset_of(App, move) + offset_of(Move_Tool, mode), gizmo.Mode, 0, 0},
 	{"gizmo_snap", offset_of(App, move) + offset_of(Move_Tool, snap), bool, 0, 0},
+	{"gizmo_orient", offset_of(App, move) + offset_of(Move_Tool, orient), Gizmo_Orient, 0, 0},
+	{"gizmo_pivot_row_off", offset_of(App, move) + offset_of(Move_Tool, pivot_row_off), bool, 0, 0},
 	{"crease_degrees", U + offset_of(Ui_State, crease_degrees), f32, 1, 90},
 	{"rebuild_goal", U + offset_of(Ui_State, rebuild_goal), Rebuild_Goal, 0, 0},
 	{"rebuild_even", U + offset_of(Ui_State, rebuild_even), i32, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES},
@@ -235,6 +237,7 @@ SETTINGS := [?]Setting {
 	{"remesh_groups", U + offset_of(Ui_State, remesh_groups), bool, 0, 0},
 	{"remesh_quads", U + offset_of(Ui_State, remesh_quads), bool, 0, 0},
 	{"remesh_keep_symmetry", U + offset_of(Ui_State, remesh_keep_symmetry), bool, 0, 0},
+	{"remesh_levels", U + offset_of(Ui_State, remesh_levels), i32, 0, REMESH_LEVELS_MAX},
 	{"rebuild_fewer", U + offset_of(Ui_State, rebuild_fewer), i32, REBUILD_MIN_VERTICES, REBUILD_MAX_VERTICES},
 	{"decimate_by", U + offset_of(Ui_State, decimate_by), Decimate_By, 0, 0},
 	{"decimate_percent", U + offset_of(Ui_State, decimate_percent), f32, DECIMATE_PERCENT_MIN, DECIMATE_PERCENT_MAX},
@@ -248,12 +251,16 @@ SETTINGS := [?]Setting {
 	{"retopo_adaptivity", U + offset_of(Ui_State, retopo_adaptivity), f32, 0, 1},
 	{"retopo_keep_symmetry", U + offset_of(Ui_State, retopo_keep_symmetry), bool, 0, 0},
 	{"retopo_close_first", U + offset_of(Ui_State, retopo_close_first), bool, 0, 0},
+	{"retopo_keep_borders", U + offset_of(Ui_State, retopo_keep_borders), bool, 0, 0},
 	{"retopo_keep_groups", U + offset_of(Ui_State, retopo_keep_groups), bool, 0, 0},
 	{"retopo_keep_creases", U + offset_of(Ui_State, retopo_keep_creases), bool, 0, 0},
 	{"retopo_edge_degrees", U + offset_of(Ui_State, retopo_edge_degrees), f32, RETOPO_EDGE_DEGREES_MIN, 90},
 	{"retopo_use_paint", U + offset_of(Ui_State, retopo_use_paint), bool, 0, 0},
 	{"retopo_use_mask", U + offset_of(Ui_State, retopo_use_mask), bool, 0, 0},
 	{"retopo_guide_strength", U + offset_of(Ui_State, retopo_guide_strength), f32, 0, 1},
+	{"unwrap_relax", U + offset_of(Ui_State, unwrap_relax), i32, 0, UNWRAP_RELAX_MAX},
+	{"unwrap_symmetry", U + offset_of(Ui_State, unwrap_symmetry), Unwrap_Symmetry, 0, 0},
+	{"unwrap_keep_seams", U + offset_of(Ui_State, unwrap_keep_seams), bool, 0, 0},
 	{"bake_reach", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, reach_edges), f32, 0.5, 10},
 	{"bake_base_color", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, base_color), bool, 0, 0},
 	{"bake_orm", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, orm), bool, 0, 0},
@@ -337,10 +344,9 @@ SETTINGS := [?]Setting {
 	// Settings > Interface, Camera, Touch and Performance.
 	{"surface_ring", K + offset_of(Kit_State, surface_ring), bool, 0, 0},
 	{"symmetry_line", K + offset_of(Kit_State, symmetry_line), bool, 0, 0},
-	{"clean_view_dial", K + offset_of(Kit_State, clean_dial), bool, 0, 0},
+	{"clean_view_keeps", K + offset_of(Kit_State, clean_keep), Clean_Keep, 0, 0},
 	{"panes_work", K + offset_of(Kit_State, panes_work), bool, 0, 0},
 	{"new_panes", K + offset_of(Kit_State, new_panes), New_Panes, 0, 0},
-	{"column_popovers", K + offset_of(Kit_State, column_popovers), bool, 0, 0},
 	{"action_bar", K + offset_of(Kit_State, action_bar), bool, 0, 0},
 	{"modifier_rail", K + offset_of(Kit_State, rail_side), Rail_Side, 0, 0},
 	{"wheel_size", K + offset_of(Kit_State, wheel_size), Wheel_Size, 0, 0},
@@ -372,19 +378,12 @@ SETTINGS := [?]Setting {
 	{"explain_all", K + offset_of(Kit_State, explain_all), bool, 0, 0},
 	{"search_field", K + offset_of(Kit_State, search_field), bool, 0, 0},
 	{"readout_hidden", K + offset_of(Kit_State, readout_hidden), bool, 0, 0},
+	{"readout_gpu", K + offset_of(Kit_State, readout_gpu), bool, 0, 0},
 	{"shelf_palm", K + offset_of(Kit_State, shelf_palm), bool, 0, 0},
 	{"scene_pictures", K + offset_of(Kit_State, scene_pictures), bool, 0, 0},
+	{"refs_background", K + offset_of(Kit_State, refs_ground), Ref_Ground, 0, 0},
 	{"coach", K + offset_of(Kit_State, coach), i32, 0, f32(COACH_DONE)},
 	{"tour", K + offset_of(Kit_State, tour) + offset_of(Tour, step), i32, 0, f32(TOUR_DONE)},
-	{"stats", K + offset_of(Kit_State, stats), bool, 0, 0},
-	{"thumbnail", K + offset_of(Kit_State, thumbnail), bool, 0, 0},
-	{"second_camera", K + offset_of(Kit_State, second) + offset_of(Second_View, camera), Second_Camera, 0, 0},
-	{"second_pass", K + offset_of(Kit_State, second) + offset_of(Second_View, pass), Second_Pass, 0, 0},
-	{"second_shading", K + offset_of(Kit_State, second) + offset_of(Second_View, shading) + offset_of(View_Shading, mode), Shading_Mode, 0, 0},
-	{"second_lighting", K + offset_of(Kit_State, second) + offset_of(Second_View, shading) + offset_of(View_Shading, lighting), Solid_Lighting, 0, 0},
-	{"second_color", K + offset_of(Kit_State, second) + offset_of(Second_View, shading) + offset_of(View_Shading, color), Solid_Color, 0, 0},
-	{"second_matcap", K + offset_of(Kit_State, second) + offset_of(Second_View, shading) + offset_of(View_Shading, matcap), int, 0, 0},
-	{"thumbnail_flip", K + offset_of(Kit_State, thumbnail_flip), bool, 0, 0},
 	{"stats_advanced", K + offset_of(Kit_State, stats_advanced), bool, 0, 0},
 	{"frame_rate", offset_of(App, frame_rate), Frame_Rate, 0, 0},
 	{"frame_limit", offset_of(App, frame_limit), i32, FRAME_LIMIT_MIN, FRAME_LIMIT_MAX},
@@ -400,6 +399,10 @@ SETTINGS := [?]Setting {
 	{"versions_kept", offset_of(App, versions_kept), i32, 0, 10},
 	{"undo_steps", offset_of(App, undo_steps), i32, 0, 1000},
 	{"history_limit_mb", offset_of(App, history_limit_mb), i32, 0, 65536},
+	{"memory_short", offset_of(App, memory_short), Memory_Short, 0, 0},
+	{"remesh_most", offset_of(App, remesh_most), i32, 0, MESH_NO_LIMIT},
+	{"subdivide_most", offset_of(App, subdivide_most), i32, 0, MESH_NO_LIMIT},
+	{"refs_memory_mb", offset_of(App, refs_memory_mb), i32, 0, 65536},
 	{"history_no_lights", offset_of(App, history_no_lights), bool, 0, 0},
 	{"history_no_tree", offset_of(App, history_no_tree), bool, 0, 0},
 	{"history_camera", offset_of(App, history_camera), bool, 0, 0},
@@ -431,7 +434,7 @@ SETTINGS := [?]Setting {
 	{"palm_rejection", N + offset_of(Nav_Prefs, palm_rejection), bool, 0, 0},
 	{"double_tap", N + offset_of(Nav_Prefs, double_tap), bool, 0, 0},
 	{"tap_switches", N + offset_of(Nav_Prefs, tap_switches), bool, 0, 0},
-	{"stroke_switches", N + offset_of(Nav_Prefs, stroke_switches), bool, 0, 0},
+	{"stroke_picks", N + offset_of(Nav_Prefs, stroke_picks), bool, 0, 0},
 	{"lift_one_orbit", N + offset_of(Nav_Prefs, lift_one_orbit), bool, 0, 0},
 	{"orbit_pivot", N + offset_of(Nav_Prefs, pivot), Orbit_Pivot, 0, 0},
 	{"air_pivot", N + offset_of(Nav_Prefs, air_pivot), bool, 0, 0},
@@ -447,6 +450,9 @@ SETTINGS := [?]Setting {
 	{"pen_roll_model", N + offset_of(Nav_Prefs, pen_roll) + 0 * size_of(Roll_Action), Roll_Action, 0, 0},
 	{"pen_roll_empty", N + offset_of(Nav_Prefs, pen_roll) + 1 * size_of(Roll_Action), Roll_Action, 0, 0},
 	{"pen_grab_twist", N + offset_of(Nav_Prefs, grab_twist), bool, 0, 0},
+	{"view_gizmo", N + offset_of(Nav_Prefs, view_gizmo), View_Gizmo, 0, 0},
+	{"view_gizmo_model", N + offset_of(Nav_Prefs, gizmo_model), Gizmo_Model, 0, 0},
+	{"view_gizmo_axes", N + offset_of(Nav_Prefs, gizmo_axes), bool, 0, 0},
 	// The Scene and Object palettes' choices, and the tools'.
 	{"new_shape", K + offset_of(Kit_State, add_shape), geom.Primitive, 0, 0},
 	{"new_voxels", K + offset_of(Kit_State, add_voxel), bool, 0, 0},
@@ -460,6 +466,10 @@ SETTINGS := [?]Setting {
 	{"mask_adjust_blur", U + offset_of(Ui_State, mask_by) + offset_of(Mask_By_Settings, adjust_blur), i32, 0, MASK_BY_BLUR_MAX},
 	{"gesture", offset_of(App, gesture), Gesture_Tool, 0, 0},
 	{"curve", offset_of(App, curve) + offset_of(Curve_Tool, kind), Curve_Kind, 0, 0},
+	{"curve_plane", offset_of(App, curve) + offset_of(Curve_Tool, plane), Curve_Plane, 0, 0},
+	{"model_pick", offset_of(App, model) + offset_of(Model_Tool, pick), Model_Element, 0, 0},
+	{"model_falloff", offset_of(App, model) + offset_of(Model_Tool, falloff), f32, 0, 1},
+	{"curve_all_handles", offset_of(App, curve) + offset_of(Curve_Tool, all_handles), bool, 0, 0},
 	{"curve_width", offset_of(App, curve) + offset_of(Curve_Tool, size), f32, 0.05, 2},
 	{"curve_lift", offset_of(App, curve) + offset_of(Curve_Tool, lift), f32, -1, 2},
 	{"curve_sides", offset_of(App, curve) + offset_of(Curve_Tool, sides), i32, 3, 64},
@@ -618,8 +628,7 @@ SETTING_LINES := [?]Setting_Line {
 	{
 		// A material by its name, which may have spaces ("red wax"), or a content pack's as
 		// `<id>/<name>`, escaped as preset names are, which settings_load and scripts look
-		// up in the library, since parse has none (older versions skip the line, and start
-		// on Clay).
+		// up in the library, since parse has none.
 		"material",
 		proc(f: []string) -> (Setting_Line_Value, bool) {
 			i, ok := material_by_name(strings.join(f, " ", context.temp_allocator))
@@ -823,19 +832,16 @@ settings_load :: proc(app: ^App, path: string) {
 			line := setting_line(f[0])
 			if v, ok := line.parse(f[1:]); ok do line.apply(app, v)
 		case "custom_material":
-			// custom_material r g b metallic roughness [matcap]; the matcap, 0 for none,
-			// 1 + a built-in's place or MATCAP_IMAGE, came with MatCaps, and a content
-			// pack's `<id>/<stem>` with packs' matcaps (which older versions read as none).
-			if len(f) >= 6 {
+			// custom_material r g b metallic roughness matcap: the matcap is 0 for none,
+			// 1 + a built-in's place or MATCAP_IMAGE, or a content pack's `<id>/<stem>`.
+			if len(f) == 7 {
 				c := &app.custom
 				for k in 0 ..< 3 do c.selected[k] = clamp(number(f[1 + k], c.selected[k]), 0, 1)
 				c.metallic = clamp(number(f[4], c.metallic), 0, 1)
 				c.roughness = clamp(number(f[5], c.roughness), 0.04, 1)
-				if len(f) >= 7 {
-					c.matcap = clamp(int(number(f[6], 0)), 0, MATCAP_IMAGE)
-					if k := pack_matcap_by_ref(app, preset_unescape(f[6])); k >= 0 do c.matcap = PACK_MATCAP + k
-					if c.matcap != 0 do c.idle = MATCAP_IDLE
-				}
+				c.matcap = clamp(int(number(f[6], 0)), 0, MATCAP_IMAGE)
+				if k := pack_matcap_by_ref(app, preset_unescape(f[6])); k >= 0 do c.matcap = PACK_MATCAP + k
+				if c.matcap != 0 do c.idle = MATCAP_IDLE
 			}
 		case "matcap_image":
 			// matcap_image <path, escaped>: the image Load MatCap loaded last.
@@ -854,12 +860,10 @@ settings_load :: proc(app: ^App, path: string) {
 		case "ui_scale":
 			want := number(f[1], 1)
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
-		case "window":
-			window_load_line(&app.kit, f)
-		case "workspace", "workspace_saved", "workspace_live", "workspace_current", "workspace_space":
-			workspaces_load_line(&app.kit, f)
-		case "space_layouts":
-			spaces_load_line(&app.kit, f)
+		case "space_layout", "space_current", "layout_saved":
+			// space_layout <Space> <layout, escaped>: a space's layout where it differs from
+			// how it ships; space_current <Space>: the space in front.
+			layouts_load_line(&app.kit, f)
 		case "brush_recent", "brush_favorite":
 			// brush_recent <key, escaped> ..., most recent first, and brush_favorite <key,
 			// escaped> ..., in the order added: what the brush browser's Recent and
@@ -878,6 +882,13 @@ settings_load :: proc(app: ^App, path: string) {
 					if _, dup := brush_favorite(p, key); !dup do brush_favorite_toggle(p, key)
 				}
 			}
+		case "cards_shut":
+			// cards_shut <Section> ...: the sections folded on the cards, whichever card is
+			// open; a word naming no section this build has is passed over.
+			k := &app.kit
+			if !k.cards.set do cards_default(k)
+			k.cards.shut = {}
+			for word in f[1:] do if sec, ok := section_from_word(word); ok do k.cards.shut += {sec}
 		case "material_favorite":
 			// material_favorite <key, escaped> ...: the Material card's favourite spheres in
 			// the order added, by material_ball_key. A key naming nothing (a pack removed) is
@@ -988,7 +999,7 @@ settings_load :: proc(app: ^App, path: string) {
 			i, i_ok := strconv.parse_int(f[2])
 			if !space_ok || !i_ok || i < 0 || i >= 4 do continue
 			if s, ok := dial_sector_parse(f[3], f[4]); ok do app.kit.dials[space][i] = s
-		case "bar_count", "bar", "bar_look", "rail_group":
+		case "bar_count", "bar", "bar_look":
 			// bar_count <zone> <n>: how many buttons a bar's zone (BAR_ZONES) has, before its
 			// bar <zone> <slot> <command name> lines; a bar that differs from a fresh
 			// install's is written whole.
@@ -1053,7 +1064,7 @@ settings_load :: proc(app: ^App, path: string) {
 	}
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
-	workspaces_loaded(&app.kit)
+	layouts_loaded(&app.kit)
 	log.infof("settings: read %s", path)
 
 	number :: proc(s: string, fallback: f32) -> f32 {
@@ -1065,33 +1076,6 @@ settings_load :: proc(app: ^App, path: string) {
 		for v in ([4]f32{c.c1.x, c.c1.y, c.c2.x, c.c2.y}) do if v < 0 || v > 1 do return fallback
 		return c
 	}
-}
-
-// Reads a `window <name> <moved 0|1> <x anchor> <y anchor> <x offset> <y offset>
-// <minimised 0|1>` line (`f` split by spaces); the kit keeps every window's title bar on
-// screen whatever the offsets say.
-window_load_line :: proc(k: ^Kit_State, f: []string) {
-	if len(f) != 8 do return
-	for which in Kit_Window {
-		if !strings.equal_fold(f[1], fmt.tprint(which)) do continue
-		w := &k.windows[which]
-		w.moved, w.minimized = f[2] == "1", f[7] == "1"
-		for a in ui.Anchor {
-			if strings.equal_fold(f[3], fmt.tprint(a)) do w.x = a
-			if strings.equal_fold(f[4], fmt.tprint(a)) do w.y = a
-		}
-		w.offset = {clamp(window_number(f[5]), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX), clamp(window_number(f[6]), -WINDOW_OFFSET_MAX, WINDOW_OFFSET_MAX)}
-	}
-
-	window_number :: proc(s: string) -> f32 {
-		v, ok := strconv.parse_f32(s)
-		return v if ok && v == v else 0
-	}
-}
-
-// Writes window `which`'s line, as window_load_line reads it.
-window_save_line :: proc(out: ^strings.Builder, which: Kit_Window, w: ui.Window) {
-	fmt.sbprintfln(out, "window %v %d %v %v %g %g %d", which, int(w.moved), w.x, w.y, w.offset.x, w.offset.y, int(w.minimized))
 }
 
 // Writes the settings to `path`. Returns false, with a warning, when it cannot.
@@ -1153,8 +1137,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
 	themes_save(&app.kit, &out)
-	for w, which in k.windows do window_save_line(&out, which, w)
-	workspaces_save(&app.kit, &out)
+	layouts_save(&app.kit, &out)
 	if p := &app.kit.brushes; p.recent_count > 0 {
 		strings.write_string(&out, "brush_recent")
 		for &k in p.recent[:p.recent_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))
@@ -1165,6 +1148,9 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		for &k in p.favorites[:p.favorite_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))
 		strings.write_byte(&out, '\n')
 	}
+	strings.write_string(&out, "cards_shut")
+	for sec in Section do if sec in app.kit.cards.shut do fmt.sbprintf(&out, " %v", sec)
+	strings.write_byte(&out, '\n')
 	if mc := &app.kit.material_card; mc.favorite_count > 0 {
 		strings.write_string(&out, "material_favorite")
 		for &k in mc.favorites[:mc.favorite_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))

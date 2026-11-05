@@ -8,11 +8,11 @@ import "../geom"
 import "../render"
 import "../ui"
 
-// The navigation head, on its own under the top bar at the pen side: a small head that
-// turns with the camera, so the view's turn reads at a glance (the face is the front,
-// +Z). Tapping a side of it looks at the scene from that side (View_Axis); dragging it
-// turns the view as dragging empty space does. The renderer draws it into a texture of
-// its own (render.Nav_Head), which the kit shows as KIT_NAV_HEAD_IMAGE.
+// The view gizmo's Model style (view_gizmo.odin): a small head, or the person's own model,
+// that turns with the camera, so the view's turn reads at a glance (the face is the front,
+// +Z). Tapping a side of it looks at the scene from that side (View_Axis). The renderer
+// draws it into a texture of its own (render.Nav_Head), which the kit shows as
+// KIT_NAV_HEAD_IMAGE, redrawn only when the view turns.
 
 // Its size in points: no wider than the view bar under it and the gap beside that, so
 // the palette tray, which opens left of the view bar, never covers it.
@@ -89,87 +89,6 @@ nav_head_side :: proc(rotation: matrix[3, 3]f32, at: [2]f32, aspect: f32) -> (si
 	return side, true
 }
 
-// Lays the head out under the top bar on the pen side, left of whatever stands at that
-// side's top, where the pen reaches it and ZBrush, Blender and Nomad all keep their view
-// gizmo: the top right for the right-handed.
-kit_nav_head :: proc(app: ^App) {
-	ctx := &app.kit.ctx
-	// Left of what stands at the top of the pen side.
-	ui.begin_anchored(ctx, "navigation head", .End, .Start, {lens_nav_offset(app), TOP_BAR_H + 6}, {direction = .Column})
-	nav_head_place(app, {NAV_HEAD_W, NAV_HEAD_H})
-	ui.end(ctx)
-}
-
-// Places the head, `size` points, in the container being laid out, with the axis triad at
-// its foot, and answers a tap (a view from that side) or a drag (a turn) on it. Records
-// where it is drawn, in physical pixels, for the renderer to size its texture.
-nav_head_place :: proc(app: ^App, size: [2]f32) {
-	k := &app.kit
-	ctx := &k.ctx
-	a := ui.area(ctx, "navigation head", size)
-	pen_zone(app, a.rect, .Nav_Head)
-	// On whole pixels, so its texture shows pixel for pixel.
-	d := ctx.input.pixel_density
-	px := [4]f32{math.round(a.rect.x * d), math.round(a.rect.y * d), math.round(a.rect.w * d), math.round(a.rect.h * d)}
-	r := ui.Rect{px[0] / d, px[1] / d, px[2] / d, px[3] / d}
-	k.nav.size = {u32(px[2]), u32(px[3])}
-	k.nav.placed = true
-	if a.hovered || a.held {
-		c := ctx.theme.fill_pressed if a.held else ctx.theme.fill_hover
-		ui.fill_circle(ctx, {r.x + r.w * 0.5, r.y + r.h * 0.5}, min(r.w, r.h) * 0.5, c)
-	}
-	ui.image(ctx, r, KIT_NAV_HEAD_IMAGE)
-	nav_axes_draw(app, r)
-
-	// The pen's roll over it spins the view about the scene's up axis, clockwise turning
-	// the model clockwise seen from above, as a turntable under the model would.
-	if roll := ui.hover_roll(ctx, a.id, a.hovered); roll != 0 {
-		camera.orbit_spin(&app.camera, math.to_radians(roll))
-		ui.roll_hint(ctx, "Spin")
-	}
-	n := &k.nav
-	if a.pressed {
-		n.from, n.last, n.turned = a.mouse, a.mouse, false
-		orbit_latch(app)
-	}
-	if a.held {
-		if !n.turned && linalg.length(a.mouse - n.from) > ctx.theme.slop do n.turned = true
-		if n.turned && a.mouse != n.last {
-			camera.orbit_rotate(&app.camera, (a.mouse - n.last) * k.scale, orbit_settings(app))
-			app.coach_seen += {.Turn}
-		}
-		n.last = a.mouse
-	}
-	if a.clicked && !n.turned {
-		at := [2]f32{(a.mouse.x - r.x) / r.w * 2 - 1, 1 - (a.mouse.y - r.y) / r.h * 2}
-		if side, on := nav_head_side(camera.orbit_rotation(app.camera), at, r.w / r.h); on {
-			command_run(app, .View_Axis, int(side))
-			n.taps += 1
-		}
-	}
-}
-
-// The world's axes as the camera sees them, short lines from the head's bottom-left
-// corner, the ones pointing away drawn first and dimmer.
-@(private = "file")
-nav_axes_draw :: proc(app: ^App, r: ui.Rect) {
-	ctx := &app.kit.ctx
-	right, up, back := camera.orbit_basis(app.camera)
-	o := [2]f32{r.x + 7, r.y + r.h - 7}
-	LEN :: 9
-	order := [3]int{0, 1, 2}
-	depth :: proc(back: geom.Vec3, i: int) -> f32 {return back[i]}
-	// Back to front: the axis pointing furthest away first.
-	for i in 0 ..< 3 do for j in i + 1 ..< 3 do if depth(back, order[j]) < depth(back, order[i]) do order[i], order[j] = order[j], order[i]
-	for i in order {
-		tip := o + LEN * [2]f32{right[i], -up[i]}
-		c := NAV_AXIS_COLORS[i]
-		if back[i] < -0.2 do c.a = 120
-		ui.line(ctx, o, tip, c, 1.6)
-		ui.fill_circle(ctx, tip, 1.6, c)
-	}
-}
-
 // The head's state between frames: its size as drawn, for the renderer, and a press on
 // it, which becomes a turn once it moves past the slop and is a tap otherwise.
 Nav_State :: struct {
@@ -181,17 +100,27 @@ Nav_State :: struct {
 	taps:   int, // views snapped to with a tap, for the exit stats
 }
 
-// Draws the head for this frame on `cmd`, once the kit has laid it out, making its mesh
-// the first time; the interface shows what it drew (KIT_NAV_HEAD_IMAGE).
+// Draws the Model style's model for this frame on `cmd`, once the kit has laid it out,
+// uploading the head or the person's own model when it is not the one on the GPU; the
+// interface shows what it drew (KIT_NAV_HEAD_IMAGE).
 nav_head_frame :: proc(app: ^App, cmd: render.Cmd) {
-	app.nav_shown = nil
+	app.nav_shown = 0
 	nh := &app.nav_head
 	size := app.kit.nav.size
 	if !app.kit.nav.placed || size.x == 0 || size.y == 0 || nh.failed do return
-	if nh.mesh.positions == nil {
-		m := nav_head_mesh()
-		defer geom.mesh_destroy(&m)
-		if !render.nav_head_init(&app.renderer, nh, m) do return
+	// 0 is the head; the own model's serial names each one taken.
+	want := 0
+	if app.nav.gizmo_model == .Own && len(app.view_model.indices) > 0 do want = app.view_model_serial + 1
+	if nh.mesh.positions != 0 && app.view_model_on != want do render.nav_head_destroy(&app.renderer, nh)
+	if nh.mesh.positions == 0 {
+		if want == 0 {
+			m := nav_head_mesh()
+			defer geom.mesh_destroy(&m)
+			if !render.nav_head_init(&app.renderer, nh, m) do return
+		} else if !render.nav_head_init(&app.renderer, nh, app.view_model) {
+			return
+		}
+		app.view_model_on = want
 	}
 	app.nav_shown = render.nav_head_draw(&app.renderer, nh, cmd, size, camera.orbit_rotation(app.camera), NAV_HEAD_COLOR)
 }

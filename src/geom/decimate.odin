@@ -34,7 +34,10 @@ DECIMATE_ROUND_KEEP :: 4
 // lines between polygroups, lets open edges slide and keeps weighted detail longer; the
 // parallel rounds hold their cells' borders whatever it says, and only the last round
 // lets open edges slide. With labels, `out_labels` receives each new triangle's.
-mesh_decimate :: proc(m: Mesh, wanted: int, pool: ^jobs.Pool, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, from: ^[dynamic]u32 = nil, guide := Simplify_Guide{}, out_labels: ^[dynamic]u16 = nil) -> (out: Mesh, error: f32, ok: bool) {
+// `slack` is how many times the target the parallel rounds stop at (DECIMATE_SLACK): a
+// caller that thins a mesh for a remesh to follow, which wants it fast more than finely
+// chosen, may let them go nearer the target.
+mesh_decimate :: proc(m: Mesh, wanted: int, pool: ^jobs.Pool, allocator := context.allocator, progress: ^jobs.Progress = nil, share := [2]f32{0, 1}, from: ^[dynamic]u32 = nil, guide := Simplify_Guide{}, out_labels: ^[dynamic]u16 = nil, slack := DECIMATE_SLACK) -> (out: Mesh, error: f32, ok: bool) {
 	triangles := len(m.indices) / 3
 	if triangles == 0 || wanted >= triangles do return {}, 0, false
 	target := max(wanted, 4)
@@ -48,9 +51,9 @@ mesh_decimate :: proc(m: Mesh, wanted: int, pool: ^jobs.Pool, allocator := conte
 	// The rounds take about the first half of the time, each a quarter of what is left of
 	// it; the last simplify the rest.
 	rounds_end := share[0] + (share[1] - share[0]) * 0.5
-	for shift := false; len(indices) / 3 > 2 * DECIMATE_SLACK * target && len(indices) / 3 > 200_000; shift = !shift {
+	for shift := false; len(indices) / 3 > 2 * slack * target && len(indices) / 3 > 200_000; shift = !shift {
 		cells := Simplify_Guide{weight = guide.weight, labels = labels}
-		next, next_labels := decimate_cells(m, indices, max(len(indices) / 3 / DECIMATE_ROUND_KEEP, DECIMATE_SLACK * target), shift, pool, cells)
+		next, next_labels := decimate_cells(m, indices, max(len(indices) / 3 / DECIMATE_ROUND_KEEP, slack * target), shift, pool, cells)
 		delete(round)
 		delete(round_labels)
 		round, round_labels = next, next_labels

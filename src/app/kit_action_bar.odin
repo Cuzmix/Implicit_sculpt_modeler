@@ -6,7 +6,7 @@ import "../ui"
 
 // The contextual action bar: above the shelf, the next steps for what is active on
 // the selected object, so a tablet user masks, then inverts or blurs without opening the
-// inspector, its Object palette and the Select page. It shows only while something applies: the
+// Mask card. It shows only while something applies: the
 // Move tool's gizmo, an HD window open, a mask, hidden parts, or an operation that can
 // still be adjusted (adjust_last.odin). HD refuses hidden parts and hiding is refused in HD, so at most three
 // groups show. Each button runs its
@@ -101,7 +101,8 @@ STROKE_EDIT_ACTIONS := [?]Action {
 // A selected curve in the Curve tool (curve_edit.odin): its picked point and its ends.
 @(rodata)
 CURVE_ACTIONS := [?]Action {
-	{.Curve_Delete_Point, 0, "Delete point"},
+	{.Curve_Select_All, 0, "Select all"},
+	{.Curve_Delete_Point, 0, "Delete"},
 	{.Curve_Corner, 0, "Corner"},
 	{.Curve_Close, 0, "Close"},
 	{.Curve_Bake, 0, "Bake"},
@@ -167,17 +168,17 @@ action_groups_now :: proc(app: ^App) -> (groups: bit_set[Action_Group]) {
 	return
 }
 
-// Whether the bar is laid out at all: on in Settings and in the workspace, with the History panel (which
-// takes the same place over the dock) closed, and something to show.
+// Whether the bar is laid out at all: on in Settings and in the layout, with something to
+// show.
 action_bar_shown :: proc(app: ^App) -> bool {
-	return app.kit.action_bar && .Action_Bar not_in app.kit.hidden && !app.kit.history && action_groups_now(app) != {}
+	return app.kit.action_bar && .Action_Bar not_in app.kit.hidden && action_groups_now(app) != {}
 }
 
 // The height of the dock and, when it is shown, the action bar above it, from last frame's
-// layout: what the toasts and the inspector keep clear of at the bottom middle.
+// layout: what the toasts and the cards keep clear of at the bottom middle.
 dock_stack :: proc(app: ^App) -> (h: f32) {
 	ctx := &app.kit.ctx
-	// No dock (the workspace hides it), no lift either.
+	// No dock (the layout hides it), no lift either.
 	if dock := shelf_bottom_size(app); dock.y > 0 do h = dock.y + dock_lift(app)
 	h += colour_island_lift(app)
 	if bar, _ := ui.prev_layout(ctx, "action bar"); bar.y > 0 do h += bar.y + ACTION_BAR_GAP
@@ -196,12 +197,11 @@ action_bar_room :: proc(app: ^App) -> f32 {
 	area := ui.safe_area(&k.ctx)
 	side := kit_left(app)
 	if across := rail_reach_across(app); across > 0 do side = max(side, across + 8)
-	panel: f32 = KIT_SETTINGS_W if side_panel_open(k) else tray_width(app) if k.inspector else 0
+	panel := cards_right_room(app)
 	_, dock_hi := shelf_bottom_span(app)
-	// The inspector moves up above the dock and bar where the dock reaches it (kit_inspector).
 	right := kit_right(app)
 	beside := dock_hi + 8 <= area.w - right - panel
-	if panel > 0 && (beside || side_panel_open(k)) do side = max(side, right + panel + 8)
+	if panel > 0 && beside do side = max(side, right + panel + 8)
 	side = max(side, right)
 	return area.w - 2 * side
 }
@@ -265,7 +265,7 @@ kit_action_bar :: proc(app: ^App) {
 	}
 	dock := shelf_bottom_size(app)
 	mark := ui.vertex_mark(ctx)
-	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + dock_lift(app) + dock.y + ACTION_BAR_GAP + colour_island_lift(app)}, {direction = .Row, gap = 4, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_anchored(ctx, "action bar", .Center, .End, {0, t.edge + dock_lift(app) + dock.y + ACTION_BAR_GAP + colour_island_lift(app)}, {direction = .Row, gap = ui.SPACE_XS, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
 	n := 0
 	for g in groups {
 		if n > 0 do ui.divider(ctx, 28)
@@ -319,7 +319,7 @@ kit_action_popover :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	if !k.action_pop do return
-	if ui.popover_begin(ctx, "action group", &k.action_pop, k.action_anchor, .Above_Center, {direction = .Column, gap = 2, padding = 6, width = 200}) {
+	if ui.popover_begin(ctx, "action group", &k.action_pop, k.action_anchor, .Above_Center, {direction = .Column, gap = ui.SPACE_2XS, padding = ui.MENU_PAD, width = ui.MENU_W}) {
 		for a in action_list(app, k.action_group) {
 			if action_button(app, a, ui.fill_width(ctx)) do k.action_pop = false
 		}

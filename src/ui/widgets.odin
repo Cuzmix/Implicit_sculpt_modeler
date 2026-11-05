@@ -12,6 +12,7 @@ ICON_GRID :: rune(0xe105)
 ICON_CLOSE :: rune(0xe1b2)
 ICON_CHEVRON_DOWN :: rune(0xe071)
 ICON_CHEVRON_UP :: rune(0xe074)
+ICON_CHEVRON_LEFT :: rune(0xe072)
 ICON_CHEVRON_RIGHT :: rune(0xe073)
 ICON_CHECK :: rune(0xe070)
 ICON_PANEL :: rune(0xe436)
@@ -69,7 +70,6 @@ ICON_PAINTBRUSH :: rune(0xe2e7)
 ICON_PASTE :: rune(0xe3ec) // clipboard-paste
 ICON_TO_TOP :: rune(0xe460) // arrow-up-to-line
 ICON_TO_BOTTOM :: rune(0xe45a) // arrow-down-to-line
-ICON_DOTS :: rune(0xe0ed) // grip-horizontal: the handle a card is dragged by
 
 // Every pressable control shares this: the wash under the pointer fades in, deepens
 // while held, and the control dips to 97% while held. Returns the scale to draw at.
@@ -111,12 +111,21 @@ centered :: proc(r: Rect, size: [2]f32) -> Rect {
 	return {r.x + (r.w - size.x) * 0.5, r.y + (r.h - size.y) * 0.5, size.x, size.y}
 }
 
+// How far apart lines of text `size` points high stand, as a multiple of the size.
+LINE_SPACING :: 1.4
+
+// The height of a line of text `size` points high, in whole points: what a label places
+// and what a panel that sizes itself by its lines counts for one.
+line_height :: proc(size: f32) -> f32 {
+	return math.ceil(size * LINE_SPACING)
+}
+
 // A line of text taking its own width.
 label :: proc(ctx: ^Context, s: string, size: f32 = 0, color: Color = {}, font := Font.Regular) {
 	t := ctx.theme
 	size := size if size > 0 else t.text_size
 	color := color if color.a > 0 else t.text_secondary
-	r := place(ctx, {text_width(ctx, s, size, font), math.ceil(size * 1.4)})
+	r := place(ctx, {text_width(ctx, s, size, font), line_height(size)})
 	text(ctx, s, r.x, r.y + r.h * 0.5, size, color, font)
 }
 
@@ -124,8 +133,9 @@ label :: proc(ctx: ^Context, s: string, size: f32 = 0, color: Color = {}, font :
 // drawn as a smaller rounded square. `name` is its tooltip, with `keys`, its shortcut,
 // beside it. `corner` marks its bottom right with a small chevron, which says a long press
 // opens more (its settings). With `named` the cell is `width` wide and names the button
-// beside its icon, as a labelled rail does. Returns true when clicked.
-icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false, enabled := true, keys := "", size: f32 = 0, corner := false, named := "", width: f32 = 0) -> bool {
+// beside its icon, as a labelled rail does. An icon `picture` (a brush's own icon) stands
+// in for the glyph. Returns true when clicked.
+icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false, enabled := true, keys := "", size: f32 = 0, corner := false, named := "", width: f32 = 0, picture := Picture{}) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	size := size if size > 0 else t.target
@@ -139,9 +149,11 @@ icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false,
 		x := vis.x + t.control + 2
 		text(ctx, text_fit(ctx, s, t.small_size, vis.x + vis.w - x - 6), x, vis.y + vis.h * 0.5, t.small_size, color, .Regular)
 	}
+	pic_size := t.control - 4
 	if !enabled {
-		icon(ctx, glyph, mid, t.icon_size, color_fade(t.text_secondary, 0.35))
-		if labelled do words(ctx, named, vis, color_fade(t.text_secondary, 0.35))
+		if picture.image != 0 do picture_icon(ctx, picture, mid, pic_size, 0.45)
+		else do icon(ctx, glyph, mid, t.icon_size, disabled_ink(t))
+		if labelled do words(ctx, named, vis, disabled_ink(t))
 		if ctx.names.on do names_place(ctx, id_of(ctx, name), cell)
 		return false
 	}
@@ -153,7 +165,8 @@ icon_button :: proc(ctx: ^Context, name: string, glyph: rune, selected := false,
 	scale := feedback(ctx, id, vis, t.radius_medium, hovered, held)
 	h := tween(ctx, salt(id, 2), 1 if hovered else 0, t.hover_time, class = MOTION_PRESS)
 	color := color_mix(color_mix(t.text_secondary, t.text, h), t.accent, sel)
-	icon(ctx, glyph, mid, t.icon_size, color)
+	if picture.image != 0 do picture_icon(ctx, picture, mid, pic_size)
+	else do icon(ctx, glyph, mid, t.icon_size, color)
 	if labelled do words(ctx, named, vis, color)
 	if corner do more_chevron(ctx, {vis.x + vis.w - 7, vis.y + vis.h - 6}, color)
 	press_scale(ctx, mark, vis, scale)
@@ -205,7 +218,7 @@ chip :: proc(ctx: ^Context, name: string, parts: []Chip_Part, keys := "") -> boo
 
 // How a button is filled.
 Variant :: enum u8 {
-	Solid, // the tone's colour: the one primary action in view
+	Solid, // filled: the one primary action in view (Accent in the text's ink, as the accent means on)
 	Flat, // the tone, faint: secondary actions
 	Light, // nothing until hovered: actions in a row of many
 	Bordered, // a hairline: an action beside a solid one
@@ -245,17 +258,25 @@ button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.N
 	bg, fg: Color
 	switch variant {
 	case .Solid:
-		bg = t.fill if tone == .Neutral else tone_color
-		fg = t.text if tone == .Neutral else t.on_accent
+		// The accent means on and chosen, so the one primary action is drawn in the
+		// text's own ink, filled, which stands out as strongly without saying "on".
+		switch tone {
+		case .Neutral: bg, fg = t.fill, t.text
+		case .Accent:  bg, fg = t.text, t.surface
+		case .Danger:  bg, fg = tone_color, t.on_accent
+		}
 	case .Flat:
 		bg = t.fill if tone == .Neutral else color_fade(tone_color, 0.16)
 		fg = tone_color
 	case .Light, .Bordered:
 		fg = tone_color
 	}
+	// A disabled button keeps no tone (a dimmed Delete in red still read as a live danger)
+	// and no fill, only a hairline, so it never passes for a live secondary button.
+	disabled_ring := !enabled && bg.a > 0
 	if !enabled {
-		bg = color_fade(bg, 0.4)
-		fg = color_fade(t.text_secondary, 0.4)
+		bg = {}
+		fg = disabled_ink(t)
 	}
 	id := id_of(ctx, s)
 	hovered, held, clicked := false, false, false
@@ -264,7 +285,7 @@ button :: proc(ctx: ^Context, s: string, variant := Variant.Flat, tone := Tone.N
 	else if ctx.names.on do names_place(ctx, id, cell)
 	mark := vertex_mark(ctx)
 	if bg.a > 0 do fill_rect(ctx, vis, t.radius_medium, bg)
-	if variant == .Bordered do stroke_rect(ctx, vis, t.radius_medium, t.border_strong, 1)
+	if variant == .Bordered || disabled_ring do stroke_rect(ctx, vis, t.radius_medium, t.border_strong, 1)
 	scale := feedback(ctx, id, vis, t.radius_medium, hovered, held)
 	x := vis.x + (vis.w - content) * 0.5
 	if icon_only {
@@ -306,14 +327,12 @@ toggle_button :: proc(ctx: ^Context, s: string, on: bool, width: f32, keys := ""
 // tabs and segmented controls alike. `item_width` 0 shares the column's fill width out
 // evenly, or fits each label. `accent` fills the marker with the accent (the tool in
 // use). Returns the option chosen this frame, or -1.
-// `tints`, when given, light the chosen option in its own colour (a soft fill, a line and
-// the text in the colour), as the app's working spaces are told apart.
 // With `dragged`, the options are drag sources too, as a thumb_row with `drags` is: a mouse
 // drags one at once, a finger or the pen once it has held past the long press (so a swipe
 // still scrolls the panel round the row), and `dragged^` is the option carried past the
 // slop; a press that went further than the slop is no tap. `stacked` (with `glyphs`) puts
 // each option's icon over its name.
-tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil, keys: []string = nil, tints: []Color = nil, tints_soft: []Color = nil, dragged: ^int = nil, stacked := false) -> int {
+tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil, keys: []string = nil, dragged: ^int = nil, stacked := false) -> int {
 	ctx.controls += 1
 	t := ctx.theme
 	n := len(options)
@@ -351,14 +370,12 @@ tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_w
 		if clicked do picked = i
 		over ||= hovered
 		on := i == chosen
-		tinted := i < len(tints) && i < len(tints_soft)
-		if on {
-			if tinted do indicator(ctx, r, t.radius_small + 1, tints_soft[i], tints[i])
-			else do indicator(ctx, r, t.radius_small + 1, t.accent if accent else t.cursor, {} if accent else t.cursor_line)
-		}
+		// The chosen option has the one selected look every control shares, a soft fill
+		// with its ink in the accent and no outline.
+		if on do indicator(ctx, r, t.radius_small + 1, t.accent if accent else t.accent_soft)
 		o := tween(ctx, salt(id, 1), 1 if on else 0, t.indicator_time, class = MOTION_TABS)
 		_ = feedback(ctx, id, r, t.radius_small + 1, hovered && !on, held && !on)
-		lit := tints[i] if tinted else (t.on_accent if accent else t.text)
+		lit := t.on_accent if accent else t.accent
 		color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.6), lit, o)
 		x := r.x + r.w * 0.5
 		if has_glyph && stack {
@@ -404,8 +421,8 @@ switch_row :: proc(ctx: ^Context, s: string, value: ^bool, enabled := true, keys
 	on := tween(ctx, salt(id, 1), 1 if value^ else 0, t.indicator_time, .Out_Back, class = MOTION_TABS)
 	tint := tween(ctx, salt(id, 2), 1 if value^ else 0, t.hover_time, class = MOTION_PRESS)
 	grip := tween(ctx, salt(id, 3), 1 if held else 0, t.press_time, class = MOTION_PRESS)
-	fade: f32 = 1 if enabled else 0.4
-	text(ctx, shown, r.x, r.y + r.h * 0.5, t.text_size, color_fade(t.text_secondary, fade))
+	fade: f32 = 1 if enabled else DISABLED_FADE
+	text(ctx, shown, r.x, r.y + r.h * 0.5, t.text_size, t.text_secondary if enabled else disabled_ink(t))
 	track := Rect{r.x + r.w - 44, r.y + (r.h - 26) * 0.5, 44, 26}
 	fill_rect(ctx, track, 13, color_fade(color_mix(t.track, t.accent, tint), fade))
 	// The knob widens while held, the way a finger presses it flat, and slides over with
@@ -532,9 +549,9 @@ slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale,
 	if w <= 0 do w = 220
 	r := place(ctx, {w, t.target + 4})
 	id := id_of(ctx, s)
-	fade: f32 = 1 if enabled else 0.4
-	text(ctx, label_text(s), r.x, r.y + 13, t.text_size, color_fade(t.text_secondary, fade))
-	text(ctx, shown, r.x + r.w, r.y + 13, t.text_size, color_fade(t.text, fade), .Semibold, .Right)
+	fade: f32 = 1 if enabled else DISABLED_FADE
+	text(ctx, label_text(s), r.x, r.y + 13, t.text_size, t.text_secondary if enabled else disabled_ink(t))
+	text(ctx, shown, r.x + r.w, r.y + 13, t.text_size, t.text if enabled else disabled_ink(t), .Semibold, .Right)
 	track := Rect{r.x + 8, r.y + 34, r.w - 16, 4}
 	changed := false
 	held, hovered, clicked := false, false, false
@@ -568,6 +585,9 @@ slider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale,
 	knob := [2]f32{track.x + track.w * f, track.y + track.h * 0.5}
 	if grow > 0 do fill_circle(ctx, knob, kr + 5 * grow, color_fade(t.accent_soft, grow))
 	fill_circle(ctx, knob + {0, 1}, kr, color_fade(t.shadow, 0.5 * fade))
+	// A hairline round the knob, so a white knob on a light theme's near-white panel still
+	// has an edge (the shadow alone left it near 1.3:1).
+	fill_circle(ctx, knob, kr + 1, color_fade(t.border_strong, fade))
 	fill_circle(ctx, knob, kr, color_fade(t.knob, fade))
 	return changed
 }
@@ -633,6 +653,7 @@ vslider :: proc(ctx: ^Context, s: string, value: ^f32, lo, hi: f32, scale: Scale
 	kr: f32 = 8 + 3 * grow
 	if grow > 0 do fill_circle(ctx, {cx, knob_y}, kr + 6 * grow, color_fade(t.accent_soft, grow))
 	fill_circle(ctx, {cx, knob_y + 1}, kr, color_fade(t.shadow, 0.5))
+	fill_circle(ctx, {cx, knob_y}, kr + 1, t.border_strong)
 	fill_circle(ctx, {cx, knob_y}, kr, t.knob)
 	text(ctx, shown, cx, r.y + r.h - 20, t.small_size, t.text, .Semibold, .Center)
 	return changed
@@ -667,7 +688,7 @@ list_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, glyp
 		icon(ctx, glyph, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, color_mix(t.text_secondary, t.accent, o))
 		x += t.icon_small + 10
 	}
-	text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, t.text, .Semibold if selected else .Regular)
+	text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, color_mix(t.text, t.accent, o), .Semibold if selected else .Regular)
 	if detail != "" do text(ctx, detail, vis.x + vis.w - 12, vis.y + vis.h * 0.5, t.small_size, t.text_tertiary, .Regular, .Right)
 	press_scale(ctx, mark, vis, scale)
 	return {clicked, menu, cell}
@@ -687,138 +708,6 @@ Row_Toggle :: struct {
 	lit:   bool, // drawn in the accent colour: on, where being on is the exception (a ghost)
 	faint: bool, // drawn faded: a state that needs no notice (no ghost), or one out of play (an object out of view)
 	keys:  string, // the shortcut beside the tooltip
-}
-
-// What happened to a tree row: a list row's click and menu, which toggle was pressed
-// (-1 for none), whether the chevron folded or unfolded it, whether its grip is held
-// (the row is being dragged), and which toggle is held where a drag may run down the
-// column from it (-1 for none): at once for a mouse, and for a finger or the pen once it
-// has been held still long enough to show the toggle's tooltip, as a quicker drag up or
-// down scrolls the panel instead.
-Tree_Row_Result :: struct {
-	using row:   Row_Result,
-	toggled:     int,
-	folded:      bool,
-	grip:        bool,
-	held_toggle: int,
-}
-
-// A row of a tree, a touch target tall: list_row's label and detail, indented `depth`
-// steps, with a chevron that folds it when `open` is given (a folder), and `all_toggles` at
-// its right end, each a full touch target. Pressing a toggle or the chevron neither
-// selects the row nor opens its menu; past MAX_ROW_TOGGLES they are left out. `dim` fades
-// the label (an object out of view). With `grip` a handle takes the leading icon's place:
-// a press on it drags the row with any pointer, never scrolling the panel, and a tap on
-// it picks the row as a tap on the label does.
-tree_row :: proc(ctx: ^Context, s: string, detail := "", selected := false, depth := 0, open: ^bool = nil, all_toggles: []Row_Toggle = nil, glyph: rune = 0, dim := false, grip := false) -> (res: Tree_Row_Result) {
-	ctx.controls += 1
-	t := ctx.theme
-	shown := label_text(s)
-	indent := f32(depth) * TREE_INDENT
-	w := fill_width(ctx)
-	if w <= 0 do w = indent + text_width(ctx, shown, t.text_size) + 24 + f32(len(all_toggles) + (1 if open != nil else 0)) * t.target
-	cell := place(ctx, {w, t.target})
-	vis := centered(cell, {w, t.row})
-	id := id_of(ctx, s)
-	res.toggled, res.held_toggle = -1, -1
-	res.rect = cell
-
-	// The toggles and the chevron take the press before the row, whose cell holds them,
-	// as the first widget laid out under the pointer wins it.
-	toggles := all_toggles[:min(len(all_toggles), MAX_ROW_TOGGLES)]
-	first := cell.x + cell.w - f32(len(toggles)) * t.target
-	toggle_hover, toggle_held: [MAX_ROW_TOGGLES]bool
-	for _, i in toggles {
-		r := Rect{first + f32(i) * t.target, cell.y, t.target, t.target}
-		tid := salt(id, u64(100 + i))
-		hovered, held, clicked, _ := interact(ctx, tid, r)
-		toggle_hover[i], toggle_held[i] = hovered, held
-		if clicked do res.toggled = i
-		if held && (ctx.press_won || long_happened(ctx, tid)) {
-			_ = claim_drag(ctx, -1)
-			res.held_toggle = i
-		}
-	}
-	x := vis.x + 12 + indent
-	chevron := Rect{cell.x + indent, cell.y, t.target, t.target}
-	chevron_hover, chevron_held := false, false
-	if open != nil {
-		clicked: bool
-		chevron_hover, chevron_held, clicked, _ = interact(ctx, salt(id, 99), chevron)
-		if clicked {
-			open^ = !open^
-			res.folded = true
-		}
-		x = chevron.x + t.target
-	}
-	// Centred on the grip's icon; beside a chevron, the chevron (laid out first) keeps its own.
-	grip_rect := Rect{x + t.icon_small * 0.5 - t.target * 0.5, cell.y, t.target, t.target}
-	grip_hover, grip_held := false, false
-	if grip {
-		clicked, pressed: bool
-		grip_hover, grip_held, clicked, pressed = interact(ctx, salt(id, 98), grip_rect)
-		if pressed do _ = claim_drag(ctx, -1)
-		res.grip = grip_held
-		// A tap picks the row; a press that went anywhere was a drag.
-		res.clicked = clicked && ctx.long.travel <= t.slop
-	}
-	body := Rect{cell.x, cell.y, first - cell.x, cell.h}
-	hovered, held, clicked, _ := interact(ctx, id, body)
-	res.clicked ||= clicked
-	res.menu = secondary(ctx)
-
-	mark := vertex_mark(ctx)
-	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time, class = MOTION_PRESS)
-	if o > 0 do fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent_soft, o))
-	scale := feedback(ctx, id, vis, t.radius_medium, hovered && !selected, held)
-	mid := vis.y + vis.h * 0.5
-	if open != nil {
-		_ = feedback(ctx, salt(id, 99), centered(chevron, {t.control, t.control}), t.radius_small, chevron_hover, chevron_held)
-		icon(ctx, ICON_CHEVRON_DOWN if open^ else ICON_CHEVRON_RIGHT, {chevron.x + chevron.w * 0.5, mid}, t.icon_small, t.text_secondary)
-		tip(ctx, salt(id, 99), chevron, "Fold" if open^ else "Unfold", label = false)
-	}
-	if grip {
-		center := [2]f32{x + t.icon_small * 0.5, mid}
-		_ = feedback(ctx, salt(id, 98), centered(grip_rect, {t.control, t.control}), t.radius_small, grip_hover, grip_held)
-		color := t.accent if grip_held else (t.text if grip_hover else t.text_tertiary)
-		icon(ctx, ICON_GRIP, center, t.icon_small, color)
-		tip(ctx, salt(id, 98), grip_rect, "Drag to move")
-		x += t.icon_small + 10
-	} else if glyph != 0 {
-		icon(ctx, glyph, {x + t.icon_small * 0.5, mid}, t.icon_small, color_mix(t.text_secondary, t.accent, o))
-		x += t.icon_small + 10
-	}
-	label := color_fade(t.text, 0.45) if dim else t.text
-	font := Font.Semibold if selected else .Regular
-	// A long name is cut short of the detail rather than run under it; where that would
-	// leave the name too little room to read (a row indented deep in folders), the detail
-	// gives way instead, the name being what tells the rows apart.
-	room := first - 8 - x
-	detail := detail
-	if detail != "" {
-		rest := room - text_width(ctx, detail, t.small_size) - 12
-		if rest < TREE_NAME_MIN && text_width(ctx, shown, t.text_size, font) > rest do detail = ""
-		else do room = rest
-	}
-	text(ctx, text_fit(ctx, shown, t.text_size, room, font), x, mid, t.text_size, label, font)
-	if detail != "" do text(ctx, detail, first - 8, mid, t.small_size, t.text_tertiary, .Regular, .Right)
-	press_scale(ctx, mark, vis, scale)
-
-	for tg, i in toggles {
-		r := Rect{first + f32(i) * t.target, cell.y, t.target, t.target}
-		tid := salt(id, u64(100 + i))
-		box := centered(r, {t.control, t.control})
-		_ = feedback(ctx, tid, box, t.radius_small, toggle_hover[i], toggle_held[i])
-		color := t.text_secondary
-		if tg.lit do color = t.accent
-		if tg.faint do color = color_fade(t.text_secondary, 0.4)
-		if toggle_hover[i] && !tg.lit do color = t.text
-		icon(ctx, tg.glyph, {r.x + r.w * 0.5, mid}, t.icon_small, color)
-		// The tooltip a finger's hold showed goes once it slides down the column.
-		sliding := res.held_toggle == i && ctx.long.travel > t.slop
-		tip(ctx, tid, box, "" if sliding else tg.name, tg.keys)
-	}
-	return
 }
 
 // What happened to a thumbnail row: a list row's click and menu, which toggle was
@@ -957,7 +846,9 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 	mark := vertex_mark(ctx)
 	scale := feedback(ctx, id, vis, t.radius_medium, hovered && !selected, held)
 	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.hover_time, class = MOTION_PRESS)
-	if o > 0 do stroke_rect(ctx, vis, t.radius_medium, color_fade(t.accent, o), 2)
+	// The selected row has the one selected look, a soft fill, where an outline was a
+	// second look for the same state.
+	if o > 0 do fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent_soft, o))
 	picture := Rect{cell.x + 10 + indent, mid - PICTURE * 0.5, PICTURE, PICTURE}
 	fade: f32 = 0.45 if dim else 1
 	if parts.image != 0 {
@@ -1011,7 +902,7 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 		_ = feedback(ctx, tid, box, t.radius_small, toggle_hover[i], toggle_held[i])
 		color := t.text_secondary
 		if tg.lit do color = t.accent
-		if tg.faint do color = color_fade(t.text_secondary, 0.4)
+		if tg.faint do color = disabled_ink(t)
 		if toggle_hover[i] && !tg.lit do color = t.text
 		icon(ctx, tg.glyph, {r.x + r.w * 0.5, mid}, t.icon_small, color)
 		tip(ctx, tid, box, tg.name, tg.keys)
@@ -1044,13 +935,13 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 	// `highlight` is the keyboard's pick (the palette's Up and Down), shown as a hover.
 	_ = feedback(ctx, id, vis, t.radius_small + 2, hovered || highlight, held)
 	fg := t.danger if tone == .Danger else t.text
-	if !enabled do fg = color_fade(t.text_secondary, 0.4)
+	if !enabled do fg = disabled_ink(t)
 	x := vis.x + 10
 	glyph_color := fg if tone == .Danger || !enabled else t.text_secondary
-	if glyph != 0 && !trailing {
-		icon(ctx, glyph, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, glyph_color)
-		x += t.icon_small + 10
-	}
+	// Every row keeps the icon's column, with an icon or without, so a menu's labels all
+	// start at one x.
+	if glyph != 0 && !trailing do icon(ctx, glyph, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, glyph_color)
+	x += t.icon_small + 10
 	text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, fg)
 	if starred {
 		after := x + text_width(ctx, shown, t.text_size) + 6 + t.icon_small * 0.35
@@ -1064,7 +955,7 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 	} else if tag != "" {
 		tw := text_width(ctx, tag, t.caption_size, .Semibold) + 12
 		pill := Rect{right - tw, vis.y + vis.h * 0.5 - 10, tw, 20}
-		fade: f32 = 1 if enabled else 0.4
+		fade: f32 = 1 if enabled else DISABLED_FADE
 		stroke_rect(ctx, pill, t.radius_small, color_fade(tag_color, fade), 1)
 		text(ctx, tag, pill.x + 6, pill.y + 10, t.caption_size, color_fade(tag_color, fade), .Semibold)
 	} else if keys != "" {
@@ -1157,10 +1048,11 @@ more :: proc(ctx: ^Context, name: string, open: ^bool, always := false) -> bool 
 	_ = feedback(ctx, id, cell, t.radius_small, hovered, held)
 	p := tween(ctx, salt(id, 1), 1 if open^ else 0, t.panel_time, .Out_Cubic, class = MOTION_PANELS)
 	tw := text_width(ctx, shown, t.small_size, .Semibold)
-	text(ctx, shown, cell.x + 4, cell.y + cell.h * 0.5, t.small_size, t.accent, .Semibold)
+	// In the labels' grey: the accent is kept for what is on or chosen, and this is neither.
+	text(ctx, shown, cell.x + 4, cell.y + cell.h * 0.5, t.small_size, t.text_secondary, .Semibold)
 	mark := vertex_mark(ctx)
 	chev := [2]f32{cell.x + 4 + tw + 6 + t.icon_small * 0.5, cell.y + cell.h * 0.5}
-	icon(ctx, ICON_CHEVRON_DOWN, chev, t.icon_small, t.accent)
+	icon(ctx, ICON_CHEVRON_DOWN, chev, t.icon_small, t.text_secondary)
 	rotate_since(ctx, mark, p * math.PI, chev)
 	if p <= 0.001 do return false
 	fold_body(ctx, name, w, p)
@@ -1288,8 +1180,9 @@ BRUSH_TILE :: [2]f32{64, 58}
 // A brush in the dock or the browser: its icon over its name. The chosen one sits on the
 // chosen colour, which slides from tile to tile. Returns true when clicked. A command's
 // tile, on a dock of tiles, may be disabled (faded, taking no press) and may mark that it
-// has a long press with `corner`, as icon_button does.
-brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys := "", enabled := true, corner := false, width: f32 = 0) -> bool {
+// has a long press with `corner`, as icon_button does. An icon `picture` (a brush's own
+// icon) stands in for the glyph.
+brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys := "", enabled := true, corner := false, width: f32 = 0, picture := Picture{}) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	// A row that holds more tiles than fit at full width narrows them (`width`), the
@@ -1297,8 +1190,9 @@ brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys :
 	cell := place(ctx, {width if width > 0 else BRUSH_TILE.x, BRUSH_TILE.y})
 	vis := centered(cell, {cell.w - 4, 54})
 	if !enabled {
-		faded := color_fade(t.text_secondary, 0.35)
-		icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, faded)
+		faded := disabled_ink(t)
+		if picture.image != 0 do picture_icon(ctx, picture, {vis.x + vis.w * 0.5, vis.y + 21}, PICTURE_ICON, 0.45)
+		else do icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, faded)
 		text(ctx, text_fit(ctx, label_text(s), t.caption_size, cell.w - 2), vis.x + vis.w * 0.5, vis.y + 42, t.caption_size, faded, .Regular, .Center)
 		if ctx.names.on do names_place(ctx, id_of(ctx, s), cell)
 		return false
@@ -1310,7 +1204,9 @@ brush_tile :: proc(ctx: ^Context, s: string, glyph: rune, selected: bool, keys :
 	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.indicator_time, class = MOTION_TABS)
 	scale := feedback(ctx, id, vis, t.radius_medium + 2, hovered && !selected, held)
 	color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.7), t.on_chosen, o)
-	icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, color)
+	// A brush's own icon, where it has one, stands in for the glyph.
+	if picture.image != 0 do picture_icon(ctx, picture, {vis.x + vis.w * 0.5, vis.y + 21}, PICTURE_ICON)
+	else do icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 21}, t.icon_size + 2, color)
 	// A preset's name may be longer than the tile: it is cut, and shown whole in the tip.
 	name := label_text(s)
 	shown := text_fit(ctx, name, t.caption_size, cell.w - 2)
@@ -1327,33 +1223,6 @@ Modifier_Look :: enum u8 {
 	Off,
 	Lit, // on while held, by a finger or the keyboard's modifier: outlined
 	Latched, // on until tapped again: filled
-}
-
-// A sticky modifier button (Smooth, Invert...) in a touch-target cell: an icon over a
-// caption. `name` is its tooltip, with `keys`, the keyboard modifier that does the same.
-// Returns true when clicked; whether that latches is the caller's to say.
-modifier_button :: proc(ctx: ^Context, name: string, glyph: rune, look: Modifier_Look, keys := "") -> bool {
-	ctx.controls += 1
-	t := ctx.theme
-	cell := place(ctx, {t.target, t.target + 4})
-	vis := centered(cell, {t.target - 4, t.target})
-	id := id_of(ctx, name)
-	hovered, held, clicked, _ := interact(ctx, id, cell)
-	lit := tween(ctx, salt(id, 1), 1 if look != .Off else 0, t.hover_time, class = MOTION_PRESS)
-	full := tween(ctx, salt(id, 2), 1 if look == .Latched else 0, t.indicator_time, class = MOTION_TABS)
-	mark := vertex_mark(ctx)
-	if full > 0 do fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent, full))
-	if lit > 0 && full < 1 {
-		fill_rect(ctx, vis, t.radius_medium, color_fade(t.accent_soft, lit * (1 - full)))
-		stroke_rect(ctx, vis, t.radius_medium, color_fade(t.accent, lit * (1 - full)), 1.5)
-	}
-	scale := feedback(ctx, id, vis, t.radius_medium, hovered && look == .Off, held)
-	color := color_mix(color_mix(t.text_secondary, t.accent, lit), t.on_accent, full)
-	icon(ctx, glyph, {vis.x + vis.w * 0.5, vis.y + 18}, t.icon_small, color)
-	text(ctx, label_text(name), vis.x + vis.w * 0.5, vis.y + 37, t.caption_size, color, .Semibold if look != .Off else .Regular, .Center)
-	press_scale(ctx, mark, vis, scale)
-	tip(ctx, id, vis, label_text(name), keys)
-	return clicked
 }
 
 // A readout the width of its column: `s` on the left and `value` on the right, in small
@@ -1445,11 +1314,10 @@ drag_value :: proc(ctx: ^Context, s: string, value: ^f32, per_point, lo, hi: f32
 		// The pen's roll drags it too, a degree for a point.
 		if v := clamp(value^ + roll * per_point, lo, hi); v != value^ do value^, changed = v, true
 	}
-	fade: f32 = 1 if enabled else 0.4
-	fill_rect(ctx, vis, t.radius_medium, color_fade(t.fill, fade))
+	fill_rect(ctx, vis, t.radius_medium, color_fade(t.fill, 1 if enabled else DISABLED_FADE))
 	_ = feedback(ctx, id, vis, t.radius_medium, hovered, held)
-	text(ctx, label_text(s), vis.x + 12, vis.y + vis.h * 0.5, t.text_size, color_fade(t.text_secondary, fade))
-	text(ctx, shown, vis.x + vis.w - 12, vis.y + vis.h * 0.5, t.text_size, color_fade(t.text, fade), .Semibold, .Right)
+	text(ctx, label_text(s), vis.x + 12, vis.y + vis.h * 0.5, t.text_size, t.text_secondary if enabled else disabled_ink(t))
+	text(ctx, shown, vis.x + vis.w - 12, vis.y + vis.h * 0.5, t.text_size, t.text if enabled else disabled_ink(t), .Semibold, .Right)
 	return changed
 }
 
@@ -1625,14 +1493,30 @@ hint_short :: proc(s: string) -> string {
 // HINT_H is a hint line's height: taller than its text so a finger finds it.
 HINT_H :: 26
 
-// A paragraph shown as a hint: `short`, cut to one line, and a ? at the line's end. A tap
-// anywhere on the line opens the whole of `s` in a popover under it, and a second tap or a
-// press elsewhere closes it.
+// A paragraph shown as a hint: `short` on up to two lines, cut only past the second, and a
+// ? at the first line's end. A tap anywhere on it opens the whole of `s` in a popover
+// under it, and a second tap or a press elsewhere closes it.
 @(private)
 hint_line :: proc(ctx: ^Context, s, short: string, w: f32) {
 	ctx.controls += 1
 	t := ctx.theme
-	r := place(ctx, {w, HINT_H})
+	QUESTION :: 18
+	room := w - QUESTION - 8
+	// The first line ends at the last space that fits, so a sentence reads whole where a
+	// second line holds the rest, as a sentence cut mid-word on a tablet cannot be read
+	// without the popover.
+	first, rest := short, ""
+	if text_width(ctx, short, t.small_size) > room {
+		cut := -1
+		for i in 0 ..< len(short) {
+			if short[i] != ' ' do continue
+			if text_width(ctx, short[:i], t.small_size) > room do break
+			cut = i
+		}
+		if cut > 0 do first, rest = short[:cut], short[cut + 1:]
+	}
+	line_h := line_height(t.small_size)
+	r := place(ctx, {w, HINT_H if rest == "" else HINT_H + line_h})
 	id := id_of(ctx, s)
 	hovered, _, clicked, _ := interact(ctx, id, r)
 	if clicked {
@@ -1640,11 +1524,11 @@ hint_line :: proc(ctx: ^Context, s, short: string, w: f32) {
 		if ctx.hint_open == id do ctx.hint_id = id
 	}
 	open := ctx.hint_open == id
-	QUESTION :: 18
 	color := t.text_secondary if hovered || open else t.text_tertiary
-	shown := text_fit(ctx, short, t.small_size, r.w - QUESTION - 8)
-	text(ctx, shown, r.x, r.y + r.h * 0.5, t.small_size, color)
-	icon(ctx, ICON_HELP, {r.x + r.w - QUESTION * 0.5, r.y + r.h * 0.5}, t.icon_small, t.accent if open else color)
+	y := r.y + HINT_H * 0.5 if rest == "" else r.y + (HINT_H - line_h) * 0.5 + line_h * 0.5
+	text(ctx, text_fit(ctx, first, t.small_size, room), r.x, y, t.small_size, color)
+	if rest != "" do text(ctx, text_fit(ctx, rest, t.small_size, room), r.x, y + line_h, t.small_size, color)
+	icon(ctx, ICON_HELP, {r.x + r.w - QUESTION * 0.5, y}, t.icon_small, t.accent if open else color)
 	tip(ctx, id, r, "More about this")
 	// The popover belongs to the hint drawn last with it open (or closing).
 	if ctx.hint_id == id {
@@ -1782,51 +1666,11 @@ swatch :: proc(ctx: ^Context, s: string, color: Color, side: f32, selected := fa
 	return
 }
 
-// A preview tile's cell, in points: a picture well over a name, as ZBrush for iPad's
-// Brushes palette shows its brushes, three to a row.
-PREVIEW_TILE :: [2]f32{104, 112}
-
-// What a preview tile did this frame.
+// What a tile (a picture tile, a theme card) did this frame.
 Tile_Result :: struct {
 	clicked: bool,
-	menu:    bool, // a long press (or a right-click): its settings
-	picture: Rect, // the well the ball is drawn in
-}
-
-// A large tile of a palette's grid: a lit ball of `ball` in a well with `glyph` stamped on
-// it, and `s` under it. `selected` washes and rings the well with the accent; unlike
-// brush_tile's sliding indicator, several tiles of a row can be selected at once (a brush
-// and a mask shape are both chosen). `keys` shows in its tooltip beside the name.
-preview_tile :: proc(ctx: ^Context, s: string, glyph: rune, ball: Color, selected: bool, keys := "") -> (res: Tile_Result) {
-	ctx.controls += 1
-	t := ctx.theme
-	cell := place(ctx, PREVIEW_TILE)
-	vis := centered(cell, PREVIEW_TILE - 6)
-	id := id_of(ctx, s)
-	hovered, held, clicked, _ := interact(ctx, id, cell)
-	res.clicked = clicked
-	res.menu = secondary(ctx)
-	mark := vertex_mark(ctx)
-	o := tween(ctx, salt(id, 1), 1 if selected else 0, t.indicator_time, class = MOTION_TABS)
-	pic := Rect{vis.x, vis.y, vis.w, math.round(vis.w * 0.8)}
-	res.picture = pic
-	fill_rect(ctx, pic, t.radius_medium, t.fill)
-	if o > 0 do fill_rect(ctx, pic, t.radius_medium, color_fade(t.accent_soft, o))
-	scale := feedback(ctx, id, pic, t.radius_medium, hovered && !selected, held)
-	center := [2]f32{pic.x + pic.w * 0.5, pic.y + pic.h * 0.5}
-	fill_ball(ctx, center, pic.h * 0.5 - 7, ball)
-	// The glyph is pressed into the ball: its own colour, darkened, so it reads on a light
-	// clay and on a dark mask alike.
-	stamp := Color{ball.r / 3, ball.g / 3, ball.b / 3, 210}
-	icon(ctx, glyph, center, t.icon_size + 6, stamp)
-	if o > 0 do stroke_rect(ctx, pic, t.radius_medium, color_fade(t.accent, o), 2)
-	name := label_text(s)
-	shown := text_fit(ctx, name, t.small_size, vis.w)
-	color := color_mix(color_mix(t.text_secondary, t.text, f32(int(hovered)) * 0.7), t.accent, o)
-	text(ctx, shown, center.x, pic.y + pic.h + 14, t.small_size, color, .Semibold if selected else .Regular, .Center)
-	press_scale(ctx, mark, vis, scale)
-	tip(ctx, id, pic, name, keys)
-	return
+	menu:    bool, // a long press (or a right-click): its menu
+	picture: Rect, // the well its picture is drawn in
 }
 
 // What a picture tile shows in its well: part of a registered image (an atlas cell, from
@@ -1836,6 +1680,15 @@ Picture :: struct {
 	lo, hi: [2]f32,
 	aspect: f32,
 	glyph:  rune,
+}
+
+// How large a picture icon is drawn on a tile or an icon button, in points: a little
+// larger than the glyph it replaces, since a picture's ink does not fill its square.
+PICTURE_ICON :: 34
+
+// Draws picture icon `pic` centred on `center`, `size` points square, faded by `fade`.
+picture_icon :: proc(ctx: ^Context, pic: Picture, center: [2]f32, size: f32, fade: f32 = 1) {
+	image_part(ctx, {center.x - size * 0.5, center.y - size * 0.5, size, size}, pic.image, pic.lo, pic.hi, {255, 255, 255, u8(255 * clamp(fade, 0, 1))})
 }
 
 // How a picture tile's well is ringed: a hairline, the accent (what is open now) or the

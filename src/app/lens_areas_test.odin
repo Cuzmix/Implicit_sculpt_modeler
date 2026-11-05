@@ -17,7 +17,7 @@ pane_gestures_keep_the_tree_whole :: proc(t: ^testing.T) {
 	testing.expect_value(t, grid_split_pane(&g, 0, true, 0.6, false, {camera = .Front, pass = .Normals}), 1)
 	whole(t, &g, 2)
 	testing.expect_value(t, grid_shape_name(&g), "Side_By_Side")
-	testing.expect_value(t, g.views[0].pass, Second_Pass.Normals)
+	testing.expect_value(t, grid_view(&g, 1).pass, Second_Pass.Normals)
 	// Split the view pane top and bottom, then the main view again: four, and a fifth is refused.
 	testing.expect_value(t, grid_split_pane(&g, 1, false, 0.5, true, {camera = .Top}), 2)
 	testing.expect_value(t, grid_split_pane(&g, 0, false, 0.5, false, {camera = .Right}), 3)
@@ -30,13 +30,13 @@ pane_gestures_keep_the_tree_whole :: proc(t: ^testing.T) {
 	// number left free with its view, and pane 1 keeps its own.
 	testing.expect(t, grid_join(&g, 1, 2))
 	whole(t, &g, 3)
-	testing.expect_value(t, g.views[1].camera, Second_Camera.Right)
-	testing.expect_value(t, g.views[0].camera, Second_Camera.Front)
+	testing.expect_value(t, grid_view(&g, 2).camera, Second_Camera.Right)
+	testing.expect_value(t, grid_view(&g, 1).camera, Second_Camera.Front)
 	// Swap the main view with pane 1: they trade places and views stay with their panes.
 	main_before := grid_tree_leaf(&g.tree, 0)
 	testing.expect(t, grid_swap(&g, 0, 1))
 	testing.expect(t, grid_tree_leaf(&g.tree, 1) == main_before, "pane 1 is not where the main view was")
-	testing.expect_value(t, g.views[0].camera, Second_Camera.Front)
+	testing.expect_value(t, grid_view(&g, 1).camera, Second_Camera.Front)
 	// Dock pane 2 on the left of pane 1: still three, and pane 2 is left of pane 1.
 	testing.expect(t, grid_dock(&g, 2, 1, .Left))
 	whole(t, &g, 3)
@@ -59,7 +59,7 @@ a_join_across_rows_and_an_even_out :: proc(t: ^testing.T) {
 	g: View_Grid
 	grid_reset(&g)
 	g.tree = grid_preset_tree(.Four)
-	g.views = grid_views_default(.Four)
+	g.tabs = grid_tabs_of(grid_views_default(.Four))
 	// Pane 1 (top right) and pane 3 (bottom right) line up: 1 grows down over 3.
 	testing.expect(t, grid_joinable(&g, 1, 3))
 	testing.expect(t, grid_join(&g, 1, 3))
@@ -80,6 +80,7 @@ a_join_across_rows_and_an_even_out :: proc(t: ^testing.T) {
 layout_steps_undo_in_order_with_the_scene :: proc(t: ^testing.T) {
 	app := new(App)
 	defer free(app)
+	defer grid_undo_destroy(&app.kit.grid)
 	defer delete(app.history.done)
 	defer delete(app.history.undone)
 	g := &app.kit.grid

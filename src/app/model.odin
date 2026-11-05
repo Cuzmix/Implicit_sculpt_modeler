@@ -287,7 +287,6 @@ cage_rebuild :: proc(app: ^App, obj: ^Object) -> bool {
 	autosave_settle(app)
 	cage, look, held := obj.cage.mesh, obj.cage.look, obj.cage.held
 	obj.cage.mesh, obj.cage.held = {}, nil
-	render.wait_idle(&app.renderer)
 	object_release_mesh(app, obj, rebuild = false)
 	return object_build_cage(app, obj, cage, look, held)
 }
@@ -321,7 +320,6 @@ scene_add_cage :: proc(app: ^App, kind: poly.Primitive, opts: poly.Primitive_Opt
 object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 	if obj.cage == nil do return false
 	autosave_settle(app)
-	render.wait_idle(&app.renderer)
 	cp := obj.cage
 	steps := cp.look.smooth
 	rule := sculpt.Subdivision_Rule.Flat if cp.look.flat else .Smooth
@@ -379,6 +377,18 @@ object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 // Most triangles Edit cage draws its cage with: fewer Smooth steps than the sculpt had
 // levels when that many would be more, so each edit stays quick. Apply makes them all.
 CAGE_EDIT_TRIANGLES :: 2_000_000
+
+// Whether Model action `a` reaches the selected object: a cage or a curve takes them, and
+// with nothing selected they stand ready for the next one. Topo draws a new cage over any
+// surface, so it takes a sculpt mesh too.
+model_actions_apply :: proc(app: ^App, a: Model_Action) -> bool {
+	obj := selected_object(app)
+	if obj == nil || a == .Topo do return true
+	#partial switch object_type(obj) {
+	case .Cage, .Curve: return true
+	}
+	return false
+}
 
 // Whether Edit cage can take a cage from `obj`: a mesh whose base level is polygons (from
 // Apply to sculpt) or quads (Retopologize), and not under dynamic topology.
@@ -451,10 +461,9 @@ object_edit_cage :: proc(app: ^App, obj: ^Object) -> bool {
 		held = out[:]
 	}
 	s := &sculpt.levels_current(l).sculptor
-	if len(s.layers.list) > 0 || s.color != nil || s.mask != nil {
+	if len(s.layers.list) > 0 || sculpt.sculptor_paint_shows(s) || s.mask != nil {
 		report(app, nil, {}, "Edit cage on %s keeps its sculpted detail, but not its polypaint, mask or layers", object_label(obj))
 	}
-	render.wait_idle(&app.renderer)
 	object_release_mesh(app, obj, rebuild = false)
 	return object_build_cage(app, obj, cage, look, held)
 }
@@ -852,18 +861,30 @@ object_crease_cage :: proc(app: ^App, obj: ^Object, kind: Cage_Crease) -> bool {
 
 @(rodata)
 CAGE_SELECT_NAMES := [poly.Select_Op]string {
-	.All    = "Select all faces",
-	.None   = "Select no faces",
-	.Invert = "Invert selected faces",
-	.Grow   = "Grow selected faces",
-	.Shrink = "Shrink selected faces",
+	.All    = "Select all of the cage",
+	.None   = "Select none of the cage",
+	.Invert = "Invert what the cage has selected",
+	.Grow   = "Grow what the cage has selected",
+	.Shrink = "Shrink what the cage has selected",
 }
 
 // Changes `obj`'s cage selection as one undo step (a selection is undone as Blender's
-// is); nothing is listed when nothing changed. Returns false only on a GPU failure.
-object_select_cage :: proc(app: ^App, obj: ^Object, op: poly.Select_Op) -> bool {
+// is): its faces, or with `pick` edges or points its picked points; None takes both away.
+// Nothing is listed when nothing changed. Returns false only on a GPU failure.
+object_select_cage :: proc(app: ^App, obj: ^Object, op: poly.Select_Op, pick: Model_Element) -> bool {
 	before := history_snapshot(app, obj, strings.to_lower(CAGE_SELECT_NAMES[op], context.temp_allocator))
-	if !poly.select_op(&obj.cage.mesh, op) {
+	cage := &obj.cage.mesh
+	changed: bool
+	if op == .None {
+		faces := poly.select_op(cage, .None)
+		points := poly.pick_op(cage, .None)
+		changed = faces || points
+	} else if pick == .Face {
+		changed = poly.select_op(cage, op)
+	} else {
+		changed = poly.pick_op(cage, op)
+	}
+	if !changed {
 		history_snapshot_drop(before)
 		return true
 	}
@@ -882,12 +903,12 @@ CAGE_REFUSED_COMMANDS :: Command_Set{
 	.Show_All, .Invert_Hidden, .Hide_Masked, .Hide_Unmasked, .Grow_Visible, .Shrink_Visible, .Grow_All_Visible,
 	.Outer_Ring, .Grow_To_Groups, .Show_Masked, .Store_Selection_Set, .Restore_Selection_Set, .Paint, .Group,
 	.Delete_Lower_Levels, .Delete_Higher_Levels, .Hd_Divide, .Hd_Delete, .Hd_Sculpt, .Hd_Leave, .Detail_Skin, .Skin_Apply, .Skin_Squeeze, .Morph_Store,
-	.Morph_Delete, .New_Layer, .Layer_Edit, .Recall_Earlier, .Recall_Later, .Recall_Oldest, .Smooth_All, .Deformer,
+	.Morph_Delete, .New_Layer, .Layer_Edit, .New_Paint_Layer, .Paint_Layer_Edit, .Recall_Earlier, .Recall_Later, .Recall_Oldest, .Smooth_All, .Deformer,
 	.Deformation, .Reshape_Repeat, .Delete_Hidden, .Extract_Masked, .Replay_Stroke,
 }
 
 // The scene commands a cage object refuses, for the same reason.
-CAGE_REFUSED_SCENE :: bit_set[Scene_Command_Kind]{.Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Layout_Uvs, .Skin_Apply, .Squeeze}
+CAGE_REFUSED_SCENE :: bit_set[Scene_Command_Kind]{.Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Unwrap, .Straighten, .Skin_Apply, .Squeeze}
 
 // Whether the selected object is a cage.
 selected_cage :: proc(app: ^App) -> bool {
@@ -934,6 +955,14 @@ Model_Tool :: struct {
 	// The Topo pen's dots and drag (model_topo.odin).
 	topo:      Model_Topo,
 	look_drag: Cage_Look_Drag,
+	// What Select picks (faces, or points through edges and points) and the gizmo's drag of
+	// the selection (model_gizmo.odin), with the falloff its move eases out over, a share
+	// of the cage's size (0 for none, Blender's proportional editing).
+	pick:      Model_Element,
+	falloff:   f32,
+	xform:     Cage_Xform,
+	xforms:    int, // moves, turns and scales of the selection made, for the exit stats
+	pointer:   [2]f32, // the pointer's last place over the view, where a key's drag starts
 	// Since the start, for the exit stats: actions made, and refused.
 	done:      int,
 	refused:   int,
@@ -962,12 +991,18 @@ kit_model_tab :: proc(app: ^App) {
 	actions: [len(Model_Action)]string
 	for a, i in Model_Action do actions[i] = MODEL_ACTION_NAMES[a]
 	if picked := ui.select(ctx, "model action", actions[:], int(m.action)); picked >= 0 do command_run(app, .Model_Action, picked)
+	// Select picks faces, edges or points, as Blender's three select modes; what it picks
+	// shows a gizmo that moves it, with the falloff the move eases out over.
+	if m.action == .Select {
+		picks := [3]string{"Faces", "Edges", "Points"}
+		if picked := ui.tabs(ctx, "model pick", picks[:], int(m.pick)); picked >= 0 do m.pick = Model_Element(picked)
+	}
 	ui.caption(ctx, "TARGET")
 	// Only the targets the action can take.
 	targets := make([dynamic]string, context.temp_allocator)
 	which := make([dynamic]Model_Target, context.temp_allocator)
 	chosen := 0
-	for g in MODEL_ACTION_TARGETS[m.action] {
+	for g in model_targets(m, m.action) {
 		if g == model_target(m, m.action) do chosen = len(which)
 		append(&targets, MODEL_TARGET_NAMES[g])
 		append(&which, g)
@@ -979,24 +1014,20 @@ kit_model_tab :: proc(app: ^App) {
 	} else {
 		ui.paragraph(ctx, fmt.tprintf("%s.", how))
 	}
+	if m.action == .Select {
+		f := m.falloff * 100
+		if ui.slider(ctx, "Falloff", &f, 0, 100, .Linear, "Off" if m.falloff <= 0 else fmt.tprintf("%.0f%%", f)) do m.falloff = clamp(f / 100, 0, 1)
+		ui.paragraph(ctx, "With something selected, the gizmo at its middle moves, turns or scales it (G, R and S too, X, Y or Z for an axis). Falloff carries the points round the selection part of the way, less the further they are, up to that share of the cage's size.")
+	}
 	if m.action == .Polygroup {
 		g := f32(m.group)
 		if ui.slider(ctx, "Polygroup", &g, 0, 64, .Linear, fmt.tprint(m.group)) do m.group = u16(clamp(int(g + 0.5), 0, 64))
 	}
 	if obj := selected_object(app); obj != nil && obj.cage != nil {
-		// The live surface, as ZBrush's Dynamic Subdivision: steps of smoothing drawn over
-		// the cage, which keeps its edges and is what every action works on.
-		ui.caption(ctx, "SURFACE")
-		steps := [poly.SUBDIVIDE_MAX + 1]string{"Off", "1", "2", "3", "4"}
-		hints: [poly.SUBDIVIDE_MAX + 1]string
-		for &h, i in hints do h = command_hint(app, .Cage_Smooth, i)
-		if picked := ui.tabs(ctx, "cage smooth", steps[:], obj.cage.look.smooth, keys = hints[:]); picked >= 0 do command_run(app, .Cage_Smooth, picked)
-		flat := obj.cage.look.flat
-		if ui.switch_row(ctx, "Flat", &flat, keys = command_hint(app, .Cage_Flat)) do command_run(app, .Cage_Flat)
 		ui.caption(ctx, "CREASES")
 		kit_command_pair(app, .Crease_Cage, .Crease_Cage, arg_a = int(Cage_Crease.By_Angle), arg_b = int(Cage_Crease.Group_Borders), label_a = "By angle", label_b = "Polygroups")
 		_ = command_button(app, .Crease_Cage, int(Cage_Crease.Clear), "Clear creases", width = ui.fill_width(ctx))
-		kit_cage_live(app, obj)
+		ui.paragraph(ctx, "Smooth, Mirror, Thickness and Bevel creases are the cage's rows in the Live stack card.")
 	}
 	// A selected curve makes cages here (curve_cage.odin).
 	if obj := selected_object(app); obj != nil && obj.curve != nil do kit_curve_cage(app)
@@ -1038,62 +1069,84 @@ kit_model_tab :: proc(app: ^App) {
 	ui.paragraph(ctx, fmt.tprintf("%s: %d points, %d edges, %d faces (%d quads, %d triangles, %d polygons), %d creased edges, %d corners, %d poles, %d open edges", object_label(obj), c.vertices, c.edges, c.faces, c.quads, c.triangles, c.ngons, creased, corners, c.poles, c.border_edges))
 }
 
-// The live stack's controls in the Model palette: Mirror's axes, then Thickness and Bevel
-// creases, each a width slider (a share of the cage's size, one undo step a drag) with its segments, and
-// the shell's side.
-@(private = "file")
-kit_cage_live :: proc(app: ^App, obj: ^Object) {
+// A cage's rows in the Live stack card (kit_stack), each the body of its folded row: the
+// live surface (Smooth, as ZBrush's Dynamic Subdivision: steps of smoothing drawn over the
+// cage, which keeps its edges and is what every action works on; and Flat), Mirror's
+// axes, then Thickness and Bevel creases, each a width slider (a share of the cage's size,
+// one undo step a drag) with its segments, and the shell's side. These change the cage's
+// polygons, which it is small enough to build again after every edit, where a sculpt's
+// rows only make copies.
+kit_cage_smooth :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	cp := obj.cage
-	size := cage_size(cp)
+	steps := [poly.SUBDIVIDE_MAX + 1]string{"Off", "1", "2", "3", "4"}
+	step_hints: [poly.SUBDIVIDE_MAX + 1]string
+	for &h, i in step_hints do h = command_hint(app, .Cage_Smooth, i)
+	if picked := ui.tabs(ctx, "cage smooth", steps[:], cp.look.smooth, keys = step_hints[:]); picked >= 0 do command_run(app, .Cage_Smooth, picked)
+	flat := cp.look.flat
+	if ui.switch_row(ctx, "Flat corners", &flat, keys = command_hint(app, .Cage_Flat)) do command_run(app, .Cage_Flat)
+}
+
+kit_cage_mirror :: proc(app: ^App, obj: ^Object) {
+	ctx := &app.kit.ctx
+	cp := obj.cage
 	live := cp.look.live
-	drag :: proc(app: ^App, look: Cage_Look) {app.ui.scene_command = {kind = .Cage_Look, look = look, look_drag = true}}
-	SEGMENTS :: [?]string{"1", "2", "3", "4", "5", "6"}
-	segments := SEGMENTS
-	ui.caption(ctx, "MIRROR")
-	ui.begin(ctx, "cage mirror axes", {direction = .Row, gap = 4})
+	ui.begin(ctx, "cage mirror axes", {direction = .Row, gap = ui.SPACE_XS})
 	for axis in poly.Mirror_Axis {
 		if ui.toggle_button(ctx, fmt.tprint(axis), axis in live.mirror, 48, command_hint(app, .Cage_Mirror, int(axis)), fmt.tprintf("Mirror the cage across %v", axis)) do command_run(app, .Cage_Mirror, int(axis))
 	}
 	ui.end(ctx)
-	if live.mirror != {} {
-		_ = command_button(app, .Tidy_Cage, int(Cage_Tidy.Apply_Mirror), "Apply mirror", width = ui.fill_width(ctx))
-		if cp.live.mirror_refused do ui.paragraph(ctx, "A face lies across the mirror plane, so the halves would overlap: the mirror is off until it is cut there (Insert loop) or moved off.")
-	}
-	ui.caption(ctx, "THICKNESS")
+	if cp.live.mirror_refused do ui.paragraph(ctx, "A face lies across the mirror plane, so the halves would overlap: the mirror is off until it is cut there (Insert loop) or moved off.")
+}
+
+@(private = "file")
+cage_look_drag :: proc(app: ^App, look: Cage_Look) {app.ui.scene_command = {kind = .Cage_Look, look = look, look_drag = true}}
+
+@(private = "file")
+CAGE_SEGMENT_NAMES := [?]string{"1", "2", "3", "4", "5", "6"}
+
+kit_cage_thickness :: proc(app: ^App, obj: ^Object) {
+	ctx := &app.kit.ctx
+	cp := obj.cage
+	size := cage_size(cp)
+	live := cp.look.live
 	thick := 100 * live.thickness / size
 	if ui.slider(ctx, "Thickness", &thick, 0, CAGE_LIVE_PERCENT_MAX, .Linear, "Off" if thick <= 0 else fmt.tprintf("%.1f%%", thick)) {
 		look := cp.look
 		look.live.thickness = thick / 100 * size
-		drag(app, look)
+		cage_look_drag(app, look)
 	}
-	if live.thickness > 0 {
-		{
-			hints: [poly.LIVE_THICKNESS_SEGMENTS_MAX]string
-			for &h, i in hints do h = command_hint(app, .Cage_Thickness_Segments, i)
-			if picked := ui.tabs(ctx, "thickness segments", segments[:poly.LIVE_THICKNESS_SEGMENTS_MAX], live.thickness_segments - 1, keys = hints[:]); picked >= 0 do command_run(app, .Cage_Thickness_Segments, picked)
-		}
-		sides := [len(poly.Thickness_Side)]string{"Out", "In", "Centre"}
-		hints: [len(poly.Thickness_Side)]string
-		for &h, i in hints do h = command_hint(app, .Cage_Thickness_Side, i)
-		if picked := ui.tabs(ctx, "thickness side", sides[:], int(live.side), keys = hints[:]); picked >= 0 do command_run(app, .Cage_Thickness_Side, picked)
+	if live.thickness <= 0 do return
+	{
+		hints: [poly.LIVE_THICKNESS_SEGMENTS_MAX]string
+		for &h, i in hints do h = command_hint(app, .Cage_Thickness_Segments, i)
+		if picked := ui.tabs(ctx, "thickness segments", CAGE_SEGMENT_NAMES[:poly.LIVE_THICKNESS_SEGMENTS_MAX], live.thickness_segments - 1, keys = hints[:]); picked >= 0 do command_run(app, .Cage_Thickness_Segments, picked)
 	}
-	ui.caption(ctx, "BEVEL CREASES")
+	sides := [len(poly.Thickness_Side)]string{"Out", "In", "Centre"}
+	hints: [len(poly.Thickness_Side)]string
+	for &h, i in hints do h = command_hint(app, .Cage_Thickness_Side, i)
+	if picked := ui.tabs(ctx, "thickness side", sides[:], int(live.side), keys = hints[:]); picked >= 0 do command_run(app, .Cage_Thickness_Side, picked)
+}
+
+kit_cage_bevel :: proc(app: ^App, obj: ^Object) {
+	ctx := &app.kit.ctx
+	cp := obj.cage
+	size := cage_size(cp)
+	live := cp.look.live
 	width := 100 * live.bevel / size
 	if ui.slider(ctx, "Width", &width, 0, CAGE_LIVE_PERCENT_MAX, .Linear, "Off" if width <= 0 else fmt.tprintf("%.1f%%", width)) {
 		look := cp.look
 		look.live.bevel = width / 100 * size
-		drag(app, look)
+		cage_look_drag(app, look)
 	}
-	if live.bevel > 0 {
-		hints: [CAGE_BEVEL_SEGMENTS_SHOWN]string
-		for &h, i in hints do h = command_hint(app, .Cage_Bevel_Segments, i)
-		if picked := ui.tabs(ctx, "bevel segments", segments[:CAGE_BEVEL_SEGMENTS_SHOWN], live.bevel_segments - 1, keys = hints[:]); picked >= 0 do command_run(app, .Cage_Bevel_Segments, picked)
-		creased, _ := poly.crease_count(&cp.mesh)
-		switch {
-		case cp.live.bevel_refused: ui.paragraph(ctx, "A creased edge reaches a point with only two edges, which cannot be rounded, so the bevel is off.")
-		// A shell's rim edges are creased by Thickness, so a plate bevels with no crease of its own.
-		case creased == 0 && live.thickness <= 0: ui.paragraph(ctx, "Crease edges (Crease, or By angle above) to bevel them.")
-		}
+	if live.bevel <= 0 do return
+	hints: [CAGE_BEVEL_SEGMENTS_SHOWN]string
+	for &h, i in hints do h = command_hint(app, .Cage_Bevel_Segments, i)
+	if picked := ui.tabs(ctx, "bevel segments", CAGE_SEGMENT_NAMES[:CAGE_BEVEL_SEGMENTS_SHOWN], live.bevel_segments - 1, keys = hints[:]); picked >= 0 do command_run(app, .Cage_Bevel_Segments, picked)
+	creased, _ := poly.crease_count(&cp.mesh)
+	switch {
+	case cp.live.bevel_refused: ui.paragraph(ctx, "A creased edge reaches a point with only two edges, which cannot be rounded, so the bevel is off.")
+	// A shell's rim edges are creased by Thickness, so a plate bevels with no crease of its own.
+	case creased == 0 && live.thickness <= 0: ui.paragraph(ctx, "Crease edges (Crease, or By angle above) to bevel them.")
 	}
 }

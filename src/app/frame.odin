@@ -26,10 +26,11 @@ Frame_Loop :: struct {
 	main_window:   sdl.WindowID, // the view windows' events go to them, the rest to this one
 	bench:         ^Gpubench,
 	driven:        bool, // a run a person drives, which rests when idle; a scripted one keeps every frame
+	last_start:    time.Tick, // the previous frame's start, for interval_ms (zero before the first)
 	frame_index:   int,
 	bench_skipped: int, // frames --bench-after-autosave held the stroke back
 	// The previous frame's, kept while timing the GPU so the next frame can wait for it.
-	present_fence: render.Fence,
+	present_ticket: render.Ticket, // the last frame's, while Time GPU work waits for it
 }
 
 frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
@@ -40,9 +41,13 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	}
 	rested := idle_rest(app, loop.driven)
 	frame_start := time.tick_now()
+	// A rest between the frames is no frame's pace.
+	if loop.last_start != {} && !rested do ring_push(&app.stats.interval_ms, time.duration_milliseconds(time.tick_diff(loop.last_start, frame_start)))
+	loop.last_start = frame_start
 	// Before this frame records anything: the GPU times of a frame a few back.
 	if times, ok := render.timestamps_frame(&app.renderer); ok {
 		for span in times.ran do ring_push(&app.stats.gpu_spans[span], times.ms[span])
+		app.stats.gpu_viewport_stamped_ms = times.ms[.None] - times.ms[.Interface]
 	}
 	render.gpu_cull_frame(&app.renderer)
 	// The positions and normals a stroke's earlier frames read back land in the mesh
@@ -62,7 +67,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// the swapchain, so frame_pace runs before this frame acquires a swapchain texture.
 	wait_start := time.tick_now()
 	frame_pace(app, loop.window)
-	render.fence_finish(&app.renderer, &loop.present_fence)
+	render.ticket_wait(loop.present_ticket)
 	present_cmd := render.cmd_begin(&app.renderer)
 	if present_cmd == nil do return false
 	// A rested frame (idle_rest: the wait ran out with no event) takes no image: the
@@ -135,7 +140,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	sculpted: Sculpt_Frame_Result
 	// While a job holds the scene no tool acts on the view: a press there only says to
 	// wait (the camera above still turns).
-	job_holds := long_job_busy(app)
+	job_holds := long_job_busy(app) || memory_ask_holds(app)
 	if !job_holds do shape_pending_frame(app, input.size)
 	// A gizmo drag the tool changed under ends as it is.
 	if app.tool != .Move do move_end(app)
@@ -144,8 +149,9 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// viewport, is no tool's.
 	if job_holds {
 		brush_stroke_finish(app)
-		if input.press do long_job_refuse(app)
-	} else if group_pick_frame(app, input) || eyedropper_frame(app, input) || focus_pick_frame(app, input) || lights_viewport_frame(app, input) {
+		// The memory check's autosave says so in its own popup.
+		if input.press && long_job_busy(app) do long_job_refuse(app)
+	} else if group_pick_frame(app, input) || eyedropper_frame(app, input) || focus_pick_frame(app, input) || lights_viewport_frame(app, input) || stack_handles_frame(app, input) {
 		brush_stroke_finish(app)
 	} else {
 		// A drag the tool changed under ends as it stands, one undo step.
@@ -190,6 +196,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// Likewise a finished environment decode, whose prefilter has its own.
 	_ = environment_poll(app)
 	brush_previews_poll(app)
+	// And the reference pictures decoded since, whose GPU copies have their own too.
+	refs_poll(app)
 
 	// The 3D viewport goes in its own command buffer, submitted ahead of the one that
 	// presents, so its GPU time can be measured on its own.
@@ -301,8 +309,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			poly_edges := part == 0 && poly_edges_shown(app, obj)
 			overlay := app.wireframe && selected
 			poly_lines := poly_edges && overlay && app.polyframe_lines
-			append(&froms, Item_From{obj = obj, index = i, tint = color, material = material, base_map = textured != nil && textured.maps[.Base_Color] != nil, poly_edges = poly_edges})
-			if textured != nil do color = textured_color(color, material, app.texture_view == .Textured && textured.maps[.Base_Color] != nil)
+			append(&froms, Item_From{obj = obj, index = i, tint = color, material = material, base_map = textured != nil && textured.maps[.Base_Color] != 0, poly_edges = poly_edges})
+			if textured != nil do color = textured_color(color, material, app.texture_view == .Textured && textured.maps[.Base_Color] != 0)
 			// The groups are made first: the stamps say when.
 			chunk_groups := sculpt.sculptor_chunk_groups(&lv.sculptor)
 			group_stamps, chunk_layout := sculpt.sculptor_chunk_stamps(&lv.sculptor)
@@ -321,7 +329,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				lights = viewport_lights(app),
 				matcap = material_matcap(app, material),
 				wireframe = overlay && app.polyframe_lines && !poly_edges,
-				paint  = sculpt.sculptor_has_color(&lv.sculptor) && !obj.paint_off,
+				paint  = sculpt.sculptor_paint_shows(&lv.sculptor) && !obj.paint_off,
 				groups = (app.show_groups || overlay && app.polyframe_fill) && sculpt.sculptor_has_groups(&lv.sculptor),
 				// A cage shows its edges, and its faces flat, as a polygon model does; the
 				// wireframe of a level with polygons shows their edges the same way.
@@ -371,6 +379,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			})
 		}
 	}
+	// The live stack's copies, after every item they copy (the boolean preview's too).
+	stack_draw_copies(app, &draws, &froms)
 	aspect := f32(app.target.width) / f32(app.target.height)
 	view, proj := camera.orbit_view(app.camera), camera.orbit_proj(app.camera, aspect)
 	// The main view's role lent to a view pane or given back is no turn of the view: what
@@ -380,12 +390,14 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	moving := time.tick_since(app.view_moved) < LOD_SETTLE
 	app.renderer.lod_px = app.simplify_px if app.simplify && moving && !timelapse_capturing(app) && !turntable_recording(app) else 0
 	app.renderer.floor = floor_grid_frame(app)
+	// The reference planes are for working: a time-lapse or a turntable records the model alone.
+	app.renderer.ref_planes = nil if timelapse_capturing(app) || turntable_recording(app) else refs_planes_frame(app)
 	theme_bring_background(app)
 	app.renderer.background = background_frame(app.background)
 	app.renderer.wire_color = theme_wire_color(&app.kit)
 	environment_view(app)
 	// A pass with a ground of its own shows it instead of the background or the
-	// environment's image, and a Silhouette stands on nothing, as the thumbnail's does.
+	// environment's image, and a Silhouette stands on nothing, as a view pane's does.
 	app.kit.passes.recording = timelapse_capturing(app) || turntable_recording(app)
 	shown_pass := viewport_pass(&app.kit)
 	// The main view draws its own copy of the items, shaded as its shading says; the
@@ -411,7 +423,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// silhouette without wires or paint.
 	if app.kit.grid.work != 0 {
 		// A heavy pass's picture stands on the background's colour alone.
-		if second_pass_heavy(app.kit.grid.views[app.kit.grid.work - 1].pass) {
+		if second_pass_heavy(grid_view(&app.kit.grid, app.kit.grid.work).pass) {
 			app.renderer.floor = {}
 			if _, own := pass_ground(shown_pass); !own {
 				top := app.renderer.background.top
@@ -422,7 +434,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		if shown_pass == .Silhouette {
 			for &d in draws {
 				d.wireframe, d.paint, d.groups = false, false, false
-				d.matcap, d.textured, d.slots = nil, nil, nil
+				d.matcap, d.textured, d.slots = 0, nil, nil
 				d.checker = {}
 			}
 		}
@@ -441,7 +453,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	if studio_running(app) {
 		// Render mode takes the GPU while it runs; the studio waits, keeping what it built.
 		studio_max := 0 if render_running(app) else int(app.studio_samples)
-		under := render.live_ao_texture(&app.live_ao) if live_ao_wanted(app) else nil
+		under := render.live_ao_texture(&app.live_ao) if live_ao_wanted(app) else 0
 		_ = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, studio_max, app.studio_ao, app.studio_shadow, viewport_lights(app), &app.pool, app.studio_softness, under)
 	}
 	render_mode_frame(app, cmd, view, proj, draws[:], changed)
@@ -456,7 +468,6 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	thumbs_frame(app, cmd)
 	home_frame(app, cmd)
 	app.pictures_drawn = 0
-	thumbnail_frame(app, cmd, draws[:], froms[:])
 	grid_frame(app, cmd, draws[:], froms[:])
 	view_windows_pictures(app, cmd, draws[:], froms[:])
 	step_pictures_frame(app, cmd, view, proj, draws[:])
@@ -468,25 +479,25 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	gpu_wait: time.Duration
 	if app.time_gpu && gpu_work {
 		// Nothing else is queued (the previous frame was waited for above), so the
-		// time from submit to the fence is the GPU time of this work.
+		// time from submit to the wait's end is the GPU time of this work.
 		submit_start := time.tick_now()
-		fence := render.cmd_submit_fenced(cmd)
-		if fence == nil {
+		ticket, ok := render.cmd_submit_ticket(cmd)
+		if !ok {
 			_ = render.cmd_submit(present_cmd)
 			return false
 		}
-		render.fence_finish(&app.renderer, &fence)
+		render.ticket_wait(ticket)
 		gpu_wait = time.tick_since(submit_start)
 		ring_push(&app.stats.gpu_ms, time.duration_milliseconds(gpu_wait))
-		if render.sculpt_gpu_recorded(&app.renderer) do render.sculpt_gpu_submitted(&app.renderer, nil)
+		if render.sculpt_gpu_recorded(&app.renderer) do render.sculpt_gpu_submitted(&app.renderer, ticket)
 	} else if render.sculpt_gpu_recorded(&app.renderer) {
-		// The readbacks of normals it holds are collected when its fence says they landed.
-		fence := render.cmd_submit_fenced(cmd)
-		if fence == nil {
+		// The readbacks of normals it holds are collected when its ticket says they landed.
+		ticket, ok := render.cmd_submit_ticket(cmd)
+		if !ok {
 			_ = render.cmd_submit(present_cmd)
 			return false
 		}
-		render.sculpt_gpu_submitted(&app.renderer, fence)
+		render.sculpt_gpu_submitted(&app.renderer, ticket)
 	} else if !frame_submit(app, cmd) {
 		_ = render.cmd_submit(present_cmd)
 		return false
@@ -495,13 +506,14 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// The interface, the viewport image in it, into the swapchain.
 	kit_ready := false
 	dl := kit_frame_end(app)
-	if swapchain != nil do kit_ready = kit_upload(app, present_cmd, dl)
+	gesture_edges_update(app)
+	if swapchain != 0 do kit_ready = kit_upload(app, present_cmd, dl)
 	app.stats.ui_vertices = len(app.kit.ctx.draw.vertices)
 	// Once ui.frame_end settled the held control and the field with the keys.
 	diag_frame(app)
 	// The pass clears the image even when the interface could not be uploaded, so a
 	// failed upload shows an empty frame rather than whatever the image held.
-	if swapchain != nil {
+	if swapchain != 0 {
 		draws := kit_draws(app, &app.kit.ctx.draw) if kit_ready else nil
 		render.ui_present(&app.renderer, &app.kit.pass, present_cmd, loop.window, swapchain, swapchain_size, kit_frame_color(&app.kit), draws, kit_ready)
 	}
@@ -517,12 +529,11 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	render.present_input(&app.renderer, loop.window, app.device.input_at if sculpted.dabs > 0 else 0)
 	present_start := time.tick_now()
 	submitted := false
-	if swapchain == nil {
+	if swapchain == 0 {
 		// No image was drawn into: the recording holds nothing and is dropped.
 		submitted = frame_submit(app, present_cmd)
 	} else if app.time_gpu {
-		loop.present_fence = render.cmd_submit_fenced(present_cmd)
-		submitted = loop.present_fence != nil
+		loop.present_ticket, submitted = render.cmd_submit_ticket(present_cmd)
 	} else {
 		submitted = render.cmd_submit(present_cmd)
 	}
@@ -553,6 +564,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			ring_push(&app.stats.upload_kb, f64(uploaded) / 1024)
 			ring_push(&app.stats.latency_ms, f64(submitted_ns - app.device.input_at) / 1e6)
 		}
+		// What the frame took besides its dabs, for the next frame's brush budget.
+		app.stroke.frame_other_ms = max(time.duration_milliseconds(cpu_time) - sculpted.brush_ms - sculpted.raycast_ms, 0)
 		app.stats.dabs_total += sculpted.dabs
 	}
 	// A scripted stroke or replay changes the scene with no input to show for it.
@@ -607,7 +620,11 @@ frame_settle :: proc(app: ^App, loop: ^Frame_Loop) -> (setting_up: bool, done: b
 	file_next := file_pending_kind()
 	saves := bit_set[File_Kind]{.Save, .Save_Copy}
 	save_pending(app, app.ui.scene_command.kind != .None || (file_next != .None && !(file_next in saves && app.saving.kind in saves)))
-	// The scene holds still while a job runs on it (long_job.odin).
+	// The memory check's ask goes with its object, and lets its step run after the autosave.
+	memory_ask_frame(app)
+	// The scene holds still while a job runs on it (long_job.odin), and while Continue
+	// anyway's autosave reads it.
+	if app.ui.scene_command.kind != .None && memory_ask_holds(app) do app.ui.scene_command = {}
 	if app.ui.scene_command.kind != .None && long_job_busy(app) {
 		app.ui.scene_command = {}
 		long_job_refuse(app)
@@ -732,6 +749,10 @@ frame_events :: proc(app: ^App, loop: ^Frame_Loop, setting_up: bool) {
 				continue
 			}
 		}
+		// The Mask key (M unless rebound) holds Mask while down and latches it on a tap
+		// (modifiers.odin), so its going down never runs the command as well; once it went
+		// down outside typing, its release is the rail's too.
+		if (e.type == .KEY_DOWN || e.type == .KEY_UP) && mask_key_event(app, &e) do continue
 		if help_labels_key(app, &e) do continue
 		if e.type == .WINDOW_FOCUS_LOST do app.kit.passes.key_held, app.kit.labels.key_held = false, false
 		if pencil_event(app, &e) || pen_samples_event(app, &e) do continue
@@ -831,4 +852,27 @@ lod_budget :: proc(app: ^App, frame_start: time.Tick) -> time.Duration {
 	if hz <= 0 do return sculpt.LOD_FRAME_BUDGET
 	left := time.Duration(1e9 / f64(hz)) - time.tick_since(frame_start) - LOD_SLACK
 	return clamp(left, 0, sculpt.LOD_FRAME_BUDGET)
+}
+
+// Takes a key event that is the Mask key's (Mask_Key's binding, M as it comes) for the
+// dial's rail: down outside typing, with exactly its modifiers, it holds Mask; up, once it
+// went down so, it lets go, latching on a tap. True when the event was the rail's.
+mask_key_event :: proc(app: ^App, e: ^sdl.Event) -> bool {
+	key := key_of(e.key.key)
+	r := &app.rail
+	if e.type == .KEY_UP {
+		if !r.key.held || key != r.key_code do return false
+		rail_key(r, false, input_clock(app))
+		return true
+	}
+	if typing(app) do return false
+	for b in keymap(app) {
+		if b.command != .Mask_Key || b.chord.key != key || b.chord.mods != key_mods(e.key.mod) do continue
+		if !e.key.repeat {
+			r.key_code = key
+			rail_key(r, true, input_clock(app))
+		}
+		return true
+	}
+	return false
 }

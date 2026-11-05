@@ -63,7 +63,6 @@ MOTION_PANELS :: Motion_Class(2) // sections opening, windows sliding
 MOTION_TABS :: Motion_Class(3) // the indicator under a tab or a choice sliding
 MOTION_TOASTS :: Motion_Class(4) // notes rising and stacking
 MOTION_TOOLTIPS :: Motion_Class(5) // tooltips fading in
-MOTION_KIT_CLASSES :: 6
 MOTION_ALWAYS :: Motion_Class(255)
 
 // `duration` as the motion settings let it run for `class`: 0 when motion is off, or that
@@ -194,6 +193,18 @@ vertex_mark :: proc(ctx: ^Context) -> int {
 	return len(ctx.draw.vertices)
 }
 
+// Maps everything drawn since vertex `mark` from about point `from` onto a slanted plane
+// about `to` (points): `from + (x, y)` goes to `to + x * x_axis + y * y_axis`. Text laid out
+// flat and then mapped onto a face seen at a slant, as the view gizmo's cube names its
+// faces; in a parallel view the map is exact, so the words stay sharp at any turn.
+map_since :: proc(ctx: ^Context, mark: int, from, to, x_axis, y_axis: [2]f32) {
+	d := px(ctx)
+	for &v in ctx.draw.vertices[mark:] {
+		p := v.pos / d - from
+		v.pos = (to + p.x * x_axis + p.y * y_axis) * d
+	}
+}
+
 // Turns everything drawn since vertex `mark` by `radians` about `origin` (points): a
 // chevron opening its section.
 rotate_since :: proc(ctx: ^Context, mark: int, radians: f32, origin: [2]f32) {
@@ -204,4 +215,115 @@ rotate_since :: proc(ctx: ^Context, mark: int, radians: f32, origin: [2]f32) {
 		d := v.pos - o
 		v.pos = o + {d.x * c - d.y * s, d.x * s + d.y * c}
 	}
+}
+
+// Where something starts in the draw list: its first vertex, index and command. Taking one
+// starts a command of its own, so slide_since can move the clip rectangles of what follows
+// without moving those of what came before.
+Motion_Mark :: struct {
+	vertex, index, cmd: int,
+}
+
+motion_mark :: proc(ctx: ^Context) -> Motion_Mark {
+	dl := &ctx.draw
+	if n := len(dl.cmds); n > 0 && dl.cmds[n - 1].index_count > 0 {
+		last := dl.cmds[n - 1]
+		append(&dl.cmds, Draw_Cmd{first_index = u32(len(dl.indices)), clip = last.clip, texture = last.texture, image = last.image})
+	}
+	return {len(dl.vertices), len(dl.indices), max(len(dl.cmds) - 1, 0)}
+}
+
+// Moves everything drawn since `m` by `offset` (points), clip rectangles too, so a panel
+// with a scrolling body slides whole; `limit` (points, when it has a width) cuts it off
+// where it slides in from behind something, as a card from behind its dock; `opacity`
+// multiplies its alpha. With motion Reduced the move and the cut are left out and only the
+// fade is kept, unless it `follows` a finger.
+slide_since :: proc(ctx: ^Context, m: Motion_Mark, opacity: f32 = 1, offset: [2]f32 = {}, limit: Rect = {}, follows := false) {
+	shift, keep := offset, limit
+	if ctx.motion == .Reduced && !follows do shift, keep = {}, {}
+	transform_since(ctx, m.vertex, opacity, 1, {}, shift, follows = true)
+	if shift == {} && keep.w <= 0 do return
+	d := px(ctx)
+	off := shift * d
+	cut := Rect{keep.x * d, keep.y * d, keep.w * d, keep.h * d}
+	for &c in ctx.draw.cmds[min(m.cmd, len(ctx.draw.cmds)):] {
+		c.clip.x += off.x
+		c.clip.y += off.y
+		if keep.w > 0 do c.clip = rect_intersect(c.clip, cut)
+	}
+}
+
+// What one thing drew in a frame: from its mark to where it ended, and in which frame, so
+// that once it stops being drawn the frame after can copy it out of draw_prev. Whether it
+// was drawn the frame before is drawn_last.
+Draw_Range :: struct {
+	using mark:            Motion_Mark,
+	vertex_end, index_end: int,
+	frame:                 u64,
+}
+
+range_end :: proc(ctx: ^Context, m: Motion_Mark) -> Draw_Range {
+	return {mark = m, vertex_end = len(ctx.draw.vertices), index_end = len(ctx.draw.indices), frame = ctx.frame}
+}
+
+// Whether range `r` was drawn in the frame before this one.
+drawn_last :: proc(ctx: ^Context, r: Draw_Range) -> bool {
+	return r.frame != 0 && r.frame + 1 == ctx.frame
+}
+
+// A copy of what something drew, kept to draw it again while it leaves.
+Draw_Copy :: struct {
+	vertices: [dynamic]Vertex,
+	indices:  [dynamic]u32,
+	cmds:     [dynamic]Draw_Cmd,
+}
+
+draw_copy_destroy :: proc(c: ^Draw_Copy) {
+	delete(c.vertices)
+	delete(c.indices)
+	delete(c.cmds)
+	c^ = {}
+}
+
+// Copies range `r` out of last frame's draw list into `out`, when it was drawn last frame.
+// Its triangles are found by their vertices, which nothing moves once drawn: what is laid
+// under the panels after them (layer_mark) moves indices, not vertices.
+copy_prev :: proc(ctx: ^Context, r: Draw_Range, out: ^Draw_Copy) -> bool {
+	dl := &ctx.draw_prev
+	if r.frame == 0 || r.frame + 1 != ctx.frame || r.vertex_end > len(dl.vertices) || r.vertex_end <= r.vertex do return false
+	clear(&out.vertices)
+	clear(&out.indices)
+	clear(&out.cmds)
+	append(&out.vertices, ..dl.vertices[r.vertex:r.vertex_end])
+	lo, hi := u32(r.vertex), u32(r.vertex_end)
+	for c in dl.cmds {
+		first := len(out.indices)
+		tris := dl.indices[c.first_index:c.first_index + c.index_count]
+		for i := 0; i + 2 < len(tris); i += 3 {
+			if tris[i] < lo || tris[i] >= hi do continue
+			append(&out.indices, tris[i] - lo, tris[i + 1] - lo, tris[i + 2] - lo)
+		}
+		if n := len(out.indices) - first; n > 0 {
+			append(&out.cmds, Draw_Cmd{first_index = u32(first), index_count = u32(n), clip = c.clip, texture = c.texture, image = c.image})
+		}
+	}
+	return len(out.indices) > 0
+}
+
+// Draws copy `c` again where it was, returning its mark for slide_since.
+draw_copy :: proc(ctx: ^Context, c: ^Draw_Copy) -> Motion_Mark {
+	m := motion_mark(ctx)
+	dl := &ctx.draw
+	// The copy brings its own commands: the empty one the mark started is not needed.
+	if n := len(dl.cmds); n > 0 && dl.cmds[n - 1].index_count == 0 && n - 1 >= dl.keep do pop(&dl.cmds)
+	m.cmd = len(dl.cmds)
+	base, first := u32(len(dl.vertices)), u32(len(dl.indices))
+	append(&dl.vertices, ..c.vertices[:])
+	for i in c.indices do append(&dl.indices, i + base)
+	for cmd in c.cmds {
+		x := cmd
+		x.first_index += first
+		append(&dl.cmds, x)
+	}
+	return m
 }

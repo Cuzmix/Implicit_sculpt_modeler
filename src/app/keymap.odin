@@ -6,6 +6,7 @@ import "core:strconv"
 import "core:strings"
 
 import "../camera"
+import "../geom"
 import "../gizmo"
 import "../render"
 import "../poly"
@@ -80,7 +81,7 @@ chord_reserved :: proc(chord: Chord) -> (reason: string, reserved: bool) {
 	case KEY_SPACE:
 		return "Space opens the brush pie", true
 	case KEY_GRAVE:
-		return "` held peeks at the last other pass", true
+		return "` held peeks at the last other shading", true
 	case KEY_S, KEY_U:
 		if chord.mods == {} do return "S and U held over the model size the brush and set its strength", true
 	case KEY_LCTRL, KEY_RCTRL, KEY_LSHIFT, KEY_RSHIFT, KEY_LALT, KEY_RALT, KEY_LGUI, KEY_RGUI, KEY_MODE:
@@ -200,15 +201,6 @@ command_name :: proc(id: Command_Id, arg := 0) -> string {
 // Reads what command_name writes.
 command_from_name :: proc(name: string) -> (id: Command_Id, arg: int, ok: bool) {
 	head, _, tail := strings.partition(name, ":")
-	// The workspaces that became views or a space's layout when spaces came (settings
-	// version 5), so a bar, key, gesture or pie that named one keeps working.
-	if head == "Workspace" {
-		switch tail {
-		case "Focus":   return .Focus_Mode, 0, true
-		case "Inspect": return .Inspect_Mode, 0, true
-		case "Studio":  return .Workspace, int(Built_In.Render), true
-		}
-	}
 	id = reflect.enum_from_name(Command_Id, head) or_return
 	if id == .None do return
 	n := COMMANDS[id].args
@@ -222,8 +214,6 @@ command_from_name :: proc(name: string) -> (id: Command_Id, arg: int, ok: bool) 
 		return id, arg, best >= 0
 	}
 	for a in 0 ..< n do if command_arg_name(id, a) == tail {
-		// A section that is a card's twin is named only as the card (Show_Panel).
-		if id == .Show_Section && section_is_card(Kit_Section(a)) do return
 		return id, a, true
 	}
 	return
@@ -241,6 +231,8 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Hide_Gesture_Pick: return fmt.tprint(Gesture_Tool(arg))
 	case .Brush_Value: return fmt.tprint(Brush_Value(arg))
 	case .Add_Cage:  return fmt.tprint(poly.Primitive(arg))
+	case .Add_Curve: return fmt.tprint(Curve_Shape(arg + 1))
+	case .Curve_Handles: return fmt.tprint(geom.Handle_Type(arg))
 	case .Model_Action: return fmt.tprint(Model_Action(arg))
 	case .Model_Target: return fmt.tprint(Model_Target(arg))
 	case .Tidy_Cage: return fmt.tprint(Cage_Tidy(arg))
@@ -259,24 +251,24 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Mask:      return fmt.tprint(sculpt.Mask_Command(arg))
 	case .Mask_By:   return fmt.tprint(sculpt.Mask_By(arg))
 	case .Layer_Edit: return fmt.tprint(Layer_Action(arg))
+	case .Paint_Layer_Edit: return fmt.tprint(Paint_Layer_Action(arg))
 	case .Paint:     return fmt.tprint(sculpt.Paint_Command(arg))
 	case .Group:     return fmt.tprint(sculpt.Group_Command(arg))
 	case .Remesh_To, .Decimate_To: return fmt.tprint(SPHERE_PRESETS[arg].vertices)
 	case .Help:      return fmt.tprint(Help_Tab(arg))
-	case .Show_Section, .Pin_Section: return fmt.tprint(Kit_Section(arg))
-	case .Show_Panel: return fmt.tprint(Panel_Kind(arg))
+	case .Open_Card: return fmt.tprint(Card(arg))
+	case .Open_Section: return fmt.tprint(Section(arg))
 	case .View_Pass: return fmt.tprint(render.View_Pass(arg))
 	case .View_Grid: return fmt.tprint(Grid_Preset(arg))
 	case .Space_Switch: return fmt.tprint(Space(arg))
-	case .Workspace:
-		if b, ok := workspace_built_in(arg); ok do return fmt.tprint(b)
-		return fmt.tprintf("Own%d", arg - len(Built_In) + 1)
 	case .New_Scene: return new_start_key(arg)
 	case .Pie:       return fmt.tprint(arg + 1) // as the menus count them
 	case .Run_Macro: return fmt.tprint(arg + 1)
+	case .Layout_Load: return fmt.tprint(arg + 1)
 	case .Run_Plugin: return fmt.tprint(arg + 1)
 	case .Restore_Selection_Set: return fmt.tprint(arg + 1)
 	case .Gizmo:     return fmt.tprint(gizmo.Mode(arg))
+	case .Gizmo_Orient: return fmt.tprint(Gizmo_Orient(arg))
 	case .Deformer:  return deformer_name(arg)
 	case .Deformation: return fmt.tprint(Reshape_Choice(arg))
 	case .Visibility_Slot: return fmt.tprintf("V%d", arg + 1)

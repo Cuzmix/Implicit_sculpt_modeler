@@ -26,8 +26,8 @@ float view_z(float depth) {
 
 float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 	int2 px = int2(frag_coord.xy);
-	float4 color = view_color.Load(int3(px, 0));
-	float d = view_depth.Load(int3(px, 0)).r;
+	float4 color = load_texel(view_color, px);
+	float d = load_texel(view_depth, px).r;
 	if (d >= 1.0) {
 		return color;
 	}
@@ -40,10 +40,10 @@ float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 	for (int y = -2; y <= 1; y++) {
 		for (int x = -2; x <= 1; x++) {
 			int2 t = clamp(at + int2(x, y), int2(0), texels - 1);
-			float td = view_depth.Load(int3(clamp(t * scale + scale / 2, int2(0), hi), 0)).r;
+			float td = load_texel(view_depth, clamp(t * scale + scale / 2, int2(0), hi)).r;
 			if (td >= 1.0) continue;
 			float w = max(1.0 - abs(view_z(td) - z) / params.y, 0.0);
-			sum += w * ao_map.Load(int3(t, 0)).r;
+			sum += w * load_texel(ao_map, t).r;
 			weight += w;
 		}
 	}

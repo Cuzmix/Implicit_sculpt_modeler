@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 
+import "../render"
 import "../ui"
 
 // Split views in Lens (round 2 of the mockups, screen split2): each view pane's head as the
@@ -32,6 +33,8 @@ NEW_PANES_NAMES := [New_Panes]string {
 Pane_Menu_Kind :: enum u8 {
 	Camera,
 	Pass,
+	Add, // the kinds of tab New tab adds
+	Map, // a Texture tab's maps
 }
 
 Pane_Menu :: struct {
@@ -74,7 +77,7 @@ grid_choose :: proc(app: ^App, preset: Grid_Preset) {
 	grid_step_push(g, before)
 	k.pane_menu.open = false
 	for i in had ..< grid_count(preset) {
-		v := &g.views[i - 1]
+		v := grid_view(g, i)
 		v.shading = k.passes.shading
 		switch k.new_panes {
 		case .Front_Side:
@@ -140,17 +143,16 @@ kit_view_layout_lens :: proc(app: ^App, width: f32) {
 }
 
 // View pane `i`'s head in Lens, at `at` in pane rect `r`: the main pane's chips, one row
-// of them over the pane's corner: its camera (the dot of the camera it sees through, its
-// name, "ortho" for the six axis views; a tap lists the cameras, a drag carries the pane
-// over `cells`, lens_areas.odin), its pass (a tap lists them), Link, Maximise or Restore,
-// and on the desktop a window of its own. A narrow pane shows as many as fit, from the
-// camera on.
+// of them over the pane's corner: its tabs (grid_tabs.odin; one tab is its camera chip, the
+// dot of the camera it sees through, its name, "ortho" for the six axis views; a tap lists
+// the cameras, a drag carries the pane over `cells`, lens_areas.odin), New tab, then the
+// active tab's pass (a tap lists them), Link, Maximise or Restore, and on the desktop a
+// window of its own. A narrow pane shows as many as fit, from the tabs on.
 lens_pane_head :: proc(app: ^App, i: int, at: [2]f32, r: ui.Rect, cells: [GRID_PANES]ui.Rect, n: int) {
 	k := &app.kit
 	ctx := &k.ctx
-	t := ctx.theme
 	g := &k.grid
-	sv := &g.views[i - 1]
+	sv := grid_view(g, i)
 	m := &k.pane_menu
 	free := lens_free_area(app)
 	left := min(r.x + r.w, free.x + free.w) - 6 - at.x
@@ -165,27 +167,35 @@ lens_pane_head :: proc(app: ^App, i: int, at: [2]f32, r: ui.Rect, cells: [GRID_P
 		return true
 	}
 	ui.begin_at(ctx, fmt.tprintf("view pane %d head", i), at, {direction = .Row, gap = GAP, center = true})
-	dot, _ := second_color(t, sv, i)
-	ortho := sv.camera >= .Front && sv.camera <= .Bottom
-	// As the mock's chips: the projection with "linked" while the pane follows the main
-	// camera, an axis view with "ortho", and "free" for its own camera.
-	name := SECOND_CAMERA_NAMES[sv.camera]
-	sub := "ortho" if ortho else ""
-	#partial switch sv.camera {
-	case .Follow:
-		name, sub = "Ortho" if app.camera.ortho else "Persp", "linked"
-	case .Mirror:
-		sub = "linked"
-	case .Free:
-		name, sub = "Own camera", "free"
-	}
-	if lens_chip_width(ctx, name, sub, dot = true, chevron = true) > left do sub = ""
-	_ = fits(&left, lens_chip_width(ctx, name, sub, dot = true, chevron = true))
-	left = max(left, 0)
-	cam := lens_chip(ctx, fmt.tprintf("Camera##pane %d", i), name, sub, dot = dot, chevron = true, lit = m.open && m.pane == i && m.kind == .Camera)
+	tab := pane_tab_shown(g, i)
+	chip_menu := Pane_Menu_Kind.Camera if tab.kind == .View else .Map
+	cam, rest := lens_pane_tabs(app, i, left, m.open && m.pane == i && m.kind == chip_menu)
+	left = max(rest - GAP, 0)
 	dragged := lens_chip_drag(app, i, cam, cells, n)
-	if cam.clicked && !dragged do pane_menu_toggle(k, i, .Camera, cam.rect)
+	if cam.clicked && !dragged do pane_menu_toggle(k, i, chip_menu, cam.rect)
 	icon := lens_chip_width(ctx, "", glyph = ICON_LINK)
+	// New tab, beside the tabs as a browser's is: its list of kinds; its tip says two 3D
+	// views read best side by side, which tabs cannot show.
+	if g.tabs[i - 1].count < PANE_TABS && fits(&left, icon) {
+		add := lens_chip(ctx, fmt.tprintf("New tab (side by side shows both at once)##pane %d new tab", i), "", glyph = ui.ICON_PLUS, lit = m.open && m.pane == i && m.kind == .Add)
+		if add.clicked do pane_menu_toggle(k, i, .Add, add.rect)
+	}
+	maxed := g.maximised == i
+	if tab.kind != .View {
+		// A 2D tab's own chips: its zoom (a tap fits, or shows one texel a pixel), then
+		// Maximise.
+		zoom := "Fit" if tab.flat.zoom <= 0 else "1:1"
+		if fits(&left, lens_chip_width(ctx, zoom, glyph = ui.ICON_ZOOM_IN)) {
+			z := lens_chip(ctx, fmt.tprintf("%s##pane %d zoom", "One texel a pixel" if tab.flat.zoom <= 0 else "Fit the map", i), zoom, glyph = ui.ICON_ZOOM_IN)
+			if z.clicked do flat_zoom_toggle(app, &tab.flat)
+		}
+		if maxed || fits(&left, icon) {
+			grow := lens_chip(ctx, fmt.tprintf("%s##pane %d", "Restore" if maxed else "Maximise", i), "", glyph = ui.ICON_MINIMISE if maxed else ui.ICON_RESTORE, lit = maxed)
+			if grow.clicked do g.maximised = 0 if maxed else i
+		}
+		ui.end(ctx)
+		return
+	}
 	shows := second_shows_name(sv)
 	if fits(&left, lens_chip_width(ctx, shows, chevron = true)) {
 		pass := lens_chip(ctx, fmt.tprintf("Shows##pane %d", i), shows, chevron = true, lit = m.open && m.pane == i && m.kind == .Pass)
@@ -196,7 +206,6 @@ lens_pane_head :: proc(app: ^App, i: int, at: [2]f32, r: ui.Rect, cells: [GRID_P
 		link := lens_chip(ctx, fmt.tprintf("%s##pane %d", "Unlink from the main camera" if linked else "Link to the main camera", i), "", glyph = ICON_LINK, lit = linked)
 		if link.clicked do second_link_toggle(app, sv)
 	}
-	maxed := g.maximised == i
 	if maxed || fits(&left, icon) {
 		grow := lens_chip(ctx, fmt.tprintf("%s##pane %d", "Restore" if maxed else "Maximise", i), "", glyph = ui.ICON_MINIMISE if maxed else ui.ICON_RESTORE, lit = maxed)
 		if grow.clicked do g.maximised = 0 if maxed else i
@@ -228,11 +237,33 @@ kit_pane_menu :: proc(app: ^App) {
 	g := &k.grid
 	if m.open && (m.pane < 1 || m.pane >= grid_panes(g)) do m.open = false
 	// As wide as the main view's list, for Solid's tabs.
-	if !ui.popover_begin(ctx, "pane menu", &m.open, m.at, .Below, {direction = .Column, padding = 6, width = 260}) do return
+	if !ui.popover_begin(ctx, "pane menu", &m.open, m.at, .Below, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	if m.pane < 1 || m.pane > GRID_VIEWS do return
-	sv := &g.views[m.pane - 1]
+	sv := grid_view(g, m.pane)
+	tab := pane_tab_shown(g, m.pane)
 	switch m.kind {
+	case .Add:
+		ui.caption(ctx, "  NEW TAB")
+		if ui.menu_item(ctx, "3D view", glyph = TAB_KIND_ICONS[.View], keys = command_keys(app, .Pane_Tab_New)) {
+			_ = pane_tab_add(g, m.pane, pane_tab_new_view(g, m.pane))
+			m.open = false
+		}
+		if ui.menu_item(ctx, "Texture", glyph = TAB_KIND_ICONS[.Texture], hint = "The selected object's maps, flat") {
+			_ = pane_tab_add(g, m.pane, sv^, .Texture)
+			m.open = false
+		}
+	case .Map:
+		ui.caption(ctx, "  MAP")
+		obj := selected_object(app)
+		for which in render.Texture_Map {
+			has := obj != nil && obj.textures.image[which] != nil
+			if ui.menu_item(ctx, fmt.tprintf("%s##tab map", TEXTURE_MAP_LABELS[which]), checked = tab.flat.which == which, hint = "" if has else "none") {
+				tab.flat.which = which
+				m.open = false
+			}
+		}
+		pane_menu_tab_rows(app, m.pane)
 	case .Camera:
 		ui.caption(ctx, "  CAMERA")
 		for c in Second_Camera {
@@ -241,6 +272,7 @@ kit_pane_menu :: proc(app: ^App) {
 			else do sv.camera = c
 			m.open = false
 		}
+		pane_menu_tab_rows(app, m.pane)
 	case .Pass:
 		// The pane's own shading, as the main view's list has it: the modes (Solid's options
 		// under Solid, the list staying open for them), then the passes.
@@ -309,94 +341,21 @@ grid_divider_lens :: proc(app: ^App, div: Grid_Divider, a: ui.Area, cells: [GRID
 	g.areas.op = {kind = .Close, node = div.node, close_b = g.closing_far}
 }
 
-// Whether the panel stack shows as its strip of tabs: in Lens, docked, with panes beside
-// the main one.
-stack_strip_shown :: proc(app: ^App) -> bool {
+// The tab's own rows at the end of its chip's list: another tab in the pane, and closing
+// this one while the pane keeps another.
+@(private = "file")
+pane_menu_tab_rows :: proc(app: ^App, pane: int) {
 	k := &app.kit
-	if grid_panes(&k.grid) < 2 do return false
-	_, docked := stack_docked(k)
-	return docked
-}
-
-// The strip's width: one button and the panel's padding round it.
-STACK_STRIP_W :: 44 + 2 * 4
-
-// The stack as a strip of tabs beside the rail, one for each docked card in the stack's
-// order (a group's with a count of its tabs); a tap opens that card over the view, beside
-// the strip, and another closes it.
-kit_stack_strip :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	s := &k.stack
-	if !s.set do stack_default(k)
-	ui.begin(ctx, "stack strip", {direction = .Column, gap = 2, padding = 4, width = STACK_STRIP_W, radius = ctx.theme.radius_large, background = .Panel, center = true})
-	defer ui.end(ctx)
-	t := ctx.theme
-	for c in s.order {
-		if c in s.floated || c in s.hidden || c in s.joined do continue
-		on := s.tab_open && s.tab == c
-		v := stack_shown(s, c)
-		pressed := ui.icon_button(ctx, fmt.tprintf("%s##stack tab %v", stack_title(app, v), c), panel_kind_icon(app, v), selected = on)
-		s.strip_at[c] = ctx.last_rect
-		s.strip_seen += {c}
-		// An icon carried past the slop carries its group (stack_carry.odin): a mouse's at
-		// once, a finger's or the pen's once it has held past the long press, so a tap still
-		// opens it and a quick swipe does nothing.
-		long := ui.held_long(ctx)
-		if ctx.active == ctx.last_id && s.carry == nil && !s.carry_off && ctx.long.travel > t.slop && (ctx.input.pointer == .Mouse || long) {
-			s.carry = Stack_Carry{card = c}
-		}
-		// A press that carried is no tap.
-		if s.carry != nil do pressed = false
-		if n := len(stack_group(s, c)); n > 1 {
-			r := ctx.last_rect
-			at := [2]f32{r.x + r.w - 8, r.y + 8}
-			ui.fill_circle(ctx, at, 7, t.accent)
-			ui.text(ctx, fmt.tprint(n), at.x, at.y, t.small_size - 2, t.on_accent, .Semibold, .Center)
-		}
-		if pressed {
-			if on {
-				s.tab_open = false
-			} else {
-				kit_floats_close(k)
-				s.tab, s.tab_open, s.tab_at = c, true, ctx.last_rect
-				s.tabs += 1
-			}
-		}
+	g := &k.grid
+	m := &k.pane_menu
+	p := &g.tabs[pane - 1]
+	ui.divider(&k.ctx, 248, across = true)
+	if p.count < PANE_TABS && ui.menu_item(&k.ctx, "New tab", keys = command_keys(app, .Pane_Tab_New)) {
+		_ = pane_tab_add(g, pane, pane_tab_new_view(g, pane))
+		m.open = false
 	}
-}
-
-// The card a strip's tab opened, beside the strip: its title, Float (out of the stack, as
-// a card of its own) and Close, then its content, scrolling in the room below.
-kit_stack_tab :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	t := ctx.theme
-	s := &k.stack
-	if s.tab_open && !stack_strip_shown(app) do s.tab_open = false
-	width := stack_width(k)
-	PADDING :: 10
-	inner := width - 2 * PADDING
-	owner := ui.id_of(ctx, "stack tab")
-	if !ui.popover_begin(ctx, "stack tab", &s.tab_open, s.tab_at, .Left, {direction = .Column, gap = 6, padding = PADDING, width = width}) do return
-	defer ui.popover_end(ctx)
-	c := s.tab
-	v := stack_shown(s, c)
-	ui.begin(ctx, "stack tab head", {direction = .Row, center = true, width = inner})
-	title := ui.area(ctx, "stack tab title", {inner - 2 * t.target, t.target})
-	y := title.rect.y + title.rect.h * 0.5
-	ui.icon(ctx, panel_kind_icon(app, v), {title.rect.x + 9, y}, t.icon_small, t.text_secondary)
-	ui.text(ctx, stack_title(app, v), title.rect.x + 26, y, t.text_size, t.text, .Semibold)
-	if ui.icon_button(ctx, "Float", ui.ICON_PANEL) {
-		stack_float(app, c)
-		s.tab_open = false
+	if p.count > 1 && ui.menu_item(&k.ctx, "Close tab", keys = command_keys(app, .Pane_Tab_Close)) {
+		_ = pane_tab_close(g, pane, p.active)
+		m.open = false
 	}
-	if ui.icon_button(ctx, "Close", ui.ICON_CLOSE, keys = "Esc") do s.tab_open = false
-	ui.end(ctx)
-	stack_tab_row(app, c, inner)
-	area := ui.safe_area(ctx)
-	room := max(area.y + area.h - s.tab_at.y - 2 * PADDING - t.target - 6 - 16 - stack_tab_row_h(app, c), 160)
-	scroll := kit_scroll_begin(ctx, "stack tab body", &s.scrolls[c], owner, inner, room, 6)
-	panel_body(app, v, inner)
-	kit_scroll_end(ctx, scroll)
 }

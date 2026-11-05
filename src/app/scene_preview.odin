@@ -16,7 +16,7 @@ import "../render"
 // The picture is the viewport as it was last drawn, without the brush ring or the gizmo,
 // shrunk to PREVIEW_LONG pixels on its long side. It is taken while the app rests, at
 // most every PREVIEW_EVERY seconds and only when the scene or the view changed: the copy
-// back from the GPU is collected once its fence signals (render.Readback), so no frame
+// back from the GPU is collected once its ticket is done (render.Readback), so no frame
 // waits for it. A save takes a fresh one if it is out of date, since a save stops the
 // frame anyway; an autosave writes the last one taken and never touches the GPU.
 
@@ -76,7 +76,7 @@ preview_stamp :: proc(app: ^App) -> u64 {
 preview_frame :: proc(app: ^App) {
 	p := &app.preview
 	if !render.renderer_ready(&app.renderer) do return
-	if p.grab.transfer != nil {
+	if render.readback_pending(&p.grab) {
 		pixels, done := render.readback_poll(&app.renderer, &p.grab, context.temp_allocator)
 		if done && pixels != nil do preview_take(app, pixels, p.grab_w, p.grab_h, p.grab_stamp)
 		return
@@ -92,7 +92,7 @@ preview_frame :: proc(app: ^App) {
 	stamp := preview_stamp(app)
 	if stamp == p.stamp do return
 	shown := viewport_shown(app)
-	if render.readback_start(&app.renderer, &p.grab, shown if shown != nil else app.target.color, app.target.width, app.target.height) {
+	if render.readback_start(&app.renderer, &p.grab, shown if shown != 0 else app.target.color, app.target.width, app.target.height) {
 		p.grab_stamp, p.grab_w, p.grab_h = stamp, int(app.target.width), int(app.target.height)
 	}
 }
@@ -100,7 +100,7 @@ preview_frame :: proc(app: ^App) {
 // Brings the picture up to date before a save, waiting for the GPU when it is not.
 preview_refresh :: proc(app: ^App) {
 	p := &app.preview
-	if !render.renderer_ready(&app.renderer) || app.target.color == nil || p.background || !pass_shaded(app) do return
+	if !render.renderer_ready(&app.renderer) || app.target.color == 0 || p.background || !pass_shaded(app) do return
 	stamp := preview_stamp(app)
 	if stamp == p.stamp do return
 	render.readback_cancel(&app.renderer, &p.grab)

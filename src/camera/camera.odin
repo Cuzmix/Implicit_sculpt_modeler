@@ -398,7 +398,7 @@ orthographic :: proc(half_height, aspect, near, far: f32) -> Mat4 {
 	}
 }
 
-// Right-handed perspective with clip-space depth in [0, 1], as SDL_GPU expects.
+// Right-handed perspective with clip-space depth in [0, 1], as Vulkan, Metal and WebGPU all take it.
 perspective :: proc(fov_y, aspect, near, far: f32) -> Mat4 {
 	f := 1 / math.tan(fov_y / 2)
 	return Mat4{
@@ -451,6 +451,18 @@ orbit_axis_view :: proc(c: ^Orbit, view: Axis_View) {
 	case .Top:    c.yaw, c.pitch = 0, math.PI / 2
 	case .Bottom: c.yaw, c.pitch = 0, -math.PI / 2
 	}
+}
+
+// Turns the camera to look at its target from direction `from` (world space, from the
+// target toward the eye; any length but zero), levelling the roll and keeping target and
+// distance: the view gizmo's cube corners and edges. Straight above or below, the yaw is
+// kept, so the view turns no further than it must.
+orbit_look_from :: proc(c: ^Orbit, from: Vec3) {
+	d := linalg.normalize0(from)
+	if d == {} do return
+	c.roll = 0
+	c.pitch = math.asin(clamp(d.y, -1, 1))
+	if abs(d.x) > 1e-6 || abs(d.z) > 1e-6 do c.yaw = math.atan2(d.x, d.z)
 }
 
 // The cosine of half a degree: how far from straight up the screen the world's up may lean

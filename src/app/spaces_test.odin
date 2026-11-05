@@ -1,7 +1,9 @@
 package main
 
+import "core:fmt"
 import "core:os"
 import "core:slice"
+import "core:strings"
 import "core:testing"
 
 import "../sculpt"
@@ -12,8 +14,7 @@ spaces_app :: proc() -> ^App {
 	k := &a.kit
 	bars_reset(k)
 	panels_default(k)
-	k.inspector = true
-	workspaces_init(k)
+	layouts_init(k)
 	a.tool = .Brush
 	a.brush.kind = .Clay
 	space_follow(a)
@@ -22,7 +23,10 @@ spaces_app :: proc() -> ^App {
 
 @(private = "file")
 spaces_app_free :: proc(a: ^App) {
-	workspaces_destroy(&a.kit)
+	// What the layouts' steps and results kept, as the app frees them on exit.
+	grid_undo_destroy(&a.kit.grid)
+	results_destroy(a)
+	layouts_destroy(&a.kit)
 	free(a)
 }
 
@@ -34,11 +38,10 @@ the_tool_picks_its_space :: proc(t: ^testing.T) {
 	k := &a.kit
 	testing.expect_value(t, k.spaces.current, Space.Sculpt)
 
-	// The Model tool is Model, with Model's layout; Move keeps the space it is picked in.
+	// The Model tool is Model; Move keeps the space it is picked in.
 	model_pick_action(a, .Inset)
 	space_follow(a)
 	testing.expect_value(t, k.spaces.current, Space.Model)
-	testing.expect_value(t, k.workspaces.current, int(Built_In.Model))
 	a.tool = .Move
 	space_follow(a)
 	testing.expect_value(t, k.spaces.current, Space.Model)
@@ -47,7 +50,6 @@ the_tool_picks_its_space :: proc(t: ^testing.T) {
 	command_run(a, .Brush, int(sculpt.Brush_Kind.Draw))
 	space_follow(a)
 	testing.expect_value(t, k.spaces.current, Space.Sculpt)
-	testing.expect_value(t, k.workspaces.current, int(Built_In.Sculpt))
 	testing.expect(t, k.shelf.page != .Model)
 	testing.expect_value(t, k.spaces.switches, 2)
 }
@@ -74,7 +76,6 @@ a_tab_gives_the_space_its_tool_back :: proc(t: ^testing.T) {
 	command_run(a, .Space_Switch, int(Space.Sculpt))
 	command_run(a, .Space_Switch, int(Space.Render))
 	testing.expect_value(t, a.tool, Tool.Brush)
-	testing.expect_value(t, k.workspaces.current, int(Built_In.Render))
 	space_follow(a)
 	testing.expect_value(t, k.spaces.current, Space.Render)
 	command_run(a, .Brush, int(sculpt.Brush_Kind.Clay))
@@ -87,59 +88,60 @@ a_tab_gives_the_space_its_tool_back :: proc(t: ^testing.T) {
 	testing.expect_value(t, a.tool, Tool.Model)
 }
 
+// Each space keeps its own layout: a change made in Model is kept when Sculpt is picked
+// and comes back with Model, the tabs' dots say which spaces differ from how they ship,
+// and Reset layout puts the current one back as it ships.
 @(test)
 each_space_comes_back_on_its_own_layout :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	a := spaces_app()
 	defer spaces_app_free(a)
 	k := &a.kit
+	layouts_frame(k)
+	for s in Space do testing.expect(t, !layout_changed(k, s), "every space starts as it ships")
 	command_run(a, .Space_Switch, int(Space.Model))
-	k.stats = true
-	testing.expect(t, workspace_save_as(k))
-	mine := k.workspaces.current
-	testing.expect_value(t, workspace_space(k, mine), Space.Model)
+	command_run(a, .Second_View, 0)
+	layouts_frame(k)
+	testing.expect(t, layout_changed(k, .Model))
+	testing.expect(t, command_enabled(a, .Layout_Reset, 0))
 	command_run(a, .Space_Switch, int(Space.Sculpt))
-	testing.expect(t, !k.stats)
+	layouts_frame(k)
+	testing.expect_value(t, grid_panes(&k.grid), 1)
+	testing.expect(t, !layout_changed(k, .Sculpt))
+	testing.expect(t, layout_changed(k, .Model), "Model's dot stays while Sculpt is in front")
 	command_run(a, .Space_Switch, int(Space.Model))
-	testing.expect_value(t, k.workspaces.current, mine)
-	testing.expect(t, k.stats, "Model's own layout did not come back")
-	// Deleting it leaves Model on its built-in.
-	workspace_delete(k)
-	testing.expect_value(t, k.workspaces.current, int(Built_In.Model))
+	layouts_frame(k)
+	testing.expect(t, grid_panes(&k.grid) == 2, "Model's own layout did not come back")
+	command_run(a, .Layout_Reset, 0)
+	layouts_frame(k)
+	testing.expect_value(t, grid_panes(&k.grid), 1)
+	testing.expect(t, !layout_changed(k, .Model))
+	testing.expect_value(t, k.layouts.resets, 1)
 	testing.expect_value(t, k.spaces.current, Space.Model)
 }
 
+// Each space's layout round-trips through settings, as does the space in front.
 @(test)
-names_of_the_old_workspaces_still_read :: proc(t: ^testing.T) {
-	id, arg, ok := command_from_name("Workspace:Studio")
-	testing.expect(t, ok && id == .Workspace && arg == int(Built_In.Render))
-	id, _, ok = command_from_name("Workspace:Focus")
-	testing.expect(t, ok && id == .Focus_Mode)
-	id, _, ok = command_from_name("Workspace:Inspect")
-	testing.expect(t, ok && id == .Inspect_Mode)
-	id, arg, ok = command_from_name(command_name(.Space_Switch, int(Space.Render)))
-	testing.expect(t, ok && id == .Space_Switch && arg == int(Space.Render))
-}
-
-// A script written before spaces names the old workspaces: Focus and Inspect turn their
-// views on, Studio is Render's layout, and the new names read as they say.
-@(test)
-old_workspace_names_in_a_script_still_run :: proc(t: ^testing.T) {
-	s := script_parse("workspace focus\nworkspace inspect\nworkspace studio\nspace_switch model\nfocus_mode off", "old")
-	defer script_destroy(&s)
-	testing.expect_value(t, len(s.errors), 0)
-	if !testing.expect_value(t, len(s.statements), 5) do return
-	st := s.statements
-	testing.expect_value(t, st[0].command, Command_Id.Focus_Mode)
-	testing.expect_value(t, st[0].toggle, Script_Toggle.On)
-	testing.expect_value(t, st[1].command, Command_Id.Inspect_Mode)
-	testing.expect_value(t, st[1].toggle, Script_Toggle.On)
-	testing.expect_value(t, st[2].command, Command_Id.Workspace)
-	testing.expect_value(t, st[2].arg, int(Built_In.Render))
-	testing.expect_value(t, st[3].command, Command_Id.Space_Switch)
-	testing.expect_value(t, Space(st[3].arg), Space.Model)
-	testing.expect_value(t, st[4].command, Command_Id.Focus_Mode)
-	testing.expect_value(t, st[4].toggle, Script_Toggle.Off)
+the_layouts_read_back :: proc(t: ^testing.T) {
+	path := "build/layouts_test.txt"
+	defer os.remove(path)
+	defer free_all(context.temp_allocator)
+	a := spaces_app()
+	defer spaces_app_free(a)
+	command_run(a, .Space_Switch, int(Space.Model))
+	command_run(a, .Second_View, 0)
+	command_run(a, .Space_Switch, int(Space.Render))
+	testing.expect(t, settings_save(a, path))
+	b := spaces_app()
+	defer spaces_app_free(b)
+	settings_load(b, path)
+	k := &b.kit
+	layouts_frame(k)
+	testing.expect_value(t, k.spaces.current, Space.Render)
+	testing.expect(t, !layout_changed(k, .Render))
+	testing.expect(t, layout_changed(k, .Model))
+	command_run(b, .Space_Switch, int(Space.Model))
+	testing.expect(t, grid_panes(&k.grid) == 2, "Model's layout read back")
 }
 
 // Each space has its own dial: switching space switches the sectors the rail reads, a
@@ -238,14 +240,121 @@ place_light_opens_the_lights :: proc(t: ^testing.T) {
 	a := spaces_app()
 	defer spaces_app_free(a)
 	a.scene.lights.count = 1
-	a.kit.inspector = false
+	card_close(a, .Look)
 	testing.expect(t, !lights_section_shown(a))
 	command_run(a, .Place_Light)
 	testing.expect(t, a.ui.light_place && lights_section_shown(a))
 	testing.expect(t, command_checked(a, .Place_Light, 0))
-	a.kit.inspector = false
+	card_close(a, .Look)
 	command_run(a, .Place_Light)
 	testing.expect(t, a.ui.light_place && lights_section_shown(a), "the closed section opened again")
 	command_run(a, .Place_Light)
 	testing.expect(t, !a.ui.light_place)
+}
+
+// A saved layout is a stamp: loaded into another space it becomes that space's layout,
+// ticked while the space is exactly it, and the load's Undo puts back what was there.
+@(test)
+a_saved_layout_loads_into_any_space :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	a := spaces_app()
+	defer spaces_app_free(a)
+	k := &a.kit
+	command_run(a, .Second_View, 0)
+	testing.expect(t, layout_save(a, "  Two panes "))
+	testing.expect_value(t, k.layouts.saved[0].name, "Two panes")
+	layouts_frame(k)
+	testing.expect_value(t, k.layouts.matching, 1)
+	testing.expect(t, command_checked(a, .Layout_Load, 0))
+
+	command_run(a, .Space_Switch, int(Space.Render))
+	layouts_frame(k)
+	testing.expect_value(t, k.layouts.matching, 0)
+	render_before := strings.clone(kit_layout_text(k), context.temp_allocator)
+	command_run(a, .Layout_Load, 0)
+	layouts_frame(k)
+	testing.expect_value(t, grid_panes(&k.grid), 2)
+	testing.expect_value(t, k.layouts.matching, 1)
+	testing.expect_value(t, k.layouts.loads, 1)
+	testing.expect(t, k.layouts.undo.load)
+	layout_undo(a)
+	testing.expect_value(t, kit_layout_text(k), render_before)
+
+	// A change unticks it, and Update saves the change under the same name.
+	command_run(a, .Layout_Load, 0)
+	command_run(a, .Second_View, 0)
+	layouts_frame(k)
+	testing.expect_value(t, k.layouts.matching, 0)
+	layout_update(a, 0)
+	layouts_frame(k)
+	testing.expect_value(t, k.layouts.matching, 1)
+}
+
+// Saving under a name a layout has replaces it; an empty name takes the next free
+// "<Space> layout N"; a name another layout has is refused as a rename.
+@(test)
+saved_layout_names_stay_apart :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	a := spaces_app()
+	defer spaces_app_free(a)
+	k := &a.kit
+	testing.expect(t, layout_save(a, "Mine"))
+	command_run(a, .Second_View, 0)
+	testing.expect(t, layout_save(a, "mine"))
+	testing.expect_value(t, k.layouts.saved[1].name, "")
+	layouts_frame(k)
+	testing.expect_value(t, k.layouts.matching, 1)
+	testing.expect(t, layout_save(a, ""))
+	testing.expect_value(t, k.layouts.saved[1].name, "Sculpt layout 1")
+	testing.expect(t, layout_save(a, ""))
+	testing.expect_value(t, k.layouts.saved[2].name, "Sculpt layout 2")
+	testing.expect(t, !layout_rename(a, 2, "MINE"))
+	testing.expect(t, layout_rename(a, 2, "Wide"))
+	testing.expect_value(t, layout_find(k, "wide"), 2)
+	for i in 3 ..< LAYOUT_SLOTS do testing.expect(t, layout_save(a, fmt.tprintf("Slot %d", i)))
+	testing.expect(t, !layout_save(a, "One too many"), "every slot is taken")
+}
+
+// Delete frees the slot and what loaded it; its Undo puts the layout back in its slot.
+@(test)
+a_deleted_layout_comes_back_by_undo :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	a := spaces_app()
+	defer spaces_app_free(a)
+	k := &a.kit
+	testing.expect(t, layout_save(a, "A"))
+	testing.expect(t, layout_save(a, "B"))
+	text := strings.clone(k.layouts.saved[1].text, context.temp_allocator)
+	layout_delete(a, 1)
+	testing.expect_value(t, k.layouts.saved[1].name, "")
+	testing.expect(t, !command_enabled(a, .Layout_Load, 1))
+	layout_undo(a)
+	testing.expect_value(t, k.layouts.saved[1].name, "B")
+	testing.expect_value(t, k.layouts.saved[1].text, text)
+	layout_delete(a, 0)
+}
+
+// The saved layouts round-trip through settings by slot, so a key that loads one keeps
+// loading it.
+@(test)
+saved_layouts_read_back :: proc(t: ^testing.T) {
+	path := "build/saved_layouts_test.txt"
+	defer os.remove(path)
+	defer free_all(context.temp_allocator)
+	a := spaces_app()
+	defer spaces_app_free(a)
+	command_run(a, .Second_View, 0)
+	testing.expect(t, layout_save(a, "Side by side"))
+	testing.expect(t, layout_save(a, "Other"))
+	layout_delete(a, 0)
+	testing.expect(t, settings_save(a, path))
+	b := spaces_app()
+	defer spaces_app_free(b)
+	settings_load(b, path)
+	k := &b.kit
+	testing.expect_value(t, k.layouts.saved[0].name, "")
+	testing.expect_value(t, k.layouts.saved[1].name, "Other")
+	testing.expect_value(t, k.layouts.saved[1].text, a.kit.layouts.saved[1].text)
+	command_run(b, .Layout_Load, 1)
+	testing.expect_value(t, grid_panes(&k.grid), 2)
 }

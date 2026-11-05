@@ -9,6 +9,7 @@ import "core:strings"
 import "core:testing"
 
 import "../geom"
+import "../jobs"
 import "../png_write"
 import "../render"
 import "../sculpt"
@@ -78,7 +79,10 @@ textured_vertices_follow_the_split :: proc(t: ^testing.T) {
 	s := &sculpt.levels_current(&obj.levels).sculptor
 	s.mask = make([]u8, len(s.mesh.positions))
 	for &m, v in s.mask do m = u8(v * 37 % 256)
-	vertices, indices, corners := textured_vertices(obj)
+	buffers: render.Mesh_Buffers
+	topology: Split_Topology
+	defer split_topology_free(&topology)
+	vertices, indices, corners := textured_vertices(obj, &buffers, &topology, nil)
 	quads := sculpt.levels_quad_mesh(&obj.levels)
 	normals := geom.quad_mesh_normals(quads, context.temp_allocator)
 	layout, _ := sculpt.levels_quad_uvs(&obj.levels)
@@ -149,7 +153,7 @@ scene_keeps_textures :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 }
 
-// Baking (textures_replace) and New UVs are undo steps of their own: undo puts the maps
+// Baking (textures_replace) and Unwrap are undo steps of their own: undo puts the maps
 // and the UVs back and redo takes them again, while the object's strokes stay; the
 // maps go when the UVs do.
 @(test)
@@ -169,16 +173,18 @@ textures_undo_and_redo :: proc(t: ^testing.T) {
 	counter := obj.textures.layout
 	testing.expect_value(t, counter, 0)
 
-	object_layout_uvs(&app, obj)
-	testing.expect(t, !object_has_textures(obj), "New UVs keeps maps made on the old layout")
+	object_unwrap(&app, obj, unwrap_setup(&app))
+	testing.expect(t, !object_has_textures(obj), "Unwrap keeps maps made on the old layout")
 	testing.expect(t, raw_data(obj.levels.uvs.corner) != layout)
+	_, folded := sculpt.levels_quad_uvs(&obj.levels)
+	testing.expect(t, folded, "Unwrap keeps a quad object's UVs readable as its quads")
 	testing.expect(t, obj.textures.layout != counter, "the preview must see the new layout")
 	counter = obj.textures.layout
 	testing.expect_value(t, len(app.history.done), 2)
 	testing.expect_value(t, app.history.done[1].kind, History_Kind.Textures)
 
 	history_undo(&app)
-	testing.expect(t, object_has_textures(obj) && raw_data(obj.levels.uvs.corner) == layout, "undo of New UVs brings both back")
+	testing.expect(t, object_has_textures(obj) && raw_data(obj.levels.uvs.corner) == layout, "undo of Unwrap brings both back")
 	testing.expect(t, obj.textures.stamp != stamp, "the preview must see the change")
 	testing.expect(t, obj.textures.layout != counter, "nor may it miss the old layout coming back")
 	history_undo(&app)
@@ -196,8 +202,9 @@ textures_undo_and_redo :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 }
 
-// The preview draws only what it can show: off, other levels, hidden parts, polygroup
-// colours, a stroke on the object, and a view with nothing to show draw as clay.
+// The preview draws only what it can show: off, hidden parts, polygroup colours, a stroke
+// on the object, and a view with nothing to show draw as clay; a level above the base
+// shows through the UVs it takes from the base.
 @(test)
 object_textured_only_when_it_can :: proc(t: ^testing.T) {
 	app: App
@@ -222,7 +229,7 @@ object_textured_only_when_it_can :: proc(t: ^testing.T) {
 	testing.expect(t, !object_textured(&app, obj, lv))
 	app.stroke = {}
 	testing.expect(t, sculpt.levels_subdivide(&obj.levels))
-	testing.expect(t, !object_textured(&app, obj, sculpt.levels_current(&obj.levels)), "only the base level has the UVs")
+	testing.expect(t, object_textured(&app, obj, sculpt.levels_current(&obj.levels)), "a level above the base hides its UVs")
 	free_all(context.temp_allocator)
 }
 
@@ -339,5 +346,161 @@ textured_export_carries_the_maps :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(json, `"COLOR_0"`) && strings.contains(json, `"normalTexture"`))
 	testing.expect(t, sculpt.levels_subdivide(&obj.levels))
 	testing.expect(t, !object_exports_textures(obj), "the maps follow the base level's UVs only")
+	free_all(context.temp_allocator)
+}
+
+// A triangle sculpt Unwrap gave UVs takes maps as a quad object does: it can load one,
+// the preview splits its own triangles where the seams are (each corner its own slot, for
+// render mode), and its .glb carries the maps through those UVs.
+@(test)
+unwrapped_sculpt_takes_maps :: proc(t: ^testing.T) {
+	FOLDER :: "build/textures_test_unwrapped/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	path := strings.clone(FOLDER + "unwrapped.glb")
+	defer delete(path)
+
+	app: App
+	defer tree_free(&app)
+	defer results_destroy(&app)
+	objs := tree_scene(&app)
+	obj := objs[0]
+	defer textures_free(&obj.textures)
+	testing.expect(t, texture_target_check(obj) != "", "maps offered without UVs")
+	object_unwrap(&app, obj, unwrap_setup(&app))
+	testing.expect_value(t, texture_target_check(obj), "")
+	maps: Object_Textures
+	maps.image[.Normal] = png_of({128, 128, 255, 255})
+	textures_replace(&app, obj, maps, "load normal map")
+	buffers: render.Mesh_Buffers
+	topology: Split_Topology
+	defer split_topology_free(&topology)
+	vertices, indices, corners := textured_vertices(obj, &buffers, &topology, nil)
+	base := obj.levels.levels[0]
+	testing.expect_value(t, len(indices), len(base.mesh.indices))
+	testing.expect(t, len(vertices) > len(base.mesh.positions), "the seams split no vertices")
+	testing.expect_value(t, len(corners), len(indices))
+	for c, i in corners do testing.expect(t, c == indices[i])
+	testing.expect(t, object_exports_textures(obj))
+	if !testing.expect(t, object_export(&app, obj, path)) do return
+	json := glb_json(t, path)
+	for want in ([?]string{`"TEXCOORD_0"`, `"TANGENT"`, `"normalTexture"`}) do testing.expectf(t, strings.contains(json, want), "the file has no %s", want)
+	free_all(context.temp_allocator)
+}
+
+// A sculpt given UVs by Unwrap bakes like a quad object: another sphere's detail into its
+// maps, written with its triangles and their UVs as OBJ.
+@(test)
+unwrapped_sculpt_bakes :: proc(t: ^testing.T) {
+	FOLDER :: "build/textures_test_bake/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	app := new(App)
+	defer free(app)
+	jobs.pool_init(&app.pool, 2)
+	defer jobs.pool_destroy(&app.pool)
+	objs := tree_scene(app)
+	defer tree_free(app)
+	low := objs[0]
+	defer textures_free(&low.textures)
+	low.file = {scale = 1}
+	object_unwrap(app, low, unwrap_setup(app))
+	if !testing.expect(t, sculpt.levels_has_uvs(&low.levels)) do return
+	app.ui.bake = {source = objs[1].id, size = 256, reach_edges = 2}
+	bake_to_folder(app, FOLDER)
+	base, _ := strings.replace_all(object_label(low), " ", "_", context.temp_allocator)
+	for suffix in ([?]string{"_normal.png", "_displacement.png", "_displacement.txt"}) {
+		testing.expectf(t, os.exists(strings.concatenate({FOLDER, base, suffix}, context.temp_allocator)), "no %s written", suffix)
+	}
+	text, err := os.read_entire_file(strings.concatenate({FOLDER, base, ".obj"}, context.temp_allocator), context.temp_allocator)
+	if !testing.expect(t, err == nil) do return
+	mesh := low.levels.levels[0].mesh
+	v, vt, f := 0, 0, 0
+	for line in strings.split_lines(string(text), context.temp_allocator) {
+		switch {
+		case strings.has_prefix(line, "vt "): vt += 1
+		case strings.has_prefix(line, "v "): v += 1
+		case strings.has_prefix(line, "f "):
+			f += 1
+			testing.expect_value(t, strings.count(line, "/"), 3)
+		}
+	}
+	testing.expect_value(t, v, len(mesh.positions))
+	testing.expect_value(t, f, len(mesh.indices) / 3)
+	testing.expect_value(t, vt, len(mesh.indices))
+	free_all(context.temp_allocator)
+}
+
+// A level above the base shows and exports the maps through the UVs it takes from the
+// base: its own triangles, split at the same seams, the split kept between edits.
+@(test)
+levels_show_the_maps :: proc(t: ^testing.T) {
+	FOLDER :: "build/textures_test_levels/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	path := strings.clone(FOLDER + "level.glb")
+	defer delete(path)
+	app: App
+	defer tree_free(&app)
+	objs := tree_scene(&app)
+	obj := objs[0]
+	defer textures_free(&obj.textures)
+	object_unwrap(&app, obj, unwrap_setup(&app))
+	maps: Object_Textures
+	maps.image[.Normal] = png_of({128, 128, 255, 255})
+	textures_replace(&app, obj, maps, "load normal map")
+	testing.expect(t, sculpt.levels_subdivide(&obj.levels))
+	sculpt.levels_set_current(&obj.levels, 1)
+	lv := obj.levels.levels[1]
+	buffers := render.Mesh_Buffers{index_version = 7}
+	topology: Split_Topology
+	defer split_topology_free(&topology)
+	vertices, indices, corners := textured_vertices(obj, &buffers, &topology, nil)
+	testing.expect_value(t, len(indices), len(lv.mesh.indices))
+	testing.expect(t, len(vertices) > len(lv.mesh.positions), "the seams split no vertices")
+	testing.expect_value(t, len(corners), len(indices))
+	kept := raw_data(topology.vertex)
+	_, _, _ = textured_vertices(obj, &buffers, &topology, nil)
+	testing.expect(t, raw_data(topology.vertex) == kept, "an edit made the split again")
+	buffers.index_version = 8
+	_, _, _ = textured_vertices(obj, &buffers, &topology, nil)
+	testing.expect(t, topology.index_version == 8 && len(topology.vertex) > 0, "new triangles kept the old split")
+	testing.expect(t, object_exports_textures(obj))
+	if !testing.expect(t, object_export(&app, obj, path)) do return
+	json := glb_json(t, path)
+	for want in ([?]string{`"TEXCOORD_0"`, `"TANGENT"`, `"normalTexture"`}) do testing.expectf(t, strings.contains(json, want), "the file has no %s", want)
+	// Delete lower keeps the UVs, so the maps stay.
+	sculpt.levels_delete_lower(&obj.levels)
+	textures_settle(&app)
+	testing.expect(t, sculpt.levels_has_uvs(&obj.levels) && object_has_textures(obj), "Delete lower dropped the maps")
+	free_all(context.temp_allocator)
+}
+
+// Straighten gives a quad object's islands grids in one undo step, which puts the old
+// UVs back; an object without quads is refused with a note and no step.
+@(test)
+straighten_is_one_undo_step :: proc(t: ^testing.T) {
+	app: App
+	defer tree_free(&app)
+	objs := tree_scene(&app)
+	obj := objs[0]
+	defer textures_free(&obj.textures)
+	testing.expect(t, !command_enabled(&app, .Straighten), "Straighten is offered without quads")
+	object_straighten(&app, obj)
+	testing.expect_value(t, len(app.history.done), 0)
+	if !quad_object(t, obj) do return
+	testing.expect(t, command_enabled(&app, .Straighten))
+	layout := raw_data(obj.levels.uvs.corner)
+	object_straighten(&app, obj)
+	if !testing.expect_value(t, len(app.history.done), 1) do return
+	testing.expect_value(t, app.history.done[0].kind, History_Kind.Textures)
+	testing.expect(t, raw_data(obj.levels.uvs.corner) != layout)
+	_, folded := sculpt.levels_quad_uvs(&obj.levels)
+	testing.expect(t, folded, "Straighten broke the quads' UVs")
+	history_undo(&app)
+	testing.expect(t, raw_data(obj.levels.uvs.corner) == layout, "undo left the straightened UVs")
 	free_all(context.temp_allocator)
 }

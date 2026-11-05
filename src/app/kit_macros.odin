@@ -8,66 +8,52 @@ import "../ui"
 // The Macros panel (Menu > Macros, or Search): Record macro and Run script at its top,
 // then every macro kept, each with Run, a key, Rename and Delete, and on the desktop the
 // script plugins: each file with its commands (Run and a key) or why it did not load,
-// commands that are missing with Forget, and Reload plugins. It takes the
-// inspector's place on the right as Settings and Help do, so the model stays in view
-// while a macro runs on it.
+// commands that are missing with Forget, and Reload plugins. It is a sheet (sheet.odin)
+// as Settings and Help are.
 
-KIT_MACROS_W :: KIT_SETTINGS_W
+KIT_MACROS_W :: 440
 
 // Seconds a macro's Delete waits for its second tap.
 MACRO_DELETE_ARM_TIME :: 3
 
-kit_macros :: proc(app: ^App) -> (raised: bool) {
+kit_macros :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
+	// The sheet's own id, named at the root (inside the sheet a name is the sheet's).
 	id := ui.id_of(ctx, "macros")
-	shown := ui.presence(ctx, id, k.macros, t.panel_time)
-	if shown <= 0 do return
-	win := &k.windows[.Macros]
-	top := kit_top()
-	room := window_room(app, win^, top)
-	if !win.moved do room -= side_panel_below(app, KIT_MACROS_W)
-	inner := f32(KIT_MACROS_W - 2 * 16)
-
-	mark := ui.vertex_mark(ctx)
-	body, closed, raised_now := ui.window_begin(ctx, "macros", "Macros", win, .End, .Start, {kit_right(app), top}, {direction = .Column, gap = 8, padding = 16, width = KIT_MACROS_W, radius = t.radius_large, background = .Panel, inert = !k.macros}, "Esc")
-	raised = raised_now
-	if closed do k.macros = false
-	if body {
-		m := &app.macro
-		half := (inner - 8) * 0.5
-		ui.begin(ctx, "macros head", {direction = .Row, gap = 8, width = inner})
-		if m.recording {
-			_ = command_button(app, .Macro_Record, label = "Stop recording", variant = .Solid, tone = .Danger, width = half, glyph = ui.ICON_STOP)
-		} else {
-			_ = command_button(app, .Macro_Record, variant = .Bordered, width = half, glyph = ui.ICON_RECORD)
-		}
-		_ = command_button(app, .Run_Script, variant = .Bordered, width = half, glyph = ui.ICON_OPEN)
-		ui.end(ctx)
-		kept := 0
-		for s in m.slots do kept += int(s.name != "")
-		ui.caption(ctx, fmt.tprintf("SAVED  %d OF %d", kept, MACRO_SLOTS))
-
-		// The list scrolls in the room the buttons above and the note below leave.
-		foot := "This run keeps no files: its macros last until the app closes, and it loads no plugins." if m.folder == "" else fmt.tprintf("Each macro is a script file (macro-01.cmd and on) in the folder %s beside the settings file, to edit there or share; Run script runs any such file.", filepath.base(m.folder))
-		if app.plugins.folder != "" do foot = fmt.tprintf("%s Plugins are .luau files in the folder %s beside it.", foot, filepath.base(app.plugins.folder))
-		_, foot_size := ui.prev_layout(ctx, "macros foot")
-		body_h := max(room - 2 * 16 - 4 * 8 - 2 * t.target - t.caption_size * 1.4 - foot_size.y, 120)
-		scroll := kit_scroll_begin(ctx, "macros body", &k.macros_scroll, id, inner, body_h, 4)
-		if kept == 0 do ui.paragraph(ctx, "None yet. Tap Record macro, run the commands to repeat (by key, button, menu, pie or Search), then Stop and name it. Strokes and view changes are not recorded.")
-		for s, slot in m.slots do if s.name != "" do kit_macro_row(app, slot, inner)
-		when PLUGINS_AVAILABLE {
-			if app.plugins.folder != "" do kit_plugins(app, inner)
-		}
-		kit_scroll_end(ctx, scroll)
-		ui.begin(ctx, "macros foot", {direction = .Column, width = inner})
-		ui.paragraph(ctx, foot)
-		ui.end(ctx)
+	inner, room, shown := sheet_begin(app, "macros", "Macros", ui.ICON_RECORD, &k.macros, KIT_MACROS_W)
+	if !shown do return
+	defer sheet_end(app)
+	m := &app.macro
+	half := (inner - 8) * 0.5
+	ui.begin(ctx, "macros head", {direction = .Row, gap = ui.SPACE_M, width = inner})
+	if m.recording {
+		_ = command_button(app, .Macro_Record, label = "Stop recording", variant = .Solid, tone = .Danger, width = half, glyph = ui.ICON_STOP)
+	} else {
+		_ = command_button(app, .Macro_Record, variant = .Bordered, width = half, glyph = ui.ICON_RECORD)
 	}
-	ui.window_end(ctx)
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .End) * (1 - shown) * 16, 0})
-	return
+	_ = command_button(app, .Run_Script, variant = .Bordered, width = half, glyph = ui.ICON_OPEN)
+	ui.end(ctx)
+	kept := 0
+	for s in m.slots do kept += int(s.name != "")
+	ui.caption(ctx, fmt.tprintf("SAVED  %d OF %d", kept, MACRO_SLOTS))
+
+	// The list scrolls in the room the buttons above and the note below leave.
+	foot := "This run keeps no files: its macros last until the app closes, and it loads no plugins." if m.folder == "" else fmt.tprintf("Each macro is a script file (macro-01.cmd and on) in the folder %s beside the settings file, to edit there or share; Run script runs any such file.", filepath.base(m.folder))
+	if app.plugins.folder != "" do foot = fmt.tprintf("%s Plugins are .luau files in the folder %s beside it.", foot, filepath.base(app.plugins.folder))
+	_, foot_size := ui.prev_layout(ctx, "macros foot")
+	body_h := max(room - 3 * 8 - t.target - ui.CAPTION_H - foot_size.y, 120)
+	scroll := kit_scroll_begin(ctx, "macros body", &k.macros_scroll, id, inner, body_h, 4)
+	if kept == 0 do ui.paragraph(ctx, "None yet. Tap Record macro, run the commands to repeat (by key, button, menu, pie or Search), then Stop and name it. Strokes and view changes are not recorded.")
+	for s, slot in m.slots do if s.name != "" do kit_macro_row(app, slot, inner)
+	when PLUGINS_AVAILABLE {
+		if app.plugins.folder != "" do kit_plugins(app, inner)
+	}
+	kit_scroll_end(ctx, scroll)
+	ui.begin(ctx, "macros foot", {direction = .Column, width = inner})
+	ui.paragraph(ctx, foot)
+	ui.end(ctx)
 }
 
 // Whether the macro in `slot` had its Delete tapped once, within MACRO_DELETE_ARM_TIME.

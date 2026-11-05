@@ -63,7 +63,8 @@ an_accent_alone_leaves_the_greys_exact :: proc(t: ^testing.T) {
 }
 
 // Every built-in theme can be read: labels on the panels at 4.5 to 1 or better (WCAG
-// AA), hints and the accent at 3, and the ink on the accent at 4.5.
+// AA), hints too, wells plain against the panel at 1.3, the accent at 3, and the ink on
+// the accent at 4.5.
 @(test)
 every_seed_keeps_its_text_readable :: proc(t: ^testing.T) {
 	for seed, i in EVERY_SEED {
@@ -71,7 +72,8 @@ every_seed_keeps_its_text_readable :: proc(t: ^testing.T) {
 		ground := Color{th.surface.r, th.surface.g, th.surface.b, 255}
 		testing.expectf(t, color_contrast(th.text, ground) >= 7, "seed %d text %.2f", i, color_contrast(th.text, ground))
 		testing.expectf(t, color_contrast(th.text_secondary, ground) >= 4.5, "seed %d labels %.2f", i, color_contrast(th.text_secondary, ground))
-		testing.expectf(t, color_contrast(th.text_tertiary, ground) >= 3, "seed %d hints %.2f", i, color_contrast(th.text_tertiary, ground))
+		testing.expectf(t, color_contrast(th.text_tertiary, ground) >= 4.5, "seed %d hints %.2f", i, color_contrast(th.text_tertiary, ground))
+		testing.expectf(t, color_contrast(th.fill, ground) >= 1.3, "seed %d wells %.2f", i, color_contrast(th.fill, ground))
 		testing.expectf(t, color_contrast(th.accent, ground) >= 3, "seed %d accent %.2f", i, color_contrast(th.accent, ground))
 		testing.expectf(t, color_contrast(th.on_accent, th.accent) >= 4.5, "seed %d on accent %.2f", i, color_contrast(th.on_accent, th.accent))
 		testing.expectf(t, color_contrast(th.on_chosen, th.chosen) >= 3, "seed %d chosen tile %.2f", i, color_contrast(th.on_chosen, th.chosen))
@@ -117,4 +119,23 @@ hsl_and_contrast_match_known_values :: proc(t: ^testing.T) {
 	testing.expect_value(t, color_hsl(-120, 100, 50), Color{0, 0, 255, 255})
 	c := color_contrast({0, 0, 0, 255}, {255, 255, 255, 255})
 	testing.expect(t, c > 20.99 && c < 21.01)
+}
+
+// Panel shadows is a strength: half way is the shadow Lens always had, so an exact Lens
+// stays exact, Off draws none, and every step between darkens it a little more.
+@(test)
+the_panel_shadow_follows_its_strength :: proc(t: ^testing.T) {
+	testing.expect_value(t, theme_derive(THEME_SEED_LENS).panel_shadow.a, THEME_LENS.panel_shadow.a)
+	last := -1
+	for k in 0 ..= 10 {
+		seed := THEME_SEED_LENS
+		seed.shadow = f32(k) / 10
+		got := theme_from_seed(seed, THEME_LENS, THEME_SEED_LENS)
+		a := int(got.panel_shadow.a)
+		testing.expectf(t, a > last, "strength %v: alpha %d, not darker than %d", seed.shadow, a, last)
+		last = a
+	}
+	off := THEME_SEED_LENS
+	off.shadow = 0
+	testing.expect_value(t, theme_from_seed(off, THEME_LENS, THEME_SEED_LENS).panel_shadow.a, 0)
 }

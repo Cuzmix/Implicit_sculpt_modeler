@@ -22,11 +22,19 @@ Pool :: struct {
 	fn:       Job_Proc,
 	data:     rawptr,
 	count:    int,
-	claim:    u64, // atomic: job generation << 32 | next index to claim
+	claim:    u64, // atomic: job generation << 32 | next index to claim (CLOSED once a job is spent)
 	pending:  int, // atomic: indices of the current job not yet finished
 	sleepers: int, // atomic: workers that are or are about to be in sema_wait
 	quit:     bool,
+	// Set while a parallel_for runs on the pool: a second one at the same time, from
+	// another thread or from inside a job, would overwrite the one job the pool holds.
+	busy:     bool,
 }
+
+// The index a spent job's claim is set to before the next job's fields are written: no
+// count reaches it, so a worker that read the spent claim can no longer claim with it.
+@(private)
+CLOSED :: u64(max(u32))
 
 // Starts `workers` background threads (0 = one per extra CPU core). The calling
 // thread also works during parallel_for, so total parallelism is workers + 1.
@@ -68,10 +76,19 @@ parallel_for :: proc(p: ^Pool, count: int, data: rawptr, fn: Job_Proc) {
 		for i in 0 ..< count do fn(data, i)
 		return
 	}
-	job := u32(sync.atomic_load(&p.claim) >> 32) + 1
-	sync.atomic_store_explicit(&p.fn, fn, .Relaxed)
-	sync.atomic_store_explicit(&p.data, data, .Relaxed)
-	sync.atomic_store_explicit(&p.count, count, .Relaxed)
+	assert(u64(count) < CLOSED, "parallel_for: too many indices")
+	assert(!sync.atomic_exchange(&p.busy, true), "parallel_for: the pool already runs a job (a nested or concurrent dispatch)")
+	defer sync.atomic_store(&p.busy, false)
+	spent := u32(sync.atomic_load(&p.claim) >> 32)
+	// The spent job's claim is closed before its fields are overwritten: a worker that read
+	// it as (spent, its count) and then reads the new count would otherwise pass the count
+	// test and win the compare-exchange, running an index of this job before it is
+	// published, which then also runs again and leaves `pending` one short.
+	sync.atomic_store(&p.claim, u64(spent) << 32 | CLOSED)
+	job := spent + 1
+	sync.atomic_store(&p.fn, fn)
+	sync.atomic_store(&p.data, data)
+	sync.atomic_store(&p.count, count)
 	sync.atomic_store(&p.pending, count)
 	sync.atomic_store(&p.claim, u64(job) << 32)
 	// A worker counts itself a sleeper before re-checking `claim`, so either it sees the
@@ -85,7 +102,10 @@ parallel_for :: proc(p: ^Pool, count: int, data: rawptr, fn: Job_Proc) {
 
 // Runs indices of job `job` until none are left or a newer job replaced it. The job's
 // fields are read before the claim is validated: a successful compare-exchange proves
-// the job was still unfinished, so the caller had not yet overwritten them.
+// the claim read was still current, and the caller closes a spent job's claim (CLOSED)
+// before it writes the next job's fields, so fields read under a claim that is still
+// current are that job's. The fields are ordered loads and stores, so a worker that sees
+// the next job's count also sees the closed claim.
 Range_Proc :: #type proc(data: rawptr, lo, hi: int)
 
 // Calls fn(data, lo, hi) over consecutive chunks of [0, count) of about `grain`
@@ -110,9 +130,9 @@ run_claims :: proc(p: ^Pool, job: u32) {
 	for {
 		v := sync.atomic_load(&p.claim)
 		if u32(v >> 32) != job do return
-		fn := sync.atomic_load_explicit(&p.fn, .Relaxed)
-		data := sync.atomic_load_explicit(&p.data, .Relaxed)
-		count := sync.atomic_load_explicit(&p.count, .Relaxed)
+		fn := sync.atomic_load(&p.fn)
+		data := sync.atomic_load(&p.data)
+		count := sync.atomic_load(&p.count)
 		i := int(u32(v))
 		if i >= count do return
 		if _, ok := sync.atomic_compare_exchange_weak(&p.claim, v, v + 1); !ok do continue

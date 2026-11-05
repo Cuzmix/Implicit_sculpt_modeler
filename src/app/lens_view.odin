@@ -50,10 +50,21 @@ lens_free_area :: proc(app: ^App) -> ui.Rect {
 		if r.x + r.w * 0.5 < mid do lo.x = max(lo.x, r.x + r.w + 8)
 		else do hi.x = min(hi.x, r.x - 8)
 	}
-	// A floating bar stands over the view rather than down a side; the shelf is the
-	// bottom's, above.
-	for b in Dock_Id do if b != .Shelf && dock_edge(k, b) != .Float do side(ui.prev_rect(ctx, DOCK_ROOTS[b]), mid, &lo, &hi)
-	for c in k.panels.rect do side(c, mid, &lo, &hi)
+	// A floating bar stands over the view rather than down a side; the shelf at the bottom
+	// is counted above, and a row on the top or the bottom edge takes its height off there.
+	for b in Dock_Id {
+		if b == .Shelf && dock_edge(k, b) == .Bottom do continue
+		if !dock_shown(k, b) do continue
+		r := ui.prev_root_rect(ctx, DOCK_ROOTS[b])
+		switch dock_edge(k, b) {
+		case .Float:
+		case .Top:    if r.h > 0 do lo.y = max(lo.y, r.y + r.h + 8)
+		case .Bottom: if r.h > 0 do hi.y = min(hi.y, r.y - 8)
+		case .Default, .Left, .Right: side(r, mid, &lo, &hi)
+		}
+	}
+	// A card pinned in a column stays, so the view keeps clear of it.
+	for s in Column_Side do side(column_rest_rect(app, s), mid, &lo, &hi)
 	// A panel shown last frame and tall enough to stand down a side.
 	for s in k.panels.seen do if s.frame >= k.frame - 1 && s.rect.h > area.h * 0.3 do side(s.rect, mid, &lo, &hi)
 	if hi.x - lo.x < area.w * 0.3 || hi.y - lo.y < area.h * 0.3 do return area
@@ -78,12 +89,32 @@ view_fit_free :: proc(app: ^App, fit: bool) {
 	}
 }
 
+// What Clean view leaves on screen: nothing, the dial (as it comes), or the shelf and the
+// dial, which hides only the side toolbars, the cards and the next steps.
+Clean_Keep :: enum u8 {
+	Nothing,
+	Dial,
+	Shelf,
+}
+
+// Whether Clean view is on, in either of its forms.
+clean_view_on :: proc(k: ^Kit_State) -> bool {
+	return k.clean || k.focus_mode
+}
+
 // Turns Clean view on or off; on, whatever floats closes with the controls.
 clean_view_set :: proc(app: ^App, on: bool) {
 	k := &app.kit
-	if on == k.clean do return
-	k.clean, k.clean_at = on, k.ctx.time
-	if !on do return
+	if on == clean_view_on(k) do return
+	if !on {
+		k.clean, k.focus_mode = false, false
+		return
+	}
+	if k.clean_keep == .Shelf {
+		k.focus_mode = true
+		return
+	}
+	k.clean, k.clean_at = true, k.ctx.time
 	if k.palette do palette_close(app)
 	kit_floats_close(k)
 }
@@ -94,7 +125,7 @@ kit_clean_view :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	if k.clean_dial do kit_modifier_rail(app)
+	if k.clean_keep == .Dial do kit_modifier_rail(app)
 	age := ctx.time - k.clean_at
 	if age > CLEAN_HINT_TIME + CLEAN_HINT_FADE do return
 	shown := 1 - clamp(f32(age - CLEAN_HINT_TIME) / CLEAN_HINT_FADE, 0, 1)

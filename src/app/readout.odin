@@ -52,8 +52,8 @@ kit_readout :: proc(app: ^App) {
 		r.memory, r.read = process_memory(), k.frame
 	}
 	ui.begin_anchored(ctx, "points", .Start, .Start, at, {direction = .Column})
-	ui.begin(ctx, "readout lines", {direction = .Column, gap = 1})
-	ui.begin(ctx, "readout", {direction = .Row, gap = 2, center = true})
+	ui.begin(ctx, "readout lines", {direction = .Column, gap = 0})
+	ui.begin(ctx, "readout", {direction = .Row, gap = ui.SPACE_2XS, center = true})
 	c := main_camera(app)
 	camera := "Ortho" if c.ortho else fmt.tprintf("Persp · %.0f mm", lens_focal_mm(c.fov_y))
 	if a := readout_word(ctx, "Camera##readout", camera, bar_pop_showing(app, .Camera), command_hint(app, .Camera_Menu)); a.clicked {
@@ -73,16 +73,19 @@ kit_readout :: proc(app: ^App) {
 		ram := platform_ram()
 		text := fmt.tprintf("%s / %s", readout_bytes(r.memory), readout_bytes(ram)) if ram > 0 else readout_bytes(r.memory)
 		w := READOUT_BAR_W + 6 + ui.text_width(ctx, text, t.small_size)
-		line := ui.place(ctx, {w, t.small_size + 4})
+		line := ui.place(ctx, {w, ui.line_height(t.small_size)})
 		bar := ui.Rect{line.x + 6, line.y + (line.h - READOUT_BAR_H) * 0.5, READOUT_BAR_W, READOUT_BAR_H}
-		ui.fill_rect(ctx, bar, READOUT_BAR_H * 0.5, t.fill_hover)
+		_, faint := readout_inks(t)
+		ui.fill_rect(ctx, bar, READOUT_BAR_H * 0.5, ui.color_fade(faint, 0.3))
 		if ram > 0 {
 			full := clamp(f32(r.memory) / f32(ram), 0.02, 1)
-			ui.fill_rect(ctx, {bar.x, bar.y, bar.w * full, bar.h}, READOUT_BAR_H * 0.5, t.text_tertiary)
+			ui.fill_rect(ctx, {bar.x, bar.y, bar.w * full, bar.h}, READOUT_BAR_H * 0.5, faint)
 		}
-		ui.text(ctx, text, bar.x + bar.w + 6, line.y + line.h * 0.5, t.small_size, t.text_tertiary)
+		ui.text(ctx, text, bar.x + bar.w + 6, line.y + line.h * 0.5, t.small_size, faint)
 	}
-	if ms, ok := readout_gpu_ms(app); ok do readout_line(ctx, fmt.tprintf("GPU %.1f ms", ms))
+	if k.readout_gpu {
+		if ms, ok := readout_gpu_ms(app); ok do readout_line(ctx, fmt.tprintf("GPU %.1f ms", ms))
+	}
 	ui.end(ctx)
 	ui.end(ctx)
 }
@@ -97,8 +100,9 @@ readout_word :: proc(ctx: ^ui.Context, name, text: string, lit: bool, keys: stri
 	if a.held do ui.fill_rect(ctx, a.rect, t.radius_small, t.fill_pressed)
 	else if a.hovered do ui.fill_rect(ctx, a.rect, t.radius_small, t.fill_hover)
 	cy := a.rect.y + a.rect.h * 0.5
-	ui.text(ctx, text, a.rect.x + 6, cy, t.small_size, t.accent if lit else t.text_secondary, .Semibold)
-	ui.icon(ctx, ui.ICON_CHEVRON_DOWN, {a.rect.x + a.rect.w - 10, cy}, t.icon_small - 4, t.text_tertiary)
+	ink, faint := readout_inks(t)
+	ui.text(ctx, text, a.rect.x + 6, cy, t.small_size, t.accent if lit else ink, .Semibold)
+	ui.icon(ctx, ui.ICON_CHEVRON_DOWN, {a.rect.x + a.rect.w - 10, cy}, t.icon_small - 4, faint)
 	ui.tip(ctx, a.id, a.rect, name[:len(name) - len("##readout")], keys)
 	return a
 }
@@ -107,8 +111,21 @@ readout_word :: proc(ctx: ^ui.Context, name, text: string, lit: bool, keys: stri
 @(private = "file")
 readout_line :: proc(ctx: ^ui.Context, text: string) {
 	t := ctx.theme
-	r := ui.place(ctx, {ui.text_width(ctx, text, t.small_size) + 6, t.small_size + 4})
-	ui.text(ctx, text, r.x + 6, r.y + r.h * 0.5, t.small_size, t.text_tertiary)
+	r := ui.place(ctx, {ui.text_width(ctx, text, t.small_size) + 6, ui.line_height(t.small_size)})
+	_, faint := readout_inks(t)
+	ui.text(ctx, text, r.x + 6, r.y + r.h * 0.5, t.small_size, faint)
+}
+
+// The readout's inks, its words' and its faint lines'. It stands on the view itself, not
+// on a panel, and the view's ground is dark under every theme, so a light theme's dark
+// inks would sink into it: there they are taken from its light surfaces instead, at
+// about the steps a dark theme's labels and hints stand from its text. The faint lines
+// stand only a little below the words, as they are read over a busy model, where the
+// theme's own hint ink fell under 3:1.
+@(private = "file")
+readout_inks :: proc(t: ui.Theme) -> (ink, faint: ui.Color) {
+	if ui.color_luminance(t.text) > ui.color_luminance(t.surface) do return t.text_secondary, ui.color_mix(t.text_secondary, t.text_tertiary, 0.4)
+	return ui.color_mix(t.surface_raised, t.text, 0.25), ui.color_mix(t.surface_raised, t.text, 0.33)
 }
 
 // The GPU's typical time a frame: the 3D drawing while the GPU is timed, else the frame's

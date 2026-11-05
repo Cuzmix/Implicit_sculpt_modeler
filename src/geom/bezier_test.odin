@@ -127,12 +127,39 @@ bezier_smooth_and_corner_points :: proc(t: ^testing.T) {
 	testing.expectf(t, linalg.length(points[1].h_out - Vec3{1, 0, 0} * linalg.length(Vec3{1, -1, 0}) / 3) < 1e-5, "smooth h_out %v", points[1].h_out)
 	testing.expect(t, linalg.length(points[1].h_in + points[1].h_out) < 1e-5, "smooth handles not opposite")
 	bezier_make_corner(points[:], false, 1)
-	testing.expect(t, points[1].corner, "not a corner")
+	testing.expect(t, bezier_is_corner(points[1]), "not a corner")
 	testing.expectf(t, linalg.length(points[1].h_in - Vec3{-1, -1, 0} / 3) < 1e-5, "corner h_in %v", points[1].h_in)
 	bezier_make_smooth(points[:], false, 0)
 	testing.expect_value(t, points[0].h_in, Vec3{})
-	points[1].corner = false
+	points[1].handles = .Aligned
 	points[1].h_out = {0, 2, 0}
 	bezier_align_handles(&points[1], true)
 	testing.expectf(t, abs(points[1].h_in.y + linalg.length(Vec3{-1, -1, 0} / 3)) < 1e-5 && abs(points[1].h_in.x) < 1e-6, "aligned h_in %v", points[1].h_in)
+}
+
+// Auto and Vector points take their handles from their neighbours again when one moves;
+// Aligned and Free keep theirs; a hand-moved Auto handle makes the point Aligned and a
+// Vector one makes it Free.
+@(test)
+bezier_handle_types_follow :: proc(t: ^testing.T) {
+	points := [4]Bezier_Point{{p = {0, 0, 0}}, {p = {1, 1, 0}}, {p = {2, 0, 0}}, {p = {3, 1, 0}}}
+	bezier_set_handles(points[:], false, 1, .Auto)
+	bezier_set_handles(points[:], false, 2, .Vector)
+	points[3].h_in = {-0.2, 0, 0}
+	points[0].handles, points[3].handles = .Free, .Aligned
+	points[0].h_out = {0.5, 0.5, 0}
+	points[2].p = {2, -1, 0}
+	bezier_auto_handles(points[:], false)
+	testing.expectf(t, linalg.length(points[2].h_in - (points[1].p - points[2].p) / 3) < 1e-5, "vector h_in %v", points[2].h_in)
+	testing.expectf(t, linalg.length(points[2].h_out - (points[3].p - points[2].p) / 3) < 1e-5, "vector h_out %v", points[2].h_out)
+	dir := linalg.normalize(points[2].p - points[0].p)
+	testing.expectf(t, linalg.length(points[1].h_out - dir * linalg.length(points[2].p - points[1].p) / 3) < 1e-5, "auto h_out %v", points[1].h_out)
+	testing.expect(t, points[0].h_out == {0.5, 0.5, 0} && points[3].h_in == {-0.2, 0, 0}, "a Free or Aligned point's handle moved")
+	points[1].h_out = {0, 1, 0}
+	bezier_align_handles(&points[1], true)
+	testing.expect_value(t, points[1].handles, Handle_Type.Aligned)
+	points[2].h_out = {0, 1, 0}
+	bezier_align_handles(&points[2], true)
+	testing.expect_value(t, points[2].handles, Handle_Type.Free)
+	testing.expectf(t, linalg.length(points[2].h_in - (points[1].p - points[2].p) / 3) < 1e-5, "a Free point's other handle moved: %v", points[2].h_in)
 }

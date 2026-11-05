@@ -7,6 +7,7 @@ import "core:time"
 import "../camera"
 import "../render"
 import "../sculpt"
+import "../ui"
 
 // Polypaint and polygroups on the app side: the Polypaint and Polygroups commands as
 // undo steps, the Ctrl + Shift click that isolates a group, and their GPU upload.
@@ -153,12 +154,12 @@ group_click :: proc(app: ^App, at, size: [2]f32, alt: bool) -> bool {
 	start := time.tick_now()
 	if alt {
 		changed := sculpt.sculptor_mask_group(s, group)
-		report(app, Kit_Section.Mask, {.Quiet}, "Mask group %d in %.0f ms%s", group, time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
+		report(app, Section.Mask, {.Quiet}, "Mask group %d in %.0f ms%s", group, time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
 		if changed do history_record(app, obj, .Mask, "Mask group")
 		return true
 	}
 	changed := sculpt.sculptor_hide_group(s, group)
-	report(app, Kit_Section.Visibility, {.Quiet}, "Isolate group %d: %s of %s triangles hidden, %.0f ms", group, thousands(sculpt.sculptor_hidden_count(s)), thousands(object_triangle_count(obj)), time.duration_milliseconds(time.tick_since(start)))
+	report(app, Section.Visibility, {.Quiet}, "Isolate group %d: %s of %s triangles hidden, %.0f ms", group, thousands(sculpt.sculptor_hidden_count(s)), thousands(object_triangle_count(obj)), time.duration_milliseconds(time.tick_since(start)))
 	if changed {
 		history_record(app, obj, .Hide, "Isolate group")
 		render.viewport_invalidate(&app.target)
@@ -193,10 +194,10 @@ paint_allowed :: proc(obj: ^Object) -> bool {
 // Returns the bytes sent.
 paint_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^sculpt.Level, ranges: []sculpt.Vertex_Range) -> int {
 	s := &lv.sculptor
-	colors, groups := s.color, sculpt.sculptor_vertex_groups(s)
+	colors, groups := sculpt.sculptor_paint_shown(s), sculpt.sculptor_vertex_groups(s)
 	if colors == nil && groups == nil do return 0
 	stamp := sculpt.sculptor_paint_stamp(s)
-	all := gpu.paint == nil || gpu.paint_stamp != stamp
+	all := gpu.paint == 0 || gpu.paint_stamp != stamp
 	if !all && len(ranges) == 0 do return 0
 	render.mesh_buffers_upload_paint(&app.renderer, cmd, gpu, colors, groups, ranges, all)
 	gpu.paint_stamp = stamp
@@ -204,4 +205,80 @@ paint_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: 
 	bytes := 0
 	for r in ranges do bytes += int(r.count) * size_of(render.Paint_Packed)
 	return bytes
+}
+
+// What the Paint tab's foot does to the picked paint layer.
+Paint_Layer_Action :: enum u8 {
+	Move_Up,
+	Move_Down,
+	Merge_Down,
+	Delete,
+}
+
+// Adds a paint layer above the picked one and picks it, as one History step.
+paint_layer_add :: proc(app: ^App, obj: ^Object) {
+	stroke_finish(app)
+	if obj == nil || !paint_allowed(obj) do return
+	if sculpt.sculptor_paint_add(object_sculptor(obj)) >= 0 do history_record(app, obj, .Paint, "New paint layer")
+}
+
+// Whether the picked paint layer can take `action` now.
+paint_layer_ready :: proc(app: ^App, action: Paint_Layer_Action) -> bool {
+	if !paint_ready(app, 0) do return false
+	s := object_sculptor(selected_object(app))
+	i, n := sculpt.sculptor_paint_picked(s), len(sculpt.sculptor_paint_layers(s))
+	switch action {
+	case .Move_Up:    return i >= 0 && i + 1 < n
+	case .Move_Down, .Merge_Down: return i > 0
+	case .Delete:     return i >= 0
+	}
+	return false
+}
+
+// Moves, merges or deletes the picked paint layer, as one History step.
+paint_layer_edit :: proc(app: ^App, obj: ^Object, action: Paint_Layer_Action) {
+	stroke_finish(app)
+	if obj == nil || !paint_allowed(obj) do return
+	s := object_sculptor(obj)
+	i := sculpt.sculptor_paint_picked(s)
+	if i < 0 do return
+	done := false
+	switch action {
+	case .Move_Up:    done = sculpt.sculptor_paint_move(s, i)
+	case .Move_Down:  done = i > 0 && sculpt.sculptor_paint_move(s, i - 1)
+	case .Merge_Down: done = sculpt.sculptor_paint_merge_down(s, i)
+	case .Delete:     done = sculpt.sculptor_paint_remove(s, i)
+	}
+	if done do history_record(app, obj, .Paint, PAINT_LAYER_ACTION_NAMES[action])
+}
+
+@(rodata)
+PAINT_LAYER_ACTION_NAMES := [Paint_Layer_Action]string {
+	.Move_Up    = "Move paint layer up",
+	.Move_Down  = "Move paint layer down",
+	.Merge_Down = "Merge paint down",
+	.Delete     = "Delete paint layer",
+}
+
+// The vertices a paint layer's swatch looks at, spread over the mesh: enough for its colour,
+// few enough to look at every frame at any size.
+PAINT_SWATCH_SAMPLES :: 4096
+
+// A paint layer's swatch for the Paint tab: the mean of its colours over where it covers,
+// weighted by coverage, from vertices spread over the mesh; false when it covers none of them.
+paint_layer_swatch :: proc(app: ^App, obj: ^Object, index: int) -> (ui.Color, bool) {
+	colors := sculpt.sculptor_paint_layer_colors(object_sculptor(obj), index)
+	if len(colors) == 0 do return {}, false
+	step := max(len(colors) / PAINT_SWATCH_SAMPLES, 1)
+	rgb: [3]f32
+	cover: f32
+	for v := 0; v < len(colors); v += step {
+		c := colors[v]
+		a := f32(c.a)
+		rgb += {f32(c.r), f32(c.g), f32(c.b)} * a
+		cover += a
+	}
+	if cover <= 0 do return {}, false
+	rgb /= cover
+	return {u8(rgb.r + 0.5), u8(rgb.g + 0.5), u8(rgb.b + 0.5), 255}, true
 }

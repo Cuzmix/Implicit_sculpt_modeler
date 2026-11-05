@@ -74,25 +74,34 @@ Ui_State :: struct {
 	layer_wide:         bool, // the strength sliders go from -5 to 5 rather than -1 to 2
 	layer_drag_id:      int,  // the object whose layer is being dragged, which the selection may leave meanwhile
 	layer_drag_wide:    bool, // the dragged strength slider began on the wide range, which it keeps until release
+	layers_paint:       bool, // the Layers card shows its Paint tab (paint layers) rather than its Sculpt tab
+	layer_drag_paint:   bool, // the drag is a paint layer's opacity (lens_paint_layers.odin), not a sculpt layer's strength
 	layer_mask:         Layer_Mask_Paint, // the layer mask a row's mask square picked for painting (layer_masks.odin)
 	deform:             Deform_Panel, // the Deformers section's choices and its Amount drag (deformers.odin)
 	reshape:            Reshape_Panel, // the Deformation section's choices and its Amount drag (reshape.odin)
 	physics:            Physics_Card, // the Physics section's filter and its runs under way (physics_card.odin)
 	transform_drag:     Transform_Drag, // the Transform section's values are being dragged: one undo step
+	stack_drag:         Stack_Drag, // the Live stack card's values are being dragged: one undo step
 	light_drag:         Light_Drag, // the Lights section's values are being changed: one undo step
 	light_press:        Light_Press, // a press on the lights in the viewport (light_markers.odin)
+	stack_press:        Stack_Press, // a press on the Live stack's handles in the view (stack_handles.odin)
 	light_place:        bool, // Place highlight: a press on the model moves the picked light's highlight there
 	retopo_quads:       i32,  // quads Quad Remesh asks for
 	retopo_engine:      retopo.Engine, // ...and from which engine (retopo.odin)...
-	retopo_adaptivity:  f32,  // ...with smaller quads where the surface bends (AutoRemesher)
+	retopo_adaptivity:  f32,  // ...with smaller quads where the surface bends (Flow)
 	retopo_keep_symmetry: bool, // ...the brush's symmetry kept: one part remeshed and mirrored
 	retopo_close_first: bool, // ...an open or unsound mesh voxel remeshed first
-	retopo_keep_groups: bool, // ...polygroup borders kept as quad edges (AutoRemesher)
-	retopo_keep_creases: bool, // ...creased edges kept as quad edges (AutoRemesher)
-	retopo_edge_degrees: f32, // ...and edges sharper than this kept (AutoRemesher; 90 keeps right angles and sharper)
-	retopo_use_paint:   bool, // ...more quads where the paint is red, fewer where blue (AutoRemesher)
-	retopo_use_mask:    bool, // ...and more where it is masked (AutoRemesher)
-	retopo_guide_strength: f32, // ...with the loops pulled along the Guide curves this hard (AutoRemesher)
+	retopo_keep_borders: bool, // ...an open mesh's border kept as it is (Flow)
+	retopo_keep_groups: bool, // ...polygroup borders kept as quad edges (Flow)
+	retopo_keep_creases: bool, // ...creased edges kept as quad edges (Flow)
+	retopo_edge_degrees: f32, // ...and edges sharper than this kept (Flow; 90 keeps right angles and sharper)
+	retopo_use_paint:   bool, // ...more quads where the paint is red, fewer where blue (Flow)
+	retopo_use_mask:    bool, // ...and more where it is masked (Flow)
+	retopo_guide_strength: f32, // ...with the loops pulled along the Guide curves this hard (Flow)
+	unwrap_relax:       i32,  // Unwrap: stretch relax steps after flattening (unwrap.odin)
+	unwrap_symmetry:    Unwrap_Symmetry, // ...mirrored islands laid out alike across this plane
+	unwrap_keep_seams:  bool, // ...flattened along the seams the UVs have rather than new ones
+	uv_readout:         Uv_Readout, // the UVs section's stretch, kept until the UVs change
 	rebuild_goal:       Rebuild_Goal, // what the Rebuild section makes: an even mesh, fewer polygons or quads
 	rebuild_even:       i32,  // vertices Rebuild's Even goal asks for...
 	remesh_by:          Remesh_By, // ...or a cell size...
@@ -103,7 +112,8 @@ Ui_State :: struct {
 	remesh_keep_paint:  bool, // ...polypaint, polygroups and mask carried without Keep detail too...
 	remesh_groups:      bool, // ...each polygroup a closed piece of its own
 	remesh_quads:       bool, // ...a mesh of quads only, kept as the object's polygons...
-	remesh_keep_symmetry: bool, // ...on a lattice even about the brush's symmetry planes
+	remesh_keep_symmetry: bool, // ...on a lattice even about the brush's symmetry planes...
+	remesh_levels:      i32,  // ...with this many subdivision levels built on it (Build levels)
 	rebuild_fewer:      i32,  // ...and its Fewer goal, when it keeps a count...
 	decimate_by:        Decimate_By, // ...or a share of the object's vertices...
 	decimate_percent:   f32,  // ...this one (decimate.odin)...
@@ -141,9 +151,6 @@ SPHERE_PRESETS := [?]struct {
 	{"10M", 10_000_000},
 	{"25M", 25_000_000},
 }
-
-// Measured at 25M vertices: mesh, sculpt nodes and topology together.
-BYTES_PER_VERTEX :: 108
 
 // What the viewport saw this frame, in window coordinates. This is the only thing the
 // camera and the tools read; none of them touches the interface directly.
@@ -200,7 +207,7 @@ CLOTH_MODE_HELP := [sculpt.Cloth_Mode]cstring {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, rebuild_even = 500_000, remesh_cell_mm = REMESH_CELL_MM_DEFAULT, remesh_smooth = geom.REMESH_SMOOTH_DEFAULT, remesh_keep_thin = true, remesh_keep_paint = true, remesh_quads = true, remesh_keep_symmetry = true, decimate_keep_symmetry = true, retopo_keep_symmetry = true, retopo_keep_groups = true, retopo_keep_creases = true, retopo_edge_degrees = retopo.EDGE_DEGREES_DEFAULT, retopo_guide_strength = retopo.GUIDE_STRENGTH_DEFAULT, rebuild_fewer = 100_000, decimate_percent = DECIMATE_PERCENT_DEFAULT, decimate_keep_paint = true, decimate_keep_groups = true, decimate_keep_borders = true, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), physics = {filter_axes = {.X, .Y, .Z}}, weld_distance = WELD_DISTANCE_DEFAULT}
+	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, unwrap_relax = UNWRAP_RELAX_DEFAULT, rebuild_even = 500_000, remesh_cell_mm = REMESH_CELL_MM_DEFAULT, remesh_smooth = geom.REMESH_SMOOTH_DEFAULT, remesh_keep_thin = true, remesh_keep_paint = true, remesh_quads = true, remesh_keep_symmetry = true, decimate_keep_symmetry = true, retopo_keep_symmetry = true, retopo_keep_groups = true, retopo_keep_creases = true, retopo_edge_degrees = retopo.EDGE_DEGREES_DEFAULT, retopo_guide_strength = retopo.GUIDE_STRENGTH_DEFAULT, rebuild_fewer = 100_000, decimate_percent = DECIMATE_PERCENT_DEFAULT, decimate_keep_paint = true, decimate_keep_groups = true, decimate_keep_borders = true, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), physics = {filter_axes = {.X, .Y, .Z}}, weld_distance = WELD_DISTANCE_DEFAULT}
 }
 
 // Turns the studio render on or off; on, it starts from the plain viewport.
@@ -310,11 +317,12 @@ typing :: proc(app: ^App) -> bool {
 }
 
 count_label :: proc(n: int) -> string {
+	// Rounded to the nearest, as the readout rounds, so 40,962 reads 41k in both places.
 	switch {
-	case n >= 1_000_000:
+	case n >= 999_500:
 		return fmt.tprintf("%.1fM", f64(n) / 1e6)
 	case n >= 1_000:
-		return fmt.tprintf("%dk", n / 1000)
+		return fmt.tprintf("%dk", (n + 500) / 1000)
 	}
 	return fmt.tprintf("%d", n)
 }

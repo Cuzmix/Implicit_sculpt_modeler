@@ -5,9 +5,8 @@ import "core:fmt"
 import "../render"
 import "../ui"
 
-// Render draws with its own Metal backend on Mac and iPad and its own Vulkan backend
-// everywhere else; nothing chooses between them (SDL_GPU, the fallback both once had, is
-// retired).
+// Render draws with Metal on Mac and iPad, WebGPU in a browser and Vulkan everywhere
+// else, chosen when the app is built.
 GRAPHICS_METAL :: ODIN_OS == .Darwin
 
 // Whether Ray tracing hardware starts on. On Apple's platforms it starts off: Metal's ray
@@ -17,7 +16,9 @@ RAY_QUERY_DEFAULT :: !GRAPHICS_METAL
 // What a device that cannot run the backend is told before Sculpt closes: what the app
 // needs and why it stopped, shown in the system's message box (platform_alert).
 graphics_failed_text :: proc() -> string {
-	needs := "a GPU with Metal (an A9, any Apple silicon Mac or a Mac with Metal 2)" if GRAPHICS_METAL else "a GPU and driver with Vulkan 1.3 (dynamic rendering, synchronization2 and timeline semaphores)"
+	needs := "a GPU and driver with Vulkan 1.3 (dynamic rendering, synchronization2 and timeline semaphores)"
+	when GRAPHICS_METAL do needs = "a GPU with Metal (an A9, any Apple silicon Mac or a Mac with Metal 2)"
+	when ODIN_OS == .JS do needs = "a browser with WebGPU"
 	why := render.backend_error()
 	if why == "" do why = "the GPU could not be started"
 	return fmt.tprintf("Sculpt needs %s. It cannot draw here: %s.", needs, why)

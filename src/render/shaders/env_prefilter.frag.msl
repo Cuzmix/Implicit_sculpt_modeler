@@ -1,112 +1,190 @@
-// SDL_shadercross 1ff05bec5739 from env_prefilter.frag.spv sha256 2008435844bb971eb3c4cbcd02ad636b00489be5981e4ceedc1012285ce90b99
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-
+// slangc metal from env_prefilter.frag.spv sha256 2008435844bb971eb3c4cbcd02ad636b00489be5981e4ceedc1012285ce90b99
+// slots s=0:0 rt= wt= rb= wb= u=0 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-struct SLANG_ParameterGroup_Prefilter_Uniforms_std140
+#line 15 "/home/user/Implicit_sculpt_modeler/src/render/shaders/panorama.slang"
+float3 panorama_dir_0(float2 uv_0)
 {
-    float4 params;
-    float4 target;
+
+#line 16
+    float theta_0 = uv_0.y * 3.14159274101257324f;
+    float phi_0 = (uv_0.x - 0.5f) * 6.28318548202514648f;
+    float s_0 = sin(theta_0);
+    return float3(sin(phi_0) * s_0, cos(theta_0), - cos(phi_0) * s_0);
+}
+
+
+#line 18 "/home/user/Implicit_sculpt_modeler/src/render/shaders/env_prefilter.frag.slang"
+float2 hammersley_0(uint i_0)
+{
+
+#line 19
+    return float2(float(i_0) / 64.0f, float(reverse_bits(i_0)) * 2.32830643653869629e-10f);
+}
+
+
+#line 8 "/home/user/Implicit_sculpt_modeler/src/render/shaders/panorama.slang"
+float2 panorama_uv_0(float3 d_0)
+{
+
+    return float2(atan2(d_0.x, - d_0.z - 9.99999968265522539e-21f) * 0.15915493667125702f + 0.5f, acos(clamp(d_0.y, -1.0f, 1.0f)) * 0.31830990314483643f);
+}
+
+
+#line 90 "core"
+struct pixelOutput_0
+{
+    float4 output_0 [[color(0)]];
 };
 
-struct main0_out
+
+#line 11 "/home/user/Implicit_sculpt_modeler/src/render/shaders/env_prefilter.frag.slang"
+struct SLANG_ParameterGroup_Prefilter_Uniforms_0
 {
-    float4 entryPointParam_main [[color(0)]];
+    float4 params_0;
+    float4 target_0;
 };
 
-static inline __attribute__((always_inline))
-float3 panorama_dir(float2 uv)
-{
-    float theta = uv.y * 3.1415927410125732421875;
-    float phi = (uv.x - 0.5) * 6.283185482025146484375;
-    float _86 = sin(theta);
-    return float3(sin(phi) * _86, cos(theta), (-cos(phi)) * _86);
-}
 
-static inline __attribute__((always_inline))
-float2 hammersley(uint i)
+#line 11
+struct KernelContext_0
 {
-    return float2(float(i) / 64.0, float(reverse_bits(i)) * 2.3283064365386962890625e-10);
-}
+    SLANG_ParameterGroup_Prefilter_Uniforms_0 constant* Prefilter_Uniforms_0;
+    texture2d<float, access::sample> source_texture_0;
+    sampler source_sampler_0;
+};
 
-static inline __attribute__((always_inline))
-float2 panorama_uv(float3 d)
-{
-    return float2((precise::atan2(d.x, (-d.z) - 9.9999996826552253889678874634872e-21) * 0.15915493667125701904296875) + 0.5, acos(fast::clamp(d.y, -1.0, 1.0)) * 0.31830990314483642578125);
-}
 
-fragment main0_out main0(constant SLANG_ParameterGroup_Prefilter_Uniforms_std140& Prefilter_Uniforms [[buffer(0)]], texture2d<float> source [[texture(0)]], sampler sourceSmplr [[sampler(0)]], float4 gl_FragCoord [[position]])
+#line 22
+[[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], SLANG_ParameterGroup_Prefilter_Uniforms_0 constant* Prefilter_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> source_texture_1 [[texture(0)]], sampler source_sampler_1 [[sampler(0)]])
 {
-    main0_out out = {};
-    float2 uv = gl_FragCoord.xy / Prefilter_Uniforms.target.xy;
-    if (Prefilter_Uniforms.params.x <= 0.0)
+
+#line 22
+    thread KernelContext_0 kernelContext_0;
+
+#line 22
+    (&kernelContext_0)->Prefilter_Uniforms_0 = Prefilter_Uniforms_1;
+
+#line 22
+    (&kernelContext_0)->source_texture_0 = source_texture_1;
+
+#line 22
+    (&kernelContext_0)->source_sampler_0 = source_sampler_1;
+    float2 uv_1 = frag_coord_0.xy / Prefilter_Uniforms_1->target_0.xy;
+    float rough_0 = Prefilter_Uniforms_1->params_0.x;
+    if(rough_0 <= 0.0f)
     {
-        float4 _65 = source.sample(sourceSmplr, uv, level(Prefilter_Uniforms.target.z));
-        out.entryPointParam_main = float4(_65.xyz, 1.0);
-        return out;
+
+#line 25
+        pixelOutput_0 _S1 = { float4((((&kernelContext_0)->source_texture_0).sample(((&kernelContext_0)->source_sampler_0), (uv_1), level((Prefilter_Uniforms_1->target_0.z)))).xyz, 1.0f) };
+        return _S1;
     }
-    float3 n = panorama_dir(uv);
-    float3 up;
-    if (abs(n.y) < 0.999000012874603271484375)
+    float3 n_0 = panorama_dir_0(uv_1);
+
+#line 28
+    float3 up_0;
+    if((abs(n_0.y)) < 0.99900001287460327f)
     {
-        up = float3(0.0, 1.0, 0.0);
+
+#line 29
+        up_0 = float3(0.0f, 1.0f, 0.0f);
+
+#line 29
     }
     else
     {
-        up = float3(1.0, 0.0, 0.0);
+
+#line 29
+        up_0 = float3(1.0f, 0.0f, 0.0f);
+
+#line 29
     }
-    float3 _109 = fast::normalize(cross(up, n));
-    float3 _110 = cross(n, _109);
-    float a = Prefilter_Uniforms.params.x * Prefilter_Uniforms.params.x;
-    float _112 = a * a;
-    float _118 = 12.56637096405029296875 / (Prefilter_Uniforms.params.y * Prefilter_Uniforms.params.z);
-    uint i = 0u;
-    float3 sum = float3(0.0);
-    float weight = 0.0;
-    float weight_1;
-    for (;;)
+    float3 t_0 = normalize(cross(up_0, n_0));
+    float3 _S2 = cross(n_0, t_0);
+    float a_0 = rough_0 * rough_0;
+    float _S3 = a_0 * a_0;
+
+
+
+    float _S4 = 12.56637096405029297f / (Prefilter_Uniforms_1->params_0.y * Prefilter_Uniforms_1->params_0.z);
+    float3 _S5 = float3(0.0f) ;
+
+#line 38
+    uint i_1 = 0U;
+
+#line 38
+    float3 sum_0 = _S5;
+
+#line 38
+    float weight_0 = 0.0f;
+
+    for(;;)
     {
-        bool _23_ladder_break = false;
-        do
+
+#line 40
+        if(i_1 < 64U)
         {
-            if (!(i < 64u))
-            {
-                _23_ladder_break = true;
-                break;
-            }
-            float2 xi = hammersley(i);
-            float phi = 6.283185482025146484375 * xi.x;
-            float _146 = xi.y;
-            float _148 = _112 - 1.0;
-            float _152 = sqrt((1.0 - _146) / (1.0 + (_148 * _146)));
-            float _153 = _152 * _152;
-            float _156 = sqrt(fast::max(1.0 - _153, 0.0));
-            float3 h = ((_109 * (_156 * cos(phi))) + (_110 * (_156 * sin(phi)))) + (n * _152);
-            float3 l = (h * (2.0 * dot(n, h))) - n;
-            float _171 = dot(n, l);
-            if (_171 <= 0.0)
-            {
-                weight_1 = weight;
-                break;
-            }
-            float d = (_153 * _148) + 1.0;
-            float4 _215 = source.sample(sourceSmplr, panorama_uv(l), level(fast::max((0.5 * log2(1.0 / ((64.0 * ((_112 / ((3.1415927410125732421875 * d) * d)) / 4.0)) * _118))) + 1.0, 0.0)));
-            sum += (_215.xyz * _171);
-            weight_1 = weight + _171;
-            break;
-        } while(false);
-        if (_23_ladder_break)
+        }
+        else
         {
+
+#line 40
             break;
         }
-        i++;
-        weight = weight_1;
-        continue;
+
+#line 41
+        float2 xi_0 = hammersley_0(i_1);
+        float phi_1 = 6.28318548202514648f * xi_0.x;
+        float _S6 = xi_0.y;
+
+#line 43
+        float _S7 = _S3 - 1.0f;
+
+#line 43
+        float cos_t_0 = sqrt((1.0f - _S6) / (1.0f + _S7 * _S6));
+        float _S8 = cos_t_0 * cos_t_0;
+
+#line 44
+        float sin_t_0 = sqrt(max(1.0f - _S8, 0.0f));
+        float3 h_0 = t_0 * float3((sin_t_0 * cos(phi_1)))  + _S2 * float3((sin_t_0 * sin(phi_1)))  + n_0 * float3(cos_t_0) ;
+        float3 l_0 = float3((2.0f * dot(n_0, h_0)))  * h_0 - n_0;
+        float n_dot_l_0 = dot(n_0, l_0);
+        if(n_dot_l_0 <= 0.0f)
+        {
+
+#line 48
+            i_1 = i_1 + 1U;
+
+#line 40
+            continue;
+        }
+
+#line 50
+        float d_1 = _S8 * _S7 + 1.0f;
+
+
+
+        float weight_1 = weight_0 + n_dot_l_0;
+
+#line 54
+        sum_0 = sum_0 + (((&kernelContext_0)->source_texture_0).sample(((&kernelContext_0)->source_sampler_0), (panorama_uv_0(l_0)), level((max(0.5f * log2(1.0f / (64.0f * (_S3 / (3.14159274101257324f * d_1 * d_1) / 4.0f) * _S4)) + 1.0f, 0.0f))))).xyz * float3(n_dot_l_0) ;
+
+#line 54
+        weight_0 = weight_1;
+
+#line 40
+        i_1 = i_1 + 1U;
+
+#line 40
     }
-    out.entryPointParam_main = float4(sum / float3(fast::max(weight, 9.9999999747524270787835121154785e-07)), 1.0);
-    return out;
+
+#line 40
+    pixelOutput_0 _S9 = { float4(sum_0 / float3(max(weight_0, 9.99999997475242708e-07f)) , 1.0f) };
+
+#line 56
+    return _S9;
 }
 

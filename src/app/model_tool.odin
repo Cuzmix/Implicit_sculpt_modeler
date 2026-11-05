@@ -99,6 +99,53 @@ MODEL_ACTION_NAMES := [Model_Action]string {
 	.Loop_Curve     = "Loop to curve",
 }
 
+// Each action's icon (Lucide), one apiece, drawn from what it does to the cage: a face
+// pushed out, a face inside a face, a loop across a quad, two edges pulled together.
+// The shelf, the dial, Search and every menu show these, so no two actions share a glyph,
+// and none is a brush's.
+@(rodata)
+MODEL_ACTION_ICONS := [Model_Action]rune {
+	.Extrude        = 0xe42f, // square-arrow-up
+	.Inset          = 0xe613, // square-square
+	.Move           = 0xe125, // move
+	.Delete         = 0xe179, // square-x
+	.Polygroup      = 0xe469, // group
+	.Flip           = 0xe04a, // arrow-down-up: the faces turned over
+	.Insert_Loop    = 0xe597, // between-horizontal-start
+	.Remove_Loop    = 0xe175, // square-minus
+	.Collapse       = 0xe11f, // minimize-2
+	.Spin           = 0xe14d, // rotate-cw
+	.Close_Hole     = 0xe4b5, // circle-dashed, the app's mark for a hole's open border
+	.Extrude_Edge   = 0xe45f, // arrow-up-from-line
+	.Bridge         = 0xe442, // unfold-horizontal
+	.Weld           = 0xe451, // combine
+	.Connect        = 0xe109, // link-2
+	.Dissolve_Point = 0xe5e6, // diamond-minus
+	.Select         = 0xe257, // scan
+	.Crease         = 0xe533, // tangent
+	.Crease_Point   = 0xe2d2, // diamond
+	.Bevel          = 0xe12a, // octagon: corners cut
+	.Circle_Loop    = 0xe07a, // circle
+	.Space_Loop     = 0xe275, // align-horizontal-space-around
+	.Flatten_Loop   = 0xe277, // align-vertical-justify-center
+	.Knife          = 0xe2f0, // slice
+	.Align          = 0xe03c, // align-center
+	.Spine          = 0xe35c, // bone
+	.Topo           = 0xe547, // waypoints
+	.Loop_Curve     = 0xe612, // chart-spline
+}
+
+// Each primitive cage's icon (Lucide), its own shape.
+@(rodata)
+PRIMITIVE_ICONS := [poly.Primitive]rune {
+	.Cube     = 0xe529, // cuboid
+	.Plane    = 0xe16b, // square
+	.Cylinder = 0xe52a, // cylinder
+	.Sphere   = 0xe634, // volleyball: a ball of patches
+	.Torus    = 0xe534, // torus
+	.Cone     = 0xe528, // cone
+}
+
 // Each action as an undo step names it, in the History panel and the undo button's tip.
 @(rodata)
 MODEL_ACTION_WHAT := [Model_Action]string {
@@ -413,6 +460,7 @@ Model_Drag :: struct {
 // The Model tool's own state, beside the primitive Add cage makes.
 model_tool_free :: proc(m: ^Model_Tool) {
 	model_topo_free(&m.topo)
+	cage_xform_free(&m.xform)
 	if m.drag.before != nil do history_snapshot_drop(m.drag.before)
 	delete(m.hover.items)
 	delete(m.hover.images)
@@ -424,9 +472,32 @@ model_tool_free :: proc(m: ^Model_Tool) {
 	poly.mesh_destroy(&m.drag.original)
 }
 
-// The target the Model tool uses with `action`: the one picked for it, or its default.
+// The kind of element `action` takes: its own, but Select's is what it picks (Faces, Edges
+// or Points, as Blender's three select modes).
+model_element :: proc(m: ^Model_Tool, action: Model_Action) -> Model_Element {
+	return m.pick if action == .Select else MODEL_ACTION_ELEMENT[action]
+}
+
+// The edge targets Select offers when it picks edges.
+SELECT_EDGE_TARGETS :: bit_set[Model_Target]{.Single, .Edge_Loop, .Edge_Ring, .Border_Loop}
+
+// The targets `action` can take; Select's follow what it picks.
+model_targets :: proc(m: ^Model_Tool, action: Model_Action) -> bit_set[Model_Target] {
+	if action == .Select {
+		switch m.pick {
+		case .Face:  return MODEL_ACTION_TARGETS[.Select]
+		case .Edge:  return SELECT_EDGE_TARGETS
+		case .Point: return {.Single}
+		}
+	}
+	return MODEL_ACTION_TARGETS[action]
+}
+
+// The target the Model tool uses with `action`: the one picked for it, or its default
+// (Single for Select picking edges or points, whatever it picks faces with).
 model_target :: proc(m: ^Model_Tool, action: Model_Action) -> Model_Target {
-	if action in m.targeted && m.targets[action] in MODEL_ACTION_TARGETS[action] do return m.targets[action]
+	if action in m.targeted && m.targets[action] in model_targets(m, action) do return m.targets[action]
+	if action == .Select do return .Single
 	return MODEL_DEFAULT_TARGETS[action]
 }
 
@@ -440,7 +511,7 @@ model_pick_action :: proc(app: ^App, action: Model_Action) {
 // Picks the target for the action in hand, when the action can take it.
 model_pick_target :: proc(app: ^App, target: Model_Target) {
 	m := &app.model
-	if target not_in MODEL_ACTION_TARGETS[m.action] do return
+	if target not_in model_targets(m, m.action) do return
 	m.targets[m.action] = target
 	m.targeted += {m.action}
 }
@@ -535,6 +606,11 @@ segment_distance :: proc(p, a, b: [2]f32) -> (distance, along: f32) {
 model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	m := &app.model
 	d := &m.drag
+	if input.hovered do m.pointer = input.mouse_pos
+	// The selection's gizmo, or a G, R or S on it, takes the press before any action.
+	if d.state == .None {
+		if taken, ok := model_xform_frame(app, input); taken || !ok do return ok
+	}
 	// The Topo pen works on the sculpt under the cage, with gestures of its own.
 	if m.action == .Topo && d.state == .None do return model_topo_frame(app, input)
 	switch d.state {
@@ -670,8 +746,8 @@ model_hover :: proc(app: ^App, pos, size: [2]f32, over: bool) {
 	obj, face, edge, point, at, ok := model_pick(app, pos, size, m.action in MODEL_BORDER_ACTIONS)
 	if !ok do return
 	h.object, h.face, h.edge, h.point, h.at = obj.id, face, edge, point, at
-	model_resolve(&obj.cage.mesh, MODEL_ACTION_ELEMENT[m.action], model_target(m, m.action), face, edge, point, &h.items)
-	model_images(app, &obj.cage.mesh, MODEL_ACTION_ELEMENT[m.action], h.items[:], &h.images)
+	model_resolve(&obj.cage.mesh, model_element(m, m.action), model_target(m, m.action), face, edge, point, &h.items)
+	model_images(app, &obj.cage.mesh, model_element(m, m.action), h.items[:], &h.images)
 }
 
 // The symmetry's planes, as the cage's mirrors name them.
@@ -732,8 +808,17 @@ model_tap :: proc(app: ^App) -> bool {
 		group := poly.group_next(cage) if d.alt else m.group
 		poly.group_faces(cage, model_all(d), group)
 	case .Select:
-		// A selection that changes nothing is no undo step.
-		if !poly.select_set(cage, model_all(d), !d.alt) {
+		// A selection that changes nothing is no undo step. Edges pick their ends.
+		changed: bool
+		switch m.pick {
+		case .Face:  changed = poly.select_set(cage, model_all(d), !d.alt)
+		case .Point: changed = poly.pick_points(cage, model_all(d), !d.alt)
+		case .Edge:
+			ends := make([dynamic]u32, context.temp_allocator)
+			poly.edge_ends_into(cage, model_all(d), &ends)
+			changed = poly.pick_points(cage, ends[:], !d.alt)
+		}
+		if !changed {
 			history_snapshot_drop(before)
 			return true
 		}
@@ -1938,13 +2023,18 @@ draw_model_overlay :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		overlay_label(o, fmt.tprintf("%s · %d dot%s", MODEL_ACTION_NAMES[.Topo], len(m.topo.dots), "" if len(m.topo.dots) == 1 else "s"), input.mouse_pos + {0, -36})
 		return
 	}
-	element := MODEL_ACTION_ELEMENT[m.action]
-	// Each shown cage's selection, under the hover.
+	element := model_element(m, m.action)
+	// Each shown cage's selection, under the hover: its faces, and its picked edges and
+	// points.
 	picked := make([dynamic]u32, context.temp_allocator)
 	for obj in app.scene.objects {
 		if obj.cage == nil || !object_shown(app, obj) do continue
 		poly.selected_faces(&obj.cage.mesh, &picked)
 		if len(picked) > 0 do draw_model_items(app, o, input, obj.id, .Face, picked[:], theme_selection_color(&app.kit))
+		poly.picked_edges(&obj.cage.mesh, &picked)
+		if len(picked) > 0 do draw_model_items(app, o, input, obj.id, .Edge, picked[:], theme_selection_color(&app.kit))
+		poly.picked_points(&obj.cage.mesh, &picked)
+		if len(picked) > 0 do draw_model_items(app, o, input, obj.id, .Point, picked[:], theme_selection_color(&app.kit))
 		if m.check do draw_model_check(app, o, input, obj)
 		draw_model_creases(app, o, input, obj)
 	}
@@ -1967,10 +2057,11 @@ draw_model_overlay :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	}
 	if d.state != .Dragging {
 		if d.state == .Pressed {
-			draw_model_items(app, o, input, d.object, MODEL_ACTION_ELEMENT[d.action], d.items[:], MODEL_ELEMENT_COLORS[MODEL_ACTION_ELEMENT[d.action]])
-			draw_model_items(app, o, input, d.object, MODEL_ACTION_ELEMENT[d.action], d.images[:], MODEL_ELEMENT_COLORS[MODEL_ACTION_ELEMENT[d.action]])
-			if d.action in MODEL_PAIRS do overlay_line(o, d.press, input.mouse_pos, overlay_color(MODEL_ELEMENT_COLORS[MODEL_ACTION_ELEMENT[d.action]]), 2)
-			if d.action in MODEL_STROKES && len(d.stroke) > 1 do overlay_polyline(o, d.stroke[:], overlay_color(MODEL_ELEMENT_COLORS[MODEL_ACTION_ELEMENT[d.action]]), 2)
+			de := model_element(m, d.action)
+			draw_model_items(app, o, input, d.object, de, d.items[:], MODEL_ELEMENT_COLORS[de])
+			draw_model_items(app, o, input, d.object, de, d.images[:], MODEL_ELEMENT_COLORS[de])
+			if d.action in MODEL_PAIRS do overlay_line(o, d.press, input.mouse_pos, overlay_color(MODEL_ELEMENT_COLORS[de]), 2)
+			if d.action in MODEL_STROKES && len(d.stroke) > 1 do overlay_polyline(o, d.stroke[:], overlay_color(MODEL_ELEMENT_COLORS[de]), 2)
 		}
 		if d.state == .None || d.action in MODEL_PAIRS {
 			draw_model_items(app, o, input, m.hover.object, element, m.hover.items[:], MODEL_ELEMENT_COLORS[element])

@@ -84,43 +84,6 @@ any_square_to :: proc(v: Vec3) -> Vec3 {
 	return linalg.normalize(linalg.cross(v, other))
 }
 
-// A tube of `radius` along the curve, its middle `lift` out from the surface, with
-// `sides` vertices round each ring and a flat cap at each end: closed and manifold.
-// The curve should be resampled at about the ring spacing wanted.
-curve_tube :: proc(points: []Curve_Point, radius, lift: f32, sides: int, allocator := context.allocator) -> (m: Mesh, ok: bool) {
-	if len(points) < 2 || sides < 3 || !(radius > 0) do return {}, false
-	frames := curve_frames(points, context.temp_allocator)
-	rings := len(frames)
-	m.positions = make([dynamic]Vec3, 0, rings * sides + 2, allocator)
-	m.indices = make([dynamic]u32, 0, 6 * (rings - 1) * sides + 6 * sides, allocator)
-	for f in frames {
-		middle := f.p + lift * f.n
-		for k in 0 ..< sides {
-			a := 2 * math.PI * f32(k) / f32(sides)
-			append(&m.positions, middle + radius * (math.cos(a) * f.n + math.sin(a) * f.b))
-		}
-	}
-	S := u32(sides)
-	for i in 0 ..< u32(rings - 1) {
-		for k in 0 ..< S {
-			a, b := i * S + k, i * S + (k + 1) % S
-			c, d := b + S, a + S
-			// Round the ring (N towards B, anticlockwise about T) then along T faces out.
-			append(&m.indices, a, b, c, a, c, d)
-		}
-	}
-	start, end := u32(len(m.positions)), u32(len(m.positions) + 1)
-	append(&m.positions, frames[0].p + lift * frames[0].n, frames[rings - 1].p + lift * frames[rings - 1].n)
-	last := u32(rings - 1) * S
-	for k in 0 ..< S {
-		append(&m.indices, start, (k + 1) % S, k)
-		append(&m.indices, end, last + k, last + (k + 1) % S)
-	}
-	m.normals = make([dynamic]Vec3, len(m.positions), allocator)
-	mesh_recompute_normals(&m)
-	return m, true
-}
-
 // Copies of `part` at every point of the curve, each turned to the frame there: the
 // part's x goes across the curve (B), y out of the surface (N) and z back along it (-T,
 // which keeps the turn from mirroring the part), and its origin `lift` out from the surface. With `alternate` every other copy is turned

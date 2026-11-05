@@ -11,7 +11,7 @@ import "../ui"
 // kit_brush_sheet in lens_shelf.odin). Everything it lists is a Brush_Item: a brush, a
 // preset (built-in, yours or a pack's), the Curve and Insert tools, a mask, hide or cut
 // tool, or any other button a dock can hold (a card, a slider, a command). The categories,
-// Recent and Favorites are the interface's: settings.txt remembers them (brush_category,
+// Recent and Favourites are the interface's: settings.txt remembers them (brush_category,
 // brush_recent, brush_favorite).
 
 BRUSH_RECENT :: 12
@@ -22,7 +22,7 @@ BRUSH_KEY :: 80
 ICON_HEART :: rune(0xe0f5)
 
 // All comes first so a fresh install opens on it; the column lists them in
-// BRUSH_CATEGORY_ORDER, ZBrush's, with Recent and Favorites above All, then the buttons
+// BRUSH_CATEGORY_ORDER, ZBrush's, with Recent and Favourites above All, then the buttons
 // that are not brushes: cards, sliders and every other command.
 Brush_Category :: enum u8 {
 	All,
@@ -51,7 +51,7 @@ BRUSH_CATEGORY_ORDER := [?]Brush_Category{.Recent, .Favorites, .All, .Clay, .Cre
 @(rodata)
 BRUSH_CATEGORY_NAMES := [Brush_Category]string {
 	.Recent       = "Recent",
-	.Favorites    = "Favorites",
+	.Favorites    = "Favourites",
 	.All          = "All",
 	.Clay         = "Clay",
 	.Crease       = "Crease",
@@ -97,7 +97,7 @@ BRUSH_CATEGORY_OF := [sculpt.Brush_Kind]Brush_Category {
 // The Library's own state, in Kit_State.
 Brush_Palette :: struct {
 	category:       Brush_Category,
-	pack:           int, // into App.library.packs, while category is .Pack
+	pack:           int, // into App.library.packs, or PACKS_MANAGE, while category is .Pack
 	// The dock's slot it is choosing a button for (library_open_for): a tap puts the item
 	// there instead of picking it.
 	adding:         Maybe(Bar_Pick),
@@ -116,7 +116,7 @@ Brush_Palette :: struct {
 	picks:          int, // picks and settings opened from the browser, for the exit stats
 }
 
-// A Brush_Item's name as Recent and Favorites keep it (brush_item_key), up to the first
+// A Brush_Item's name as Recent and Favourites keep it (brush_item_key), up to the first
 // zero byte.
 Brush_Key :: [BRUSH_KEY]u8
 
@@ -163,7 +163,7 @@ brush_item_name :: proc(app: ^App, it: Brush_Item) -> string {
 	return ""
 }
 
-// What Recent and Favorites remember an item by: its kind and name, which outlive a
+// What Recent and Favourites remember an item by: its kind and name, which outlive a
 // preset deleted before it or a pack installed after it, as indices would not.
 brush_item_key :: proc(app: ^App, it: Brush_Item) -> string {
 	switch it.what {
@@ -244,8 +244,8 @@ brush_item_hint :: proc(app: ^App, it: Brush_Item) -> string {
 		if arg, ok := preset_slot_of(it.slot.preset); ok do return command_hint(app, .Brush_Preset, arg)
 		return ""
 	case .Tool:       return command_hint(app, TOOL_COMMANDS[it.tool])
-	case .Mask_Shape: return "Ctrl + drag on empty space, or Mask on the wheel"
-	case .Gesture:    return "Ctrl + Shift + drag, or Hide on the wheel"
+	case .Mask_Shape: return "Ctrl + drag on empty space, or Mask on the dial"
+	case .Gesture:    return "Ctrl + Shift + drag, or Hide on the dial"
 	}
 	return ""
 }
@@ -257,7 +257,7 @@ brush_item_category :: proc(it: Brush_Item) -> Brush_Category {
 		s := it.slot
 		#partial switch s.command.id {
 		case .None:
-		case .Show_Panel, .Show_Section: return .Cards
+		case .Open_Card, .Open_Section: return .Cards
 		case .Brush_Value:               return .Sliders
 		case:                            return .Commands
 		}
@@ -318,11 +318,10 @@ brush_items_all :: proc(app: ^App, buttons := false) -> [dynamic]Listed_Brush {
 }
 
 // Whether command `id`'s buttons are listed already as the Library's own items (the
-// brushes, presets, tools and shapes), or are no button of their own to choose (a rail
-// group, made by joining panels).
+// brushes, presets, tools and shapes).
 @(private = "file")
 library_lists_already :: proc(id: Command_Id) -> bool {
-	if shelf_holds_brushes(id) || id == .Rail_Group do return true
+	if shelf_holds_brushes(id) do return true
 	return id == TOOL_COMMANDS[.Curve] || id == TOOL_COMMANDS[.Insert] || id == TOOL_COMMANDS[.Model]
 }
 
@@ -356,7 +355,8 @@ brush_palette_list :: proc(app: ^App, all: []Listed_Brush) -> []Listed_Brush {
 	case p.category == .All:
 		for l in all do if !brush_item_is_button(l.item) do append(&out, l)
 	case p.category == .Pack:
-		for l in all do if brush_item_of_pack(app, l.item, p.pack) do append(&out, l)
+		// Manage packs (PACKS_MANAGE) lists no items: the sheet shows the packs there.
+		if p.pack >= 0 do for l in all do if brush_item_of_pack(app, l.item, p.pack) do append(&out, l)
 	case:
 		for l in all do if brush_item_category(l.item) == p.category do append(&out, l)
 	}
@@ -426,15 +426,15 @@ brush_palette_categories :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, h
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	W :: 200
-	ui.begin(ctx, "brush sheet categories", {direction = .Column, gap = 0, padding = 8, width = W, height = height})
+	ui.begin(ctx, "brush sheet categories", {direction = .Column, gap = 0, padding = ui.SPACE_M, width = W, height = height})
 	brush_category_rows(app, owner, all, W - 16, height - 16)
 	ui.end(ctx)
 	if r := ui.prev_rect(ctx, "brush sheet categories"); r.w > 0 do ui.fill_rect(ctx, {r.x + r.w - 1, r.y, 1, r.h}, 0, t.border)
 	return W
 }
 
-// The categories in the app's order, then each installed pack, each row with how many it
-// holds, in a body that scrolls; a tap shows that category's brushes.
+// The categories in the app's order, then Manage packs and each installed pack, each row
+// with how many it holds, in a body that scrolls; a tap shows that category's brushes.
 @(private = "file")
 brush_category_rows :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, width, height: f32) {
 	k := &app.kit
@@ -464,12 +464,24 @@ brush_category_rows :: proc(app: ^App, owner: ui.Id, all: []Listed_Brush, width,
 			p.side_reveal = false
 		}
 	}
+	// The content packs: Manage packs (install, make, remove), then
+	// each pack installed, with how many presets it brings.
+	ui.caption(ctx, "  PACKS")
+	manage := brush_query(p) == "" && p.category == .Pack && p.pack == PACKS_MANAGE
+	if ui.list_row(ctx, "Manage packs##brush packs manage", fmt.tprint(len(app.library.packs)), manage).clicked {
+		library_packs_open(app)
+	}
+	// Opened on the packs (Menu > More > Library, a pack waiting on Replace), the list
+	// scrolls down to them.
+	if p.category == .Pack && p.side_reveal && rows.limit > 0 {
+		p.side_scroll = rows.limit
+		p.side_reveal = false
+	}
 	for pack, i in app.library.packs {
-		if packs[i] == 0 do continue
 		on := brush_query(p) == "" && p.category == .Pack && p.pack == i
 		name := ui.text_fit(ctx, pack.name, t.text_size, width - 56)
 		if ui.list_row(ctx, fmt.tprintf("%s##brush pack %d", name, i), fmt.tprint(packs[i]), on).clicked {
-			p.category, p.pack, p.searching, p.search, k.grid_scroll = .Pack, i, false, {}, 0
+			p.category, p.pack, p.searching, p.search, k.grid_scroll, k.pack_armed = .Pack, i, false, {}, 0, 0
 		}
 	}
 	kit_scroll_end(ctx, rows)

@@ -303,7 +303,7 @@ theme_follow_device :: proc(k: ^Kit_State, dark: bool) {
 theme_seed_text :: proc(s: ui.Theme_Seed, over: ui.Theme_Overrides = {}) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	fmt.sbprintf(&b,
-		"%s hue=%v tint=%v contrast=%v opacity=%v corners=%s accent=%s chosen=%s black=%d shadow=%d",
+		"%s hue=%v tint=%v contrast=%v opacity=%v corners=%s accent=%s chosen=%s black=%d shadow=%v",
 		"light" if s.mode == .Light else "dark",
 		s.hue,
 		s.tint,
@@ -313,7 +313,7 @@ theme_seed_text :: proc(s: ui.Theme_Seed, over: ui.Theme_Overrides = {}) -> stri
 		theme_hex(s.accent),
 		strings.to_lower(fmt.tprint(s.chosen), context.temp_allocator),
 		1 if s.black else 0,
-		1 if s.shadow else 0,
+		s.shadow,
 	)
 	for token in over.set do fmt.sbprintf(&b, " %s=%s", ui.THEME_TOKEN_KEYS[token], theme_hex(over.colors[token]))
 	return strings.to_string(b)
@@ -343,7 +343,7 @@ theme_seed_parse :: proc(words: []string, seed: ui.Theme_Seed) -> (s: ui.Theme_S
 		case "contrast": if is_number do s.contrast = clamp(fraction(number), 0, 1)
 		case "opacity":  if is_number do s.opacity = clamp(fraction(number), ui.THEME_OPACITY_MIN, 1)
 		case "black":    s.black = value == "1"
-		case "shadow":   s.shadow = value == "1"
+		case "shadow":   if is_number do s.shadow = clamp(fraction(number), 0, 1)
 		case "corners":
 			switch value {
 			case "square": s.corners = .Square
@@ -499,7 +499,7 @@ settings_look :: proc(app: ^App) {
 	draft := theme_draft(k)
 	name := theme_ref_name(k, theme_ref(k))
 	ui.paragraph(ctx, fmt.tprintf("%s, edited: keep it as a theme of your own, or undo.", name) if draft else "Pick a theme, or change anything below to make one of your own.")
-	ui.begin(ctx, "look draft", {direction = .Row, gap = 8})
+	ui.begin(ctx, "look draft", {direction = .Row, gap = ui.SPACE_M})
 	if ui.button(ctx, "Undo##look draft", .Bordered, enabled = draft, reason = "Nothing has changed") do theme_choose(k, theme_ref(k))
 	keep_name := "Keep##look draft" if ts.user >= 0 else "Keep as new##look draft"
 	keep_room := ts.user >= 0 || ts.count < USER_THEMES
@@ -508,8 +508,10 @@ settings_look :: proc(app: ^App) {
 	hold := ui.area(ctx, "Hold to compare##look", {132, t.target}, drag = false)
 	vis := ui.Rect{hold.rect.x, hold.rect.y + (hold.rect.h - t.control) * 0.5, hold.rect.w, t.control}
 	ts.compare = draft && hold.held
-	ui.fill_rect(ctx, vis, t.radius_medium, ui.color_fade(t.fill_pressed if ts.compare else t.fill, 1 if draft else 0.4))
-	ui.text(ctx, "Hold to compare", vis.x + vis.w * 0.5, vis.y + vis.h * 0.5, t.text_size, ui.color_fade(t.text_secondary, 1 if draft else 0.4), .Regular, .Center)
+	// Dimmed as every disabled button is: a hairline and the disabled ink, no fill.
+	if draft do ui.fill_rect(ctx, vis, t.radius_medium, t.fill_pressed if ts.compare else t.fill)
+	else do ui.stroke_rect(ctx, vis, t.radius_medium, t.border_strong, 1)
+	ui.text(ctx, "Hold to compare", vis.x + vis.w * 0.5, vis.y + vis.h * 0.5, t.text_size, t.text_secondary if draft else ui.disabled_ink(t), .Regular, .Center)
 	ui.end(ctx)
 
 	// The gallery: the built-in themes, then the person's own, as many to a row as fit.
@@ -586,7 +588,7 @@ settings_look :: proc(app: ^App) {
 	corners := [3]string{"Square", "Normal", "Round"}
 	if picked := ui.tabs(ctx, "Corners##look", corners[:], int(seed.corners)); picked >= 0 do seed.corners = ui.Theme_Corners(picked)
 	if seed.mode == .Dark do _ = ui.switch_row(ctx, "Pure black##look", &seed.black)
-	_ = ui.switch_row(ctx, "Panel shadows##look", &seed.shadow)
+	_ = ui.slider(ctx, "Panel shadows##look", &seed.shadow, 0, 1, .Linear, "Off" if seed.shadow <= 0 else fmt.tprintf("%.0f%%", seed.shadow * 100))
 	ui.caption(ctx, "VIEWPORT")
 	if ui.switch_row(ctx, "Bring its background##look", &ts.bring) && ts.bring do ts.brought = {}
 	ui.paragraph(ctx, "Changing theme also changes the viewport's background to go with it. The wireframe, Model mode's selection and the spaces' colours are under Every colour.")
@@ -612,7 +614,7 @@ settings_look :: proc(app: ^App) {
 		for token in ui.Theme_Token {
 			set := token in ts.over.set
 			c := ts.over.colors[token] if set else ui.theme_token(&made, token)^
-			ui.begin(ctx, fmt.tprintf("look every %v", token), {direction = .Row, gap = 8})
+			ui.begin(ctx, fmt.tprintf("look every %v", token), {direction = .Row, gap = ui.SPACE_M})
 			ui.begin(ctx, fmt.tprintf("look every name %v", token), {direction = .Column, width = max(ui.fill_width(ctx) - 120, 80)})
 			ui.label(ctx, ui.THEME_TOKEN_NAMES[token], t.text_size, t.text if set else t.text_secondary)
 			ui.end(ctx)
@@ -642,7 +644,7 @@ theme_color_well :: proc(app: ^App, name: string, rgb: ^[3]f32) -> (changed: boo
 	c := &app.kit.colors
 	hex_w: f32 = 104
 	well_w := max(ui.fill_width(ctx) - hex_w - 8, 28)
-	ui.begin(ctx, fmt.tprintf("well row##%s", name), {direction = .Row, gap = 8})
+	ui.begin(ctx, fmt.tprintf("well row##%s", name), {direction = .Row, gap = ui.SPACE_M})
 	well := fmt.tprintf("%s##%s well", name, name)
 	id := ui.id_of(ctx, well)
 	open := c.pop && c.pop_of == id
@@ -766,7 +768,7 @@ kit_theme_menus :: proc(app: ^App) {
 	ts := &k.themes
 	if ts.menu && !k.settings do ts.menu = false
 	if ts.code.open && !k.settings do ts.code.open = false
-	if ui.popover_begin(ctx, "theme menu", &ts.menu, ts.menu_at, .Below, {direction = .Column, gap = 0, padding = 6, width = 240}) {
+	if ui.popover_begin(ctx, "theme menu", &ts.menu, ts.menu_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) {
 		r := theme_ref_valid(k, ts.menu_of)
 		if r.user >= 0 && ui.menu_item(ctx, "Rename...##theme", glyph = ui.ICON_PENCIL) {
 			k.rename = {open = true, theme = int(r.user) + 1, at = ts.menu_at}
@@ -791,7 +793,7 @@ kit_theme_menus :: proc(app: ^App) {
 	// Opened low on the screen (Share code at the page's foot), it opens upward, so the
 	// field and its buttons stay on screen.
 	side := ui.Side.Above if c.at.y > ctx.input.window.y * 0.5 else .Below
-	if ui.popover_begin(ctx, "theme code", &c.open, c.at, side, {direction = .Column, gap = 6, padding = 12, width = 340}) {
+	if ui.popover_begin(ctx, "theme code", &c.open, c.at, side, {direction = .Column, gap = ui.SPACE_S, padding = ui.POPOVER_PAD, width = ui.POPOVER_WIDE_W}) {
 		defer ui.popover_end(ctx)
 		ui.caption(ctx, "IMPORT A THEME" if c.importing else "SHARE THIS THEME")
 		ui.paragraph(ctx, "Paste a theme code; Import adds it to your themes and shows it." if c.importing else "Copy this code and paste it into Import code on any device. It is plain text, so it fits in a message.")

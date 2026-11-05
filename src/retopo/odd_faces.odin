@@ -106,13 +106,14 @@ onto :: proc(surface: geom.Mesh, bvh: ^geom.Bvh, p: geom.Vec3, hint: ^u32) -> ge
 
 // Joins the faces of `m` with an odd number of sides in pairs, or to the open border, as
 // the file's comment says. `dropped` (one per face, or empty) marks faces that count for
-// nothing here (a mirrored half's caps, which the caller drops after): they stay as they
-// are, out of every path, and their edges are border. `planes` (per vertex, or nil) is
+// nothing here (a mirrored half's slivers on the plane, which the caller drops after):
+// they stay as they are, out of every path, and their edges are border. `planes` (per vertex, or nil) is
 // the seam's: a vertex put on a seam edge gets the planes both its ends share, and a seam
 // vertex stays where it is. New vertices go onto `surface` through `bvh`, or through a
-// tree built here when that is nil. Returns how many odd faces were mended and how many
-// are left.
-quad_fill_odd :: proc(m: ^quadmesh.Polygon_Mesh, dropped: ^[]bool, planes: ^[dynamic]u8, surface: geom.Mesh, bvh: ^geom.Bvh, pool: ^jobs.Pool) -> (mended, left: int) {
+// tree built here when that is nil. With `keep_border` (Keep borders) a path ends at the
+// seam alone, never at the mesh's own border, which then keeps its vertices and edges as
+// they are. Returns how many odd faces were mended and how many are left.
+quad_fill_odd :: proc(m: ^quadmesh.Polygon_Mesh, dropped: ^[]bool, planes: ^[dynamic]u8, surface: geom.Mesh, bvh: ^geom.Bvh, pool: ^jobs.Pool, keep_border := false) -> (mended, left: int) {
 	faces := len(m.first) - 1
 	odd_faces := make([dynamic]i32, context.temp_allocator)
 	for f in 0 ..< faces {
@@ -156,6 +157,9 @@ quad_fill_odd :: proc(m: ^quadmesh.Polygon_Mesh, dropped: ^[]bool, planes: ^[dyn
 	touched := make([dynamic]u32, context.temp_allocator)
 	hint := geom.BVH_NONE
 
+	// A kept border takes no path, so an odd face beside it may have to go further for a
+	// partner, and a seam of halved quads is then worth it.
+	reach := i32(ODD_PATH_MAX * (2 if keep_border else 1))
 	for s in odd_faces {
 		if e.gone[s] || (e.first[s + 1] - e.first[s]) % 2 == 0 do continue
 		// Breadth first over the quads from s, to the first odd face or border edge. The
@@ -182,6 +186,7 @@ quad_fill_odd :: proc(m: ^quadmesh.Polygon_Mesh, dropped: ^[]bool, planes: ^[dyn
 				key := edge_key(c, corners[(k + 1) % len(corners)])
 				at := e.edges[key]
 				if at.count == 1 {
+					if keep_border && (planes == nil || planes[key[0]] & planes[key[1]] == 0) do continue
 					end_face, end_edge, end_border = f, key, true
 					break search
 				}
@@ -196,7 +201,7 @@ quad_fill_odd :: proc(m: ^quadmesh.Polygon_Mesh, dropped: ^[]bool, planes: ^[dyn
 					end_face, end_edge = g, key
 					break search
 				}
-				if n != 4 || hops[f] + 1 > ODD_PATH_MAX do continue
+				if n != 4 || hops[f] + 1 > reach do continue
 				parent[g] = f
 				via[g] = key
 				hops[g] = hops[f] + 1
@@ -390,14 +395,16 @@ relax_patch :: proc(e: ^Odd_Edit, vertices: []u32, surface: geom.Mesh, bvh: ^geo
 // and its image then share both). Each is dissolved: the vertex goes and the two polygons
 // become one, the first's corners from the vertex's next round to its previous and the
 // second's between, which for two quads is a quad (across the seam, a quad lying over
-// it). A merge that would repeat a corner or leave fewer than three is not made. Rounds
-// repeat while a merge leaves another doublet, at most DOUBLET_ROUNDS. `planes` (one per
-// vertex, or nil) loses the dissolved vertices' entries as the positions do. Returns how
-// many were dissolved.
-DOUBLET_ROUNDS :: 4
-
+// it). A merge that would repeat a corner or leave fewer than three is not made. A merge
+// takes a corner from each of the two vertices beside the dissolved one, which can leave
+// one of them a doublet in turn, so rounds repeat until one dissolves none: each round
+// that goes on takes a vertex away, so they end. Four rounds were the limit once, and the
+// creature's mirrored halves at 2,000 quads needed five (22, 11, 4, 2, then the last two,
+// left as two quads over one another, an edge of four triangles that sent it to the
+// whole). `planes` (one per vertex, or nil) loses the dissolved vertices' entries as the
+// positions do. Returns how many were dissolved.
 dissolve_doublets :: proc(m: ^quadmesh.Polygon_Mesh, planes: ^[dynamic]u8) -> (dissolved: int) {
-	for _ in 0 ..< DOUBLET_ROUNDS {
+	for {
 		n := len(m.positions)
 		faces := len(m.first) - 1
 		count := make([]u32, n, context.temp_allocator)

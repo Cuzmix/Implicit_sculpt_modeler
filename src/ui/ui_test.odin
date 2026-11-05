@@ -573,6 +573,23 @@ transforms_scale_about_their_origin_and_fade :: proc(t: ^testing.T) {
 	frame_end(&ctx)
 }
 
+@(test)
+maps_put_flat_drawing_onto_a_slanted_plane :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	frame_begin(&ctx, input_at({-1, -1}))
+	mark := vertex_mark(&ctx)
+	draw_set_state(&ctx.draw, .Atlas, 0, ctx.clip)
+	// A quad from (10, 10) to (20, 20) mapped about its corner: x halves and leans down,
+	// y stays, and the corner lands on (50, 40).
+	draw_quad(&ctx.draw, {10, 10, 10, 10}, WHITE_UV, WHITE_UV, {255, 255, 255, 255})
+	map_since(&ctx, mark, {10, 10}, {50, 40}, {0.5, 0.5}, {0, 1})
+	testing.expect_value(t, ctx.draw.vertices[mark].pos, [2]f32{50, 40})
+	testing.expect_value(t, ctx.draw.vertices[mark + 2].pos, [2]f32{55, 55})
+	frame_end(&ctx)
+}
+
 // One frame with a 200 point column at the top left holding a drag value and a text
 // field, each a touch target tall. Returns whether each changed.
 @(private = "file")
@@ -1300,143 +1317,6 @@ a_long_select_list_fits_the_window_and_scrolls :: proc(t: ^testing.T) {
 	testing.expect(t, ctx.select_open != 0)
 }
 
-// One frame of a 300 point wide column holding a folder row (with a chevron) and an
-// object row under it, each with an eye and a ghost toggle.
-@(private = "file")
-tree_rows :: proc(ctx: ^Context, input: Input, open: ^bool) -> (folder, leaf: Tree_Row_Result) {
-	frame_begin(ctx, input)
-	begin_anchored(ctx, "tree", .Start, .Start, {0, 0}, {direction = .Column, width = 300})
-	toggles := []Row_Toggle{{name = "ghost", glyph = ICON_GHOST}, {name = "eye", glyph = ICON_EYE}}
-	folder = tree_row(ctx, "folder", "2", open = open, all_toggles = toggles)
-	if open^ do leaf = tree_row(ctx, "leaf", "1k", depth = 1, all_toggles = toggles)
-	end(ctx)
-	frame_end(ctx)
-	return
-}
-
-@(test)
-tree_row_toggles_and_chevron_never_select :: proc(t: ^testing.T) {
-	ctx: Context
-	init(&ctx)
-	defer destroy(&ctx)
-	open := true
-	tap :: proc(ctx: ^Context, at: [2]f32, open: ^bool) -> (folder, leaf: Tree_Row_Result) {
-		tree_rows(ctx, input_at(at), open)
-		tree_rows(ctx, input_at(at, down = {.Left}, pressed = {.Left}), open)
-		return tree_rows(ctx, input_at(at, released = {.Left}), open)
-	}
-	tree_rows(&ctx, input_at({-1, -1}), &open)
-	folder, leaf := tree_rows(&ctx, input_at({-1, -1}), &open)
-	testing.expect_value(t, folder.rect, Rect{0, 0, 300, 48})
-	testing.expect_value(t, leaf.rect, Rect{0, 48, 300, 48})
-
-	// The eye is the last 48 points of the row, the ghost the 48 before it.
-	f, l := tap(&ctx, {300 - 24, 48 + 24}, &open)
-	testing.expect(t, !f.clicked && !l.clicked && l.toggled == 1 && f.toggled == -1)
-	f, l = tap(&ctx, {300 - 72, 48 + 24}, &open)
-	testing.expect(t, !l.clicked && l.toggled == 0)
-
-	// The body selects; the indent does not move the toggles.
-	f, l = tap(&ctx, {150, 48 + 24}, &open)
-	testing.expect(t, l.clicked && l.toggled == -1)
-
-	// The chevron, at the folder row's left, folds it without selecting it, and the
-	// leaf goes with it.
-	f, l = tap(&ctx, {24, 24}, &open)
-	testing.expect(t, f.folded && !f.clicked && !open)
-	testing.expect_value(t, l.rect, Rect{})
-	f, _ = tap(&ctx, {150, 24}, &open)
-	testing.expect(t, f.clicked && !f.folded && !open)
-}
-
-// One frame of a drag-scrolled panel 300 points wide and 120 tall at the top left,
-// holding five rows with grips and an eye toggle each, the first a folder's.
-@(private = "file")
-grip_rows :: proc(ctx: ^Context, input: Input, scroll: ^f32) -> (rows: [5]Tree_Row_Result, dragging: bool) {
-	frame_begin(ctx, input)
-	id := id_of(ctx, "rows")
-	_, natural := prev_layout(ctx, "rows")
-	dragging = scroll_update(ctx, id, {0, 0, 300, 120}, scroll, max(natural.y - 120, 0))
-	begin_anchored(ctx, "rows", .Start, .Start, {0, 0}, {direction = .Column, width = 300, height = 120, clip = true, scroll = scroll^, drag_scroll = true})
-	toggles := []Row_Toggle{{name = "eye", glyph = ICON_EYE}}
-	open := true
-	rows[0] = tree_row(ctx, "folder", open = &open, all_toggles = toggles, grip = true)
-	names := [4]string{"a", "b", "c", "d"}
-	for name, i in names do rows[i + 1] = tree_row(ctx, name, depth = 1, all_toggles = toggles, grip = true)
-	end(ctx)
-	frame_end(ctx)
-	return
-}
-
-@(test)
-tree_row_grip_drags_and_toggles_hold_for_a_column :: proc(t: ^testing.T) {
-	ctx: Context
-	init(&ctx)
-	defer destroy(&ctx)
-	scroll: f32
-	at :: proc(p: [2]f32, down: Buttons = {}, pressed: Buttons = {}, released: Buttons = {}, pointer := Pointer_Kind.Mouse) -> Input {
-		in_ := input_at(p, down, pressed, released)
-		in_.pointer = pointer
-		return in_
-	}
-	grip_rows(&ctx, at({-1, -1}), &scroll)
-	grip_rows(&ctx, at({-1, -1}), &scroll)
-
-	// The first member's grip sits after its indent; a mouse tap on it picks the row.
-	a_grip := [2]f32{TREE_INDENT + 20, 48 + 24}
-	grip_rows(&ctx, at(a_grip), &scroll)
-	rows, _ := grip_rows(&ctx, at(a_grip, {.Left}, {.Left}), &scroll)
-	testing.expect(t, rows[1].grip)
-	rows, _ = grip_rows(&ctx, at(a_grip, released = {.Left}), &scroll)
-	testing.expect(t, rows[1].clicked && !rows[1].grip)
-
-	// A finger on the grip drags the row and never the panel; letting go picks nothing.
-	grip_rows(&ctx, at(a_grip, {.Left}, {.Left}, pointer = .Finger), &scroll)
-	dragging: bool
-	for i in 1 ..= 6 {
-		rows, dragging = grip_rows(&ctx, at(a_grip + {0, f32(i) * 8}, {.Left}, pointer = .Finger), &scroll)
-		testing.expect(t, rows[1].grip && !dragging)
-	}
-	testing.expect_value(t, scroll, 0)
-	rows, _ = grip_rows(&ctx, at(a_grip + {0, 48}, released = {.Left}, pointer = .Finger), &scroll)
-	testing.expect(t, !rows[1].clicked && !rows[1].grip)
-
-	// The folder's grip is after its chevron.
-	folder_grip := [2]f32{48 + 20, 24}
-	grip_rows(&ctx, at(folder_grip, {.Left}, {.Left}), &scroll)
-	rows, _ = grip_rows(&ctx, at(folder_grip, {.Left}), &scroll)
-	testing.expect(t, rows[0].grip && !rows[0].folded)
-	grip_rows(&ctx, at(folder_grip, released = {.Left}), &scroll)
-
-	// A mouse held on an eye may drag down its column at once.
-	eye := [2]f32{300 - 24, 48 + 24}
-	grip_rows(&ctx, at(eye, {.Left}, {.Left}), &scroll)
-	rows, _ = grip_rows(&ctx, at(eye + {0, 30}, {.Left}), &scroll)
-	testing.expect_value(t, rows[1].held_toggle, 0)
-	rows, _ = grip_rows(&ctx, at(eye + {0, 30}, released = {.Left}), &scroll)
-	testing.expect(t, rows[1].toggled == -1 && rows[1].held_toggle == -1)
-
-	// A finger's quick drag from an eye scrolls the panel instead...
-	grip_rows(&ctx, at(eye, {.Left}, {.Left}, pointer = .Finger), &scroll)
-	for i in 1 ..= 4 do rows, dragging = grip_rows(&ctx, at(eye + {0, -f32(i) * 8}, {.Left}, pointer = .Finger), &scroll)
-	testing.expect(t, dragging && rows[1].held_toggle == -1)
-	grip_rows(&ctx, at(eye + {0, -32}, released = {.Left}, pointer = .Finger), &scroll)
-	scroll = 0
-	for _ in 0 ..< 30 do grip_rows(&ctx, at({-1, -1}), &scroll)
-
-	// ...and held still until its tooltip shows, the column is the finger's.
-	grip_rows(&ctx, at(eye, {.Left}, {.Left}, pointer = .Finger), &scroll)
-	for _ in 0 ..< 3 {
-		rows, _ = grip_rows(&ctx, at(eye, {.Left}, pointer = .Finger), &scroll)
-		testing.expect_value(t, rows[1].held_toggle, -1)
-	}
-	for _ in 0 ..< 30 do rows, _ = grip_rows(&ctx, at(eye, {.Left}, pointer = .Finger), &scroll)
-	testing.expect_value(t, rows[1].held_toggle, 0)
-	for i in 1 ..= 4 do rows, dragging = grip_rows(&ctx, at(eye + {0, f32(i) * 8}, {.Left}, pointer = .Finger), &scroll)
-	testing.expect(t, !dragging && rows[1].held_toggle == 0)
-	testing.expect_value(t, scroll, 0)
-}
-
 // fill_mesh adds its points in physical pixels with their own colours after whatever was
 // drawn before, offsets its indices by them, and leaves out a triangle naming a point it
 // was not given.
@@ -1492,35 +1372,6 @@ gradient_slider_follows_the_pointer :: proc(t: ^testing.T) {
 	testing.expect_value(t, value, 1)
 	one_gradient(&ctx, input_at({track_x + track_w * 2, 40}, released = {.Left}), &value)
 	testing.expect_value(t, ctx.active, 0)
-}
-
-one_tile :: proc(ctx: ^Context, input: Input) -> Tile_Result {
-	frame_begin(ctx, input)
-	begin_anchored(ctx, "tiles", .Start, .Start, {16, 16}, {direction = .Row, gap = 0})
-	_ = preview_tile(ctx, "Clay##tile", ICON_BRUSH, {180, 160, 150, 255}, true)
-	res := preview_tile(ctx, "Crease##tile", ICON_BRUSH, {180, 160, 150, 255}, true)
-	end(ctx)
-	frame_end(ctx)
-	return res
-}
-
-// A preview tile takes the whole cell as its target: a tap anywhere on it clicks it, a
-// right-click is its menu, its picture is the well at its top, and two tiles of one row
-// can both be selected (each draws its own ring).
-@(test)
-preview_tile_clicks_and_has_a_menu :: proc(t: ^testing.T) {
-	ctx: Context
-	init(&ctx)
-	defer destroy(&ctx)
-	one_tile(&ctx, input_at({-1, -1}))
-	res := one_tile(&ctx, input_at({-1, -1}))
-	testing.expect_value(t, res.picture.x, 16 + PREVIEW_TILE.x + 3)
-	testing.expect(t, res.picture.h < PREVIEW_TILE.y - 20)
-	at := [2]f32{16 + PREVIEW_TILE.x * 1.5, 16 + PREVIEW_TILE.y - 8}
-	one_tile(&ctx, input_at(at, down = {.Left}, pressed = {.Left}))
-	testing.expect(t, one_tile(&ctx, input_at(at, released = {.Left})).clicked)
-	one_tile(&ctx, input_at(at, down = {.Right}, pressed = {.Right}))
-	testing.expect(t, one_tile(&ctx, input_at(at, released = {.Right})).menu)
 }
 
 one_picture_tile :: proc(ctx: ^Context, input: Input, aspect: f32) -> (res: Tile_Result, uv_lo, uv_hi: [2]f32) {

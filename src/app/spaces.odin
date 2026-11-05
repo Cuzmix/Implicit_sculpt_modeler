@@ -1,6 +1,5 @@
 package main
 
-import "core:fmt"
 import "core:strings"
 
 import "../sculpt"
@@ -12,8 +11,8 @@ import "../ui"
 // tiles are Render; Move belongs to whichever space it was picked in. A tab in the top bar
 // shows the space and a tap on another tab picks that space's last tool, so the two never
 // disagree. Selecting an object never switches the space: a mesh selected in Model is
-// offered a conversion instead. Each space keeps its own layout, the workspace current in
-// it, so the panels and bars that suit modelling come back with the Model tool.
+// offered a conversion instead. Each space keeps its own layout (layouts.odin), so the
+// docks and cards that suit modelling come back with the Model tool.
 
 Space :: enum u8 {
 	Sculpt,
@@ -48,9 +47,6 @@ Space_Tool :: struct {
 Spaces :: struct {
 	current:  Space,
 	last:     [Space]Space_Tool,
-	// The workspace slot current in each space, so going back to a space brings its
-	// layout back as it was left.
-	layout:   [Space]int,
 	// The tool as of the last frame, to see it change, and whether a command picked a
 	// tool this frame even when it was the one in hand (a brush tile tapped in Render).
 	seen:     Space_Tool,
@@ -60,11 +56,11 @@ Spaces :: struct {
 	switches: int, // for the exit stats
 }
 
-// The view toggles that were workspaces before spaces (Focus and Inspect): they change
-// what shows, never the layout, so the workspace's modified dot stays as it was.
+// The view toggles Focus and Inspect: they change what shows, never the layout, so the
+// tab's dot stays as it was.
 FOCUS_ZONES :: bit_set[Zone]{.Brush_Bar, .View_Bar, .Action_Bar}
 INSPECT_ZONES :: bit_set[Zone]{.Brush_Bar, .Dock}
-// Inspect's panes, as the Inspect workspace had them (round 2's inspect2 screen): the
+// Inspect's panes, as round 2's Inspect view had them (its inspect2 screen): the
 // main view shaded, then curvature, normals and a front silhouette.
 INSPECT_PANES :: "panes h500 v500 0 1 v500 2 3\npane 1 Follow Curvature\npane 2 Follow Normals\npane 3 Front Silhouette\n"
 
@@ -73,13 +69,10 @@ Inspect_View :: struct {
 	before: string, // the grid's layout lines as Inspect found them (heap), put back after
 }
 
-// The spaces as a fresh install has them: Sculpt, each space on its built-in layout.
+// The spaces as a fresh install has them: Sculpt, each space on its first shelf page.
 spaces_init :: proc(k: ^Kit_State) {
 	k.spaces = {}
-	for s in Space {
-		k.spaces.layout[s] = int(s)
-		k.spaces.page[s] = shelf_first_page(s)
-	}
+	for s in Space do k.spaces.page[s] = shelf_first_page(s)
 }
 
 // The tool in hand as a space keeps it.
@@ -98,13 +91,6 @@ space_of_tool :: proc(tool: Tool) -> (s: Space, ok: bool) {
 	return
 }
 
-// The space workspace `slot` belongs to: a built-in's is its own, an own one's is the one
-// it was saved in.
-workspace_space :: proc(k: ^Kit_State, slot: int) -> Space {
-	if b, ok := workspace_built_in(slot); ok do return Space(b)
-	if slot < 0 || slot >= len(k.workspaces.list) do return .Sculpt
-	return k.workspaces.list[slot].space
-}
 
 // Notes that a command picked a tool, so the space follows even when it was the tool in
 // hand already.
@@ -145,13 +131,7 @@ space_switch :: proc(app: ^App, to: Space, restore := true) {
 	s.page[s.current] = k.shelf.page
 	k.shelf.page, k.shelf.quick = s.page[to], false
 	view_toggles_off(k)
-	w := &k.workspaces
-	if len(w.list) > 0 {
-		s.layout[s.current] = w.current
-		slot := s.layout[to]
-		if slot < 0 || slot >= len(w.list) || !w.list[slot].used || workspace_space(k, slot) != to do slot = int(to)
-		workspace_switch(k, slot)
-	}
+	layout_switch(k, s.current, to)
 	s.current = to
 	// The dial is the space's too.
 	dial_latches_keep(app)
@@ -202,7 +182,7 @@ inspect_set :: proc(k: ^Kit_State, on: bool) {
 grid_lines_put :: proc(k: ^Kit_State, text: string) {
 	k.grid.tree, k.grid.maximised = grid_preset_tree(.Single), 0
 	k.grid.serial += 1
-	k.grid.undo = {}
+	grid_undo_clear(&k.grid)
 	for line in strings.split_lines(text, context.temp_allocator) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) > 0 do grid_layout_read(&k.grid, f)
@@ -214,47 +194,28 @@ spaces_destroy :: proc(k: ^Kit_State) {
 	k.inspect = {}
 }
 
-// The settings line that says which workspace each space was on: `space_layouts 0 4 2`.
-spaces_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
-	strings.write_string(out, "space_layouts")
-	for s in Space do fmt.sbprintf(out, " %d", k.spaces.layout[s])
-	strings.write_byte(out, '\n')
-}
-
-// Reads the line spaces_save writes; a slot that is no workspace of that space is left as
-// the space's built-in.
-spaces_load_line :: proc(k: ^Kit_State, f: []string) {
-	for s in Space {
-		if int(s) + 1 >= len(f) do break
-		slot := -1
-		for i in 0 ..< len(k.workspaces.list) do if f[int(s) + 1] == fmt.tprint(i) do slot = i
-		if slot >= 0 && k.workspaces.list[slot].used && workspace_space(k, slot) == s do k.spaces.layout[s] = slot
-	}
-}
-
 // The space tabs, in the top bar's middle: a tap on another space switches to it (Ctrl+1
-// to 3 do too); a tap on the lit one, or on the chevron after them, opens its layouts.
-// The lit tab is tinted with the space's colour and carries the amber dot while its layout
-// differs from the saved one. Returns the width laid out.
+// to 3 do too); a tap on the lit one, or on the chevron after them, opens the layout menu.
+// The chosen tab has the one selected look, with the space's own colour as a dot at its
+// top left; every tab whose layout differs from how it ships carries the amber dot.
+// Returns the width laid out.
 top_space_tabs :: proc(app: ^App) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	w := &k.workspaces
+	w := &k.layouts
 	names: [len(Space)]string
 	glyphs: [len(Space)]rune
 	keys: [len(Space)]string
-	tints, soft: [len(Space)]ui.Color
 	for s in Space {
 		names[s] = SPACE_NAMES[s]
 		glyphs[s] = SPACE_ICONS[s]
 		keys[s] = command_hint(app, .Space_Switch, int(s))
-		tints[s], soft[s] = t.tints[int(s)], t.tints_soft[int(s)]
 	}
 	ui.begin(ctx, "space tabs", {direction = .Row, center = true, background = .Track, radius = t.radius_medium + 1.5})
 	start := ctx.last_rect.x
 	chosen := int(k.spaces.current)
-	picked := ui.tabs(ctx, "Spaces", names[:], chosen, glyphs = glyphs[:], keys = keys[:], tints = tints[:], tints_soft = soft[:])
+	picked := ui.tabs(ctx, "Spaces", names[:], chosen, glyphs = glyphs[:], keys = keys[:])
 	seg := ctx.last_rect
 	if picked >= 0 {
 		if picked == chosen {
@@ -270,8 +231,9 @@ top_space_tabs :: proc(app: ^App) -> f32 {
 		sw := space_tab_width(ctx, name)
 		if i == chosen {
 			w.menu_at = {x, seg.y, sw, seg.h}
-			if w.modified do ui.fill_circle(ctx, {x + sw - 9, seg.y + seg.h * 0.5}, 3, t.warning)
+			ui.fill_circle(ctx, {x + 7, seg.y + 7}, 2.5, t.tints[i])
 		}
+		if layout_changed(k, Space(i)) do ui.fill_circle(ctx, {x + sw - 9, seg.y + seg.h * 0.5}, 3, t.warning)
 		x += sw
 	}
 	if ui.icon_button(ctx, "Layouts", ui.ICON_CHEVRON_DOWN, selected = w.menu, size = t.control) {

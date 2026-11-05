@@ -16,17 +16,21 @@ import "../jobs"
 import "../sculpt"
 import "../ui"
 import "../voxel"
+import "../render"
 import "../retopo"
+import "../uv"
 
-// Long jobs (the overhaul's round 3, PR 12): Remesh, Decimate, Quad Remesh, Subdivide,
+// Long jobs (the overhaul's round 3, PR 12): Remesh, Decimate, Quad Remesh, Unwrap, Subdivide,
 // Convert to mesh, Convert to voxels and Res+/Res− of a big object, and every Import, run
 // on a thread of their own, so the frame goes on (the camera turns, the panels
 // answer, motion plays) while a pill under the top bar, and the button that started it,
 // show a ring filling as the work goes, and Escape or the pill's Cancel stops it. Blender
 // keeps drawing through its long operators the same way; ZBrush and Nomad freeze.
 //
-// The job works on its own copy of the object's triangles (Subdivide and the voxel jobs
-// only read the object's levels or clay, which the scene holding still keeps as they are),
+// The job works on its own copy of the object's triangles for Quad Remesh and Convert to
+// voxels (Remesh, Subdivide and the voxel jobs only read the object's level, levels or
+// clay, which the scene holding still keeps as they are: a copy of a 15M remesh's input
+// was 0.7 GB more at its peak),
 // with its own worker pool, and changes no object, history or interface: those stay the
 // frame thread's. A job that makes a new mesh also prepares it for sculpting there
 // (long_job_prepare), so only the upload is left for the frame. While it runs the scene is
@@ -36,6 +40,14 @@ import "../retopo"
 // refused with a note. When it is done, the next frame's start rebuilds the object as the
 // command does when it runs at once, with the same undo step and report. Scripted runs
 // and small objects run at once as before, so their results and timings stay as they were.
+//
+// A remesh runs in two phases. Once the new mesh is computed, the thread waits while the
+// frame lets the old object go (long_job_hold): the view keeps its last picture, the camera
+// still, and a 12-vertex stand-in the size of a dot takes the object's place, so nothing
+// that reads the object finds it missing. The thread then makes the new mesh ready to
+// sculpt without the old one beside it, about 1.8 GB less at 15M, and the held picture
+// fades into it. An object whose old surface the rebuild still reads (sculpt layers, a
+// detail skin, a cage, dynamic topology) keeps the one phase, drawn throughout.
 
 // Below this many vertices a job is over too soon for a ring to say anything: it runs at
 // once, as before.
@@ -58,6 +70,17 @@ Long_Job :: struct {
 	done:       bool, // atomic: the thread finished, built or not
 	// The thread's input (its own copy, for the jobs that read a mesh) and output.
 	input:      geom.Mesh,
+	borrowed:   bool, // `input` is the object's own level, read in place (Remesh), not a copy
+	// The two phases of a remesh: `two_phase` when the object may go before the result is
+	// ready; `computed_mesh` (atomic) once the thread waits on `resume` with the new mesh;
+	// `resumed` once the frame let it go on; `held` when the old object went meanwhile.
+	two_phase:     bool,
+	computed_mesh: bool,
+	resume:        sync.Sema,
+	resumed:       bool,
+	held:          bool,
+	sets_lost:     int, // the old object's selection sets, counted as it went, for the note
+	holds:         int,
 	area:       f64,
 	bounds:     geom.Aabb,
 	mesh:       geom.Mesh,
@@ -93,6 +116,10 @@ Long_Job :: struct {
 	imported:   Mesh_Import,
 	note:       string, // owned: the import's note
 	warning:    bool,
+	// Unwrap: the new UVs, made with the object's levels' allocator, and what came of it.
+	uvs:        uv.Uvs,
+	uvs_allocator: runtime.Allocator,
+	unwrapped:  uv.Unwrap_Report,
 	// For the exit stats.
 	runs:       int,
 	cancels:    int,
@@ -106,17 +133,17 @@ JOB_ALLOWED_COMMANDS :: Command_Set{
 	.Screenshot, .Screenshot_Transparent,
 	.Tool_Move, .Tool_Sculpt, .Tool_Curve, .Tool_Insert, .Tool_Model, .Gizmo, .Gizmo_Snap,
 	.Brush, .Symmetry_X, .Local_Symmetry, .Radial_Symmetry, .Brush_Add, .Brush_Subtract, .Paint_Channel, .Paint_Toggle,
-	.Swap_Colors, .Colors_Card, .Front_Only, .Lock_Plane, .Connected, .Detail_To, .Detail_To_Next, .Size_Down, .Size_Up, .Strength_Down, .Strength_Up,
+	.Swap_Colors, .Front_Only, .Lock_Plane, .Connected, .Detail_To, .Detail_To_Next, .Size_Down, .Size_Up, .Strength_Down, .Strength_Up,
 	.Brush_Value, .Brush_Reset,
 	.Frame_All,
 	.View_Axis, .Ortho_Toggle, .Focus_Selected, .Reset_Camera, .View_Back, .View_Forward, .Camera_Menu, .Shading_Menu,
-	.Wireframe, .Flat_Shading, .Texture_View, .Polygroups, .Live_Occlusion, .Shading_Mode, .Solid_Lighting, .Floor_Grid, .Thumbnail,
+	.Wireframe, .Flat_Shading, .Texture_View, .Polygroups, .Live_Occlusion, .Shading_Mode, .Solid_Lighting, .Floor_Grid, .Second_View,
 	.Transparency,
-	.Stats, .Inspector, .Show_Section, .Show_Panel, .Rail_Group, .Pin_Section, .Panels_Reset, .Focus_Mode, .Inspect_Mode, .View_Pass,
+	.Stats, .Open_Card, .Open_Section, .Panels_Reset, .Inspect_Mode, .View_Pass,
 	.View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .View_Window, .View_Windows_Close,
-	.Clean_View, .View_Layout_Menu, .Pass_Menu, .Brush_Picker, .Settings, .Main_Menu, .File_Chip, .Space_Tabs, .Object_Chip, .Viewport_Readout, .Reduce_Motion, .Left_Handed,
+	.Clean_View, .View_Layout_Menu, .Pass_Menu, .Brush_Picker, .Settings, .Main_Menu, .File_Chip, .Space_Tabs, .Object_Chip, .Viewport_Readout, .Readout_Gpu, .Reduce_Motion, .Left_Handed,
 	.Command_Palette, .Customise_Bars, .Help, .Coach_Tips, .Name_Controls, .Take_Tour, .Pie, .Brush_Pie, .Library,
-	.Input_Diagnostics, .History_Panel, .Pencil_Preferred, .Pen_As_Empty,
+	.Input_Diagnostics, .Pencil_Preferred, .Pen_As_Empty,
 }
 
 // What a job is called while it runs, and what it is, by its command.
@@ -129,6 +156,7 @@ JOB_VERBS := #partial [Scene_Command_Kind]string {
 	.Voxel_To_Mesh  = "Converting to a mesh:",
 	.Mesh_To_Voxels = "Converting to voxels:",
 	.Voxel_Resample = "Resampling",
+	.Unwrap         = "Unwrapping",
 }
 
 @(private = "file")
@@ -140,6 +168,7 @@ JOB_NOUNS := #partial [Scene_Command_Kind]string {
 	.Voxel_To_Mesh  = "conversion",
 	.Mesh_To_Voxels = "conversion",
 	.Voxel_Resample = "resampling",
+	.Unwrap         = "unwrap",
 }
 
 // What an import is called while it runs, and what it is.
@@ -172,6 +201,7 @@ JOB_BUTTONS := #partial [Scene_Command_Kind]Command_Set {
 	.Voxel_To_Mesh  = {.Convert_To_Mesh},
 	.Mesh_To_Voxels = {.Convert_To_Voxels},
 	.Voxel_Resample = {.Voxel_Res_Up, .Voxel_Res_Down},
+	.Unwrap         = {.Unwrap},
 }
 
 // The shares of a mesh-making job that its computing half takes, at 2M to 4M vertices in a
@@ -224,7 +254,7 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		j.area, j.bounds = geom.mesh_area_bounds(sculpt.levels_current(&obj.levels).mesh, &app.pool)
 		// The dynamic layout's compacting renumbers the triangles, and it has no groups.
 		if s := object_sculptor(obj); !object_dynamic(obj) {
-			if s.color != nil do j.color = slice.clone(s.color)
+			if c := sculpt.sculptor_paint_shown(s); c != nil do j.color = slice.clone(c)
 			if sculpt.sculptor_has_groups(s) do j.groups = slice.clone(sculpt.sculptor_groups(s))
 			if sculpt.sculptor_has_mask(s) do j.mask = slice.clone(s.mask)
 		}
@@ -238,6 +268,12 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		sculpt.levels_sync(&obj.levels)
 		levels := &obj.levels
 		j.layers = len(levels.levels[len(levels.levels) - 1].sculptor.layers.list)
+	case .Unwrap:
+		// The thread reads the base level in place: the scene holds still while it runs.
+		sculpt.levels_sync(&obj.levels)
+		j.uvs, j.uvs_allocator, j.unwrapped = {}, obj.levels.allocator, {}
+		// Unwrap reports itself, so scene_run never names it: the pill names it here.
+		j.label, j.named = strings.clone(object_label(obj)), true
 	case .Voxel_To_Mesh:
 		// The thread meshes the clay as it is now without flushing it, so it only reads
 		// it; what the flush meshed here goes to the GPU whole with the next upload.
@@ -252,7 +288,20 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		if cmd.kind == .Retopo && cmd.quad.use_mask do copy_mask = &j.retopo_source.mask
 		if cmd.kind == .Remesh do copy_mask = &j.mask
 	}
-	if cmd.kind == .Remesh || cmd.kind == .Retopo || cmd.kind == .Mesh_To_Voxels do j.input = long_job_copy(obj, copy_mask)
+	// A remesh reads the level in place: its positions and indices stay as they are while
+	// the scene holds still, as the snapshot `before` already took them. A dynamic layout is
+	// compacted into a copy first, as the commands read it. Quad Remesh works out normals
+	// on its input and Convert to voxels keeps to a copy as before.
+	j.borrowed = cmd.kind == .Remesh && !object_dynamic(obj)
+	// Building levels fits the top onto the old surface, which a hold lets go first.
+	j.two_phase = j.borrowed && long_job_holdable(obj) && cmd.remesh.levels == 0
+	j.computed_mesh, j.resume, j.resumed, j.held, j.sets_lost = false, {}, false, false, 0
+	if j.borrowed {
+		m := object_mesh(obj)
+		j.input = {positions = m.positions, indices = m.indices}
+	} else if cmd.kind == .Remesh || cmd.kind == .Retopo || cmd.kind == .Mesh_To_Voxels {
+		j.input = long_job_copy(obj, copy_mask)
+	}
 	jobs.pool_init(&j.pool, max(jobs.pool_size(&app.pool) - 2, 1))
 	j.thread = thread.create_and_start_with_data(j, long_job_thread, context, .Normal, name = "long job")
 	j.runs += 1
@@ -328,8 +377,14 @@ long_job_thread :: proc(data: rawptr) {
 	}
 	#partial switch j.cmd.kind {
 	case .Remesh:
-		j.mesh, j.built = geom.remesh_voxel_measured(j.input, j.area, j.bounds, j.cmd.vertices, &j.pool, progress = &j.progress, share = {0, share}, options = remesh_options(j.cmd.remesh, j.groups, j.color != nil || j.groups != nil || j.mask != nil), report = &j.remesh)
+		j.mesh, j.built = geom.remesh_voxel_measured(j.input, j.area, j.bounds, remesh_base_count(j.cmd.vertices, j.cmd.remesh), &j.pool, progress = &j.progress, share = {0, share}, options = remesh_options(j.cmd.remesh, j.groups, j.color != nil || j.groups != nil || j.mask != nil), report = &j.remesh)
 		if j.built do j.surface = remesh_surface(j.remesh, j.mesh, j.input, j.color, j.groups, j.mask)
+		// The input is read for the last time: the frame may let the old object go before
+		// the new one is made ready (long_job_hold), and says when to go on.
+		if j.two_phase && j.built && !jobs.progress_cancelled(&j.progress) {
+			sync.atomic_store(&j.computed_mesh, true)
+			sync.sema_wait(&j.resume)
+		}
 		long_job_prepare(j, normals = false)
 	case .Decimate:
 		src := Decimate_Source{mesh = j.input, color = j.color, groups = j.groups, mask = j.mask}
@@ -347,6 +402,8 @@ long_job_thread :: proc(data: rawptr) {
 		j.built = j.voxels != nil
 	case .Voxel_Resample:
 		j.clay, j.built = resample_compute(j.object.voxel, j.cmd.voxels, &j.pool, &j.progress)
+	case .Unwrap:
+		j.uvs, j.unwrapped, j.built = unwrap_compute(j.object, j.cmd.unwrap, &j.pool, &j.progress)
 	case .Voxel_To_Mesh:
 		j.mesh = voxel.clay_to_mesh(&j.object.voxel.clay, mask = &j.values if j.masked else nil, flush = false, pool = &j.pool)
 		jobs.progress_set(&j.progress, 0, 1, share)
@@ -365,21 +422,14 @@ long_job_thread :: proc(data: rawptr) {
 long_job_prepare :: proc(j: ^Long_Job, normals: bool) {
 	if !j.built || jobs.progress_cancelled(&j.progress) do return
 	share := [2]f32{JOB_COMPUTE_SHARE[j.cmd.kind], 1}
-	if j.surface.color != nil || j.surface.groups != nil || j.surface.mask != nil || j.remesh.quads != nil {
-		// The surface's parts and the quads follow the renumbering onto the level, as
-		// object_build_from and remesh_apply take them on the frame thread.
-		old_to_new := make([]u32, len(j.mesh.positions))
-		defer delete(old_to_new)
-		tri_from := make([]u32, len(j.mesh.indices) / 3)
-		defer delete(tri_from)
-		sculpt.levels_init(&j.levels, j.mesh, &j.pool, old_to_new = old_to_new, tri_from = tri_from, progress = &j.progress, share = share)
-		sculpt.levels_take_surface(&j.levels, j.surface.color, j.surface.groups, old_to_new, tri_from, j.surface.mask)
-		if j.remesh.quads != nil do remesh_take_quads(&j.levels, j.remesh.quads, old_to_new, tri_from)
-	} else {
-		sculpt.levels_init(&j.levels, j.mesh, &j.pool, progress = &j.progress, share = share)
-	}
+	// A remesh's levels take most of what is left after its base.
+	levels := j.cmd.remesh.levels if j.cmd.kind == .Remesh else 0
+	init := share if levels == 0 else {share[0], share[0] + 0.25 * (share[1] - share[0])}
+	levels_prepare(&j.levels, j.mesh, j.surface, j.remesh.quads, &j.pool, &j.progress, init)
 	j.mesh = {}
 	if normals do sculpt.sculptor_recompute_all(&sculpt.levels_current(&j.levels).sculptor)
+	// The input is still the old surface here: a remesh with levels is never held.
+	if levels > 0 do _ = remesh_build_levels(&j.levels, j.input, j.cmd.remesh, j.remesh.cell, &j.pool, &j.progress, {init[1], share[1]})
 	// The simplified copies too, so the result orbits at full speed from its first frame
 	// instead of drawing everything while the frames build them.
 	if !jobs.progress_cancelled(&j.progress) do _, _ = sculpt.sculptor_lod_update(&sculpt.levels_current(&j.levels).sculptor, finish = true)
@@ -398,7 +448,10 @@ long_job_levels :: proc(j: ^Long_Job) -> ^sculpt.Levels {
 // Frees whatever the job made or copied that nothing took.
 @(private = "file")
 long_job_drop :: proc(j: ^Long_Job) {
-	geom.mesh_destroy(&j.input)
+	// A borrowed input is the object's own level: only the job's view of it goes.
+	if j.borrowed do j.input = {}
+	else do geom.mesh_destroy(&j.input)
+	j.borrowed = false
 	geom.mesh_destroy(&j.mesh)
 	if j.prepared do sculpt.levels_destroy(&j.levels)
 	j.prepared = false
@@ -421,6 +474,8 @@ long_job_drop :: proc(j: ^Long_Job) {
 	j.clay = {}
 	delete(j.values)
 	j.values = nil
+	if uv.has(j.uvs) do uv.destroy(&j.uvs, j.uvs_allocator)
+	j.uvs = {}
 	mesh_import_free(&j.imported)
 	delete(j.path)
 	delete(j.note)
@@ -432,6 +487,11 @@ long_job_drop :: proc(j: ^Long_Job) {
 // failure, as scene_run does.
 long_job_frame :: proc(app: ^App) -> bool {
 	j := &app.long_job
+	if j.on && j.two_phase && !j.resumed && sync.atomic_load(&j.computed_mesh) {
+		if obj := object_by_id(app, j.id); obj != nil do long_job_hold(app, j, obj)
+		long_job_resume(j)
+	}
+	cross_fade_hold_camera(app)
 	if !j.on || !sync.atomic_load(&j.done) do return true
 	long_job_join(j)
 	cancelled := jobs.progress_cancelled(&j.progress)
@@ -447,6 +507,7 @@ long_job_frame :: proc(app: ^App) -> bool {
 	noun := job_noun(j)
 	if j.importing do return import_job_finish(app, cancelled, label)
 	if cancelled || !j.built || obj == nil {
+		cross_fade_unhold(app, fade = false)
 		history_snapshot_drop(before)
 		long_job_drop(j)
 		switch {
@@ -473,6 +534,14 @@ long_job_frame :: proc(app: ^App) -> bool {
 	autosave_settle(app)
 	app.sets_lost, app.layers_kept, app.layers_lost = 0, 0, 0
 	defer app.sets_lost, app.layers_kept, app.layers_lost = 0, 0, 0
+	// The old object's sets went as it was let go, before the reset above.
+	if j.held do app.sets_lost = j.sets_lost
+	if cmd.kind == .Unwrap {
+		unwrap_apply(app, obj, j.uvs, j.unwrapped, j.start)
+		j.uvs = {}
+		long_job_drop(j)
+		return true
+	}
 	ok, applied := true, true
 	#partial switch cmd.kind {
 	case .Remesh, .Decimate:
@@ -519,9 +588,12 @@ long_job_frame :: proc(app: ^App) -> bool {
 			history_record_swap(app, obj.id, before)
 		}
 	}
+	held := j.held
 	long_job_drop(j)
-	// The old mesh's picture, still in the viewport, fades into the new one.
-	if ok do cross_fade_start(app, .Mesh_Fade)
+	// The old mesh's picture, still in the viewport (or held there while it was gone),
+	// fades into the new one.
+	if held do cross_fade_unhold(app, fade = ok)
+	else if ok do cross_fade_start(app, .Mesh_Fade)
 	return scene_run_finish(app, cmd, label, j.source, j.start, ok, obj if cmd.kind != .Retopo else selected_object(app))
 }
 
@@ -559,9 +631,64 @@ long_job_name :: proc(app: ^App, label: string, source: int, start: time.Tick) {
 	j.label, j.source, j.start, j.named = strings.clone(label), source, start, true
 }
 
-// Asks the job to stop; it does at its next check, and the next frame drops it.
+// Asks the job to stop; it does at its next check, and the next frame drops it. Not once
+// a remesh let the old object go: only its new mesh is left to show, a moment away.
 long_job_cancel :: proc(app: ^App) {
-	if app.long_job.on do jobs.progress_cancel(&app.long_job.progress)
+	j := &app.long_job
+	if !j.on do return
+	if j.held {
+		report(app, nil, {}, "Almost ready: the old mesh has already gone to make room")
+		return
+	}
+	jobs.progress_cancel(&j.progress)
+	long_job_resume(j)
+}
+
+// Lets a remesh's thread go on past its wait, once (a thread that never waits leaves the
+// count to the next job's start, which sets it back).
+@(private = "file")
+long_job_resume :: proc(j: ^Long_Job) {
+	if !j.two_phase || j.resumed do return
+	j.resumed = true
+	sync.sema_post(&j.resume)
+}
+
+// Whether a remesh of `obj` may let it go before the new mesh is ready: not when the
+// rebuild still reads its old surface (sculpt layers carried, a detail skin carried, a
+// cage or a dynamic layout), nor for clay or a curve.
+@(private = "file")
+long_job_holdable :: proc(obj: ^Object) -> bool {
+	if object_dynamic(obj) || obj.voxel != nil || obj.cage != nil || obj.curve != nil do return false
+	if sculpt.levels_skin(&obj.levels) != nil do return false
+	for lv in obj.levels.levels do if len(lv.sculptor.layers.list) > 0 do return false
+	return true
+}
+
+// The old object let go while its remesh is made ready, when the view can hold its last
+// picture: its levels and GPU buffers go, and a stand-in of 12 vertices, a dot at its
+// middle, keeps every reader of the object (the panels, the other views) on a valid mesh
+// until remesh_apply rebuilds it. Its strokes go from the History now, as the rebuild
+// would take them.
+@(private = "file")
+long_job_hold :: proc(app: ^App, j: ^Long_Job, obj: ^Object) {
+	if !cross_fade_hold(app) do return
+	j.input = {}
+	j.sets_lost = len(sculpt.levels_sets(&obj.levels))
+	history_forget_strokes(app, obj.id)
+	for &gpu in obj.gpu do render.mesh_buffers_destroy(&app.renderer, &gpu)
+	obj.poly_edges = {}
+	texture_preview_release(app, obj)
+	sculpt.levels_destroy(&obj.levels)
+	stand := geom.icosphere(0)
+	middle := (j.bounds.lo + j.bounds.hi) * 0.5
+	for &p in stand.positions do p = middle + p * 1e-5
+	sculpt.levels_init(&obj.levels, stand, &app.pool)
+	gpu, ok := render.mesh_buffers_create(&app.renderer, object_mesh(obj)^, nil)
+	if ok do obj.gpu[0] = gpu
+	else do log.warnf("long job: no buffers for the stand-in: %s", platform_error())
+	j.held = true
+	j.holds += 1
+	log.infof("long job: let %s go while the remesh is made ready", object_label(obj))
 }
 
 // Waits for the job's thread and frees its pool.
@@ -577,7 +704,8 @@ long_job_join :: proc(j: ^Long_Job) {
 // When the app ends: a job still running stops and everything it held goes.
 long_job_stop :: proc(app: ^App) {
 	j := &app.long_job
-	long_job_cancel(app)
+	if j.on do jobs.progress_cancel(&j.progress)
+	long_job_resume(j)
 	long_job_join(j)
 	history_snapshot_drop(j.before)
 	long_job_drop(j)
@@ -644,7 +772,7 @@ kit_job_pill :: proc(app: ^App) {
 	if size == {} do size = {320, t.target + 8}
 	area := ui.safe_area(ctx)
 	pos := [2]f32{area.x + (area.w - size.x) * 0.5, area.y + kit_top() + 12}
-	ui.begin_at(ctx, "job pill", pos, {direction = .Row, gap = 10, padding = 6, radius = t.radius_large + 4, background = .Panel, center = true})
+	ui.begin_at(ctx, "job pill", pos, {direction = .Row, gap = ui.SPACE_M, padding = ui.SPACE_S, radius = t.radius_large + 4, background = .Panel, center = true})
 	r := ui.place(ctx, {28, 28})
 	share := long_job_progress(app)
 	draw_progress_ring(ctx, {r.x + 14, r.y + 14}, 11, share, 3)

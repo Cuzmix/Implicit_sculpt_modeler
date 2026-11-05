@@ -8,14 +8,14 @@ import "../sculpt"
 import "../ui"
 import "../geom"
 
-// The Colors card: the Colors command opens it beside the off-hand island, where ZBrush
-// for iPad puts its Color card, laid out and named as Procreate's Colors panel. On top, the
+// The Colours card (Card.Colours): it opens in the column beside the dock button that asks
+// for it, as every card does, laid out and named as Procreate's Colors panel. On top, the
 // main and secondary colours (a tap picks the one the pickers edit, a long press swaps
-// them), Swap, Fill object, Fill gradient (ZBrush's FillObject and FillObject Grad), the
-// Eyedropper and Close; then one of Procreate's five ways to pick, chosen by the tabs along
-// the bottom: Disc, Classic, Harmony, Value and Palettes. Under the first four, the last
-// colours picked and the default palette. It stays open while you paint, as both apps'
-// cards do; the dots drag it, and holding them puts it back in the tray's Colour section.
+// them), Swap, Fill object, Fill gradient (ZBrush's FillObject and FillObject Grad) and the
+// Eyedropper; then one of Procreate's five ways to pick, chosen by the tabs along the
+// bottom: Disc, Classic, Harmony, Value and Palettes. Under the first four, the last
+// colours picked and the default palette. Pinned, it stays open while you paint, as both
+// apps' cards do.
 // The design and which app each part comes from: notes/colors/colors-card-design.md.
 
 // The card's width: seven touch-sized swatches across inside its padding.
@@ -133,7 +133,6 @@ Colors_Card :: struct {
 	swatch_menu:     bool,
 	swatch_menu_at:  ui.Rect,
 	swatch_menu_of:  [2]int, // the palette (yours) and the swatch
-	tray_was:        bool,
 	// The colour popover (kit_color_popover), which a tap on any colour field's well
 	// opens: open, which field (its well's id) and where; the field's colour as it last
 	// showed it, what the popover set and whether the field is still to take that (next
@@ -150,13 +149,6 @@ Colors_Card :: struct {
 	pop_scroll:  f32,
 	// Set only while the popover draws: the colour its pickers set instead of the brush's.
 	override:    ^[3]f32,
-}
-
-// Opens the card, or puts it away.
-colors_card_toggle :: proc(app: ^App) {
-	k := &app.kit
-	k.colors_card = !k.colors_card
-	if k.colors_card do k.bar_pop.open = false
 }
 
 // The colour the pickers set: the colour popover's while it draws, else the brush's main
@@ -375,47 +367,27 @@ palette_swatch_delete :: proc(c: ^Colors_Card, i, j: int) {
 	p.count -= 1
 }
 
-// Draws the card; returns true when a press landed on it, to bring it to the front.
-kit_colors_card :: proc(app: ^App) -> (raised: bool) {
+// The Colours card's body (Card.Colours, drawn by its column or as it floats), `inner`
+// wide and at most `room` tall: the colours row, the picker the tab chose scrolling under
+// it, and the tabs along the foot. `owner` is the card's root, which a drag on the body
+// scrolls.
+colors_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	c := &k.colors
-	if !k.colors_card do c.palette_menu, c.swatch_menu = false, false
-	shown := ui.presence(ctx, panel_id(Kit_Window.Colors), k.colors_card, t.panel_time)
-	if shown <= 0 do return
 	// A default left by a palette deleted, or read before your palettes were.
 	if c.default_palette >= len(BUILT_IN_PALETTES) + c.palette_count do c.default_palette = 0
 	colors_sync(app)
-	win := &k.windows[.Colors]
-	inner := f32(SWATCH_COLUMNS * SWATCH_SIDE)
-	top := kit_top()
-	mark := ui.vertex_mark(ctx)
-	p := panel_begin(app, Kit_Window.Colors, "Colors", .Start, .Start, {kit_left(app), top}, {direction = .Column, gap = COLORS_GAP, padding = COLORS_PADDING, width = COLORS_CARD_W, radius = t.radius_large, background = .Panel, inert = !k.colors_card}, card = true)
-	raised = p.raised
-	id := p.owner
-	if p.closed do k.colors_card = false
-	if p.dock && k.colors_card {
-		k.colors_card = false
-		tray_open(app, .Paint_Color)
-	}
-	if !p.body {
-		panel_end(app, &p)
-		ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .Start) * (1 - shown) * 16, 0})
-		kit_colors_menus(app)
-		return
-	}
 	colors_header(app)
-
-	// The body scrolls when the window is too short for it, between the header and the
-	// tabs. Once its content has been measured it is as tall as it decides here while the
-	// content changes under it, a tab picked, so the tabs never drop past the window's foot
-	// for a frame.
+	// The body scrolls when the card is too short for it, between the header and the tabs.
+	// Once its content has been measured it is as tall as it decides here while the content
+	// changes under it, a tab picked, so the tabs never drop past the card's foot for a frame.
 	fixed := t.target + BRUSH_TILE_H + 2 * COLORS_GAP
-	room := max(p.room - fixed, 120)
+	body_room := max(room - fixed, 120)
 	_, natural := ui.prev_layout(ctx, "colors body")
 	want := colors_body_want(app, natural.y, inner)
-	body := kit_scroll_begin(ctx, "colors body", &c.scroll, id, inner, min(want, room) if want > 0 else room, COLORS_GAP, fixed = want > 0)
+	body := kit_scroll_begin(ctx, "colors body", &c.scroll, owner, inner, min(want, body_room) if want > 0 else body_room, COLORS_GAP, fixed = want > 0)
 	switch c.tab {
 	case .Disc:     colors_disc(app, inner)
 	case .Classic:  colors_classic(app, inner)
@@ -435,16 +407,12 @@ kit_colors_card :: proc(app: ^App) -> (raised: bool) {
 		}
 	}
 	ui.end(ctx)
-	panel_end(app, &p)
-	ui.transform_since(ctx, mark, shown, 1, {}, {window_slide(ctx, win^, .Start) * (1 - shown) * 16, 0})
 
 	// A pick joins the history once the finger or the pen lets go, or the hex field is done.
 	if c.changed && .Left not_in ctx.input.down && !ui.typing(ctx) {
 		color_history_push(c, colors_target(app)^)
 		c.changed = false
 	}
-	kit_colors_menus(app)
-	return
 }
 
 // The colour popover, as Procreate's: a tap on a colour field's well (the brush's
@@ -465,7 +433,7 @@ kit_color_popover :: proc(app: ^App) {
 	inner := f32(SWATCH_COLUMNS * SWATCH_SIDE)
 	owner := ui.id_of(ctx, "colour popover")
 	// Beside the field, toward the middle of the window, so the field and its panel stay
-	// in view: left of a field in the tray, right of one in a card at the left.
+	// in view: left of a field in a card at the right, right of one in a card at the left.
 	side := ui.Side.Left if c.pop_at.x + c.pop_at.w * 0.5 > ctx.input.window.x * 0.5 else ui.Side.Right
 	if !ui.popover_begin(ctx, "colour popover", &c.pop, c.pop_at, side, {direction = .Column, gap = COLORS_GAP, padding = COLORS_PADDING, width = COLORS_CARD_W}) do return
 	// The pickers set `shown`; the card's pending history pick is kept apart from this one.
@@ -496,7 +464,7 @@ kit_color_popover :: proc(app: ^App) {
 	if c.tab != .Palettes do colors_history_and_default(app, inner)
 	kit_scroll_end(ctx, body)
 	ui.popover_end(ctx)
-	if !k.colors_card do kit_colors_menus(app)
+	if !card_shown(app, .Colours) do kit_colors_menus(app)
 	c.override = nil
 	if shown != was do c.pop_set, c.pop_dirty = shown, true
 	c.pop_changed ||= c.changed
@@ -512,7 +480,7 @@ kit_color_popover :: proc(app: ^App) {
 BRUSH_TILE_H :: ui.BRUSH_TILE.y
 
 // The row under the title: the main and secondary colours (a tap edits that one, a long
-// press swaps them), Swap, Fill object, Fill gradient, Eyedropper and Close.
+// press swaps them), Swap, Fill object, Fill gradient and Eyedropper.
 @(private = "file")
 colors_header :: proc(app: ^App) {
 	k := &app.kit
@@ -530,7 +498,6 @@ colors_header :: proc(app: ^App) {
 	_ = colors_command(app, .Paint, ICON_FILL, int(sculpt.Paint_Command.Fill))
 	_ = colors_command(app, .Paint, ICON_FILL_GRADIENT, int(sculpt.Paint_Command.Gradient))
 	_ = colors_command(app, .Eyedropper, ICON_EYEDROPPER)
-	_ = colors_command(app, .Colors_Card, ui.ICON_CLOSE, name = "Close")
 	ui.end(ctx)
 }
 
@@ -566,7 +533,7 @@ DISC_SHARE :: 0.82
 colors_command :: proc(app: ^App, id: Command_Id, glyph: rune, arg := 0, name := "") -> bool {
 	ctx := &app.kit.ctx
 	label := fmt.tprintf("%s##colors", name if name != "" else command_label(id, arg))
-	if ui.icon_button(ctx, label, glyph, command_checked(app, id, arg) && id != .Colors_Card, command_enabled(app, id, arg), command_hint(app, id, arg)) {
+	if ui.icon_button(ctx, label, glyph, command_checked(app, id, arg), command_enabled(app, id, arg), command_hint(app, id, arg)) {
 		command_run(app, id, arg)
 		return true
 	}
@@ -765,7 +732,7 @@ colors_value :: proc(app: ^App, inner: f32) {
 	} else {
 		colors_hsb_sliders(app)
 	}
-	ui.begin(ctx, "colors hex row", {direction = .Row, gap = 8, center = true})
+	ui.begin(ctx, "colors hex row", {direction = .Row, gap = ui.SPACE_M, center = true})
 	ui.begin(ctx, "colors hex label", {direction = .Column, width = inner - 128})
 	ui.label(ctx, "Hexadecimal", t.text_size, t.text_secondary)
 	ui.end(ctx)
@@ -909,12 +876,11 @@ palette_slots :: proc(count: int, editable: bool) -> int {
 
 // The palette menu (Duplicate; on yours, Delete) and a swatch's (Set to current colour,
 // Delete swatch), drawn over the card.
-@(private = "file")
 kit_colors_menus :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	c := &k.colors
-	if ui.popover_begin(ctx, "colors palette menu", &c.palette_menu, c.palette_menu_at, .Below_End, {direction = .Column, gap = 2, padding = 6}) {
+	if ui.popover_begin(ctx, "colors palette menu", &c.palette_menu, c.palette_menu_at, .Below_End, {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_S}) {
 		n := c.palette_menu_of
 		name, swatches, mine := palette_swatches(app, n)
 		if ui.menu_item(ctx, "Set as default", glyph = ui.ICON_CHECK) {
@@ -940,7 +906,7 @@ kit_colors_menus :: proc(app: ^App) {
 		}
 		ui.popover_end(ctx)
 	}
-	if ui.popover_begin(ctx, "colors swatch menu", &c.swatch_menu, c.swatch_menu_at, .Below, {direction = .Column, gap = 2, padding = 6}) {
+	if ui.popover_begin(ctx, "colors swatch menu", &c.swatch_menu, c.swatch_menu_at, .Below, {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_S}) {
 		i, j := c.swatch_menu_of[0], c.swatch_menu_of[1]
 		if ui.menu_item(ctx, "Set to current colour", glyph = ICON_FILL) {
 			if i >= 0 && i < c.palette_count && j < c.palettes[i].count do c.palettes[i].colors[j] = colors_target(app)^
@@ -1085,14 +1051,21 @@ color_sample :: proc(app: ^App, at, size: [2]f32) -> (rgb: [3]f32, ok: bool) {
 	return {f32(b.r) / 255, f32(b.g) / 255, f32(b.b) / 255}, true
 }
 
+// What the Eyedropper sees at viewport point `at`: a reference picture over the view
+// there (refs_view.odin), else the model's surface.
+eyedrop_sample :: proc(app: ^App, at, size: [2]f32) -> (rgb: [3]f32, ok: bool) {
+	if c, over, picked := refs_view_color(app, at); over do return c, picked
+	return color_sample(app, at, size)
+}
+
 // The Eyedropper command: over the viewport it picks the colour under the pointer at
 // once, as ZBrush's C; from a button it waits for the next press on the model.
 eyedropper_command :: proc(app: ^App) {
 	u := &app.ui
 	if u.viewport_hovered && !u.eyedrop_armed {
-		if rgb, ok := color_sample(app, u.viewport_mouse, u.viewport_size); ok {
+		if rgb, ok := eyedrop_sample(app, u.viewport_mouse, u.viewport_size); ok {
 			colors_pick(app, rgb)
-			report(app, Kit_Section.Paint_Color, {.Quiet}, "Picked %s", hex_text(rgb))
+			report(app, Section.Paint_Color, {.Quiet}, "Picked %s", hex_text(rgb))
 		}
 		return
 	}
@@ -1110,14 +1083,14 @@ eyedropper_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 		u.eyedrop_armed, u.eyedrop_held = false, true
 	}
 	u.eyedrop_at = input.mouse_pos
-	u.eyedrop_color, u.eyedrop_hit = color_sample(app, input.mouse_pos, input.size)
+	u.eyedrop_color, u.eyedrop_hit = eyedrop_sample(app, input.mouse_pos, input.size)
 	if input.primary do return true
 	u.eyedrop_held = false
 	if u.eyedrop_hit {
 		colors_pick(app, u.eyedrop_color)
-		report(app, Kit_Section.Paint_Color, {.Quiet}, "Picked %s", hex_text(u.eyedrop_color))
+		report(app, Section.Paint_Color, {.Quiet}, "Picked %s", hex_text(u.eyedrop_color))
 	} else {
-		report(app, Kit_Section.Paint_Color, {.Warning}, "Eyedropper: the press missed every object")
+		report(app, Section.Paint_Color, {.Warning}, "Eyedropper: the press missed every object")
 	}
 	return true
 }

@@ -52,6 +52,10 @@ Drag :: struct {
 	// waits FINGER_TAP too, and as a tap runs a mask command chosen by where it landed
 	// (mask_tap_act) instead of painting a dot.
 	mask_tap:  bool,
+	// The pen's or the left button's press with Alt alone, which turns the view: lifted
+	// without moving off an object other than the selected one, it switches to it, as
+	// ZBrush's Alt click on a subtool does.
+	alt_click: bool,
 	// The drag turned the image environment, counted once for the exit stats.
 	turned_environment: bool,
 }
@@ -249,10 +253,12 @@ Nav_Prefs :: struct {
 	palm_rejection: bool, // a lone finger does nothing while the pen is near
 	double_tap:     bool, // a finger's double tap frames, or pins the pivot on the model
 	tap_switches:   bool, // a finger's tap on an object that is not the selected one selects it, sculpting nothing
-	// A stroke that starts on an object that is not the selected one selects it and works on
-	// it; off, strokes work on the selected object alone, through any other in front of it,
-	// as ZBrush's active subtool and Blender's sculpt mode do (stroke_start).
-	stroke_switches: bool,
+	// The pen picks the object it strokes: a stroke that starts on an object that is not the
+	// selected one selects it and works on it, as a finger's does. Off (as it comes), the pen,
+	// the mouse and a sculpting finger work on the selected object alone, through any other
+	// in front of it, as ZBrush's active subtool and Blender's sculpt mode do (stroke_only);
+	// a finger's tap or an Alt click switches objects.
+	stroke_picks:   bool,
 	lift_one_orbit: bool, // two fingers down, one lifted: the other turns the view
 	// Pointer off the model: turn about the point under the pointer as deep as the view's
 	// middle (Nomad's Allow air pivot) instead of about the last stroke.
@@ -279,6 +285,9 @@ Nav_Prefs :: struct {
 	eraser:         Eraser_Use, // what the pen's eraser end sculpts with (pencil.odin)
 	pen_roll:       [Pen_Area]Roll_Action, // what the hovering pen's roll does where it points (pen_roll.odin)
 	grab_twist:     bool, // the pen's roll while a Grab or Elastic stroke drags turns what it holds
+	view_gizmo:     View_Gizmo, // the view gizmo's style (view_gizmo.odin)
+	gizmo_model:    Gizmo_Model, // what its Model style turns
+	gizmo_axes:     bool, // the small X Y Z at its corner, beside the Cube and the Model
 }
 
 // When the pen, held over a control without touching, shows its name and shortcut, as
@@ -348,7 +357,7 @@ NAV_DEFAULT :: Nav_Prefs {
 	palm_rejection = true,
 	double_tap     = true,
 	tap_switches   = true,
-	stroke_switches = true,
+	stroke_picks   = false,
 	lift_one_orbit = true,
 	pivot_dot      = true,
 	gestures       = GESTURE_DEFAULTS,
@@ -362,6 +371,9 @@ NAV_DEFAULT :: Nav_Prefs {
 	pen_roll       = ROLL_DEFAULTS,
 	grab_twist     = true,
 	predict_cursor = true,
+	view_gizmo     = .Axes,
+	gizmo_model    = .Head,
+	gizmo_axes     = true,
 }
 
 // The camera's turn as the settings have it.
@@ -423,14 +435,15 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 		// Only a finger's tap that turns the view can be the second of a double tap.
 		if !(owner == .Orbit && d.pointer == .Finger && !g.edge) do app.double_tap.valid = false
 		g.moving = d.pointer == .Mouse
+		g.alt_click = owner == .Orbit && d.alt && !d.ctrl && !d.shift && d.pointer != .Finger && (d.down + d.pressed) & {.Right, .Middle} == {}
 		// A finger's press the lights take (a marker, or the model with Place highlight on)
 		// or Pick focus waits for acts as it lands, never waiting to see whether it is a tap.
-		g.pending = g.owner == .Tool && d.pointer == .Finger && app.tool == .Brush && !lights_take_press(app, mouse, input.size) && !app.ui.focus_armed
+		g.pending = g.owner == .Tool && d.pointer == .Finger && app.tool == .Brush && !lights_take_press(app, mouse, input.size) && !stack_handles_take_press(app, mouse, input.size) && !app.ui.focus_armed
 		// Not the presses that go to the mask and hide shapes or a clip, nor during a replay.
 		g.defer_tap = g.pending && app.nav.double_tap && !d.shift && !d.ctrl && !d.alt && !rail_keeps_empty_space(app.rail.press.mods) && !replay_busy(app)
 		if owner == .Tool && app.tool == .Brush && !d.shift && (input.mask || input.mask_shape) && !replay_busy(app) {
 			origin, dir := mouse_ray(app.camera, mouse, input.size)
-			_, _, on := scene_raycast(app, origin, dir)
+			_, _, on := scene_raycast(app, origin, dir, mask_tap_only(app))
 			// Ctrl on the model inverts the brush; only off it does Ctrl mask.
 			g.mask_tap = input.mask || !on
 			g.pending ||= g.mask_tap
@@ -602,6 +615,14 @@ pointer_route :: proc(app: ^App, input: ^Viewport_Input) {
 				app.tap_switches += 1
 			}
 		}
+		// An Alt click, the pen's or the mouse's way of switching objects while their strokes
+		// keep to the selected one (stroke_only); no time limit, as a click has none.
+		if g.owner == .Orbit && g.alt_click && g.travel <= slop {
+			if to := switch_target(app, g.from, input.size); to >= 0 {
+				app.scene.selected = to
+				app.alt_switches += 1
+			}
+		}
 		if g.owner == .Orbit && d.pointer == .Finger && !g.edge && app.nav.double_tap {
 			if g.travel > slop || now - g.at >= ui.FINGER_TAP {
 				app.double_tap.valid = false
@@ -661,6 +682,8 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 	if app.tool == .Move && lattice_pick(app, mouse, input.size) > 0 do return .Tool, false
 	// And a light's marker, while the Lights section shows them, for any tool.
 	if light_marker_pressed(app, mouse, input.size) do return .Tool, false
+	// And the open Live stack row's handle, while its card shows it.
+	if stack_handles_take_press(app, mouse, input.size) do return .Tool, false
 	// Render is for looking: a press there turns the view, so no stroke lands while the
 	// light or the look is being set; picking focus and the lights' own presses stay.
 	if app.kit.spaces.current == .Render && !app.ui.focus_armed && !lights_take_press(app, mouse, input.size) do return .Orbit, false
@@ -683,9 +706,12 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 			origin, dir := mouse_ray(app.camera, mouse, input.size)
 			// Only the pointer itself over the model starts a stroke, never the ring's edge
 			// alone; Grab with Past the outline takes hold from just past it too, so a press
-			// there is its own.
-			_, _, hit := scene_raycast(app, origin, dir)
-			if !hit && app.tool == .Brush && app.brush.grab_outline && .Grab in BRUSHES[stroke_brush(app, input)].flags do _, _, hit = scene_grab_near(app, origin, dir, input.size)
+			// there is its own. A brush's pen or mouse that keeps to the selected object
+			// (stroke_only) finds another object no more a model than empty space, so a press
+			// there turns the view; a finger's lands, for its tap to switch to it.
+			only := stroke_only(app) if app.tool == .Brush && d.pointer != .Finger else -1
+			_, _, hit := scene_raycast(app, origin, dir, only)
+			if !hit && app.tool == .Brush && app.brush.grab_outline && .Grab in BRUSHES[stroke_brush(app, input)].flags do _, _, hit = scene_grab_near(app, origin, dir, input.size, only)
 			if !hit do return .Orbit, true
 		}
 	}
@@ -693,10 +719,17 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 }
 
 // The object a finger's tap at `at` switches to (Settings > Touch > Tap another object to
-// switch to it): the one under it when that is not the selected one, else -1. Not while
-// one object is shown alone, whose selection stays.
+// switch to it), as switch_target finds it.
 tap_switch_target :: proc(app: ^App, at, size: [2]f32) -> int {
-	if !app.nav.tap_switches || app.scene.solo do return -1
+	if !app.nav.tap_switches do return -1
+	return switch_target(app, at, size)
+}
+
+// The object a press at `at` that picks objects switches to (a finger's tap, an Alt
+// click): the one under it when that is not the selected one, else -1. Not while one
+// object is shown alone, whose selection stays.
+switch_target :: proc(app: ^App, at, size: [2]f32) -> int {
+	if app.scene.solo do return -1
 	origin, dir := mouse_ray(app.camera, at, size)
 	index, _, ok := scene_raycast(app, origin, dir)
 	if !ok || index == app.scene.selected do return -1
@@ -722,13 +755,21 @@ double_tap_act :: proc(app: ^App, at, size: [2]f32) {
 	app.double_tap.framed += 1
 }
 
+// The object a mask tap may land on (mask_tap_act), or -1 for any: the pen's and the
+// mouse's keep to the selected one as their strokes do (stroke_only), so a Ctrl tap never
+// switches objects; a finger's may, as its taps do.
+@(private = "file")
+mask_tap_only :: proc(app: ^App) -> int {
+	return stroke_only(app) if app.device.pointer != .Finger else -1
+}
+
 // A tap with Mask on, by where it landed (ZBrush's Ctrl click, Nomad's taps while Mask is
 // held): off the model it inverts the selected object's mask; on an object it selects it,
 // as a stroke there would, and blurs its mask where it is masked and sharpens it where it
 // is not. Each says so in a toast, with Undo when it changed something.
 mask_tap_act :: proc(app: ^App, at, size: [2]f32) {
 	origin, dir := mouse_ray(app.camera, at, size)
-	index, _, on := scene_raycast(app, origin, dir)
+	index, _, on := scene_raycast(app, origin, dir, mask_tap_only(app))
 	if !on {
 		mask_command(app, .Invert, toast = true)
 		return

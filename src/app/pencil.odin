@@ -312,8 +312,8 @@ pencil_preferred_run :: proc(app: ^App) {
 	case .Ignore, .Run_Shortcut:
 	case .Switch_Eraser:      rail_toggle(&app.rail, .Smooth)
 	case .Switch_Previous:    _ = command_run(app, .Brush, int(p.brush_before))
-	case .Color_Palette:      _ = command_run(app, .Colors_Card)
-	case .Ink_Attributes:     _ = command_run(app, .Show_Section, int(Kit_Section.Stroke))
+	case .Color_Palette:      _ = command_run(app, .Open_Card, int(Card.Colours))
+	case .Ink_Attributes:     _ = command_run(app, .Open_Section, int(Section.Stroke))
 	case .Contextual_Palette: _ = command_run(app, .Brush_Pie)
 	}
 }
@@ -394,7 +394,7 @@ settings_pen_buttons :: proc(app: ^App) {
 	ui.label(ctx, "Eraser end")
 	uses := [len(Eraser_Use)]string{"As the tip", "Smooth", "Invert", "Mask"}
 	if picked := ui.tabs(ctx, "Eraser end", uses[:], int(n.eraser)); picked >= 0 do n.eraser = Eraser_Use(picked)
-	ui.paragraph(ctx, "Turn the pen over and its eraser end sculpts with this, as holding the modifier wheel's sector does. The side and second buttons, the Apple Pencil's double-tap and squeeze, and the roll are under Where the pen points.")
+	ui.paragraph(ctx, "Turn the pen over and its eraser end sculpts with this, as holding the dial's sector does. The side and second buttons, the Apple Pencil's double-tap and squeeze, and the roll are under Where the pen points.")
 }
 
 // Pushes a scripted double-tap or squeeze, as the iPad's bridge sends one.

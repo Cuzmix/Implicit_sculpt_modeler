@@ -1,332 +1,462 @@
-// SDL_shadercross 1ff05bec5739 from dab_area.comp.spv sha256 bb5ec7e3f399c35ec54baadf63df2e43867d08cb436b29baa4912ca2304ef1c9
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-#pragma clang diagnostic ignored "-Wmissing-braces"
-
+// slangc metal from dab_area.comp.spv sha256 a442483d35866ef02a7bd09bcde3ef6ad1351eeee1500d8f932fc32273f9bdc5
+// slots s= rt= wt= rb=0,1,2,3,4,5,6,7,8 wb=9,10,11,12,13 u=14 a=
 #include <metal_stdlib>
-#include <simd/simd.h>
-
+#include <metal_math>
+#include <metal_texture>
 using namespace metal;
 
-template<typename T, size_t Num>
-struct spvUnsafeArray
+#line 84 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab.slang"
+struct SLANG_ParameterGroup_Params_0
 {
-    T elements[Num ? Num : 1];
-    
-    thread T& operator [] (size_t pos) thread
-    {
-        return elements[pos];
-    }
-    constexpr const thread T& operator [] (size_t pos) const thread
-    {
-        return elements[pos];
-    }
-    
-    device T& operator [] (size_t pos) device
-    {
-        return elements[pos];
-    }
-    constexpr const device T& operator [] (size_t pos) const device
-    {
-        return elements[pos];
-    }
-    
-    constexpr const constant T& operator [] (size_t pos) const constant
-    {
-        return elements[pos];
-    }
-    
-    threadgroup T& operator [] (size_t pos) threadgroup
-    {
-        return elements[pos];
-    }
-    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
-    {
-        return elements[pos];
-    }
+    uint dab_0;
+    uint groups_x_0;
+    float rate_0;
+    uint stroke_0;
 };
 
-template<typename T>
-[[clang::optnone]] T spvFMul(T l, T r)
+
+#line 65
+struct Dab_natural_0
 {
-    return fma(l, r, T(0));
+    packed_float4 center_r2_0;
+    packed_float4 view_inv_r2_0;
+    packed_float4 facing_amount_0;
+    packed_float4 tilt0_0;
+    packed_float4 tilt1_0;
+    packed_float4 tilt2_0;
+    packed_float4 misc_0;
+    packed_float4 alpha_up_0;
+    packed_uint4 slabs_0;
+};
+
+
+#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab_area.comp.slang"
+struct KernelContext_0
+{
+    SLANG_ParameterGroup_Params_0 constant* Params_0;
+    uint device* indices_0;
+    uint device* offsets_0;
+    uint device* tris_0;
+    packed_uint2 device* slabs_1;
+    Dab_natural_0 device* dabs_0;
+    uint device* normals_0;
+    uint device* mask_0;
+    uint device* fade_0;
+    float device* positions_0;
+    float device* tables_0;
+    packed_float4 device* partials_0;
+    array<float4, int(256)> threadgroup* lane_normal_0;
+    array<float4, int(256)> threadgroup* lane_center_0;
+};
+
+
+#line 96 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab.slang"
+void keep_bindings_0(KernelContext_0 thread* kernelContext_0)
+{
+
+#line 97
+    if((kernelContext_0->Params_0->groups_x_0) == 0U)
+    {
+        *(kernelContext_0->positions_0+int(0)) = float(kernelContext_0->indices_0[int(0)] + kernelContext_0->offsets_0[int(0)] + kernelContext_0->tris_0[int(0)] + (uint2(*(kernelContext_0->slabs_1+int(0))) ).x + (uint4((kernelContext_0->dabs_0+int(0))->slabs_0) ).x + kernelContext_0->normals_0[int(0)] + kernelContext_0->mask_0[int(0)] + kernelContext_0->fade_0[int(0)]) + kernelContext_0->tables_0[int(0)];
+
+#line 97
+    }
+
+
+
+    return;
 }
 
-template<typename T, int Cols, int Rows>
-[[clang::optnone]] vec<T, Cols> spvFMulVectorMatrix(vec<T, Rows> v, matrix<T, Cols, Rows> m)
+
+#line 103
+float3 at_0(uint v_0, KernelContext_0 thread* kernelContext_1)
 {
-    vec<T, Cols> res = vec<T, Cols>(0);
-    for (uint i = Rows; i > 0; --i)
+
+#line 104
+    uint _S1 = 3U * v_0;
+
+#line 104
+    return float3(*(kernelContext_1->positions_0+_S1), *(kernelContext_1->positions_0+(_S1 + 1U)), *(kernelContext_1->positions_0+(_S1 + 2U)));
+}
+
+
+#line 136
+float falloff_0(float x2_0)
+{
+
+#line 137
+    if(x2_0 >= 1.0f)
     {
-        vec<T, Cols> tmp(0);
-        for (uint j = 0; j < Cols; ++j)
+
+#line 137
+        return 0.0f;
+    }
+
+#line 138
+    float t_0 = 1.0f - x2_0;
+    return t_0 * t_0;
+}
+
+
+#line 114
+float3 normal_at_0(uint v_1, KernelContext_0 thread* kernelContext_2)
+{
+
+#line 115
+    uint e_0 = kernelContext_2->normals_0[v_1];
+
+
+    float _S2 = max(float((int(e_0 << 16U) >> 16U) & int(-16)) / 32767.0f, -1.0f);
+
+#line 118
+    float _S3 = max(float((int(e_0) >> 16U) & int(-16)) / 32767.0f, -1.0f);
+    float _S4 = 1.0f - abs(_S2);
+
+#line 119
+    float _S5 = abs(_S3);
+
+#line 119
+    float _S6 = _S4 - _S5;
+
+#line 119
+    thread float3 n_0 = float3(_S2, _S3, _S6);
+    if(_S6 < 0.0f)
+    {
+
+#line 120
+        float sx_0;
+        if((n_0.x) >= 0.0f)
         {
-            tmp[j] = m[j][i - 1];
+
+#line 121
+            sx_0 = 1.0f;
+
+#line 121
         }
-        res = fma(tmp, vec<T, Cols>(v[i - 1]), res);
-    }
-    return res;
-}
-
-template<typename T, int Cols, int Rows>
-[[clang::optnone]] vec<T, Rows> spvFMulMatrixVector(matrix<T, Cols, Rows> m, vec<T, Cols> v)
-{
-    vec<T, Rows> res = vec<T, Rows>(0);
-    for (uint i = Cols; i > 0; --i)
-    {
-        res = fma(m[i - 1], vec<T, Rows>(v[i - 1]), res);
-    }
-    return res;
-}
-
-template<typename T, int LCols, int LRows, int RCols, int RRows>
-[[clang::optnone]] matrix<T, RCols, LRows> spvFMulMatrixMatrix(matrix<T, LCols, LRows> l, matrix<T, RCols, RRows> r)
-{
-    matrix<T, RCols, LRows> res;
-    for (uint i = 0; i < RCols; i++)
-    {
-        vec<T, RCols> tmp(0);
-        for (uint j = 0; j < LCols; j++)
+        else
         {
-            tmp = fma(vec<T, RCols>(r[i][j]), l[j], tmp);
+
+#line 121
+            sx_0 = -1.0f;
+
+#line 121
         }
-        res[i] = tmp;
+
+#line 121
+        float sy_0;
+        if((n_0.y) >= 0.0f)
+        {
+
+#line 122
+            sy_0 = 1.0f;
+
+#line 122
+        }
+        else
+        {
+
+#line 122
+            sy_0 = -1.0f;
+
+#line 122
+        }
+        n_0.x = (1.0f - _S5) * sx_0;
+        n_0.y = _S4 * sy_0;
+
+#line 120
     }
-    return res;
-}
 
-template<typename T>
-[[clang::optnone]] T spvFAdd(T l, T r)
-{
-    return fma(T(1), l, r);
-}
+#line 126
+    float l_0 = length(n_0);
 
-template<typename T>
-[[clang::optnone]] T spvFSub(T l, T r)
-{
-    return fma(T(-1), r, l);
-}
-
-struct Dab_std430_logical
-{
-    float4 center_r2;
-    float4 view_inv_r2;
-    float4 facing_amount;
-    float4 tilt0;
-    float4 tilt1;
-    float4 tilt2;
-    float4 misc;
-    uint4 slabs;
-};
-
-struct SLANG_ParameterGroup_Params_std140
-{
-    uint dab;
-    uint groups_x;
-    float rate;
-    uint stroke;
-};
-
-struct Dab_std430
-{
-    float4 center_r2;
-    float4 view_inv_r2;
-    float4 facing_amount;
-    float4 tilt0;
-    float4 tilt1;
-    float4 tilt2;
-    float4 misc;
-    uint4 slabs;
-};
-
-struct StructuredBuffer
-{
-    Dab_std430 _member0[1];
-};
-
-struct StructuredBuffer_1
-{
-    uint2 _member0[1];
-};
-
-struct RWStructuredBuffer
-{
-    float _member0[1];
-};
-
-struct StructuredBuffer_2
-{
-    uint _member0[1];
-};
-
-struct RWStructuredBuffer_1
-{
-    float4 _member0[1];
-};
-
-static inline __attribute__((always_inline))
-bool slab_vertex(thread const Dab_std430_logical& d, uint3 group_id, uint3 local_id, thread uint& g, thread uint& v, constant SLANG_ParameterGroup_Params_std140& Params, device StructuredBuffer_1& slabs)
-{
-    g = (group_id.y * Params.groups_x) + group_id.x;
-    v = 0u;
-    if (g >= d.slabs.y)
+#line 126
+    float3 _S7;
+    if(l_0 > 0.0f)
     {
+
+#line 127
+        _S7 = n_0 / float3(l_0) ;
+
+#line 127
+    }
+    else
+    {
+
+#line 127
+        _S7 = float3(0.0f) ;
+
+#line 127
+    }
+
+#line 127
+    return _S7;
+}
+
+
+#line 12 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab_area.comp.slang"
+bool slab_vertex_0(uint _S8, uint3 _S9, uint3 _S10, uint thread* _S11, uint thread* _S12, KernelContext_0 thread* kernelContext_3)
+{
+
+#line 12
+    Dab_natural_0 device* _S13 = kernelContext_3->dabs_0+_S8;
+
+#line 214 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab.slang"
+    *_S11 = _S9.y * kernelContext_3->Params_0->groups_x_0 + _S9.x;
+    *_S12 = 0U;
+
+#line 215
+    uint4 _S14 = uint4(_S13->slabs_0) ;
+    if((*_S11) >= (_S14.y))
+    {
+
+#line 216
         return false;
     }
-    uint _140 = d.slabs.x + g;
-    if (local_id.x >= slabs._member0[_140].y)
+
+#line 216
+    uint2 _S15 = uint2(*(kernelContext_3->slabs_1+(_S14.x + *_S11))) ;
+
+    uint _S16 = _S10.x;
+
+#line 218
+    if(_S16 >= (_S15.y))
     {
+
+#line 218
         return false;
     }
-    v = slabs._member0[_140].x + local_id.x;
+
+#line 219
+    *_S12 = _S15.x + _S16;
     return true;
 }
 
-static inline __attribute__((always_inline))
-float3 at(uint v, device RWStructuredBuffer& positions)
-{
-    uint _167 = 3u * v;
-    return float3(positions._member0[_167], positions._member0[_167 + 1u], positions._member0[_167 + 2u]);
-}
 
-static inline __attribute__((always_inline))
-float falloff(float x2)
+#line 12 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab_area.comp.slang"
+[[kernel]] void main_0(uint3 group_id_0 [[threadgroup_position_in_grid]], uint3 local_id_0 [[thread_position_in_threadgroup]], SLANG_ParameterGroup_Params_0 constant* Params_1 [[buffer(14)]], uint device* indices_1 [[buffer(0)]], uint device* offsets_1 [[buffer(1)]], uint device* tris_1 [[buffer(2)]], packed_uint2 device* slabs_2 [[buffer(3)]], Dab_natural_0 device* dabs_1 [[buffer(4)]], uint device* normals_1 [[buffer(5)]], uint device* mask_1 [[buffer(6)]], uint device* fade_1 [[buffer(8)]], float device* positions_1 [[buffer(9)]], float device* tables_1 [[buffer(7)]], packed_float4 device* partials_1 [[buffer(10)]])
 {
-    if (x2 >= 1.0)
-    {
-        return 0.0;
-    }
-    float t = spvFSub(1.0, x2);
-    return spvFMul(t, t);
-}
 
-static inline __attribute__((always_inline))
-float3 normal_at(uint v, device StructuredBuffer_2& normals)
-{
-    float _249 = fast::max(float((int(normals._member0[v] << uint(16)) >> 16) & (-16)) / 32767.0, -1.0);
-    float _255 = fast::max(float((int(normals._member0[v]) >> 16) & (-16)) / 32767.0, -1.0);
-    float _257 = spvFSub(1.0, abs(_249));
-    float _258 = abs(_255);
-    float _259 = spvFSub(_257, _258);
-    float3 n = float3(_249, _255, _259);
-    if (_259 < 0.0)
+#line 12
+    thread KernelContext_0 kernelContext_4;
+
+#line 12
+    (&kernelContext_4)->Params_0 = Params_1;
+
+#line 12
+    (&kernelContext_4)->indices_0 = indices_1;
+
+#line 12
+    (&kernelContext_4)->offsets_0 = offsets_1;
+
+#line 12
+    (&kernelContext_4)->tris_0 = tris_1;
+
+#line 12
+    (&kernelContext_4)->slabs_1 = slabs_2;
+
+#line 12
+    (&kernelContext_4)->dabs_0 = dabs_1;
+
+#line 12
+    (&kernelContext_4)->normals_0 = normals_1;
+
+#line 12
+    (&kernelContext_4)->mask_0 = mask_1;
+
+#line 12
+    (&kernelContext_4)->fade_0 = fade_1;
+
+#line 12
+    (&kernelContext_4)->positions_0 = positions_1;
+
+#line 12
+    (&kernelContext_4)->tables_0 = tables_1;
+
+#line 12
+    (&kernelContext_4)->partials_0 = partials_1;
+
+#line 12
+    threadgroup array<float4, int(256)> lane_normal_1;
+
+#line 12
+    (&kernelContext_4)->lane_normal_0 = &lane_normal_1;
+
+#line 12
+    threadgroup array<float4, int(256)> lane_center_1;
+
+#line 12
+    (&kernelContext_4)->lane_center_0 = &lane_center_1;
+
+#line 12
+    keep_bindings_0(&kernelContext_4);
+
+#line 12
+    Dab_natural_0 device* _S17 = (&kernelContext_4)->dabs_0+(&kernelContext_4)->Params_0->dab_0;
+
+
+    thread uint g_0;
+
+#line 15
+    thread uint v_2;
+
+#line 15
+    bool _S18 = slab_vertex_0((&kernelContext_4)->Params_0->dab_0, group_id_0, local_id_0, &g_0, &v_2, &kernelContext_4);
+
+    float4 _S19 = float4(0.0f) ;
+
+#line 17
+    float4 normal_0;
+
+#line 17
+    float4 center_0;
+
+    if(_S18)
     {
-        float sx;
-        if (n.x >= 0.0)
+
+#line 19
+        float3 _S20 = at_0(v_2, &kernelContext_4);
+        float3 delta_0 = _S20 - (float4(_S17->center_r2_0) ).xyz;
+
+
+        float _S21 = dot(delta_0, delta_0) * (float4(_S17->tilt1_0) ).w;
+
+#line 23
+        if(_S21 < 1.0f)
         {
-            sx = 1.0;
+
+#line 24
+            float w_0 = falloff_0(_S21);
+
+#line 24
+            float3 _S22 = normal_at_0(v_2, &kernelContext_4);
+
+#line 24
+            float3 _S23 = float3(w_0) ;
+            float4 _S24 = float4(_S22 * _S23, w_0);
+
+#line 25
+            float3 _S25 = at_0(v_2, &kernelContext_4);
+            float4 _S26 = float4(_S25 * _S23, 0.0f);
+
+#line 26
+            normal_0 = _S24;
+
+#line 26
+            center_0 = _S26;
+
+#line 23
         }
         else
         {
-            sx = -1.0;
+
+#line 23
+            normal_0 = _S19;
+
+#line 23
+            center_0 = _S19;
+
+#line 23
         }
-        float sy;
-        if (n.y >= 0.0)
-        {
-            sy = 1.0;
-        }
-        else
-        {
-            sy = -1.0;
-        }
-        n.x = spvFMul(spvFSub(1.0, _258), sx);
-        n.y = spvFMul(_257, sy);
-    }
-    float _291 = length(n);
-    float3 _220;
-    if (_291 > 0.0)
-    {
-        _220 = n / float3(_291);
+
+#line 19
     }
     else
     {
-        _220 = float3(0.0);
-    }
-    return _220;
-}
 
-kernel void main0(constant SLANG_ParameterGroup_Params_std140& Params [[buffer(0)]], device StructuredBuffer_1& slabs [[buffer(4)]], device RWStructuredBuffer& positions [[buffer(4)]], device StructuredBuffer& dabs [[buffer(5)]], device RWStructuredBuffer_1& partials [[buffer(5)]], device StructuredBuffer_2& normals [[buffer(6)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
-{
-    threadgroup spvUnsafeArray<float4, 256> lane_normal;
-    threadgroup spvUnsafeArray<float4, 256> lane_center;
-    Dab_std430_logical _11;
-    _11.center_r2 = dabs._member0[Params.dab].center_r2;
-    _11.view_inv_r2 = dabs._member0[Params.dab].view_inv_r2;
-    _11.facing_amount = dabs._member0[Params.dab].facing_amount;
-    _11.tilt0 = dabs._member0[Params.dab].tilt0;
-    _11.tilt1 = dabs._member0[Params.dab].tilt1;
-    _11.tilt2 = dabs._member0[Params.dab].tilt2;
-    _11.misc = dabs._member0[Params.dab].misc;
-    _11.slabs = dabs._member0[Params.dab].slabs;
-    uint g;
-    uint v;
-    bool _108 = slab_vertex(_11, gl_WorkGroupID, gl_LocalInvocationID, g, v, Params, slabs);
-    float4 normal;
-    float4 center;
-    if (_108)
-    {
-        float3 delta = spvFSub(at(v, positions), _11.center_r2.xyz);
-        float _192 = spvFMul(dot(delta, delta), _11.tilt1.w);
-        if (_192 < 1.0)
-        {
-            float w = falloff(_192);
-            normal = float4(normal_at(v, normals) * w, w);
-            center = float4(at(v, positions) * w, 0.0);
-        }
-        else
-        {
-            normal = float4(0.0);
-            center = float4(0.0);
-        }
+#line 19
+        normal_0 = _S19;
+
+#line 19
+        center_0 = _S19;
+
+#line 19
     }
-    else
-    {
-        normal = float4(0.0);
-        center = float4(0.0);
-    }
-    lane_normal[gl_LocalInvocationID.x] = normal;
-    lane_center[gl_LocalInvocationID.x] = center;
+
+#line 29
+    uint _S27 = local_id_0.x;
+
+#line 29
+    (*(&kernelContext_4)->lane_normal_0)[_S27] = normal_0;
+    (*(&kernelContext_4)->lane_center_0)[_S27] = center_0;
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    bool _20;
-    if (gl_LocalInvocationID.x == 0u)
+
+#line 31
+    bool _S28;
+    if(_S27 == 0U)
     {
-        _20 = g < _11.slabs.y;
+
+#line 32
+        _S28 = g_0 < ((uint4(_S17->slabs_0) ).y);
+
+#line 32
     }
     else
     {
-        _20 = false;
+
+#line 32
+        _S28 = false;
+
+#line 32
     }
-    if (_20)
+
+#line 32
+    if(_S28)
     {
-        uint k = 0u;
-        float4 n = float4(0.0);
-        float4 c = float4(0.0);
-        for (;;)
+
+#line 32
+        uint k_0 = 0U;
+
+#line 32
+        float4 n_1 = _S19;
+
+#line 32
+        float4 c_0 = _S19;
+
+
+        for(;;)
         {
-            float4 n_1;
-            float4 c_1;
-            bool _36_ladder_break = false;
-            do
+
+#line 35
+            if(k_0 < 256U)
             {
-                if (!(k < 256u))
-                {
-                    _36_ladder_break = true;
-                    break;
-                }
-                n_1 = spvFAdd(n, lane_normal[k]);
-                c_1 = spvFAdd(c, lane_center[k]);
-                break;
-            } while(false);
-            if (_36_ladder_break)
+            }
+            else
             {
+
+#line 35
                 break;
             }
-            k++;
-            n = n_1;
-            c = c_1;
-            continue;
+
+#line 36
+            float4 n_2 = n_1 + (*(&kernelContext_4)->lane_normal_0)[k_0];
+            float4 c_1 = c_0 + (*(&kernelContext_4)->lane_center_0)[k_0];
+
+#line 35
+            k_0 = k_0 + 1U;
+
+#line 35
+            n_1 = n_2;
+
+#line 35
+            c_0 = c_1;
+
+#line 35
         }
-        partials._member0[2u * (_11.slabs.x + g)] = n;
-        partials._member0[(2u * (_11.slabs.x + g)) + 1u] = c;
+
+
+
+        uint _S29 = (uint4(_S17->slabs_0) ).x;
+
+#line 39
+        *((&kernelContext_4)->partials_0+2U * (_S29 + g_0)) = packed_float4(n_1) ;
+
+#line 39
+        *((&kernelContext_4)->partials_0+(2U * (_S29 + g_0) + 1U)) = packed_float4(c_0) ;
+
+#line 32
     }
+
+#line 42
+    return;
 }
 

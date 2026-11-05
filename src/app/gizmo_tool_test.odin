@@ -258,24 +258,58 @@ gizmo_all_moves_turns_and_scales :: proc(t: ^testing.T) {
 	r := obj.transform.rotation
 	testing.expectf(t, r.x == 0 && r.y == 0 && r.z != 0, "turned %v", r)
 
-	// The y knob, dragged an arm's length further out, scales by e and moves nothing.
+	// The white knob on the view ring, dragged an arm's length further out, scales by e
+	// and moves nothing.
 	sc = gizmo_screen(&app, size)
-	knob := sc.knobs[1]
-	testing.expect_value(t, gizmo_pick(&app, knob, size), gizmo.Handle.Scale)
-	away := linalg.normalize(knob - sc.center) * sc.arm_px
+	testing.expect_value(t, gizmo_pick(&app, sc.uniform, size), gizmo.Handle.Scale)
+	away := linalg.normalize(sc.uniform - sc.center) * sc.arm_px
 	before := obj.transform.position
-	drag(&app, knob, knob + away, size)
+	drag(&app, sc.uniform, sc.uniform + away, size)
 	testing.expectf(t, abs(obj.transform.scale - math.E) < 1e-2, "scaled %v", obj.transform.scale)
 	testing.expect_value(t, obj.transform.position, before)
 	testing.expect_value(t, len(app.history.done), 3)
 	for _ in 0 ..< 3 do history_undo(&app)
 	testing.expect_value(t, obj.transform, Transform{scale = 1})
 
-	// A click on a knob that moves nothing asks for the scale.
+	// The y knob stretches the mesh itself along y, by e for a drag of an arm's length out
+	// along its arm: the object's own scale stays, the mesh grows taller only.
+	sc = gizmo_screen(&app, size)
+	knob := sc.knobs[1]
+	testing.expect_value(t, gizmo_pick(&app, knob, size), gizmo.Handle.Scale_Y)
+	tall := mesh_extent(obj)
+	drag(&app, knob, knob + linalg.normalize(knob - sc.center) * sc.arm_px, size)
+	grown := mesh_extent(obj)
+	testing.expect_value(t, obj.transform, Transform{scale = 1})
+	testing.expectf(t, abs(grown.y / tall.y - math.E) < 0.02 && abs(grown.x - tall.x) < 1e-4 && abs(grown.z - tall.z) < 1e-4, "stretched %v to %v", tall, grown)
+	testing.expect_value(t, len(app.history.done), 1)
+	testing.expect_value(t, app.history.done[0].what, "Scale Y")
+	history_undo(&app)
+	testing.expectf(t, abs(mesh_extent(obj).y - tall.y) < 1e-5, "unstretched to %v", mesh_extent(obj))
+
+	// A click on a knob that moves nothing asks for its factor.
 	sc = gizmo_screen(&app, size)
 	move_tool_frame(&app, {size = size, mouse_pos = sc.knobs[1], hovered = true, primary = true, press = true})
 	move_tool_frame(&app, {size = size, mouse_pos = sc.knobs[1], hovered = true})
-	testing.expect(t, app.kit.gizmo_entry.open && app.kit.gizmo_entry.handle == .Scale)
+	testing.expect(t, app.kit.gizmo_entry.open && app.kit.gizmo_entry.handle == .Scale_Y)
+	// Typed, it stretches as the drag does; with two objects selected every knob scales evenly.
+	testing.expect(t, gizmo_entry_apply(&app, obj, .Scale_Y, "2"))
+	testing.expectf(t, abs(mesh_extent(obj).y / tall.y - 2) < 1e-3, "typed stretch to %v", mesh_extent(obj))
+	other := gizmo_object(&app, 2)
+	app.scene.selected = 0
+	selection_toggle(&app, 1)
+	testing.expect(t, !gizmo_stretches(&app))
+	_ = other
+}
+
+// The mesh's size along each axis in its own space.
+@(private = "file")
+mesh_extent :: proc(obj: ^Object) -> Vec3 {
+	lo, hi := Vec3(max(f32)), Vec3(-max(f32))
+	for p in object_sculptor(obj).mesh.positions {
+		lo = linalg.min(lo, p)
+		hi = linalg.max(hi, p)
+	}
+	return hi - lo
 }
 
 // Typed values: an arm's number sets the position and "+" adds to it, a ring's turns by
@@ -313,7 +347,7 @@ gizmo_pivot_rides_with_the_object :: proc(t: ^testing.T) {
 	obj := gizmo_object(&app, 1)
 	app.camera = camera.orbit_default()
 	testing.expect(t, !gizmo_pivot_set(&app))
-	app.move.pivot = {set = true, id = obj.id, at = {1, 0, 0}}
+	obj.pivot = {set = true, at = {1, 0, 0}}
 	testing.expect(t, gizmo_pivot_set(&app))
 	testing.expect_value(t, gizmo_center(&app, obj), Vec3{1, 0, 0})
 	testing.expect(t, gizmo_entry_apply(&app, obj, .Turn_Y, "180"))
@@ -331,4 +365,35 @@ gizmo_pivot_rides_with_the_object :: proc(t: ^testing.T) {
 	testing.expect_value(t, gizmo_center(&app, other), Vec3{})
 	testing.expect(t, command_run(&app, .Gizmo_Pivot))
 	testing.expect(t, app.move.pivot_latch && app.tool == .Move)
+}
+
+// The orientations point the gizmo's arms along the world, the object turned with it,
+// the surface's normal where the pivot was put, and the view; a typed move goes along
+// the arm, and a stretch along it.
+@(test)
+gizmo_orientations_point_the_arms :: proc(t: ^testing.T) {
+	app: App
+	defer gizmo_scene_free(&app)
+	obj := gizmo_object(&app, 1)
+	app.camera = camera.orbit_default()
+	obj.transform.rotation = {0, 90, 0}
+	near :: proc(a, b: Vec3) -> bool {return linalg.length(a - b) < 1e-4}
+	testing.expect_value(t, gizmo_axes(&app, obj), gizmo.AXES)
+	app.move.orient = .Object
+	a := gizmo_axes(&app, obj)
+	// Turned a quarter about y, the object's x arm points down the world's -z.
+	testing.expectf(t, near(a[0], {0, 0, -1}) && near(a[1], {0, 1, 0}) && near(a[2], {1, 0, 0}), "object axes %v", a)
+	testing.expect(t, gizmo_entry_apply(&app, obj, .X, "+1"))
+	testing.expectf(t, near(obj.transform.position, {0, 0, -1}), "moved to %v", obj.transform.position)
+	// Surface: the object's own until the pivot has a normal, then z along it.
+	app.move.orient = .Surface
+	testing.expect(t, near(gizmo_axes(&app, obj)[0], a[0]))
+	obj.pivot = {set = true, at = {0, 1, 0}, normal = {0, 1, 0}}
+	testing.expect(t, near(gizmo_axes(&app, obj)[2], to_world_dir(obj.transform, {0, 1, 0})))
+	// View: the blue arm toward the eye.
+	app.move.orient = .View
+	_, _, back := camera.orbit_basis(app.camera)
+	testing.expect(t, near(gizmo_axes(&app, obj)[2], back))
+	testing.expect(t, command_run(&app, .Gizmo_Orient, int(Gizmo_Orient.World)))
+	testing.expect_value(t, app.move.orient, Gizmo_Orient.World)
 }

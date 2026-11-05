@@ -1,0 +1,594 @@
+<title>Docks and Cards v7</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a page header, then the device stage (scaled to fit) beside a short guide; the stage is the app's own dark world. */
+:root{
+  --frame:#0D0F12; --surface:#161A1F; --raised:#1E242B; --line:#2A3139; --text:#E7ECF0; --dim:#8C98A4; --faint:#56616C;
+  --glaze:#5ED6C4; --glaze-ink:#06201C; --warn:#F3B54A; --zone:#FF86B9;
+  --page:#0A0C0F; --page-text:#D9E0E6;
+  --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{background:var(--page);color:var(--page-text);font-family:var(--sans)}
+body{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit}
+button:focus-visible,input:focus-visible{outline:2px solid var(--glaze);outline-offset:2px}
+header.page{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between;margin-bottom:16px}
+header.page h1{font-size:22px;margin:0;letter-spacing:-.01em;text-wrap:balance}
+header.page h1 small{font-family:var(--mono);font-size:12px;color:var(--glaze-ink);background:var(--glaze);border-radius:6px;padding:2px 7px;margin-left:8px;vertical-align:3px}
+header.page p{margin:4px 0 0;color:var(--dim);max-width:70ch;line-height:1.45}
+.controls{display:flex;flex-wrap:wrap;gap:8px}
+.seg{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px}
+.seg button{background:none;border:0;padding:6px 11px;border-radius:7px;cursor:pointer;color:var(--dim);font-size:13px}
+.seg button.on{background:var(--raised);color:var(--text)}
+.chk{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:6px 11px;font-size:13px;color:var(--dim);cursor:pointer}
+.chk.on{color:var(--text);border-color:var(--glaze)}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:20px;align-items:start}
+@media (max-width:1100px){.layout{grid-template-columns:minmax(0,1fr)}}
+#stageWrap{min-width:0}
+#stage{position:relative;margin:0 auto;max-width:100%;overflow:hidden;border-radius:14px;border:1px solid var(--line);background:#000}
+aside.guide{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;font-size:13.5px;line-height:1.5;min-width:0}
+aside.guide h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:0 0 8px}
+aside.guide ol{margin:0 0 16px;padding-left:20px;display:grid;gap:6px}
+aside.guide ul{margin:0;padding-left:18px;display:grid;gap:4px;color:var(--dim)}
+aside.guide li b{color:var(--text);font-weight:600}
+.done-step{color:var(--glaze)}
+kbd{font-family:var(--mono);font-size:11px;background:var(--raised);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+
+/* ---------- The device: the app at its logical size, scaled by JS ---------- */
+#dev{position:absolute;left:0;top:0;transform-origin:0 0;overflow:hidden;font-family:var(--sans);color:var(--text);
+  background:radial-gradient(120% 90% at 50% 40%,#232A31 0%,#14181D 60%,#0D0F12 100%);user-select:none;-webkit-user-select:none;touch-action:none}
+#dev svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.model{position:absolute;border-radius:50%;background:radial-gradient(circle at 38% 32%,#F2E6DC 0%,#D8C2B0 30%,#A88C78 70%,#6E5A4C 100%);box-shadow:0 30px 80px rgba(0,0,0,.45)}
+#strokes{position:absolute;inset:0;pointer-events:none}
+.island{position:absolute;display:flex;align-items:center;gap:2px;background:rgba(22,26,31,.92);border:1px solid var(--line);border-radius:14px;padding:4px;backdrop-filter:blur(8px)}
+.dock{position:absolute;display:flex;gap:2px;background:rgba(22,26,31,.92);border:1px solid var(--line);border-radius:14px;padding:4px}
+.dock.v{flex-direction:column;align-items:center}
+.dock.v.two{display:grid;grid-template-columns:auto auto}
+.b{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:var(--t);height:var(--t);border:0;background:none;border-radius:10px;cursor:pointer;color:var(--dim)}
+.b:hover{color:var(--text)}
+.b.on{color:var(--glaze);background:rgba(94,214,196,.12)}
+.b.named{flex-direction:row;justify-content:flex-start;gap:8px;width:auto;padding:0 10px;font-size:13px}
+.b .lab{font-size:10px;line-height:1}
+.b.dot::after{content:"";position:absolute;right:6px;top:6px;width:6px;height:6px;border-radius:50%;background:var(--glaze)}
+.sep{width:70%;height:1px;background:var(--line);margin:3px auto}
+.dock.h .sep{width:1px;height:60%;margin:auto 3px}
+.dock.v.grid{display:grid;grid-template-columns:repeat(var(--cols),var(--t));justify-content:center;column-gap:2px}
+.dock.v.grid .sep,.dock.v.grid .grip{grid-column:1/-1}
+.dock.h{align-items:center}
+.dock.h.grid{display:grid;grid-template-rows:repeat(var(--cols),var(--t));grid-auto-flow:column;grid-auto-columns:max-content;row-gap:2px}
+.dock.h.grid .grip,.dock.h.grid .sep,.dock.h.grid .slider{grid-row:1/-1}
+.dock.h>.grip{width:12px;height:28px;margin:0 2px 0 0;flex:none}
+.dock.h>.grip::before{left:4px;width:3px;right:auto;top:4px;bottom:4px;height:auto}
+.corner.cb{right:-1px;bottom:-1px}.corner.ct{right:-1px;top:-1px;bottom:auto}
+.corner.cb::before{border-left:0;border-bottom-right-radius:14px}.corner.ct::before{border-left:0;border-bottom:0;border-top:2px solid var(--dim);border-top-right-radius:14px}
+.corner.cb,.corner.ct{cursor:ns-resize}
+.snapline.hz{height:1px;background:linear-gradient(90deg,transparent,var(--glaze),transparent)}
+.grip{width:28px;height:10px;margin:0 auto 2px;border-radius:5px;cursor:grab;position:relative}
+.grip::before{content:"";position:absolute;left:4px;right:4px;top:4px;height:3px;border-radius:2px;background:var(--faint);opacity:.55}
+.grip:hover::before{opacity:1}
+.corner{position:absolute;bottom:-1px;width:16px;height:16px;cursor:ew-resize;opacity:.35;transition:opacity .15s}
+.corner::before{content:"";position:absolute;inset:0;border:2px solid var(--dim);border-top:0;border-left-color:transparent}
+.corner.cr{right:-1px;border-bottom-right-radius:14px}.corner.cr::before{border-left:0;border-bottom-right-radius:14px}
+.corner.cl{left:-1px}.corner.cl::before{border-right:0;border-left:2px solid var(--dim);border-bottom-left-radius:14px}
+.dock:hover .corner{opacity:.8}.corner:hover{opacity:1}
+.snapline{position:absolute;width:1px;border-radius:1px;background:linear-gradient(transparent,var(--glaze) 15%,var(--glaze) 85%,transparent);opacity:.55;pointer-events:none;animation:snapin .12s}
+@keyframes snapin{from{opacity:0}}
+.slider{position:relative;width:var(--t);height:132px;display:flex;flex-direction:column;align-items:center;gap:3px;padding-top:4px;font-size:11px;color:var(--dim)}
+.slider .tr{position:relative;flex:1;width:8px;border-radius:4px;background:#2A3139;cursor:ns-resize}
+.slider .fill{position:absolute;left:0;right:0;bottom:0;height:var(--v);border-radius:4px;background:var(--glaze)}
+.dock.h .slider{flex-direction:row;width:150px;height:var(--t);padding:0 6px;gap:6px;flex:none}
+.dock.h .slider .tr{flex:1;height:8px;width:auto;cursor:ew-resize}
+.dock.h .slider .fill{right:auto;top:0;height:auto;width:var(--v)}
+.slider .v{font-family:var(--mono);color:var(--text);font-size:12px}
+.tile{width:64px;height:58px;font-size:11px;flex:none}
+.dock.v .b.named{width:100%}
+.tile.held{outline:1px dashed var(--faint);outline-offset:-3px}
+.pages{position:absolute;display:flex;gap:4px;font-size:12px;color:var(--dim);background:rgba(22,26,31,.85);border-radius:10px;padding:2px}
+.pages button{background:none;border:0;padding:4px 10px;border-radius:8px;cursor:pointer;color:var(--dim)}
+.pages button.on{color:var(--text);background:rgba(255,255,255,.06)}
+.readout{position:absolute;font-size:12px;line-height:1.5;color:var(--dim)}
+.readout b{color:var(--text);font-weight:500}
+.chip{display:flex;align-items:center;gap:8px;padding:0 10px;height:calc(var(--t) - 8px);border-radius:10px;font-size:13px;cursor:pointer;background:none;border:0;color:var(--text)}
+.chip small{color:var(--dim);font-size:11px;background:rgba(255,255,255,.06);padding:1px 6px;border-radius:5px}
+.tabs{display:flex;gap:2px}
+.tabs button{border:0;background:none;color:var(--dim);font-size:13px;padding:0 12px;height:calc(var(--t) - 8px);border-radius:10px;cursor:pointer}
+.tabs button.on{background:rgba(94,214,196,.14);color:var(--glaze)}
+
+/* Cards */
+.card{position:absolute;display:flex;flex-direction:column;background:rgba(22,26,31,.97);border:1px solid var(--line);border-radius:14px;box-shadow:0 18px 48px rgba(0,0,0,.45);overflow:hidden;transition:opacity .18s}
+.card.flash{animation:flash .9s}
+@keyframes flash{0%{box-shadow:0 0 0 2px var(--glaze)}100%{box-shadow:0 18px 48px rgba(0,0,0,.45)}}
+#dev.stroking .card,#dev.stroking .floating{opacity:.22}
+.card .head{display:flex;align-items:center;gap:8px;padding:0 6px 0 12px;height:var(--t);border-bottom:1px solid var(--line);cursor:grab;flex:none}
+.card .head .t{flex:1;font-weight:600;font-size:14px}
+.card .head .b{width:calc(var(--t) - 8px);height:calc(var(--t) - 8px)}
+.card .body{flex:1;overflow:auto;padding:4px 0 10px}
+.sec{border-bottom:1px solid rgba(42,49,57,.6)}
+.sec>.sh{display:flex;align-items:center;gap:8px;width:100%;border:0;background:none;padding:0 12px;min-height:var(--row);cursor:pointer;text-align:left}
+.sec>.sh .n{font-weight:600;font-size:13px;color:var(--text)}
+.sec>.sh .s{flex:1;font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sec>.sh svg{transition:transform .15s;color:var(--faint)}
+.sec.open>.sh svg{transform:rotate(180deg)}
+.sec .rows{display:none;padding:0 12px 8px}
+.sec.open .rows{display:block}
+.row{display:flex;align-items:center;gap:10px;min-height:var(--row);font-size:13px}
+.row.mark{animation:mark 1.6s}
+@keyframes mark{0%,40%{background:rgba(94,214,196,.22)}100%{background:transparent}}
+.row label{flex:1;color:var(--text)}
+.row input[type=range]{width:46%;accent-color:var(--glaze)}
+.row .val{font-family:var(--mono);font-size:12px;color:var(--dim);width:38px;text-align:right}
+.sw{width:38px;height:22px;border-radius:11px;background:#2A3139;position:relative;cursor:pointer;border:0;flex:none}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#AEB8C2;transition:left .15s}
+.sw.on{background:var(--glaze)}.sw.on::after{left:19px;background:var(--glaze-ink)}
+.pill{border:1px solid var(--line);background:var(--raised);border-radius:8px;font-size:12px;padding:5px 9px;cursor:pointer;color:var(--text)}
+.pills{display:flex;flex-wrap:wrap;gap:6px}
+.list .it{display:flex;align-items:center;gap:10px;min-height:var(--row);padding:0 12px;font-size:13px}
+.list .it .th{width:30px;height:30px;border-radius:7px;background:radial-gradient(circle at 40% 35%,#E8DACE,#8A7262)}
+.list .it.sel{background:rgba(94,214,196,.10)}
+.list .it span{flex:1}
+.list .it em{font-style:normal;color:var(--dim);font-size:12px;font-family:var(--mono)}
+.ghost{position:absolute;pointer-events:none;border:2px dashed var(--glaze);border-radius:14px;background:rgba(94,214,196,.06)}
+.drop{position:absolute;pointer-events:none;border-radius:14px;background:rgba(94,214,196,.10);border:1px solid rgba(94,214,196,.5)}
+.sheetback{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+.bsheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border:1px solid var(--line);border-radius:18px 18px 0 0;display:flex;flex-direction:column;transition:height .2s}
+.bsheet .grab{height:22px;display:flex;justify-content:center;align-items:center;cursor:pointer}
+.bsheet .grab::before{content:"";width:40px;height:5px;border-radius:3px;background:var(--faint)}
+.modal{position:absolute;background:var(--surface);border:1px solid var(--line);border-radius:18px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 30px 90px rgba(0,0,0,.6)}
+.modal .mh{display:flex;align-items:center;padding:0 8px 0 16px;height:var(--t);border-bottom:1px solid var(--line);font-weight:600}
+.modal .mh span{flex:1}
+.modal .mb{flex:1;display:flex;min-height:0}
+.modal nav{width:200px;border-right:1px solid var(--line);padding:6px;overflow:auto}
+.modal nav button{display:block;width:100%;text-align:left;border:0;background:none;padding:0 10px;min-height:var(--row);border-radius:8px;cursor:pointer;color:var(--dim);font-size:13px}
+.modal nav button.on{background:var(--raised);color:var(--text)}
+.modal .pane{flex:1;padding:12px 18px;overflow:auto}
+.search{position:absolute;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.6);overflow:hidden}
+.search input{width:100%;height:var(--t);border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--text);padding:0 14px;font:inherit;font-size:15px;outline:none}
+.search .r{display:flex;align-items:center;gap:10px;min-height:var(--row);padding:0 14px;font-size:13px;cursor:pointer}
+.search .r:hover,.search .r.on{background:var(--raised)}
+.search .r span{flex:1}
+.search .r em{font-style:normal;color:var(--dim);font-size:12px}
+.lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px;padding:12px}
+.lib button{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 4px;border:1px solid var(--line);background:var(--raised);border-radius:12px;color:var(--text);font-size:12px;cursor:pointer}
+.lib button[disabled]{opacity:.35;cursor:default}
+#dev.editing .dock .b,#dev.editing .dock .slider{animation:wig .25s infinite alternate}
+@keyframes wig{from{transform:rotate(-1.6deg)}to{transform:rotate(1.6deg)}}
+.rm{position:absolute;top:-4px;left:-4px;width:18px;height:18px;border-radius:50%;background:#C94B5B;color:#fff;font-size:13px;line-height:18px;text-align:center;font-weight:700;z-index:2}
+.editbar{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:var(--glaze);color:var(--glaze-ink);border-radius:12px;padding:6px 6px 6px 14px;font-size:13px;font-weight:600}
+.editbar button{border:0;background:var(--glaze-ink);color:var(--glaze);border-radius:8px;padding:6px 12px;font-weight:600;cursor:pointer}
+.zone{position:absolute;pointer-events:none;font-size:11px;font-family:var(--mono);display:flex;align-items:flex-end;justify-content:center;padding:6px}
+.zone.palm{background:repeating-linear-gradient(45deg,rgba(255,134,185,.10) 0 10px,rgba(255,134,185,.04) 10px 20px);border:1px dashed rgba(255,134,185,.6);color:var(--zone);border-radius:24px}
+.zone.gest{background:rgba(243,181,74,.10);border:1px dashed rgba(243,181,74,.6);color:var(--warn);writing-mode:vertical-rl;align-items:center}
+.zone.free{border:1px dashed rgba(94,214,196,.35);border-radius:18px;color:var(--glaze);align-items:flex-start;justify-content:flex-start}
+.toast{position:absolute;left:50%;transform:translateX(-50%);background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:8px 14px;font-size:13px;pointer-events:none;transition:opacity .3s}
+.tip{position:absolute;background:#000;color:#fff;font-size:12px;padding:4px 8px;border-radius:6px;pointer-events:none;white-space:nowrap}
+@media (prefers-reduced-motion:reduce){#dev.editing .dock .b,#dev.editing .dock .slider{animation:none}.card.flash,.row.mark{animation:none}}
+</style>
+
+<header class="page">
+  <div>
+    <h1>Docks and Cards <small>v7.2 proposal</small></h1>
+    <p>Two kinds only. Docks hold buttons and move like Affinity's: on an edge or floating, with a faint corner to resize. Twelve cards hold the controls and open in the column beside the dock you tapped. Tap opens, Pin keeps, drag the head out to float. Try it as an iPad, a narrow window or a Windows desktop.</p>
+  </div>
+  <div class="controls">
+    <div class="seg" id="devSeg" role="group" aria-label="Device">
+      <button id="d-ipad" data-d="ipad" class="on">iPad 1180×820</button>
+      <button id="d-narrow" data-d="narrow">Narrow 680×820</button>
+      <button id="d-desk" data-d="desk">Windows 1920×1080</button>
+    </div>
+    <button class="chk" id="tLefty" aria-pressed="false">Left-handed</button>
+    <button class="chk" id="tZones" aria-pressed="false">Show zones</button>
+    <button class="chk" id="tReset">Start over</button>
+  </div>
+</header>
+
+<div class="layout">
+  <div id="stageWrap"><div id="stage"><div id="dev"></div></div></div>
+  <aside class="guide">
+    <h2>Try this</h2>
+    <ol id="steps">
+      <li data-s="open"><b>Tap Tool</b> on the pen-side dock. It opens beside the dock.</li>
+      <li data-s="close"><b>Tap the model.</b> The card closes and the tap does not sculpt.</li>
+      <li data-s="pin"><b>Pin</b> Tool, then open Layers. On a tablet Layers shows in its place and Tool returns when it closes; on Windows the column splits.</li>
+      <li data-s="stroke"><b>Drag on the model</b> with a card pinned. Cards fade under the stroke.</li>
+      <li data-s="float"><b>Drag a card's title</b> into the view. It floats. Drop it on a dock to put it back.</li>
+      <li data-s="search"><b>Search</b> for "remesh" and pick it. The Mesh card opens on that control.</li>
+      <li data-s="narrow"><b>Switch to Narrow.</b> A card becomes a bottom sheet.</li>
+      <li data-s="desk"><b>Switch to Windows.</b> Compact rows, names beside icons, hover tips.</li>
+      <li data-s="dock"><b>Drag any dock</b>, the shelf too, by its faint grip: put it anywhere and it floats; near any edge it sits there, and on the top or bottom edge it becomes a row. Floating docks line up with each other's edges, as they do today. Pull its faint corner to add lines.</li>
+    <li data-s="edit"><b>Hold ⋯</b> on a dock (or click it) to edit its buttons; + opens the Library.</li>
+    </ol>
+    <h2>Gone in this model</h2>
+    <ul>
+      <li>Palettes, the tray and "Main palette"</li>
+      <li>39 section cards, tabs and groups</li>
+      <li>Pop out versus Keep open</li>
+      <li>Side panels, the Stats and Objects windows</li>
+      <li>Named workspaces (one layout per space)</li>
+    </ul>
+  </aside>
+</div>
+
+<script>
+(()=>{
+const I={
+menu:"M4 6h16M4 12h16M4 18h16",save:"M5 3h11l3 3v15H5zM8 3v5h8V3M8 21v-7h8v7",undo:"M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3",redo:"M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3",
+search:"M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14zM21 21l-4.3-4.3",history:"M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l4 2",
+gear:"M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1",
+brush:"M18 3l3 3-9 9-3-3zM9 12c-3 0-5 2-5 5 0 1-1 2-2 2 2 2 6 2 8 0 1.5-1.5 1.5-4 0-5z",layers:"M12 2l10 5-10 5L2 7zM2 12l10 5 10-5M2 17l10 5 10-5",
+scene:"M8.3 10a.7.7 0 0 1-.6-1L11.4 2.8a.7.7 0 0 1 1.2 0L16.3 9a.7.7 0 0 1-.6 1zM3 14h7v7H3zM17.5 14a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7z",
+mesh:"M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8",mask:"M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM12 3v18M12 7h5M12 11h7M12 15h6",
+sym:"M12 3v18M8 7L3 12l5 5M16 7l5 5-5 5",move:"M12 2v20M2 12h20M9 5l3-3 3 3M9 19l3 3 3-3M5 9l-3 3 3 3M19 9l3 3-3 3",
+rotate:"M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5",scale:"M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7",
+colours:"M12 22a10 10 0 1 1 10-10c0 2.8-2.2 4-4 4h-2a2 2 0 0 0-1.5 3.3A2 2 0 0 1 12 22zM7.5 10.5h.01M10.5 7h.01M15 7.5h.01",
+pin:"M12 17v5M9 10.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2V17h14v-1.8a2 2 0 0 0-1.1-1.8l-1.8-.9a2 2 0 0 1-1.1-1.8V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z",
+x:"M18 6L6 18M6 6l12 12",more:"M5 12h.01M12 12h.01M19 12h.01",plus:"M12 5v14M5 12h14",chev:"M6 9l6 6 6-6",
+look:"M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4",
+render:"M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3zM12 10a3 3 0 1 0 0 6a3 3 0 1 0 0-6z",
+deform:"M2 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0",paint:"M12 2.7l5.7 5.6a8 8 0 1 1-11.4 0z",
+clay:"M4 18a8 8 0 0 1 16 0",draw:"M4 20L20 4",smooth:"M3 14c3-5 6-5 9 0s6 5 9 0",inflate:"M12 5a7 7 0 1 0 0 14a7 7 0 1 0 0-14z",
+pinch:"M4 4l6 6M20 4l-6 6M4 20l6-6M20 20l-6-6",crease:"M3 6l9 12 9-12",grab:"M8 13V5a2 2 0 0 1 4 0v6M12 11V4a2 2 0 0 1 4 0v7M16 11a2 2 0 0 1 4 0v4a7 7 0 0 1-14 0v-2a2 2 0 0 1 4 0",
+flatten:"M3 15h18M6 11h12",all:"M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",remesh:"M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18",
+frame:"M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5"
+};
+const ic=(n)=>`<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="${I[n]||I.more}"/></svg>`;
+
+/* ---------- Content: twelve cards, their sections and rows ---------- */
+const S=(label,val,max=100)=>({t:'s',label,val,max}), W=(label,on)=>({t:'w',label,on}), P=(items)=>({t:'p',items});
+const CARDS={
+ tool:{title:'Tool',icon:'brush',secs:[
+  {n:'Brush',s:'Clay Buildup · Size 86 · Strength 65',open:true,rows:[S('Size',86),S('Strength',65),W('Also paint colour',false)]},
+  {n:'Stroke',s:'Spacing 8% · Lazy 0',rows:[S('Spacing',8),S('Lazy radius',0),W('Lazy step',false)]},
+  {n:'Falloff',s:'Smooth',rows:[P(['Smooth','Sharp','Flat','Custom']),S('Hardness',40)]},
+  {n:'Alpha',s:'None',rows:[P(['None','Pores','Scales','Load…'])]},
+  {n:'Samples',s:'Off',rows:[W('Sample the surface',false),S('Sample area',30)]},
+  {n:'Pen',s:'Pressure → size',rows:[W('Pressure changes size',true),W('Pressure changes strength',false),W('Tilt turns the alpha',false)]},
+  {n:'Options',s:'Front only · Connected',rows:[W('Front only',true),W('Connected',true),W('Lock plane',false)]},
+  {n:'Recall',s:'3 kept',rows:[P(['Keep this stroke','Replay'])]},
+  {n:'Recorder',s:'Off',rows:[W('Record strokes',false)]}]},
+ layers:{title:'Layers',icon:'layers',list:[['Base','',true],['Wrinkles','60%'],['Pores','100%'],['Ears fix','35%']],secs:[{n:'Layer',s:'Wrinkles · Add',rows:[S('Strength',60),P(['Add','Subtract','Overlay']),P(['New layer','Merge down','Bake'])]}]},
+ scene:{title:'Scene',icon:'scene',list:[['Head','1.2M',true],['Eye L','24k'],['Eye R','24k'],['Body','860k'],['Key light','']],secs:[{n:'Add',s:'Sphere, box, plane, voxel clay',rows:[P(['Sphere','Box','Cylinder','Plane','Voxel clay','Import…'])]},{n:'Selected',s:'Head · visible · unlocked',rows:[W('Visible',true),W('Locked',false),P(['Duplicate','Folder','Delete'])]}]},
+ mesh:{title:'Mesh',icon:'mesh',secs:[
+  {n:'Levels',s:'3 of 5 · 1.2M',rows:[S('Level',3,5),P(['Divide','Lower','Higher','Delete lower'])]},
+  {n:'HD',s:'Off',rows:[W('HD window',false),S('HD level',2,4)]},
+  {n:'Topology',s:'Dynamic off',rows:[W('Dynamic topology',false),S('Detail',50),P(['Weld','Close holes'])]},
+  {n:'Remesh',s:'Cell 0.8 mm · Keep paint',rows:[S('Cell size (mm)',8,40),W('Keep paint and mask',true),W('Thin parts',true),P(['Remesh now'])]},
+  {n:'Retopo',s:'Quad remesh · 5k',rows:[S('Quads (k)',5,50),W('Keep symmetry',true),P(['Quad remesh'])]},
+  {n:'Voxels',s:'Off',rows:[P(['Convert to voxel clay'])]},
+  {n:'Mirror',s:'X',rows:[P(['Mirror and weld','Flip'])]},
+  {n:'Booleans',s:'Live off',rows:[W('Live booleans',false),P(['Union','Subtract','Intersect'])]},
+  {n:'Extract',s:'Thickness 2 mm',rows:[S('Thickness',20),P(['Extract masked'])]},
+  {n:'Project',s:'From Body',rows:[P(['Project detail'])]}]},
+ mask:{title:'Mask',icon:'mask',secs:[
+  {n:'Mask',s:'12% masked',open:true,rows:[P(['Invert','Clear','Blur','Sharpen','Grow','Shrink']),S('Blur strength',30)]},
+  {n:'Sets',s:'2 sets',rows:[P(['Save as set','Load set'])]},
+  {n:'Visibility',s:'All shown',rows:[P(['Hide masked','Show all','Invert shown'])]},
+  {n:'Groups',s:'7 groups',rows:[P(['Group by mask','Group by normals','Clear groups'])]}]},
+ sym:{title:'Symmetry',icon:'sym',secs:[{n:'Axes',s:'X · world',open:true,rows:[W('X',true),W('Y',false),W('Z',false),W('Local to the object',false),S('Radial copies',0,32)]}]},
+ deform:{title:'Deform',icon:'deform',secs:[{n:'Transform',s:'At origin',open:true,rows:[P(['Centre','To floor','Reset'])]},{n:'Morph',s:'No target',rows:[P(['Store target'])]},{n:'Deform',s:'Bend, twist, taper',rows:[S('Bend',0),S('Twist',0),S('Taper',0)]},{n:'Deformers',s:'None',rows:[P(['Add lattice','Add curve'])]}]},
+ paint:{title:'Paint',icon:'paint',secs:[{n:'Colour',s:'#C98A6B',open:true,rows:[P(['Fill object','Fill masked'])]},{n:'Paint layers',s:'2 layers',rows:[P(['New paint layer'])]},{n:'Textures',s:'None',rows:[P(['Bake to texture'])]}]},
+ colours:{title:'Colours',icon:'colours',secs:[{n:'Swatches',s:'Skin palette',open:true,rows:[P(['#C98A6B','#E8C4A8','#7A4B3A','#F2D7C2','+'])]}]},
+ look:{title:'Look',icon:'look',secs:[{n:'Material',s:'Clay matte',open:true,rows:[S('Roughness',70),S('Cavity',40)]},{n:'Lights',s:'3 lights',rows:[P(['Add light'])]},{n:'Environment',s:'Studio soft',rows:[S('Exposure',50)]},{n:'Floor',s:'Shadow only',rows:[W('Floor',true)]},{n:'Background',s:'Gradient',rows:[P(['Gradient','Colour','Environment'])]}]},
+ render:{title:'Render',icon:'render',secs:[{n:'Render',s:'Path traced · 256 samples',open:true,rows:[S('Samples (×10)',26,100),P(['Render'])]},{n:'Lens',s:'50 mm · f/8',rows:[S('Focal length',50,200)]},{n:'Finish',s:'Filmic',rows:[S('Grain',10)]},{n:'Camera',s:'2 saved',rows:[P(['Save view'])]},{n:'Turntable',s:'Off',rows:[P(['Record turntable'])]},{n:'Print',s:'STL · 120 mm',rows:[P(['Export for print'])]}]},
+ history:{title:'History',icon:'history',list:[['Clay Buildup ×12','now',true],['Smooth ×4','1 min'],['Remesh','3 min'],['Mask: invert','4 min'],['Divide','6 min']],secs:[]}
+};
+const CMDS={move:{t:'Move',icon:'move'},rotate:{t:'Rotate',icon:'rotate'},scale:{t:'Scale',icon:'scale'},masktool:{t:'Mask brush',icon:'mask'},frame:{t:'Frame',icon:'frame'},remeshq:{t:'Remesh now',icon:'remesh'}};
+const BRUSHES={Brushes:[['Clay','clay'],['Draw','draw'],['Smooth','smooth'],['Inflate','inflate'],['Pinch','pinch'],['Crease','crease'],['Grab','grab'],['Flatten','flatten']],
+ Paint:[['Paint','paint'],['Smudge','smooth'],['Fill','inflate'],['Mask','mask']],Move:[['Grab','grab'],['Move','move'],['Snake','smooth'],['Pose','rotate']],Curve:[['Curve','smooth'],['Tube','inflate'],['Lathe','rotate']]};
+const SPACE_DOCKS={
+ Sculpt:{pen:['c:tool','c:layers','c:scene','c:mesh','c:mask','c:sym'],off:['size','strength','sep','x:move','x:rotate','x:scale','sep','c:colours']},
+ Model:{pen:['c:scene','c:mesh','c:deform','c:sym'],off:['x:move','x:rotate','x:scale','sep','x:frame']},
+ Render:{pen:['c:look','c:render','c:scene','c:history'],off:['x:frame','sep','c:colours']}
+};
+
+/* ---------- State ---------- */
+const DEV={ipad:{w:1180,h:820,t:48,row:44},narrow:{w:680,h:820,t:48,row:44},desk:{w:1920,h:1080,t:36,row:32}};
+let st;
+function fresh(){
+ st={dev:st?st.dev:'ipad',lefty:false,zones:false,space:'Sculpt',page:'Brushes',brush:'Clay',
+  docks:JSON.parse(JSON.stringify(SPACE_DOCKS)),
+  col:{pen:[],off:[]}, /* each: {id,pinned} */
+  floats:[], /* {id,x,y,w,h} */
+  sheet:null, sheetFull:false, /* narrow */
+  open:{}, /* card -> set of open section names */
+  dockPlace:{off:null,pen:null,shelf:null}, dockCols:{off:1,pen:1}, edit:false, lib:null, settings:null, search:null, size:86, strength:65, done:new Set(), toast:null, tip:null};
+ for(const [k,c] of Object.entries(CARDS)){st.open[k]=new Set(c.secs.filter(s=>s.open).map(s=>s.n));}
+}
+fresh();
+
+const dev=document.getElementById('dev'), stage=document.getElementById('stage'), wrap=document.getElementById('stageWrap');
+let scale=1;
+function fit(){const d=DEV[st.dev];scale=Math.min(1,wrap.clientWidth/d.w);dev.style.width=d.w+'px';dev.style.height=d.h+'px';dev.style.transform=`scale(${scale})`;stage.style.height=(d.h*scale)+'px';stage.style.width=(d.w*scale)+'px';}
+addEventListener('resize',()=>{fit();});
+const P2=(e)=>{const r=dev.getBoundingClientRect();return{x:(e.clientX-r.left)/scale,y:(e.clientY-r.top)/scale};};
+function mark(s){st.done.add(s);document.querySelectorAll('#steps li').forEach(li=>li.classList.toggle('done-step',st.done.has(li.dataset.s)));}
+function toast(m){st.toast=m;render();clearTimeout(toast.t);toast.t=setTimeout(()=>{st.toast=null;render();},2200);}
+
+/* ---------- Geometry ---------- */
+function G(){
+ const d=DEV[st.dev],t=d.t,narrow=st.dev==='narrow',desk=st.dev==='desk';
+ const names=desk; /* names beside icons on a wide window */
+ const offLeft=!st.lefty;
+ const top=10+t+12;
+ const dockW=names? 150 : t+8;
+ const shelfH=t+18+28;
+ const colW=desk?320:300;
+ const g={d,t,narrow,desk,names,offLeft,top,dockW,shelfH,colW};
+ /* A dock is a column on the left or right edge or while floating upright, and a row on the top or bottom edge
+    (or floating flat). Its size follows its buttons; the corner handle sets how many lines they stand in. */
+ g.dockRect=(side)=>{const cols=st.dockCols[side];const pl=st.dockPlace[side];
+   const homeLeft=(side==='off')===offLeft;const edge=pl?pl.edge:(homeLeft?'left':'right');
+   const flat=edge==='top'||edge==='bottom'||(edge==='float'&&pl.flat);
+   if(!flat){const w=names?dockW:cols*t+8+(cols-1)*2;
+     if(edge==='left')return{x:10,y:pl?Math.max(top,pl.y):top,w,h:0,edge,flat};if(edge==='right')return{x:d.w-10-w,y:pl?Math.max(top,pl.y):top,w,h:0,edge,flat};
+     return{x:pl.x,y:pl.y,w,h:0,edge,flat};}
+   const items=st.docks[st.space][side];let n=0,L=0;for(const it of items){if(it==='sep')L+=9;else if(it==='size'||it==='strength')L+=156;else n++;}
+   const w=Math.ceil((n+1)/cols)*(t+2)+L+8+18,hh=cols*t+8+(cols-1)*2;
+   const x=pl?Math.max(10,Math.min(d.w-w-10,pl.x)):10;
+   if(edge==='top')return{x,y:top,w,h:hh,edge,flat};if(edge==='bottom')return{x,y:d.h-shelfH-hh-10,w,h:hh,edge,flat};
+   return{x,y:pl.y,w,h:hh,edge,flat};};
+ g.shelfRect=(n)=>{const sw=Math.min(d.w-40,(n+1)*66+48),pl=st.dockPlace.shelf;
+   if(!pl||pl.edge==='bottom')return{x:pl?Math.max(10,Math.min(d.w-sw-10,pl.x)):d.w/2-sw/2,y:d.h-38-66,w:sw,edge:'bottom'};
+   if(pl.edge==='top')return{x:Math.max(10,Math.min(d.w-sw-10,pl.x)),y:top,w:sw,edge:'top'};
+   return{x:pl.x,y:pl.y,w:sw,edge:'float'};};
+ g.offX=g.dockRect('off').x; g.penX=g.dockRect('pen').x;
+ g.colBottom=d.h-shelfH-16;
+ g.touch=!desk;
+ /* On touch the pen-side column stops above the pen hand's palm (the lower 42% of that side). */
+ g.colBottomFor=(side)=>side==='pen'&&g.touch?Math.round(d.h*0.58):g.colBottom;
+ g.split=!g.touch;
+ /* A card opens beside its dock, on the side facing the middle of the window. */
+ g.colX=(side)=>{const r=g.dockRect(side);if(r.flat)return Math.max(10,Math.min(d.w-colW-10,r.x));return r.x+r.w/2>d.w/2? r.x-8-colW : r.x+r.w+8;};
+ /* A row's cards open below it when it is in the upper half, above it otherwise. */
+ g.colY=(side)=>{const r=g.dockRect(side);if(r.flat)return r.y+r.h/2<d.h/2? r.y+r.h+8 : Math.max(top,r.y-8-460);return r.edge==='float'?r.y:top;};
+ g.colH=(side)=>{const r=g.dockRect(side),y=g.colY(side);if(r.flat&&r.y+r.h/2>=d.h/2)return r.y-8-y;return Math.max(260,g.colBottomFor(side)-y);};
+ return g;
+}
+
+/* ---------- Render ---------- */
+function btn(id,inner,{on=false,named=false,title='',extra=''}={}){return `<button class="b${on?' on':''}${named?' named':''}" data-act="${id}" ${title?`data-tip="${title}"`:''} ${extra}>${inner}</button>`;}
+function dockItem(it,side,i,g){
+ const rm=st.edit&&it!=='sep'?`<span class="rm" data-act="rm:${side}:${i}">−</span>`:'';
+ if(it==='sep')return '<div class="sep"></div>';
+ if(it==='size'||it==='strength'){const v=st[it];return `<div class="slider" data-slider="${it}">${rm}<span class="v">${v}</span><div class="tr"><div class="fill" style="--v:${v}%"></div></div><span>${it==='size'?'Size':'Strength'}</span></div>`;}
+ const [k,id]=it.split(':');
+ if(k==='c'){const c=CARDS[id];const on=isOpen(id);return `<div style="position:relative">${rm}${btn('card:'+id+':'+side,ic(c.icon)+(g.names?`<span>${c.title}</span>`:''),{on,named:g.names,title:c.title})}</div>`;}
+ const c=CMDS[id];return `<div style="position:relative">${rm}${btn('cmd:'+id,ic(c.icon)+(g.names?`<span>${c.t}</span>`:''),{named:g.names,title:c.t})}</div>`;
+}
+function isOpen(id){return st.col.pen.some(c=>c.id===id)||st.col.off.some(c=>c.id===id)||st.floats.some(f=>f.id===id)||st.sheet===id;}
+function cardHTML(id,{pinned=false,where='col',note=''}={}){
+ const c=CARDS[id];let h=`<div class="head" data-drag="${id}"><span style="color:var(--glaze)">${ic(c.icon)}</span><span class="t">${c.title}</span>`;
+ if(where!=='float')h+=btn('pin:'+id,ic('pin'),{on:pinned,title:pinned?'Unpin':'Pin: keep open while you sculpt'});
+ h+=btn('close:'+id,ic('x'),{title:'Close'})+'</div><div class="body">';
+ if(c.list){h+='<div class="list">'+c.list.map(([n,v,sel])=>`<div class="it${sel?' sel':''}"><div class="th"></div><span>${n}</span><em>${v}</em></div>`).join('')+'</div>';}
+ for(const s of c.secs){const open=st.open[id].has(s.n);
+  h+=`<div class="sec${open?' open':''}"><button class="sh" data-act="fold:${id}:${s.n}"><span class="n">${s.n}</span><span class="s">${open?'':s.s}</span>${ic('chev')}</button><div class="rows">`;
+  s.rows.forEach((r,ri)=>{const rid=`${id}-${s.n}-${ri}`.replace(/\s/g,'_');
+   if(r.t==='s')h+=`<div class="row" id="r-${rid}"><label for="in-${rid}">${r.label}</label><input type="range" id="in-${rid}" min="0" max="${r.max}" value="${r.val}" data-out="o-${rid}"><span class="val" id="o-${rid}">${r.val}</span></div>`;
+   else if(r.t==='w')h+=`<div class="row" id="r-${rid}"><label>${r.label}</label><button class="sw${r.on?' on':''}" data-act="sw:${id}:${s.n}:${ri}" aria-label="${r.label}"></button></div>`;
+   else h+=`<div class="row" id="r-${rid}"><div class="pills">${r.items.map(x=>x[0]==='#'?`<button class="pill" aria-label="${x}" style="width:34px;height:34px;padding:0;background:${x}"></button>`:`<button class="pill" data-act="pill:${x}">${x}</button>`).join('')}</div></div>`;});
+  h+='</div></div>';}
+ h+='</div>';
+ if(note)h+=`<div style="flex:none;border-top:1px solid var(--line);padding:8px 12px;font-size:12px;color:var(--dim);display:flex;gap:6px;align-items:center">${ic('pin')}${note}</div>`;
+ return h;
+}
+function render(){
+ const g=G(),d=g.d,t=g.t;
+ dev.style.setProperty('--t',t+'px');dev.style.setProperty('--row',d.row+'px');
+ dev.classList.toggle('editing',st.edit);
+ let h='';
+ /* model in the free area */
+ const free={x:g.offLeft?g.dockW+30:g.dockW+30,y:g.top+20,w:d.w-2*(g.dockW+30),h:d.h-g.top-g.shelfH-40};
+ const r=Math.min(free.w,free.h)*0.42;
+ h+=`<div class="model" style="left:${d.w/2-r}px;top:${free.y+free.h/2-r}px;width:${2*r}px;height:${2*r}px"></div><svg id="strokes" width="${d.w}" height="${d.h}"></svg>`;
+ /* readout */
+ const lr=['off','pen'].map(g.dockRect).filter(r=>r.edge==='left');const rx=lr.length?Math.max(...lr.map(r=>r.x+r.w))+16:20;
+ h+=`<div class="readout" style="left:${rx}px;top:${g.top}px"><b>Persp · 33 mm ▾</b> &nbsp;<b>Solid ▾</b><br>Vertices 1.2M<br>GPU 0.8 ms</div>`;
+ /* top bar: three islands */
+ const left=`${btn('menu',ic('menu'),{title:'Menu'})}<div style="padding:0 8px;font-size:12px;line-height:1.25">${st.dev==='narrow'?'':'Head study<br><span style="color:var(--dim)">Saved 2 min ago</span>'}</div>${btn('save',ic('save'),{title:'Save'})}${btn('undo',ic('undo'),{title:'Undo'})}${btn('redo',ic('redo'),{title:'Redo'})}`;
+ const mid=`<div class="tabs">${['Sculpt','Model','Render'].map(s=>`<button class="${st.space===s?'on':''}" data-act="space:${s}">${st.dev==='narrow'?s[0]:s}</button>`).join('')}</div>${st.dev==='narrow'?'':`<button class="chip" data-act="noop">Head <small>Sculpt mesh</small> ▾</button>`}`;
+ const right=`${btn('search',ic('search'),{title:'Search (Ctrl+K)'})}${btn('card:history:pen',ic('history'),{on:isOpen('history'),title:'History'})}${btn('settings',ic('gear'),{title:'Settings'})}`;
+ h+=`<div class="island" style="left:10px;top:10px">${left}</div>`;
+ h+=`<div class="island" id="midIsland" style="left:50%;top:10px;transform:translateX(-50%)">${mid}</div>`;
+ h+=`<div class="island" style="right:10px;top:10px">${right}</div>`;
+ /* side docks */
+ for(const side of ['off','pen']){
+  const items=st.docks[st.space][side];
+  const R=g.dockRect(side);const cols=g.names&&!R.flat?1:st.dockCols[side];const faceRight=R.x+R.w/2<d.w/2;
+  const cpos=R.flat?(R.y+R.h/2<d.h/2?'cb':'ct'):(faceRight?'cr':'cl');
+  h+=`<div class="dock ${R.flat?'h':'v'}${cols>1?' grid':''}" style="left:${R.x}px;top:${R.y}px;${R.flat?'':`width:${R.w}px;`}--cols:${cols}" data-dock="${side}"><div class="grip" data-dockgrip="${side}" title="Drag to move the dock"></div>${items.map((it,i)=>dockItem(it,side,i,g)).join('')}<div class="sep"></div>${btn(st.edit?'lib:'+side:'edit',ic(st.edit?'plus':'more'),{title:st.edit?'Add a button':'Edit docks'})}<div class="corner ${cpos}" data-dockresize="${side}" title="Drag to change lines"></div></div>`;
+ }
+ /* shelf */
+ const tiles=BRUSHES[st.page]||[];
+ const allBtn=btn('lib:shelf',ic('all')+'<span class="lab">All</span>',{title:'All brushes'}).replace('class="b','class="b tile');
+ let shelf=tiles.map(([n,icn])=>btn('brush:'+n,ic(icn)+`<span class="lab">${n}</span>`,{on:st.brush===n}).replace('class="b','class="b tile')).join('');
+ shelf=g.offLeft? allBtn+'<div class="sep"></div>'+shelf : shelf+'<div class="sep"></div>'+allBtn;
+ const SR=g.shelfRect(tiles.length);
+ h+=`<div class="dock h" style="left:${SR.x}px;top:${SR.y}px;width:${SR.w}px;overflow-x:auto" data-dock="shelf"><div class="grip" data-dockgrip="shelf" title="Drag to move the shelf"></div>${shelf}</div>`;
+ h+=`<div class="pages" style="left:${SR.x+SR.w/2}px;transform:translateX(-50%);top:${SR.y+70}px">${Object.keys(BRUSHES).map(p=>`<button class="${st.page===p?'on':''}" data-act="page:${p}">${p}</button>`).join('')}</div>`;
+ /* columns */
+ if(!g.narrow){
+  for(const side of ['pen','off']){const col=st.col[side];if(!col.length)continue;
+   const x=g.colX(side),y=g.colY(side),H=g.colH(side);
+   if(col.length===1||!g.split){const c=col[col.length-1];const under='';const note=col.length>1?`${CARDS[col[0].id].title} is pinned and comes back when this closes`:'';h+=`<div class="card" data-card="${c.id}" style="left:${x}px;top:${y}px;width:${g.colW}px;max-height:${H}px">${cardHTML(c.id,{pinned:c.pinned,note})}</div>`+under;}
+   else{const h1=Math.floor((H-8)/2);col.forEach((c,i)=>{h+=`<div class="card" data-card="${c.id}" style="left:${x}px;top:${y+i*(h1+8)}px;width:${g.colW}px;height:${h1}px">${cardHTML(c.id,{pinned:c.pinned})}</div>`;});}
+  }
+ }
+ /* floating cards */
+ st.floats.forEach(f=>{h+=`<div class="card floating" data-card="${f.id}" style="left:${f.x}px;top:${f.y}px;width:${g.colW}px;height:${f.h}px">${cardHTML(f.id,{where:'float'})}</div>`;});
+ /* narrow: bottom sheet */
+ if(g.narrow&&st.sheet){const H=st.sheetFull?d.h-g.top:Math.round(d.h*0.48);
+  h+=`<div class="bsheet card" data-card="${st.sheet}" style="height:${H}px;border-radius:18px 18px 0 0"><div class="grab" data-act="detent" title="Half or full height"></div>${cardHTML(st.sheet,{pinned:st.sheetPinned})}</div>`;}
+ /* zones */
+ if(st.zones&&g.touch){const pw=Math.round(d.w*0.32),ph=Math.round(d.h*0.42);
+  const px=g.offLeft?d.w-pw-6:6;
+  h+=`<div class="zone free" style="left:${free.x}px;top:${free.y}px;width:${free.w}px;height:${free.h}px">free area: Frame fits the model here</div>`;
+  h+=`<div class="zone palm" style="left:${px}px;top:${d.h-ph-6}px;width:${pw}px;height:${ph}px">pen hand's palm: no controls</div>`;
+  h+=`<div class="zone gest" style="left:0;top:${g.top}px;width:18px;height:${d.h-2*g.top}px">Android back gesture</div><div class="zone gest" style="right:0;top:${g.top}px;width:18px;height:${d.h-2*g.top}px">Android back gesture</div>`;}
+ /* edit bar */
+ if(st.edit)h+=`<div class="editbar" style="top:${g.top}px">Editing docks: tap − to remove, + to add from the Library <button data-act="editdone">Done</button></div>`;
+ /* search */
+ if(st.search!==null){const w=Math.min(560,d.w-40);
+  const res=searchFor(st.search);
+  h+=`<div class="sheetback" data-act="searchclose"></div><div class="search" style="left:${d.w/2-w/2}px;top:${g.top}px;width:${w}px"><input id="sq" placeholder="Search controls, cards, commands" value="${st.search}" autocomplete="off">${res.map((r,i)=>`<div class="r${i===0?' on':''}" data-act="go:${r.card}:${r.sec}:${r.ri}">${ic(CARDS[r.card].icon)}<span>${r.label}</span><em>${CARDS[r.card].title} › ${r.sec}</em></div>`).join('')||'<div class="r"><span style="color:var(--dim)">Try remesh, mask, pressure, layers</span></div>'}</div>`;}
+ /* library sheet */
+ if(st.lib){const w=Math.min(720,d.w-40),hh=Math.min(520,d.h-120);const side=st.lib;
+  const used=new Set(side==='shelf'?[]:st.docks[st.space][side]);
+  const items=side==='shelf'?Object.values(BRUSHES).flat().map(([n,i])=>({k:'brush:'+n,t:n,i})):[...Object.entries(CARDS).map(([k,c])=>({k:'c:'+k,t:c.title,i:c.icon,cat:'Cards'})),...Object.entries(CMDS).map(([k,c])=>({k:'x:'+k,t:c.t,i:c.icon,cat:'Commands'})),{k:'size',t:'Size',i:'move',cat:'Sliders'},{k:'strength',t:'Strength',i:'move',cat:'Sliders'}];
+  h+=`<div class="sheetback" data-act="libclose"></div><div class="modal" style="left:${d.w/2-w/2}px;top:${(d.h-hh)/2}px;width:${w}px;height:${hh}px"><div class="mh"><span>Library: add to the ${side==='shelf'?'shelf':side==='pen'?'pen-side dock':'off-hand dock'}</span>${btn('libclose',ic('x'),{title:'Close'})}</div><div style="overflow:auto"><div class="lib">${items.map(it=>`<button data-act="add:${side}:${it.k}" ${used.has(it.k)?'disabled':''}>${ic(it.i)}${it.t}</button>`).join('')}</div></div></div>`;}
+ /* settings sheet */
+ if(st.settings){const full=g.narrow;const w=full?d.w:Math.min(860,d.w-80),hh=full?d.h:Math.min(620,d.h-100);
+  const secs=['Interface','Pen and touch','Navigation','Brushes','Performance','Files','Keys','Accessibility','About'];
+  h+=`<div class="sheetback" data-act="settingsclose"></div><div class="modal" style="left:${(d.w-w)/2}px;top:${(d.h-hh)/2}px;width:${w}px;height:${hh}px;${full?'border-radius:0':''}"><div class="mh"><span>Settings</span>${btn('settingsclose',ic('x'),{title:'Done'})}</div><div class="mb">${full?'':`<nav>${secs.map(s=>`<button class="${st.settings===s?'on':''}" data-act="set:${s}">${s}</button>`).join('')}</nav>`}<div class="pane"><div class="row"><label>Interface size</label><input type="range" id="set-size" min="80" max="140" value="100"></div><div class="row"><label>Left-handed</label><button class="sw${st.lefty?' on':''}" data-act="lefty"></button></div><div class="row"><label>Compact rows when a mouse is used</label><button class="sw on"></button></div><div class="row"><label>Names beside dock icons</label><button class="sw${g.names?' on':''}"></button></div><p style="color:var(--dim);font-size:12.5px;max-width:52ch">One sheet presentation for Settings, Help, Macros, Export, Home and Details: full screen on a narrow window, centred elsewhere. It never hides a card.</p></div></div></div>`;}
+ if(st.zones&&!g.touch)h+=`<div class="zone free" style="left:${free.x}px;top:${free.y}px;width:${free.w}px;height:${free.h}px">free area: Frame fits the model here (no palm or edge-gesture zones with a mouse)</div>`;
+ if(st.toast)h+=`<div class="toast" style="bottom:${g.shelfH+24}px">${st.toast}</div>`;
+ dev.innerHTML=h;
+ const sq=dev.querySelector('#sq');if(sq){sq.focus();sq.setSelectionRange(sq.value.length,sq.value.length);}
+}
+
+/* ---------- Search with Show where ---------- */
+function searchFor(q){q=q.trim().toLowerCase();if(!q)return[];const out=[];
+ for(const [k,c] of Object.entries(CARDS)){if(c.title.toLowerCase().includes(q))out.push({label:c.title+' card',card:k,sec:c.secs[0]?c.secs[0].n:'',ri:-1});
+  for(const s of c.secs){if(s.n.toLowerCase().includes(q))out.push({label:s.n,card:k,sec:s.n,ri:-1});
+   s.rows.forEach((r,ri)=>{const l=r.t==='p'?r.items.join(', '):r.label;if(l.toLowerCase().includes(q))out.push({label:l,card:k,sec:s.n,ri});});}}
+ return out.slice(0,7);}
+function showWhere(card,sec,ri){st.search=null;openCard(card,'pen',true);if(sec)st.open[card].add(sec);render();
+ const el=dev.querySelector(`[data-card="${card}"]`);if(el){el.classList.add('flash');}
+ if(ri>=0){const row=dev.querySelector(`#r-${(card+'-'+sec+'-'+ri).replace(/\s/g,'_')}`);if(row){const body=row.closest('.body');if(body)body.scrollTop=Math.max(0,row.offsetTop-body.offsetTop-body.clientHeight/2);row.classList.add('mark');}}
+ mark('search');}
+
+/* ---------- Card state machine: closed, open, pinned, floating ---------- */
+function openCard(id,side,force){
+ const g=G();
+ if(g.narrow){if(st.sheet===id&&!force){st.sheet=null;}else{st.sheet=id;st.sheetPinned=false;}mark('narrow');return;}
+ const fl=st.floats.find(f=>f.id===id);if(fl){st.floats=st.floats.filter(f=>f!==fl);st.floats.push(fl);return;}
+ for(const s of ['pen','off']){const i=st.col[s].findIndex(c=>c.id===id);if(i>=0){if(force)return;st.col[s].splice(i,1);return;}}
+ const col=st.col[side];
+ st.col[side]=col.filter(c=>c.pinned);
+ if(st.col[side].length>=2)st.col[side].shift();
+ st.col[side].push({id,pinned:false});
+ if(st.col[side].length===2&&st.col[side][0].pinned)mark('pin');
+ mark('open');
+}
+function closeUnpinned(){let any=false;for(const s of ['pen','off']){const n=st.col[s].length;st.col[s]=st.col[s].filter(c=>c.pinned);if(st.col[s].length!==n)any=true;}
+ if(st.sheet&&!st.sheetPinned){st.sheet=null;any=true;}return any;}
+function closeCard(id){for(const s of ['pen','off'])st.col[s]=st.col[s].filter(c=>c.id!==id);st.floats=st.floats.filter(f=>f.id!==id);if(st.sheet===id)st.sheet=null;}
+function pinCard(id){const g=G();for(const s of ['pen','off']){const c=st.col[s].find(c=>c.id===id);if(!c)continue;c.pinned=!c.pinned;if(c.pinned&&!g.split)st.col[s]=st.col[s].filter(o=>o===c);}if(st.sheet===id)st.sheetPinned=!st.sheetPinned;}
+
+/* ---------- Input ---------- */
+let drag=null;
+dev.addEventListener('pointerdown',e=>{
+ const p=P2(e);const tgt=e.target;
+ const sl=tgt.closest('[data-slider]');if(sl&&!st.edit){drag={k:'slider',which:sl.dataset.slider,el:sl};setSlider(e);dev.setPointerCapture(e.pointerId);return;}
+ const grip=tgt.closest('[data-dockgrip]');if(grip){const side=grip.dataset.dockgrip;const R=side==='shelf'?G().shelfRect((BRUSHES[st.page]||[]).length):G().dockRect(side);drag={k:'dock',side,off:{x:p.x-R.x,y:p.y-R.y}};dev.setPointerCapture(e.pointerId);return;}
+ const cor=tgt.closest('[data-dockresize]');if(cor){const side=cor.dataset.dockresize;drag={k:'dockcols',side,start:p.x,sy:p.y,cols:st.dockCols[side],right:cor.classList.contains('cr'),flat:cor.classList.contains('cb')||cor.classList.contains('ct'),down:cor.classList.contains('cb')};dev.setPointerCapture(e.pointerId);return;}
+ const head=tgt.closest('[data-drag]');
+ if(head&&!tgt.closest('[data-act]')&&!G().narrow){const cardEl=head.closest('.card');const r=cardEl.getBoundingClientRect();drag={k:'card',id:head.dataset.drag,start:p,off:{x:p.x-(r.left-dev.getBoundingClientRect().left)/scale,y:p.y-(r.top-dev.getBoundingClientRect().top)/scale},moved:false,h:Math.min(cardEl.offsetHeight,460)};dev.setPointerCapture(e.pointerId);return;}
+ if(tgt===dev||tgt.classList.contains('model')||tgt.id==='strokes'){
+  if(closeUnpinned()){render();mark('close');drag={k:'swallow'};return;}
+  drag={k:'stroke',pts:[p]};dev.classList.add('stroking');dev.setPointerCapture(e.pointerId);return;}
+});
+dev.addEventListener('pointermove',e=>{
+ const p=P2(e);
+ if(!drag){const b=e.target.closest('[data-tip]');showTip(b,p);return;}
+ if(drag.k==='slider'){setSlider(e);return;}
+ if(drag.k==='dock'){const g=G();const R=drag.side==='shelf'?g.shelfRect((BRUSHES[st.page]||[]).length):g.dockRect(drag.side);const x=p.x-drag.off.x,y=p.y-drag.off.y;
+   const shelf=drag.side==='shelf';const W=shelf?600:R.w,H=shelf?66:(R.flat?R.h:300);
+   let edge='float';if(p.y<g.top+24)edge='top';else if(p.y>g.d.h-70)edge='bottom';else if(!shelf&&p.x<40)edge='left';else if(!shelf&&p.x>g.d.w-40)edge='right';
+   const prev=st.dockPlace[drag.side];const flat=prev&&prev.edge==='float'?prev.flat:(R.flat||shelf);
+   let fx=Math.max(10,Math.min(g.d.w-60,x)),fy=Math.max(g.top,Math.min(g.d.h-90,y));const lines=[];
+   /* Soft alignment, as today's docks have it: a floating dock lines up with another dock's edges or centre,
+      or sits beside it with an 8 pt gap, within 10 pt; a faint line shows each match. */
+   if(edge==='float'){const me=dev.querySelector(`[data-dock="${drag.side}"]`);const dr=dev.getBoundingClientRect();const mw=me?me.offsetWidth:W,mh=me?me.offsetHeight:H;
+     const others=[...dev.querySelectorAll('.dock,.island')].filter(o=>o!==me).map(o=>{const r=o.getBoundingClientRect();return{l:(r.left-dr.left)/scale,t:(r.top-dr.top)/scale,w:r.width/scale,h:r.height/scale};});
+     let bx=11,by=11,sx=null,sy=null;
+     for(const o of others){
+       for(const [cand,line] of [[o.l,o.l],[o.l+o.w-mw,o.l+o.w],[o.l+o.w+8,o.l+o.w+4],[o.l-mw-8,o.l-4],[o.l+o.w/2-mw/2,o.l+o.w/2]]){const dd=Math.abs(fx-cand);if(dd<bx){bx=dd;sx={v:cand,line,o};}}
+       for(const [cand,line] of [[o.t,o.t],[o.t+o.h-mh,o.t+o.h],[o.t+o.h+8,o.t+o.h+4],[o.t-mh-8,o.t-4]]){const dd=Math.abs(fy-cand);if(dd<by){by=dd;sy={v:cand,line,o};}}}
+     if(sx){fx=sx.v;lines.push({v:true,at:sx.line,a:Math.min(fy,sx.o.t)-12,b:Math.max(fy+mh,sx.o.t+sx.o.h)+12});}
+     if(sy){fy=sy.v;lines.push({v:false,at:sy.line,a:Math.min(fx,sy.o.l)-12,b:Math.max(fx+mw,sx?fx+mw:sy.o.l+sy.o.w)+12});}}
+   st.dockPlace[drag.side]={edge,flat:edge==='float'?flat:undefined,x:fx,y:fy};drag.moved=true;render();showSnap(edge);
+   for(const L of lines){const el=document.createElement('div');el.className='snapline'+(L.v?'':' hz');if(L.v){el.style.left=(L.at-1)+'px';el.style.top=L.a+'px';el.style.height=(L.b-L.a)+'px';}else{el.style.top=(L.at-1)+'px';el.style.left=L.a+'px';el.style.width=(L.b-L.a)+'px';}dev.appendChild(el);}
+   return;}
+ if(drag.k==='dockcols'){const t=G().t;const dx=drag.flat?(p.y-drag.sy)*(drag.down?1:-1):(p.x-drag.start)*(drag.right?1:-1);const c=Math.max(1,Math.min(3,drag.cols+Math.round(dx/t)));if(c!==st.dockCols[drag.side]){st.dockCols[drag.side]=c;render();}return;}
+ if(drag.k==='stroke'){drag.pts.push(p);const svg=dev.querySelector('#strokes');if(svg){let path=svg.querySelector('path.cur');if(!path){path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('class','cur');path.setAttribute('fill','none');path.setAttribute('stroke','rgba(255,240,230,.55)');path.setAttribute('stroke-width','14');path.setAttribute('stroke-linecap','round');path.setAttribute('stroke-linejoin','round');svg.appendChild(path);}path.setAttribute('d','M'+drag.pts.map(q=>q.x+' '+q.y).join(' L'));}return;}
+ if(drag.k==='card'){const dx=p.x-drag.start.x,dy=p.y-drag.start.y;if(!drag.moved&&Math.hypot(dx,dy)<24)return;drag.moved=true;
+  let gh=dev.querySelector('.ghost');if(!gh){gh=document.createElement('div');gh.className='ghost';dev.appendChild(gh);}
+  const g=G();gh.style.left=(p.x-drag.off.x)+'px';gh.style.top=(p.y-drag.off.y)+'px';gh.style.width=g.colW+'px';gh.style.height=drag.h+'px';
+  let dz=dev.querySelector('.drop');const side=dropSide(p);
+  if(side){if(!dz){dz=document.createElement('div');dz.className='drop';dev.appendChild(dz);}const x=g.colX(side);dz.style.left=x+'px';dz.style.top=g.colY(side)+'px';dz.style.width=g.colW+'px';dz.style.height=(g.colBottom-g.top)+'px';}
+  else if(dz)dz.remove();}
+});
+function dropSide(p){const g=G();if(g.narrow)return null;const near=80;
+ const penEdge=g.offLeft?g.d.w:0, offEdge=g.offLeft?0:g.d.w;
+ for(const sd of ['pen','off']){const r=g.dockRect(sd);if(p.x>r.x-near&&p.x<r.x+r.w+near&&p.y>r.y-near)return sd;}return null;}
+function showSnap(edge){if(edge==='float')return;const g=G();const l=document.createElement('div');l.className='snapline';if(edge==='left'||edge==='right'){l.style.left=(edge==='left'?6:g.d.w-8)+'px';l.style.top=g.top+'px';l.style.height=(g.d.h-2*g.top)+'px';}else{l.classList.add('hz');l.style.top=(edge==='top'?g.top-6:g.d.h-6)+'px';l.style.left='40px';l.style.width=(g.d.w-80)+'px';}dev.appendChild(l);}
+dev.addEventListener('pointerup',e=>{
+ const p=P2(e);const d=drag;drag=null;
+ if(!d)return;
+ if(d.k==='dock'){dev.querySelectorAll('.snapline').forEach(x=>x.remove());if(d.moved){mark('dock');const pl=st.dockPlace[d.side];toast(pl.edge==='float'?'It floats here':'It sits on the '+pl.edge+' edge'+(pl.edge==='top'||pl.edge==='bottom'?(d.side==='shelf'?'':' as a row'):''));}return;}
+ if(d.k==='dockcols'){mark('dock');toast(st.dockCols[d.side]+(st.dockCols[d.side]>1?' lines':' line'));return;}
+ if(d.k==='stroke'){dev.classList.remove('stroking');if(d.pts.length>3&&(st.col.pen.some(c=>c.pinned)||st.col.off.some(c=>c.pinned)||st.floats.length))mark('stroke');setTimeout(()=>{const s=dev.querySelector('#strokes path.cur');if(s){s.classList.remove('cur');s.style.transition='opacity 1.5s';s.style.opacity='0.25';}},0);return;}
+ if(d.k==='card'){dev.querySelector('.ghost')?.remove();dev.querySelector('.drop')?.remove();if(!d.moved)return;
+  const side=dropSide(p);const g=G();
+  if(side){closeCard(d.id);st.col[side]=st.col[side].filter(c=>c.pinned).slice(-1);st.col[side].push({id:d.id,pinned:true});toast('Back in its column, pinned');}
+  else{closeCard(d.id);st.floats.push({id:d.id,x:Math.max(10,Math.min(g.d.w-g.colW-10,p.x-d.off.x)),y:Math.max(g.top,Math.min(g.d.h-120,p.y-d.off.y)),h:d.h});mark('float');}
+  render();}
+});
+function setSlider(e){const tr=drag.el.querySelector('.tr').getBoundingClientRect();const flat=!!drag.el.closest('.dock.h');const f=flat?(e.clientX-tr.left)/tr.width:1-(e.clientY-tr.top)/tr.height;const v=Math.round(Math.max(1,Math.min(100,f*100)));st[drag.which]=v;drag.el.querySelector('.fill').style.setProperty('--v',v+'%');drag.el.querySelector('.v').textContent=v;}
+function showTip(b,p){let t=dev.querySelector('.tip');if(!b||st.dev!=='desk'){t?.remove();return;}if(!t){t=document.createElement('div');t.className='tip';dev.appendChild(t);}t.textContent=b.dataset.tip;const r=b.getBoundingClientRect(),dr=dev.getBoundingClientRect();let x=(r.left-dr.left)/scale,y=(r.bottom-dr.top)/scale+6;t.style.left=Math.min(x,DEV.desk.w-200)+'px';t.style.top=y+'px';}
+dev.addEventListener('pointerleave',()=>dev.querySelector('.tip')?.remove());
+dev.addEventListener('input',e=>{if(e.target.id==='sq'){st.search=e.target.value;const pos=e.target.selectionStart;render();return;}const o=e.target.dataset.out;if(o){const el=dev.querySelector('#'+o);if(el)el.textContent=e.target.value;}});
+dev.addEventListener('keydown',e=>{if(e.target.id==='sq'){if(e.key==='Enter'){const r=searchFor(st.search)[0];if(r)showWhere(r.card,r.sec,r.ri);}if(e.key==='Escape'){st.search=null;render();}}});
+let holdT=null;
+dev.addEventListener('pointerdown',e=>{const b=e.target.closest('[data-act="edit"]');if(b){holdT=setTimeout(()=>{st.edit=true;mark('edit');render();holdT='fired';},450);}},true);
+dev.addEventListener('click',e=>{
+ const a=e.target.closest('[data-act]');if(!a)return;const act=a.dataset.act;
+ if(act==='edit'&&holdT==='fired'){holdT=null;return;}clearTimeout(holdT);holdT=null;
+ const [k,x,y,z]=act.split(':');
+ switch(k){
+  case 'card':openCard(x,y==='off'?'off':'pen');break;
+  case 'close':closeCard(x);break;
+  case 'pin':pinCard(x);break;
+  case 'fold':{const s=st.open[x];s.has(y)?s.delete(y):s.add(y);break;}
+  case 'sw':a.classList.toggle('on');const sec=CARDS[x].secs.find(s=>s.n===y);sec.rows[+z].on=a.classList.contains('on');return;
+  case 'space':st.space=x;closeUnpinned();break;
+  case 'page':st.page=x;break;
+  case 'brush':st.brush=x;break;
+  case 'search':st.search='';break;
+  case 'searchclose':st.search=null;break;
+  case 'go':showWhere(x,y,+z);return;
+  case 'settings':st.settings='Interface';break;
+  case 'set':st.settings=x;break;
+  case 'settingsclose':st.settings=null;break;
+  case 'lefty':setLefty(!st.lefty);break;
+  case 'edit':st.edit=true;mark('edit');break;
+  case 'editdone':st.edit=false;break;
+  case 'lib':st.lib=x;if(!st.edit&&x==='shelf'){} break;
+  case 'libclose':st.lib=null;break;
+  case 'add':{if(x==='shelf'){st.lib=null;toast('Brushes go on a shelf page the same way');break;}const it=act.slice(('add:'+x+':').length);st.docks[st.space][x].push(it);st.lib=null;toast('Added to the dock');break;}
+  case 'rm':st.docks[st.space][x].splice(+y,1);break;
+  case 'detent':st.sheetFull=!st.sheetFull;break;
+  case 'cmd':toast(CMDS[x].t+' (a command button)');return;
+  case 'pill':return;
+  default:return;
+ }
+ render();
+});
+/* page controls */
+document.getElementById('devSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;st.dev=b.dataset.d;st.sheet=null;
+ if(st.dev==='narrow'){const c=st.col.pen[0]||st.col.off[0];if(c)st.sheet=c.id;}else if(st.sheet){}
+ if(st.dev==='desk')mark('desk');if(st.dev==='narrow'&&st.sheet)mark('narrow');
+ document.querySelectorAll('#devSeg button').forEach(x=>x.classList.toggle('on',x===b));fit();render();});
+function setLefty(v){st.lefty=v;const t=document.getElementById('tLefty');t.classList.toggle('on',v);t.setAttribute('aria-pressed',v);st.floats=[];}
+document.getElementById('tLefty').onclick=()=>{setLefty(!st.lefty);render();};
+document.getElementById('tZones').onclick=(e)=>{st.zones=!st.zones;e.currentTarget.classList.toggle('on',st.zones);e.currentTarget.setAttribute('aria-pressed',st.zones);render();};
+document.getElementById('tReset').onclick=()=>{fresh();document.querySelectorAll('#steps li').forEach(li=>li.classList.remove('done-step'));setLefty(false);document.getElementById('tZones').classList.remove('on');render();};
+fit();
+render();
+})();
+</script>
