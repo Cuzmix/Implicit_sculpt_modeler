@@ -228,6 +228,15 @@ pose_entry_apply :: proc(app: ^App, obj: ^Object, h: gizmo.Handle, op: u8, v: f3
 		factor := 1 + v if op == '+' else v
 		if factor <= 0 do return false
 		to.scale *= factor
+	case .Scale_X, .Scale_Y, .Scale_Z:
+		if op != 0 && op != '+' do return false
+		factor := 1 + v if op == '+' else v
+		if factor <= 0 do return false
+		p := stretch_pose(obj.transform, pivot, gizmo.stretch_axis(h), clamp(factor, MIN_STRETCH, MAX_STRETCH))
+		if pose_is_still(p) || !pose_begin(app, obj) do return true
+		sculpt.sculptor_pose_apply(object_sculptor(obj), p)
+		_ = pose_end(app, obj, h, "" if pose_mode(app) else STRETCH_WHAT[gizmo.stretch_axis(h)])
+		return true
 	case:
 		return false
 	}

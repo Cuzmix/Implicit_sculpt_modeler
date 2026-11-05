@@ -78,6 +78,7 @@ Move_Drag :: struct {
 	press:        [2]f32, // the pointer when it went live
 	center:       [2]f32, // the gizmo's centre on screen then
 	arm_px:       f32, // ...and its arms' length
+	knob:         [2]f32, // a stretch: its knob on screen then, which way the drag stretches
 	pivot:        Vec3, // what turns and scales go about
 	step:         f32, // the move grid's step, fixed for the drag
 	axis_start:   f32, // .X/.Y/.Z: where along the axis the drag began
@@ -162,11 +163,23 @@ gizmo_screen :: proc(app: ^App, size: [2]f32) -> (s: gizmo.Screen) {
 	return gizmo.screen(view_proj, center, arm, -camera.orbit_toward(app.camera, center), size, arm_px, app.move.mode)
 }
 
-// The handle under `at`, for the pointer in use.
+// The handle under `at`, for the pointer in use. A stretch knob of a selection that cannot
+// stretch scales evenly instead (gizmo_stretches).
 gizmo_pick :: proc(app: ^App, at, size: [2]f32) -> gizmo.Handle {
 	// A lattice's cage stands in for the gizmo.
 	if selected_object(app) == nil || lattice_shown(app) != nil do return .None
-	return gizmo.pick(gizmo_screen(app, size), app.move.mode, at, gizmo_radius(app))
+	h := gizmo.pick(gizmo_screen(app, size), app.move.mode, at, gizmo_radius(app))
+	if gizmo.stretch_axis(h) >= 0 && !gizmo_stretches(app) do h = .Scale
+	return h
+}
+
+// Whether the gizmo's knobs stretch along their axes: the one object selected is a sculpt
+// mesh, whose vertices the stretch moves (an object's own scale stays even, as the renderer
+// needs a similarity), as ZBrush's Gizmo 3D stretches the mesh. Curves, cages, voxel clay
+// and a selection of several scale evenly from every knob.
+gizmo_stretches :: proc(app: ^App) -> bool {
+	obj := selected_object(app)
+	return obj != nil && len(selection_ids(app)) == 1 && object_type(obj) == .Sculpt_Mesh
 }
 
 // Turns this frame's viewport input into selection changes and object moves, turns and
@@ -250,7 +263,8 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		}
 		obj := selected_object(app)
 		// In pose mode the handles pose the mesh; the body still moves the object.
-		posed := on_handle && pose_mode(app)
+		// A stretch knob stretches the mesh itself, through the pose too, mask or none.
+		posed := on_handle && (pose_mode(app) || gizmo.stretch_axis(handle) >= 0)
 		m.drag = {handle = handle, on_handle = on_handle, down = input.mouse_pos, id = obj.id, start = obj.transform, grab = grab, posed = posed, pivot_from = m.pivot, placed_from = m.placed.at}
 		if !posed do members_take(app, &m.members)
 	}
@@ -304,6 +318,10 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		if drag.snapped do degrees = gizmo.snap(degrees, gizmo.TURN_SNAP_DEGREES)
 		drag.amount = degrees
 		t = turn_about(drag.start, drag.pivot, drag.axis, degrees)
+	case .Scale_X, .Scale_Y, .Scale_Z:
+		f := gizmo.stretch_factor(drag.center, drag.knob, drag.press, input.mouse_pos, drag.arm_px)
+		if drag.snapped do f = max(gizmo.snap(f, gizmo.SCALE_SNAP), gizmo.SCALE_SNAP)
+		drag.amount = clamp(f, MIN_STRETCH, MAX_STRETCH)
 	case .Scale:
 		f := gizmo.scale_factor(drag.center, drag.press, input.mouse_pos, drag.arm_px)
 		if drag.snapped do f = max(gizmo.snap(f, gizmo.SCALE_SNAP), gizmo.SCALE_SNAP)
@@ -315,6 +333,10 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 	if drag.posed {
 		if drag.lattice > 0 {
 			lattice_pose_set(app, obj, lattice_pose_of(app, drag.lattice, drag.start, drag.offset))
+			return
+		}
+		if i := gizmo.stretch_axis(drag.handle); i >= 0 {
+			pose_set(app, obj, stretch_pose(drag.start, drag.pivot, i, drag.amount))
 			return
 		}
 		pose_set(app, obj, pose_of(drag.handle, drag.start, t, drag.pivot, drag.axis, drag.amount))
@@ -448,8 +470,23 @@ move_go_live :: proc(app: ^App, obj: ^Object, input: Viewport_Input) -> bool {
 		drag.turn_from = hit
 		if drag.edge do drag.tangent = gizmo.ring_tangent(sc.rings[i][:], input.mouse_pos)
 	case .Scale:
+	case .Scale_X, .Scale_Y, .Scale_Z:
+		drag.knob = sc.knobs[gizmo.stretch_axis(drag.handle)]
+		drag.amount = 1
 	}
 	return true
+}
+
+// How far one drag stretches a mesh along an axis, either way: past these the far side of
+// the mesh would be lost off screen or flattened to nothing.
+MIN_STRETCH :: 0.02
+MAX_STRETCH :: 50
+
+// The pose that stretches `from`'s mesh by `factor` along world axis `i` (0 x, 1 y, 2 z)
+// about the world point `pivot`, in the mesh's own space.
+stretch_pose :: proc(from: Transform, pivot: Vec3, i: int, factor: f32) -> sculpt.Pose {
+	axis := linalg.normalize0(to_local_dir(from, gizmo.AXES[i]))
+	return {kind = .Scale, pivot = to_local(from, pivot), axis = axis, factor = factor}
 }
 
 // Ends the drag in progress, if any, as one undo step when it changed the object.
@@ -461,7 +498,8 @@ move_end :: proc(app: ^App) {
 	if drag.posed {
 		// A click, or a drag that came back to where it began, leaves no step.
 		if obj != nil && drag_changed(obj, drag) {
-			if pose_end(app, obj, drag.handle, "Lattice" if drag.lattice > 0 else "") && drag.lattice > 0 do lattice_moved(app, drag.lattice, drag.pose)
+			what := "Lattice" if drag.lattice > 0 else STRETCH_WHAT[gizmo.stretch_axis(drag.handle)] if gizmo.stretch_axis(drag.handle) >= 0 && !pose_mode(app) else ""
+			if pose_end(app, obj, drag.handle, what) && drag.lattice > 0 do lattice_moved(app, drag.lattice, drag.pose)
 		} else if obj != nil do sculpt.sculptor_pose_cancel(object_sculptor(obj))
 		return
 	}
@@ -494,11 +532,15 @@ move_cancel :: proc(app: ^App) {
 	clear(&app.move.members)
 }
 
+// A stretch's name, for the undo button and the History panel, by its axis.
+@(rodata)
+STRETCH_WHAT := [3]string{"Scale X", "Scale Y", "Scale Z"}
+
 // What a handle does.
 drag_mode :: proc(h: gizmo.Handle) -> gizmo.Mode {
 	#partial switch h {
-	case .Turn_X ..= .Turn_View: return .Turn
-	case .Scale:                 return .Scale
+	case .Turn_X ..= .Turn_View:   return .Turn
+	case .Scale ..= .Scale_Z:      return .Scale
 	}
 	return .Move
 }
@@ -528,6 +570,7 @@ move_readout :: proc(app: ^App) -> string {
 		snap = fmt.tprintf("snap %d°", gizmo.TURN_SNAP_DEGREES)
 	case .Scale:
 		text = fmt.tprintf("Scale ×%.2f", drag.amount)
+		if i := gizmo.stretch_axis(drag.handle); i >= 0 do text = fmt.tprintf("%s ×%.2f", STRETCH_WHAT[i], drag.amount)
 		snap = fmt.tprintf("snap %g", gizmo.SCALE_SNAP)
 	case .All: // drag_mode never gives it: each handle does one of the three
 	}
@@ -605,7 +648,7 @@ Gizmo_Entry :: struct {
 
 entry_takes :: proc(h: gizmo.Handle) -> bool {
 	#partial switch h {
-	case .X, .Y, .Z, .Turn_X ..= .Turn_View, .Scale: return true
+	case .X, .Y, .Z, .Turn_X ..= .Turn_View, .Scale ..= .Scale_Z: return true
 	}
 	return false
 }
@@ -629,6 +672,9 @@ gizmo_entry_title :: proc(h: gizmo.Handle) -> string {
 	case .Turn_Y:    return "Turn about Y, degrees"
 	case .Turn_Z:    return "Turn about Z, degrees"
 	case .Turn_View: return "Turn about the view, degrees"
+	case .Scale_X:   return "Scale along X, factor"
+	case .Scale_Y:   return "Scale along Y, factor"
+	case .Scale_Z:   return "Scale along Z, factor"
 	}
 	return "Scale"
 }
@@ -662,8 +708,9 @@ gizmo_entry_apply :: proc(app: ^App, obj: ^Object, handle: gizmo.Handle, text: s
 	}
 	v, ok := strconv.parse_f32(s)
 	if !ok || math.is_nan(v) || math.is_inf(v) do return false
-	// In pose mode the value poses the unmasked part instead (pose.odin).
-	if pose_mode(app) && obj == selected_object(app) do return pose_entry_apply(app, obj, handle, op, v)
+	// In pose mode the value poses the unmasked part instead (pose.odin), and a stretch
+	// stretches the mesh, mask or none.
+	if (pose_mode(app) || gizmo.stretch_axis(handle) >= 0) && obj == selected_object(app) do return pose_entry_apply(app, obj, handle, op, v)
 	// The rest of the selection, as it is now, follows; an inspector drag still open (which
 	// keeps its own list) ends first.
 	transform_drag_end(app, force = true)
@@ -724,7 +771,9 @@ kit_gizmo_entry :: proc(app: ^App) {
 	if posing do title = fmt.tprintf("Pose: %s", POSE_ENTRY_TITLES[drag_mode(e.handle)])
 	ui.caption(ctx, strings.to_upper(title, context.temp_allocator))
 	hint := "Degrees, such as 90"
-	if posing {
+	if gizmo.stretch_axis(e.handle) >= 0 {
+		hint = "Factor, such as 1.5"
+	} else if posing {
 		#partial switch e.handle {
 		case .X, .Y, .Z: hint = "Offset, such as 0.5"
 		case .Scale:     hint = "Factor, such as 1.5"
@@ -742,6 +791,7 @@ kit_gizmo_entry :: proc(app: ^App) {
 	note := "Enter applies it; +0.5 adds to it."
 	switch {
 	case e.refused:                    note = "That is no value: type a number, such as 0.5."
+	case gizmo.stretch_axis(e.handle) >= 0: note = "Enter stretches the mesh along the axis by it (the mask holds back what it covers); +0.5 adds half."
 	case posing:                       note = POSE_ENTRY_NOTES[drag_mode(e.handle)]
 	case drag_mode(e.handle) == .Turn: note = "Enter turns it that far about the ring's axis."
 	case e.handle == .Scale:           note = "Enter sets it; +0.5 adds, *2 doubles."

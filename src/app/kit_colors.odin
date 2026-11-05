@@ -1051,12 +1051,19 @@ color_sample :: proc(app: ^App, at, size: [2]f32) -> (rgb: [3]f32, ok: bool) {
 	return {f32(b.r) / 255, f32(b.g) / 255, f32(b.b) / 255}, true
 }
 
+// What the Eyedropper sees at viewport point `at`: a reference picture over the view
+// there (refs_view.odin), else the model's surface.
+eyedrop_sample :: proc(app: ^App, at, size: [2]f32) -> (rgb: [3]f32, ok: bool) {
+	if c, over, picked := refs_view_color(app, at); over do return c, picked
+	return color_sample(app, at, size)
+}
+
 // The Eyedropper command: over the viewport it picks the colour under the pointer at
 // once, as ZBrush's C; from a button it waits for the next press on the model.
 eyedropper_command :: proc(app: ^App) {
 	u := &app.ui
 	if u.viewport_hovered && !u.eyedrop_armed {
-		if rgb, ok := color_sample(app, u.viewport_mouse, u.viewport_size); ok {
+		if rgb, ok := eyedrop_sample(app, u.viewport_mouse, u.viewport_size); ok {
 			colors_pick(app, rgb)
 			report(app, Section.Paint_Color, {.Quiet}, "Picked %s", hex_text(rgb))
 		}
@@ -1076,7 +1083,7 @@ eyedropper_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 		u.eyedrop_armed, u.eyedrop_held = false, true
 	}
 	u.eyedrop_at = input.mouse_pos
-	u.eyedrop_color, u.eyedrop_hit = color_sample(app, input.mouse_pos, input.size)
+	u.eyedrop_color, u.eyedrop_hit = eyedrop_sample(app, input.mouse_pos, input.size)
 	if input.primary do return true
 	u.eyedrop_held = false
 	if u.eyedrop_hit {

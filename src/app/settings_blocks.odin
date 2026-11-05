@@ -122,7 +122,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Frame_Rate       = "frame rate fps limit unlimited match display rest when idle battery low latency frames in flight lag",
 	.Anti_Aliasing    = "anti-aliasing antialiasing msaa display",
 	.Graphics         = "graphics gpu backend vulkan metal driver renderer async compute ray tracing hardware rtx",
-	.Mesh_Size        = "mesh size largest remesh subdivision level limit vertices memory device automatic",
+	.Mesh_Size        = "mesh size largest remesh subdivision level limit vertices memory device automatic references pictures refs gpu",
 	.Autosave         = "autosave recovery copy",
 	.Crash_Log        = "crash log crashed bug report send",
 	.Earlier_Saves    = "earlier saves versions kept",
@@ -559,7 +559,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 		app.idle_sleep = true
 	case .Anti_Aliasing:   app.msaa = MSAA_DEFAULT
 	case .Graphics:        app.async_compute, app.ray_query = true, RAY_QUERY_DEFAULT
-	case .Mesh_Size:       app.remesh_most, app.subdivide_most = 0, 0
+	case .Mesh_Size:       app.remesh_most, app.subdivide_most, app.refs_memory_mb = 0, 0, 0
 	case .Autosave:        app.autosave.minutes = AUTOSAVE_DEFAULT_MINUTES
 	case .Crash_Log:
 	case .Earlier_Saves:   app.versions_kept = VERSIONS_DEFAULT

@@ -38,6 +38,7 @@ Command_Id :: enum u16 {
 	Export_Sheet, // lens_export.odin
 	Screenshot,
 	Screenshot_Transparent,
+	Show_References,
 	Record_Turntable,
 	Send_To_Blender,
 	Get_From_Blender,
@@ -514,6 +515,13 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {app.screenshot_transparent = !app.screenshot_transparent},
 		checked = proc(app: ^App, _: int) -> bool {return app.screenshot_transparent},
 	},
+	.Show_References = {
+		label = "Show refs",
+		help = "Shows or hides every reference picture standing over the view at once, as they are; the References card puts a picture over the view.",
+		icon = ICON_SHOW_REFS,
+		run = proc(app: ^App, _: int) {refs_view_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return !app.scene.refs.view_off},
+	},
 	.Record_Turntable = {
 		label = "Record turntable...",
 		help = "Turns the camera once round the scene and saves every frame into a folder you pick, as numbered PNG pictures and one animated PNG that plays in a browser; again, while it records, stops it.",
@@ -799,7 +807,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Gizmo = {
 		label = "Gizmo",
-		help = "Picks the Move tool and what its gizmo's handles do: move along an arm or across a plane, turn about a ring, or scale from the middle; All shows the three at once, its arrows moving, its rings turning and its white knobs scaling. With a mask on the one object selected, they pose its unmasked part instead.",
+		help = "Picks the Move tool and what its gizmo's handles do: move along an arm or across a plane, turn about a ring, or scale from the middle; All shows the three at once, its arrows moving, its rings turning, its coloured knobs stretching the mesh along their axes and its white knob scaling evenly. With a mask on the one object selected, they pose its unmasked part instead.",
 		icon = ui.ICON_MOVE,
 		args = len(gizmo.Mode),
 		run = proc(app: ^App, arg: int) {

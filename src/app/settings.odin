@@ -395,6 +395,7 @@ SETTINGS := [?]Setting {
 	{"memory_short", offset_of(App, memory_short), Memory_Short, 0, 0},
 	{"remesh_most", offset_of(App, remesh_most), i32, 0, MESH_NO_LIMIT},
 	{"subdivide_most", offset_of(App, subdivide_most), i32, 0, MESH_NO_LIMIT},
+	{"refs_memory_mb", offset_of(App, refs_memory_mb), i32, 0, 65536},
 	{"history_no_lights", offset_of(App, history_no_lights), bool, 0, 0},
 	{"history_no_tree", offset_of(App, history_no_tree), bool, 0, 0},
 	{"history_camera", offset_of(App, history_camera), bool, 0, 0},

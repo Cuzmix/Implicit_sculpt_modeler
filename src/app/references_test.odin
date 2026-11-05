@@ -5,6 +5,7 @@ import "core:testing"
 
 import "../geom"
 import "../png_write"
+import "../ui"
 
 // A small picture's file, as a PNG of `w` by `h` grey pixels of `shade`.
 @(private = "file")
@@ -40,6 +41,8 @@ references_read_back_as_written :: proc(t: ^testing.T) {
 	app.scene.refs.refs[0].size = {40, 20}
 	app.scene.refs.refs[1].turn, app.scene.refs.refs[1].flip, app.scene.refs.refs[1].locked = 3, true, true
 	app.scene.refs.refs[1].crop_lo, app.scene.refs.refs[1].crop_hi = {0.25, 0}, {1, 0.5}
+	app.scene.refs.refs[0].view, app.scene.refs.refs[0].view_at, app.scene.refs.refs[0].view_w, app.scene.refs.refs[0].opacity = true, {0.5, -0.25}, 0.4, 0.75
+	app.scene.refs.view_off = true
 	refs_add_note(&app)
 	app.scene.refs.refs[2].text = {}
 	copy(app.scene.refs.refs[2].text[:], "Brow softer")
@@ -62,6 +65,7 @@ references_read_back_as_written :: proc(t: ^testing.T) {
 	testing.expect(t, string(back.images[1].bytes) == string(app.scene.refs.images[1].bytes))
 	testing.expect_value(t, back.images[0].name, "a.png")
 	testing.expect_value(t, back.next_image, 2)
+	testing.expect(t, back.view_off)
 }
 
 // A chunk cut short, a place of a picture the chunk does not hold, or a size that is not
@@ -78,6 +82,8 @@ references_refuse_damage :: proc(t: ^testing.T) {
 		proc(refs: ^References) {refs.refs[0].turn = 4},
 		proc(refs: ^References) {refs.refs[0].crop_lo = {0.5, 0}; refs.refs[0].crop_hi = {0.4, 1}},
 		proc(refs: ^References) {refs.refs[0].crop_hi = {1.5, 1}},
+		proc(refs: ^References) {refs.refs[0].opacity = 0},
+		proc(refs: ^References) {refs.refs[0].view_w = -1},
 	}
 	for spoil in cases {
 		saved := app.scene.refs.refs[0]
@@ -293,4 +299,24 @@ references_crop_keeps_the_rest_in_place :: proc(t: ^testing.T) {
 	board_crop_test_drag(&turned, {50, 0}, CROP_LEFT)
 	testing.expect_value(t, turned.crop_lo, [2]f32{0, 0})
 	testing.expect_value(t, turned.crop_hi, [2]f32{1, 0.5})
+}
+
+// The Eyedropper on a picture reads its small copy where the place shows it: flipped,
+// the left of the place is the picture's right.
+@(test)
+references_pick_colour_where_shown :: proc(t: ^testing.T) {
+	app: App
+	defer test_refs_free(&app)
+	_, _ = refs_add(&app, "a.png", test_png(2, 1, 0), {})
+	img := app.scene.refs.images[0]
+	img.sample = make([]u8, 8)
+	copy(img.sample, []u8{255, 0, 0, 255, 0, 0, 255, 255})
+	img.sample_size = {2, 1}
+	p := app.scene.refs.refs[0]
+	r := ui.Rect{0, 0, 100, 50}
+	rgb, ok := refs_color_at(&app, p, r, {10, 25})
+	testing.expect(t, ok && rgb == {1, 0, 0})
+	p.flip = true
+	rgb, ok = refs_color_at(&app, p, r, {10, 25})
+	testing.expect(t, ok && rgb == {0, 0, 1})
 }
