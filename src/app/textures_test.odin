@@ -343,3 +343,40 @@ textured_export_carries_the_maps :: proc(t: ^testing.T) {
 	testing.expect(t, !object_exports_textures(obj), "the maps follow the base level's UVs only")
 	free_all(context.temp_allocator)
 }
+
+// A triangle sculpt Unwrap gave UVs takes maps as a quad object does: it can load one,
+// the preview splits its own triangles where the seams are (each corner its own slot, for
+// render mode), and its .glb carries the maps through those UVs.
+@(test)
+unwrapped_sculpt_takes_maps :: proc(t: ^testing.T) {
+	FOLDER :: "build/textures_test_unwrapped/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	path := strings.clone(FOLDER + "unwrapped.glb")
+	defer delete(path)
+
+	app: App
+	defer tree_free(&app)
+	defer results_destroy(&app)
+	objs := tree_scene(&app)
+	obj := objs[0]
+	defer textures_free(&obj.textures)
+	testing.expect(t, texture_target_check(obj) != "", "maps offered without UVs")
+	object_unwrap(&app, obj, unwrap_setup(&app))
+	testing.expect_value(t, texture_target_check(obj), "")
+	maps: Object_Textures
+	maps.image[.Normal] = png_of({128, 128, 255, 255})
+	textures_replace(&app, obj, maps, "load normal map")
+	vertices, indices, corners := textured_vertices(obj)
+	base := obj.levels.levels[0]
+	testing.expect_value(t, len(indices), len(base.mesh.indices))
+	testing.expect(t, len(vertices) > len(base.mesh.positions), "the seams split no vertices")
+	testing.expect_value(t, len(corners), len(indices))
+	for c, i in corners do testing.expect(t, c == indices[i])
+	testing.expect(t, object_exports_textures(obj))
+	if !testing.expect(t, object_export(&app, obj, path)) do return
+	json := glb_json(t, path)
+	for want in ([?]string{`"TEXCOORD_0"`, `"TANGENT"`, `"normalTexture"`}) do testing.expectf(t, strings.contains(json, want), "the file has no %s", want)
+	free_all(context.temp_allocator)
+}
