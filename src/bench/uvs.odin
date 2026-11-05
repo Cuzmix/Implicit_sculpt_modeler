@@ -2,6 +2,8 @@ package bench
 
 import "core:fmt"
 import "core:math"
+import "core:os"
+import "core:strings"
 import "core:time"
 
 import "../geom"
@@ -16,6 +18,9 @@ import "../uv"
 // on the pool (the same bits, checked), Sander's L2 stretch, the worst singular value
 // ratio, the mean angle error, the flipped triangles, the islands ABF++ left to LSCM,
 // the share of the square the boxes fill and the row's peak memory.
+
+uv_write_dir := ""
+uv_measure := ""
 
 uvs_header :: proc() {
 	fmt.println("| Fixture | Method | Triangles | Islands | 1 thread ms | Pool ms | Same bits | L2 stretch | Worst | Angle ° | Flips | Fallbacks | Filled | Peak RSS MB |")
@@ -100,6 +105,59 @@ uv_row :: proc(fixture: UV_Fixture, method: uv.Method, target: int, pool: ^jobs.
 	same := true
 	for c, t in one.corner do if c != pooled.corner[t] do same = false
 
+	if uv_write_dir != "" && method == .Abf do write_uv_obj(fmt.tprintf("%s/%v_%d.obj", uv_write_dir, fixture, triangles), m.positions[:], m.indices[:], one)
 	s := uv.stretch(one, m.positions[:], m.indices[:])
 	fmt.printfln("| %v | %v | %s | %d | %.0f | %.0f | %v | %.4f | %.3f | %.2f | %d | %d | %.2f | %.0f |", fixture, method, thousands(triangles), base.islands, serial_ms, pool_ms, "yes" if same else "NO", s.l2, s.worst, s.angle, r.flips, r.fallbacks, one.filled, peak_rss_mb())
+}
+
+// The mesh with a texture coordinate a corner as OBJ (v up, as OBJ keeps it), so the
+// islands survive a round trip through another app that reads its seams from them.
+@(private = "file")
+write_uv_obj :: proc(path: string, positions: []geom.Vec3, indices: []u32, u: uv.Uvs) {
+	b := strings.builder_make()
+	defer strings.builder_destroy(&b)
+	fmt.sbprintln(&b, "# bench --uv fixture")
+	for p in positions do fmt.sbprintfln(&b, "v %.9g %.9g %.9g", p.x, p.y, p.z)
+	for c in u.corner do for p in c do fmt.sbprintfln(&b, "vt %.9g %.9g", p.x, p.y)
+	for t in 0 ..< len(indices) / 3 {
+		fmt.sbprintfln(&b, "f %d/%d %d/%d %d/%d", indices[3 * t] + 1, 3 * t + 1, indices[3 * t + 1] + 1, 3 * t + 2, indices[3 * t + 2] + 1, 3 * t + 3)
+	}
+	if err := os.write_entire_file(path, transmute([]u8)strings.to_string(b)); err != nil do fmt.eprintfln("bench: cannot write %s: %v", path, err)
+}
+
+// --measure: an OBJ's own UVs (Blender's unwrap, say) measured by our stretch, then the
+// same islands flattened by each of our methods, one row each.
+measure_uvs :: proc(path: string, pool: ^jobs.Pool) {
+	data, err := os.read_entire_file(path, context.allocator)
+	if err != nil {
+		fmt.eprintfln("bench: cannot read %s: %v", path, err)
+		return
+	}
+	defer delete(data)
+	corners := make([dynamic][2]f32)
+	defer delete(corners)
+	m, read_err, line := geom.mesh_read_obj(data, pool, uvs = &corners)
+	defer geom.mesh_destroy(&m)
+	if read_err != .None || len(corners) != len(m.indices) {
+		fmt.eprintfln("bench: %s: %v at line %d, or no UVs", path, read_err, line)
+		return
+	}
+	faces := geom.vertex_faces_build(m, pool)
+	defer geom.vertex_faces_destroy(&faces)
+	file := uv.from_corners(m.indices[:], corners[:], nil, faces)
+	defer uv.destroy(&file)
+	free_all(context.temp_allocator)
+	triangles := len(m.indices) / 3
+	s := uv.stretch(file, m.positions[:], m.indices[:])
+	fmt.printfln("| %s | file | %s | %d | | | | %.4f | %.3f | %.2f | %d | | %.2f | |", path, thousands(triangles), file.islands, s.l2, s.worst, s.angle, s.flips, file.filled)
+	for method in uv.Method {
+		ours := uv.clone(file)
+		defer uv.destroy(&ours)
+		t0 := time.tick_now()
+		r := uv.flatten(&ours, m.positions[:], m.indices[:], faces, method, pool)
+		ms := time.duration_milliseconds(time.tick_since(t0))
+		free_all(context.temp_allocator)
+		so := uv.stretch(ours, m.positions[:], m.indices[:])
+		fmt.printfln("| %s | %v | %s | %d | | %.0f | | %.4f | %.3f | %.2f | %d | %d | %.2f | %.0f |", path, method, thousands(triangles), ours.islands, ms, so.l2, so.worst, so.angle, r.flips, r.fallbacks, ours.filled, peak_rss_mb())
+	}
 }

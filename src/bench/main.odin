@@ -21,7 +21,10 @@
 //   --remesh     instead, voxel remesh of a stretched sphere (see run_remesh)
 //   --quadremesh instead, Quad Remesh's engine on that sphere (see run_quadremesh)
 //   --uv         instead, UV flattening and packing; sizes are triangles, 100k and 1M by
-//                default (see run_uvs)
+//                default (see run_uvs); --write=DIR also writes each fixture with the
+//                flattening as DIR/<fixture>_<triangles>.obj
+//   --measure=FILE.obj instead, the stretch of an OBJ's own UVs and of ours on it
+//                (scripts/uv_check.py runs Blender's unwrap through it)
 //   --dyntopo    instead, dynamic topology strokes (see run_dyntopo)
 //   --files      instead, OBJ, PLY and scene files written and read (see run_files)
 //   --masks      instead, every mask command on a half-masked sphere (see run_masks)
@@ -107,6 +110,11 @@ main :: proc() {
 			quadremesh = true
 		} else if arg == "--uv" {
 			uvs = true
+		} else if strings.has_prefix(arg, "--write=") {
+			uv_write_dir = arg[8:]
+		} else if strings.has_prefix(arg, "--measure=") {
+			uvs = true
+			uv_measure = arg[10:]
 		} else if arg == "--dyntopo" {
 			dyntopo = true
 		} else if arg == "--files" {
@@ -179,6 +187,11 @@ main :: proc() {
 		quadremesh_header()
 		for c in cases do if c.meshes == 1 do run_quadremesh(c.vertices, pool)
 		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
+		return
+	}
+	if uv_measure != "" {
+		uvs_header()
+		measure_uvs(uv_measure, pool)
 		return
 	}
 	if uvs {
