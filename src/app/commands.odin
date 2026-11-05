@@ -1605,7 +1605,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Retopologize = {
 		label = "Quad Remesh",
-		help = "Makes a new object of quads lying on the selected one, with UVs when every face is a quad; AutoRemesher or the built-in engine, as Rebuild's Quads is set.",
+		help = "Makes a new object of quads lying on the selected one, with UVs when every face is a quad; Flow or Fast, as Rebuild's Quads is set.",
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), quad = quad_options(app)}},
 		enabled = has_object,
 	},

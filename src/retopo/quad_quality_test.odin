@@ -45,7 +45,7 @@ quad_remesh_mirrored_lands_the_count :: proc(t: ^testing.T) {
 		{8000, {true, true, true}},
 	}
 	for c in cases {
-		r := compute(m, c.quads, {engine = .Auto, mirror = {axes = c.axes}}, nil)
+		r := compute(m, c.quads, {engine = .Flow, mirror = {axes = c.axes}}, nil)
 		defer result_destroy(&r)
 		check := geom.mesh_check(r.mesh)
 		log.infof("mirrored %v at %d: %d faces (%.1f %%), %d quads, closed %v", c.axes, c.quads, r.faces, 100 * f32(r.faces) / f32(c.quads), r.quads, check.closed)
@@ -137,9 +137,9 @@ quad_remesh_keeps_thin_parts :: proc(t: ^testing.T) {
 	add_rod(&m, 0.03, 1.3, 24, 61)
 	resize(&m.normals, len(m.positions))
 	geom.mesh_recompute_normals(&m)
-	r := compute(m, 2000, {engine = .Auto}, nil)
+	r := compute(m, 2000, {engine = .Flow}, nil)
 	defer result_destroy(&r)
-	if !testing.expect(t, r.built && r.engine == .Auto, "AutoRemesher did not build it") do return
+	if !testing.expect(t, r.built && r.engine == .Flow, "Flow did not build it") do return
 	outside, ends: [2]int
 	off: f32
 	for p in r.mesh.positions {
@@ -212,9 +212,9 @@ quad_remesh_puts_the_corners_on_the_surface :: proc(t: ^testing.T) {
 	}
 	resize(&m.normals, len(m.positions))
 	geom.mesh_recompute_normals(&m)
-	r := compute(m, 1000, {engine = .Auto}, nil)
+	r := compute(m, 1000, {engine = .Flow}, nil)
 	defer result_destroy(&r)
-	if !testing.expect(t, r.built && r.engine == .Auto, "AutoRemesher did not build it") do return
+	if !testing.expect(t, r.built && r.engine == .Flow, "Flow did not build it") do return
 	bvh := geom.bvh_build_morton(m, geom.BVH_LEAF_SIZE, nil)
 	defer geom.bvh_destroy(&bvh)
 	off: f32
