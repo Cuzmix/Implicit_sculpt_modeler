@@ -121,6 +121,7 @@ Render_Features :: struct {
 	env_image:     bool,
 	lens:          bool,
 	sphere_lights: bool,
+	catcher:       bool,
 	rq:            bool,
 }
 
@@ -195,6 +196,7 @@ Path_Render :: struct {
 	// whose sharp clay would show through the blurred edges: the background and floor
 	// alone, drawn at the first sample of the view, with a depth image for that pass.
 	lens:           Lens,
+	catcher:        Shadow_Catcher,
 	lens_on:        bool, // this view's lens blurs
 	backdrop:       gpu.Texture,
 	backdrop_depth: gpu.Texture,
@@ -346,6 +348,23 @@ Render_Uniforms :: struct {
 	// The eye and the lens's radius (0: none), the camera's right and the focal plane's
 	// distance, its up, its forward (all in the world).
 	lens:          [4][4]f32,
+	// The shadow catcher (Shadow_Catcher): x the axis across its plane, y where along it the
+	// plane sits, z how dark its shadow is, w 1 when on; and the light it catches the shadow
+	// of, by its place in `lights`, in x.
+	catcher:       [4]f32,
+	catcher_light: [4]f32,
+}
+
+// A plane that shows only the shadows the scene casts on it (a floor that is otherwise
+// not there): `axis` across it (0 x, 1 y, 2 z), `at` where along it it sits, `strength`
+// how dark the shadow is (0 to 1). Full render traces it for the camera's rays only:
+// where it is nearer than the scene, a ray toward the brightest light decides whether the
+// pixel is in shadow, and the shadow covers the pixel by that much, adding no light.
+Shadow_Catcher :: struct {
+	on:       bool,
+	axis:     int,
+	at:       f32,
+	strength: f32,
 }
 
 // Depth of field: whether it is on, Blur (0 to 1: the lens's radius as a share of a quarter
@@ -372,7 +391,7 @@ Lights_World :: struct {
 	// Each light's highlight and shadows (Lights.extra), as the viewport's.
 	extra: [LIGHT_COUNT][4]f32,
 }
-#assert(size_of(Render_Uniforms) == 64 + size_of(Lights_World) + 48 + 64 + 64)
+#assert(size_of(Render_Uniforms) == 64 + size_of(Lights_World) + 48 + 64 + 64 + 32)
 
 // Records this frame's render mode work after render_viewport: starts over when `changed`
 // (anything was redrawn this frame) or the bounces or softness changed; otherwise, at the first band
@@ -385,7 +404,7 @@ Lights_World :: struct {
 // it, after which it never tries again. `half` traces a quarter of the pixels, half the
 // viewport's size each way, and lays them out over it smoothly: what tablets take. `lens`
 // gives depth of field; changing it starts over, as nothing in the viewport changes.
-render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, half := false, lens := Lens{}, pool: ^jobs.Pool = nil, linear := false, async := false) -> bool {
+render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport_Target, view, proj: Mat4, items: []Draw_Item, changed: bool, max_samples, bounces: int, lights: Lights, softness, exposure: f32, denoise: bool, half := false, lens := Lens{}, pool: ^jobs.Pool = nil, linear := false, async := false, catcher := Shadow_Catcher{}) -> bool {
 	debug_group(cmd, "Render mode", .Render_Mode)
 	if pr.failed do return false
 	if !path_ensure(r, pr, vt, half) {
@@ -405,9 +424,9 @@ render_frame :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^Viewport
 	path_band_collect(r, pr, cmd, vt, exposure, denoise, interval)
 	// Ray tracing hardware turned on or off starts the view over the other way.
 	rq_on := r.ray_query && r.caps.ray_query
-	if changed || !pr.valid || bounces != pr.bounces || softness != pr.softness || lens != pr.lens || rq_on != pr.rq_on {
+	if changed || !pr.valid || bounces != pr.bounces || softness != pr.softness || lens != pr.lens || rq_on != pr.rq_on || catcher != pr.catcher {
 		path_render_reset(pr)
-		pr.valid, pr.bounces, pr.softness, pr.lens, pr.rq_on = true, bounces, softness, lens, rq_on
+		pr.valid, pr.bounces, pr.softness, pr.lens, pr.rq_on, pr.catcher = true, bounces, softness, lens, rq_on, catcher
 		return true
 	}
 	if pr.samples >= max_samples || pr.refused != "" {
@@ -1185,6 +1204,19 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^View
 	u.counts.w = paint_base / size_of(u32)
 	u.extra = {node_count, 1 if len(tlas) == 0 && !pr.rq else 0, 0, 0}
 	pr.features = {env_image = r.environment != nil, lens = pr.lens_on, rq = pr.rq}
+	// The shadow catcher, under the brightest light that is on.
+	if c := pr.catcher; c.on {
+		brightest, best := -1, f32(0)
+		for i in 0 ..< LIGHT_COUNT {
+			s := u.lights.color[i].w * max(u.lights.color[i].r, u.lights.color[i].g, u.lights.color[i].b)
+			if s > best do brightest, best = i, s
+		}
+		if brightest >= 0 {
+			u.catcher = {f32(clamp(c.axis, 0, 2)), c.at, clamp(c.strength, 0, 1), 1}
+			u.catcher_light = {f32(brightest), 0, 0, 0}
+			pr.features.catcher = true
+		}
+	}
 	for rec in records do pr.features.items |= rec.offs.y & ITEM_ALL
 	// The kernel's gates: a light is sampled and met only with a chance above 0, and is a
 	// sphere when its kind (pos.w) is not a sun's.
@@ -1393,7 +1425,7 @@ path_kernel_pick :: proc(r: ^Renderer, pr: ^Path_Render) {
 	f := pr.features
 	// The general kernel is already the one for a scene that uses everything, and WebGPU
 	// takes no constants.
-	if gpu.WEBGPU || !r.render_variants || f == {items = ITEM_ALL, env_image = true, lens = true, sphere_lights = true, rq = f.rq} do return
+	if gpu.WEBGPU || !r.render_variants || f == {items = ITEM_ALL, env_image = true, lens = true, sphere_lights = true, catcher = true, rq = f.rq} do return
 	v: ^Path_Variant
 	oldest: ^Path_Variant
 	for &w in pr.variants {
@@ -1414,6 +1446,7 @@ path_kernel_pick :: proc(r: ^Renderer, pr: ^Path_Render) {
 			.RT_ENV_IMAGE     = u32(f.env_image),
 			.RT_LENS          = u32(f.lens),
 			.RT_SPHERE_LIGHTS = u32(f.sphere_lights),
+			.RT_CATCHER       = u32(f.catcher),
 		}
 		desc.constants = slice.enumerated_array(&constants)
 		v.build = gpu.compute_build_start(desc, kind, capacity, wait = r.kernel_builds_wait)
@@ -1445,12 +1478,12 @@ path_variant_desc :: proc(pr: ^Path_Render, rq: bool) -> (desc: gpu.Compute_Pipe
 }
 
 // The features of the last specialised kernel render mode used, for the exit stats, as
-// hex (the item flags, then the image environment, the lens and sphere lights from bit 5),
-// or "general" when it used none.
+// hex (the item flags, then the image environment, the lens, sphere lights and the shadow
+// catcher from bit 9, past the item flags), or "general" when it used none.
 render_variant_name :: proc(pr: ^Path_Render) -> string {
 	f := pr.kernel_features
 	if !pr.kernel_used do return "general"
-	return fmt.tprintf("%x", f.items | u32(f.env_image) << 5 | u32(f.lens) << 6 | u32(f.sphere_lights) << 7)
+	return fmt.tprintf("%x", f.items | u32(f.env_image) << 9 | u32(f.lens) << 10 | u32(f.sphere_lights) << 11 | u32(f.catcher) << 12)
 }
 
 // One of render mode's guides as a picture (render_guides).

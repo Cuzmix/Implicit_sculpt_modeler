@@ -12,7 +12,9 @@ import "../render"
 // into an offscreen target, gathering its samples over the frames that follow as render
 // mode does, then written as a PNG. With `transparent` the background, floor and the
 // environment's picture are left out, so the image's alpha is what the scene covers;
-// with `passes`, its albedo, normal and depth (the render's own guides) and the
+// with `catcher`, the floor grid's level plane is traced as a shadow catcher, showing only
+// the shadows the scene casts on it (render.Shadow_Catcher), which over a transparent
+// background are the image's alpha there; with `passes`, its albedo, normal and depth (the render's own guides) and the
 // viewport's curvature and silhouette passes at the same size are written beside it,
 // NAME_albedo.png and so on. The scripts start it (render_image); the interface may
 // call render_image_start.
@@ -24,6 +26,7 @@ Render_Image :: struct {
 	samples:     int,
 	transparent: bool,
 	passes:      bool,
+	catcher:     bool, // the floor's plane shows the shadows the scene casts on it, nothing else
 	started:     bool, // its first frame ran (the render starts over then)
 	// All its samples are in; it is read back and written at the start of the next frame,
 	// once the commands that laid the last one out have been submitted.
@@ -41,7 +44,7 @@ RENDER_IMAGE_MAX :: 4096
 
 // Starts rendering an image of `width` x `height` with `samples` samples to `path`; a
 // second start before it is written replaces the first. Says why when it cannot.
-render_image_start :: proc(app: ^App, width, height, samples: int, path: string, transparent := false, passes := false) -> string {
+render_image_start :: proc(app: ^App, width, height, samples: int, path: string, transparent := false, passes := false, catcher := false) -> string {
 	if width < 16 || height < 16 || width > RENDER_IMAGE_MAX || height > RENDER_IMAGE_MAX do return fmt.tprintf("an image is 16 to %d pixels a side", RENDER_IMAGE_MAX)
 	if samples < 1 || samples > render.RENDER_SAMPLES_MAX do return fmt.tprintf("an image takes 1 to %d samples", render.RENDER_SAMPLES_MAX)
 	ext := strings.to_lower(filepath.ext(path), context.temp_allocator)
@@ -50,7 +53,7 @@ render_image_start :: proc(app: ^App, width, height, samples: int, path: string,
 	delete(ri.path)
 	ri.path = strings.clone(path)
 	ri.width, ri.height, ri.samples = u32(width), u32(height), samples
-	ri.transparent, ri.passes = transparent, passes
+	ri.transparent, ri.passes, ri.catcher = transparent, passes, catcher
 	ri.on, ri.started, ri.ready = true, false, false
 	return ""
 }
@@ -85,13 +88,15 @@ render_image_frame :: proc(app: ^App, cmd: render.Cmd, items: []render.Draw_Item
 		return
 	}
 	background, floor, environment, planes := r.background, r.floor, r.environment_look.background, r.ref_planes
+	// The shadow catcher lies where the floor grid's level plane does, shown or not.
+	shadow := render.Shadow_Catcher{on = ri.catcher, axis = 1, at = floor.at.y, strength = 1}
 	defer r.background, r.floor, r.environment_look.background, r.ref_planes = background, floor, environment, planes
 	r.ref_planes = nil
 	if ri.transparent do r.background, r.floor, r.environment_look.background = {}, {}, false
 	_ = render.render_viewport(r, cmd, &ri.target, view, proj, items, false)
 	samples := ri.samples
 	bounces := int(clamp(app.render_bounces, 1, render.RENDER_BOUNCES_MAX))
-	if !render.render_frame(r, &ri.path_render, cmd, &ri.target, view, proj, items, !ri.started, samples, bounces, viewport_lights(app), app.studio_softness, app.exposure, app.render_denoise, false, render_lens(app), &app.pool) {
+	if !render.render_frame(r, &ri.path_render, cmd, &ri.target, view, proj, items, !ri.started, samples, bounces, viewport_lights(app), app.studio_softness, app.exposure, app.render_denoise, false, render_lens(app), &app.pool, catcher = shadow) {
 		log.errorf("render image: the device cannot run Full render")
 		render_image_end(app, false)
 		return
@@ -106,6 +111,15 @@ render_image_write :: proc(app: ^App, texture: render.Texture, path: string) -> 
 	ri := &app.render_image
 	pixels := render.texture_download(&app.renderer, texture, ri.width, ri.height, context.temp_allocator)
 	if pixels == nil do return false
+	// Over a transparent backdrop the colour comes premultiplied by its coverage; a PNG
+	// keeps it straight.
+	if ri.transparent {
+		for p := 0; p < len(pixels); p += 4 {
+			a := pixels[p + 3]
+			if a == 0 || a == 255 do continue
+			for c in 0 ..< 3 do pixels[p + c] = u8(min(int(pixels[p + c]) * 255 / int(a), 255))
+		}
+	}
 	return image_save(app, path, pixels, int(ri.width), int(ri.height), alpha = ri.transparent)
 }
 
