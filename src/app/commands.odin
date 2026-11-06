@@ -181,6 +181,9 @@ Command_Id :: enum u16 {
 	Cage_Bevel,
 	Cage_Bevel_Segments,
 	Cage_Mirror,
+	Cage_Deform,
+	Cage_Deform_Axis,
+	Cage_Displace,
 	Crease_Cage,
 	Cage_Check,
 	Adjust_Last,
@@ -810,6 +813,57 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, arg: int) -> bool {
 			look, ok := cage_look_now(app)
 			return ok && look.live.bevel_segments == arg + 1
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Cage_Deform = {
+		label = "Cage deform",
+		help = "Bends, twists or tapers the selected cage as drawn along an axis (Deform in the Live stack, as ZBrush's Gizmo deformers and Blender's Simple Deform do), over the span the cage covers, the cage itself left as modelled; Off takes it away. Bend and Twist start at a quarter turn, Taper at half as wide again. One undo step.",
+		icon = ICON_DEFORM,
+		args = len(poly.Deform_Kind),
+		run = proc(app: ^App, arg: int) {
+			if look, ok := cage_look_now(app); ok {
+				kind := poly.Deform_Kind(arg)
+				if kind != look.live.deform do look.live.deform_amount = cage_deform_start(kind)
+				look.live.deform = kind
+				app.ui.scene_command = {kind = .Cage_Look, look = look}
+			}
+		},
+		checked = proc(app: ^App, arg: int) -> bool {
+			look, ok := cage_look_now(app)
+			return ok && look.live.deform == poly.Deform_Kind(arg)
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Cage_Deform_Axis = {
+		label = "Cage deform axis",
+		help = "The axis the selected cage's Deform bends, twists or tapers along: X, Y or Z. One undo step.",
+		icon = ICON_DEFORM,
+		args = len(poly.Mirror_Axis),
+		run = proc(app: ^App, arg: int) {
+			if look, ok := cage_look_now(app); ok {
+				look.live.deform_axis = poly.Mirror_Axis(arg)
+				app.ui.scene_command = {kind = .Cage_Look, look = look}
+			}
+		},
+		checked = proc(app: ^App, arg: int) -> bool {
+			look, ok := cage_look_now(app)
+			return ok && look.live.deform_axis == poly.Mirror_Axis(arg)
+		},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Cage_Displace = {
+		label = "Cage displace",
+		help = "Pushes the selected cage's drawn surface in and out along its normals by a smooth noise this strong (a share of the cage's size, 0 for off), as Blender's Displace with a Clouds texture does, for rock, bark or hammered metal; the features start a quarter of the cage across. One undo step.",
+		icon = ICON_DISPLACE,
+		args = CAGE_DISPLACE_PERCENT_MAX + 1,
+		run = proc(app: ^App, arg: int) {
+			if look, ok := cage_look_now(app); ok {
+				size := cage_size(selected_object(app).cage)
+				look.live.displace = f32(arg) / 100 * size
+				if look.live.displace_scale <= 0 do look.live.displace_scale = CAGE_DISPLACE_SCALE_START * size
+				app.ui.scene_command = {kind = .Cage_Look, look = look}
+			}
 		},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
 	},
@@ -2960,6 +3014,12 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Thickness %v", poly.Thickness_Side(arg))
 	case .Cage_Mirror:
 		return fmt.tprintf("Cage mirror %v", poly.Mirror_Axis(arg))
+	case .Cage_Deform:
+		return "Cage deform off" if arg == 0 else fmt.tprintf("Cage %s", strings.to_lower(fmt.tprint(poly.Deform_Kind(arg)), context.temp_allocator))
+	case .Cage_Deform_Axis:
+		return fmt.tprintf("Cage deform along %v", poly.Mirror_Axis(arg))
+	case .Cage_Displace:
+		return fmt.tprintf("Cage displace %d%%", arg)
 	case .Cage_Smooth:
 		return "Cage smooth off" if arg == 0 else fmt.tprintf("Cage smooth %d", arg)
 	case .Crease_Cage:

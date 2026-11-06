@@ -4785,6 +4785,18 @@ def model_live_stack_bevels_and_thickens():
                   (Script(), LENS_1440 + ["--check-mesh", f"--script={plate}; apply_cage"], {"cages": near(0), "selected_levels": near(3), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")})])
 
 @scenario
+def model_live_deform_and_displace():
+    """Twist along Y and Displace on a smoothed tall cage keep its six faces and draw them moved (the stack's faces as many, every point picked on them still), each setting one undo step; Deform and Displace come back from a saved scene as they were."""
+    path = scene_file()
+    shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+    os.makedirs(os.path.dirname(path))
+    base = "add_cage cube; select 1; delete_object; frame_all; cage_smooth 2; cage_deform twist; cage_deform_axis y; cage_displace 3"
+    return Steps([(Script(), LENS_1440 + ["--check-mesh", f"--script={base}", f"--save={path}"], {"cages": near(1), "cage_faces": near(6), "cage_live_faces": near(6), "cage_live_broken": near(0), "cage_deformed": near(1), "mesh_closed": is_text("true")}),
+                  (Script(), LENS_1440 + [f"--script={base}; undo; undo; undo"], {"cage_faces": near(6), "cage_deformed": near(0), "cage_live_faces": near(0)}),
+                  (Script(), LENS_1440 + [f"--open={path}"], {"cages": near(1), "cage_live_faces": near(6), "cage_deformed": near(1), "cage_smooth": near(2)}),
+                  (Script(), LENS_1440 + [f"--script={base}; stack open deform"], {"cage_deformed": near(1)})])
+
+@scenario
 def model_live_mirror_shows_both_halves():
     """Mirror X on a cube cage draws its image across the plane; an extrude drag on the cube's right face then grows the left side too (the cage ten faces, the drawing twenty); Apply mirror makes the image part of the cage and turns the mirror off; a mirror comes back from a saved scene as it was."""
     path = scene_file()
