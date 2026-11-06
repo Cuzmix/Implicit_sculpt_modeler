@@ -52,7 +52,7 @@ space_fit :: proc(app: ^App) -> (fits: bool, offer: Offer) {
 			// A sculpt that came from a cage turns back into it; any other gets one laid
 			// over it.
 			if command_enabled(app, .Edit_Cage) do offer = {fmt.tprintf("%s is a sculpt mesh", name), "Model edits a cage", .Edit_Cage, 0, "Make editable"}
-			else do offer = {fmt.tprintf("%s is a sculpt mesh", name), "Model edits a cage", .Retopologize, 0, "Quad Remesh"}
+			else do offer = {fmt.tprintf("%s is a sculpt mesh", name), "Model edits a cage", .Retopologize, 0, "Quad remesh"}
 		}
 	}
 	if offer.fix == .None || !command_enabled(app, offer.fix, offer.arg) do return true, {}

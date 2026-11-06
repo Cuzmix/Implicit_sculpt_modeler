@@ -1757,7 +1757,7 @@ COMMANDS := [Command_Id]Command {
 		enabled = has_mesh_object,
 	},
 	.Retopologize = {
-		label = "Quad Remesh",
+		label = "Quad remesh",
 		help = "Makes a new object of quads lying on the selected one, with UVs when every face is a quad; Flow or Fast, as Rebuild's Quads is set.",
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Retopo, vertices = int(app.ui.retopo_quads), quad = quad_options(app)}},
 		enabled = has_object,
@@ -1928,7 +1928,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Curve_Use = {
 		label = "Curve use",
-		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it), Lathe (the curve spun round an axis, the view's vertical when chosen) Along (stitches, zipper teeth or balls set along it) Brush path (a path to run the brush along) or Guide (a line Quad Remesh's loops follow). It stays editable until Bake. One undo step.",
+		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it), Lathe (the curve spun round an axis, the view's vertical when chosen) Along (stitches, zipper teeth or balls set along it) Brush path (a path to run the brush along) or Guide (a line Quad remesh's loops follow). It stays editable until Bake. One undo step.",
 		icon = ui.ICON_SPLINE,
 		args = len(Curve_Use),
 		run = proc(app: ^App, arg: int) {

@@ -20,14 +20,14 @@ import "../render"
 import "../retopo"
 import "../uv"
 
-// Long jobs (the overhaul's round 3, PR 12): Remesh, Decimate, Quad Remesh, Unwrap, Subdivide,
+// Long jobs (the overhaul's round 3, PR 12): Remesh, Decimate, Quad remesh, Unwrap, Subdivide,
 // Convert to mesh, Convert to voxels and Res+/Res− of a big object, and every Import, run
 // on a thread of their own, so the frame goes on (the camera turns, the panels
 // answer, motion plays) while a pill under the top bar, and the button that started it,
 // show a ring filling as the work goes, and Escape or the pill's Cancel stops it. Blender
 // keeps drawing through its long operators the same way; ZBrush and Nomad freeze.
 //
-// The job works on its own copy of the object's triangles for Quad Remesh and Convert to
+// The job works on its own copy of the object's triangles for Quad remesh and Convert to
 // voxels (Remesh, Subdivide and the voxel jobs only read the object's level, levels or
 // clay, which the scene holding still keeps as they are: a copy of a 15M remesh's input
 // was 0.7 GB more at its peak),
@@ -237,7 +237,7 @@ long_job_async :: proc(app: ^App, obj: ^Object, cmd: Scene_Command) -> bool {
 	if !j.allowed || j.on || cmd.adjust do return false
 	if app.macro.recording || app.macro.pending.active || app.script.running do return false
 	if replay_busy(app) || app.replay.recording || timeline_busy(app) || app.turntable.on do return false
-	// A Remesh or Quad Remesh of a small object can make a large one: what it makes counts
+	// A Remesh or Quad remesh of a small object can make a large one: what it makes counts
 	// too, since getting that ready to sculpt and drawn is most of the wait.
 	return j.forced || max(object_vertex_count(obj), cmd.vertices) >= LONG_JOB_MIN_VERTICES
 }
@@ -298,7 +298,7 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 	}
 	// A remesh reads the level in place: its positions and indices stay as they are while
 	// the scene holds still, as the snapshot `before` already took them. A dynamic layout is
-	// compacted into a copy first, as the commands read it. Quad Remesh works out normals
+	// compacted into a copy first, as the commands read it. Quad remesh works out normals
 	// on its input and Convert to voxels keeps to a copy as before.
 	j.borrowed = cmd.kind == .Remesh && !object_dynamic(obj)
 	// Building levels fits the top onto the old surface, which a hold lets go first.

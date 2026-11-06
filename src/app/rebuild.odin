@@ -11,7 +11,7 @@ import "../ui"
 
 // Rebuild (Object > Shape): one section for the three ways to replace an object's
 // topology, by the goal rather than the algorithm (UX research 08): an Even mesh (voxel
-// remesh, ZBrush's DynaMesh), Fewer polygons (decimate) or Quads (Quad Remesh). Its
+// remesh, ZBrush's DynaMesh), Fewer polygons (decimate) or Quads (Quad remesh). Its
 // Density slider sets how many, and while it is held the selected object shows the cells
 // that density gives as a checkerboard (Nomad's resolution preview), so the size is seen
 // before anything is rebuilt rather than guessed from a vertex count.
@@ -33,7 +33,7 @@ REBUILD_GOAL_NAMES := [Rebuild_Goal]string {
 REBUILD_VERBS := [Rebuild_Goal]string {
 	.Even  = "Voxel remesh",
 	.Fewer = "Decimate",
-	.Quads = "Quad Remesh (new object)",
+	.Quads = "Quad remesh (new object)",
 }
 
 // How long the checkerboard stays after the slider is let go: long enough to look at it

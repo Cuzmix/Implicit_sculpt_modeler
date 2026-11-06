@@ -54,7 +54,7 @@ MEMORY_SHORT_NAMES := [?]string{"Ask", "Free older history", "Continue anyway"}
 #assert(len(MEMORY_SHORT_NAMES) == len(Memory_Short))
 
 // The commands the check comes before: the ones that build a dense mesh beside the one
-// there is. Decimate and Quad Remesh make fewer vertices than they read and are left out
+// there is. Decimate and Quad remesh make fewer vertices than they read and are left out
 // until their own peaks are measured.
 MEMORY_CHECKED :: bit_set[Scene_Command_Kind]{.Remesh, .Subdivide}
 
