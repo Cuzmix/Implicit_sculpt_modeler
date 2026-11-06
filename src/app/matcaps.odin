@@ -192,6 +192,8 @@ matcap_image_load :: proc(app: ^App, path: string, quiet := false) -> bool {
 matcap_pixels :: proc(data: []u8, allocator := context.allocator) -> (rgba: []u8, width, height: int, failed: string) {
 	img, img_err := image.load_from_bytes(data)
 	if img_err != nil {
+		// A reader that fails part way still hands back what it made, so it is freed here.
+		image.destroy(img)
 		// Odin's own readers leave out progressive JPEGs, which most pictures saved from the
 		// web are, and a few rarer PNG and BMP kinds: stb_image reads those.
 		if pixels, w, h, ok := stb_pixels(data, allocator); ok do return pixels, w, h, ""
