@@ -14,7 +14,16 @@ materials_round_trip_in_the_file :: proc(t: ^testing.T) {
 	steel, _ := material_by_name("steel")
 	custom := Material{label = "Custom", selected = {0.2, 0.4, 0.6, 1}, idle = {0.3, 0.3, 0.3, 1}, shading = {0.1, 0.2, 40, 0.3}, metallic = 0.5, roughness = 0.7}
 	image := Material{label = "Custom", selected = {1, 1, 1, 1}, idle = MATCAP_IDLE, matcap = MATCAP_IMAGE}
-	for m in ([?]Material{MATERIALS[steel], custom, image, MATERIALS[FIRST_MATCAP], {}}) {
+	// Every layer at a value of its own, so a field read into another's place shows.
+	layered := custom
+	layered.layers = {
+		subsurface_color = {0.9, 0.4, 0.3}, subsurface_weight = 0.8, subsurface_radius = {1, 0.4, 0.2}, subsurface_scale = 0.03,
+		coat_weight = 0.5, coat_roughness = 0.1, coat_ior = 1.55, specular_ior = 1.45,
+		sheen_color = {0.2, 0.3, 0.4}, sheen_weight = 0.25, emission_color = {1, 0.5, 0}, emission_luminance = 3,
+		transmission_color = {0.7, 0.8, 0.9}, transmission_weight = 0.6, transmission_depth = 0.2, thin_walled = 1,
+		sheen_roughness = 0.45, subsurface_anisotropy = -0.3, thin_film_weight = 0.9, thin_film_thickness = 420, thin_film_ior = 1.3,
+	}
+	for m in ([?]Material{MATERIALS[steel], custom, image, MATERIALS[FIRST_MATCAP], {}, layered}) {
 		out: [dynamic]u8
 		defer delete(out)
 		material_put(&out, m)
@@ -55,6 +64,12 @@ damaged_materials_are_refused :: proc(t: ^testing.T) {
 		{label = "Clay", shading = {0, 0, math.inf_f32(1), 0}},
 		{label = "Clay", matcap = MATCAP_IMAGE + 1},
 		{label = "Clay", matcap = -1},
+		{label = "Clay", layers = {subsurface_weight = nan}},
+		{label = "Clay", layers = {coat_weight = 1.5}},
+		{label = "Clay", layers = {subsurface_radius = {1, -1, 0}}},
+		{label = "Clay", layers = {specular_ior = 0.5}},
+		{label = "Clay", layers = {emission_luminance = math.inf_f32(1)}},
+		{label = "Clay", layers = {subsurface_anisotropy = 2}},
 	}
 	for m, i in bad {
 		out: [dynamic]u8
@@ -230,4 +245,37 @@ material_favorites_are_remembered :: proc(t: ^testing.T) {
 	testing.expect_value(t, material_favorite(got, "Gold"), 0)
 	testing.expect_value(t, material_favorite(got, "matcap:stone pack/Basalt"), 1)
 	testing.expect_value(t, material_favorite(got, "Red wax MatCap"), -1)
+}
+
+// Custom's layers are remembered by the settings; a custom_layers line with a value no
+// material has, or too few values, is passed over whole and leaves none.
+@(test)
+custom_layers_are_remembered_and_bad_ones_passed_over :: proc(t: ^testing.T) {
+	path := "build/custom_layers_test.txt"
+	defer os.remove(path)
+	a := new(App)
+	defer free(a)
+	defer results_destroy(a)
+	a.custom = MATERIALS[0]
+	a.custom.layers = {subsurface_color = {0.9, 0.5, 0.4}, subsurface_weight = 1, subsurface_scale = 0.02, coat_weight = 0.3, thin_film_thickness = 300}
+	testing.expect(t, settings_save(a, path))
+	b := new(App)
+	defer free(b)
+	defer results_destroy(b)
+	settings_load(b, path)
+	testing.expect_value(t, b.custom.layers, a.custom.layers)
+
+	bad := [?]string {
+		"custom_layers 0.5 0.5 0.5 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
+		"custom_layers 0.5 0.5 0.5 1",
+		"custom_layers 0.5 0.5 0.5 x 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
+	}
+	for line in bad {
+		testing.expect(t, os.write_entire_file(path, transmute([]u8)line) == nil)
+		c := new(App)
+		settings_load(c, path)
+		testing.expectf(t, c.custom.layers == {}, "%s", line)
+		results_destroy(c)
+		free(c)
+	}
 }

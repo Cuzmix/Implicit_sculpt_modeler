@@ -362,6 +362,7 @@ physics_proxy_draw :: proc(app: ^App, draws: ^[dynamic]render.Draw_Item, froms: 
 		color    = material.selected,
 		material = material.shading,
 		surface  = {material.metallic, material.roughness},
+		layers = material_layers_drawn(material),
 		flat     = app.flat,
 		look     = viewport_look(app),
 		style    = viewport_style(app),
