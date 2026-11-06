@@ -162,6 +162,7 @@ draw_viewport_overlay :: proc(app: ^App, input: Viewport_Input) {
 		ui.layer_end(ctx, layer, from)
 	}
 	draw_pie(app, o)
+	look_row_frame(app)
 }
 
 // How long the safe zone stays outlined after its width last changed, in seconds.

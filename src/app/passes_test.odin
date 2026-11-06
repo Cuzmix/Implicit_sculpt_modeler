@@ -10,6 +10,7 @@ a_layout_holds_the_pass_but_never_a_peek :: proc(t: ^testing.T) {
 	k: Kit_State
 	bars_reset(&k)
 	panels_default(&k)
+	shading_layout_clear(&k)
 	shaded := kit_layout_text(&k)
 	testing.expect(t, shaded == built_in_layout(.Sculpt), "Shaded writes a pass line")
 	testing.expect(t, !strings.contains(shaded, "pass"), "Shaded writes a pass line")
@@ -18,13 +19,13 @@ a_layout_holds_the_pass_but_never_a_peek :: proc(t: ^testing.T) {
 	pass_set(&k, .Curvature)
 	text := kit_layout_text(&k)
 	testing.expect(t, strings.contains(text, "pass Curvature\n"), "the pass is not written")
-	k.passes.chip_held = true
+	k.passes.key_held = true
 	testing.expect_value(t, viewport_pass(&k), render.View_Pass.Shaded)
 	testing.expect(t, kit_layout_text(&k) == text, "a peek changed the layout")
 
 	// Putting a layout ends the peek and sets its pass, Shaded where it names none.
 	kit_layout_put(&k, shaded)
-	testing.expect(t, k.passes.pass == .Shaded && !k.passes.chip_held, "a layout without a pass kept one, or the peek")
+	testing.expect(t, k.passes.pass == .Shaded && !k.passes.key_held, "a layout without a pass kept one, or the peek")
 	kit_layout_put(&k, text)
 	testing.expect_value(t, k.passes.pass, render.View_Pass.Curvature)
 }

@@ -378,6 +378,9 @@ Kit_State :: struct {
 	// On a tablet-shaped window the shelf keeps to SHELF_TABLET tiles' width left of the
 	// middle, clear of the pen hand's palm (Settings > Bars, lens_shelf.odin).
 	shelf_palm: bool,
+	// Each tool keeps its look: sculpting, painting and the Lights section each show the
+	// main view in a look of their own (shading.odin look_group_frame, remembered).
+	look_per_tool: bool,
 	// The first-run tips done (a bit per Coach_Step; COACH_DONE once over, remembered),
 	// and whether a card showed last frame and which.
 	coach:       i32,
@@ -926,6 +929,8 @@ kit_init :: proc(app: ^App) {
 	k.dials = DIAL_DEFAULTS
 	k.action_bar = true
 	k.shelf_palm = true
+	k.look_per_tool = true
+	shading_layout_clear(k)
 	// Long before the first frame, so the safe zone shows no outline at the start.
 	k.edge_set_at = -1e9
 	// The Export sheet starts on its first preset, a 3D print, as its cards read.

@@ -6779,18 +6779,58 @@ def pass_chip_picks_normals_from_its_list():
 
 
 @scenario
-def pass_chip_held_peeks_until_lifted():
-    """A finger held on the pass chip shows Normals, the peek with no other pass yet, while it stays down; lifting it brings Shaded back, with nothing changed."""
+def shading_chip_held_slides_to_a_look():
+    """A finger held on the shading chip brings up the looks row under it; sliding to Flat and lifting picks Flat and puts the row away, while still held the row stays up and nothing is picked."""
     def run(lift):
         s = Script()
         s.add(f"fdown:0:{PASS_CHIP[0]},{PASS_CHIP[1]}")
         s.wait(40)
+        for x, y in line((PASS_CHIP[0], PASS_CHIP[1]), (273, PASS_CHIP[1]), 10)[1:]:
+            s.add(f"fmove:0:{x:g},{y:g}")
+            s.wait(1)
+        s.wait(4)
         if lift:
             s.add("fup:0")
             s.wait(10)
-        return s, [], camera_still({"dabs": near(0), "pass": is_text("Shaded"), "pass_shown": is_text("Shaded" if lift else "Normals"),
-                                    "pass_menu": near(0), "layout_modified": near(0)})
+        return s, [], camera_still({"dabs": near(0), "pass": is_text("Shaded"), "pass_shown": is_text("Shaded"), "shading_mode": is_text("Flat" if lift else "Lit"),
+                                    "look_row": near(0 if lift else 1), "look_row_picks": near(1 if lift else 0), "pass_menu": near(0)})
     return Steps([run(False), run(True)])
+
+
+@scenario
+def l_steps_to_the_next_look_or_holds_the_row():
+    """A tap of L over the view steps from Lit to Full; L held brings the looks row up at the pointer, and letting it go over Clay picks Clay."""
+    def run(hold):
+        s = Script()
+        s.add("move:800,450")
+        s.wait(2)
+        if hold:
+            s.add("key:l")
+            s.wait(30)
+            s.add("move:692,450")
+            s.wait(3)
+            s.add("keyup:l")
+            s.wait(6)
+        else:
+            s.press("l")
+            s.wait(4)
+        return s, [], camera_still({"dabs": near(0), "shading_mode": is_text("Clay" if hold else "Full"), "look_row": near(0), "look_row_picks": near(1 if hold else 0)})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def paint_brush_keeps_its_own_look():
+    """With the Paint brush, the view shows painting's look; Flat picked there stays painting's, and Clay (the 1 key) shows sculpting's look again, Lit, while the layout keeps painting's."""
+    s = Script()
+    s.add("move:800,450")
+    s.wait(4)
+    s.press("l")
+    s.press("l")
+    s.wait(4)
+    s.press("1")
+    s.wait(6)
+    return s, ["--script=brush paint"], camera_still({"dabs": near(0), "shading_mode": is_text("Lit"), "look_group": is_text("Sculpt"), "look_group_switches": near(2),
+                                                      "layout_modified": near(1)})
 
 
 @scenario

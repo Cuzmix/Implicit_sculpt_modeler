@@ -9,17 +9,31 @@ import "../ui"
 // Passes (Lens): how the viewport shows the meshes, in its shading mode (shading.odin) or
 // as one of the diagnostic passes that check form (render.View_Pass), after Blender's
 // viewport passes and ZBrush's normal and depth views. The shading chip over the view names
-// the mode, or the pass while one shows; a tap opens the list, and a hold peeks at the last
-// other pass for as long as it is held, as Marmoset's and Substance's hold-to-compare do; a
-// held backquote peeks too. The mode and the pass are part of the space's layout. Only the viewport shows it: the view panes, the navigation
+// the look, or the pass while one shows; a tap opens the list, and a hold brings up the
+// looks row (look_row.odin) to slide to one. A held backquote peeks at the last other pass
+// for as long as it is held, as Marmoset's and Substance's hold-to-compare do. The mode and the pass are part of the space's layout. Only the viewport shows it: the view panes, the navigation
 // head and object pictures stay shaded, and the studio render and render mode wait,
 // since what they build is the shaded picture.
 
 Passes :: struct {
-	shading:    View_Shading, // the main view's shading mode and Solid's options
+	shading:    View_Shading, // the main view's look and its options, the group's shown
+	// Each tool keeps its look (look_group_frame): the looks of the groups not shown, the
+	// group shown, the tool's group (Lights aside), and how often the group changed.
+	looks:          [Look_Group]View_Shading,
+	group:          Look_Group,
+	tool_group:     Look_Group,
+	group_switches: int,
 	pass:       render.View_Pass, // the one picked; Shaded shows the shading mode
 	last:       render.View_Pass, // the one before it, which a peek shows
-	chip_held:  bool, // the chip is held past a long press this frame
+	chip_held:  bool, // the chip is held past a long press this frame, which brings up the looks row
+	chip_at:    ui.Rect, // where the chip was last laid out
+	// The looks row (look_row.odin): up, held by L, when L went down, where it centres, and
+	// how many looks it picked.
+	row:        bool,
+	row_key:    bool,
+	row_key_at: f64,
+	row_at:     [2]f32,
+	row_picks:  int,
 	key_held:   bool, // backquote is held (main.odin's event loop)
 	// A time-lapse or turntable is recording: a peek shows nothing, so every frame it
 	// takes is in the pass picked. Set by the frame loop.
@@ -89,7 +103,7 @@ viewport_pass :: proc(k: ^Kit_State) -> render.View_Pass {
 	ps := &k.passes
 	// The pane worked in shows its own pass (grid_work).
 	if g := &k.grid; g.work != 0 do return second_view_pass(grid_view(g, g.work).pass)
-	if (ps.chip_held || ps.key_held) && !ps.recording && !wipe_shown(k) do return pass_peeked(k)
+	if ps.key_held && !ps.recording && !wipe_shown(k) do return pass_peeked(k)
 	return ps.pass
 }
 
@@ -197,7 +211,7 @@ pass_ground :: proc(p: render.View_Pass) -> (ground: render.Background, ok: bool
 }
 
 // After a pass chip at `at` (the top bar's, or Lens's over the view): a tap opens the list
-// under it or closes it, a hold peeks, and the list follows the chip unless a bar's
+// under it or closes it, a hold brings up the looks row, and the list follows the chip unless a bar's
 // Passes button opened it beside itself.
 pass_chip_follow :: proc(k: ^Kit_State, at: ui.Rect, clicked: bool) {
 	ps := &k.passes
@@ -207,7 +221,7 @@ pass_chip_follow :: proc(k: ^Kit_State, at: ui.Rect, clicked: bool) {
 		ps.menu = !was
 		ps.menu_side = .Below
 	}
-	ps.chip_held = ui.held_long(&k.ctx)
+	ps.chip_held, ps.chip_at = ui.held_long(&k.ctx), at
 	if ps.chip_held do ps.menu = false
 	if ps.menu_side == .Below || ps.menu_at.w <= 0 do ps.menu_at, ps.menu_side = at, .Below
 }
@@ -283,7 +297,7 @@ lens_pass_menu :: proc(app: ^App) {
 	if command_menu_item(app, .Flat_Shading) do picked = true
 	if command_menu_item(app, .View_Pass_Last) do picked = true
 	if command_menu_item(app, .View_Wipe) do picked = true
-	ui.paragraph(ctx, "Hold the shading chip, or the ` key, to peek at your last shading; release to come back.")
+	ui.paragraph(ctx, "Hold the shading chip, or L, and slide to pick a look; tap L for the next one. Hold the ` key to peek at your last shading.")
 	if picked do ps.menu = false
 }
 
@@ -346,6 +360,13 @@ shading_options :: proc(app: ^App, s: ^View_Shading, main: bool, looks := true) 
 	named(ctx, "Colour from")
 	if picked := ui.tabs(ctx, "Colour from", froms[:], int(s.from)); picked >= 0 do s.from = Colour_From(picked)
 	ui.end(ctx)
+	// Whether sculpting, painting and lighting each keep their own look, naming the one
+	// this look belongs to while they do.
+	if main {
+		k := &app.kit
+		_ = ui.switch_row(ctx, "Each tool keeps its look", &k.look_per_tool)
+		if k.look_per_tool do ui.label(ctx, fmt.tprintf("This look is for %s.", LOOK_GROUP_TITLES[k.passes.group]), ctx.theme.small_size)
+	}
 	ui.end(ctx)
 }
 
