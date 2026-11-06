@@ -225,8 +225,9 @@ built_in_layout :: proc(s: Space) -> string {
 		text = "hidden Brush_Bar\n"
 	case .Render:
 		// The Look card pinned on the pen side, after round 2's studio2 screen; Second view
-		// splits off a pane to watch the render build up beside the work.
-		text = "column right Look\n"
+		// splits off a pane to watch the render build up beside the work. No brush bar, as in
+		// Model: a press in Render turns the view, so Size and Strength would only take room.
+		text = "hidden Brush_Bar\ncolumn right Look\n"
 	}
 	// Read and written again, so it is exactly what the layout writes when it is in place;
 	// every space ships with the bars a fresh install has.

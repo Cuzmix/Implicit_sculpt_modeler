@@ -449,7 +449,7 @@ COMMANDS := [Command_Id]Command {
 	.Save_Scene_Copy = {
 		label = "Save a copy...",
 		help = "Saves the scene to another file and keeps saving it where it was: a backup, or a variation to come back to.",
-		icon = ui.ICON_SAVE,
+		icon = ICON_SAVE_COPY,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Save_Copy)},
 	},
 	.Save_Scene_Next = {
@@ -462,7 +462,7 @@ COMMANDS := [Command_Id]Command {
 	.Scene_Versions = {
 		label = "Earlier saves...",
 		help = "Lists the files earlier saves of this scene replaced, to open one again.",
-		icon = ui.ICON_HISTORY,
+		icon = ICON_EARLIER_SAVES,
 		run = proc(app: ^App, _: int) {
 			versions_refresh(app)
 			k := &app.kit
@@ -2090,7 +2090,7 @@ COMMANDS := [Command_Id]Command {
 	.Solo_Object = {
 		label = "Solo",
 		help = "Shows only the selected object, and whichever is selected next, until Solo is off again; the others keep their eyes as they were.",
-		icon = ui.ICON_FOCUS,
+		icon = ICON_SOLO,
 		run = proc(app: ^App, _: int) {view_command(app, .Solo)},
 		enabled = has_object,
 		checked = proc(app: ^App, _: int) -> bool {return app.scene.solo},

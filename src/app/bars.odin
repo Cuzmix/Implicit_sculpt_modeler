@@ -459,7 +459,7 @@ bar_icon :: proc(app: ^App, s: Bar_Slot) -> rune {
 	case .Floor_Grid:      return ICON_FLOOR
 	case .Symmetry_X:      return ICON_SYMMETRY
 	case .Local_Symmetry:  return ICON_LOCAL_SYMMETRY
-	case .Focus_Selected:  return ui.ICON_FRAME
+	case .Focus_Selected:  return ui.ICON_FOCUS
 	case .Wireframe:       return ICON_WIREFRAME
 	case .Transparency:    return ICON_TRANSPARENCY
 	case .Ghost_Object:    return ui.ICON_GHOST

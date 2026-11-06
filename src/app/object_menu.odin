@@ -309,17 +309,48 @@ object_menu_head :: proc(app: ^App, obj: ^Object, kind: Object_Type) {
 	ui.text(ctx, fmt.tprintf("%s · %s tris", OBJECT_TYPE_NAMES[kind], count_label(object_triangle_count(obj))), a.rect.x + 36, y + 9, t.small_size, t.text_tertiary)
 }
 
-// The quick row: Focus, Solo, Hide, Lock and (a mesh's) Layers, as icons.
+// The quick row: Focus, Solo, Hide, Lock and (a mesh's) Layers, as icons. A finger has no
+// hover to show an icon's name, so on a tablet, or with no keyboard, each icon has its
+// word under it, as the rail's buttons have theirs.
 @(private = "file")
 object_menu_quick :: proc(app: ^App, kind: Object_Type) -> (picked: bool) {
-	ctx := &app.kit.ctx
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	named := MOBILE || k.keyless
+	words: [5]struct {
+		at:   ui.Rect,
+		word: string,
+	}
+	n := 0
 	ui.begin(ctx, "object menu quick", {direction = .Row, gap = ui.SPACE_XS})
-	defer ui.end(ctx)
 	for id in ([?]Command_Id{.Focus_Selected, .Solo_Object, .Hide_Object, .Lock_Object}) {
 		if command_button(app, id, glyph = COMMANDS[id].icon, icon_only = true) do picked = true
+		words[n] = {ctx.last_rect, OBJECT_QUICK_WORDS[id]}
+		n += 1
 	}
-	if kind == .Sculpt_Mesh && command_button(app, .Open_Card, int(Card.Layers), label = "Layers", glyph = CARD_ICONS[.Layers], icon_only = true) do picked = true
+	if kind == .Sculpt_Mesh {
+		if command_button(app, .Open_Card, int(Card.Layers), label = "Layers", glyph = CARD_ICONS[.Layers], icon_only = true) do picked = true
+		words[n] = {ctx.last_rect, "Layers"}
+		n += 1
+	}
+	ui.end(ctx)
+	if named {
+		line := ui.line_height(t.small_size)
+		for w in words[:n] do ui.text(ctx, w.word, w.at.x + w.at.w * 0.5, w.at.y + w.at.h + line * 0.5, t.small_size, t.text_secondary, .Regular, .Center)
+		ui.spacer(ctx, line + ui.SPACE_XS)
+	}
 	return
+}
+
+// The one word under each quick row icon on a tablet: the command's own name is too long
+// for a 48 pt button.
+@(private = "file", rodata)
+OBJECT_QUICK_WORDS := #partial [Command_Id]string {
+	.Focus_Selected = "Focus",
+	.Solo_Object    = "Solo",
+	.Hide_Object    = "Hide",
+	.Lock_Object    = "Lock",
 }
 
 // The scene menu, while open: what empty space offers, as Blender's Add menu and Nomad's

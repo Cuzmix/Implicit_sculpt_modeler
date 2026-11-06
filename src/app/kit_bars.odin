@@ -295,6 +295,11 @@ ICON_WIREFRAME :: rune(0xe0ec) // grid-3x3
 ICON_FLOOR :: rune(0xe2fe) // axis-3d: the axes over the floor
 ICON_TRANSPARENCY :: rune(0xe4a7) // square-stack: shapes seen through one another
 ICON_SOLO :: rune(0xe53b) // scan-eye
+// Save a copy writes the scene elsewhere and keeps the file it was: a copy with a plus,
+// not Save's disk. Earlier saves lists the scene's own numbered saves: a file with a clock,
+// not the History arrow that Open recent and the History card use.
+ICON_SAVE_COPY :: rune(0xe402) // copy-plus
+ICON_EARLIER_SAVES :: rune(0xe318) // file-clock
 ICON_GIZMO :: rune(0xe2e5) // move-3d
 ICON_REMESH :: rune(0xe0eb) // globe: a sphere of even lines
 ICON_DYNTOPO :: rune(0xe129) // network
