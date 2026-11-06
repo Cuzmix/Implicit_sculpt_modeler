@@ -70,8 +70,9 @@ look_first_run :: proc(app: ^App) {
 	if !app.look_chosen do look_studio_apply(app)
 }
 
-// The Light card's Viewport style: how the viewport draws forms whatever the material,
-// each of these its only control. Occlusion while working darkens creases every frame;
+// The Light card's Viewport style: how the viewport draws forms whatever the material.
+// Cavity and Ridge are kit_style_detail, which the Material card's More options draws too,
+// as a material is judged by them. Occlusion while working darkens creases every frame;
 // Cavity darkens creases and Ridge lightens crests, so fine detail reads at any light angle;
 // Styled shading adds the studio look's rim and its dark underside. Under More the rest:
 // how far the occlusion looks, the style's strengths, the exposure, and dimming the objects
@@ -79,8 +80,7 @@ look_first_run :: proc(app: ^App) {
 kit_viewport_style :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	kit_live_ao(app)
-	_ = ui.slider(ctx, "Cavity", &app.cavity, 0, 1, .Linear, fmt.tprintf("%.2f", app.cavity))
-	_ = ui.slider(ctx, "Ridge", &app.ridge, 0, 1, .Linear, fmt.tprintf("%.2f", app.ridge))
+	kit_style_detail(app)
 	_ = ui.switch_row(ctx, "Styled shading", &app.styled)
 	if kit_more(app, .Style) {
 		kit_live_ao_reach(app)
@@ -93,4 +93,13 @@ kit_viewport_style :: proc(app: ^App) {
 		kit_more_end(app)
 	}
 	ui.paragraph(ctx, "Occlusion while working darkens creases every frame, sculpting too. Cavity and Ridge make fine detail read under any light; Styled shading adds a rim and a dark underside.")
+}
+
+// Cavity, which darkens creases, and Ridge, which lightens crests, so fine detail reads at
+// any light angle on every material and MatCap. Viewport style and the Material card's
+// More options both draw this one proc, so the two are the same sliders on the same values.
+kit_style_detail :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	_ = ui.slider(ctx, "Cavity", &app.cavity, 0, 1, .Linear, fmt.tprintf("%.2f", app.cavity))
+	_ = ui.slider(ctx, "Ridge", &app.ridge, 0, 1, .Linear, fmt.tprintf("%.2f", app.ridge))
 }
