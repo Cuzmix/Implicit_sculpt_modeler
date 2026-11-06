@@ -15,11 +15,11 @@ import "../jobs"
 // A stroke asks once, at its first dab, and the GPU takes it one of two ways. Normals: the
 // CPU lays the dabs and uploads the positions they moved, and the flushes of the stroke
 // hand the vertex ranges whose normals they would recompute to the GPU, which brings them
-// back by a readback a frame or two later. Dabs: the dabs themselves run on the GPU too:
+// back by a readback two frames later. Dabs: the dabs themselves run on the GPU too:
 // apply_dab does everything around a dab here (the leaf query, the undo's saves, the
 // marking) and records the dab instead of moving anything, the flush hands the frame's
 // records over, and the GPU's positions come back by the same readback, so the CPU's mesh
-// is a mirror a frame or two behind the GPU's while the stroke runs. A sync waits for every
+// is a mirror two frames behind the GPU's while the stroke runs. A sync waits for every
 // readback of the mesh and applies it, and lays any dab recorded but not yet handed over
 // on the CPU (which turns the stroke to Normals: the flush then uploads what it laid):
 // before anything reads or writes the positions or normals outside the dab path, so

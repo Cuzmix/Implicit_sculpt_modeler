@@ -22,9 +22,15 @@ lens_view_frame :: proc(app: ^App) {
 		app.camera.shift = {}
 		return
 	}
-	// The third frame: by then every bar and panel has been laid out once, so their rects
-	// are known.
-	if !k.view_started && k.frame >= 3 {
+	// The third frame or later, once the last frame's layout was made for the window as it
+	// is now: by then every bar and panel has been laid out once, so their rects are known,
+	// and a window the system resized as it opened (a screen smaller than the size asked
+	// for) has had its controls laid out again, so the free area is not read from rects
+	// laid out for the old size against the new one, which would place the view by when
+	// the resize happened to arrive.
+	settled := k.view_window == k.ctx.input.window
+	k.view_window = k.ctx.input.window
+	if !k.view_started && k.frame >= 3 && settled {
 		k.view_started = true
 		if app.camera.shift == {} do view_fit_free(app, false)
 	}
