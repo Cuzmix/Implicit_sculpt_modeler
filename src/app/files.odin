@@ -80,7 +80,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(53)
+SCENE_VERSION :: u32(54)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -2174,6 +2174,12 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 		geom.byte_put(out, live.deform_amount)
 		geom.byte_put(out, live.displace)
 		geom.byte_put(out, live.displace_scale)
+		follow := cp.look.follow
+		geom.byte_put(out, i32(follow.curve))
+		geom.byte_put(out, u8(follow.curve_axis))
+		geom.byte_put(out, u8(follow.curve_fit))
+		geom.byte_put(out, i32(follow.wrap))
+		geom.byte_put(out, follow.wrap_offset)
 		geom.byte_put(out, u32(len(cp.held)))
 		append(out, ..cp.held)
 		return true

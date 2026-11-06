@@ -416,6 +416,8 @@ Stack_Row :: enum u8 {
 	Thickness,
 	Bevel,
 	Deform,
+	Curve,
+	Wrap,
 	Displace,
 	Mirror,
 	Array,
@@ -429,6 +431,8 @@ STACK_ROW_NAMES := [Stack_Row]string {
 	.Thickness   = "Thickness",
 	.Bevel       = "Bevel",
 	.Deform      = "Deform",
+	.Curve       = "Curve",
+	.Wrap        = "Wrap",
 	.Displace    = "Displace",
 	.Mirror      = "Mirror",
 	.Array       = "Array",
@@ -442,6 +446,8 @@ STACK_ROW_GLYPHS := [Stack_Row]rune {
 	.Thickness   = ICON_STRETCH_VERTICAL,
 	.Bevel       = ui.ICON_SHAPES,
 	.Deform      = ICON_DEFORM,
+	.Curve       = ICON_CAGE_CURVE,
+	.Wrap        = ICON_CAGE_WRAP,
 	.Displace    = ICON_DISPLACE,
 	.Mirror      = ICON_SYMMETRY,
 	.Array       = ui.ICON_COPY,
@@ -481,6 +487,8 @@ stack_row_in :: proc(app: ^App, obj: ^Object, r: Stack_Row) -> bool {
 	case .Thickness: return cp != nil && (cp.look.live.thickness > 0 || stack_row_held(app, obj, r))
 	case .Bevel: return cp != nil && (cp.look.live.bevel > 0 || stack_row_held(app, obj, r))
 	case .Deform: return cp != nil && (cp.look.live.deform != .Off || stack_row_held(app, obj, r))
+	case .Curve: return cp != nil && (cp.look.follow.curve != 0 || stack_row_held(app, obj, r))
+	case .Wrap: return cp != nil && (cp.look.follow.wrap != 0 || stack_row_held(app, obj, r))
 	case .Displace: return cp != nil && (cp.look.live.displace > 0 || stack_row_held(app, obj, r))
 	case .Mirror: return cp == nil && obj.stack.mirror.added
 	case .Array: return obj.stack.array.added
@@ -542,6 +550,17 @@ stack_row_detail :: proc(app: ^App, obj: ^Object, r: Stack_Row) -> string {
 		case .Twist: return fmt.tprintf("Twist %.0f° along %v", math.to_degrees(l.deform_amount), l.deform_axis)
 		case .Taper: return fmt.tprintf("Taper %+.0f%% along %v", 100 * l.deform_amount, l.deform_axis)
 		}
+	case .Curve:
+		f := obj.cage.look.follow
+		curve := cage_follow_curve(app, obj, f)
+		if curve == nil do return "No curve picked" if f.curve == 0 else "Its curve is gone"
+		return fmt.tprintf("%v along %s%s", f.curve_axis, stack_curve_label(app, curve), ", fitted" if f.curve_fit else "")
+	case .Wrap:
+		f := obj.cage.look.follow
+		target := cage_follow_wrap(app, obj, f)
+		if target == nil do return "No object picked" if f.wrap == 0 else "Its object is gone"
+		off := 100 * f.wrap_offset / cage_size(obj.cage)
+		return fmt.tprintf("On %s", cage_follow_label(app, target)) if abs(off) < 0.05 else fmt.tprintf("On %s, %+.1f%%", cage_follow_label(app, target), off)
 	case .Displace:
 		l := obj.cage.look.live
 		if l.displace <= 0 do return "Off"
@@ -632,6 +651,8 @@ kit_stack_row :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
 	case .Thickness: kit_cage_thickness(app, obj)
 	case .Bevel: kit_cage_bevel(app, obj)
 	case .Deform: kit_cage_deform(app, obj)
+	case .Curve: kit_cage_curve(app, obj)
+	case .Wrap: kit_cage_wrap(app, obj)
 	case .Displace: kit_cage_displace(app, obj)
 	case .Mirror: kit_stack_mirror(app, obj)
 	case .Array: kit_stack_array(app, obj)
@@ -704,6 +725,8 @@ kit_stack_add_menu :: proc(app: ^App, obj: ^Object) {
 		.Thickness   = "A shell of the cage's faces",
 		.Bevel       = "Creased edges rounded",
 		.Deform      = "Bent, twisted or tapered along an axis",
+		.Curve       = "Laid along a curve object, following it",
+		.Wrap        = "Hugging another object's surface",
 		.Displace    = "Pushed in and out by a noise",
 		.Mirror      = "The other half, clipped at the plane",
 		.Array       = "Copies a step apart",
@@ -715,8 +738,10 @@ kit_stack_add_menu :: proc(app: ^App, obj: ^Object) {
 		for r in Stack_Row {
 			if stack_row_cage(r) != (group == 0) || !stack_row_fits(obj, r) do continue
 			held := stack_row_in(app, obj, r)
-			curves := r != .Along || stack_first_curve(app, obj) != 0
-			if !ui.menu_item(ctx, fmt.tprintf("%s##stack add", STACK_ROW_NAMES[r]), glyph = STACK_ROW_GLYPHS[r], checked = held, enabled = held || curves, hint = hints[r], reason = "Draw a curve object first") do continue
+			curves := (r != .Along && r != .Curve) || stack_first_curve(app, obj) != 0
+			targets := r != .Wrap || cage_first_wrap(app, obj) != 0
+			reason := "Draw a curve object first" if !curves else "Add an object to wrap onto first"
+			if !ui.menu_item(ctx, fmt.tprintf("%s##stack add", STACK_ROW_NAMES[r]), glyph = STACK_ROW_GLYPHS[r], checked = held, enabled = held || (curves && targets), hint = hints[r], reason = reason) do continue
 			if !held do stack_row_add(app, obj, r)
 			c.object, c.open, c.opened, c.add = obj.id, r, true, false
 		}
@@ -734,6 +759,8 @@ stack_row_add :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
 		case .Thickness: look.live.thickness, look.live.thickness_segments = 0.05 * size, max(look.live.thickness_segments, 1)
 		case .Bevel: look.live.bevel, look.live.bevel_segments = 0.02 * size, max(look.live.bevel_segments, 1)
 		case .Deform: look.live.deform, look.live.deform_amount = .Bend, cage_deform_start(.Bend)
+		case .Curve: look.follow.curve, look.follow.curve_fit = stack_first_curve(app, obj), true
+		case .Wrap: look.follow.wrap, look.follow.wrap_offset = cage_first_wrap(app, obj), 0
 		case .Displace: look.live.displace, look.live.displace_scale = 0.02 * size, CAGE_DISPLACE_SCALE_START * size
 		}
 		app.ui.scene_command = {kind = .Cage_Look, look = look}
@@ -779,6 +806,8 @@ kit_stack_row_menu :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
 			case .Thickness: look.live.thickness = 0
 			case .Bevel: look.live.bevel = 0
 			case .Deform: look.live.deform = .Off
+			case .Curve: look.follow.curve = 0
+			case .Wrap: look.follow.wrap = 0
 			case .Displace: look.live.displace = 0
 			}
 			app.ui.scene_command = {kind = .Cage_Look, look = look}
@@ -927,7 +956,6 @@ stack_first_curve :: proc(app: ^App, obj: ^Object) -> int {
 
 // A curve object's name in the Along row's list: its own, or "Curve" and its place among
 // the scene's curves.
-@(private = "file")
 stack_curve_label :: proc(app: ^App, curve: ^Object) -> string {
 	if curve.name != "" do return curve.name
 	n := 0
@@ -1208,12 +1236,41 @@ stack_shape_in :: proc(app: ^App, obj: ^Object, into: Transform) -> geom.Mesh {
 stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 	if obj == nil do return "nothing is selected"
 	words := strings.fields(text, context.temp_allocator)
-	USAGE :: "stack takes mirror x, array 4 2.2 0 0, radial 6 y, along 8 x, mirror off, show mirror, hide array, open array (or a cage's open deform, open displace) or apply stack"
+	USAGE :: "stack takes mirror x, array 4 2.2 0 0, radial 6 y, along 8 x, mirror off, show mirror, hide array, open array (or a cage's curve x, wrap 0, curve off, open deform, open displace, open curve, open wrap) or apply stack"
 	if len(words) < 2 do return USAGE
 	s := obj.stack
 	is_row :: proc(w: string) -> bool {return w == "mirror" || w == "array" || w == "radial" || w == "along"}
 	switch {
-	case words[0] == "open" && (is_row(words[1]) || words[1] == "deform" || words[1] == "displace") && len(words) == 2:
+	case obj.cage != nil && words[0] == "curve" && len(words) == 2:
+		// A cage laid along the scene's first curve, its axis along it, or taken off it.
+		look := obj.cage.look
+		switch words[1] {
+		case "off": look.follow.curve = 0
+		case "x", "y", "z":
+			look.follow.curve = stack_first_curve(app, obj)
+			if look.follow.curve == 0 do return "the scene has no curve object"
+			look.follow.curve_axis = poly.Mirror_Axis(int(words[1][0] - 'x'))
+			look.follow.curve_fit = true
+		case: return "curve takes x, y, z or off"
+		}
+		app.ui.scene_command = {kind = .Cage_Look, look = look}
+		return ""
+	case obj.cage != nil && words[0] == "wrap" && len(words) == 2:
+		// A cage wrapped onto the first object it can be, this far above it (a percentage
+		// of the cage's size), or taken off it.
+		look := obj.cage.look
+		if words[1] == "off" {
+			look.follow.wrap = 0
+		} else {
+			percent, ok := strconv.parse_f32(words[1])
+			if !ok || abs(percent) > CAGE_WRAP_PERCENT_MAX do return fmt.tprintf("wrap takes off or a percentage from -%d to %d", CAGE_WRAP_PERCENT_MAX, CAGE_WRAP_PERCENT_MAX)
+			look.follow.wrap = cage_first_wrap(app, obj)
+			if look.follow.wrap == 0 do return "the scene has no object to wrap onto"
+			look.follow.wrap_offset = percent / 100 * cage_size(obj.cage)
+		}
+		app.ui.scene_command = {kind = .Cage_Look, look = look}
+		return ""
+	case words[0] == "open" && (is_row(words[1]) || words[1] == "deform" || words[1] == "displace" || words[1] == "curve" || words[1] == "wrap") && len(words) == 2:
 		// Opens the card on that row, as a tap on its line does, for its handle in the view
 		// (a cage's Deform and Displace rows have none, but open the same way).
 		r := Stack_Row.Mirror
@@ -1223,6 +1280,8 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		case "along": r = .Along
 		case "deform": r = .Deform
 		case "displace": r = .Displace
+		case "curve": r = .Curve
+		case "wrap": r = .Wrap
 		}
 		if !stack_row_in(app, obj, r) do return fmt.tprintf("the object has no %s row", words[1])
 		app.kit.stack.object, app.kit.stack.open, app.kit.stack.opened = obj.id, r, true

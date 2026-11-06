@@ -657,6 +657,8 @@ frame_settle :: proc(app: ^App, loop: ^Frame_Loop) -> (setting_up: bool, done: b
 	// selection stays on an object in view and in reach.
 	scene_folders_normalize(app)
 	scene_selection_fix(app)
+	// A cage laid along a curve or wrapped onto an object follows it when it changed.
+	if !long_job_busy(app) && !cage_follow_frame(app) do return false, false
 	materials_settle(app)
 	textures_settle(app)
 	if !script_frame(app) do return false, false

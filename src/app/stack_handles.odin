@@ -280,7 +280,7 @@ draw_stack_handles :: proc(app: ^App, o: Overlay, size: [2]f32) {
 		}
 		stack_dot(o, pivot_at, STACK_PIVOT_COLOR, lit, px)
 		overlay_label(o, "Pivot", pivot_at + {0, 28 * px})
-	case .Smooth, .Cage_Mirror, .Thickness, .Bevel, .Deform, .Displace, .Along:
+	case .Smooth, .Cage_Mirror, .Thickness, .Bevel, .Deform, .Curve, .Wrap, .Displace, .Along:
 	}
 }
 
