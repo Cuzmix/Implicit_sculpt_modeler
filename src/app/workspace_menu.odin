@@ -337,7 +337,7 @@ workspace_actions :: proc(app: ^App, slot: int, row: ui.Rect, count: int) {
 		for tie in Tie {
 			holder := workspace_holding(k, tie)
 			tag := "" if holder == slot else fmt.tprintf("in %s", k.workspaces.list[holder].name) if holder >= 0 else "nowhere"
-			if ui.menu_item(ctx, fmt.tprintf("%s##tie %v", TIE_NAMES[tie], tie), checked = tie in w.ties, tag = tag) do workspace_tie_toggle(app, slot, tie)
+			if ui.menu_item(ctx, fmt.tprintf("%s##tie %v", TIE_NAMES[tie], tie), checked = tie in w.ties, tag = tag, tag_color = t.text_tertiary) do workspace_tie_toggle(app, slot, tie)
 		}
 	}
 	// The one in front's is the Reset layout command, with its keys; another's forgets what it kept.
