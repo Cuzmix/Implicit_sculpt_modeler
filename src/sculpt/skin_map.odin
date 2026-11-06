@@ -5,6 +5,7 @@ import "core:math/linalg"
 
 import "../geom"
 import "../jobs"
+import "../uv"
 
 // Maps in: a displacement or vector displacement image, laid over an object through its
 // UVs, read into its detail skin, as ZBrush's Displacement and Vector Displacement Map
@@ -133,15 +134,25 @@ skin_map_sample :: proc(m: Skin_Map, uv: [2]f32) -> Vec3 {
 	return (math.lerp(top, bottom, ay) - m.mid) * m.scale
 }
 
-// The UVs of the object's triangles (Levels.uvs) and their tangents, from its quads'
-// tangent frame (the one the bake used), for sculptor_skin_from_map; ok is false unless
-// the object is made of quads, has UVs and one level (its quads are the base level's,
-// and the skin lies on the top one). In `allocator`.
+// The UVs of the object's triangles (Levels.uvs) and their tangents, in the frame the
+// bake used: a quad object's from its quads' tangent frame, any other's from its
+// triangles split at the seams (uv.split), for sculptor_skin_from_map; ok is false unless
+// the object has UVs and one level (its UVs are the base level's, and the skin lies on the
+// top one). In `allocator`.
 levels_tri_uvs :: proc(l: ^Levels, allocator := context.allocator) -> (out: Skin_Uvs, ok: bool) {
-	if len(l.levels) != 1 do return
-	layout := levels_quad_uvs(l) or_return
+	if len(l.levels) != 1 || !levels_has_uvs(l) do return
 	base := l.levels[0]
 	s := &base.sculptor
+	if !levels_has_quads(l) {
+		sp := uv.split(l.uvs, s.mesh.positions[:], s.mesh.indices[:], s.mesh.normals[:], context.temp_allocator)
+		tris := len(s.mesh.indices) / 3
+		out.uv = make([][3][2]f32, tris, allocator)
+		out.tangent = make([][3][4]f32, tris, allocator)
+		copy(out.uv, l.uvs.corner)
+		for t in 0 ..< tris do for k in 0 ..< 3 do out.tangent[t][k] = sp.tangents[sp.indices[3 * t + k]]
+		return out, true
+	}
+	layout := levels_quad_uvs(l) or_return
 	q := levels_quad_mesh(l, context.temp_allocator)
 	normals := geom.quad_mesh_normals(q, context.temp_allocator)
 	frame := geom.quad_mesh_tangents(q, layout, normals, context.temp_allocator)
