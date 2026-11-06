@@ -253,11 +253,11 @@ shelf_turns_stop_at_the_ends :: proc(t: ^testing.T) {
 	testing.expect(t, shelf_turn(app, 1) && sh.page == .Paint && sh.slide > 0 && !sh.quick)
 	testing.expect(t, shelf_turn(app, -5) && sh.page == .Sculpt && sh.slide < 0)
 	testing.expect(t, !shelf_turn(app, -1) && sh.page == .Sculpt)
-	// Sculpt's pages end at Curve: Model's page is the Model space's alone.
+	// Sculpt's pages end at Curve: Model's page is Model's layout's alone.
 	testing.expect(t, shelf_turn(app, len(Shelf_Page)) && sh.page == .Curve)
 	testing.expect(t, !shelf_turn(app, 1) && sh.page == .Curve)
 	testing.expect_value(t, sh.turns, 3)
-	app.kit.spaces.current = .Model
+	shelf_layout_read(&app.kit, {"shelf", "Model"})
 	_ = shelf_turn(app, -1)
 	testing.expect(t, sh.page == .Model && !shelf_turn(app, 1) && !shelf_turn(app, -1))
 
@@ -268,9 +268,10 @@ shelf_turns_stop_at_the_ends :: proc(t: ^testing.T) {
 	testing.expect(t, !bar_changed(app, .Shelf_Sculpt))
 }
 
-// A page of one's own is added after the space's built-in ones, empty and called by where
-// it stands; it and a built-in page take names, all of it comes back from settings.txt, and
-// a deleted page goes with its tiles, the space going back to its first page.
+// A page of one's own is added after the layout's pages, empty and called by where it
+// stands; which pages show is the layout's, so another space's layout keeps its own; a page
+// and a built-in one take names, all of it comes back from settings.txt, and a deleted page
+// goes with its tiles from every layout, the space going back to its first page.
 @(test)
 shelf_pages_are_added_renamed_and_kept :: proc(t: ^testing.T) {
 	path := "build/shelf_pages_test.txt"
@@ -279,17 +280,23 @@ shelf_pages_are_added_renamed_and_kept :: proc(t: ^testing.T) {
 	a := new(App)
 	defer free(a)
 	defer results_destroy(a)
+	defer layouts_destroy(&a.kit)
+	defer grid_undo_destroy(&a.kit.grid)
 	bars_reset(&a.kit)
+	panels_default(&a.kit)
+	layouts_init(&a.kit)
+	a.tool = .Brush
+	space_follow(a)
 	k := &a.kit
 	k.shelf.row = {0, 0, 640, 58}
-	testing.expect_value(t, len(shelf_pages(k, .Sculpt)), 4)
-	p, ok := shelf_page_add(k, .Sculpt)
+	testing.expect_value(t, len(shelf_pages(k)), 4)
+	p, ok := shelf_page_add(k)
 	testing.expect(t, ok && p == .Extra_1)
 	testing.expect_value(t, shelf_page_name(k, p), "Page 5")
-	testing.expect_value(t, len(shelf_pages(k, .Sculpt)), 5)
-	testing.expect_value(t, len(shelf_pages(k, .Model)), 1)
-	testing.expect_value(t, len(bar_used(a, shelf_which(p))), 0)
-	// The new page is the Sculpt space's last, so a turn from Curve reaches it.
+	testing.expect_value(t, len(shelf_pages(k)), 5)
+	layouts_frame(k)
+	testing.expect(t, layout_changed(k, .Sculpt), "a page added changes the layout")
+	// The new page is the layout's last, so a turn from Curve reaches it.
 	k.shelf.page = .Curve
 	testing.expect(t, shelf_turn(a, 1) && k.shelf.page == p)
 	testing.expect(t, !shelf_turn(a, 1))
@@ -300,35 +307,48 @@ shelf_pages_are_added_renamed_and_kept :: proc(t: ^testing.T) {
 	testing.expect_value(t, shelf_page_name(k, p), "Detail")
 	testing.expect_value(t, shelf_page_name(k, .Paint), "Colour")
 	testing.expect_value(t, shelf_page_name(k, .Move), "Move")
-	q, _ := shelf_page_add(k, .Model)
+	command_run(a, .Space_Switch, int(Space.Model))
+	testing.expect_value(t, len(shelf_pages(k)), 1)
+	q, _ := shelf_page_add(k)
 	testing.expect_value(t, shelf_page_name(k, q), "Page 2")
+	command_run(a, .Space_Switch, int(Space.Sculpt))
+	testing.expect_value(t, len(shelf_pages(k)), 5)
 	testing.expect(t, settings_save(a, path))
 
 	b := new(App)
 	defer free(b)
 	defer results_destroy(b)
+	defer layouts_destroy(&b.kit)
+	defer grid_undo_destroy(&b.kit.grid)
 	bars_reset(&b.kit)
+	panels_default(&b.kit)
+	layouts_init(&b.kit)
 	settings_load(b, path)
-	testing.expect_value(t, len(shelf_pages(&b.kit, .Sculpt)), 5)
+	testing.expect_value(t, len(shelf_pages(&b.kit)), 5)
 	testing.expect_value(t, shelf_page_name(&b.kit, .Extra_1), "Detail")
 	testing.expect_value(t, shelf_page_name(&b.kit, .Paint), "Colour")
-	testing.expect_value(t, shelf_page_space(&b.kit, .Extra_2), Space.Model)
 	testing.expect_value(t, shelf_page_name(&b.kit, .Extra_2), "Page 2")
 	testing.expect_value(t, bar_names(b, .Shelf_Extra_1), "Brush:Inflate")
+	command_run(b, .Space_Switch, int(Space.Model))
+	testing.expect_value(t, len(shelf_pages(&b.kit)), 2)
+	command_run(b, .Space_Switch, int(Space.Sculpt))
 
 	shelf_page_delete(k, p)
-	testing.expect_value(t, len(shelf_pages(k, .Sculpt)), 4)
+	testing.expect_value(t, len(shelf_pages(k)), 4)
 	testing.expect_value(t, k.shelf.page, Shelf_Page.Sculpt)
 	testing.expect_value(t, k.shelf.lists[p].count, 0)
 	// A built-in page stays.
 	shelf_page_delete(k, .Paint)
-	testing.expect_value(t, len(shelf_pages(k, .Sculpt)), 4)
+	testing.expect_value(t, len(shelf_pages(k)), 4)
+	// Model's added page goes from Model's kept layout too.
+	shelf_page_delete(k, q)
+	command_run(a, .Space_Switch, int(Space.Model))
+	testing.expect_value(t, len(shelf_pages(k)), 1)
 	// Six of one's own at most.
-	for _ in 0 ..< 5 do _, _ = shelf_page_add(k, .Render)
-	_, ok = shelf_page_add(k, .Render)
+	for _ in 0 ..< 6 do _, _ = shelf_page_add(k)
+	_, ok = shelf_page_add(k)
 	testing.expect(t, !ok)
 	bars_reset(k)
-	testing.expect_value(t, len(shelf_pages(k, .Render)), 1)
 	testing.expect_value(t, shelf_page_name(k, .Paint), "Paint")
 }
 
