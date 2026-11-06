@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:math/linalg"
 import "core:slice"
 import "core:strings"
@@ -20,7 +21,11 @@ import "../ui"
 // is not, whatever its depth; Through, it is drawn over the model, the silhouette check.
 // While the References card is open a picked plane is dragged in the view to move it,
 // from its corner to size it, one undo step each. The Scene card lists the planes after
-// the lights, each with its eye and lock.
+// the lights, each with its eye and lock. Line up meets the Proportion guides
+// (guides.odin): a picked plane facing a side view shows Brow and Chin marks while the
+// guides do, which a drag puts on the photo's brow and chin; let go, the plane scales and
+// moves up or down so they stand at the guides' heights, so a front and a side photo line
+// up with each other and with the model in two drags each.
 
 // Which axis view a place's plane faces: none, or the view whose camera looks at its
 // picture square on.
@@ -43,6 +48,13 @@ REF_PLANE_FAR :: 1e6
 // How tall a plane is put with no object to measure.
 REF_PLANE_DEFAULT_H :: 2
 
+// Where a picture's brow and chin marks stand until dragged, as parts of its height from
+// its top: a portrait's brow about a third down, its chin near its foot.
+REF_MARKS :: [2]f32{0.3, 0.85}
+// The least distance between the two marks, as a part of the picture's height, so a line
+// up never makes a plane of no height or turns one upside down.
+REF_MARKS_GAP :: 0.05
+
 // Lucide's wallpaper: a picture on a wall, for In scene and the planes' rows.
 ICON_REF_PLANE :: rune(0xe450)
 
@@ -64,6 +76,63 @@ refs_plane_axes :: proc(plane: Ref_Plane) -> (right, up, facing: Vec3) {
 // place's shape on the board (cropped and turned as the board shows it).
 refs_plane_size :: proc(p: Ref) -> [2]f32 {
 	return {p.plane_h * p.size.x / max(p.size.y, 1e-6), p.plane_h}
+}
+
+// Whether marks are as a file may hold them: none yet, or the brow above the chin by at
+// least REF_MARKS_GAP, both on the picture.
+refs_marks_ok :: proc(m: [2]f32) -> bool {
+	return m == {} || (m.x >= 0 && m.x + REF_MARKS_GAP <= m.y + 1e-6 && m.y <= 1)
+}
+
+// Place `p`'s brow and chin marks: where they were dragged, else where they first stand.
+ref_marks :: proc(p: Ref) -> [2]f32 {
+	return p.marks if p.marks != {} else REF_MARKS
+}
+
+// Whether a plane faces a side view, whose up is the world's, so the guides' heights
+// cross it level.
+refs_plane_side :: proc(plane: Ref_Plane) -> bool {
+	return plane >= .Front && plane <= .Left
+}
+
+// Sizes and moves place `p`'s plane, up or down only, so its brow and chin marks stand at
+// the guides' Brow and Chin heights, its middle across kept; false when it stands on no
+// side plane or the guides leave the brow no higher than the chin.
+refs_line_up :: proc(p: ^Ref, g: Guides) -> bool {
+	if !refs_plane_side(p.plane) || p.image == 0 do return false
+	m := ref_marks(p^)
+	span := g.heights[.Brow] - g.heights[.Chin]
+	if !(span > 1e-6) do return false
+	h := span / (m.y - m.x)
+	at := g.heights[.Brow] - h * 0.5 + m.x * h
+	if !(h < REF_PLANE_FAR && abs(at) < REF_PLANE_FAR) do return false
+	p.marks, p.plane_h, p.plane_at.y = m, h, at
+	return true
+}
+
+// Lines the picked side planes up with the guides, showing the guides first when they
+// are hidden (seeded on what is selected the first time), one undo step.
+refs_line_up_picked :: proc(app: ^App) {
+	if !app.scene.guides.shown do guides_toggle(app)
+	refs := &app.scene.refs
+	b := &app.kit.board
+	before := refs_clone(refs.refs[:])
+	for &p in refs.refs do if board_picked(b, p.id) && !p.locked do refs_line_up(&p, app.scene.guides)
+	if slice.equal(before, refs.refs[:]) {
+		delete(before)
+		return
+	}
+	history_record_refs(app, before, "Line up reference")
+	b.lined_up += 1
+}
+
+// Whether some picked picture stands on a side plane and is not locked, which Line up
+// works on.
+@(private = "file")
+refs_picked_side :: proc(app: ^App) -> bool {
+	b := &app.kit.board
+	for p in app.scene.refs.refs do if board_picked(b, p.id) && p.image != 0 && !p.locked && refs_plane_side(p.plane) do return true
+	return false
 }
 
 // The GPU copy plane `p` shows: the grey one once made, when grey; nil while it decodes.
@@ -208,7 +277,7 @@ refs_planes_view :: proc(app: ^App) {
 	t := ctx.theme
 	b := &k.board
 	if !card_shown(app, .References) {
-		b.plane_drag, b.plane_id = .None, 0
+		b.plane_drag, b.plane_id, b.mark, b.mark_id = .None, 0, 0, 0
 		return
 	}
 	for &p in app.scene.refs.refs {
@@ -216,6 +285,8 @@ refs_planes_view :: proc(app: ^App) {
 		r, ok := refs_plane_rect(app, p)
 		if !ok || r.w < 1 || r.h < 1 do continue
 		if !p.locked {
+			// The marks' tags first, so a press on one that stands over the plane is theirs.
+			refs_plane_marks(app, &p, r)
 			ui.begin_at(ctx, fmt.tprintf("ref plane %d", p.id), {r.x, r.y}, {width = r.w, height = r.h})
 			a := ui.area(ctx, "plane", {r.w, r.h})
 			ui.end(ctx)
@@ -225,6 +296,65 @@ refs_planes_view :: proc(app: ^App) {
 		}
 		ui.stroke_rect(ctx, r, 0, t.accent, 2)
 		if !p.locked do ui.fill_circle(ctx, {r.x + r.w, r.y + r.h}, board_corner(ctx) * 0.4, t.accent)
+	}
+}
+
+// Picked plane `p`'s Brow and Chin marks over it at `r`, while the guides show and it
+// faces a side view: a dashed amber line across it at each, as the guides' are, and a tag
+// left of it (inside it at the window's edge) that a drag moves up and down the picture.
+// Let go, the plane lines up with the guides, one undo step.
+@(private = "file")
+refs_plane_marks :: proc(app: ^App, p: ^Ref, r: ui.Rect) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	b := &k.board
+	g := &app.scene.guides
+	if !g.shown || !g.seeded || !refs_plane_side(p.plane) || r.h < 1 do return
+	m := ref_marks(p^)
+	edge := ui.safe_area(ctx).x
+	for i in 0 ..< 2 {
+		label := GUIDE_NAMES[.Brow if i == 0 else .Chin]
+		w := ui.text_width(ctx, label, t.small_size, .Semibold) + 16
+		y := math.round(r.y + r.h * m[i])
+		x := r.x - w - 6
+		if x < edge do x = r.x + 6
+		// Dashes of 6 points with gaps of 4 on a faint dark edge, as the guides' lines.
+		for dx := r.x; dx < r.x + r.w; dx += 10 {
+			seg := min(6, r.x + r.w - dx)
+			ui.fill_rect(ctx, {dx, y - 0.5, seg, 2}, 0, {0, 0, 0, 0x55})
+			ui.fill_rect(ctx, {dx, y - 1, seg, 1.5}, 0, t.warning)
+		}
+		ui.begin_at(ctx, fmt.tprintf("ref mark %d %d", p.id, i), {x, y - t.target * 0.5}, {width = w, height = t.target})
+		a := ui.area(ctx, fmt.tprintf("%s mark##ref mark", label), {w, t.target})
+		plate := ui.Rect{x, y - GUIDE_TAG_H * 0.5, w, GUIDE_TAG_H}
+		ui.fill_rect(ctx, plate, t.radius_small, t.surface)
+		ui.stroke_rect(ctx, plate, t.radius_small, t.warning, 1.5 if a.held || a.hovered else 1)
+		ui.text(ctx, label, plate.x + 8, plate.y + GUIDE_TAG_H * 0.5, t.small_size, t.warning, .Semibold)
+		ui.end(ctx)
+		ui.tip(ctx, a.id, a.rect, fmt.tprintf("Drag onto the picture's %s; let go to line it up with the guides", "brow" if i == 0 else "chin"))
+		if a.pressed {
+			b.mark, b.mark_id = i + 1, p.id
+			delete(b.before)
+			b.before = refs_clone(app.scene.refs.refs[:])
+		}
+		if b.mark != i + 1 || b.mark_id != p.id do continue
+		if a.held {
+			f := (a.mouse.y - r.y) / r.h
+			if i == 0 do m.x = clamp(f, 0, m.y - REF_MARKS_GAP)
+			else do m.y = clamp(f, m.x + REF_MARKS_GAP, 1)
+			p.marks = m
+			continue
+		}
+		refs_line_up(p, g^)
+		if b.before != nil {
+			if !slice.equal(b.before, app.scene.refs.refs[:]) {
+				history_record_refs(app, b.before, "Line up reference")
+				b.lined_up += 1
+			} else do delete(b.before)
+			b.before = nil
+		}
+		b.mark, b.mark_id = 0, 0
 	}
 }
 
@@ -277,8 +407,9 @@ refs_plane_input :: proc(app: ^App, p: ^Ref, a: ui.Area, r: ui.Rect) {
 	}
 }
 
-// The In scene menu's items: each axis view, Not in scene, then Only in its view for
-// the picked planes, each one undo step (Behind or Through is the chip beside it).
+// The In scene menu's items: each axis view, Not in scene, then Only in its view and Line
+// up with guides for the picked planes, each one undo step (Behind or Through is the chip
+// beside it).
 refs_plane_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
@@ -301,6 +432,10 @@ refs_plane_menu :: proc(app: ^App) {
 	only := !refs_picked_all_planes(app, proc(r: Ref) -> bool {return r.plane_any})
 	if ui.menu_item(ctx, "Only in its view##refs plane", checked = on && only, enabled = on, hint = "Shown while the camera looks along its axis") {
 		refs_edit(app, .Plane_Any)
+		b.plane_menu = false
+	}
+	if ui.menu_item(ctx, "Line up with guides##refs plane", enabled = refs_picked_side(app), hint = "Brow and chin marks meet the Proportion guides") {
+		refs_line_up_picked(app)
 		b.plane_menu = false
 	}
 }

@@ -9206,6 +9206,19 @@ def references_in_scene_by_finger():
 
 
 @scenario
+def references_line_up_by_finger():
+    """A picture added by a script stands on the right view's plane with the Proportion
+    guides shown, in the orthographic right view; a finger drags the plane's Brow mark down
+    the picture and lets go: the plane lines up with the guides, one undo step, and nothing
+    sculpts, turns or moves a guide."""
+    s = Script()
+    s.wait(6)
+    s.fdrag([(418, 290 + 5 * k) for k in range(9)])
+    s.wait(6)
+    return s, ["--script=reference assets/icon/sculpt-1024.png; reference_plane right; view_guides; view_axis right; ortho_toggle"], {"refs_lined_up": near(1), "guide_drags": near(0), "dabs": near(0), "undo_steps": near(1)}
+
+
+@scenario
 def references_board_zoom_stays_inside():
     """A picture added by a script opens the References card; two fingers spread on the
     board zoom it far in: the picture is drawn inside the board alone (--screens shows it

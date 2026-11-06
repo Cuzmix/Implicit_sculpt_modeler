@@ -488,6 +488,13 @@ a_level_plane_lands_where_the_view_projects_it :: proc(t: ^testing.T) {
 	testing.expect(t, near_eq(frac, 0.5 - clip.y * 0.5, 1e-4), "the guide is not where the view draws its height")
 	testing.expect(t, near_eq(orbit_level_height(c, frac), y, 1e-4), "the height does not come back from its share")
 	testing.expect(t, near_eq(orbit_level_frac(c, c.target.y), 0.5), "the target's height is not the middle")
+	// Shifted to a free area's middle, the guide moves with the picture.
+	shifted := c
+	shifted.shift = {0.1, 0.08}
+	clip = project(orbit_proj(shifted, 1.5) * orbit_view(shifted), {0.2, y, 0.6})
+	frac = orbit_level_frac(shifted, y)
+	testing.expect(t, near_eq(frac, 0.5 - clip.y * 0.5, 1e-4), "the guide is not where the shifted view draws its height")
+	testing.expect(t, near_eq(orbit_level_height(shifted, frac), y, 1e-4), "the height does not come back from its shifted share")
 	// A mirrored level view is level too; a tilted, rolled or perspective one is not.
 	testing.expect(t, orbit_is_level(orbit_mirror_x(c)), "the mirror of a level view is not level")
 	tilted, rolled, wide := c, c, c

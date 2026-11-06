@@ -100,12 +100,12 @@ kit_guides :: proc(app: ^App, r: ui.Rect, o: camera.Orbit, name: string) {
 	if !g.shown || !g.seeded || r.w <= 0 || r.h <= 0 || !camera.orbit_is_level(o) do return
 	ctx := &k.ctx
 	t := ctx.theme
-	// The tags end at the view's right edge, or left of a docked column over it, or of the
-	// view bar when the view runs to the window's edge.
+	// The tags end at the view's right edge, or left of a column's cards over it (pinned
+	// or open for a moment), or of the view bar when the view runs to the window's edge.
 	area := ui.safe_area(ctx)
 	right := min(r.x + r.w, area.x + area.w - kit_right(app)) - 6
 	for side in Column_Side {
-		c := column_rest_rect(app, side)
+		c := column_shown_rect(app, side)
 		if c.w > 0 && c.x > r.x && c.x < right do right = min(right, c.x - GRID_COLUMN_GAP)
 	}
 	top := max(r.y, kit_top() - 8)
