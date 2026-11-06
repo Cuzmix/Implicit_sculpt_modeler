@@ -265,7 +265,7 @@ toggle_button :: proc(ctx: ^Context, s: string, on: bool, width: f32, keys := ""
 // still scrolls the panel round the row), and `dragged^` is the option carried past the
 // slop; a press that went further than the slop is no tap. `stacked` (with `glyphs`) puts
 // each option's icon over its name.
-tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil, keys: []string = nil, dragged: ^int = nil, stacked := false) -> int {
+tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_width: f32 = 0, accent := false, glyphs: []rune = nil, keys: []string = nil, dragged: ^int = nil, stacked := false, menu: ^int = nil) -> int {
 	ctx.controls += 1
 	t := ctx.theme
 	n := len(options)
@@ -291,6 +291,9 @@ tabs :: proc(ctx: ^Context, name: string, options: []string, chosen: int, item_w
 		r := place(ctx, {w, item_h})
 		id := id_of(ctx, option)
 		hovered, held, clicked, pressed := interact(ctx, id, hit_area(ctx, r))
+		// `menu`, when given, is set to the option whose secondary action ran (a long press,
+		// a right click), which then is no tap.
+		if menu != nil && secondary(ctx) do menu^ = i
 		if dragged != nil {
 			clicked &&= ctx.long.travel <= t.slop
 			if held {

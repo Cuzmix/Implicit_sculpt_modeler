@@ -22,6 +22,7 @@ Workspace_Menu :: struct {
 	made:   int, // workspaces made, renamed and deleted this run (exit stats)
 	renamed: int,
 	deleted: int,
+	moved:   int, // tabs carried to another place
 }
 
 // A deleted workspace, kept for its toast's Undo: the workspace whole (its strings now the
@@ -95,7 +96,7 @@ workspace_new :: proc(app: ^App, typed: string, from: Starter) -> bool {
 	k.layouts.edit.made += 1
 	workspace_switch(app, slot)
 	workspaces_store(app)
-	report(app, nil, {}, "Made workspace %s", name)
+	report(app, nil, {}, "Made %s", name)
 	return true
 }
 
@@ -285,7 +286,7 @@ workspace_naming :: proc(app: ^App) {
 	options := make([]string, len(Starter), context.temp_allocator)
 	for s in Starter do options[s] = fmt.tprintf("This layout (%s)", workspace_now(k).name) if s == .None else fmt.tprintf("%s as it ships", STARTER_NAMES[s])
 	if picked := ui.select(ctx, "start from##new workspace", options, int(m.from)); picked >= 0 do m.from = Starter(picked)
-	ui.paragraph(ctx, "A copy is tied to no tool, so only its tab brings it; a starter brings the tools it ships with that no other workspace holds.", t.caption_size, t.text_secondary)
+	ui.paragraph(ctx, "A copy is tied to no tool, so only its tab brings it; a starter brings the tools it ships with that no other workspace holds.", f32(ui.MENU_W - 2 * ui.MENU_PAD), t.text_secondary)
 	make_it, cancel := kit_button_pair(ctx, "Make", "Cancel", tone_a = .Accent)
 	d := &app.device
 	make_it ||= key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)

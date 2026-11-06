@@ -147,6 +147,7 @@ Workspaces :: struct {
 	seen_set: bool,
 	set:      bool,
 	switches: int, // for the exit stats
+	shown:    int, // tabs the top bar showed last frame (exit stats)
 }
 
 // The workspaces as a fresh install has them: the starters, in order, Sculpt in front.
@@ -357,62 +358,81 @@ workspace_label :: proc(k: ^Kit_State, slot: int) -> string {
 	return k.workspaces.list[slot].name
 }
 
-// The workspace tabs, in the top bar's middle: a tap on another switches to it (Ctrl+1 to 9
-// by place); a tap on the lit one, or on the chevron after them, opens the workspace menu.
-// The chosen tab has the one selected look, with its own colour as a dot at its top left;
-// every tab whose layout differs from where it started carries the amber dot. Returns the
-// width laid out.
-top_workspace_tabs :: proc(app: ^App) -> f32 {
+// The tabs the top bar shows when only `shown` fit (0 for all): the first in order, the one
+// in front always among them. In temp memory.
+workspace_tabs_shown :: proc(k: ^Kit_State, shown: int) -> []int {
+	tabs := workspace_tabs(k)
+	if shown <= 0 || shown >= len(tabs) do return tabs
+	// The first `shown`, or the first `shown - 1` and the one in front after them.
+	place := 0
+	for slot, i in tabs do if slot == k.workspaces.current do place = i
+	if place < shown do return tabs[:shown]
+	out := make([]int, shown, context.temp_allocator)
+	copy(out, tabs[:shown - 1])
+	out[shown - 1] = k.workspaces.current
+	return out
+}
+
+// The workspace tabs, in the top bar's middle, the first `shown` (0 for all; the rest are in
+// the menu): a tap on another switches to it (Ctrl+1 to 9 by place); a tap on the lit one, or
+// a long press or right click on any, opens the workspace menu on that one's actions; a drag
+// (a finger's after the long press) carries a tab along the row. The chevron after them opens
+// the menu, the + New workspace. The chosen tab has the one selected look, with its colour as
+// a dot at its top left; a tab whose layout differs from its base carries the amber dot.
+// Returns the width laid out.
+top_workspace_tabs :: proc(app: ^App, shown: int) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	l := &k.layouts
-	tabs := workspace_tabs(k)
+	tabs := workspace_tabs_shown(k, shown)
+	folded := len(workspace_tabs(k)) - len(tabs)
+	k.workspaces.shown = len(tabs)
 	names := make([]string, len(tabs), context.temp_allocator)
 	glyphs := make([]rune, len(tabs), context.temp_allocator)
 	keys := make([]string, len(tabs), context.temp_allocator)
 	chosen := -1
 	for slot, i in tabs {
 		w := &k.workspaces.list[slot]
-		names[i] = fmt.tprintf("%s##slot %d", w.name, slot)
+		names[i] = fmt.tprintf("%s##slot %d", ui.text_fit(ctx, w.name, t.text_size, WORKSPACE_TAB_TEXT_MAX, .Semibold), slot)
 		glyphs[i] = STARTER_ICONS[w.starter]
 		keys[i] = command_hint(app, .Workspace_Switch, slot)
 		if slot == k.workspaces.current do chosen = i
 	}
 	ui.begin(ctx, "workspace tabs", {direction = .Row, center = true, background = .Track, radius = t.radius_medium + 1.5})
 	start := ctx.last_rect.x
-	picked := ui.tabs(ctx, "Workspaces", names, chosen, glyphs = glyphs, keys = keys)
+	dragged, menu := -1, -1
+	picked := ui.tabs(ctx, "Workspaces", names, chosen, glyphs = glyphs, keys = keys, dragged = &dragged, menu = &menu)
 	seg := ctx.last_rect
-	if picked >= 0 {
-		if picked == chosen {
-			// The lit tab's menu opens on its own actions.
-			was := l.menu
-			kit_floats_close(k)
-			l.menu = !was
-			l.edit.more, l.edit.ties, l.edit.naming = k.workspaces.current + 1, false, false
-		} else {
-			command_run(app, .Workspace_Switch, tabs[picked])
-		}
-	}
 	x := start + 3
 	for slot, i in tabs {
 		w := &k.workspaces.list[slot]
 		sw := workspace_tab_width(ctx, w.name)
 		k.workspace_tab_at[slot] = {x, seg.y, sw, seg.h}
-		if i == chosen {
-			l.menu_at = {x, seg.y, sw, seg.h}
-			ui.fill_circle(ctx, {x + 7, seg.y + 7}, 2.5, t.tints[int(w.tint) % len(t.tints)])
-		}
+		if i == chosen do ui.fill_circle(ctx, {x + 7, seg.y + 7}, 2.5, t.tints[int(w.tint) % len(t.tints)])
 		if layout_changed(k, slot) do ui.fill_circle(ctx, {x + sw - 9, seg.y + seg.h * 0.5}, 3, t.warning)
 		x += sw
 	}
-	if ui.icon_button(ctx, "Workspace menu", ui.ICON_CHEVRON_DOWN, selected = l.menu && !l.edit.naming, size = t.control) {
+	if picked >= 0 && picked == chosen do menu = picked
+	if menu >= 0 {
+		was := l.menu && l.edit.more == tabs[menu] + 1
+		kit_floats_close(k)
+		l.menu = !was
+		l.edit.more, l.edit.ties, l.edit.naming = tabs[menu] + 1, false, false
+		l.menu_at = k.workspace_tab_at[tabs[menu]]
+	} else if picked >= 0 {
+		command_run(app, .Workspace_Switch, tabs[picked])
+	}
+	if dragged >= 0 do workspace_tab_carry(app, tabs, dragged)
+	folded_tip := fmt.tprintf("%d more in the menu", folded) if folded > 0 else ""
+	if ui.icon_button(ctx, "Workspace menu", ui.ICON_CHEVRON_DOWN, selected = l.menu && !l.edit.naming && l.edit.more == 0, size = t.control, keys = folded_tip) {
 		was := l.menu
 		kit_floats_close(k)
 		l.menu = !was
 		l.edit.more, l.edit.naming = 0, false
 		l.menu_at = ctx.last_rect
 	}
+	if folded > 0 do ui.text(ctx, fmt.tprint(folded), ctx.last_rect.x + ctx.last_rect.w - 6, ctx.last_rect.y + 9, t.caption_size, t.text_secondary, .Semibold, .Center)
 	if ui.icon_button(ctx, "New workspace", ui.ICON_PLUS, selected = l.menu && l.edit.naming, size = t.control, keys = command_hint(app, .Workspace_New)) {
 		was := l.menu && l.edit.naming
 		kit_floats_close(k)
@@ -424,18 +444,53 @@ top_workspace_tabs :: proc(app: ^App) -> f32 {
 	return end.x + end.w - start
 }
 
+// The longest a tab's name stands before it ends in an ellipsis, in points.
+WORKSPACE_TAB_TEXT_MAX :: 140
+
+// Carries the tab at `place` among the tabs shown along the row with the pointer: once the
+// pointer passes a neighbour's middle the two change places, which Ctrl+1 to 9 follow. Its
+// menu closes, as the press is a drag now.
+@(private = "file")
+workspace_tab_carry :: proc(app: ^App, tabs: []int, place: int) {
+	k := &app.kit
+	ws := &k.workspaces
+	x := k.ctx.input.mouse.x
+	k.layouts.menu = false
+	to := place
+	if place > 0 {
+		r := k.workspace_tab_at[tabs[place - 1]]
+		if x < r.x + r.w * 0.5 do to = place - 1
+	}
+	if place + 1 < len(tabs) {
+		r := k.workspace_tab_at[tabs[place + 1]]
+		if x > r.x + r.w * 0.5 do to = place + 1
+	}
+	if to == place do return
+	// Swap the two in the whole order, where folded tabs may stand between.
+	a, b := -1, -1
+	for o, i in ws.order {
+		if int(o) == tabs[place] do a = i
+		if int(o) == tabs[to] do b = i
+	}
+	if a < 0 || b < 0 do return
+	ws.order[a], ws.order[b] = ws.order[b], ws.order[a]
+	k.layouts.edit.moved += 1
+	if app.settings_file != "" do _ = settings_save(app, app.settings_file)
+}
+
 // One tab's width, as ui.tabs sizes a tab with a glyph.
 workspace_tab_width :: proc(ctx: ^ui.Context, name: string) -> f32 {
 	t := ctx.theme
-	return ui.text_width(ctx, name, t.text_size, .Semibold) + 28 + t.icon_small + 6
+	return ui.text_width(ctx, ui.text_fit(ctx, name, t.text_size, WORKSPACE_TAB_TEXT_MAX, .Semibold), t.text_size, .Semibold) + 28 + t.icon_small + 6
 }
 
-// The tabs' width: the tabs in their well, then the chevron and the +.
-workspace_tabs_width :: proc(app: ^App) -> f32 {
+// The tabs' width when `shown` of them show: the tabs in their well, then the chevron and
+// the +.
+workspace_tabs_width :: proc(app: ^App, shown: int) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
 	w: f32 = 2 * 3 + 2 * ctx.theme.control
-	for slot in workspace_tabs(k) do w += workspace_tab_width(ctx, k.workspaces.list[slot].name)
+	for slot in workspace_tabs_shown(k, shown) do w += workspace_tab_width(ctx, k.workspaces.list[slot].name)
 	return w
 }
 
