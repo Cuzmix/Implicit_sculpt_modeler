@@ -176,7 +176,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			b := poly.mesh_bounds(&obj.cage.mesh)
 			lo, hi = b.lo, b.hi
 		}
-		fmt.printfln("cage_picked=%d model_pick=%v model_falloff=%.2f model_xforms=%d measures=%d measure=%.4f cage_lo=%.4f,%.4f,%.4f cage_hi=%.4f,%.4f,%.4f", picked, app.model.pick, app.model.falloff, app.model.xforms, app.model.measure.made, linalg.length(app.model.measure.b - app.model.measure.a) if app.model.measure.ends == 2 else 0, lo.x, lo.y, lo.z, hi.x, hi.y, hi.z)
+		fmt.printfln("cage_picked=%d model_pick=%v model_falloff=%.2f model_xforms=%d model_edits=%d model_slides=%d model_relaxes=%d measures=%d measure=%.4f cage_lo=%.4f,%.4f,%.4f cage_hi=%.4f,%.4f,%.4f", picked, app.model.pick, app.model.falloff, app.model.xforms, app.model.edits, app.model.slide.slides, app.model.relax.strokes, app.model.measure.made, linalg.length(app.model.measure.b - app.model.measure.a) if app.model.measure.ends == 2 else 0, lo.x, lo.y, lo.z, hi.x, hi.y, hi.z)
 		// Where the selected object sits, which Align parts moves a whole cage to.
 		at: Vec3
 		if obj := selected_object(app); obj != nil do at = obj.transform.position

@@ -955,6 +955,8 @@ Model_Tool :: struct {
 	// The Topo pen's dots and drag (model_topo.odin).
 	topo:      Model_Topo,
 	measure:   Model_Measure,
+	relax:     Model_Relax,
+	slide:     Model_Slide,
 	look_drag: Cage_Look_Drag,
 	// What Select picks (faces, or points through edges and points) and the gizmo's drag of
 	// the selection (model_gizmo.odin), with the falloff its move eases out over, a share
@@ -963,6 +965,7 @@ Model_Tool :: struct {
 	falloff:   f32,
 	xform:     Cage_Xform,
 	xforms:    int, // moves, turns and scales of the selection made, for the exit stats
+	edits:     int, // the Edit section's edits made, for the exit stats
 	pointer:   [2]f32, // the pointer's last place over the view, where a key's drag starts
 	// Since the start, for the exit stats: actions made, and refused.
 	done:      int,
@@ -1039,6 +1042,21 @@ kit_model_tab :: proc(app: ^App) {
 	kit_command_pair(app, .Select_Cage, .Select_Cage, arg_a = int(poly.Select_Op.All), arg_b = int(poly.Select_Op.None), label_a = "All", label_b = "None")
 	kit_command_pair(app, .Select_Cage, .Select_Cage, arg_a = int(poly.Select_Op.Grow), arg_b = int(poly.Select_Op.Shrink), label_a = "Grow", label_b = "Shrink")
 	_ = command_button(app, .Select_Cage, int(poly.Select_Op.Invert), "Invert", width = ui.fill_width(ctx))
+	// The edits of the selection, as Blender's edit mode menu: each says what it needs when
+	// the selection has none of it.
+	if obj := selected_object(app); obj != nil && obj.cage != nil {
+		ui.caption(ctx, "EDIT")
+		pair :: proc(app: ^App, a, b: Cage_Edit, label_a, label_b: string) {
+			kit_command_pair(app, .Cage_Edit, .Cage_Edit, arg_a = int(a), arg_b = int(b), label_a = label_a, label_b = label_b)
+		}
+		pair(app, .Subdivide, .Poke, "Subdivide", "Poke")
+		pair(app, .Tris_To_Quads, .Fill, "Tris to quads", "Fill holes")
+		pair(app, .Split, .Separate, "Split", "Separate")
+		pair(app, .Bevel_Points, .Join, "Bevel points", "Join below")
+		pair(app, .Relax, .Smooth, "Relax", "Smooth")
+		faces, points := cage_edit_counts(&obj.cage.mesh)
+		ui.paragraph(ctx, fmt.tprintf("%d faces selected, %d points picked. Subdivide, Poke, Split and Separate take the selected faces; Tris to quads the selected faces or all; Fill the hole a picked border edge is on, or every hole; Bevel points the picked points; Relax and Smooth the whole selection, with the Falloff; Join takes in the cage listed below this one.", faces, points))
+	}
 	ui.caption(ctx, "TIDY")
 	kit_command_pair(app, .Tidy_Cage, .Tidy_Cage, arg_a = int(Cage_Tidy.Dissolve_Flat), arg_b = int(Cage_Tidy.Merge_Close), label_a = "Dissolve flat", label_b = "Merge close")
 	ui.caption(ctx, "NEW CAGE")

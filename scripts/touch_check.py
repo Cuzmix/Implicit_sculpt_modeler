@@ -4530,6 +4530,38 @@ def model_selection_gizmo_tap_types_a_value():
 
 
 @scenario
+def model_edit_separate_split_and_fill():
+    """The Model card's Edit commands by script: Separate makes two selected faces a cage of their own; Split frees a face along its outline (four points more); Fill closes the two holes Separate left (faces 0 and 1 lie opposite), one face each."""
+    sep, split, fill = Script(), Script(), Script()
+    for s in (sep, split, fill):
+        s.wait(5)
+    base = "add_cage cube; select 1; delete_object; frame_all; model_action select; "
+    return Steps([
+        (sep, LENS_1440 + ["--script=" + base + "cage select 0 1; wait 1; cage_edit separate"], {"cages": near(2), "model_edits": near(1)}),
+        (split, LENS_1440 + ["--script=" + base + "cage select 0; wait 1; cage_edit split"], {"cage_points": near(12), "cage_faces": near(6), "model_edits": near(1)}),
+        (fill, LENS_1440 + ["--script=" + base + "cage select 0 1; wait 1; cage_edit separate; wait 1; cage_edit fill"], {"cages": near(2), "cage_faces": near(8), "cage_points": near(16), "model_edits": near(2)}),
+    ])
+
+
+@scenario
+def model_relax_brush_drags_over_a_cage():
+    """Relax: a drag over a subdivided cube evens its points out as one undo step; the cube keeps about its size."""
+    s = Script()
+    s.mouse_drag(line((640, 460), (700, 540), 12))
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action select; select_cage all; wait 1; cage_edit subdivide; wait 1; model_action relax"], {"model_relaxes": near(1), "model_edits": near(1), "cage_faces": near(24), "cage_hi": lambda got: all(0.45 < float(c) < 0.6 for c in got.split(","))}
+
+
+@scenario
+def model_slide_moves_an_edge_along_its_faces():
+    """Slide: a press on the cube's front vertical edge and a drag left slides its two ends along the top and bottom edges, one undo step; the points stay eight."""
+    s = Script()
+    s.mouse_drag(line((752, 530), (690, 530), 12))
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action slide; model_target single"], {"model_slides": near(1), "cage_points": near(8), "model_done": near(1)}
+
+
+@scenario
 def model_measure_drag_snaps_to_corners():
     """Measure: a drag from near one corner of a cube to near the one below shows their distance, exactly the cube's edge, and changes nothing."""
     s = Script()
