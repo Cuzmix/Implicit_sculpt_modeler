@@ -1,77 +1,95 @@
-// slangc metal from textured.vert.spv sha256 d894c5dcede739a8c62f47d8271cd3fd236a10d1019904f28bc8e89961c79eeb
-// slots s= rt= wt= rb= wb= u=0 a=
+// slangc metal from textured.vert.spv sha256 f5b498413d533aa2389dc8fee3bff34d5e47c87af63781eba7904725cd51e306
+// slots s= rt= wt= rb=1,2,3,4,5 wb= u=0 a=
 #include <metal_stdlib>
 #include <metal_math>
 #include <metal_texture>
 using namespace metal;
 
-#line 64 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
+#line 23 "/home/user/Implicit_sculpt_modeler/src/render/shaders/textured.vert.slang"
+float3 srgb_decode_0(float3 c_0)
+{
+
+#line 24
+    return mix(c_0 / float3(12.92000007629394531f) , pow((c_0 + float3(0.05499999970197678f) ) / float3(1.0549999475479126f) , float3(2.40000009536743164f) ), step(float3(0.04044999927282333f) , c_0));
+}
+
+
+#line 4 "/home/user/Implicit_sculpt_modeler/src/render/shaders/paint_material.slang"
+float4 paint_material_0(uint word_0)
+{
+
+#line 5
+    return unpack_unorm4x8_to_float(word_0);
+}
+
+
+#line 65 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
 float3 oct_decode_0(float2 e_0)
 {
 
-#line 65
+#line 66
     float _S1 = e_0.x;
 
-#line 65
+#line 66
     float _S2 = e_0.y;
 
-#line 65
+#line 66
     float3 _S3 = float3(e_0, 1.0f - abs(_S1) - abs(_S2));
 
-#line 65
+#line 66
     thread float3 v_0 = _S3;
     if((_S3.z) < 0.0f)
     {
 
-#line 66
+#line 67
         float2 _S4 = float2(1.0f)  - abs(e_0.yx);
 
-#line 66
+#line 67
         float _S5;
 
-#line 66
+#line 67
         if(_S1 >= 0.0f)
         {
 
-#line 66
+#line 67
             _S5 = 1.0f;
 
-#line 66
+#line 67
         }
         else
         {
 
-#line 66
+#line 67
             _S5 = -1.0f;
 
-#line 66
+#line 67
         }
 
-#line 66
+#line 67
         float _S6;
 
-#line 66
+#line 67
         if(_S2 >= 0.0f)
         {
 
-#line 66
+#line 67
             _S6 = 1.0f;
 
-#line 66
+#line 67
         }
         else
         {
 
-#line 66
+#line 67
             _S6 = -1.0f;
 
-#line 66
+#line 67
         }
 
-#line 66
+#line 67
         v_0.xy = _S4 * float2(_S5, _S6);
 
-#line 66
+#line 67
     }
     return normalize(v_0);
 }
@@ -82,7 +100,7 @@ float3 oct_decode_0(float2 e_0)
 void decode_normal_mask_0(float2 normal_oct_0, float3 thread* normal_0, float thread* mask_0)
 {
 
-#line 73
+#line 74
     float2 _S7 = float2(32767.0f) ;
     int2 _S8 = int2(round(max(normal_oct_0, float2(-1.0f) ) * _S7));
     *normal_0 = oct_decode_0(float2(_S8 & (int2(int(-16)) )) / _S7);
@@ -130,14 +148,25 @@ struct SLANG_ParameterGroup_Frame_Uniforms_0
 };
 
 
+#line 20 "/home/user/Implicit_sculpt_modeler/src/render/shaders/textured.vert.slang"
+struct KernelContext_0
+{
+    SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_0;
+    uint device* slot_vertex_0;
+    float device* positions_0;
+    uint device* normals_0;
+    packed_uint2 device* paint_1;
+    uint device* paint_material_words_0;
+};
 
 
+#line 21 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
 struct Mesh_Varyings_0
 {
     float3 view_normal_1;
     float3 view_pos_1;
     float mask_2;
-    float4 paint_1;
+    float4 paint_2;
     [[flat]] float3 group_1;
     float3 mesh_pos_1;
     [[flat]] uint slot_1;
@@ -147,7 +176,7 @@ struct Mesh_Varyings_0
 };
 
 
-#line 59
+#line 60
 struct Mesh_Vertex_Out_0
 {
     float4 position_1;
@@ -155,95 +184,215 @@ struct Mesh_Vertex_Out_0
 };
 
 
-#line 59
-[[vertex]] main_Result_0 main_0(vertexInput_0 _S9 [[stage_in]], SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_0 [[buffer(0)]])
+#line 47 "/home/user/Implicit_sculpt_modeler/src/render/shaders/textured.vert.slang"
+[[vertex]] main_Result_0 main_0(vertexInput_0 _S9 [[stage_in]], uint slot_2 [[vertex_id]], SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_1 [[buffer(0)]], uint device* slot_vertex_1 [[buffer(1)]], float device* positions_1 [[buffer(2)]], uint device* normals_1 [[buffer(3)]], packed_uint2 device* paint_3 [[buffer(4)]], uint device* paint_material_words_1 [[buffer(5)]])
 {
 
-#line 13 "/home/user/Implicit_sculpt_modeler/src/render/shaders/textured.vert.slang"
+#line 47
+    thread KernelContext_0 kernelContext_0;
+
+#line 47
+    (&kernelContext_0)->Frame_Uniforms_0 = Frame_Uniforms_1;
+
+#line 47
+    (&kernelContext_0)->slot_vertex_0 = slot_vertex_1;
+
+#line 47
+    (&kernelContext_0)->positions_0 = positions_1;
+
+#line 47
+    (&kernelContext_0)->normals_0 = normals_1;
+
+#line 47
+    (&kernelContext_0)->paint_1 = paint_3;
+
+#line 47
+    (&kernelContext_0)->paint_material_words_0 = paint_material_words_1;
+
+#line 37
+    float3 tangent_0 = _S9.in_tangent_0.xyz;
+
+#line 34
     thread Mesh_Vertex_Out_0 o_0;
-    thread float3 in_normal_0;
-    decode_normal_mask_0(_S9.in_normal_oct_0, &in_normal_0, &(&(&o_0)->v_1)->mask_2);
+
+
+
     float4 _S10 = float4(0.0f) ;
 
-#line 16
-    (&(&o_0)->v_1)->paint_1 = _S10;
+#line 38
+    (&(&o_0)->v_1)->paint_2 = _S10;
     (&(&o_0)->v_1)->material_1 = _S10;
-    (&(&o_0)->v_1)->group_1 = float3(-1.0f) ;
-    (&(&o_0)->v_1)->slot_1 = 0U;
-    float4 world_0 = (((Frame_Uniforms_0->model_0) * (float4(_S9.in_position_0, 1.0f))));
-    (&o_0)->position_1 = (((Frame_Uniforms_0->view_proj_0) * (world_0)));
 
+#line 39
+    float2 normal_oct_1;
 
-    matrix<float,int(3),int(3)>  turn_0 = (((matrix<float,int(3),int(3)> (Frame_Uniforms_0->view_0[int(0)].xyz, Frame_Uniforms_0->view_0[int(1)].xyz, Frame_Uniforms_0->view_0[int(2)].xyz)) * (matrix<float,int(3),int(3)> (Frame_Uniforms_0->model_0[int(0)].xyz, Frame_Uniforms_0->model_0[int(1)].xyz, Frame_Uniforms_0->model_0[int(2)].xyz))));
-    matrix<float,int(3),int(3)>  _S11 = turn_0 / length(turn_0[int(0)]);
-    (&(&o_0)->v_1)->view_normal_1 = (((_S11) * (in_normal_0)));
-    float3 _S12 = (((_S11) * (_S9.in_tangent_0.xyz)));
-
-#line 27
-    float _S13;
-
-#line 27
-    if((_S9.in_tangent_0.w) < 0.0f)
+#line 39
+    float3 position_2;
+    if((Frame_Uniforms_1->skin_0.x) != 0U)
     {
 
-#line 27
-        _S13 = -1.0f;
+#line 41
+        uint v_2 = (&kernelContext_0)->slot_vertex_0[slot_2];
+        uint _S11 = 3U * v_2;
 
-#line 27
+#line 42
+        float3 _S12 = float3((&kernelContext_0)->positions_0[_S11], (&kernelContext_0)->positions_0[_S11 + 1U], (&kernelContext_0)->positions_0[_S11 + 2U]);
+        uint packed_0 = (&kernelContext_0)->normals_0[v_2];
+
+        float2 _S13 = max(float2(int2(int(packed_0 << 16U) >> 16U, int(packed_0) >> 16U)) / float2(32767.0f) , float2(-1.0f) );
+        if(((&kernelContext_0)->Frame_Uniforms_0->options_0.x) > 0.5f)
+        {
+
+#line 47
+            float4 p_0 = unpack_unorm4x8_to_float((uint2(*((&kernelContext_0)->paint_1+v_2)) ).x);
+            (&(&o_0)->v_1)->paint_2 = float4(srgb_decode_0(p_0.xyz), p_0.w);
+            if(((&kernelContext_0)->Frame_Uniforms_0->options_0.w) > 0.5f)
+            {
+
+#line 49
+                (&(&o_0)->v_1)->material_1 = paint_material_0((&kernelContext_0)->paint_material_words_0[v_2]);
+
+#line 49
+            }
+
+#line 46
+        }
+
+#line 46
+        normal_oct_1 = _S13;
+
+#line 46
+        position_2 = _S12;
+
+#line 40
     }
     else
     {
 
-#line 27
-        _S13 = 1.0f;
+#line 40
+        normal_oct_1 = _S9.in_normal_oct_0;
 
-#line 27
+#line 40
+        position_2 = _S9.in_position_0;
+
+#line 40
     }
 
-#line 27
-    (&(&o_0)->v_1)->view_tangent_1 = float4(_S12, _S13);
-    (&(&o_0)->v_1)->view_pos_1 = (((Frame_Uniforms_0->view_0) * (world_0))).xyz;
-    (&(&o_0)->v_1)->mesh_pos_1 = _S9.in_position_0;
+#line 52
+    thread float3 in_normal_0;
+    decode_normal_mask_0(normal_oct_1, &in_normal_0, &(&(&o_0)->v_1)->mask_2);
+
+#line 53
+    float3 tangent_1;
+    if((Frame_Uniforms_1->skin_0.x) != 0U)
+    {
+
+        float3 t_0 = tangent_0 - in_normal_0 * float3(dot(in_normal_0, tangent_0)) ;
+        if((dot(t_0, t_0)) > 9.999999960041972e-13f)
+        {
+
+#line 58
+            tangent_1 = normalize(t_0);
+
+#line 58
+        }
+        else
+        {
+
+#line 58
+            tangent_1 = tangent_0;
+
+#line 58
+        }
+
+#line 54
+    }
+    else
+    {
+
+#line 54
+        tangent_1 = tangent_0;
+
+#line 54
+    }
+
+#line 60
+    (&(&o_0)->v_1)->group_1 = float3(-1.0f) ;
+    (&(&o_0)->v_1)->slot_1 = 0U;
+    float4 world_0 = ((((&kernelContext_0)->Frame_Uniforms_0->model_0) * (float4(position_2, 1.0f))));
+    (&o_0)->position_1 = ((((&kernelContext_0)->Frame_Uniforms_0->view_proj_0) * (world_0)));
+
+
+    matrix<float,int(3),int(3)>  turn_0 = (((matrix<float,int(3),int(3)> ((&kernelContext_0)->Frame_Uniforms_0->view_0[int(0)].xyz, (&kernelContext_0)->Frame_Uniforms_0->view_0[int(1)].xyz, (&kernelContext_0)->Frame_Uniforms_0->view_0[int(2)].xyz)) * (matrix<float,int(3),int(3)> ((&kernelContext_0)->Frame_Uniforms_0->model_0[int(0)].xyz, (&kernelContext_0)->Frame_Uniforms_0->model_0[int(1)].xyz, (&kernelContext_0)->Frame_Uniforms_0->model_0[int(2)].xyz))));
+    matrix<float,int(3),int(3)>  _S14 = turn_0 / length(turn_0[int(0)]);
+    (&(&o_0)->v_1)->view_normal_1 = (((_S14) * (in_normal_0)));
+    float3 _S15 = (((_S14) * (tangent_1)));
+
+#line 69
+    float _S16;
+
+#line 69
+    if((_S9.in_tangent_0.w) < 0.0f)
+    {
+
+#line 69
+        _S16 = -1.0f;
+
+#line 69
+    }
+    else
+    {
+
+#line 69
+        _S16 = 1.0f;
+
+#line 69
+    }
+
+#line 69
+    (&(&o_0)->v_1)->view_tangent_1 = float4(_S15, _S16);
+    (&(&o_0)->v_1)->view_pos_1 = ((((&kernelContext_0)->Frame_Uniforms_0->view_0) * (world_0))).xyz;
+    (&(&o_0)->v_1)->mesh_pos_1 = position_2;
     (&(&o_0)->v_1)->uv_1 = _S9.in_uv_0;
-    Mesh_Vertex_Out_0 _S14 = o_0;
+    Mesh_Vertex_Out_0 _S17 = o_0;
 
-#line 31
-    thread main_Result_0 _S15;
+#line 73
+    thread main_Result_0 _S18;
 
-#line 31
-    (&_S15)->position_0 = _S14.position_1;
+#line 73
+    (&_S18)->position_0 = _S17.position_1;
 
-#line 31
-    (&_S15)->view_normal_0 = _S14.v_1.view_normal_1;
+#line 73
+    (&_S18)->view_normal_0 = _S17.v_1.view_normal_1;
 
-#line 31
-    (&_S15)->view_pos_0 = _S14.v_1.view_pos_1;
+#line 73
+    (&_S18)->view_pos_0 = _S17.v_1.view_pos_1;
 
-#line 31
-    (&_S15)->mask_1 = _S14.v_1.mask_2;
+#line 73
+    (&_S18)->mask_1 = _S17.v_1.mask_2;
 
-#line 31
-    (&_S15)->paint_0 = _S14.v_1.paint_1;
+#line 73
+    (&_S18)->paint_0 = _S17.v_1.paint_2;
 
-#line 31
-    (&_S15)->group_0 = _S14.v_1.group_1;
+#line 73
+    (&_S18)->group_0 = _S17.v_1.group_1;
 
-#line 31
-    (&_S15)->mesh_pos_0 = _S14.v_1.mesh_pos_1;
+#line 73
+    (&_S18)->mesh_pos_0 = _S17.v_1.mesh_pos_1;
 
-#line 31
-    (&_S15)->slot_0 = _S14.v_1.slot_1;
+#line 73
+    (&_S18)->slot_0 = _S17.v_1.slot_1;
 
-#line 31
-    (&_S15)->uv_0 = _S14.v_1.uv_1;
+#line 73
+    (&_S18)->uv_0 = _S17.v_1.uv_1;
 
-#line 31
-    (&_S15)->view_tangent_0 = _S14.v_1.view_tangent_1;
+#line 73
+    (&_S18)->view_tangent_0 = _S17.v_1.view_tangent_1;
 
-#line 31
-    (&_S15)->material_0 = _S14.v_1.material_1;
+#line 73
+    (&_S18)->material_0 = _S17.v_1.material_1;
 
-#line 31
-    return _S15;
+#line 73
+    return _S18;
 }
 
