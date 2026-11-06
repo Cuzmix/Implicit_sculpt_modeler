@@ -299,7 +299,6 @@ kit_tree_autoscroll :: proc(app: ^App, scroll: Tree_Scroll) {
 @(rodata)
 SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Scene, "Add object", kit_lens_scene, nil},
-	{.Look, "Look", kit_look, nil},
 	{.Material, "Material", kit_lens_material, nil},
 	{.Lights, "Lights", kit_lights, nil},
 	{.Environment, "Environment", kit_environment, nil},
@@ -311,6 +310,7 @@ SCENE_SECTIONS := [?]Kit_Tab_Section {
 	{.Print, "3D print", kit_print, nil},
 	{.Floor, "Floor grid", kit_floor, nil},
 	{.Background, "Background", kit_background, nil},
+	{.Style, "Viewport style", kit_viewport_style, nil},
 }
 
 // The background: one colour or a gradient, and with the gradient a choice of which edge's

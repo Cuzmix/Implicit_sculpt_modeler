@@ -15,7 +15,7 @@ palette_where_names_each_home :: proc(t: ^testing.T) {
 	cmd :: proc(id: Command_Id, arg := 0) -> Palette_Entry {return {.Command, id, arg}}
 	testing.expect_value(t, palette_where(&a, cmd(.Brush, int(sculpt.Brush_Kind.Clay))), "Shelf · Brushes")
 	testing.expect_value(t, palette_where(&a, cmd(.Brush, int(sculpt.Brush_Kind.Morph))), "Brush picker")
-	testing.expect_value(t, palette_where(&a, cmd(.Floor_Grid)), "Look card · Floor grid")
+	testing.expect_value(t, palette_where(&a, cmd(.Floor_Grid)), "Light card · Floor grid")
 	testing.expect_value(t, palette_where(&a, cmd(.Open_Card, int(Card.Scene))), "View toolbar")
 	testing.expect_value(t, palette_where(&a, cmd(.Save_Scene)), "Menu")
 	testing.expect_value(t, palette_where(&a, cmd(.Export_Mesh)), "Menu · Export...")

@@ -74,7 +74,7 @@ kit_curve_editor :: proc(ctx: ^ui.Context, name: string, curve: ^geom.Curve, han
 // stored as linear light (a material's, which the shader lights as is), so it is shown
 // through the sRGB curve and only the channel moved is converted back; paint is stored as
 // shown. Returns true when it changed.
-kit_color :: proc(app: ^App, name: string, rgb: ^[3]f32, linear := false) -> (changed: bool) {
+kit_color :: proc(app: ^App, name: string, rgb: ^[3]f32, linear := false, sliders := true) -> (changed: bool) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	shown := rgb^
@@ -109,6 +109,9 @@ kit_color :: proc(app: ^App, name: string, rgb: ^[3]f32, linear := false) -> (ch
 		changed = true
 	}
 	ui.end(ctx)
+	// Without sliders (a list of several colours, as the Material card's layers) the well's
+	// popover and the hex field are the whole control.
+	if !sliders do return
 	for channel, i in ([3]string{"Red", "Green", "Blue"}) {
 		if ui.slider(ctx, fmt.tprintf("%s##%s", channel, name), &shown[i], 0, 1, .Linear, fmt.tprintf("%d", int(math.round(shown[i] * 255)))) {
 			rgb[i] = geom.srgb_decode(shown[i]) if linear else shown[i]

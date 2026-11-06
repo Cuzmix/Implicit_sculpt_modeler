@@ -1,7 +1,6 @@
 package main
 
 import "core:fmt"
-import "core:math"
 
 import "../render"
 import "../ui"
@@ -71,31 +70,27 @@ look_first_run :: proc(app: ^App) {
 	if !app.look_chosen do look_studio_apply(app)
 }
 
-// Scene > Look: how bright the key light and the ambient light are and how dark and soft
-// the shadows; under More the rest of the look's parts.
-kit_look :: proc(app: ^App) {
+// The Light card's Viewport style: how the viewport draws forms whatever the material,
+// each of these its only control. Occlusion while working darkens creases every frame;
+// Cavity darkens creases and Ridge lightens crests, so fine detail reads at any light angle;
+// Styled shading adds the studio look's rim and its dark underside. Under More the rest:
+// how far the occlusion looks, the style's strengths, the exposure, and dimming the objects
+// not selected. The lights' own strengths are in Lights, the render's shadows in Render.
+kit_viewport_style :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	set := &app.scene.lights
-	if set.count > 0 {
-		key := &set.lights[0]
-		_ = ui.slider(ctx, "Key light", &key.strength, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", key.strength))
-	}
-	_ = ui.slider(ctx, "Ambient", &set.ambient, 0, LIGHT_STRENGTH_MAX, .Linear, fmt.tprintf("%.2f", set.ambient))
-	_ = ui.slider(ctx, "Shadow", &app.studio_shadow, 0, 1, .Linear, fmt.tprintf("%.2f", app.studio_shadow))
-	_ = ui.slider(ctx, "Shadow softness", &app.studio_softness, render.STUDIO_SOFTNESS_MIN, render.STUDIO_SOFTNESS_MAX, .Logarithmic, fmt.tprintf("%.1f°", math.to_degrees(app.studio_softness)))
 	kit_live_ao(app)
-	if kit_more(app, .Look) {
-		_ = ui.slider(ctx, "Occlusion", &app.studio_ao, 0, 1, .Linear, fmt.tprintf("%.2f", app.studio_ao))
-		_ = ui.switch_row(ctx, "Styled shading", &app.styled)
+	_ = ui.slider(ctx, "Cavity", &app.cavity, 0, 1, .Linear, fmt.tprintf("%.2f", app.cavity))
+	_ = ui.slider(ctx, "Ridge", &app.ridge, 0, 1, .Linear, fmt.tprintf("%.2f", app.ridge))
+	_ = ui.switch_row(ctx, "Styled shading", &app.styled)
+	if kit_more(app, .Style) {
+		kit_live_ao_reach(app)
 		if app.styled {
 			_ = ui.slider(ctx, "Rim", &app.rim, 0, RIM_MAX, .Linear, fmt.tprintf("%.2f", app.rim))
 			_ = ui.slider(ctx, "Underside", &app.underside, 0, 1, .Linear, fmt.tprintf("%.2f", app.underside))
 		}
-		grey := app.background.top.r
-		if ui.slider(ctx, "Background", &grey, 0, 1, .Linear, fmt.tprintf("%.2f", grey)) do app.background.top = {grey, grey, min(grey * 1.03, 1)}
-		kit_live_ao_reach(app)
+		_ = ui.slider(ctx, "Exposure", &app.exposure, -EXPOSURE_RANGE, EXPOSURE_RANGE, .Linear, fmt.tprintf("%+.1f stops", app.exposure))
+		_ = ui.switch_row(ctx, "Dim the others", &app.dim_others)
 		kit_more_end(app)
 	}
-	ui.paragraph(ctx, "Each slider is the control of the same name in Lights, Render's Fast quality or Background; Underside is how much light reaches surfaces facing down. The view's shading mode (Solid, Material Preview, Rendered) is on the Shading chip over the view.")
-	ui.paragraph(ctx, "Occlusion while working darkens creases every frame, sculpting too, with the same Occlusion strength; Reach is how far it looks, as a share of the scene's size. With Render at Fast quality it shows until Fast has built up its first samples.")
+	ui.paragraph(ctx, "Occlusion while working darkens creases every frame, sculpting too. Cavity and Ridge make fine detail read under any light; Styled shading adds a rim and a dark underside.")
 }

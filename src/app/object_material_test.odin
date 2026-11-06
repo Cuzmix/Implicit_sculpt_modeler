@@ -288,6 +288,32 @@ every_preset_has_valid_layers :: proc(t: ^testing.T) {
 	for m in MATERIALS do testing.expectf(t, geom.material_layers_valid(m.layers), "%s", m.label)
 }
 
+// The shelf sorts every material by its own values, so each preset lands where its look says
+// and no category the presets have is empty: metals in Metal, the coated paint and the
+// smooth plastics in Glossy, the scattering ones in Skin & wax, cloth in Fabric, the light
+// in Glow, and the rough or classic ones in Clay.
+@(test)
+presets_fall_into_their_categories :: proc(t: ^testing.T) {
+	Want :: struct {
+		name:     string,
+		category: Material_Category,
+	}
+	wants := [?]Want {
+		{"Clay", .Clay}, {"Studio grey", .Clay}, {"PBR clay", .Clay},
+		{"Red wax", .Skin}, {"Skin", .Skin}, {"Wax", .Skin}, {"Jade", .Skin},
+		{"Gold", .Metal}, {"Chrome", .Metal},
+		{"Plastic", .Glossy}, {"Ceramic", .Glossy}, {"Car paint", .Glossy},
+		{"Velvet", .Fabric}, {"Satin", .Fabric}, {"Neon", .Glow},
+		{"Glass", .Glass}, {"Frosted glass", .Glass},
+	}
+	for w in wants {
+		i, ok := material_by_name(w.name)
+		testing.expectf(t, ok, "no preset %s", w.name)
+		if ok do testing.expectf(t, material_category(MATERIALS[i]) == w.category, "%s: %v, want %v", w.name, material_category(MATERIALS[i]), w.category)
+	}
+	for m in MATERIALS[:FIRST_MATCAP] do testing.expect(t, material_category(m) != .Favourites)
+}
+
 // Importing Blender's glTF keeps its materials as the objects' own: Car Paint's coat and
 // Glass's transmission on their objects, the empty gold listed but left on the default;
 // the list survives the scene file.
@@ -326,4 +352,40 @@ imported_materials_become_the_objects_own :: proc(t: ^testing.T) {
 	testing.expect_value(t, back.imported[0].name, "Glass")
 	testing.expect_value(t, back.imported[0].group, 0)
 	testing.expect(t, back.imported[0].valued)
+}
+
+// The Material card's balls keep their atlas cells: the same material shown again finds its
+// cell (drawn once), a changed value takes another, and once every cell is taken the one
+// shown longest ago is reused and drawn anew.
+@(test)
+material_balls_keep_their_cells :: proc(t: ^testing.T) {
+	app := new(App)
+	defer free(app)
+	mc := &app.kit.material_card
+	defer delete(mc.slots)
+	mc.frame = 1
+	gold, _ := material_by_name("gold")
+	a, drawn := material_ball_slot(app, MATERIALS[gold])
+	testing.expect(t, !drawn)
+	mc.slots[a].drawn = true
+	again, drawn_again := material_ball_slot(app, MATERIALS[gold])
+	testing.expect_value(t, again, a)
+	testing.expect(t, drawn_again)
+	rough := MATERIALS[gold]
+	rough.roughness = 0.9
+	b, _ := material_ball_slot(app, rough)
+	testing.expect(t, b != a)
+	// Every other cell taken in later frames: gold, shown in frame 1, goes first.
+	for i in 0 ..< len(mc.slots) - 2 {
+		mc.frame += 1
+		m := MATERIALS[gold]
+		m.selected.r = f32(i) / 100
+		_, _ = material_ball_slot(app, m)
+	}
+	mc.frame += 1
+	fresh := MATERIALS[gold]
+	fresh.metallic = 0.5
+	c, drawn_c := material_ball_slot(app, fresh)
+	testing.expect_value(t, c, a)
+	testing.expect(t, !drawn_c)
 }

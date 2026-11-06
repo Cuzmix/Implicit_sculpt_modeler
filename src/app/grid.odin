@@ -675,7 +675,7 @@ grid_layout_lines :: proc(k: ^Kit_State) -> string {
 	strings.write_string(&b, "panes ")
 	grid_tree_write(&b, &g.tree)
 	strings.write_byte(&b, '\n')
-	for i in 1 ..< n do grid_tab_lines(&b, g, i)
+	for i in 1 ..< n do grid_tab_lines(&b, k, i)
 	return strings.to_string(b)
 }
 
@@ -729,7 +729,8 @@ grid_tree_read :: proc(words: []string) -> (t: Grid_Tree, ok: bool) {
 
 // Reads a layout's panes or pane line's words; a word naming nothing leaves what it
 // named.
-grid_layout_read :: proc(g: ^View_Grid, f: []string) {
+grid_layout_read :: proc(k: ^Kit_State, f: []string) {
+	g := &k.grid
 	switch {
 	case f[0] == "panes" && len(f) >= 2:
 		t, ok := grid_tree_read(f[1:])
@@ -741,7 +742,7 @@ grid_layout_read :: proc(g: ^View_Grid, f: []string) {
 	case f[0] == "pane" && len(f) >= 4:
 		i, ok := strconv.parse_int(f[1])
 		if !ok || i < 1 || i > GRID_VIEWS do return
-		grid_tab_line_read(g, i, f)
+		grid_tab_line_read(k, i, f)
 	case f[0] == "pane_tab":
 		grid_tab_active_read(g, f)
 	}

@@ -166,12 +166,14 @@ material_matcap :: proc(app: ^App, m: Material) -> render.Texture {
 	return 0
 }
 
-// Loads an image (PNG, JPEG, BMP, TGA or QOI) of a lit sphere as the matcap and makes the
-// Custom material use it, in white, so the picture shows as painted. The outcome becomes
-// the file note; false when it failed, leaving the matcap and material that were there.
+// Loads an image (PNG, JPEG, BMP, TGA or QOI) of a lit sphere as the matcap and shows the
+// main view in Clay on it: a MatCap is the Clay look's light, picked in the Shading menu,
+// not an object's material. The outcome becomes the file note; false when it failed,
+// leaving the matcap and the look that were there.
 matcap_load :: proc(app: ^App, path: string) -> bool {
 	if !matcap_image_load(app, path) do return false
-	material_set(app, {label = "Custom", selected = {1, 1, 1, 1}, idle = MATCAP_IDLE, matcap = MATCAP_IMAGE})
+	app.kit.passes.shading.matcap = MATCAP_IMAGE
+	command_run(app, .Shading_Mode, int(Shading_Mode.Clay))
 	return true
 }
 
