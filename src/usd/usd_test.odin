@@ -1,6 +1,7 @@
 package usd
 
 import "core:math/linalg"
+import "core:os"
 import "core:slice"
 import "core:testing"
 
@@ -210,5 +211,76 @@ usdz_reads_the_layer_it_packs :: proc(t: ^testing.T) {
 	crate[9] = 3
 	_, old, _ := read(&parts, crate)
 	testing.expect_value(t, old, geom.Mesh_File_Error.Not_Recognised)
+	free_all(context.temp_allocator)
+}
+
+// A box bound to a coated paint, two of its faces through a materialBind subset to glass:
+// each binding is followed to its UsdPreviewSurface, whose inputs become the look's
+// materials, and each triangle names its face's.
+@(test)
+usd_bindings_bring_their_preview_surfaces :: proc(t: ^testing.T) {
+	data, err := os.read_entire_file(#directory + "../app/testdata/import/materials.usda", context.allocator)
+	testing.expect(t, err == nil)
+	defer delete(data)
+	parts: [dynamic]geom.Mesh_Part
+	defer geom.mesh_parts_destroy(&parts)
+	look: geom.Mesh_Look
+	defer geom.mesh_look_destroy(&look)
+	_, failed, _ := read(&parts, data, &look)
+	testing.expect_value(t, failed, geom.Mesh_File_Error.None)
+	if len(look.materials) != 2 || len(parts) != 1 {
+		testing.expect_value(t, len(look.materials), 2)
+		return
+	}
+	paint, glass := look.materials[0], look.materials[1]
+	near :: proc(a, b: f32) -> bool {return abs(a - b) < 1e-5}
+	testing.expect_value(t, paint.name, "Paint")
+	testing.expect(t, paint.valued && near(paint.color.r, 0.8) && near(paint.metallic, 0.5) && near(paint.roughness, 0.4))
+	testing.expect(t, paint.layers.coat_weight == 1 && near(paint.layers.coat_roughness, 0.05))
+	testing.expect_value(t, glass.name, "Glass")
+	testing.expect(t, near(glass.layers.transmission_weight, 0.9) && near(glass.layers.specular_ior, 1.45) && near(glass.roughness, 0.05))
+	// Twelve triangles: the last four (faces 4 and 5) glass, the rest paint.
+	p := parts[0]
+	testing.expect_value(t, len(p.materials), 12)
+	for m, k in p.materials do testing.expect_value(t, m, i32(1) if k >= 8 else 0)
+}
+
+// A crate's relationship targets and connections come as path list-ops (the kept lists,
+// explicit then prepended) or path vectors, each path written out from the crate's path
+// table, a property after a ".".
+@(test)
+crate_targets_read_path_list_ops :: proc(t: ^testing.T) {
+	c: Crate
+	c.path_parent = {-1, 0, 1, 2, 3, 4}
+	c.path_name = {"", "Root", "Looks", "Glass", "Shader", "outputs:surface"}
+	c.path_prop = {false, false, false, false, false, true}
+	data := make([dynamic]u8, 8, context.temp_allocator)
+	put :: proc(d: ^[dynamic]u8, v: $T) {
+		v := v
+		append(d, ..slice.bytes_from_ptr(&v, size_of(T)))
+	}
+	// A list-op at 8: explicit (2) and prepended (32), one path each.
+	append(&data, 34)
+	put(&data, u64(1))
+	put(&data, u32(3))
+	put(&data, u64(1))
+	put(&data, u32(5))
+	// A path vector after it.
+	vector := len(data)
+	put(&data, u64(2))
+	put(&data, u32(4))
+	put(&data, u32(1))
+	c.data = data[:]
+	list := crate_targets(&c, u64(Crate_Type.Path_List_Op) << 48 | 8)
+	testing.expect_value(t, len(list), 2)
+	if len(list) == 2 {
+		testing.expect_value(t, list[0], "/Root/Looks/Glass")
+		testing.expect_value(t, list[1], "/Root/Looks/Glass/Shader.outputs:surface")
+	}
+	paths := crate_targets(&c, u64(Crate_Type.Path_Vector) << 48 | u64(vector))
+	testing.expect(t, len(paths) == 2 && paths[0] == "/Root/Looks/Glass/Shader" && paths[1] == "/Root")
+	// A count past the data is refused, never read.
+	c.data[vector] = 200
+	testing.expect(t, crate_targets(&c, u64(Crate_Type.Path_Vector) << 48 | u64(vector)) == nil)
 	free_all(context.temp_allocator)
 }

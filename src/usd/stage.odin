@@ -1,5 +1,6 @@
 package usd
 
+import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import "core:strings"
@@ -29,6 +30,9 @@ Prop :: struct {
 	type_name:     string, // as the file names it: "point3f[]", "matrix4d", "token"
 	value:         Value, // its default, or else its first time sample; nil for none
 	interpolation: string, // a primvar's, "" for the default (constant)
+	// A relationship's or a connection's targets, as full paths ("/Root/Mat",
+	// "/Root/Mat/Shader.outputs:surface"); material import follows them.
+	targets:       []string,
 }
 
 Specifier :: enum u8 {
@@ -68,7 +72,9 @@ Skipped :: struct {
 // GeomSubsets as polygroups (one each, from 1, in the order they come), or else the
 // primvars:polygroup the app's own export writes. Each part's folder is its parent prim's
 // name; Skeleton, SkelAnimation and BlendShape prims are counted for the note.
-stage_parts :: proc(s: ^Stage, parts: ^[dynamic]geom.Mesh_Part, skipped: ^Skipped) -> geom.Mesh_File_Error {
+stage_parts :: proc(s: ^Stage, parts: ^[dynamic]geom.Mesh_Part, skipped: ^Skipped, look: ^geom.Mesh_Look = nil) -> geom.Mesh_File_Error {
+	mats := Usd_Materials{look = look}
+	if look != nil do mats.paths, mats.index = stage_paths(s), make(map[int]i32, context.temp_allocator)
 	world := make([]matrix[4, 4]f64, len(s.prims), context.temp_allocator)
 	units := s.meters_per_unit if s.meters_per_unit > 0 else 0.01
 	// Z up becomes Y up by a turn about x, (x, y, z) -> (x, z, -y), which mirrors nothing.
@@ -86,7 +92,7 @@ stage_parts :: proc(s: ^Stage, parts: ^[dynamic]geom.Mesh_Part, skipped: ^Skippe
 		if !prim_defined(s, i) do continue
 		if p.composed do skipped.composed += 1
 		before := len(parts)
-		err := mesh_part(s, i, world[i], parts, skipped)
+		err := mesh_part(s, i, world[i], parts, skipped, &mats)
 		if err != .None do return err
 		// Its folders are the prims it sits under, from the top, as a scene tree's groups.
 		if len(parts) > before && p.parent >= 0 {
@@ -120,7 +126,7 @@ prim_defined :: proc(s: ^Stage, i: int) -> bool {
 }
 
 @(private)
-mesh_part :: proc(s: ^Stage, i: int, world: matrix[4, 4]f64, parts: ^[dynamic]geom.Mesh_Part, skipped: ^Skipped) -> geom.Mesh_File_Error {
+mesh_part :: proc(s: ^Stage, i: int, world: matrix[4, 4]f64, parts: ^[dynamic]geom.Mesh_Part, skipped: ^Skipped, mats: ^Usd_Materials) -> geom.Mesh_File_Error {
 	p := &s.prims[i]
 	points := prop_f32(p, "points")
 	counts := prop_i32(p, "faceVertexCounts")
@@ -180,8 +186,12 @@ mesh_part :: proc(s: ^Stage, i: int, world: matrix[4, 4]f64, parts: ^[dynamic]ge
 		return .None
 	}
 	mesh_colors(p, &part, counts, corners, holes)
-	// Groups: each materialBind GeomSubset among the children names its faces.
+	// Groups: each materialBind GeomSubset among the children names its faces; with a
+	// look, each face also takes the material its subset (else the mesh) is bound to.
 	group_of := make([]u16, len(counts), context.temp_allocator)
+	material_of := make([]i32, len(counts), context.temp_allocator)
+	own := usd_material(s, mats, i)
+	for &m in material_of do m = own
 	subsets := 0
 	for c in p.children {
 		sub := &s.prims[c]
@@ -189,7 +199,16 @@ mesh_part :: proc(s: ^Stage, i: int, world: matrix[4, 4]f64, parts: ^[dynamic]ge
 		family, _ := sub.props["familyName"].value.(string)
 		if family != "materialBind" do continue
 		subsets += 1
-		for f in prop_i32(sub, "indices") do if f >= 0 && int(f) < len(group_of) do group_of[f] = u16(min(subsets, int(max(u16))))
+		bound := usd_material(s, mats, c)
+		for f in prop_i32(sub, "indices") {
+			if f < 0 || int(f) >= len(group_of) do continue
+			group_of[f] = u16(min(subsets, int(max(u16))))
+			if bound >= 0 do material_of[f] = bound
+		}
+	}
+	if mats.look != nil {
+		part.materials = make([dynamic]i32, len(face_of))
+		for f, t in face_of do part.materials[t] = material_of[f]
 	}
 	// Without subsets, the polygroups the app's own export writes (primvars:polygroup).
 	if pg := prop_i32(p, "primvars:polygroup"); subsets == 0 && len(pg) == len(counts) {
@@ -352,4 +371,86 @@ prop_f32 :: proc(p: ^Prim, name: string) -> []f32 {
 prop_i32 :: proc(p: ^Prim, name: string) -> []i32 {
 	x, _ := p.props[name].value.([]i32)
 	return x
+}
+
+// What material import needs of a stage: the look the materials go to, each prim's index
+// by its full path, and each Material prim's place in the look once read.
+@(private)
+Usd_Materials :: struct {
+	look:  ^geom.Mesh_Look,
+	paths: map[string]int,
+	index: map[int]i32,
+}
+
+// Every prim's full path ("/Root/Looks/Glass") to its index.
+@(private)
+stage_paths :: proc(s: ^Stage) -> map[string]int {
+	paths := make(map[string]int, context.temp_allocator)
+	full := make([]string, len(s.prims), context.temp_allocator)
+	// Parents come before their children, as both readers make the list.
+	for p, i in s.prims {
+		full[i] = fmt.tprintf("%s/%s", full[p.parent] if p.parent >= 0 && p.parent < i else "", p.name)
+		paths[full[i]] = i
+	}
+	return paths
+}
+
+// The look's index of the material prim `i` is bound to (material:binding), read from the
+// UsdPreviewSurface its surface output connects to; -1 for none or no look.
+@(private)
+usd_material :: proc(s: ^Stage, mats: ^Usd_Materials, i: int) -> i32 {
+	if mats.look == nil do return -1
+	targets := s.prims[i].props["material:binding"].targets
+	if len(targets) == 0 do return -1
+	m, found := mats.paths[targets[0]]
+	if !found do return -1
+	if k, seen := mats.index[m]; seen do return k
+	k := i32(len(mats.look.materials))
+	append(&mats.look.materials, usd_preview_surface(s, mats, m))
+	mats.index[m] = k
+	return k
+}
+
+// Material prim `m` as a geom.Mesh_Material: its name, and the inputs of the
+// UsdPreviewSurface its outputs:surface connects to, with the defaults that shader's
+// specification gives an input left out (an input connected to a texture keeps its
+// default). Opacity below 1 is transmission, which the shader's IOR refracts.
+@(private)
+usd_preview_surface :: proc(s: ^Stage, mats: ^Usd_Materials, m: int) -> geom.Mesh_Material {
+	out := geom.Mesh_Material{color = 0.18, image = -1, name = strings.clone(s.prims[m].name), roughness = 0.5}
+	surface := s.prims[m].props["outputs:surface"].targets
+	if len(surface) == 0 do return out
+	path := surface[0]
+	if dot := strings.last_index_byte(path, '.'); dot > 0 do path = path[:dot]
+	shader, found := mats.paths[path]
+	if !found do return out
+	sp := &s.prims[shader]
+	id, _ := sp.props["info:id"].value.(string)
+	if id != "UsdPreviewSurface" do return out
+	out.valued = true
+	number :: proc(p: ^Prim, name: string, missing: f32) -> f32 {
+		v := prop_f32(p, name)
+		return v[0] if len(v) >= 1 else missing
+	}
+	color :: proc(p: ^Prim, name: string, missing: [3]f32) -> [3]f32 {
+		v := prop_f32(p, name)
+		return {v[0], v[1], v[2]} if len(v) >= 3 else missing
+	}
+	out.color = color(sp, "inputs:diffuseColor", 0.18)
+	for &c in out.color do c = clamp(c, 0, 1)
+	out.metallic = clamp(number(sp, "inputs:metallic", 0), 0, 1)
+	out.roughness = clamp(number(sp, "inputs:roughness", 0.5), 0, 1)
+	l := &out.layers
+	l.coat_weight = number(sp, "inputs:clearcoat", 0)
+	l.coat_roughness = number(sp, "inputs:clearcoatRoughness", 0.01)
+	ior := number(sp, "inputs:ior", 1.5)
+	if ior != 1.5 do l.specular_ior = ior
+	if opacity := number(sp, "inputs:opacity", 1); opacity < 1 {
+		l.transmission_weight = 1 - opacity
+		l.transmission_color = out.color
+	}
+	l.emission_color = color(sp, "inputs:emissiveColor", 0)
+	if l.emission_color != {} do l.emission_luminance = 1
+	out.layers = geom.material_layers_clamp(out.layers)
+	return out
 }
