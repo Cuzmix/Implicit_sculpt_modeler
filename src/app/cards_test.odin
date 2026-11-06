@@ -3,6 +3,8 @@ package main
 import "core:strings"
 import "core:testing"
 
+import "../ui"
+
 // Every section has one home: a card, a title, and a draw proc where a palette table lists
 // it; every card holds at least one section.
 @(test)
@@ -59,6 +61,7 @@ a_pinned_card_rests_in_its_column :: proc(t: ^testing.T) {
 	testing.expect_value(t, columns_text(k), "left:;right:Tool*,Mask")
 	testing.expect(t, card_shown(&a, .Tool) && card_shown(&a, .Mask), "a mouse's column did not split")
 	a.device.pointer = .Pen
+	columns_update(&a)
 	testing.expect(t, !card_shown(&a, .Tool) && card_shown(&a, .Mask), "a tablet shows two cards in the pen's column")
 	card_close(&a, .Mask)
 	testing.expect(t, card_shown(&a, .Tool), "the pinned card did not come back")
@@ -66,6 +69,43 @@ a_pinned_card_rests_in_its_column :: proc(t: ^testing.T) {
 	card_open(&a, .Mask)
 	card_pin(&a, .Mask)
 	testing.expect_value(t, columns_text(k), "left:;right:Mask*")
+}
+
+// The first finger after the mouse finds the column as it was drawn, split, through its
+// press, hold and release, so its tap lands on the card it was shown on; the column shows
+// one card from the frame after. A mouse moved with nothing pressed splits it again.
+@(test)
+a_column_splits_or_not_only_between_presses :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	a: App
+	k := &a.kit
+	cards_default(k)
+	a.device.pointer = .Mouse
+	card_open(&a, .Colours)
+	card_pin(&a, .Colours)
+	card_open(&a, .Tool)
+	columns_update(&a)
+	testing.expect(t, card_shown(&a, .Colours) && card_shown(&a, .Tool), "a mouse's column did not split")
+	a.device.pointer = .Finger
+	k.ctx.input.mouse = {1, 1}
+	k.ctx.input.mouse_valid = true
+	k.ctx.input.pressed, k.ctx.input.down = {.Left}, {.Left}
+	k.ctx.pointer_root = ui.hash_under(0, card_root_name(.Tool)) // the press is on a card, not the view
+	columns_update(&a)
+	testing.expect(t, columns_split(&a), "the column changed under the finger's press")
+	k.ctx.input.pressed = {}
+	columns_update(&a)
+	testing.expect(t, columns_split(&a), "the column changed while the finger was held")
+	k.ctx.input.down, k.ctx.input.released = {}, {.Left}
+	columns_update(&a)
+	testing.expect(t, columns_split(&a), "the column changed as the finger let go")
+	k.ctx.input.released = {}
+	columns_update(&a)
+	testing.expect(t, !card_shown(&a, .Colours) && card_shown(&a, .Tool), "a finger's column still shows two cards")
+	a.device.pointer = .Mouse
+	columns_update(&a)
+	testing.expect(t, card_shown(&a, .Colours) && card_shown(&a, .Tool), "the mouse's hover did not split the column again")
+	testing.expect_value(t, columns_text(k), "left:;right:Colours*,Tool")
 }
 
 // A layout keeps the pinned cards as `column` lines, and reads them back; Render pins the
