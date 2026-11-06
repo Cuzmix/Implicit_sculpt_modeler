@@ -223,7 +223,7 @@ wgpu_create_device :: proc(debug: bool) -> bool {
 wgpu_destroy_device :: proc() {
 	s := &wgpu_state
 	if s.device == nil do return
-	wgpu_reap()
+	wgpu_reap(closing = true)
 	for cmd in s.free_cmds do wgpu_cmd_free(cmd)
 	delete(s.free_cmds)
 	for chunk in s.free_uniforms do wgpu_uniform_chunk_free(chunk)
@@ -370,10 +370,12 @@ wgpu_wait_for_idle :: proc() -> bool {
 	return true
 }
 
-// Destroys what was released while a recording was open, once none is.
-wgpu_reap :: proc() {
+// Destroys what was released while a recording was open, once none is. `closing` destroys
+// it whatever is open: the device is going, so no open recording will ever be submitted
+// to use it, and waiting for one would leave the buffers and textures behind.
+wgpu_reap :: proc(closing := false) {
 	s := &wgpu_state
-	if s.open_cmds > 0 do return
+	if s.open_cmds > 0 && !closing do return
 	for b in s.doomed_buffers {
 		wgpu.BufferDestroy(b)
 		wgpu.BufferRelease(b)
