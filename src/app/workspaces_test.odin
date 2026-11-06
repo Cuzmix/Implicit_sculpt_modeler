@@ -420,7 +420,7 @@ ties_bring_their_workspace :: proc(t: ^testing.T) {
 	testing.expect_value(t, k.workspaces.current, SLOT_MODEL)
 }
 
-// The Paint brush brings Paint, on its shelf's Paint page; Smooth and Mask in Paint keep it
+// The Paint brush brings Paint, on its shelf's Paint page with the Colours card pinned; Smooth and Mask in Paint keep it
 // there, and a sculpting brush goes back to Sculpt. Paint's tab gives back the Paint brush.
 @(test)
 the_paint_brush_brings_paint :: proc(t: ^testing.T) {
@@ -434,6 +434,7 @@ the_paint_brush_brings_paint :: proc(t: ^testing.T) {
 	workspace_follow(a)
 	testing.expect_value(t, k.workspaces.current, slot_paint)
 	testing.expect_value(t, k.shelf.page, Shelf_Page.Paint)
+	testing.expect(t, card_pinned(k, .Colours), "Paint pins the Colours card")
 	for kind in ([]sculpt.Brush_Kind{.Smooth, .Mask, .Paint}) {
 		command_run(a, .Brush, int(kind))
 		workspace_follow(a)

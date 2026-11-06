@@ -212,10 +212,9 @@ built_in_layout :: proc(s: Starter) -> string {
 		// view, so Size and Strength would only take room. The shelf's Render page.
 		text = "hidden Brush_Bar\ncolumn right Material\nshelf Render\n"
 	case .Paint:
-		// The brush bar for Size and Strength, the colour island over the shelf, and the
-		// shelf's Paint page (its Colours tile opens the Colours card), then the brushes. No
-		// card is pinned, so a card opened by a finger is the only one in its column.
-		text = "shelf Paint Sculpt\n"
+		// The Colours card pinned on the pen side, as Procreate keeps its colours at hand,
+		// with the brush bar for Size and Strength; the shelf's Paint page, then the brushes.
+		text = "column right Colours\nshelf Paint Sculpt\n"
 	}
 	// Read and written again, so it is exactly what the layout writes when it is in place;
 	// every starter ships with the bars a fresh install has.
