@@ -873,6 +873,14 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 			float coat_rough = sqrt(coat_a);
 			float2 cab = env_brdf(n_dot_v, coat_rough);
 			color += reflected(r, coat_rough, to_rig) * ((coat_f0 * cab.x + cab.y) * coat) * (highlight * ao);
+			// Glass drawn solid (a material's ball) shows the studio or image through it,
+			// bent by its IOR and tinted, as much as its surface does not reflect.
+			if (trans > 0.0 && look.w <= 0.0) {
+				float3 bent = refract(-v, n, 1.0 / max(L2.w, 1.0));
+				if (dot(bent, bent) <= 0.0) bent = r;
+				float fv = f0.g + (1.0 - f0.g) * pow(1.0 - n_dot_v, 5.0);
+				color += reflected(bent, rough, to_rig) * L5.rgb * (trans * (1.0 - fv) * ao);
+			}
 			float4 shown = display(color * relief + L4.rgb * L4.w);
 			// Glass shows what is behind it, less so where it reflects most, at grazing angles.
 			if (trans > 0.0) shown.a = lerp(shown.a, 1.0, f0.g + (1.0 - f0.g) * pow(1.0 - n_dot_v, 5.0));
