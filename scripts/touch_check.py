@@ -5507,12 +5507,10 @@ def lens_scene_card_finds_by_name():
 
 
 # The outliner (the Scene card) at 1440x900, opened from the view rail: Add, its menu's
-# Cube, Voxel sphere and Sun light, and the rows: the first object row's upper half (the
-# spaces dots take the lower half under the name), each row
-# 54 points under the one before, the toggles' columns (eye, lock, the dots) and the foot.
+# Cube, Voxel sphere and Sun light, and the rows: the first object row's upper half, each
+# row 54 points under the one before, the toggles' columns (eye, lock, the dots) and the foot.
 OUTLINER = {"add": At("scene add", 1225, 156), "cube": At("scene add menu/Cube", 1306, 322), "voxel": At("scene add menu/Voxel sphere", 1306, 587), "sun": At("scene add menu/Sun light", 1306, 720), "row0": 200, "row_h": 54,
-            "name_x": 1150, "eye_x": 1240, "lock_x": 1289, "dots_x": 1335, "group": At("scene foot/Group", 1110, 426),
-            "row1_dots": (1170, 273), "show_in_model": (1200, 379)}
+            "name_x": 1150, "eye_x": 1240, "lock_x": 1289, "dots_x": 1335, "group": At("scene foot/Group", 1110, 426)}
 # The kind chips under Find once a voxel sphere joins the sphere: All, Meshes, Voxels, Lights.
 OUTLINER_CHIPS = {"voxels": (1250, 210)}
 
@@ -5592,17 +5590,6 @@ def outliner_group_takes_the_selection():
     s.wait(8)
     return s, LENS_1440 + THREE, {"folders": near(1), "scene_folders": is_text("1,1,0"), "undo_steps": near(1), "dabs": near(0)}
 
-
-@scenario
-def outliner_spaces_dots_leave_an_object_out():
-    """A tap on Sphere 2's spaces dots opens Show in; unticking Model leaves it out of Model only, so it stays in view in Sculpt, and no undo step is made."""
-    s = Script()
-    lens_card_open(s, "scene")
-    s.ftap(OUTLINER["row1_dots"])
-    s.wait(6)
-    s.ftap(OUTLINER["show_in_model"])
-    s.wait(6)
-    return s, LENS_1440 + THREE, {"objects_spaces_off": near(1), "scene_space_changes": near(1), "objects_off": near(0), "undo_steps": near(0), "dabs": near(0)}
 
 @scenario
 def lens_layers_card_records_and_picks():

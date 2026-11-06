@@ -494,9 +494,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		recording, level := -1, -1
 		if obj := selected_object(app); obj != nil do recording, level = sculpt.sculptor_layer_recording(object_sculptor(obj)), obj.levels.current
 		fmt.printfln("scene_filter=%d scene_rows=%d object_locks=%d layer_rows=%d layer_picked=%d layer_recording=%d layer_swipes=%d layer_menus=%d layer_tints=%d layer_pictures_drawn=%d mask_hidden=%d selected_level=%d", int(k.scene_query), k.scene_rows, locks, k.layer_rows, app.ui.layer_selected, recording, k.layer_panel.swipes, k.layer_panel.menus, k.layer_panel.tints, app.layer_picture_slots.drawn, int(app.ui.mask_hidden), level)
-		spaces_off := 0
-		for obj in app.scene.objects do if obj.spaces_off != {} do spaces_off += 1
-		fmt.printfln("scene_kind=%s scene_adds=%d scene_light_switches=%d scene_row_menus=%d scene_space_changes=%d objects_spaces_off=%d", strings.to_lower(SCENE_KIND_NAMES[k.outliner.kind], context.temp_allocator), k.outliner.adds, k.outliner.switches, k.outliner.menus, k.outliner.space_changes, spaces_off)
+		fmt.printfln("scene_kind=%s scene_adds=%d scene_light_switches=%d scene_row_menus=%d", strings.to_lower(SCENE_KIND_NAMES[k.outliner.kind], context.temp_allocator), k.outliner.adds, k.outliner.switches, k.outliner.menus)
 		fmt.printfln("lens_focus=%d menu_sub=%v menu_subs=%d menu_recent_opens=%d palette_bar_puts=%d palette_groups=%s palette_pick=%s", int(lens_focus(k)), k.menu_sub, k.menu_subs, k.menu_recent_opens, k.palette_bar_puts, strings.to_string(groups) if strings.builder_len(groups) > 0 else "none", palette_entry_name(k.palette_picked.?) if k.palette_picked != nil && k.palette else "none")
 		fmt.printfln("help_open=%d help_tab=%v help_scroll=%.1f", int(k.help), k.help_tab, k.help_scroll)
 		// The sections showing their More options, as Section names.
