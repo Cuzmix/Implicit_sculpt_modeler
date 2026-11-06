@@ -81,7 +81,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(63)
+SCENE_VERSION :: u32(64)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -2333,9 +2333,9 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 
 // An object's eye (off is 1), ghost (2), polypaint left out (4), lock (8) and the spaces
 // it is left out of (16 Sculpt, 32 Model, 64 Render) as the scene file stores them.
-OBJECT_VIEW_BITS :: 127
+OBJECT_VIEW_BITS :: 15
 object_view_bits :: proc(obj: ^Object) -> u8 {
-	return u8(obj.off) | u8(obj.ghost) << 1 | u8(obj.paint_off) << 2 | u8(obj.locked) << 3 | transmute(u8)obj.spaces_off << 4
+	return u8(obj.off) | u8(obj.ghost) << 1 | u8(obj.paint_off) << 2 | u8(obj.locked) << 3
 }
 
 // Reads one object written by object_put and uploads
@@ -2418,7 +2418,6 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 	bits := geom.byte_get(r, u8)
 	if bits > OBJECT_VIEW_BITS do r.ok = false
 	obj.off, obj.ghost, obj.paint_off, obj.locked = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0
-	obj.spaces_off = transmute(bit_set[Space; u8])(bits >> 4)
 	obj.folder = int(geom.byte_get(r, i32))
 	if obj.folder < 0 do r.ok = false
 	obj.vis_off = geom.byte_get(r, u8)

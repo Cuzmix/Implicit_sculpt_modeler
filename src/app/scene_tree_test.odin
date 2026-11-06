@@ -148,10 +148,8 @@ solo_follows_the_selection_and_keeps_the_eyes :: proc(t: ^testing.T) {
 	testing.expect(t, !app.scene.solo)
 }
 
-// The scene file keeps each object's eye and ghost from version 8, its polypaint left
-// out from version 11, its lock from version 25 and the spaces it is left out of from
-// version 33 and its pivot, reads older files with everything in view and unlocked, and refuses flags it
-// does not know.
+// The scene file keeps each object's eye, ghost, polypaint left out and lock, and refuses
+// flags it does not know.
 @(test)
 view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 	app: App
@@ -198,13 +196,7 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		object_get_fields(&rl, &locked)
 		defer delete(locked.name)
 		testing.expect(t, rl.ok && locked.locked && !locked.off && !locked.ghost)
-		out[flags] = 32
-		spaced: Object
-		rs := geom.byte_reader(out[:])
-		object_get_fields(&rs, &spaced)
-		defer delete(spaced.name)
-		testing.expect(t, rs.ok && spaced.spaces_off == {.Model} && !spaced.off)
-		out[flags] = 128
+		out[flags] = 16
 		damaged: Object
 		rd := geom.byte_reader(out[:])
 		object_get_fields(&rd, &damaged)
