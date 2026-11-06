@@ -51,6 +51,9 @@ section_scene_free :: proc(app: ^App) {
 	results_destroy(app)
 	ui.destroy(&app.kit.ctx)
 	layouts_destroy(&app.kit)
+	// The Material card keeps its balls' atlas cells across frames once it has shown, as
+	// kit_destroy frees them in the app.
+	delete(app.kit.material_card.slots)
 }
 
 // How many controls one section lays out in a headless frame, with its More folded or,
