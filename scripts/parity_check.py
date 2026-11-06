@@ -41,7 +41,7 @@ CASES = [
     ("groups_ortho", "set show_groups on\nset ortho on", 20, ""),
     ("pbr_gold", "set material Gold", 20, ""),
     ("pbr_clay", "set material PBR clay", 20, ""),
-    ("matcap", "set material Clay MatCap", 20, ""),
+    ("matcap", "set material Brown clay MatCap", 20, ""),
     ("pass_normals", "view_pass normals", 20, ""),
     ("pass_depth", "view_pass depth", 20, ""),
     ("pass_curvature", "view_pass curvature", 20, ""),
