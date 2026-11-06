@@ -21,7 +21,7 @@ materials_round_trip_in_the_file :: proc(t: ^testing.T) {
 		coat_weight = 0.5, coat_roughness = 0.1, coat_ior = 1.55, specular_ior = 1.45,
 		sheen_color = {0.2, 0.3, 0.4}, sheen_weight = 0.25, emission_color = {1, 0.5, 0}, emission_luminance = 3,
 		transmission_color = {0.7, 0.8, 0.9}, transmission_weight = 0.6, transmission_depth = 0.2, thin_walled = 1,
-		sheen_roughness = 0.45, subsurface_anisotropy = -0.3, thin_film_weight = 0.9, thin_film_thickness = 420, thin_film_ior = 1.3,
+		sheen_roughness = 0.45, subsurface_anisotropy = -0.3, thin_film_weight = 0.9, thin_film_thickness = 420, thin_film_ior = 1.3, specular_lessen = 0.16,
 	}
 	for m in ([?]Material{MATERIALS[steel], custom, image, MATERIALS[FIRST_MATCAP], {}, layered}) {
 		out: [dynamic]u8
@@ -42,7 +42,7 @@ materials_round_trip_in_the_file :: proc(t: ^testing.T) {
 	testing.expect(t, back.label == MATERIALS[steel].label)
 	// A name no preset has (from a later version, say) reads as Custom with its values.
 	clear(&out)
-	material_put(&out, {label = "Velvet", selected = {0.5, 0.1, 0.1, 1}, idle = {0.4, 0.4, 0.4, 1}, roughness = 0.9})
+	material_put(&out, {label = "Felt", selected = {0.5, 0.1, 0.1, 1}, idle = {0.4, 0.4, 0.4, 1}, roughness = 0.9})
 	r = geom.byte_reader(out[:])
 	back = material_get(&r)
 	testing.expect(t, r.ok && back.label == "Custom" && back.roughness == 0.9)
@@ -266,9 +266,9 @@ custom_layers_are_remembered_and_bad_ones_passed_over :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.custom.layers, a.custom.layers)
 
 	bad := [?]string {
-		"custom_layers 0.5 0.5 0.5 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
+		"custom_layers 0.5 0.5 0.5 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
 		"custom_layers 0.5 0.5 0.5 1",
-		"custom_layers 0.5 0.5 0.5 x 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
+		"custom_layers 0.5 0.5 0.5 x 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
 	}
 	for line in bad {
 		testing.expect(t, os.write_entire_file(path, transmute([]u8)line) == nil)

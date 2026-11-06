@@ -56,6 +56,12 @@ MATERIALS := [?]Material {
 	{"Jade", {0.24, 0.55, 0.34, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.22, 0, 0, {subsurface_color = 1, subsurface_weight = 1, subsurface_radius = {0.5, 1, 0.6}, subsurface_scale = 0.08}},
 	{"Marble", {0.84, 0.83, 0.79, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.18, 0, 0, {subsurface_color = 1, subsurface_weight = 1, subsurface_radius = {1, 0.92, 0.8}, subsurface_scale = 0.04}},
 	{"Milk", {0.90, 0.88, 0.80, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.30, 0, 0, {subsurface_color = 1, subsurface_weight = 1, subsurface_radius = {1, 0.9, 0.7}, subsurface_scale = 0.15}},
+	// Layered materials (Full render shows their layers; the viewport, for now, their base):
+	// car paint's clear coat over a metallic red, velvet's and satin's sheen, and neon's glow.
+	{"Car paint", {0.55, 0.03, 0.04, 1}, {0.42, 0.42, 0.44, 1}, {}, 0.6, 0.4, 0, 0, {coat_weight = 1, coat_roughness = 0.03}},
+	{"Velvet", {0.30, 0.02, 0.06, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.9, 0, 0, {sheen_color = {1, 0.55, 0.65}, sheen_weight = 1, sheen_roughness = 0.5}},
+	{"Satin", {0.62, 0.62, 0.66, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.45, 0, 0, {sheen_color = {1, 1, 1}, sheen_weight = 0.6, sheen_roughness = 0.25}},
+	{"Neon", {0.04, 0.04, 0.05, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.3, 0, 0, {emission_color = {1, 0.12, 0.55}, emission_luminance = 2.5}},
 	// The matcaps, in white so their pictures show as painted.
 	{"Red wax MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 1, 0, {}},
 	{"Brown clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 2, 0, {}},
@@ -69,7 +75,7 @@ MATERIALS := [?]Material {
 // The index of the first physically based material, where the View menu starts a new group.
 FIRST_PBR :: 6
 // The index of the first matcap, where the next group starts.
-FIRST_MATCAP :: 18
+FIRST_MATCAP :: 22
 
 // app.material's value for the material the View > Material sliders made (app.custom).
 CUSTOM_MATERIAL :: len(MATERIALS)
@@ -77,9 +83,8 @@ CUSTOM_MATERIAL :: len(MATERIALS)
 // Library.materials, apart from the presets and Custom.
 PACK_MATERIAL :: 1 << 16
 
-// The values of a geom.Material_Layers the settings' custom_layers line holds: every field
-// but the last, which the layout keeps unused.
-CUSTOM_LAYER_VALUES :: 31
+// The values of a geom.Material_Layers the settings' custom_layers line holds: all its fields.
+CUSTOM_LAYER_VALUES :: 32
 
 // What a classic preset becomes when its sliders are first moved: rough, non-metal.
 CUSTOM_ROUGHNESS :: 0.6

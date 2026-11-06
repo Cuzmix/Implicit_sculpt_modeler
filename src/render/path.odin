@@ -97,10 +97,14 @@ ITEM_MATERIAL :: 32
 // subsurface_walk), so a scene with none folds the walk away.
 @(private = "file")
 ITEM_SUBSURFACE :: 64
+// A material in its table has a coat, sheen, glow, or an IOR or specular weight of its own,
+// so a scene with none folds their shading away.
+@(private = "file")
+ITEM_LAYERS :: 128
 @(private = "file")
 ITEM_SKIN_SHIFT :: 8
 @(private = "file")
-ITEM_ALL :: ITEM_PAINT | ITEM_GROUPS | ITEM_SLOTS | ITEM_TEXTURED | ITEM_SKINNED | ITEM_MATERIAL | ITEM_SUBSURFACE
+ITEM_ALL :: ITEM_PAINT | ITEM_GROUPS | ITEM_SLOTS | ITEM_TEXTURED | ITEM_SKINNED | ITEM_MATERIAL | ITEM_SUBSURFACE | ITEM_LAYERS
 
 // Which of render_trace.slang's features a run's scene uses, its RT_ constants: the item
 // flags any item carries, an image environment, the lens and lights with a place (traced
@@ -1285,7 +1289,8 @@ MATERIAL_ROWS :: 2 + size_of(geom.Material_Layers) / size_of([4]f32)
 // colour and surface. The first row of the chunks buffer is never a table's (a table
 // follows the chunks), so 0 means none. The layers go with their defaults given
 // (geom.material_layers_resolve), so the kernel reads every value as it is; an item any of
-// whose materials scatters under its surface gets ITEM_SUBSURFACE.
+// whose materials scatters under its surface gets ITEM_SUBSURFACE, one with a coat, sheen,
+// glow or a specular of its own ITEM_LAYERS.
 @(private = "file")
 path_material_rows :: proc(rows: ^[dynamic][4]u32, item: Draw_Item, rec: ^Item_Record) {
 	slotted := rec.offs.y & ITEM_SLOTS != 0
@@ -1294,6 +1299,8 @@ path_material_rows :: proc(rows: ^[dynamic][4]u32, item: Draw_Item, rec: ^Item_R
 	put :: proc(rows: ^[dynamic][4]u32, rec: ^Item_Record, color, surface: [4]f32, layers: geom.Material_Layers) {
 		color, surface := color, surface
 		if layers.subsurface_weight > 0 do rec.offs.y |= ITEM_SUBSURFACE
+		glows := layers.emission_luminance > 0 && layers.emission_color != {}
+		if layers.coat_weight > 0 || layers.sheen_weight > 0 || glows || layers.specular_ior != 0 || layers.specular_lessen > 0 do rec.offs.y |= ITEM_LAYERS
 		resolved := geom.material_layers_resolve(layers)
 		append(rows, transmute([4]u32)color, transmute([4]u32)surface)
 		words := transmute([MATERIAL_ROWS - 2][4]u32)resolved

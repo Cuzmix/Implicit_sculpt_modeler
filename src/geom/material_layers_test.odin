@@ -34,6 +34,7 @@ layers_with_impossible_values_are_refused :: proc(t: ^testing.T) {
 		{emission_luminance = -1},
 		{subsurface_anisotropy = -1.5},
 		{thin_walled = 2},
+		{specular_lessen = 1.5},
 	}
 	for l, i in bad do testing.expectf(t, !material_layers_valid(l), "case %d", i)
 }

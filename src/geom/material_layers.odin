@@ -45,11 +45,14 @@ Material_Layers :: struct {
 	sheen_roughness:       f32,
 	subsurface_anisotropy: f32,
 	// A thin film over the surface (soap bubbles, oil, anodised metal): how much, its
-	// thickness in nanometres and its IOR; the last value is kept for the layout.
+	// thickness in nanometres and its IOR.
 	thin_film_weight:      f32,
 	thin_film_thickness:   f32,
 	thin_film_ior:         f32,
-	_:                     f32,
+	// How much weaker a dielectric's specular is than its IOR makes it: 1 less OpenPBR's
+	// specular weight (glTF's KHR_materials_specular factor), so zero keeps the full
+	// specular and a material with no layers stays as it was.
+	specular_lessen:       f32,
 }
 
 #assert(size_of(Material_Layers) == 128)
@@ -102,7 +105,7 @@ material_layers_valid :: proc(l: Material_Layers) -> bool {
 		ok &&= length(l.subsurface_radius[k])
 	}
 	ok &&= unit(l.subsurface_weight) && unit(l.coat_weight) && unit(l.coat_roughness) && unit(l.sheen_weight)
-	ok &&= unit(l.transmission_weight) && unit(l.sheen_roughness) && unit(l.thin_film_weight) && unit(l.thin_walled)
+	ok &&= unit(l.transmission_weight) && unit(l.sheen_roughness) && unit(l.thin_film_weight) && unit(l.thin_walled) && unit(l.specular_lessen)
 	ok &&= length(l.subsurface_scale) && length(l.transmission_depth)
 	ok &&= l.emission_luminance >= 0 && l.emission_luminance <= LAYER_EMISSION_MAX
 	ok &&= l.thin_film_thickness >= 0 && l.thin_film_thickness <= LAYER_THIN_FILM_MAX
