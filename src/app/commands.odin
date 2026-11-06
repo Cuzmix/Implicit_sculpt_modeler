@@ -170,6 +170,7 @@ Command_Id :: enum u16 {
 	Model_Action,
 	Model_Target,
 	Tidy_Cage,
+	Cage_Edit,
 	Select_Cage,
 	Cage_Smooth,
 	Cage_Flat,
@@ -683,6 +684,14 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_WAND,
 		args = len(Cage_Tidy),
 		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Tidy_Cage, tidy = Cage_Tidy(arg)}},
+		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Cage_Edit = {
+		label = "Edit cage selection",
+		help = "Edits the selected cage's selection as Blender's edit mode does: Subdivide and Poke the selected faces, Triangles to quads (the selected faces, or the whole cage), Split the selected faces off along their outline, Separate them into a cage of their own, Fill the hole a picked border edge lies on (every hole with nothing picked; a grid of quads where the border allows), Bevel points cuts the picked points' corners off, Join takes in the cage below in the scene, Relax evens the selection's points out keeping the shape and Smooth smooths them, both with the Falloff. Each is one undo step.",
+		icon = ui.ICON_HAMMER,
+		args = len(Cage_Edit),
+		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Cage_Edit, edit = Cage_Edit(arg)}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
 	},
 	.Select_Cage = {
@@ -2916,6 +2925,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Target: %s", MODEL_TARGET_NAMES[Model_Target(arg)])
 	case .Tidy_Cage:
 		return CAGE_TIDY_NAMES[Cage_Tidy(arg)]
+	case .Cage_Edit:
+		return CAGE_EDIT_NAMES[Cage_Edit(arg)]
 	case .Skin_Squeeze:
 		return fmt.tprintf("Squeeze to 1/%d", SQUEEZE_SHARES[arg])
 	case .Detail_Skin:

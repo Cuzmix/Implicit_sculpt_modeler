@@ -236,6 +236,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Model_Action: return fmt.tprint(Model_Action(arg))
 	case .Model_Target: return fmt.tprint(Model_Target(arg))
 	case .Tidy_Cage: return fmt.tprint(Cage_Tidy(arg))
+	case .Cage_Edit: return fmt.tprint(Cage_Edit(arg))
 	case .Detail_Skin: return fmt.tprint(SKIN_SEGMENTS[arg])
 	case .Skin_Squeeze: return fmt.tprint(SQUEEZE_SHARES[arg])
 	case .Detail_To: return fmt.tprint(Detail_To(arg))

@@ -32,6 +32,7 @@ ICON_IMAGE :: rune(0xe0f9)
 ICON_ACTIVITY :: rune(0xe038)
 ICON_SETTINGS :: rune(0xe158)
 ICON_WAND :: rune(0xe35b)
+ICON_HAMMER :: rune(0xe0ef) // hammer: edits that rework the cage selection
 ICON_FRAME :: rune(0xe291)
 ICON_SUN :: rune(0xe17c)
 ICON_SIZE :: rune(0xe07a) // circle

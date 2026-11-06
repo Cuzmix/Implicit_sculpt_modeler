@@ -345,7 +345,7 @@ draw_model_gizmo :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 // as the gizmo's drag would, with the symmetry and falloff set, one undo step. Returns
 // why not, or "".
 cage_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
-	USAGE :: "cage takes pick 0 4 5 (point numbers), move x y z, turn x|y|z degrees or scale f"
+	USAGE :: "cage takes pick 0 4 5 (point numbers), select 0 2 (face numbers), move x y z, turn x|y|z degrees or scale f"
 	if obj == nil || obj.cage == nil do return "the selected object is not a cage"
 	words := strings.fields(text, context.temp_allocator)
 	if len(words) < 2 do return USAGE
@@ -354,20 +354,31 @@ cage_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		v, ok := strconv.parse_f32(w)
 		return v, ok
 	}
-	if words[0] == "pick" {
+	if words[0] == "pick" || words[0] == "select" {
+		faces := words[0] == "select"
+		count := len(cage.face_he) if faces else len(cage.positions)
 		// On the heap: the snapshot frees the temp memory (object_put), so nothing temp made
 		// before it is read after.
-		points := make([dynamic]u32)
-		defer delete(points)
+		ids := make([dynamic]u32)
+		defer delete(ids)
 		for w in words[1:] {
 			v, ok := strconv.parse_int(w)
-			if !ok || v < 0 || v >= len(cage.positions) do return fmt.tprintf("%q is no point of the cage (it has %d)", w, len(cage.positions))
-			append(&points, u32(v))
+			if !ok || v < 0 || v >= count do return fmt.tprintf("%q is no %s of the cage (it has %d)", w, "face" if faces else "point", count)
+			append(&ids, u32(v))
 		}
-		before := history_snapshot(app, obj, "pick points")
-		if !poly.pick_points(cage, points[:], true) {
+		before := history_snapshot(app, obj, "select faces" if faces else "pick points")
+		changed := false
+		if faces {
+			for f in ids do if !cage.selected[f] {
+				cage.selected[f] = true
+				changed = true
+			}
+		} else {
+			changed = poly.pick_points(cage, ids[:], true)
+		}
+		if !changed {
 			history_snapshot_drop(before)
-			return "those points were picked already"
+			return "those were picked already"
 		}
 		if !cage_rebuild(app, obj) {
 			history_snapshot_drop(before)
