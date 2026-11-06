@@ -6,6 +6,7 @@ import "core:time"
 
 import "../camera"
 import "../geom"
+import "../render"
 import "../sculpt"
 import "../ui"
 
@@ -109,6 +110,14 @@ Physics_Card :: struct {
 		id, level: int,
 	},
 	coarse_runs: int,
+	// An object over the budget with no level under it runs on a proxy, a simplified copy
+	// (sculpt.Cloth_Proxy) drawn in its place while the run goes on: the object, the copy
+	// and its GPU buffers. Runs on a proxy and the last one's build time, for the stats.
+	proxy:      ^sculpt.Cloth_Proxy,
+	proxy_id:   int,
+	proxy_gpu:  render.Mesh_Buffers,
+	proxy_runs: int,
+	proxy_ms:   f64,
 }
 
 Physics_Filter :: enum u8 {
@@ -239,8 +248,10 @@ physics_run_begin :: proc(app: ^App, obj: ^Object, filter: bool) -> bool {
 				return false
 			}
 			continue
+		} else if physics_proxy_begin(app, obj, filter) {
+			return true
 		} else {
-			why = fmt.tprintf("Physics moves up to %d vertices at once; this one has %d free and no coarser subdivision level to run on", physics_budget(app), n)
+			why = "Physics could not make a simplified copy of this object to run on"
 		}
 		report(app, Section.Physics, {.Warning}, "%s", why)
 		return physics_run_back(app, obj)
@@ -270,6 +281,107 @@ physics_run_try :: proc(app: ^App, obj: ^Object, filter: bool) -> (n: int, began
 	}
 	sculpt.sculptor_cloth_collide(s, physics_collide(app, obj, set))
 	return n, true
+}
+
+// Begins the run on a proxy of the object's free part at about the budget's vertices,
+// drawn in the object's place until the run ends. False when it could not.
+@(private = "file")
+physics_proxy_begin :: proc(app: ^App, obj: ^Object, filter: bool) -> bool {
+	c := &app.ui.physics
+	physics_proxy_drop(app)
+	s := object_sculptor(obj)
+	p := object_physics(obj)
+	start := time.tick_now()
+	sculpt.sculptor_stroke_begin(s)
+	proxy := new(sculpt.Cloth_Proxy)
+	n := 0
+	set := object_cloth_settings(obj, gravity = p.gravity)
+	// The copy's mask already holds what the object's free part leaves out.
+	set.on_masked = false
+	if sculpt.sculptor_proxy_build(proxy, s, physics_budget(app), p.on_masked) {
+		ps := &proxy.sculptor
+		if filter do n = sculpt.sculptor_filter_begin(ps, sculpt.Cloth_Filter_Kind(c.filter), set, physics_filter_frame(app, obj), c.filter_axes)
+		else do n = sculpt.sculptor_settle_begin(ps, set)
+	}
+	gpu: render.Mesh_Buffers
+	made := false
+	if n > 0 do gpu, made = render.mesh_buffers_create(&app.renderer, proxy.mesh, proxy.sculptor.mask)
+	if !made {
+		if n > 0 do app.running = false // a GPU failure
+		sculpt.sculptor_cloth_end(&proxy.sculptor)
+		sculpt.cloth_proxy_destroy(proxy)
+		free(proxy)
+		_ = sculpt.sculptor_stroke_discard(s)
+		return false
+	}
+	sculpt.sculptor_cloth_collide(&proxy.sculptor, physics_collide(app, obj, set))
+	c.proxy, c.proxy_id, c.proxy_gpu = proxy, obj.id, gpu
+	c.proxy_ms = time.duration_milliseconds(time.tick_since(start))
+	render.viewport_invalidate(&app.target)
+	return true
+}
+
+// Frees the proxy and its buffers, if there is one, writing nothing back.
+physics_proxy_drop :: proc(app: ^App) {
+	c := &app.ui.physics
+	if c.proxy == nil do return
+	sculpt.sculptor_cloth_end(&c.proxy.sculptor)
+	sculpt.cloth_proxy_destroy(c.proxy)
+	free(c.proxy)
+	render.mesh_buffers_destroy(&app.renderer, &c.proxy_gpu)
+	c.proxy, c.proxy_id = nil, 0
+	render.viewport_invalidate(&app.target)
+}
+
+// The sculptor the card's run on `obj` steps: its proxy's, or its own.
+@(private = "file")
+physics_run_sculptor :: proc(app: ^App, obj: ^Object) -> ^sculpt.Sculptor {
+	c := &app.ui.physics
+	if c.proxy != nil && c.proxy_id == obj.id do return &c.proxy.sculptor
+	return object_sculptor(obj)
+}
+
+// Whether a proxy stands in for `obj` in the viewport.
+physics_proxy_shows :: proc(app: ^App, obj: ^Object) -> bool {
+	c := &app.ui.physics
+	return c.proxy != nil && c.proxy_id == obj.id
+}
+
+// Draws the proxy in its object's place, as the selected object is drawn.
+physics_proxy_draw :: proc(app: ^App, draws: ^[dynamic]render.Draw_Item, froms: ^[dynamic]Item_From) {
+	c := &app.ui.physics
+	if c.proxy == nil do return
+	obj := object_by_id(app, c.proxy_id)
+	if obj == nil || !object_shown(app, obj) do return
+	material := object_material(app, obj)
+	append(froms, Item_From{obj = obj, index = app.scene.selected, tint = material.selected, material = material})
+	append(draws, render.Draw_Item {
+		mesh     = &c.proxy_gpu,
+		source   = &c.proxy.mesh,
+		model    = transform_matrix(obj.transform),
+		color    = material.selected,
+		material = material.shading,
+		surface  = {material.metallic, material.roughness},
+		flat     = app.flat,
+		look     = viewport_look(app),
+		style    = viewport_style(app),
+		lights   = viewport_lights(app),
+		matcap   = material_matcap(app, material),
+		damage   = geom.AABB_EMPTY,
+	})
+}
+
+// Uploads what the proxy's last step moved. False on a GPU failure.
+@(private = "file")
+physics_proxy_upload :: proc(app: ^App) -> bool {
+	c := &app.ui.physics
+	ranges := sculpt.sculptor_flush(&c.proxy.sculptor)
+	if len(ranges) == 0 do return true
+	cmd := render.cmd_begin(&app.renderer)
+	if cmd == nil do return false
+	render.mesh_buffers_upload_ranges(&app.renderer, cmd, &c.proxy_gpu, c.proxy.mesh, ranges, c.proxy.sculptor.mask)
+	render.viewport_invalidate(&app.target)
+	return render.cmd_submit(cmd)
 }
 
 // The finest level below the current one where `free` vertices free now would come to no
@@ -302,7 +414,16 @@ physics_run_back :: proc(app: ^App, obj: ^Object) -> bool {
 @(private = "file")
 physics_run_end :: proc(app: ^App, obj: ^Object, what: string) -> (moved: bool, note: string) {
 	s := object_sculptor(obj)
-	sculpt.sculptor_cloth_end(s)
+	if c := &app.ui.physics; physics_proxy_shows(app, obj) {
+		// The object takes the copy's drape, detail and all, in the stroke begun with it.
+		sculpt.sculptor_cloth_end(&c.proxy.sculptor)
+		_ = sculpt.sculptor_proxy_write(c.proxy, s)
+		note = fmt.tprintf(" through a copy of %d vertices", len(c.proxy.mesh.positions))
+		physics_proxy_drop(app)
+		c.proxy_runs += 1
+	} else {
+		sculpt.sculptor_cloth_end(s)
+	}
 	moved = sculpt.sculptor_stroke_end(s)
 	if moved do history_record(app, obj, .Deform, what)
 	if c := &app.ui.physics; c.back.id == obj.id {
@@ -350,7 +471,10 @@ settle_stop :: proc(app: ^App) {
 	if !run.active do return
 	c.settle = {}
 	obj := object_by_id(app, run.id)
-	if obj == nil do return
+	if obj == nil {
+		physics_proxy_drop(app)
+		return
+	}
 	moved, note := physics_run_end(app, obj, "Settle")
 	if !moved do return
 	c.settles += 1
@@ -395,7 +519,10 @@ filter_drag_end :: proc(app: ^App, force := false) {
 	drag := c.drag
 	c.drag, c.amount, c.wait_release = {}, 0, held
 	obj := object_by_id(app, drag.id)
-	if obj == nil do return
+	if obj == nil {
+		physics_proxy_drop(app)
+		return
+	}
 	moved, note := physics_run_end(app, obj, PHYSICS_FILTER_NAMES[c.filter])
 	if !moved do return
 	c.filters += 1
@@ -424,7 +551,8 @@ physics_card_frame :: proc(app: ^App) {
 	if c.drag.active {
 		if obj := object_by_id(app, c.drag.id); obj != nil {
 			start := time.tick_now()
-			_ = sculpt.sculptor_filter_step(object_sculptor(obj), c.amount / 100, physics_down(app, obj))
+			_ = sculpt.sculptor_filter_step(physics_run_sculptor(app, obj), c.amount / 100, physics_down(app, obj))
+			if physics_proxy_shows(app, obj) && !physics_proxy_upload(app) do app.running = false // a GPU failure
 			c.drag.ms += time.duration_milliseconds(time.tick_since(start))
 		}
 	}
@@ -433,6 +561,7 @@ physics_card_frame :: proc(app: ^App) {
 	obj := object_by_id(app, run.id)
 	if obj == nil {
 		run^ = {}
+		physics_proxy_drop(app)
 		return
 	}
 	// A press held past a tap runs only while it is held.
@@ -444,7 +573,8 @@ physics_card_frame :: proc(app: ^App) {
 		run.held = false
 	}
 	start := time.tick_now()
-	motion := sculpt.sculptor_settle_step(object_sculptor(obj), physics_down(app, obj))
+	motion := sculpt.sculptor_settle_step(physics_run_sculptor(app, obj), physics_down(app, obj))
+	if physics_proxy_shows(app, obj) && !physics_proxy_upload(app) do app.running = false // a GPU failure
 	run.ms += time.duration_milliseconds(time.tick_since(start))
 	run.frames += 1
 	run.resting = run.resting + 1 if motion < PHYSICS_REST else 0

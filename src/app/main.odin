@@ -680,6 +680,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer render.mesh_buffers_destroy(&app.renderer, &app.ui.boolean.preview)
 	defer geom.mesh_destroy(&app.ui.boolean.preview_mesh)
 	defer boolean_coarse_drop(&app)
+	defer physics_proxy_drop(&app)
 	defer scene_destroy(&app)
 	// After the History, whose snapshots delete their files first.
 	defer undo_disk_destroy(&app)

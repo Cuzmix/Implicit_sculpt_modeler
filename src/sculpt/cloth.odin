@@ -896,7 +896,13 @@ cloth_destroy :: proc(c: ^Cloth) {
 // On masked what the mask covers, still held where hidden.
 @(private)
 cloth_weight :: #force_inline proc(s: ^Sculptor, v: u32) -> f32 {
-	if !s.cloth.settings.on_masked do return shield(s.fade, s.mask, v)
+	return cloth_free(s, v, s.cloth.settings.on_masked)
+}
+
+// The same, with or without On masked as `on_masked` says, outside a cloth run.
+@(private)
+cloth_free :: #force_inline proc(s: ^Sculptor, v: u32, on_masked: bool) -> f32 {
+	if !on_masked do return shield(s.fade, s.mask, v)
 	if s.mask == nil do return 0
 	w := f32(s.mask[v]) * (1.0 / 255)
 	if s.fade != nil do w *= f32(s.fade[v]) * (1.0 / 255)
