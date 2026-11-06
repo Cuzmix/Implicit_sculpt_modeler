@@ -40,10 +40,11 @@ struct Item {
 	float4x4 inv_model;
 	float4 color;      // the base colour, linear
 	float4 surface;    // x: metallic, y: roughness
-	uint4 offs;      // x: the item's first vertex in the merged buffers, y: ITEM_ flags, z: under RAY_QUERY where its geometries' first triangles start in `order`
+	// x: the item's first vertex in the merged buffers, y: ITEM_ flags, z: under RAY_QUERY
+	// where its geometries' first triangles start in `order`, w: where its materials start
+	// in `chunks` (material_row), 0 for none
+	uint4 offs;
 	uint4 slot_group[4];   // the polygroup of each material slot from 1
-	float4 slot_color[16];   // each slot's colour, as `color`
-	float4 slot_surface[16]; // ...and surface, as `surface`
 	// ITEM_TEXTURED: its first triangle (a skinned item's too), where its corners and its preview vertices start
 	// in `textured`, and its map slot (bits 0-3, 3 for none; bits 16-23 under MAP_ARRAY), view
 	// (4-7: 1 the maps, 2 the normal map, 3 the UV checker) and maps it has (8-10: base
@@ -61,6 +62,8 @@ static const uint ITEM_SLOTS = 4u;  // groups may have materials of their own
 static const uint ITEM_TEXTURED = 8u; // shows its maps through its preview's UVs
 static const uint ITEM_SKINNED = 16u; // shades by its detail skin's normals
 static const uint ITEM_MATERIAL = 32u; // its paint has roughness and metal (vertex_material)
+static const uint ITEM_LAYERS = 128u; // a material in its table has a coat, sheen, glow or its own IOR or specular (rows 4 to 9)
+static const uint ITEM_SUBSURFACE = 64u; // a material in its table scatters light under its surface (subsurface_walk)
 static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
 
 // The sum so far: radiance over the samples whose camera ray met the scene in rgb, and
@@ -197,6 +200,7 @@ static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
 #include "panorama.slang"
 #include "studio_env.slang"
 #include "light_window.slang"
+#include "ggx_albedo.slang"
 
 static const float PI = 3.14159265;
 // geom.CHUNK_BVH_STACK for each level: a chunk's entries stay above the scene tree's.
@@ -419,6 +423,12 @@ uint merged_triangle(uint item, uint geometry, uint primitive) {
 // world ray as given. Geometries holding a triangle with a repeated corner (hidden, or an
 // unused slot) are not opaque, and their candidates come here to be turned down, as the
 // walk does.
+// The one ray query every trace shares: RADV gives each query object the kernel declares
+// registers of its own, even one in a branch a specialised kernel folds away, so a query a
+// call (trace is inlined at each) cost a kernel without subsurface materials a quarter of
+// its waves once the walk added a call. Traces never overlap, so one object serves them all.
+static RayQuery<RAY_FLAG_NONE> trace_query;
+
 bool trace(float3 o, float3 d, float t_max, bool any, out Hit hit) {
 	hit.t = t_max;
 	hit.tri = 0u;
@@ -430,18 +440,17 @@ bool trace(float3 o, float3 d, float t_max, bool any, out Hit hit) {
 	ray.TMin = 0.0;
 	ray.Direction = d;
 	ray.TMax = t_max;
-	RayQuery<RAY_FLAG_NONE> q;
-	q.TraceRayInline(structure, any ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH : RAY_FLAG_NONE, 0xFF, ray);
-	while (q.Proceed()) {
-		uint tri = merged_triangle(q.CandidateInstanceID(), q.CandidateGeometryIndex(), q.CandidatePrimitiveIndex());
+	trace_query.TraceRayInline(structure, any ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH : RAY_FLAG_NONE, 0xFF, ray);
+	while (trace_query.Proceed()) {
+		uint tri = merged_triangle(trace_query.CandidateInstanceID(), trace_query.CandidateGeometryIndex(), trace_query.CandidatePrimitiveIndex());
 		uint ia = indices[3u * tri], ib = indices[3u * tri + 1u], ic = indices[3u * tri + 2u];
-		if (ia != ib && ib != ic && ia != ic) q.CommitNonOpaqueTriangleHit();
+		if (ia != ib && ib != ic && ia != ic) trace_query.CommitNonOpaqueTriangleHit();
 	}
-	if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT) return false;
-	hit.t = q.CommittedRayT();
-	hit.item = q.CommittedInstanceID();
-	hit.tri = merged_triangle(hit.item, q.CommittedGeometryIndex(), q.CommittedPrimitiveIndex());
-	hit.uv = q.CommittedTriangleBarycentrics();
+	if (trace_query.CommittedStatus() != COMMITTED_TRIANGLE_HIT) return false;
+	hit.t = trace_query.CommittedRayT();
+	hit.item = trace_query.CommittedInstanceID();
+	hit.tri = merged_triangle(hit.item, trace_query.CommittedGeometryIndex(), trace_query.CommittedPrimitiveIndex());
+	hit.uv = trace_query.CommittedTriangleBarycentrics();
 	return true;
 }
 #else
@@ -569,6 +578,14 @@ void basis(float3 n, out float3 t, out float3 b) {
 	b = float3(c, s + n.y * n.y * a, -n.y);
 }
 
+// Row `row` of material `k` in an item's table, which starts at `table` in `chunks`
+// (render.path_material_rows): 0 its colour, 1 its surface (metallic, roughness), then
+// from 2 its layers' eight rows (geom.Material_Layers).
+static const uint MATERIAL_ROWS = 10u;
+float4 material_row(uint table, uint k, uint row) {
+	return asfloat(chunks[table + MATERIAL_ROWS * k + row]);
+}
+
 float luminance(float3 c) {
 	return dot(c, float3(0.2126, 0.7152, 0.0722));
 }
@@ -577,7 +594,27 @@ struct Surface {
 	float3 diffuse; // the Lambert part's colour
 	float3 f0;      // reflectance seen straight on
 	float a;      // GGX alpha, roughness squared
+	// A clear coat over it (ITEM_LAYERS): how much, its GGX alpha and its reflectance
+	// straight on; and sheen's colour (times its weight) and alpha. All zero for a surface
+	// without layers, which every branch on them then folds away.
+	float coat, coat_a, coat_f0;
+	float3 sheen;
+	float sheen_a;
 };
+
+// A surface with no coat or sheen: its diffuse colour, reflectance and alpha.
+Surface surface_plain(float3 diffuse, float3 f0, float a) {
+	Surface s;
+	s.diffuse = diffuse;
+	s.f0 = f0;
+	s.a = a;
+	s.coat = 0.0;
+	s.coat_a = 1.0;
+	s.coat_f0 = 0.0;
+	s.sheen = float3(0.0);
+	s.sheen_a = 1.0;
+	return s;
+}
 
 float3 fresnel(float3 f0, float c) {
 	return f0 + (1.0 - f0) * pow(1.0 - clamp(c, 0.0, 1.0), 5.0);
@@ -604,9 +641,28 @@ float specular_chance(Surface s, float n_dot_v) {
 	return clamp(es / max(es + ed, 1e-6), 0.05, 0.95);
 }
 
+// The chance the coat's lobe is picked, by how much it reflects toward the eye, kept
+// between bounds so neither it nor the surface under it starves; 0 without a coat.
+float coat_chance(Surface s, float n_dot_v) {
+	if (s.coat <= 0.0) return 0.0;
+	float fc = s.coat_f0 + (1.0 - s.coat_f0) * pow(1.0 - clamp(n_dot_v, 0.0, 1.0), 5.0);
+	return s.coat * clamp(4.0 * fc, 0.15, 0.6);
+}
+
+// Charlie sheen's distribution (Estevez and Kulla 2017, as glTF's KHR_materials_sheen
+// defines it) and Neubelt's visibility: the soft rim of velvet and fuzz.
+float sheen_term(float n_dot_h, float n_dot_l, float n_dot_v, float a) {
+	float inv = 1.0 / max(a, 1e-3);
+	float sin2 = max(1.0 - n_dot_h * n_dot_h, 0.0);
+	float D = (2.0 + inv) * pow(sin2, 0.5 * inv) / (2.0 * PI);
+	return D / (4.0 * (n_dot_l + n_dot_v - n_dot_l * n_dot_v));
+}
+
 // The BSDF times the cosine toward `l`, and the pdf of picking `l` with bsdf_sample (the
-// mixture of both lobes); `shine` scales the specular lobe, as a light's Highlight does
-// (1 as usual).
+// mixture of its lobes); `shine` scales the specular lobe, as a light's Highlight does
+// (1 as usual). A coat (OpenPBR's, layered as Filament does) reflects by its own GGX lobe
+// and dims what is under it by its Fresnel, toward the eye and toward the light; sheen
+// adds to the diffuse part, sampled with it.
 float3 bsdf_eval(Surface s, float3 n, float3 v, float3 l, out float pdf, float shine = 1.0) {
 	pdf = 0.0;
 	float n_dot_l = dot(n, l), n_dot_v = dot(n, v);
@@ -616,13 +672,28 @@ float3 bsdf_eval(Surface s, float3 n, float3 v, float3 l, out float pdf, float s
 	float D = ggx_d(n_dot_h, s.a);
 	float lv = ggx_lambda(n_dot_v, s.a), ll = ggx_lambda(n_dot_l, s.a);
 	float3 F = fresnel(s.f0, v_dot_h);
-	float3 spec = F * (D / ((1.0 + lv + ll) * 4.0 * n_dot_v * n_dot_l));
+	// Given back the light its microfacets scatter between them; worked out here rather
+	// than kept with the surface, which held registers across the whole bounce.
+	float3 spec = F * energy_compensation(s.f0, n_dot_v, sqrt(s.a)) * (D / ((1.0 + lv + ll) * 4.0 * n_dot_v * n_dot_l));
 	float3 diff = s.diffuse * (1.0 - fresnel(s.f0, n_dot_v)) / PI;
 	float ps = specular_chance(s, n_dot_v);
 	// The visible normals' pdf of h, carried over to l: G1(v) D / (4 n.v).
 	float pdf_spec = D / ((1.0 + lv) * 4.0 * n_dot_v);
 	pdf = ps * pdf_spec + (1.0 - ps) * n_dot_l / PI;
-	return (diff + spec * shine) * n_dot_l;
+	float3 f = (diff + spec * shine) * n_dot_l;
+	if (any(s.sheen > 0.0)) f += s.sheen * (sheen_term(n_dot_h, n_dot_l, n_dot_v, s.sheen_a) * n_dot_l);
+	if (s.coat > 0.0) {
+		float dc = ggx_d(n_dot_h, s.coat_a);
+		float cv = ggx_lambda(n_dot_v, s.coat_a), cl = ggx_lambda(n_dot_l, s.coat_a);
+		float fc = s.coat_f0 + (1.0 - s.coat_f0) * pow(1.0 - v_dot_h, 5.0);
+		float coat = s.coat * fc * dc / ((1.0 + cv + cl) * 4.0 * n_dot_v);
+		float fv = s.coat_f0 + (1.0 - s.coat_f0) * pow(1.0 - n_dot_v, 5.0);
+		float fl = s.coat_f0 + (1.0 - s.coat_f0) * pow(1.0 - n_dot_l, 5.0);
+		f = f * ((1.0 - s.coat * fv) * (1.0 - s.coat * fl)) + coat * shine;
+		float pc = coat_chance(s, n_dot_v);
+		pdf = pc * dc / ((1.0 + cv) * 4.0 * n_dot_v) + (1.0 - pc) * pdf;
+	}
+	return f;
 }
 
 // Whether light `i` is lit by next-event estimation alone, never by a ray the BSDF picked
@@ -654,7 +725,11 @@ bool bsdf_sample(Surface s, float3 n, float3 v, out float3 l) {
 	basis(n, t, b);
 	float n_dot_v = max(dot(n, v), 1e-4);
 	float2 u = float2(rnd(), rnd());
-	if (rnd() < specular_chance(s, n_dot_v)) {
+	if (s.coat > 0.0 && rnd() < coat_chance(s, n_dot_v)) {
+		float3 ve = float3(dot(v, t), dot(v, b), dot(v, n));
+		float3 hl = sample_vndf(ve, s.coat_a, u);
+		l = reflect(-v, t * hl.x + b * hl.y + n * hl.z);
+	} else if (rnd() < specular_chance(s, n_dot_v)) {
 		float3 ve = float3(dot(v, t), dot(v, b), dot(v, n));
 		float3 hl = sample_vndf(ve, s.a, u);
 		float3 h = t * hl.x + b * hl.y + n * hl.z;
@@ -664,6 +739,165 @@ bool bsdf_sample(Surface s, float3 n, float3 v, out float3 l) {
 		l = normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(1.0 - u.x, 0.0)));
 	}
 	return dot(n, l) > 0.0;
+}
+
+// Subsurface scattering by a random walk through the inside of the mesh (Chiang, Kutz and
+// Burley 2016, "Practical and Controllable Subsurface Scattering for Production Path
+// Tracing", as Cycles' and Arnold's random walks do it): the light crosses the surface,
+// scatters from point to point inside, losing a share each time, and leaves where the walk
+// next meets the surface. It needs a closed mesh, which sculpts are; a walk that finds no
+// way out within WALK_STEPS is taken as absorbed. Thin parts (ears, fingers, the rim of a
+// leaf) let light through by themselves, which a diffusion profile spread over the
+// surface does not.
+static const int WALK_STEPS = 256;
+
+// The single-scattering albedo whose many scatterings give colour `a` back (van de Hulst's
+// relation as Chiang et al. fit it), so the material's colour is the colour seen.
+float3 walk_albedo(float3 a) {
+	a = clamp(a, float3(0.0), float3(0.999));
+	float3 s = 4.09712 + 4.20863 * a - sqrt(9.59217 + 41.6808 * a + 17.7126 * a * a);
+	return 1.0 - s * s;
+}
+
+// A direction scattered from `d` by Henyey and Greenstein's phase function with mean
+// cosine `g` (0 the same every way, toward 1 onward, toward -1 back), sampled exactly, so
+// the phase function over its pdf is 1.
+float3 sample_phase(float3 d, float g) {
+	float u = rnd(), phi = 2.0 * PI * rnd();
+	float c = 1.0 - 2.0 * u;
+	if (abs(g) > 1e-3) {
+		float q = (1.0 - g * g) / (1.0 - g + 2.0 * g * u);
+		c = clamp((1.0 + g * g - q * q) / (2.0 * g), -1.0, 1.0);
+	}
+	float sn = sqrt(max(1.0 - c * c, 0.0));
+	float3 t, b;
+	basis(d, t, b);
+	return normalize(t * (sn * cos(phi)) + b * (sn * sin(phi)) + d * c);
+}
+
+// A walk in from `p` (outward geometric normal `ng`) through a medium of colour `color`
+// whose light travels `radius` (per channel, in world units) between scatterings, with
+// phase `g`. On the way out it gives where it left, the outward geometric and shading
+// normals there, and multiplies `weight` by what the walk let through; false when the
+// light was absorbed inside.
+// Henyey and Greenstein's phase function at cosine `c` between the old and new directions.
+float phase_hg(float c, float g) {
+	float k = 1.0 + g * g - 2.0 * g * c;
+	return (1.0 - g * g) / (4.0 * PI * k * sqrt(k));
+}
+
+// Dwivedi's guiding (Krivanek and d'Eon 2014, "A Zero-variance-based Sampling Scheme for
+// Monte Carlo Subsurface Scattering", as Cycles' random walk uses it): in a medium that
+// scatters most of its light, a walk wanders far before it finds the surface, so steps are
+// also drawn leaning toward it, by the pdf a zero-variance walk in a half space would use.
+// `v` is that walk's diffusion length for single-scattering albedo `a` (their eq. 67),
+// kept above 1 where the albedo is low and guiding hardly matters.
+float3 dwivedi_v(float3 a) {
+	a = clamp(a, float3(0.05), float3(0.999));
+	float3 e = 2.44294 - 0.0215813 * a + 0.578637 / a;
+	return max(1.0 / sqrt(max(1.0 - pow(a, e), 1e-12)), float3(1.01));
+}
+
+// A direction leaning toward `axis` with Dwivedi's pdf over the cosine mu to it,
+// 1 / ((v - mu) log((v + 1) / (v - 1))), sampled exactly.
+float3 sample_dwivedi(float3 axis, float v) {
+	float mu = clamp(v - (v + 1.0) * pow((v - 1.0) / (v + 1.0), rnd()), -1.0, 1.0);
+	float phi = 2.0 * PI * rnd(), sn = sqrt(max(1.0 - mu * mu, 0.0));
+	float3 t, b;
+	basis(axis, t, b);
+	return normalize(t * (sn * cos(phi)) + b * (sn * sin(phi)) + axis * mu);
+}
+
+// That direction's pdf over solid angle.
+float dwivedi_pdf(float mu, float v) {
+	return 1.0 / (2.0 * PI * (v - mu) * log((v + 1.0) / (v - 1.0)));
+}
+
+// The chance a step after the first is drawn by Dwivedi's guiding rather than the phase
+// function (Cycles' choice); both are weighed together, so either alone stays unbiased.
+static const float WALK_GUIDED = 0.75;
+
+bool subsurface_walk(float3 p, float3 ng, float3 color, float3 radius, float g, inout float3 weight, out float3 p_out, out float3 ng_out, out float3 n_out) {
+	p_out = p;
+	ng_out = ng;
+	n_out = ng;
+	float3 sigma_t = 1.0 / max(radius, float3(1e-6));
+	float3 albedo = walk_albedo(color);
+	// In through the surface, cosine-weighted about the inward normal: the light the
+	// surface lets in comes in at every angle.
+	float3 t, b;
+	basis(-ng, t, b);
+	float2 u = float2(rnd(), rnd());
+	float r = sqrt(u.x), phi = 2.0 * PI * u.y;
+	float3 d = normalize(t * (r * cos(phi)) + b * (r * sin(phi)) - ng * sqrt(max(1.0 - u.x, 0.0)));
+	float3 o = offset_ray(p, -ng);
+	float3 through = float3(1.0);
+	// The guided steps lean toward the surface the light came in by.
+	float3 v = dwivedi_v(albedo);
+	float mu = 0.0, phase = 1.0;
+	for (int step = 0; step < WALK_STEPS; step++) {
+		// A step drawn by one channel, picked by how much each still carries; after the
+		// first, by the phase function or by Dwivedi's guiding, its direction then its
+		// length (a guided step's medium thinned the more the step leans toward the surface,
+		// as the zero-variance walk's is). Each step is weighed against drawing it every way
+		// (the one-sample balance heuristic over channels and techniques), so a channel that
+		// travels far (red in skin) is followed without the others' noise.
+		float3 chance = through / max(through.r + through.g + through.b, 1e-12);
+		float pick = rnd();
+		int c = pick < chance.r ? 0 : (pick < chance.r + chance.g ? 1 : 2);
+		float sigma = sigma_t[c];
+		if (step > 0) {
+			float3 before = d;
+			bool guided = rnd() < WALK_GUIDED;
+			d = guided ? sample_dwivedi(ng, v[c]) : sample_phase(before, g);
+			mu = dot(d, ng);
+			phase = phase_hg(dot(before, d), g);
+			if (guided) sigma *= 1.0 - mu / v[c];
+		}
+		float dist = -log(max(1.0 - rnd(), 1e-12)) / sigma;
+		Hit hit;
+		bool out_now = trace(o, d, dist, false, hit);
+		float t_step = out_now ? hit.t : dist;
+		float3 pass = exp(-sigma_t * t_step);
+		// The chance of this step, every way it could have been drawn: stopping at t_step
+		// (scattering) or getting past it (leaving).
+		float3 classic = out_now ? pass : sigma_t * pass;
+		float pdf = dot(chance, classic);
+		if (step > 0) {
+			float3 sigma_g = sigma_t * (1.0 - mu / v);
+			float3 pass_g = exp(-sigma_g * t_step);
+			float3 guided_t = out_now ? pass_g : sigma_g * pass_g;
+			float3 dir_g = float3(dwivedi_pdf(mu, v.x), dwivedi_pdf(mu, v.y), dwivedi_pdf(mu, v.z));
+			pdf = dot(chance, WALK_GUIDED * dir_g * guided_t + (1.0 - WALK_GUIDED) * phase * classic);
+		}
+		if (out_now) {
+			// Out: the light got this far without scattering again.
+			through *= phase * pass / max(pdf, 1e-12);
+			uint ia = indices[3u * hit.tri], ib = indices[3u * hit.tri + 1u], ic = indices[3u * hit.tri + 2u];
+			uint base = items[hit.item].offs.x;
+			float4x4 model = items[hit.item].model;
+			float3 p0 = vertex(base + ia), p1 = vertex(base + ib), p2 = vertex(base + ic);
+			float w0 = 1.0 - hit.uv.x - hit.uv.y;
+			p_out = (mul(float4(p0 * w0 + p1 * hit.uv.x + p2 * hit.uv.y, 1.0), model)).xyz;
+			ng_out = normalize(mul(cross(p1 - p0, p2 - p0), (float3x3)model));
+			if (dot(ng_out, d) < 0.0) ng_out = -ng_out;
+			float3 nm = vertex_normal(base + ia) * w0 + vertex_normal(base + ib) * hit.uv.x + vertex_normal(base + ic) * hit.uv.y;
+			n_out = normalize(mul(nm, (float3x3)model));
+			if (dot(n_out, ng_out) < 0.0) n_out = -n_out;
+			weight *= through;
+			return true;
+		}
+		// Scattered here: what was not absorbed, over the chance of stopping here.
+		through *= phase * albedo * sigma_t * pass / max(pdf, 1e-12);
+		o += d * dist;
+		// Russian roulette once the walk is long, by how much it still carries.
+		if (step >= 8) {
+			float q = clamp(max(through.r, max(through.g, through.b)), 0.05, 0.95);
+			if (rnd() > q) return false;
+			through /= q;
+		}
+	}
+	return false;
 }
 
 // A direction in the cone of cosine `cos_max` about `axis`, uniformly.
@@ -924,14 +1158,17 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 
 		float3 albedo = items[hit.item].color.rgb;
 		float2 surf = items[hit.item].surface.xy;
+		// Which of the item's materials the hit takes (slot 0 its own) in its table.
+		uint table = items[hit.item].offs.w, material = 0u;
 		if ((flags & (ITEM_PAINT | ITEM_GROUPS | ITEM_SLOTS)) != 0u) {
 			// The group from the corner the triangle is drawn from, as mesh.vert.slang takes it.
 			uint group = vertex_paint(base + ia).y & 0xFFFFu;
 			if ((flags & ITEM_SLOTS) != 0u) {
 				for (uint k = 1u; k < 16u; k++) {
 					if (items[hit.item].slot_group[k >> 2][k & 3u] == group) {
-						albedo = items[hit.item].slot_color[k].rgb;
-						surf = items[hit.item].slot_surface[k].xy;
+						albedo = material_row(table, k, 0u).rgb;
+						surf = material_row(table, k, 1u).xy;
+						material = k;
 					}
 				}
 			}
@@ -1026,11 +1263,73 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 			guide_a = float4(albedo, 1.0);
 			guide_n = float4(n, hit.t);
 		}
-		Surface s;
 		float metallic = clamp(surf.x, 0.0, 1.0);
-		s.diffuse = albedo * (1.0 - metallic);
-		s.f0 = lerp(float3(0.04), albedo, metallic);
-		s.a = max(surf.y * surf.y, 1e-3);
+		Surface s = surface_plain(albedo * (1.0 - metallic), lerp(float3(0.04), albedo, metallic), max(surf.y * surf.y, 1e-3));
+		if ((flags & ITEM_LAYERS) != 0u) {
+			// The material's layers (rows 4 to 9 of its table, geom.Material_Layers): the
+			// base's reflectance from its IOR and specular weight, the coat, sheen, and the
+			// light it gives off, which a path meeting it gathers (no light estimate aims
+			// at a glowing surface, so nothing counts it twice).
+			float4 coat = material_row(table, material, 4u);
+			float4 sheen = material_row(table, material, 5u);
+			float4 glow = material_row(table, material, 6u);
+			float sheen_r = material_row(table, material, 8u).z;
+			float lessen = material_row(table, material, 9u).w;
+			float r0 = (coat.w - 1.0) / (coat.w + 1.0);
+			s.f0 = lerp(float3(r0 * r0 * (1.0 - lessen)), albedo, metallic);
+			float c0 = (coat.z - 1.0) / (coat.z + 1.0);
+			s.coat = coat.x;
+			s.coat_a = max(coat.y * coat.y, 1e-3);
+			s.coat_f0 = c0 * c0;
+			s.sheen = sheen.rgb * sheen.w;
+			s.sheen_a = max(sheen_r * sheen_r, 1e-3);
+			radiance += weight * (glow.rgb * glow.w);
+		}
+
+		// What the subsurface branch below changes, so the lighting, sampling and leaving of
+		// the loop stay in the one tail after it: a branch holding a break or continue of
+		// its own is not folded away when the kernel is specialised to a scene without
+		// subsurface materials, and cost such a kernel half its speed (kernel_stats.py).
+		bool absorbed = false;
+		float lobe = 1.0;
+		if ((flags & ITEM_SUBSURFACE) != 0u) {
+			// With the chance of its subsurface weight this path's diffuse part goes in
+			// under the surface instead of off it, so on average the surface shows its
+			// specular, the weight's share scattered inside and the rest as diffuse.
+			float4 scatter = material_row(table, material, 2u);
+			float sss = scatter.w * (1.0 - metallic);
+			if (sss > 0.0 && rnd() < sss) {
+				// Off the surface by the specular lobe, or in, chosen by how bright each is.
+				// Each counts for its chance's worth more, its light (next-event estimation)
+				// included, so the tail below lights and samples whichever was picked: a
+				// second light estimate here would be another ray query site, which RADV
+				// keeps registers for even where the branch is folded away.
+				Surface inside = s;
+				inside.diffuse = albedo * scatter.rgb;
+				float n_dot_v = max(dot(n, v), 1e-4);
+				float ps = specular_chance(inside, n_dot_v);
+				if (rnd() < ps) {
+					s.diffuse = float3(0.0);
+					weight /= ps;
+					lobe = ps;
+				} else {
+					float4 reach = material_row(table, material, 3u);
+					float g = material_row(table, material, 8u).w;
+					float3 radius = reach.rgb * (reach.w * length(model[0].xyz));
+					weight *= (1.0 - fresnel(s.f0, n_dot_v)) / (1.0 - ps);
+					float3 p_out, ng_out, n_out;
+					absorbed = !subsurface_walk(p, ng, albedo * scatter.rgb, radius, g, weight, p_out, ng_out, n_out);
+					// Out again as a white Lambert surface (the walk carries the colour),
+					// shaded and continued below as any surface is.
+					s = surface_plain(float3(1.0), float3(0.0), 1.0);
+					p = p_out;
+					ng = ng_out;
+					n = n_out;
+					v = n_out;
+				}
+			}
+		}
+		if (absorbed) break;
 
 		radiance += weight * direct_light(s, p, ng, n, v);
 
@@ -1039,6 +1338,9 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 		float3 f = bsdf_eval(s, n, v, l, pdf_bsdf);
 		if (pdf_bsdf <= 0.0) break;
 		weight *= f / pdf_bsdf;
+		// A lobe picked with chance `lobe` (its weight already divided by it) has that
+		// chance in its pdf when weighed against the lights it meets.
+		pdf_bsdf *= lobe;
 		o = offset_ray(p, ng);
 		d = l;
 		// Russian roulette from the third bounce on, by how much the path still carries.

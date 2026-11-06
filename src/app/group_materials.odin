@@ -107,6 +107,7 @@ object_material_slots :: proc(app: ^App, obj: ^Object, i: int) -> ^render.Materi
 		slots.uniforms.color[k + 1] = material_draw_tint(app, obj, i, m)
 		slots.uniforms.params[k + 1] = m.shading if m.shading != {} else render.DEFAULT_MATERIAL
 		slots.uniforms.surface[k + 1] = {m.metallic, m.roughness, 0, 0}
+		slots.layers[k + 1] = material_layers_drawn(m)
 	}
 	return slots
 }

@@ -852,6 +852,20 @@ settings_load :: proc(app: ^App, path: string) {
 				if k := pack_matcap_by_ref(app, preset_unescape(f[6])); k >= 0 do c.matcap = PACK_MATCAP + k
 				if c.matcap != 0 do c.idle = MATCAP_IDLE
 			}
+		case "custom_layers":
+			// custom_layers and 32 numbers: Custom's geom.Material_Layers in field order. A line
+			// with a value no material has is passed over whole.
+			if len(f) == 1 + CUSTOM_LAYER_VALUES {
+				values: [32]f32
+				parsed := true
+				for k in 0 ..< CUSTOM_LAYER_VALUES {
+					v, ok := strconv.parse_f32(f[1 + k])
+					parsed &&= ok
+					values[k] = v
+				}
+				l := transmute(geom.Material_Layers)values
+				if parsed && geom.material_layers_valid(l) do app.custom.layers = l
+			}
 		case "matcap_image":
 			// matcap_image <path, escaped>: the image Load MatCap loaded last.
 			_ = matcap_image_load(app, preset_unescape(f[1]), quiet = true)
@@ -1140,6 +1154,12 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	if refs := material_refs(app, m); refs.matcap != "" do matcap = preset_escape(refs.matcap)
 	else if m.matcap >= PACK_MATCAP do matcap = "0"
 	fmt.sbprintfln(&out, "custom_material %g %g %g %g %g %s", m.selected.r, m.selected.g, m.selected.b, m.metallic, m.roughness, matcap)
+	if m.layers != {} {
+		values := transmute([32]f32)m.layers
+		fmt.sbprint(&out, "custom_layers")
+		for v in values[:CUSTOM_LAYER_VALUES] do fmt.sbprintf(&out, " %g", v)
+		fmt.sbprintln(&out)
+	}
 	if app.matcap_path != "" do fmt.sbprintfln(&out, "matcap_image %s", preset_escape(app.matcap_path))
 	if app.env.path != "" do fmt.sbprintfln(&out, "environment_image %s", preset_escape(app.env.path))
 	for p in app.env.recent do fmt.sbprintfln(&out, "environment_recent %s", preset_escape(p))

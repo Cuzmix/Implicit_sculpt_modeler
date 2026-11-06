@@ -202,7 +202,16 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   (scripted runs), up to 8 kept. A new feature's flag must reach Render_Features, or its variant folds it away.
   Textured items (ITEM_TEXTURED): `Textured_Mesh.corners` (geom.quad_mesh_triangle_corners, 3 slots a base-level
   triangle in its own corner order, uploaded with the preview) and its vertices are gpu-copied into Scene_Buffer
-  `.Textured` (the 8th storage buffer: the per-stage limit is 8, none left). `Item_Record.tex` = first tri, corner
+  `.Textured` (the 8th storage buffer: the per-stage limit is 8, none left). Materials past an item's own colour
+  and surface live in a table after the chunks in `.Chunks` (`path_material_rows`; `Item_Record.offs.w` its first
+  row, 0 none): `MATERIAL_ROWS` (10) uint4 a material (colour, surface, the 8 rows of `geom.Material_Layers`), slot 0
+  the item's own, slots 1-15 its groups', only for items with group slots or layers; the kernel reads them with
+  `material_row(table, k, row)`, so a new per-material value is a layer row, never a new buffer.
+  Subsurface (`ITEM_SUBSURFACE`, folded through `RT_ITEMS`): a random walk inside the mesh (Chiang 2016) in `main`'s
+  loop. Every `trace` shares one module-level `RayQuery` (`trace_query`): RADV gives each query object registers
+  even in a folded branch, and a query per call cost the plain kernel half its waves. Keep `break`/`continue` and
+  new `trace`/`direct_light` calls out of feature branches (set variables, let the shared tail act): either kept
+  the plain kernels from folding the branch away. Check with `kernel_stats.py --set plain=0:0` against the base. `Item_Record.tex` = first tri, corner
   base, vertex base, min(slot,3)|view<<4|maps<<8|slot<<16. Two kernels share `render_trace.slang`: `render_trace.comp`
   binds 9 named samplers `map0..map8` through a switch (RENDER_TEXTURED_MAX 3, 14 of 16 samplers; every backend; its
   .spv must stay byte-identical when the include changes), and `render_trace_maps.comp` (MAP_ARRAY, first line
