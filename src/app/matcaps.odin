@@ -22,38 +22,50 @@ import "../geom"
 
 MATCAP_SIZE :: 256
 
-// One built-in matcap: a sphere lit by a key light from the upper left, a sky above and a
-// bounce from below, with a sharp highlight, a broad sheen and a rim, all in linear light.
+// One built-in matcap: a sphere lit by one soft key light from the upper left front, as a
+// large softbox, with a faint sky. The light's value (0 to 1) picks the colour from a ramp,
+// as wax and clay photograph: Red wax goes from saturated orange-red in the shadow to a pale
+// pink on top, while oil clay keeps one low saturation all the way. Toward the silhouette
+// the value only falls, so the edge reads as a dark outline and never as a rim; a broad,
+// dim gloss in the material's tint sits on the lit side and never reaches the edge.
 Matcap_Recipe :: struct {
 	label:       cstring,
-	base:        [3]f32, // the surface's colour
-	scatter:     [3]f32, // light that glows along the shadow's edge, as in wax and skin
-	wrap:        f32, // how far the key light reaches past the side facing it
-	sky, ground: f32, // light from above and from below, times base
-	occlusion:   f32, // how much the light falls off toward the silhouette, as round forms do
-	spec:        f32, // the sharp highlight's strength and tightness
-	spec_power:  f32,
-	sheen:       f32, // a broad gloss over the lit side
-	sheen_power: f32,
-	rim:         [3]f32, // light catching the edge, and how tight to it
-	rim_power:   f32,
-	bands:       int, // more than 1: cel shading in this many tones, hard-edged highlight and rim
+	// The colours at evenly spaced light values from 0 (full shadow) to 1 (full light),
+	// sRGB as a picker shows them, blended in linear light.
+	ramp:        [MATCAP_STOPS][3]u8,
+	softness:    f32, // the half-Lambert's exponent: higher keeps more of the sphere in shade
+	key:         f32, // the key light's share of the value
+	sky:         f32, // a faint light from above, so the underside is not flat black
+	edge:        f32, // how far the value falls toward the silhouette
+	broad:       f32, // a wide, dim gloss, as satin clay and wax have
+	broad_power: f32,
+	tight:       f32, // a smaller gloss inside it, never a white dot except on Toon
+	tight_power: f32,
+	gloss:       [3]u8, // the gloss's tint, sRGB
+	bands:       int, // more than 1: cel shading in this many tones and a hard-edged highlight
 }
+
+// The ramp's stops: enough for the hue to drift between shadow and light without banding.
+MATCAP_STOPS :: 9
 
 @(rodata)
 MATCAP_RECIPES := [?]Matcap_Recipe {
-	// ZBrush's red wax: saturated, translucent at the terminator, glossy.
-	{"Red wax", {0.42, 0.045, 0.03}, {0.30, 0.03, 0.015}, 0.40, 0.22, 0.04, 0.30, 0.55, 140, 0.10, 10, {0.20, 0.07, 0.05}, 3, 0},
-	// Matte sculptor's clay with a cool rim, close to ZBrush's MatCap Gray in feel.
-	{"Clay", {0.46, 0.32, 0.23}, {0.05, 0.015, 0.005}, 0.12, 0.20, 0.03, 0.55, 0.05, 30, 0.05, 6, {0.10, 0.11, 0.13}, 2.5, 0},
-	// A neutral studio grey with a soft top light, as Blender's default matcap.
-	{"Grey", {0.40, 0.40, 0.41}, {}, 0.18, 0.28, 0.03, 0.50, 0.22, 70, 0.08, 8, {0.16, 0.17, 0.20}, 4, 0},
-	// Warm skin with red light along the shadow's edge and a slight oily sheen.
-	{"Skin", {0.58, 0.34, 0.25}, {0.22, 0.04, 0.02}, 0.45, 0.20, 0.04, 0.40, 0.14, 45, 0.08, 8, {0.22, 0.14, 0.12}, 3, 0},
-	// Pale, glossy and cool at the rim, which shows small forms and tool marks hard.
-	{"Pearl", {0.62, 0.61, 0.60}, {0.05, 0.03, 0.06}, 0.15, 0.35, 0.06, 0.40, 0.45, 90, 0.16, 10, {0.30, 0.24, 0.40}, 3, 0},
-	// Cel shading in three tones with a hard highlight and rim, for stylised work.
-	{"Toon", {0.55, 0.58, 0.70}, {}, 0.25, 0.25, 0.10, 0, 1.0, 120, 0, 1, {0.45, 0.48, 0.60}, 5, 3},
+	// ZBrush's red wax, its colours measured from a ZBrush screenshot band by band: the
+	// shadow saturated orange-red, the light a desaturated pink, no hot spot.
+	{"Red wax", {{22, 5, 2}, {52, 16, 8}, {80, 31, 22}, {104, 46, 36}, {122, 63, 54}, {136, 80, 74}, {150, 98, 95}, {164, 117, 119}, {185, 140, 142}}, 2.6, 0.95, 0.08, 0.5, 0.07, 7, 0.05, 36, {255, 205, 205}, 0},
+	// Oil-based sculpting clay as scanned for ZBrush's clay materials: low, even saturation,
+	// a satin sheen, crevices that fall almost to black. Brown is the classic modelling clay.
+	{"Brown clay", {{30, 20, 14}, {59, 42, 32}, {81, 57, 46}, {101, 71, 59}, {122, 87, 72}, {140, 101, 86}, {158, 118, 102}, {178, 138, 122}, {196, 160, 146}}, 2.4, 0.95, 0.08, 0.5, 0.05, 14, 0.045, 70, {245, 200, 182}, 0},
+	// The same clay in a neutral, barely cool grey: the matcap the plain Solid view uses.
+	{"Grey clay", {{22, 25, 25}, {46, 49, 49}, {68, 72, 72}, {89, 93, 94}, {109, 114, 114}, {129, 134, 135}, {149, 153, 154}, {170, 174, 174}, {194, 196, 197}}, 2.4, 0.95, 0.08, 0.5, 0.05, 14, 0.045, 70, {242, 245, 246}, 0},
+	// The same clay in olive green, the colour of the older oil clays.
+	{"Green clay", {{22, 24, 19}, {46, 48, 40}, {63, 65, 54}, {77, 79, 67}, {95, 98, 82}, {113, 116, 96}, {131, 134, 112}, {146, 149, 128}, {160, 163, 142}}, 2.4, 0.95, 0.08, 0.5, 0.05, 14, 0.045, 70, {200, 203, 177}, 0},
+	// Warm skin: a red-brown shadow warming to peach, with a slight oily sheen.
+	{"Skin", {{40, 12, 8}, {82, 34, 24}, {117, 58, 42}, {154, 84, 63}, {184, 118, 93}, {208, 146, 119}, {224, 173, 150}, {235, 194, 175}, {244, 212, 196}}, 2.2, 0.95, 0.1, 0.45, 0.06, 10, 0.04, 50, {255, 230, 220}, 0},
+	// Pale and glossy with cool shade, which shows small forms and tool marks hard.
+	{"Pearl", {{40, 38, 48}, {85, 83, 92}, {111, 109, 119}, {142, 140, 147}, {171, 169, 174}, {194, 192, 196}, {212, 210, 212}, {228, 226, 226}, {240, 238, 236}}, 2.2, 0.95, 0.12, 0.45, 0.12, 10, 0.1, 60, {255, 250, 255}, 0},
+	// Cel shading in three tones with a hard highlight, for stylised work.
+	{"Toon", {{60, 64, 84}, {89, 93, 114}, {109, 114, 136}, {126, 131, 154}, {140, 146, 170}, {160, 165, 187}, {176, 182, 202}, {191, 197, 215}, {205, 210, 228}}, 3, 0.9, 0.1, 0.3, 0, 1, 0.5, 120, {255, 255, 255}, 3},
 }
 
 // Material.matcap's value for the image loaded with Load MatCap; 1 + an index into
@@ -62,7 +74,7 @@ MATCAP_IMAGE :: len(MATCAP_RECIPES) + 1
 
 // The light every built-in matcap shares, in view space (toward the upper left, toward
 // the viewer), so switching matcaps keeps the shadows where they were.
-MATCAP_KEY :: [3]f32{-0.6, 0.7, 0.38}
+MATCAP_KEY :: [3]f32{-0.45, 0.62, 0.64}
 
 // Paints `recipe` into `out` (size by size RGBA8 sRGB, rows top to bottom). Outside the
 // sphere each pixel takes the edge's colour, so filtering at the rim finds no background.
@@ -91,27 +103,36 @@ matcap_paint :: proc(recipe: Matcap_Recipe, size: int, out: []u8) {
 // The linear colour of the recipe's sphere where its normal is `n`.
 @(private = "file")
 matcap_light :: proc(m: Matcap_Recipe, n, key, half: [3]f32) -> [3]f32 {
-	d := linalg.dot(n, key)
-	diffuse := clamp((d + m.wrap) / (1 + m.wrap), 0, 1)
-	spec := math.pow(max(linalg.dot(n, half), 0), m.spec_power)
-	rim := math.pow(1 - n.z, m.rim_power)
+	// A raised half-Lambert: a wide terminator with no hard line to alias on fine forms.
+	lit := math.pow(clamp(linalg.dot(n, key) * 0.5 + 0.5, 0, 1), m.softness)
+	edge := 1 - m.edge * (1 - n.z) * (1 - n.z)
+	v := clamp((lit * m.key + m.sky * (n.y * 0.5 + 0.5)) * edge, 0, 1)
+	nh := max(linalg.dot(n, half), 0)
+	spec := m.broad * math.pow(nh, m.broad_power) + m.tight * math.pow(nh, m.tight_power)
 	if m.bands > 1 {
 		// Cel shading: the light in steps, each edge a little soft so it stays smooth
-		// when filtered, and the highlight and rim as hard shapes.
+		// when filtered, and the highlight as a hard shape.
 		steps := f32(m.bands - 1)
-		t := diffuse * steps
-		diffuse = (math.floor(t) + math.smoothstep(f32(0.45), 0.55, t - math.floor(t))) / steps
-		spec = math.smoothstep(f32(0.5), 0.56, spec)
-		rim = math.smoothstep(f32(0.35), 0.42, rim)
+		t := v * steps
+		v = (math.floor(t) + math.smoothstep(f32(0.45), 0.55, t - math.floor(t))) / steps
+		spec = m.tight * math.smoothstep(f32(0.5), 0.56, math.pow(nh, m.tight_power))
 	}
-	hemi := m.ground + (m.sky - m.ground) * (n.y * 0.5 + 0.5)
-	// The scatter glows where the light grazes the surface and fades into the shadow.
-	glow := math.exp(-(d - 0.05) * (d - 0.05) / 0.06)
-	edge := 1 - m.occlusion * (1 - n.z) * (1 - n.z)
-	c := m.base * (diffuse + hemi) * edge + m.scatter * glow
-	c += m.spec * spec + m.sheen * math.pow(max(linalg.dot(n, half), 0), m.sheen_power)
-	c += m.rim * rim
-	return c
+	at := v * (MATCAP_STOPS - 1)
+	i := min(int(at), MATCAP_STOPS - 2)
+	f := at - f32(i)
+	c := matcap_linear(m.ramp[i]) * (1 - f) + matcap_linear(m.ramp[i + 1]) * f
+	return c + matcap_linear(m.gloss) * (spec * edge)
+}
+
+// An sRGB colour as linear light.
+@(private = "file")
+matcap_linear :: proc(c: [3]u8) -> [3]f32 {
+	return {geom.srgb_decode(f32(c.r) / 255), geom.srgb_decode(f32(c.g) / 255), geom.srgb_decode(f32(c.b) / 255)}
+}
+
+// The recipe's middle colour in linear light, what an export writes as the base colour.
+matcap_base :: proc(m: Matcap_Recipe) -> [3]f32 {
+	return matcap_linear(m.ramp[MATCAP_STOPS / 2])
 }
 
 // Paints the built-in matcaps into textures; one that cannot be made stays nil, and its

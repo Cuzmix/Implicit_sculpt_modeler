@@ -1,4 +1,4 @@
-// slangc wgsl from skin.frag.spv sha256 83db51ce87738d4c3c4ed4126d8d09652fbcc04fa5d5126cc067fee61cb73a5e
+// slangc wgsl from skin.frag.spv sha256 ceb0f011070b1c2f39305f481956c0bfc030f2638cfb97463cb2c06ca4d86ab2
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Material_Uniforms_std140_0
 {
@@ -683,7 +683,7 @@ fn main( _S50 : pixelInput_0, @builtin(position) position_0 : vec4<f32>, @builti
             {
                 if(view_pass_0 == i32(3))
                 {
-                    var k_4 : f32 = clamp(bend_0 / 0.11999999731779099f, -1.0f, 1.0f);
+                    var k_4 : f32 = clamp(bend_0 / 0.23999999463558197f, -1.0f, 1.0f);
                     if(k_4 > 0.0f)
                     {
                         k_3 = k_4 * smoothstep(0.10000000149011612f, 0.40000000596046448f, max(dot(n_9, v_6), 0.0f));
@@ -735,7 +735,7 @@ fn main( _S50 : pixelInput_0, @builtin(position) position_0 : vec4<f32>, @builti
     }
     var _S60 : f32 = dot(n_9, v_6);
     var _S61 : f32 = max(_S60, 0.0f);
-    var relief_0 : f32 = (1.0f - 0.75f * (Material_Uniforms_0.look_0.y * smoothstep(0.00999999977648258f, 0.11999999731779099f, - bend_0))) * (1.0f + 0.60000002384185791f * (Material_Uniforms_0.look_0.z * smoothstep(0.00999999977648258f, 0.11999999731779099f, bend_0) * smoothstep(0.10000000149011612f, 0.40000000596046448f, _S61)));
+    var relief_0 : f32 = (1.0f - 0.75f * (Material_Uniforms_0.look_0.y * smoothstep(0.01999999955296516f, 0.23999999463558197f, - bend_0))) * (1.0f + 0.60000002384185791f * (Material_Uniforms_0.look_0.z * smoothstep(0.01999999955296516f, 0.23999999463558197f, bend_0) * smoothstep(0.10000000149011612f, 0.40000000596046448f, _S61)));
     var _S62 : vec3<f32> = mix(base_0.xyz, frag_in_0.paint_0.xyz, vec3<f32>(frag_in_0.paint_0.w));
     if((frag_in_0.group_0.x) >= 0.0f)
     {

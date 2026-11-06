@@ -48,7 +48,7 @@ matcap_presets_name_their_pictures :: proc(t: ^testing.T) {
 	testing.expect_value(t, MATERIALS[index].matcap, 1)
 	app: App
 	testing.expect(t, material_matcap(&app, MATERIALS[0]) == 0)
-	testing.expect_value(t, matcap_label(&app, 6), "Toon")
+	testing.expect_value(t, matcap_label(&app, 7), "Toon")
 	testing.expect_value(t, matcap_label(&app, MATCAP_IMAGE), "image")
 }
 
@@ -79,4 +79,23 @@ matcap_images_become_rgba8 :: proc(t: ^testing.T) {
 
 	odd := image.Image{width = 1, height = 1, channels = 3, depth = 1}
 	testing.expect(t, !image_rgba8(&odd, out[:4]))
+}
+
+// No built-in matcap draws a rim: from the middle out to the silhouette on the shadow
+// side (lower right), the picture only gets darker, so an edge never shows a second bright
+// line as the old recipes' scatter band and rim did.
+@(test)
+matcaps_darken_toward_the_shadow_edge :: proc(t: ^testing.T) {
+	N :: 64
+	pixels: [N * N * 4]u8
+	for recipe in MATCAP_RECIPES {
+		matcap_paint(recipe, N, pixels[:])
+		last := 1 << 30
+		for i in N / 2 ..< N - 1 {
+			at := (i * N + i) * 4
+			b := int(pixels[at]) + int(pixels[at + 1]) + int(pixels[at + 2])
+			testing.expectf(t, b <= last + 1, "%s: brighter again at %d (%d after %d)", recipe.label, i, b, last)
+			last = b
+		}
+	}
 }

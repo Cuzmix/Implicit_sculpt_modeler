@@ -249,9 +249,11 @@ float curvature(float3 n, float3 p) {
 }
 
 // Turns per pixel below CURVE_START leave the shading alone, so smooth broad forms are
-// untouched; by CURVE_FULL a crease or ridge takes the whole strength.
-static const float CURVE_START = 0.01;
-static const float CURVE_FULL = 0.12;
+// untouched; by CURVE_FULL a crease or ridge takes the whole strength. The ramp is wide, as
+// ZBrush's cavity is, so the small bends a dense mesh's triangles make across a pixel stay
+// near zero instead of drawing dark hairlines along the edges.
+static const float CURVE_START = 0.02;
+static const float CURVE_FULL = 0.24;
 
 // One light's GGX (Trowbridge-Reitz) specular and Lambert diffuse, Cook-Torrance style;
 // `shine` scales the specular, the light's Highlight (1 as usual).

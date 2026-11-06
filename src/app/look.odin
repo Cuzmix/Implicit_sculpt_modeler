@@ -50,7 +50,7 @@ look_studio_apply :: proc(app: ^App) {
 	app.start_lights = lights
 	app.scene.lights = lights
 	app.background = LOOK_BACKGROUND_STUDIO
-	app.cavity, app.ridge = 0.7, RIDGE_DEFAULT
+	app.cavity, app.ridge = CAVITY_DEFAULT, RIDGE_DEFAULT
 	app.styled, app.rim, app.underside = true, RIM_DEFAULT, UNDERSIDE_DEFAULT
 	app.live_ao_on = true
 	app.studio_ao = 1

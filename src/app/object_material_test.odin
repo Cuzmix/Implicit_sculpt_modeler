@@ -166,10 +166,10 @@ materials_export_in_metallic_roughness_terms :: proc(t: ^testing.T) {
 	// A sharper highlight is smoother.
 	grey, _ := material_by_name("grey")
 	testing.expect(t, export_material(MATERIALS[grey]).roughness < clay.roughness)
-	toon := MATERIALS[FIRST_MATCAP + 5]
+	toon := MATERIALS[FIRST_MATCAP + 6]
 	toon.selected = {0.5, 1, 1, 1}
 	e := export_material(toon)
-	testing.expect_value(t, e.base, MATCAP_RECIPES[5].base * [3]f32{0.5, 1, 1})
+	testing.expect_value(t, e.base, matcap_base(MATCAP_RECIPES[6]) * [3]f32{0.5, 1, 1})
 	testing.expect_value(t, e.metallic, 0)
 	image := export_material({label = "Custom", selected = {1, 1, 1, 1}, matcap = MATCAP_IMAGE})
 	testing.expect(t, image.base == 0.5 && image.roughness == 0.5 && image.name == "Custom")
