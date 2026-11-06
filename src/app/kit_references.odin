@@ -83,6 +83,11 @@ Ref_Board :: struct {
 	middle_pan:    bool,
 	box_from:      [2]f32,
 	box_base:      [dynamic]u32,
+	// The press under way raised the picked places (its `before` is the order it found)
+	// and its drag moved them; a raise over the view waits for the view's loop to end.
+	raised:        bool,
+	moved:         bool,
+	view_raise:    u32,
 }
 
 CROP_LEFT :: 1
@@ -717,6 +722,10 @@ refs_card_menus :: proc(app: ^App) {
 			refs_edit(app, .Lock)
 			b.more_menu = false
 		}
+		if ui.menu_item(ctx, "Send to back##refs more", glyph = ICON_SEND_TO_BACK, enabled = len(b.selected) > 0, hint = "Under the others; picking one brings it to the front") {
+			refs_send_back_selected(app)
+			b.more_menu = false
+		}
 		if ui.menu_item(ctx, "Delete##refs more", glyph = ICON_TRASH_2, tone = .Danger, enabled = len(b.selected) > 0) {
 			refs_delete_selected(app)
 			b.more_menu = false
@@ -771,6 +780,10 @@ refs_board_menu :: proc(app: ^App) {
 		locked := refs_picked_all(app, proc(r: Ref) -> bool {return r.locked})
 		if ui.menu_item(ctx, "Unlock##refs board" if locked else "Lock##refs board", glyph = ICON_LOCK if locked else ICON_LOCK_OPEN) {
 			refs_edit(app, .Lock)
+			b.board_menu = false
+		}
+		if ui.menu_item(ctx, "Send to back##refs board", glyph = ICON_SEND_TO_BACK) {
+			refs_send_back_selected(app)
 			b.board_menu = false
 		}
 		if ui.menu_item(ctx, "Delete##refs board", glyph = ICON_TRASH_2, tone = .Danger) {
@@ -1034,6 +1047,15 @@ board_input :: proc(app: ^App, a: ui.Area) {
 				append(&b.selected, id)
 			}
 			b.drag = .Move if board_picked(b, id) && !refs.refs[hit].locked else .Pan
+			// A picked place comes to the top and stays there; the drag that follows lists
+			// the raise with its move as one undo step, a tap as one of its own.
+			if b.drag == .Move {
+				order := refs_clone(refs.refs[:])
+				if refs_bring_front(&refs.refs, b.selected[:], id) {
+					delete(b.before)
+					b.before, b.raised = order, true
+				} else do delete(order)
+			}
 		case ctx.input.pointer == .Mouse:
 			// A mouse's drag from the ground picks what its box touches, as PureRef's
 			// does; a finger's pans, as a finger expects.
@@ -1046,7 +1068,7 @@ board_input :: proc(app: ^App, a: ui.Area) {
 			if !ctx.input.shift do clear(&b.selected)
 			b.drag = .Pan
 		}
-		if b.drag == .Move || b.drag == .Size || b.drag == .Crop {
+		if (b.drag == .Move || b.drag == .Size || b.drag == .Crop) && !b.raised {
 			delete(b.before)
 			b.before = refs_clone(refs.refs[:])
 		}
@@ -1060,6 +1082,7 @@ board_input :: proc(app: ^App, a: ui.Area) {
 			b.pan -= d / z
 		case .Move:
 			for &p in refs.refs do if board_picked(b, p.id) && !p.locked do p.at += d / z
+			b.moved = true
 		case .Size:
 			if p := board_one(app); p != nil {
 				// The corner follows the pointer along the picture's diagonal, so it keeps its shape.
@@ -1086,12 +1109,18 @@ board_input :: proc(app: ^App, a: ui.Area) {
 		if (b.drag == .Move || b.drag == .Size || b.drag == .Crop) && b.before != nil {
 			if !slice.equal(b.before, refs.refs[:]) {
 				names := [Ref_Drag]string{.None = "", .Pan = "", .Box = "", .Move = "Move reference", .Size = "Size reference", .Crop = "Crop reference"}
-				history_record_refs(app, b.before, names[b.drag])
-				b.moves += 1
+				// A press that only raised the picked places is a step of its own name.
+				if b.drag == .Move && !b.moved {
+					history_record_refs(app, b.before, "Bring reference to front")
+				} else {
+					history_record_refs(app, b.before, names[b.drag])
+					b.moves += 1
+				}
 			} else do delete(b.before)
 			b.before = nil
 		}
 		b.drag = .None
+		b.raised, b.moved = false, false
 	}
 	if a.clicked && b.drag == .None && len(b.selected) == 0 && handle_double_tap(ctx, &b.tap, a.id) do board_fit(app, room)
 }
@@ -1172,6 +1201,7 @@ board_drag_cancel :: proc(app: ^App) {
 	append(&app.scene.refs.refs, ..b.before)
 	delete(b.before)
 	b.before = nil
+	b.raised, b.moved = false, false
 }
 
 // Lucide's image-plus, clipboard-paste, scan and trash-2, image-down, sticky-note,
@@ -1192,3 +1222,5 @@ ICON_GREY :: rune(0xe2b2)
 ICON_TURN :: rune(0xe5d6)
 ICON_CROP :: rune(0xe0af)
 ICON_ON_VIEW :: rune(0xe3b3) // picture-in-picture-2
+// Lucide's send-to-back, for Send to back.
+ICON_SEND_TO_BACK :: rune(0xe4f8)

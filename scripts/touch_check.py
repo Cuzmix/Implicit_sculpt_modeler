@@ -9472,6 +9472,58 @@ def references_board_by_mouse():
     return s, ["--script=reference assets/icon/sculpt-1024.png"], camera_still({"refs_selected": near(1), "refs_grey": near(1), "refs_moves": near(0), "undo_steps": near(1), "dabs": near(0)})
 
 
+# Two pictures added by a script, the clay brush's icon after the app's: on the board the
+# app's (place 1) at the left and the clay's (place 2, picked) at the right.
+REFS_TWO = ["--script=reference assets/icon/sculpt-1024.png; reference assets/brush_icons/clay.png"]
+REFS_BOARD_FIRST = (1305, 450)
+REFS_BOARD_SECOND = (1446, 450)
+
+
+@scenario
+def references_picked_comes_to_the_front():
+    """Two pictures on the References board: a finger taps the first, which comes to the
+    front; both go on the view (the first over the second), a finger drags the first right,
+    taps the uncovered part of the second, which comes to the front over the view too, and
+    taps where they overlap, which finds the second on top: order 1,2, five undo steps
+    (two On view, two raises, one move), and nothing sculpts or turns."""
+    s = Script()
+    s.wait(6)
+    s.ftap("card References/On view")
+    s.wait(4)
+    s.ftap(REFS_BOARD_FIRST)
+    s.wait(4)
+    s.ftap("card References/On view")
+    s.wait(6)
+    s.fdrag([(300 + 24 * k, 300) for k in range(11)])
+    s.wait(4)
+    s.ftap((200, 300))
+    s.wait(4)
+    s.ftap((500, 300))
+    s.wait(6)
+    return s, REFS_TWO, camera_still({"refs_order": is_text("1,2"), "undo_steps": near(5), "refs_moves": near(1), "dabs": near(0)})
+
+
+@scenario
+def references_send_to_back_from_both_menus():
+    """Two pictures on the References board: a finger taps the first (to the front), then
+    the floating edits' More and its Send to back; the mouse's right click on the second
+    opens the board's menu, whose Send to back sends it under: order 2,1, three undo steps,
+    nothing sculpts or turns."""
+    s = Script()
+    s.wait(6)
+    s.ftap(REFS_BOARD_FIRST)
+    s.wait(4)
+    s.ftap("refs edits/More")
+    s.wait(4)
+    s.ftap("refs more menu/Send to back")
+    s.wait(4)
+    s.mouse_drag([REFS_BOARD_SECOND, REFS_BOARD_SECOND], button="right")
+    s.wait(4)
+    s.ftap("refs board menu/Send to back")
+    s.wait(6)
+    return s, REFS_TWO, camera_still({"refs_order": is_text("2,1"), "undo_steps": near(3), "dabs": near(0)})
+
+
 # The References card's resize corner at its own width, on its foot facing the model.
 CARD_CORNER = At("card corner References/Resize References", 1222, 784)
 

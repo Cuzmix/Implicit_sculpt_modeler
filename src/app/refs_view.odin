@@ -62,6 +62,11 @@ refs_view :: proc(app: ^App) {
 			if !p.locked do ui.fill_circle(ctx, {r.x + r.w, r.y + r.h}, board_corner(ctx) * 0.4, t.accent)
 		}
 	}
+	// A place pressed over the view comes to the top, after the loop that drew it.
+	if b.view_raise != 0 {
+		_ = refs_bring_front(&refs.refs, b.selected[:], b.view_raise)
+		b.view_raise = 0
+	}
 }
 
 // The pointer on place `p` over the view, through its area `a`: a press picks it on the
@@ -93,11 +98,15 @@ refs_view_input :: proc(app: ^App, p: ^Ref, a: ui.Area) {
 		if b.view_drag != .None {
 			delete(b.before)
 			b.before = refs_clone(app.scene.refs.refs[:])
+			// It comes to the top once the loop over the places is done (refs_view), and the
+			// drag's undo step holds the raise too.
+			b.view_raise = p.id
 		}
 	}
 	if b.view_id != p.id do return
 	if a.held && a.mouse != b.view_last {
 		d := a.mouse - b.view_last
+		b.moved = true
 		#partial switch b.view_drag {
 		case .Move:
 			p.view_at += d / [2]f32{main.w, main.h}
@@ -115,13 +124,18 @@ refs_view_input :: proc(app: ^App, p: ^Ref, a: ui.Area) {
 	if !a.held && b.view_drag != .None {
 		if b.before != nil {
 			if !slice.equal(b.before, app.scene.refs.refs[:]) {
-				history_record_refs(app, b.before, "Move reference on view" if b.view_drag == .Move else "Size reference on view")
-				b.moves += 1
+				if !b.moved {
+					history_record_refs(app, b.before, "Bring reference to front")
+				} else {
+					history_record_refs(app, b.before, "Move reference on view" if b.view_drag == .Move else "Size reference on view")
+					b.moves += 1
+				}
 			} else do delete(b.before)
 			b.before = nil
 		}
 		b.view_drag = .None
 		b.view_id = 0
+		b.moved = false
 	}
 }
 
