@@ -48,6 +48,14 @@ MATERIALS := [?]Material {
 	{"Ceramic", {0.70, 0.69, 0.66, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.12, 0, 0, {}},
 	{"Rubber", {0.025, 0.025, 0.025, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.85, 0, 0, {}},
 	{"PBR clay", {0.55, 0.40, 0.32, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.60, 0, 0, {}},
+	// Materials light passes into, which Full render scatters under the surface (the
+	// Material_Layers' subsurface): the base colour is the colour seen, and how far light
+	// travels inside, per channel, in mesh units (an imported model's radius is 1). Wax
+	// carries red and green furthest, jade green, milk and marble nearly evenly.
+	{"Wax", {0.80, 0.62, 0.38, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.35, 0, 0, {subsurface_color = 1, subsurface_weight = 1, subsurface_radius = {1, 0.75, 0.4}, subsurface_scale = 0.12}},
+	{"Jade", {0.24, 0.55, 0.34, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.22, 0, 0, {subsurface_color = 1, subsurface_weight = 1, subsurface_radius = {0.5, 1, 0.6}, subsurface_scale = 0.08}},
+	{"Marble", {0.84, 0.83, 0.79, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.18, 0, 0, {subsurface_color = 1, subsurface_weight = 1, subsurface_radius = {1, 0.92, 0.8}, subsurface_scale = 0.04}},
+	{"Milk", {0.90, 0.88, 0.80, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.30, 0, 0, {subsurface_color = 1, subsurface_weight = 1, subsurface_radius = {1, 0.9, 0.7}, subsurface_scale = 0.15}},
 	// The matcaps, in white so their pictures show as painted.
 	{"Red wax MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 1, 0, {}},
 	{"Brown clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 2, 0, {}},
@@ -61,7 +69,7 @@ MATERIALS := [?]Material {
 // The index of the first physically based material, where the View menu starts a new group.
 FIRST_PBR :: 6
 // The index of the first matcap, where the next group starts.
-FIRST_MATCAP :: 14
+FIRST_MATCAP :: 18
 
 // app.material's value for the material the View > Material sliders made (app.custom).
 CUSTOM_MATERIAL :: len(MATERIALS)

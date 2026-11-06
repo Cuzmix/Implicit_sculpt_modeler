@@ -93,10 +93,14 @@ ITEM_SKINNED :: 16
 // Its paint has roughness and metal (Mesh_Buffers.paint_material), copied after the paint.
 @(private = "file")
 ITEM_MATERIAL :: 32
+// A material in its table scatters light under the surface (render_trace.slang's
+// subsurface_walk), so a scene with none folds the walk away.
+@(private = "file")
+ITEM_SUBSURFACE :: 64
 @(private = "file")
 ITEM_SKIN_SHIFT :: 8
 @(private = "file")
-ITEM_ALL :: ITEM_PAINT | ITEM_GROUPS | ITEM_SLOTS | ITEM_TEXTURED | ITEM_SKINNED | ITEM_MATERIAL
+ITEM_ALL :: ITEM_PAINT | ITEM_GROUPS | ITEM_SLOTS | ITEM_TEXTURED | ITEM_SKINNED | ITEM_MATERIAL | ITEM_SUBSURFACE
 
 // Which of render_trace.slang's features a run's scene uses, its RT_ constants: the item
 // flags any item carries, an image environment, the lens and lights with a place (traced
@@ -1279,24 +1283,28 @@ MATERIAL_ROWS :: 2 + size_of(geom.Material_Layers) / size_of([4]f32)
 // as slot 0, then each group slot's when it has group materials, which the kernel finds by
 // slot; nothing for an item with neither slots nor layers, which reads its record's own
 // colour and surface. The first row of the chunks buffer is never a table's (a table
-// follows the chunks), so 0 means none.
+// follows the chunks), so 0 means none. The layers go with their defaults given
+// (geom.material_layers_resolve), so the kernel reads every value as it is; an item any of
+// whose materials scatters under its surface gets ITEM_SUBSURFACE.
 @(private = "file")
 path_material_rows :: proc(rows: ^[dynamic][4]u32, item: Draw_Item, rec: ^Item_Record) {
 	slotted := rec.offs.y & ITEM_SLOTS != 0
 	if !slotted && item.layers == {} do return
 	rec.offs.w = u32(len(rows))
-	put :: proc(rows: ^[dynamic][4]u32, color, surface: [4]f32, layers: geom.Material_Layers) {
-		color, surface, layers := color, surface, layers
+	put :: proc(rows: ^[dynamic][4]u32, rec: ^Item_Record, color, surface: [4]f32, layers: geom.Material_Layers) {
+		color, surface := color, surface
+		if layers.subsurface_weight > 0 do rec.offs.y |= ITEM_SUBSURFACE
+		resolved := geom.material_layers_resolve(layers)
 		append(rows, transmute([4]u32)color, transmute([4]u32)surface)
-		words := transmute([MATERIAL_ROWS - 2][4]u32)layers
+		words := transmute([MATERIAL_ROWS - 2][4]u32)resolved
 		append(rows, ..words[:])
 	}
-	put(rows, rec.color, rec.surface, item.layers)
+	put(rows, rec, rec.color, rec.surface, item.layers)
 	if !slotted do return
 	s := item.slots
 	for k in 1 ..< GROUP_SLOTS {
 		surface := [4]f32{s.uniforms.surface[k].x, path_roughness(s.uniforms.params[k], s.uniforms.surface[k].xy), 0, 0}
-		put(rows, s.uniforms.color[k], surface, s.layers[k])
+		put(rows, rec, s.uniforms.color[k], surface, s.layers[k])
 	}
 }
 

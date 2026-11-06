@@ -62,6 +62,7 @@ static const uint ITEM_SLOTS = 4u;  // groups may have materials of their own
 static const uint ITEM_TEXTURED = 8u; // shows its maps through its preview's UVs
 static const uint ITEM_SKINNED = 16u; // shades by its detail skin's normals
 static const uint ITEM_MATERIAL = 32u; // its paint has roughness and metal (vertex_material)
+static const uint ITEM_SUBSURFACE = 64u; // a material in its table scatters light under its surface (subsurface_walk)
 static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
 
 // The sum so far: radiance over the samples whose camera ray met the scene in rgb, and
@@ -421,6 +422,12 @@ uint merged_triangle(uint item, uint geometry, uint primitive) {
 // world ray as given. Geometries holding a triangle with a repeated corner (hidden, or an
 // unused slot) are not opaque, and their candidates come here to be turned down, as the
 // walk does.
+// The one ray query every trace shares: RADV gives each query object the kernel declares
+// registers of its own, even one in a branch a specialised kernel folds away, so a query a
+// call (trace is inlined at each) cost a kernel without subsurface materials a quarter of
+// its waves once the walk added a call. Traces never overlap, so one object serves them all.
+static RayQuery<RAY_FLAG_NONE> trace_query;
+
 bool trace(float3 o, float3 d, float t_max, bool any, out Hit hit) {
 	hit.t = t_max;
 	hit.tri = 0u;
@@ -432,18 +439,17 @@ bool trace(float3 o, float3 d, float t_max, bool any, out Hit hit) {
 	ray.TMin = 0.0;
 	ray.Direction = d;
 	ray.TMax = t_max;
-	RayQuery<RAY_FLAG_NONE> q;
-	q.TraceRayInline(structure, any ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH : RAY_FLAG_NONE, 0xFF, ray);
-	while (q.Proceed()) {
-		uint tri = merged_triangle(q.CandidateInstanceID(), q.CandidateGeometryIndex(), q.CandidatePrimitiveIndex());
+	trace_query.TraceRayInline(structure, any ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH : RAY_FLAG_NONE, 0xFF, ray);
+	while (trace_query.Proceed()) {
+		uint tri = merged_triangle(trace_query.CandidateInstanceID(), trace_query.CandidateGeometryIndex(), trace_query.CandidatePrimitiveIndex());
 		uint ia = indices[3u * tri], ib = indices[3u * tri + 1u], ic = indices[3u * tri + 2u];
-		if (ia != ib && ib != ic && ia != ic) q.CommitNonOpaqueTriangleHit();
+		if (ia != ib && ib != ic && ia != ic) trace_query.CommitNonOpaqueTriangleHit();
 	}
-	if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT) return false;
-	hit.t = q.CommittedRayT();
-	hit.item = q.CommittedInstanceID();
-	hit.tri = merged_triangle(hit.item, q.CommittedGeometryIndex(), q.CommittedPrimitiveIndex());
-	hit.uv = q.CommittedTriangleBarycentrics();
+	if (trace_query.CommittedStatus() != COMMITTED_TRIANGLE_HIT) return false;
+	hit.t = trace_query.CommittedRayT();
+	hit.item = trace_query.CommittedInstanceID();
+	hit.tri = merged_triangle(hit.item, trace_query.CommittedGeometryIndex(), trace_query.CommittedPrimitiveIndex());
+	hit.uv = trace_query.CommittedTriangleBarycentrics();
 	return true;
 }
 #else
@@ -676,6 +682,102 @@ bool bsdf_sample(Surface s, float3 n, float3 v, out float3 l) {
 		l = normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(1.0 - u.x, 0.0)));
 	}
 	return dot(n, l) > 0.0;
+}
+
+// Subsurface scattering by a random walk through the inside of the mesh (Chiang, Kutz and
+// Burley 2016, "Practical and Controllable Subsurface Scattering for Production Path
+// Tracing", as Cycles' and Arnold's random walks do it): the light crosses the surface,
+// scatters from point to point inside, losing a share each time, and leaves where the walk
+// next meets the surface. It needs a closed mesh, which sculpts are; a walk that finds no
+// way out within WALK_STEPS is taken as absorbed. Thin parts (ears, fingers, the rim of a
+// leaf) let light through by themselves, which a diffusion profile spread over the
+// surface does not.
+static const int WALK_STEPS = 256;
+
+// The single-scattering albedo whose many scatterings give colour `a` back (van de Hulst's
+// relation as Chiang et al. fit it), so the material's colour is the colour seen.
+float3 walk_albedo(float3 a) {
+	a = clamp(a, float3(0.0), float3(0.999));
+	float3 s = 4.09712 + 4.20863 * a - sqrt(9.59217 + 41.6808 * a + 17.7126 * a * a);
+	return 1.0 - s * s;
+}
+
+// A direction scattered from `d` by Henyey and Greenstein's phase function with mean
+// cosine `g` (0 the same every way, toward 1 onward, toward -1 back), sampled exactly, so
+// the phase function over its pdf is 1.
+float3 sample_phase(float3 d, float g) {
+	float u = rnd(), phi = 2.0 * PI * rnd();
+	float c = 1.0 - 2.0 * u;
+	if (abs(g) > 1e-3) {
+		float q = (1.0 - g * g) / (1.0 - g + 2.0 * g * u);
+		c = clamp((1.0 + g * g - q * q) / (2.0 * g), -1.0, 1.0);
+	}
+	float sn = sqrt(max(1.0 - c * c, 0.0));
+	float3 t, b;
+	basis(d, t, b);
+	return normalize(t * (sn * cos(phi)) + b * (sn * sin(phi)) + d * c);
+}
+
+// A walk in from `p` (outward geometric normal `ng`) through a medium of colour `color`
+// whose light travels `radius` (per channel, in world units) between scatterings, with
+// phase `g`. On the way out it gives where it left, the outward geometric and shading
+// normals there, and multiplies `weight` by what the walk let through; false when the
+// light was absorbed inside.
+bool subsurface_walk(float3 p, float3 ng, float3 color, float3 radius, float g, inout float3 weight, out float3 p_out, out float3 ng_out, out float3 n_out) {
+	p_out = p;
+	ng_out = ng;
+	n_out = ng;
+	float3 sigma_t = 1.0 / max(radius, float3(1e-6));
+	float3 albedo = walk_albedo(color);
+	// In through the surface, cosine-weighted about the inward normal: the light the
+	// surface lets in comes in at every angle.
+	float3 t, b;
+	basis(-ng, t, b);
+	float2 u = float2(rnd(), rnd());
+	float r = sqrt(u.x), phi = 2.0 * PI * u.y;
+	float3 d = normalize(t * (r * cos(phi)) + b * (r * sin(phi)) - ng * sqrt(max(1.0 - u.x, 0.0)));
+	float3 o = offset_ray(p, -ng);
+	float3 through = float3(1.0);
+	for (int step = 0; step < WALK_STEPS; step++) {
+		// A distance drawn by one channel, picked by how much each still carries, and
+		// weighed against drawing it by any (the one-sample balance heuristic), so a
+		// channel that travels far (red in skin) is followed without the others' noise.
+		float3 chance = through / max(through.r + through.g + through.b, 1e-12);
+		float pick = rnd();
+		float sigma = pick < chance.r ? sigma_t.r : (pick < chance.r + chance.g ? sigma_t.g : sigma_t.b);
+		float dist = -log(max(1.0 - rnd(), 1e-12)) / sigma;
+		Hit hit;
+		if (trace(o, d, dist, false, hit)) {
+			// Out: the light got this far without scattering again.
+			float3 pass = exp(-sigma_t * hit.t);
+			through *= pass / max(dot(chance, pass), 1e-12);
+			uint ia = indices[3u * hit.tri], ib = indices[3u * hit.tri + 1u], ic = indices[3u * hit.tri + 2u];
+			uint base = items[hit.item].offs.x;
+			float4x4 model = items[hit.item].model;
+			float3 p0 = vertex(base + ia), p1 = vertex(base + ib), p2 = vertex(base + ic);
+			float w0 = 1.0 - hit.uv.x - hit.uv.y;
+			p_out = (mul(float4(p0 * w0 + p1 * hit.uv.x + p2 * hit.uv.y, 1.0), model)).xyz;
+			ng_out = normalize(mul(cross(p1 - p0, p2 - p0), (float3x3)model));
+			if (dot(ng_out, d) < 0.0) ng_out = -ng_out;
+			float3 nm = vertex_normal(base + ia) * w0 + vertex_normal(base + ib) * hit.uv.x + vertex_normal(base + ic) * hit.uv.y;
+			n_out = normalize(mul(nm, (float3x3)model));
+			if (dot(n_out, ng_out) < 0.0) n_out = -n_out;
+			weight *= through;
+			return true;
+		}
+		// Scattered here: what was not absorbed, over the chance of stopping here.
+		float3 pass = exp(-sigma_t * dist);
+		through *= albedo * sigma_t * pass / max(dot(chance, sigma_t * pass), 1e-12);
+		o += d * dist;
+		d = sample_phase(d, g);
+		// Russian roulette once the walk is long, by how much it still carries.
+		if (step >= 8) {
+			float q = clamp(max(through.r, max(through.g, through.b)), 0.05, 0.95);
+			if (rnd() > q) return false;
+			through /= q;
+		}
+	}
+	return false;
 }
 
 // A direction in the cone of cosine `cos_max` about `axis`, uniformly.
@@ -936,15 +1038,17 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 
 		float3 albedo = items[hit.item].color.rgb;
 		float2 surf = items[hit.item].surface.xy;
+		// Which of the item's materials the hit takes (slot 0 its own) in its table.
+		uint table = items[hit.item].offs.w, material = 0u;
 		if ((flags & (ITEM_PAINT | ITEM_GROUPS | ITEM_SLOTS)) != 0u) {
 			// The group from the corner the triangle is drawn from, as mesh.vert.slang takes it.
 			uint group = vertex_paint(base + ia).y & 0xFFFFu;
 			if ((flags & ITEM_SLOTS) != 0u) {
-				uint table = items[hit.item].offs.w;
 				for (uint k = 1u; k < 16u; k++) {
 					if (items[hit.item].slot_group[k >> 2][k & 3u] == group) {
 						albedo = material_row(table, k, 0u).rgb;
 						surf = material_row(table, k, 1u).xy;
+						material = k;
 					}
 				}
 			}
@@ -1045,6 +1149,53 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 		s.f0 = lerp(float3(0.04), albedo, metallic);
 		s.a = max(surf.y * surf.y, 1e-3);
 
+		// What the subsurface branch below changes, so the lighting, sampling and leaving of
+		// the loop stay in the one tail after it: a branch holding a break or continue of
+		// its own is not folded away when the kernel is specialised to a scene without
+		// subsurface materials, and cost such a kernel half its speed (kernel_stats.py).
+		bool absorbed = false;
+		float lobe = 1.0;
+		if ((flags & ITEM_SUBSURFACE) != 0u) {
+			// With the chance of its subsurface weight this path's diffuse part goes in
+			// under the surface instead of off it, so on average the surface shows its
+			// specular, the weight's share scattered inside and the rest as diffuse.
+			float4 scatter = material_row(table, material, 2u);
+			float sss = scatter.w * (1.0 - metallic);
+			if (sss > 0.0 && rnd() < sss) {
+				// Off the surface by the specular lobe, or in, chosen by how bright each is.
+				// Each counts for its chance's worth more, its light (next-event estimation)
+				// included, so the tail below lights and samples whichever was picked: a
+				// second light estimate here would be another ray query site, which RADV
+				// keeps registers for even where the branch is folded away.
+				Surface inside = s;
+				inside.diffuse = albedo * scatter.rgb;
+				float n_dot_v = max(dot(n, v), 1e-4);
+				float ps = specular_chance(inside, n_dot_v);
+				if (rnd() < ps) {
+					s.diffuse = float3(0.0);
+					weight /= ps;
+					lobe = ps;
+				} else {
+					float4 reach = material_row(table, material, 3u);
+					float g = material_row(table, material, 8u).w;
+					float3 radius = reach.rgb * (reach.w * length(model[0].xyz));
+					weight *= (1.0 - fresnel(s.f0, n_dot_v)) / (1.0 - ps);
+					float3 p_out, ng_out, n_out;
+					absorbed = !subsurface_walk(p, ng, albedo * scatter.rgb, radius, g, weight, p_out, ng_out, n_out);
+					// Out again as a white Lambert surface (the walk carries the colour),
+					// shaded and continued below as any surface is.
+					s.diffuse = float3(1.0);
+					s.f0 = float3(0.0);
+					s.a = 1.0;
+					p = p_out;
+					ng = ng_out;
+					n = n_out;
+					v = n_out;
+				}
+			}
+		}
+		if (absorbed) break;
+
 		radiance += weight * direct_light(s, p, ng, n, v);
 
 		float3 l;
@@ -1052,6 +1203,9 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 		float3 f = bsdf_eval(s, n, v, l, pdf_bsdf);
 		if (pdf_bsdf <= 0.0) break;
 		weight *= f / pdf_bsdf;
+		// A lobe picked with chance `lobe` (its weight already divided by it) has that
+		// chance in its pdf when weighed against the lights it meets.
+		pdf_bsdf *= lobe;
 		o = offset_ray(p, ng);
 		d = l;
 		// Russian roulette from the third bounce on, by how much the path still carries.

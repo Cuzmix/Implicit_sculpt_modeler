@@ -810,8 +810,10 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.polyframe_lines = true
 	app.floor = FLOOR_DEFAULT
 	app.background = BACKGROUND_DEFAULT
-	// Custom starts as PBR clay, the last physically based preset, until a slider changes it.
-	app.custom = MATERIALS[FIRST_MATCAP - 1]
+	// Custom starts as PBR clay until a slider changes it: a plain physically based clay,
+	// found by its name so adding presets never changes it.
+	pbr_clay, _ := material_by_name("PBR clay")
+	app.custom = MATERIALS[pbr_clay]
 	app.custom.label = "Custom"
 	app.renderer.cull = !opts.no_cull
 	app.renderer.gpu_cull = !opts.cpu_cull && (render.caps(&app.renderer).gpu_cull_default || opts.gpu_cull)

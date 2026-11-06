@@ -279,3 +279,10 @@ custom_layers_are_remembered_and_bad_ones_passed_over :: proc(t: ^testing.T) {
 		free(c)
 	}
 }
+
+// Every preset's layers are ones a scene file accepts, so saving an object with any preset
+// and opening it again never refuses the file.
+@(test)
+every_preset_has_valid_layers :: proc(t: ^testing.T) {
+	for m in MATERIALS do testing.expectf(t, geom.material_layers_valid(m.layers), "%s", m.label)
+}
