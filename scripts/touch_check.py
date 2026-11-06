@@ -5895,6 +5895,11 @@ def lens_lights_card_picks_and_adds():
     return Steps([run(True), run(False)])
 
 
+# Name every control at 1440x900: the Model tab, and the note's Done once the tags are kept
+# on.
+HELP_LABELS = {"model": At("top bar/Model", 604, 28), "done": (858, 182)}
+
+
 @scenario
 def help_labels_while_question_held():
     """Holding ? tags every control on screen with its name and key, and the view with its gestures; letting go after a moment puts them away."""
