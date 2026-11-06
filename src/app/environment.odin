@@ -262,13 +262,13 @@ environment_rotation :: proc(app: ^App) -> [3][4]f32 {
 
 // Whether a Shift and right drag on the view turns the panorama (Substance's gesture) rather
 // than panning: while one is loaded, picked and the view worked in shows the materials
-// whole (Material Preview or Rendered), where it is seen. Alt and right still pans.
+// whole (Full or Rendered), where it is seen. Alt and right still pans.
 environment_drag_turns :: proc(app: ^App) -> bool {
 	e := &app.env
 	if e.kind != .Image || e.gpu.source == 0 do return false
 	s, pane := main_draw_shading(app)
 	m := shading_mode_shown(app, s, pane)
-	return m == .Material_Preview || m == .Rendered
+	return m == .Full || m == .Rendered
 }
 
 // Turns the panorama by a drag of `delta` points across the view: the sky follows the

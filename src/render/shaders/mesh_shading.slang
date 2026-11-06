@@ -59,6 +59,9 @@
 	// The viewport's pass (render.View_Pass) in x, 0 shaded as usual; y and z where the
 	// Depth pass starts and ends, as distances from the eye; w a wipe compare (main below).
 	float4 pass;
+	// How far the view takes the colours toward clay (render.Draw_Item.fade): rgb the clay,
+	// w how far, 0 for the colours whole; a polygroup shown keeps its colour.
+	float4 fade;
 #if defined(WIRE_BARY) || defined(CLIP)
 	// The wireframe's colour, linear, drawn over the triangles' edges (wire_over below), and
 	// in w 1 when tri_edges says which of them are polygon edges, 0 to draw them all. A
@@ -561,8 +564,8 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		float line_px = floor(wipe / 16.0);
 		if (frag_coord.x >= line_px) view_pass = int(wipe - line_px * 16.0 + 0.5);
 	}
-	// Unlit (8) is no diagnostic pass: it shows the colour, below, once it is known.
-	if (view_pass != 0 && view_pass != 8) {
+	// Unlit (7) is no diagnostic pass: it shows the colour, below, once it is known.
+	if (view_pass != 0 && view_pass != 7) {
 		float3 shown = float3(0.0);
 		if (view_pass == 1) {
 			// Normals: the view-space normal as a colour, as Blender's and ZBrush's show it.
@@ -592,10 +595,6 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 			shown = float3(0.85);
 		} else if (view_pass == 6) {
 			shown = skin_detail_color(n, v);
-		} else if (view_pass == 7) {
-			// Wire: the Wireframe mode's hidden-line fill, a plain light grey that hides
-			// the edges behind it and lets the dark edges in front read.
-			shown = float3(0.78);
 		} else {
 			// Silhouette: near-black, as the thumbnail's.
 			shown = float3(0.06);
@@ -620,6 +619,9 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 	if (view_mode == 1 && maps.x > 0.5) albedo = base.rgb * base_map.Sample(uv).rgb;
 	if (view_mode == 3) albedo *= uv_checker(uv);
 #endif
+	// The view's Colour: the paint, the textures and the material's colour taken toward
+	// clay, so the form reads under them (a uniform branch, skipped at full colour).
+	if (fade.w > 0.0 && frag_in.group.r < 0.0) albedo = lerp(albedo, fade.rgb, fade.w);
 	// The density preview: the cells a remesh would build, every other one darker and
 	// each edged with a thin line, so a cell reads as about one vertex of the result.
 	// Where cells shrink under about three pixels the pattern fades to its mean rather
@@ -645,9 +647,9 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 	float shown_mask = frag_in.mask * (1.0 - style.z);
 	albedo *= 1.0 - 0.7 * shown_mask;
 	float highlight = 1.0 - 0.5 * shown_mask;
-	// Unlit: Solid's Flat lighting, the colour as it is with no light, as Blender's Flat
-	// lighting shows it; exposed, with cavity and ridge, but not tone mapped.
-	if (view_pass == 8) return float4(srgb_encode(albedo * relief * exp2(look.x)), opacity());
+	// Unlit: the Flat look, the colour as it is with no light, as Blender's Flat lighting
+	// shows it; exposed, with cavity and ridge, but not tone mapped.
+	if (view_pass == 7) return float4(srgb_encode(albedo * relief * exp2(look.x)), opacity());
 
 	if (surf.w > 0.5) {
 		// The matcap's sphere where it faces the way this pixel's normal does as the eye

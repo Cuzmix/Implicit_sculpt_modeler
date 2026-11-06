@@ -309,7 +309,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			poly_edges := part == 0 && poly_edges_shown(app, obj)
 			overlay := app.wireframe && selected
 			poly_lines := poly_edges && overlay && app.polyframe_lines
-			append(&froms, Item_From{obj = obj, index = i, tint = color, material = material, base_map = textured != nil && textured.maps[.Base_Color] != 0, poly_edges = poly_edges})
+			append(&froms, Item_From{obj = obj, index = i, tint = color, material = material, base_map = textured != nil && textured.maps[.Base_Color] != 0})
 			if textured != nil do color = textured_color(color, material, app.texture_view == .Textured && textured.maps[.Base_Color] != 0)
 			// The groups are made first: the stamps say when.
 			chunk_groups := sculpt.sculptor_chunk_groups(&lv.sculptor)

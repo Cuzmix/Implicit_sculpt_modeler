@@ -1,4 +1,4 @@
-// slangc wgsl from textured.frag.spv sha256 4e821efa43be092e8f65cdebe11dcc75dfdb521bc99ea159cb50e61b8c3dce20
+// slangc wgsl from textured.frag.spv sha256 ffa743bd805ddd4258a6c3a257be72026dfb6d36633c5a31c0ee14fcbfbcd926
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Material_Uniforms_std140_0
 {
@@ -24,6 +24,7 @@ struct SLANG_ParameterGroup_Material_Uniforms_std140_0
     @align(16) env_sh_0 : array<vec4<f32>, i32(9)>,
     @align(16) style_0 : vec4<f32>,
     @align(16) pass_0 : vec4<f32>,
+    @align(16) fade_0 : vec4<f32>,
 };
 
 @binding(0) @group(3) var<uniform> Material_Uniforms_0 : SLANG_ParameterGroup_Material_Uniforms_std140_0;
@@ -471,7 +472,7 @@ fn main( _S28 : pixelInput_0, @builtin(position) position_0 : vec4<f32>, @builti
     }
     if(view_pass_0 != i32(0))
     {
-        _S32 = view_pass_0 != i32(8);
+        _S32 = view_pass_0 != i32(7);
     }
     else
     {
@@ -530,14 +531,7 @@ fn main( _S28 : pixelInput_0, @builtin(position) position_0 : vec4<f32>, @builti
                         }
                         else
                         {
-                            if(view_pass_0 == i32(7))
-                            {
-                                shown_0 = vec3<f32>(0.77999997138977051f);
-                            }
-                            else
-                            {
-                                shown_0 = vec3<f32>(0.05999999865889549f);
-                            }
+                            shown_0 = vec3<f32>(0.05999999865889549f);
                         }
                     }
                 }
@@ -576,6 +570,18 @@ fn main( _S28 : pixelInput_0, @builtin(position) position_0 : vec4<f32>, @builti
     {
         shown_0 = shown_0 * uv_checker_0(uv_3);
     }
+    if((Material_Uniforms_0.fade_0.w) > 0.0f)
+    {
+        _S32 = (frag_in_0.group_0.x) < 0.0f;
+    }
+    else
+    {
+        _S32 = false;
+    }
+    if(_S32)
+    {
+        shown_0 = mix(shown_0, Material_Uniforms_0.fade_0.xyz, vec3<f32>(Material_Uniforms_0.fade_0.w));
+    }
     if((Material_Uniforms_0.checker_0.w) > 0.0f)
     {
         var c_6 : vec3<f32> = (frag_in_0.mesh_pos_0 - Material_Uniforms_0.checker_0.xyz) / vec3<f32>(Material_Uniforms_0.checker_0.w);
@@ -591,7 +597,7 @@ fn main( _S28 : pixelInput_0, @builtin(position) position_0 : vec4<f32>, @builti
     var shown_mask_0 : f32 = frag_in_0.mask_0 * (1.0f - Material_Uniforms_0.style_0.z);
     var albedo_0 : vec3<f32> = shown_0 * vec3<f32>((1.0f - 0.69999998807907104f * shown_mask_0));
     var highlight_0 : f32 = 1.0f - 0.5f * shown_mask_0;
-    if(view_pass_0 == i32(8))
+    if(view_pass_0 == i32(7))
     {
         var _S43 : pixelOutput_0 = pixelOutput_0( vec4<f32>(srgb_encode_0(albedo_0 * vec3<f32>(relief_0) * vec3<f32>(exp2(Material_Uniforms_0.look_0.x))), opacity_0()) );
         return _S43;

@@ -1,2 +1,2 @@
-// slangc wgsl from mesh_wire.frag.spv sha256 0dd5dd5ea7c50887b65ccc7c6619190bdeecd516dc8d4e76e8be5100f77f4fef
+// slangc wgsl from mesh_wire.frag.spv sha256 893ad9c1cd570889e4974433325000de6258b782f0bb2ca446199dd4f55b8f36
 // not on the web: unknown system-value semantic

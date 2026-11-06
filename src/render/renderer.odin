@@ -466,6 +466,9 @@ Draw_Item :: struct {
 	// else 1 + the pass right of its line + 16 x the line's pixel column; app/passes.odin's
 	// pass_items). Zero shades it as usual.
 	pass:      [4]f32,
+	// How far the view takes the colours toward clay, so the form reads under the paint:
+	// rgb the clay, a how far (0 to 1). Zero shows the colours whole.
+	fade:      [4]f32,
 	// A matcap (matcap_create) that shades the item instead of the lights, tinted by
 	// `color`; nil for none.
 	matcap:    gpu.Texture,
@@ -537,10 +540,9 @@ model_reflected :: proc(model: Mat4) -> bool {
 // Curvature creases toward blue and crests toward orange; AO a plain grey that the live
 // occlusion darkens; Silhouette every object flat near-black; Skin detail what a detail
 // skin holds over its mesh, as a normal map's colours (flat lavender where it holds
-// nothing, and on objects with no skin). Two more are the viewport
-// shading's own rather than passes that check form: Wire, the Wireframe mode's hidden-line
-// fill, a plain light grey that the edges are drawn over; Unlit, Solid's Flat lighting, the
-// colour (with paint, the mask, cavity and ridge) shown as it is, with no light.
+// nothing, and on objects with no skin). One more is the viewport shading's own rather
+// than a pass that checks form: Unlit, the Flat look, the colour (with paint, the mask,
+// cavity and ridge) shown as it is, with no light.
 View_Pass :: enum u8 {
 	Shaded,
 	Normals,
@@ -549,7 +551,6 @@ View_Pass :: enum u8 {
 	AO,
 	Silhouette,
 	Skin_Detail,
-	Wire,
 	Unlit,
 }
 
@@ -589,14 +590,16 @@ Material_Uniforms :: struct {
 	env_sh:     [9][4]f32, // its diffuse light's harmonics, rgb
 	style:      [4]f32, // Draw_Item.style
 	pass:       [4]f32, // Draw_Item.pass
+	fade:       [4]f32, // Draw_Item.fade
 	// The wireframe's colour, linear, read only by mesh_wire.frag.slang, whose block alone
-	// declares it: the other mesh shaders read the 1152 bytes before it.
+	// declares it: the other mesh shaders read the 1168 bytes before it.
 	wire:       [4]f32,
 	// Draw_Item.clip, read only by the clipped variants (*_clip.frag.slang).
 	clip:       [4]f32,
 }
-#assert(size_of(Material_Uniforms) == 1184)
+#assert(size_of(Material_Uniforms) == 1200)
 #assert(offset_of(Material_Uniforms, pass) == 1136)
+#assert(offset_of(Material_Uniforms, fade) == 1152)
 #assert(offset_of(Material_Uniforms, maps) == 896)
 
 renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
@@ -1705,6 +1708,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		look:     [4]f32,
 		style:    [4]f32,
 		pass:     [4]f32,
+		fade:     [4]f32,
 		lights:   Lights,
 		surface:  [2]f32,
 		wire:     b32,
@@ -1714,7 +1718,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		slotted:  b32, // with Material_Slots, hashed after it
 		lines:    b32, // Draw_Item.cage_lines; the field also keeps the struct free of padding
 	}
-	#assert(size_of(Keyed) == 1024)
+	#assert(size_of(Keyed) == 1040)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -1733,7 +1737,7 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		h = hash.fnv64a(slice.bytes_from_ptr(&wire, size_of(wire)), h)
 	}
 	for item in items {
-		k := Keyed{u64(uintptr(item.mesh)), u64(uintptr(item.matcap)), item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
+		k := Keyed{u64(uintptr(item.mesh)), u64(uintptr(item.matcap)), item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.fade, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
 		h = textured_key(item, h)
@@ -2037,6 +2041,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		look:     [4]f32,
 		style:    [4]f32,
 		pass:     [4]f32,
+		fade:     [4]f32,
 		lights:   Lights,
 		surface:  [2]f32,
 		wire:     b32,
@@ -2046,7 +2051,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		slotted:  b32, // with Material_Slots, hashed after it
 		lines:    b32, // Draw_Item.cage_lines; the field also keeps the struct free of padding
 	}
-	#assert(size_of(Keyed) == 1032)
+	#assert(size_of(Keyed) == 1048)
 	Header :: struct { // no padding: every byte is hashed
 		view, proj:    Mat4,
 		width, height: u32,
@@ -2065,7 +2070,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 	}
 	for item in items {
 		if item.live do continue
-		k := Keyed{u64(uintptr(item.mesh)), u64(uintptr(item.matcap)), item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
+		k := Keyed{u64(uintptr(item.mesh)), u64(uintptr(item.matcap)), item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.fade, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
 		h = textured_key(item, h)
@@ -2234,7 +2239,7 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 		params := item.material if item.material != {} else DEFAULT_MATERIAL
 		surface := [4]f32{item.surface.x, item.surface.y, 1 if item.flat else 0, 1 if item.matcap != 0 else 0}
 		lights := item.lights if item.lights != {} else lights_default()
-		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights, style = item.style, pass = item.pass, wire = wire_color(r)}
+		material := Material_Uniforms{base_color = item.color, params = params, surface = surface, checker = item.checker, look = item.look, lights = lights, style = item.style, pass = item.pass, fade = item.fade, wire = wire_color(r)}
 		if poly_shaded do material.wire.w = 1
 		if clipped do material.clip = {item.clip.x, item.clip.y, item.clip.z, 0}
 		material_environment(r, &material)

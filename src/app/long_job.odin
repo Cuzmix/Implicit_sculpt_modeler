@@ -137,7 +137,7 @@ JOB_ALLOWED_COMMANDS :: Command_Set{
 	.Brush_Value, .Brush_Reset,
 	.Frame_All,
 	.View_Axis, .Ortho_Toggle, .Focus_Selected, .Reset_Camera, .View_Back, .View_Forward, .Camera_Menu, .Shading_Menu,
-	.Wireframe, .Flat_Shading, .Texture_View, .Polygroups, .Live_Occlusion, .Shading_Mode, .Solid_Lighting, .Floor_Grid, .Second_View,
+	.Wireframe, .Flat_Shading, .Texture_View, .Polygroups, .Live_Occlusion, .Shading_Mode, .Floor_Grid, .Second_View,
 	.Transparency,
 	.Stats, .Open_Card, .Open_Section, .Panels_Reset, .Inspect_Mode, .View_Pass,
 	.View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .View_Window, .View_Windows_Close,

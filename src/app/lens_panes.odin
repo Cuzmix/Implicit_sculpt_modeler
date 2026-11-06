@@ -274,20 +274,21 @@ kit_pane_menu :: proc(app: ^App) {
 		}
 		pane_menu_tab_rows(app, m.pane)
 	case .Pass:
-		// The pane's own shading, as the main view's list has it: the modes (Solid's options
-		// under Solid, the list staying open for them), then the passes.
+		// The pane's own shading, as the main view's list has it: the looks (their options
+		// under them, the list staying open for them), then the passes.
 		ui.caption(ctx, "  SHADING")
 		at := second_shows_index(sv)
-		solid := at < SECOND_SHOWS_MODES && SECOND_SHOWS[at].mode == .Solid
+		shaded := at < SECOND_SHOWS_MODES && SECOND_SHOWS[at].pass == .Shaded
 		for e, j in SECOND_SHOWS {
 			if j == SECOND_SHOWS_MODES {
-				if solid do solid_options(app, &sv.shading, false)
+				if shaded do shading_options(app, &sv.shading, false, looks = false)
 				ui.caption(ctx, "  INSPECT")
 			}
 			name := SHADING_MODE_NAMES[e.mode] if j < SECOND_SHOWS_MODES else SECOND_PASS_NAMES[e.pass]
-			if !ui.menu_item(ctx, fmt.tprintf("%s##pane shows", name), checked = at == j) do continue
+			hint := ui.hint_short(SHADING_MODE_HINTS[e.mode]) if j < SECOND_SHOWS_MODES else ""
+			if !ui.menu_item(ctx, fmt.tprintf("%s##pane shows", name), checked = at == j, hint = hint) do continue
 			second_shows_set(sv, j)
-			if j >= SECOND_SHOWS_MODES || e.mode != .Solid do m.open = false
+			if j >= SECOND_SHOWS_MODES || e.pass != .Shaded do m.open = false
 		}
 	}
 }

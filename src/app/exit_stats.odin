@@ -70,7 +70,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			strings.write_string(&shows, name)
 			fmt.sbprintf(&tabs, "%d", g.tabs[i - 1].count)
 		}
-		fmt.printfln("pane_shows=%s pane_lighting=%v", strings.to_string(shows) if n > 1 else "none", grid_view(g, 1).shading.lighting)
+		fmt.printfln("pane_shows=%s pane_grey=%.2f", strings.to_string(shows) if n > 1 else "none", grid_view(g, 1).shading.grey)
 		fmt.printfln("pane_tabs=%s pane_tab=%d pane_tab_kind=%v pane_tab_camera=%v pane_tab_switches=%d pane_tab_adds=%d pane_tab_closes=%d", strings.to_string(tabs) if n > 1 else "none", g.tabs[0].active + 1, pane_tab_shown(g, 1).kind, grid_view(g, 1).camera, g.tab_switches, g.tab_adds, g.tab_closes)
 		fmt.printfln("grid_closes=%d grid_evens=%d new_panes=%v pane_menu=%d", g.closes, g.evens, app.kit.new_panes, int(app.kit.pane_menu.open))
 	}
@@ -585,7 +585,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			if n := len(k.order); n > 0 do front = fmt.tprint(k.order[n - 1])
 			fmt.printfln("float_front=%s", front)
 			fmt.printfln("pass=%v pass_shown=%v pass_menu=%d pass_switches=%d", k.passes.pass, viewport_pass(k), int(k.passes.menu), k.passes.switches)
-			fmt.printfln("shading_mode=%v solid_lighting=%v solid_color=%v solid_matcap=%d", main_shading_mode(app), k.passes.shading.lighting, k.passes.shading.color, k.passes.shading.matcap)
+			fmt.printfln("shading_mode=%v shading_from=%v shading_grey=%.2f shading_matcap=%d", main_shading_mode(app), k.passes.shading.from, k.passes.shading.grey, k.passes.shading.matcap)
 			fmt.printfln("wipe=%d wipe_at=%.3f wipe_right=%v wipe_drags=%d", int(wipe_shown(k)), k.passes.wipe_at, wipe_right(k), k.passes.wipe_drags)
 			fmt.printfln("guides=%d guide_heights=%s guide_lines=%d guide_drags=%d", int(app.scene.guides.shown), guides_heights_text(app.scene.guides), k.guide_lines, k.guide_drags)
 		}
