@@ -1,2 +1,2 @@
-// slangc wgsl from render_trace_rq.comp.spv sha256 7b53aa618867bf416d24cda69884e695f090281b36568338ab992a0e10b1382d
+// slangc wgsl from render_trace_rq.comp.spv sha256 cdec1647c3d824908b422a9748ea1885355dcf889f1bbeeb339b2fa3c9bd715d
 // not on the web: unavailable features in entry point

@@ -422,6 +422,8 @@ SLOT_NONE :: max(u32)
 Material_Slots :: struct {
 	groups:   [GROUP_SLOTS]u32,
 	uniforms: Slot_Uniforms,
+	// Each slot's layers, as Draw_Item.layers; slot 0's is the item's own.
+	layers:   [GROUP_SLOTS]geom.Material_Layers,
 }
 
 // Matches Slot_Uniforms in mesh.frag.slang (std140: arrays of vec4).
@@ -447,6 +449,9 @@ Draw_Item :: struct {
 	// Metallic and roughness for physically based shading; a roughness of 0 keeps the
 	// classic shading `material` describes.
 	surface:   [2]f32,
+	// Subsurface scattering, coat, sheen, emission, transmission and thin film over the
+	// base (geom.Material_Layers); zero for none, which shades exactly as before.
+	layers:    geom.Material_Layers,
 	flat:      bool, // shade each triangle with its own normal instead of the smoothed ones
 	wireframe: bool, // draw its triangles' edges over it
 	cage_lines: bool, // draw Mesh_Buffers.edges over it as lines (a cage's edges, or a wireframe's polygon edges)
@@ -1746,9 +1751,20 @@ frame_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lod
 		k := Keyed{u64(uintptr(item.mesh)), u64(uintptr(item.matcap)), item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.fade, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
+		h = layers_key(item, h)
 		h = textured_key(item, h)
 	}
 	return max(h, 1)
+}
+
+// Folds an item's layers into a frame key when it has any, so an item without them keys
+// and costs as before, and one whose layers alone change redraws (and restarts render
+// mode, which follows the frame key).
+@(private)
+layers_key :: proc(item: Draw_Item, h: u64) -> u64 {
+	if item.layers == {} do return h
+	layers := item.layers
+	return hash.fnv64a(slice.bytes_from_ptr(&layers, size_of(layers)), h)
 }
 
 // Folds what a textured item shows into a frame key: the mesh, its vertices, its maps and
@@ -2079,6 +2095,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 		k := Keyed{u64(uintptr(item.mesh)), u64(uintptr(item.matcap)), item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.fade, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
+		h = layers_key(item, h)
 		h = textured_key(item, h)
 	}
 	return max(h, 1) // 0 means empty

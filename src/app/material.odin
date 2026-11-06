@@ -23,6 +23,9 @@ Material :: struct {
 	// A content pack's material: 1 + an index into Library.materials, whose label this
 	// is; 0 for the others (pack_material.odin).
 	pack:      int,
+	// Subsurface scattering, coat, sheen, emission, transmission and thin film over the
+	// above; zero for none (geom.Material_Layers).
+	layers:    geom.Material_Layers,
 }
 
 // The View menu's materials. Clay is what the viewport always used; wrap lets the light
@@ -30,41 +33,53 @@ Material :: struct {
 // physically based: metals take their colour from measured reflectances (linear F0), and
 // the classic `shading` is left at the default as they do not use it.
 MATERIALS := [?]Material {
-	{"Clay", {0.55, 0.40, 0.32, 1}, {0.42, 0.42, 0.44, 1}, {0.08, 0.2, 40, 0}, 0, 0, 0, 0},
-	{"Red wax", {0.62, 0.16, 0.12, 1}, {0.40, 0.30, 0.29, 1}, {0.06, 0.45, 60, 0.35}, 0, 0, 0, 0},
-	{"White", {0.82, 0.82, 0.80, 1}, {0.50, 0.50, 0.52, 1}, {0.12, 0.15, 24, 0.1}, 0, 0, 0, 0},
-	{"Grey", {0.50, 0.50, 0.52, 1}, {0.34, 0.34, 0.36, 1}, {0.10, 0.35, 80, 0}, 0, 0, 0, 0},
-	{"Skin", {0.78, 0.55, 0.45, 1}, {0.45, 0.40, 0.38, 1}, {0.07, 0.12, 20, 0.5}, 0, 0, 0, 0},
+	{"Clay", {0.55, 0.40, 0.32, 1}, {0.42, 0.42, 0.44, 1}, {0.08, 0.2, 40, 0}, 0, 0, 0, 0, {}},
+	{"Red wax", {0.62, 0.16, 0.12, 1}, {0.40, 0.30, 0.29, 1}, {0.06, 0.45, 60, 0.35}, 0, 0, 0, 0, {}},
+	{"White", {0.82, 0.82, 0.80, 1}, {0.50, 0.50, 0.52, 1}, {0.12, 0.15, 24, 0.1}, 0, 0, 0, 0, {}},
+	{"Grey", {0.50, 0.50, 0.52, 1}, {0.34, 0.34, 0.36, 1}, {0.10, 0.35, 80, 0}, 0, 0, 0, 0, {}},
+	{"Skin", {0.78, 0.55, 0.45, 1}, {0.45, 0.40, 0.38, 1}, {0.07, 0.12, 20, 0.5}, 0, 0, 0, 0, {}},
 	// Scene > Look's Sculpt studio: a soft grey with a broad, faint sheen and a little wrap.
-	{"Studio grey", {0.55, 0.55, 0.55, 1}, {0.42, 0.42, 0.44, 1}, {0.12, 0.10, 14, 0.15}, 0, 0, 0, 0},
-	{"Gold", {1.00, 0.77, 0.34, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.30, 0, 0},
-	{"Copper", {0.95, 0.64, 0.54, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.35, 0, 0},
-	{"Chrome", {0.55, 0.56, 0.55, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.08, 0, 0},
-	{"Steel", {0.56, 0.57, 0.58, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.45, 0, 0},
-	{"Plastic", {0.06, 0.18, 0.55, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.25, 0, 0},
-	{"Ceramic", {0.70, 0.69, 0.66, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.12, 0, 0},
-	{"Rubber", {0.025, 0.025, 0.025, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.85, 0, 0},
-	{"PBR clay", {0.55, 0.40, 0.32, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.60, 0, 0},
+	{"Studio grey", {0.55, 0.55, 0.55, 1}, {0.42, 0.42, 0.44, 1}, {0.12, 0.10, 14, 0.15}, 0, 0, 0, 0, {}},
+	{"Gold", {1.00, 0.77, 0.34, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.30, 0, 0, {}},
+	{"Copper", {0.95, 0.64, 0.54, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.35, 0, 0, {}},
+	{"Chrome", {0.55, 0.56, 0.55, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.08, 0, 0, {}},
+	{"Steel", {0.56, 0.57, 0.58, 1}, {0.42, 0.42, 0.44, 1}, {}, 1, 0.45, 0, 0, {}},
+	{"Plastic", {0.06, 0.18, 0.55, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.25, 0, 0, {}},
+	{"Ceramic", {0.70, 0.69, 0.66, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.12, 0, 0, {}},
+	{"Rubber", {0.025, 0.025, 0.025, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.85, 0, 0, {}},
+	{"PBR clay", {0.55, 0.40, 0.32, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.60, 0, 0, {}},
+	// Materials light passes into, which Full render scatters under the surface (the
+	// Material_Layers' subsurface): the base colour is the colour seen, and how far light
+	// travels inside, per channel, in mesh units (an imported model's radius is 1). Wax
+	// carries red and green furthest, jade green, milk and marble nearly evenly.
+	{"Wax", {0.80, 0.62, 0.38, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.35, 0, 0, {subsurface_color = 1, subsurface_weight = 1, subsurface_radius = {1, 0.75, 0.4}, subsurface_scale = 0.12}},
+	{"Jade", {0.24, 0.55, 0.34, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.22, 0, 0, {subsurface_color = 1, subsurface_weight = 1, subsurface_radius = {0.5, 1, 0.6}, subsurface_scale = 0.08}},
+	{"Marble", {0.84, 0.83, 0.79, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.18, 0, 0, {subsurface_color = 1, subsurface_weight = 1, subsurface_radius = {1, 0.92, 0.8}, subsurface_scale = 0.04}},
+	{"Milk", {0.90, 0.88, 0.80, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.30, 0, 0, {subsurface_color = 1, subsurface_weight = 1, subsurface_radius = {1, 0.9, 0.7}, subsurface_scale = 0.15}},
 	// The matcaps, in white so their pictures show as painted.
-	{"Red wax MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 1, 0},
-	{"Brown clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 2, 0},
-	{"Grey clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 3, 0},
-	{"Green clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 4, 0},
-	{"Skin MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 5, 0},
-	{"Pearl MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 6, 0},
-	{"Toon MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 7, 0},
+	{"Red wax MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 1, 0, {}},
+	{"Brown clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 2, 0, {}},
+	{"Grey clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 3, 0, {}},
+	{"Green clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 4, 0, {}},
+	{"Skin MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 5, 0, {}},
+	{"Pearl MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 6, 0, {}},
+	{"Toon MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 7, 0, {}},
 }
 
 // The index of the first physically based material, where the View menu starts a new group.
 FIRST_PBR :: 6
 // The index of the first matcap, where the next group starts.
-FIRST_MATCAP :: 14
+FIRST_MATCAP :: 18
 
 // app.material's value for the material the View > Material sliders made (app.custom).
 CUSTOM_MATERIAL :: len(MATERIALS)
 // app.material's value for a content pack's material: PACK_MATERIAL + its index in
 // Library.materials, apart from the presets and Custom.
 PACK_MATERIAL :: 1 << 16
+
+// The values of a geom.Material_Layers the settings' custom_layers line holds: every field
+// but the last, which the layout keeps unused.
+CUSTOM_LAYER_VALUES :: 31
 
 // What a classic preset becomes when its sliders are first moved: rough, non-metal.
 CUSTOM_ROUGHNESS :: 0.6
@@ -121,6 +136,12 @@ viewport_style :: proc(app: ^App) -> [4]f32 {
 // has none yet, which materials_settle gives it at the start of the next frame.
 object_material :: proc(app: ^App, obj: ^Object) -> Material {
 	return obj.material if obj.material.label != nil else current_material(app)
+}
+
+// The layers `m` is drawn with: its own, or none under a MatCap, whose picture is the
+// whole look.
+material_layers_drawn :: proc(m: Material) -> geom.Material_Layers {
+	return {} if m.matcap != 0 else m.layers
 }
 
 // Where `m` is in the Material section's list: its preset, a content pack's, or Custom.
@@ -247,7 +268,7 @@ materials_settle :: proc(app: ^App) {
 // The scene file's form of a material (object_put): its label ("" for none yet, which
 // reads back as none), colours, classic shading, metallic, roughness and matcap, then
 // what of it is a content pack's, by name: the material as `<id>/<name>`
-// and the matcap as `<id>/<stem>`, each "" for none (material_refs). A pack's matcap
+// and the matcap as `<id>/<stem>`, each "" for none (material_refs), then its layers. A pack's matcap
 // goes as 0, so a scene opened where the pack is not installed shows the lights.
 material_put :: proc(out: ^[dynamic]u8, m: Material, refs := Material_Refs{}) {
 	geom.byte_put_string(out, string(m.label) if m.label != nil else "")
@@ -258,6 +279,7 @@ material_put :: proc(out: ^[dynamic]u8, m: Material, refs := Material_Refs{}) {
 	geom.byte_put(out, i32(m.matcap if m.matcap < PACK_MATCAP else 0))
 	geom.byte_put_string(out, refs.material)
 	geom.byte_put_string(out, refs.matcap)
+	geom.byte_put(out, m.layers)
 }
 
 // Reads what material_put writes; r.ok goes false on values
@@ -279,6 +301,7 @@ material_get :: proc(r: ^geom.Byte_Reader, app: ^App = nil, missing: ^int = nil)
 	refs := Material_Refs{geom.byte_get_string(r), geom.byte_get_string(r)}
 	defer delete(refs.material)
 	defer delete(refs.matcap)
+	m.layers = geom.byte_get(r, geom.Material_Layers)
 	unit :: proc(v: f32) -> bool {return v >= 0 && v <= 1}
 	ok := unit(m.metallic) && unit(m.roughness) && m.matcap >= 0 && m.matcap <= MATCAP_IMAGE
 	// A reference is `<id>/<name>`, and a pack's matcap stands in for the number.
@@ -286,6 +309,7 @@ material_get :: proc(r: ^geom.Byte_Reader, app: ^App = nil, missing: ^int = nil)
 	for k in 0 ..< 3 do ok &&= unit(m.selected[k]) && unit(m.idle[k])
 	// Shininess goes well past 1; only a finite, non-negative value makes sense.
 	for v in m.shading do ok &&= v >= 0 && v < 1e6
+	ok &&= geom.material_layers_valid(m.layers)
 	if !ok {
 		r.ok = false
 		return {}

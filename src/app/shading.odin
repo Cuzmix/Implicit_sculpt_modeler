@@ -234,6 +234,7 @@ shading_items :: proc(app: ^App, items: []render.Draw_Item, froms: []Item_From, 
 			if mode != .Full && mode != .Rendered {
 				if d.texture_view == .Off do d.textured = nil
 				d.surface = {}
+				d.layers = {}
 			}
 			continue
 		}
@@ -244,6 +245,7 @@ shading_items :: proc(app: ^App, items: []render.Draw_Item, froms: []Item_From, 
 			// flat (object_texture_view).
 			if d.texture_view == .Off do d.textured = nil
 			d.surface = {}
+			d.layers = {}
 			// A physically based material shows its colour with the classic shading.
 			if m.roughness > 0 do m.shading = {}
 			if s.from == .Object {
