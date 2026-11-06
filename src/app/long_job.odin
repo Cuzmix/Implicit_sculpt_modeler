@@ -146,7 +146,7 @@ Long_Job :: struct {
 // dims, with the reason in its tooltip), so a new command is held back unless listed here.
 JOB_ALLOWED_COMMANDS :: Command_Set{
 	.Screenshot, .Screenshot_Transparent,
-	.Tool_Move, .Tool_Sculpt, .Tool_Curve, .Tool_Insert, .Tool_Model, .Gizmo, .Gizmo_Snap,
+	.Tool_Move, .Tool_Sculpt, .Tool_Curve, .Tool_Insert, .Tool_Model, .Tool_Look, .Gizmo, .Gizmo_Snap,
 	.Brush, .Symmetry_X, .Local_Symmetry, .Radial_Symmetry, .Brush_Add, .Brush_Subtract, .Paint_Channel, .Paint_Toggle,
 	.Swap_Colors, .Front_Only, .Lock_Plane, .Connected, .Detail_To, .Detail_To_Next, .Size_Down, .Size_Up, .Strength_Down, .Strength_Up,
 	.Brush_Value, .Brush_Reset,

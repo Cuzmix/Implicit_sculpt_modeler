@@ -263,6 +263,7 @@ Cards :: struct {
 	floated:  int, // cards torn out of a column
 	returned: int, // floating cards put back in a column
 	set:      bool, // cards_default has set it up (a Kit_State nothing has set up is a test's)
+	single:   bool, // a column shows one card (columns_split), as the pointer last said with nothing pressed
 }
 
 // The cards as a fresh layout has them: none open, the usual sections folded.

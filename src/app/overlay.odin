@@ -270,6 +270,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	case .Model:
 		draw_model_overlay(app, o, input)
 		draw_model_gizmo(app, o, input)
+	case .Look:
 	}
 }
 

@@ -733,6 +733,32 @@ def colour_well_opens_the_picker():
                   (closed, [setup], camera_still({"dabs": near(0), "color_popover": near(0)}))])
 
 
+# The Colours card's Pin, in the pen side's column where COLORS opens it.
+COLOURS_PIN = At("card Colours/pin", 1450, 102)
+
+
+@scenario
+def finger_tap_reaches_the_card_over_a_pinned_one():
+    """With the Colours card pinned in the pen side's column and the Tool card opened over it
+    there, the mouse moved splits the column in two (the pinned card above); the first finger
+    tap on the Tool card's colour well, where it is shown, opens the colour popover. The
+    column keeps the cards as drawn until the tap is over and shows the Tool card alone from
+    the frame after, rather than laying itself out again under the finger's press, which
+    sent the tap to whatever stood there next (the pinned card, or More options)."""
+    s = Script()
+    s.wait(4)
+    s.ftap(COLOURS_PIN)
+    s.wait(6)
+    s.ftap(UI["inspector"])
+    s.wait(10)
+    s.add("move:800,450")
+    s.wait(6)
+    s.ftap(COLOUR_WELL)
+    s.wait(10)
+    return s, ["--script=brush paint; open_section paint_color; open_card colours"], camera_still(
+        {"cards": is_text("left:;right:Colours*,Tool"), "card_front": is_text("tool"), "color_popover": near(1), "dabs": near(0)})
+
+
 @scenario
 def colors_card_picks_a_swatch():
     """On the Colours card, a tap on a palette swatch makes it the main colour and puts it in
@@ -3722,13 +3748,24 @@ def space_tab_gives_back_the_brush():
 
 @scenario
 def a_press_in_render_turns_the_view():
-    """In Render a drag across the model turns the view and lays no dab, since Render keeps no brush in hand."""
+    """Render's tab gives the Look tool: a drag across the model turns the view and lays no dab."""
     s = Script()
     s.ftap(SPACE_TABS["render"])
     s.wait(10)
     s.fdrag(line((MIDDLE[0] - 60, MIDDLE[1]), (MIDDLE[0] + 120, MIDDLE[1] + 20), 20))
     s.wait(6)
-    return s, [], {"dabs": near(0), "space": is_text("render"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
+    return s, [], {"dabs": near(0), "space": is_text("render"), "tool": is_text("look"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
+
+
+@scenario
+def look_tool_from_search_goes_to_render_and_turns_the_view():
+    """The Look tool picked from Search goes to Render, and a drag across the model there turns the view."""
+    s = Script()
+    palette_run(s, "look tool")
+    s.wait(10)
+    s.fdrag(line((MIDDLE[0] - 60, MIDDLE[1]), (MIDDLE[0] + 120, MIDDLE[1] + 20), 20))
+    s.wait(6)
+    return s, [], {"dabs": near(0), "space": is_text("render"), "tool": is_text("look"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
 
 
 # Render's and Model's own shelf and dial at 1600 x 900 (PR 3b): the Render page's
@@ -5827,6 +5864,22 @@ def material_card_matcap_disc_lights_clay():
     s.wait(8)
     return s, ["--script=shading_mode clay; open_section material"], camera_still({"shading_mode": is_text("Clay"), "shading_matcap": near(1), "selected_matcap": near(0),
                                                                                     "selected_material": is_text("Clay"), "material_keeps": near(0), "dabs": near(0)})
+
+
+# The shading chip's list at 1600 x 900: the render's Fast, the Render card's own choice.
+SHADING_RENDER_FAST = At("render show/Fast", 258, 295)
+
+
+@scenario
+def shading_menu_render_fast_turns_the_render_on():
+    """In the shading chip's list a finger's tap on the render's Fast, the Render card's own
+    Off | Fast | Full, turns the Fast render on there, with no trip to the card."""
+    s = Script()
+    s.ftap(SHADING_CHIP)
+    s.wait(10)
+    s.ftap(SHADING_RENDER_FAST)
+    s.wait(8)
+    return s, ["--script=shading_mode clay"], camera_still({"render_switch": near(1), "render_quality": is_text("fast"), "studio": near(1), "render": near(0), "dabs": near(0)})
 
 
 # The Material card's More options at 1600 x 900, and its Cavity slider's knob at 0.35 once
