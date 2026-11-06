@@ -103,13 +103,13 @@ pose_begin :: proc(app: ^App, obj: ^Object, drag := false) -> bool {
 
 // With the Physics switch on, the cloth follows the pose just begun on `obj`
 // (sculpt.sculptor_pose_physics): the free part lags behind the handle, swings and settles,
-// colliding with what the object's Physics card says. A pose over PHYSICS_MAX free
-// vertices says so in `section` and runs without it.
+// colliding with what the object's Physics card says. A pose of more free vertices than the
+// physics budget says so in `section` and runs without it.
 pose_physics_begin :: proc(app: ^App, obj: ^Object, section: Section) {
 	if !app.brush.physics do return
 	s := object_sculptor(obj)
-	if free := sculpt.sculptor_pose_moved(s); free > PHYSICS_MAX {
-		report(app, section, {.Warning}, "Physics follows a pose of up to %d free vertices; this one has %d and moves without it", PHYSICS_MAX, free)
+	if free := sculpt.sculptor_pose_moved(s); free > physics_budget(app) {
+		report(app, section, {.Warning}, "Physics follows a pose of up to %d free vertices; this one has %d and moves without it", physics_budget(app), free)
 		return
 	}
 	set := object_cloth_settings(obj)
