@@ -986,7 +986,7 @@ mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_
 		info.skipped, failed = geom.mesh_read_gltf(parts, data, resolve, &beside, &look)
 		info.rig = info.skipped.rig
 	case .USD:
-		info.usd, failed, line = usd.read(parts, data)
+		info.usd, failed, line = usd.read(parts, data, &look)
 		info.rig = info.usd.rig
 	case .FBX:
 		failed, info.reason, info.rig = fbx.read(parts, data, &look, resolve, &beside)
