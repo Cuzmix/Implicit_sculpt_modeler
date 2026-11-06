@@ -21,25 +21,27 @@ BRUSH_ICON_PX :: 96
 BRUSH_ICON_COLUMNS :: 6
 BRUSH_ICON_ROWS :: (len(sculpt.Brush_Kind) + BRUSH_ICON_COLUMNS - 1) / BRUSH_ICON_COLUMNS
 
-BRUSH_ICON_FILES := [sculpt.Brush_Kind][]u8 {
-	.Draw         = #load("../../assets/brush_icons/draw.png"),
-	.Smooth       = #load("../../assets/brush_icons/smooth.png"),
-	.Clay         = #load("../../assets/brush_icons/clay.png"),
-	.Flatten      = #load("../../assets/brush_icons/flatten.png"),
-	.Inflate      = #load("../../assets/brush_icons/inflate.png"),
-	.Pinch        = #load("../../assets/brush_icons/pinch.png"),
-	.Crease       = #load("../../assets/brush_icons/crease.png"),
-	.Grab         = #load("../../assets/brush_icons/grab.png"),
-	.Mask         = #load("../../assets/brush_icons/mask.png"),
-	.Layer        = #load("../../assets/brush_icons/layer.png"),
-	.Snake_Hook   = #load("../../assets/brush_icons/snake_hook.png"),
-	.Morph        = #load("../../assets/brush_icons/morph.png"),
-	.Paint        = #load("../../assets/brush_icons/paint.png"),
-	.Cloth        = #load("../../assets/brush_icons/cloth.png"),
-	.History      = #load("../../assets/brush_icons/history.png"),
-	.Elastic      = #load("../../assets/brush_icons/elastic.png"),
-	.Clay_Strips  = #load("../../assets/brush_icons/clay_strips.png"),
-	.Trim_Dynamic = #load("../../assets/brush_icons/trim_dynamic.png"),
+// Loaded as strings and turned into bytes where decoded: Odin's wasm64p32 code generation
+// stops on #load as bytes in a global (README "Web").
+BRUSH_ICON_FILES := [sculpt.Brush_Kind]string {
+	.Draw         = #load("../../assets/brush_icons/draw.png", string),
+	.Smooth       = #load("../../assets/brush_icons/smooth.png", string),
+	.Clay         = #load("../../assets/brush_icons/clay.png", string),
+	.Flatten      = #load("../../assets/brush_icons/flatten.png", string),
+	.Inflate      = #load("../../assets/brush_icons/inflate.png", string),
+	.Pinch        = #load("../../assets/brush_icons/pinch.png", string),
+	.Crease       = #load("../../assets/brush_icons/crease.png", string),
+	.Grab         = #load("../../assets/brush_icons/grab.png", string),
+	.Mask         = #load("../../assets/brush_icons/mask.png", string),
+	.Layer        = #load("../../assets/brush_icons/layer.png", string),
+	.Snake_Hook   = #load("../../assets/brush_icons/snake_hook.png", string),
+	.Morph        = #load("../../assets/brush_icons/morph.png", string),
+	.Paint        = #load("../../assets/brush_icons/paint.png", string),
+	.Cloth        = #load("../../assets/brush_icons/cloth.png", string),
+	.History      = #load("../../assets/brush_icons/history.png", string),
+	.Elastic      = #load("../../assets/brush_icons/elastic.png", string),
+	.Clay_Strips  = #load("../../assets/brush_icons/clay_strips.png", string),
+	.Trim_Dynamic = #load("../../assets/brush_icons/trim_dynamic.png", string),
 }
 
 Brush_Icons :: struct {
@@ -57,7 +59,7 @@ brush_icons_create :: proc(app: ^App) {
 	defer delete(cell)
 	have: bit_set[sculpt.Brush_Kind]
 	for kind in sculpt.Brush_Kind {
-		img, err := image.load_from_bytes(BRUSH_ICON_FILES[kind])
+		img, err := image.load_from_bytes(transmute([]u8)BRUSH_ICON_FILES[kind])
 		if err != nil do continue
 		defer image.destroy(img)
 		if img.width != BRUSH_ICON_PX || img.height != BRUSH_ICON_PX || !image_rgba8(img, cell) do continue
