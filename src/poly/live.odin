@@ -4,7 +4,7 @@ import "core:math/linalg"
 import "core:slice"
 
 // The live stack (ZBrush's Dynamic Subdivision Thickness and QGrid, Blender's Mirror,
-// Solidify and Bevel modifiers): what Model mode draws in place of the cage, before Smooth
+// Solidify, Bevel, Simple Deform and Displace modifiers): what Model mode draws in place of the cage, before Smooth
 // and Flat, made again from the cage after every edit, so the cage itself stays as simple
 // as it was modelled. Mirror adds the cage's image across the planes through its origin,
 // the points on a plane shared by both halves; Thickness gives the cage a shell, each border closed by a rim whose
@@ -24,6 +24,11 @@ Live :: struct {
 	side:               Thickness_Side,
 	bevel:              f32, // the strips' width; 0 for off
 	bevel_segments:     int, // faces across each strip, 1 to BEVEL_SEGMENTS_MAX
+	deform:             Deform_Kind, // last but Displace: Bend, Twist or Taper (live_deform.odin)
+	deform_axis:        Mirror_Axis,
+	deform_amount:      f32, // Bend's and Twist's turn in radians, Taper's growth
+	displace:           f32, // how far Displace pushes, either way; 0 for off (run after Smooth by the app)
+	displace_scale:     f32, // the size of Displace's features
 }
 
 // Where the shell grows from the cage: outward along its normals, inward, or half each way.
@@ -68,7 +73,14 @@ live_mesh_destroy :: proc(lm: ^Live_Mesh) {
 }
 
 // Whether the stack changes anything.
-live_on :: proc(l: Live) -> bool {return l.bevel > 0 || l.thickness > 0 || l.mirror != {}}
+live_on :: proc(l: Live) -> bool {
+	return l.bevel > 0 || l.thickness > 0 || l.mirror != {} || live_moves(l)
+}
+
+// Whether the stack's deformers move anything.
+live_moves :: proc(l: Live) -> bool {
+	return (l.deform != .Off && abs(l.deform_amount) > 1e-6) || (l.displace != 0 && l.displace_scale > 0)
+}
 
 // Runs the stack over `cage`. Returns the error of a step whose result cannot be built,
 // which a valid cage never gives.
@@ -184,6 +196,12 @@ live_build :: proc(cage: ^Mesh, l: Live, allocator := context.allocator) -> (lm:
 		}
 		lm.face_from = make([]u32, len(t_from), allocator)
 		copy(lm.face_from, t_from)
+	}
+	// Deform last, over the span the cage (with its images) covers; Displace is the app's,
+	// on the drawn surface after Smooth (live_deform.odin).
+	if l.deform != .Off {
+		span := mesh_bounds(half)
+		live_deform(&t, l.deform, l.deform_axis, l.deform_amount, span.lo, span.hi)
 	}
 	lm.mesh = mesh_clone(t, allocator)
 	mesh_destroy(&t)
