@@ -25,7 +25,7 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	k.passes.chip_held = false
 	k.object_chip_fit = .None
 	k.top_at = {}
-	k.workspace_tabs_at = {}
+	k.workspace_tabs_at, k.workspace_tab_at = {}, {}
 	width := area.w - 2 * TOP_BAR_INSET
 	v := Top_Fit {
 		focus   = lens_focus(k) && !k.bars_edit,

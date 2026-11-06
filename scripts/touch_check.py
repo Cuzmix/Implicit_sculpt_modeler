@@ -580,7 +580,7 @@ def strip_value_scrubs_up_and_down():
     s = Script()
     s.fdrag(line((x, y), (x - 200, y), 20))
     s.wait(10)
-    return Steps([first, (s, value_bars(strip=strip), camera_still({"dabs": near(0), "value_scrubs": near(0), "shelf_page": is_text("Paint")}))])
+    return Steps([first, (s, value_bars(strip=strip), camera_still({"dabs": near(0), "value_scrubs": near(0), "shelf_page": is_text("Move")}))])
 
 
 @scenario
@@ -718,7 +718,9 @@ def colour_well_opens_the_picker():
     """A tap on the Colour section's well opens the colour popover beside it, as
     Procreate's colour well does; a tap on a swatch in it sets the paint colour and puts it
     in the history, with the popover still open; a second tap on the well puts it away."""
-    setup = "--script=brush paint; open_section paint_color"
+    # The Paint brush brings the Paint workspace on the first frame, whose layout puts the
+    # cards it pins in place, so the section opens a frame later.
+    setup = "--script=brush paint; wait 2; open_section paint_color"
     s = Script()
     s.ftap(COLOUR_WELL)
     s.wait(10)
@@ -4298,13 +4300,12 @@ LENS_SHELF = {"all": At("dock/All", 331, 833), "clay": At("shelf brushes/Clay", 
               "layer": At("shelf brushes/Layer", 980, 833), "remesh": At("shelf brushes/Voxel", 1044, 833)}
 # Sculpt's pages, by name ("page Sculpt" shows as Brushes); Model's one page shows only in
 # the Model space, reached by its tab.
-LENS_SHELF_PAGES = {"sculpt": At("page Sculpt", 630, 884), "paint": At("page Paint", 696, 884),
-                    "move": At("page Move", 755, 884), "curve": At("page Curve", 816, 884)}
+LENS_SHELF_PAGES = {"sculpt": At("page Sculpt", 630, 884), "move": At("page Move", 696, 884), "curve": At("page Curve", 755, 884)}
 LENS_MODEL_TAB = (594, 26)
 # The Model page shows no tools after All: its cage has its own on the page.
 LENS_MODEL_TILES = {"extrude": At("shelf brushes/Extrude", 404, 833), "inset": At("shelf brushes/Inset", 468, 833),
                     "cube": At("shelf brushes/Cube", 980, 833)}
-LENS_SHEET = {"paint": (839, 120), "draw": (721, 320), "inflate": (1115, 440)}
+LENS_SHEET = {"move": (839, 120), "draw": (721, 320), "inflate": (1115, 440)}
 LENS_SHELF_SCULPT = "Brush:Clay,Brush:Draw,Brush:Smooth,Brush:Inflate,Brush:Pinch,Brush:Crease,Brush:Grab,Brush:Flatten,Brush:Mask,Brush:Layer,Remesh,Dyntopo_Toggle"
 
 
@@ -4351,7 +4352,7 @@ def lens_shelf_shows_every_tile_it_adds():
 
 # At 1280 x 720: the Curve page's name under the shelf, its menu's New page, and once a
 # page is added, the new page's name and its menu's Rename.
-SHELF_PAGES_720 = {"curve": (736, 704), "new_page": (691, 656), "added": (736, 704), "rename": (736, 568)}
+SHELF_PAGES_720 = {"curve": "@page Curve", "new_page": "@shelf page menu/New page", "added": "@page Extra_1", "rename": "shelf page menu/Rename…"}
 
 
 @scenario
@@ -4363,13 +4364,13 @@ def lens_shelf_page_added_renamed_and_kept():
     size = ["--width=1280", "--height=720", f"--settings-file={path}"]
     s = Script()
     for at in ["curve", "new_page"]:
-        s.add(f"move:{SHELF_PAGES_720[at][0]},{SHELF_PAGES_720[at][1]}")
+        s.add(f"move:{SHELF_PAGES_720[at]}")
         s.wait(1)
         s.add("rdown" if at == "curve" else "down")
         s.wait(2)
         s.add("rup" if at == "curve" else "up")
         s.wait(10)
-    s.add(f"move:{SHELF_PAGES_720['added'][0]},{SHELF_PAGES_720['added'][1]}")
+    s.add(f"move:{SHELF_PAGES_720['added']}")
     s.wait(1)
     s.add("rdown")
     s.wait(2)
@@ -4383,20 +4384,20 @@ def lens_shelf_page_added_renamed_and_kept():
     back = Script()
     back.wait(4)
     return Steps([
-        (s, size, camera_still({"shelf_pages": near(5), "shelf_page": is_text("Extra_1"), "shelf_page_name": is_text("Detail"),
+        (s, size, camera_still({"shelf_pages": near(4), "shelf_page": is_text("Extra_1"), "shelf_page_name": is_text("Detail"),
                                 "shelf_pages_added": near(1), "shelf_shown": near(0), "dabs": near(0)})),
-        (back, size, camera_still({"shelf_pages": near(5), "shelf_page": is_text("Sculpt"), "shelf_pages_added": near(0)})),
+        (back, size, camera_still({"shelf_pages": near(4), "shelf_page": is_text("Sculpt"), "shelf_pages_added": near(0)})),
     ])
 
 
 @scenario
 def lens_shelf_page_names_turn_the_page():
-    """A tap on Paint under the shelf turns it to the Paint page, whose first tile is the Paint brush."""
+    """A tap on Curve under the shelf turns it to the Curve page, whose first tile is the Curve tool."""
     s = Script()
-    s.ftap(LENS_SHELF_PAGES["paint"])
+    s.ftap(LENS_SHELF_PAGES["curve"])
     s.wait(10)
-    return s, LENS_1440, camera_still({"shelf_page": is_text("Paint"), "shelf_turns": near(1),
-                                       "shelf": lambda v: v.startswith("Brush:Paint,Brush:Mask,Brush:Smooth,Open_Card:Colours")})
+    return s, LENS_1440, camera_still({"shelf_page": is_text("Curve"), "shelf_turns": near(1),
+                                       "shelf": lambda v: v.startswith("Tool_Curve")})
 
 
 @scenario
@@ -4990,7 +4991,7 @@ def model_delete_tap_removes_a_face():
 
 @scenario
 def lens_shelf_all_opens_the_picker():
-    """All opens the brush picker over the shelf; a tap on a card picks it and closes the picker; the picker's Paint turns the shelf too."""
+    """All opens the brush picker over the shelf; a tap on a card picks it and closes the picker; the picker's page tab Move turns the shelf too."""
     def run(card):
         s = Script()
         s.ftap(LENS_SHELF["all"])
@@ -4999,25 +5000,25 @@ def lens_shelf_all_opens_the_picker():
             s.ftap(LENS_SHEET["inflate"])
             s.wait(10)
             return s, LENS_1440, camera_still({"brush_sheet": near(0), "brush_kind": is_text("inflate"), "dabs": near(0)})
-        s.ftap(LENS_SHEET["paint"])
+        s.ftap(LENS_SHEET["move"])
         s.wait(10)
-        return s, LENS_1440, camera_still({"brush_sheet": near(1), "shelf_page": is_text("Paint"), "dabs": near(0)})
+        return s, LENS_1440, camera_still({"brush_sheet": near(1), "shelf_page": is_text("Move"), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
 @scenario
 def lens_shelf_swipe_turns_the_page():
-    """A finger swiped left along the shelf turns it from Sculpt to Paint, and one swiped right turns it back; nothing is picked, run or sculpted."""
+    """A finger swiped left along the shelf turns it from Sculpt to Move, and one swiped right turns it back; nothing is picked, run or sculpted."""
     def run(back):
         s = Script()
         s.fdrag(line(LENS_SHELF["inflate"], (LENS_SHELF["inflate"][0] - 220, 832), 10))
         s.wait(10)
         if back:
-            # The Paint page is narrower, so the shelf stands further in: this is its Mask tile.
-            s.fdrag(line(LENS_SHELF["inflate"], (LENS_SHELF["inflate"][0] + 220, 832), 10))
+            # The Move page is narrower, so the swipe back starts in the middle of its row.
+            s.fdrag(line((720, 832), (720 + 220, 832), 10))
             s.wait(10)
             return s, LENS_1440, camera_still({"shelf_page": is_text("Sculpt"), "shelf_swipes": near(2), "brush_kind": is_text("draw"), "dabs": near(0)})
-        return s, LENS_1440, camera_still({"shelf_page": is_text("Paint"), "shelf_turns": near(1), "shelf_swipes": near(1),
+        return s, LENS_1440, camera_still({"shelf_page": is_text("Move"), "shelf_turns": near(1), "shelf_swipes": near(1),
                                            "brush_kind": is_text("draw"), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
@@ -5106,17 +5107,17 @@ def full_brushes_page(step=""):
 
 @scenario
 def lens_shelf_pin_keeps_the_visiting_brush():
-    """The visiting tile's pin keeps the brush on the page shown, first after All: on the Paint page, with room, at once; on the full Brushes page the next tap on a tile gives its place to it, and Escape before that gives the pin up, the tap then picking that tile's brush."""
+    """The visiting tile's pin keeps the brush on the page shown, first after All: on the Move page, with room, at once; on the full Brushes page the next tap on a tile gives its place to it, and Escape before that gives the pin up, the tap then picking that tile's brush."""
     def run(how):
         s = Script()
         s.wait(10)
         if how == "room":
-            s.ftap(LENS_SHELF_PAGES["paint"])
+            s.ftap(LENS_SHELF_PAGES["move"])
             s.wait(10)
         s.ftap(LENS_SHELF_PIN)
         s.wait(6)
         if how == "room":
-            return s, LENS_1440 + ["--script=brush elastic"], camera_still({"shelf_page": is_text("Paint"), "shelf": lambda v: v.startswith("Brush:Elastic,"),
+            return s, LENS_1440 + ["--script=brush elastic"], camera_still({"shelf_page": is_text("Move"), "shelf": lambda v: v.startswith("Brush:Elastic,"),
                                                                            "shelf_pins": near(1), "shelf_active": near(0), "dabs": near(0)})
         if how == "cancel":
             s.press("Escape")
@@ -6029,7 +6030,7 @@ def help_labels_kept_until_done():
 # The tour at 1440x900 (--tour): the space tabs, each step's Next and the dial step's
 # Skip, the History button, the Paint toggle and the dial's Smooth.
 TOUR = {"model": (604, 28), "sculpt": (504, 28), "next_spaces": (737, 202), "next_dial": (321, 696), "skip_dial": (240, 696),
-        "next_cards": At("tour card/Next", 1366, 575), "history": (1355, 28), "paint": At("shelf brushes/Paint", 404, 833), "smooth": (78, 778)}
+        "next_cards": At("tour card/Next", 1366, 575), "history": (1355, 28), "paint": At("shelf brushes/Paint", 404, 833), "paint_tab": At("top bar/Workspaces/Paint", 760, 28), "smooth": (78, 778)}
 
 
 @scenario
@@ -6076,7 +6077,7 @@ def tour_dial_step_tried():
 
 @scenario
 def tour_finishes_with_paint():
-    """Opening History does the fourth step, and picking the Paint page's Paint brush and painting a stroke the last, which finishes the tour."""
+    """Opening History does the fourth step, and the Paint tab (which puts the Paint brush in hand) and a painted stroke the last, which finishes the tour."""
     def run(paint):
         s = Script()
         s.wait(8)
@@ -6089,13 +6090,11 @@ def tour_finishes_with_paint():
             return s, LENS_1440 + ["--tour"], camera_still({"tour": near(4), "tour_step": is_text("paint"), "dabs": near(0)})
         s.ftap(TOUR["history"])
         s.wait(10)
-        s.ftap(LENS_SHELF_PAGES["paint"])
-        s.wait(10)
-        s.ftap(TOUR["paint"])
+        s.ftap(TOUR["paint_tab"])
         s.wait(10)
         s.mouse_drag([(560 + 12 * i, 420) for i in range(10)])
         s.wait(70)
-        return s, LENS_1440 + ["--tour"], camera_still({"tour": near(5), "tour_finished": near(1), "tour_shown": near(0), "brush_kind": is_text("paint"), "shelf_page": is_text("Paint"), "dabs": lambda v: int(v) > 0})
+        return s, LENS_1440 + ["--tour"], camera_still({"tour": near(5), "tour_finished": near(1), "tour_shown": near(0), "brush_kind": is_text("paint"), "workspace": is_text("paint"), "dabs": lambda v: int(v) > 0})
     return Steps([run(False), run(True)])
 
 
@@ -6937,7 +6936,7 @@ def l_steps_to_the_next_look_or_holds_the_row():
 
 @scenario
 def paint_brush_keeps_its_own_look():
-    """With the Paint brush, the view shows painting's look; Flat picked there stays painting's, and Clay (the 1 key) shows sculpting's look again, Lit, while the layout keeps painting's."""
+    """With the Paint brush, in the Paint workspace, the view shows painting's look; Flat picked there stays painting's, and Clay (the 1 key) goes to Sculpt and shows sculpting's look again, Lit, while Paint's layout keeps painting's."""
     s = Script()
     s.add("move:800,450")
     s.wait(4)
@@ -6947,7 +6946,7 @@ def paint_brush_keeps_its_own_look():
     s.press("1")
     s.wait(6)
     return s, ["--script=brush paint"], camera_still({"dabs": near(0), "shading_mode": is_text("Lit"), "look_group": is_text("Sculpt"), "look_group_switches": near(2),
-                                                      "layout_modified": near(1)})
+                                                      "workspace": is_text("sculpt"), "layout_modified": near(0), "layouts_changed": is_text("paint")})
 
 
 @scenario
@@ -10504,12 +10503,12 @@ PEN_NAV_HEAD = (1500, 90)  # under the top bar at the pen side, left of the view
 
 @scenario
 def pen_roll_over_the_shelf_turns_its_page():
-    """The pen hovering over the shelf and turned 100 degrees clockwise turns two pages on, a page for each 40 degrees past the first ROLL_ENGAGE: Sculpt to Move."""
+    """The pen hovering over the shelf and turned 100 degrees clockwise turns two pages on, a page for each 40 degrees past the first ROLL_ENGAGE: Sculpt to Curve."""
     s = Script()
     pen_hover(s, *PEN_SHELF_TILE, frames=4)
     pen_rolls(s, range(0, 101, 5), frames=1)
     s.wait(4)
-    return s, [], camera_still({"shelf_page": is_text("Move"), "dabs": near(0), "pen_rolls": near(0), "roll_hint": is_text("Page:_Move")})
+    return s, [], camera_still({"shelf_page": is_text("Curve"), "dabs": near(0), "pen_rolls": near(0), "roll_hint": is_text("Page:_Curve")})
 
 
 @scenario

@@ -26,6 +26,7 @@ Starter :: enum u8 {
 	Sculpt,
 	Model,
 	Render,
+	Paint,
 }
 
 @(rodata)
@@ -34,6 +35,7 @@ STARTER_NAMES := [Starter]string {
 	.Sculpt = "Sculpt",
 	.Model  = "Model",
 	.Render = "Render",
+	.Paint  = "Paint",
 }
 
 // The icon a workspace's tab shows: its starter's, or the workspace icon for one of the
@@ -44,12 +46,14 @@ STARTER_ICONS := [Starter]rune {
 	.Sculpt = ui.ICON_SCULPT_SPACE,
 	.Model  = ui.ICON_SPACE_MODEL,
 	.Render = ui.ICON_SPACE_RENDER,
+	.Paint  = ui.ICON_PAINT,
 }
 
 // What a tool in hand is, for the ties: picking a tool whose tie another workspace holds
 // brings that workspace.
 Tie :: enum u8 {
-	Brushes, // the Brush tool with any brush but Mask and Smooth, which every kind of work uses
+	Brushes, // the Brush tool with any brush but Paint, Mask and Smooth, which every kind of work uses
+	Paint_Brush, // the Paint brush
 	Curve,
 	Insert,
 	Model,
@@ -59,6 +63,7 @@ Tie :: enum u8 {
 @(rodata)
 TIE_NAMES := [Tie]string {
 	.Brushes = "Sculpt brushes",
+	.Paint_Brush = "Paint brush",
 	.Curve   = "Curve tool",
 	.Insert  = "Insert tool",
 	.Model   = "Model tool",
@@ -72,6 +77,7 @@ STARTER_TIES := [Starter]bit_set[Tie] {
 	.Sculpt = {.Brushes, .Curve, .Insert},
 	.Model  = {.Model},
 	.Render = {.Look},
+	.Paint  = {.Paint_Brush},
 }
 
 // The tool a workspace was left with, which its tab gives back when the tool in hand is
@@ -112,13 +118,15 @@ Workspaces :: struct {
 workspaces_init :: proc(k: ^Kit_State) {
 	ws := &k.workspaces
 	workspaces_clear(k)
-	for s, i in ([]Starter{.Sculpt, .Model, .Render}) {
-		w := &ws.list[i]
+	// Slots in the order the starters came, Paint last; tabs with Paint before Render. Each
+	// takes its tint by its slot, so the tints stay as the spaces had them.
+	for s, slot in ([]Starter{.Sculpt, .Model, .Render, .Paint}) {
+		w := &ws.list[slot]
 		w.name = strings.clone(STARTER_NAMES[s])
-		w.starter, w.ties, w.tint = s, STARTER_TIES[s], u8(i)
+		w.starter, w.ties, w.tint = s, STARTER_TIES[s], u8(slot)
 		w.page = shelf_first_page(s)
-		ws.order[i] = i8(i)
 	}
+	for slot, place in ([]i8{0, 1, 3, 2}) do ws.order[place] = slot
 	ws.current = 0
 }
 
@@ -172,7 +180,7 @@ tie_of :: proc(app: ^App) -> (t: Tie, ok: bool) {
 	switch app.tool {
 	case .Brush:
 		if app.brush.kind == .Mask || app.brush.kind == .Smooth do return
-		return .Brushes, true
+		return .Paint_Brush if app.brush.kind == .Paint else .Brushes, true
 	case .Curve:  return .Curve, true
 	case .Insert: return .Insert, true
 	case .Model:  return .Model, true
@@ -191,6 +199,9 @@ tie_tool_put :: proc(app: ^App, t: Tie) {
 			preset_leave(app)
 			app.tool, app.brush.kind = .Brush, .Clay
 		}
+	case .Paint_Brush:
+		preset_leave(app)
+		app.tool, app.brush.kind = .Brush, .Paint
 	case .Curve:  app.tool = .Curve
 	case .Insert: app.tool = .Insert
 	case .Model:  app.tool = .Model
@@ -240,7 +251,7 @@ tie_of_tool :: proc(last: Workspace_Tool) -> (t: Tie, ok: bool) {
 	switch last.tool {
 	case .Brush:
 		if last.brush == .Mask || last.brush == .Smooth do return
-		return .Brushes, true
+		return .Paint_Brush if last.brush == .Paint else .Brushes, true
 	case .Curve:  return .Curve, true
 	case .Insert: return .Insert, true
 	case .Model:  return .Model, true
@@ -346,6 +357,7 @@ top_workspace_tabs :: proc(app: ^App) -> f32 {
 	for slot, i in tabs {
 		w := &k.workspaces.list[slot]
 		sw := workspace_tab_width(ctx, w.name)
+		k.workspace_tab_at[slot] = {x, seg.y, sw, seg.h}
 		if i == chosen {
 			l.menu_at = {x, seg.y, sw, seg.h}
 			ui.fill_circle(ctx, {x + 7, seg.y + 7}, 2.5, t.tints[int(w.tint) % len(t.tints)])

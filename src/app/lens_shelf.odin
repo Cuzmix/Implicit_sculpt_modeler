@@ -155,8 +155,8 @@ Shelf :: struct {
 	added:    int, // pages added, for the exit stats
 }
 
-// The pages a layout shows when it names none: Sculpt's four.
-SHELF_PAGES_DEFAULT :: [?]Shelf_Page{.Sculpt, .Paint, .Move, .Curve}
+// The pages a layout shows when it names none: Sculpt starter's three.
+SHELF_PAGES_DEFAULT :: [?]Shelf_Page{.Sculpt, .Move, .Curve}
 
 // The pages the layout in place shows, first to last; which pages a layout shows is the
 // layout's, while every page's tiles are the same wherever it shows. In temp memory.
@@ -209,6 +209,7 @@ shelf_layout_read :: proc(k: ^Kit_State, f: []string) {
 shelf_first_page :: proc(s: Starter) -> Shelf_Page {
 	switch s {
 	case .None, .Sculpt: return .Sculpt
+	case .Paint:         return .Paint
 	case .Model:  return .Model
 	case .Render: return .Render
 	}

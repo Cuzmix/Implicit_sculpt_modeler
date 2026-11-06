@@ -250,7 +250,7 @@ shelf_turns_stop_at_the_ends :: proc(t: ^testing.T) {
 	sh := &app.kit.shelf
 	sh.row = {0, 0, 640, 58}
 	sh.quick = true
-	testing.expect(t, shelf_turn(app, 1) && sh.page == .Paint && sh.slide > 0 && !sh.quick)
+	testing.expect(t, shelf_turn(app, 1) && sh.page == .Move && sh.slide > 0 && !sh.quick)
 	testing.expect(t, shelf_turn(app, -5) && sh.page == .Sculpt && sh.slide < 0)
 	testing.expect(t, !shelf_turn(app, -1) && sh.page == .Sculpt)
 	// Sculpt's pages end at Curve: Model's page is Model's layout's alone.
@@ -289,11 +289,11 @@ shelf_pages_are_added_renamed_and_kept :: proc(t: ^testing.T) {
 	workspace_follow(a)
 	k := &a.kit
 	k.shelf.row = {0, 0, 640, 58}
-	testing.expect_value(t, len(shelf_pages(k)), 4)
+	testing.expect_value(t, len(shelf_pages(k)), 3)
 	p, ok := shelf_page_add(k)
 	testing.expect(t, ok && p == .Extra_1)
-	testing.expect_value(t, shelf_page_name(k, p), "Page 5")
-	testing.expect_value(t, len(shelf_pages(k)), 5)
+	testing.expect_value(t, shelf_page_name(k, p), "Page 4")
+	testing.expect_value(t, len(shelf_pages(k)), 4)
 	layouts_frame(k)
 	testing.expect(t, layout_changed(k, SLOT_SCULPT), "a page added changes the layout")
 	// The new page is the layout's last, so a turn from Curve reaches it.
@@ -312,7 +312,7 @@ shelf_pages_are_added_renamed_and_kept :: proc(t: ^testing.T) {
 	q, _ := shelf_page_add(k)
 	testing.expect_value(t, shelf_page_name(k, q), "Page 2")
 	command_run(a, .Workspace_Switch, SLOT_SCULPT)
-	testing.expect_value(t, len(shelf_pages(k)), 5)
+	testing.expect_value(t, len(shelf_pages(k)), 4)
 	testing.expect(t, settings_save(a, path))
 
 	b := new(App)
@@ -324,7 +324,7 @@ shelf_pages_are_added_renamed_and_kept :: proc(t: ^testing.T) {
 	panels_default(&b.kit)
 	layouts_init(&b.kit)
 	settings_load(b, path)
-	testing.expect_value(t, len(shelf_pages(&b.kit)), 5)
+	testing.expect_value(t, len(shelf_pages(&b.kit)), 4)
 	testing.expect_value(t, shelf_page_name(&b.kit, .Extra_1), "Detail")
 	testing.expect_value(t, shelf_page_name(&b.kit, .Paint), "Colour")
 	testing.expect_value(t, shelf_page_name(&b.kit, .Extra_2), "Page 2")
@@ -334,12 +334,12 @@ shelf_pages_are_added_renamed_and_kept :: proc(t: ^testing.T) {
 	command_run(b, .Workspace_Switch, SLOT_SCULPT)
 
 	shelf_page_delete(k, p)
-	testing.expect_value(t, len(shelf_pages(k)), 4)
+	testing.expect_value(t, len(shelf_pages(k)), 3)
 	testing.expect_value(t, k.shelf.page, Shelf_Page.Sculpt)
 	testing.expect_value(t, k.shelf.lists[p].count, 0)
 	// A built-in page stays.
 	shelf_page_delete(k, .Paint)
-	testing.expect_value(t, len(shelf_pages(k)), 4)
+	testing.expect_value(t, len(shelf_pages(k)), 3)
 	// Model's added page goes from Model's kept layout too.
 	shelf_page_delete(k, q)
 	command_run(a, .Workspace_Switch, SLOT_MODEL)
