@@ -255,6 +255,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Main_Menu        = "file menu hamburger new open save import export",
 	.File_Chip        = "file name saved unsaved status chip",
 	.Workspace_Tabs   = "workspace tabs spaces layout switch next",
+	.Workspace_New    = "new workspace layout add make save as copy duplicate",
 	.Workspace_Switch = "workspace space layout switch tab",
 	.Workspace_Tab    = "workspace tab space layout switch",
 	.Object_Chip      = "object chip selected name subtool",

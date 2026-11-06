@@ -192,8 +192,9 @@ layout_class auto|desktop|tablet                             one SETTINGS row
   starter-none workspace with no base takes its kept text (or Sculpt's built-in) as its base.
   `workspaces_loaded` repairs the rest: an order naming a free slot or a slot twice is cut, slots
   missing from it go at the end, and a `workspace_current` naming a free slot becomes the first tab.
-- Reset all settings brings the four starters back: workspaces become a `Settings_Block` of their
-  own (`settings_blocks.odin:581` resets every block, and today none holds the layouts).
+- Reset all settings leaves the workspaces as they are, as it left the layouts (built: a reset of
+  Settings > Interface throwing away the person's workspaces would cost more than it saves; the
+  starters come back from New workspace's Start from).
 - The `space_layout`, `space_current`, `layout_saved`, `dial_sector` and `dial_space` lines are
   deleted with their readers; a settings file from an earlier build loses them (passed over, never
   converted: AGENTS.md section 5). `dial <hands> <0-3> modifier <name> | command <name>` replaces the
