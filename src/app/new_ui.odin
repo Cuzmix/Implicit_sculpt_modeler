@@ -1905,7 +1905,7 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 		}
 		if c.texture == .Image && c.image >= KIT_MATCAP_IMAGE && c.image < KIT_MATCAP_IMAGE_END {
 			tex := material_matcap(app, {matcap = int(c.image - KIT_MATCAP_IMAGE)})
-			draws[i].image, draws[i].smooth = tex, true
+			draws[i].image, draws[i].smooth, draws[i].encode = tex, true, true
 			if tex == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image >= KIT_TAB_IMAGE && c.image < KIT_TAB_IMAGE_END {

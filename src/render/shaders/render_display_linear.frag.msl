@@ -1,11 +1,11 @@
-// slangc metal from render_display_linear.frag.spv sha256 6f6054655839ff6f2dae82e2acb65d33bf48425e2cc27ec6dc69a72cf658ff26
+// slangc metal from render_display_linear.frag.spv sha256 238303eb11cd84dac0bac7620d3ac0fc9667e69b91bb7161e522f7364af5f19a
 // slots s=0:0,1:1,2:2,3:3 rt= wt= rb= wb= u=0 a=
 #include <metal_stdlib>
 #include <metal_math>
 #include <metal_texture>
 using namespace metal;
 
-#line 16 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_display.frag.slang"
+#line 16 "/home/prime/Manny/Document/sculpt-usd-materials/src/render/shaders/render_display.frag.slang"
 struct SLANG_ParameterGroup_Display_Uniforms_0
 {
     float4 params_0;
@@ -27,7 +27,7 @@ struct KernelContext_0
 };
 
 
-#line 25 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_display.frag.slang"
+#line 25 "/home/prime/Manny/Document/sculpt-usd-materials/src/render/shaders/render_display.frag.slang"
 float4 traced_0(int2 q_0, KernelContext_0 thread* kernelContext_0)
 {
 
@@ -197,7 +197,7 @@ float4 traced_1(int2 q_1, KernelContext_0 thread* kernelContext_1)
 }
 
 
-#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+#line 9 "/home/prime/Manny/Document/sculpt-usd-materials/src/render/shaders/common.slang"
 int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
 
@@ -217,7 +217,7 @@ int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_samp
 }
 
 
-#line 37 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_display.frag.slang"
+#line 37 "/home/prime/Manny/Document/sculpt-usd-materials/src/render/shaders/render_display.frag.slang"
 float4 blended_0(int2 q_2, float w_1, KernelContext_0 thread* kernelContext_2)
 {
 
@@ -231,7 +231,7 @@ float4 blended_0(int2 q_2, float w_1, KernelContext_0 thread* kernelContext_2)
 }
 
 
-#line 34 "/home/user/Implicit_sculpt_modeler/src/render/shaders/display.slang"
+#line 34 "/home/prime/Manny/Document/sculpt-usd-materials/src/render/shaders/display.slang"
 float3 srgb_decode_0(float3 c_0)
 {
 
@@ -302,7 +302,7 @@ struct pixelOutput_0
 };
 
 
-#line 42 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_display.frag.slang"
+#line 42 "/home/prime/Manny/Document/sculpt-usd-materials/src/render/shaders/render_display.frag.slang"
 [[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], texture2d<float, access::sample> view_color_texture_1 [[texture(0)]], sampler view_color_sampler_1 [[sampler(0)]], SLANG_ParameterGroup_Display_Uniforms_0 constant* Display_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> accum_texture_1 [[texture(1)]], sampler accum_sampler_1 [[sampler(1)]], texture2d<float, access::sample> guide_albedo_texture_1 [[texture(3)]], sampler guide_albedo_sampler_1 [[sampler(3)]], texture2d<float, access::sample> denoised_texture_1 [[texture(2)]], sampler denoised_sampler_1 [[sampler(2)]])
 {
 
@@ -342,21 +342,24 @@ struct pixelOutput_0
 
 #line 43
     float4 _S21 = ((view_color_texture_1).read(uint2((_S20))));
+
     float3 under_0 = _S21.xyz;
+
+#line 50
     thread float4 t_0;
     if((Display_Uniforms_1->params_0.w) < 0.5f)
     {
 
-#line 46
+#line 51
         float4 _S22 = traced_0(_S20, &kernelContext_3);
         t_0 = _S22;
 
-#line 46
+#line 51
     }
     else
     {
 
-#line 46
+#line 51
         int2 _S23 = int2(int(1)) ;
 
 
@@ -366,76 +369,79 @@ struct pixelOutput_0
         float2 f_0 = at_0 - float2(_S24);
         int2 _S25 = int2(int(0)) ;
 
-#line 53
+#line 58
         float _S26 = f_0.x;
 
-#line 53
+#line 58
         float _S27 = 1.0f - _S26;
 
-#line 53
+#line 58
         float _S28 = f_0.y;
 
-#line 53
+#line 58
         float _S29 = 1.0f - _S28;
 
-#line 53
+#line 58
         float4 _S30 = blended_0(clamp(_S24, _S25, hi_0), _S27 * _S29, &kernelContext_3);
 
-#line 53
+#line 58
         float4 _S31 = blended_0(clamp(_S24 + int2(int(1), int(0)), _S25, hi_0), _S26 * _S29, &kernelContext_3);
 
-#line 53
+#line 58
         float4 _S32 = _S30 + _S31;
 
-#line 53
+#line 58
         float4 _S33 = blended_0(clamp(_S24 + int2(int(0), int(1)), _S25, hi_0), _S27 * _S28, &kernelContext_3);
         float4 _S34 = _S32 + _S33;
 
-#line 54
+#line 59
         float4 _S35 = blended_0(clamp(_S24 + int2(int(1), int(1)), _S25, hi_0), _S26 * _S28, &kernelContext_3);
 
-#line 54
+#line 59
         float4 _S36 = _S34 + _S35;
 
-#line 53
+#line 58
         t_0 = _S36;
 
         if((_S36.w) > 0.0f)
         {
 
-#line 55
+#line 60
             t_0.xyz = t_0.xyz / float3(t_0.w) ;
 
-#line 55
+#line 60
         }
 
-#line 46
+#line 51
     }
 
-#line 61
+#line 66
     float3 below_0 = neutral_inverse_0(srgb_decode_0(under_0));
 
-#line 61
+#line 66
     float3 shown_0;
     if((t_0.w) > 0.0f)
     {
 
-#line 62
+#line 67
         shown_0 = t_0.xyz * float3(exp2(Display_Uniforms_1->params_0.x)) ;
 
-#line 62
+#line 67
     }
     else
     {
 
-#line 62
+#line 67
         shown_0 = below_0;
 
-#line 62
+#line 67
     }
+    float _S37 = _S21.w;
 
-#line 62
-    pixelOutput_0 _S37 = { float4(mix(below_0, shown_0, float3(clamp(t_0.w, 0.0f, 1.0f)) ), 1.0f) };
-    return _S37;
+#line 68
+    pixelOutput_0 _S38 = { float4(mix(below_0, shown_0, float3(clamp(t_0.w, 0.0f, 1.0f)) ), _S37 + (1.0f - _S37) * clamp(t_0.w, 0.0f, 1.0f)) };
+
+#line 68
+    return _S38;
 }
 

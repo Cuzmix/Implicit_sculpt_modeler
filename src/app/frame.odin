@@ -467,6 +467,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		_ = render.studio_frame(&app.renderer, &app.studio, cmd, &app.target, view, proj, draws[:], changed, studio_max, app.studio_ao, app.studio_shadow, viewport_lights(app), &app.pool, app.studio_softness, under)
 	}
 	render_mode_frame(app, cmd, view, proj, draws[:], changed)
+	render_image_frame(app, cmd, draws[:])
 	finish_view_frame(app, cmd, changed)
 	// Before captures, pictures and other views, which show the model as it is.
 	hover_preview_restore(app, cmd)

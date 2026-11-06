@@ -2758,8 +2758,8 @@ readback_cancel :: proc(r: ^Renderer, rb: ^Readback) {
 
 // Reads a `width` by `height` RGBA8 texture back as rows top to bottom, recorded into
 // `cmd` after its work, which is submitted, and waits for the GPU; nil on failure.
-texture_download_in :: proc(r: ^Renderer, cmd: gpu.Cmd, texture: gpu.Texture, width, height: u32, allocator := context.allocator) -> []u8 {
-	size := width * height * 4
+texture_download_in :: proc(r: ^Renderer, cmd: gpu.Cmd, texture: gpu.Texture, width, height: u32, allocator := context.allocator, bytes_per_pixel: u32 = 4) -> []u8 {
+	size := width * height * bytes_per_pixel
 	rb := gpu.reserve_readback(cmd, size)
 	defer gpu.release_readback(rb)
 	if rb != 0 do gpu.download_texture(cmd, rb, 0, {texture = texture, w = width, h = height, d = 1}, size)

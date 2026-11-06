@@ -362,6 +362,8 @@ App :: struct {
 	// The Material card's balls (material_balls.odin), and --dump-balls: the path to write
 	// them to and the next preset to draw.
 	material_balls:  render.Material_Balls,
+	// Full render of the view at a size of its own (render_image.odin).
+	render_image:    Render_Image,
 	opts_dump_balls: string,
 	dump_balls_next: int,
 	thumb_slots:    Thumb_Slots,
@@ -682,6 +684,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer delete(app.view_model_name)
 	defer render.thumbs_destroy(&app.renderer, &app.thumbs)
 	defer render.material_balls_destroy(&app.renderer, &app.material_balls)
+	defer render_image_destroy(&app)
 	defer render.step_pictures_destroy(&app.renderer, &app.step_pictures)
 	defer render.step_pictures_destroy(&app.renderer, &app.layer_pictures)
 	defer delete(app.clipboard)

@@ -160,6 +160,8 @@ static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
 // 1 when a light with a place (point, spot or area, each traced as a sphere) may be on;
 // 0 means suns only.
 [[vk::constant_id(3)]] const uint RT_SPHERE_LIGHTS = 1u;
+// 1 when a shadow catcher may be on (render.Shadow_Catcher).
+[[vk::constant_id(4)]] const uint RT_CATCHER = 1u;
 
 [[vk::binding(0, 2)]] cbuffer Render_Uniforms {
 	float4x4 inv_view_proj; // clip space back to the world
@@ -196,12 +198,18 @@ static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
 	float4 lens_right;
 	float4 lens_up;
 	float4 lens_fwd;
+	// The shadow catcher (render.Shadow_Catcher): x the axis across its plane, y where along
+	// it, z how dark its shadow, w 1 when on; the light whose shadow it catches in
+	// catcher_light.x.
+	float4 catcher;
+	float4 catcher_light;
 };
 
 #include "panorama.slang"
 #include "studio_env.slang"
 #include "light_window.slang"
 #include "ggx_albedo.slang"
+#include "thin_film.slang"
 
 static const float PI = 3.14159265;
 // geom.CHUNK_BVH_STACK for each level: a chunk's entries stay above the scene tree's.
@@ -918,6 +926,13 @@ bool subsurface_walk(float3 p, float3 ng, float3 color, float3 radius, float g, 
 	return false;
 }
 
+// A direction uniformly over the whole sphere.
+float3 sample_sphere() {
+	float z = 1.0 - 2.0 * rnd(), phi = 2.0 * PI * rnd();
+	float r = sqrt(max(1.0 - z * z, 0.0));
+	return float3(r * cos(phi), r * sin(phi), z);
+}
+
 // A direction in the cone of cosine `cos_max` about `axis`, uniformly.
 float3 sample_cone(float3 axis, float cos_max) {
 	float3 t, b;
@@ -1147,6 +1162,38 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 	for (int bounce = 0; bounce <= bounces; bounce++) {
 		Hit hit;
 		bool met = trace(o, d, FAR, false, hit);
+		// The shadow catcher: a camera ray meeting its plane nearer than the scene asks one
+		// ray toward the light whether the point is in shadow; the pixel then covers by that
+		// shadow, adding no light. Only sets values, so a kernel without it folds it away.
+		bool caught = false;
+		float shadowed = 0.0;
+		if (RT_CATCHER != 0u && bounce == 0 && catcher.w > 0.5) {
+			int axis = int(catcher.x);
+			float dt = d[axis];
+			float t_plane = abs(dt) > 1e-8 ? (catcher.y - o[axis]) / dt : -1.0;
+			if (t_plane > 0.0 && (!met || t_plane < hit.t)) {
+				float3 pp = o + d * t_plane;
+				float3 np = float3(0.0);
+				np[axis] = o[axis] > catcher.y ? 1.0 : -1.0;
+				int li = int(catcher_light.x);
+				float3 l;
+				float reach = FAR;
+				if (light_pos[li].w < 0.5) {
+					l = sample_cone(light_pos[li].xyz, light_size[li].x);
+				} else {
+					float3 to = light_pos[li].xyz + light_size[li].x * sample_sphere() - pp;
+					reach = length(to);
+					l = to / max(reach, 1e-8);
+				}
+				Hit blocker;
+				shadowed = dot(l, np) > 0.0 && trace(offset_ray(pp, np), l, reach, true, blocker) ? catcher.z : 0.0;
+				caught = true;
+			}
+		}
+		if (caught) {
+			covered = shadowed;
+			break;
+		}
 		// Light absorbed on the way through a glass's inside (Beer and Lambert), zero
 		// outside one.
 		if (met && any(absorb > 0.0)) weight *= exp(-absorb * hit.t);
@@ -1301,6 +1348,10 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 			float lessen = material_row(table, material, 9u).w;
 			float r0 = (coat.w - 1.0) / (coat.w + 1.0);
 			s.f0 = lerp(float3(r0 * r0 * (1.0 - lessen)), albedo, metallic);
+			// A thin film's colours over that reflectance, at the angle the eye sees it
+			// from, as the viewport takes them.
+			float4 film = material_row(table, material, 9u);
+			if (film.x > 0.0) s.f0 = lerp(s.f0, thin_film(max(dot(n, v), 1e-4), s.f0, film.y, film.z), film.x);
 			float c0 = (coat.z - 1.0) / (coat.z + 1.0);
 			s.coat = coat.x;
 			s.coat_a = max(coat.y * coat.y, 1e-3);
@@ -1341,8 +1392,19 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 				float v_dot_h = max(dot(v, h), 1e-4);
 				float fr = fresnel_dielectric(v_dot_h, eta);
 				if (fr < 1.0) fr *= 1.0 - lessen;
+				// A thin film colours what the interface reflects (and so what passes): the
+				// film's reflectance per channel at this angle, the chance of reflecting its
+				// mean, each way weighted by its colour over that chance.
+				float4 film = material_row(table, material, 9u);
+				float3 fr3 = float3(fr);
+				if ((flags & ITEM_LAYERS) != 0u && film.x > 0.0 && fr < 1.0) {
+					fr3 = lerp(fr3, thin_film(v_dot_h, float3(fr), film.y, film.z), film.x);
+					fr = clamp((fr3.r + fr3.g + fr3.b) / 3.0, 1e-3, 0.999);
+				}
 				l_clear = reflect(-v, h);
-				if (rnd() >= fr) {
+				bool passes = rnd() >= fr;
+				weight *= passes ? (1.0 - fr3) / (1.0 - fr) : fr3 / fr;
+				if (passes) {
 					// Through: tinted at the surface, or by absorption along the inside when
 					// the material gives the depth its colour is reached at.
 					if (thin) l_clear -= 2.0 * dot(l_clear, n) * n;
