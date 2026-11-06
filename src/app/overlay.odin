@@ -186,6 +186,7 @@ overlay_viewport :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	draw_stack_handles(app, o, input.size)
 	draw_curve_objects(app, o, input.size)
 	draw_focus_marker(app, o, input.size)
+	draw_history_find(app, o, input.size)
 	// While the eyedropper's loupe shows, the brush ring under it would only hide the
 	// colour being picked.
 	if app.ui.eyedrop_held {

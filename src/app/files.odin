@@ -2078,6 +2078,8 @@ scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, vie
 	// The point in focus was on the old scene's model.
 	app.focus = nil
 	app.ui.focus_armed, app.ui.focus_held = false, false
+	// So was a spot whose steps the History found.
+	history_find_clear(app)
 	app.stroke_end.valid = false
 	clear(&app.stroke.pending)
 	app.stats = {}

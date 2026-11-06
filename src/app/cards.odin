@@ -479,6 +479,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Section) {
 	.Live_Occlusion        = .Look,
 	.Render_Mode           = .Render,
 	.Pick_Focus            = .Lens,
+	.History_Find          = .History,
 	.Place_Light           = .Lights,
 	.Focus_Pivot           = .Lens,
 	.Finish_Reset          = .Finish,

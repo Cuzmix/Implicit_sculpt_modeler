@@ -233,7 +233,7 @@ columns_update :: proc(app: ^App) {
 	// A press on what a card put in the view (a light's marker or gizmo, Place highlight's
 	// press, the Move tool's gizmo), or one a card's control waits for (the Eyedropper, Pick
 	// focus, Pick a group), is that card's work, so the cards stay.
-	if app.ui.eyedrop_armed || app.ui.focus_armed || app.ui.group_pick do return
+	if app.ui.eyedrop_armed || app.ui.focus_armed || app.ui.group_pick || app.timeline.find.armed do return
 	at, size := ctx.input.mouse, ctx.input.window
 	if lights_take_press(app, at, size) || stack_handles_take_press(app, at, size) || (app.tool == .Move && gizmo_pick(app, at, size) != .None) do return
 	closed := false

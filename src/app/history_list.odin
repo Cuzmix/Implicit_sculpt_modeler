@@ -83,6 +83,29 @@ history_rows :: proc(app: ^App, only := -1, open_at := time.Tick{}, group := tru
 	return rows
 }
 
+// The rows the list shows: every step's, or the selected object's alone, and while steps
+// were found at a spot only theirs, each on its own, since a group of strokes may hold some
+// that changed the spot and some that did not.
+history_shown_rows :: proc(app: ^App) -> [dynamic]History_Row {
+	tl := &app.timeline
+	find := &tl.find
+	only := -1
+	if tl.only_selected {
+		if obj := selected_object(app); obj != nil do only = obj.id
+	}
+	rows := history_rows(app, find.object if find.on else only, tl.open_at, !app.history_ungrouped && !find.on)
+	if !find.on do return rows
+	kept := 0
+	for row in rows {
+		if shown, _ := history_find_row(app, row); shown {
+			rows[kept] = row
+			kept += 1
+		}
+	}
+	resize(&rows, kept)
+	return rows
+}
+
 // Whether two steps are strokes the list groups: one brush on one object, neither adjusted
 // nor bookmarked (each reads on its own, so its amount or name shows).
 history_same_stroke :: proc(a, b: History_Entry) -> bool {
@@ -140,11 +163,17 @@ kit_history_list :: proc(app: ^App, inner, room: f32, owner: ui.Id, can: bool) {
 	ui.fill_rect(ctx, meter, 2.5, t.track)
 	if full > 0 do ui.fill_rect(ctx, {meter.x, meter.y, max(meter.w * full, 5), meter.h}, 2.5, overlay_color(KIND_COLORS[.Stroke]) if full < 0.8 else t.warning)
 
-	only := -1
-	if tl.only_selected {
-		if obj := selected_object(app); obj != nil do only = obj.id
+	// Found steps at a spot: their chip over the rows.
+	find := &tl.find
+	history_find_settle(app)
+	if find.on {
+		obj := object_by_id(app, find.object)
+		label := fmt.tprintf("%d step%s changed the spot%s", len(find.found), "" if len(find.found) == 1 else "s", fmt.tprintf(" on %s", object_label(obj)) if obj != nil else "")
+		ui.begin(ctx, "history found", {direction = .Row, width = inner, center = true})
+		if a := lens_chip(ctx, "Show every step again##history find", ui.text_fit(ctx, label, t.small_size, inner - 60), glyph = ui.ICON_CLOSE, lit = true); a.clicked do history_find_clear(app)
+		ui.end(ctx)
 	}
-	rows := history_rows(app, only, tl.open_at, !app.history_ungrouped)
+	rows := history_shown_rows(app)
 	natural: f32 = HISTORY_ROW_H + HISTORY_ROW_GAP // the first row of all, where the History starts
 	for row in rows do natural += (HISTORY_SUB_H if row.sub else HISTORY_ROW_H) + HISTORY_ROW_GAP
 	// The rows take what the card has left under its head, the memory line and the
@@ -276,6 +305,10 @@ history_row :: proc(app: ^App, row: History_Row, width: f32, can: bool, recall: 
 		on := object_label(obj) if obj != nil else ""
 		ago := ago_label(e.at)
 		note := "  · you are here" if current else "  · undone" if undone else ""
+		// A step found only by its box: it changed somewhere round the spot.
+		if tl.find.on {
+			if _, near := history_find_row(app, row); near do note = fmt.tprintf("%s  · near", note)
+		}
 		line := fmt.tprintf("%s · %s%s", on, ago, note) if on != "" else fmt.tprintf("%s%s", ago, note)
 		lx := tx
 		// A bookmark leads the line with its flag and name, in the flags' amber.

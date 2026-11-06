@@ -57,6 +57,7 @@ Timeline :: struct {
 	open_at:       time.Tick,
 	list_scroll:   f32,
 	quick:         Quick_Scrub, // a hold on Undo or Redo, or of fingers, slid (quick_scrub.odin)
+	find:          History_Find, // Find steps at a spot (history_find.odin)
 }
 
 // The History panel's two views: the list of steps (Nomad's), and the strip of coloured
@@ -100,6 +101,7 @@ timeline_init :: proc(tl: ^Timeline) {
 
 timeline_destroy :: proc(tl: ^Timeline) {
 	delete(tl.lapse.dir)
+	history_find_destroy(&tl.find)
 	tl^ = {}
 }
 
@@ -339,12 +341,13 @@ history_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 		obj := selected_object(app)
 		label := fmt.tprintf("%s only", object_label(obj)) if tl.only_selected && obj != nil else "All objects"
 		label = ui.text_fit(ctx, label, t.small_size, max(ui.row_room(ctx) - gear - 8 - 40, 40))
-		// The chip at the row's end, before the gear.
-		ui.spacer(ctx, max(ui.row_room(ctx) - lens_chip_width(ctx, label, chevron = true) - gear - 8, 0))
+		// The chip at the row's end, before Find steps at a spot and the gear.
+		ui.spacer(ctx, max(ui.row_room(ctx) - lens_chip_width(ctx, label, chevron = true) - 2 * gear - 16, 0))
 		if a := lens_chip(ctx, "Every object's steps, or only the selected one's##history", label, chevron = true, lit = tl.only_selected); a.clicked {
 			tl.only_selected = !tl.only_selected
 			tl.list_scroll = 0
 		}
+		if ui.icon_button(ctx, COMMANDS[.History_Find].label, COMMANDS[.History_Find].icon, selected = command_checked(app, .History_Find), keys = command_hint(app, .History_Find)) do _ = command_run(app, .History_Find)
 	} else {
 		ui.spacer(ctx, max(ui.row_room(ctx) - gear, 0))
 	}

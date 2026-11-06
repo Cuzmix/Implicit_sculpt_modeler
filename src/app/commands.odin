@@ -47,6 +47,7 @@ Command_Id :: enum u16 {
 	Undo,
 	Redo,
 	Delete_Older_History,
+	History_Find, // history_find.odin
 	Delete_Object,
 	Duplicate_Object,
 	// Tools and the brush
@@ -578,6 +579,13 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_TRASH,
 		run = proc(app: ^App, _: int) {history_delete_older(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return history_can_undo(app) && !timeline_busy(app)},
+	},
+	.History_Find = {
+		label = "Find steps at a spot",
+		help = "The next press on the model picks a spot, and the History list then shows only the steps that changed it, until its chip is tapped.",
+		icon = rune(0xe53c), // scan-search
+		run = proc(app: ^App, _: int) {history_find_command(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.timeline.find.armed || app.timeline.find.on},
 	},
 	.Delete_Object = {
 		label = "Delete",
