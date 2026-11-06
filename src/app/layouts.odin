@@ -178,7 +178,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	docks_clear(k)
 	// The pass is Shaded unless the layout names another; a peek ends with the layout.
 	k.passes.pass, k.passes.chip_held, k.passes.key_held = .Shaded, false, false
-	k.passes.shading = {}
+	shading_layout_clear(k)
 	// One view unless the layout names a grid; the layout steps named another layout.
 	k.grid.tree, k.grid.maximised = grid_preset_tree(.Single), 0
 	k.grid.serial += 1
