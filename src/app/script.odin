@@ -112,7 +112,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Capture_Vdm   = {"capture_vdm", "a name for the VDM stamp the selected slab's top face makes, kept in the library and picked"},
 	.Export_Vdm    = {"export_vdm", "an .exr file to write the brush's VDM stamp to, laid out for the app vdm_axes names"},
 	.Export_Bary   = {"export_bary", "a .bary file to write the selected object's detail skin to, as an NVIDIA displacement micro-map"},
-	.Render_Image = {"render_image", "width, height and samples, then transparent, passes and catcher if wanted, then a .png path: Full render of the view at that size, written once its samples are in (frames later), with NAME_albedo, _normal, _depth, _curvature and _silhouette beside it with passes"},
+	.Render_Image = {"render_image", "width, height and samples, then fast, transparent, passes and catcher if wanted, then a .png path: Full render (Fast with fast) of the view at that size, up to 8192, written once its samples are in (frames later), with NAME_albedo, _normal, _depth, _occlusion, _curvature, _silhouette, _object_id and _group_id beside it with passes"},
 	.Export_Paint_Maps = {"paint_maps", "a folder to write the selected object's paint into as NAME_base_color.png and NAME_orm.png, its texture layers' size, with NAME_height.png and NAME_normal.png when a layer paints height"},
 	.Reference     = {"reference", "an image file (PNG, JPEG, BMP, TGA or QOI) to add to the References card's board"},
 	.Reference_Plane = {"reference_plane", "front, back, right, left, top, bottom or none: the view whose plane in the scene the newest picture stands on, and through to draw it over the model"},
@@ -559,6 +559,7 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 			if word == "transparent" do st.flip = true
 			else if word == "passes" do st.arg |= 1
 			else if word == "catcher" do st.arg |= 2
+			else if word == "fast" do st.arg |= 4
 			else do break
 		}
 		st.text = strings.join(args[at:], " ")
@@ -722,7 +723,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		if !paint_maps_export(app, st.text) do return app.result.text, true
 		return "", true
 	case .Render_Image:
-		if why := render_image_start(app, int(st.numbers[0]), int(st.numbers[1]), int(st.numbers[2]), st.text, st.flip, st.arg & 1 != 0, st.arg & 2 != 0); why != "" do return why, true
+		if why := render_image_start(app, int(st.numbers[0]), int(st.numbers[1]), int(st.numbers[2]), st.text, st.flip, st.arg & 1 != 0, st.arg & 2 != 0, st.arg & 4 != 0); why != "" do return why, true
 		return "", true
 	case .Pack_Mesh:
 		// As Add object does with the mesh picked, in place so the next line sees it.
