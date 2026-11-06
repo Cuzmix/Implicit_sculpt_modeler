@@ -18,7 +18,7 @@ look_studio_sets_every_part :: proc(t: ^testing.T) {
 	testing.expect(t, app.styled && app.live_ao_on && !render_switch_on(&app) && app.look_chosen)
 	testing.expect_value(t, app.studio_softness, f32(LOOK_STUDIO_SOFTNESS))
 	testing.expect_value(t, app.ui.scene_command.kind, Scene_Command_Kind{})
-	testing.expect_value(t, main_shading_mode(&app), Shading_Mode.Solid)
+	testing.expect_value(t, main_shading_mode(&app), Shading_Mode.Lit)
 }
 
 // The first run puts the studio look on once; the settings then keep that it did, and what

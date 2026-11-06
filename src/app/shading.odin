@@ -5,13 +5,16 @@ import "core:math"
 import "core:strconv"
 
 import "../render"
+import "../ui"
 
-// Viewport shading, in Blender's four modes: Wireframe, every polygon's edges over a plain
-// fill that hides the edges behind it; Solid, quick shading to sculpt in, lit by the studio
-// lights, by a MatCap or not at all (Flat), each object in its material's colour, a colour
-// of its own or one grey; Material Preview, the objects' own materials whole, with their
-// textures; Rendered, Material Preview with the Render switch on. The passes that check the
-// form (Normals, Curvature...) show over the mode, as Blender's viewport passes do.
+// Viewport shading, in four looks picked from one row: Clay, quick shading to sculpt in,
+// lit by a MatCap that turns with the view; Lit, the same clay shading lit by the scene's
+// lights, to check them; Full, the objects' own materials whole with their textures, which
+// the Render switch renders (Rendered); and Flat, every colour as it is with no light, for
+// painting. The view's Colour takes the paint, the textures and the materials' colours
+// toward clay, so the form reads under them, and its Colour from shows each object in a
+// colour of its own instead. The passes that check the form (Normals, Curvature...) show
+// over the look, as Blender's viewport passes do.
 //
 // A view's shading is its own (View_Shading): the main view keeps it in Passes, and each
 // other view (a view pane, the second view, a view window) in its Second_View, shown while
@@ -21,93 +24,94 @@ import "../render"
 // from what each item was made of (Item_From).
 
 Shading_Mode :: enum u8 {
-	// Solid first, as the zero value is what a view starts in.
-	Solid,
-	Wireframe,
-	Material_Preview,
+	// Lit first, as the zero value is what a view starts in.
+	Lit,
+	Clay,
+	Full,
+	Flat,
+	// Full with the Render switch on (or a view's Render pass): shown, never picked as a
+	// look of its own.
 	Rendered,
 }
 
-// The modes in the order the menus list them, Blender's.
+// The looks in the order the row lists them.
 @(rodata)
-SHADING_MODE_ORDER := [Shading_Mode]Shading_Mode{.Solid = .Wireframe, .Wireframe = .Solid, .Material_Preview = .Material_Preview, .Rendered = .Rendered}
+SHADING_LOOKS := [?]Shading_Mode{.Clay, .Lit, .Full, .Flat}
 
 @(rodata)
 SHADING_MODE_NAMES := [Shading_Mode]string {
-	.Wireframe        = "Wireframe",
-	.Solid            = "Solid",
-	.Material_Preview = "Material Preview",
-	.Rendered         = "Rendered",
+	.Clay     = "Clay",
+	.Lit      = "Lit",
+	.Full     = "Full",
+	.Flat     = "Flat",
+	.Rendered = "Rendered",
+}
+
+// What each look is for, shown under the looks so a newcomer knows what the names mean:
+// the first sentence on the line, the rest when the line is tapped.
+@(rodata)
+SHADING_MODE_HINTS := [Shading_Mode]string {
+	.Clay     = "Plain MatCap clay that reads every form, for sculpting. The light turns with the view, so no side is ever dark; pick the MatCap below.",
+	.Lit      = "The studio lights and the objects' colours, for judging forms under light. The lights stay put while the view turns.",
+	.Full     = "Materials, paint and textures under the environment, for painting and looking at the finished surface. The Render switch below turns on the path tracer.",
+	.Flat     = "Colours with no light at all, for checking paint, textures and the outline.",
+	.Rendered = "The path tracer's picture of the full look, refined while the view is still.",
 }
 
 @(rodata)
 SHADING_MODE_ICONS := [Shading_Mode]rune {
-	.Wireframe        = ICON_WIREFRAME,
-	.Solid            = ICON_SHADING,
-	.Material_Preview = ICON_MATERIAL,
-	.Rendered         = ICON_SPARKLES,
+	.Clay     = ICON_SHADING,
+	.Lit      = ui.ICON_SUN,
+	.Full     = ICON_MATERIAL,
+	.Flat     = ICON_CONTRAST,
+	.Rendered = ICON_SPARKLES,
 }
 
-// How Solid lights the objects: the studio lights; a MatCap, the same for every object;
-// or no light at all, each colour shown as it is.
-Solid_Lighting :: enum u8 {
-	Studio,
-	MatCap,
-	Flat,
-}
-
-@(rodata)
-SOLID_LIGHTING_NAMES := [Solid_Lighting]string {
-	.Studio = "Studio",
-	.MatCap = "MatCap",
-	.Flat   = "Flat",
-}
-
-// The colour Solid shows each object in: its material's, a colour of its own (to tell the
-// objects apart), or one light grey for all.
-Solid_Color :: enum u8 {
+// Where each object's colour comes from: its material (with its paint and textures), or a
+// colour of its own, to tell the objects apart.
+Colour_From :: enum u8 {
 	Material,
 	Object,
-	Single,
 }
 
 @(rodata)
-SOLID_COLOR_NAMES := [Solid_Color]string {
+COLOUR_FROM_NAMES := [Colour_From]string {
 	.Material = "Material",
 	.Object   = "Object",
-	.Single   = "Single",
 }
 
-// Solid's Single colour, a light clay grey.
-SOLID_SINGLE :: [4]f32{0.62, 0.62, 0.62, 1}
+// The clay Lit and Full take colours toward at Colour 0: a light clay grey for the
+// selected object, a darker one for the rest.
+SHADING_CLAY :: [4]f32{0.62, 0.62, 0.62, 1}
+SHADING_CLAY_IDLE :: [4]f32{0.5, 0.5, 0.52, 1}
 
 View_Shading :: struct {
-	// The mode picked; Rendered is never kept here, as the Render switch says it
-	// (shading_mode_shown), and picking it puts Material Preview here.
-	mode:     Shading_Mode,
-	lighting: Solid_Lighting,
-	color:    Solid_Color,
-	// Solid's MatCap, as Material.matcap counts them; 0 for the default, Grey.
-	matcap:   int,
+	// The look picked; Rendered is never kept here, as the Render switch says it
+	// (shading_mode_shown), and picking it puts Full here.
+	mode:   Shading_Mode,
+	from:   Colour_From,
+	// How far the colours are taken toward clay, 0 to 1: the view's Colour is one less
+	// this, so a fresh view (zero) shows them whole.
+	grey:   f32,
+	// Clay's MatCap, as Material.matcap counts them; 0 for the default, Grey.
+	matcap: int,
 }
 
-// Solid's MatCap until one is picked: Grey, Blender's default's look.
+// Clay's MatCap until one is picked: Grey, Blender's default's look.
 SHADING_MATCAP_DEFAULT :: 3
 
 // What a draw item was made from, for shading_items to make it again for a view's shading:
 // the object (nil for none), its index, the colour it was tinted before any texture, its
-// material, whether its textured preview has a base colour map, and whether its level's
-// polygon edges are on its buffers (poly_edges.odin), which a view in Wireframe draws.
+// material, and whether its textured preview has a base colour map.
 Item_From :: struct {
-	obj:        ^Object,
-	index:      int,
-	tint:       [4]f32,
-	material:   Material,
-	base_map:   bool,
-	poly_edges: bool,
+	obj:      ^Object,
+	index:    int,
+	tint:     [4]f32,
+	material: Material,
+	base_map: bool,
 }
 
-// The mode view shading `s` shows: for the main view Rendered while the Render switch is
+// The look view shading `s` shows: for the main view Rendered while the Render switch is
 // on, else the one picked; another view's (`pane`) is its own, the switch being the main
 // view's.
 shading_mode_shown :: proc(app: ^App, s: View_Shading, pane := false) -> Shading_Mode {
@@ -115,9 +119,9 @@ shading_mode_shown :: proc(app: ^App, s: View_Shading, pane := false) -> Shading
 	return s.mode
 }
 
-// The shading mode second view `sv` shows, with `ok` false while it shows a pass that
-// checks the form or the studio render instead: its own mode while Shaded, Rendered while
-// it shows Render.
+// The look second view `sv` shows, with `ok` false while it shows a pass that checks the
+// form or the studio render instead: its own look while Shaded, Rendered while it shows
+// Render.
 second_shading_mode :: proc(sv: ^Second_View) -> (m: Shading_Mode, ok: bool) {
 	#partial switch sv.pass {
 	case .Shaded: return sv.shading.mode, true
@@ -127,17 +131,17 @@ second_shading_mode :: proc(sv: ^Second_View) -> (m: Shading_Mode, ok: bool) {
 }
 
 // The shading the main draw shows: the main view's, or while a view pane is worked in
-// (grid_work) that pane's, Material Preview standing for its Render pass and for a pass
-// that checks the form; `pane` says which.
+// (grid_work) that pane's, Full standing for its Render pass and for a pass that checks
+// the form; `pane` says which.
 main_draw_shading :: proc(app: ^App) -> (s: View_Shading, pane: bool) {
 	g := &app.kit.grid
 	if g.work == 0 do return app.kit.passes.shading, false
 	sv := grid_view(g, g.work)
 	if sv.pass == .Shaded do return sv.shading, true
-	return {mode = .Material_Preview}, true
+	return {mode = .Full}, true
 }
 
-// Whether any view showing now is in mode `m`: the main view, a view pane or a view window.
+// Whether any view showing now is in look `m`: the main view, a view pane or a view window.
 shading_mode_anywhere :: proc(app: ^App, m: Shading_Mode) -> bool {
 	if main_shading_mode(app) == m do return true
 	g := &app.kit.grid
@@ -151,34 +155,28 @@ shading_mode_anywhere :: proc(app: ^App, m: Shading_Mode) -> bool {
 	return false
 }
 
-// The main view's mode as it shows now.
+// The main view's look as it shows now.
 main_shading_mode :: proc(app: ^App) -> Shading_Mode {
 	return shading_mode_shown(app, app.kit.passes.shading)
 }
 
-// Picks mode `m` for the main view: Rendered puts the Render switch on (at the quality it
-// was last on) over Material Preview; any other puts it off.
+// Picks look `m` for the main view: Rendered puts the Render switch on (at the quality it
+// was last on) over Full; any other puts it off.
 shading_mode_set :: proc(app: ^App, m: Shading_Mode) {
 	s := &app.kit.passes.shading
 	if m == .Rendered {
-		s.mode = .Material_Preview
+		s.mode = .Full
 		if !render_switch_on(app) do render_set(app, true, app.render_quality)
 	} else {
 		s.mode = m
 		if render_switch_on(app) do render_set(app, false, app.render_quality)
 	}
-	// A mode is what the view shows, so a pass that checks the form gives way to it.
+	// A look is what the view shows, so a pass that checks the form gives way to it.
 	pass_set(&app.kit, .Shaded)
 }
 
-// Picks Solid's lighting `l`, and Solid with it.
-solid_lighting_set :: proc(app: ^App, l: Solid_Lighting) {
-	shading_mode_set(app, .Solid)
-	app.kit.passes.shading.lighting = l
-}
-
-// The MatCap texture Solid's MatCap lighting shades with, the default while the one picked
-// is gone (a content pack's taken away).
+// The MatCap texture Clay shades with, the default while the one picked is gone (a content
+// pack's taken away).
 shading_matcap :: proc(app: ^App, s: View_Shading) -> render.Texture {
 	if s.matcap != 0 {
 		if tex := material_matcap(app, {matcap = s.matcap}); tex != 0 do return tex
@@ -187,38 +185,28 @@ shading_matcap :: proc(app: ^App, s: View_Shading) -> render.Texture {
 }
 
 // The pass a view in shading `s` draws its items in, where the pass picked is `p`: a pass
-// that checks the form as it is; otherwise Wireframe's plain fill, Solid's Flat lighting
-// unlit, or the shading as the materials say.
+// that checks the form as it is; otherwise Flat unlit, or the shading as the materials say.
 shading_pass :: proc(app: ^App, s: View_Shading, p: render.View_Pass, pane := false) -> render.View_Pass {
 	if p != .Shaded do return p
-	switch shading_mode_shown(app, s, pane) {
-	case .Wireframe: return .Wire
-	case .Solid:     if s.lighting == .Flat do return .Unlit
-	case .Material_Preview, .Rendered:
-	}
+	if shading_mode_shown(app, s, pane) == .Flat do return .Unlit
 	return .Shaded
 }
 
 // Whether the objects' textured previews are wanted when no texture view is picked: a view
-// in Material Preview or Rendered shows the base colour map, as Blender's do.
+// in Full or Rendered shows the base colour map, as Blender's Material Preview does.
 shading_wants_textures :: proc(app: ^App) -> bool {
-	return shading_mode_anywhere(app, .Material_Preview) || shading_mode_anywhere(app, .Rendered)
+	return shading_mode_anywhere(app, .Full) || shading_mode_anywhere(app, .Rendered)
 }
 
 // The texture view the frame draws the textured previews in: the one picked, else
-// Textured where the main view's mode shows materials whole.
+// Textured where the main view's look shows materials whole.
 texture_view_shown :: proc(app: ^App) -> render.Texture_View {
 	if app.texture_view != .Off do return app.texture_view
 	return .Textured if shading_wants_textures(app) else .Off
 }
 
-// Whether a view wants every object's polygon edges: any view in Wireframe.
-shading_wire :: proc(app: ^App) -> bool {
-	return shading_mode_anywhere(app, .Wireframe)
-}
-
-// Object `obj`'s own colour in Solid's Object colour: a light, muted hue of its own,
-// stepped round the colour wheel by the golden angle so neighbours differ.
+// Object `obj`'s own colour for Colour from Object: a light, muted hue of its own, stepped
+// round the colour wheel by the golden angle so neighbours differ.
 shading_object_color :: proc(obj: ^Object) -> [4]f32 {
 	hue := math.mod(f32(obj.id) * 0.618034, 1)
 	// A pastel: the hue's colour taken two thirds of the way to a light grey.
@@ -231,65 +219,66 @@ shading_object_color :: proc(obj: ^Object) -> [4]f32 {
 }
 
 // Rewrites draw items `items`, made as their materials say from `froms`, for a view in
-// shading `s`. Wireframe leaves the fill plain and draws every edge; Solid shows the
-// colour asked for, physically based materials as classic ones, and lights it by the
-// studio (an object's own MatCap material still shades it), the view's MatCap or nothing;
-// Material Preview and Rendered keep the materials whole and show the textured previews.
+// shading `s`. Clay, Lit and Flat show physically based materials as classic ones and a
+// texture only while a texture view is picked; Clay shades every object by the view's
+// MatCap, white in the material's colour as the MatCap balls are (an object's own MatCap
+// material still shades it), and Lit and Flat by the lights or none; Full and Rendered keep
+// the materials whole and show the textured previews. The Colour takes every look but
+// Flat's and Rendered's colours toward clay (the path tracer renders them whole).
 shading_items :: proc(app: ^App, items: []render.Draw_Item, froms: []Item_From, s: View_Shading, pane := false) {
 	mode := shading_mode_shown(app, s, pane)
 	for &d, i in items {
 		f := froms[i] if i < len(froms) else {}
-		switch mode {
-		case .Wireframe:
-			d.paint, d.groups, d.slots, d.matcap = false, false, nil, 0
-			d.textured, d.texture_view = nil, .Off
-			// A level with polygon edges and a cage draw those; the rest their triangles'.
-			if f.poly_edges {
-				d.cage_lines, d.wireframe = true, false
-			} else if !d.cage_lines {
-				d.wireframe = true
+		if f.obj == nil {
+			if mode != .Full && mode != .Rendered {
+				if d.texture_view == .Off do d.textured = nil
+				d.surface = {}
 			}
-		case .Solid:
-			// Solid shows a texture only while a texture view is picked, or Peel lays the
-			// object flat (object_texture_view).
+			continue
+		}
+		m := f.material
+		switch mode {
+		case .Clay, .Lit, .Flat:
+			// A texture shows only while a texture view is picked, or Peel lays the object
+			// flat (object_texture_view).
 			if d.texture_view == .Off do d.textured = nil
 			d.surface = {}
-			if f.obj == nil do continue
-			m := f.material
 			// A physically based material shows its colour with the classic shading.
 			if m.roughness > 0 do m.shading = {}
-			switch s.color {
-			case .Material:
-			case .Object:
+			if s.from == .Object {
 				c := shading_object_color(f.obj)
 				m.selected, m.idle = c, {c.r * 0.82, c.g * 0.82, c.b * 0.84, 1}
-			case .Single:
-				m.selected, m.idle = SOLID_SINGLE, {0.5, 0.5, 0.52, 1}
 			}
-			if s.lighting == .MatCap {
-				// The view's MatCap on every object, tinted by the colour picked; in the
-				// material's colour, a MatCap is shown white, as the MatCap balls are.
-				if s.color == .Material do m.selected, m.idle = {1, 1, 1, 1}, MATCAP_IDLE
+			if mode == .Clay {
+				if s.from == .Material do m.selected, m.idle = {1, 1, 1, 1}, MATCAP_IDLE
 				d.matcap = shading_matcap(app, s)
-			} else if s.lighting == .Flat {
+			} else if mode == .Flat {
 				d.matcap = 0
 			}
 			d.material = m.shading
-			if s.color != .Material || s.lighting == .MatCap {
+			if s.from == .Object || mode == .Clay {
 				d.color = material_draw_tint(app, f.obj, f.index, m)
 				if d.textured != nil do d.color = textured_color(d.color, m, f.base_map && d.texture_view == .Textured)
 			}
-		case .Material_Preview, .Rendered:
+		case .Full, .Rendered:
 			// The textured preview's base colour stands for the material's.
 			if d.textured != nil && d.texture_view == .Off {
 				d.texture_view = .Textured
 				d.color = textured_color(f.tint, f.material, f.base_map)
 			}
 		}
+		if s.grey > 0 && mode != .Flat && mode != .Rendered {
+			// Clay's clay is the MatCap as it is, white; the others' a clay grey.
+			clay := m
+			clay.selected, clay.idle = SHADING_CLAY, SHADING_CLAY_IDLE
+			if mode == .Clay do clay.selected, clay.idle = {1, 1, 1, 1}, MATCAP_IDLE
+			c := material_draw_tint(app, f.obj, f.index, clay)
+			d.fade = {c.r, c.g, c.b, clamp(s.grey, 0, 1)}
+		}
 	}
 }
 
-// The shading's line in a layout (`shading <mode> <lighting> <colour> <matcap>`), written
+// The shading's line in a layout (`shading <look> <colour from> <grey> <matcap>`), written
 // only when it is not a fresh view's.
 shading_layout_line :: proc(k: ^Kit_State) -> string {
 	s := k.passes.shading
@@ -297,9 +286,9 @@ shading_layout_line :: proc(k: ^Kit_State) -> string {
 	return fmt.tprintf("shading %s\n", shading_words(s))
 }
 
-// Shading `s` as a layout's words: `<mode> <lighting> <colour> <matcap>`.
+// Shading `s` as a layout's words: `<look> <colour from> <grey> <matcap>`.
 shading_words :: proc(s: View_Shading) -> string {
-	return fmt.tprintf("%v %v %v %d", s.mode, s.lighting, s.color, s.matcap)
+	return fmt.tprintf("%v %v %.2f %d", s.mode, s.from, s.grey, s.matcap)
 }
 
 // Second view `sv`'s shading as words after its pass in a layout's line, a space first;
@@ -318,8 +307,10 @@ shading_layout_read :: proc(k: ^Kit_State, f: []string) {
 // Rendered is never read, as the Render switch (or a view's Render pass) says it.
 shading_words_read :: proc(s: ^View_Shading, f: []string) {
 	if len(f) > 0 do for m in Shading_Mode do if m != .Rendered && fmt.tprint(m) == f[0] do s.mode = m
-	if len(f) > 1 do for l in Solid_Lighting do if fmt.tprint(l) == f[1] do s.lighting = l
-	if len(f) > 2 do for c in Solid_Color do if fmt.tprint(c) == f[2] do s.color = c
+	if len(f) > 1 do for c in Colour_From do if fmt.tprint(c) == f[1] do s.from = c
+	if len(f) > 2 {
+		if g, ok := strconv.parse_f32(f[2]); ok do s.grey = clamp(g, 0, 1)
+	}
 	if len(f) > 3 {
 		if n, ok := strconv.parse_int(f[3]); ok && n >= 0 do s.matcap = n
 	}

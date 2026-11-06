@@ -1096,7 +1096,7 @@ view_head_link :: proc(app: ^App, ctx: ^ui.Context, sv: ^Second_View) {
 // Lucide's monitor-up: a view opened in a window of its own (view_window.odin).
 ICON_VIEW_WINDOW :: rune(0xe427)
 
-// A view pane's selects, in points: room for "Material Preview" and "Mirrored".
+// A view pane's selects, in points: room for "Skin detail" and "Mirrored".
 GRID_SELECT_W :: 140
 
 // Lucide's link: a view's camera tied to the main one.

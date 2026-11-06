@@ -438,8 +438,7 @@ bar_label :: proc(app: ^App, s: Bar_Slot) -> string {
 	case .Apply_Cage:   return "To sculpt"
 	case .Model_Action: return MODEL_ACTION_NAMES[Model_Action(s.arg)]
 	// A tile has room for one word of a mode's name.
-	case .Shading_Mode: return "Preview" if Shading_Mode(s.arg) == .Material_Preview else SHADING_MODE_NAMES[Shading_Mode(s.arg)]
-	case .Solid_Lighting: return SOLID_LIGHTING_NAMES[Solid_Lighting(s.arg)]
+	case .Shading_Mode: return SHADING_MODE_NAMES[Shading_Mode(s.arg)]
 	case .Brush_Value:  if v, ok := value_of(s); ok do return BRUSH_VALUE_NAMES[v]
 	case .Brush_Preset: return preset_slot_label(app, s.arg)
 	}
