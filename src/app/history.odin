@@ -78,6 +78,9 @@ History_Entry :: struct {
 	// stroke's bricks), for the History panel's tint (history_tint.odin); empty or zero for
 	// a step that changes the whole object or none, which the tint takes as the object.
 	area: geom.Aabb,
+	// The id of its sculptor's step (sculpt.Undo_Step.id) for a step of a mesh object's
+	// level, 0 for anything else: what Find steps at a spot asks the sculptor about.
+	step_id: u64,
 	// A stroke set to a share of itself after the fact (Adjust last stroke), and the share.
 	adjusted: bool,
 	amount:   f32,
@@ -836,15 +839,17 @@ history_record :: proc(app: ^App, obj: ^Object, kind: History_Kind, what: string
 	if !object_in_hd(obj) do app.history.edits += 1
 	bytes := 0
 	area := geom.AABB_EMPTY
+	step_id: u64
 	if obj.voxel != nil {
 		bytes = voxel.clay_last_step_bytes(&obj.voxel.clay)
 		area = voxel.clay_last_step_bounds(&obj.voxel.clay)
 	} else {
 		bytes = sculpt.sculptor_last_step_bytes(object_sculptor(obj))
 		area = sculpt.sculptor_last_step_bounds(object_sculptor(obj))
+		step_id = sculpt.sculptor_last_step_id(object_sculptor(obj))
 	}
 	layer_mask := kind == .Mask && obj.voxel == nil && sculpt.sculptor_layer_mask_picked(object_sculptor(obj)) >= 0
-	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now(), chain = chain && len(app.history.done) > 0, bytes = bytes, view = camera_view_of(app.camera), area = area, layer_mask = layer_mask})
+	append(&app.history.done, History_Entry{id = obj.id, level = HD_LEVEL if object_in_hd(obj) else obj.levels.current, kind = kind, what = what, at = time.tick_now(), chain = chain && len(app.history.done) > 0, bytes = bytes, view = camera_view_of(app.camera), area = area, layer_mask = layer_mask, step_id = step_id})
 }
 
 @(private = "file", rodata)

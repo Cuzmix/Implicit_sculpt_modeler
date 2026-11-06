@@ -46,6 +46,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Save_Scene_Copy  = "file write copy duplicate backup variation",
 	.Save_Scene_Next  = "file write increment numbered version iteration",
 	.Delete_Older_History = "undo history clear forget free memory purge",
+	.History_Find         = "history where which step changed this spot blame when find filter search",
 	.Scene_Versions   = "versions history revert restore backup older previous incremental",
 	.Open_Last_Autosave = "recover restore crash backup autosave lost unsaved quicksave",
 	.Import_Mesh      = "obj ply load append file",

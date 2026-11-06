@@ -531,12 +531,18 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		recall_pinned := false
 		if obj := selected_object(app); obj != nil do recall_pinned = sculpt.sculptor_recall_pinned(object_sculptor(obj))
 		fmt.printfln("recall_back=%d recall_reach=%d recall_pinned=%d recall_ms=%.1f", recall_back, recall_reach, int(recall_pinned), app.stats.recall_ms)
+		// Find steps at a spot: spots picked, whether the list is filtered, and the steps it
+		// shows, of them only near.
+		find := &app.timeline.find
+		near := 0
+		for x in find.found do if x.near do near += 1
+		fmt.printfln("history_finds=%d history_find_on=%d history_found=%d history_found_near=%d", find.finds, int(find.on), len(find.found), near)
 		// The History panel's view, how many rows its list holds (an opened group's strokes
 		// among them), what the History holds and how many old steps it dropped.
 		history_bytes, _ := history_memory(app)
 		m := app.memory_ask
 		fmt.printfln("memory_asks=%d memory_asking=%d memory_freed=%d memory_smaller=%d memory_continued=%d memory_cancelled=%d memory_short=%s remesh_most=%d subdivide_most=%d mesh_limited=%d memory_low_warnings=%d", m.asks, int(m.on), m.freed, m.smaller_runs, m.continued, m.cancelled, strings.to_lower(fmt.tprint(app.memory_short), context.temp_allocator), mesh_remesh_most(app), app.subdivide_most, app.mesh_limited, app.memory_low_warnings)
-		fmt.printfln("history_view=%s history_rows=%d history_bytes=%d history_dropped=%d history_bookmarks=%d history_menus=%d history_tints=%d history_tint=%d history_page=%s history_limit_mb=%d history_quick_scrubs=%d history_quick_last=%d history_quick=%s history_pictures_drawn=%d history_picture=%d history_pictures=%d", strings.to_lower(fmt.tprint(app.timeline.view), context.temp_allocator), len(history_rows(app, open_at = app.timeline.open_at, group = !app.history_ungrouped)), history_bytes, app.history.dropped, history_bookmarks(app), app.timeline.menus, app.timeline.tints, int(history_tint_step(app) != {}), "settings" if app.timeline.settings else "steps", app.history_limit_mb, app.timeline.quick.scrubs, app.timeline.quick.last, strings.to_lower(fmt.tprint(app.timeline.quick.by), context.temp_allocator), app.step_picture_slots.drawn, int(newest_step_pictured(app)), int(app.history_pictures))
+		fmt.printfln("history_view=%s history_rows=%d history_bytes=%d history_dropped=%d history_bookmarks=%d history_menus=%d history_tints=%d history_tint=%d history_page=%s history_limit_mb=%d history_quick_scrubs=%d history_quick_last=%d history_quick=%s history_pictures_drawn=%d history_picture=%d history_pictures=%d", strings.to_lower(fmt.tprint(app.timeline.view), context.temp_allocator), len(history_shown_rows(app)), history_bytes, app.history.dropped, history_bookmarks(app), app.timeline.menus, app.timeline.tints, int(history_tint_step(app) != {}), "settings" if app.timeline.settings else "steps", app.history_limit_mb, app.timeline.quick.scrubs, app.timeline.quick.last, strings.to_lower(fmt.tprint(app.timeline.quick.by), context.temp_allocator), app.step_picture_slots.drawn, int(newest_step_pictured(app)), int(app.history_pictures))
 		// The sheet that is open (sheet.odin) and where it is.
 		sheet := "settings" if k.settings else "help" if k.help else "macros" if k.macros else "export" if k.export.open else "none"
 		sheet_rect := ui.prev_rect(&k.ctx, "export sheet" if sheet == "export" else sheet)

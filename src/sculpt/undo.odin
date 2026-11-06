@@ -205,6 +205,13 @@ history_trim :: proc(h: ^Undo_History) {
 
 sculptor_can_undo :: proc(s: ^Sculptor) -> bool {return len(s.history.done) > 0}
 
+// The id of the newest done step (0 with none): the History keeps it with its entry, so a
+// question about steps (sculptor_steps_changing) can be answered entry by entry.
+sculptor_last_step_id :: proc(s: ^Sculptor) -> u64 {
+	if len(s.history.done) == 0 do return 0
+	return s.history.done[len(s.history.done) - 1].id
+}
+
 // What the newest done step holds, in bytes (0 with none): the History panel's size for the
 // step just recorded.
 sculptor_last_step_bytes :: proc(s: ^Sculptor) -> int {

@@ -13008,6 +13008,29 @@ def history_list_groups_and_goes_to_a_step():
     return Steps([run(False), run(True)])
 
 
+# Find steps at a spot, in the History card's head.
+HISTORY_FIND = At("Find steps at a spot", 1500, 150)
+
+
+@scenario
+def history_find_steps_at_a_spot():
+    """Find steps at a spot over three strokes: a click on the model where they ran filters
+    the list to the three (each its own row, none only near) and marks the spot; a second
+    pick, on the far side of the sphere where nothing was sculpted, finds none; the chip
+    then shows every step again. Neither press sculpts or moves through the History."""
+    def run(spot, found):
+        s = Script()
+        history_three_strokes(s)
+        click(s, HISTORY_FIND)
+        s.wait(4)
+        click(s, spot)
+        s.wait(10)
+        return s, [], camera_still({"history_finds": near(1, 0), "history_find_on": near(1, 0), "history_found": near(found, 0),
+                                    "history_found_near": near(0, 0), "history_rows": near(found, 0), "undo_steps": near(3, 0),
+                                    "redo_steps": near(0, 0)})
+    return Steps([run((750, 400), 3), run((560, 600), 0)])
+
+
 # The step menu over the list's newest row (opened at HISTORY_GROUP_ROW): its rows.
 HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_SHOW, HISTORY_MENU_DELETE = (1344, 363), (1344, 407), (1344, 451), (1344, 584)
 
