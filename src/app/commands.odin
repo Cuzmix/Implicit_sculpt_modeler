@@ -135,6 +135,7 @@ Command_Id :: enum u16 {
 	New_Layer,
 	Layer_Edit, // the argument is the Layer_Action, on the Layers section's selected layer
 	New_Paint_Layer,
+	New_Texture_Layer,
 	Paint_Layer_Edit, // the argument is the Paint_Layer_Action, on the picked paint layer
 	Recall_Earlier,
 	Recall_Later,
@@ -1540,6 +1541,16 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
 			return paint_ready(app, 0) && len(sculpt.sculptor_paint_layers(object_sculptor(obj))) < sculpt.MAX_PAINT_LAYERS
+		},
+	},
+	.New_Texture_Layer = {
+		label = "New texture layer",
+		help = "Adds a paint layer that lives in a texture through the UVs, above the picked layer and every vertex layer, and picks it: paint there is as fine as the texture rather than the mesh. Needs UVs.",
+		icon = ui.ICON_PLUS,
+		run = proc(app: ^App, _: int) {texture_layer_add(app, selected_object(app))},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return paint_ready(app, 0) && sculpt.levels_has_uvs(&obj.levels) && len(sculpt.sculptor_paint_layers(object_sculptor(obj))) < sculpt.MAX_PAINT_LAYERS
 		},
 	},
 	.Paint_Layer_Edit = {

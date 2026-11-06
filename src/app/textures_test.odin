@@ -82,7 +82,7 @@ textured_vertices_follow_the_split :: proc(t: ^testing.T) {
 	buffers: render.Mesh_Buffers
 	topology: Split_Topology
 	defer split_topology_free(&topology)
-	vertices, indices, corners := textured_vertices(obj, &buffers, &topology, nil)
+	vertices, indices, corners, _ := textured_vertices(obj, &buffers, &topology, nil)
 	quads := sculpt.levels_quad_mesh(&obj.levels)
 	normals := geom.quad_mesh_normals(quads, context.temp_allocator)
 	layout, _ := sculpt.levels_quad_uvs(&obj.levels)
@@ -377,7 +377,7 @@ unwrapped_sculpt_takes_maps :: proc(t: ^testing.T) {
 	buffers: render.Mesh_Buffers
 	topology: Split_Topology
 	defer split_topology_free(&topology)
-	vertices, indices, corners := textured_vertices(obj, &buffers, &topology, nil)
+	vertices, indices, corners, _ := textured_vertices(obj, &buffers, &topology, nil)
 	base := obj.levels.levels[0]
 	testing.expect_value(t, len(indices), len(base.mesh.indices))
 	testing.expect(t, len(vertices) > len(base.mesh.positions), "the seams split no vertices")
@@ -459,15 +459,15 @@ levels_show_the_maps :: proc(t: ^testing.T) {
 	buffers := render.Mesh_Buffers{index_version = 7}
 	topology: Split_Topology
 	defer split_topology_free(&topology)
-	vertices, indices, corners := textured_vertices(obj, &buffers, &topology, nil)
+	vertices, indices, corners, _ := textured_vertices(obj, &buffers, &topology, nil)
 	testing.expect_value(t, len(indices), len(lv.mesh.indices))
 	testing.expect(t, len(vertices) > len(lv.mesh.positions), "the seams split no vertices")
 	testing.expect_value(t, len(corners), len(indices))
 	kept := raw_data(topology.vertex)
-	_, _, _ = textured_vertices(obj, &buffers, &topology, nil)
+	_, _, _, _ = textured_vertices(obj, &buffers, &topology, nil)
 	testing.expect(t, raw_data(topology.vertex) == kept, "an edit made the split again")
 	buffers.index_version = 8
-	_, _, _ = textured_vertices(obj, &buffers, &topology, nil)
+	_, _, _, _ = textured_vertices(obj, &buffers, &topology, nil)
 	testing.expect(t, topology.index_version == 8 && len(topology.vertex) > 0, "new triangles kept the old split")
 	testing.expect(t, object_exports_textures(obj))
 	if !testing.expect(t, object_export(&app, obj, path)) do return
@@ -553,14 +553,14 @@ peel_lays_the_layout_flat :: proc(t: ^testing.T) {
 	topology: Split_Topology
 	defer split_topology_free(&topology)
 	frame := [3]geom.Vec3{{0, 0, 1}, {0, 1, 0}, {-1, 0, 0}}
-	v, idx, _ := textured_vertices(obj, &buffers, &topology, nil, 1, frame)
+	v, idx, _, _ := textured_vertices(obj, &buffers, &topology, nil, 1, frame)
 	for k in 0 ..< len(idx) / 3 {
 		a, b, c := v[idx[3 * k]].position, v[idx[3 * k + 1]].position, v[idx[3 * k + 2]].position
 		testing.expect(t, abs(a.x) < 1e-5 && abs(b.x) < 1e-5 && abs(c.x) < 1e-5, "a corner left the square's plane")
 		testing.expect(t, linalg.dot(linalg.cross(b - a, c - a), frame[2]) > 0, "a flat triangle faces away")
 	}
-	plain, plain_idx, _ := textured_vertices(obj, &buffers, &topology, nil, 0)
-	half, half_idx, corners := textured_vertices(obj, &buffers, &topology, nil, 0.5, frame)
+	plain, plain_idx, _, _ := textured_vertices(obj, &buffers, &topology, nil, 0)
+	half, half_idx, corners, _ := textured_vertices(obj, &buffers, &topology, nil, 0.5, frame)
 	testing.expect_value(t, len(half), 2 * len(plain))
 	testing.expect_value(t, len(half_idx), 2 * len(plain_idx))
 	testing.expect_value(t, len(corners), len(plain_idx))

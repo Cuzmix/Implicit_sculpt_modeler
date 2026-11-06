@@ -1077,7 +1077,7 @@ CAGE_REFUSED_COMMANDS :: Command_Set{
 	.Show_All, .Invert_Hidden, .Hide_Masked, .Hide_Unmasked, .Grow_Visible, .Shrink_Visible, .Grow_All_Visible,
 	.Outer_Ring, .Grow_To_Groups, .Show_Masked, .Store_Selection_Set, .Restore_Selection_Set, .Paint, .Group,
 	.Delete_Lower_Levels, .Delete_Higher_Levels, .Hd_Divide, .Hd_Delete, .Hd_Sculpt, .Hd_Leave, .Detail_Skin, .Skin_Apply, .Skin_Squeeze, .Morph_Store,
-	.Morph_Delete, .New_Layer, .Layer_Edit, .New_Paint_Layer, .Paint_Layer_Edit, .Recall_Earlier, .Recall_Later, .Recall_Oldest, .Smooth_All, .Deformer,
+	.Morph_Delete, .New_Layer, .Layer_Edit, .New_Paint_Layer, .New_Texture_Layer, .Paint_Layer_Edit, .Recall_Earlier, .Recall_Later, .Recall_Oldest, .Smooth_All, .Deformer,
 	.Deformation, .Reshape_Repeat, .Delete_Hidden, .Extract_Masked, .Replay_Stroke,
 }
 
