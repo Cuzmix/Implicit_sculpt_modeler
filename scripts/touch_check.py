@@ -5823,6 +5823,42 @@ def shading_menu_matcap_disc_lights_clay():
                                                            "material_keeps": near(0), "dabs": near(0)})
 
 
+# The Material card's MatCap row in Clay at 1600 x 900: the Red wax disc, under Apply to.
+MATERIAL_CARD_MATCAP_RED_WAX = At("matcap disc 0", 1253, 688)
+
+
+@scenario
+def material_card_matcap_disc_lights_clay():
+    """In Clay the Material card ends with the shading list's own MatCap row: a finger's tap on
+    the Red wax disc there lights the Clay look with it, as the shading list's disc does, and no
+    object's material changes."""
+    s = Script()
+    s.wait(10)
+    s.ftap(MATERIAL_CARD_MATCAP_RED_WAX)
+    s.wait(8)
+    return s, ["--script=shading_mode clay; open_section material"], camera_still({"shading_mode": is_text("Clay"), "shading_matcap": near(1), "selected_matcap": near(0),
+                                                                                    "selected_material": is_text("Clay"), "material_keeps": near(0), "dabs": near(0)})
+
+
+# The Material card's More options at 1600 x 900, and its Cavity slider's knob at 0.35 once
+# they are open: Viewport style's own slider (kit_style_detail).
+MATERIAL_CARD_MORE = At("card Material/more", 1376, 664)
+MATERIAL_CARD_CAVITY_KNOB = (1334, 726)
+
+
+@scenario
+def material_card_more_sets_cavity():
+    """A finger's tap on the Material card's More options shows Cavity and Ridge, and a sideways
+    drag on Cavity raises it, the value Viewport style shows, without orbiting or sculpting."""
+    s = Script()
+    s.wait(10)
+    s.ftap(MATERIAL_CARD_MORE)
+    s.wait(10)
+    s.fdrag(line(MATERIAL_CARD_CAVITY_KNOB, (1480, 727), 12))
+    s.wait(4)
+    return s, ["--script=open_section material"], camera_still({"cavity": lambda v: float(v) > 0.7, "ridge": near(0.3), "dabs": near(0)})
+
+
 @scenario
 def material_card_favourites_hold_a_sphere():
     """On the Metal shelf a right-click on Gold adds it to the Material card's favourites without

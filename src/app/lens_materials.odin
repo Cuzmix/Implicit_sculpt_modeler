@@ -24,8 +24,10 @@ import "../ui"
 // (Subsurface, Coat, Sheen, Transmission, Glow; Thin film and the specular under More).
 // Any change makes the material Custom, so a preset is never changed; Reset puts back
 // what the objects had when Edit opened. With polygroups, Object or Group over it
-// (kit_group_material). MatCaps are no material: they are the Clay look's light, picked
-// in the shading list (shading_options). Holding a sphere (a long press, a right click or
+// (kit_group_material). MatCaps are no material: they are the Clay look's light, so while
+// the main view is in Clay the card ends with the shading list's own MatCap row
+// (shading_matcap_row), where a hand looking for the clay's look reaches first, and its More
+// options hold Viewport style's Cavity and Ridge (kit_style_detail). Holding a sphere (a long press, a right click or
 // the pen's side button) adds it to the favourites or takes it off, a star on its corner;
 // settings.txt keeps them (material_favorite).
 
@@ -257,6 +259,15 @@ kit_lens_material :: proc(app: ^App) {
 	ui.label(ctx, "Apply to", t.small_size, t.text_tertiary)
 	targets := [len(Material_Target)]string{"Selected", "Folder", "Every object"}
 	if picked := ui.tabs(ctx, "material apply to", targets[:], int(app.ui.material_to)); picked >= 0 do app.ui.material_to = Material_Target(picked)
+	// Clay lights every object with one MatCap: the shading list's control, under the
+	// shelf so the spheres above stay where the hand learnt them.
+	if main_shading_mode(app) == .Clay && k.passes.pass == .Shaded do shading_matcap_row(app, &k.passes.shading, width)
+	// How every material shows its fine detail, kept apart from the materials themselves:
+	// Viewport style's Cavity and Ridge, folded so the shelf stays the card's first thing.
+	if kit_more(app, .Material) {
+		kit_style_detail(app)
+		kit_more_end(app)
+	}
 	ui.paragraph(ctx, "Slide across the spheres to try each on; lift to keep one. Hold a sphere for Favourites. Edit changes the values, making the material Custom.")
 }
 
