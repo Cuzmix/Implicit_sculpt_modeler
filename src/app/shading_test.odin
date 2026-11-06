@@ -72,7 +72,7 @@ shading_is_kept_in_the_layout :: proc(t: ^testing.T) {
 	kit_layout_put(&b, text)
 	testing.expect_value(t, b.passes.shading, a.passes.shading)
 	testing.expect_value(t, b.passes.looks[.Paint], View_Shading{mode = .Flat})
-	testing.expect_value(t, b.passes.looks[.Lights], View_Shading{mode = .Full})
+	testing.expect_value(t, b.passes.looks[.Lights], View_Shading{})
 	kit_layout_put(&b, "")
 	testing.expect_value(t, b.passes.shading, View_Shading{})
 	testing.expect_value(t, b.passes.looks, LOOK_GROUP_DEFAULTS)

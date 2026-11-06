@@ -297,14 +297,10 @@ LOOK_GROUP_TITLES := [Look_Group]string {
 	.Lights = "lighting",
 }
 
-// Each group's look until the person picks another: sculpting and painting as a fresh
-// view shows, and lighting in Full, where the lights' reflections on the materials show.
+// Each group's look until the person picks another: a fresh view's, the zero value, so a
+// layout made before any look was picked (a shipped one, a test's) names none.
 @(rodata)
-LOOK_GROUP_DEFAULTS := [Look_Group]View_Shading {
-	.Sculpt = {},
-	.Paint  = {},
-	.Lights = {mode = .Full},
-}
+LOOK_GROUP_DEFAULTS := [Look_Group]View_Shading{}
 
 // The look of group `g` as it stands: the one shown for the group the view is in, the
 // one kept for the others.

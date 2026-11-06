@@ -58,8 +58,9 @@ look_studio_apply :: proc(app: ^App) {
 	app.studio_softness = LOOK_STUDIO_SOFTNESS
 	// The main view opens in Clay on its default MatCap (Grey clay), as ZBrush opens on a
 	// sculpting MatCap: the first stroke reads every form whatever side faces the camera.
-	// The scene's lights above are kept for Lit, Full and Rendered.
-	app.kit.passes.shading.mode = .Clay
+	// The scene's lights above are kept for Lit, Full and Rendered. It is sculpting's look,
+	// so painting and lighting keep theirs (Each tool keeps its look).
+	look_of(&app.kit, .Sculpt).mode = .Clay
 	render.studio_reset(&app.studio)
 	app.look_chosen = true
 }
