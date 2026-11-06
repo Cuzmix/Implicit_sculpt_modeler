@@ -414,7 +414,9 @@ all_prefix :: proc(query, pool: []string) -> bool {
 }
 
 // The query's letters in order in `label`, or -1: the gaps between them times 100, plus
-// where the first one is, so tighter and earlier matches score lower.
+// where the first one is, so tighter and earlier matches score lower. More than
+// FUZZY_GAPS breaks is letters strewn over a long label ("smooth" in a sentence holding an
+// s, an m, two o's, a t and an h), which nobody typing meant.
 @(private = "file")
 fuzzy :: proc(query, label: string) -> int {
 	at, last, first, gaps := 0, -1, -1, 0
@@ -428,6 +430,7 @@ fuzzy :: proc(query, label: string) -> int {
 		last = at
 		at += 1
 	}
+	if gaps > FUZZY_GAPS do return -1
 	return gaps * 100 + max(first, 0)
 }
 
@@ -453,6 +456,9 @@ palette_match :: proc(query, label, synonyms: string) -> (tier: Palette_Tier, sc
 	}
 	return .None, 0
 }
+
+// The most breaks a fuzzy match may have between runs of the query's letters.
+FUZZY_GAPS :: 2
 
 Palette_Hit :: struct {
 	entry:   int, // into the entries ranked
@@ -493,6 +499,15 @@ palette_rank :: proc(query: string, entries: []Palette_Entry, recent: []Palette_
 			for f, j in favourites do if f == e {star = j; break}
 		}
 		append(&hits, Palette_Hit{i, tier, score, star, r, enabled[i], 0 if q == "" else len(label)})
+	}
+	// Letters in order are the guess for a query no name or word answers: once one does,
+	// the guesses would only bury it, so they go.
+	worded := false
+	for h in hits do if h.tier < .Fuzzy {worded = true; break}
+	if worded {
+		kept := 0
+		for h in hits do if h.tier < .Fuzzy {hits[kept] = h; kept += 1}
+		resize(&hits, kept)
 	}
 	slice.sort_by(hits[:], proc(a, b: Palette_Hit) -> bool {
 		a_close, b_close := a.tier <= .Prefix, b.tier <= .Prefix

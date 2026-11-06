@@ -8318,7 +8318,8 @@ def knife_cuts_away_the_shaded_side():
 # it there on a conflict; the palette's Star, Put in a pie and Assign key with "wire"
 # typed (four rows: Wireframe, Shading: Wireframe, Wipe compare, New scene: Figure), and its first row with nothing typed under the STARRED caption.
 BIND_USE_HERE, BIND_KEEP = (1345, 250), (1506, 250)
-PALETTE_STAR, PALETTE_PIE, PALETTE_ASSIGN = (932, 387), (980, 387), (1028, 387)
+PALETTE_STAR, PALETTE_PIE, PALETTE_ASSIGN = (At("palette footer/palette star", 932, 387), At("palette footer/palette pie", 980, 387),
+                                          At("palette footer/palette key", 1028, 387))
 PALETTE_FIRST_STARRED = UI["palette_row1"]
 # The pie editor opened from the palette: Pie 1's first slot and Pie 3's.
 EDITOR_PIE1_FIRST, EDITOR_PIE3_FIRST = (585, 250), (585, 418)
