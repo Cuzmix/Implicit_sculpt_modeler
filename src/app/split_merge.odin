@@ -128,7 +128,7 @@ object_split :: proc(app: ^App, obj: ^Object, mode: Split_Mode, keep_parts := tr
 	}
 	for p, k in pieces {
 		if k > 0 && !keep_parts do break
-		if shown := sculpt.sculptor_paint_shown(s); shown != nil {
+		if shown := object_paint_flat(obj, s); shown != nil {
 			surfaces[k].color = make([]sculpt.Color, len(p.vertex_from))
 			for v, i in p.vertex_from do surfaces[k].color[i] = shown[v]
 		}
@@ -270,7 +270,7 @@ merge_meshes :: proc(objs: []^Object, into: Transform, table: ^[dynamic]Group_Ma
 	for obj, k in objs {
 		s := object_sculptor(obj)
 		vcount := len(meshes[k].positions)
-		if shown := sculpt.sculptor_paint_shown(s); painted && shown != nil && !object_dynamic(obj) do copy(surface.color[vertex:][:vcount], shown)
+		if shown := object_paint_flat(obj, s); painted && shown != nil && !object_dynamic(obj) do copy(surface.color[vertex:][:vcount], shown)
 		vertex += vcount
 	}
 	return out, surface, true
