@@ -85,6 +85,10 @@ SCREENS = {
     "history": ("The History card", tap("top bar/History"), []),
     "model": ("The Model space with its shelf", tap("top bar/Model"), []),
     "render": ("The Render space", tap("top bar/Render"), []),
+    "material_card": ("The Material card: the shelf of material balls", "", ["--script=open_section material"]),
+    "light_card": ("The Light card on its Lights section", "", ["--script=open_section lights"]),
+    "render_card": ("The Render card with the render off", "", ["--script=open_section render"]),
+    "render_full": ("The Render card with Full building up", "", ["--script=render_mode on; open_section render"]),
 }
 
 FRAMES = 60  # enough for every panel's motion to settle at --ui-dt 1/60
