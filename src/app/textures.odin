@@ -351,6 +351,9 @@ texture_paint_frame :: proc(app: ^App, cmd: render.Cmd, obj: ^Object) {
 		l.texels.whole = true
 	}
 	if side == 0 do return
+	// The texel map a stroke on the picked texture layer paints through is made here, between
+	// strokes, after a layer, level or UV change, so no stroke starts by waiting for it.
+	if layer, _ := sculpt.levels_texel_picked(l); layer != nil && !app.stroke.active do _ = sculpt.levels_texel_map(l)
 	sculpt.levels_texels_flush(l)
 	changed, all := sculpt.levels_texels_take(l)
 	if len(changed) == 0 && !all do return

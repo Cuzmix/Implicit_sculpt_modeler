@@ -787,6 +787,8 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	stroke_steady_start(st, s)
 	sculpt.sculptor_stroke_begin(object_sculptor(obj))
 	if vp := obj.voxel; vp != nil do voxel.clay_stroke_begin(&vp.clay)
+	// With a texture layer picked, the stroke's paint goes into its tiles.
+	else do _ = sculpt.levels_texels_attach(&obj.levels)
 	// The mode before the first dab's brush, whose alpha turn reads it.
 	flags := BRUSHES[st.kind].flags
 	st.mode = app.brush.stroke if st.held && flags & {.Grab, .Hook, .Cloth} == {} else .Dots
