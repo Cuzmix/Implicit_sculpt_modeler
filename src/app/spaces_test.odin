@@ -7,7 +7,7 @@ import "core:testing"
 import "../sculpt"
 
 @(private = "file")
-spaces_app :: proc() -> ^App {
+spaces_app :: proc(follow := true) -> ^App {
 	a := new(App)
 	k := &a.kit
 	bars_reset(k)
@@ -15,7 +15,7 @@ spaces_app :: proc() -> ^App {
 	layouts_init(k)
 	a.tool = .Brush
 	a.brush.kind = .Clay
-	space_follow(a)
+	if follow do space_follow(a)
 	return a
 }
 
@@ -69,16 +69,22 @@ a_tab_gives_the_space_its_tool_back :: proc(t: ^testing.T) {
 	command_run(a, .Space_Switch, int(Space.Model))
 	testing.expect_value(t, a.model.action, Model_Action.Bridge)
 
-	// Render keeps the tool in hand; a brush picked there, even the one in hand, goes back
-	// to Sculpt.
+	// Render gives the Look tool; a brush picked there goes back to Sculpt with it, and
+	// Sculpt's tab gives back the brush, never the Look tool.
 	command_run(a, .Space_Switch, int(Space.Sculpt))
 	command_run(a, .Space_Switch, int(Space.Render))
+	testing.expect_value(t, a.tool, Tool.Look)
+	space_follow(a)
+	testing.expect_value(t, k.spaces.current, Space.Render)
+	command_run(a, .Space_Switch, int(Space.Sculpt))
 	testing.expect_value(t, a.tool, Tool.Brush)
+	command_run(a, .Tool_Look, 0)
 	space_follow(a)
 	testing.expect_value(t, k.spaces.current, Space.Render)
 	command_run(a, .Brush, int(sculpt.Brush_Kind.Clay))
 	space_follow(a)
 	testing.expect_value(t, k.spaces.current, Space.Sculpt)
+	testing.expect_value(t, a.tool, Tool.Brush)
 
 	// Adding a cage goes to Model.
 	command_run(a, .Add_Cage, 0)
@@ -140,6 +146,32 @@ the_layouts_read_back :: proc(t: ^testing.T) {
 	testing.expect(t, layout_changed(k, .Model))
 	command_run(b, .Space_Switch, int(Space.Model))
 	testing.expect(t, grid_panes(&k.grid) == 2, "Model's layout read back")
+}
+
+// A run that starts in Render, with the Brush that start-up hands over (main.odin), holds
+// the Look tool once its first frame has run, so a press there still turns the view; one
+// that starts in Sculpt keeps the Brush.
+@(test)
+a_restart_into_render_holds_the_look_tool :: proc(t: ^testing.T) {
+	path := "build/restart_render_test.txt"
+	defer os.remove(path)
+	defer free_all(context.temp_allocator)
+	a := spaces_app()
+	defer spaces_app_free(a)
+	command_run(a, .Space_Switch, int(Space.Render))
+	testing.expect(t, settings_save(a, path))
+	b := spaces_app(follow = false)
+	defer spaces_app_free(b)
+	settings_load(b, path)
+	b.tool = .Brush
+	space_follow(b)
+	testing.expect_value(t, b.kit.spaces.current, Space.Render)
+	testing.expect_value(t, b.tool, Tool.Look)
+	testing.expect_value(t, b.kit.spaces.switches, 0)
+	c := spaces_app(follow = false)
+	defer spaces_app_free(c)
+	space_follow(c)
+	testing.expect_value(t, c.tool, Tool.Brush)
 }
 
 // Each space has its own dial: switching space switches the sectors the rail reads, a

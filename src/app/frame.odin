@@ -183,6 +183,10 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			replay_stop(app)
 			brush_stroke_finish(app)
 			if !model_tool_frame(app, input) do return false
+		case .Look:
+			// Its presses turn the view (pointer_route), so it has nothing of its own to do.
+			replay_stop(app)
+			brush_stroke_finish(app)
 		}
 	}
 	sculpted.dabs += waited_dab.dabs

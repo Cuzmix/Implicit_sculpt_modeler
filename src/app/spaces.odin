@@ -7,8 +7,8 @@ import "../ui"
 
 // Working spaces (the overhaul's round 3, after Maxon Forger's two contexts and Blender's
 // workspaces): Sculpt, Model and Render. The space is what the hands are doing, so the tool
-// decides it: a brush, Curve or Insert is Sculpt, the Model tool is Model, and the look's
-// tiles are Render; Move belongs to whichever space it was picked in. A tab in the top bar
+// decides it: a brush, Curve or Insert is Sculpt, the Model tool is Model, and the Look tool
+// is Render; Move belongs to whichever space it was picked in. A tab in the top bar
 // shows the space and a tap on another tab picks that space's last tool, so the two never
 // disagree. Selecting an object never switches the space: a mesh selected in Model is
 // offered a conversion instead. Each space keeps its own layout (layouts.odin), so the
@@ -86,6 +86,7 @@ space_of_tool :: proc(tool: Tool) -> (s: Space, ok: bool) {
 	switch tool {
 	case .Brush, .Curve, .Insert: return .Sculpt, true
 	case .Model:                  return .Model, true
+	case .Look:                   return .Render, true
 	case .Move:
 	}
 	return
@@ -99,23 +100,24 @@ space_picked :: proc(app: ^App) {
 }
 
 // Gives space `s` its last tool back: Sculpt the brush (or Curve, Insert, Move) it was
-// left with, the Brush tool the first time; Model the Model tool and its action. Render
-// keeps the tool in hand, since a press there turns the view.
+// left with, the Brush tool the first time; Model the Model tool and its action; Render
+// the Look tool, whose presses turn the view.
 @(private = "file")
 space_tool_put :: proc(app: ^App, s: Space) {
 	last := app.kit.spaces.last[s]
 	switch s {
 	case .Sculpt:
 		if !last.kept {
-			if app.tool == .Model do app.tool = .Brush
+			if app.tool == .Model || app.tool == .Look do app.tool = .Brush
 			return
 		}
-		app.tool = last.tool if last.tool != .Model else .Brush
+		app.tool = last.tool if last.tool != .Model && last.tool != .Look else .Brush
 		if app.tool == .Brush && last.preset == 0 && app.brush.preset == 0 do app.brush.kind = last.brush
 	case .Model:
 		app.tool = .Model
 		if last.kept do app.model.action = last.action
 	case .Render:
+		app.tool = .Look
 	}
 }
 
@@ -140,14 +142,17 @@ space_switch :: proc(app: ^App, to: Space, restore := true) {
 }
 
 // Once a frame, before the layout: when the tool changed (or a command picked one), the
-// space follows it.
+// space follows it. The first frame goes the other way: start-up hands the Brush over after
+// the settings put a space in front (main.odin), so the space in front gives its tool back,
+// and a run that starts in Render holds the Look tool rather than sculpting there.
 space_follow :: proc(app: ^App) {
 	s := &app.kit.spaces
-	now := space_tool_now(app)
 	if !s.set {
-		s.seen, s.set, s.picked = now, true, false
+		if to, ok := space_of_tool(app.tool); ok && to != s.current do space_tool_put(app, s.current)
+		s.seen, s.set, s.picked = space_tool_now(app), true, false
 		return
 	}
+	now := space_tool_now(app)
 	if now == s.seen && !s.picked do return
 	s.seen, s.picked = now, false
 	if to, ok := space_of_tool(app.tool); ok && to != s.current do space_switch(app, to, restore = false)

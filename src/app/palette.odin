@@ -93,6 +93,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Tool_Sculpt      = "brush",
 	.Tool_Curve       = "spline tube",
 	.Tool_Insert      = "imm insert mesh",
+	.Tool_Look        = "look view orbit render light preview no sculpt navigate",
 	.Gizmo            = "transform translate rotate rotation scale size manipulator handles pose posing",
 	.Gizmo_Snap       = "grid increment step snapping",
 	.Gizmo_Pivot      = "origin center centre anchor transform point",
