@@ -1,4 +1,4 @@
-// slangc wgsl from textured_area.frag.spv sha256 e8d420e16c5aa228726cd611bad610d5ffe6fb8f6fe9ac38396c02c886228b0c
+// slangc wgsl from textured_area.frag.spv sha256 dfe0b7e7b16f68734b420411810c4b8fb63d651f2d91a5968fe5da39c252e0ef
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Material_Uniforms_std140_0
 {
@@ -63,6 +63,7 @@ struct Mesh_Varyings_0
     slot_0 : u32,
      uv_0 : vec2<f32>,
      view_tangent_0 : vec4<f32>,
+     material_0 : vec4<f32>,
 };
 
 var<private> frag_in_0 : Mesh_Varyings_0;
@@ -421,6 +422,7 @@ struct pixelInput_0
     @interpolate(flat) @location(6) slot_1 : u32,
     @location(7) uv_2 : vec2<f32>,
     @location(8) view_tangent_1 : vec4<f32>,
+    @location(9) material_1 : vec4<f32>,
 };
 
 @fragment
@@ -435,6 +437,7 @@ fn main( _S33 : pixelInput_0, @builtin(position) position_0 : vec4<f32>, @builti
     frag_in_0.slot_0 = _S33.slot_1;
     frag_in_0.uv_0 = _S33.uv_2;
     frag_in_0.view_tangent_0 = _S33.view_tangent_1;
+    frag_in_0.material_0 = _S33.material_1;
     frag_coord_0 = position_0;
     front_facing_0 = is_front_0;
     if((Material_Uniforms_0.params_0.y) < 0.0f)

@@ -51,12 +51,32 @@ color_ensure :: proc(s: ^Sculptor) {
 	s.paint.whole = true
 }
 
+// Gives the picked layer roughness and metal, none covering, if it has none yet, for the
+// first stroke that writes either. The caller made sure of colours first.
+@(private)
+material_ensure :: proc(s: ^Sculptor) {
+	if s.material != nil do return
+	s.material = make([]Material_Paint, len(s.mesh.positions), s.history.allocator)
+	s.paint_stamp += 1
+	s.paint.whole = true
+}
+
+// What a stroke on the picked layer writes, with its roughness and metal made ready when
+// it writes either.
+@(private)
+paint_writes :: proc(s: ^Sculptor) -> Paint_Channels {
+	writes := sculptor_paint_channels(s)
+	if writes & {.Roughness, .Metal} != {} do material_ensure(s)
+	return writes
+}
+
 // One Paint dab, called by dab_once with the hit leaves found. Returns how many
 // vertices changed colour.
 @(private)
 paint_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
-	if s.dyn != nil do return 0
+	if s.dyn != nil || sculptor_paint_on_texture(s) do return 0
 	color_ensure(s)
+	s.paint_writes = paint_writes(s)
 	if s.history.recording {
 		for leaf in s.hit do record_color(s, s.node_of[leaf])
 	}
@@ -70,8 +90,19 @@ paint_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 			total += s.nodes[s.node_of[leaf]].vert_count
 		}
 		resize(&s.blur_to, int(total))
-		jobs.parallel_for(pool, len(s.hit), d, job_blur_targets)
-		jobs.parallel_for(pool, len(s.hit), d, job_blur_apply)
+		if .Color in s.paint_writes {
+			jobs.parallel_for(pool, len(s.hit), d, job_blur_targets)
+			jobs.parallel_for(pool, len(s.hit), d, job_blur_apply)
+		}
+		if s.paint_writes & {.Roughness, .Metal} != {} {
+			// The colour's count of changed vertices is kept: a vertex whose roughness
+			// changed too counts once more, which only says more than nothing changed.
+			moved := make([]u32, len(s.partials), context.temp_allocator)
+			for p, i in s.partials do moved[i] = p.moved
+			jobs.parallel_for(pool, len(s.hit), d, job_blur_material_targets)
+			jobs.parallel_for(pool, len(s.hit), d, job_blur_material_apply)
+			for &p, i in s.partials do p.moved += moved[i]
+		}
 	} else {
 		jobs.parallel_for(pool, len(s.hit), d, job_paint)
 	}
@@ -113,9 +144,98 @@ job_paint :: proc(data: rawptr, i: int) {
 		if d2 >= d.r2 do continue
 		w := d.brush.strength * dab_weight(d, delta, d2) * facing_weight(d, m.normals[:], v) * shield(s.fade, s.mask, v)
 		if w <= 0 do continue
-		next := paint_mix(s.color[v], d.brush.color, w, d.brush.invert)
-		if next == s.color[v] do continue
-		s.color[v] = next
+		changed := false
+		if .Color in s.paint_writes {
+			next := paint_mix(s.color[v], d.brush.color, w, d.brush.invert)
+			if next != s.color[v] {
+				s.color[v] = next
+				changed = true
+			}
+		}
+		if s.paint_writes & {.Roughness, .Metal} != {} {
+			next := material_mix(s.material[v], {d.brush.roughness, d.brush.metal}, s.paint_writes, w, d.brush.invert)
+			if next != s.material[v] {
+				s.material[v] = next
+				changed = true
+			}
+		}
+		if changed do painted += 1
+	}
+	s.partials[i].moved = painted
+}
+
+// Roughness and metal laid over a vertex's as paint_mix lays colour, each channel the
+// layer writes over its own coverage; `erase` takes coverage off those channels.
+@(private)
+material_mix :: #force_inline proc(m: Material_Paint, value: [2]u8, writes: Paint_Channels, w: f32, erase: bool) -> Material_Paint {
+	out := m
+	for c in 0 ..< 2 {
+		if Paint_Channel(1 + c) not_in writes do continue
+		x := Color{m[2 * c], 0, 0, m[2 * c + 1]}
+		y := paint_mix(x, {value[c], 0, 0}, w, erase)
+		out[2 * c], out[2 * c + 1] = y.r, y.a
+	}
+	return out
+}
+
+// The roughness and metal each vertex in the dab blurs toward, as job_blur_targets finds
+// colour: each channel's neighbours averaged as far as they cover, coverage plainly.
+@(private)
+job_blur_material_targets :: proc(data: rawptr, i: int) {
+	d := cast(^Dab)data
+	s := d.s
+	m := s.mesh
+	first, last := owned(s, s.hit[i])
+	out := s.blur_to[s.offsets[i]:]
+	for v in first ..< last {
+		delta := m.positions[v] - d.center
+		if linalg.dot(delta, delta) >= d.r2 do continue
+		value, cover: [2]f32
+		n: f32
+		for f in faces_of(s, v) {
+			for k in 0 ..< 3 {
+				x := s.material[m.indices[3 * f + u32(k)]]
+				for c in 0 ..< 2 {
+					a := f32(x[2 * c + 1])
+					value[c] += f32(x[2 * c]) * a
+					cover[c] += a
+				}
+				n += 1
+			}
+		}
+		own := s.material[v]
+		target := [4]f32{f32(own[0]), f32(own[1]), f32(own[2]), f32(own[3])}
+		for c in 0 ..< 2 {
+			if cover[c] > 0 do target[2 * c] = value[c] / cover[c]
+			if n > 0 do target[2 * c + 1] = cover[c] / n
+		}
+		out[v - first] = target
+	}
+}
+
+@(private)
+job_blur_material_apply :: proc(data: rawptr, i: int) {
+	d := cast(^Dab)data
+	s := d.s
+	m := s.mesh
+	first, last := owned(s, s.hit[i])
+	targets := s.blur_to[s.offsets[i]:]
+	painted: u32
+	for v in first ..< last {
+		delta := m.positions[v] - d.center
+		d2 := linalg.dot(delta, delta)
+		if d2 >= d.r2 do continue
+		w := clamp(d.brush.strength * dab_weight(d, delta, d2), 0, 1) * facing_weight(d, m.normals[:], v) * shield(s.fade, s.mask, v)
+		if w <= 0 do continue
+		x := s.material[v]
+		target := targets[v - first]
+		next := x
+		for c in 0 ..< 2 {
+			if Paint_Channel(1 + c) not_in s.paint_writes do continue
+			for k in 2 * c ..< 2 * c + 2 do next[k] = paint_toward(x[k], u8(clamp(target[k] + 0.5, 0, 255)), f32(x[k]) + (target[k] - f32(x[k])) * w)
+		}
+		if next == x do continue
+		s.material[v] = next
 		painted += 1
 	}
 	s.partials[i].moved = painted
@@ -206,21 +326,28 @@ paint_mix :: #force_inline proc(c: Color, paint: [3]u8, w: f32, erase: bool) -> 
 // Fills or clears the paint of every vertex the brush could reach, or fills it with
 // `gradient` (Gradient), weighted by the mask and hiding as a dab is, as one undo step.
 // Returns true when it changed a colour. Refused (false) under dynamic topology.
-sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u8, gradient := Paint_Gradient{}) -> bool {
+sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u8, gradient := Paint_Gradient{}, material := [2]u8{}) -> bool {
 	_ = sculptor_stroke_end(s)
-	if s.dyn != nil do return false
+	// A texture layer's Fill and Clear are levels_texel_command's, which reach its tiles.
+	if s.dyn != nil || sculptor_paint_on_texture(s) do return false
 	if s.color == nil && command == .Clear do return false
 	color_ensure(s)
+	writes := sculptor_paint_channels(s)
+	// Clear makes no roughness and metal to take off.
+	if command == .Clear && s.material == nil do writes -= {.Roughness, .Metal}
+	if writes & {.Roughness, .Metal} != {} do material_ensure(s)
 	Job :: struct {
-		s:       ^Sculptor,
-		command: Paint_Command,
-		color:   [3]u8,
-		changes: []bool,
-		to:      [3]u8,
-		axis:    Vec3,
-		lo, per: f32, // the axis' first shown value, and 1 over its span
+		s:        ^Sculptor,
+		command:  Paint_Command,
+		color:    [3]u8,
+		changes:  []bool,
+		to:       [3]u8,
+		axis:     Vec3,
+		lo, per:  f32, // the axis' first shown value, and 1 over its span
+		writes:   Paint_Channels,
+		material: [2]u8,
 	}
-	job := Job{s, command, color, make([]bool, len(s.nodes), context.temp_allocator), gradient.to, gradient.axis, 0, 0}
+	job := Job{s, command, color, make([]bool, len(s.nodes), context.temp_allocator), gradient.to, gradient.axis, 0, 0, writes, material}
 	if command == .Gradient {
 		// The span over the vertices shown: a serial pass, as a min and a max are the same
 		// whichever thread finds them, and one pass over 10M positions is a few ms.
@@ -234,7 +361,7 @@ sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u
 	}
 	after :: #force_inline proc(job: ^Job, v: u32) -> Color {
 		w := shield(job.s.fade, job.s.mask, v)
-		if w <= 0 do return job.s.color[v]
+		if w <= 0 || .Color not_in job.writes do return job.s.color[v]
 		paint := job.color
 		if job.command == .Gradient {
 			f := clamp((linalg.dot(job.s.mesh.positions[v], job.axis) - job.lo) * job.per, 0, 1)
@@ -242,13 +369,20 @@ sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u
 		}
 		return paint_mix(job.s.color[v], paint, w, job.command == .Clear)
 	}
+	// Roughness and metal take the brush's values whole, a gradient running the colour only.
+	after_material :: #force_inline proc(job: ^Job, v: u32) -> Material_Paint {
+		m := job.s.material[v] if job.s.material != nil else {}
+		w := shield(job.s.fade, job.s.mask, v)
+		if w <= 0 || job.writes & {.Roughness, .Metal} == {} do return m
+		return material_mix(m, job.material, job.writes, w, job.command == .Clear)
+	}
 	// Twice: first to find the nodes that change, so only those are saved.
 	jobs.parallel_ranges(s.pool, len(s.nodes), &job, proc(data: rawptr, lo, hi: int) {
 		job := cast(^Job)data
 		for id in lo ..< hi {
 			n := job.s.nodes[id]
 			for v in n.vert_first ..< n.vert_first + n.vert_count {
-				if after(job, v) != job.s.color[v] {
+				if after(job, v) != job.s.color[v] || (job.s.material != nil && after_material(job, v) != job.s.material[v]) {
 					job.changes[id] = true
 					break
 				}
@@ -262,7 +396,10 @@ sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u
 		for id in lo ..< hi {
 			if !job.changes[id] do continue
 			n := job.s.nodes[id]
-			for v in n.vert_first ..< n.vert_first + n.vert_count do job.s.color[v] = after(job, v)
+			for v in n.vert_first ..< n.vert_first + n.vert_count {
+				job.s.color[v] = after(job, v)
+				if job.s.material != nil do job.s.material[v] = after_material(job, v)
+			}
 		}
 	}, NODE_GRAIN)
 	for c, id in job.changes {
@@ -279,9 +416,17 @@ sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u
 // clay, as everywhere in polypaint). `hit` is false when the ray misses; with no paint the
 // colour is zero, which the caller shows as the clay. For the eyedropper.
 sculptor_color_at :: proc(s: ^Sculptor, origin, dir: Vec3) -> (c: Color, hit: bool) {
+	c, _, hit = sculptor_paint_at(s, origin, dir)
+	return
+}
+
+// The paint as it shows where the ray meets the surface, as sculptor_color_at: its colour,
+// and its roughness and metal (Material_Paint, zero with none). For the eyedropper.
+sculptor_paint_at :: proc(s: ^Sculptor, origin, dir: Vec3) -> (c: Color, material: Material_Paint, hit: bool) {
 	along, tri, on := geom.bvh_raycast(&s.bvh, s.mesh^, origin, dir, sculptor_hidden_tris(s))
 	hit = on
 	colors := sculptor_paint_shown(s)
+	materials := sculptor_paint_shown_material(s)
 	if !hit || colors == nil do return
 	m := s.mesh
 	i := m.indices[3 * tri:][:3]
@@ -292,16 +437,22 @@ sculptor_color_at :: proc(s: ^Sculptor, origin, dir: Vec3) -> (c: Color, hit: bo
 	area := linalg.dot(n, n)
 	if area <= 0 {
 		c = colors[i[0]]
+		if materials != nil do material = materials[i[0]]
 		return
 	}
 	wb := linalg.dot(linalg.cross(p - a, cc - a), n) / area
 	wc := linalg.dot(linalg.cross(b - a, p - a), n) / area
 	w := [3]f32{clamp(1 - wb - wc, 0, 1), clamp(wb, 0, 1), clamp(wc, 0, 1)}
 	sum := w[0] + w[1] + w[2]
-	for k in 0 ..< 4 {
-		x := (f32(colors[i[0]][k]) * w[0] + f32(colors[i[1]][k]) * w[1] + f32(colors[i[2]][k]) * w[2]) / max(sum, 1e-6)
-		c[k] = u8(clamp(x + 0.5, 0, 255))
+	blend :: proc(x: []Color, i: []u32, w: [3]f32, sum: f32) -> (c: Color) {
+		for k in 0 ..< 4 {
+			v := (f32(x[i[0]][k]) * w[0] + f32(x[i[1]][k]) * w[1] + f32(x[i[2]][k]) * w[2]) / max(sum, 1e-6)
+			c[k] = u8(clamp(v + 0.5, 0, 255))
+		}
+		return
 	}
+	c = blend(colors, i, w, sum)
+	if materials != nil do material = blend(materials, i, w, sum)
 	return
 }
 
@@ -315,7 +466,12 @@ record_color :: proc(s: ^Sculptor, id: u32) {
 	n := s.nodes[id]
 	saved := make([]Color, n.vert_count, h.allocator)
 	copy(saved, s.color[n.vert_first:][:n.vert_count])
-	append(&h.current.saved, Saved_Node{node = id, colors = saved})
+	materials: []Material_Paint
+	if s.material != nil {
+		materials = make([]Material_Paint, n.vert_count, h.allocator)
+		copy(materials, s.material[n.vert_first:][:n.vert_count])
+	}
+	append(&h.current.saved, Saved_Node{node = id, colors = saved, materials = materials})
 }
 
 // Changes to the colours or groups that need every vertex's paint data uploaded again
@@ -363,15 +519,25 @@ levels_carry_color :: proc(l: ^Levels, from, to: int, all := true) {
 		missing := paint_mirror(src, dst)
 		for _, i in src.paint.list {
 			if !all && !missing[i] do continue
-			from_colors := sculptor_paint_layer_colors(src, i)
-			if from_colors == nil do continue
-			to_colors := sculptor_paint_layer_colors(dst, i)
-			if to_colors == nil {
-				to_colors = make([]Color, len(dst.mesh.positions), dst.history.allocator)
-				if dst.paint.list[i].id == dst.paint.picked do dst.color = to_colors
-				else do dst.paint.list[i].color = to_colors
+			picked := dst.paint.list[i].id == dst.paint.picked
+			if from_colors := sculptor_paint_layer_colors(src, i); from_colors != nil {
+				to_colors := sculptor_paint_layer_colors(dst, i)
+				if to_colors == nil {
+					to_colors = make([]Color, len(dst.mesh.positions), dst.history.allocator)
+					if picked do dst.color = to_colors
+					else do dst.paint.list[i].color = to_colors
+				}
+				carry_colors(l, l.levels[j], l.levels[j + step], step > 0, from_colors, to_colors)
 			}
-			carry_colors(l, l.levels[j], l.levels[j + step], step > 0, from_colors, to_colors)
+			if from := sculptor_paint_layer_materials(src, i); from != nil {
+				to := sculptor_paint_layer_materials(dst, i)
+				if to == nil {
+					to = make([]Material_Paint, len(dst.mesh.positions), dst.history.allocator)
+					if picked do dst.material = to
+					else do dst.paint.list[i].material = to
+				}
+				carry_colors(l, l.levels[j], l.levels[j + step], step > 0, from, to)
+			}
 		}
 		dst.paint_stamp += 1
 	}

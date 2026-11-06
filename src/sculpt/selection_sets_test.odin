@@ -229,9 +229,12 @@ selection_sets_old_and_damaged_files :: proc(t: ^testing.T) {
 	out := make([dynamic]u8)
 	defer delete(out)
 	testing.expect(t, levels_write(&l, &out))
-	// No sets: the block is a count of 0, the last four bytes.
-	head := out[:len(out) - 4]
-	old := slice.clone(head, context.temp_allocator)
+	// No sets: the block is a count of 0, four bytes before the texture layers' block, which
+	// with none is three zero words (size, next id, count) and ends the file.
+	TEXELS_NONE :: [12]u8{}
+	head := out[:len(out) - 4 - len(TEXELS_NONE)]
+	none := TEXELS_NONE
+	old := slice.concatenate([][]u8{head, none[:]}, context.temp_allocator)
 	flags := (^u32)(&old[4])
 	flags^ &~= 32 // LEVELS_SETS
 	back: Levels
@@ -265,6 +268,7 @@ selection_sets_old_and_damaged_files :: proc(t: ^testing.T) {
 		geom.byte_put(&bad, u32(RUN_BYTES))
 		geom.byte_put(&bad, c.run)
 		geom.byte_put(&bad, u8(255))
+		append(&bad, ..none[:])
 		r = geom.byte_reader(bad[:])
 		read := levels_read(&back, &r, nil, 64)
 		testing.expectf(t, read == (i == len(cases) - 1), "case %d: read %v", i, read)

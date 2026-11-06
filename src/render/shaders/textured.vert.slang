@@ -14,6 +14,7 @@ Mesh_Vertex_Out main(
 	float3 in_normal;
 	decode_normal_mask(in_normal_oct, in_normal, o.v.mask);
 	o.v.paint = float4(0.0);
+	o.v.material = float4(0.0);
 	o.v.group = float3(-1.0);
 	o.v.slot = 0u;
 	float4 world = mul(float4(in_position, 1.0), model);

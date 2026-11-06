@@ -132,7 +132,8 @@ skin_tess_split :: proc(r: ^Renderer, item: Draw_Item, proj: Mat4, height: u32, 
 draw_skinned_item :: proc(r: ^Renderer, pass: gpu.Render_Pass, pipes: ^Mesh_Pipelines, item: Draw_Item, stats: ^Viewport_Stats) -> (tessellated: bool) {
 	mb := item.mesh
 	paint := mb.paint if mb.paint != 0 else r.no_paint
-	vertex := [Skin_Vert_Buffers]gpu.Buffer{.paint = paint, .indices = mb.indices, .positions = mb.positions, .normals = mb.normals}
+	material := mb.paint_material if mb.paint_material != 0 else r.no_paint
+	vertex := [Skin_Vert_Buffers]gpu.Buffer{.paint = paint, .indices = mb.indices, .positions = mb.positions, .normals = mb.normals, .paint_material_words = material}
 	bind_vertex_storage(pass, &vertex)
 	fragment := [Skin_Frag_Buffers]gpu.Buffer{.skin_normals = mb.skin_normals, .skin_tris = mb.skin_tris}
 	bind_fragment_storage(pass, &fragment)
@@ -155,6 +156,7 @@ draw_skinned_item :: proc(r: ^Renderer, pass: gpu.Render_Pass, pipes: ^Mesh_Pipe
 			.skin_normals = mb.skin_normals,
 			.skin_tris    = mb.skin_tris,
 			.skin_heights = mb.skin_heights,
+			.paint_material_words = material,
 		}
 		bind_vertex_storage(pass, &grid)
 		gpu.draw_primitives_indirect(pass, mb.indirect, (mb.draw_count + mb.lod_draw_count) * STRIDE, mb.tess_draw_count, STRIDE)

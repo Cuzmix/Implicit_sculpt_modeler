@@ -64,8 +64,10 @@ Model_Action :: enum u8 {
 	Spine,
 	Topo,
 	Loop_Curve,
-	// Last, so the actions' stored numbers hold.
 	Measure,
+	Slide,
+	// Last, so the actions' stored numbers hold.
+	Relax,
 }
 
 @(rodata)
@@ -99,6 +101,8 @@ MODEL_ACTION_NAMES := [Model_Action]string {
 	.Topo           = "Topo pen",
 	.Loop_Curve     = "Loop to curve",
 	.Measure        = "Measure",
+	.Slide          = "Slide",
+	.Relax          = "Relax",
 }
 
 // Each action's icon (Lucide), one apiece, drawn from what it does to the cage: a face
@@ -136,6 +140,8 @@ MODEL_ACTION_ICONS := [Model_Action]rune {
 	.Topo           = 0xe547, // waypoints
 	.Loop_Curve     = 0xe612, // chart-spline
 	.Measure        = 0xe14f, // ruler
+	.Slide          = 0xe1c6, // move-horizontal: points sliding along their edges
+	.Relax          = 0xe1b0, // wind: a brush that evens points out
 }
 
 // Each primitive cage's icon (Lucide), its own shape.
@@ -181,6 +187,8 @@ MODEL_ACTION_WHAT := [Model_Action]string {
 	.Topo           = "topo pen",
 	.Loop_Curve     = "loop to curve",
 	.Measure        = "measure",
+	.Slide          = "slide",
+	.Relax          = "relax cage",
 }
 
 // What each action's variant does, for the palette and the label.
@@ -215,6 +223,8 @@ MODEL_ACTION_ALT := [Model_Action]string {
 	.Topo           = "a tap takes a dot away or deletes a face; a drag from a border edge grows the whole border",
 	.Loop_Curve     = "",
 	.Measure        = "",
+	.Slide          = "",
+	.Relax          = "smooths outright, rounding and shrinking, where Relax keeps the shape",
 }
 
 // What each action's help line says it does.
@@ -249,6 +259,8 @@ MODEL_ACTION_HOW := [Model_Action]string {
 	.Topo           = "Retopologise a sculpt: tap to drop dots on it, drag over three or four points to make a face, drag a point to move it (lift on another to weld), drag a border edge to grow a quad; Shift and a drag relaxes",
 	.Loop_Curve     = "Tap an edge to make a curve object through its loop, each of its points a smooth point of the curve, as ZBrush's Frame mesh makes curves from edges; Spine, Extrude and Knife can then follow it",
 	.Measure        = "Drag from one place to another, or tap one then the other, to show the distance between them and how far apart they are along X, Y and Z. Each end lands on the nearest point, edge middle or face middle on screen, else on the surface under the pen. It changes nothing and stays shown while Measure is picked",
+	.Slide          = "Press on an edge and drag: each end of the target's edges slides along the edge out of it that runs most nearly the way you drag, all by the same share, so the loop moves through the faces without leaving the surface; Shift snaps to quarters, Escape puts it back",
+	.Relax          = "Drag over a cage to even its points out where the ring passes, keeping the shape, as a relax brush does; under symmetry both sides relax alike",
 }
 
 // What kind of element each action takes.
@@ -289,6 +301,8 @@ MODEL_ACTION_ELEMENT := [Model_Action]Model_Element {
 	.Topo           = .Point,
 	.Loop_Curve     = .Edge,
 	.Measure        = .Point,
+	.Slide          = .Edge,
+	.Relax          = .Point,
 }
 
 // The actions a drag drives; Insert loop also acts on a tap. The pair actions take a
@@ -374,6 +388,8 @@ MODEL_ACTION_TARGETS := [Model_Action]bit_set[Model_Target] {
 	.Topo           = {.Single},
 	.Loop_Curve     = {.Edge_Loop, .Border_Loop},
 	.Measure        = {.Single},
+	.Slide          = {.Single, .Edge_Loop},
+	.Relax          = {.Single},
 }
 
 // The target each action starts with: one face, but Flip a whole piece, since turning
@@ -409,6 +425,8 @@ MODEL_DEFAULT_TARGETS := [Model_Action]Model_Target {
 	.Topo           = .Single,
 	.Loop_Curve     = .Edge_Loop,
 	.Measure        = .Single,
+	.Slide          = .Edge_Loop,
+	.Relax          = .Single,
 }
 
 // ZModeler's flat island tolerance.
@@ -470,6 +488,8 @@ Model_Drag :: struct {
 model_tool_free :: proc(m: ^Model_Tool) {
 	model_topo_free(&m.topo)
 	cage_xform_free(&m.xform)
+	model_slide_free(&m.slide)
+	if m.relax.before != nil do history_snapshot_drop(m.relax.before)
 	if m.drag.before != nil do history_snapshot_drop(m.drag.before)
 	delete(m.hover.items)
 	delete(m.hover.images)
@@ -624,6 +644,8 @@ model_tool_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	if m.action == .Topo && d.state == .None do return model_topo_frame(app, input)
 	// Measure only looks: it changes nothing, so it is no undo step.
 	if m.action == .Measure && d.state == .None do return model_measure_frame(app, input)
+	if m.action == .Relax && d.state == .None do return model_relax_frame(app, input)
+	if m.action == .Slide && d.state == .None do return model_slide_frame(app, input)
 	switch d.state {
 	case .Dragging:
 		obj := object_by_id(app, d.object)
@@ -2038,6 +2060,11 @@ draw_model_overlay :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 		draw_measure_overlay(app, o, input)
 		return
 	}
+	if m.action == .Relax {
+		draw_relax_overlay(app, o, input)
+		return
+	}
+	if m.action == .Slide do draw_slide_label(app, o, input)
 	element := model_element(m, m.action)
 	// Each shown cage's selection, under the hover: its faces, and its picked edges and
 	// points.

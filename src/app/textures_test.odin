@@ -322,8 +322,8 @@ textured_export_carries_the_maps :: proc(t: ^testing.T) {
 	_ = sculpt.sculptor_layer_add(object_sculptor(obj))
 	testing.expect(t, !object_exports_textures(obj), "no maps yet")
 	s := object_sculptor(obj)
-	s.color = make([]sculpt.Color, len(s.mesh.positions))
-	for &c in s.color do c = {200, 30, 20, 255}
+	// Painted through the sculptor, so the paint is a layer of its stack as a stroke makes it.
+	testing.expect(t, sculpt.sculptor_paint_command(s, .Fill, {200, 30, 20}))
 	maps: Object_Textures
 	maps.image[.Base_Color] = qoi_of({200, 30, 20, 255})
 	maps.image[.Normal] = png_of({128, 128, 255, 255})
@@ -345,7 +345,8 @@ textured_export_carries_the_maps :: proc(t: ^testing.T) {
 	json = glb_json(t, path)
 	testing.expect(t, strings.contains(json, `"COLOR_0"`) && strings.contains(json, `"normalTexture"`))
 	testing.expect(t, sculpt.levels_subdivide(&obj.levels))
-	testing.expect(t, !object_exports_textures(obj), "the maps follow the base level's UVs only")
+	// Every level carries the base level's UVs (sculpt.levels_uvs_at), so the maps go too.
+	testing.expect(t, object_exports_textures(obj), "a level above the base lost the maps")
 	free_all(context.temp_allocator)
 }
 
@@ -502,5 +503,71 @@ straighten_is_one_undo_step :: proc(t: ^testing.T) {
 	testing.expect(t, folded, "Straighten broke the quads' UVs")
 	history_undo(&app)
 	testing.expect(t, raw_data(obj.levels.uvs.corner) == layout, "undo left the straightened UVs")
+	free_all(context.temp_allocator)
+}
+
+// Set texel density sets the density the UVs section reads, in one undo step, and stops
+// at the most one square holds.
+@(test)
+texel_density_is_set_in_one_step :: proc(t: ^testing.T) {
+	app: App
+	defer tree_free(&app)
+	app.ui = ui_state_default()
+	objs := tree_scene(&app)
+	obj := objs[0]
+	defer textures_free(&obj.textures)
+	testing.expect(t, !command_enabled(&app, .Texel_Density), "Set texel density is offered without UVs")
+	object_unwrap(&app, obj, unwrap_setup(&app))
+	testing.expect(t, command_enabled(&app, .Texel_Density))
+	done := len(app.history.done)
+	px_of := proc(app: ^App, obj: ^Object) -> f64 {
+		return uv_readout(app, obj).density * f64(app.ui.bake.size) / f64(obj.transform.scale)
+	}
+	most := px_of(&app, obj)
+	object_texel_density(&app, obj, most / 2)
+	if !testing.expect_value(t, len(app.history.done), done + 1) do return
+	testing.expect_value(t, app.history.done[done].kind, History_Kind.Textures)
+	half := px_of(&app, obj)
+	testing.expectf(t, abs(half - most / 2) < 0.01 * most, "asked %v px, reads %v", most / 2, half)
+	object_texel_density(&app, obj, 100 * most)
+	full := px_of(&app, obj)
+	testing.expectf(t, full > half * 1.5 && full < most * 1.2, "past the square reads %v px, the unwrap's %v", full, most)
+	history_undo(&app)
+	history_undo(&app)
+	testing.expectf(t, abs(px_of(&app, obj) - most) < 1e-6 * most, "undo left %v px, not %v", px_of(&app, obj), most)
+	free_all(context.temp_allocator)
+}
+
+// Peel lays the preview flat into the UV layout: all the way, every triangle lies in the
+// square's plane facing the eye; midway each goes twice, once turned round, so nothing
+// facing away goes missing; only the object it was set on, while selected, peels.
+@(test)
+peel_lays_the_layout_flat :: proc(t: ^testing.T) {
+	app: App
+	defer tree_free(&app)
+	objs := tree_scene(&app)
+	obj := objs[0]
+	defer textures_free(&obj.textures)
+	object_unwrap(&app, obj, unwrap_setup(&app))
+	buffers: render.Mesh_Buffers
+	topology: Split_Topology
+	defer split_topology_free(&topology)
+	frame := [3]geom.Vec3{{0, 0, 1}, {0, 1, 0}, {-1, 0, 0}}
+	v, idx, _ := textured_vertices(obj, &buffers, &topology, nil, 1, frame)
+	for k in 0 ..< len(idx) / 3 {
+		a, b, c := v[idx[3 * k]].position, v[idx[3 * k + 1]].position, v[idx[3 * k + 2]].position
+		testing.expect(t, abs(a.x) < 1e-5 && abs(b.x) < 1e-5 && abs(c.x) < 1e-5, "a corner left the square's plane")
+		testing.expect(t, linalg.dot(linalg.cross(b - a, c - a), frame[2]) > 0, "a flat triangle faces away")
+	}
+	plain, plain_idx, _ := textured_vertices(obj, &buffers, &topology, nil, 0)
+	half, half_idx, corners := textured_vertices(obj, &buffers, &topology, nil, 0.5, frame)
+	testing.expect_value(t, len(half), 2 * len(plain))
+	testing.expect_value(t, len(half_idx), 2 * len(plain_idx))
+	testing.expect_value(t, len(corners), len(plain_idx))
+	app.ui.uv_peel, app.ui.uv_peel_id = 0.5, obj.id
+	testing.expect_value(t, uv_peel_of(&app, obj), 0.5)
+	testing.expect_value(t, uv_peel_of(&app, objs[1]), 0)
+	app.scene.selected = 1
+	testing.expect_value(t, uv_peel_of(&app, obj), 0)
 	free_all(context.temp_allocator)
 }

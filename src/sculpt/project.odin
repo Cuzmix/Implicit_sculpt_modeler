@@ -15,6 +15,9 @@ sculptor_project :: proc(s: ^Sculptor, next: []Vec3, colors: []Color, strength: 
 	_ = sculptor_stroke_end(s)
 	if s.dyn != nil || strength <= 0 || len(next) != len(s.mesh.positions) do return false
 	if colors != nil && len(colors) != len(next) do return false
+	// A texture layer keeps no colour per vertex, so Project moves the surface and leaves
+	// its paint alone.
+	colors := nil if sculptor_paint_on_texture(s) else colors
 	_ = sculptor_gpu_sync(s)
 	Job :: struct {
 		s:        ^Sculptor,

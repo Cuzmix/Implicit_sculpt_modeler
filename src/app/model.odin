@@ -2,6 +2,8 @@ package main
 
 import "core:fmt"
 import "core:log"
+import "core:math"
+import "core:math/linalg"
 import "core:slice"
 import "core:strings"
 import "core:time"
@@ -44,6 +46,17 @@ Cage_Part :: struct {
 	// sculpt.levels_write wrote them, so Apply to sculpt can put its detail back; empty
 	// for any other cage.
 	held:    []u8,
+	// The Wrap row's search tree over its object's surface and what it was made from
+	// (cage_follow.odin), and the stamp of everything the follow rows read when the cage
+	// was last worked out.
+	wrap_bvh:     geom.Bvh,
+	wrap_made:    bool,
+	wrap_stamp:   u64,
+	follow_stamp: u64,
+	// Sharp edges' copies of drawn points (geom.mesh_split_sharp): per copy, the drawn
+	// point it stands for. The level's vertices for them follow vert_of's, after the
+	// drawn points'.
+	dup_from:     []u32,
 }
 
 // How a cage is drawn, as ZBrush's Dynamic Subdivision and Blender's Subdivision Surface
@@ -54,6 +67,8 @@ Cage_Look :: struct {
 	smooth: int,
 	flat:   bool,
 	live:   poly.Live,
+	follow: Cage_Follow, // the rows that follow other objects: Curve and Wrap
+	sharp:  f32, // Sharp edges: the angle in degrees past which edges shade hard; 0 for off
 }
 
 // `look` kept to what can be drawn: steps and segments in range, widths finite and not
@@ -61,10 +76,31 @@ Cage_Look :: struct {
 cage_look_clean :: proc(look: Cage_Look) -> Cage_Look {
 	l := look.live
 	size :: proc(x: f32) -> f32 {return x if x > 0 && x < 1e6 else 0}
+	turn: f32 = poly.LIVE_DEFORM_TURN_MAX if l.deform != .Taper else poly.LIVE_TAPER_MAX
 	return {
 		clamp(look.smooth, 0, poly.SUBDIVIDE_MAX),
 		look.flat,
-		{l.mirror & {.X, .Y, .Z}, size(l.thickness), clamp(l.thickness_segments, 1, poly.LIVE_THICKNESS_SEGMENTS_MAX), l.side, size(l.bevel), clamp(l.bevel_segments, 1, poly.BEVEL_SEGMENTS_MAX)},
+		{
+			mirror = l.mirror & {.X, .Y, .Z},
+			thickness = size(l.thickness),
+			thickness_segments = clamp(l.thickness_segments, 1, poly.LIVE_THICKNESS_SEGMENTS_MAX),
+			side = l.side,
+			bevel = size(l.bevel),
+			bevel_segments = clamp(l.bevel_segments, 1, poly.BEVEL_SEGMENTS_MAX),
+			deform = l.deform,
+			deform_axis = l.deform_axis,
+			deform_amount = clamp(l.deform_amount, -turn, turn) if abs(l.deform_amount) < 1e6 else 0,
+			displace = clamp(l.displace, -1e6, 1e6) if l.displace == l.displace else 0,
+			displace_scale = size(l.displace_scale),
+		},
+		{
+			curve = max(look.follow.curve, 0),
+			curve_axis = look.follow.curve_axis,
+			curve_fit = look.follow.curve_fit,
+			wrap = max(look.follow.wrap, 0),
+			wrap_offset = clamp(look.follow.wrap_offset, -1e6, 1e6) if look.follow.wrap_offset == look.follow.wrap_offset else 0,
+		},
+		clamp(look.sharp, 0, CAGE_SHARP_MAX) if look.sharp == look.sharp else 0,
 	}
 }
 
@@ -144,7 +180,7 @@ object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh, look := Cage
 	cp.mesh = cage
 	cp.held = held
 	cp.look = cage_look_clean(look)
-	cage_live_make(cp)
+	cage_live_make(app, obj, cp)
 	// A valid cage always subdivides; were one refused, it is drawn as it is.
 	sub, sub_err := poly.subdivide(cage_base(cp), cp.look.smooth, cp.look.flat)
 	if sub_err != .None {
@@ -152,12 +188,16 @@ object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh, look := Cage
 		cp.look.smooth = 0
 	}
 	cp.sub = sub
+	cage_drawn_finish(app, obj, cp)
 	drawn := cage_drawn(cp)
 	mesh := geom.Mesh{positions = make([dynamic]Vec3), normals = make([dynamic]Vec3), indices = make([dynamic]u32)}
 	tri_face := make([dynamic]u32)
 	defer delete(tri_face)
 	poly.triangulate(drawn, &mesh, &tri_face, fixed = len(cp.sub.steps) > 0)
 	resize(&mesh.normals, len(mesh.positions))
+	// Sharp edges: the drawn points split where faces meet past the angle, so the level
+	// shades those edges hard and exports carry the split normals.
+	if cp.look.sharp > 0 do cp.dup_from = geom.mesh_split_sharp(&mesh, cp.look.sharp)
 	// The triangles' groups are their faces', on the heap: building frees temp memory.
 	groups := make([]u16, len(tri_face))
 	defer delete(groups)
@@ -175,6 +215,7 @@ object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh, look := Cage
 		cp.face_of[t] = cp.live.face_from[f] if cp.live.vert_first != nil else f
 	}
 	obj.cage = cp
+	cp.follow_stamp = cage_follow_stamp(app, obj)
 	if !cage_upload_edges(app, obj) {
 		object_release_mesh(app, obj, rebuild = false)
 		return false
@@ -185,19 +226,36 @@ object_build_cage :: proc(app: ^App, obj: ^Object, cage: poly.Mesh, look := Cage
 // Makes the live stack's mesh for the cage part's look, or none with the stack off; a
 // stack that cannot be built (which a valid cage never gives) is turned off.
 @(private = "file")
-cage_live_make :: proc(cp: ^Cage_Part) {
+cage_live_make :: proc(app: ^App, obj: ^Object, cp: ^Cage_Part) {
 	poly.live_mesh_destroy(&cp.live)
 	delete(cp.creased)
 	cp.creased = nil
-	if !poly.live_on(cp.look.live) do return
+	if !cage_live_wanted(cp.look) do return
 	lm, err := poly.live_build(&cp.mesh, cp.look.live)
 	if err != .None {
 		cp.look.live = {}
+		cp.look.follow = {}
 		return
 	}
 	cp.live = lm
 	cp.creased = make([]bool, len(cp.mesh.crease))
 	for c, e in cp.mesh.crease do cp.creased[e] = c > 0
+}
+
+// Whether the cage is drawn through a live mesh: a row of the stack, or a follow row.
+cage_live_wanted :: proc(look: Cage_Look) -> bool {return poly.live_on(look.live) || cage_follow_on(look.follow)}
+
+// The drawn surface's last steps, on its finest step (or the live mesh with Smooth off)
+// just made again from the cage: along its curve, onto its object, then Displace, each
+// on the smoothed points so a bend is smooth, a wrap hugs closely and the noise has the
+// points to show in.
+@(private = "file")
+cage_drawn_finish :: proc(app: ^App, obj: ^Object, cp: ^Cage_Part) {
+	if cp.live.vert_first == nil do return
+	cage_follow_curve_apply(app, obj, cp, cage_drawn(cp))
+	cage_follow_wrap_apply(app, obj, cp, cage_drawn(cp))
+	l := cp.look.live
+	if l.displace != 0 do poly.live_displace(cage_drawn(cp), l.displace, l.displace_scale)
 }
 
 // Sends the cage's vertices `verts` (cage ids), moved without a change of topology, to
@@ -212,16 +270,31 @@ cage_positions_moved :: proc(app: ^App, obj: ^Object, verts: []u32) -> bool {
 	// The stack made again matches unless the topology changed, which a move never does;
 	// were it not to, the level is made again.
 	if live && !poly.live_update(&cp.mesh, cp.look.live, &cp.live) do return cage_rebuild(app, obj)
+	cp.follow_stamp = cage_follow_stamp(app, obj)
 	if live || len(cp.sub.steps) > 0 {
 		poly.subdivision_update(&cp.sub, cage_base(cp), cp.look.flat)
-		moved = make([]u32, len(cp.vert_of), context.temp_allocator)
+		cage_drawn_finish(app, obj, cp)
+		moved = make([]u32, len(cp.vert_of) - len(cp.dup_from), context.temp_allocator)
 		for &v, i in moved do v = u32(i)
 	}
 	drawn := cage_drawn(cp)
-	level := make([]u32, len(moved), context.temp_allocator)
-	positions := make([]Vec3, len(moved), context.temp_allocator)
-	for v, i in moved do level[i], positions[i] = cp.vert_of[v], drawn.positions[v]
-	sculpt.sculptor_place_vertices(object_sculptor(obj), level, positions)
+	level := make([dynamic]u32, 0, len(moved), context.temp_allocator)
+	positions := make([dynamic]Vec3, 0, len(moved), context.temp_allocator)
+	for v in moved {
+		append(&level, cp.vert_of[v])
+		append(&positions, drawn.positions[v])
+	}
+	// Sharp edges' copies go with the points they stand for.
+	if len(cp.dup_from) > 0 {
+		first := len(cp.vert_of) - len(cp.dup_from)
+		going := make([]bool, first, context.temp_allocator)
+		for v in moved do going[v] = true
+		for src, k in cp.dup_from do if going[src] {
+			append(&level, cp.vert_of[first + k])
+			append(&positions, drawn.positions[src])
+		}
+	}
+	sculpt.sculptor_place_vertices(object_sculptor(obj), level[:], positions[:])
 	return true
 }
 
@@ -260,6 +333,8 @@ cage_free_part :: proc(cp: ^Cage_Part) {
 	delete(cp.vert_of)
 	delete(cp.face_of)
 	delete(cp.held)
+	delete(cp.dup_from)
+	if cp.wrap_made do geom.bvh_destroy(&cp.wrap_bvh)
 	free(cp)
 }
 
@@ -323,6 +398,10 @@ object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 	cp := obj.cage
 	steps := cp.look.smooth
 	rule := sculpt.Subdivision_Rule.Flat if cp.look.flat else .Smooth
+	// Displace drawn after Smooth goes onto the finest level, as detail; with Smooth off it
+	// is already in the live mesh the levels start from.
+	displace, displace_scale := cp.look.live.displace, cp.look.live.displace_scale
+	if len(cp.sub.steps) == 0 || cp.live.vert_first == nil do displace = 0
 	// The sculpt the cage was taken from, whose levels come back.
 	held: sculpt.Levels
 	have := false
@@ -338,6 +417,19 @@ object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 	base := cage_base(cp)
 	if poly.mesh_check(base).border_edges > 0 {
 		if steps > 0 do report(app, nil, {}, "%s has open edges, so it became one level as drawn: close its holes first for subdivision levels", object_label(obj))
+		if len(cp.dup_from) > 0 {
+			// Sharp edges' copies would leave the sculpt torn along its hard edges, so
+			// they are welded back first; each triangle keeps its face's polygroup.
+			level := object_mesh(obj)
+			groups := make([]u16, len(level.indices) / 3)
+			defer delete(groups)
+			for f, t in cp.face_of do groups[t] = cp.mesh.group[f]
+			welded := cage_export_welded(cp, level)
+			start := time.tick_now()
+			object_release_mesh(app, obj, rebuild = false)
+			cage_part_free(obj)
+			return object_build_from(app, obj, welded, start, normals = true, surface = {groups = groups})
+		}
 		_ = render.mesh_buffers_set_edges(&app.renderer, &obj.gpu[0], nil)
 		cage_part_free(obj)
 		return true
@@ -371,7 +463,20 @@ object_apply_cage :: proc(app: ^App, obj: ^Object) -> bool {
 		for _ in 0 ..< steps do if !sculpt.levels_subdivide(l) do break
 	}
 	if have do cage_put_back(app, obj, &cage, vert_of, &held)
-	return object_show_level(app, obj, start)
+	if !object_show_level(app, obj, start) do return false
+	if displace != 0 {
+		mesh := object_mesh(obj)
+		verts := make([]u32, len(mesh.positions))
+		defer delete(verts)
+		moved := make([]Vec3, len(mesh.positions))
+		defer delete(moved)
+		for p, v in mesh.positions {
+			verts[v] = u32(v)
+			moved[v] = poly.live_displace_at(p, linalg.normalize0(mesh.normals[v]), displace, displace_scale)
+		}
+		sculpt.sculptor_place_vertices(object_sculptor(obj), verts, moved)
+	}
+	return true
 }
 
 // Most triangles Edit cage draws its cage with: fewer Smooth steps than the sculpt had
@@ -452,7 +557,7 @@ object_edit_cage :: proc(app: ^App, obj: ^Object) -> bool {
 		if h != poly.NONE do cage.crease[poly.edge_of(h)] = base.sharp.edge[i]
 	}
 	for v, i in base.sharp.verts do cage.corner[v] = base.sharp.vert[i]
-	look := Cage_Look{min(len(l.levels) - 1, poly.SUBDIVIDE_MAX), l.rule == .Flat, {}}
+	look := Cage_Look{min(len(l.levels) - 1, poly.SUBDIVIDE_MAX), l.rule == .Flat, {}, {}, 0}
 	for look.smooth > 0 && 2 * len(corners) << uint(2 * (look.smooth - 1)) > CAGE_EDIT_TRIANGLES do look.smooth -= 1
 	held: []u8
 	if len(l.levels) > 1 {
@@ -615,7 +720,7 @@ cage_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, m
 		poly.mesh_destroy(&cage)
 		return false, false
 	}
-	look = {smooth, flat == 1, {}}
+	look = {smooth, flat == 1, {}, {}, 0}
 	// The live stack: Thickness and Bevel creases.
 	l: poly.Live
 	l.thickness = geom.byte_get(r, f32)
@@ -639,6 +744,35 @@ cage_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, m
 		return false, false
 	}
 	look.live.mirror = transmute(poly.Mirror_Axes)axes
+	// The deformers: Deform's kind, axis and amount, then Displace's strength and size.
+	kind := geom.byte_get(r, u8)
+	axis := geom.byte_get(r, u8)
+	look.live.deform_amount = geom.byte_get(r, f32)
+	look.live.displace = geom.byte_get(r, f32)
+	look.live.displace_scale = geom.byte_get(r, f32)
+	finite :: proc(x: f32) -> bool {return x == x && abs(x) < 1e6}
+	if !r.ok || kind > u8(max(poly.Deform_Kind)) || axis > u8(max(poly.Mirror_Axis)) || !finite(look.live.deform_amount) || !finite(look.live.displace) || !finite(look.live.displace_scale) || look.live.displace_scale < 0 {
+		poly.mesh_destroy(&cage)
+		return false, false
+	}
+	look.live.deform, look.live.deform_axis = poly.Deform_Kind(kind), poly.Mirror_Axis(axis)
+	// The follow rows: Curve's object and axis, Wrap's object and offset.
+	curve := geom.byte_get(r, i32)
+	curve_axis := geom.byte_get(r, u8)
+	curve_fit := geom.byte_get(r, u8)
+	wrap := geom.byte_get(r, i32)
+	offset := geom.byte_get(r, f32)
+	if !r.ok || curve < 0 || wrap < 0 || curve_axis > u8(max(poly.Mirror_Axis)) || curve_fit > 1 || !finite(offset) {
+		poly.mesh_destroy(&cage)
+		return false, false
+	}
+	look.follow = {int(curve), poly.Mirror_Axis(curve_axis), curve_fit == 1, int(wrap), offset}
+	// Sharp edges' angle.
+	look.sharp = geom.byte_get(r, f32)
+	if !r.ok || !(look.sharp >= 0 && look.sharp <= CAGE_SHARP_MAX) {
+		poly.mesh_destroy(&cage)
+		return false, false
+	}
 	// The sculpt Edit cage took it from, read only on Apply.
 	held: []u8
 	size := int(geom.byte_get(r, u32))
@@ -671,6 +805,41 @@ cage_size :: proc(cp: ^Cage_Part) -> f32 {
 CAGE_LIVE_PERCENT_MAX :: 20
 CAGE_BEVEL_SEGMENTS_SHOWN :: 6
 
+// The most Displace pushes, as a percentage of the cage's size, and the size of its
+// features at the start and at most, as shares of it.
+CAGE_DISPLACE_PERCENT_MAX :: 10
+CAGE_DISPLACE_SCALE_START :: 0.25
+CAGE_DISPLACE_SCALE_MAX :: 1
+
+// The Live stack's Deform (a tornado: a twist) and Displace (a rough peak) glyphs, on
+// their rows and commands.
+ICON_DEFORM :: rune(0xe218)
+ICON_DISPLACE :: rune(0xe232)
+
+// Sharp edges' largest angle, and the angle the row starts at (Blender's Smooth by Angle).
+CAGE_SHARP_MAX :: 180
+CAGE_SHARP_START :: 30
+
+// Panel loops' sizes in percent of the cage's size: the range of each slider and where
+// they start (a thin chamfer round a plate standing out by about as much).
+PANEL_WIDTH_MIN :: 0.2
+PANEL_WIDTH_MAX :: 10.0
+PANEL_DEPTH_MAX :: 10.0
+PANEL_WIDTH_START :: 0.03
+PANEL_DEPTH_START :: 0.02
+ICON_SHARP :: rune(0xe242) // gem, whose facets meet at hard edges
+
+// The amount Deform starts at for `kind`: a quarter turn for Bend and Twist, half as wide
+// again at the far end for Taper.
+cage_deform_start :: proc(kind: poly.Deform_Kind) -> f32 {
+	switch kind {
+	case .Off: return 0
+	case .Bend, .Twist: return math.PI / 2
+	case .Taper: return 0.5
+	}
+	return 0
+}
+
 // Draws `obj`'s cage as `look` says, as one undo step; with `drag` (a slider moving), the
 // step starts at the first change and ends when the slider lets go (cage_look_drag_end).
 // A change of widths alone keeps the drawn topology, so only the points move; anything
@@ -685,6 +854,11 @@ object_set_cage_look :: proc(app: ^App, obj: ^Object, wanted: Cage_Look, drag :=
 	case look.smooth != old.smooth: what = fmt.tprintf("smooth %d", look.smooth)
 	case look.live.mirror != old.live.mirror: what = "mirror"
 	case look.live.bevel != old.live.bevel || look.live.bevel_segments != old.live.bevel_segments: what = "bevel creases"
+	case look.live.deform != old.live.deform || look.live.deform_axis != old.live.deform_axis || look.live.deform_amount != old.live.deform_amount: what = "deform"
+	case look.live.displace != old.live.displace || look.live.displace_scale != old.live.displace_scale: what = "displace"
+	case look.follow.curve != old.follow.curve || look.follow.curve_axis != old.follow.curve_axis || look.follow.curve_fit != old.follow.curve_fit: what = "along a curve"
+	case look.follow.wrap != old.follow.wrap || look.follow.wrap_offset != old.follow.wrap_offset: what = "wrap"
+	case look.sharp != old.sharp: what = "sharp edges"
 	case: what = "thickness"
 	}
 	ld := &app.model.look_drag
@@ -696,7 +870,7 @@ object_set_cage_look :: proc(app: ^App, obj: ^Object, wanted: Cage_Look, drag :=
 		ld^ = {object = obj.id, before = history_snapshot(app, obj, what)}
 	}
 	obj.cage.look = look
-	same := old.smooth == look.smooth && old.flat == look.flat && old.live.mirror == look.live.mirror && (old.live.thickness > 0) == (look.live.thickness > 0) && (old.live.bevel > 0) == (look.live.bevel > 0) && old.live.thickness_segments == look.live.thickness_segments && old.live.bevel_segments == look.live.bevel_segments
+	same := old.smooth == look.smooth && old.flat == look.flat && old.live.mirror == look.live.mirror && (old.live.thickness > 0) == (look.live.thickness > 0) && (old.live.bevel > 0) == (look.live.bevel > 0) && old.live.thickness_segments == look.live.thickness_segments && old.live.bevel_segments == look.live.bevel_segments && cage_live_wanted(old) == cage_live_wanted(look) && old.sharp == look.sharp
 	ok := cage_positions_moved(app, obj, nil) if same && obj.cage.live.vert_first != nil else cage_rebuild(app, obj)
 	if !ok {
 		if before != nil do history_snapshot_drop(before)
@@ -908,7 +1082,7 @@ CAGE_REFUSED_COMMANDS :: Command_Set{
 }
 
 // The scene commands a cage object refuses, for the same reason.
-CAGE_REFUSED_SCENE :: bit_set[Scene_Command_Kind]{.Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Unwrap, .Straighten, .Skin_Apply, .Squeeze}
+CAGE_REFUSED_SCENE :: bit_set[Scene_Command_Kind]{.Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Unwrap, .Straighten, .Texel_Density, .Skin_Apply, .Squeeze}
 
 // Whether the selected object is a cage.
 selected_cage :: proc(app: ^App) -> bool {
@@ -955,20 +1129,28 @@ Model_Tool :: struct {
 	// The Topo pen's dots and drag (model_topo.odin).
 	topo:      Model_Topo,
 	measure:   Model_Measure,
+	relax:     Model_Relax,
+	slide:     Model_Slide,
 	look_drag: Cage_Look_Drag,
 	// What Select picks (faces, or points through edges and points) and the gizmo's drag of
 	// the selection (model_gizmo.odin), with the falloff its move eases out over, a share
 	// of the cage's size (0 for none, Blender's proportional editing).
 	pick:      Model_Element,
 	falloff:   f32,
+	// Panel loops' inset width and how far the panel stands out (negative: sunk in), both
+	// shares of the cage's size (cage_edit.odin).
+	panel_width: f32,
+	panel_depth: f32,
 	xform:     Cage_Xform,
 	xforms:    int, // moves, turns and scales of the selection made, for the exit stats
+	edits:     int, // the Edit section's edits made, for the exit stats
 	pointer:   [2]f32, // the pointer's last place over the view, where a key's drag starts
 	// Since the start, for the exit stats: actions made, and refused.
 	done:      int,
 	refused:   int,
 	// Spine, Extrude and Knife along a curve, and curves made by Loop to curve.
 	follows:     int,
+	follow_updates: int, // cages worked out again because what their Curve or Wrap row reads changed
 	loop_curves: int,
 }
 
@@ -1039,6 +1221,26 @@ kit_model_tab :: proc(app: ^App) {
 	kit_command_pair(app, .Select_Cage, .Select_Cage, arg_a = int(poly.Select_Op.All), arg_b = int(poly.Select_Op.None), label_a = "All", label_b = "None")
 	kit_command_pair(app, .Select_Cage, .Select_Cage, arg_a = int(poly.Select_Op.Grow), arg_b = int(poly.Select_Op.Shrink), label_a = "Grow", label_b = "Shrink")
 	_ = command_button(app, .Select_Cage, int(poly.Select_Op.Invert), "Invert", width = ui.fill_width(ctx))
+	// The edits of the selection, as Blender's edit mode menu: each says what it needs when
+	// the selection has none of it.
+	if obj := selected_object(app); obj != nil && obj.cage != nil {
+		ui.caption(ctx, "EDIT")
+		pair :: proc(app: ^App, a, b: Cage_Edit, label_a, label_b: string) {
+			kit_command_pair(app, .Cage_Edit, .Cage_Edit, arg_a = int(a), arg_b = int(b), label_a = label_a, label_b = label_b)
+		}
+		pair(app, .Subdivide, .Poke, "Subdivide", "Poke")
+		pair(app, .Tris_To_Quads, .Fill, "Tris to quads", "Fill holes")
+		pair(app, .Split, .Separate, "Split", "Separate")
+		pair(app, .Bevel_Points, .Join, "Bevel points", "Join below")
+		pair(app, .Relax, .Smooth, "Relax", "Smooth")
+		pair(app, .Union, .Subtract, "Union below", "Subtract below")
+		pair(app, .Intersect, .Panel_Loops, "Intersect below", "Panel loops")
+		width, depth := 100 * m.panel_width, 100 * m.panel_depth
+		if ui.slider(ctx, "Panel width", &width, PANEL_WIDTH_MIN, PANEL_WIDTH_MAX, .Linear, fmt.tprintf("%.1f%%", width)) do m.panel_width = clamp(width, PANEL_WIDTH_MIN, PANEL_WIDTH_MAX) / 100
+		if ui.slider(ctx, "Panel depth", &depth, -PANEL_DEPTH_MAX, PANEL_DEPTH_MAX, .Linear, fmt.tprintf("%+.1f%%", depth)) do m.panel_depth = clamp(depth, -PANEL_DEPTH_MAX, PANEL_DEPTH_MAX) / 100
+		faces, points := cage_edit_counts(&obj.cage.mesh)
+		ui.paragraph(ctx, fmt.tprintf("%d faces selected, %d points picked. Subdivide, Poke, Split and Separate take the selected faces; Tris to quads the selected faces or all; Fill the hole a picked border edge is on, or every hole; Bevel points the picked points; Relax and Smooth the whole selection, with the Falloff; Join takes in the cage listed below this one, and Union, Subtract and Intersect cut it with that cage exactly, along the faces' planes, the seam creased. Panel loops insets the selected faces by the Panel width and raises them by the Panel depth (sinks them when it is below zero), creasing the three loops so Smooth keeps the panel crisp.", faces, points))
+	}
 	ui.caption(ctx, "TIDY")
 	kit_command_pair(app, .Tidy_Cage, .Tidy_Cage, arg_a = int(Cage_Tidy.Dissolve_Flat), arg_b = int(Cage_Tidy.Merge_Close), label_a = "Dissolve flat", label_b = "Merge close")
 	ui.caption(ctx, "NEW CAGE")
@@ -1150,5 +1352,99 @@ kit_cage_bevel :: proc(app: ^App, obj: ^Object) {
 	case cp.live.bevel_refused: ui.paragraph(ctx, "A creased edge reaches a point with only two edges, which cannot be rounded, so the bevel is off.")
 	// A shell's rim edges are creased by Thickness, so a plate bevels with no crease of its own.
 	case creased == 0 && live.thickness <= 0: ui.paragraph(ctx, "Crease edges (Crease, or By angle above) to bevel them.")
+	}
+}
+
+// Deform: Off, Bend, Twist or Taper, the axis, and how far (in degrees for Bend and
+// Twist, a percentage for Taper), a drag one undo step.
+kit_cage_deform :: proc(app: ^App, obj: ^Object) {
+	ctx := &app.kit.ctx
+	cp := obj.cage
+	live := cp.look.live
+	kinds := [len(poly.Deform_Kind)]string{"Off", "Bend", "Twist", "Taper"}
+	kind_hints: [len(poly.Deform_Kind)]string
+	for &h, i in kind_hints do h = command_hint(app, .Cage_Deform, i)
+	if picked := ui.tabs(ctx, "cage deform kind", kinds[:], int(live.deform), keys = kind_hints[:]); picked >= 0 do command_run(app, .Cage_Deform, picked)
+	if live.deform == .Off do return
+	axes := [len(poly.Mirror_Axis)]string{"X", "Y", "Z"}
+	axis_hints: [len(poly.Mirror_Axis)]string
+	for &h, i in axis_hints do h = command_hint(app, .Cage_Deform_Axis, i)
+	if picked := ui.tabs(ctx, "cage deform axis", axes[:], int(live.deform_axis), keys = axis_hints[:]); picked >= 0 do command_run(app, .Cage_Deform_Axis, picked)
+	look := cp.look
+	if live.deform == .Taper {
+		share := 100 * live.deform_amount
+		if ui.slider(ctx, "Taper", &share, -100 * poly.LIVE_TAPER_MAX, 100 * poly.LIVE_TAPER_MAX, .Linear, fmt.tprintf("%+.0f%%", share)) {
+			look.live.deform_amount = share / 100
+			cage_look_drag(app, look)
+		}
+	} else {
+		turn := math.to_degrees(live.deform_amount)
+		top := f32(math.to_degrees(f32(poly.LIVE_DEFORM_TURN_MAX)))
+		if ui.slider(ctx, "Angle" if live.deform == .Bend else "Turn", &turn, -top, top, .Linear, fmt.tprintf("%.0f°", turn)) {
+			look.live.deform_amount = math.to_radians(turn)
+			cage_look_drag(app, look)
+		}
+	}
+}
+
+// Displace: how far the noise pushes either way and the size of its features, each a
+// share of the cage's size and a drag one undo step.
+kit_cage_displace :: proc(app: ^App, obj: ^Object) {
+	ctx := &app.kit.ctx
+	cp := obj.cage
+	size := cage_size(cp)
+	live := cp.look.live
+	strength := 100 * live.displace / size
+	if ui.slider(ctx, "Strength", &strength, 0, CAGE_DISPLACE_PERCENT_MAX, .Linear, "Off" if strength <= 0 else fmt.tprintf("%.1f%%", strength)) {
+		look := cp.look
+		look.live.displace = strength / 100 * size
+		if look.live.displace_scale <= 0 do look.live.displace_scale = CAGE_DISPLACE_SCALE_START * size
+		cage_look_drag(app, look)
+	}
+	if live.displace <= 0 do return
+	scale := 100 * live.displace_scale / size
+	if ui.slider(ctx, "Feature size", &scale, 2, 100 * CAGE_DISPLACE_SCALE_MAX, .Linear, fmt.tprintf("%.0f%%", scale)) {
+		look := cp.look
+		look.live.displace_scale = scale / 100 * size
+		cage_look_drag(app, look)
+	}
+}
+
+// The cage's level with Sharp edges' copies welded back onto the points they stand for
+// and dropped, for a file with no normals to split (OBJ, PLY, STL).
+cage_export_welded :: proc(cp: ^Cage_Part, level: ^geom.Mesh) -> geom.Mesh {
+	n := len(level.positions)
+	to := make([]u32, n, context.temp_allocator)
+	for &v, i in to do v = u32(i)
+	first := len(cp.vert_of) - len(cp.dup_from)
+	for src, k in cp.dup_from do to[cp.vert_of[first + k]] = cp.vert_of[src]
+	// The vertices still used, numbered in order.
+	keep := make([]u32, n, context.temp_allocator)
+	for &k in keep do k = max(u32)
+	for i in level.indices do keep[to[i]] = 0
+	out := geom.Mesh{positions = make([dynamic]Vec3), normals = make([dynamic]Vec3), indices = make([dynamic]u32)}
+	for &k, v in keep {
+		if k == max(u32) do continue
+		k = u32(len(out.positions))
+		append(&out.positions, level.positions[v])
+	}
+	for i in level.indices do append(&out.indices, keep[to[i]])
+	resize(&out.normals, len(out.positions))
+	geom.mesh_recompute_normals(&out)
+	return out
+}
+
+// Sharp edges' body: the angle past which edges shade hard, as Blender's Smooth by Angle.
+// A cage is drawn flat until the row is added; with it, smoothly but for those edges (at
+// 180° smooth everywhere). The split is worked out when the cage is made, so a point moved later keeps the edges it
+// had until the next change of the cage's faces or of this angle.
+kit_cage_sharp :: proc(app: ^App, obj: ^Object) {
+	ctx := &app.kit.ctx
+	cp := obj.cage
+	angle := cp.look.sharp
+	if ui.slider(ctx, "Angle", &angle, 0, CAGE_SHARP_MAX, .Linear, "Off" if angle <= 0 else fmt.tprintf("%.0f°", angle)) {
+		look := cp.look
+		look.sharp = math.round(angle)
+		cage_look_drag(app, look)
 	}
 }

@@ -180,6 +180,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Delete_Half      = "delete by symmetry remove side cut half mirror",
 	.Retopologize     = "zremesher quadriflow quads retopo quad retopologize autoremesher",
 	.Straighten       = "straighten rectify follow active quads uv squares grid rectangularize",
+	.Texel_Density    = "texel density td average islands scale even resolution",
 	.Unwrap           = "uv master smart uv project auto seams unwrap uvs layout texture coordinates flatten new uvs",
 	.Make_Boolean     = "live boolean subtract union intersect",
 	.Live_Boolean     = "preview subtract union intersect",

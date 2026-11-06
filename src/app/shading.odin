@@ -250,8 +250,9 @@ shading_items :: proc(app: ^App, items: []render.Draw_Item, froms: []Item_From, 
 				d.wireframe = true
 			}
 		case .Solid:
-			// Solid shows a texture only while a texture view is picked.
-			if app.texture_view == .Off do d.textured, d.texture_view = nil, .Off
+			// Solid shows a texture only while a texture view is picked, or Peel lays the
+			// object flat (object_texture_view).
+			if d.texture_view == .Off do d.textured = nil
 			d.surface = {}
 			if f.obj == nil do continue
 			m := f.material

@@ -25,7 +25,7 @@ skin_map_refusal :: proc(obj: ^Object) -> string {
 	switch {
 	case obj == nil: return "Select an object first."
 	case object_top_skin(obj) == nil: return "Give it a detail skin first."
-	case !sculpt.levels_has_quad_uvs(&obj.levels): return "It needs quads with UVs: Quad Remesh makes an object with them."
+	case !sculpt.levels_has_uvs(&obj.levels): return "It needs UVs: Unwrap in the Mesh card's UVs section gives it some."
 	case len(obj.levels.levels) != 1: return "Its UVs are its base level's: delete the levels above first."
 	}
 	return ""
@@ -84,7 +84,7 @@ skin_map_load :: proc(app: ^App, path: string) -> bool {
 	if obj.file.scale > 0 do m.scale /= obj.file.scale
 	uvs, ok := sculpt.levels_tri_uvs(&obj.levels, context.temp_allocator)
 	if !ok {
-		file_note(app, true, "Cannot load %s into the skin: its quads do not match its triangles", name)
+		file_note(app, true, "Cannot load %s into the skin: its UVs do not match its triangles", name)
 		return false
 	}
 	stroke_finish(app)

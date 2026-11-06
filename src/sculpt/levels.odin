@@ -63,6 +63,8 @@ Levels :: struct {
 	rule:           Subdivision_Rule, // how the levels above the base are made (levels_cc.odin)
 	sets:           [dynamic]Selection_Set, // saved masks (selection_sets.odin)
 	set_serial:     u32, // the last set id given
+	texels:         Texels, // the texture paint layers (paint_texels.odin)
+	uv_stamp:       u32,    // changes whenever `uvs` is replaced, for the texel map
 }
 
 // parents[2] of a vertex that continues a vertex of the level below: {that vertex, a
@@ -103,6 +105,7 @@ levels_destroy :: proc(l: ^Levels) {
 	for lv in l.levels do level_free(l, lv)
 	delete(l.levels)
 	delete(l.residual)
+	texels_destroy(&l.texels)
 	l^ = {}
 }
 
@@ -301,7 +304,10 @@ levels_delete_lower :: proc(l: ^Levels) {
 	for &set in l.sets do set.level -= k
 	uvs, kept := levels_uvs_at(l, k, l.allocator)
 	levels_drop_quads(l) // the base's triangles are a level above's now
-	if kept do l.uvs = uvs
+	if kept {
+		l.uvs = uvs
+		l.uv_stamp += 1
+	}
 	for lv in l.levels[:k] do level_free(l, lv)
 	level_unlink(l, l.levels[k])
 	copy(l.levels[:], l.levels[k:])

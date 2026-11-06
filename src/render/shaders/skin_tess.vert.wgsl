@@ -1,4 +1,4 @@
-// slangc wgsl from skin_tess.vert.spv sha256 86761715b497e85df499a52459ed5e39951cb585729f148d90989a31e9d27921
+// slangc wgsl from skin_tess.vert.spv sha256 9f53ec4ce387cd5d509e4a3be40592fc92826e35ba33ff3a1c36ad715475a377
 diagnostic(off, derivative_uniformity);
 struct _MatrixStorage_float4x4std140_0
 {
@@ -29,6 +29,8 @@ struct SLANG_ParameterGroup_Frame_Uniforms_std140_0
 @binding(8) @group(0) var<storage, read> skin_normals_0 : array<u32>;
 
 @binding(0) @group(0) var<storage, read> paint_0 : array<vec2<u32>>;
+
+@binding(14) @group(0) var<storage, read> paint_material_words_0 : array<u32>;
 
 fn mesh_point_0( v_0 : u32) -> vec3<f32>
 {
@@ -186,6 +188,11 @@ fn srgb_decode_0( c_0 : vec3<f32>) -> vec3<f32>
     return mix(c_0 / vec3<f32>(12.92000007629394531f), pow((c_0 + vec3<f32>(0.05499999970197678f)) / vec3<f32>(1.0549999475479126f), vec3<f32>(2.40000009536743164f)), step(vec3<f32>(0.04044999927282333f), c_0));
 }
 
+fn paint_material_0( word_0 : u32) -> vec4<f32>
+{
+    return unpack4x8unorm(word_0);
+}
+
 fn group_color_0( g_0 : u32) -> vec3<f32>
 {
     var _S18 : vec3<f32> = vec3<f32>(3.0f);
@@ -213,6 +220,7 @@ struct Mesh_Vertex_Out_0
     @interpolate(flat) @location(5) group_0 : vec3<f32>,
     @location(2) mesh_pos_0 : vec3<f32>,
     @interpolate(flat) @location(6) slot_0 : u32,
+    @location(7) material_0 : vec4<f32>,
 };
 
 struct Mesh_Varyings_0
@@ -224,11 +232,12 @@ struct Mesh_Varyings_0
      _S24 : vec3<f32>,
      _S25 : vec3<f32>,
      _S26 : u32,
+     _S27 : vec4<f32>,
 };
 
 struct Mesh_Vertex_Out_1
 {
-     _S27 : vec4<f32>,
+     _S28 : vec4<f32>,
      v_5 : Mesh_Varyings_0,
 };
 
@@ -240,24 +249,24 @@ fn main(@builtin(vertex_index) id_0 : u32) -> Mesh_Vertex_Out_0
     var E_1 : u32 = Frame_Uniforms_0.skin_0.z;
     var per_0 : u32 = u32(3) * S_1 * S_1;
     var tri_1 : u32 = id_0 / per_0;
-    var _S28 : u32 = id_0 - tri_1 * per_0;
-    var small_0 : u32 = _S28 / u32(3);
-    var c_1 : u32 = _S28 - u32(3) * small_0;
+    var _S29 : u32 = id_0 - tri_1 * per_0;
+    var small_0 : u32 = _S29 / u32(3);
+    var c_1 : u32 = _S29 - u32(3) * small_0;
     var first_0 : u32 = u32(0);
     var j_1 : u32 = u32(0);
     for(;;)
     {
-        var _S29 : u32 = u32(2) * (S_1 - j_1);
-        if((first_0 + _S29 - u32(1)) <= small_0)
+        var _S30 : u32 = u32(2) * (S_1 - j_1);
+        if((first_0 + _S30 - u32(1)) <= small_0)
         {
         }
         else
         {
             break;
         }
-        var _S30 : u32 = j_1 + u32(1);
-        first_0 = first_0 + (_S29 - u32(1));
-        j_1 = _S30;
+        var _S31 : u32 = j_1 + u32(1);
+        first_0 = first_0 + (_S30 - u32(1));
+        j_1 = _S31;
     }
     var q_0 : u32 = small_0 - first_0;
     var i_1 : u32 = (q_0 >> (u32(1)));
@@ -273,7 +282,7 @@ fn main(@builtin(vertex_index) id_0 : u32) -> Mesh_Vertex_Out_0
         {
             first_0 = u32(0);
         }
-        var _S31 : u32 = i_1 + first_0;
+        var _S32 : u32 = i_1 + first_0;
         if(c_1 == u32(2))
         {
             first_0 = u32(1);
@@ -282,9 +291,9 @@ fn main(@builtin(vertex_index) id_0 : u32) -> Mesh_Vertex_Out_0
         {
             first_0 = u32(0);
         }
-        var _S32 : u32 = j_1 + first_0;
-        gi_0 = _S31;
-        gj_0 = _S32;
+        var _S33 : u32 = j_1 + first_0;
+        gi_0 = _S32;
+        gj_0 = _S33;
     }
     else
     {
@@ -306,63 +315,63 @@ fn main(@builtin(vertex_index) id_0 : u32) -> Mesh_Vertex_Out_0
         gi_0 = first_0;
         gj_0 = j_1;
     }
-    var _S33 : u32 = u32(3) * tri_1;
-    var _S34 : u32 = indices_0[_S33];
-    var _S35 : u32 = indices_0[_S33 + u32(1)];
-    var _S36 : u32 = indices_0[_S33 + u32(2)];
-    var v_6 : vec3<u32> = vec3<u32>(_S34, _S35, _S36);
+    var _S34 : u32 = u32(3) * tri_1;
+    var _S35 : u32 = indices_0[_S34];
+    var _S36 : u32 = indices_0[_S34 + u32(1)];
+    var _S37 : u32 = indices_0[_S34 + u32(2)];
+    var v_6 : vec3<u32> = vec3<u32>(_S35, _S36, _S37);
     var rec_0 : vec4<u32> = skin_tris_0[tri_1];
-    var _S37 : vec3<f32> = mesh_point_0(_S34);
     var _S38 : vec3<f32> = mesh_point_0(_S35);
     var _S39 : vec3<f32> = mesh_point_0(_S36);
-    var P_0 : array<vec3<f32>, i32(3)> = array<vec3<f32>, i32(3)>( _S37, _S38, _S39 );
+    var _S40 : vec3<f32> = mesh_point_0(_S37);
+    var P_0 : array<vec3<f32>, i32(3)> = array<vec3<f32>, i32(3)>( _S38, _S39, _S40 );
     var N_0 : array<vec3<f32>, i32(3)>;
     var M_0 : array<f32, i32(3)>;
-    var _S40 : vec3<f32> = N_0[i32(0)];
-    var _S41 : f32 = M_0[i32(0)];
-    mesh_normal_mask_0(_S34, &(_S40), &(_S41));
-    N_0[i32(0)] = _S40;
-    M_0[i32(0)] = _S41;
-    var _S42 : vec3<f32> = N_0[i32(1)];
-    var _S43 : f32 = M_0[i32(1)];
-    mesh_normal_mask_0(_S35, &(_S42), &(_S43));
-    N_0[i32(1)] = _S42;
-    M_0[i32(1)] = _S43;
-    var _S44 : vec3<f32> = N_0[i32(2)];
-    var _S45 : f32 = M_0[i32(2)];
-    mesh_normal_mask_0(_S36, &(_S44), &(_S45));
-    N_0[i32(2)] = _S44;
-    M_0[i32(2)] = _S45;
+    var _S41 : vec3<f32> = N_0[i32(0)];
+    var _S42 : f32 = M_0[i32(0)];
+    mesh_normal_mask_0(_S35, &(_S41), &(_S42));
+    N_0[i32(0)] = _S41;
+    M_0[i32(0)] = _S42;
+    var _S43 : vec3<f32> = N_0[i32(1)];
+    var _S44 : f32 = M_0[i32(1)];
+    mesh_normal_mask_0(_S36, &(_S43), &(_S44));
+    N_0[i32(1)] = _S43;
+    M_0[i32(1)] = _S44;
+    var _S45 : vec3<f32> = N_0[i32(2)];
+    var _S46 : f32 = M_0[i32(2)];
+    mesh_normal_mask_0(_S37, &(_S45), &(_S46));
+    N_0[i32(2)] = _S45;
+    M_0[i32(2)] = _S46;
     var fS_0 : f32 = f32(S_1);
-    var _S46 : f32 = f32(gi_0);
-    var _S47 : f32 = f32(gj_0);
-    var _S48 : f32 = 1.0f - _S46 / fS_0 - _S47 / fS_0;
-    var _S49 : f32 = _S46 / fS_0;
+    var _S47 : f32 = f32(gi_0);
+    var _S48 : f32 = f32(gj_0);
+    var _S49 : f32 = 1.0f - _S47 / fS_0 - _S48 / fS_0;
     var _S50 : f32 = _S47 / fS_0;
-    var w_0 : vec3<f32> = vec3<f32>(_S48, _S49, _S50);
-    var _S51 : vec3<f32> = vec3<f32>(0.0f);
-    var _S52 : bool = gi_0 == u32(0);
-    var _S53 : bool;
-    if(_S52)
+    var _S51 : f32 = _S48 / fS_0;
+    var w_0 : vec3<f32> = vec3<f32>(_S49, _S50, _S51);
+    var _S52 : vec3<f32> = vec3<f32>(0.0f);
+    var _S53 : bool = gi_0 == u32(0);
+    var _S54 : bool;
+    if(_S53)
     {
-        _S53 = gj_0 == u32(0);
+        _S54 = gj_0 == u32(0);
     }
     else
     {
-        _S53 = false;
+        _S54 = false;
     }
     var a_0 : u32;
     var k_1 : u32;
     var e_3 : u32;
     var nb_0 : vec3<f32>;
     var b_0 : vec3<f32>;
-    if(_S53)
+    if(_S54)
     {
         a_0 = u32(3);
         k_1 = u32(0);
         e_3 = u32(0);
         nb_0 = N_0[i32(0)];
-        b_0 = _S37;
+        b_0 = _S38;
     }
     else
     {
@@ -372,7 +381,7 @@ fn main(@builtin(vertex_index) id_0 : u32) -> Mesh_Vertex_Out_0
             k_1 = u32(0);
             e_3 = u32(0);
             nb_0 = N_0[i32(1)];
-            b_0 = _S38;
+            b_0 = _S39;
         }
         else
         {
@@ -382,54 +391,54 @@ fn main(@builtin(vertex_index) id_0 : u32) -> Mesh_Vertex_Out_0
                 k_1 = u32(0);
                 e_3 = u32(0);
                 nb_0 = N_0[i32(2)];
-                b_0 = _S39;
+                b_0 = _S40;
             }
             else
             {
                 if(gj_0 == u32(0))
                 {
-                    var _S54 : u32 = rec_0.x;
+                    var _S55 : u32 = rec_0.x;
                     a_0 = u32(0);
                     k_1 = gi_0;
-                    e_3 = _S54;
-                    nb_0 = _S51;
-                    b_0 = _S51;
+                    e_3 = _S55;
+                    nb_0 = _S52;
+                    b_0 = _S52;
                 }
                 else
                 {
                     if((gi_0 + gj_0) == S_1)
                     {
-                        var _S55 : u32 = rec_0.y;
+                        var _S56 : u32 = rec_0.y;
                         a_0 = u32(1);
                         k_1 = gj_0;
-                        e_3 = _S55;
-                        nb_0 = _S51;
-                        b_0 = _S51;
+                        e_3 = _S56;
+                        nb_0 = _S52;
+                        b_0 = _S52;
                     }
                     else
                     {
-                        if(_S52)
+                        if(_S53)
                         {
-                            var _S56 : u32 = rec_0.z;
-                            var _S57 : u32 = S_1 - gj_0;
+                            var _S57 : u32 = rec_0.z;
+                            var _S58 : u32 = S_1 - gj_0;
                             a_0 = u32(2);
-                            k_1 = _S57;
-                            e_3 = _S56;
-                            nb_0 = _S51;
-                            b_0 = _S51;
+                            k_1 = _S58;
+                            e_3 = _S57;
+                            nb_0 = _S52;
+                            b_0 = _S52;
                         }
                         else
                         {
-                            var _S58 : vec3<f32> = vec3<f32>(_S48);
                             var _S59 : vec3<f32> = vec3<f32>(_S49);
                             var _S60 : vec3<f32> = vec3<f32>(_S50);
-                            var _S61 : vec3<f32> = _S37 * _S58 + _S38 * _S59 + _S39 * _S60;
-                            var _S62 : vec3<f32> = N_0[i32(0)] * _S58 + N_0[i32(1)] * _S59 + N_0[i32(2)] * _S60;
+                            var _S61 : vec3<f32> = vec3<f32>(_S51);
+                            var _S62 : vec3<f32> = _S38 * _S59 + _S39 * _S60 + _S40 * _S61;
+                            var _S63 : vec3<f32> = N_0[i32(0)] * _S59 + N_0[i32(1)] * _S60 + N_0[i32(2)] * _S61;
                             a_0 = u32(3);
                             k_1 = u32(0);
                             e_3 = u32(0);
-                            nb_0 = _S62;
-                            b_0 = _S61;
+                            nb_0 = _S63;
+                            b_0 = _S62;
                         }
                     }
                 }
@@ -454,14 +463,14 @@ fn main(@builtin(vertex_index) id_0 : u32) -> Mesh_Vertex_Out_0
             from_0 = a_0;
             to_1 = to_0;
         }
-        var _S63 : vec3<f32> = vec3<f32>((f32(m_1) / fS_0));
-        var _S64 : vec3<f32> = P_0[from_0] + (P_0[to_1] - P_0[from_0]) * _S63;
-        nb_0 = N_0[from_0] + (N_0[to_1] - N_0[from_0]) * _S63;
-        b_0 = _S64;
+        var _S64 : vec3<f32> = vec3<f32>((f32(m_1) / fS_0));
+        var _S65 : vec3<f32> = P_0[from_0] + (P_0[to_1] - P_0[from_0]) * _S64;
+        nb_0 = N_0[from_0] + (N_0[to_1] - N_0[from_0]) * _S64;
+        b_0 = _S65;
     }
     var nu_0 : vec3<f32> = normalize(nb_0);
     m_1 = u32(0);
-    var curved_0 : vec3<f32> = _S51;
+    var curved_0 : vec3<f32> = _S52;
     for(;;)
     {
         if(m_1 < u32(3))
@@ -479,9 +488,11 @@ fn main(@builtin(vertex_index) id_0 : u32) -> Mesh_Vertex_Out_0
     var in_position_0 : vec3<f32> = b_0 + nu_0 * vec3<f32>((dot(curved_0 - b_0, nu_0) + half_bits_0((((skin_heights_0[(x_0 >> (u32(1)))] >> ((u32(16) * ((x_0 & (u32(1)))))))) & (u32(65535))))));
     var in_normal_0 : vec3<f32> = octahedral_0(skin_normals_0[x_0]);
     var o_0 : Mesh_Vertex_Out_1;
-    o_0.v_5._S22 = M_0[i32(0)] * _S48 + M_0[i32(1)] * _S49 + M_0[i32(2)] * _S50;
-    var _S65 : u32 = ((rec_0.w) & (u32(3)));
-    o_0.v_5._S23 = vec4<f32>(0.0f);
+    o_0.v_5._S22 = M_0[i32(0)] * _S49 + M_0[i32(1)] * _S50 + M_0[i32(2)] * _S51;
+    var _S66 : u32 = ((rec_0.w) & (u32(3)));
+    var _S67 : vec4<f32> = vec4<f32>(0.0f);
+    o_0.v_5._S23 = _S67;
+    o_0.v_5._S27 = _S67;
     o_0.v_5._S24 = vec3<f32>(-1.0f);
     o_0.v_5._S26 = u32(0);
     if((Frame_Uniforms_0.options_0.x) > 0.5f)
@@ -496,22 +507,28 @@ fn main(@builtin(vertex_index) id_0 : u32) -> Mesh_Vertex_Out_0
             {
                 break;
             }
+            var _S68 : u32 = m_1;
             var p_1 : vec4<f32> = unpack4x8unorm(paint_0[v_6[m_1]].x);
-            o_0.v_5._S23 = o_0.v_5._S23 + vec4<f32>(srgb_decode_0(p_1.xyz), p_1.w) * vec4<f32>(w_0[m_1]);
+            var _S69 : vec4<f32> = vec4<f32>(w_0[m_1]);
+            o_0.v_5._S23 = o_0.v_5._S23 + vec4<f32>(srgb_decode_0(p_1.xyz), p_1.w) * _S69;
+            if((Frame_Uniforms_0.options_0.w) > 0.5f)
+            {
+                o_0.v_5._S27 = o_0.v_5._S27 + paint_material_0(paint_material_words_0[v_6[_S68]]) * _S69;
+            }
             m_1 = m_1 + u32(1);
         }
     }
     if((Frame_Uniforms_0.options_0.y) > 0.5f)
     {
-        _S53 = true;
+        _S54 = true;
     }
     else
     {
-        _S53 = (Frame_Uniforms_0.options_0.z) > 0.5f;
+        _S54 = (Frame_Uniforms_0.options_0.z) > 0.5f;
     }
-    if(_S53)
+    if(_S54)
     {
-        var group_1 : u32 = ((paint_0[v_6[_S65]].y) & (u32(65535)));
+        var group_1 : u32 = ((paint_0[v_6[_S66]].y) & (u32(65535)));
         if((Frame_Uniforms_0.options_0.y) > 0.5f)
         {
             o_0.v_5._S24 = group_color_0(group_1);
@@ -537,21 +554,22 @@ fn main(@builtin(vertex_index) id_0 : u32) -> Mesh_Vertex_Out_0
         }
     }
     var world_0 : vec4<f32> = (((mat4x4<f32>(Frame_Uniforms_0.model_0.data_0[i32(0)][i32(0)], Frame_Uniforms_0.model_0.data_0[i32(0)][i32(1)], Frame_Uniforms_0.model_0.data_0[i32(0)][i32(2)], Frame_Uniforms_0.model_0.data_0[i32(0)][i32(3)], Frame_Uniforms_0.model_0.data_0[i32(1)][i32(0)], Frame_Uniforms_0.model_0.data_0[i32(1)][i32(1)], Frame_Uniforms_0.model_0.data_0[i32(1)][i32(2)], Frame_Uniforms_0.model_0.data_0[i32(1)][i32(3)], Frame_Uniforms_0.model_0.data_0[i32(2)][i32(0)], Frame_Uniforms_0.model_0.data_0[i32(2)][i32(1)], Frame_Uniforms_0.model_0.data_0[i32(2)][i32(2)], Frame_Uniforms_0.model_0.data_0[i32(2)][i32(3)], Frame_Uniforms_0.model_0.data_0[i32(3)][i32(0)], Frame_Uniforms_0.model_0.data_0[i32(3)][i32(1)], Frame_Uniforms_0.model_0.data_0[i32(3)][i32(2)], Frame_Uniforms_0.model_0.data_0[i32(3)][i32(3)])) * (vec4<f32>(in_position_0, 1.0f))));
-    o_0._S27 = (((mat4x4<f32>(Frame_Uniforms_0.view_proj_0.data_0[i32(0)][i32(0)], Frame_Uniforms_0.view_proj_0.data_0[i32(0)][i32(1)], Frame_Uniforms_0.view_proj_0.data_0[i32(0)][i32(2)], Frame_Uniforms_0.view_proj_0.data_0[i32(0)][i32(3)], Frame_Uniforms_0.view_proj_0.data_0[i32(1)][i32(0)], Frame_Uniforms_0.view_proj_0.data_0[i32(1)][i32(1)], Frame_Uniforms_0.view_proj_0.data_0[i32(1)][i32(2)], Frame_Uniforms_0.view_proj_0.data_0[i32(1)][i32(3)], Frame_Uniforms_0.view_proj_0.data_0[i32(2)][i32(0)], Frame_Uniforms_0.view_proj_0.data_0[i32(2)][i32(1)], Frame_Uniforms_0.view_proj_0.data_0[i32(2)][i32(2)], Frame_Uniforms_0.view_proj_0.data_0[i32(2)][i32(3)], Frame_Uniforms_0.view_proj_0.data_0[i32(3)][i32(0)], Frame_Uniforms_0.view_proj_0.data_0[i32(3)][i32(1)], Frame_Uniforms_0.view_proj_0.data_0[i32(3)][i32(2)], Frame_Uniforms_0.view_proj_0.data_0[i32(3)][i32(3)])) * (world_0)));
-    var _S66 : mat4x4<f32> = mat4x4<f32>(Frame_Uniforms_0.model_0.data_0[i32(0)][i32(0)], Frame_Uniforms_0.model_0.data_0[i32(0)][i32(1)], Frame_Uniforms_0.model_0.data_0[i32(0)][i32(2)], Frame_Uniforms_0.model_0.data_0[i32(0)][i32(3)], Frame_Uniforms_0.model_0.data_0[i32(1)][i32(0)], Frame_Uniforms_0.model_0.data_0[i32(1)][i32(1)], Frame_Uniforms_0.model_0.data_0[i32(1)][i32(2)], Frame_Uniforms_0.model_0.data_0[i32(1)][i32(3)], Frame_Uniforms_0.model_0.data_0[i32(2)][i32(0)], Frame_Uniforms_0.model_0.data_0[i32(2)][i32(1)], Frame_Uniforms_0.model_0.data_0[i32(2)][i32(2)], Frame_Uniforms_0.model_0.data_0[i32(2)][i32(3)], Frame_Uniforms_0.model_0.data_0[i32(3)][i32(0)], Frame_Uniforms_0.model_0.data_0[i32(3)][i32(1)], Frame_Uniforms_0.model_0.data_0[i32(3)][i32(2)], Frame_Uniforms_0.model_0.data_0[i32(3)][i32(3)]);
-    var _S67 : mat4x4<f32> = mat4x4<f32>(Frame_Uniforms_0.view_0.data_0[i32(0)][i32(0)], Frame_Uniforms_0.view_0.data_0[i32(0)][i32(1)], Frame_Uniforms_0.view_0.data_0[i32(0)][i32(2)], Frame_Uniforms_0.view_0.data_0[i32(0)][i32(3)], Frame_Uniforms_0.view_0.data_0[i32(1)][i32(0)], Frame_Uniforms_0.view_0.data_0[i32(1)][i32(1)], Frame_Uniforms_0.view_0.data_0[i32(1)][i32(2)], Frame_Uniforms_0.view_0.data_0[i32(1)][i32(3)], Frame_Uniforms_0.view_0.data_0[i32(2)][i32(0)], Frame_Uniforms_0.view_0.data_0[i32(2)][i32(1)], Frame_Uniforms_0.view_0.data_0[i32(2)][i32(2)], Frame_Uniforms_0.view_0.data_0[i32(2)][i32(3)], Frame_Uniforms_0.view_0.data_0[i32(3)][i32(0)], Frame_Uniforms_0.view_0.data_0[i32(3)][i32(1)], Frame_Uniforms_0.view_0.data_0[i32(3)][i32(2)], Frame_Uniforms_0.view_0.data_0[i32(3)][i32(3)]);
-    o_0.v_5._S20 = ((((((mat3x3<f32>(_S67[i32(0)].xyz, _S67[i32(1)].xyz, _S67[i32(2)].xyz)) * (mat3x3<f32>(_S66[i32(0)].xyz, _S66[i32(1)].xyz, _S66[i32(2)].xyz))))) * (in_normal_0)));
+    o_0._S28 = (((mat4x4<f32>(Frame_Uniforms_0.view_proj_0.data_0[i32(0)][i32(0)], Frame_Uniforms_0.view_proj_0.data_0[i32(0)][i32(1)], Frame_Uniforms_0.view_proj_0.data_0[i32(0)][i32(2)], Frame_Uniforms_0.view_proj_0.data_0[i32(0)][i32(3)], Frame_Uniforms_0.view_proj_0.data_0[i32(1)][i32(0)], Frame_Uniforms_0.view_proj_0.data_0[i32(1)][i32(1)], Frame_Uniforms_0.view_proj_0.data_0[i32(1)][i32(2)], Frame_Uniforms_0.view_proj_0.data_0[i32(1)][i32(3)], Frame_Uniforms_0.view_proj_0.data_0[i32(2)][i32(0)], Frame_Uniforms_0.view_proj_0.data_0[i32(2)][i32(1)], Frame_Uniforms_0.view_proj_0.data_0[i32(2)][i32(2)], Frame_Uniforms_0.view_proj_0.data_0[i32(2)][i32(3)], Frame_Uniforms_0.view_proj_0.data_0[i32(3)][i32(0)], Frame_Uniforms_0.view_proj_0.data_0[i32(3)][i32(1)], Frame_Uniforms_0.view_proj_0.data_0[i32(3)][i32(2)], Frame_Uniforms_0.view_proj_0.data_0[i32(3)][i32(3)])) * (world_0)));
+    var _S70 : mat4x4<f32> = mat4x4<f32>(Frame_Uniforms_0.model_0.data_0[i32(0)][i32(0)], Frame_Uniforms_0.model_0.data_0[i32(0)][i32(1)], Frame_Uniforms_0.model_0.data_0[i32(0)][i32(2)], Frame_Uniforms_0.model_0.data_0[i32(0)][i32(3)], Frame_Uniforms_0.model_0.data_0[i32(1)][i32(0)], Frame_Uniforms_0.model_0.data_0[i32(1)][i32(1)], Frame_Uniforms_0.model_0.data_0[i32(1)][i32(2)], Frame_Uniforms_0.model_0.data_0[i32(1)][i32(3)], Frame_Uniforms_0.model_0.data_0[i32(2)][i32(0)], Frame_Uniforms_0.model_0.data_0[i32(2)][i32(1)], Frame_Uniforms_0.model_0.data_0[i32(2)][i32(2)], Frame_Uniforms_0.model_0.data_0[i32(2)][i32(3)], Frame_Uniforms_0.model_0.data_0[i32(3)][i32(0)], Frame_Uniforms_0.model_0.data_0[i32(3)][i32(1)], Frame_Uniforms_0.model_0.data_0[i32(3)][i32(2)], Frame_Uniforms_0.model_0.data_0[i32(3)][i32(3)]);
+    var _S71 : mat4x4<f32> = mat4x4<f32>(Frame_Uniforms_0.view_0.data_0[i32(0)][i32(0)], Frame_Uniforms_0.view_0.data_0[i32(0)][i32(1)], Frame_Uniforms_0.view_0.data_0[i32(0)][i32(2)], Frame_Uniforms_0.view_0.data_0[i32(0)][i32(3)], Frame_Uniforms_0.view_0.data_0[i32(1)][i32(0)], Frame_Uniforms_0.view_0.data_0[i32(1)][i32(1)], Frame_Uniforms_0.view_0.data_0[i32(1)][i32(2)], Frame_Uniforms_0.view_0.data_0[i32(1)][i32(3)], Frame_Uniforms_0.view_0.data_0[i32(2)][i32(0)], Frame_Uniforms_0.view_0.data_0[i32(2)][i32(1)], Frame_Uniforms_0.view_0.data_0[i32(2)][i32(2)], Frame_Uniforms_0.view_0.data_0[i32(2)][i32(3)], Frame_Uniforms_0.view_0.data_0[i32(3)][i32(0)], Frame_Uniforms_0.view_0.data_0[i32(3)][i32(1)], Frame_Uniforms_0.view_0.data_0[i32(3)][i32(2)], Frame_Uniforms_0.view_0.data_0[i32(3)][i32(3)]);
+    o_0.v_5._S20 = ((((((mat3x3<f32>(_S71[i32(0)].xyz, _S71[i32(1)].xyz, _S71[i32(2)].xyz)) * (mat3x3<f32>(_S70[i32(0)].xyz, _S70[i32(1)].xyz, _S70[i32(2)].xyz))))) * (in_normal_0)));
     o_0.v_5._S21 = (((mat4x4<f32>(Frame_Uniforms_0.view_0.data_0[i32(0)][i32(0)], Frame_Uniforms_0.view_0.data_0[i32(0)][i32(1)], Frame_Uniforms_0.view_0.data_0[i32(0)][i32(2)], Frame_Uniforms_0.view_0.data_0[i32(0)][i32(3)], Frame_Uniforms_0.view_0.data_0[i32(1)][i32(0)], Frame_Uniforms_0.view_0.data_0[i32(1)][i32(1)], Frame_Uniforms_0.view_0.data_0[i32(1)][i32(2)], Frame_Uniforms_0.view_0.data_0[i32(1)][i32(3)], Frame_Uniforms_0.view_0.data_0[i32(2)][i32(0)], Frame_Uniforms_0.view_0.data_0[i32(2)][i32(1)], Frame_Uniforms_0.view_0.data_0[i32(2)][i32(2)], Frame_Uniforms_0.view_0.data_0[i32(2)][i32(3)], Frame_Uniforms_0.view_0.data_0[i32(3)][i32(0)], Frame_Uniforms_0.view_0.data_0[i32(3)][i32(1)], Frame_Uniforms_0.view_0.data_0[i32(3)][i32(2)], Frame_Uniforms_0.view_0.data_0[i32(3)][i32(3)])) * (world_0))).xyz;
     o_0.v_5._S25 = in_position_0;
-    var _S68 : Mesh_Vertex_Out_0;
-    _S68.position_0 = o_0._S27;
-    _S68.view_normal_0 = o_0.v_5._S20;
-    _S68.view_pos_0 = o_0.v_5._S21;
-    _S68.mask_2 = o_0.v_5._S22;
-    _S68.paint_1 = o_0.v_5._S23;
-    _S68.group_0 = o_0.v_5._S24;
-    _S68.mesh_pos_0 = o_0.v_5._S25;
-    _S68.slot_0 = o_0.v_5._S26;
-    return _S68;
+    var _S72 : Mesh_Vertex_Out_0;
+    _S72.position_0 = o_0._S28;
+    _S72.view_normal_0 = o_0.v_5._S20;
+    _S72.view_pos_0 = o_0.v_5._S21;
+    _S72.mask_2 = o_0.v_5._S22;
+    _S72.paint_1 = o_0.v_5._S23;
+    _S72.group_0 = o_0.v_5._S24;
+    _S72.mesh_pos_0 = o_0.v_5._S25;
+    _S72.slot_0 = o_0.v_5._S26;
+    _S72.material_0 = o_0.v_5._S27;
+    return _S72;
 }
 

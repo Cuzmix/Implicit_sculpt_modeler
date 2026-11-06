@@ -482,6 +482,9 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		surf.xy = slot_surface[frag_in.slot].xy;
 		surf.w = 0.0;
 	}
+	// Painted roughness and metal over the material's, on the physically based path only:
+	// the classic one has neither.
+	if (surf.y > 0.0) surf.xy = paint_surface(surf.xy, frag_in.material);
 #endif
 	// The way to the eye. In parallel projection it is the view's own axis everywhere: the
 	// eye sits close to the target there (zooming moves it in, even past the surface), so

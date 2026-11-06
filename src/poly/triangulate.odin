@@ -7,7 +7,8 @@ import "../geom"
 // Cuts every face into triangles over the cage's own vertices, appending to `out` (its
 // positions follow any already there, in the cage's order; normals are left to the caller) and the cage face of each triangle to `tri_face`. Triangles wind
 // counter-clockwise seen from outside, as the face does. A quad is cut along its shorter
-// diagonal, which keeps a bent quad's crease where the eye expects it; a larger face by
+// diagonal, which keeps a bent quad's crease where the eye expects it (unless that cut makes a
+// triangle of no area), and a larger face by
 // ear clipping in the plane of its Newell normal, so concave polygons stay inside their
 // outline, with a fan as the fallback for a face too bent to clip.
 //
@@ -42,7 +43,21 @@ face_triangles :: proc(m: ^Mesh, f: u32, corners: []u32, out: ^[dynamic][3]int, 
 		p := m.positions
 		d02 := linalg.length2(p[corners[2]] - p[corners[0]])
 		d13 := linalg.length2(p[corners[3]] - p[corners[1]])
-		if d13 < d02 && !fixed {
+		// A quad with three corners in a line (a triangle with a T-junction point) must be
+		// cut through the point in the middle of the line, whatever the diagonals say:
+		// the other cut makes a triangle of no area, which reads as a hole.
+		area :: proc(a, b, c: Vec3) -> f32 {return linalg.length(linalg.cross(b - a, c - a))}
+		a0, a1, a2, a3 := p[corners[0]], p[corners[1]], p[corners[2]], p[corners[3]]
+		sliver := 1e-6 * max(d02, d13)
+		on02 := min(area(a0, a1, a2), area(a0, a2, a3)) <= sliver
+		on13 := min(area(a1, a2, a3), area(a1, a3, a0)) <= sliver
+		if on02 != on13 && !fixed {
+			if on02 {
+				append(out, [3]int{1, 2, 3}, [3]int{1, 3, 0})
+			} else {
+				append(out, [3]int{0, 1, 2}, [3]int{0, 2, 3})
+			}
+		} else if d13 < d02 && !fixed {
 			append(out, [3]int{1, 2, 3}, [3]int{1, 3, 0})
 		} else {
 			append(out, [3]int{0, 1, 2}, [3]int{0, 2, 3})
@@ -59,6 +74,13 @@ face_triangles :: proc(m: ^Mesh, f: u32, corners: []u32, out: ^[dynamic][3]int, 
 		p := m.positions[c]
 		flat[i] = {linalg.dot(p, u), linalg.dot(p, v)}
 	}
+	// A corner counts as an ear only if its triangle has some area: a point on a straight
+	// run (a T-junction a boolean or a cut leaves) rounds to a sliver either way, and
+	// clipping it would make a triangle of no area that a triangle-mesh check sees as a hole.
+	lo, hi := flat[0], flat[0]
+	for q in flat do lo, hi = linalg.min(lo, q), linalg.max(hi, q)
+	extent := max(hi.x - lo.x, hi.y - lo.y)
+	sliver := 1e-6 * extent * extent
 	left := make([dynamic]int, 0, n, context.temp_allocator)
 	for i in 0 ..< n do append(&left, i)
 	guard := 0
@@ -69,7 +91,7 @@ face_triangles :: proc(m: ^Mesh, f: u32, corners: []u32, out: ^[dynamic][3]int, 
 			a := left[(k + len(left) - 1) % len(left)]
 			b := left[k]
 			c := left[(k + 1) % len(left)]
-			if cross2(flat[a], flat[b], flat[c]) <= 0 do continue
+			if cross2(flat[a], flat[b], flat[c]) <= sliver do continue
 			inside := false
 			for o in left {
 				if o == a || o == b || o == c do continue

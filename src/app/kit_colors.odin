@@ -1034,21 +1034,35 @@ hex_len :: proc(buf: []u8) -> int {
 // material where the ray first meets an object, as the surface's own colour rather than
 // as lit, which is the colour to paint with. False when the ray meets nothing.
 color_sample :: proc(app: ^App, at, size: [2]f32) -> (rgb: [3]f32, ok: bool) {
+	rgb, _, ok = surface_sample(app, at, size)
+	return
+}
+
+// What the eyedropper finds on the model at viewport point `at`, as color_sample: the
+// colour, and the roughness and metal there (the paint's over the material's, as far as it
+// covers), which it picks too while the picked paint layer holds them.
+surface_sample :: proc(app: ^App, at, size: [2]f32) -> (rgb: [3]f32, rm: [2]f32, ok: bool) {
 	origin, dir := mouse_ray(app.camera, at, size)
 	index, _, hit := scene_raycast(app, origin, dir)
 	if !hit do return
 	obj := app.scene.objects[index]
-	base := object_material(app, obj).selected.rgb
+	material := object_material(app, obj)
+	base := material.selected.rgb
+	rm = {material.roughness, material.metallic}
 	under: [3]u32
 	for k in 0 ..< 3 do under[k] = u32(geom.srgb_encode(base[k]) * 255 + 0.5)
-	paint: sculpt.Color
-	// Voxel clay and HD windows hold no polypaint of their own.
-	if obj.voxel == nil && !object_in_hd(obj) {
+	paint, painted: sculpt.Color
+	// Voxel clay, curves, cages and HD windows hold no polypaint of their own.
+	if obj.voxel == nil && obj.curve == nil && obj.cage == nil && !object_in_hd(obj) {
 		t := obj.transform
-		paint, _ = sculpt.sculptor_color_at(object_sculptor(obj), to_local(t, origin), to_local_dir(t, dir))
+		paint, painted, _ = sculpt.sculptor_paint_at(object_sculptor(obj), to_local(t, origin), to_local_dir(t, dir))
+	}
+	for c in 0 ..< 2 {
+		cover := f32(painted[2 * c + 1]) / 255
+		rm[c] = rm[c] + (f32(painted[2 * c]) / 255 - rm[c]) * cover
 	}
 	b := paint_over(paint, under)
-	return {f32(b.r) / 255, f32(b.g) / 255, f32(b.b) / 255}, true
+	return {f32(b.r) / 255, f32(b.g) / 255, f32(b.b) / 255}, rm, true
 }
 
 // What the Eyedropper sees at viewport point `at`: a reference picture over the view
@@ -1058,6 +1072,18 @@ eyedrop_sample :: proc(app: ^App, at, size: [2]f32) -> (rgb: [3]f32, ok: bool) {
 	return color_sample(app, at, size)
 }
 
+// Picks the roughness and metal at viewport point `at` into the brush as the colour is
+// picked, while the island shows them (the picked layer holds them); a reference picture
+// over the view has none, so they stay.
+eyedrop_material :: proc(app: ^App, at, size: [2]f32) {
+	if !island_material(app) do return
+	if _, over, _ := refs_view_color(app, at); over do return
+	if _, rm, ok := surface_sample(app, at, size); ok {
+		value_set(app, .Roughness, rm[0])
+		value_set(app, .Metal, rm[1])
+	}
+}
+
 // The Eyedropper command: over the viewport it picks the colour under the pointer at
 // once, as ZBrush's C; from a button it waits for the next press on the model.
 eyedropper_command :: proc(app: ^App) {
@@ -1065,6 +1091,7 @@ eyedropper_command :: proc(app: ^App) {
 	if u.viewport_hovered && !u.eyedrop_armed {
 		if rgb, ok := eyedrop_sample(app, u.viewport_mouse, u.viewport_size); ok {
 			colors_pick(app, rgb)
+			eyedrop_material(app, u.viewport_mouse, u.viewport_size)
 			report(app, Section.Paint_Color, {.Quiet}, "Picked %s", hex_text(rgb))
 		}
 		return
@@ -1088,6 +1115,7 @@ eyedropper_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 	u.eyedrop_held = false
 	if u.eyedrop_hit {
 		colors_pick(app, u.eyedrop_color)
+		eyedrop_material(app, input.mouse_pos, input.size)
 		report(app, Section.Paint_Color, {.Quiet}, "Picked %s", hex_text(u.eyedrop_color))
 	} else {
 		report(app, Section.Paint_Color, {.Warning}, "Eyedropper: the press missed every object")
