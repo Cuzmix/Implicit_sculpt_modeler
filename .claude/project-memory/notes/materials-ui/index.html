@@ -1,0 +1,74 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Materials and Render: three directions</title><style>
+:root{--view:#2b2d31;--frame:#0d0f12;--card:#161a1f;--raised:#1f242b;--fill:#2e343c;--track:#38404b;--line:#2a3038;--line2:#3b434e;
+--text:#e9ecef;--text2:#a7aeb8;--text3:#7f8793;--accent:#5ed6c4;--accent-bg:#1c3b37;--on-accent:#08201c;--font:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;background:#0b0d10;color:var(--text);font:13px/1.4 var(--font)}
+header{max-width:1400px;margin:0 auto;padding:24px 24px 4px}h1{font-size:22px;font-weight:600;margin:0 0 6px}
+header p{color:var(--text2);max-width:95ch;margin:4px 0}a{color:var(--accent)}
+.row{max-width:1400px;margin:0 auto;padding:16px 24px 8px;display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
+.frame{display:flex;flex-direction:column;gap:10px;width:360px}.frame.wide{width:720px}.frame.xwide{width:100%}
+.frame h2{font-size:15px;font-weight:600;margin:0}.frame .why{color:var(--text2);font-size:12.5px;margin:0}
+.stage{background:radial-gradient(ellipse at 50% 40%,#34373c,#222428 70%);border-radius:12px;padding:22px;display:flex;justify-content:center;min-height:200px;position:relative}
+.card{width:312px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px #0008;padding:6px 12px 12px;display:flex;flex-direction:column;gap:8px}
+.grip{display:flex;justify-content:center;padding:2px 0 0}.grip i{width:22px;height:4px;border-radius:2px;background:var(--line2)}
+.head{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px}.head .sp{flex:1}.ib{width:28px;height:28px;border-radius:6px;display:grid;place-items:center;color:var(--text2);font-size:14px}
+.cap{font-size:11px;letter-spacing:.06em;color:var(--text3);font-weight:600;text-transform:uppercase;margin-top:4px}
+.seg{display:flex;background:var(--raised);border-radius:8px;padding:2px;gap:2px}.seg span{flex:1;text-align:center;padding:7px 4px;border-radius:6px;color:var(--text2);font-size:12.5px;white-space:nowrap}
+.seg span.on{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.chips{display:flex;gap:6px;overflow:hidden;mask-image:linear-gradient(90deg,#000 85%,transparent)}.chips span{flex:none;padding:6px 11px;border-radius:999px;background:var(--raised);color:var(--text2);font-size:12.5px;white-space:nowrap;border:1px solid transparent}
+.chips span.on{background:var(--accent-bg);color:var(--accent);border-color:#2c5d56;font-weight:600}.chips b{font-weight:500;color:var(--text3);margin-left:4px}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px 8px}.grid.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid.g6{grid-template-columns:repeat(6,minmax(0,1fr))}
+.cell{display:flex;flex-direction:column;align-items:center;gap:3px;position:relative}.cell small{font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.cell.on .ball{outline:2px solid var(--accent);outline-offset:3px}.cell.on small{color:var(--accent)}
+.badge{position:absolute;top:-2px;right:2px;min-width:17px;height:17px;border-radius:9px;background:var(--card);border:1px solid var(--line2);font-size:10px;display:grid;place-items:center;color:var(--text2);padding:0 4px}
+.tag{font-size:10px;padding:1px 6px;border-radius:999px;background:#2a2f37;color:var(--text2);white-space:nowrap}.tag.f{background:#2d2a1c;color:#e3c56f}
+.ball{width:100%;aspect-ratio:1;border-radius:50%;display:block;box-shadow:0 3px 6px #0006}
+.k-diff{background:radial-gradient(circle at 33% 27%,var(--h) 0 4%,var(--c) 28%,var(--d) 74%,#08090a 100%)}
+.k-metal{background:radial-gradient(circle at 32% 26%,#fff 0 3%,transparent 9%),radial-gradient(circle at 50% 52%,transparent 55%,#0006 100%),linear-gradient(168deg,var(--h) 0%,var(--c) 34%,var(--d) 50%,#111 53%,var(--c) 66%,var(--h) 92%)}
+.k-glass{background:radial-gradient(circle at 32% 26%,#fff 0 4%,transparent 8%),radial-gradient(circle at 64% 70%,#ffffff40 0 6%,transparent 14%),radial-gradient(circle at 50% 50%,var(--c) 0 52%,var(--h) 74%,var(--d) 100%);box-shadow:inset 0 0 0 1px #ffffff30,0 3px 6px #0005}
+.k-sss{background:radial-gradient(circle at 36% 30%,var(--h) 0 10%,var(--c) 42%,var(--d) 92%);box-shadow:inset -6px -8px 14px #0003,inset 4px 4px 12px #fff2,0 3px 6px #0006}
+.k-sheen{background:radial-gradient(circle at 50% 50%,var(--d) 0 45%,var(--c) 78%,var(--h) 97%);box-shadow:inset 0 0 6px #fff3,0 3px 6px #0006}
+.k-glow{background:radial-gradient(circle at 45% 42%,#fff 0 12%,var(--c) 45%,var(--d) 100%);box-shadow:0 0 14px var(--c),0 0 3px var(--c)}
+.k-coat{background:radial-gradient(circle at 32% 26%,#fff 0 4%,transparent 8%),radial-gradient(ellipse at 50% 92%,#ffffff2a 0 18%,transparent 30%),radial-gradient(circle at 36% 30%,var(--h) 0 8%,var(--c) 36%,var(--d) 85%,#050505 100%)}
+.k-film{background:radial-gradient(circle at 32% 26%,#fff 0 4%,transparent 8%),conic-gradient(from 40deg,#7ad0ff55,#d07aff55,#ffd07a55,#7affb055,#7ad0ff55),radial-gradient(circle,#9ab 0 40%,#234 100%)}
+.k-cap{background:radial-gradient(circle at 40% 32%,#f2f2f2 0 6%,var(--c) 35%,var(--d) 90%)}
+.preview{display:flex;gap:12px;align-items:center}.preview .ball{width:96px;flex:none}.preview .meta{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.preview .name{font-size:15px;font-weight:600}.vals{color:var(--text2);font-size:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 12px;border-radius:8px;border:1px solid var(--line2);color:var(--text);font-size:12.5px;white-space:nowrap}
+.btn.solid{background:var(--text);color:var(--card);border-color:var(--text);font-weight:600}.btn.flat{border-color:transparent;color:var(--text2)}.btn.full{width:100%}
+.sl{display:flex;flex-direction:column;gap:5px;padding:2px 0}.sl .t{display:flex;justify-content:space-between;font-size:12.5px}.sl .t b{font-weight:500;font-variant-numeric:tabular-nums}
+.tr{height:4px;border-radius:2px;background:var(--track);position:relative}.tr i{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--accent)}.tr u{position:absolute;top:50%;width:16px;height:16px;border-radius:50%;background:#fff;transform:translate(-50%,-50%);box-shadow:0 1px 3px #0008}
+.color{display:flex;gap:8px;align-items:center}.color .well{flex:1;height:32px;border-radius:8px;border:1px solid var(--line2)}.color .hex{width:86px;height:32px;border-radius:8px;background:var(--raised);display:grid;place-items:center;font-size:12px;color:var(--text2)}
+.fold{border-top:1px solid var(--line);padding-top:8px;display:flex;flex-direction:column;gap:8px}.fold .fh{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;min-height:28px}
+.fold .fh .sum{flex:1;text-align:right;color:var(--text3);font-weight:400;font-size:12px}.fold .fh .chev{color:var(--text3);width:14px}
+.sw{width:34px;height:20px;border-radius:10px;background:var(--track);position:relative;flex:none}.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#cfd4da}
+.sw.on{background:var(--accent)}.sw.on::after{left:16px;background:#fff}
+.hint{font-size:11.5px;color:var(--text3)}.line{height:1px;background:var(--line);margin:2px 0}
+.mrow{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px}.mrow.on{background:var(--accent-bg)}.mrow .ball{width:40px;flex:none}.mrow .m{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.mrow .n{font-weight:600;display:flex;gap:6px;align-items:center}.mrow .v{font-size:11.5px;color:var(--text2)}.mrow.on .n{color:var(--accent)}
+.obj{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);font-weight:600;margin-top:2px}.obj .c{flex:1;height:1px;background:var(--line)}
+.map{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);background:var(--raised);border-radius:6px;padding:3px 7px}.map i{width:14px;height:14px;border-radius:3px;display:inline-block}
+.menu{width:264px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px #0008;padding:8px;display:flex;flex-direction:column;gap:6px}
+.mi{display:flex;align-items:center;gap:10px;padding:8px;border-radius:6px;color:var(--text)}.mi span{flex:1}.mi kbd{font:11px var(--font);color:var(--text3)}
+.looks{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}.looks div{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0;border-radius:8px;color:var(--text2);font-size:11.5px}.looks div.on{background:var(--accent-bg);color:var(--accent);font-weight:600}.looks i{font-style:normal;font-size:17px}
+.discs{display:flex;gap:6px}.discs .ball{width:32px}.discs .on{outline:2px solid var(--accent);outline-offset:2px}
+.prog{display:flex;flex-direction:column;gap:4px}.prog .t{display:flex;justify-content:space-between;font-size:12px;color:var(--text2)}
+.notes{max-width:1400px;margin:8px auto 40px;padding:0 24px;color:var(--text2)}.notes h3{color:var(--text);font-size:15px;margin:18px 0 6px}.notes li{margin:3px 0}
+table{border-collapse:collapse;font-size:12.5px}td,th{border-bottom:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}th{color:var(--text3);font-weight:600}
+.sheet{width:700px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 50px #000a;display:flex;overflow:hidden}
+.side{width:150px;background:var(--raised);padding:10px 8px;display:flex;flex-direction:column;gap:2px}.side div{padding:8px 10px;border-radius:6px;color:var(--text2);display:flex;justify-content:space-between}.side div.on{background:var(--accent-bg);color:var(--accent);font-weight:600}.side b{font-weight:400;color:var(--text3);font-size:11.5px}
+.search{height:34px;border-radius:8px;background:var(--raised);display:flex;align-items:center;padding:0 10px;color:var(--text3);font-size:12.5px}
+.pill{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:5px 6px 5px 12px;box-shadow:0 8px 24px #0008}
+.pill .seg{border-radius:999px}.pill .seg span{border-radius:999px;padding:6px 12px}
+</style></head><body><header><h1>Materials and Render: three directions</h1><p>Pick one; the design note (design.md) has the reasons, the compare table and the budget.</p>
+<p style="color:var(--text3);font-size:12px">The balls here are CSS stand-ins. In the app each one is drawn by our own renderer (the viewport's PBR path under the scene's environment) into a ball atlas. Lens theme tokens; card 312 pt. <a href="index.html">All directions</a> · design note: design.md</p></header>
+<div class="row">
+<div class="frame"><h2><a href="a-shelf.html">A · Shelf</a> <span class="tag" style="background:var(--accent-bg);color:var(--accent)">recommended</span></h2><p class="why">One 312 pt card: a live ball of what the object wears, category chips, a ball grid; Edit swaps the grid for the layer folds. The import is the first chip, grouped per object.</p><div class="stage"><div class="grid "><div class="cell on"><i class="ball k-metal " style="--c:#e2b04a;--h:#fff1b8;--d:#6a4410" title="Gold"></i><small>Gold</small></div><div class="cell"><i class="ball k-metal " style="--c:#d8896a;--h:#ffd6c2;--d:#5a2a18" title="Copper"></i><small>Copper</small></div><div class="cell"><i class="ball k-metal " style="--c:#9aa0a6;--h:#ffffff;--d:#2a2e33" title="Chrome"></i><small>Chrome</small></div><div class="cell"><i class="ball k-metal " style="--c:#7e858c;--h:#d7dde2;--d:#33373b" title="Steel"></i><small>Steel</small></div></div></div></div>
+<div class="frame"><h2><a href="b-scene-first.html">B · Scene first</a></h2><p class="why">The card lists the object's own materials (one per group, from the file) with values and maps, the editor under them; the Library sheet is where you browse.</p><div class="stage" style="flex-direction:column;gap:4px"><div class="mrow on"><i class="ball k-glass " style="--c:#2a3a4a60;--h:#b0d8ff;--d:#0a1828" title="Visor glass"></i><div class="m"><span class="n">Visor glass</span><span class="v">Transmission 1.0 · group 3</span></div><span class="ib">⋯</span></div><div class="mrow"><i class="ball k-coat " style="--c:#b8202a;--h:#ff8a80;--d:#30060a" title="Paint red"></i><div class="m"><span class="n">Paint red</span><span class="v">Coat 1.0 · 2 maps</span></div><span class="ib">⋯</span></div></div></div>
+<div class="frame"><h2><a href="c-studio.html">C · Studio</a></h2><p class="why">A wide card: scene strip, categories and grid left, editor right, all at once; the Render switch becomes a pill over the view.</p><div class="stage"><div class="grid "><div class="cell on"><i class="ball k-sss " style="--c:#d39a80;--h:#ffe0d0;--d:#6a3524" title="Skin"></i><small>Skin</small></div><div class="cell"><i class="ball k-sss " style="--c:#d4a65e;--h:#fff0c8;--d:#7a4a14" title="Wax"></i><small>Wax</small></div><div class="cell"><i class="ball k-sss " style="--c:#3f8f5d;--h:#b8f0c8;--d:#0e3a20" title="Jade"></i><small>Jade</small></div><div class="cell"><i class="ball k-sss " style="--c:#dcd8cc;--h:#ffffff;--d:#8a857a" title="Marble"></i><small>Marble</small></div></div></div></div></div><div class="notes"><h3>Same in every direction</h3><ul>
+<li>The Material card is the one material UI; MatCaps move to the Shading menu's Clay look; the Look card becomes Light (Lights, Environment, Background, Floor, Viewport style).</li>
+<li>Balls are rendered by our viewport PBR path into an atlas (≈ 6.5 MB for 64), at most 4 a still frame.</li>
+<li>Imported glTF / FBX / USD materials are kept per object (one per group), not baked into paint (render worker's E8).</li>
+<li>Layers as folds: Surface, Subsurface, Coat, Sheen, Transmission, Glow (Thin film under More).</li>
+<li>Render card: Off | Fast | Full, a progress line, Draft | Good | Final, Output and Passes folds, then Lens, Finish, Turntable, 3D print.</li></ul>
+<h3>Today, for comparison</h3><p>Look card: Materials / Matcaps / Environment tabs, flat discs, RGB sliders; the Shading menu repeats the looks and a second MatCap picker; imports are painted into vertex colours and their materials dropped.</p></div></body></html>
