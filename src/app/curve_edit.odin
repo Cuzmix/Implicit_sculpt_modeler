@@ -7,6 +7,7 @@ import "core:math/linalg"
 import "../camera"
 import "../geom"
 import "../gizmo"
+import "../sculpt"
 
 // Editing a selected curve object with the pen, in the Curve tool: its points, their
 // handles (coloured by type) and white radius dots are drawn over the model and can be dragged, and
@@ -207,6 +208,7 @@ curve_edit_frame :: proc(app: ^App, input: Viewport_Input) -> bool {
 
 // Forgets a press on a curve without an undo step (its curve went away, or an undo came).
 curve_drag_drop :: proc(app: ^App) {
+	curve_rope_end(app)
 	d := &app.curve.drag
 	if d.before != nil do history_snapshot_drop(d.before)
 	d^ = {}
@@ -226,6 +228,11 @@ curve_drag_to :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 		den := linalg.dot(ld, facing)
 		if abs(den) < 1e-8 do return at
 		return lo + ld * (linalg.dot(at - lo, facing) / den)
+	}
+	if (d.handle == .Point || d.handle == .Line) && app.brush.physics {
+		curve_rope_to(app, obj, input, d)
+		curve_changed(app, obj)
+		return
 	}
 	switch d.handle {
 	case .None, .Nub:
@@ -261,6 +268,39 @@ curve_drag_to :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 	curve_changed(app, obj)
 }
 
+// With Physics on, the drag pulls the curve as a rope: the place it holds (the point's,
+// or the line's) goes where the pointer puts it, as a point lands without Physics, and
+// the rest hangs from it as the curve object's Physics card says (gravity, its way, the
+// floor and the other objects), a step a frame while the press lasts.
+@(private = "file")
+curve_rope_to :: proc(app: ^App, obj: ^Object, input: Viewport_Input, d: ^Curve_Drag) {
+	c := &app.curve
+	cp := obj.curve
+	t := obj.transform
+	u := f32(d.index) if d.handle == .Point else d.u
+	if !c.rope_on {
+		if !sculpt.rope_begin(&c.rope, cp.points[:], cp.closed, u) do return
+		c.rope_on = true
+		c.rope_drags += 1
+	}
+	held := c.rope.pos[c.rope.held]
+	target := held
+	if hit, _, ok := curve_land(app, input.mouse_pos, input.size, to_world(t, held)); ok do target = to_local(t, hit)
+	p := object_physics(obj)
+	set := object_cloth_settings(obj, gravity = p.gravity)
+	with := cloth_collisions(app, obj, set)
+	_ = sculpt.rope_step(&c.rope, target, physics_down(app, obj), p.gravity, &with)
+	sculpt.rope_to_curve(&c.rope, cp.points[:], cp.closed)
+}
+
+// Ends a rope drag, if one runs.
+curve_rope_end :: proc(app: ^App) {
+	c := &app.curve
+	if !c.rope_on do return
+	sculpt.rope_end(&c.rope)
+	c.rope_on = false
+}
+
 // Moves the line's place `u` by `delta`, moving the points either side with their handles.
 // A cubic's point at t weighs its first end, handle with it, (1-t)²(1+2t) and its second
 // t²(3-2t); the ends move by (1-t) and t of one share that makes the weighed sum `delta`.
@@ -287,6 +327,9 @@ curve_release :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 	c.drag = {}
 	cp := obj.curve
 	changed := d.moved
+	// A rope drag's points are where it left them: no point merges into its neighbour.
+	roped := c.rope_on
+	curve_rope_end(app)
 	if !d.moved {
 		#partial switch d.handle {
 		case .Point:
@@ -310,7 +353,7 @@ curve_release :: proc(app: ^App, obj: ^Object, input: Viewport_Input) {
 				changed = true
 			}
 		}
-	} else if d.handle == .Point && len(cp.points) > CURVE_MIN_POINTS {
+	} else if d.handle == .Point && !roped && len(cp.points) > CURVE_MIN_POINTS {
 		view_proj := edit_view_proj(app, input.size)
 		here := curve_point_screen(app, obj, view_proj, input.size, d.index)
 		n := len(cp.points)
