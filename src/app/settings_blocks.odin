@@ -18,6 +18,7 @@ Settings_Block :: enum u8 {
 	Icons,
 	Clean_Dial,
 	Hands,
+	Layouts,
 	Top_Bar,
 	Motion,
 	Starting,
@@ -91,6 +92,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Icons            = "icons icon colour color coloured duotone mono monochrome weight bold regular lines",
 	.Clean_Dial       = "clean view keeps dial shelf focus mode tab four-finger hide interface",
 	.Hands            = "left-handed right-handed hand mirror screen layout",
+	.Layouts          = "layouts for tablet desktop device workspace class",
 	.Top_Bar          = "top bar search field icon docks command palette file spaces object centred",
 	.Motion           = "reduce motion animation",
 	.Starting         = "start at home starting launch",
@@ -212,6 +214,10 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		hands := [2]string{"Right-handed", "Left-handed"}
 		if picked := ui.tabs(ctx, "Screen layout", hands[:], int(ctx.mirror)); picked >= 0 do ctx.mirror = picked == 1
 		ui.paragraph(ctx, "Left-handed swaps the sides: Size and Strength, the dial and the view info go to the right; the view gizmo, the view toolbar and the cards to the left.")
+	case .Layouts:
+		names := [len(Layouts_For)]string{"Automatic", "Desktop", "Tablet"}
+		if picked := ui.tabs(ctx, "Layouts for", names[:], int(k.layouts_for)); picked >= 0 do k.layouts_for = Layouts_For(picked)
+		ui.paragraph(ctx, "Each workspace keeps a desktop layout and a tablet layout apart, so the docks and cards that suit a mouse and those that suit a finger never undo each other. Automatic uses the tablet ones on an iPad or an Android tablet and the desktop ones elsewhere; a touch-screen computer can choose.")
 	case .Motion:
 		settings_motion(app)
 	case .Starting:
@@ -517,6 +523,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Icons:           k.ctx.icon_style, k.ctx.icon_weight = .Colour, .Regular
 	case .Clean_Dial:      k.clean_keep = .Dial
 	case .Hands:           k.ctx.mirror = false
+	case .Layouts:         k.layouts_for = .Automatic
 	case .Top_Bar:
 		k.search_field = false
 		for d in Top_Dock do k.top_docks[d] = bar_fresh(TOP_DOCK_BARS[d])
