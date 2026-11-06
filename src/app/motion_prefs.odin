@@ -34,7 +34,7 @@ Motion_Kind :: enum u8 {
 	Mesh_Fade, // the old mesh's picture fading out when a long job swaps the new one in
 	Cards, // cards sliding out from their dock and back, and the narrow screen's sheet rising (panel_motion.odin)
 	Docks, // docks sliding off their edge as they hide and back as they show
-	Spaces, // the docks fading across when the space changes
+	Spaces, // the docks fading across when the workspace changes
 	Pills, // the job, send and macro pills, the shape bar and the readout coming and going
 }
 
@@ -62,7 +62,7 @@ MOTION_KIND_NAMES := [Motion_Kind]string {
 	.Mesh_Fade   = "New mesh after a rebuild",
 	.Cards       = "Cards sliding",
 	.Docks       = "Toolbars sliding",
-	.Spaces      = "Switching space",
+	.Spaces      = "Switching workspace",
 	.Pills       = "Pills and chips",
 }
 

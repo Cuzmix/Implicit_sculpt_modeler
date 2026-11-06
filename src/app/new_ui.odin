@@ -201,12 +201,12 @@ Kit_State :: struct {
 	guide_lines: int,
 	guide_drags: int,
 	rail_side:  Rail_Side, // where the modifier wheel sits, if anywhere (modifiers.odin)
-	// What the layout hides, and each space's layout (layouts.odin).
+	// What the layout hides, and the layouts' state (layouts.odin).
 	hidden:     bit_set[Zone],
 	layouts:    Layouts,
-	// The working space (spaces.odin), and the view toggles Focus and Inspect, which hide
-	// bars or show the form four ways without changing the layout.
-	spaces:     Spaces,
+	// The workspaces (workspaces.odin), and the views Focus and Inspect, which hide bars or
+	// show the form four ways without changing the layout.
+	workspaces: Workspaces,
 	focus_mode: bool,
 	inspect:    Inspect_View,
 	passes:     Passes, // the pass the viewport shows (passes.odin)
@@ -215,10 +215,10 @@ Kit_State :: struct {
 	dials:      [Hands][4]Dial_Sector, // what each hands' sectors do, clockwise from the top
 	hands:      Hands, // what the hands are doing, from the tool in hand (hands.odin)
 	// The top bar's three docks' buttons (kit_top_lens.odin), a setting; where each dock and
-	// the space tabs were drawn this frame.
+	// the workspace tabs were drawn this frame.
 	top_docks:     [Top_Dock]Bar_List,
 	top_at:        [Top_Dock]ui.Rect,
-	space_tabs_at: ui.Rect,
+	workspace_tabs_at: ui.Rect,
 	wheel_turn: f32, // how far it is turned clockwise, in degrees, -180 to 180
 	wheel_offset: [2]f32, // how far its grip dragged it from its place, in points
 	// The hand the moved windows and the wheel's drag were placed for: ctx.mirror is the
@@ -1411,7 +1411,7 @@ kit_layout :: proc(app: ^App) {
 	E := t.edge
 
 	// The space follows a tool picked last frame, before anything is laid out for it.
-	space_follow(app)
+	workspace_follow(app)
 	lens_view_frame(app)
 	// The Home screen covers the window and stands in for every panel while it shows.
 	// Input diagnostics covers the window as Home does (kit_diag.odin), and Home too: an

@@ -46,7 +46,7 @@ Bar_Which :: enum u8 {
 	Dock_4,
 	// The top bar's three docks (kit_top_lens.odin): the file, the spaces and the app's.
 	Top_File,
-	Top_Spaces,
+	Top_Workspaces,
 	Top_App,
 }
 
@@ -80,7 +80,7 @@ BAR_ZONES := [Bar_Which]string {
 	.Dock_3       = "dock_3",
 	.Dock_4       = "dock_4",
 	.Top_File     = "top_file",
-	.Top_Spaces   = "top_spaces",
+	.Top_Workspaces   = "top_workspaces",
 	.Top_App      = "top_app",
 }
 
@@ -116,7 +116,7 @@ VIEW_RAIL_DEFAULT :: [?]Bar_Slot {
 // The top bar's docks as they come: the menu, the file chip, Save, Undo and Redo; the space
 // tabs and the object chip; Search, History and Settings.
 TOP_FILE_DEFAULT :: [?]Bar_Slot{{.Main_Menu, 0}, {.File_Chip, 0}, {.Save_Scene, 0}, {.Undo, 0}, {.Redo, 0}}
-TOP_SPACES_DEFAULT :: [?]Bar_Slot{{.Space_Tabs, 0}, {.Object_Chip, 0}}
+TOP_WORKSPACES_DEFAULT :: [?]Bar_Slot{{.Workspace_Tabs, 0}, {.Object_Chip, 0}}
 TOP_APP_DEFAULT :: [?]Bar_Slot{{.Command_Palette, 0}, {.Open_Card, int(Card.History)}, {.Settings, 0}}
 
 // The island a fresh install has: Size and Strength as tall sliders.
@@ -179,8 +179,8 @@ bar_fresh :: proc(which: Bar_Which) -> Bar_List {
 	case .Top_File:
 		d := TOP_FILE_DEFAULT
 		return bar_list_of(d[:], bar_default_look(which))
-	case .Top_Spaces:
-		d := TOP_SPACES_DEFAULT
+	case .Top_Workspaces:
+		d := TOP_WORKSPACES_DEFAULT
 		return bar_list_of(d[:], bar_default_look(which))
 	case .Top_App:
 		d := TOP_APP_DEFAULT
@@ -204,7 +204,7 @@ bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
 	case .View_Rail: return &k.view_rail
 	case .Brush_Pie: return &k.brush_pie
 	case .Offhand:   return &k.offhand
-	case .Top_File, .Top_Spaces, .Top_App:
+	case .Top_File, .Top_Workspaces, .Top_App:
 		d, _ := top_dock_of(which)
 		return &k.top_docks[d]
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
@@ -227,7 +227,7 @@ bar_capacity :: proc(which: Bar_Which) -> int {
 	case .Brush_Pie: return PIE_SLOTS
 	case .Offhand:   return OFFHAND_MAX
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return USER_DOCK_MAX
-	case .Top_File, .Top_Spaces, .Top_App: return TOP_DOCK_MAX
+	case .Top_File, .Top_Workspaces, .Top_App: return TOP_DOCK_MAX
 	}
 	return 0
 }
@@ -345,7 +345,7 @@ bar_title :: proc(app: ^App, which: Bar_Which) -> string {
 	case .Brush_Pie:    return "The brush pie"
 	case .Offhand:      return "The brush toolbar"
 	case .Top_File:     return "The top bar's File toolbar"
-	case .Top_Spaces:   return "The top bar's Spaces toolbar"
+	case .Top_Workspaces:   return "The top bar's Workspaces toolbar"
 	case .Top_App:      return "The top bar's App toolbar"
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 		d, _ := dock_of_bar(which)

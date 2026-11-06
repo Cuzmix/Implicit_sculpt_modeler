@@ -552,7 +552,7 @@ def pen_roll_on_the_exposure_chip_steps_it():
         s.add(f"proll:{deg}")
         s.wait(1)
     s.wait(2)
-    return s, [], camera_still({"dabs": near(0), "space": is_text("render"), "exposure": near(1.0, 1e-3)})
+    return s, [], camera_still({"dabs": near(0), "workspace": is_text("render"), "exposure": near(1.0, 1e-3)})
 
 
 @scenario
@@ -3634,17 +3634,16 @@ def floating_card_closes_from_its_dock_button():
     return s, [], camera_still({"cards_float": is_text("none"), "cards": is_text("left:;right:"), "card_closes": near(1), "dabs": near(0)})
 
 
-# The top bar's space tabs at 1600 x 900 (spaces.odin): Sculpt, lit at the start, whose tap
-# opens its layouts, Model, Render and the chevron after them; and the rows of the menu:
-# Sculpt's built-in layout, then Save, Save as new, Export, Import, Revert and Reset, then
-# Reset layout.
-# The space tabs centred in the top bar's middle island, by name (and where each was at 1600 x 900).
-SPACE_TABS = {"sculpt": At("top bar/Spaces/Sculpt", 584, 26), "model": At("top bar/Spaces/Model", 673, 26),
-              "render": At("top bar/Spaces/Render", 765, 26), "chevron": At("top bar/space tabs/Layouts", 834, 26)}
+# The top bar's workspace tabs at 1600 x 900 (workspaces.odin), centred in its middle
+# island, by name (and where each was): Sculpt, lit at the start, whose tap opens the
+# workspace menu, Model, Render and the chevron after them; and the menu's rows: the
+# workspaces, then Reset layout.
+SPACE_TABS = {"sculpt": At("top bar/Workspaces/Sculpt", 584, 26), "model": At("top bar/Workspaces/Model", 673, 26),
+              "render": At("top bar/Workspaces/Render", 765, 26), "chevron": At("top bar/workspace tabs/Workspace menu", 834, 26)}
 LAYOUT_CHIP = SPACE_TABS["sculpt"]
 # The layout menu's rows under the lit tab: the three spaces and Reset layout.
-LAYOUT_ROWS = {"sculpt": At("layout menu/Sculpt##layout menu", 669, 99), "model": At("layout menu/Model##layout menu", 669, 143),
-               "render": At("layout menu/Render##layout menu", 669, 187), "reset": At("layout menu/Reset layout", 669, 232)}
+LAYOUT_ROWS = {"sculpt": At("layout menu/Sculpt", 669, 99), "model": At("layout menu/Model", 669, 143),
+               "render": At("layout menu/Render", 669, 187), "reset": At("layout menu/Reset layout", 669, 232)}
 # In Focus the off-hand island holds Menu, Undo and Redo, and the right island Search.
 TOP_UNDO, TOP_SEARCH = (150, 33), At("app dock/Search commands", 1336, 30)
 
@@ -3659,7 +3658,7 @@ def clean_view_keeping_the_shelf_hides_the_sides():
         if again:
             s.press("Tab")
             s.wait(10)
-        return s, ["--script=set clean_view_keeps shelf"], camera_still({"dabs": near(0), "space": is_text("sculpt"), "focus_mode": near(0 if again else 1), "clean_view": near(0),
+        return s, ["--script=set clean_view_keeps shelf"], camera_still({"dabs": near(0), "workspace": is_text("sculpt"), "focus_mode": near(0 if again else 1), "clean_view": near(0),
                                                                          "zones_hidden": is_text("none" if again else "brush_bar,view_bar,action_bar"), "layout_modified": near(0)})
     return Steps([run(False), run(True)])
 
@@ -3673,7 +3672,7 @@ def a_pinned_card_marks_the_layout_and_reset_puts_it_back():
     s.wait(10)
     s.ftap(LAYOUT_ROWS["reset"])
     s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "space": is_text("sculpt"), "layout_modified": near(0), "layout_resets": near(1),
+    return s, [], camera_still({"dabs": near(0), "workspace": is_text("sculpt"), "layout_modified": near(0), "layout_resets": near(1),
                                 "cards": lambda v: "*" not in v})
 
 
@@ -3700,7 +3699,7 @@ def focus_moves_undo_and_search_to_the_top_bar():
     s.wait(4)
     s.ftap(TOP_SEARCH)
     s.wait(10)
-    return s, ["--script=set clean_view_keeps shelf; clean_view on"], {"undo_steps": near(0), "redo_steps": near(1), "palette": near(1), "space": is_text("sculpt"), "focus_mode": near(1)}
+    return s, ["--script=set clean_view_keeps shelf; clean_view on"], {"undo_steps": near(0), "redo_steps": near(1), "palette": near(1), "workspace": is_text("sculpt"), "focus_mode": near(1)}
 
 
 # The Lens top bar at 1600 x 900 (kit_top_lens.odin): Menu, Undo and Redo at the left, the
@@ -3717,8 +3716,8 @@ def space_tab_switches_to_model():
     s = Script()
     s.ftap(SPACE_TABS["model"])
     s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "space": is_text("model"), "tool": is_text("model"),
-                                "layout_menu": near(0), "space_switches": near(1)})
+    return s, [], camera_still({"dabs": near(0), "workspace": is_text("model"), "tool": is_text("model"),
+                                "layout_menu": near(0), "workspace_switches": near(1)})
 
 
 @scenario
@@ -3731,7 +3730,7 @@ def space_lit_tab_and_chevron_open_the_menu():
     s.wait(10)
     s.ftap(SPACE_TABS["chevron"])
     s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "space": is_text("sculpt"), "layout_menu": near(1), "space_switches": near(0)})
+    return s, [], camera_still({"dabs": near(0), "workspace": is_text("sculpt"), "layout_menu": near(1), "workspace_switches": near(0)})
 
 
 @scenario
@@ -3742,8 +3741,8 @@ def space_tab_gives_back_the_brush():
     s.wait(10)
     s.ftap(SPACE_TABS["sculpt"])
     s.wait(10)
-    return s, ["--script=brush inflate"], camera_still({"dabs": near(0), "space": is_text("sculpt"), "tool": is_text("brush"), "brush_kind": is_text("inflate"),
-                                                        "space_switches": near(2)})
+    return s, ["--script=brush inflate"], camera_still({"dabs": near(0), "workspace": is_text("sculpt"), "tool": is_text("brush"), "brush_kind": is_text("inflate"),
+                                                        "workspace_switches": near(2)})
 
 
 @scenario
@@ -3754,7 +3753,7 @@ def a_press_in_render_turns_the_view():
     s.wait(10)
     s.fdrag(line((MIDDLE[0] - 60, MIDDLE[1]), (MIDDLE[0] + 120, MIDDLE[1] + 20), 20))
     s.wait(6)
-    return s, [], {"dabs": near(0), "space": is_text("render"), "tool": is_text("look"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
+    return s, [], {"dabs": near(0), "workspace": is_text("render"), "tool": is_text("look"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
 
 
 @scenario
@@ -3765,7 +3764,7 @@ def look_tool_from_search_goes_to_render_and_turns_the_view():
     s.wait(10)
     s.fdrag(line((MIDDLE[0] - 60, MIDDLE[1]), (MIDDLE[0] + 120, MIDDLE[1] + 20), 20))
     s.wait(6)
-    return s, [], {"dabs": near(0), "space": is_text("render"), "tool": is_text("look"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
+    return s, [], {"dabs": near(0), "workspace": is_text("render"), "tool": is_text("look"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
 
 
 # Render's and Model's own shelf and dial at 1600 x 900 (PR 3b): the Render page's
@@ -3785,7 +3784,7 @@ def render_exposure_chip_scrubs_the_exposure():
     x, y = RENDER_EXPOSURE_CHIP
     s.fdrag(line((x, y), (x, y - 50), 20))
     s.wait(4)
-    return s, [], camera_still({"dabs": near(0), "space": is_text("render"), "shelf_page": is_text("Render"), "value_scrubs": near(1),
+    return s, [], camera_still({"dabs": near(0), "workspace": is_text("render"), "shelf_page": is_text("Render"), "value_scrubs": near(1),
                                 "bar_pop": is_text("none"), "exposure": lambda v: float(v) > 0.2})
 
 
@@ -3799,7 +3798,7 @@ def render_dial_places_a_highlight():
     s.wait(6)
     s.fdrag(line(ON_MODEL, (ON_MODEL[0] + 30, ON_MODEL[1] + 20), 10))
     s.wait(6)
-    return s, [], camera_still({"dabs": near(0), "space": is_text("render"), "light_place": near(1), "light_moves": near(1),
+    return s, [], camera_still({"dabs": near(0), "workspace": is_text("render"), "light_place": near(1), "light_moves": near(1),
                                 "dial_sectors": is_text("Place_Light,Brush_Pie,Brush_Value:Exposure,Pick_Focus")})
 
 
@@ -3811,7 +3810,7 @@ def model_dial_picks_select():
     s.wait(10)
     s.ftap(DIAL_LEFT)
     s.wait(6)
-    return s, ["--script=add_cage cube; select 1; delete_object"], camera_still({"dabs": near(0), "space": is_text("model"), "model_action": is_text("Select"),
+    return s, ["--script=add_cage cube; select 1; delete_object"], camera_still({"dabs": near(0), "workspace": is_text("model"), "model_action": is_text("Select"),
                                 "dial_sectors": is_text("Smooth,Brush_Pie,Invert,Model_Action:Select")})
 
 
@@ -5391,7 +5390,7 @@ def lens_shift_moves_lined_up_dividers():
 
 # Focus in Lens at 1600 x 900, the three-island top bar: the middle island's space chip
 # and X symmetry chip, and the right island's View layout and Shading.
-LENS_FOCUS = {"space": At("spaces dock/Space##chip", 770, 30), "symmetry": At("spaces dock/Symmetry X", 838, 30),
+LENS_FOCUS = {"space": At("workspaces dock/Workspace##chip", 770, 30), "symmetry": At("workspaces dock/Symmetry X", 838, 30),
               "layout": At("app dock/View layout", 1342, 30), "passes": At("app dock/Shading modes", 1392, 30)}
 
 
@@ -5404,7 +5403,7 @@ def lens_focus_draws_islands():
     s.wait(4)
     s.ftap(LENS_FOCUS["passes"])
     s.wait(6)
-    return s, ["--script=set clean_view_keeps shelf; clean_view on"], camera_still({"space": is_text("sculpt"), "focus_mode": near(1), "lens_focus": near(1), "symmetry": is_text("x"), "pass_menu": near(1), "dabs": near(0)})
+    return s, ["--script=set clean_view_keeps shelf; clean_view on"], camera_still({"workspace": is_text("sculpt"), "focus_mode": near(1), "lens_focus": near(1), "symmetry": is_text("x"), "pass_menu": near(1), "dabs": near(0)})
 
 
 # The Lens menu's button and its rows at 1600 x 900 that open submenus, and the first row
@@ -5767,7 +5766,7 @@ def lens_pass_popover_groups_the_passes():
     s.wait(8)
     s.ftap(LENS_INSPECT["curvature"])
     s.wait(8)
-    return s, LENS_1440, camera_still({"space": is_text("sculpt"), "inspect_mode": near(1), "pass": is_text("Curvature"), "dabs": near(0)})
+    return s, LENS_1440, camera_still({"workspace": is_text("sculpt"), "inspect_mode": near(1), "pass": is_text("Curvature"), "dabs": near(0)})
 
 
 # Render at 1440x900: its tab; the Red wax sphere of the Material card it pins; the shelf's
@@ -5785,7 +5784,7 @@ def render_pins_the_material_card():
     s.wait(20)
     s.ftap(LENS_STUDIO["white"])
     s.wait(10)
-    return s, LENS_1440, camera_still({"space": is_text("render"), "cards": is_text("left:;right:Material*"),
+    return s, LENS_1440, camera_still({"workspace": is_text("render"), "cards": is_text("left:;right:Material*"),
                                        "selected_material": is_text("White"), "dabs": near(0)})
 
 
@@ -6020,10 +6019,10 @@ def help_labels_kept_until_done():
         s.ftap(HELP_LABELS["model"])
         s.wait(30)
         if not done:
-            return s, LENS_1440, camera_still({"labels_on": near(1), "labels_kept": near(1), "space": is_text("model"), "dabs": near(0)})
+            return s, LENS_1440, camera_still({"labels_on": near(1), "labels_kept": near(1), "workspace": is_text("model"), "dabs": near(0)})
         s.ftap(HELP_LABELS["done"])
         s.wait(6)
-        return s, LENS_1440, camera_still({"labels_on": near(0), "labels_kept": near(0), "space": is_text("model"), "dabs": near(0)})
+        return s, LENS_1440, camera_still({"labels_on": near(0), "labels_kept": near(0), "workspace": is_text("model"), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
@@ -6042,7 +6041,7 @@ def tour_moves_on_when_a_step_is_tried():
     s.wait(6)
     s.ftap(TOUR["sculpt"])
     s.wait(70)
-    return s, LENS_1440 + ["--tour"], camera_still({"tour": near(1), "tour_shown": near(1), "tour_step": is_text("dial"), "space": is_text("sculpt"), "dabs": near(0)})
+    return s, LENS_1440 + ["--tour"], camera_still({"tour": near(1), "tour_shown": near(1), "tour_step": is_text("dial"), "workspace": is_text("sculpt"), "dabs": near(0)})
 
 
 @scenario
@@ -6345,8 +6344,8 @@ def settings_dial_is_the_spaces():
     s.wait(8)
     s.press("escape")
     s.wait(8)
-    return s, LENS_1440 + ["--script=space_switch model", f"--settings-file={settings_file()}"], camera_still({
-        "space": is_text("model"), "dial_sectors": is_text("Smooth,Brush_Pie,Hide,Model_Action:Select"), "hands": is_text("model"), "dial_hands": near(1), "dabs": near(0),
+    return s, LENS_1440 + ["--script=workspace_switch 2", f"--settings-file={settings_file()}"], camera_still({
+        "workspace": is_text("model"), "dial_sectors": is_text("Smooth,Brush_Pie,Hide,Model_Action:Select"), "hands": is_text("model"), "dial_hands": near(1), "dabs": near(0),
         "@saved": saved_line("dial Model 2 modifier Hide")})
 
 
@@ -6703,10 +6702,10 @@ def dock_stays_with_its_space():
         s.ftap(SPACE_TABS["model"])
         s.wait(10)
         if not back:
-            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("model"), "user_docks": is_text("none"), "dabs": near(0)})
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"workspace": is_text("model"), "user_docks": is_text("none"), "dabs": near(0)})
         s.ftap(SPACE_TABS["sculpt"])
         s.wait(10)
-        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("sculpt"), "user_docks": is_text("1:0"), "dabs": near(0)})
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"workspace": is_text("sculpt"), "user_docks": is_text("1:0"), "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
@@ -6767,10 +6766,10 @@ def lens_arrange_place_stays_with_its_space():
         s.ftap(SPACE_TABS["model"])
         s.wait(10)
         if not back:
-            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("model"), "dock_places": is_text("offhand:default,rail:default,shelf:default"), "dabs": near(0)})
+            return s, LENS_1440 + ["--script=customise_bars"], camera_still({"workspace": is_text("model"), "dock_places": is_text("offhand:default,rail:default,shelf:default"), "dabs": near(0)})
         s.ftap(SPACE_TABS["sculpt"])
         s.wait(10)
-        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"space": is_text("sculpt"), "dock_places": lambda v: ",rail:left:" in v, "dabs": near(0)})
+        return s, LENS_1440 + ["--script=customise_bars"], camera_still({"workspace": is_text("sculpt"), "dock_places": lambda v: ",rail:left:" in v, "dabs": near(0)})
     return Steps([run(False), run(True)])
 
 
@@ -6842,8 +6841,8 @@ def lens_pie_editor_brush_slot_chooses_in_search():
 
 
 @scenario
-def each_space_keeps_its_layout_in_settings():
-    """Model's layout with the Tool card pinned, then Render in front: the settings keep Model's layout and Render as current, and a fresh run with them starts in Render with Model marked."""
+def each_workspace_keeps_its_layout_in_settings():
+    """Model's layout with the Tool card pinned, then Render in front: the settings keep Model's layout and Render as current, and a fresh run with them starts in Render, holding the Look tool, with Model marked."""
     path = settings_file()
     def first():
         s = Script()
@@ -6852,12 +6851,12 @@ def each_space_keeps_its_layout_in_settings():
         pin_tool_card(s)
         s.ftap(SPACE_TABS["render"])
         s.wait(10)
-        return s, [f"--settings-file={path}"], camera_still({"dabs": near(0), "space": is_text("render"), "layouts_changed": is_text("model"),
-                                                            "@saved": saved_line("space_current Render")})
+        return s, [f"--settings-file={path}"], camera_still({"dabs": near(0), "workspace": is_text("render"), "layouts_changed": is_text("model"),
+                                                            "@saved": saved_line("workspace_current 3")})
     def second():
         s = Script()
         s.wait(10)
-        return s, [f"--settings-file={path}"], camera_still({"dabs": near(0), "space": is_text("render"), "layout_modified": near(0), "layouts_changed": is_text("model")})
+        return s, [f"--settings-file={path}"], camera_still({"dabs": near(0), "workspace": is_text("render"), "tool": is_text("look"), "layout_modified": near(0), "layouts_changed": is_text("model")})
     return Steps([first(), second()])
 
 
@@ -14953,8 +14952,8 @@ def object_menu_lists_the_verbs_of_the_type_and_space():
         s = Script()
         object_menu_open(s)
         if what == "mesh":
-            return s, [], camera_still({"object_menu": near(1), "object_menu_type": is_text("Sculpt_Mesh"), "object_menu_rows": near(12), "space": is_text("sculpt")})
-        return s, ["--script=add_cage cube"], camera_still({"object_menu": near(1), "object_menu_type": is_text("Cage"), "object_menu_rows": near(9), "space": is_text("model")})
+            return s, [], camera_still({"object_menu": near(1), "object_menu_type": is_text("Sculpt_Mesh"), "object_menu_rows": near(12), "workspace": is_text("sculpt")})
+        return s, ["--script=add_cage cube"], camera_still({"object_menu": near(1), "object_menu_type": is_text("Cage"), "object_menu_rows": near(9), "workspace": is_text("model")})
     return Steps([run("mesh"), run("cage")])
 
 
@@ -14965,7 +14964,7 @@ def object_menu_other_space_row_switches_and_runs():
     object_menu_open(s)
     s.ftap(CAGE_MENU_SCULPTABLE)
     s.wait(8)
-    return s, ["--script=add_cage cube"], camera_still({"object_menu": near(0), "space": is_text("sculpt"), "space_switches": near(2),
+    return s, ["--script=add_cage cube"], camera_still({"object_menu": near(0), "workspace": is_text("sculpt"), "workspace_switches": near(2),
                                                          "object_chip": lambda v: v.startswith("Full,Sculpt_mesh")})
 
 
@@ -15097,7 +15096,7 @@ def offer_line_makes_a_cage_sculptable():
         s.press("1", ("ctrl",))
         s.wait(6)
         if not fix:
-            return s, ["--script=add_cage cube"], camera_still({"offer": is_text("Apply_Cage"), "space": is_text("sculpt"), "dabs": near(0)})
+            return s, ["--script=add_cage cube"], camera_still({"offer": is_text("Apply_Cage"), "workspace": is_text("sculpt"), "dabs": near(0)})
         s.ftap(OFFER_FIX)
         s.wait(8)
         return s, ["--script=add_cage cube"], camera_still({"offer": is_text("None"), "offer_fixes": near(1), "object_chip": lambda v: v.startswith("Full,Sculpt_mesh"), "dabs": near(0)})
@@ -15114,8 +15113,8 @@ def offer_line_gives_a_mesh_a_cage_in_model():
         if move:
             s.press("w")
             s.wait(4)
-            return s, [], camera_still({"offer": is_text("None"), "space": is_text("model"), "tool": is_text("move")})
-        return s, [], camera_still({"offer": lambda v: v in ("Retopologize", "Edit_Cage"), "space": is_text("model"), "tool": is_text("model")})
+            return s, [], camera_still({"offer": is_text("None"), "workspace": is_text("model"), "tool": is_text("move")})
+        return s, [], camera_still({"offer": lambda v: v in ("Retopologize", "Edit_Cage"), "workspace": is_text("model"), "tool": is_text("model")})
     return Steps([run(False), run(True)])
 
 
