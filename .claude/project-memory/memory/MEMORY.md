@@ -15,7 +15,7 @@
 - 2026-11-05: Bolt wants mocks for UI redesigns to pick from before building.
 
 ## Bolt and devices
-- iPad Air M2 (sideloads), OnePlus Pad (Mali-G710), Windows PC with RTX 3060 Ti. 2026-10-31: app tested on all three, works.
+- iPad Air M2 (sideloads), OnePlus Pad (Mali-G710), Windows PC with RTX 3060 Ti. 2026-10-31: app tested on all three, works. 2026-11-06: Bolt ran the device backlog (Send, pen, voxel stage 9, Metal, Mali culling, web GPU, ...) on all three: looks good, no per-feature numbers.
 - Goal: performance to match ZBrush (bench 500k-10M; <1 ms GPU up to 10M on the 3060 Ti; next frontier 20M+).
 - 2026-11-05: iPad build run on odin-sculpt at #679 (Bolt asked); later merges (#681+) not in it.
 - 2026-11-06: Claude Code also runs on Bolt's Linux laptop with a real GPU (Radeon 890M, RADV; Ryzen AI 9 HX 470, 24 threads): there the app, smoke, touch_check, bench and gate.py run for real (local-machine-real-gpu.md).
@@ -79,4 +79,4 @@
 - 2026-11-06 Innovation picks: Tap to find #752, Dial back #754, Hover preview #755; Live strokes design only, Onion skin not picked.
 - 2026-11-06 local sessions: stale tests and try_it #756, Android save and export to a picked file #757, 37 touch scenarios fixed with jobwait/jobhold ui-events #758, shading menu fits #759, GPU strokes land deterministically #760.
 - 2026-11-06 Render materials plan (Series E, then O) approved, worktree ../sculpt-render; E1-E3 in PR #761 (render-materials-plan.md).
-- 2026-11-06 What waits on Bolt (device runs, blocked items, unanswered picks), from the study of the exported threads: open-decisions-2026-11-06.md.
+- 2026-11-06 What waits on Bolt (device backlog run 2026-11-06 and looked good; blocked items, unanswered picks), from the study of the exported threads: open-decisions-2026-11-06.md.
