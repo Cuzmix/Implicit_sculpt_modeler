@@ -177,6 +177,9 @@ Kit_State :: struct {
 	adjust_pop:    bool,
 	adjust_anchor: ui.Rect,
 	adjust_dirty:  bool,
+	// The Paint tab's New layer menu (lens_paint_layers.odin): open, under its button.
+	paint_new_pop:    bool,
+	paint_new_anchor: ui.Rect,
 	help_tab:   Help_Tab,
 	help_scroll: f32,
 	ui_scale:   f32, // the interface's size, times what the display asks for (Settings > Interface)
@@ -1518,6 +1521,7 @@ kit_layout :: proc(app: ^App) {
 	kit_pivot_row(app)
 	kit_gizmo_entry(app)
 	kit_adjust_popover(app)
+	kit_paint_new_menu(app)
 	kit_bind_popover(app)
 	kit_macro_save(app)
 	kit_pie_editor(app)
