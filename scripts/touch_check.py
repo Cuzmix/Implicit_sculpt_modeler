@@ -4812,6 +4812,13 @@ def model_live_curve_and_wrap_follow():
                   (Script(), LENS_1440 + [f"--script={wrap}; stack open wrap"], {"cage_following": near(1)})])
 
 @scenario
+def model_panel_loops_raise_a_creased_panel():
+    """Panel loops on one face of a cube cage insets it and raises it on a wall (fourteen faces, twelve creased edges), one undo step that undo takes back (a refusal with nothing selected is in poly's tests, as a script stops at a command that changes nothing)."""
+    base = "add_cage cube; select 1; delete_object; frame_all; model_action select; "
+    return Steps([(Script(), LENS_1440 + ["--script=" + base + "cage select 0; wait 1; cage_edit panel_loops"], {"cage_faces": near(14), "cage_creases": near(12), "cage_broken": near(0), "model_edits": near(1)}),
+                  (Script(), LENS_1440 + ["--script=" + base + "cage select 0; wait 1; cage_edit panel_loops; wait 1; undo"], {"cage_faces": near(6), "cage_creases": near(0)})])
+
+@scenario
 def model_sharp_edges_shade_hard_past_the_angle():
     """Sharp edges at 50° on an eight-sided cylinder cage splits the points of its two rims (the sides meet at 45°, so they stay smooth) and nothing else, the cage itself whole; the row comes back from a saved scene, a Remove is one undo step, and Apply to sculpt makes closed levels with no copies left; an open cube's Apply welds its copies back, leaving only the two holes' edges open."""
     path = scene_file()

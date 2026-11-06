@@ -471,6 +471,8 @@ SETTINGS := [?]Setting {
 	{"curve_plane", offset_of(App, curve) + offset_of(Curve_Tool, plane), Curve_Plane, 0, 0},
 	{"model_pick", offset_of(App, model) + offset_of(Model_Tool, pick), Model_Element, 0, 0},
 	{"model_falloff", offset_of(App, model) + offset_of(Model_Tool, falloff), f32, 0, 1},
+	{"model_panel_width", offset_of(App, model) + offset_of(Model_Tool, panel_width), f32, PANEL_WIDTH_MIN / 100, PANEL_WIDTH_MAX / 100},
+	{"model_panel_depth", offset_of(App, model) + offset_of(Model_Tool, panel_depth), f32, -PANEL_DEPTH_MAX / 100, PANEL_DEPTH_MAX / 100},
 	{"curve_all_handles", offset_of(App, curve) + offset_of(Curve_Tool, all_handles), bool, 0, 0},
 	{"curve_width", offset_of(App, curve) + offset_of(Curve_Tool, size), f32, 0.05, 2},
 	{"curve_lift", offset_of(App, curve) + offset_of(Curve_Tool, lift), f32, -1, 2},

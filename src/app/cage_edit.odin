@@ -23,6 +23,7 @@ Cage_Edit :: enum u8 {
 	Union,
 	Subtract,
 	Intersect,
+	Panel_Loops,
 }
 
 @(rodata)
@@ -40,6 +41,7 @@ CAGE_EDIT_NAMES := [Cage_Edit]string {
 	.Union         = "Union with the cage below",
 	.Subtract      = "Subtract the cage below",
 	.Intersect     = "Intersect with the cage below",
+	.Panel_Loops   = "Panel loops",
 }
 
 // What each needs, for the note when the selection has none of it.
@@ -58,6 +60,7 @@ CAGE_EDIT_NEEDS := [Cage_Edit]string {
 	.Union         = "another closed cage below it in the scene",
 	.Subtract      = "another closed cage below it in the scene",
 	.Intersect     = "another closed cage below it in the scene",
+	.Panel_Loops   = "selected faces that are not the whole cage",
 }
 
 // What each one's count in its report counts.
@@ -76,6 +79,7 @@ CAGE_EDIT_COUNTS := [Cage_Edit]string {
 	.Union         = "cages",
 	.Subtract      = "cages",
 	.Intersect     = "cages",
+	.Panel_Loops   = "faces",
 }
 
 // How far along each edge Bevel points cuts: a quarter, which leaves the corner's face
@@ -110,6 +114,15 @@ object_cage_edit :: proc(app: ^App, obj: ^Object, kind: Cage_Edit) -> bool {
 	switch kind {
 	case .Join, .Separate, .Union, .Subtract, .Intersect:
 	// Handled above, as they change two objects.
+	case .Panel_Loops:
+		// The panel's sizes are shares of the cage's size, so they read the same on any cage.
+		if len(faces) == 0 || len(faces) == len(cage.face_he) do return refuse(app, obj, before, kind, .None)
+		size := cage_size(obj.cage)
+		p: poly.Panel
+		p, err = poly.panel_loops(cage, faces[:], app.model.panel_width * size, app.model.panel_depth * size)
+		r, p.edit = p.edit, {}
+		poly.panel_destroy(&p)
+		count = len(faces)
 	case .Subdivide, .Poke, .Split:
 		if len(faces) == 0 || (kind == .Split && len(faces) == len(cage.face_he)) do return refuse(app, obj, before, kind, .None)
 		#partial switch kind {

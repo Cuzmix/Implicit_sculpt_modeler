@@ -819,6 +819,14 @@ ICON_DISPLACE :: rune(0xe232)
 // Sharp edges' largest angle, and the angle the row starts at (Blender's Smooth by Angle).
 CAGE_SHARP_MAX :: 180
 CAGE_SHARP_START :: 30
+
+// Panel loops' sizes in percent of the cage's size: the range of each slider and where
+// they start (a thin chamfer round a plate standing out by about as much).
+PANEL_WIDTH_MIN :: 0.2
+PANEL_WIDTH_MAX :: 10.0
+PANEL_DEPTH_MAX :: 10.0
+PANEL_WIDTH_START :: 0.03
+PANEL_DEPTH_START :: 0.02
 ICON_SHARP :: rune(0xe242) // gem, whose facets meet at hard edges
 
 // The amount Deform starts at for `kind`: a quarter turn for Bend and Twist, half as wide
@@ -1129,6 +1137,10 @@ Model_Tool :: struct {
 	// of the cage's size (0 for none, Blender's proportional editing).
 	pick:      Model_Element,
 	falloff:   f32,
+	// Panel loops' inset width and how far the panel stands out (negative: sunk in), both
+	// shares of the cage's size (cage_edit.odin).
+	panel_width: f32,
+	panel_depth: f32,
 	xform:     Cage_Xform,
 	xforms:    int, // moves, turns and scales of the selection made, for the exit stats
 	edits:     int, // the Edit section's edits made, for the exit stats
@@ -1222,9 +1234,12 @@ kit_model_tab :: proc(app: ^App) {
 		pair(app, .Bevel_Points, .Join, "Bevel points", "Join below")
 		pair(app, .Relax, .Smooth, "Relax", "Smooth")
 		pair(app, .Union, .Subtract, "Union below", "Subtract below")
-		_ = command_button(app, .Cage_Edit, int(Cage_Edit.Intersect), "Intersect below", width = ui.fill_width(ctx))
+		pair(app, .Intersect, .Panel_Loops, "Intersect below", "Panel loops")
+		width, depth := 100 * m.panel_width, 100 * m.panel_depth
+		if ui.slider(ctx, "Panel width", &width, PANEL_WIDTH_MIN, PANEL_WIDTH_MAX, .Linear, fmt.tprintf("%.1f%%", width)) do m.panel_width = clamp(width, PANEL_WIDTH_MIN, PANEL_WIDTH_MAX) / 100
+		if ui.slider(ctx, "Panel depth", &depth, -PANEL_DEPTH_MAX, PANEL_DEPTH_MAX, .Linear, fmt.tprintf("%+.1f%%", depth)) do m.panel_depth = clamp(depth, -PANEL_DEPTH_MAX, PANEL_DEPTH_MAX) / 100
 		faces, points := cage_edit_counts(&obj.cage.mesh)
-		ui.paragraph(ctx, fmt.tprintf("%d faces selected, %d points picked. Subdivide, Poke, Split and Separate take the selected faces; Tris to quads the selected faces or all; Fill the hole a picked border edge is on, or every hole; Bevel points the picked points; Relax and Smooth the whole selection, with the Falloff; Join takes in the cage listed below this one, and Union, Subtract and Intersect cut it with that cage exactly, along the faces' planes, the seam creased.", faces, points))
+		ui.paragraph(ctx, fmt.tprintf("%d faces selected, %d points picked. Subdivide, Poke, Split and Separate take the selected faces; Tris to quads the selected faces or all; Fill the hole a picked border edge is on, or every hole; Bevel points the picked points; Relax and Smooth the whole selection, with the Falloff; Join takes in the cage listed below this one, and Union, Subtract and Intersect cut it with that cage exactly, along the faces' planes, the seam creased. Panel loops insets the selected faces by the Panel width and raises them by the Panel depth (sinks them when it is below zero), creasing the three loops so Smooth keeps the panel crisp.", faces, points))
 	}
 	ui.caption(ctx, "TIDY")
 	kit_command_pair(app, .Tidy_Cage, .Tidy_Cage, arg_a = int(Cage_Tidy.Dissolve_Flat), arg_b = int(Cage_Tidy.Merge_Close), label_a = "Dissolve flat", label_b = "Merge close")
