@@ -403,6 +403,8 @@ Kit_State :: struct {
 	frame:      int, // frames drawn, for --ui-events
 	events_offset: int, // frames a start-up script took, which --ui-events frames count after
 	events_unnamed: int, // --ui-events that named a control no frame drew, which fails the run
+	events_held: bool, // this frame's events wait for a long job (jobwait), and --frames' count with them
+	events_held_frames: int, // frames the events waited so, for the exit stats
 	events:     [dynamic]Kit_Event, // --ui-events, in frame order
 	ms:         f64, // last frame's layout and tessellation, CPU
 }
@@ -569,6 +571,15 @@ Kit_Event_Kind :: enum u8 {
 	// SDL_EVENT_DID_ENTER_BACKGROUND and SDL_EVENT_DID_ENTER_FOREGROUND.
 	Background,
 	Foreground,
+	// Scripted runs only: the events hold at this one's frame, it and every later one, for
+	// as many frames as a long job (long_job.odin) runs, and so does --frames' count. A
+	// wait for work on another thread is then the same on a fast machine and a slow one,
+	// and the frames still go on meanwhile, as they do for a person. A job held at its
+	// gate (Job_Hold) is let go first.
+	Job_Wait,
+	// Scripted runs only: the next long job to start waits at its gate before any work
+	// until a Job_Wait or a cancel, so what comes between finds it running on any machine.
+	Job_Hold,
 }
 
 // Reads --ui-events. Returns false, after saying why, when the list is malformed.
@@ -649,6 +660,8 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 			case "kbhide": ev.kind = .Keyboard_Hidden
 			case "bg":     ev.kind = .Background
 			case "fg":     ev.kind = .Foreground
+			case "jobwait": ev.kind = .Job_Wait
+			case "jobhold": ev.kind = .Job_Hold
 			case "wheel", "ppress", "proll", "pbutton", "ponly", "pdist":
 				ok = len(parts) == 3
 				if ok do ev.value, ok = strconv.parse_f32(parts[2])
@@ -714,6 +727,18 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 		_ = sdl.PushEvent(&e)
 	}
 	SCRIPTED_MOUSE :: sdl.MouseID(1)
+	// A jobwait due now while a long job runs holds this frame's events and every later
+	// one's by a frame; the frame the job is applied (long_job_frame, before this) lets them go.
+	k.events_held = false
+	for ev in k.events {
+		if ev.kind != .Job_Wait || ev.frame + k.events_offset != k.frame do continue
+		long_job_open(&app.long_job)
+		if !long_job_busy(app) do continue
+		k.events_offset += 1
+		k.events_held = true
+		k.events_held_frames += 1
+		return
+	}
 	for ev, at_event in k.events {
 		if ev.frame + k.events_offset != k.frame do continue
 		// The window it goes to, its scale and size, and the pointer the buttons press at.
@@ -847,6 +872,10 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 		case .Background, .Foreground:
 			e.common = {type = .DID_ENTER_BACKGROUND if ev.kind == .Background else .DID_ENTER_FOREGROUND, timestamp = now}
 			push(e)
+		case .Job_Wait:
+			// Nothing to send: no job runs (any more), so the events go on.
+		case .Job_Hold:
+			app.long_job.gate_next = true
 		case .Pencil_Only:
 			// The iPad's setting as the bridge reads it, which no SDL event carries.
 			app.pencil.only = ev.value != 0

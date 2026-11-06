@@ -155,6 +155,19 @@ class Script:
     def wait(self, frames):
         self.frame += frames
 
+    def wait_job(self):
+        """Holds the events after this, and the run's frame count, while a long job runs
+        (jobwait): however fast this machine's frames come, the job is done by the next
+        event. The frames go on meanwhile, ui_events_held of them. A job hold_job held
+        starts its work here."""
+        self.add("jobwait")
+        self.wait(1)
+
+    def hold_job(self):
+        """The next long job to start waits before any work until wait_job or a cancel
+        (jobhold), so the events between find it running however fast this machine is."""
+        self.add("jobhold")
+
     def ftap(self, x, y=None, finger=0, hold=2, gap=4):
         """A finger tapping x, y, or the point or named control `x` (where)."""
         self.add(f"fdown:{finger}:{where(x, y)}")
@@ -313,13 +326,17 @@ def tap_ui():
 PEN_RESPONSE_PAGE = At("pen page/Response", 262, 370)
 PEN_RESPONSE_CLAY = At("response/Clay", 193, 451)
 
-# The symmetry popover a long press on Symmetry opens at 1600 x 900: its X, Y, Z and Local;
-# the Radial row's switch and axes; and the Copies slider's two ends.
-SYMMETRY_AXES = {"x": (1319, 313), "y": (1371, 313), "z": (1423, 313), "local": (1483, 313)}
-RADIAL_ROW = {"radial": (1327, 391), "x": (1387, 391), "y": (1439, 391), "z": (1491, 391)}
-RADIAL_COPIES = ((1345, 455), (1524, 455))
+# The symmetry popover a long press on Symmetry opens, by name, since it stands beside the
+# rail wherever the popover's width and spacing put it: its X, Y, Z and Local; the Radial
+# row's switch and axes; and a drag along the Copies slider, from left of its middle to its
+# right end, as offsets from that middle.
+SYMMETRY_AXES = {k: At(f"bar symmetry/symmetry axes/{n}", x, 330)
+                 for k, n, x in (("x", "X", 1268), ("y", "Y", 1320), ("z", "Z", 1372), ("local", "Local", 1432))}
+RADIAL_ROW = {k: At(f"bar symmetry/radial axes/{n}", x, 408)
+              for k, n, x in (("radial", "Radial", 1276), ("x", "X", 1336), ("y", "Y", 1388), ("z", "Z", 1440))}
+RADIAL_COPIES = ("@bar symmetry/Copies~%d,0", -88, 136)
 # The polyframe popover's Fill, beside the rail.
-POLYFRAME_FILL = (1471, 362)
+POLYFRAME_FILL = At("polyframe parts/Fill", 1392, 378)
 # The Camera menu's Field of view slider's knob, under Orthographic.
 FOV_SLIDER = (1349, 132)
 
@@ -640,8 +657,8 @@ def radial_symmetry_from_the_popover():
     s.wait(4)
     s.ftap(RADIAL_ROW["z"])
     s.wait(4)
-    (x0, y), (x1, _) = RADIAL_COPIES
-    s.fdrag([(x0 + (x1 - x0) * i / 6, y) for i in range(7)])
+    at, x0, x1 = RADIAL_COPIES
+    s.fdrag([at % round(x0 + (x1 - x0) * i / 6) for i in range(7)])
     s.wait(4)
     return s, eight_rail(), camera_still({"dabs": near(0), "symmetry": is_text("none+radial32z"), "bar_pop": is_text("symmetry")})
 
@@ -1041,7 +1058,7 @@ def on_card(at, palette):
 # the card's other sections folded, than they stood on the panel stack's card of the
 # section (measured by the controls' names in both builds' --ui-map at 1600 x 900).
 CARD_DY = {"lights": 48, "remesh": 92, "mask": 48, "preset": 6, "turntable": 244, "objects": 6, "background": 264,
-           "visibility": 195, "transform": 48, "print": 293, "mirror": 93, "layers": 6, "deform": 146}
+           "visibility": 195, "transform": 48, "print": 293, "mirror": 93, "layers": 6}
 
 
 def in_section(at, section):
@@ -4247,8 +4264,9 @@ def edit_buttons_close_up_when_reordered():
 def job_pill_settles_in_and_fades_out():
     """A remesh run from Search shows its pill, which settles in under the top bar and fades out the way it came when the job is done."""
     s = Script()
-    palette_run(s, "remesh")
-    s.wait(90)
+    palette_run(s, "voxel remesh")
+    s.wait_job()
+    s.wait(60)
     return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "long_job_running": near(0),
                                                                    "pills_in": lambda v: int(v) >= 2, "pills_out": lambda v: int(v) >= 1})
 
@@ -4864,13 +4882,24 @@ def model_align_sets_a_cage_on_another():
                   (run((550, 330)), LENS_1440 + [f"--script={base}"], {"model_done": near(2), "undo_steps": near(2), "selected_y": near(1.1547, 0.001)}),
                   (run((550, 330), ("ctrl",)), LENS_1440 + [f"--script={base}"], {"model_done": near(2), "undo_steps": near(2), "selected_y": near(0, 0.001)})])
 
+# Curves for Knife, Spine and Extrude to follow, laid by points in the world rather than
+# drawn: the Curve tool lands a stroke's points off the model on a plane through the view's
+# middle (its Draw on), so a drawn wave reaches past the cube and its cut or path would
+# follow the Curve tool's landing rather than the action. The cage cube stands at x 2.25,
+# its faces 0.577 from its middle: the first runs a wave 0.02 in front of the front face
+# (+Z), from past its left edge to just past its right; the second leaves the right face
+# (+X) outward and back, about four of Spine's steps long, through (983, 460) on screen.
+CURVE_ACROSS_THE_FRONT = "curve_add 1.4 0 0.6 1.85 0.15 0.6 2.25 0 0.6 2.65 -0.15 0.6 3.0 0 0.6"
+CURVE_BESIDE_THE_RIGHT = "curve_add 3.1 0 0 3.6 0.3 -0.2 4.1 0.2 -0.4 4.6 0.5 -0.6 5.1 0.4 -0.8"
+
+
 @scenario
 def model_knife_tap_on_a_curve_cuts_along_it():
-    """A curve drawn over the cube's front, then a Knife tap on it: the right face it crosses is cut along it as seen (two new points, one face more), one undo step; the curve under the pen is drawn in the selection's colour (look with --screens)."""
+    """A curve laid just in front of the cube's front face, from past its left edge to just past its right, then a Knife tap on it: that face is cut along it as seen (two new points, one face more), one undo step; the curve under the pen is drawn in the selection's colour (look with --screens)."""
     s = Script()
-    s.mouse_drag([(650, 487)])
+    s.mouse_drag([(650, 510)])
     s.wait(5)
-    return s, LENS_1440 + ["--check-mesh", "--script=add_cage cube; select 1; delete_object; frame_all; draw_curve curve; model_action knife"], {"curves": near(1), "cage_points": near(10), "cage_faces": near(7), "cage_broken": near(0), "undo_steps": near(1), "model_follows": near(1)}
+    return s, LENS_1440 + ["--check-mesh", f"--script=add_cage cube; select 1; delete_object; frame_all; {CURVE_ACROSS_THE_FRONT}; model_action knife"], {"curves": near(1), "cage_points": near(10), "cage_faces": near(7), "cage_broken": near(0), "undo_steps": near(1), "model_follows": near(1)}
 
 
 @scenario
@@ -4885,10 +4914,10 @@ def model_loop_to_curve_makes_a_curve():
 @scenario
 def model_spine_and_extrude_follow_a_curve():
     """Spine pressed on the cube's right face and lifted over a curve beside it grows the face along the curve in four steps (22 faces), one undo step; Extrude dragged from the same face and lifted over the curve grows the same instead of its plain pull (look with --screens)."""
-    base = "add_cage cube; select 1; delete_object; frame_all; draw_curve curve; select 2; move 2.4 -0.3 -1.6"
+    base = f"add_cage cube; select 1; delete_object; frame_all; {CURVE_BESIDE_THE_RIGHT}"
     def run():
         s = Script()
-        s.mouse_drag(line((820, 580), (914, 438), 12))
+        s.mouse_drag(line((820, 580), (983, 460), 12))
         s.wait(10)
         return s
     return Steps([(run(), LENS_1440 + ["--check-mesh", f"--script={base}; model_action spine"], {"curves": near(1), "cage_faces": near(22), "cage_broken": near(0), "model_follows": near(1), "undo_steps": near(1)}),
@@ -6357,10 +6386,12 @@ def lens_arrange_pen_slides_the_shelf_left_handed():
     """Left-handed in portrait, the pen drags the Shelf tag to the screen's bottom right: the shelf stands at the layout's start end of the bottom, which is the screen's right, still clear of the dial in that corner."""
     s = Script()
     s.wait(6)
-    x0, y0 = 186, 1210
+    # The pen lands on the Shelf tag by name, then moves through points on the screen: the tag
+    # moves with the shelf it carries, so the path cannot follow it.
+    grip = At("dock/Move Shelf", 197, 1213)
     s.add("pnear")
-    s.add(f"pdown:{x0},{y0}")
-    for x, y in line((x0, y0), (700, 1250), 30)[1:]:
+    s.add(f"pdown:{where(grip)}")
+    for x, y in line(grip, (700, 1250), 30)[1:]:
         s.wait(1)
         s.add(f"pmove:{x:g},{y:g}")
     s.wait(1)
@@ -8219,8 +8250,10 @@ def two_fingers_scrub_off_only_undoes():
 
 # The brush picker opened from the shelf's All, at 1600 by 900: its header's Search, the
 # categories down its left and its tiles' middles (four columns, the first row at the
-# top); and the heart beside the current brush on the Brush card.
-BROWSER_SEARCH, BROWSER_HEART = (655, 120), (1502, 150)
+# top); and the heart beside the current brush on the Tool card's Brush section, which no
+# card shows until the Tool card is opened (TOOL_CARD).
+BROWSER_SEARCH, BROWSER_HEART = (655, 120), At("card brush/Favorite", 1494, 184)
+TOOL_CARD = "--script=open_card tool"
 BROWSER_CATEGORY = {"recent": (400, 116), "favorites": (400, 164), "all": (400, 212), "move": (400, 404),
                     "mask": (400, 500), "clip": (400, 596)}
 BROWSER_COLUMNS, BROWSER_ROWS = (605, 801, 998, 1194), (195, 315, 435, 555, 675)
@@ -8297,7 +8330,7 @@ def browser_picks_the_knife_and_mask_lasso():
 
 @scenario
 def browser_heart_keeps_a_favorite():
-    """The heart beside the current brush on the Brush card puts it in Favorites, whose count
+    """The heart beside the current brush on the Tool card puts it in Favorites, whose count
     and list in the brush picker show it; a brush picked from the shelf comes first in
     Recent; both are remembered."""
     s = Script()
@@ -8312,7 +8345,7 @@ def browser_heart_keeps_a_favorite():
     s.ftap(browser_tile(0, 0))
     s.wait(6)
     return Steps([
-        (s, [f"--settings-file={settings_file()}"],
+        (s, [f"--settings-file={settings_file()}", TOOL_CARD],
          camera_still({"dabs": near(0), "brush_kind": is_text("smooth"), "brush_favorites": near(1), "brush_recent": near(1),
                        "brush_category": is_text("favorites"), "browser": near(0), "brush_browser_picks": near(1)})),
         (Script(), [f"--settings-file={settings_file()}"], {"brush_favorites": near(1), "brush_recent": near(1), "brush_category": is_text("favorites")}),
@@ -8566,7 +8599,9 @@ def import_runs_as_a_long_job():
                 "f 1 4 3 2\nf 5 6 7 8\nf 1 2 6 5\nf 2 3 7 6\nf 3 4 8 7\nf 4 1 5 8\n")
     s = Script()
     s.add(f"drop:{path}")
-    s.wait(60)
+    s.wait(2)
+    s.wait_job()
+    s.wait(10)
     s.press("f", ("shift",))
     s.wait(10)
     return s, ["--async-jobs"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "objects": near(1), "poly_edges": near(12), "undo_steps": near(2)})
@@ -8610,8 +8645,9 @@ def memory_check_asks_before_a_remesh_too_big():
 def long_job_fades_to_the_new_mesh():
     """A remesh run as a long job lets the old object go once the new mesh is computed, the view holding its picture, and swaps the new mesh in under a fade of it, which is over once the job has landed and a moment passed."""
     s = Script()
-    palette_run(s, "remesh")
-    s.wait(240)
+    palette_run(s, "voxel remesh")
+    s.wait_job()
+    s.wait(60)
     return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "long_job_holds": near(1), "view_holds": near(1), "mesh_fades": near(1), "cross_fading": near(0), "undo_steps": near(1)})
 
 
@@ -8646,8 +8682,9 @@ def save_puts_a_tick_by_the_status():
 def remesh_runs_as_a_long_job():
     """Remesh from Search with --async-jobs runs on a thread of its own and lands as one undo step: the frames go on while it works, and once it is done the job is over and nothing was cancelled."""
     s = Script()
-    palette_run(s, "remesh")
-    s.wait(240)
+    palette_run(s, "voxel remesh")
+    s.wait_job()
+    s.wait(10)
     return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "undo_steps": near(1), "dabs": near(0)})
 
 
@@ -8656,7 +8693,8 @@ def decimate_runs_as_a_long_job():
     """Rebuild from Search, set by a start-up script to keep a tenth of a grouped sphere, decimates on the job's thread with --async-jobs and lands as one undo step of about a tenth of the vertices."""
     s = Script()
     palette_run(s, "rebuild")
-    s.wait(300)
+    s.wait_job()
+    s.wait(10)
     setup = "--script=group normals; set rebuild_goal fewer; set decimate_by percent; set decimate_percent 10"
     return s, ["--async-jobs", "--vertices=60000", setup], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "undo_steps": near(1), "vertices": lambda v: 5400 <= int(v) <= 6600})
 
@@ -8666,7 +8704,8 @@ def retopologize_runs_as_a_long_job():
     """Retopologize from Search with --async-jobs makes the quad object beside the sculpt once its thread is done, as one undo step."""
     s = Script()
     palette_run(s, "retopologize")
-    s.wait(300)
+    s.wait_job()
+    s.wait(10)
     return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "objects": near(2), "undo_steps": near(1), "dabs": near(0)})
 
 
@@ -8674,12 +8713,14 @@ def retopologize_runs_as_a_long_job():
 def long_job_holds_the_scene_and_escape_cancels_it():
     """While a big remesh runs, a drag on the model lays no dab, Ctrl+Z undoes nothing and a command that edits waits; Escape then cancels the job, which leaves no undo step."""
     s = Script()
-    palette_run(s, "remesh")
+    s.hold_job()
+    palette_run(s, "voxel remesh")
     s.mouse_drag(line((760, 430), (860, 470), 6))
     s.press("z", ("ctrl",))
     s.wait(2)
     s.press("Escape")
-    s.wait(60)
+    s.wait_job()
+    s.wait(10)
     return s, ["--async-jobs", "--vertices=1500000"], {"long_jobs": near(1), "long_job_cancels": near(1), "long_job_running": near(0), "undo_steps": near(0), "dabs": near(0)}
 
 
@@ -8688,7 +8729,8 @@ def subdivide_runs_as_a_long_job():
     """Ctrl+D with --async-jobs builds the new level on a thread of its own: the frames go on while it works, and once it is done the object has two levels and nothing was cancelled."""
     s = Script()
     s.press("d", ("ctrl",))
-    s.wait(240)
+    s.wait_job()
+    s.wait(10)
     return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "selected_levels": near(2), "dabs": near(0)})
 
 
@@ -8696,10 +8738,12 @@ def subdivide_runs_as_a_long_job():
 def subdivide_long_job_cancels_with_escape():
     """Escape while a big object's new level is built stops it: the object keeps its one level and no undo step is left."""
     s = Script()
+    s.hold_job()
     s.press("d", ("ctrl",))
     s.wait(3)
     s.press("Escape")
-    s.wait(60)
+    s.wait_job()
+    s.wait(10)
     return s, ["--async-jobs", "--vertices=1500000"], {"long_jobs": near(1), "long_job_cancels": near(1), "long_job_running": near(0), "selected_levels": near(1), "undo_steps": near(0)}
 
 
@@ -8708,7 +8752,8 @@ def convert_to_voxels_runs_as_a_long_job():
     """Convert to voxels from Search with --async-jobs makes the clay on a thread of its own and lands as one undo step: the object is a voxel object once the job is done."""
     s = Script()
     palette_run(s, "convert to voxels")
-    s.wait(240)
+    s.wait_job()
+    s.wait(10)
     return s, ["--async-jobs", "--vertices=60000"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "voxel_objects": near(1), "undo_steps": near(1)})
 
 
@@ -8717,7 +8762,8 @@ def voxel_res_up_runs_as_a_long_job():
     """Res+ from Search with --async-jobs resamples the clay beside the old one on a thread of its own, and the object takes the finer clay as one undo step."""
     s = Script()
     palette_run(s, "res+")
-    s.wait(240)
+    s.wait_job()
+    s.wait(10)
     return s, ["--async-jobs", "--voxels=64"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "voxel_resolution": near(128), "undo_steps": near(1)})
 
 
@@ -8726,7 +8772,8 @@ def convert_to_mesh_runs_as_a_long_job():
     """Convert to mesh from Search with --async-jobs meshes the clay and prepares the mesh on a thread of its own, and lands as one undo step: the object is a mesh once the job is done."""
     s = Script()
     palette_run(s, "convert to mesh")
-    s.wait(240)
+    s.wait_job()
+    s.wait(10)
     return s, ["--async-jobs", "--voxels=96"], camera_still({"long_jobs": near(1), "long_job_running": near(0), "long_job_cancels": near(0), "voxel_objects": near(0), "undo_steps": near(1)})
 
 
@@ -9634,9 +9681,9 @@ def hold_with_a_late_finger_does_nothing():
 
 @scenario
 def hold_off_undoes_nothing():
-    """A settings file from before the gesture map with the holds off (hold_history 0): a still hold undoes nothing."""
+    """With Hold two fingers set to Nothing in the gesture map, a still hold undoes nothing."""
     s = Script()
-    write_settings("hold_history 0\n")
+    write_settings("gesture_map Two_Hold none\n")
     strokes(s, 2)
     hold(s, 2, 45)
     return s, [f"--settings-file={settings_file()}"], camera_still({"undo_steps": near(2), "touch_repeats": near(0)})
@@ -9665,9 +9712,9 @@ def four_finger_tap_runs_its_command():
 
 @scenario
 def pen_button_opens_the_brush_pie():
-    """With a settings file from before version 8, the pen's side button over the model still opens the brush pie it opened then."""
+    """With the side button set to the brush pie in the gesture map, the pen's side button over the model opens the brush pie, not the object menu."""
     s = Script()
-    write_settings("version 7\n")
+    write_settings("gesture_map Pen_Button Brush_Pie\n")
     s.add("pnear")
     s.add("pmove:800,450")
     s.wait(4)
@@ -10249,7 +10296,7 @@ def pencil_squeeze_over_a_panel_does_the_empty_space_action():
 
 @scenario
 def pen_side_button_over_empty_space_runs_its_own():
-    """With the side button over empty space set to Pie 1, it opens Pie 1 there, and over the model it still opens the brush pie."""
+    """With the side button over empty space set to Pie 1, it opens Pie 1 there, and over the model it still opens the object menu, its own slot's default."""
     write_settings("gesture_map Pen_Button_Empty Pie:1\n")
     empty = Script()
     pen_hover(empty, *PEN_EMPTY_POINT, frames=4)
@@ -10261,7 +10308,7 @@ def pen_side_button_over_empty_space_runs_its_own():
     model.wait(6)
     args = [f"--settings-file={settings_file()}"]
     return Steps([(empty, args, camera_still({"pie_open": near(1), "dabs": near(0)})),
-                  (model, args, camera_still({"pie_open": near(0), "dabs": near(0)}))])
+                  (model, args, camera_still({"pie_open": near(-1), "object_menu": near(1), "dabs": near(0)}))])
 
 
 @scenario
@@ -11001,7 +11048,7 @@ def run_one(name, step, screens, displays):
         # With its controls' names and places, to aim a tap at one by name (At).
         if not any(a.startswith("--ui-map") for a in args):
             cmd.append(f"--ui-map={os.path.join(ROOT, 'build', 'touch', name + '.map')}")
-    env = headless.env(dict(os.environ, SDL_ASSERT="abort"))
+    env = headless.env(dict(os.environ, SDL_ASSERT="abort"), exact=True)
     display = displays.get() if displays else None
     try:
         if display:
@@ -11057,7 +11104,7 @@ def start_displays(count):
     need a display of their own. Returns the servers and a queue of their names, or no
     queue when there is no Xvfb, or one job and a display already (the current one is used).
     """
-    if os.name == "nt" or not shutil.which("Xvfb") or headless.mode() == "offscreen":
+    if os.name == "nt" or not shutil.which("Xvfb") or headless.mode(exact=True) == "offscreen":
         return [], None
     # One job on a desktop uses its display; with no display at all it gets a private one.
     if count < 2 and (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
@@ -11438,14 +11485,14 @@ def turntable_frames_slider_by_finger():
 # The Camera menu's View grid row Side by side at 1600 x 900, and in Side by side (the
 # panes fill the window, the panels over the right one): the divider, the view pane's
 # middle clear of the panels, its head's camera chip and that list's Linked and Mirrored
-# rows, then its Link, Maximise and Open in a window, and Restore once it fills the window.
+# rows, then its Link, Maximise and Open in a window by name, and Restore once it fills the window.
 GRID_SIDE_BY_SIDE = (1350, 603)
 GRID_DIVIDER = (799, 600)
 GRID_PANE = (1150, 600)
 GRID_PANE_CAMERA, GRID_PANE_LINKED, GRID_PANE_MIRRORED = (865, 89), (843, 170), (850, 522)
-GRID_PANE_LINK = (1036, 89)
-GRID_PANE_MAX = (1085, 89)
-GRID_PANE_WINDOW = (1132, 89)
+GRID_PANE_LINK = At("view pane 1 head/Link to the main camera", 1058, 90)
+GRID_PANE_MAX = At("view pane 1 head/Maximise", 1106, 90)
+GRID_PANE_WINDOW = At("view pane 1 head/Open in a window", 1154, 90)
 GRID_PANE_RESTORE = (356, 89)
 
 
@@ -11639,10 +11686,10 @@ def view_pane_mirrored_turns_the_main_camera_the_other_way():
 # model's middle, a corner of empty space in it, and its head's Link.
 FOUR_FRONT_MODEL = (1200, 225)
 FOUR_FRONT_EMPTY = (900, 380)
-FOUR_FRONT_LINK = (1036, 89)
-# The Front pane's Shows chip and its AO only and Studio rows, under the shading modes and
-# Solid's options.
-FOUR_FRONT_PASS, FOUR_FRONT_AO, FOUR_FRONT_STUDIO = (970, 89), (971, 636), (965, 724)
+FOUR_FRONT_LINK = At("view pane 1 head/Link to the main camera", 1058, 90)
+# The Front pane's Shows chip and its AO only and Studio rows, under the looks and their
+# options, by name.
+FOUR_FRONT_PASS, FOUR_FRONT_AO, FOUR_FRONT_STUDIO = At("view pane 1 head/Shows", 1005, 90), At("pane menu/AO only", 1111, 735), At("pane menu/Studio", 1111, 823)
 
 
 @scenario
@@ -11850,13 +11897,13 @@ def view_window_finger_turns_its_free_camera():
 
 @scenario
 def view_window_head_picks_what_it_shows():
-    """The Shows select on a view window's head opens in that window and picks its pass: Normals, after the four shading modes and Silhouette."""
+    """The Shows select on a view window's head opens in that window and picks its pass: Normals, after the five looks and Silhouette."""
     s = Script()
     s.wait(10)
     s.window = 1
     s.ftap(WINDOW_SHOWS)
     s.wait(10)
-    s.ftap(WINDOW_SHOWS[0], WINDOW_SHOWS[1] + 51 + 5 * 44)
+    s.ftap(WINDOW_SHOWS[0], WINDOW_SHOWS[1] + 51 + 6 * 44)
     s.window = 0
     s.wait(20)
     return s, ["--view-windows=1"], camera_still({"view_window_pass": is_text("Normals"), "view_window_draws": lambda v: int(v) >= 2, "dabs": near(0)})
@@ -11936,8 +11983,9 @@ def print_height_by_finger_and_inches():
     return s, palettes_only("print"), camera_still({"print_mm": lambda v: float(v) > 26, "print_unit": near(2, 0), "dabs": near(0)})
 
 
-# Object > Deformation at 1600x900: the middle of Amount's track (Offset, with the axes).
-DEFORMATION_AMOUNT = in_section(on_card((1378, 412), "object"), "deform")
+# Object > Deformation's Amount slider by its name, and its track's middle (Offset, with
+# the axes) as a point that far from the control's middle: the track lies under the label.
+DEFORMATION_AMOUNT = "@card Deform/Amount~%d,10"
 
 
 @scenario
@@ -11946,8 +11994,7 @@ def deformation_amount_by_finger():
     undo step when let go; it sculpts nothing and turns nothing."""
     s = Script()
     s.wait(4)
-    x, y = DEFORMATION_AMOUNT
-    s.fdrag(line((x, y), (x + 60, y), 8))
+    s.fdrag([DEFORMATION_AMOUNT % round(60 * i / 8) for i in range(9)])
     s.wait(4)
     return s, palettes_only("deform"), camera_still({"reshapes": near(1, 0), "undo_steps": near(1, 0), "dabs": near(0)})
 
@@ -12217,8 +12264,8 @@ def save_with_versions_off_keeps_none():
 # remesh group showing, by name, and the popover's controls, which sit at its foot just
 # over the bar at 1600x900 whatever the lines above them say.
 ADJUST_BUTTON = At("action bar/Adjust...", 842, 764)
-ADJUST_SIZES = {"41k": (686, 722), "500k": (731, 722), "1M": (777, 722)}
-ADJUST_AXES = {"X": (709, 680), "Y": (800, 680), "Z": (891, 680)}
+ADJUST_SIZES = {n: At(f"adjust size/{n}", x, 698) for n, x in [("41k", 686), ("500k", 731), ("1M", 777)]}
+ADJUST_AXES = {n: At(f"adjust axis/{n}", x, 656) for n, x in [("X", 709), ("Y", 800), ("Z", 891)]}
 ADJUST_STEPS_LEFT = (662, 644)  # the Steps slider's left end: 1 step
 ADJUST_ONE_SLIDER = {"left": (662, 702), "middle": (800, 702)}  # Retopology's Quads, Extract's Thickness
 
@@ -12784,8 +12831,9 @@ def adjust_remesh_from_the_bar():
 ADJUST_STROKE_NONE = (662, 765)
 # The middles of the History card's bar's three steps, after three strokes (Strip view).
 TIMELINE_STEPS_OF_3 = [(1228, 275), (1368, 275), (1508, 275)]
-# Search's History brush row, under its three commands, while "history brush" is typed.
-SEARCH_HISTORY_BRUSH = (625, 294)
+# Search's History brush row while "history brush" is typed, by name, since the rows'
+# order follows the search's ranking.
+SEARCH_HISTORY_BRUSH = At("palette/History brush", 731, 162)
 # mesh_sum after the History scenario's two Draw strokes, before the History brush.
 HISTORY_DRAWN_SUM = 9.41
 
@@ -13092,8 +13140,12 @@ def history_dial_back_a_group():
     return s, [], camera_still({"dials": near(1, 0), "dial_open": near(0, 0), "undo_steps": near(4, 0), "redo_steps": near(0, 0)})
 
 
-# The step menu over the list's newest row (opened at HISTORY_GROUP_ROW): its rows.
-HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_SHOW, HISTORY_MENU_DELETE = (1344, 363), (1344, 451), (1344, 495), (1344, 628)
+# The step menu over the list's newest row (opened at HISTORY_GROUP_ROW): its rows, by name,
+# since a row added to the menu moves the ones under it.
+HISTORY_MENU_PAINT_BACK = At("history step menu/Paint back to here", 1376, 385)
+HISTORY_MENU_BOOKMARK = At("history step menu/Bookmark...", 1376, 473)
+HISTORY_MENU_SHOW = At("history step menu/Show what it changed", 1376, 517)
+HISTORY_MENU_DELETE = At("history step menu/history menu delete", 1376, 650)
 
 
 @scenario
@@ -13133,7 +13185,7 @@ def history_step_menu_from_the_list():
         s.wait(LONG_PRESS_FRAMES)
         s.add("pup")
         s.wait(10)
-        s.add("pdown:{:g},{:g}".format(*HISTORY_MENU_PAINT_BACK))
+        s.add(f"pdown:{where(HISTORY_MENU_PAINT_BACK)}")
         s.wait(2)
         s.add("pup")
         s.wait(2)
@@ -13145,8 +13197,11 @@ def history_step_menu_from_the_list():
 
 
 # The step menu over a step of the strip's three (it opens centred over the step's
-# block): the y of its rows.
-STRIP_MENU_PAINT_BACK_Y, STRIP_MENU_BOOKMARK_Y, STRIP_MENU_DELETE_Y = 149, 193, 326
+# block): the y of its first row, above any the menu gains, then its Bookmark... (over the
+# first step) and Delete everything older (over the second) by name.
+STRIP_MENU_PAINT_BACK_Y = 149
+STRIP_MENU_BOOKMARK = At("history step menu/Bookmark...", 1172, 237)
+STRIP_MENU_DELETE = At("history step menu/history menu delete", 1312, 370)
 # A bookmark's flag over the strip's first step.
 STRIP_FIRST_FLAG = (1179, 266)
 
@@ -13292,9 +13347,9 @@ def history_strip_menu_paint_back_and_delete_older():
         s.wait(4)
         long_press(s, TIMELINE_STEPS_OF_3[1])
         s.wait(6)
-        s.ftap(x, STRIP_MENU_DELETE_Y)
+        s.ftap(STRIP_MENU_DELETE)
         s.wait(4)
-        s.ftap(x, STRIP_MENU_DELETE_Y)
+        s.ftap(STRIP_MENU_DELETE)
         s.wait(6)
         return s, HISTORY_STRIP, camera_still({"undo_steps": near(1, 0), "redo_steps": near(1, 0), "history_dropped": near(1, 0)})
     return Steps([run(False), run(True)])
@@ -13336,7 +13391,7 @@ def history_bookmark_flies_over_the_strip():
     s.wait(3)
     s.add("right")
     s.wait(10)
-    click(s, (TIMELINE_STEPS_OF_3[0][0], STRIP_MENU_BOOKMARK_Y))
+    click(s, STRIP_MENU_BOOKMARK)
     s.wait(10)
     s.type("Start")
     s.press("Return")
@@ -14734,7 +14789,7 @@ def main(argv):
     # Side by side only where each scenario can have a window of its own that keeps its
     # focus: a private Xvfb display each (start_displays) or SDL's offscreen driver, where
     # every window is alone (headless.py).
-    alone = headless.mode() == "offscreen" or (os.name != "nt" and shutil.which("Xvfb"))
+    alone = headless.mode(exact=True) == "offscreen" or (os.name != "nt" and shutil.which("Xvfb"))
     jobs = (os.cpu_count() or 1) if alone else 1
     for a in argv:
         if a.startswith("--jobs="):
