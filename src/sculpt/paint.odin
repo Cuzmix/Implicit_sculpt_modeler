@@ -74,7 +74,7 @@ paint_writes :: proc(s: ^Sculptor) -> Paint_Channels {
 // vertices changed colour.
 @(private)
 paint_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
-	if s.dyn != nil do return 0
+	if s.dyn != nil || sculptor_paint_on_texture(s) do return 0
 	color_ensure(s)
 	s.paint_writes = paint_writes(s)
 	if s.history.recording {
@@ -328,7 +328,8 @@ paint_mix :: #force_inline proc(c: Color, paint: [3]u8, w: f32, erase: bool) -> 
 // Returns true when it changed a colour. Refused (false) under dynamic topology.
 sculptor_paint_command :: proc(s: ^Sculptor, command: Paint_Command, color: [3]u8, gradient := Paint_Gradient{}, material := [2]u8{}) -> bool {
 	_ = sculptor_stroke_end(s)
-	if s.dyn != nil do return false
+	// A texture layer's Fill and Clear are levels_texel_command's, which reach its tiles.
+	if s.dyn != nil || sculptor_paint_on_texture(s) do return false
 	if s.color == nil && command == .Clear do return false
 	color_ensure(s)
 	writes := sculptor_paint_channels(s)

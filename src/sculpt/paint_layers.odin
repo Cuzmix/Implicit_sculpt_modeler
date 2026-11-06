@@ -50,6 +50,10 @@ Paint_Layer :: struct {
 	// Per vertex, its roughness and metal (Material_Paint); nil until either is first
 	// painted, and nil while picked (Sculptor.material then).
 	material: []Material_Paint,
+	// The id of its Texel_Layer in Levels.texels when the layer lives in a texture through
+	// the UVs (paint_texels.odin); 0 for a layer on the vertices. A texture layer has no
+	// colours per vertex, picked or not.
+	texels:   u32,
 }
 
 Paint_Layers :: struct {
@@ -120,6 +124,20 @@ sculptor_paint_layer_materials :: proc(s: ^Sculptor, index: int) -> []Material_P
 	return s.material if l.id == s.paint.picked else l.material
 }
 
+// Whether the picked layer lives in a texture, where no vertex paint tool may write.
+sculptor_paint_on_texture :: proc(s: ^Sculptor) -> bool {
+	i := paint_index(s, s.paint.picked)
+	return i >= 0 && s.paint.list[i].texels != 0
+}
+
+// The index of the lowest texture layer, or the stack's length with none: texture layers
+// always stand above the vertex layers, so the textured composite lies over the vertex
+// one and neither is mixed into the other.
+paint_first_texture :: proc(s: ^Sculptor) -> int {
+	for l, i in s.paint.list do if l.texels != 0 do return i
+	return len(s.paint.list)
+}
+
 // What the picked layer's strokes write: its channel dots, colour alone with no layer.
 sculptor_paint_channels :: proc(s: ^Sculptor) -> Paint_Channels {
 	i := paint_index(s, s.paint.picked)
@@ -129,7 +147,8 @@ sculptor_paint_channels :: proc(s: ^Sculptor) -> Paint_Channels {
 // Whether the stack shows as the picked layer alone: no layers, or one shown at full
 // opacity. Its composite is then Sculptor.color itself.
 paint_plain :: proc(s: ^Sculptor) -> bool {
-	list := s.paint.list[:]
+	// Texture layers have no vertex colours, so only the layers below them count.
+	list := s.paint.list[:paint_first_texture(s)]
 	return len(list) == 0 || (len(list) == 1 && list[0].visible && list[0].opacity >= 1 && list[0].id == s.paint.picked)
 }
 
@@ -204,13 +223,13 @@ paint_pick_id :: proc(s: ^Sculptor, id: u32) {
 	s.paint.picked = id
 }
 
-// Makes a layer named "Paint N" (not yet in the stack).
+// Makes a layer named `prefix` and a number, "Paint N" (not yet in the stack).
 @(private)
-paint_layer_make :: proc(s: ^Sculptor) -> Paint_Layer {
+paint_layer_make :: proc(s: ^Sculptor, prefix := "Paint ") -> Paint_Layer {
 	s.paint.next_id += 1
 	s.paint.named += 1
 	l := Paint_Layer{id = s.paint.next_id, visible = true, opacity = 1, channels = {.Color}}
-	copy(l.name[:len(l.name) - 1], "Paint ")
+	copy(l.name[:len(l.name) - 1], prefix)
 	digits: [8]u8
 	k, n := len(digits), s.paint.named
 	for {
@@ -219,7 +238,7 @@ paint_layer_make :: proc(s: ^Sculptor) -> Paint_Layer {
 		n /= 10
 		if n == 0 || k == 0 do break
 	}
-	copy(l.name[6:len(l.name) - 1], digits[k:])
+	copy(l.name[len(prefix):len(l.name) - 1], digits[k:])
 	return l
 }
 
@@ -250,6 +269,8 @@ sculptor_paint_add :: proc(s: ^Sculptor) -> int {
 	_ = sculptor_stroke_end(s)
 	if s.dyn != nil || len(s.paint.list) >= MAX_PAINT_LAYERS do return -1
 	index := sculptor_paint_picked(s) + 1 if s.paint.picked != 0 else len(s.paint.list)
+	// Under the texture layers, which stay on top.
+	index = min(index, paint_first_texture(s))
 	l := paint_layer_make(s)
 	sculptor_stroke_begin(s)
 	s.history.current.paint_op = {active = true, toggle = true, index = index, held = true, layer = l, picked = l.id}
@@ -312,6 +333,8 @@ sculptor_paint_set_channels :: proc(s: ^Sculptor, index: int, channels: Paint_Ch
 sculptor_paint_move :: proc(s: ^Sculptor, index: int) -> bool {
 	_ = sculptor_stroke_end(s)
 	if s.dyn != nil || index < 0 || index + 1 >= len(s.paint.list) do return false
+	// A vertex layer cannot pass a texture layer: texture layers stay on top.
+	if (s.paint.list[index].texels == 0) != (s.paint.list[index + 1].texels == 0) do return false
 	sculptor_stroke_begin(s)
 	s.history.current.paint_op = {active = true, move = true, a = index, b = index + 1, picked = s.paint.picked}
 	paint_op_swap(s, &s.history.current.paint_op)
@@ -325,6 +348,8 @@ sculptor_paint_move :: proc(s: ^Sculptor, index: int) -> bool {
 sculptor_paint_merge_down :: proc(s: ^Sculptor, index: int) -> bool {
 	_ = sculptor_stroke_end(s)
 	if s.dyn != nil || index < 1 || index >= len(s.paint.list) do return false
+	// A texture layer's paint is in its tiles, not on the vertices this merges.
+	if s.paint.list[index].texels != 0 || s.paint.list[index - 1].texels != 0 do return false
 	picked := s.paint.picked
 	if s.paint.list[index].id == picked do picked = s.paint.list[index - 1].id
 	n := len(s.mesh.positions)
@@ -697,7 +722,7 @@ paint_same_stack :: proc(a, b: ^Sculptor) -> bool {
 	if len(a.paint.list) != len(b.paint.list) || a.paint.picked != b.paint.picked do return false
 	for l, i in a.paint.list {
 		m := b.paint.list[i]
-		if l.id != m.id || l.name != m.name || l.visible != m.visible || l.opacity != m.opacity || l.channels != m.channels do return false
+		if l.id != m.id || l.name != m.name || l.visible != m.visible || l.opacity != m.opacity || l.channels != m.channels || l.texels != m.texels do return false
 	}
 	return true
 }

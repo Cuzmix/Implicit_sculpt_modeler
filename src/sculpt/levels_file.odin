@@ -59,6 +59,9 @@ LEVELS_LAYER_MASKS :: u32(128)
 // and islands, the island count, the share filled, and the pins.
 @(private = "file")
 LEVELS_UVS :: u32(256)
+// Last, the texture paint layers the current level's stack names (write_texels).
+@(private = "file")
+LEVELS_TEXELS :: u32(512)
 
 // How levels_write runs. A save from the frame loop takes the defaults. The autosave
 // thread writes serially, since the pool takes jobs from the frame loop alone, and
@@ -126,7 +129,7 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8, opts := Write_Options{}) -> 
 	geom.byte_put(out, LEVELS_TAG)
 	base := l.levels[0]
 	cc := !paged && l.rule != .Loop && base.polys.first != nil
-	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS | LEVELS_LAYER_MASKS | LEVELS_QUADS | LEVELS_UVS | LEVELS_LAYOUT | LEVELS_SETS | (LEVELS_CC if cc else 0))
+	geom.byte_put(out, LEVELS_DYNAMIC if paged else LEVELS_PAINT | LEVELS_LAYERS | LEVELS_LAYER_MASKS | LEVELS_QUADS | LEVELS_UVS | LEVELS_LAYOUT | LEVELS_SETS | LEVELS_TEXELS | (LEVELS_CC if cc else 0))
 	geom.byte_put(out, u32(len(l.levels)))
 	geom.byte_put(out, u32(l.current))
 	geom.byte_put(out, u32(l.hd.steps))
@@ -206,7 +209,88 @@ levels_write :: proc(l: ^Levels, out: ^[dynamic]u8, opts := Write_Options{}) -> 
 		geom.byte_put(out, u32(len(u.pins)))
 		if !put_checked(&w, slice.to_bytes(u.pins)) do return false
 	}
-	return write_sets(&w, l, canon[:]) && !stopped(w.abort)
+	return write_sets(&w, l, canon[:]) && write_texels(&w, l) && !stopped(w.abort)
+}
+
+// The texture layers the current stack has rows for: their size, the next id, how many,
+// then per layer its id and painted tiles, each its index, which channels it has (1 colour,
+// 2 roughness and metal) and those texels in rows from the top. Layers an undo step holds
+// are not undo's to keep across a save.
+@(private = "file")
+write_texels :: proc(w: ^Writer, l: ^Levels) -> bool {
+	out := w.out
+	t := &l.texels
+	s := &levels_current(l).sculptor
+	named := make([dynamic]^Texel_Layer, 0, len(t.layers), context.temp_allocator)
+	for row in s.paint.list do if layer := texels_layer(t, row.texels); layer != nil do append(&named, layer)
+	geom.byte_put(out, u32(t.side if len(named) > 0 else 0))
+	geom.byte_put(out, t.next_id)
+	geom.byte_put(out, u32(len(named)))
+	for layer in named {
+		geom.byte_put(out, layer.id)
+		painted := 0
+		for tile in layer.tiles do if tile != nil do painted += 1
+		geom.byte_put(out, u32(painted))
+		for tile, i in layer.tiles {
+			if tile == nil do continue
+			geom.byte_put(out, u32(i))
+			geom.byte_put(out, u8(tile.color != nil) | u8(tile.material != nil) << 1)
+			if tile.color != nil && !put_checked(w, slice.to_bytes(tile.color)) do return false
+			if tile.material != nil && !put_checked(w, slice.to_bytes(tile.material)) do return false
+		}
+	}
+	return true
+}
+
+// Reads what write_texels wrote into levels without texture layers. False on a damaged
+// file: a size not one of the bake's, an id twice or past the next, a tile out of range or
+// twice, or a tile with no channel.
+@(private = "file")
+read_texels :: proc(r: ^geom.Byte_Reader, l: ^Levels) -> bool {
+	t := &l.texels
+	side := int(geom.byte_get(r, u32))
+	next_id := geom.byte_get(r, u32)
+	count := geom.byte_get(r, u32)
+	if !r.ok || count > MAX_PAINT_LAYERS || (count > 0) != (side != 0) || (side != 0 && !texel_side_ok(side)) do return false
+	t.side, t.next_id = side, next_id
+	across := texel_tiles_across(side)
+	h := runtime.heap_allocator()
+	for _ in 0 ..< count {
+		id := geom.byte_get(r, u32)
+		painted := geom.byte_get(r, u32)
+		if !r.ok || id == 0 || id > next_id || texels_layer(t, id) != nil || int(painted) > across * across do return false
+		// In the store before its tiles, so a damaged file frees what was read with it.
+		append(&t.layers, Texel_Layer{id = id, tiles = make([]^Texel_Tile, across * across, h)})
+		layer := &t.layers[len(t.layers) - 1]
+		for _ in 0 ..< painted {
+			index := int(geom.byte_get(r, u32))
+			has := geom.byte_get(r, u8)
+			if !r.ok || index >= len(layer.tiles) || layer.tiles[index] != nil || has == 0 || has > 3 do return false
+			tile := new(Texel_Tile, h)
+			layer.tiles[index] = tile
+			if has & 1 != 0 {
+				saved := geom.byte_get_bytes(r, TILE_TEXELS * size_of(Color))
+				if !r.ok do return false
+				tile.color = make([]Color, TILE_TEXELS, h)
+				copy(slice.to_bytes(tile.color), saved)
+			}
+			if has & 2 != 0 {
+				saved := geom.byte_get_bytes(r, TILE_TEXELS * size_of(Material_Paint))
+				if !r.ok do return false
+				tile.material = make([]Material_Paint, TILE_TEXELS, h)
+				copy(slice.to_bytes(tile.material), saved)
+			}
+		}
+	}
+	// Every texture row of the stack names a layer read here, and no two rows the same.
+	s := &levels_current(l).sculptor
+	for row, i in s.paint.list {
+		if row.texels == 0 do continue
+		if texels_layer(t, row.texels) == nil do return false
+		for other in s.paint.list[i + 1:] do if other.texels == row.texels do return false
+	}
+	t.whole = true
+	return true
 }
 
 // The selection sets: how many, then per set its name, level, mean mask and its values
@@ -289,7 +373,7 @@ read_sets :: proc(r: ^geom.Byte_Reader, l: ^Levels, canon: []([]u32)) -> bool {
 
 // A sculptor's paint layers (paint_layers.odin): how many, the picked one (index + 1, 0 for
 // none), the next id and how many were named; then per layer its name, id, eye, opacity
-// and channel dots, a byte saying whether it has colours and those per vertex in file
+// and channel dots, its texture layer's id (0 on the vertices), a byte saying whether it has colours and those per vertex in file
 // order, and likewise its roughness and metal.
 @(private = "file")
 write_paint :: proc(w: ^Writer, s: ^Sculptor, canon: []u32) -> bool {
@@ -305,6 +389,7 @@ write_paint :: proc(w: ^Writer, s: ^Sculptor, canon: []u32) -> bool {
 		geom.byte_put(out, u8(l.visible))
 		geom.byte_put(out, l.opacity)
 		geom.byte_put(out, transmute(u8)l.channels)
+		geom.byte_put(out, l.texels)
 		for values in ([2][]Color{sculptor_paint_layer_colors(s, i), sculptor_paint_layer_materials(s, i)}) {
 			geom.byte_put(out, u8(values != nil))
 			if values == nil do continue
@@ -341,6 +426,7 @@ read_paint :: proc(r: ^geom.Byte_Reader, s: ^Sculptor, canon: []u32) -> bool {
 		visible := geom.byte_get(r, u8)
 		l.opacity = geom.byte_get(r, f32)
 		channels := geom.byte_get(r, u8)
+		l.texels = geom.byte_get(r, u32)
 		if !r.ok || visible > 1 || channels & ~transmute(u8)PAINT_CHANNELS_ALL != 0 || l.id == 0 || l.id > next_id || paint_index(s, l.id) >= 0 || !(l.opacity >= 0 && l.opacity <= 1) do return false
 		l.visible = visible == 1
 		l.channels = transmute(Paint_Channels)channels
@@ -350,7 +436,8 @@ read_paint :: proc(r: ^geom.Byte_Reader, s: ^Sculptor, canon: []u32) -> bool {
 		layer := &s.paint.list[len(s.paint.list) - 1]
 		for k in 0 ..< 2 {
 			has := geom.byte_get(r, u8)
-			if !r.ok || has > 1 do return false
+			// A texture layer has no colours on the vertices.
+			if !r.ok || has > 1 || (has == 1 && l.texels != 0) do return false
 			if has == 0 do continue
 			saved := geom.byte_get_bytes(r, n * size_of(Color))
 			if !r.ok do return false
@@ -559,6 +646,10 @@ levels_read :: proc(l: ^Levels, r: ^geom.Byte_Reader, pool: ^jobs.Pool, node_tri
 	if flags & LEVELS_QUADS != 0 && !read_quads(r, l, file_order) do return false
 	if flags & LEVELS_UVS != 0 && !read_uvs(r, l, file_order, tri_from) do return false
 	if flags & LEVELS_SETS != 0 && !read_sets(r, l, canon[:count]) do return false
+	if flags & LEVELS_TEXELS != 0 && !read_texels(r, l) do return false
+	if flags & LEVELS_TEXELS == 0 {
+		for row in levels_current(l).sculptor.paint.list do if row.texels != 0 do return false
+	}
 	if hd_steps > 0 && !levels_hd_set_steps(l, hd_steps) do return false
 	if paged && !levels_dyn_enable(l) do return false
 	ok = r.ok

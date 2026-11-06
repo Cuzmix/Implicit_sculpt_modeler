@@ -166,6 +166,7 @@ textures_replace :: proc(app: ^App, obj: ^Object, t: Object_Textures, what: stri
 	if next, ok := uvs.?; ok {
 		step.uvs, step.has_uvs = obj.levels.uvs, true
 		obj.levels.uvs = next
+		obj.levels.uv_stamp += 1
 		obj.textures.layout += 1
 	}
 	history_record_textures(app, obj, step, what)
@@ -205,6 +206,7 @@ texture_step_swap :: proc(obj: ^Object, step: ^Texture_Step) {
 	obj.textures.layout = layout
 	if step.has_uvs {
 		obj.levels.uvs, step.uvs = step.uvs, obj.levels.uvs
+		obj.levels.uv_stamp += 1
 		obj.textures.layout += 1
 	}
 }
