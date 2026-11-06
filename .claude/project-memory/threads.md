@@ -1,24 +1,28 @@
-# Project threads, as of 2026-11-05
+# Project threads, as of 2026-11-06
 
-A snapshot of the cloud project's threads ("Optimized Sculpting") when this folder was copied.
-It does not update itself. Each thread's knowledge lives in `memory/` (the file named in
-`memory/MEMORY.md`) and its designs in `notes/`.
+A snapshot of the cloud project's threads ("Optimized Sculpting"), refreshed on 2026-11-06 from
+Bolt's export of the project chat and all 91 threads. It does not update itself. Each thread's
+knowledge lives in `memory/` (the file named in `memory/MEMORY.md`) and its designs in `notes/`.
+From 2026-11-06 work moves to local Claude Code sessions on Bolt's laptop, one worktree per task
+(memory/sculpt-worktrees.md); what waits on Bolt is in memory/open-decisions-2026-11-06.md.
 
 ## Still open (working or waiting on Bolt)
 
 | Thread | State | Where to read more |
 |---|---|---|
-| Research Josef Pelz's fast path tracer | working: A1 #702, A2 #703 merged, rest on its own branch (not merged per Bolt) | memory/pelz-pathtracer-study.md, notes/pathtracer-study/ |
-| Build UV unwrap for the Surface space | working: UV2-UV4 on branch claude/project-thread-ubkdnn, Unwrap row mock C picked | memory/surface-uv-build.md, notes/surface/ |
-| Build cloth and physics brushes | waiting on Bolt: next is PR4 Physics card | memory/physics-brushes-plan.md, notes/physics/ |
-| Stop dense remesh crashing on undo memory | waiting on Bolt: iPad 25Mx2 run | memory/dense-remesh-memory-plan.md |
-| Plan a Look pad for viewport shading | waiting on Bolt's three picks | memory/look-pad-plan.md |
-| Plan UI/UX upgrade from T3's approach | waiting on Bolt: phases ongoing | memory/ui-ux-t3-upgrade.md, notes/ui-review/ |
-| Mock ZBrush for iPad layout 1:1 | review ready | memory/ui-zbrush-gaplist.md, notes/zbrush-ipad-shots/ |
+| Research Josef Pelz's fast path tracer | on hold: A1 #702, A2 #703 merged, B1 on claude/project-thread-072t81 unmerged, B2-E held; stage E taken over by the render materials plan (#761) | memory/pelz-pathtracer-study.md, memory/render-materials-plan.md |
+| Stop dense remesh crashing on undo memory | blocked on Bolt: #735 on the iPad, remesh to 15M twice, send sculpt-log.txt | memory/dense-remesh-memory-plan.md |
+| Find features no other sculpt app has | review ready: #752 #754 #755 merged; Live strokes design only | memory/open-decisions-2026-11-06.md |
+| Find the gaps across the whole app | waiting on Bolt's picks of the 20 gaps and his real-GPU PC run | memory/app-gaps-2026-11-06.md |
+| Mock ZBrush for iPad layout 1:1 | review ready: gap list 14b-15 not built | memory/ui-zbrush-gaplist.md, notes/zbrush-ipad-shots/ |
 
 ## Done but not archived (follow-ups may remain; see their memory file)
 
-Improve sculpt while Bolt is away; Try GPU compute for sculpt operations; Fix tablet touch and camera
+Build UV unwrap for the Surface space (UV to #720, texture paint to #748; shader graph not built);
+Build cloth and physics brushes (to #745; GPU kernels deferred); Plan a Look pad (#738, #749); Plan
+UI/UX upgrade from T3's approach (to #750); Make the matcaps look like ZBrush (#727, #743); Fix
+broken wireframe with dynamic topology (#716); Compare modeling tools with ZBrush and Blender
+(#711-#724); Improve sculpt while Bolt is away; Try GPU compute for sculpt operations; Fix tablet touch and camera
 controls; Plan one modern real-time Render; Unlock frame rate past 60 Hz; Plan the app UI overhaul;
 Add pen roll twist and hover-aware gestures; Plan distinct Remesh and Quad Remesh tools; Weigh building
 on Blender's engine; Plan UV unwrap, texturing and shaders; Redesign the interface as docks and cards;
