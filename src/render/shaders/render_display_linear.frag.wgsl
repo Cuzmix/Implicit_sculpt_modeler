@@ -1,4 +1,4 @@
-// slangc wgsl from render_display_linear.frag.spv sha256 6f6054655839ff6f2dae82e2acb65d33bf48425e2cc27ec6dc69a72cf658ff26
+// slangc wgsl from render_display_linear.frag.spv sha256 238303eb11cd84dac0bac7620d3ac0fc9667e69b91bb7161e522f7364af5f19a
 diagnostic(off, derivative_uniformity);
 @binding(0) @group(2) var view_color_texture_0 : texture_2d<f32>;
 
@@ -118,7 +118,8 @@ fn main(@builtin(position) frag_coord_0 : vec4<f32>) -> pixelOutput_0
 {
     var _S11 : vec2<f32> = frag_coord_0.xy;
     var _S12 : vec2<i32> = vec2<i32>(_S11);
-    var under_0 : vec3<f32> = (textureLoad((view_color_texture_0), ((view_color_sampler_0)).xy, ((view_color_sampler_0)).z)).xyz;
+    var _S13 : vec4<f32> = (textureLoad((view_color_texture_0), ((view_color_sampler_0)).xy, ((view_color_sampler_0)).z));
+    var under_0 : vec3<f32> = _S13.xyz;
     var t_1 : vec4<f32>;
     if((Display_Uniforms_0.params_0.w) < 0.5f)
     {
@@ -126,24 +127,24 @@ fn main(@builtin(position) frag_coord_0 : vec4<f32>) -> pixelOutput_0
     }
     else
     {
-        var _S13 : vec2<i32> = vec2<i32>(i32(1));
-        var hi_0 : vec2<i32> = texture_size_0(accum_texture_0, accum_sampler_0) - _S13;
-        var at_0 : vec2<f32> = _S11 / vec2<f32>(texture_size_0(view_color_texture_0, view_color_sampler_0)) * vec2<f32>(hi_0 + _S13) - vec2<f32>(0.5f);
-        var _S14 : vec2<i32> = vec2<i32>(floor(at_0));
-        var f_0 : vec2<f32> = at_0 - vec2<f32>(_S14);
-        var _S15 : vec2<i32> = vec2<i32>(i32(0));
-        var _S16 : f32 = f_0.x;
-        var _S17 : f32 = 1.0f - _S16;
-        var _S18 : f32 = f_0.y;
-        var _S19 : f32 = 1.0f - _S18;
-        var _S20 : vec4<f32> = blended_0(clamp(_S14, _S15, hi_0), _S17 * _S19) + blended_0(clamp(_S14 + vec2<i32>(i32(1), i32(0)), _S15, hi_0), _S16 * _S19) + blended_0(clamp(_S14 + vec2<i32>(i32(0), i32(1)), _S15, hi_0), _S17 * _S18) + blended_0(clamp(_S14 + vec2<i32>(i32(1), i32(1)), _S15, hi_0), _S16 * _S18);
-        t_1 = _S20;
-        if((_S20.w) > 0.0f)
+        var _S14 : vec2<i32> = vec2<i32>(i32(1));
+        var hi_0 : vec2<i32> = texture_size_0(accum_texture_0, accum_sampler_0) - _S14;
+        var at_0 : vec2<f32> = _S11 / vec2<f32>(texture_size_0(view_color_texture_0, view_color_sampler_0)) * vec2<f32>(hi_0 + _S14) - vec2<f32>(0.5f);
+        var _S15 : vec2<i32> = vec2<i32>(floor(at_0));
+        var f_0 : vec2<f32> = at_0 - vec2<f32>(_S15);
+        var _S16 : vec2<i32> = vec2<i32>(i32(0));
+        var _S17 : f32 = f_0.x;
+        var _S18 : f32 = 1.0f - _S17;
+        var _S19 : f32 = f_0.y;
+        var _S20 : f32 = 1.0f - _S19;
+        var _S21 : vec4<f32> = blended_0(clamp(_S15, _S16, hi_0), _S18 * _S20) + blended_0(clamp(_S15 + vec2<i32>(i32(1), i32(0)), _S16, hi_0), _S17 * _S20) + blended_0(clamp(_S15 + vec2<i32>(i32(0), i32(1)), _S16, hi_0), _S18 * _S19) + blended_0(clamp(_S15 + vec2<i32>(i32(1), i32(1)), _S16, hi_0), _S17 * _S19);
+        t_1 = _S21;
+        if((_S21.w) > 0.0f)
         {
-            var _S21 : vec3<f32> = t_1.xyz / vec3<f32>(t_1.w);
-            t_1.x = _S21.x;
-            t_1.y = _S21.y;
-            t_1.z = _S21.z;
+            var _S22 : vec3<f32> = t_1.xyz / vec3<f32>(t_1.w);
+            t_1.x = _S22.x;
+            t_1.y = _S22.y;
+            t_1.z = _S22.z;
         }
     }
     var below_0 : vec3<f32> = neutral_inverse_0(srgb_decode_0(under_0));
@@ -156,7 +157,8 @@ fn main(@builtin(position) frag_coord_0 : vec4<f32>) -> pixelOutput_0
     {
         shown_0 = below_0;
     }
-    var _S22 : pixelOutput_0 = pixelOutput_0( vec4<f32>(mix(below_0, shown_0, vec3<f32>(clamp(t_1.w, 0.0f, 1.0f))), 1.0f) );
-    return _S22;
+    var _S23 : f32 = _S13.w;
+    var _S24 : pixelOutput_0 = pixelOutput_0( vec4<f32>(mix(below_0, shown_0, vec3<f32>(clamp(t_1.w, 0.0f, 1.0f))), _S23 + (1.0f - _S23) * clamp(t_1.w, 0.0f, 1.0f)) );
+    return _S24;
 }
 

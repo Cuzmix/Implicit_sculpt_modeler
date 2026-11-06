@@ -1,12 +1,15 @@
 ---
 name: one-ui-per-card
-description: Bolt 2026-11-02: never two different UIs for the same thing; each card is the one UI, sections/palettes draw the card, best of both combined
+description: Bolt 2026-11-06: one implementation per thing, as many places to reach it as help (replaces the 2026-11-02 "one UI per thing, one place" rule)
 metadata:
   type: feedback
-  modified: 2026-11-02T12:07:27.568Z
+  modified: 2026-11-06T12:00:00.000Z
 ---
 
-Bolt 2026-11-02 11:55: "not have two different ui for the same thing... double check all cards... just like how we did with the scene card... take the best of both and combine it". Triggered by the rail's Layers button opening the tray's plain Layers section (no thumbnails) instead of the Layers card (fixed #493: rail_card_slot migrates saved rails).
+Bolt 2026-11-06: "one implementation per thing, as many places to reach it as help." Replaces the 2026-11-02 rule ("not have two different ui for the same thing"), which had come to mean a feature may appear in only one place.
 
-**Why:** duplicate panels drift apart in style and features, and Bolt notices the inconsistency on device.
-**How to apply:** when adding or changing a card, make every entry point (rail, Show_Section, palettes, object menu, shelf) draw that same card; fold the twin's unique controls into it (under More/groups if the card would grow); never leave a second UI. Audit 2026-11-02 found 4 twins: Layers card vs Object palette Layers section, Material card vs Scene palette Material section, Lights card vs Lights section, Scene card vs Scene palette Objects tree + Add object section. Brush, Symmetry, Tools, Environment were already single. See [[rail-groups-lights-plan]], [[lens-panel-model]].
+- Kept: each feature has one source of truth and one piece of UI code. Any shortcut to it (a top-bar chip, a shelf slider, a pie item, a row in another card) is that same control, drawn by the same proc, so it can never show different values or behave differently. Never a second, different panel for the same feature (the 2026-11-02 audit's four twins, Layers, Material, Lights and Scene, stay folded into their cards).
+- Dropped: "a feature may appear in only one place". Putting the same control where the hand already is, is good design, especially on a tablet.
+
+**Why:** Bolt felt the one-place reading held the app back; on a tablet the controls need to be where the hand is, and a shortcut that is the same control cannot drift the way twin panels did.
+**How to apply:** for any new shortcut ask two things: is it the same control (the same proc, the same state, no copy), and does it save a real reach or tap? Both yes: add it. A second panel with its own drawing code for an existing feature: fold it into the one implementation instead. See [[rail-groups-lights-plan]], [[lens-panel-model]], [[best-of-all-worlds]].

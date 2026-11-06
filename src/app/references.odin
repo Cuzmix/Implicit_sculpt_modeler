@@ -52,7 +52,7 @@ Ref_Image :: struct {
 }
 
 // A place of a picture on the board: its top left and size in board points (a point at
-// zoom 1), drawn in the list's order, the last on top. `sized` is false until the
+// zoom 1), drawn in the list's order, the last on top (a picked one is moved there). `sized` is false until the
 // picture's own shape is known, when the place takes it at the same height. What it shows
 // is the picture's part between crop_lo and crop_hi (its texture coordinates, 0 to 1),
 // mirrored left to right when flipped, then turned a quarter clockwise `turn` times, in
@@ -456,6 +456,58 @@ image_size_peek :: proc(b: []u8) -> (w, h: int, ok: bool) {
 	return
 }
 
+// Moves the places of `ids` to the top of `list` (its end, drawn last), keeping their order
+// among themselves with `top` last of all, as picking a picture in PureRef brings it
+// forward; locked places stay where they are in the order, so a backdrop locked behind the
+// rest is never raised over them by a tap that only pans. True when the order changed.
+refs_bring_front :: proc(list: ^[dynamic]Ref, ids: []u32, top: u32) -> bool {
+	raised :: proc(r: Ref, ids: []u32) -> bool {
+		if r.locked do return false
+		for id in ids do if id == r.id do return true
+		return false
+	}
+	out := make([dynamic]Ref, 0, len(list), context.temp_allocator)
+	for r in list do if !raised(r, ids) do append(&out, r)
+	for r in list do if raised(r, ids) && r.id != top do append(&out, r)
+	for r in list do if raised(r, ids) && r.id == top do append(&out, r)
+	return refs_order_take(list, out[:])
+}
+
+// Moves the places of `ids` to the bottom of `list` (its start, drawn first), keeping
+// their order among themselves; locked ones too, since it is asked for by name. True when
+// the order changed.
+refs_send_back :: proc(list: ^[dynamic]Ref, ids: []u32) -> bool {
+	picked :: proc(r: Ref, ids: []u32) -> bool {
+		for id in ids do if id == r.id do return true
+		return false
+	}
+	out := make([dynamic]Ref, 0, len(list), context.temp_allocator)
+	for r in list do if picked(r, ids) do append(&out, r)
+	for r in list do if !picked(r, ids) do append(&out, r)
+	return refs_order_take(list, out[:])
+}
+
+// Puts `order` (the same places as `list`) in its place; true when it differs.
+@(private = "file")
+refs_order_take :: proc(list: ^[dynamic]Ref, order: []Ref) -> bool {
+	same := true
+	for r, i in order do if r.id != list[i].id do same = false
+	if same do return false
+	copy(list[:], order)
+	return true
+}
+
+// Sends the picked places to the bottom of the board and the view, as one undo step.
+refs_send_back_selected :: proc(app: ^App) {
+	b := &app.kit.board
+	before := refs_clone(app.scene.refs.refs[:])
+	if !refs_send_back(&app.scene.refs.refs, b.selected[:]) {
+		delete(before)
+		return
+	}
+	history_record_refs(app, before, "Send reference to back" if len(b.selected) == 1 else "Send references to back")
+}
+
 // A copy of places `list`, owned by the caller.
 refs_clone :: proc(list: []Ref, allocator := context.allocator) -> []Ref {
 	out := make([]Ref, len(list), allocator)
@@ -811,6 +863,15 @@ ref_decode_take :: proc(app: ^App, img: ^Ref_Image) {
 	img.shown = d.shown
 	if img.texture == 0 do img.failed = strings.clone(fmt.tprintf("the GPU refused a %d x %d picture", d.shown.x, d.shown.y))
 	for &r in app.scene.refs.refs do if r.image == img.id && !r.sized do r = ref_sized(r, img)
+}
+
+// The places' ids in the board's order, bottom first, comma-separated ("none" for none),
+// for the exit stats.
+refs_order_text :: proc(app: ^App) -> string {
+	if len(app.scene.refs.refs) == 0 do return "none"
+	sb := strings.builder_make(context.temp_allocator)
+	for r, i in app.scene.refs.refs do fmt.sbprintf(&sb, "%s%d", "," if i > 0 else "", r.id)
+	return strings.to_string(sb)
 }
 
 // How many pictures have their GPU copy, for the exit stats.

@@ -217,6 +217,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("import_folders=%d import_skins=%d import_animations=%d import_shapes=%d import_quads_joined=%d", app.import_folders, app.import_rig.skins, app.import_rig.animations, app.import_rig.shapes, app.import_joined)
 		fmt.printfln("import_materials=%d import_unvalued=%d", app.import_materials, app.import_unvalued)
 		fmt.printfln("material_balls_drawn=%d material_ball_ms=%.3f", app.material_balls.drawn, app.material_balls.ms)
+		fmt.printfln("render_images=%d render_images_failed=%d render_image_on=%d", app.render_image.written, app.render_image.failed, int(app.render_image.on))
 		// The Scene card's pictures: rows drawn last frame, pictures drawn, its row menu, what Copy holds,
 		// how many objects have their polypaint left out, and how many take part in booleans.
 		paint_off, booleans := 0, 0
@@ -412,7 +413,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			}
 			// Decodes still running finish first, so the counts say what the run asked for.
 			refs_finish(app)
-			fmt.printfln("refs=%d ref_images=%d refs_shown=%d refs_gpu_mb=%.1f refs_decode_ms=%.0f refs_selected=%d refs_moves=%d ref_notes=%d refs_grey=%d refs_shrunk=%d refs_small=%d ref_planes=%d ref_planes_through=%d refs_lined_up=%d", len(app.scene.refs.refs), len(app.scene.refs.images), refs_shown_count(app), refs_gpu_mb(app), app.refs_decode_ms, len(app.kit.board.selected), app.kit.board.moves, refs_note_count(app), refs_grey_count(app), app.refs_shrunk, refs_small_count(app), refs_plane_count(app, false), refs_plane_count(app, true), app.kit.board.lined_up)
+			fmt.printfln("refs=%d ref_images=%d refs_shown=%d refs_gpu_mb=%.1f refs_decode_ms=%.0f refs_selected=%d refs_moves=%d ref_notes=%d refs_grey=%d refs_shrunk=%d refs_small=%d ref_planes=%d ref_planes_through=%d refs_lined_up=%d refs_order=%s refs_asked_files=%d refs_asked_photos=%d dialogs_asked=%d", len(app.scene.refs.refs), len(app.scene.refs.images), refs_shown_count(app), refs_gpu_mb(app), app.refs_decode_ms, len(app.kit.board.selected), app.kit.board.moves, refs_note_count(app), refs_grey_count(app), app.refs_shrunk, refs_small_count(app), refs_plane_count(app, false), refs_plane_count(app, true), app.kit.board.lined_up, refs_order_text(app), app.kit.board.asked_files, app.kit.board.asked_photos, app.dialogs_asked)
 			fmt.printfln("environment_turn=%.1f environment_tilt=%.1f environment_turns=%d environment_recent=%d environment_backdrop=%s", env.turn, env.tilt, env.turns, len(env.recent), strings.to_lower(fmt.tprint(environment_backdrop(&env)), context.temp_allocator))
 		}
 		{

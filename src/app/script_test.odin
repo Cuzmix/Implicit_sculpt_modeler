@@ -176,6 +176,7 @@ capture_vdm my horn
 export_vdm vdm/horn 2.exr
 export_bary skins/head 1.bary
 paint_maps my maps/head
+render_image 640 480 16 fast transparent passes catcher my renders/shot 1.png
 reference my refs/front 1.png
 reference_plane Right through
 stack mirror -xz
@@ -187,13 +188,19 @@ render_focus Pivot`
 	s := script_parse(text, "x")
 	defer script_destroy(&s)
 	testing.expect_value(t, script_report(&s), "")
-	if !testing.expect_value(t, len(s.statements), 36) do return
+	if !testing.expect_value(t, len(s.statements), 37) do return
 	st := s.statements
 	for v, i in Script_Verb {
 		testing.expect_value(t, st[i].kind, Script_Kind.Verb)
 		testing.expect_value(t, st[i].verb, v)
 	}
 	testing.expect_value(t, st[0].numbers.xyz, [3]f32{0.9, 0, -1.5})
+	// render_image's size and samples, its options as bits (passes, catcher, fast) and the
+	// transparent flag, and the path with its spaces.
+	ri := st[int(Script_Verb.Render_Image)]
+	testing.expect_value(t, ri.numbers.xyz, [3]f32{640, 480, 16})
+	testing.expect(t, ri.flip && ri.arg == 7)
+	testing.expect_value(t, ri.text, "my renders/shot 1.png")
 	testing.expect_value(t, st[1].numbers.z, 370)
 	testing.expect_value(t, Boolean_Mode(st[2].arg), Boolean_Mode.Subtract)
 	testing.expect_value(t, st[3].arg, 2)
@@ -222,13 +229,13 @@ render_focus Pivot`
 	testing.expect_value(t, st[25].text, "vdm/horn 2.exr")
 	testing.expect_value(t, st[26].text, "skins/head 1.bary")
 	testing.expect_value(t, st[27].text, "my maps/head")
-	testing.expect_value(t, st[28].text, "my refs/front 1.png")
-	testing.expect(t, Ref_Plane(st[29].arg) == .Right && st[29].flip)
-	testing.expect_value(t, st[30].text, "mirror -xz")
-	testing.expect_value(t, st[31].text, "0 0 0 1 0 0")
-	testing.expect_value(t, st[32].text, "my view")
-	testing.expect_value(t, transmute(sculpt.Paint_Channels)u8(st[34].arg), sculpt.Paint_Channels{.Color, .Height})
-	testing.expect(t, st[35].verb == .Render_Focus && st[35].flip)
+	testing.expect_value(t, st[29].text, "my refs/front 1.png")
+	testing.expect(t, Ref_Plane(st[30].arg) == .Right && st[30].flip)
+	testing.expect_value(t, st[31].text, "mirror -xz")
+	testing.expect_value(t, st[32].text, "0 0 0 1 0 0")
+	testing.expect_value(t, st[33].text, "my view")
+	testing.expect_value(t, transmute(sculpt.Paint_Channels)u8(st[35].arg), sculpt.Paint_Channels{.Color, .Height})
+	testing.expect(t, st[36].verb == .Render_Focus && st[36].flip)
 
 	bad := script_parse("move 1 2\nrotate 0 x 0\nboolean maybe\nslice w\nhide -\nmask_rect 0 0 0 1\nmask_rect 0 0 2 1\nproject 0\ndraw_curve\ninsert_middle blob\nfalloff soft\nalpha\nlayer 0 1\nlayer 1 3\nlayer 1 1 shown\ninstall_pack\nfocal 101\nmatcap\npreset\npack_mesh", "bad")
 	defer script_destroy(&bad)

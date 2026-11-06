@@ -56,6 +56,11 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   when the hand changes, and `float_raise(k, c)` moves it to the end of `k.order` (a `Card` each) on a press; the
   draw order is the hit-test order from the next frame. `window_room` is the height it has where it is;
   `windows_reset` puts them back (Settings > Interface > Reset panel positions).
+- One implementation per thing, as many places to reach it as help (Bolt, 2026-11-06): each feature has one source of
+  truth and one proc that draws its control; a shortcut to it (a top-bar chip, a shelf slider, a pie item, a row in
+  another card) calls that same proc, so it can never show a different value or behave differently, and a second,
+  different panel for the same feature is never written. A new shortcut passes when it is the same control and saves
+  a real reach or tap (on a tablet, the control where the hand already is).
 - Cards and columns (`src/app/cards.odin`, `src/app/column.odin`): docks hold buttons, cards hold controls. `Card`
   (Tool, Layers, Scene, Mesh, Mask, Deform, Paint, Symmetry, Look, Render) is the card enum and `Section` every
   section, grouped by card in order (`section_card(sec)` by switch ranges; `card_sections(c)`). A card opens in a

@@ -129,6 +129,8 @@ float3 layer_light(float3 n, float3 v, float3 l, float3 sss_albedo, float3 wrap,
 #endif
 
 #ifdef LAYERS
+#include "thin_film.slang"
+
 // How much of the ambient light sheen gives back: its lobe's albedo is small and broad, a
 // little more toward the outline, so a fixed share stands in for it.
 static const float SHEEN_AMBIENT = 0.2;
@@ -783,6 +785,8 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		// The base's reflectance from its IOR and specular weight.
 		float r0 = (L2.w - 1.0) / (L2.w + 1.0);
 		f0 = lerp(float3(r0 * r0 * (1.0 - L7.w)), albedo, metallic);
+		// A thin film's colours over that reflectance, at the angle the eye sees it from.
+		if (L7.x > 0.0) f0 = lerp(f0, thin_film(n_dot_v, f0, L7.y, L7.z), L7.x);
 		comp = energy_compensation(f0, n_dot_v, rough);
 		// Subsurface takes its weight's share of the diffuse part and transmission its own;
 		// the wrap per channel is the light's travel (view units) over the radius of the
