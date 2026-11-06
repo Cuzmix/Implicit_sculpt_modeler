@@ -59,7 +59,7 @@ PHYSICS_DEFAULTS :: Object_Physics {
 	down      = {0, -1, 0},
 	floor     = true,
 	objects   = true,
-	gap       = 0.01,
+	gap       = PHYSICS_GAP_DEFAULT,
 	thickness = 1,
 	stiffness = sculpt.CLOTH_DEFAULTS.stiffness,
 	firmness  = sculpt.CLOTH_DEFAULTS.firmness,
@@ -67,6 +67,7 @@ PHYSICS_DEFAULTS :: Object_Physics {
 }
 
 // The ranges of the card's sliders, which a scene file's values are held to as well.
+PHYSICS_GAP_DEFAULT :: f32(0.01)
 PHYSICS_GAP_MAX :: f32(0.05)
 PHYSICS_THICKNESS_MIN :: f32(0.5)
 PHYSICS_THICKNESS_MAX :: f32(3)
@@ -384,7 +385,8 @@ physics_card_end :: proc(app: ^App) {
 	filter_drag_end(app, force = true)
 }
 
-// The card: Settle, gravity, collisions, the filters and the make-up.
+// The card: Settle and gravity, the filters, and under More what the cloth collides with
+// and its make-up.
 kit_physics :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
 	c := &app.ui.physics
@@ -410,19 +412,12 @@ kit_physics :: proc(app: ^App, obj: ^Object) {
 	}
 	ui.paragraph(ctx, "Settle lets the free part fall as cloth, onto the floor and the other objects, till it comes to rest: a tap runs it, a held press only while held, and a tap or Escape stops it, as one undo step. The mask holds what it covers (On masked, the other way round).")
 
-	_ = ui.switch_row(ctx, "Collide with floor", &edit.floor)
-	_ = ui.switch_row(ctx, "Collide with objects", &edit.objects)
-	if edit.objects do _ = ui.slider(ctx, "Gap", &edit.gap, 0, PHYSICS_GAP_MAX, .Linear, fmt.tprintf("%.1f%%", edit.gap * 100))
-	_ = ui.switch_row(ctx, "Self collision", &edit.self_collide)
-	if edit.self_collide do _ = ui.slider(ctx, "Thickness", &edit.thickness, PHYSICS_THICKNESS_MIN, PHYSICS_THICKNESS_MAX, .Linear, fmt.tprintf("%.1f edges", edit.thickness))
-	_ = ui.switch_row(ctx, "On masked", &edit.on_masked)
-
 	// The filters: a slider each drag pulls toward, live, as one undo step.
 	filters: [len(Physics_Filter)]string
 	for name, f in PHYSICS_FILTER_NAMES do filters[int(f)] = name
 	if picked := ui.tabs(ctx, "physics filter", filters[:], int(c.filter)); picked >= 0 && !c.drag.active do c.filter = Physics_Filter(picked)
 	if c.filter == .Scale {
-		ui.begin(ctx, "physics filter axes", {direction = .Row, gap = 4})
+		ui.begin(ctx, "physics filter axes", {direction = .Row, gap = ui.SPACE_XS})
 		for a in sculpt.Axis {
 			if ui.toggle_button(ctx, fmt.tprintf("%v##physics", a), a in c.filter_axes, 92) && !c.drag.active {
 				if a in c.filter_axes do c.filter_axes -= {a}
@@ -439,17 +434,26 @@ kit_physics :: proc(app: ^App, obj: ^Object) {
 	ui.paragraph(ctx, PHYSICS_FILTER_HELP[c.filter])
 
 	if kit_more(app, .Physics) {
+		_ = ui.switch_row(ctx, "Collide with floor", &edit.floor)
+		_ = ui.switch_row(ctx, "Collide with objects", &edit.objects)
+		if edit.objects do _ = ui.slider(ctx, "Gap", &edit.gap, 0, PHYSICS_GAP_MAX, .Linear, fmt.tprintf("%.1f%%", edit.gap * 100))
+		_ = ui.switch_row(ctx, "Self collision", &edit.self_collide)
+		if edit.self_collide do _ = ui.slider(ctx, "Thickness", &edit.thickness, PHYSICS_THICKNESS_MIN, PHYSICS_THICKNESS_MAX, .Linear, fmt.tprintf("%.1f edges", edit.thickness))
+		_ = ui.switch_row(ctx, "On masked", &edit.on_masked)
 		_ = ui.slider(ctx, "Stiffness", &edit.stiffness, 0, 1, .Linear, fmt.tprintf("%.0f%%", edit.stiffness * 100))
 		_ = ui.slider(ctx, "Firmness", &edit.firmness, 0, 1, .Linear, fmt.tprintf("%.0f%%", edit.firmness * 100))
 		_ = ui.slider(ctx, "Damping", &edit.damping, 0, 1, .Linear, fmt.tprintf("%.0f%%", edit.damping * 100))
 		_ = ui.switch_row(ctx, "Keep area", &edit.keep_area)
 		_ = ui.switch_row(ctx, "Allow shrink", &edit.allow_shrink)
 		_ = ui.switch_row(ctx, "Allow expand", &edit.allow_expand)
-		ui.paragraph(ctx, "What this object is made of, for Settle, the filters, the Physics switch and posing with Physics (the Cloth brush keeps its own): Stiffness is how firmly edges keep their length; Firmness how much it resists bending, for wider, fewer folds; Damping how quickly it settles. Keep area holds edges to the stored morph target's lengths; Allow shrink lets it crumple without pushing back; Allow expand lets it stretch like rubber. The collisions and gravity's way serve the Cloth brush too.")
+		ui.paragraph(ctx, "The floor stands at the bottom of the scene; Gap keeps the cloth that share of its size off the other objects, and Thickness keeps its own folds that many edges apart. On masked moves the masked part instead of the free one. Then what this object is made of, for Settle, the filters, the Physics switch and posing with Physics (the Cloth brush keeps its own): Stiffness is how firmly edges keep their length; Firmness how much it resists bending, for wider, fewer folds; Damping how quickly it settles. Keep area holds edges to the stored morph target's lengths; Allow shrink lets it crumple without pushing back; Allow expand lets it stretch like rubber. The collisions and gravity's way serve the Cloth brush too.")
 		kit_more_end(app)
 	}
 	kit_last_result(app, .Physics)
 }
+
+// What physics_put writes: six numbers, the set direction, the way and the switches.
+PHYSICS_BYTES :: 6 * 4 + 3 * 4 + 1 + 1
 
 // Appends the card's settings as the scene file's object keeps them.
 physics_put :: proc(out: ^[dynamic]u8, p: Object_Physics) {

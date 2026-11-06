@@ -178,10 +178,12 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 
 		testing.expect_value(t, back.remesh_cell, obj.remesh_cell)
 		testing.expect_value(t, back.stack, obj.stack)
+		testing.expect_value(t, back.physics, object_physics(obj))
 
-		// The flags byte sits ten bytes and the live stack's before the end of the head:
-		// the flags, the folder, the stored eyes, the last remesh's cell and the stack.
-		flags := r.at - 10 - STACK_BYTES
+		// The flags byte sits ten bytes, the live stack's and the Physics card's before the
+		// end of the head: the flags, the folder, the stored eyes, the last remesh's cell,
+		// the stack and the card.
+		flags := r.at - 10 - STACK_BYTES - PHYSICS_BYTES
 
 		// Each known bit reads back; one past them is damage.
 		out[flags] = 4
