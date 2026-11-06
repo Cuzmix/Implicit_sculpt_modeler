@@ -62,6 +62,10 @@ MATERIALS := [?]Material {
 	{"Velvet", {0.30, 0.02, 0.06, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.9, 0, 0, {sheen_color = {1, 0.55, 0.65}, sheen_weight = 1, sheen_roughness = 0.5}},
 	{"Satin", {0.62, 0.62, 0.66, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.45, 0, 0, {sheen_color = {1, 1, 1}, sheen_weight = 0.6, sheen_roughness = 0.25}},
 	{"Neon", {0.04, 0.04, 0.05, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.3, 0, 0, {emission_color = {1, 0.12, 0.55}, emission_luminance = 2.5}},
+	// Glass, clear and frosted: light passes through, bent by its IOR (1.5), and Full
+	// render shows what is behind it; the viewport, for now, its base.
+	{"Glass", {1, 1, 1, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.02, 0, 0, {transmission_color = {1, 1, 1}, transmission_weight = 1}},
+	{"Frosted glass", {1, 1, 1, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.3, 0, 0, {transmission_color = {0.95, 0.98, 1}, transmission_weight = 1}},
 	// The matcaps, in white so their pictures show as painted.
 	{"Red wax MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 1, 0, {}},
 	{"Brown clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 2, 0, {}},
@@ -75,7 +79,7 @@ MATERIALS := [?]Material {
 // The index of the first physically based material, where the View menu starts a new group.
 FIRST_PBR :: 6
 // The index of the first matcap, where the next group starts.
-FIRST_MATCAP :: 22
+FIRST_MATCAP :: 24
 
 // app.material's value for the material the View > Material sliders made (app.custom).
 CUSTOM_MATERIAL :: len(MATERIALS)
