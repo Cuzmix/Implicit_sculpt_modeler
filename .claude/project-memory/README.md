@@ -1,6 +1,7 @@
 # Project memory (a snapshot)
 
-What the cloud project "Optimized Sculpting" knew on 2026-11-05, copied here so a Claude Code
+What the cloud project "Optimized Sculpting" knew on 2026-11-05, refreshed on 2026-11-06 from
+Bolt's export of its chat and threads and from the first local sessions, copied here so a Claude Code
 session on any machine can read it. It is a snapshot: nothing keeps it in step with the cloud
 project's memory, and it is not edited by the cloud threads. Copy it again to refresh it.
 
