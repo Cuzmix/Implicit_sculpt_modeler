@@ -1,7 +1,10 @@
 package main
 
 import "core:fmt"
+import "core:math/linalg"
 import "core:time"
+
+import "../camera"
 
 import "../jobs"
 import "../sculpt"
@@ -168,6 +171,13 @@ object_straighten :: proc(app: ^App, obj: ^Object) {
 	report(app, Section.Uvs, {}, "Straightened %d %s of %s%s, filling %.0f%% (%.0f ms)%s", r.straightened, "island" if r.straightened == 1 else "islands", object_label(obj), kept, 100 * u.filled, ms, note)
 }
 
+// How far Peel lays `obj` flat: the UVs section's Peel for the object it was set on while
+// that object is selected, else 0.
+uv_peel_of :: proc(app: ^App, obj: ^Object) -> f32 {
+	if app.ui.uv_peel <= 0 || obj.id != app.ui.uv_peel_id || selected_object(app) != obj do return 0
+	return app.ui.uv_peel
+}
+
 // The selected object's UVs measured, again only when they changed.
 uv_readout :: proc(app: ^App, obj: ^Object) -> Uv_Readout {
 	u := obj.levels.uvs
@@ -188,7 +198,7 @@ uvs_summary :: proc(obj: ^Object) -> string {
 }
 
 // The Mesh card's UVs section (mock C): Unwrap, its help, Relax, Symmetry and Keep my
-// seams, then how the UVs read now, and Straighten under More options.
+// seams, Peel, then how the UVs read now, and Straighten under More options.
 kit_uvs_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	obj := selected_object(app)
@@ -204,6 +214,18 @@ kit_uvs_section :: proc(app: ^App) {
 	has := obj != nil && obj.voxel == nil && obj.curve == nil && uv.has(obj.levels.uvs)
 	_ = ui.switch_row(ctx, "Keep my seams" if has else "Keep my seams (no UVs yet)", &app.ui.unwrap_keep_seams, enabled = has)
 	if has {
+		// Peel morphs the object into its layout and back, a look only.
+		peel := uv_peel_of(app, obj)
+		if ui.slider(ctx, "Peel", &peel, 0, 1, .Linear, fmt.tprintf("%.0f%%", 100 * peel) if peel > 0 else "Off") {
+			// A peel faces the view it began in and holds there while the camera turns, so
+			// the flat layout can be looked round like any object.
+			if uv_peel_of(app, obj) == 0 {
+				right, up, back := camera.orbit_basis(app.camera)
+				turn := linalg.transpose(transform_rotation(obj.transform))
+				app.ui.uv_peel_frame = {turn * right, turn * up, turn * back}
+			}
+			app.ui.uv_peel, app.ui.uv_peel_id = peel, obj.id
+		}
 		r := uv_readout(app, obj)
 		u := obj.levels.uvs
 		flips := fmt.tprintf(", %d folded", r.flips) if r.flips > 0 else ""
