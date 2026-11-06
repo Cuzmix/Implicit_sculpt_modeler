@@ -198,6 +198,7 @@ static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
 #include "panorama.slang"
 #include "studio_env.slang"
 #include "light_window.slang"
+#include "ggx_albedo.slang"
 
 static const float PI = 3.14159265;
 // geom.CHUNK_BVH_STACK for each level: a chunk's entries stay above the scene tree's.
@@ -625,7 +626,9 @@ float3 bsdf_eval(Surface s, float3 n, float3 v, float3 l, out float pdf, float s
 	float D = ggx_d(n_dot_h, s.a);
 	float lv = ggx_lambda(n_dot_v, s.a), ll = ggx_lambda(n_dot_l, s.a);
 	float3 F = fresnel(s.f0, v_dot_h);
-	float3 spec = F * (D / ((1.0 + lv + ll) * 4.0 * n_dot_v * n_dot_l));
+	// Given back the light its microfacets scatter between them; worked out here rather
+	// than kept with the surface, which held registers across the whole bounce.
+	float3 spec = F * energy_compensation(s.f0, n_dot_v, sqrt(s.a)) * (D / ((1.0 + lv + ll) * 4.0 * n_dot_v * n_dot_l));
 	float3 diff = s.diffuse * (1.0 - fresnel(s.f0, n_dot_v)) / PI;
 	float ps = specular_chance(s, n_dot_v);
 	// The visible normals' pdf of h, carried over to l: G1(v) D / (4 n.v).

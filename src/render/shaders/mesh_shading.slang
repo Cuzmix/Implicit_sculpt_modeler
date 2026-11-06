@@ -217,6 +217,7 @@ float3 skin_detail_color(float3 n, float3 v) {
 static const float PI = 3.14159265;
 
 #include "studio_env.slang"
+#include "ggx_albedo.slang"
 
 // What the physically based materials reflect along view-space `dir` at `rough`: the
 // image environment at the level prefiltered for that roughness when one is bound, else
@@ -284,8 +285,9 @@ static const float CURVE_START = 0.02;
 static const float CURVE_FULL = 0.24;
 
 // One light's GGX (Trowbridge-Reitz) specular and Lambert diffuse, Cook-Torrance style;
-// `shine` scales the specular, the light's Highlight (1 as usual).
-float3 direct(float3 n, float3 v, float3 l, float3 diffuse, float3 f0, float a, float shine) {
+// `shine` scales the specular, the light's Highlight (1 as usual), and `comp` gives it back
+// the light its microfacets scatter between them (energy_compensation).
+float3 direct(float3 n, float3 v, float3 l, float3 diffuse, float3 f0, float a, float shine, float3 comp) {
 	float n_dot_l = max(dot(n, l), 0.0);
 	if (n_dot_l <= 0.0) return float3(0.0);
 	float3 h = normalize(l + v);
@@ -296,7 +298,7 @@ float3 direct(float3 n, float3 v, float3 l, float3 diffuse, float3 f0, float a, 
 	float D = a2 / (PI * d * d);
 	float V = 0.5 / max(lerp(2.0 * n_dot_l * n_dot_v, n_dot_l + n_dot_v, a), 1e-4); // Smith, height-correlated (fast fit)
 	float3 F = f0 + (1.0 - f0) * pow(1.0 - max(dot(v, h), 0.0), 5.0);
-	return (diffuse / PI + D * V * F * shine) * n_dot_l;
+	return (diffuse / PI + D * V * F * comp * shine) * n_dot_l;
 }
 
 // The direction inside a light seen as a disc of angular radius asin(spread) about `l`
@@ -324,7 +326,7 @@ float widened(float a, float spread) {
 // direct() for a light with a size: the diffuse part from `l`, the specular from `ls`, the
 // point of it nearest the mirror direction (nearest_in_light, area_mirror), normalized by
 // how much it widens.
-float3 direct_sized(float3 n, float3 v, float3 l, float3 ls, float spread, float3 diffuse, float3 f0, float a, float shine) {
+float3 direct_sized(float3 n, float3 v, float3 l, float3 ls, float spread, float3 diffuse, float3 f0, float a, float shine, float3 comp) {
 	float3 color = diffuse / PI * max(dot(n, l), 0.0);
 	float n_dot_l = max(dot(n, ls), 0.0);
 	if (n_dot_l <= 0.0) return color;
@@ -336,7 +338,7 @@ float3 direct_sized(float3 n, float3 v, float3 l, float3 ls, float spread, float
 	float D = a2 / (PI * d * d) * widened(a, spread);
 	float V = 0.5 / max(lerp(2.0 * n_dot_l * n_dot_v, n_dot_l + n_dot_v, a), 1e-4);
 	float3 F = f0 + (1.0 - f0) * pow(1.0 - max(dot(v, h), 0.0), 5.0);
-	return color + D * V * F * n_dot_l * shine;
+	return color + D * V * F * comp * n_dot_l * shine;
 }
 
 // The point of area light `i` (its rectangle, or its disc where light_extra.w is 1) nearest
@@ -722,6 +724,7 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		float3 f0 = lerp(float3(0.04), albedo, metallic);
 		float n_dot_v = max(dot(n, v), 1e-4);
 		float3 r = reflect(-v, n);
+		float3 comp = energy_compensation(f0, n_dot_v, rough);
 
 		float3 color = float3(0.0);
 #ifdef AREA_LIGHTS
@@ -737,7 +740,7 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 			float spread;
 			float k = area_at(i, l, spread);
 			if (k <= 0.0) continue;
-			color += direct_sized(n, v, l, area_mirror(i, r), spread, diffuse, f0, a, 1.0 + light_extra[i].x) * light_color[i].rgb * (3.0 * (s * k));
+			color += direct_sized(n, v, l, area_mirror(i, r), spread, diffuse, f0, a, 1.0 + light_extra[i].x, comp) * light_color[i].rgb * (3.0 * (s * k));
 		}
 #endif
 		for (int i = 0; i < LIGHT_COUNT; i++) {
@@ -750,9 +753,9 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 			float shine = 1.0 + light_extra[i].x;
 			float3 lit;
 			if (spread > 0.0) {
-				lit = direct_sized(n, v, l, nearest_in_light(l, r, spread), spread, diffuse, f0, a, shine);
+				lit = direct_sized(n, v, l, nearest_in_light(l, r, spread), spread, diffuse, f0, a, shine, comp);
 			} else {
-				lit = direct(n, v, l, diffuse, f0, a, shine);
+				lit = direct(n, v, l, diffuse, f0, a, shine, comp);
 			}
 			color += lit * light_color[i].rgb * (3.0 * (s * k));
 		}
@@ -770,7 +773,11 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		} else {
 			color += diffuse * studio(mul(n, to_rig), 1.0) * (0.7 * ao * ambient);
 		}
-		color += reflected(r, rough, to_rig) * (f0 * ab.x + ab.y) * (highlight * ao);
+		// The reflection's own compensation, from the split-sum fit it is scaled by (its
+		// albedo at Fresnel 1 is ab.x + ab.y, not ggx_albedo), as Filament takes it from
+		// its own lookup: a white metal in a white environment then reflects exactly white.
+		float3 env_comp = 1.0 + f0 * (1.0 / max(ab.x + ab.y, 0.05) - 1.0);
+		color += reflected(r, rough, to_rig) * ((f0 * ab.x + ab.y) * env_comp) * (highlight * ao);
 		return display(color * relief);
 	}
 
