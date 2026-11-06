@@ -105,6 +105,8 @@ sections_show_at_most_five_controls :: proc(t: ^testing.T) {
 	// The Preset section is widest on a preset.
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)
+	// The Material card's More is in Edit, its widest state.
+	app.kit.material_card.editing = true
 	for sec in BRUSH_SECTIONS {
 		if sec.section != .Preset do continue
 		tab_draw = sec.draw
@@ -153,15 +155,16 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 	// since Show the mask, Mask region, Mask by (Peaks: kind, Strength, Blur, curve, Apply)
 	// and Mask adjust (curve, Blur, Apply) joined its fold; Polygroups 10 since Groups by normals,
 	// pieces and UVs and Merge similar joined its; Hide, clip and slice folds Grow,
-	// Shrink, Grow all, Outer ring, Grow to groups and Show masked. Material is its card:
-	// Favourites or All, the spheres (the four of Wax, Jade, Marble and Milk and the four of
-	// Car paint, Velvet, Satin and Neon among them), the colour, Roughness and Apply to, and
-	// under More Metallic. Viewport style has Occlusion while working, Cavity, Ridge and
+	// Shrink, Grow all, Outer ring, Grow to groups and Show masked. Material is counted in
+	// Edit, its widest state: the material's values, the five layers' switches and Reset,
+	// and under More Thin film and the specular IOR. Viewport style has Occlusion while working, Cavity, Ridge and
 	// Styled shading, and under More Reach, Exposure and Dim the others (Rim and Underside
 	// only while styled, which a fresh App is not).
-	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 21}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 12}, {.Project, 6}, {.Material, 28}, {.Style, 7}, {.Camera, 6}}
+	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 21}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 12}, {.Project, 6}, {.Material, 11}, {.Style, 7}, {.Camera, 6}}
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)
+	// The Material card's More is in Edit, its widest state.
+	app.kit.material_card.editing = true
 	for f in full {
 		draw: proc(app: ^App, obj: ^Object)
 		for sec in OBJECT_SECTIONS do if sec.section == f.section do draw = sec.draw

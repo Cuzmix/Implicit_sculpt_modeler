@@ -286,3 +286,28 @@ custom_layers_are_remembered_and_bad_ones_passed_over :: proc(t: ^testing.T) {
 every_preset_has_valid_layers :: proc(t: ^testing.T) {
 	for m in MATERIALS do testing.expectf(t, geom.material_layers_valid(m.layers), "%s", m.label)
 }
+
+// The shelf sorts every material by its own values, so each preset lands where its look says
+// and no category the presets have is empty: metals in Metal, the coated paint and the
+// smooth plastics in Glossy, the scattering ones in Skin & wax, cloth in Fabric, the light
+// in Glow, and the rough or classic ones in Clay.
+@(test)
+presets_fall_into_their_categories :: proc(t: ^testing.T) {
+	Want :: struct {
+		name:     string,
+		category: Material_Category,
+	}
+	wants := [?]Want {
+		{"Clay", .Clay}, {"Studio grey", .Clay}, {"PBR clay", .Clay},
+		{"Red wax", .Skin}, {"Skin", .Skin}, {"Wax", .Skin}, {"Jade", .Skin},
+		{"Gold", .Metal}, {"Chrome", .Metal},
+		{"Plastic", .Glossy}, {"Ceramic", .Glossy}, {"Car paint", .Glossy},
+		{"Velvet", .Fabric}, {"Satin", .Fabric}, {"Neon", .Glow},
+	}
+	for w in wants {
+		i, ok := material_by_name(w.name)
+		testing.expectf(t, ok, "no preset %s", w.name)
+		if ok do testing.expectf(t, material_category(MATERIALS[i]) == w.category, "%s: %v, want %v", w.name, material_category(MATERIALS[i]), w.category)
+	}
+	for m in MATERIALS[:FIRST_MATCAP] do testing.expect(t, material_category(m) != .Favourites)
+}

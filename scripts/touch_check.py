@@ -5790,43 +5790,46 @@ def lens_pass_popover_groups_the_passes():
 # Lights, which opens the Light card beside it, and on that card Add point light and the
 # picked light's Intensity knob; and Undo on the top bar.
 LENS_STUDIO = {"render_tab": (685, 26), "lights": At("dock/Lights", 731, 836), "add": At("add point light", 714, 548),
-               "intensity": (731, 738), "red_wax": At("material card 1", 1178, 207), "undo": (268, 25)}
+               "intensity": (731, 738), "white": At("material card 1", 1178, 388), "undo": (268, 25)}
 
 
 @scenario
 def render_pins_the_material_card():
-    """Render pins the Material card; a tap on a sphere puts that material on."""
+    """Render pins the Material card, open on the Clay shelf (the material in use is Clay); a tap on a sphere puts that material on."""
     s = Script()
     s.ftap(LENS_STUDIO["render_tab"])
     s.wait(20)
-    s.ftap(LENS_STUDIO["red_wax"])
+    s.ftap(LENS_STUDIO["white"])
     s.wait(10)
     return s, LENS_1440, camera_still({"space": is_text("render"), "cards": is_text("left:;right:Material*"),
-                                       "selected_material": is_text("Red_wax"), "dabs": near(0)})
+                                       "selected_material": is_text("White"), "dabs": near(0)})
 
 
-# The Render space's Material card at 1440x900: Favourites, the Clay and Gold spheres (by
-# their keys, and their centres for drags), and a point off the grid, over the view.
-LENS_MATERIALS = {"favourites": At("material card shows/Favourites", 1144, 153), "clay": (1103, 207), "gold": (1253, 298),
-                  "first": At("material card 0", 1103, 207), "off": (900, 420)}
+# The Render space's Material card at 1440x900: the Favourites and Metal chips, the first
+# two spheres of a shelf (Gold and Copper on Metal's: by their keys, and their centres for
+# drags), and a point off the grid, over the view.
+LENS_MATERIALS = {"favourites": At("material chips 0/Favourites", 1115, 271), "metal": At("material chips 0/Metal", 1250, 271),
+                  "gold": (1103, 388), "copper": (1178, 388), "first": At("material card 0", 1103, 388), "off": (900, 420)}
 
 
 @scenario
 def material_card_scrub_previews_and_keeps():
-    """On the Material card a press on Clay slid across to Gold shows the spheres it passes on
-    the sphere and keeps Gold when lifted; slid off the grid instead, lifting puts Clay back.
-    Neither is an undo step, as a material pick is not."""
+    """On the Material card's Metal shelf a press on Gold slid across to Copper shows the spheres
+    it passes on the sphere and keeps Copper when lifted; slid off the grid instead, lifting
+    puts Clay back. Neither is an undo step, as a material pick is not."""
     def run(keep):
         s = Script()
         s.ftap(LENS_STUDIO["render_tab"])
         s.wait(20)
-        end = LENS_MATERIALS["gold"] if keep else LENS_MATERIALS["off"]
-        path = line(LENS_MATERIALS["clay"], LENS_MATERIALS["gold"], 10)
+        s.ftap(LENS_MATERIALS["metal"])
+        s.wait(8)
+        end = LENS_MATERIALS["copper"] if keep else LENS_MATERIALS["off"]
+        path = line(LENS_MATERIALS["gold"], LENS_MATERIALS["copper"], 10)
         if not keep:
-            path += line(LENS_MATERIALS["gold"], end, 8)[1:]
+            path += line(LENS_MATERIALS["copper"], end, 8)[1:]
         s.fdrag(path)
         s.wait(10)
-        return s, LENS_1440, camera_still({"selected_material": is_text("Gold" if keep else "Clay"), "material_keeps": near(1 if keep else 0),
+        return s, LENS_1440, camera_still({"selected_material": is_text("Copper" if keep else "Clay"), "material_keeps": near(1 if keep else 0),
                                            "material_previews": lambda v: int(v) >= 2, "undo_steps": near(0), "dabs": near(0)})
     return Steps([run(True), run(False)])
 
@@ -5851,11 +5854,14 @@ def shading_menu_matcap_disc_lights_clay():
 
 @scenario
 def material_card_favourites_hold_a_sphere():
-    """A right-click on Gold adds it to the Material card's favourites without putting it on;
-    Favourites then shows Gold alone, first in the grid, where a tap puts it on."""
+    """On the Metal shelf a right-click on Gold adds it to the Material card's favourites without
+    putting it on; the Favourites chip then shows Gold alone, first in the grid, where a tap
+    puts it on."""
     s = Script()
     s.ftap(LENS_STUDIO["render_tab"])
     s.wait(20)
+    s.ftap(LENS_MATERIALS["metal"])
+    s.wait(8)
     s.add("move:{:g},{:g}".format(*LENS_MATERIALS["gold"]))
     s.wait(3)
     s.add("right")
@@ -5865,6 +5871,25 @@ def material_card_favourites_hold_a_sphere():
     s.ftap(LENS_MATERIALS["first"])
     s.wait(8)
     return s, LENS_1440, camera_still({"material_favorites": near(1), "material_favorite_changes": near(1), "selected_material": is_text("Gold"), "dabs": near(0)})
+
+
+# The Material card's Edit (beside the big sphere) and, in it, the Coat layer's switch.
+MATERIAL_EDIT = At("material preview words/Edit", 1270, 217)
+MATERIAL_COAT = At("card body/Coat", 1376, 700)
+
+
+@scenario
+def material_card_edit_turns_a_layer_on():
+    """Edit swaps the shelf for the material's values; a tap on Coat's switch gives the selected
+    object a clear coat, as a Custom material, and is no undo step, as a material pick is not."""
+    s = Script()
+    s.ftap(LENS_STUDIO["render_tab"])
+    s.wait(20)
+    s.ftap(MATERIAL_EDIT)
+    s.wait(10)
+    s.ftap(MATERIAL_COAT)
+    s.wait(10)
+    return s, LENS_1440, camera_still({"selected_material": is_text("Custom"), "material_layers": near(1), "undo_steps": near(0), "dabs": near(0)})
 
 
 @scenario

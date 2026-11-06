@@ -1,21 +1,78 @@
 package main
 
 import "core:fmt"
+import "core:strings"
 
+import "../geom"
 import "../ui"
 
-// The Material card: the one place a material is picked or changed. A grid of real spheres,
-// four across and big enough for a finger, of the lit presets, Custom and the content
-// packs' materials. A press on a sphere and a slide over the others shows each on the
-// objects as the finger passes, as Nomad's material scrub does; lifting keeps the one under
-// the finger, sliding off the grid puts back what the objects had (Material_Preview).
-// Under the grid the colour, Roughness and Apply to (the selected objects, the selected
-// one's folder, or every object), and under More Metallic; with polygroups, Object or Group
-// over it (kit_group_material). MatCaps are no material: they are the Clay look's light,
-// picked in the Shading menu (shading_options). Holding a sphere (a long press, a right
-// click or the pen's side button) adds it to the favourites or takes it off, a star on its
-// corner; Favourites over the grid shows only those, as the brush browser's Favourites
-// does, and settings.txt keeps them (material_favorite).
+// The Material card (direction A of the materials design, "Shelf", after Substance's
+// shelf): the one place a material is picked or changed. On top, what the selected object
+// wears, as a big sphere with its name and values, and Edit. Under it the shelf: chips for
+// Favourites and each category (Clay, Metal, Glossy, Glass, Skin & wax, Fabric, Glow), which
+// a material falls into by its own values (material_category), so the presets, Custom and
+// the content packs' materials all sort themselves; then the chosen category's spheres,
+// four across and big enough for a finger. A press on a sphere and a slide over the others
+// shows each on the objects as the finger passes, as Nomad's material scrub does; lifting
+// keeps the one under the finger, sliding off the grid puts back what the objects had
+// (Material_Preview). Apply to says which objects take it. Edit swaps the shelf for the
+// material's values: Surface (colour, Roughness, Metallic) and each layer of OpenPBR's,
+// as Blender's Principled panels show them, a switch that opens its few controls when on
+// (Subsurface, Coat, Sheen, Transmission, Glow; Thin film and the specular under More).
+// Any change makes the material Custom, so a preset is never changed; Reset puts back
+// what the objects had when Edit opened. With polygroups, Object or Group over it
+// (kit_group_material). MatCaps are no material: they are the Clay look's light, picked
+// in the shading list (shading_options). Holding a sphere (a long press, a right click or
+// the pen's side button) adds it to the favourites or takes it off, a star on its corner;
+// settings.txt keeps them (material_favorite).
+
+// The shelf's categories, in the order its chips show them.
+Material_Category :: enum u8 {
+	Favourites,
+	Clay,
+	Metal,
+	Glossy,
+	Glass,
+	Skin,
+	Fabric,
+	Glow,
+}
+
+@(rodata)
+MATERIAL_CATEGORY_NAMES := [Material_Category]string {
+	.Favourites = "Favourites",
+	.Clay       = "Clay",
+	.Metal      = "Metal",
+	.Glossy     = "Glossy",
+	.Glass      = "Glass",
+	.Skin       = "Skin & wax",
+	.Fabric     = "Fabric",
+	.Glow       = "Glow",
+}
+
+// The category material `m` falls into, by what shows most: light it gives off, light
+// through it, light under its surface, cloth's sheen, a clear coat, metal; then a classic
+// material whose light wraps past the shadow line (wax, skin) as Skin & wax, and the rest
+// Clay when rough or classic, Glossy when smooth.
+material_category :: proc(m: Material) -> Material_Category {
+	l := m.layers
+	switch {
+	case l.emission_luminance > 0:                         return .Glow
+	case l.transmission_weight > 0:                        return .Glass
+	case l.subsurface_weight > 0:                          return .Skin
+	case l.sheen_weight > 0:                               return .Fabric
+	case l.coat_weight > 0:                                return .Glossy
+	case m.metallic >= 0.5:                                return .Metal
+	case m.roughness == 0 && m.shading.w >= SKIN_WRAP:     return .Skin
+	case m.roughness == 0 || m.roughness >= CLAY_ROUGHNESS: return .Clay
+	}
+	return .Glossy
+}
+
+// A classic material's wrap from which its light reads as passing under the surface, and
+// the roughness from which a lit material reads as clay rather than glossy.
+SKIN_WRAP :: 0.3
+CLAY_ROUGHNESS :: 0.5
 
 // Spheres a row of the grid holds, the gap between them, and the room under each for its
 // name, in points.
@@ -39,7 +96,12 @@ Material_Card :: struct {
 	// shows only them.
 	favorites:      [MATERIAL_FAVORITES]Brush_Key,
 	favorite_count: int,
-	only_favorites: bool,
+	// The category the shelf shows, its value + 1 (0 until the card first shows, which then
+	// opens on the category of the material in use); whether Edit is open, and what the
+	// objects wore when it opened, for Reset.
+	category: int,
+	editing:  bool,
+	before:   Material,
 	favorite_changes: int, // for the exit stats
 }
 
@@ -68,42 +130,221 @@ kit_lens_material :: proc(app: ^App) {
 		}
 	}
 	m := object_material(app, sel) if sel != nil else current_material(app)
-	balls := material_balls(app)
-	// The head: Favourites or All.
-	ui.begin(ctx, "material card head", {direction = .Row, gap = ui.SPACE_S, center = true, width = width})
-	shows := [2]string{"Favourites", "All"}
-	if picked := ui.tabs(ctx, "material card shows", shows[:], 1 if !mc.only_favorites else 0); picked >= 0 do mc.only_favorites = picked == 0
-	ui.end(ctx)
-	if mc.only_favorites {
-		kept := make([dynamic]Material_Ball, 0, len(balls), context.temp_allocator)
-		for b in balls do if material_favorite(mc, material_ball_key(app, b)) >= 0 do append(&kept, b)
-		balls = kept[:]
-		if len(balls) == 0 do ui.paragraph(ctx, "No favourites here yet: hold a sphere under All (or right-click it) to add it.")
+	if mc.category == 0 do mc.category = int(material_category(m)) + 1
+	material_preview_row(app, m, sel, width)
+	if mc.editing {
+		material_edit(app, m)
+		return
 	}
-	material_grid(app, balls, m, width)
+	material_chips(app, width)
+	balls := material_balls(app)
+	shown := make([dynamic]Material_Ball, 0, len(balls), context.temp_allocator)
+	category := Material_Category(mc.category - 1)
+	for b in balls {
+		in_it := material_favorite(mc, material_ball_key(app, b)) >= 0 if category == .Favourites else material_category(b.material) == category
+		if in_it do append(&shown, b)
+	}
+	if len(shown) == 0 do ui.paragraph(ctx, "No favourites yet: hold a sphere (or right-click it) to add it." if category == .Favourites else "Nothing in this category yet.", color = t.text_secondary)
+	material_grid(app, shown[:], m, width)
 	if mc.pressing {
 		ui.label(ctx, fmt.tprintf("Previewing %s: lift to keep it, slide off to go back", mc.label) if mc.shown != 0 else "Slide back onto a sphere, or lift to keep what was there", t.small_size, t.text_secondary)
 	}
-	// The colour, and a lit material's Roughness and under More its Metallic: moving one
-	// makes the material Custom, so a preset is never changed. A classic preset has no
-	// roughness yet, so it starts rough; an object that still wears a MatCap from a content
-	// pack's material keeps its tint and has neither.
-	if m.roughness == 0 do m.roughness = CUSTOM_ROUGHNESS
-	lit := m.matcap == 0
-	changed := kit_color(app, "material colour", (^[3]f32)(&m.selected), linear = true)
-	if lit do changed |= ui.slider(ctx, "Roughness##lens material", &m.roughness, 0.04, 1, .Linear, fmt.tprintf("%.2f", m.roughness))
 	ui.label(ctx, "Apply to", t.small_size, t.text_tertiary)
 	targets := [len(Material_Target)]string{"Selected", "Its folder", "Every object"}
 	if picked := ui.tabs(ctx, "material apply to", targets[:], int(app.ui.material_to)); picked >= 0 do app.ui.material_to = Material_Target(picked)
-	if lit && kit_more(app, .Material) {
+	ui.paragraph(ctx, "Slide across the spheres to try each on; lift to keep one. Hold a sphere for Favourites. Edit changes the values, making the material Custom.")
+}
+
+// What the selected objects wear (or new objects take, with none selected): a big sphere,
+// its name, its values in a line, who wears it, and Edit, or Back to the shelf while editing.
+@(private = "file")
+material_preview_row :: proc(app: ^App, m: Material, sel: ^Object, width: f32) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	mc := &k.material_card
+	side := t.target * 2
+	ui.begin(ctx, "material preview", {direction = .Row, gap = ui.SPACE_L, center = true, width = width})
+	a := ui.area(ctx, "material preview ball", {side, side}, drag = false)
+	c := [2]f32{a.rect.x + side * 0.5, a.rect.y + side * 0.5}
+	if m.matcap != 0 {
+		ui.fill_circle(ctx, c, side * 0.5 - ui.SPACE_XS, t.fill)
+		ui.image_disc(ctx, c, side * 0.5 - ui.SPACE_XS, KIT_MATCAP_IMAGE + u64(m.matcap), material_swatch(m))
+	} else {
+		ui.fill_ball(ctx, c, side * 0.5 - ui.SPACE_XS, material_swatch(m))
+	}
+	ui.begin(ctx, "material preview words", {direction = .Column, gap = ui.SPACE_2XS, width = width - side - ui.SPACE_L})
+	ui.label(ctx, string(m.label) if m.label != nil else "Custom", t.title_size, t.text, .Semibold)
+	ui.label(ctx, material_values_line(m), t.small_size, t.text_secondary)
+	who := "New objects take it"
+	if sel != nil {
+		n := 0
+		for obj in app.scene.objects do if object_in_selection(app, obj) do n += 1
+		who = fmt.tprintf("On %s", object_label(sel)) if n <= 1 else fmt.tprintf("On %d objects", n)
+	}
+	ui.label(ctx, who, t.small_size, t.text_tertiary)
+	if mc.editing {
+		if ui.button(ctx, "Back to the shelf##material", .Bordered, glyph = ICON_MATERIAL, width = 0) do mc.editing = false
+	} else if ui.button(ctx, "Edit##material", .Bordered, glyph = ui.ICON_PENCIL, width = 0) {
+		mc.editing, mc.before = true, m
+	}
+	ui.end(ctx)
+	ui.end(ctx)
+}
+
+// A material's values in a line: Metal and Rough (or MatCap, or Classic), then its layers.
+material_values_line :: proc(m: Material) -> string {
+	parts := make([dynamic]string, 0, 8, context.temp_allocator)
+	switch {
+	case m.matcap != 0:    append(&parts, "MatCap")
+	case m.roughness == 0: append(&parts, "Classic")
+	case:
+		if m.metallic > 0 do append(&parts, fmt.tprintf("Metal %.2f", m.metallic))
+		append(&parts, fmt.tprintf("Rough %.2f", m.roughness))
+	}
+	l := m.layers
+	if l.subsurface_weight > 0 do append(&parts, "Subsurface")
+	if l.coat_weight > 0 do append(&parts, "Coat")
+	if l.sheen_weight > 0 do append(&parts, "Sheen")
+	if l.transmission_weight > 0 do append(&parts, "Transmission")
+	if l.emission_luminance > 0 do append(&parts, "Glow")
+	if l.thin_film_weight > 0 do append(&parts, "Film")
+	return strings.join(parts[:], " · ", context.temp_allocator)
+}
+
+// The category chips, as many to a row as fit, then the next row: a tap shows that
+// category's spheres.
+@(private = "file")
+material_chips :: proc(app: ^App, width: f32) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	mc := &k.material_card
+	row := 0
+	used := width + 1
+	open := false
+	for c in Material_Category {
+		name := MATERIAL_CATEGORY_NAMES[c]
+		w := ui.text_width(ctx, name, t.text_size, .Semibold) + 2 * ui.SPACE_L
+		if used + w > width {
+			if open do ui.end(ctx)
+			ui.begin(ctx, fmt.tprintf("material chips %d", row), {direction = .Row, gap = ui.SPACE_XS})
+			open, used = true, 0
+			row += 1
+		}
+		used += w + ui.SPACE_XS
+		if ui.toggle_button(ctx, fmt.tprintf("%s##material category", name), mc.category == int(c) + 1, w, tooltip = name) {
+			if mc.pressing do material_scrub_end(app, false)
+			mc.category = int(c) + 1
+		}
+	}
+	if open do ui.end(ctx)
+}
+
+// Edit: the material's values, each change sent as a Custom material to the objects Apply
+// to names. Surface first, then each layer as a switch that shows its controls while on,
+// then Thin film and the specular under More, and Reset.
+@(private = "file")
+material_edit :: proc(app: ^App, m: Material) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	mc := &k.material_card
+	m := m
+	lit := m.matcap == 0
+	// A classic preset has no roughness yet, so it starts rough.
+	if m.roughness == 0 && lit do m.roughness = CUSTOM_ROUGHNESS
+	changed := kit_color(app, "material colour", (^[3]f32)(&m.selected), linear = true, sliders = false)
+	if lit {
+		changed |= ui.slider(ctx, "Roughness##lens material", &m.roughness, 0.04, 1, .Linear, fmt.tprintf("%.2f", m.roughness))
 		changed |= ui.slider(ctx, "Metallic", &m.metallic, 0, 1, .Linear, fmt.tprintf("%.2f", m.metallic))
-		kit_more_end(app)
+		changed |= material_layers_edit(app, &m.layers)
 	}
 	if changed {
 		m.label = "Custom"
 		app.ui.scene_command = {kind = .Material, material = m, material_to = app.ui.material_to}
 	}
-	ui.paragraph(ctx, "Each object has its own material, kept in the scene file; this sets the objects Apply to names and the one new objects take. Press a sphere and slide over the others to try each on; lift to keep one. Hold a sphere to add it to the favourites. Moving the colour, Roughness or Metallic makes it Custom. With polygroups, Group gives one group its own material.")
+	if ui.button(ctx, "Reset##material edit", .Bordered, glyph = ui.ICON_UNDO, width = ui.fill_width(ctx)) {
+		app.ui.scene_command = {kind = .Material, material = mc.before, material_to = app.ui.material_to}
+	}
+	ui.paragraph(ctx, "Each layer adds to the surface under it, as in OpenPBR: light under the skin, a clear coat, cloth's sheen, light through glass, light given off. Full render shows them all.", color = t.text_secondary)
+}
+
+// The layers' switches and controls; true when one changed.
+@(private = "file")
+material_layers_edit :: proc(app: ^App, l: ^geom.Material_Layers) -> (changed: bool) {
+	ctx := &app.kit.ctx
+	// A layer turned on gets weight 1 and, where its colour is black, white: whoever turns
+	// a lobe on writes its colour (geom.Material_Layers).
+	layer :: proc(ctx: ^ui.Context, name: string, weight: ^f32, color: ^[3]f32, changed: ^bool) -> bool {
+		on := weight^ > 0
+		if ui.switch_row(ctx, name, &on) {
+			weight^ = 1 if on else 0
+			if on && color != nil && color^ == {} do color^ = 1
+			changed^ = true
+		}
+		return weight^ > 0
+	}
+	weight :: proc(ctx: ^ui.Context, name: string, v: ^f32) -> bool {
+		return ui.slider(ctx, name, v, 0.01, 1, .Linear, fmt.tprintf("%.2f", v^))
+	}
+	if layer(ctx, "Subsurface", &l.subsurface_weight, &l.subsurface_color, &changed) {
+		changed |= weight(ctx, "Weight##subsurface", &l.subsurface_weight)
+		changed |= kit_color(app, "subsurface colour", &l.subsurface_color, linear = true, sliders = false)
+		scale := l.subsurface_scale if l.subsurface_scale > 0 else geom.LAYER_SUBSURFACE_SCALE
+		if ui.slider(ctx, "Depth##subsurface", &scale, 0.002, 0.5, .Logarithmic, fmt.tprintf("%.3f", scale)) {
+			l.subsurface_scale = scale
+			changed = true
+		}
+	}
+	if layer(ctx, "Coat", &l.coat_weight, nil, &changed) {
+		changed |= weight(ctx, "Weight##coat", &l.coat_weight)
+		changed |= ui.slider(ctx, "Roughness##coat", &l.coat_roughness, 0, 1, .Linear, fmt.tprintf("%.2f", l.coat_roughness))
+	}
+	if layer(ctx, "Sheen", &l.sheen_weight, &l.sheen_color, &changed) {
+		changed |= weight(ctx, "Weight##sheen", &l.sheen_weight)
+		changed |= kit_color(app, "sheen colour", &l.sheen_color, linear = true, sliders = false)
+		rough := l.sheen_roughness if l.sheen_roughness > 0 else geom.LAYER_SHEEN_ROUGHNESS
+		if ui.slider(ctx, "Roughness##sheen", &rough, 0.05, 1, .Linear, fmt.tprintf("%.2f", rough)) {
+			l.sheen_roughness = rough
+			changed = true
+		}
+	}
+	if layer(ctx, "Transmission", &l.transmission_weight, &l.transmission_color, &changed) {
+		changed |= weight(ctx, "Weight##transmission", &l.transmission_weight)
+		changed |= kit_color(app, "transmission colour", &l.transmission_color, linear = true, sliders = false)
+		thin := l.thin_walled > 0
+		if ui.switch_row(ctx, "Thin sheet", &thin) {
+			l.thin_walled = 1 if thin else 0
+			changed = true
+		}
+	}
+	glow := l.emission_luminance > 0
+	if ui.switch_row(ctx, "Glow", &glow) {
+		l.emission_luminance = 1 if glow else 0
+		if glow && l.emission_color == {} do l.emission_color = 1
+		changed = true
+	}
+	if glow {
+		changed |= kit_color(app, "glow colour", &l.emission_color, linear = true, sliders = false)
+		changed |= ui.slider(ctx, "Brightness##glow", &l.emission_luminance, 0.01, 10, .Logarithmic, fmt.tprintf("%.2f", l.emission_luminance))
+	}
+	if kit_more(app, .Material) {
+		if layer(ctx, "Thin film", &l.thin_film_weight, nil, &changed) {
+			nm := l.thin_film_thickness if l.thin_film_thickness > 0 else geom.LAYER_THIN_FILM_THICKNESS
+			if ui.slider(ctx, "Thickness##film", &nm, 100, 1500, .Linear, fmt.tprintf("%.0f nm", nm)) {
+				l.thin_film_thickness = nm
+				changed = true
+			}
+		}
+		ior := l.specular_ior if l.specular_ior > 0 else geom.LAYER_SPECULAR_IOR
+		if ui.slider(ctx, "Specular IOR", &ior, 1, 3, .Linear, fmt.tprintf("%.2f", ior)) {
+			l.specular_ior = ior
+			changed = true
+		}
+		kit_more_end(app)
+	}
+	return
 }
 
 // The spheres the card shows: the lit presets, Custom and the content packs' materials.
