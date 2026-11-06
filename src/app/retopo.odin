@@ -16,7 +16,7 @@ import "../sculpt"
 import "../ui"
 import "../retopo"
 
-// Retopology and baking on the app side: Quad Remesh makes a new object of quads from
+// Retopology and baking on the app side: Quad remesh makes a new object of quads from
 // the selected one (quadmesh.remesh, or geom.mesh_retopo), with UVs laid out
 // (geom.quad_uv_unwrap), next to it; Bake maps... then bakes another object's detail into normal and displacement maps
 // on any sculpt with UVs (geom.bake_maps, geom.bake_low_maps) and writes them to a folder with it as OBJ. Both work in
@@ -124,12 +124,12 @@ quad_source_destroy :: proc(src: ^retopo.Source) {
 	src^ = {}
 }
 
-// Points a Guide curve is sampled at for Quad Remesh, along its whole length: finer than
+// Points a Guide curve is sampled at for Quad remesh, along its whole length: finer than
 // any quad count the Quads slider reaches spreads along one curve.
 GUIDE_SAMPLES :: 512
 
 // The scene's shown Guide curves as polylines in `obj`'s own space, a closed one ending
-// where it starts, for Quad Remesh (retopo.Source.guides; retopo keeps the ones that lie
+// where it starts, for Quad remesh (retopo.Source.guides; retopo keeps the ones that lie
 // on the object); nil with none. Each polyline is its own allocation, as is the list.
 quad_guides :: proc(app: ^App, obj: ^Object) -> [][]geom.Vec3 {
 	lines := make([dynamic][]geom.Vec3)
@@ -533,7 +533,7 @@ bake_source_of :: proc(app: ^App, src: ^Object, view: geom.Mesh, bvh: ^geom.Bvh)
 	return
 }
 
-// The interface's Bake section: Quad Remesh itself is Shape > Rebuild's Quads, and the UVs
+// The interface's Bake section: Quad remesh itself is Shape > Rebuild's Quads, and the UVs
 // it bakes through are the UVs section's (unwrap.odin).
 kit_retopo_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx

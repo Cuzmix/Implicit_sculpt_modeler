@@ -86,7 +86,7 @@ Ui_State :: struct {
 	light_press:        Light_Press, // a press on the lights in the viewport (light_markers.odin)
 	stack_press:        Stack_Press, // a press on the Live stack's handles in the view (stack_handles.odin)
 	light_place:        bool, // Place highlight: a press on the model moves the picked light's highlight there
-	retopo_quads:       i32,  // quads Quad Remesh asks for
+	retopo_quads:       i32,  // quads Quad remesh asks for
 	retopo_engine:      retopo.Engine, // ...and from which engine (retopo.odin)...
 	retopo_adaptivity:  f32,  // ...with smaller quads where the surface bends (Flow)
 	retopo_keep_symmetry: bool, // ...the brush's symmetry kept: one part remeshed and mirrored

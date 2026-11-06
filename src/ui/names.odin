@@ -5,7 +5,7 @@ import "core:strings"
 
 // The control map: while it is on (the app turns it on for scripted input that names
 // controls, and for --ui-map), every widget that answers the pointer is recorded with its
-// path, the shown labels of the containers it sits in and its own ("Rebuild/Quad Remesh"),
+// path, the shown labels of the containers it sits in and its own ("Rebuild/Quad remesh"),
 // and the part of it that shows. A scripted tap can then name a control instead of giving
 // a position, which moves whenever the layout does. Names resolve against the last frame
 // finished, as a real press lands on what the last frame drew. Off, it costs one test per

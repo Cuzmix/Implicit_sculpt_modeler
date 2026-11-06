@@ -275,7 +275,7 @@ remesh_note :: proc(report: geom.Remesh_Report, setup: Remesh_Setup) -> string {
 // Gives the base level of levels just made from a remesh with Quads (levels_init with the
 // renumbering maps) the remesh's quads as its polygons, under the Catmull-Clark rule, so
 // the wireframe draws the quads' edges and Divide cuts them as quads; and as its quad
-// faces, so export and UV layout see quads, as a Quad Remesh's result is kept
+// faces, so export and UV layout see quads, as a Quad remesh's result is kept
 // (retopo_apply). `quads` are in the remeshed mesh's numbers, triangles 2q and 2q + 1 quad
 // q's halves (geom.Remesh_Report). On the frame thread or a long job's alike.
 remesh_take_quads :: proc(l: ^sculpt.Levels, quads: [][4]u32, old_to_new, tri_from: []u32) {

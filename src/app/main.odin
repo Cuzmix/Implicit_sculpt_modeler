@@ -90,7 +90,7 @@ Options :: struct {
 	cpu_sculpt: bool `usage:"Start with Stats > Drawing > Sculpt on the GPU off, where it would start on (a video card under Vulkan)."`,
 	gpu_sculpt_sync: bool `usage:"With --gpu-sculpt, wait for each frame's readback of normals before the next frame's dabs, so the CPU reads the normals the CPU path would have (for comparing the two paths' arithmetic alone)."`,
 	compute_bench: string `usage:"Time Smooth all on the CPU and as a GPU compute shader, upload and readback included, at 500k, 1M, 5M, 7M and 10M vertices (only --vertices when given); check the GPU's result against the CPU's, write the markdown tables to this path and exit."`,
-	quadmesh_dump: string `usage:"Write each stage of Quad Remesh's Flow engine to this folder as OBJ files (the island, the isotropic mesh, each quad cover with its UVs, the quads, and the stage checks); scripts/quadmesh_view.py draws a cover."`,
+	quadmesh_dump: string `usage:"Write each stage of Quad remesh's Flow engine to this folder as OBJ files (the island, the isotropic mesh, each quad cover with its UVs, the quads, and the stage checks); scripts/quadmesh_view.py draws a cover."`,
 	bake:       string `usage:"On exit, bake the first object's detail onto the selected quad object (from retopologize in a start-up script) into this folder, as Bake maps... does (before --export)."`,
 	bake_size:  int `usage:"Texels square for --bake (512, 1024, 2048 or 4096; default 2048)."`,
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
@@ -150,7 +150,7 @@ App :: struct {
 	// normals to kernels where render.caps offers it; on at the start of a person's run
 	// wherever it is offered.
 	gpu_sculpt: bool,
-	// --quadmesh-dump: the folder Quad Remesh writes its stages to, or "".
+	// --quadmesh-dump: the folder Quad remesh writes its stages to, or "".
 	quadmesh_dump: string,
 	// The selected object's lookup for the GPU's kernels is still going up a slice a frame
 	// (sculpt_gpu_prepare_level): the app does not rest, and --bench-stroke waits for it.

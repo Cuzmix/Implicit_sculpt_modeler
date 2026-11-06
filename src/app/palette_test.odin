@@ -60,7 +60,7 @@ palette_words_drop_the_guesses :: proc(t: ^testing.T) {
 @(test)
 palette_finds_other_apps_names :: proc(t: ^testing.T) {
 	testing.expect_value(t, best("DynaMesh"), "Voxel remesh")
-	testing.expect_value(t, best("zremesher"), "Quad Remesh")
+	testing.expect_value(t, best("zremesher"), "Quad remesh")
 	testing.expect_value(t, best("  WIREFRAME "), "Wireframe")
 	testing.expect_value(t, best("clay"), "Clay brush")
 	testing.expect_value(t, best("inv mask"), "Invert mask")

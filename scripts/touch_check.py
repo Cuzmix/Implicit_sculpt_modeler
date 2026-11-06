@@ -129,7 +129,7 @@ UI.update({
     "more_stats": At("menu sub More/Details", 406, 648), "more_macros": At("menu sub More/Macros...", 406, 692), "more_library": At("menu sub More/Library...", 406, 736), "more_reduce_motion": (400, 824),
     "more_left_handed": (400, 868),
 })
-# Search's first row, while something is typed (left of its Put on a bar button).
+# Search's first row, while something is typed (left of its Put on a toolbar button).
 UI["palette_row1"] = (700, 150)
 # The Macros sheet (kit_macros.odin) with two macros: each row's Run, Key, Rename and
 # Delete, by name, rows 52 points apart.
@@ -3938,7 +3938,7 @@ PALETTE_SMOOTH_ROW2 = (700, 200)
 
 @scenario
 def palette_moving_pointer_picks_a_row():
-    """A mouse moved over the palette's second row picks it, so its Put on a bar and the footer's buttons are for it; nothing runs."""
+    """A mouse moved over the palette's second row picks it, so its Put on a toolbar and the footer's buttons are for it; nothing runs."""
     s = Script()
     s.ftap(LENS_SEARCH)
     s.wait(8)

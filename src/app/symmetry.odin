@@ -36,7 +36,7 @@ symmetry_center :: proc(app: ^App, obj: ^Object) -> Vec3 {
 }
 
 // The planes Keep symmetry keeps a rebuild of `obj` symmetric across (Remesh, Decimate,
-// Quad Remesh): the brush's symmetry planes, through the centre its dabs mirror about,
+// Quad remesh): the brush's symmetry planes, through the centre its dabs mirror about,
 // so a sculpt made with symmetry comes out as symmetric as it went in, ready for more
 // symmetric strokes. Radial symmetry asks nothing of them. None without an object.
 symmetry_planes :: proc(app: ^App, obj: ^Object) -> (mirror: geom.Remesh_Mirror) {

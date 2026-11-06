@@ -9,7 +9,7 @@ import "../ui"
 // Lens's search (round 2 of the mockups, screen search2): the command palette centred
 // under the top bar, its results grouped while something is typed (commands, brushes,
 // then panels and settings, each in the order they ranked), each row saying where what it
-// runs lives, and the picked row offering to put it on a bar. kit_palette draws it; this
+// runs lives, and the picked row offering to put it on a toolbar. kit_palette draws it; this
 // file holds what Lens adds.
 
 Palette_Group :: enum u8 {
@@ -39,8 +39,10 @@ lens_search_rows :: proc(room: f32, groups: int) -> int {
 	return clamp(int((room - fixed) / (LENS_ROW_H + 2)), 2, LENS_SEARCH_ROWS)
 }
 
-// The width of the picked row's Put on a bar button.
+// The narrowest the picked row's Put on a toolbar button gets; its label widens it.
 LENS_PUT_W :: 116
+// The button's label, which also sets its width.
+LENS_PUT_LABEL :: "Put on a toolbar"
 
 // The group a result shows under.
 palette_group :: proc(e: Palette_Entry) -> Palette_Group {
@@ -107,7 +109,7 @@ palette_where :: proc(app: ^App, e: Palette_Entry) -> string {
 	return ""
 }
 
-// The bar Put on a bar puts the entry on: a brush on the shelf's page shown (Sculpt's
+// The bar Put on a toolbar puts the entry on: a brush on the shelf's page shown (Sculpt's
 // first page from Render's, which holds no brushes), a brush value on the off-hand island
 // beside the others, anything else on the view rail.
 palette_bar_for :: proc(app: ^App, e: Palette_Entry) -> Bar_Which {
@@ -137,15 +139,15 @@ palette_put_on_bar :: proc(app: ^App, e: Palette_Entry) -> bool {
 }
 
 // What a press or the pointer did to a result row: tapped it (run), right-clicked it
-// (show where it lives), pressed Put on a bar on it, or picked it.
+// (show where it lives), pressed Put on a toolbar on it, or picked it.
 Palette_Row :: struct {
 	ran, shown, put, picked: bool,
 }
 
 // A result row in Lens: its icon, its name over where it lives, its shortcut (or a tick
-// while it is on), and on the picked row Put on a bar. A pointer moving over the row
+// while it is on), and on the picked row Put on a toolbar. A pointer moving over the row
 // (`moved`, so a resting one never fights Up and Down) and a press on it pick it, so its
-// Put on a bar and the footer's buttons show under the pen or the finger; a long press
+// Put on a toolbar and the footer's buttons show under the pen or the finger; a long press
 // picks it without running it, a right-click shows where it lives.
 lens_palette_row :: proc(app: ^App, e: Palette_Entry, title, id: string, width: f32, enabled, picked, moved: bool) -> (row: Palette_Row) {
 	k := &app.kit
@@ -153,11 +155,12 @@ lens_palette_row :: proc(app: ^App, e: Palette_Entry, title, id: string, width: 
 	t := ctx.theme
 	lives := palette_where(app, e)
 	ui.begin(ctx, fmt.tprintf("%s##row", id), {direction = .Row})
-	// Put on a bar waits while the row is held, so the row keeps its width under the
+	// Put on a toolbar waits while the row is held, so the row keeps its width under the
 	// finger and letting go on it still runs it.
 	pressing := ctx.active == ui.id_of(ctx, id)
 	can_put := picked && !pressing && k.palette_for == nil && e.kind == .Command && bar_lists(e.id)
-	put_w: f32 = LENS_PUT_W if can_put else 0
+	// The pill holds the plus at 26 pt in, its label and 14 pt after it, inside 2 + 8 of margin.
+	put_w: f32 = max(LENS_PUT_W, ui.text_width(ctx, LENS_PUT_LABEL, t.small_size) + 48) if can_put else 0
 	a := ui.area(ctx, id, {width - put_w, LENS_ROW_H})
 	if ui.secondary(ctx) {
 		// The mouse's right button shows where it lives; a finger's or the pen's long
@@ -202,14 +205,14 @@ lens_palette_row :: proc(app: ^App, e: Palette_Entry, title, id: string, width: 
 	else if keys != "" do ui.text(ctx, keys, right, mid, t.small_size, t.text_tertiary, .Regular, .Right)
 	row.ran = a.clicked
 	if can_put {
-		b := ui.area(ctx, fmt.tprintf("Put on a bar##palette put %s", id), {put_w, LENS_ROW_H})
+		b := ui.area(ctx, fmt.tprintf(LENS_PUT_LABEL + "##palette put %s", id), {put_w, LENS_ROW_H})
 		pill := ui.Rect{b.rect.x + 2, b.rect.y + (b.rect.h - 28) * 0.5, b.rect.w - 8, 28}
 		ui.fill_rect(ctx, pill, t.radius_small + 2, t.surface)
 		if b.held do ui.fill_rect(ctx, pill, t.radius_small + 2, t.fill_pressed)
 		else if b.hovered do ui.fill_rect(ctx, pill, t.radius_small + 2, t.fill_hover)
 		ui.stroke_rect(ctx, pill, t.radius_small + 2, t.border, 1)
 		ui.icon(ctx, ui.ICON_PLUS, {pill.x + 14, pill.y + pill.h * 0.5}, t.icon_small - 2, t.text)
-		ui.text(ctx, "Put on a bar", pill.x + 26, pill.y + pill.h * 0.5, t.small_size, t.text, .Semibold)
+		ui.text(ctx, LENS_PUT_LABEL, pill.x + 26, pill.y + pill.h * 0.5, t.small_size, t.text, .Semibold)
 		ui.tip(ctx, b.id, pill, fmt.tprintf("Put it on %s", strings.to_lower(bar_title(app, palette_bar_for(app, e)), context.temp_allocator)), "Ctrl+Enter")
 		row.put = b.clicked
 	}
@@ -225,7 +228,7 @@ lens_palette_footer :: proc(app: ^App, e: Maybe(Palette_Entry), width: f32, anch
 	ctx := &k.ctx
 	t := ctx.theme
 	ui.begin(ctx, "palette footer", {direction = .Row, center = true, height = t.target})
-	hint := "Enter run · Tab show where it lives · Ctrl+Enter put on a bar" if k.palette_for == nil else "Enter choose · Esc close"
+	hint := "Enter run · Tab show where it lives · Ctrl+Enter put on a toolbar" if k.palette_for == nil else "Enter choose · Esc close"
 	// Without a keyboard the keys name nothing a finger can press: the buttons say it.
 	if k.keyless do hint = ""
 	// Four buttons, and a fifth, the shelf's pin, for a brush, a preset or a shape in Sculpt.

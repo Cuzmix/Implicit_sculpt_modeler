@@ -604,7 +604,7 @@ kit_curve_look :: proc(app: ^App, obj: ^Object) {
 		kit_curve_cage(app)
 		return
 	case .Guide:
-		ui.paragraph(ctx, "Quad Remesh runs its loops along the curve where it lies on the object, as firmly as Guide strength asks (Rebuild > Quads > More options).")
+		ui.paragraph(ctx, "Quad remesh runs its loops along the curve where it lies on the object, as firmly as Guide strength asks (Rebuild > Quads > More options).")
 		kit_curve_cage(app)
 		return
 	case:
