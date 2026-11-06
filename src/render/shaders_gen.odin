@@ -352,7 +352,7 @@ MESH_CLIP_FRAG :: gpu.Shader_Desc{
 Mesh_Clip_Frag_Samplers :: enum u32 {matcap, environment_map}
 Mesh_Clip_Frag_Uniforms :: enum u32 {Material_Uniforms, Slot_Uniforms}
 
-// mesh_layers.frag.spv sha256 ad9a48a0017f15ad4b128d7216a030c7b3a8588aa1578b7b30d2e0500599864e
+// mesh_layers.frag.spv sha256 59f4950792bd8c36e881755b3f1d299f1322d82a2c64547e5bc2667f8d3402dd
 MESH_LAYERS_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/mesh_layers.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
@@ -890,7 +890,7 @@ TEXTURED_CLIP_FRAG :: gpu.Shader_Desc{
 Textured_Clip_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map, paint_map, paint_material_map, paint_height_map}
 Textured_Clip_Frag_Uniforms :: enum u32 {Material_Uniforms}
 
-// textured_layers.frag.spv sha256 da8939ab5217c9d023f1211456ef6ec6bf1f94fdb107129f7c1ff24d670704bb
+// textured_layers.frag.spv sha256 762a850bad3fc490ef35da390bdbe7c4e42fe6abdbc3b6d1433d07da0d6d22ab
 TEXTURED_LAYERS_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/textured_layers.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,

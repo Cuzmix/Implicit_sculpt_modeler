@@ -99,6 +99,9 @@ material_balls_draw :: proc(r: ^Renderer, b: ^Material_Balls, cmd: gpu.Cmd, requ
 			look     = {look.x, look.y, look.z, 0},
 			style    = style,
 			damage   = geom.AABB_EMPTY,
+			// Over nothing a see-through ball would show nothing: glass shows the
+			// environment through it instead.
+			glass_solid = true,
 		}
 		pass := begin_mesh_pass(r, cmd, &r.single, b.scratch.color, b.scratch.depth, load = false, keep_depth = false, background = {0, 0, 0, 0})
 		draw_items(r, cmd, pass, &r.single, view, proj, {item}, nil, nil)
