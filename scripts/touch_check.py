@@ -757,7 +757,9 @@ def finger_tap_reaches_the_card_over_a_pinned_one():
     s.wait(6)
     s.ftap(COLOUR_WELL)
     s.wait(10)
-    return s, ["--script=brush paint; open_section paint_color; open_card colours"], camera_still(
+    # The Paint brush brings the Paint workspace on the first frame, whose layout replaces
+    # the cards open then, so they open a frame later.
+    return s, ["--script=brush paint; wait 2; open_section paint_color; open_card colours"], camera_still(
         {"cards": is_text("left:;right:Colours*,Tool"), "card_front": is_text("tool"), "color_popover": near(1), "dabs": near(0)})
 
 
