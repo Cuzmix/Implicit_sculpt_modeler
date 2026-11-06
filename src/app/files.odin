@@ -252,6 +252,8 @@ dialog_folder :: proc(app: ^App, userdata: rawptr) {
 // nothing while another dialog is showing.
 file_dialog :: proc(app: ^App, kind: File_Kind) {
 	if kind == .None do return
+	app.dialogs_asked += 1
+	if app.no_dialogs do return
 	sync.lock(&pending.lock)
 	busy := pending.dialog
 	pending.dialog = true

@@ -544,3 +544,24 @@ references_send_back_is_one_undo_step :: proc(t: ^testing.T) {
 	history_undo(&app)
 	testing.expect_value(t, test_refs_order(&app), [4]u32{1, 2, 3, 0})
 }
+
+// Add asks for files at once on a desktop or Android; with the iPad's photo picker it opens
+// the choice of Photos and Files instead, and each choice asks for its own.
+@(test)
+references_add_asks_files_or_offers_photos :: proc(t: ^testing.T) {
+	app: App
+	defer test_refs_free(&app)
+	app.no_dialogs = true
+	b := &app.kit.board
+	refs_add_ask(&app, {})
+	testing.expect_value(t, b.asked_files, 1)
+	testing.expect_value(t, app.dialogs_asked, 1)
+	testing.expect(t, !b.add_menu)
+	app.photos_picker = true
+	refs_add_ask(&app, {10, 20, 40, 40})
+	testing.expect(t, b.add_menu)
+	testing.expect_value(t, b.asked_files, 1)
+	refs_ask_photos(&app)
+	testing.expect_value(t, b.asked_photos, 1)
+	testing.expect_value(t, app.dialogs_asked, 1)
+}
