@@ -4544,6 +4544,15 @@ def model_edit_separate_split_and_fill():
 
 
 @scenario
+def model_boolean_subtracts_the_cage_below():
+    """Subtract the cage below: a cylinder cage overlapping a cube's corner is cut out of it exactly (more faces, the seam creased) and goes."""
+    s = Script()
+    s.wait(5)
+    setup = "--script=add_cage cube; select 1; delete_object; add_cage cylinder; wait 1; move 0.4 0.3 0.4; wait 1; select 1; wait 1; move 0 0 0; wait 1; frame_all; wait 1; cage_edit subtract"
+    return s, LENS_1440 + [setup], {"cages": near(1), "cage_faces": near(11), "cage_creases": near(8), "model_edits": near(1)}
+
+
+@scenario
 def model_relax_brush_drags_over_a_cage():
     """Relax: a drag over a subdivided cube evens its points out as one undo step; the cube keeps about its size."""
     s = Script()
