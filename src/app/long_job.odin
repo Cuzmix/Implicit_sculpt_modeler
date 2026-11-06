@@ -126,6 +126,7 @@ Long_Job :: struct {
 	refused_at: f64, // the interface's clock when the last "wait" note showed
 	// Import (cmd.kind .None): the file, and what reading and preparing it made.
 	importing:  bool,
+	keep_materials: bool, // keep the file's materials rather than paint them (App.import_paint)
 	path:       string, // owned
 	imported:   Mesh_Import,
 	note:       string, // owned: the import's note
@@ -352,6 +353,7 @@ import_job_start :: proc(app: ^App, path: string) {
 	stroke_finish(app)
 	j.on, j.cmd, j.id, j.object, j.before, j.importing = true, {}, 0, nil, nil, true
 	j.path = strings.clone(path)
+	j.keep_materials = !app.import_paint
 	j.label, j.named, j.source = strings.clone(filepath.base(path)), true, 0
 	j.start = time.tick_now()
 	j.progress = {}
@@ -397,7 +399,7 @@ long_job_thread :: proc(data: rawptr) {
 	share := JOB_COMPUTE_SHARE[j.cmd.kind]
 	jobs.progress_set(&j.progress, 0, 1, 0)
 	if j.importing {
-		j.imported, j.note, j.warning, j.built = mesh_import_load(j.path, fmt.tprintf("Imported %s", j.label), &j.pool, &j.progress, IMPORT_FILE_SHARE)
+		j.imported, j.note, j.warning, j.built = mesh_import_load(j.path, fmt.tprintf("Imported %s", j.label), &j.pool, &j.progress, IMPORT_FILE_SHARE, j.keep_materials)
 		jobs.progress_set(&j.progress, 0, 1, IMPORT_READ_SHARE)
 		if j.built do mesh_import_prepare(&j.imported, &j.pool, &j.progress, {IMPORT_READ_SHARE, 1})
 	}

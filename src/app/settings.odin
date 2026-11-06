@@ -337,6 +337,7 @@ SETTINGS := [?]Setting {
 	{"environment_turn", offset_of(App, env) + offset_of(Environment_State, turn), f32, -180, 180},
 	{"environment_tilt", offset_of(App, env) + offset_of(Environment_State, tilt), f32, -ENVIRONMENT_TILT_RANGE, ENVIRONMENT_TILT_RANGE},
 	{"dim_others", offset_of(App, dim_others), bool, 0, 0},
+	{"import_paint", offset_of(App, import_paint), bool, 0, 0},
 	{"skin_auto", offset_of(App, skin_auto), bool, 0, 0},
 	{"vdm_axes", offset_of(App, vdm_axes), sculpt.Vdm_Axes, 0, 0},
 	{"skin_map_kind", offset_of(App, skin_map_kind), sculpt.Skin_Map_Kind, 0, 0},
