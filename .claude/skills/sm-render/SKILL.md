@@ -159,6 +159,13 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   ambient, amb `STUDIO_AMBIENT_SHARE`·ambient / total brightness), so b/a is the unshadowed share of all light; mean
   weight 1 keeps half floats safe. Sphere lights trace to a disc of radius r·d/√(d²−r²) with tmax 1; suns tmax +inf.
   `light_window.slang` is shared with render_trace.comp.slang.
+- Material layers in the viewport (`Draw_Item.layers`, `Material_Slots.layers`, `geom.Material_Layers`): an item
+  with any (`item_layered`) draws through `Mesh_Pipelines.layered` (`mesh_layers`/`textured_layers.frag`: `LAYERS`
+  plus `AREA_LIGHTS`), made lazily by `layered_pipelines`, with `Layer_Uniforms` (8 rows a slot, 2048 B, set 3
+  binding 2, binding 1 textured) pushed by `item_layer_uniforms`; the plain shaders have no `LAYERS` code and must stay
+  byte-identical. Coat, sheen and the subsurface wrap are `layer_light` per light plus their ambient shares; glow is
+  added after relief; an item with transmission goes to the blended pass (`blended`, `item_transmission`,
+  `GLASS_SEE_THROUGH`). Skinned and clipped items leave the layers out.
 - Style (`Draw_Item.style`, `Material_Uniforms.style`, in both frame keys): w > 0.5 turns on the underside falloff of
   the ambient (`underside()`, rig up = `rig[1]`) and the narrow upper rim, classic and PBR studio ambient; w = 0 must
   run the old lines verbatim (check 0 px against the base). Thumbnails and the nav head pass zero.

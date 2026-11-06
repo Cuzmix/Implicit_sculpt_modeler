@@ -352,6 +352,20 @@ MESH_CLIP_FRAG :: gpu.Shader_Desc{
 Mesh_Clip_Frag_Samplers :: enum u32 {matcap, environment_map}
 Mesh_Clip_Frag_Uniforms :: enum u32 {Material_Uniforms, Slot_Uniforms}
 
+// mesh_layers.frag.spv sha256 9d907e4c89e694a79abaf3b6ca76073b721368cf85bee3959f64b78679e2aab7
+MESH_LAYERS_FRAG :: gpu.Shader_Desc{
+	code = #load("shaders/mesh_layers.frag" + SHADER_EXT, string),
+	entrypoint = SHADER_ENTRY,
+	format = SHADER_FORMAT,
+	stage = .Fragment,
+	num_samplers = 2,
+	num_storage_textures = 0,
+	num_storage_buffers = 0,
+	num_uniform_buffers = 3,
+}
+Mesh_Layers_Frag_Samplers :: enum u32 {matcap, environment_map}
+Mesh_Layers_Frag_Uniforms :: enum u32 {Material_Uniforms, Slot_Uniforms, Layer_Uniforms}
+
 // mesh_wire.frag.spv sha256 4c53dd408efe33b48bbb21019557a0de362bf08e76eabd79f7aa01ee1dc7fae1
 MESH_WIRE_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/mesh_wire.frag" + SHADER_EXT, string),
@@ -875,6 +889,20 @@ TEXTURED_CLIP_FRAG :: gpu.Shader_Desc{
 }
 Textured_Clip_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map, paint_map, paint_material_map, paint_height_map}
 Textured_Clip_Frag_Uniforms :: enum u32 {Material_Uniforms}
+
+// textured_layers.frag.spv sha256 23791cbaada95b0edeaf20eb348859db9e87024e2dbf6386a24aa8f907af8349
+TEXTURED_LAYERS_FRAG :: gpu.Shader_Desc{
+	code = #load("shaders/textured_layers.frag" + SHADER_EXT, string),
+	entrypoint = SHADER_ENTRY,
+	format = SHADER_FORMAT,
+	stage = .Fragment,
+	num_samplers = 8,
+	num_storage_textures = 0,
+	num_storage_buffers = 0,
+	num_uniform_buffers = 2,
+}
+Textured_Layers_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map, paint_map, paint_material_map, paint_height_map}
+Textured_Layers_Frag_Uniforms :: enum u32 {Material_Uniforms, Layer_Uniforms}
 
 // ui.frag.spv sha256 27b36442b9eb8e6ead0810a4529e9bfe0b995ed5c481cb5e7586856a36706ff2
 UI_FRAG :: gpu.Shader_Desc{
