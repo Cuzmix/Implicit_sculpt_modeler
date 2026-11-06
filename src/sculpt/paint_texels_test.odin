@@ -252,3 +252,56 @@ texel_stroke_paints_tiles :: proc(t: ^testing.T) {
 	b := run(t, &pool)
 	testing.expect(t, len(a) > 0 && slice.equal(a, b), "serial and parallel strokes differ")
 }
+
+// Blur over a painted line's edge spreads its paint thinly onto the clay beside it and
+// softens it inside, the same on one thread as on three, and undoes as one step.
+@(test)
+texel_blur_softens_and_agrees :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	run :: proc(t: ^testing.T, pool: ^jobs.Pool) -> (painted: []Color) {
+		l: Levels
+		texel_fixture(&l, pool)
+		defer levels_destroy(&l)
+		testing.expect(t, levels_texel_layer_add(&l, 512) == 0)
+		s := &levels_current(&l).sculptor
+		at := linalg.normalize(Vec3{0.1, 0.2, 1})
+		stroke :: proc(l: ^Levels, s: ^Sculptor, brush: Brush, at: Vec3, dabs: int) -> ^Texel_Step {
+			_ = levels_texels_attach(l)
+			sculptor_stroke_begin(s)
+			for _ in 0 ..< dabs do _ = apply_dab(s, brush, at)
+			_ = sculptor_stroke_end(s)
+			return levels_texels_detach(l)
+		}
+		counts :: proc(layer: ^Texel_Layer) -> (covered, partial: int) {
+			for tile in layer.tiles {
+				if tile == nil || tile.color == nil do continue
+				for c in tile.color {
+					if c.a > 0 do covered += 1
+					if c.a > 0 && c.a < 250 do partial += 1
+				}
+			}
+			return
+		}
+		first := stroke(&l, s, {kind = .Paint, radius = 0.1, strength = 1, color = {250, 30, 30}}, at, 1)
+		defer if first != nil {texel_step_free(first); free(first)}
+		layer := texels_layer(&l.texels, s.paint.list[0].texels)
+		covered, partial := counts(layer)
+		blurred := stroke(&l, s, {kind = .Paint, radius = 0.25, strength = 1, blur = true}, at, 6)
+		testing.expect(t, blurred != nil, "blur changed no tile")
+		covered2, partial2 := counts(layer)
+		testing.expectf(t, covered2 > covered && partial2 > partial, "covered %d -> %d, partial %d -> %d", covered, covered2, partial, partial2)
+		for tile in layer.tiles do if tile != nil && tile.color != nil do painted = slice.concatenate([][]Color{painted, tile.color}, context.temp_allocator)
+		if blurred == nil do return
+		levels_texel_step_swap(&l, blurred)
+		covered3, _ := counts(layer)
+		testing.expect(t, covered3 == covered, "undo left the blur")
+		texel_step_free(blurred)
+		free(blurred)
+		return
+	}
+	a := run(t, nil)
+	b := run(t, &pool)
+	testing.expect(t, len(a) > 0 && slice.equal(a, b), "serial and parallel blurs differ")
+}
