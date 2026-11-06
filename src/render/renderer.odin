@@ -198,6 +198,13 @@ Mesh_Pipelines :: struct {
 	// out.
 	area:         [Area_Pipeline]gpu.Graphics_Pipeline,
 	area_made:    bool,
+	// mesh, see, textured and textured_see with a material's layers (coat, sheen, glow,
+	// glass, subsurface; mesh_layers and textured_layers.frag) and the area lights, drawn
+	// for an item whose materials have layers; made the first time one is drawn
+	// (layered_pipelines), each nil until then or where the device refused it, when the
+	// plain one draws and leaves the layers out.
+	layered:      [Area_Pipeline]gpu.Graphics_Pipeline,
+	layered_made: bool,
 	// mesh with the wireframe drawn over the triangles' edges in the same pass
 	// (mesh_wire.frag.slang), made the first time a wireframe is drawn where the device
 	// offers barycentrics (wire_pipeline); nil until then, elsewhere, or where the device
@@ -830,6 +837,7 @@ mesh_pipelines_create :: proc(r: ^Renderer, samples: gpu.Sample_Count) -> Mesh_P
 mesh_pipelines_destroy :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
 	for pipeline in ([10]gpu.Graphics_Pipeline{p.mesh, p.wire, p.lines, p.clear, p.see, p.floor, p.textured, p.textured_see, p.skinned, p.skin_tess}) do if pipeline != 0 do gpu.release_graphics_pipeline(pipeline)
 	for pipeline in p.area do if pipeline != 0 do gpu.release_graphics_pipeline(pipeline)
+	for pipeline in p.layered do if pipeline != 0 do gpu.release_graphics_pipeline(pipeline)
 	for pipeline in p.clip do if pipeline != 0 do gpu.release_graphics_pipeline(pipeline)
 	if p.mesh_wire != 0 do gpu.release_graphics_pipeline(p.mesh_wire)
 	if p.ref_behind != 0 do gpu.release_graphics_pipeline(p.ref_behind)
@@ -848,6 +856,56 @@ area_pipelines :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
 	p.area[.See] = create_mesh_pipeline(r, .See_Through, samples, area = true)
 	p.area[.Textured] = create_mesh_pipeline(r, .Solid, samples, textured = true, area = true)
 	p.area[.Textured_See] = create_mesh_pipeline(r, .See_Through, samples, textured = true, area = true)
+}
+
+// The layered pipelines of `p`'s sample count, made once, the first time an item whose
+// materials have layers is drawn: a scene of plain materials never builds them.
+@(private)
+layered_pipelines :: proc(r: ^Renderer, p: ^Mesh_Pipelines) {
+	if p.layered_made do return
+	p.layered_made = true
+	samples := p.samples
+	p.layered[.Mesh] = create_mesh_pipeline(r, .Solid, samples, layers = true)
+	p.layered[.See] = create_mesh_pipeline(r, .See_Through, samples, layers = true)
+	p.layered[.Textured] = create_mesh_pipeline(r, .Solid, samples, textured = true, layers = true)
+	p.layered[.Textured_See] = create_mesh_pipeline(r, .See_Through, samples, textured = true, layers = true)
+}
+
+// Whether `item`'s material or any of its polygroups' has layers the layered shaders show.
+item_layered :: proc(item: Draw_Item) -> bool {
+	if item.layers != {} do return true
+	if item.slots != nil do for l in item.slots.layers[1:] do if l != {} do return true
+	return false
+}
+
+// How much light `item`'s own material lets through (its glass), which draws it
+// see-through in the viewport.
+item_transmission :: proc(item: Draw_Item) -> f32 {
+	return item.layers.transmission_weight * (1 - clamp(item.surface.x, 0, 1))
+}
+
+// Matches Layer_Uniforms in mesh_shading.slang: each slot's layers (slot 0 the item's own)
+// as eight rows, geom.Material_Layers with its defaults given and the subsurface radius
+// in view units.
+Layer_Uniforms :: struct {
+	rows: [GROUP_SLOTS * 8][4]f32,
+}
+#assert(size_of(Layer_Uniforms) == 2048)
+
+// `item`'s Layer_Uniforms: its own layers and its polygroups', resolved, the subsurface
+// radius times its scale and the item's (a similarity's).
+@(private)
+item_layer_uniforms :: proc(item: Draw_Item) -> (u: Layer_Uniforms) {
+	scale := linalg.length(item.model[0].xyz)
+	put :: proc(u: ^Layer_Uniforms, k: int, l: geom.Material_Layers, scale: f32) {
+		r := geom.material_layers_resolve(l)
+		r.subsurface_radius *= r.subsurface_scale * scale
+		rows := transmute([8][4]f32)r
+		for row, j in rows do u.rows[8 * k + j] = row
+	}
+	put(&u, 0, item.layers, scale)
+	if item.slots != nil do for k in 1 ..< GROUP_SLOTS do put(&u, k, item.slots.layers[k], scale)
+	return
 }
 
 Clip_Pipeline :: enum u8 {
@@ -899,10 +957,10 @@ lights_have_area :: proc(l: Lights) -> bool {
 // near triangles as the skin's grid: no vertex buffers, the paint, mesh and three skin
 // buffers in the vertex stage, and the clay's own fragment stage.
 @(private)
-create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: gpu.Sample_Count, textured := false, skinned := false, area := false, wire_bary := false, skin_tess := false, clip := false) -> gpu.Graphics_Pipeline {
-	vert_desc, frag_desc := MESH_VERT, MESH_CLIP_FRAG if clip else MESH_AREA_FRAG if area else MESH_FRAG
+create_mesh_pipeline :: proc(r: ^Renderer, mode: Mesh_Mode, samples: gpu.Sample_Count, textured := false, skinned := false, area := false, wire_bary := false, skin_tess := false, clip := false, layers := false) -> gpu.Graphics_Pipeline {
+	vert_desc, frag_desc := MESH_VERT, MESH_CLIP_FRAG if clip else MESH_LAYERS_FRAG if layers else MESH_AREA_FRAG if area else MESH_FRAG
 	if wire_bary do vert_desc, frag_desc = MESH_WIRE_VERT, MESH_WIRE_FRAG
-	if textured do vert_desc, frag_desc = TEXTURED_VERT, TEXTURED_CLIP_FRAG if clip else TEXTURED_AREA_FRAG if area else TEXTURED_FRAG
+	if textured do vert_desc, frag_desc = TEXTURED_VERT, TEXTURED_CLIP_FRAG if clip else TEXTURED_LAYERS_FRAG if layers else TEXTURED_AREA_FRAG if area else TEXTURED_FRAG
 	if skinned do vert_desc, frag_desc = SKIN_VERT, SKIN_CLIP_FRAG if clip else SKIN_FRAG
 	if skin_tess do vert_desc = SKIN_TESS_VERT
 	vert := gpu.create_shader(vert_desc)
@@ -1610,11 +1668,18 @@ render_viewport :: proc(r: ^Renderer, cmd: gpu.Cmd, vt: ^Viewport_Target, view, 
 	pipes := mesh_pipelines(r, vt.samples)
 	see := false
 	for item in items do see ||= blended(pipes, item)
-	if r.partial && !vt.tile && key == vt.frame_key && !(see && vt.samples != ._1) {
+	if r.partial && !vt.tile && key == vt.frame_key {
 		if rect, ok := damage_rect(vt^, view, proj, items); ok {
-			stats.partial = true
-			if rect.w > 0 && rect.h > 0 do render_rect(r, cmd, vt, view, proj, items, rect, &stats)
-			return
+			moved := rect.w > 0 && rect.h > 0
+			// A see-through item under multisampling redraws whole when anything moved (a
+			// rectangle would show a seam), but a frame where nothing did keeps the last
+			// one: redrawn every frame, it would restart render mode and the studio's
+			// samples every frame, and they would never gather.
+			if !(see && vt.samples != ._1 && moved) {
+				stats.partial = true
+				if moved do render_rect(r, cmd, vt, view, proj, items, rect, &stats)
+				return
+			}
 		}
 	}
 	render_full(r, cmd, vt, view, proj, items, use_cache, &stats)
@@ -2206,6 +2271,18 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 			if textured do which = .Textured_See if see else .Textured
 			if pipes.area[which] != 0 do main = pipes.area[which]
 		}
+		// An item whose materials have layers draws with the layered variant, which has the
+		// area lights' loops too.
+		layered := false
+		if item_layered(item) {
+			layered_pipelines(r, pipes)
+			which := Area_Pipeline.See if see else .Mesh
+			if textured do which = .Textured_See if see else .Textured
+			if pipes.layered[which] != 0 {
+				main = pipes.layered[which]
+				layered = true
+			}
+		}
 		// The skin's own shader has no area lights' code: a skinned item leaves them out.
 		if skinned do main = pipes.skinned
 		// A plain opaque item's wireframe is drawn in its own shading where the device
@@ -2271,6 +2348,14 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 		if proj[3, 3] == 1 do material.env.w = 1
 		// Drawn solid after all where the blended pipeline is missing, and opaque then.
 		if !see do material.look.w = 0
+		// Glass with no Transparency of its own shows what is behind it by how much light
+		// it lets through; its shader makes it more opaque where it reflects more.
+		if see && layered && material.look.w == 0 do material.look.w = 1 - GLASS_SEE_THROUGH * item_transmission(item)
+		if layered && !skinned && !clipped {
+			layer_uniforms := item_layer_uniforms(item)
+			if textured do push_fragment(cmd, Textured_Layers_Frag_Uniforms.Layer_Uniforms, &layer_uniforms)
+			else do push_fragment(cmd, Mesh_Layers_Frag_Uniforms.Layer_Uniforms, &layer_uniforms)
+		}
 		if textured {
 			// Pulled slots read the level's paint (textured.vert.slang); groups and slots
 			// have no place on a textured mesh.
@@ -2403,9 +2488,22 @@ wire_pass :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Mes
 // (Draw_Item.look.w) and the device made the blended pipeline.
 @(private)
 blended :: proc(pipes: ^Mesh_Pipelines, item: Draw_Item) -> bool {
+	see := item.look.w > 0 || item_transmission(item) > 0
+	if draws_textured(pipes, item) do return see && pipes.textured_see != 0
+	return see && pipes.see != 0
+}
+
+// Whether `item` is see-through by its Transparency (Draw_Item.look.w), as render mode and
+// the studio's traced rays leave such items out; glass (blended's other case) they trace
+// as glass.
+transparent :: proc(pipes: ^Mesh_Pipelines, item: Draw_Item) -> bool {
 	if draws_textured(pipes, item) do return item.look.w > 0 && pipes.textured_see != 0
 	return item.look.w > 0 && pipes.see != 0
 }
+
+// How much of what is behind a fully transmitting glass the viewport shows: most, the rest
+// standing for what its surface reflects and tints.
+GLASS_SEE_THROUGH :: 0.85
 
 // Draws the viewport's items whose `live` matches in the order blending needs: the opaque
 // ones, then the reference planes behind the model and the floor grid, then the
