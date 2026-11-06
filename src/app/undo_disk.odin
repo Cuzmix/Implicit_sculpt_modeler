@@ -130,6 +130,16 @@ undo_disk_frame :: proc(app: ^App) {
 	}
 }
 
+// Starts writing `snap`'s copy to disk now, whatever runs, when it is big enough and not
+// there yet: a remesh that let its object go early (long_job.odin) sends its undo copy
+// at once, since the memory it holds is what the remesh is short of.
+undo_disk_spill :: proc(app: ^App, snap: ^Object_Snapshot) {
+	d := &app.undo_disk
+	if d.folder == "" || snap.file != "" || snap.disk != nil || len(snap.bytes) != snap.size do return
+	if snap.size < (d.min if d.min > 0 else UNDO_DISK_MIN) do return
+	undo_disk_start(d, snap)
+}
+
 // Starts writing `snap`'s copy to a new file of the run's folder.
 @(private = "file")
 undo_disk_start :: proc(d: ^Undo_Disk, snap: ^Object_Snapshot) {
