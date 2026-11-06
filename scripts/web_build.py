@@ -200,7 +200,51 @@ def odin(args):
     return proc.returncode
 
 
+def hazards():
+    """The places in src that crash the pinned Odin's wasm64p32 code generation (an assertion
+    in llvm_const_named_struct, which builds a constant slice of two fields where the target's
+    slice has three): a #load as bytes, and a global or static whose initialiser is a slice
+    literal. odin check passes over both, so check looks for them here, which catches them
+    on a machine without wasm-ld that could never link the web version."""
+    found = []
+    global_slice = re.compile(r"^(@\((static|rodata)\)\s*)?\w+\s*(:\s*\[\][^=]*)?:?=\s*\[\]\w")
+    static_slice = re.compile(r"^\s+@\((static|rodata)\)\s*\w+\s*(:\s*\[\][^=]*)?:?=\s*\[\]\w")
+    src = os.path.join(ROOT, "src")
+    for directory, _, files in os.walk(src):
+        for name in sorted(files):
+            if not name.endswith(".odin") or name.endswith("_test.odin"):
+                continue
+            path = os.path.join(directory, name)
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+            for number, line in enumerate(text.split("\n"), 1):
+                where = f"{os.path.relpath(path, ROOT)}({number})"
+                if global_slice.match(line) or static_slice.match(line):
+                    found.append(f"{where}: a global or static slice literal; a fixed array ([?]T) of the same values builds")
+                at = line.find("#load(")
+                while at >= 0:
+                    depth, end = 0, at + len("#load")
+                    while end < len(line):
+                        depth += {"(": 1, ")": -1}.get(line[end], 0)
+                        if depth == 0:
+                            break
+                        end += 1
+                    if not re.search(r",\s*string\s*$", line[at + len("#load("):end]):
+                        found.append(f"{where}: #load as bytes; #load(path, string) builds, turned into bytes where used")
+                    at = line.find("#load(", end)
+    for line in found:
+        print(f"web: {line} (Odin's wasm64p32 code generation stops on it)", file=sys.stderr)
+    return 1 if found else 0
+
+
 def build(debug):
+    # Odin links js_wasm64p32 with wasm-ld from PATH, which Windows' Odin brings and Linux
+    # and macOS take from LLVM's lld; without it Odin says only "Could not spawn subprocess".
+    if os.name != "nt" and shutil.which("wasm-ld") is None:
+        print("web: no wasm-ld on PATH, which links the web version: install LLVM's lld (apt install lld, dnf install lld, brew install lld)")
+        return 1
+    if hazards() != 0:
+        return 1
     mirror()
     os.makedirs(SITE, exist_ok=True)
     # -o:minimal rather than -o:speed: LLVM's wasm back end stops on the vectors of f16 the
@@ -220,6 +264,8 @@ def build(debug):
 
 
 def check():
+    if hazards() != 0:
+        return 1
     mirror()
     code = odin(["check", os.path.join(TREE, "src", "app"), f"-target:{TARGET}", f"-collection:deps={DEPS}", *DEFINES, *STRICT])
     if code == 0:
