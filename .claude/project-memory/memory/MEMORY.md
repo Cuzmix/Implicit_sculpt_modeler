@@ -2,9 +2,9 @@
 
 ## Working mode (Bolt's standing rules)
 - 2026-11-02: app is pre-release, nobody uses it. No backward compatibility anywhere (scene files, settings, layouts, .strokes): a format change replaces the old reader; old v1-35 scene readers and settings migrations deleted #504, AGENTS.md rule changed (no-migration-before-release.md).
-- Threads work autonomously and self-merge PRs into odin-sculpt (never master), assigned to Cuzmix; don't park on questions, pick defaults and summarize. 2026-11-05 evening: Bolt told the UV thread and the Pelz pathtracer thread NOT to merge, keep work on their own branches; ask Bolt whether this now applies to all new threads.
+- Threads work autonomously and self-merge PRs into odin-sculpt (never master), assigned to Cuzmix; don't park on questions, pick defaults and summarize. 2026-11-06: Bolt confirmed self-merge is allowed; this replaces the 2026-11-05 evening "don't merge, keep it on your branch" told to the UV and Pelz threads (self-merge.md).
 - Never start GitHub Actions (Input tests, iPad build) unless Bolt asks; test locally (no-github-actions.md).
-- 2026-11-02: don't run gate.py at all, Bolt runs it on his PC; still odin check, touched tests, build, look (gate-on-bolts-pc.md).
+- 2026-11-06: run gate.py (full, or --changed per PR of a series) on Bolt's Linux laptop, where agents now work; this replaces the 2026-11-02 "Bolt runs the gate on his PC" rule, which was about 30-minute cloud runs (gate-on-bolts-pc.md, gate-per-pr.md).
 - Be very careful with performance-critical changes (frame pacing, latency, culling): Low latency now Off by default (#465+).
 - 2026-11-03: sculpting performance must NEVER degrade: no feature may add a hitch/pause to strokes (#591). Time stroke start/end/undo for anything touching sculpt paths.
 - Take the best of all apps (ZBrush, Nomad, Blender, 3D-Coat, Marmoset...) in every design, ZBrush iPad layout as the base; compare credible candidates side by side (best-of-all-worlds.md).
@@ -22,7 +22,7 @@
 
 ## Stack and repo
 - Odin, SDL3 for windows/input, own Vulkan/Metal/WebGPU backends in package src/gpu (#589); G1-G7 GPU abstraction plan (notes/gpu-own-model/design.md), G5c skipped, G6 recommended skip, awaiting Bolt. Own UI kit, Lens is the only layout (#275).
-- github.com/Cuzmix/Implicit_sculpt_modeler branch `odin-sculpt`. Claude builds/tests on Linux (SwiftShader/lavapipe); touch scenarios offscreen (touch-check-offscreen.md); worktrees: never symlink deps (sculpt-worktrees.md).
+- github.com/Cuzmix/Implicit_sculpt_modeler branch `odin-sculpt`. Cloud threads built on Linux with SwiftShader/lavapipe; local sessions run on the real GPU (local-machine-real-gpu.md). Touch scenarios offscreen (touch-check-offscreen.md). Worktrees: one per task beside the repo, with deps symlinked; .gitignore ignores `/deps` in any form since 2026-11-06 (sculpt-worktrees.md).
 - Container can't download GitHub release files or dl.google.com unless Network access allows it.
 - Scene file: chunks (SCEN, OBJ , CURV), current version only, no version branches until release (#504); v50 after curves.
 
@@ -46,11 +46,11 @@
 - Pain-points digest https://claude.ai/artifact/TNxWG76HJuZK9drKDMfdYu, built #428-#435+.
 - App themes #455 #458 #463, mock https://claude.ai/artifact/Tvc6Fyhf1at2fG8UzzWTXo.
 - Top bar three islands + U1-U12/R1-R3 built #444-#476.
-- Pelz Pathtracer study https://claude.ai/artifact/2fqGs7JomNmBRiH8mLxQTq: plan https://claude.ai/artifact/XbF8gpo5XncXTQRoYLfX8M approved 2026-11-05, building A-E; A1 #702, A2 #703 merged, rest branch-only (pelz-pathtracer-study.md).
+- Pelz Pathtracer study https://claude.ai/artifact/2fqGs7JomNmBRiH8mLxQTq: plan https://claude.ai/artifact/XbF8gpo5XncXTQRoYLfX8M approved 2026-11-05; A1 #702, A2 #703 merged; B1 on branch claude/project-thread-072t81 (ae2a7d5), unmerged; B2-E on hold. Its stage E (materials) is taken over by the render materials plan (pelz-pathtracer-study.md, render-materials-plan.md).
 - 25M-polygon sculpting: built #442-#450; open: Mali GPU-cull numbers, Metal cull, packed normals https://claude.ai/artifact/AvDakDd6t9znNrUjjrARvT (perf-25m-study.md).
 - Bézier curves (Nomad-style) 13 PRs #453-#474, untested on tablet https://claude.ai/artifact/BnWpcs912G7Vtrcb6K122Y (bezier-curves-build.md).
 - Blender-as-engine: answered no (blender-engine-question.md).
-- Surface space (UV, texture paint, shader graph): plan https://claude.ai/artifact/GvRMYf6uCFT8KGXT2Twwep, split-view https://claude.ai/artifact/Rm5R6Yi89MiR6CG7MRfmxe, docking https://claude.ai/artifact/PhtFwCVdgKqMcKbg5awvHb; UV series UV2-UV4 on branch claude/project-thread-ubkdnn, unmerged per Bolt; Unwrap row mock C picked 2026-11-05 https://claude.ai/artifact/NctPzXiK1NXc994g5T615t (surface-uv-build.md).
+- Surface space (UV, texture paint, shader graph): plan https://claude.ai/artifact/GvRMYf6uCFT8KGXT2Twwep, split-view https://claude.ai/artifact/Rm5R6Yi89MiR6CG7MRfmxe, docking https://claude.ai/artifact/PhtFwCVdgKqMcKbg5awvHb; UV merged #559-#572 and #704-#720 (Unwrap row mock C https://claude.ai/artifact/NctPzXiK1NXc994g5T615t), texture paint #725-#748; shader graph not built; uv_check.py against Blender never run (surface-uv-build.md).
 - Rail groups + lights: plan https://claude.ai/artifact/6q6XCT1Q3oQ1gu9X8fFpkv; cards pop out everywhere #590.
 - Cleanup sweep 2026-11-03 (notes/cleanup-2026-11-03/report.md); open: C7 mini view naming, C8 display-link trial needs iPad run.
 - Web (WASM): whole app in browser on WebGPU #522 (web-wasm-build.md).
@@ -61,17 +61,22 @@
 - Quad Remesh at ZRemesher quality: AutoRemesher core ported to Odin, C++ deleted #644, src/sparse solver, 1M 2.6 s vs C++ 16.4 s; plan done #673; engines Flow/Fast #679, both kept while Bolt tests (autoremesher-odin-port-results.md, zremesher-plan.md).
 - Send scenes tablet <-> PC: https://claude.ai/artifact/2KC4kvCGQ4uj6bLZGjPpbC, all merged, awaits device run (send-scenes-plan.md).
 - Remesh to DynaMesh level https://claude.ai/artifact/GMgjv5FvEkPiHiz4SexY27, built; sharp edges parked (remesh-dynamesh-plan.md).
-- Cloth and physics brushes https://claude.ai/artifact/CPv7XBVvWcZ13GxbvpEfUy; #557 #560 #565 #567 merged; next PR4 Physics card (physics-brushes-plan.md).
-- Docking DK1 tabs #568 (docking-dk-build.md); Paint layers PT1a #569, next PT1b (paint-layers-build.md).
+- Cloth and physics brushes https://claude.ai/artifact/CPv7XBVvWcZ13GxbvpEfUy; #557 #560 #565 #567, Physics card #730, presets #732, coarse level #737, proxy #744, rope on curves #745 merged; PR7 GPU kernels deferred until Settle proves slow (physics-brushes-plan.md).
+- Docking DK1 tabs #568, DK2 Texture tab #571; DK3a parked as an uncompiled patch, DK3b not started (docking-dk-build.md). Paint layers PT1a #569, PT1b finished as #725 (paint-layers-build.md).
 - Panels+docks from scratch: review https://claude.ai/artifact/RsfEHZKMGNA5Awi5EA7fDm, mock https://claude.ai/artifact/1hGzEd2pmaZD6KULbE31LW, all merged by #625, motion #628 (panels-v2-plan.md).
-- Dense remesh memory crash plan https://claude.ai/artifact/9mmo3S83hHYZ8HBsaE1dMs, merged #617-#670, PR5 skipped; iPad 25Mx2 run pending (dense-remesh-memory-plan.md).
-- Look pad plan https://claude.ai/artifact/7B85zKHpkeQE7BSxaQEgB1; awaiting Bolt's 3 picks (look-pad-plan.md).
+- Dense remesh memory crash plan https://claude.ai/artifact/9mmo3S83hHYZ8HBsaE1dMs, merged #617-#670 and #735 (old object released first when memory is short), PR5 skipped; BLOCKED on Bolt: build #735 for the iPad, remesh to 15M twice, send sculpt-log.txt (dense-remesh-memory-plan.md).
+- Look pad plan https://claude.ai/artifact/7B85zKHpkeQE7BSxaQEgB1: Bolt chose the lighter version after critique; #738 four looks (Clay, Lit, Full, Flat), #749 a look per context (look-pad-plan.md).
 - View gizmo styles #616 (view-gizmo-styles.md).
-- UI/UX upgrade (T3 video) report https://claude.ai/artifact/45W86UmLQX1Sd7dHFcMeoy; sm-ui-review skill; phases ongoing (ui-ux-t3-upgrade.md).
+- UI/UX upgrade (T3 video) report https://claude.ai/artifact/45W86UmLQX1Sd7dHFcMeoy; sm-ui-review skill; merged #631-#687, #741 #747 #750; critic score 6.3 to 6.91 against a target of 8 (ui-ux-t3-upgrade.md).
 - Reference images plan https://claude.ai/artifact/LMXDdcQdwqqm63VUEkBZMm, R1-R6 + card A #684 merged; resizable cards mock https://claude.ai/artifact/WaVnjtxYDSrdjEzujryjpY awaiting pick; next R5b (reference-images-plan.md).
-- Modifiers (Live stack) https://claude.ai/artifact/AsztZy5PHcrx6eSmmeyGNS, #662-#681 merged; card A #685; C's view handles next (modifiers-live-stack-plan.md).
+- Modifiers (Live stack) https://claude.ai/artifact/AsztZy5PHcrx6eSmmeyGNS, #662-#681 merged; card A #685; view handles #689; Apply this row and Search #733 (modifiers-live-stack-plan.md).
 - Gizmo/pivot/input fixes plan https://claude.ai/artifact/SbcPS7g7B6ymSZgqvVsctN (gizmo-pivot-input-plan.md).
 - 2026-11-05: UI scale to 60% + shadow strength done; saved layouts stamps #690; pen keeps to active object #694.
 - Curves in 3D space https://claude.ai/artifact/DL4BbVKsirEBDdqmirxww8, #691-#700 merged, awaiting tablet run (curves-3d-space-plan.md).
 - Brush icons 2026-11-05: glossy 3D-render style (grey ball + coloured effect, round tiles), all 18 in notes/icons/glossy/ (ray2.py renderer, README), in app #701 (assets/brush_icons/ PNGs); open: Trim vs Flatten look alike, icons small on shelf.
 - 2026-11-06 Whole-app gap list (beyond modelling) https://claude.ai/artifact/BMtDJHh2h7ktUM7e5MDLPQ, with what to run on a real GPU: notes/app-gaps/gaps-2026-11-06.md (app-gaps-2026-11-06.md).
+- 2026-11-06 Modelling gaps vs ZBrush/Blender #711-#724 (selection, snapping, Measure, exact cage booleans, Live stack Deform/Displace/Curve/Wrap/Sharp edges, Panel loops); dyntopo wireframe crumple #716; matcaps like ZBrush #727, Grey clay default #743 (A/B cavity and Transition slider promised, not built).
+- 2026-11-06 Innovation picks: Tap to find #752, Dial back #754, Hover preview #755; Live strokes design only, Onion skin not picked.
+- 2026-11-06 local sessions: stale tests and try_it #756, Android save and export to a picked file #757, 37 touch scenarios fixed with jobwait/jobhold ui-events #758, shading menu fits #759, GPU strokes land deterministically #760.
+- 2026-11-06 Render materials plan (Series E, then O) approved, worktree ../sculpt-render; E1-E3 in PR #761 (render-materials-plan.md).
+- 2026-11-06 What waits on Bolt (device runs, blocked items, unanswered picks), from the study of the exported threads: open-decisions-2026-11-06.md.

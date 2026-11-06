@@ -5,7 +5,7 @@ ZBrush as the behaviour model. README.md is the only document and describes what
 the skills hold the detail. It builds and runs on Windows (`build.bat`) and Linux (`build.sh`).
 
 ## 0. Project memory
-`.claude/project-memory/` is a snapshot (2026-11-05) of what the cloud project's threads knew: read its
+`.claude/project-memory/` is a snapshot (2026-11-06) of what the cloud project's threads knew: read its
 `README.md`, then `memory/MEMORY.md` (Bolt's standing working rules and every plan with its PRs) before
 planning, and the memory file or `notes/` design a task touches. It does not update itself; where it
 and the code disagree, the code wins.
