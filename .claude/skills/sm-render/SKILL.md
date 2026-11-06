@@ -166,6 +166,15 @@ description: Rendering in src/render (its own Vulkan and Metal backends) — the
   byte-identical. Coat, sheen and the subsurface wrap are `layer_light` per light plus their ambient shares; glow is
   added after relief; an item with transmission goes to the blended pass (`blended`, `item_transmission`,
   `GLASS_SEE_THROUGH`). Skinned and clipped items leave the layers out.
+- Thin film (`thin_film.slang`, Airy at 650/532/450 nm) bends F0 by `Material_Layers.thin_film_*` in the layered
+  viewport variant and in the trace's `ITEM_LAYERS` block, and colours the glass lobe's reflect/pass split.
+- Shadow catcher (`Shadow_Catcher`, `RT_CATCHER` constant 4, `Render_Uniforms.catcher`/`catcher_light`): camera rays
+  only, one shadow ray to the brightest light; `render_display` composites alpha (backdrop alpha plus coverage), so
+  opaque renders stay bit-identical and a transparent backdrop gives coverage alpha.
+- Render image (app `render_image.odin`): its own `Path_Render`/`Studio`/`Live_AO`/`Viewport_Target`, tiles of
+  `RENDER_TILE_MAX` through `narrow * proj`, each read back the frame after its last sample (never download what
+  this frame's `cmd` drew before it is submitted); passes on their own command buffers. The interface pass encodes
+  sRGB textures back (`Ui_Draw.encode`, MatCaps) since they sample as linear light.
 - Style (`Draw_Item.style`, `Material_Uniforms.style`, in both frame keys): w > 0.5 turns on the underside falloff of
   the ambient (`underside()`, rig up = `rig[1]`) and the narrow upper rim, classic and PBR studio ambient; w = 0 must
   run the old lines verbatim (check 0 px against the base). Thumbnails and the nav head pass zero.
