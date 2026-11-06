@@ -5808,8 +5808,8 @@ def render_pins_the_material_card():
 # The Render space's Material card at 1440x900: the Starred and Metal choices, the first
 # two spheres of a shelf (Gold and Copper on Metal's: by their keys, and their centres for
 # drags), and a point off the grid, over the view.
-LENS_MATERIALS = {"favourites": At("material categories 0/Starred", 1115, 271), "metal": At("material categories 0/Metal", 1250, 271),
-                  "gold": (1103, 388), "copper": (1178, 388), "first": At("material card 0", 1103, 388), "off": (900, 420)}
+LENS_MATERIALS = {"favourites": At("material categories 0/Starred", 1216, 273), "metal": At("material categories 1/Metal", 1119, 323),
+                  "gold": (1103, 438), "copper": (1178, 438), "first": At("material card 0", 1103, 438), "off": (900, 420)}
 
 
 @scenario
@@ -5890,6 +5890,27 @@ def material_card_edit_turns_a_layer_on():
     s.ftap(MATERIAL_COAT)
     s.wait(10)
     return s, LENS_1440, camera_still({"selected_material": is_text("Custom"), "material_layers": near(1), "undo_steps": near(0), "dabs": near(0)})
+
+
+# In this scene on the Material card, and the ball of the second imported object's own
+# material (Cube.001's Glass, in the file's materials.glb).
+MATERIAL_SCENE = At("material categories 0/In this scene", 1278, 273)
+MATERIAL_SCENE_GLASS = At("scene object 1 0", 1263, 575)
+
+
+@scenario
+def material_card_in_this_scene_selects_who_wears_it():
+    """After a glTF with three materials is dropped in, the Material card's In this scene lists
+    each object's own, by the file's names; a tap on Glass selects Cube.001, which wears it,
+    and changes no material."""
+    s = Script()
+    s.add(f"drop:{os.path.join(ROOT, 'src', 'app', 'testdata', 'import', 'materials.glb')}")
+    s.wait(40)
+    s.ftap(MATERIAL_SCENE)
+    s.wait(8)
+    s.ftap(MATERIAL_SCENE_GLASS)
+    s.wait(8)
+    return s, ["--script=open_section material"], camera_still({"selected_name": is_text("Cube.001"), "material_previews": near(0), "dabs": near(0)})
 
 
 @scenario

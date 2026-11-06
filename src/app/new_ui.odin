@@ -1015,6 +1015,7 @@ kit_destroy :: proc(app: ^App) {
 	ui.destroy(&app.kit.ctx)
 	layouts_destroy(&app.kit)
 	panel_motion_destroy(&app.kit.moving)
+	delete(app.kit.material_card.slots)
 }
 
 // Window coordinates per interface point. SDL gives the pointer and the window's size in

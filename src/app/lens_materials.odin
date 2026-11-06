@@ -1,9 +1,11 @@
 package main
 
 import "core:fmt"
+import "core:hash"
 import "core:strings"
 
 import "../geom"
+import "../render"
 import "../ui"
 
 // The Material card (direction A of the materials design, "Shelf", after Substance's
@@ -29,6 +31,7 @@ import "../ui"
 
 // The shelf's categories, in the order its chips show them.
 Material_Category :: enum u8 {
+	Scene, // the materials the scene's objects wear, by object, the files' names kept
 	Favourites,
 	Clay,
 	Metal,
@@ -41,6 +44,7 @@ Material_Category :: enum u8 {
 
 @(rodata)
 MATERIAL_CATEGORY_NAMES := [Material_Category]string {
+	.Scene      = "In this scene",
 	.Favourites = "Starred",
 	.Clay       = "Matte",
 	.Metal      = "Metal",
@@ -103,7 +107,100 @@ Material_Card :: struct {
 	category: int,
 	editing:  bool,
 	before:   Material,
+	// The atlas cells the balls are drawn into (render.material_balls_draw): what each shows
+	// and whether it is drawn, kept across frames so a ball is drawn once; `look` is the
+	// lights and look they were drawn under, and `frame` counts the frames the card showed.
+	slots:    [dynamic]Ball_Slot, // render.BALL_SLOTS of them once the card first shows; freed by kit_destroy
+	look:     u64,
+	frame:    int,
+	drew:     bool, // the card showed this frame, so its cells may be drawn
 	favorite_changes: int, // for the exit stats
+}
+
+// One cell of the balls' atlas: the material it shows, the key of what it was asked to
+// draw (its values and the look), whether it is drawn, and the frame it was last shown.
+Ball_Slot :: struct {
+	material: Material,
+	key:      u64,
+	drawn:    bool,
+	used:     int,
+}
+
+// The cell that shows `m`, keeping or taking one: the cell already keyed to it, else the
+// one shown longest ago, which is then drawn anew. `drawn` says the cell can be shown.
+material_ball_slot :: proc(app: ^App, m: Material) -> (slot: int, drawn: bool) {
+	mc := &app.kit.material_card
+	if len(mc.slots) == 0 do resize(&mc.slots, render.BALL_SLOTS)
+	request := material_ball_request(app, 0, m)
+	key := hash.fnv64a(([^]u8)(&request)[:size_of(request)], mc.look)
+	oldest := 0
+	for &s, i in mc.slots {
+		if s.key == key {
+			s.used = mc.frame
+			return i, s.drawn
+		}
+		if s.used < mc.slots[oldest].used do oldest = i
+	}
+	mc.slots[oldest] = {material = m, key = key, used = mc.frame}
+	return oldest, false
+}
+
+// Each frame after the interface, where a command buffer is open: the lights and look are
+// keyed, so a change to them draws every ball again; then the cells the card showed this
+// frame and not yet drawn go to material_balls_frame, a few at a time while the view is
+// still, in the order the card asked for them.
+material_card_balls_frame :: proc(app: ^App, cmd: render.Cmd) {
+	mc := &app.kit.material_card
+	// Nothing is drawn, or kept up to date, while the card is not on screen.
+	if !mc.drew do return
+	mc.drew = false
+	lights, look, style := viewport_lights(app), viewport_look(app), viewport_style(app)
+	key := hash.fnv64a(([^]u8)(&lights)[:size_of(lights)])
+	key = hash.fnv64a(([^]u8)(&look)[:size_of(look)], key)
+	key = hash.fnv64a(([^]u8)(&style)[:size_of(style)], key)
+	if key != mc.look {
+		mc.look = key
+		for &s in mc.slots do s = {}
+	}
+	requests := make([dynamic]render.Ball_Request, 0, len(mc.slots), context.temp_allocator)
+	cells := make([dynamic]int, 0, len(mc.slots), context.temp_allocator)
+	for &s, i in mc.slots {
+		if s.key == 0 || s.drawn || s.used != mc.frame do continue
+		append(&requests, material_ball_request(app, i, s.material))
+		append(&cells, i)
+	}
+	n := material_balls_frame(app, cmd, requests[:])
+	for i in cells[:n] do mc.slots[i].drawn = true
+}
+
+// Ball `m` filling the circle at `c` of radius `r`: its cell of the atlas once drawn (the
+// sphere fills the cell all but a small margin, material_ball_camera), the kit's shaded
+// disc in its colour until then.
+material_ball_draw :: proc(app: ^App, c: [2]f32, r: f32, m: Material) {
+	ctx := &app.kit.ctx
+	slot, drawn := material_ball_slot(app, m)
+	if !drawn {
+		if m.matcap != 0 {
+			ui.fill_circle(ctx, c, r, ctx.theme.fill)
+			ui.image_disc(ctx, c, r, KIT_MATCAP_IMAGE + u64(m.matcap), material_swatch(m))
+		} else {
+			ui.fill_ball(ctx, c, r, material_swatch(m))
+		}
+		return
+	}
+	// A see-through ball shows what is behind it, which in its cell is nothing: a quiet disc
+	// stands behind it, as glass is shown on a backdrop.
+	if m.layers.transmission_weight > 0 do ui.fill_circle(ctx, c, r, ctx.theme.fill)
+	half := r * 1.04
+	lo, hi := render.ball_uv(slot)
+	ui.image_part(ctx, {c.x - half, c.y - half, 2 * half, 2 * half}, KIT_MATERIAL_BALLS_IMAGE, lo, hi)
+}
+
+// Who a ball of "In this scene" stands for: an object and its group (0 for the object's
+// own material), for a tap to select.
+Ball_Owner :: struct {
+	id:    int,
+	group: u16,
 }
 
 // One sphere of a grid: the material it puts on and its name.
@@ -131,6 +228,8 @@ kit_lens_material :: proc(app: ^App) {
 		}
 	}
 	m := object_material(app, sel) if sel != nil else current_material(app)
+	mc.frame += 1
+	mc.drew = true
 	if mc.category == 0 do mc.category = int(material_category(m)) + 1
 	material_preview_row(app, m, sel, width)
 	if mc.editing {
@@ -138,6 +237,10 @@ kit_lens_material :: proc(app: ^App) {
 		return
 	}
 	material_chips(app, width)
+	if Material_Category(mc.category - 1) == .Scene {
+		material_scene(app, m, width)
+		return
+	}
 	balls := material_balls(app)
 	shown := make([dynamic]Material_Ball, 0, len(balls), context.temp_allocator)
 	category := Material_Category(mc.category - 1)
@@ -168,14 +271,13 @@ material_preview_row :: proc(app: ^App, m: Material, sel: ^Object, width: f32) {
 	ui.begin(ctx, "material preview", {direction = .Row, gap = ui.SPACE_L, center = true, width = width})
 	a := ui.area(ctx, "material preview ball", {side, side}, drag = false)
 	c := [2]f32{a.rect.x + side * 0.5, a.rect.y + side * 0.5}
-	if m.matcap != 0 {
-		ui.fill_circle(ctx, c, side * 0.5 - ui.SPACE_XS, t.fill)
-		ui.image_disc(ctx, c, side * 0.5 - ui.SPACE_XS, KIT_MATCAP_IMAGE + u64(m.matcap), material_swatch(m))
-	} else {
-		ui.fill_ball(ctx, c, side * 0.5 - ui.SPACE_XS, material_swatch(m))
-	}
+	material_ball_draw(app, c, side * 0.5 - ui.SPACE_XS, m)
 	ui.begin(ctx, "material preview words", {direction = .Column, gap = ui.SPACE_2XS, width = width - side - ui.SPACE_L})
-	ui.label(ctx, string(m.label) if m.label != nil else "Custom", t.title_size, t.text, .Semibold)
+	name := string(m.label) if m.label != nil else "Custom"
+	// What the file called it, while the object wears what the import gave it (an import's
+	// material is Custom, as no preset; a preset picked since shows the preset's name).
+	if sel != nil && name == "Custom" do name = imported_name(sel, 0, name)
+	ui.label(ctx, name, t.title_size, t.text, .Semibold)
 	ui.label(ctx, material_values_line(m), t.small_size, t.text_secondary)
 	who := "New objects take it"
 	if sel != nil {
@@ -223,9 +325,9 @@ material_chips :: proc(app: ^App, width: f32) {
 	ctx := &k.ctx
 	t := ctx.theme
 	mc := &k.material_card
-	// One well holding two rows of four, so the eight read as one choice with one chosen,
+	// One well holding three rows of three, so the nine read as one choice with one chosen,
 	// and the columns line up.
-	ACROSS :: 4
+	ACROSS :: 3
 	pad := f32(ui.SPACE_2XS)
 	cell := (width - 2 * pad - (ACROSS - 1) * pad) / ACROSS
 	ui.begin(ctx, "material categories", {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_2XS, background = .Track, radius = t.radius_medium, width = width})
@@ -264,6 +366,13 @@ material_edit :: proc(app: ^App, m: Material) {
 	if changed {
 		m.label = "Custom"
 		app.ui.scene_command = {kind = .Material, material = m, material_to = app.ui.material_to}
+	}
+	// The maps the file named for this material, as the import read them.
+	if sel := selected_object(app); sel != nil {
+		for e in sel.imported {
+			if e.group != 0 do continue
+			for name, which in e.maps do if name != "" do ui.label(ctx, fmt.tprintf("%v map · %s", which, name), t.small_size, t.text_secondary)
+		}
 	}
 	ui.paragraph(ctx, "Each layer adds to the surface under it, as in OpenPBR: light under the skin, a clear coat, cloth's sheen, light through glass, light given off. Full render shows them all.", color = t.text_secondary)
 }
@@ -360,6 +469,40 @@ material_layers_edit :: proc(app: ^App, l: ^geom.Material_Layers) -> (changed: b
 	return
 }
 
+// In this scene: each object that has a material, under its name (and the file it came
+// from when an import brought its materials), its own material and each of its groups',
+// by the names the file gave them where it gave any. A tap selects who wears it.
+@(private = "file")
+material_scene :: proc(app: ^App, m: Material, width: f32) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	any := false
+	for obj, k in app.scene.objects {
+		if obj.material.label == nil do continue
+		any = true
+		balls := make([dynamic]Material_Ball, 0, 1 + len(obj.group_materials), context.temp_allocator)
+		owners := make([dynamic]Ball_Owner, 0, 1 + len(obj.group_materials), context.temp_allocator)
+		append(&balls, Material_Ball{obj.material, imported_name(obj, 0, string(obj.material.label))})
+		append(&owners, Ball_Owner{obj.id, 0})
+		for e in obj.group_materials {
+			append(&balls, Material_Ball{e.material, imported_name(obj, e.group, fmt.tprintf("Group %d", e.group))})
+			append(&owners, Ball_Owner{obj.id, e.group})
+		}
+		head := object_label(obj)
+		if len(obj.imported) > 0 do head = fmt.tprintf("%s · %d from its file", head, len(obj.imported))
+		ui.label(ctx, head, t.small_size, t.text_secondary, .Semibold)
+		material_grid(app, balls[:], m, width, owners[:], fmt.tprintf("scene object %d", k))
+	}
+	if !any do ui.paragraph(ctx, "No object has a material yet.", color = t.text_secondary)
+	ui.paragraph(ctx, "Every material the scene's objects wear, by object; an imported one keeps its file's name. Tap one to select who wears it.")
+}
+
+// What the file named the material on group `group` of `obj`, or `fallback`.
+imported_name :: proc(obj: ^Object, group: u16, fallback: string) -> string {
+	for e in obj.imported do if e.group == group && e.name != "" do return e.name
+	return fallback
+}
+
 // The spheres the card shows: the lit presets, Custom and the content packs' materials.
 @(private = "file")
 material_balls :: proc(app: ^App) -> []Material_Ball {
@@ -385,7 +528,7 @@ material_ball_on :: proc(b: Material_Ball, m: Material) -> bool {
 
 // The grid of `balls`, the one in use (`m`) ringed, with the scrub: see the file's head.
 @(private = "file")
-material_grid :: proc(app: ^App, balls: []Material_Ball, m: Material, width: f32) {
+material_grid :: proc(app: ^App, balls: []Material_Ball, m: Material, width: f32, owners: []Ball_Owner = nil, name := "material card") {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
@@ -394,21 +537,24 @@ material_grid :: proc(app: ^App, balls: []Material_Ball, m: Material, width: f32
 	rects := make([]ui.Rect, len(balls), context.temp_allocator)
 	held := false
 	for first := 0; first < len(balls); first += MATERIAL_ACROSS {
-		ui.begin(ctx, fmt.tprintf("material card row %d", first), {direction = .Row, gap = MATERIAL_GAP})
+		ui.begin(ctx, fmt.tprintf("%s row %d", name, first), {direction = .Row, gap = MATERIAL_GAP})
 		for n in first ..< min(first + MATERIAL_ACROSS, len(balls)) {
 			b := balls[n]
-			a := ui.area(ctx, fmt.tprintf("%s##material card %d", b.label, n), {side, side + MATERIAL_LABEL_H})
+			a := ui.area(ctx, fmt.tprintf("%s##%s %d", b.label, name, n), {side, side + MATERIAL_LABEL_H}, drag = owners == nil)
 			rects[n] = a.rect
 			held ||= a.held
 			r := side * 0.5 - 5
 			c := [2]f32{a.rect.x + side * 0.5, a.rect.y + side * 0.5}
-			on := material_ball_on(b, m)
+			on := material_ball_on(b, m) if owners == nil else selected_object(app) != nil && owners[n].id == selected_object(app).id && owners[n].group == 0
 			if a.hovered && ctx.input.pointer != .Finger && !on do ui.stroke_circle(ctx, c, r + 2.5, ui.color_fade(t.text_tertiary, 0.6), 1)
-			if b.material.matcap != 0 {
-				ui.fill_circle(ctx, c, r, t.fill)
-				ui.image_disc(ctx, c, r, KIT_MATCAP_IMAGE + u64(b.material.matcap), material_swatch(b.material))
-			} else {
-				ui.fill_ball(ctx, c, r, material_swatch(b.material))
+			material_ball_draw(app, c, r, b.material)
+			// In this scene a tap selects who wears it, a group's opening the card on Group.
+			if owners != nil && a.clicked {
+				o := owners[n]
+				ids := [1]int{o.id}
+				selection_set(app, ids[:])
+				app.ui.material_groups = o.group != 0
+				if o.group != 0 do app.ui.group_target, app.ui.group_target_id = o.group, o.id
 			}
 			if on do ui.stroke_circle(ctx, c, r + 3, t.accent, 2)
 			key := material_ball_key(app, b)
@@ -422,13 +568,13 @@ material_grid :: proc(app: ^App, balls: []Material_Ball, m: Material, width: f32
 				added := material_favorite_toggle(mc, key)
 				report(app, nil, {.Quiet}, "%s %s the favourites", b.label, "added to" if added else "taken off")
 			}
-			name := ui.text_fit(ctx, b.label, t.caption_size, side)
-			ui.text(ctx, name, c.x, a.rect.y + side + MATERIAL_LABEL_H * 0.5 - 2, t.caption_size, t.accent if on else t.text_secondary, .Regular, .Center)
+			shown_name := ui.text_fit(ctx, b.label, t.caption_size, side)
+			ui.text(ctx, shown_name, c.x, a.rect.y + side + MATERIAL_LABEL_H * 0.5 - 2, t.caption_size, t.accent if on else t.text_secondary, .Regular, .Center)
 			ui.tip(ctx, a.id, a.rect, b.label)
 		}
 		ui.end(ctx)
 	}
-	if held {
+	if held && owners == nil {
 		// The sphere under the finger now, wherever the press began.
 		under := 0
 		for r, n in rects do if ui.rect_contains(r, ctx.input.mouse) do under = n + 1

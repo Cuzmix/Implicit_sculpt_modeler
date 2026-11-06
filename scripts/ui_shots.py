@@ -87,6 +87,8 @@ SCREENS = {
     "render": ("The Render space", tap("top bar/Render"), []),
     "material_card": ("The Material card: the shelf of material balls", "", ["--script=open_section material"]),
     "material_edit": ("The Material card's Edit on Car paint: Surface, then the layers' switches, Coat on", tap("material preview words/Edit", 12), ["--script=set material car paint; open_section material"]),
+    "material_scene": ("The Material card's In this scene after a glTF with three materials was dropped in: each object's, by the file's names",
+                       f"3:drop:{ROOT / 'src' / 'app' / 'testdata' / 'import' / 'materials.glb'};4:jobwait;" + tap("material categories 0/In this scene", 30), ["--script=open_section material"]),
     "light_card": ("The Light card on its Lights section", "", ["--script=open_section lights"]),
     "render_card": ("The Render card with the render off", "", ["--script=open_section render"]),
     "shading_menu": ("The shading chip's list in Clay: the looks, Colour, the MatCap discs and Import", tap("readout/Shading", 12), ["--script=shading_mode clay"]),
