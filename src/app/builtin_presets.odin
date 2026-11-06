@@ -27,6 +27,15 @@ Built_In_Preset :: struct {
 	one_way:     bool, // the stroke's No back and forth
 	// Flatten's plane height and depth, 0 to 1; both 0 here mean a fresh brush's 1.
 	plane:       [2]f32,
+	// The Cloth brush's mode and what differs from sculpt.CLOTH_DEFAULTS: the region,
+	// Gravity, Firmness (0 here means the default) and Allow expand.
+	cloth_mode:   sculpt.Cloth_Mode,
+	region:       sculpt.Cloth_Region,
+	gravity:      f32,
+	firmness:     f32,
+	allow_expand: bool,
+	// The Physics switch on, at its default strength: a brush that moves the surface as cloth.
+	physics:      bool,
 }
 
 // Appended to only, as a dock slot read from an older settings file finds its preset by
@@ -52,6 +61,24 @@ BUILT_IN_PRESETS := [?]Built_In_Preset {
 	// Blender's Plane brush halves: Fill only raises the dips, Scrape only cuts the bumps.
 	{name = "Fill", kind = .Flatten, strength = 0.5, plane = {0, 1}},
 	{name = "Scrape", kind = .Flatten, strength = 0.5, plane = {1, 0}},
+	// ZBrush's cloth brushes (its Dynamics family), each a Cloth mode or a moving brush
+	// with Physics on, named as there with a space; listed under Cloth in the Library.
+	{name = "Cloth nudge", kind = .Cloth, strength = 0.25, cloth_mode = .Drag},
+	{name = "Cloth pull", kind = .Cloth, strength = 0.5, cloth_mode = .Drag, allow_expand = true},
+	{name = "Cloth hook", kind = .Snake_Hook, strength = 0.5, physics = true},
+	{name = "Cloth inflate", kind = .Cloth, strength = 0.5, cloth_mode = .Inflate},
+	// A firm cloth swells into one round puff instead of puckering.
+	{name = "Cloth ball", kind = .Cloth, strength = 0.6, cloth_mode = .Inflate, firmness = 0.95},
+	{name = "Cloth fold", kind = .Cloth, strength = 0.5, cloth_mode = .Pinch_Line},
+	{name = "Cloth pinch", kind = .Cloth, strength = 0.5, cloth_mode = .Pinch},
+	{name = "Cloth pinch trails", kind = .Cloth, strength = 0.5, cloth_mode = .Pinch, region = .Follows},
+	{name = "Cloth slide", kind = .Cloth, strength = 0.5, cloth_mode = .Drag, region = .Follows},
+	{name = "Cloth twister", kind = .Cloth, strength = 0.5, cloth_mode = .Twist},
+	{name = "Cloth wind", kind = .Cloth, strength = 0.5, cloth_mode = .Wind},
+	{name = "Cloth dimple", kind = .Cloth, strength = 0.5, cloth_mode = .Push},
+	// Picks the cloth up by one point and lets the rest hang from it under gravity.
+	{name = "Cloth pin", kind = .Cloth, strength = 0.5, cloth_mode = .Drag, gravity = 0.5},
+	{name = "Cloth smooth", kind = .Smooth, strength = 0.5, physics = true},
 }
 
 // The built-in preset `j` as a preset: the table's row over a fresh brush's values. The
@@ -70,8 +97,22 @@ built_in_preset :: proc(j: int) -> Brush_Preset {
 		},
 	}
 	if shape, ok := r.alpha.?; ok do p.values.alpha = int(shape)
+	p.values.physics, p.values.physics_strength = r.physics, PHYSICS_STRENGTH_DEFAULT
+	if .Cloth in BRUSHES[r.kind].flags {
+		p.values.cloth_mode, p.values.cloth = r.cloth_mode, sculpt.CLOTH_DEFAULTS
+		p.values.cloth.region, p.values.cloth.gravity, p.values.cloth.allow_expand = r.region, r.gravity, r.allow_expand
+		if r.firmness > 0 do p.values.cloth.firmness = r.firmness
+	}
 	preset_name_set(&p, r.name)
 	return p
+}
+
+// Whether the built-in preset numbered `n` moves the surface as cloth, so the Library lists
+// it under Cloth whatever its brush.
+built_in_preset_cloth :: proc(n: int) -> bool {
+	if !preset_built_in(n) do return false
+	r := BUILT_IN_PRESETS[n - BUILT_IN_PRESET]
+	return r.physics || .Cloth in BRUSHES[r.kind].flags
 }
 
 // Whether `n` numbers a built-in preset.
