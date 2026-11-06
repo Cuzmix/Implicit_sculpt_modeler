@@ -1,4 +1,4 @@
-// slangc metal from render_trace_rq.comp.spv sha256 9e582a557d3e92b9e2ee3c7b2ab5a9741f2e2b2f8806d576e5c9fb30e7299889
+// slangc metal from render_trace_rq.comp.spv sha256 62cf5dfb1615920bc1c72b027b3d3f948410d17eaa0cdf1514896f6debc84d1e
 // slots s=0:0,1:1,2:2,3:3,4:4,5:5,6:6,7:7,8:8,9:9,10:10,11:11,12:12,13:13 rt= wt=14,15,16 rb=1,2,3,4,5,6,7,8 wb= u=9 a=0
 #include <metal_stdlib>
 #include <metal_math>
@@ -2806,9 +2806,6 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
     }
 
 #line 835
-    float2 surf_1;
-
-#line 835
     float covered_0;
 
 #line 835
@@ -2829,6 +2826,9 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
         float _S162 = rnd_0(&kernelContext_23);
         float2 u_4 = float2(2.0f)  * float2(_S161, _S162) - float2(1.0f) ;
         float2 _S163 = float2(0.0f) ;
+
+#line 838
+        float2 disc_1;
         if(any(u_4 != _S163))
         {
 
@@ -2874,7 +2874,7 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
             }
 
 #line 842
-            surf_1 = float2(covered_0)  * float2(cos(covered_1), sin(covered_1));
+            disc_1 = float2(covered_0)  * float2(cos(covered_1), sin(covered_1));
 
 #line 839
         }
@@ -2882,7 +2882,7 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
         {
 
 #line 839
-            surf_1 = _S163;
+            disc_1 = _S163;
 
 #line 839
         }
@@ -2892,7 +2892,7 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
         float along_1 = dot(d_8, fwd_0);
         float3 e_4 = o_3 + d_8 * float3((dot((&kernelContext_23)->Render_Uniforms_0->lens_eye_0.xyz - o_3, fwd_0) / along_1)) ;
 
-        float3 from_0 = e_4 + float3((&kernelContext_23)->Render_Uniforms_0->lens_eye_0.w)  * (float3(surf_1.x)  * (&kernelContext_23)->Render_Uniforms_0->lens_right_0.xyz + float3(surf_1.y)  * (&kernelContext_23)->Render_Uniforms_0->lens_up_0.xyz);
+        float3 from_0 = e_4 + float3((&kernelContext_23)->Render_Uniforms_0->lens_eye_0.w)  * (float3(disc_1.x)  * (&kernelContext_23)->Render_Uniforms_0->lens_right_0.xyz + float3(disc_1.y)  * (&kernelContext_23)->Render_Uniforms_0->lens_up_0.xyz);
         float3 dl_0 = normalize(e_4 + d_8 * float3(((&kernelContext_23)->Render_Uniforms_0->lens_right_0.w / along_1))  - from_0);
 
 #line 850
@@ -3237,13 +3237,10 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
         }
 
         float3 _S197 = (float4(((&kernelContext_23)->items_0+(&hit_1)->item_1)->color_0) ).xyz;
-        float2 _S198 = (float4(((&kernelContext_23)->items_0+(&hit_1)->item_1)->surface_0) ).xy;
+        thread float2 surf_1 = (float4(((&kernelContext_23)->items_0+(&hit_1)->item_1)->surface_0) ).xy;
 
 #line 890
-        bool _S199;
-
-#line 890
-        float2 surf_2;
+        bool _S198;
 
 #line 890
         float3 albedo_0;
@@ -3257,14 +3254,11 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
         {
 
 #line 891
-            uint2 _S200 = vertex_paint_0(_S179, &kernelContext_23);
+            uint2 _S199 = vertex_paint_0(_S179, &kernelContext_23);
 
-            uint group_0 = (_S200.y) & 65535U;
+            uint group_0 = (_S199.y) & 65535U;
             if((flags_0 & 4U) != 0U)
             {
-
-#line 894
-                surf_1 = _S198;
 
 #line 894
                 uint k_3 = 1U;
@@ -3290,13 +3284,11 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
                     {
 
 #line 897
-                        float3 _S201 = (float4((&((&kernelContext_23)->items_0+(&hit_1)->item_1)->slot_color_0)->data_2[k_3]) ).xyz;
-
-#line 897
+                        float3 _S200 = (float4((&((&kernelContext_23)->items_0+(&hit_1)->item_1)->slot_color_0)->data_2[k_3]) ).xyz;
                         surf_1 = (float4((&((&kernelContext_23)->items_0+(&hit_1)->item_1)->slot_surface_0)->data_2[k_3]) ).xy;
 
-#line 897
-                        albedo_0 = _S201;
+#line 898
+                        albedo_0 = _S200;
 
 #line 896
                     }
@@ -3313,9 +3305,6 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
             {
 
 #line 894
-                surf_1 = _S198;
-
-#line 894
                 albedo_0 = _S197;
 
 #line 894
@@ -3326,27 +3315,27 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
             {
 
 #line 902
-                uint2 _S202 = vertex_paint_0(_S179, &kernelContext_23);
-                float4 c0_0 = unpack_unorm4x8_to_float(_S202.x);
+                uint2 _S201 = vertex_paint_0(_S179, &kernelContext_23);
+                float4 c0_0 = unpack_unorm4x8_to_float(_S201.x);
 
 #line 903
-                uint2 _S203 = vertex_paint_0(_S181, &kernelContext_23);
-                float4 c1_0 = unpack_unorm4x8_to_float(_S203.x);
+                uint2 _S202 = vertex_paint_0(_S181, &kernelContext_23);
+                float4 c1_0 = unpack_unorm4x8_to_float(_S202.x);
 
 #line 904
-                uint2 _S204 = vertex_paint_0(_S183, &kernelContext_23);
-                float4 c2_0 = unpack_unorm4x8_to_float(_S204.x);
+                uint2 _S203 = vertex_paint_0(_S183, &kernelContext_23);
+                float4 c2_0 = unpack_unorm4x8_to_float(_S203.x);
 
 #line 905
-                float4 _S205 = float4(w0_0) ;
-                float4 paint_0 = float4(srgb_decode_0(c0_0.xyz), c0_0.w) * _S205 + float4(srgb_decode_0(c1_0.xyz), c1_0.w) * float4((&hit_1)->uv_0.x)  + float4(srgb_decode_0(c2_0.xyz), c2_0.w) * float4((&hit_1)->uv_0.y) ;
-                float3 _S206 = mix(albedo_0, paint_0.xyz, float3(paint_0.w) );
+                float4 _S204 = float4(w0_0) ;
+                float4 paint_0 = float4(srgb_decode_0(c0_0.xyz), c0_0.w) * _S204 + float4(srgb_decode_0(c1_0.xyz), c1_0.w) * float4((&hit_1)->uv_0.x)  + float4(srgb_decode_0(c2_0.xyz), c2_0.w) * float4((&hit_1)->uv_0.y) ;
+                float3 _S205 = mix(albedo_0, paint_0.xyz, float3(paint_0.w) );
 
                 if((surf_1.y) > 0.0f)
                 {
 
 #line 909
-                    _S199 = (flags_0 & 32U) != 0U;
+                    _S198 = (flags_0 & 32U) != 0U;
 
 #line 909
                 }
@@ -3354,52 +3343,39 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
                 {
 
 #line 909
-                    _S199 = false;
+                    _S198 = false;
 
 #line 909
                 }
 
 #line 909
-                if(_S199)
+                if(_S198)
                 {
 
 #line 909
-                    uint _S207 = vertex_material_0(_S179, &kernelContext_23);
-                    float4 _S208 = paint_material_0(_S207) * _S205;
+                    uint _S206 = vertex_material_0(_S179, &kernelContext_23);
+                    float4 _S207 = paint_material_0(_S206) * _S204;
 
 #line 910
-                    uint _S209 = vertex_material_0(_S181, &kernelContext_23);
+                    uint _S208 = vertex_material_0(_S181, &kernelContext_23);
 
 #line 910
-                    float4 _S210 = _S208 + paint_material_0(_S209) * float4((&hit_1)->uv_0.x) ;
+                    float4 _S209 = _S207 + paint_material_0(_S208) * float4((&hit_1)->uv_0.x) ;
 
 #line 910
-                    uint _S211 = vertex_material_0(_S183, &kernelContext_23);
-
-#line 910
-                    surf_2 = paint_surface_0(surf_1, _S210 + paint_material_0(_S211) * float4((&hit_1)->uv_0.y) );
-
-#line 909
-                }
-                else
-                {
-
-#line 909
-                    surf_2 = surf_1;
+                    uint _S210 = vertex_material_0(_S183, &kernelContext_23);
+                    surf_1 = paint_surface_0(surf_1, _S209 + paint_material_0(_S210) * float4((&hit_1)->uv_0.y) );
 
 #line 909
                 }
 
 #line 909
-                albedo_1 = _S206;
+                albedo_1 = _S205;
 
 #line 902
             }
             else
             {
-
-#line 902
-                surf_2 = surf_1;
 
 #line 902
                 albedo_1 = albedo_0;
@@ -3426,18 +3402,12 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
             }
 
 #line 914
-            surf_1 = surf_2;
-
-#line 914
             albedo_0 = mapped_0;
 
 #line 891
         }
         else
         {
-
-#line 891
-            surf_1 = _S198;
 
 #line 891
             albedo_0 = _S197;
@@ -3453,34 +3423,34 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
         {
 
 #line 916
-            uint4 _S212 = uint4(((&kernelContext_23)->items_0+(&hit_1)->item_1)->tex_0) ;
+            uint4 _S211 = uint4(((&kernelContext_23)->items_0+(&hit_1)->item_1)->tex_0) ;
 
 
-            uint at_3 = _S212.y + 3U * ((&hit_1)->tri_0 - _S212.x);
-            uint _S213 = _S212.z;
-
-#line 920
-            Tex_Vertex_0 _S214 = tex_vertex_0(_S213 + 8U * (&kernelContext_23)->textured_0[at_3], &kernelContext_23);
+            uint at_3 = _S211.y + 3U * ((&hit_1)->tri_0 - _S211.x);
+            uint _S212 = _S211.z;
 
 #line 920
-            Tex_Vertex_0 _S215 = tex_vertex_0(_S213 + 8U * (&kernelContext_23)->textured_0[at_3 + 1U], &kernelContext_23);
+            Tex_Vertex_0 _S213 = tex_vertex_0(_S212 + 8U * (&kernelContext_23)->textured_0[at_3], &kernelContext_23);
 
 #line 920
-            Tex_Vertex_0 _S216 = tex_vertex_0(_S213 + 8U * (&kernelContext_23)->textured_0[at_3 + 2U], &kernelContext_23);
+            Tex_Vertex_0 _S214 = tex_vertex_0(_S212 + 8U * (&kernelContext_23)->textured_0[at_3 + 1U], &kernelContext_23);
+
+#line 920
+            Tex_Vertex_0 _S215 = tex_vertex_0(_S212 + 8U * (&kernelContext_23)->textured_0[at_3 + 2U], &kernelContext_23);
 
 #line 926
-            uint _S217 = _S212.w;
+            uint _S216 = _S211.w;
 
 #line 926
-            uint slot_1 = _S217 & 15U;
+            uint slot_1 = _S216 & 15U;
 
 #line 926
-            uint view_0 = (_S217 >> 4U) & 15U;
+            uint view_0 = (_S216 >> 4U) & 15U;
 
 #line 926
-            uint maps_0 = _S217 >> 8U;
+            uint maps_0 = _S216 >> 8U;
 
-            float2 uv_up_0 = _S214.uv_1 * float2(w0_0)  + _S215.uv_1 * float2((&hit_1)->uv_0.x)  + _S216.uv_1 * float2((&hit_1)->uv_0.y) ;
+            float2 uv_up_0 = _S213.uv_1 * float2(w0_0)  + _S214.uv_1 * float2((&hit_1)->uv_0.x)  + _S215.uv_1 * float2((&hit_1)->uv_0.y) ;
             float2 uv_6 = float2(uv_up_0.x, 1.0f - uv_up_0.y);
 
 #line 929
@@ -3489,10 +3459,10 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
 #line 934
             if(_S177)
             {
-                float2 u1_0 = _S215.uv_1 - _S214.uv_1;
+                float2 u1_0 = _S214.uv_1 - _S213.uv_1;
 
 #line 936
-                float2 u2_0 = _S216.uv_1 - _S214.uv_1;
+                float2 u2_0 = _S215.uv_1 - _S213.uv_1;
 
 #line 936
                 lod_1 = log2(max(length(o_dx_0 + _S160 * float3((&hit_1)->t_0)  - p_3) * sqrt(abs(u1_0.x * u2_0.y - u1_0.y * u2_0.x) / max(length(cross((((_S189) * (_S186))), (((_S189) * (_S187))))), 1.00000000317107685e-30f)), 9.999999960041972e-13f));
@@ -3510,66 +3480,66 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
 
 #line 947
             matrix<float,int(3),int(3)>  turn_0 = _S189 / length(_S188);
-            float3 nv_0 = (((turn_0) * (_S214.n_0 * _S185 + _S215.n_0 * float3((&hit_1)->uv_0.x)  + _S216.n_0 * float3((&hit_1)->uv_0.y) )));
-            float4 tw_0 = _S214.t_5 * float4(w0_0)  + _S215.t_5 * float4((&hit_1)->uv_0.x)  + _S216.t_5 * float4((&hit_1)->uv_0.y) ;
+            float3 nv_0 = (((turn_0) * (_S213.n_0 * _S185 + _S214.n_0 * float3((&hit_1)->uv_0.x)  + _S215.n_0 * float3((&hit_1)->uv_0.y) )));
+            float4 tw_0 = _S213.t_5 * float4(w0_0)  + _S214.t_5 * float4((&hit_1)->uv_0.x)  + _S215.t_5 * float4((&hit_1)->uv_0.y) ;
             float3 tv_0 = (((turn_0) * (tw_0.xyz)));
-            float3 _S218 = normalize(nv_0);
-            bool _S219 = view_0 == 1U;
+            float3 _S217 = normalize(nv_0);
+            bool _S218 = view_0 == 1U;
+
+#line 952
+            if(_S218)
+            {
+
+#line 952
+                _S198 = true;
+
+#line 952
+            }
+            else
+            {
+
+#line 952
+                _S198 = view_0 == 2U;
+
+#line 952
+            }
+
+#line 952
+            bool _S219;
+
+#line 952
+            if(_S198)
+            {
+
+#line 952
+                _S219 = (maps_0 & 4U) != 0U;
+
+#line 952
+            }
+            else
+            {
+
+#line 952
+                _S219 = false;
+
+#line 952
+            }
 
 #line 952
             if(_S219)
             {
 
 #line 952
-                _S199 = true;
-
-#line 952
-            }
-            else
-            {
-
-#line 952
-                _S199 = view_0 == 2U;
-
-#line 952
-            }
-
-#line 952
-            bool _S220;
-
-#line 952
-            if(_S199)
-            {
-
-#line 952
-                _S220 = (maps_0 & 4U) != 0U;
-
-#line 952
-            }
-            else
-            {
-
-#line 952
-                _S220 = false;
-
-#line 952
-            }
-
-#line 952
-            if(_S220)
-            {
-
-#line 952
-                float4 _S221 = map_at_0(slot_1, 2U, uv_6, lod_1, &kernelContext_23);
-                float3 tn_0 = _S221.xyz * float3(2.0f)  - float3(1.0f) ;
+                float4 _S220 = map_at_0(slot_1, 2U, uv_6, lod_1, &kernelContext_23);
+                float3 tn_0 = _S220.xyz * float3(2.0f)  - float3(1.0f) ;
 
 #line 953
-                float _S222;
+                float _S221;
                 if((tw_0.w) < 0.0f)
                 {
 
 #line 954
-                    _S222 = -1.0f;
+                    _S221 = -1.0f;
 
 #line 954
                 }
@@ -3577,11 +3547,11 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
                 {
 
 #line 954
-                    _S222 = 1.0f;
+                    _S221 = 1.0f;
 
 #line 954
                 }
-                float3 m_1 = float3(tn_0.x)  * tv_0 + float3(tn_0.y)  * (float3(_S222)  * cross(nv_0, tv_0)) + float3(tn_0.z)  * nv_0;
+                float3 m_1 = float3(tn_0.x)  * tv_0 + float3(tn_0.y)  * (float3(_S221)  * cross(nv_0, tv_0)) + float3(tn_0.z)  * nv_0;
                 if((dot(m_1, m_1)) > 0.0f)
                 {
 
@@ -3594,7 +3564,7 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
                 {
 
 #line 956
-                    albedo_1 = _S218;
+                    albedo_1 = _S217;
 
 #line 956
                 }
@@ -3605,7 +3575,7 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
             {
 
 #line 952
-                albedo_1 = _S218;
+                albedo_1 = _S217;
 
 #line 952
             }
@@ -3668,12 +3638,12 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
             }
 
 #line 967
-            bool _S223;
-            if(_S219)
+            bool _S222;
+            if(_S218)
             {
 
 #line 968
-                _S223 = (maps_0 & 1U) != 0U;
+                _S222 = (maps_0 & 1U) != 0U;
 
 #line 968
             }
@@ -3681,7 +3651,7 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
             {
 
 #line 968
-                _S223 = false;
+                _S222 = false;
 
 #line 968
             }
@@ -3690,17 +3660,17 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
             float3 albedo_2;
 
 #line 968
-            if(_S223)
+            if(_S222)
             {
 
 #line 968
-                float3 _S224 = (float4(((&kernelContext_23)->items_0+(&hit_1)->item_1)->color_0) ).xyz;
+                float3 _S223 = (float4(((&kernelContext_23)->items_0+(&hit_1)->item_1)->color_0) ).xyz;
 
 #line 968
-                float4 _S225 = map_at_0(slot_1, 0U, uv_6, lod_1, &kernelContext_23);
+                float4 _S224 = map_at_0(slot_1, 0U, uv_6, lod_1, &kernelContext_23);
 
 #line 968
-                albedo_2 = _S224 * _S225.xyz;
+                albedo_2 = _S223 * _S224.xyz;
 
 #line 968
             }
@@ -3714,12 +3684,12 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
             }
 
 #line 968
-            bool _S226;
-            if(_S219)
+            bool _S225;
+            if(_S218)
             {
 
 #line 969
-                _S226 = (maps_0 & 2U) != 0U;
+                _S225 = (maps_0 & 2U) != 0U;
 
 #line 969
             }
@@ -3727,60 +3697,107 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
             {
 
 #line 969
-                _S226 = false;
+                _S225 = false;
 
 #line 969
             }
 
 #line 969
-            if(_S226)
+            if(_S225)
             {
 
 #line 969
-                float4 _S227 = map_at_0(slot_1, 1U, uv_6, lod_1, &kernelContext_23);
-                float3 orm_0 = _S227.xyz;
-
-#line 970
-                surf_2 = float2(orm_0.z, max(orm_0.y, 0.03999999910593033f));
+                float4 _S226 = map_at_0(slot_1, 1U, uv_6, lod_1, &kernelContext_23);
+                float3 orm_0 = _S226.xyz;
+                surf_1 = float2(orm_0.z, max(orm_0.y, 0.03999999910593033f));
 
 #line 969
+            }
+
+#line 969
+            bool _S227;
+
+#line 975
+            if(_S218)
+            {
+
+#line 975
+                _S227 = (maps_0 & 8U) != 0U;
+
+#line 975
             }
             else
             {
 
-#line 969
-                surf_2 = surf_1;
+#line 975
+                _S227 = false;
 
-#line 969
+#line 975
             }
 
-#line 969
+#line 975
             float3 albedo_3;
 
+#line 975
+            if(_S227)
+            {
 
+#line 975
+                float4 _S228 = map_at_0(slot_1, 0U, uv_6, lod_1, &kernelContext_23);
 
+                float3 _S229 = albedo_2 * float3((1.0f - _S228.w))  + _S228.xyz;
+                if((surf_1.y) > 0.0f)
+                {
+
+#line 978
+                    float4 _S230 = map_at_0(slot_1, 1U, uv_6, lod_1, &kernelContext_23);
+
+                    surf_1.x = surf_1.x * (1.0f - _S230.w) + _S230.z;
+                    surf_1.y = max(surf_1.y * (1.0f - _S230.y) + _S230.x, 0.03999999910593033f);
+
+#line 978
+                }
+
+#line 978
+                albedo_3 = _S229;
+
+#line 975
+            }
+            else
+            {
+
+#line 975
+                albedo_3 = albedo_2;
+
+#line 975
+            }
+
+#line 975
+            float3 albedo_4;
+
+#line 984
             if(view_0 == 3U)
             {
 
-#line 973
-                albedo_3 = albedo_2 * uv_checker_0(uv_6);
+#line 984
+                albedo_4 = albedo_3 * uv_checker_0(uv_6);
 
-#line 973
+#line 984
             }
             else
             {
 
-#line 973
-                albedo_3 = albedo_2;
+#line 984
+                albedo_4 = albedo_3;
 
-#line 973
+#line 984
             }
 
-#line 973
+#line 984
             n_9 = n_10;
 
-#line 973
-            albedo_1 = albedo_3;
+#line 984
+            albedo_1 = albedo_4;
 
 #line 916
         }
@@ -3791,183 +3808,177 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
             n_9 = n_8;
 
 #line 916
-            surf_2 = surf_1;
-
-#line 916
             albedo_1 = albedo_0;
 
 #line 916
         }
 
-#line 975
+#line 986
         if(_S177)
         {
-            float4 _S228 = float4(n_9, (&hit_1)->t_0);
+            float4 _S231 = float4(n_9, (&hit_1)->t_0);
 
-#line 977
+#line 988
             sum_1 = float4(albedo_1, 1.0f);
 
-#line 977
-            prev_a_0 = _S228;
+#line 988
+            prev_a_0 = _S231;
 
-#line 975
+#line 986
         }
         else
         {
 
-#line 975
+#line 986
             sum_1 = guide_a_0;
 
-#line 975
+#line 986
             prev_a_0 = guide_n_0;
 
-#line 975
+#line 986
         }
 
-#line 980
-        float metallic_0 = clamp(surf_2.x, 0.0f, 1.0f);
+#line 991
+        float metallic_0 = clamp(surf_1.x, 0.0f, 1.0f);
 
-#line 979
+#line 990
         thread Surface_0 s_11;
 
         (&s_11)->diffuse_0 = albedo_1 * float3((1.0f - metallic_0)) ;
         (&s_11)->f0_1 = mix(float3(0.03999999910593033f) , albedo_1, float3(metallic_0) );
-        float _S229 = surf_2.y;
+        (&s_11)->a_4 = max(surf_1.y * surf_1.y, 0.00100000004749745f);
 
-#line 983
-        (&s_11)->a_4 = max(_S229 * _S229, 0.00100000004749745f);
-
-#line 983
-        thread Surface_0 _S230 = s_11;
-
-#line 983
-        float3 _S231 = direct_light_0(&_S230, p_3, ng_2, n_9, v_11, &kernelContext_23);
-
-        float3 radiance_8 = radiance_7 + weight_0 * _S231;
-
-#line 985
+#line 994
         thread Surface_0 _S232 = s_11;
+
+#line 994
+        float3 _S233 = direct_light_0(&_S232, p_3, ng_2, n_9, v_11, &kernelContext_23);
+
+        float3 radiance_8 = radiance_7 + weight_0 * _S233;
+
+#line 996
+        thread Surface_0 _S234 = s_11;
 
         thread float3 l_5;
 
-#line 987
-        bool _S233 = bsdf_sample_0(&_S232, n_9, v_11, &l_5, &kernelContext_23);
-        if(!_S233)
+#line 998
+        bool _S235 = bsdf_sample_0(&_S234, n_9, v_11, &l_5, &kernelContext_23);
+        if(!_S235)
         {
 
-#line 988
-            _S199 = true;
+#line 999
+            _S198 = true;
 
-#line 988
+#line 999
         }
         else
         {
 
-#line 988
-            _S199 = (dot(l_5, ng_2)) <= 0.0f;
+#line 999
+            _S198 = (dot(l_5, ng_2)) <= 0.0f;
 
-#line 988
+#line 999
         }
 
-#line 988
-        if(_S199)
+#line 999
+        if(_S198)
         {
 
-#line 988
+#line 999
             covered_0 = covered_1;
 
-#line 988
+#line 999
             guide_a_0 = sum_1;
 
-#line 988
+#line 999
             guide_n_0 = prev_a_0;
 
-#line 988
+#line 999
             radiance_6 = radiance_8;
 
-#line 988
+#line 999
             break;
         }
 
-#line 988
-        thread Surface_0 _S234 = s_11;
+#line 999
+        thread Surface_0 _S236 = s_11;
 
-#line 988
-        float3 _S235 = bsdf_eval_0(&_S234, n_9, v_11, l_5, &pdf_bsdf_3, 1.0f);
+#line 999
+        float3 _S237 = bsdf_eval_0(&_S236, n_9, v_11, l_5, &pdf_bsdf_3, 1.0f);
 
         if(pdf_bsdf_3 <= 0.0f)
         {
 
-#line 990
+#line 1001
             covered_0 = covered_1;
 
-#line 990
+#line 1001
             guide_a_0 = sum_1;
 
-#line 990
+#line 1001
             guide_n_0 = prev_a_0;
 
-#line 990
+#line 1001
             radiance_6 = radiance_8;
 
-#line 990
+#line 1001
             break;
         }
 
-#line 991
-        float3 weight_1 = weight_0 * (_S235 / float3(pdf_bsdf_3) );
-        float3 _S236 = offset_ray_0(p_3, ng_2);
-        float3 _S237 = l_5;
+#line 1002
+        float3 weight_1 = weight_0 * (_S237 / float3(pdf_bsdf_3) );
+        float3 _S238 = offset_ray_0(p_3, ng_2);
+        float3 _S239 = l_5;
 
         if(bounce_0 >= int(2))
         {
 
-#line 996
+#line 1007
             float q_1 = clamp(max(weight_1.x, max(weight_1.y, weight_1.z)), 0.05000000074505806f, 0.94999998807907104f);
 
-#line 996
-            float _S238 = rnd_0(&kernelContext_23);
-            if(_S238 > q_1)
+#line 1007
+            float _S240 = rnd_0(&kernelContext_23);
+            if(_S240 > q_1)
             {
 
-#line 997
+#line 1008
                 covered_0 = covered_1;
 
-#line 997
+#line 1008
                 guide_a_0 = sum_1;
 
-#line 997
+#line 1008
                 guide_n_0 = prev_a_0;
 
-#line 997
+#line 1008
                 radiance_6 = radiance_8;
 
-#line 997
+#line 1008
                 break;
             }
 
-#line 997
+#line 1008
             weight_0 = weight_1 / float3(q_1) ;
 
-#line 995
+#line 1006
         }
         else
         {
 
-#line 995
+#line 1006
             weight_0 = weight_1;
 
-#line 995
+#line 1006
         }
 
 #line 859
-        int _S239 = bounce_0 + int(1);
+        int _S241 = bounce_0 + int(1);
 
 #line 859
-        o_4 = _S236;
+        o_4 = _S238;
 
 #line 859
-        d_9 = _S237;
+        d_9 = _S239;
 
 #line 859
         covered_0 = covered_1;
@@ -3979,7 +3990,7 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
         guide_n_0 = prev_a_0;
 
 #line 859
-        bounce_0 = _S239;
+        bounce_0 = _S241;
 
 #line 859
         radiance_6 = radiance_8;
@@ -3987,127 +3998,127 @@ bool bsdf_sample_0(const Surface_0 thread* s_10, float3 n_5, float3 v_10, float3
 #line 859
     }
 
-#line 1001
+#line 1012
     float lum_0 = luminance_0(radiance_6);
     if(lum_0 > 16.0f)
     {
 
-#line 1002
+#line 1013
         radiance_6 = radiance_6 * float3((16.0f / lum_0)) ;
 
-#line 1002
+#line 1013
     }
     if(first_0)
     {
 
-#line 1003
+#line 1014
         sum_1 = _S168;
 
-#line 1003
+#line 1014
     }
     else
     {
 
-#line 1003
-        float4 _S240 = (((&kernelContext_23)->prev_texture_0).read(uint2((px_0))));
+#line 1014
+        float4 _S242 = (((&kernelContext_23)->prev_texture_0).read(uint2((px_0))));
 
-#line 1003
-        sum_1 = _S240;
+#line 1014
+        sum_1 = _S242;
 
-#line 1003
+#line 1014
     }
-    uint2 _S241 = uint2(px_0);
+    uint2 _S243 = uint2(px_0);
 
-#line 1004
-    (&kernelContext_23)->next_0.write(sum_1 + float4(radiance_6, covered_0),_S241);
+#line 1015
+    (&kernelContext_23)->next_0.write(sum_1 + float4(radiance_6, covered_0),_S243);
     if(lens_0)
     {
 
         if(first_0)
         {
 
-#line 1008
+#line 1019
             prev_a_0 = _S168;
 
-#line 1008
+#line 1019
         }
         else
         {
 
-#line 1008
-            float4 _S242 = (((&kernelContext_23)->prev_albedo_texture_0).read(uint2((px_0))));
+#line 1019
+            float4 _S244 = (((&kernelContext_23)->prev_albedo_texture_0).read(uint2((px_0))));
 
-#line 1008
-            prev_a_0 = _S242;
+#line 1019
+            prev_a_0 = _S244;
 
-#line 1008
+#line 1019
         }
 
-#line 1008
+#line 1019
         float4 prev_n_0;
         if(first_0)
         {
 
-#line 1009
+#line 1020
             prev_n_0 = _S168;
 
-#line 1009
+#line 1020
         }
         else
         {
 
-#line 1009
-            float4 _S243 = (((&kernelContext_23)->prev_normal_texture_0).read(uint2((px_0))));
+#line 1020
+            float4 _S245 = (((&kernelContext_23)->prev_normal_texture_0).read(uint2((px_0))));
 
-#line 1009
-            prev_n_0 = _S243;
+#line 1020
+            prev_n_0 = _S245;
 
-#line 1009
+#line 1020
         }
         float done_0 = float(Render_Uniforms_1->counts_0.x);
         float hit_2 = guide_a_0.w;
 
-#line 1011
+#line 1022
         float hits_before_0 = prev_a_0.w * done_0;
         float hits_0 = hits_before_0 + hit_2;
         if(hits_0 > 0.0f)
         {
-            float4 _S244 = (prev_n_0 * float4(hits_before_0)  + guide_n_0 * float4(hit_2) ) / float4(hits_0) ;
+            float4 _S246 = (prev_n_0 * float4(hits_before_0)  + guide_n_0 * float4(hit_2) ) / float4(hits_0) ;
 
-#line 1015
+#line 1026
             guide_a_0 = float4((prev_a_0.xyz * float3(hits_before_0)  + guide_a_0.xyz * float3(hit_2) ) / float3(hits_0) , hits_0 / (done_0 + 1.0f));
 
-#line 1015
-            guide_n_0 = _S244;
+#line 1026
+            guide_n_0 = _S246;
 
-#line 1013
+#line 1024
         }
 
 
 
-        (&kernelContext_23)->guide_albedo_0.write(guide_a_0,_S241);
-        (&kernelContext_23)->guide_normal_0.write(guide_n_0,_S241);
+        (&kernelContext_23)->guide_albedo_0.write(guide_a_0,_S243);
+        (&kernelContext_23)->guide_normal_0.write(guide_n_0,_S243);
 
-#line 1005
+#line 1016
     }
     else
     {
 
-#line 1019
+#line 1030
         if(first_0)
         {
 
-#line 1020
-            (&kernelContext_23)->guide_albedo_0.write(guide_a_0,_S241);
-            (&kernelContext_23)->guide_normal_0.write(guide_n_0,_S241);
+#line 1031
+            (&kernelContext_23)->guide_albedo_0.write(guide_a_0,_S243);
+            (&kernelContext_23)->guide_normal_0.write(guide_n_0,_S243);
 
-#line 1019
+#line 1030
         }
 
-#line 1005
+#line 1016
     }
 
-#line 1023
+#line 1034
     return;
 }
 

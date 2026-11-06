@@ -190,6 +190,7 @@ Path_Render :: struct {
 	// when it was built (a map that changes since starts the view over), and how many more
 	// showed textured than there are slots.
 	tex_meshes:     [RENDER_TEXTURED_ARRAY]^Textured_Mesh,
+	tex_paint:      [RENDER_TEXTURED_ARRAY]bool, // the slot shows texture paint (path_paint_maps)
 	tex_stamps:     [RENDER_TEXTURED_ARRAY]u64,
 	tex_count:      u32,
 	tex_left_out:   int,
@@ -282,6 +283,18 @@ TEX_VIEW_SHIFT :: 4
 TEX_MAPS_SHIFT :: 8
 @(private = "file")
 TEX_WIDE_SLOT_SHIFT :: 16
+// In the maps bits: the base colour and ORM slots hold the texture paint layers'
+// composite (Textured_Mesh.paint and paint_material, premultiplied), laid over the
+// material and vertex paint as the viewport lays them.
+@(private = "file")
+TEX_MAPS_PAINT :: 8
+
+// Whether `t`'s texture paint shows in the trace, in place of its base colour and ORM maps
+// (the kernel has three map slots an item): when it has texture paint and shows its maps.
+@(private = "file")
+path_paint_maps :: proc(t: ^Textured_Mesh, view: Texture_View) -> bool {
+	return t.paint != 0 && view == .Textured
+}
 
 // Matches Item in render_trace.comp.slang (std430).
 Item_Record :: struct {
@@ -482,6 +495,7 @@ path_band_record :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, rows: u32
 		t := pr.tex_meshes[slot]
 		for m in Texture_Map {
 			tex := t.maps[m] if t != nil && t.maps[m] != 0 else defaults[m]
+			if t != nil && pr.tex_paint[slot] && m != .Normal do tex = t.paint if m == .Base_Color else t.paint_material
 			samplers[5 + 3 * slot + int(m)] = {texture = tex, sampler = r.texture_sampler}
 		}
 	}
@@ -949,7 +963,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^View
 	placed := make([dynamic]Path_Item, context.temp_allocator)
 	vertex_count, tri_count, node_count, word_count, chunk_count, textured_count, textured_words: u32
 	skin_words: u32
-	pr.tex_meshes, pr.tex_stamps, pr.tex_count, pr.tex_left_out = {}, {}, 0, 0
+	pr.tex_meshes, pr.tex_stamps, pr.tex_paint, pr.tex_count, pr.tex_left_out = {}, {}, {}, 0, 0
 	for item, i in items {
 		if blended(&r.single, item) do continue
 		tm := item.mesh.trace
@@ -973,6 +987,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^View
 				if textured_count < pr.textured_max {
 					p.tex_slot = textured_count
 					pr.tex_meshes[textured_count], pr.tex_stamps[textured_count] = t, t.maps_stamp
+					pr.tex_paint[textured_count] = path_paint_maps(t, item.texture_view)
 					textured_count += 1
 				} else {
 					pr.tex_left_out += 1
@@ -980,8 +995,10 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^View
 			}
 			if p.tex_slot < pr.textured_max || item.texture_view == .Uv_Checker {
 				// It shows its maps or checker over its preview's normals, never paint or
-				// polygroups, as in the viewport.
-				p.textured, p.paint = t, false
+				// polygroups, as in the viewport; but texture paint layers stand over the
+				// vertex paint, which then stays.
+				p.textured = t
+				p.paint = p.paint && t.paint != 0 && item.texture_view == .Textured
 				p.tex_vertex_off, p.tex_corner_off = textured_words, textured_words + t.vertex_count * size_of(Textured_Vertex) / size_of(u32)
 				textured_words = p.tex_corner_off + t.corner_count
 			}
@@ -1213,6 +1230,9 @@ path_item_record :: proc(item: Draw_Item, p: Path_Item, skin_base: u32) -> (rec:
 		rec.offs.y |= ITEM_TEXTURED
 		maps: u32
 		for m in Texture_Map do if t.maps[m] != 0 do maps |= 1 << u32(m)
+		// Texture paint takes the base colour and ORM slots (path_paint_maps): its own bit,
+		// the normal map's kept.
+		if path_paint_maps(t, item.texture_view) do maps = maps & 4 | TEX_MAPS_PAINT
 		rec.tex = {p.tri_off, p.tex_corner_off, p.tex_vertex_off, min(p.tex_slot, RENDER_TEXTURED_MAX) | u32(item.texture_view) << TEX_VIEW_SHIFT | maps << TEX_MAPS_SHIFT | p.tex_slot << TEX_WIDE_SLOT_SHIFT}
 	}
 	if p.skin_samples > 0 {

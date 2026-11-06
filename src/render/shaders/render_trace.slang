@@ -921,7 +921,7 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 			Tex_Vertex t1 = tex_vertex(tex.z + 8u * textured[at + 1u]);
 			Tex_Vertex t2 = tex_vertex(tex.z + 8u * textured[at + 2u]);
 #ifdef MAP_ARRAY
-			uint slot = (tex.w >> 16) & 255u, view = (tex.w >> 4) & 15u, maps = (tex.w >> 8) & 7u;
+			uint slot = (tex.w >> 16) & 255u, view = (tex.w >> 4) & 15u, maps = (tex.w >> 8) & 15u;
 #else
 			uint slot = tex.w & 15u, view = (tex.w >> 4) & 15u, maps = tex.w >> 8;
 #endif
@@ -969,6 +969,17 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 			if (view == 1u && (maps & 2u) != 0u) {
 				float3 orm = map_at(slot, 1u, uv, lod).rgb;
 				surf = float2(orm.b, max(orm.g, 0.04));
+			}
+			// Texture paint (path.odin's TEX_MAPS_PAINT) in the base colour and ORM slots,
+			// premultiplied, over the material and the vertex paint, as mesh_shading lays it.
+			if (view == 1u && (maps & 8u) != 0u) {
+				float4 pc = map_at(slot, 0u, uv, lod);
+				albedo = albedo * (1.0 - pc.a) + pc.rgb;
+				if (surf.y > 0.0) {
+					float4 pm = map_at(slot, 1u, uv, lod);
+					surf.x = surf.x * (1.0 - pm.w) + pm.z;
+					surf.y = max(surf.y * (1.0 - pm.y) + pm.x, 0.04);
+				}
 			}
 			if (view == 3u) albedo *= uv_checker(uv);
 		}
