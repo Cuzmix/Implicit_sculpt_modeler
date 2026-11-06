@@ -5848,6 +5848,21 @@ def material_card_more_sets_cavity():
     return s, ["--script=open_section material"], camera_still({"cavity": lambda v: float(v) > 0.7, "ridge": near(0.3), "dabs": near(0)})
 
 
+# The Textures section's ask on a sculpt with no UVs at 1600 x 900: the UVs section's own Unwrap.
+TEXTURES_ASK_UNWRAP = At("card Paint/card body/Unwrap", 1376, 664)
+
+
+@scenario
+def textures_ask_unwraps_in_place():
+    """Where the Textures section asks for UVs, a finger's tap on its Unwrap (the UVs section's
+    own command) gives the sculpt UVs there, one undo step, with no trip to the Mesh card."""
+    s = Script()
+    s.wait(10)
+    s.ftap(TEXTURES_ASK_UNWRAP)
+    s.wait(20)
+    return s, ["--vertices=20000", "--script=open_section textures"], camera_still({"uv_islands": lambda v: int(v) > 0, "undo_steps": near(1), "dabs": near(0)})
+
+
 @scenario
 def material_card_favourites_hold_a_sphere():
     """On the Metal shelf a right-click on Gold adds it to the Material card's favourites without

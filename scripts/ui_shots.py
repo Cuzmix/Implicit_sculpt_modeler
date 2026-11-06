@@ -60,6 +60,7 @@ SCREENS = {
     "scene_card": ("The Scene card from the view rail", tap("view bar/Scene"), []),
     "mesh_card": ("The Mesh card from the view rail", tap("view bar/Mesh"), []),
     "mask_card": ("The Mask card from the view rail", tap("view bar/Mask"), []),
+    "textures_no_uvs": ("The Textures section on a sculpt with no UVs: the ask, Unwrap and UV options", "", ["--script=open_section textures"]),
     "uv_checker": ("An unwrapped sculpt in the Checker texture view, the Textures section open", "", ["--script=unwrap; texture_view 3; open_section textures"]),
     "uv_checker_level": ("An unwrapped sculpt two subdivision levels up in the Checker texture view: the UVs it takes from the base", "", ["--script=unwrap; subdivide; subdivide; texture_view 3; open_section textures"]),
     "uvs_straighten": ("A Quad Remesh sphere after Straighten in the UV checker, the UVs section's More options open", "", ["--script=set retopo_quads 600; retopologize; straighten; solo_object; frame_all; texture_view 3; open_section uvs; set all_options on"]),

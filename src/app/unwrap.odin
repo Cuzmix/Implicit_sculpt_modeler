@@ -282,10 +282,13 @@ kit_uvs_section :: proc(app: ^App) {
 	}
 }
 
-// The ask where something needs UVs the object lacks (Bake, Textures): one line and a
-// button that opens the UVs section, so Unwrap keeps one home.
+// The ask where something needs UVs the object lacks (Bake, Textures): one line, the UVs
+// section's own Unwrap (the same command, at the section's Relax, Symmetry and seams), so
+// the task in hand goes on without a trip to the Mesh card, and a button that opens the UVs
+// section for those options.
 kit_uvs_ask :: proc(app: ^App, why: string) {
 	ctx := &app.kit.ctx
 	ui.paragraph(ctx, why)
-	_ = command_button(app, .Open_Section, int(Section.Uvs), label = "Unwrap in Mesh", variant = .Bordered)
+	_ = command_button(app, .Unwrap, variant = .Solid, tone = .Accent)
+	_ = command_button(app, .Open_Section, int(Section.Uvs), label = "UV options", variant = .Bordered)
 }
