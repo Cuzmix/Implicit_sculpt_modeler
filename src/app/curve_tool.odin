@@ -76,6 +76,11 @@ Curve_Tool :: struct {
 	drag:    Curve_Drag,
 	picked:  int,
 	edits:   int,
+	// A drag of a point or the line with Physics on: the curve as a rope (sculpt.Rope),
+	// begun at the drag's first move, and drags so made, for the exit stats.
+	rope:       sculpt.Rope,
+	rope_on:    bool,
+	rope_drags: int,
 	// The tube's profile and width pads on the tool card (curve_profile_pad.odin).
 	pad:       Profile_Pad,
 	width_pad: Profile_Pad,
@@ -537,6 +542,9 @@ kit_curve_settings :: proc(app: ^App) {
 			kit_curve_point_section(app, obj)
 		}
 		if selected_curve(app) != nil {
+			// The Physics switch, the brushes' own: a drag of a point or the line pulls the
+			// curve as a rope.
+			_ = ui.switch_row(ctx, "Physics", &app.brush.physics, keys = command_hint(app, .Physics))
 			// The run of points: Join, Split and Reverse, a third of the width each.
 			third := (ui.fill_width(ctx) - 2 * ui.SPACE_M) / 3
 			ui.begin(ctx, "curve run", {direction = .Row, gap = ui.SPACE_M})
