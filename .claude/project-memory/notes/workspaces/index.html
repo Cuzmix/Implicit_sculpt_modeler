@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Workspaces · three directions</title>
+<style>
+:root{--line:#2a3139;--raised:#1f242b;--text:#e9ecef;--dim:#a7aeb8;--faint:#7f8793;--accent:#5ed6c4;--chosen:#1c3b37;--warn:#f3b54a;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0a0c0f;color:#d9e0e6;font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif;padding:28px 20px 60px}
+.wrap{max-width:1100px;margin:0 auto}
+h1{font-size:26px;margin:0 0 6px}
+h2{font-size:17px;margin:28px 0 8px}
+p{color:var(--dim);max-width:80ch;margin:6px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:16px}
+a.card{display:block;text-decoration:none;color:inherit;background:#111418;border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+a.card:hover{border-color:var(--accent)}
+a.card h3{margin:0 0 6px;font-size:16px;color:var(--text)}
+a.card .rec{font-size:12px;background:var(--chosen);color:var(--accent);border-radius:6px;padding:2px 8px;margin-left:6px;vertical-align:2px}
+a.card p{font-size:14px}
+a.card ul{margin:8px 0 0;padding-left:18px;font-size:13.5px;color:var(--dim)}
+.plus{color:#8fd9a8}.minus{color:#f0a39a}
+table{border-collapse:collapse;width:100%;font-size:14px;margin-top:8px}
+td,th{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--faint);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+code{font:13px ui-monospace,monospace;background:var(--raised);border-radius:4px;padding:1px 5px}
+</style>
+<div class="wrap">
+<h1>Workspaces: the top bar's tabs</h1>
+<p>The fixed Sculpt, Model and Render spaces become the person's own workspaces: named layouts they make, rename, reorder, colour and delete. Sculpt, Model, Paint and Render ship as starting workspaces, tied to the tools that bring them (the Model tool still brings Model). A workspace someone makes switches only from its tab unless they tie a tool to it. Each keeps a desktop and a tablet layout. The saved-layout stamps go.</p>
+<p>Each mock runs in a browser: switch between Desktop and Tablet, Mouse and Finger (a finger needs a long press before a drag, as in the app), pick tools on the right to try the ties, change the layout to see the amber dot, and add four workspaces to see what happens when the tabs no longer fit.</p>
+
+<div class="grid">
+  <a class="card" href="a.html"><h3>A. Tabs and one menu <span class="rec">recommended</span></h3>
+    <p>Today's tabs, each a workspace, then <b>+</b>. The lit tab, a right-click or a long press opens its menu: rename, duplicate, colour, the tools that bring it, Reset layout, Delete. Tabs drag to reorder; what does not fit folds into a chevron list.</p>
+    <ul><li class="plus">One tap switches; no new kind of control</li><li class="plus">Destructive actions stay off the bar</li><li class="plus">Overflow reuses the top bar's give-way steps</li><li class="minus">The menu is the only place ties are shown</li></ul></a>
+  <a class="card" href="b.html"><h3>B. Browser tabs and a sheet</h3>
+    <p>Each workspace its own pill; a double tap renames in place; the lit pill's ⋯ opens a Workspace sheet with name, colour, tools and a picture of both layouts. + makes a copy at once. Pills scroll sideways.</p>
+    <ul><li class="plus">The clearest place to see and set ties and both layouts</li><li class="minus">Double tap and ⋯ on a pill are mouse habits on a tablet</li><li class="minus">Sideways scrolling hides workspaces with no hint of how many</li></ul></a>
+  <a class="card" href="c.html"><h3>C. One chip and a switcher card</h3>
+    <p>The bar holds only the current workspace's chip; a tap opens tiles, each a picture drawn from its layout, dragged to reorder, ⋯ for the rest, + first.</p>
+    <ul><li class="plus">Smallest bar; scales to twelve workspaces on any screen</li><li class="plus">Pictures say what each workspace holds</li><li class="minus">Two taps to switch instead of one</li></ul></a>
+</div>
+
+<h2>What is the same in every direction</h2>
+<table>
+  <tr><th>Part</th><th>Behaviour</th></tr>
+  <tr><td>Switch</td><td>A tap, or <code>Ctrl+1</code>…<code>9</code> by position. A tied workspace gives back its tool; an untied one keeps the tool in hand.</td></tr>
+  <tr><td>Ties</td><td>Six: Sculpt brushes, Paint brush, Curve, Insert, Model and Look tools. Each is held by one workspace; ticking it elsewhere moves it. Picking a tool switches only when its tie changes, so brushes picked in an untied workspace never throw you to Sculpt. Move keeps whatever was in front.</td></tr>
+  <tr><td>Look tool</td><td>Render's "a press turns the view" becomes a tool (the tool decides the hands; the workspace only the layout).</td></tr>
+  <tr><td>Amber dot, Reset</td><td>The dot shows a layout differs from where it started (a starter's shipped layout, or the copy it was made from); Reset layout puts that back, for the screen in use.</td></tr>
+  <tr><td>Delete</td><td>The last one cannot go. Deleting the current one shows its left neighbour first. The toast says which tools now bring nothing, and Undo puts it back.</td></tr>
+  <tr><td>Desktop and tablet</td><td>Two layouts per workspace, chosen by the device (iPad and Android are Tablet), with an override in Settings &gt; Interface. Switch Screen in the mock to see each kept apart.</td></tr>
+</table>
+
+<h2>Files</h2>
+<p><code>design.md</code> in this folder holds the data model, the settings format, every reader of today's space mapped, the stamps' removal, the PR split, the touch scenarios and the open questions.</p>
+</div>
