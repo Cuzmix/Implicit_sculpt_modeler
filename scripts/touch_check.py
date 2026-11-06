@@ -11516,13 +11516,16 @@ def wipe_knob_drag_moves_the_line():
 
 @scenario
 def wipe_compare_from_the_pass_menu():
-    """Wipe compare from the pass chip's menu turns the wipe on, and a second time off."""
+    """Wipe compare from the pass chip's menu turns the wipe on, and a second time off. The
+    list is taller than a 900 point window, so a finger swipes it up to bring the row in."""
     def run(taps):
         s = Script()
         s.wait(4)
         for _ in range(taps):
             s.ftap(PASS_CHIP)
             s.wait(8)
+            s.fdrag([(263, 760 - 40 * k) for k in range(13)])
+            s.wait(12)
             s.ftap(PASS_MENU_WIPE)
             s.wait(8)
         return s, [], camera_still({"wipe": near(taps % 2), "dabs": near(0)})

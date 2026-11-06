@@ -41,6 +41,7 @@ Passes :: struct {
 	menu:       bool,
 	menu_at:    ui.Rect,
 	menu_side:  ui.Side, // under the chip, or beside the view rail's Passes button
+	menu_scroll: f32, // the list's, on a window too short for all of it
 	switches:   int, // for the exit stats
 	// Wipe compare: the main view shows the pass picked left of a line and the last other
 	// pass right of it, the line at `wipe_at` of the pane's width. Never kept, never undone.
@@ -246,9 +247,21 @@ kit_pass_menu :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	ps := &k.passes
+	owner := ui.id_of(ctx, "pass menu")
 	if !ui.popover_begin(ctx, "pass menu", &ps.menu, ps.menu_at, ps.menu_side, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
+	// With Clay's MatCaps the list is taller than a 900 point window: it scrolls rather than
+	// running off the bottom. Under the chip it has the room below it; beside the view rail
+	// the popover slides up to the window's top, so it has the whole height.
+	area := ui.safe_area(ctx)
+	below := ps.menu_side == .Below || ps.menu_side == .Below_End
+	top := ps.menu_at.y + ps.menu_at.h + 6 if below else area.y + 4
+	room := max(area.y + area.h - top - 4 - 2 * ui.MENU_PAD, 4 * ctx.theme.target)
+	_, natural := ui.prev_layout(ctx, "pass menu body")
+	body_w := ui.MENU_W - 2 * ui.MENU_PAD - (f32(10) if natural.y > room else 0)
+	scroll := kit_scroll_begin(ctx, "pass menu body", &ps.menu_scroll, owner, body_w, room, 0)
 	lens_pass_menu(app)
+	kit_scroll_end(ctx, scroll)
 }
 
 // The icon of each pass in Lens's list.
@@ -309,11 +322,15 @@ lens_pass_menu :: proc(app: ^App) {
 // gestures can run too.
 shading_options :: proc(app: ^App, s: ^View_Shading, main: bool, looks := true) {
 	ctx := &app.kit.ctx
-	named :: proc(ctx: ^ui.Context, name: string) {
-		ui.begin(ctx, fmt.tprintf("%s option##shading", name), {direction = .Column, gap = ui.SPACE_XS})
+	// The options take the width they are given, so each row of tabs shares it out and each
+	// paragraph wraps to it; with none given, each tab is as wide as its name.
+	width := ui.fill_width(ctx)
+	inner := max(width - 2 * ui.SPACE_M, 0)
+	named :: proc(ctx: ^ui.Context, name: string, width: f32) {
+		ui.begin(ctx, fmt.tprintf("%s option##shading", name), {direction = .Column, gap = ui.SPACE_XS, width = width})
 		ui.label(ctx, name, ctx.theme.small_size)
 	}
-	ui.begin(ctx, "shading options", {direction = .Column, gap = ui.SPACE_S, padding = ui.SPACE_M})
+	ui.begin(ctx, "shading options", {direction = .Column, gap = ui.SPACE_S, padding = ui.SPACE_M, width = width})
 	shown := main_shading_mode(app) if main else s.mode
 	if looks {
 		names: [len(SHADING_LOOKS)]string
@@ -345,9 +362,9 @@ shading_options :: proc(app: ^App, s: ^View_Shading, main: bool, looks := true) 
 		caps := make([dynamic]string, 0, len(MATCAP_RECIPES), context.temp_allocator)
 		for r in MATCAP_RECIPES do append(&caps, string(r.label))
 		at := (s.matcap if s.matcap > 0 && s.matcap <= len(MATCAP_RECIPES) else SHADING_MATCAP_DEFAULT) - 1
-		named(ctx, "MatCap")
+		named(ctx, "MatCap", inner)
 		// Rows of three, as more names do not fit across the list.
-		ui.begin(ctx, "matcaps##shading", {direction = .Column, gap = ui.SPACE_XS})
+		ui.begin(ctx, "matcaps##shading", {direction = .Column, gap = ui.SPACE_XS, width = inner})
 		for start := 0; start < len(caps); start += 3 {
 			row := caps[start:min(start + 3, len(caps))]
 			if picked := ui.tabs(ctx, fmt.tprintf("MatCap %d", start / 3), row, at - start if at >= start && at < start + len(row) else -1); picked >= 0 do s.matcap = start + picked + 1
@@ -357,7 +374,7 @@ shading_options :: proc(app: ^App, s: ^View_Shading, main: bool, looks := true) 
 	}
 	froms: [len(Colour_From)]string
 	for c in Colour_From do froms[c] = COLOUR_FROM_NAMES[c]
-	named(ctx, "Colour from")
+	named(ctx, "Colour from", inner)
 	if picked := ui.tabs(ctx, "Colour from", froms[:], int(s.from)); picked >= 0 do s.from = Colour_From(picked)
 	ui.end(ctx)
 	// Whether sculpting, painting and lighting each keep their own look, naming the one
