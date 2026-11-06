@@ -174,16 +174,16 @@ a_restart_into_render_holds_the_look_tool :: proc(t: ^testing.T) {
 	testing.expect_value(t, c.tool, Tool.Brush)
 }
 
-// Each space has its own dial: switching space switches the sectors the rail reads, a
-// latch the new dial holds no sector for is dropped, and Model names Smooth and Invert as
-// the Model tool reads them.
+// Each kind of work has its own dial: switching space puts other hands to work with its
+// tool and switches the sectors the rail reads, a latch the new dial holds no sector for
+// is dropped, and Model names Smooth and Invert as the Model tool reads them.
 @(test)
 each_space_has_its_own_dial :: proc(t: ^testing.T) {
 	a := spaces_app()
 	defer spaces_app_free(a)
 	k := &a.kit
 	k.dials = DIAL_DEFAULTS
-	for s in Space do testing.expect(t, dial_is_default(k, s))
+	for h in Hands do testing.expect(t, dial_is_default(k, h))
 	testing.expect(t, dial_has(k, .Mask))
 	r := Modifier_Rail{center = {100, 100}, outer = 200, hole = 60}
 	m, ok := rail_hit(&r, dial_of(k)^, {50, 100})
@@ -206,8 +206,8 @@ each_space_has_its_own_dial :: proc(t: ^testing.T) {
 	testing.expect_value(t, modifier_name(a, .Smooth), "Smooth")
 }
 
-// The dials round-trip through settings: Sculpt's as dial_sector lines, the others' as
-// dial_space lines; a file with only Sculpt's dial changed leaves the others as they come.
+// The dials round-trip through settings as dial lines, each hands' written whole; a file
+// with only Sculpt's dial changed leaves the others as they come.
 @(test)
 the_dials_read_back :: proc(t: ^testing.T) {
 	path := "build/dials_test.txt"
@@ -225,7 +225,7 @@ the_dials_read_back :: proc(t: ^testing.T) {
 	testing.expect(t, b.kit.dials == a.kit.dials, "only Sculpt's dial changed")
 
 	a.kit.dials[.Model][0] = Bar_Slot{.Frame_All, 0}
-	a.kit.dials[.Render][2] = Modifier.Smooth
+	a.kit.dials[.Look][2] = Modifier.Smooth
 	testing.expect(t, settings_save(a, path))
 	c := spaces_app()
 	defer spaces_app_free(c)

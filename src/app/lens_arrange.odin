@@ -346,9 +346,9 @@ dial_sector_rows :: proc(app: ^App, width: f32) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	space := k.spaces.current
+	hands := k.hands
 	dial := dial_of(k)
-	ui.caption(ctx, fmt.tprintf("%s DIAL SECTORS (CLOCKWISE FROM THE TOP)", strings.to_upper(SPACE_NAMES[space], context.temp_allocator)))
+	ui.caption(ctx, fmt.tprintf("%s DIAL SECTORS (CLOCKWISE FROM THE TOP)", strings.to_upper(HANDS_NAMES[hands], context.temp_allocator)))
 	for place, i in DIAL_PLACES {
 		ui.begin(ctx, fmt.tprintf("dial sector %d", i), {direction = .Row, center = true, gap = ui.SPACE_M, width = width})
 		r := ui.place(ctx, {110, t.target})
@@ -381,9 +381,9 @@ dial_sector_rows :: proc(app: ^App, width: f32) {
 		ui.end(ctx)
 	}
 	// Smooth and Mask have no gesture, so a Sculpt dial without them leaves only the keys;
-	// the other spaces' dials hold what those spaces use instead.
+	// the other hands' dials hold what that work uses instead.
 	missing := make([dynamic]string, 0, 2, context.temp_allocator)
-	if space == .Sculpt do for m in ([]Modifier{.Smooth, .Mask}) do if !dial_has(k, m) do append(&missing, MODIFIER_NAMES[m])
+	if hands == .Sculpt do for m in ([]Modifier{.Smooth, .Mask}) do if !dial_has(k, m) do append(&missing, MODIFIER_NAMES[m])
 	if len(missing) > 0 {
 		ui.paragraph(ctx, fmt.tprintf("No sector holds %s now: on a tablet without a keyboard nothing else does.", strings.join(missing[:], " or ", context.temp_allocator)))
 	}

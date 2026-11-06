@@ -166,22 +166,23 @@ rail_toggle :: proc(r: ^Modifier_Rail, which: Modifier) {
 // What a sector of the wheel (the dial) does: hold or latch a modifier, or run a command
 // on a tap, as the brush pie's sector runs Brush_Pie. Which sector does what is a setting
 // (Settings > Dial), not part of a layout, since it belongs to the hand
-// rather than the screen. Each space has its own four (PR 3b), as each asks something
-// else of the off hand: Model snaps and selects, Render places light and focus.
+// rather than the screen. Each kind of work (Hands, hands.odin) has its own four, as each
+// asks something else of the off hand: modelling snaps and selects, looking places light
+// and focus.
 Dial_Sector :: union {
 	Modifier,
 	Bar_Slot,
 }
 
-// Each space's sectors as they come, clockwise from the top: Sculpt's Smooth, the brush
+// Each hands' sectors as they come, clockwise from the top: Sculpt's Smooth, the brush
 // pie, Invert and Mask; Model's Snap and Alt (Smooth and Invert, as the Model tool reads
-// them), the pie and the Select action; Render's Place highlight, the pie, Exposure and
+// them), the pie and the Select action; Look's Place highlight, the pie, Exposure and
 // Pick focus.
 @(rodata)
-DIAL_DEFAULTS := [Space][4]Dial_Sector {
+DIAL_DEFAULTS := [Hands][4]Dial_Sector {
 	.Sculpt = {Modifier.Smooth, Bar_Slot{.Brush_Pie, 0}, Modifier.Invert, Modifier.Mask},
 	.Model  = {Modifier.Smooth, Bar_Slot{.Brush_Pie, 0}, Modifier.Invert, Bar_Slot{.Model_Action, int(Model_Action.Select)}},
-	.Render = {Bar_Slot{.Place_Light, 0}, Bar_Slot{.Brush_Pie, 0}, Bar_Slot{.Brush_Value, int(Brush_Value.Exposure)}, Bar_Slot{.Pick_Focus, 0}},
+	.Look   = {Bar_Slot{.Place_Light, 0}, Bar_Slot{.Brush_Pie, 0}, Bar_Slot{.Brush_Value, int(Brush_Value.Exposure)}, Bar_Slot{.Pick_Focus, 0}},
 }
 
 // The sectors' places, clockwise from the top, as Settings > Dial names them.
@@ -197,13 +198,13 @@ rail_hit :: proc(r: ^Modifier_Rail, sectors: [4]Dial_Sector, p: [2]f32) -> (whic
 	return sectors[i].(Modifier)
 }
 
-// The current space's sectors.
+// The sectors of the hands at work.
 dial_of :: proc(k: ^Kit_State) -> ^[4]Dial_Sector {
-	return &k.dials[k.spaces.current]
+	return &k.dials[k.hands]
 }
 
-// Whether space `s`'s dial is as it comes.
-dial_is_default :: proc(k: ^Kit_State, s: Space) -> bool {
+// Whether hands `s`'s dial is as it comes.
+dial_is_default :: proc(k: ^Kit_State, s: Hands) -> bool {
 	for sector, i in k.dials[s] do if sector != DIAL_DEFAULTS[s][i] do return false
 	return true
 }

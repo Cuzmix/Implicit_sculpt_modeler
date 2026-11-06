@@ -135,8 +135,8 @@ space_switch :: proc(app: ^App, to: Space, restore := true) {
 	view_toggles_off(k)
 	layout_switch(k, s.current, to)
 	s.current = to
-	// The dial is the space's too.
-	dial_latches_keep(app)
+	// The tool given back may put other hands to work, and the dial with them.
+	hands_update(app)
 	s.seen, s.picked = space_tool_now(app), false
 	s.switches += 1
 }
@@ -150,8 +150,10 @@ space_follow :: proc(app: ^App) {
 	if !s.set {
 		if to, ok := space_of_tool(app.tool); ok && to != s.current do space_tool_put(app, s.current)
 		s.seen, s.set, s.picked = space_tool_now(app), true, false
+		hands_update(app)
 		return
 	}
+	hands_update(app)
 	now := space_tool_now(app)
 	if now == s.seen && !s.picked do return
 	s.seen, s.picked = now, false

@@ -621,7 +621,7 @@ palette_run :: proc(app: ^App, e: Palette_Entry) {
 		palette_close(app)
 		if e.kind != .Command || !bar_lists(e.id) do return
 		dial_of(k)[int(slot)] = Bar_Slot{e.id, e.arg}
-		report(app, nil, {}, "%s's dial's %s sector now runs %s", SPACE_NAMES[k.spaces.current], strings.to_lower(DIAL_PLACES[int(slot)], context.temp_allocator), pie_slot_label({e.id, e.arg}))
+		report(app, nil, {}, "%s's dial's %s sector now runs %s", HANDS_NAMES[k.hands], strings.to_lower(DIAL_PLACES[int(slot)], context.temp_allocator), pie_slot_label({e.id, e.arg}))
 		return
 	}
 	palette_close(app)

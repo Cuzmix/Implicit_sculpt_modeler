@@ -21,16 +21,16 @@ Offer :: struct {
 	label: string, // the fix's own name here ("Make sculptable")
 }
 
-// Whether the selection fits the space and the tool; when not, the offer that makes it
+// Whether the selection fits the hands and the tool; when not, the offer that makes it
 // fit. Only an offer whose fix can run now stands, so a tap on it never lands on a
-// refusal. Nothing selected, Render (which only looks) and the Move tool always fit. In
+// refusal. Nothing selected, the Look tool (which only looks) and the Move tool always fit. In
 // temp memory.
 space_fit :: proc(app: ^App) -> (fits: bool, offer: Offer) {
 	obj := selected_object(app)
 	if obj == nil do return true, {}
 	name := object_label(obj)
 	kind := object_type(obj)
-	#partial switch app.kit.spaces.current {
+	switch app.kit.hands {
 	case .Sculpt:
 		if app.tool == .Move do break
 		if kind == .Cage {
@@ -54,6 +54,7 @@ space_fit :: proc(app: ^App) -> (fits: bool, offer: Offer) {
 			if command_enabled(app, .Edit_Cage) do offer = {fmt.tprintf("%s is a sculpt mesh", name), "Model edits a cage", .Edit_Cage, 0, "Make editable"}
 			else do offer = {fmt.tprintf("%s is a sculpt mesh", name), "Model edits a cage", .Retopologize, 0, "Quad remesh"}
 		}
+	case .Look:
 	}
 	if offer.fix == .None || !command_enabled(app, offer.fix, offer.arg) do return true, {}
 	return false, offer

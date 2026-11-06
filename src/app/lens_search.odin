@@ -233,7 +233,7 @@ lens_palette_footer :: proc(app: ^App, e: Maybe(Palette_Entry), width: f32, anch
 	if k.keyless do hint = ""
 	// Four buttons, and a fifth, the shelf's pin, for a brush, a preset or a shape in Sculpt.
 	pin := false
-	if c, ok := e.?; ok && c.kind == .Command && shelf_holds_brushes(c.id) && k.palette_for == nil && k.spaces.current == .Sculpt do pin = true
+	if c, ok := e.?; ok && c.kind == .Command && shelf_holds_brushes(c.id) && k.palette_for == nil && k.hands == .Sculpt do pin = true
 	buttons: f32 = (5 if pin else 4) * t.target
 	r := ui.place(ctx, {width - 16 - buttons, t.target})
 	ui.text(ctx, ui.text_fit(ctx, hint, t.caption_size, r.w - 8), r.x + 4, r.y + r.h * 0.5, t.caption_size, t.text_tertiary)

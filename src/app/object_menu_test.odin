@@ -8,8 +8,8 @@ import "core:testing"
 @(test)
 object_verbs_are_commands_that_run :: proc(t: ^testing.T) {
 	for kind in Object_Type {
-		for space in Space {
-			for v in object_verbs(kind, space) {
+		for hands in Hands {
+			for v in object_verbs(kind, hands) {
 				testing.expect(t, v.id != .None)
 				args := COMMANDS[v.id].args
 				testing.expectf(t, v.arg >= 0 && v.arg < max(args, 1), "%v: arg %d of %d", v.id, v.arg, args)
