@@ -139,6 +139,7 @@ Section :: enum u8 {
 	Transform,
 	Morph,
 	Deform,
+	Physics,
 	Deformers,
 	// Paint.
 	Paint,
@@ -208,7 +209,7 @@ CARDS_SHUT_DEFAULT :: bit_set[Section]{
 	.Preset, .Paint_Color, .Samples, .Pen, .Options, .Recorder,
 	.Hd, .Topology, .Remesh, .Mirror, .Voxels, .Uvs, .Retopo, .Booleans, .Extract, .Project,
 	.Sets, .Groups, .Visibility,
-	.Morph, .Deform, .Deformers,
+	.Morph, .Deform, .Physics, .Deformers,
 	.Textures,
 	.Lights, .Environment, .Floor, .Background,
 	.Lens, .Finish, .Camera, .Turntable, .Print,
@@ -355,6 +356,7 @@ SECTION_ICONS := [Section]rune {
 	.Transform   = ui.ICON_MOVE,
 	.Morph       = ICON_FLIP_VIEW,
 	.Deform      = ui.ICON_WAND,
+	.Physics     = rune(0xe1ca), // shirt, as the Cloth brush
 	.Deformers   = ui.ICON_ROTATE_3D,
 	.Paint       = ui.ICON_PAINTBRUSH,
 	.Textures    = ICON_FILL_GRADIENT,

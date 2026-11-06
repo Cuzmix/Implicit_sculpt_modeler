@@ -22,7 +22,6 @@ Reshape_Kind :: enum u8 {
 	Noise,    // roughens it along the surface's normals
 	Inflate,  // pushes it out along the normals (or in)
 	Spherize, // rounds it toward a ball
-	Gravity,  // sags its outer parts down the axis, as a soft drape
 }
 
 Reshape :: struct {
@@ -55,7 +54,7 @@ reshape_needs_normals :: proc(kind: Reshape_Kind) -> bool {return kind == .Noise
 // Whether a kind works along one axis, rather than any set of them or none.
 reshape_one_axis :: proc(kind: Reshape_Kind) -> bool {
 	#partial switch kind {
-	case .Skew, .S_Bend, .Squeeze, .Gravity: return true
+	case .Skew, .S_Bend, .Squeeze: return true
 	}
 	return false
 }
@@ -81,7 +80,7 @@ Reshape_Plan :: struct {
 	lo:     Vec3,
 	extent: Vec3,
 	delta:  Vec3, // Offset: the whole move
-	radius: f32,  // Spherize: the ball's; Gravity: the furthest from the axis
+	radius: f32,  // Spherize: the ball's
 	slope:  f32,  // Skew: the lean's tangent
 }
 
@@ -109,14 +108,10 @@ reshape_plan :: proc(r: Reshape) -> (p: Reshape_Plan) {
 	case .Spherize:
 		p.amount = clamp(r.amount, 0, 1)
 		p.radius = (p.extent.x + p.extent.y + p.extent.z) / 6
-	case .Gravity:
-		across: Vec3 = p.extent * 0.5
-		across[p.i] = 0
-		p.radius = linalg.length(across)
 	case .Rotate, .S_Bend, .Squeeze, .Noise, .Inflate:
 	}
 	axes_needed := reshape_has_axes(r.kind) && card(r.axes) == 0
-	p.still = p.amount == 0 || !(p.size > 0) || axes_needed || (r.kind == .Gravity && !(p.radius > 0))
+	p.still = p.amount == 0 || !(p.size > 0) || axes_needed
 	return
 }
 
@@ -168,13 +163,6 @@ reshape_at :: #force_inline proc(p: ^Reshape_Plan, a, n: Vec3, w: f32) -> Vec3 {
 		length := linalg.length(d)
 		if !(length > 0) do return a
 		return a + (p.centre + d * (p.radius / length) - a) * (w * p.amount)
-	case .Gravity:
-		d := a - p.centre
-		d[p.i] = 0
-		r := linalg.length(d) / p.radius
-		q := a
-		q[p.i] -= w * p.amount * p.size * 0.5 * r * r
-		return q
 	}
 	return a
 }
