@@ -61,6 +61,22 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Deps: setup",
+			"detail": "scripts/setup_deps: fetches and builds the pinned third-party dependencies (ufbx, Luau, stb)",
+			"type": "process",
+			"command": "${workspaceFolder}/scripts/setup_deps.sh",
+			"windows": { "command": "cmd.exe", "args": ["/d", "/c", "${workspaceFolder}\\scripts\\setup_deps.bat"] },
+			"options": { "cwd": "${workspaceFolder}" },
+			"problemMatcher": []
+		},
+		{
+			"label": "Desktop: setup deps and build debug",
+			"detail": "runs Deps: setup, then Desktop: build debug",
+			"dependsOn": ["Deps: setup", "Desktop: build debug"],
+			"dependsOrder": "sequence",
+			"problemMatcher": []
+		},
+		{
 			"label": "Check",
 			"detail": "odin check of every package with the strict flags, the skill and agent mirrors, the package boundaries, the Metal shaders",
 			"type": "process",
