@@ -153,12 +153,13 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 	// since Show the mask, Mask region, Mask by (Peaks: kind, Strength, Blur, curve, Apply)
 	// and Mask adjust (curve, Blur, Apply) joined its fold; Polygroups 10 since Groups by normals,
 	// pieces and UVs and Merge similar joined its; Hide, clip and slice folds Grow,
-	// Shrink, Grow all, Outer ring, Grow to groups and Show masked. Material is its card
-	// since the section and the card became one: its tabs, the spheres, the colour and
-	// Apply to, and under More Metallic, Cavity, Ridge, Exposure and Dim the others; four
-	// more spheres since Wax, Jade, Marble and Milk joined the presets, four more with Car
-	// paint, Velvet, Satin and Neon.
-	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 21}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 12}, {.Project, 6}, {.Material, 33}, {.Camera, 6}}
+	// Shrink, Grow all, Outer ring, Grow to groups and Show masked. Material is its card:
+	// Favourites or All, the spheres (the four of Wax, Jade, Marble and Milk and the four of
+	// Car paint, Velvet, Satin and Neon among them), the colour, Roughness and Apply to, and
+	// under More Metallic. Viewport style has Occlusion while working, Cavity, Ridge and
+	// Styled shading, and under More Reach, Exposure and Dim the others (Rim and Underside
+	// only while styled, which a fresh App is not).
+	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 21}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 12}, {.Project, 6}, {.Material, 28}, {.Style, 7}, {.Camera, 6}}
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)
 	for f in full {

@@ -1,57 +1,37 @@
 package main
 
 import "core:fmt"
-import "core:strings"
 
 import "../ui"
 
-// Lens's Material card (panels P4, round 3's Materials mock): Materials, Matcaps and
-// Environment as tabs of one card, as the look cards are kept together. Matcaps and
-// Materials are grids of real spheres, four across and big enough for a finger: a MatCap
-// shows its own picture (ui.image_disc over the texture it shades with), a lit material
-// a ball in its colour. A press on a sphere and a slide over the others shows each on the
+// The Material card: the one place a material is picked or changed. A grid of real spheres,
+// four across and big enough for a finger, of the lit presets, Custom and the content
+// packs' materials. A press on a sphere and a slide over the others shows each on the
 // objects as the finger passes, as Nomad's material scrub does; lifting keeps the one under
-// the finger, sliding off the grid puts back what the objects had (Material_Preview). Under
-// the grid, Apply to says which objects take it: the selected ones, the selected one's
-// folder, or every object. Matcaps has Import (Load MatCap) by its head; Materials has
-// Roughness for a lit material; Environment is the Environment section. Under the grid the
-// colour, Apply to, and under More Metallic, Cavity, Ridge, Exposure and Dim the others;
-// with polygroups, Object or Group over it (kit_group_material). It is the one Material
-// interface: the Material card and the view rail open this card. Holding a sphere
-// (a long press, a right click or the pen's side button) adds it to the favourites or
-// takes it off, a star on its corner; Favourites over the grid shows only those, as the
-// brush browser's Favourites does, and settings.txt keeps them (material_favorite).
-
-// Materials first: the Render space, where the card shows, lights its objects.
-Material_Tab :: enum u8 {
-	Materials,
-	Matcaps,
-	Environment,
-}
-
-@(rodata)
-MATERIAL_TAB_NAMES := [Material_Tab]string {
-	.Materials   = "Materials",
-	.Matcaps     = "Matcaps",
-	.Environment = "Environment",
-}
+// the finger, sliding off the grid puts back what the objects had (Material_Preview).
+// Under the grid the colour, Roughness and Apply to (the selected objects, the selected
+// one's folder, or every object), and under More Metallic; with polygroups, Object or Group
+// over it (kit_group_material). MatCaps are no material: they are the Clay look's light,
+// picked in the Shading menu (shading_options). Holding a sphere (a long press, a right
+// click or the pen's side button) adds it to the favourites or takes it off, a star on its
+// corner; Favourites over the grid shows only those, as the brush browser's Favourites
+// does, and settings.txt keeps them (material_favorite).
 
 // Spheres a row of the grid holds, the gap between them, and the room under each for its
 // name, in points.
 MATERIAL_ACROSS :: 4
 MATERIAL_GAP :: 8
 MATERIAL_LABEL_H :: 18
-// How many spheres the favourites hold, of both tabs together.
+// How many spheres the favourites hold.
 MATERIAL_FAVORITES :: 32
 
 // KIT_MATCAP_IMAGE + a Material.matcap value is that MatCap's picture, for kit_draws.
 KIT_MATCAP_IMAGE :: KIT_LAYER_PICTURES_IMAGE + 1
 KIT_MATCAP_IMAGE_END :: KIT_MATCAP_IMAGE + 2 * PACK_MATCAP
 
-// What the card keeps between frames: its tab, whether a press on a sphere is under way,
+// What the card keeps between frames: whether a press on a sphere is under way,
 // and the sphere it shows (its index + 1 in this frame's list; 0 for none).
 Material_Card :: struct {
-	tab:      Material_Tab,
 	pressing: bool,
 	shown:    int,
 	label:    string, // what the shown sphere is called, for the line under the grid (not owned)
@@ -77,16 +57,6 @@ kit_lens_material :: proc(app: ^App) {
 	t := ctx.theme
 	mc := &k.material_card
 	width := ui.fill_width(ctx)
-	tabs: [len(Material_Tab)]string
-	for name, i in MATERIAL_TAB_NAMES do tabs[i] = name
-	if picked := ui.tabs(ctx, "material card tabs", tabs[:], int(mc.tab)); picked >= 0 {
-		if mc.pressing do material_scrub_end(app, false)
-		mc.tab = Material_Tab(picked)
-	}
-	if mc.tab == .Environment {
-		kit_environment(app)
-		return
-	}
 	sel := selected_object(app)
 	// With polygroups the card sets the object's material or one group's.
 	if sel != nil && command_enabled(app, .Pick_Group, 0) {
@@ -98,15 +68,11 @@ kit_lens_material :: proc(app: ^App) {
 		}
 	}
 	m := object_material(app, sel) if sel != nil else current_material(app)
-	balls := material_balls(app, mc.tab)
-	// The head: Favourites or All, and on Matcaps, Import.
+	balls := material_balls(app)
+	// The head: Favourites or All.
 	ui.begin(ctx, "material card head", {direction = .Row, gap = ui.SPACE_S, center = true, width = width})
 	shows := [2]string{"Favourites", "All"}
-	shown_w := ui.row_room(ctx) - (100 + 6 if mc.tab == .Matcaps else 0)
-	if picked := ui.tabs(ctx, "material card shows", shows[:], 1 if !mc.only_favorites else 0, item_width = (shown_w - 8) / 2); picked >= 0 do mc.only_favorites = picked == 0
-	if mc.tab == .Matcaps {
-		if ui.button(ctx, "Import##material card", .Bordered, glyph = ui.ICON_IMAGE, width = 100) do file_dialog(app, .Matcap)
-	}
+	if picked := ui.tabs(ctx, "material card shows", shows[:], 1 if !mc.only_favorites else 0); picked >= 0 do mc.only_favorites = picked == 0
 	ui.end(ctx)
 	if mc.only_favorites {
 		kept := make([dynamic]Material_Ball, 0, len(balls), context.temp_allocator)
@@ -118,10 +84,10 @@ kit_lens_material :: proc(app: ^App) {
 	if mc.pressing {
 		ui.label(ctx, fmt.tprintf("Previewing %s: lift to keep it, slide off to go back", mc.label) if mc.shown != 0 else "Slide back onto a sphere, or lift to keep what was there", t.small_size, t.text_secondary)
 	}
-	// The colour (a MatCap's tint), and a lit material's Roughness and under More its
-	// Metallic: moving one makes the material Custom, so a preset is never changed. A
-	// classic preset has no roughness yet, so it starts rough; a MatCap's picture holds its
-	// sheen, so it has neither.
+	// The colour, and a lit material's Roughness and under More its Metallic: moving one
+	// makes the material Custom, so a preset is never changed. A classic preset has no
+	// roughness yet, so it starts rough; an object that still wears a MatCap from a content
+	// pack's material keeps its tint and has neither.
 	if m.roughness == 0 do m.roughness = CUSTOM_ROUGHNESS
 	lit := m.matcap == 0
 	changed := kit_color(app, "material colour", (^[3]f32)(&m.selected), linear = true)
@@ -129,41 +95,21 @@ kit_lens_material :: proc(app: ^App) {
 	ui.label(ctx, "Apply to", t.small_size, t.text_tertiary)
 	targets := [len(Material_Target)]string{"Selected", "Its folder", "Every object"}
 	if picked := ui.tabs(ctx, "material apply to", targets[:], int(app.ui.material_to)); picked >= 0 do app.ui.material_to = Material_Target(picked)
-	// How every material is shown, kept apart from the materials themselves: Cavity
-	// darkens creases and Ridge lightens crests, so fine detail reads at any light angle.
-	if kit_more(app, .Material) {
-		if lit do changed |= ui.slider(ctx, "Metallic", &m.metallic, 0, 1, .Linear, fmt.tprintf("%.2f", m.metallic))
-		_ = ui.slider(ctx, "Cavity", &app.cavity, 0, 1, .Linear, fmt.tprintf("%.2f", app.cavity))
-		_ = ui.slider(ctx, "Ridge", &app.ridge, 0, 1, .Linear, fmt.tprintf("%.2f", app.ridge))
-		_ = ui.slider(ctx, "Exposure", &app.exposure, -EXPOSURE_RANGE, EXPOSURE_RANGE, .Linear, fmt.tprintf("%+.1f stops", app.exposure))
-		_ = ui.switch_row(ctx, "Dim the others", &app.dim_others)
+	if lit && kit_more(app, .Material) {
+		changed |= ui.slider(ctx, "Metallic", &m.metallic, 0, 1, .Linear, fmt.tprintf("%.2f", m.metallic))
 		kit_more_end(app)
 	}
 	if changed {
 		m.label = "Custom"
 		app.ui.scene_command = {kind = .Material, material = m, material_to = app.ui.material_to}
 	}
-	ui.paragraph(ctx, "Each object has its own material, kept in the scene file; this sets the objects Apply to names and the one new objects take. A press on a sphere and a slide over the others tries each on the objects; lift to keep one. Hold a sphere to add it to the favourites. Moving the colour, Roughness or Metallic makes it Custom; the presets stay as they are. A MatCap is a picture of a lit sphere that stands in for the lights, tinted by the colour. With polygroups, Group gives one group its own material. Cavity darkens creases and Ridge lightens crests on every material; Dim the others shows the objects not selected in a muted colour.")
+	ui.paragraph(ctx, "Each object has its own material, kept in the scene file; this sets the objects Apply to names and the one new objects take. Press a sphere and slide over the others to try each on; lift to keep one. Hold a sphere to add it to the favourites. Moving the colour, Roughness or Metallic makes it Custom. With polygroups, Group gives one group its own material.")
 }
 
-// The spheres a tab shows: the built-in MatCaps, the loaded image and every content pack's
-// (Matcaps); the lit presets, Custom and the content packs' materials (Materials).
+// The spheres the card shows: the lit presets, Custom and the content packs' materials.
 @(private = "file")
-material_balls :: proc(app: ^App, tab: Material_Tab) -> []Material_Ball {
+material_balls :: proc(app: ^App) -> []Material_Ball {
 	out := make([dynamic]Material_Ball, context.temp_allocator)
-	if tab == .Matcaps {
-		for i in FIRST_MATCAP ..< len(MATERIALS) {
-			append(&out, Material_Ball{MATERIALS[i], strings.trim_suffix(string(MATERIALS[i].label), " MatCap")})
-		}
-		if app.matcap_image != 0 do append(&out, Material_Ball{{label = "Custom", selected = {1, 1, 1, 1}, idle = MATCAP_IDLE, matcap = MATCAP_IMAGE}, "Imported"})
-		for pm, k in app.library.matcaps {
-			if pm.gone || pm.failed do continue
-			append(&out, Material_Ball{{label = "Custom", selected = {1, 1, 1, 1}, idle = MATCAP_IDLE, matcap = PACK_MATCAP + k}, pm.stem})
-		}
-		// The packs' pictures are made when first shown (pack_matcaps_settle).
-		app.library.matcaps_wanted = true
-		return out[:]
-	}
 	for i in 0 ..< FIRST_MATCAP do append(&out, Material_Ball{MATERIALS[i], string(MATERIALS[i].label)})
 	if app.custom.label != nil && app.custom.matcap == 0 do append(&out, Material_Ball{app.custom, "Custom"})
 	for pm in app.library.materials {
@@ -194,10 +140,10 @@ material_grid :: proc(app: ^App, balls: []Material_Ball, m: Material, width: f32
 	rects := make([]ui.Rect, len(balls), context.temp_allocator)
 	held := false
 	for first := 0; first < len(balls); first += MATERIAL_ACROSS {
-		ui.begin(ctx, fmt.tprintf("material card %v row %d", mc.tab, first), {direction = .Row, gap = MATERIAL_GAP})
+		ui.begin(ctx, fmt.tprintf("material card row %d", first), {direction = .Row, gap = MATERIAL_GAP})
 		for n in first ..< min(first + MATERIAL_ACROSS, len(balls)) {
 			b := balls[n]
-			a := ui.area(ctx, fmt.tprintf("%s##material card %v %d", b.label, mc.tab, n), {side, side + MATERIAL_LABEL_H})
+			a := ui.area(ctx, fmt.tprintf("%s##material card %d", b.label, n), {side, side + MATERIAL_LABEL_H})
 			rects[n] = a.rect
 			held ||= a.held
 			r := side * 0.5 - 5

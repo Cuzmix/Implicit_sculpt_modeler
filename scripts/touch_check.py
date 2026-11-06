@@ -1042,7 +1042,7 @@ def first_touch_scrolls_inspector():
 
 
 # How much higher a section's controls stand on its card than they stood on the
-# Palettes card (the Lights section at the top of the Look card: "lights"), which put a field picking the section over them, and for the Object
+# Palettes card (the Lights section at the top of the Light card: "lights"), which put a field picking the section over them, and for the Object
 # palette the object's name and size and the section's title, for the Scene card its
 # title (round 3, PR 9b), and for the Brush card the folded Palettes card that stood above
 # it (PR 9c): measured from screen dumps at 1600 x 900.
@@ -1077,7 +1077,7 @@ LIGHT_SPHERE_R = 80
 _ADD_POINT = on_card((1394, 633), "lights")
 LIGHT_ADD_POINT = At("add point light", _ADD_POINT[0], _ADD_POINT[1])
 LIGHT1_EYE = At("light eye 0", 1500, 380)
-# A finger's drag up the Look card's body, which a touch screen's palm zone keeps short,
+# A finger's drag up the Light card's body, which a touch screen's palm zone keeps short,
 # so what stands under the lights' list (Add) comes into view.
 LOOK_BODY_UP = line((1300, 470), (1300, 250), 10)
 
@@ -4169,13 +4169,13 @@ def lens_rail_names_its_buttons_on_a_wide_window():
 
 @scenario
 def lens_rail_opens_beside_itself():
-    """The rail's (eight_rail) Passes opens beside the rail, Lights opens the Look card beside it, and View layout opens its menu of grids."""
+    """The rail's (eight_rail) Passes opens beside the rail, Lights opens the Light card beside it, and View layout opens its menu of grids."""
     def run(name, checks):
         s = Script()
         s.ftap(LENS_RAIL[name])
         s.wait(10)
         return (s, LENS_1440 + eight_rail(), camera_still(checks))
-    return Steps([run("passes", {"pass_menu": near(1)}), run("lights", {"card_front": is_text("look"), "card_section": is_text("Lights")}), run("layout", {"bar_pop": is_text("view_layout")})])
+    return Steps([run("passes", {"pass_menu": near(1)}), run("lights", {"card_front": is_text("light"), "card_section": is_text("Lights")}), run("layout", {"bar_pop": is_text("view_layout")})])
 
 
 # The narrow window's sheet (under 900 points wide): the Tool card's head, where a drag
@@ -5786,31 +5786,29 @@ def lens_pass_popover_groups_the_passes():
     return s, LENS_1440, camera_still({"space": is_text("sculpt"), "inspect_mode": near(1), "pass": is_text("Curvature"), "dabs": near(0)})
 
 
-# Render at 1440x900: its tab, then on its stack the Lights card's Intensity (the picked
-# light's) and Add point light, the Lights card's chevron, the Red wax sphere of the
-# Material card once Lights is folded, and Undo on the top bar.
-LENS_STUDIO = {"render_tab": (685, 26), "intensity": (1218, 526), "add": At("add point light", 1201, 500),
-               "folds": [At("card Look/card body/Look", 1218, 150), At("card Look/card body/Material", 1218, 199), At("card Look/card body/Lights", 1218, 248)],
-               "red_wax": At("material card Materials 1", 1180, 745), "undo": (268, 25)}
+# Render at 1440x900: its tab; the Red wax sphere of the Material card it pins; the shelf's
+# Lights, which opens the Light card beside it, and on that card Add point light and the
+# picked light's Intensity knob; and Undo on the top bar.
+LENS_STUDIO = {"render_tab": (685, 26), "lights": At("dock/Lights", 731, 836), "add": At("add point light", 714, 548),
+               "intensity": (731, 738), "red_wax": At("material card 1", 1178, 207), "undo": (268, 25)}
 
 
 @scenario
-def render_pins_the_look_card():
-    """Render pins the Look card; a tap on a sphere in its Material section puts that material on."""
+def render_pins_the_material_card():
+    """Render pins the Material card; a tap on a sphere puts that material on."""
     s = Script()
     s.ftap(LENS_STUDIO["render_tab"])
     s.wait(20)
     s.ftap(LENS_STUDIO["red_wax"])
     s.wait(10)
-    return s, LENS_1440, camera_still({"space": is_text("render"), "cards": is_text("left:;right:Look*"),
+    return s, LENS_1440, camera_still({"space": is_text("render"), "cards": is_text("left:;right:Material*"),
                                        "selected_material": is_text("Red_wax"), "dabs": near(0)})
 
 
-# The Render space's Material card at 1440x900 with the Lights card folded (its
-# chevron): the tabs, Favourites, the Clay and Gold spheres of Materials, the first MatCap
-# (Red wax), and a point off the grid, over the view.
-LENS_MATERIALS = {"lights_fold": At("card Look/card body/Look", 1218, 150), "matcaps": (1218, 241), "favourites": (1146, 283), "clay": (1105, 349),
-                  "gold": (1255, 440), "red_wax_matcap": At("material card Matcaps 0", 1105, 361), "off": (900, 420)}
+# The Render space's Material card at 1440x900: Favourites, the Clay and Gold spheres (by
+# their keys, and their centres for drags), and a point off the grid, over the view.
+LENS_MATERIALS = {"favourites": At("material card shows/Favourites", 1144, 153), "clay": (1103, 207), "gold": (1253, 298),
+                  "first": At("material card 0", 1103, 207), "off": (900, 420)}
 
 
 @scenario
@@ -5822,8 +5820,6 @@ def material_card_scrub_previews_and_keeps():
         s = Script()
         s.ftap(LENS_STUDIO["render_tab"])
         s.wait(20)
-        s.ftap(LENS_MATERIALS["lights_fold"])
-        s.wait(10)
         end = LENS_MATERIALS["gold"] if keep else LENS_MATERIALS["off"]
         path = line(LENS_MATERIALS["clay"], LENS_MATERIALS["gold"], 10)
         if not keep:
@@ -5835,20 +5831,22 @@ def material_card_scrub_previews_and_keeps():
     return Steps([run(True), run(False)])
 
 
+# The shading chip's list in Clay at 1600 x 900: the chip, and the Red wax MatCap's disc.
+SHADING_CHIP = At("readout/Shading", 152, 76)
+MATCAP_RED_WAX = At("matcap disc 0", 169, 413)
+
+
 @scenario
-def material_card_matcap_tab_puts_a_matcap_on():
-    """The Material card's Matcaps tab shows the built-in MatCaps as their own pictures; a tap on
-    Red wax shades the sphere with it."""
+def shading_menu_matcap_disc_lights_clay():
+    """In the shading chip's list a tap on the Red wax disc lights the Clay look with that MatCap,
+    the view's light: no object's material changes."""
     s = Script()
-    s.ftap(LENS_STUDIO["render_tab"])
-    s.wait(20)
-    s.ftap(LENS_MATERIALS["lights_fold"])
+    s.ftap(SHADING_CHIP)
     s.wait(10)
-    s.ftap(LENS_MATERIALS["matcaps"])
+    s.ftap(MATCAP_RED_WAX)
     s.wait(8)
-    s.ftap(LENS_MATERIALS["red_wax_matcap"])
-    s.wait(10)
-    return s, LENS_1440, camera_still({"material_tab": is_text("matcaps"), "selected_matcap": near(1), "material_keeps": near(1), "dabs": near(0)})
+    return s, ["--script=shading_mode clay"], camera_still({"shading_mode": is_text("Clay"), "shading_matcap": near(1), "selected_matcap": near(0),
+                                                           "material_keeps": near(0), "dabs": near(0)})
 
 
 @scenario
@@ -5858,38 +5856,30 @@ def material_card_favourites_hold_a_sphere():
     s = Script()
     s.ftap(LENS_STUDIO["render_tab"])
     s.wait(20)
-    s.ftap(LENS_MATERIALS["lights_fold"])
-    s.wait(10)
     s.add("move:{:g},{:g}".format(*LENS_MATERIALS["gold"]))
     s.wait(3)
     s.add("right")
     s.wait(6)
     s.ftap(LENS_MATERIALS["favourites"])
     s.wait(6)
-    s.ftap(LENS_MATERIALS["clay"])
+    s.ftap(LENS_MATERIALS["first"])
     s.wait(8)
     return s, LENS_1440, camera_still({"material_favorites": near(1), "material_favorite_changes": near(1), "selected_material": is_text("Gold"), "dabs": near(0)})
 
 
 @scenario
 def lens_lights_card_picks_and_adds():
-    """On Render's Lights card a drag on the picked light's Intensity is one undo step, and Add point light adds one and picks it."""
+    """In Render the shelf's Lights opens the Light card: a drag on the picked light's Intensity is one undo step, and Add point light adds one and picks it."""
     def run(add):
         s = Script()
         s.ftap(LENS_STUDIO["render_tab"])
         s.wait(20)
-        # Look and Material folded bring the Look card's Lights section up into sight, and
-        # a tap unfolds it.
-        for fold in LENS_STUDIO["folds"]:
-            s.ftap(fold)
-            s.wait(8)
+        s.ftap(LENS_STUDIO["lights"])
+        s.wait(20)
         if add:
             s.ftap(LENS_STUDIO["add"])
             s.wait(10)
             return s, LENS_1440, camera_still({"light_count": near(5), "light_pick": near(5), "dabs": near(0)})
-        # The picked light's sliders are under the list: a drag on the card's edge scrolls them up.
-        s.fdrag(line((1350, 740), (1350, 440), 20))
-        s.wait(10)
         x, y = LENS_STUDIO["intensity"]
         s.fdrag([(x + 14 * i, y) for i in range(7)])
         s.wait(10)
@@ -5897,11 +5887,6 @@ def lens_lights_card_picks_and_adds():
         s.wait(10)
         return s, LENS_1440, camera_still({"light_count": near(4), "light_pick": near(1), "light_pick_strength": near(1.0), "redo_steps": near(1), "dabs": near(0)})
     return Steps([run(True), run(False)])
-
-
-# Name every control at 1440x900: the Model space tab, and the note's Done once the tags
-# are kept on.
-HELP_LABELS = {"model": (604, 28), "done": (858, 182)}
 
 
 @scenario
@@ -9311,19 +9296,19 @@ def alt_click_switches_objects():
 
 
 # The view rail's ⋯ and its menu's Add a button, which opens the Library on its Cards, two
-# of the Library's cards (the Deform and Look cards, which the rail starts without), and
+# of the Library's cards (the Deform and Light cards, which the rail starts without), and
 # the rail's button the Deform card gets at its foot.
 RAIL_MORE = At("view bar/More", 1563, 374)
 RAIL_ADD_CARDS = At("dock menu/Add a button...", 1400, 300)
 PICKER_DEFORM = At("sheet button/Open_Card/Deform", 1300, 160)
-PICKER_LOOK = At("sheet button/Open_Card/Look", 1300, 160)
+PICKER_LIGHT = At("sheet button/Open_Card/Light", 1300, 160)
 RAIL_DEFORM = At("view bar/Deform", 1563, 349)
 
 
 @scenario
 def rail_panels_picker_adds_a_card():
     """A finger taps the rail's ⋯ and Add a button, which opens the Library on its Cards, then (found by typing) its
-    Deform and Look cards: both go on the rail. The Deform button the rail gets opens the Deform card beside it; nothing
+    Deform and Light cards: both go on the rail. The Deform button the rail gets opens the Deform card beside it; nothing
     turns or sculpts."""
     s = Script()
     s.ftap(RAIL_MORE)
@@ -9337,16 +9322,16 @@ def rail_panels_picker_adds_a_card():
     s.wait(4)
     for _ in range(6):
         s.press("Backspace")
-    s.type("look")
+    s.type("light")
     s.wait(4)
-    s.ftap(PICKER_LOOK)
+    s.ftap(PICKER_LIGHT)
     s.wait(4)
     s.press("escape")
     s.wait(6)
     s.ftap(RAIL_DEFORM)
     s.wait(10)
     return s, [], camera_still({"dabs": near(0), "card_front": is_text("deform"), "library_puts": near(2),
-                                "view_rail": is_text("Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:Stack,Open_Card:References,Open_Card:Deform,Open_Card:Look")})
+                                "view_rail": is_text("Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:Stack,Open_Card:References,Open_Card:Deform,Open_Card:Light")})
 
 
 # The References card from its rail button, its Add note, and its board (a drag's points
@@ -11452,7 +11437,7 @@ def first_save():
 
 # Scene: Background's Screenshots without background switch, under the colours, where
 # palettes_only("background") shows it.
-TRANSPARENT_SWITCH = At("card Look/Screenshots without background", *in_section((1378, 506), "background"))
+TRANSPARENT_SWITCH = At("card Light/Screenshots without background", *in_section((1378, 506), "background"))
 
 
 @scenario
@@ -14780,7 +14765,7 @@ def show_where_opens_the_light_settings():
     s.type("place highlight")
     s.press("Return", ("shift",))
     s.wait(10)
-    return s, [], camera_still({"card_front": is_text("look"), "card_section": is_text("Lights"), "card_marked": near(1), "dabs": near(0)})
+    return s, [], camera_still({"card_front": is_text("light"), "card_section": is_text("Lights"), "card_marked": near(1), "dabs": near(0)})
 
 
 def main(argv):

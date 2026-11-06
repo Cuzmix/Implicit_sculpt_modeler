@@ -67,7 +67,7 @@ shading_is_kept_in_the_layout :: proc(t: ^testing.T) {
 	a.passes.shading = {mode = .Clay, from = .Object, grey = 0.75, matcap = 5}
 	a.passes.looks[.Paint] = {mode = .Flat}
 	text := kit_layout_text(&a)
-	testing.expect(t, strings.contains(text, "shading sculpt Clay Object 0.75 5\nshading paint Flat Material 0.00 0\n"), "the groups' looks are not written")
+	testing.expect(t, strings.contains(text, "shading sculpt Clay Object 0.75 skin\nshading paint Flat Material 0.00 -\n"), "the groups' looks are not written")
 	b: Kit_State
 	kit_layout_put(&b, text)
 	testing.expect_value(t, b.passes.shading, a.passes.shading)
@@ -128,7 +128,7 @@ pane_shading_is_kept_in_the_layout :: proc(t: ^testing.T) {
 	_, _ = grid_set(k, .Side_By_Side)
 	grid_view(&k.grid, 1).shading = {mode = .Flat, grey = 0.5}
 	text := kit_layout_text(k)
-	testing.expect(t, strings.contains(text, "pane 1 Front Shaded Flat Material 0.50 0\n"), "the pane's shading is not written")
+	testing.expect(t, strings.contains(text, "pane 1 Front Shaded Flat Material 0.50 -\n"), "the pane's shading is not written")
 	grid_view(&k.grid, 1).shading = {}
 	kit_layout_put(k, text)
 	testing.expect_value(t, grid_view(&k.grid, 1).shading, View_Shading{mode = .Flat, grey = 0.5})
@@ -158,4 +158,58 @@ second_shows_names_modes_and_passes :: proc(t: ^testing.T) {
 		for e in SECOND_SHOWS do if e.pass == p do n += 1
 		testing.expect_value(t, n, 4 if p == .Shaded else 1)
 	}
+}
+
+// A layout names a content pack's MatCap by its pack and file, so a run with other packs
+// installed (the list in another order) finds the same picture, and one without that pack
+// falls back to Grey clay and counts it for its one warning. Built-ins and the loaded image
+// keep their own words.
+@(test)
+layout_matcaps_survive_other_packs :: proc(t: ^testing.T) {
+	make_library :: proc(parts: ..[2]string) -> (lib: Library) {
+		for p in parts do append(&lib.matcaps, Pack_Matcap{pack = p[0], stem = p[1]})
+		return
+	}
+	first := make_library({"clay-kit", "warm red"}, {"studio", "chalk"})
+	defer delete(first.matcaps)
+	a: Kit_State
+	a.library = &first
+	look_of(&a, .Sculpt)^ = {mode = .Clay, matcap = PACK_MATCAP + 1}
+	look_of(&a, .Paint)^ = {mode = .Clay, matcap = PACK_MATCAP}
+	look_of(&a, .Lights)^ = {mode = .Clay, matcap = MATCAP_IMAGE}
+	text := shading_layout_line(&a)
+	testing.expect(t, strings.contains(text, "pack:studio/chalk"), text)
+	testing.expect(t, strings.contains(text, "pack:clay-kit/warm%20red"), text)
+
+	// The same packs in another order, and one more.
+	other := make_library({"extra", "glass"}, {"studio", "chalk"}, {"clay-kit", "warm red"})
+	defer delete(other.matcaps)
+	b: Kit_State
+	b.library = &other
+	for line in strings.split_lines(text, context.temp_allocator) {
+		if line != "" do shading_layout_read(&b, strings.fields(line, context.temp_allocator))
+	}
+	testing.expect_value(t, look_of(&b, .Sculpt).matcap, PACK_MATCAP + 1)
+	testing.expect_value(t, look_of(&b, .Paint).matcap, PACK_MATCAP + 2)
+	testing.expect_value(t, look_of(&b, .Lights).matcap, MATCAP_IMAGE)
+	testing.expect_value(t, b.matcaps_missing, 0)
+
+	// Without the studio pack: Grey clay, the default, said once.
+	fewer := make_library({"clay-kit", "warm red"})
+	defer delete(fewer.matcaps)
+	c: Kit_State
+	c.library = &fewer
+	for line in strings.split_lines(text, context.temp_allocator) {
+		if line != "" do shading_layout_read(&c, strings.fields(line, context.temp_allocator))
+	}
+	testing.expect_value(t, look_of(&c, .Sculpt).matcap, 0)
+	testing.expect_value(t, look_of(&c, .Paint).matcap, PACK_MATCAP)
+	testing.expect_value(t, c.matcaps_missing, 1)
+
+	// A built-in by its word, and a number, which no layout writes, read as the default.
+	testing.expect_value(t, shading_matcap_key(nil, 3), "grey-clay")
+	m, missing := shading_matcap_from_key(nil, "grey-clay")
+	testing.expect(t, m == 3 && !missing)
+	m, missing = shading_matcap_from_key(nil, "3")
+	testing.expect(t, m == 0 && !missing)
 }

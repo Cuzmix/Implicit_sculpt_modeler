@@ -69,7 +69,7 @@ a_pinned_card_rests_in_its_column :: proc(t: ^testing.T) {
 }
 
 // A layout keeps the pinned cards as `column` lines, and reads them back; Render pins the
-// Look card.
+// Light card.
 @(test)
 pinned_cards_are_the_layouts :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
@@ -85,7 +85,7 @@ pinned_cards_are_the_layouts :: proc(t: ^testing.T) {
 	testing.expect_value(t, kit_layout_text(&again), text)
 	render: Kit_State
 	kit_layout_put(&render, built_in_layout(.Render))
-	testing.expect(t, card_pinned(&render, .Look))
+	testing.expect(t, card_pinned(&render, .Material))
 }
 
 // Show where opens the section's card, unfolds the section and marks it for the scroll; a

@@ -332,7 +332,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			material_layers := 0
 			for o in app.scene.objects do if o.material.layers != {} do material_layers += 1
 			fmt.printfln("material_layers=%d", material_layers)
-			fmt.printfln("material_tab=%s material_previews=%d material_keeps=%d selected_matcap=%d objects_matcap=%d material_to=%s material_favorites=%d material_favorite_changes=%d", strings.to_lower(MATERIAL_TAB_NAMES[app.kit.material_card.tab], context.temp_allocator), app.material_previews, app.material_keeps, obj.material.matcap if obj != nil else 0, objects_matcap, strings.to_lower(fmt.tprint(app.ui.material_to), context.temp_allocator), app.kit.material_card.favorite_count, app.kit.material_card.favorite_changes)
+			fmt.printfln("material_previews=%d material_keeps=%d selected_matcap=%d objects_matcap=%d material_to=%s material_favorites=%d material_favorite_changes=%d", app.material_previews, app.material_keeps, obj.material.matcap if obj != nil else 0, objects_matcap, strings.to_lower(fmt.tprint(app.ui.material_to), context.temp_allocator), app.kit.material_card.favorite_count, app.kit.material_card.favorite_changes)
 			preset := "none"
 			if p, on := brush_preset(app); on do preset, _ = strings.replace_all(preset_name(p), " ", "_", context.temp_allocator)
 			fmt.printfln("presets=%d preset=%d preset_name=%s preset_changed=%d", app.preset_count, app.brush.preset, preset, int(preset_changed(app)))

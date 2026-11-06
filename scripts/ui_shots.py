@@ -88,6 +88,7 @@ SCREENS = {
     "material_card": ("The Material card: the shelf of material balls", "", ["--script=open_section material"]),
     "light_card": ("The Light card on its Lights section", "", ["--script=open_section lights"]),
     "render_card": ("The Render card with the render off", "", ["--script=open_section render"]),
+    "shading_menu": ("The shading chip's list in Clay: the looks, Colour, the MatCap discs and Import", tap("readout/Shading", 12), ["--script=shading_mode clay"]),
     "render_full": ("The Render card with Full building up", "", ["--script=render_mode on; open_section render"]),
 }
 

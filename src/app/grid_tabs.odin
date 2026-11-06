@@ -186,13 +186,13 @@ pane_tab_command_enabled :: proc(app: ^App, arg: int, what: Command_Id) -> bool 
 
 // A view pane's layout lines: one `pane N camera pass [shading]` line a tab, in order, then
 // `pane_tab N A` when the tab shown is not the first.
-grid_tab_lines :: proc(b: ^strings.Builder, g: ^View_Grid, pane: int) {
-	p := &g.tabs[pane - 1]
+grid_tab_lines :: proc(b: ^strings.Builder, k: ^Kit_State, pane: int) {
+	p := &k.grid.tabs[pane - 1]
 	for &t in p.tabs[:max(p.count, 1)] {
 		v := &t.view
 		switch t.kind {
 		case .View:
-			fmt.sbprintf(b, "pane %d %v %v%s\n", pane, v.camera, v.pass, second_shading_words(v))
+			fmt.sbprintf(b, "pane %d %v %v%s\n", pane, v.camera, v.pass, second_shading_words(k, v))
 		case .Texture:
 			fmt.sbprintf(b, "pane %d Texture %v\n", pane, t.flat.which)
 		}
@@ -202,7 +202,8 @@ grid_tab_lines :: proc(b: ^strings.Builder, g: ^View_Grid, pane: int) {
 
 // Reads a `pane` line into view pane `i`'s tabs: the first since the `panes` line takes the
 // first tab, each later one adds a tab; a word naming nothing leaves what it named.
-grid_tab_line_read :: proc(g: ^View_Grid, i: int, f: []string) {
+grid_tab_line_read :: proc(k: ^Kit_State, i: int, f: []string) {
+	g := &k.grid
 	p := &g.tabs[i - 1]
 	at := 0
 	if i - 1 in g.tabs_read {
@@ -224,7 +225,7 @@ grid_tab_line_read :: proc(g: ^View_Grid, i: int, f: []string) {
 	// The pane's shading follows its pass, in layouts since per-view shading; one
 	// without it is a fresh view's.
 	v.shading = {}
-	if len(f) > 4 do shading_words_read(&v.shading, f[4:])
+	if len(f) > 4 do shading_words_read(k, &v.shading, f[4:])
 }
 
 // Reads a `pane_tab N A` line: which tab view pane N shows.

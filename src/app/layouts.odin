@@ -196,7 +196,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 		case "dock":
 			dock_read(k, f)
 		case "panes", "pane", "pane_tab":
-			grid_layout_read(&k.grid, f)
+			grid_layout_read(k, f)
 		case "column":
 			columns_read(k, f)
 		case "card_float":
@@ -224,10 +224,11 @@ built_in_layout :: proc(s: Space) -> string {
 		// they would only take room from the view.
 		text = "hidden Brush_Bar\n"
 	case .Render:
-		// The Look card pinned on the pen side, after round 2's studio2 screen; Second view
-		// splits off a pane to watch the render build up beside the work. No brush bar, as in
-		// Model: a press in Render turns the view, so Size and Strength would only take room.
-		text = "hidden Brush_Bar\ncolumn right Look\n"
+		// The Material card pinned on the pen side, after round 2's studio2 screen, as picking
+		// and trying materials is Render's work; Second view splits off a pane to watch the
+		// render build up beside it. No brush bar, as in Model: a press in Render turns the
+		// view, so Size and Strength would only take room.
+		text = "hidden Brush_Bar\ncolumn right Material\n"
 	}
 	// Read and written again, so it is exactly what the layout writes when it is in place;
 	// every space ships with the bars a fresh install has.

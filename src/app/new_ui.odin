@@ -382,6 +382,11 @@ Kit_State :: struct {
 	// Each tool keeps its look: sculpting, painting and the Lights section each show the
 	// main view in a look of their own (shading.odin look_group_frame, remembered).
 	look_per_tool: bool,
+	// The content packs, for the MatCaps a layout names by key (shading_matcap_key), and
+	// how many keys the last layout read named a pack that is not installed, said once by
+	// kit_layout and then cleared.
+	library:        ^Library,
+	matcaps_missing: int,
 	// The first-run tips done (a bit per Coach_Step; COACH_DONE once over, remembered),
 	// and whether a card showed last frame and which.
 	coach:       i32,
@@ -946,6 +951,7 @@ KIT_INSPECTOR_W :: 312
 kit_init :: proc(app: ^App) {
 	ui.init(&app.kit.ctx)
 	k := &app.kit
+	k.library = &app.library
 	themes_init(k)
 	// The Stats panel starts with its commonest sections open.
 	k.stats_open[.Frame], k.stats_open[.Sculpting] = true, true
@@ -1442,6 +1448,10 @@ kit_layout :: proc(app: ^App) {
 	// A bar the layout hides is not laid out (layouts.odin): what opened from it opens
 	// from the top bar, which takes Undo, Redo, Search and the tray's button in its place.
 	layouts_frame(k)
+	if k.matcaps_missing > 0 {
+		report(app, nil, {.Warning}, "%d MatCap%s of a content pack that is not installed: Grey clay instead", k.matcaps_missing, "" if k.matcaps_missing == 1 else "s")
+		k.matcaps_missing = 0
+	}
 	// Each bar notes where its buttons stand as it is drawn (bar_spot).
 	k.bar_spot_count = 0
 	menu_anchor, search_anchor := kit_top_bar(app)
@@ -1632,10 +1642,10 @@ kit_shading_menu :: proc(app: ^App) {
 	ui.divider(&app.kit.ctx, across = true)
 	ui.caption(&app.kit.ctx, "  TEXTURES")
 	for v in render.Texture_View.Textured ..= render.Texture_View.Uv_Checker do _ = command_menu_item(app, .Texture_View, int(v))
-	if ui.menu_item(&app.kit.ctx, "Lights and look settings", glyph = ui.ICON_SETTINGS) {
+	if ui.menu_item(&app.kit.ctx, "Light card", glyph = ui.ICON_SUN) {
 		at := app.kit.bar_pop.at
 		app.kit.bar_pop.open = false
-		card_toggle(app, .Look, at, .Left)
+		card_toggle(app, .Light, at, .Left)
 	}
 }
 

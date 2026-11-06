@@ -346,7 +346,7 @@ shading_layout_line :: proc(k: ^Kit_State) -> string {
 	out := strings.builder_make(context.temp_allocator)
 	for g in Look_Group {
 		s := look_of(k, g)^
-		if s != LOOK_GROUP_DEFAULTS[g] do fmt.sbprintf(&out, "shading %s %s\n", LOOK_GROUP_WORDS[g], shading_words(s))
+		if s != LOOK_GROUP_DEFAULTS[g] do fmt.sbprintf(&out, "shading %s %s\n", LOOK_GROUP_WORDS[g], shading_words(k, s))
 	}
 	return strings.to_string(out)
 }
@@ -357,33 +357,73 @@ shading_layout_clear :: proc(k: ^Kit_State) {
 	k.passes.shading = LOOK_GROUP_DEFAULTS[k.passes.group]
 }
 
-// Shading `s` as a layout's words: `<look> <colour from> <grey> <matcap>`.
-shading_words :: proc(s: View_Shading) -> string {
-	return fmt.tprintf("%v %v %.2f %d", s.mode, s.from, s.grey, s.matcap)
+// Shading `s` as a layout's words: `<look> <colour from> <grey> <matcap>`, the MatCap by a
+// key that names the same picture in the next run (shading_matcap_key).
+shading_words :: proc(k: ^Kit_State, s: View_Shading) -> string {
+	return fmt.tprintf("%v %v %.2f %s", s.mode, s.from, s.grey, shading_matcap_key(k.library, s.matcap))
+}
+
+// MatCap `m` (as View_Shading.matcap counts them) as a word that names it in any run: `-` for
+// the default, a built-in's word (`grey-clay`), `image` for the one loaded, and for a
+// content pack's `pack:<id>/<stem>` with spaces and percents escaped, since a pack's place
+// in the library's list changes with the packs installed.
+shading_matcap_key :: proc(lib: ^Library, m: int) -> string {
+	switch {
+	case m > 0 && m <= len(MATCAP_RECIPES): return matcap_word(m)
+	case m == MATCAP_IMAGE:                 return "image"
+	case m >= PACK_MATCAP && lib != nil && m - PACK_MATCAP < len(lib.matcaps):
+		mc := lib.matcaps[m - PACK_MATCAP]
+		if mc.gone do return "-"
+		ref := fmt.tprintf("%s/%s", mc.pack, mc.stem)
+		ref, _ = strings.replace_all(ref, "%", "%25", context.temp_allocator)
+		ref, _ = strings.replace_all(ref, " ", "%20", context.temp_allocator)
+		return fmt.tprintf("pack:%s", ref)
+	}
+	return "-"
+}
+
+// The MatCap key `w` names (shading_matcap_key), or 0, the default, with `missing` when it
+// names a content pack's that `lib` does not hold.
+shading_matcap_from_key :: proc(lib: ^Library, w: string) -> (m: int, missing: bool) {
+	switch {
+	case w == "image": return MATCAP_IMAGE, false
+	case strings.has_prefix(w, "pack:"):
+		ref, _ := strings.replace_all(w[len("pack:"):], "%20", " ", context.temp_allocator)
+		ref, _ = strings.replace_all(ref, "%25", "%", context.temp_allocator)
+		slash := strings.index_byte(ref, '/')
+		if lib != nil && slash > 0 {
+			if k := library_matcap_find(lib, ref[:slash], ref[slash + 1:]); k >= 0 do return PACK_MATCAP + k, false
+		}
+		return 0, true
+	}
+	for _, i in MATCAP_RECIPES do if w == matcap_word(i + 1) do return i + 1, false
+	return 0, false
 }
 
 // Second view `sv`'s shading as words after its pass in a layout's line, a space first;
 // none for a fresh view's.
-second_shading_words :: proc(sv: ^Second_View) -> string {
+second_shading_words :: proc(k: ^Kit_State, sv: ^Second_View) -> string {
 	if sv.shading == {} do return ""
-	return fmt.tprintf(" %s", shading_words(sv.shading))
+	return fmt.tprintf(" %s", shading_words(k, sv.shading))
 }
 
 // Reads a layout's shading line: its group's word, then the look's words.
 shading_layout_read :: proc(k: ^Kit_State, f: []string) {
 	if len(f) < 2 do return
-	for g in Look_Group do if f[1] == LOOK_GROUP_WORDS[g] do shading_words_read(look_of(k, g), f[2:])
+	for g in Look_Group do if f[1] == LOOK_GROUP_WORDS[g] do shading_words_read(k, look_of(k, g), f[2:])
 }
 
 // Reads shading words `f` into `s`; a word naming nothing keeps what was there, and
 // Rendered is never read, as the Render switch (or a view's Render pass) says it.
-shading_words_read :: proc(s: ^View_Shading, f: []string) {
+shading_words_read :: proc(k: ^Kit_State, s: ^View_Shading, f: []string) {
 	if len(f) > 0 do for m in Shading_Mode do if m != .Rendered && fmt.tprint(m) == f[0] do s.mode = m
 	if len(f) > 1 do for c in Colour_From do if fmt.tprint(c) == f[1] do s.from = c
 	if len(f) > 2 {
 		if g, ok := strconv.parse_f32(f[2]); ok do s.grey = clamp(g, 0, 1)
 	}
 	if len(f) > 3 {
-		if n, ok := strconv.parse_int(f[3]); ok && n >= 0 do s.matcap = n
+		missing: bool
+		s.matcap, missing = shading_matcap_from_key(k.library, f[3])
+		if missing do k.matcaps_missing += 1
 	}
 }

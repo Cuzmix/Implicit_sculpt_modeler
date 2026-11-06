@@ -7,7 +7,7 @@ import "../sculpt"
 import "../ui"
 
 // Cards (Panels v2): every control the docks do not hold lives on one card, and every
-// card is a task: Tool, Layers, Scene, Mesh, Mask, Deform, Paint, Colours, Symmetry, Look,
+// card is a task: Tool, Layers, Scene, Mesh, Mask, Deform, Paint, Colours, Symmetry, Material, Light,
 // Render, History and Details. The sections the three palettes once had are folds inside them, each in exactly
 // one card, so a control has one home and Search's Show where opens that card on it
 // (card_reveal). A card opens beside the dock button that asked for it, in the column on
@@ -24,7 +24,8 @@ Card :: enum u8 {
 	Paint,
 	Colours,
 	Symmetry,
-	Look,
+	Material,
+	Light,
 	Render,
 	History,
 	Details,
@@ -43,7 +44,8 @@ CARD_NAMES := [Card]string {
 	.Paint    = "Paint",
 	.Colours  = "Colours",
 	.Symmetry = "Symmetry",
-	.Look     = "Look",
+	.Material = "Material",
+	.Light    = "Light",
 	.Render   = "Render",
 	.History  = "History",
 	.Details  = "Details",
@@ -62,7 +64,8 @@ CARD_ICONS := [Card]rune {
 	.Paint    = ui.ICON_PAINTBRUSH,
 	.Colours  = ICON_COLOUR,
 	.Symmetry = ICON_SYMMETRY,
-	.Look     = ICON_SHADING,
+	.Material = ICON_MATERIAL,
+	.Light    = ui.ICON_SUN,
 	.Render   = ICON_RENDER_PREVIEW,
 	.History  = ui.ICON_HISTORY,
 	.Details  = ui.ICON_ACTIVITY,
@@ -118,6 +121,7 @@ Section :: enum u8 {
 	Details,
 	References,
 	Stack,
+	Material,
 	// Mesh, in four groups (section_group): Resolution, Rebuild, Combine and Surface.
 	Levels,
 	Hd,
@@ -144,13 +148,12 @@ Section :: enum u8 {
 	// Paint.
 	Paint,
 	Textures,
-	// Look.
-	Look,
-	Material,
+	// Light: the lights, what surrounds the scene, and how the viewport draws forms.
 	Lights,
 	Environment,
 	Floor,
 	Background,
+	Style,
 	// Render.
 	Render,
 	Lens,
@@ -174,11 +177,12 @@ section_card :: proc(sec: Section) -> Card {
 	case .Details:                 return .Details
 	case .References:              return .References
 	case .Stack:                   return .Stack
+	case .Material:                return .Material
 	case .Levels ..= .Project:     return .Mesh
 	case .Mask ..= .Visibility:    return .Mask
 	case .Transform ..= .Deformers: return .Deform
 	case .Paint, .Textures:        return .Paint
-	case .Look ..= .Background:    return .Look
+	case .Lights ..= .Style:       return .Light
 	case .Render ..= .Print:       return .Render
 	}
 	return .Tool
@@ -211,7 +215,7 @@ CARDS_SHUT_DEFAULT :: bit_set[Section]{
 	.Sets, .Groups, .Visibility,
 	.Morph, .Deform, .Physics, .Deformers,
 	.Textures,
-	.Lights, .Environment, .Floor, .Background,
+	.Environment, .Floor, .Background, .Style,
 	.Lens, .Finish, .Camera, .Turntable, .Print,
 }
 
@@ -360,12 +364,12 @@ SECTION_ICONS := [Section]rune {
 	.Deformers   = ui.ICON_ROTATE_3D,
 	.Paint       = ui.ICON_PAINTBRUSH,
 	.Textures    = ICON_FILL_GRADIENT,
-	.Look        = ICON_SHADING,
 	.Material    = ICON_MATERIAL,
 	.Lights      = ui.ICON_SUN,
 	.Environment = ui.ICON_IMAGE,
 	.Floor       = ICON_FLOOR,
 	.Background  = ui.ICON_FRAME,
+	.Style       = ICON_SHADING,
 	.Render      = ICON_RENDER_PREVIEW,
 	.Lens        = rune(0xe068), // camera
 	.Finish      = ICON_SPARKLES,
@@ -476,7 +480,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Section) {
 	.Duplicate_Object      = .Scene,
 	.Delete_Object         = .Scene,
 	.Studio_Render         = .Render,
-	.Live_Occlusion        = .Look,
+	.Live_Occlusion        = .Style,
 	.Render_Mode           = .Render,
 	.Pick_Focus            = .Lens,
 	.History_Find          = .History,
