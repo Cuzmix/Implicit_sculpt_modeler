@@ -349,6 +349,7 @@ export_material :: proc(m: Material) -> geom.Export_Material {
 		base      = m.selected.rgb,
 		metallic  = m.metallic,
 		roughness = m.roughness,
+		layers    = material_layers_drawn(m),
 	}
 	phong :: proc(power: f32) -> f32 {return clamp(math.sqrt(math.sqrt(2 / (max(power, 0) + 2))), 0.04, 1)}
 	switch {

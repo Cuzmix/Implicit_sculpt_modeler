@@ -2,6 +2,7 @@ package main
 
 import "core:math"
 import "core:os"
+import "core:strings"
 import "core:testing"
 
 import "../geom"
@@ -285,4 +286,44 @@ custom_layers_are_remembered_and_bad_ones_passed_over :: proc(t: ^testing.T) {
 @(test)
 every_preset_has_valid_layers :: proc(t: ^testing.T) {
 	for m in MATERIALS do testing.expectf(t, geom.material_layers_valid(m.layers), "%s", m.label)
+}
+
+// Importing Blender's glTF keeps its materials as the objects' own: Car Paint's coat and
+// Glass's transmission on their objects, the empty gold listed but left on the default;
+// the list survives the scene file.
+@(test)
+imported_materials_become_the_objects_own :: proc(t: ^testing.T) {
+	m, note, _, ok := mesh_import_load(#directory + "testdata/import/materials.glb", "Imported", nil, keep_materials = true)
+	defer delete(note)
+	defer mesh_import_free(&m)
+	testing.expect(t, ok)
+	testing.expect_value(t, len(m.materials), 3)
+	if len(m.materials) != 3 do return
+	objs: [3]Object
+	defer for &o in objs {
+		delete(o.group_materials)
+		imported_materials_destroy(&o.imported)
+	}
+	unvalued := 0
+	for &o, k in objs do unvalued += object_take_imported(&o, m.materials[k][:])
+	testing.expect_value(t, unvalued, 1)
+	testing.expect_value(t, objs[0].material.layers.coat_weight, 0.25)
+	testing.expect_value(t, objs[1].material.layers.transmission_weight, 1)
+	testing.expect(t, objs[2].material.label == nil)
+	testing.expect_value(t, objs[2].imported[0].name, "Metal - Gold")
+	testing.expect(t, !objs[2].imported[0].valued)
+	testing.expect(t, strings.contains(note, "\"Metal - Gold\" had no values"))
+	// The list round-trips through the scene file's form.
+	out: [dynamic]u8
+	defer delete(out)
+	imported_put(&out, &objs[1])
+	r := geom.byte_reader(out[:])
+	back: Object
+	defer imported_materials_destroy(&back.imported)
+	imported_get(&r, &back)
+	testing.expect(t, r.ok && r.at == len(out))
+	testing.expect_value(t, len(back.imported), 1)
+	testing.expect_value(t, back.imported[0].name, "Glass")
+	testing.expect_value(t, back.imported[0].group, 0)
+	testing.expect(t, back.imported[0].valued)
 }

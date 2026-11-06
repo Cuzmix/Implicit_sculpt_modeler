@@ -112,6 +112,9 @@ Object :: struct {
 	// Its polygroups with materials of their own, sorted by group (group_materials.odin);
 	// none on a voxel object.
 	group_materials: [dynamic]Group_Material,
+	// The materials the file it was imported from brought (imported_materials.odin), for
+	// the Material card's list; empty for any other object.
+	imported:  [dynamic]Imported_Material,
 	// Its texture maps, while it has quads and UVs (textures.odin), and their GPU copy.
 	textures:  Object_Textures,
 	preview:   Texture_Preview,
@@ -1704,6 +1707,7 @@ object_free :: proc(app: ^App, obj: ^Object) {
 	object_release_mesh(app, obj, rebuild = false)
 	delete(obj.name)
 	delete(obj.group_materials)
+	imported_materials_destroy(&obj.imported)
 	textures_free(&obj.textures)
 	free(obj)
 }

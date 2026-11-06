@@ -1,6 +1,7 @@
 package fbx
 
 import "core:c"
+import "core:math"
 import "core:path/slashpath"
 import "core:strings"
 
@@ -49,6 +50,7 @@ foreign lib {
 	sculpt_fbx_rig :: proc(f: ^Scene, skins, animations, shapes: ^c.size_t) ---
 	sculpt_fbx_material_count :: proc(f: ^Scene) -> c.size_t ---
 	sculpt_fbx_material :: proc(f: ^Scene, k: c.size_t, color: ^[3]f32, texture_file: ^i32) ---
+	sculpt_fbx_material_values :: proc(f: ^Scene, k: c.size_t, out: ^[34]f32, valued: ^i32, name: ^[^]u8, name_len: ^c.size_t, maps: ^[3][^]u8, map_lens: ^[3]c.size_t) ---
 	sculpt_fbx_texture_file_count :: proc(f: ^Scene) -> c.size_t ---
 	sculpt_fbx_texture_file :: proc(f: ^Scene, k: c.size_t, content: ^rawptr, content_size: ^c.size_t, relative: ^[^]u8, relative_len: ^c.size_t, absolute: ^[^]u8, absolute_len: ^c.size_t) ---
 	sculpt_fbx_part_size :: proc(f: ^Scene, part: c.size_t, name: ^[^]u8, name_len: ^c.size_t, vertices, triangles: ^c.size_t, colors, groups, uvs, polygons: ^bool) ---
@@ -102,6 +104,22 @@ read :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, look: ^geom.Mesh_Look 
 			file: i32
 			sculpt_fbx_material(scene, c.size_t(k), &m.color, &file)
 			if file >= 0 && image_base + int(file) < len(look.images) do m.image = image_base + int(file)
+			// The rest of it, in ufbx's PBR view: metallic, roughness and the layers.
+			values: [34]f32
+			valued: i32
+			name: [^]u8
+			name_len: c.size_t
+			maps: [3][^]u8
+			map_lens: [3]c.size_t
+			sculpt_fbx_material_values(scene, c.size_t(k), &values, &valued, &name, &name_len, &maps, &map_lens)
+			m.valued = valued != 0
+			m.name = strings.clone(string(name[:name_len]))
+			m.metallic = clamp(values[0], 0, 1) if !math.is_nan(values[0]) else 0
+			m.roughness = clamp(values[1], 0, 1) if !math.is_nan(values[1]) else 0.5
+			layers: [32]f32
+			copy(layers[:], values[2:])
+			m.layers = geom.material_layers_clamp(transmute(geom.Material_Layers)layers)
+			for which, i in geom.Mesh_Map do if map_lens[i] > 0 do m.maps[which] = strings.clone(string(maps[i][:map_lens[i]]))
 			append(&look.materials, m)
 		}
 	}

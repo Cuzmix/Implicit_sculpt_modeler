@@ -246,6 +246,8 @@ App :: struct {
 	import_folders: int,
 	import_rig:     geom.Rig_Found,
 	import_joined:  int, // quads the last import found again from an STL or glTF file's triangles
+	import_materials: int, // the file's materials the last import kept as the objects' own
+	import_unvalued:  int, // ...of which the file gave no values (left on the default)
 	cursor:   Brush_Cursor, // the surface under the brush ring this frame (cursor.odin)
 	mask_seen: Mask_Seen, // whether the selected object has a mask, kept (history.odin)
 	sets_lost: int, // selection sets a rebuild dropped, for the note of the command that ran it (selection_sets.odin)
@@ -437,6 +439,9 @@ App :: struct {
 	// Objects other than the selected one show their material's muted colour (on by
 	// default), so the one being sculpted stands out; off, each shows its own colour.
 	dim_others:               bool,
+	// Import paints a file's materials into the vertices as polypaint, as it once always
+	// did, instead of keeping each as the object's own material on a polygroup of its own.
+	import_paint:             bool,
 	// A detail skin is added by itself when a stroke that could go into one, under Detail
 	// goes to Auto, starts finer than the object's mesh (skin_auto_add; on by default).
 	skin_auto:                bool,
