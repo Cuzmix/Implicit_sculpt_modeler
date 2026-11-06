@@ -31,6 +31,8 @@ Brush_Value :: enum u8 {
 	// (its channel strip), 0 to 1: after Exposure, so the values before keep their numbers.
 	Roughness,
 	Metal,
+	// The height the Paint brush lays where the picked texture layer paints height, -1 to 1.
+	Height,
 }
 
 Value_Look :: enum u8 {
@@ -50,6 +52,7 @@ BRUSH_VALUE_NAMES := [Brush_Value]string {
 	.Exposure    = "Exposure",
 	.Roughness   = "Roughness",
 	.Metal       = "Metal",
+	.Height      = "Height",
 }
 
 // Lucide's nearest glyphs: a radius, a gauge, a lens's focus, dabs in a row, the line
@@ -65,6 +68,7 @@ BRUSH_VALUE_ICONS := [Brush_Value]rune {
 	.Exposure    = rune(0xe044), // aperture
 	.Roughness   = ICON_SPARKLES, // how much it shines
 	.Metal       = ICON_MATERIAL, // a lit sphere
+	.Height      = ICON_CHANNEL_SCULPT, // a mountain
 }
 
 @(rodata)
@@ -86,6 +90,7 @@ BRUSH_VALUE_SECTIONS := [Brush_Value]Section {
 	.Exposure    = .Material,
 	.Roughness   = .Paint_Color,
 	.Metal       = .Paint_Color,
+	.Height      = .Paint_Color,
 }
 
 // The values the popover's steps set, a tap each: the sizes doubling, the strength in
@@ -101,6 +106,7 @@ value_steps :: proc(v: Brush_Value) -> []f32 {
 	@(static, rodata) exposure := [?]f32{-1, 0, 1}
 	@(static, rodata) roughness := [?]f32{0, 0.25, 0.5, 0.75, 1}
 	@(static, rodata) metal := [?]f32{0, 0.5, 1}
+	@(static, rodata) height := [?]f32{-1, -0.5, 0.5, 1}
 	switch v {
 	case .Size:        return size[:]
 	case .Strength:    return strength[:]
@@ -111,6 +117,7 @@ value_steps :: proc(v: Brush_Value) -> []f32 {
 	case .Exposure:    return exposure[:]
 	case .Roughness:   return roughness[:]
 	case .Metal:       return metal[:]
+	case .Height:      return height[:]
 	}
 	return nil
 }
@@ -144,6 +151,7 @@ value_range :: proc(v: Brush_Value) -> (lo, hi: f32, scale: ui.Scale) {
 	case .Pressure:    return 0, 1, .Linear
 	case .Exposure:    return -EXPOSURE_RANGE, EXPOSURE_RANGE, .Linear
 	case .Roughness, .Metal: return 0, 1, .Linear
+	case .Height:      return -1, 1, .Linear
 	}
 	return 0, 1, .Linear
 }
@@ -161,6 +169,7 @@ value_get :: proc(app: ^App, v: Brush_Value) -> f32 {
 	case .Exposure:    return app.exposure
 	case .Roughness:   return b.roughness
 	case .Metal:       return b.metal
+	case .Height:      return b.height
 	}
 	return 0
 }
@@ -182,6 +191,7 @@ value_set :: proc(app: ^App, v: Brush_Value, to: f32) {
 	case .Exposure:    app.exposure = math.round(x * 10) / 10
 	case .Roughness:   b.roughness = math.round(x * 100) / 100
 	case .Metal:       b.metal = math.round(x * 100) / 100
+	case .Height:      b.height = math.round(x * 100) / 100
 	}
 }
 
@@ -203,6 +213,7 @@ value_text :: proc(app: ^App, v: Brush_Value) -> string {
 	case .Pressure:    return "on" if x > 0 else "off"
 	case .Exposure:    return fmt.tprintf("%+.1f stops", x)
 	case .Roughness, .Metal: return fmt.tprintf("%.2f", x)
+	case .Height:      return fmt.tprintf("%+.2f", x)
 	}
 	return ""
 }
@@ -216,6 +227,7 @@ value_short :: proc(app: ^App, v: Brush_Value) -> string {
 	case .Roughness, .Metal: return strings.trim_prefix(fmt.tprintf("%.2f", x), "0") if x > 0 && x < 1 else fmt.tprintf("%.0f", x)
 	case .Lazy:     return "off" if x < 0.5 else fmt.tprintf("%.0f", x)
 	case .Exposure: return fmt.tprintf("%+.1f", x)
+	case .Height:   return fmt.tprintf("%+.1f", x)
 	}
 	return value_text(app, v)
 }
@@ -234,6 +246,7 @@ value_step_text :: proc(v: Brush_Value, x: f32) -> string {
 	case .Spacing:  return fmt.tprintf("%.0f%%", x * 100)
 	case .Lazy:     return "off" if x < 0.5 else fmt.tprintf("%.0f", x)
 	case .Exposure: return fmt.tprintf("%+.0f", x) if x != 0 else "0"
+	case .Height:   return fmt.tprintf("%+.1f", x)
 	}
 	return fmt.tprintf("%.0f", x)
 }

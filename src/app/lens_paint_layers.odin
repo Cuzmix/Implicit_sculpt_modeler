@@ -38,6 +38,7 @@ PAINT_CHANNEL_NAMES := [sculpt.Paint_Channel]string {
 	.Color     = "colour",
 	.Roughness = "roughness",
 	.Metal     = "metal",
+	.Height    = "height",
 }
 
 // The channel strip's toggles, short enough for a third of the card each.
@@ -46,6 +47,7 @@ PAINT_CHANNEL_SHORT := [sculpt.Paint_Channel]string {
 	.Color     = "Colour",
 	.Roughness = "Rough",
 	.Metal     = "Metal",
+	.Height    = "Height",
 }
 
 // The tab's content.
@@ -133,10 +135,14 @@ lens_paint_channels :: proc(app: ^App, obj: ^Object, i: int, width: f32, allowed
 	s := object_sculptor(obj)
 	l := sculpt.sculptor_paint_layers(s)[i]
 	ui.caption(ctx, fmt.tprintf("%s PAINTS", strings.to_upper(sculpt.sculptor_paint_layer_name(&l), context.temp_allocator)))
+	// Height is a texture layer's alone: on the vertices the sculpt is the height.
+	offered := sculpt.PAINT_CHANNELS_ALL if l.texels != 0 else sculpt.PAINT_CHANNELS_ALL - {.Height}
 	gap: f32 = ui.SPACE_XS
-	w := (width - gap * f32(len(sculpt.Paint_Channel) - 1)) / f32(len(sculpt.Paint_Channel))
+	count := card(offered)
+	w := (width - gap * f32(count - 1)) / f32(count)
 	ui.begin(ctx, "lens paint channels", {direction = .Row, gap = gap, width = width})
 	for c in sculpt.Paint_Channel {
+		if c not_in offered do continue
 		on := c in l.channels
 		tip := fmt.tprintf("Strokes on this layer %s its %s", "write" if on else "leave", PAINT_CHANNEL_NAMES[c])
 		if ui.toggle_button(ctx, fmt.tprintf("%s##lens paint channel", PAINT_CHANNEL_SHORT[c]), on, w, tooltip = tip) && allowed {
@@ -147,7 +153,7 @@ lens_paint_channels :: proc(app: ^App, obj: ^Object, i: int, width: f32, allowed
 		}
 	}
 	ui.end(ctx)
-	ui.paragraph(ctx, "Roughness and metal show on a physically based material (PBR clay, the metals, Plastic) over its own, and in Full render; classic and MatCap materials show colour only. Height is the sculpt itself on vertices: sculpt it, or record a sculpt layer.")
+	ui.paragraph(ctx, "Roughness and metal show on a physically based material (PBR clay, the metals, Plastic) over its own, and in Full render; classic and MatCap materials show colour only. Height on a texture layer shows as fine relief through its normals; on the vertices the sculpt itself is the height." if l.texels != 0 else "Roughness and metal show on a physically based material (PBR clay, the metals, Plastic) over its own, and in Full render; classic and MatCap materials show colour only. Height is the sculpt itself on vertices: sculpt it, or record a sculpt layer; a texture layer paints height as fine relief.")
 }
 
 // One layer's row: its swatch and name (a tap picks it), the opacity bar and the eye.

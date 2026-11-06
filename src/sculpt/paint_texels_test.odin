@@ -35,7 +35,7 @@ texel_map_places_each_texel :: proc(t: ^testing.T) {
 	for c in l.uvs.corner {
 		area += abs((c[1].x - c[0].x) * (c[2].y - c[0].y) - (c[2].x - c[0].x) * (c[1].y - c[0].y)) / 2
 	}
-	covered, inside := 0, 0
+	covered, inside, on := 0, 0, 0
 	across := texel_tiles_across(512)
 	for tile, i in m.tiles {
 		if tile == nil do continue
@@ -44,7 +44,8 @@ texel_map_places_each_texel :: proc(t: ^testing.T) {
 			if tri == TEXEL_NONE do continue
 			covered += 1
 			c := l.uvs.corner[tri]
-			b := [2]f32{f32(tile.bary[k].x), f32(tile.bary[k].y)} / 65535
+			b := bary_unpack(tile.bary[k])
+			if b.x >= 0 && b.y >= 0 && b.x + b.y <= 1 do on += 1
 			p := c[0] * (1 - b.x - b.y) + c[1] * b.x + c[2] * b.y
 			x := f32((i % across) * TEXEL_TILE + k % TEXEL_TILE) + 0.5
 			y := f32((i / across) * TEXEL_TILE + k / TEXEL_TILE) + 0.5
@@ -53,16 +54,19 @@ texel_map_places_each_texel :: proc(t: ^testing.T) {
 		}
 	}
 	expected := int(area * 512 * 512)
-	testing.expectf(t, inside >= expected * 97 / 100, "%d texels on their own triangle for an area of %d", inside, expected)
-	testing.expectf(t, covered > inside, "no gutter: %d covered, %d inside", covered, inside)
-	// A texel's place on the surface lies on the sphere (its triangles' chords).
+	// Every texel, gutter too, stands at its own place on its triangle's plane.
+	testing.expectf(t, inside == covered, "%d of %d texels at their own place", inside, covered)
+	testing.expectf(t, on >= expected * 97 / 100, "%d texels on their own triangle for an area of %d", on, expected)
+	testing.expectf(t, covered > on, "no gutter: %d covered, %d on their triangle", covered, on)
+	// A texel's place on the surface lies on the sphere (its triangles' chords), a gutter
+	// texel's a little past a chord's end.
 	for tile in m.tiles {
 		if tile == nil do continue
 		for k in 0 ..< TILE_TEXELS {
 			p, ok := levels_texel_position(&l, tile, k)
 			if !ok do continue
 			r := linalg.length(p)
-			testing.expectf(t, r > 0.9 && r < 1.001, "a texel lies %v from the middle", r)
+			testing.expectf(t, r > 0.9 && r < 1.01, "a texel lies %v from the middle", r)
 			return
 		}
 	}
@@ -177,6 +181,8 @@ texels_round_trip_and_sweep :: proc(t: ^testing.T) {
 	s := &levels_current(&l).sculptor
 	testing.expect(t, sculptor_paint_set_channels(s, 0, {.Metal}))
 	testing.expect(t, levels_texel_command(&l, .Fill, {}, {0, 200}, nil))
+	testing.expect(t, sculptor_paint_set_channels(s, 0, {.Height}))
+	testing.expect(t, levels_texel_command(&l, .Fill, {}, {}, nil, 40000))
 	out := make([dynamic]u8)
 	defer delete(out)
 	testing.expect(t, levels_write(&l, &out))
@@ -193,7 +199,7 @@ texels_round_trip_and_sweep :: proc(t: ^testing.T) {
 	for tile, i in a_layer.tiles {
 		other := b_layer.tiles[i]
 		same := (tile == nil) == (other == nil)
-		if same && tile != nil do same = slice.equal(tile.color, other.color) && slice.equal(tile.material, other.material)
+		if same && tile != nil do same = slice.equal(tile.color, other.color) && slice.equal(tile.material, other.material) && tile.height != nil && slice.equal(tile.height, other.height)
 		if !same {
 			testing.expectf(t, false, "tile %d differs after reading", i)
 			return
@@ -333,7 +339,7 @@ texels_follow_new_uvs :: proc(t: ^testing.T) {
 			fs := f32(side)
 			for c, i in u.corner {
 				m := (c[0] + c[1] + c[2]) / 3
-				out[i], _, _ = texel_sample(layer, side, across, {m.x * fs - 0.5, (1 - m.y) * fs - 0.5})
+				out[i], _, _, _ = texel_sample(layer, side, across, {m.x * fs - 0.5, (1 - m.y) * fs - 0.5})
 			}
 			return out
 		}
@@ -447,4 +453,78 @@ texels_make_paint_maps :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expectf(t, on > 512 * 512 / 3 && off > 0, "%d texels painted, %d not", on, off)
+}
+
+// A layer with no height makes no height maps; a height fill makes a raised grey map, and
+// at an island's edge, where the height falls to flat past the gutter, the normal leans.
+@(test)
+texels_make_height_maps :: proc(t: ^testing.T) {
+	l: Levels
+	texel_fixture(&l, nil)
+	defer levels_destroy(&l)
+	testing.expect(t, levels_texel_layer_add(&l, 512) == 0)
+	s := &levels_current(&l).sculptor
+	none, _ := levels_texels_height_maps(&l)
+	testing.expect(t, none == nil)
+	testing.expect(t, sculptor_paint_set_channels(s, 0, {.Height}))
+	testing.expect(t, levels_texel_command(&l, .Fill, {}, {}, nil, height_value(0.5)))
+	height, normal := levels_texels_height_maps(&l)
+	defer delete(height)
+	defer delete(normal)
+	if !testing.expect(t, len(height) == 512 * 512 && len(normal) == 4 * len(height)) do return
+	raised, flat, leaning := 0, 0, 0
+	for h, k in height {
+		if abs(int(h) - int(height_value(0.5))) <= 2 do raised += 1
+		else if h == HEIGHT_FLAT do flat += 1
+		n := normal[4 * k:][:3]
+		if abs(int(n[0]) - 128) > 8 || abs(int(n[1]) - 128) > 8 do leaning += 1
+	}
+	testing.expectf(t, raised > 512 * 512 / 3 && flat > 0 && leaning > 0, "%d raised, %d flat, %d leaning", raised, flat, leaning)
+}
+
+// A height stroke raises the composite's height where it paints and leaves it flat
+// elsewhere, the same on one thread as on three, and a vertex layer refuses height.
+@(test)
+texel_height_paints :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	run :: proc(t: ^testing.T, pool: ^jobs.Pool) -> (shown: []Height_Paint) {
+		l: Levels
+		texel_fixture(&l, pool)
+		defer levels_destroy(&l)
+		testing.expect(t, levels_texel_layer_add(&l, 512) == 0)
+		s := &levels_current(&l).sculptor
+		testing.expect(t, sculptor_paint_set_channels(s, 0, {.Height}))
+		_ = levels_texels_attach(&l)
+		sculptor_stroke_begin(s)
+		for _ in 0 ..< 4 do _ = apply_dab(s, {kind = .Paint, radius = 0.3, strength = 0.8, height = 0.6}, linalg.normalize(Vec3{0.1, 0.2, 1}))
+		blur := Brush{kind = .Paint, radius = 0.4, strength = 1, blur = true}
+		for _ in 0 ..< 2 do _ = apply_dab(s, blur, linalg.normalize(Vec3{0.1, 0.2, 1}))
+		_ = sculptor_stroke_end(s)
+		step := levels_texels_detach(&l)
+		defer if step != nil {texel_step_free(step); free(step)}
+		levels_texels_flush(&l)
+		raised, flat := 0, 0
+		for tile in l.texels.shown {
+			if tile == nil || tile.height == nil do continue
+			for h in tile.height {
+				if f32(transmute(f16)h[0]) > 0.05 do raised += 1
+				else if h[0] == 0 && h[1] == 0 do flat += 1
+			}
+			shown = slice.concatenate([][]Height_Paint{shown, tile.height}, context.temp_allocator)
+		}
+		testing.expectf(t, raised > 500 && flat > 0, "%d texels raised, %d flat", raised, flat)
+		testing.expect(t, s.color == nil, "a height stroke painted colour")
+		return
+	}
+	a := run(t, nil)
+	b := run(t, &pool)
+	testing.expect(t, len(a) > 0 && slice.equal(a, b), "serial and parallel height differ")
+	l: Levels
+	texel_fixture(&l, nil)
+	defer levels_destroy(&l)
+	s := &levels_current(&l).sculptor
+	_ = sculptor_paint_add(s)
+	testing.expect(t, !sculptor_paint_set_channels(s, sculptor_paint_picked(s), {.Height}), "a vertex layer took height")
 }

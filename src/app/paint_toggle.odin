@@ -47,7 +47,22 @@ ISLAND_CHIP_W :: 52
 island_material :: proc(app: ^App) -> bool {
 	obj := selected_object(app)
 	if obj == nil || obj.voxel != nil || obj.curve != nil || obj.cage != nil do return false
-	return sculpt.sculptor_paint_channels(object_sculptor(obj)) & {.Roughness, .Metal} != {}
+	return sculpt.sculptor_paint_channels(object_sculptor(obj)) & {.Roughness, .Metal, .Height} != {}
+}
+
+// The value chips the island shows while island_material: those the picked layer paints.
+island_chips :: proc(app: ^App) -> (chips: [3]Brush_Value, n: int) {
+	obj := selected_object(app)
+	if !island_material(app) do return
+	ch := sculpt.sculptor_paint_channels(object_sculptor(obj))
+	if ch & {.Roughness, .Metal} != {} {
+		chips[0], chips[1], n = .Roughness, .Metal, 2
+	}
+	if .Height in ch {
+		chips[n] = .Height
+		n += 1
+	}
+	return
 }
 
 // The swatches of the colours picked last that the island shows, at most.
@@ -69,7 +84,8 @@ kit_colour_island :: proc(app: ^App) {
 	segment := channel_brush(b.kind)
 	segment_w: f32 = 260 if segment else 0
 	material := island_material(app)
-	chips_w: f32 = 2 * ISLAND_CHIP_W + 16 if material else 0
+	chips, chip_count := island_chips(app)
+	chips_w: f32 = f32(chip_count) * ISLAND_CHIP_W + 16 if material else 0
 	fixed := t.target * 2 + 8 + t.target + segment_w + chips_w + 4 * ACTION_BAR_PADDING
 	history := clamp(int((room - fixed) / (SWATCH_SIDE + 2)), 0, min(ISLAND_HISTORY, c.history_count))
 	mark := ui.vertex_mark(ctx)
@@ -100,10 +116,10 @@ kit_colour_island :: proc(app: ^App) {
 	}
 	_ = command_button(app, .Eyedropper, glyph = COMMANDS[.Eyedropper].icon, icon_only = true)
 	if material {
-		// The roughness and metal a stroke lays, while the picked layer holds them: a drag
-		// up or down scrubs one, a tap opens its steps, as the shelf's value chips do.
+		// The roughness, metal and height a stroke lays, while the picked layer paints them:
+		// a drag up or down scrubs one, a tap opens its steps, as the shelf's value chips do.
 		ui.divider(ctx, 24)
-		for v in ([2]Brush_Value{.Roughness, .Metal}) {
+		for v in chips[:chip_count] {
 			lit := bar_pop_showing(app, .Value) && k.bar_pop.value == v
 			hint := hint_join(value_text(app, v), command_hint(app, .Brush_Value, int(v)))
 			a := value_chip(app, fmt.tprintf("%s##colour island", BRUSH_VALUE_NAMES[v]), v, {ISLAND_CHIP_W, t.target}, false, true, true, lit, hint)

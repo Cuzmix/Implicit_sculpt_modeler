@@ -81,7 +81,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(58)
+SCENE_VERSION :: u32(59)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -1297,16 +1297,18 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 		}
 		layers = len(morphs)
 		// Texture paint goes as its own base colour and ORM maps (object_paint_map_pngs),
-		// in place of the object's, which it was painted over; the normal map stays.
-		paint_base, paint_orm: []u8
-		if ext == ".glb" do paint_base, paint_orm, _ = object_paint_map_pngs(app, obj)
-		if ext == ".glb" && (object_exports_textures(obj) || paint_base != nil) {
+		// in place of the object's, which it was painted over; the normal map stays, and
+		// painted height's normal goes where the object has none.
+		painted: Paint_Map_Pngs
+		if ext == ".glb" do painted = object_paint_map_pngs(app, obj)
+		if ext == ".glb" && (object_exports_textures(obj) || painted.base != nil) {
 			// Its maps go as the material's textures, through the UVs, on the quads split
 			// where the UVs are, as a bake's own .glb has them (retopo.odin), with the
 			// polypaint unless a base colour map stands for it (glTF would multiply the
 			// two); polygroup materials stay out, since the maps give one material.
 			maps := obj.textures.image
-			if paint_base != nil do maps[.Base_Color], maps[.Orm] = paint_base, paint_orm
+			if painted.base != nil do maps[.Base_Color], maps[.Orm] = painted.base, painted.orm
+			if maps[.Normal] == nil do maps[.Normal] = painted.normal
 			paint := colors if maps[.Base_Color] == nil else nil
 			written: bool
 			vertices, written = textured_object_glb(&out, obj, obj.levels.current, object_label(obj), maps, material, true, morphs, paint, export_lights(app, obj.transform))

@@ -373,6 +373,13 @@ texture_paint_frame :: proc(app: ^App, cmd: render.Cmd, obj: ^Object) {
 		if t != nil {
 			up.color = slice.to_bytes(t.color) if t.color != nil else nil
 			up.material = slice.to_bytes(t.material) if t.material != nil else nil
+			// The shown height keeps its value (f16 bits) and its coverage side by side; the
+			// texture takes the values alone.
+			if t.height != nil {
+				values := make([]u16, len(t.height), context.temp_allocator)
+				for h, i in t.height do values[i] = h[0]
+				up.height = slice.to_bytes(values)
+			}
 		}
 		append(tiles, up)
 	}

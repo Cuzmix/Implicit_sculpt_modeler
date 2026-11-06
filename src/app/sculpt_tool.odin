@@ -156,6 +156,8 @@ Brush_Settings :: struct {
 	// holds them (sculpt.Paint_Channels).
 	roughness:         f32,
 	metal:             f32,
+	// The height it lays where the picked texture layer paints height, -1 to 1.
+	height:            f32,
 	// What every sculpting brush changes: the surface, it and the polypaint, or only the
 	// polypaint (sculpt.Channel; the brush bar's channel button cycles them).
 	channel:           sculpt.Channel,
@@ -1571,6 +1573,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		color    = brush_color_bytes(app),
 		roughness = u8(clamp(app.brush.roughness, 0, 1) * 255 + 0.5),
 		metal    = u8(clamp(app.brush.metal, 0, 1) * 255 + 0.5),
+		height   = clamp(app.brush.height, -1, 1),
 		blur     = app.stroke.blur,
 		channel  = brush_channel(app, selected_object(app)) if app.stroke.held else .Sculpt,
 		lock_plane = app.brush.lock_plane,
@@ -1631,7 +1634,7 @@ brush_radius_px :: proc(app: ^App, pressure: f32, tilt: [2]f32) -> f32 {
 
 // The brush as the app starts with it, before the settings file.
 brush_defaults :: proc() -> Brush_Settings {
-	b := Brush_Settings{kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, roughness = 0.5, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, paint_on = .Both, elastic_volume = ELASTIC_VOLUME_DEFAULT, cloth = sculpt.CLOTH_DEFAULTS, physics_strength = PHYSICS_STRENGTH_DEFAULT}
+	b := Brush_Settings{kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, roughness = 0.5, height = 0.5, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, paint_on = .Both, elastic_volume = ELASTIC_VOLUME_DEFAULT, cloth = sculpt.CLOTH_DEFAULTS, physics_strength = PHYSICS_STRENGTH_DEFAULT}
 	// Draw does not build up over itself within a stroke, as ZBrush's and Nomad's.
 	b.sample_radius, b.no_accumulate[.Draw] = 1, true
 	for kind in sculpt.Brush_Kind do b.falloffs[kind].projected = projected_default(kind)
