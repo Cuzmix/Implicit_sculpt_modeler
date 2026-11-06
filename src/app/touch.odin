@@ -306,11 +306,12 @@ touch_route :: proc(app: ^App, input: ^Viewport_Input) {
 		t.tap = 0
 	}
 	t.hold.ring = -1
-	if t.owner != .Viewport || !t.gesture {
-		_ = ui.fingers_change(&t.fingers) // keep the measure current for when it is
-		return
-	}
+	// Measured every frame, so the measure is current for whoever the fingers are.
 	change := ui.fingers_change(&t.fingers)
+	// Two fingers landing on a picture over the view are the picture's, whoever has the
+	// touch (refs_view.odin); the camera never sees them.
+	if refs_touch_gesture(app, change) do return
+	if t.owner != .Viewport || !t.gesture do return
 	f := &t.fingers
 	if touch_lift_orbit(app, input) do return
 	// Otherwise only while every finger of the gesture is still down: lifting one never
