@@ -359,13 +359,7 @@ shading_options :: proc(app: ^App, s: ^View_Shading, main: bool, looks := true) 
 		colour := 1 - s.grey
 		if ui.slider(ctx, "Colour", &colour, 0, 1, .Linear, fmt.tprintf("%.0f%%", colour * 100)) do s.grey = clamp(1 - colour, 0, 1)
 	}
-	if shown == .Clay {
-		// The one in use named, as touch has no hover to name a picture.
-		ui.begin(ctx, "MatCap option##shading", {direction = .Column, gap = ui.SPACE_XS, width = inner})
-		ui.label(ctx, fmt.tprintf("MatCap · %s", matcap_label(app, s.matcap if s.matcap != 0 else SHADING_MATCAP_DEFAULT)), ctx.theme.small_size)
-		shading_matcap_discs(app, s, inner)
-		ui.end(ctx)
-	}
+	if shown == .Clay do shading_matcap_row(app, s, inner)
 	froms: [len(Colour_From)]string
 	for c in Colour_From do froms[c] = COLOUR_FROM_NAMES[c]
 	named(ctx, "Colour from", inner)
@@ -381,10 +375,21 @@ shading_options :: proc(app: ^App, s: ^View_Shading, main: bool, looks := true) 
 	ui.end(ctx)
 }
 
+// Clay's MatCap for view shading `s` across `width`: the one in use named (touch has no
+// hover to name a picture), then the discs. The shading list and, while the main view is in
+// Clay, the Material card both draw it, so the two are one control on the same state.
+shading_matcap_row :: proc(app: ^App, s: ^View_Shading, width: f32) {
+	ctx := &app.kit.ctx
+	ui.begin(ctx, "MatCap option##shading", {direction = .Column, gap = ui.SPACE_XS, width = width})
+	ui.label(ctx, fmt.tprintf("MatCap · %s", matcap_label(app, s.matcap if s.matcap != 0 else SHADING_MATCAP_DEFAULT)), ctx.theme.small_size)
+	shading_matcap_discs(app, s, width)
+	ui.end(ctx)
+}
+
 // The MatCaps Clay can be lit by, as their own pictures in rows across `width`: the
 // built-in ones, the image loaded last and every content pack's, then Import, which loads
-// another and picks it. The one in use is ringed. This is the only place a MatCap is
-// picked: a MatCap is the view's light, not an object's material.
+// another and picks it. The one in use is ringed. A MatCap is the view's light, not an
+// object's material, so a tap sets the shading's MatCap and no object changes.
 shading_matcap_discs :: proc(app: ^App, s: ^View_Shading, width: f32) {
 	ctx := &app.kit.ctx
 	t := ctx.theme

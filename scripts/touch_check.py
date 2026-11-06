@@ -5852,6 +5852,23 @@ def shading_menu_matcap_disc_lights_clay():
                                                            "material_keeps": near(0), "dabs": near(0)})
 
 
+# The Material card's MatCap row in Clay at 1600 x 900: the Red wax disc, under Apply to.
+MATERIAL_CARD_MATCAP_RED_WAX = At("matcap disc 0", 1253, 688)
+
+
+@scenario
+def material_card_matcap_disc_lights_clay():
+    """In Clay the Material card ends with the shading list's own MatCap row: a finger's tap on
+    the Red wax disc there lights the Clay look with it, as the shading list's disc does, and no
+    object's material changes."""
+    s = Script()
+    s.wait(10)
+    s.ftap(MATERIAL_CARD_MATCAP_RED_WAX)
+    s.wait(8)
+    return s, ["--script=shading_mode clay; open_section material"], camera_still({"shading_mode": is_text("Clay"), "shading_matcap": near(1), "selected_matcap": near(0),
+                                                                                    "selected_material": is_text("Clay"), "material_keeps": near(0), "dabs": near(0)})
+
+
 @scenario
 def material_card_favourites_hold_a_sphere():
     """On the Metal shelf a right-click on Gold adds it to the Material card's favourites without
