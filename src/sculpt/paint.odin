@@ -424,11 +424,30 @@ sculptor_color_at :: proc(s: ^Sculptor, origin, dir: Vec3) -> (c: Color, hit: bo
 // The paint as it shows where the ray meets the surface, as sculptor_color_at: its colour,
 // and its roughness and metal (Material_Paint, zero with none). For the eyedropper.
 sculptor_paint_at :: proc(s: ^Sculptor, origin, dir: Vec3) -> (c: Color, material: Material_Paint, hit: bool) {
-	along, tri, on := geom.bvh_raycast(&s.bvh, s.mesh^, origin, dir, sculptor_hidden_tris(s))
-	hit = on
+	tri: u32
+	w: [3]f32
+	tri, w, hit = paint_hit(s, origin, dir)
 	colors := sculptor_paint_shown(s)
 	materials := sculptor_paint_shown_material(s)
 	if !hit || colors == nil do return
+	i := s.mesh.indices[3 * tri:][:3]
+	blend :: proc(x: []Color, i: []u32, w: [3]f32) -> (c: Color) {
+		for k in 0 ..< 4 do c[k] = u8(clamp(f32(x[i[0]][k]) * w[0] + f32(x[i[1]][k]) * w[1] + f32(x[i[2]][k]) * w[2] + 0.5, 0, 255))
+		return
+	}
+	c = blend(colors, i, w)
+	if materials != nil do material = blend(materials, i, w)
+	return
+}
+
+// Where the ray from `origin` along `dir` (mesh space) first meets a shown triangle: the
+// triangle and the hit's barycentric weights (summing to 1; a degenerate triangle's all
+// on its first corner).
+@(private)
+paint_hit :: proc(s: ^Sculptor, origin, dir: Vec3) -> (tri: u32, w: [3]f32, hit: bool) {
+	along: f32
+	along, tri, hit = geom.bvh_raycast(&s.bvh, s.mesh^, origin, dir, sculptor_hidden_tris(s))
+	if !hit do return
 	m := s.mesh
 	i := m.indices[3 * tri:][:3]
 	a, b, cc := m.positions[i[0]], m.positions[i[1]], m.positions[i[2]]
@@ -436,24 +455,11 @@ sculptor_paint_at :: proc(s: ^Sculptor, origin, dir: Vec3) -> (c: Color, materia
 	// Barycentric weights of p in the triangle, by the areas it cuts the triangle into.
 	n := linalg.cross(b - a, cc - a)
 	area := linalg.dot(n, n)
-	if area <= 0 {
-		c = colors[i[0]]
-		if materials != nil do material = materials[i[0]]
-		return
-	}
+	if area <= 0 do return tri, {1, 0, 0}, true
 	wb := linalg.dot(linalg.cross(p - a, cc - a), n) / area
 	wc := linalg.dot(linalg.cross(b - a, p - a), n) / area
-	w := [3]f32{clamp(1 - wb - wc, 0, 1), clamp(wb, 0, 1), clamp(wc, 0, 1)}
-	sum := w[0] + w[1] + w[2]
-	blend :: proc(x: []Color, i: []u32, w: [3]f32, sum: f32) -> (c: Color) {
-		for k in 0 ..< 4 {
-			v := (f32(x[i[0]][k]) * w[0] + f32(x[i[1]][k]) * w[1] + f32(x[i[2]][k]) * w[2]) / max(sum, 1e-6)
-			c[k] = u8(clamp(v + 0.5, 0, 255))
-		}
-		return
-	}
-	c = blend(colors, i, w, sum)
-	if materials != nil do material = blend(materials, i, w, sum)
+	w = {clamp(1 - wb - wc, 0, 1), clamp(wb, 0, 1), clamp(wc, 0, 1)}
+	w /= max(w[0] + w[1] + w[2], 1e-6)
 	return
 }
 

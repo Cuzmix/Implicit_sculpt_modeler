@@ -396,3 +396,22 @@ texels_flatten_onto_vertices :: proc(t: ^testing.T) {
 	_ = sculptor_paint_set(s, 0, false, 0.5)
 	testing.expect(t, levels_paint_flat(&l, s) == nil, "a hidden layer still showed")
 }
+
+// The eyedropper reads a texture layer's paint where the ray meets the surface, over the
+// vertex paint as far as it covers.
+@(test)
+texels_under_the_eyedropper :: proc(t: ^testing.T) {
+	l: Levels
+	texel_fixture(&l, nil)
+	defer levels_destroy(&l)
+	origin, dir := Vec3{0.1, 0.2, 5}, Vec3{0, 0, -1}
+	_, _, hit := levels_paint_at(&l, origin, dir)
+	testing.expect(t, hit)
+	testing.expect(t, levels_texel_layer_add(&l, 512) == 0)
+	testing.expect(t, levels_texel_command(&l, .Fill, {200, 40, 10}, {}, nil))
+	c, _, _ := levels_paint_at(&l, origin, dir)
+	testing.expectf(t, c == {200, 40, 10, 255}, "the eyedropper read %v", c)
+	_ = sculptor_paint_set(&levels_current(&l).sculptor, 0, true, 0.5)
+	c, _, _ = levels_paint_at(&l, origin, dir)
+	testing.expectf(t, abs(int(c.a) - 128) <= 1 && abs(int(c.r) - 200) <= 2, "at half opacity the eyedropper read %v", c)
+}

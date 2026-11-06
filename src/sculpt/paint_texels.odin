@@ -1238,3 +1238,56 @@ levels_paint_flat :: proc(l: ^Levels, s: ^Sculptor, allocator := context.temp_al
 	})
 	return out
 }
+
+// The paint as it shows where the ray meets the current level's surface, as
+// sculptor_paint_at, with the texture layers' composite (read bilinearly at the hit's UV)
+// laid over the vertex layers': for the eyedropper.
+levels_paint_at :: proc(l: ^Levels, origin, dir: Vec3) -> (c: Color, material: Material_Paint, hit: bool) {
+	s := &levels_current(l).sculptor
+	c, material, hit = sculptor_paint_at(s, origin, dir)
+	t := &l.texels
+	if !hit || t.side == 0 do return
+	levels_texels_flush(l)
+	if !levels_texels_show(l) || !levels_texel_map(l) do return
+	tri, w, _ := paint_hit(s, origin, dir)
+	if int(tri) >= len(t.tex_map.corner) do return
+	k := t.tex_map.corner[tri]
+	uv := k[0] * w[0] + k[1] * w[1] + k[2] * w[2]
+	side := t.side
+	across := texel_tiles_across(side)
+	fs := f32(side)
+	p := [2]f32{uv.x * fs - 0.5, (1 - uv.y) * fs - 0.5}
+	x0, y0 := int(linalg.floor(p.x)), int(linalg.floor(p.y))
+	fx, fy := p.x - f32(x0), p.y - f32(y0)
+	pc, pm: [4]f32 // premultiplied, as the composite keeps them
+	for dy in 0 ..= 1 do for dx in 0 ..= 1 {
+		x, y := clamp(x0 + dx, 0, side - 1), clamp(y0 + dy, 0, side - 1)
+		tile := t.shown[(y / TEXEL_TILE) * across + x / TEXEL_TILE]
+		if tile == nil do continue
+		f := (fx if dx == 1 else 1 - fx) * (fy if dy == 1 else 1 - fy)
+		at := (y % TEXEL_TILE) * TEXEL_TILE + x % TEXEL_TILE
+		if tile.color != nil {
+			v := tile.color[at]
+			pc += {f32(v.r), f32(v.g), f32(v.b), f32(v.a)} * f
+		}
+		if tile.material != nil {
+			v := tile.material[at]
+			pm += {f32(v[0]), f32(v[1]), f32(v[2]), f32(v[3])} * f
+		}
+	}
+	// Each over what is below as far as it covers: the colour, then roughness and metal.
+	over :: proc(below: [2]u8, value, cover: f32) -> [2]u8 {
+		a := cover / 255
+		if a <= 0 do return below
+		ba := f32(below[1]) / 255 * (1 - a)
+		total := a + ba
+		return {u8(clamp((value + f32(below[0]) * ba) / total + 0.5, 0, 255)), u8(clamp(total * 255 + 0.5, 0, 255))}
+	}
+	for k in 0 ..< 3 do c[k] = over({c[k], c.a}, pc[k], pc.a)[0]
+	c.a = over({0, c.a}, 0, pc.a)[1]
+	for ch in 0 ..< 2 {
+		m := over({material[2 * ch], material[2 * ch + 1]}, pm[2 * ch], pm[2 * ch + 1])
+		material[2 * ch], material[2 * ch + 1] = m[0], m[1]
+	}
+	return
+}
