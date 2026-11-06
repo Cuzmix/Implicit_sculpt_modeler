@@ -116,3 +116,50 @@ skin_map_round_trips_through_a_bake :: proc(t: ^testing.T) {
 	app.skin_map_kind = .Object_Vector
 	testing.expect(t, !skin_map_load(app, FOLDER + "waves.png"), "a PNG loaded as a vector map")
 }
+
+// A sculpt Unwrap gave UVs takes a map into its skin as a quad object does, and its own
+// bake reads back to the same skin.
+@(test)
+skin_map_loads_onto_an_unwrapped_sculpt :: proc(t: ^testing.T) {
+	FOLDER :: "build/skin_map_unwrapped_test/"
+	_ = os.remove_all(FOLDER)
+	defer os.remove_all(FOLDER)
+	testing.expect(t, os.make_directory_all(FOLDER) == nil)
+	app := new(App)
+	defer free(app)
+	jobs.pool_init(&app.pool, 2)
+	defer jobs.pool_destroy(&app.pool)
+	objs := tree_scene(app)
+	defer tree_free(app)
+	obj := objs[0]
+	defer textures_free(&obj.textures)
+	obj.file = {scale = 1}
+	sculpt.levels_destroy(&obj.levels)
+	sculpt.levels_init(&obj.levels, geom.icosphere(3), &app.pool, 64)
+	geom.mesh_recompute_normals(object_sculptor(obj).mesh)
+	object_unwrap(app, obj, unwrap_setup(app))
+	testing.expect(t, command_run(app, .Detail_Skin, 2))
+	testing.expect_value(t, skin_map_refusal(obj), "")
+	SIDE :: 128
+	values := make([]u16, SIDE * SIDE, context.temp_allocator)
+	for y in 0 ..< SIDE do for x in 0 ..< SIDE {
+		w := 0.5 + 0.45 * math.sin(f32(x) * math.TAU / SIDE * 3) * math.cos(f32(y) * math.TAU / SIDE * 2)
+		values[y * SIDE + x] = u16(w * 65535 + 0.5)
+	}
+	png := png_write.encode_gray16(values, SIDE, SIDE, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(FOLDER + "waves.png", png) == nil)
+	testing.expect(t, os.write_entire_file(FOLDER + "waves.txt", transmute([]u8)string("0 and 65535 are 0.02 units in and out")) == nil)
+	app.skin_map_range = 1
+	testing.expect(t, skin_map_load(app, FOLDER + "waves.png"))
+	_, _, lift := skin_map_spread(obj, nil)
+	testing.expectf(t, lift > 0.01 && lift < 0.0205, "the waves lift the skin %v, not up to 0.018", lift)
+	shown, _, _ := sculpt.sculptor_skin_mesh(object_sculptor(obj), context.temp_allocator)
+	before := shown.positions[:]
+	app.ui.bake = {source = obj.id, size = 512, reach_edges = 0.5}
+	bake_to_folder(app, FOLDER)
+	base, _ := strings.replace_all(object_label(obj), " ", "_", context.temp_allocator)
+	app.skin_map_kind = .Height
+	testing.expect(t, skin_map_load(app, strings.concatenate({FOLDER, base, "_displacement.png"}, context.temp_allocator)))
+	apart, far, again := skin_map_spread(obj, before)
+	testing.expectf(t, far * 20 < len(before) && apart < 0.5 * again, "read back %v away at worst, %d of %d samples over 0.001 (lift %v)", apart, far, len(before), again)
+}

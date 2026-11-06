@@ -262,6 +262,7 @@ SETTINGS := [?]Setting {
 	{"unwrap_relax", U + offset_of(Ui_State, unwrap_relax), i32, 0, UNWRAP_RELAX_MAX},
 	{"unwrap_symmetry", U + offset_of(Ui_State, unwrap_symmetry), Unwrap_Symmetry, 0, 0},
 	{"unwrap_keep_seams", U + offset_of(Ui_State, unwrap_keep_seams), bool, 0, 0},
+	{"uv_texel_px", U + offset_of(Ui_State, uv_texel_px), f32, UV_TEXEL_PX_MIN, UV_TEXEL_PX_MAX},
 	{"bake_reach", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, reach_edges), f32, 0.5, 10},
 	{"bake_base_color", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, base_color), bool, 0, 0},
 	{"bake_orm", U + offset_of(Ui_State, bake) + offset_of(Bake_Settings, orm), bool, 0, 0},

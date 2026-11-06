@@ -28,26 +28,32 @@ DEFAULT_PACK :: Pack_Options{.Skyline, 1}
 // into the tiles, in place; returns the share of the tiles their boxes fill.
 pack :: proc(u: ^Uvs, indices: []u32, options := DEFAULT_PACK) -> f32 {
 	if !has(u^) || u.islands == 0 do return 0
-	place := make([]bool, u.islands, context.temp_allocator)
-	for &p in place do p = true
-	if u.pins != nil {
-		// Each pinned vertex once per island it has corners in.
-		Held :: struct {
-			island, vertex: u32,
-		}
-		held := make([dynamic]Held, context.temp_allocator)
-		for t in 0 ..< len(u.corner) do for k in 0 ..< 3 {
-			v := indices[3 * t + k]
-			if _, on := slice.binary_search(u.pins, v); on do append(&held, Held{u.island[t], v})
-		}
-		slice.sort_by(held[:], proc(a, b: Held) -> bool {return a.island < b.island || (a.island == b.island && a.vertex < b.vertex)})
-		count := make([]int, u.islands, context.temp_allocator)
-		for h, i in held do if i == 0 || h != held[i - 1] do count[h.island] += 1
-		for c, i in count do if c >= 2 do place[i] = false
-	}
-	filled := pack_islands(u, place, nil, options)
+	filled := pack_islands(u, movable_islands(u^, indices), nil, options)
 	u.filled = boxes_filled(u^)
 	return filled
+}
+
+// Per island, whether it may move: true unless two or more of its vertices are pinned,
+// which hold it where it lies. In the temp allocator.
+@(private)
+movable_islands :: proc(u: Uvs, indices: []u32) -> []bool {
+	place := make([]bool, u.islands, context.temp_allocator)
+	for &p in place do p = true
+	if u.pins == nil do return place
+	// Each pinned vertex once per island it has corners in.
+	Held :: struct {
+		island, vertex: u32,
+	}
+	held := make([dynamic]Held, context.temp_allocator)
+	for t in 0 ..< len(u.corner) do for k in 0 ..< 3 {
+		v := indices[3 * t + k]
+		if _, on := slice.binary_search(u.pins, v); on do append(&held, Held{u.island[t], v})
+	}
+	slice.sort_by(held[:], proc(a, b: Held) -> bool {return a.island < b.island || (a.island == b.island && a.vertex < b.vertex)})
+	count := make([]int, u.islands, context.temp_allocator)
+	for h, i in held do if i == 0 || h != held[i - 1] do count[h.island] += 1
+	for c, i in count do if c >= 2 do place[i] = false
+	return place
 }
 
 // The packer `options` names for the islands `place` asks for (see shelf_pack for
