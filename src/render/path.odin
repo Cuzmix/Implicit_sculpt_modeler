@@ -1452,3 +1452,53 @@ render_variant_name :: proc(pr: ^Path_Render) -> string {
 	if !pr.kernel_used do return "general"
 	return fmt.tprintf("%x", f.items | u32(f.env_image) << 5 | u32(f.lens) << 6 | u32(f.sphere_lights) << 7)
 }
+
+// One of render mode's guides as a picture (render_guides).
+Render_Guide :: struct {
+	name:   string,
+	pixels: []u8, // RGBA8, rows top to bottom
+}
+
+// The guides of `pr`'s first sample (with depth of field, the means so far) as pictures
+// of `width` x `height` (the render's own size): the albedo encoded as sRGB, the view-space
+// normal from -1..1 to 0..255, and the depth nearer brighter, stretched over the depths
+// the picture covers, black where nothing was met. Waits for the GPU; empty on failure.
+render_guides :: proc(r: ^Renderer, pr: ^Path_Render, width, height: u32, allocator := context.allocator) -> []Render_Guide {
+	albedo_tex, normal_tex := pr.guides[pr.guide_at][0], pr.guides[pr.guide_at][1]
+	if albedo_tex == 0 || normal_tex == 0 do return nil
+	read :: proc(r: ^Renderer, tex: gpu.Texture, w, h: u32) -> []u8 {
+		cmd := gpu.acquire_command_buffer()
+		if cmd == nil do return nil
+		return texture_download_in(r, cmd, tex, w, h, context.temp_allocator, 8)
+	}
+	a := read(r, albedo_tex, width, height)
+	n := read(r, normal_tex, width, height)
+	if a == nil || n == nil do return nil
+	count := int(width * height)
+	half :: proc(b: []u8, i: int) -> f32 {return f32((^f16le)(&b[2 * i])^)}
+	albedo := make([]u8, 4 * count, allocator)
+	normal := make([]u8, 4 * count, allocator)
+	depth := make([]u8, 4 * count, allocator)
+	near, far := max(f32), f32(0)
+	for p in 0 ..< count {
+		if half(a, 4 * p + 3) <= 0 do continue
+		t := half(n, 4 * p + 3)
+		near, far = min(near, t), max(far, t)
+	}
+	for p in 0 ..< count {
+		hit := half(a, 4 * p + 3) > 0
+		for c in 0 ..< 3 {
+			albedo[4 * p + c] = geom.srgb_byte_of_linear(half(a, 4 * p + c))
+			normal[4 * p + c] = u8(clamp(half(n, 4 * p + c) * 0.5 + 0.5, 0, 1) * 255 + 0.5) if hit else 0
+		}
+		t := half(n, 4 * p + 3)
+		d := u8(clamp(1 - (t - near) / max(far - near, 1e-6), 0, 1) * 255 + 0.5) if hit else 0
+		depth[4 * p + 0], depth[4 * p + 1], depth[4 * p + 2] = d, d, d
+		albedo[4 * p + 3], normal[4 * p + 3], depth[4 * p + 3] = 255, 255, 255
+	}
+	out := make([]Render_Guide, 3, allocator)
+	out[0] = {"albedo", albedo}
+	out[1] = {"normal", normal}
+	out[2] = {"depth", depth}
+	return out
+}
