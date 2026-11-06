@@ -723,6 +723,43 @@ float3 sample_phase(float3 d, float g) {
 // phase `g`. On the way out it gives where it left, the outward geometric and shading
 // normals there, and multiplies `weight` by what the walk let through; false when the
 // light was absorbed inside.
+// Henyey and Greenstein's phase function at cosine `c` between the old and new directions.
+float phase_hg(float c, float g) {
+	float k = 1.0 + g * g - 2.0 * g * c;
+	return (1.0 - g * g) / (4.0 * PI * k * sqrt(k));
+}
+
+// Dwivedi's guiding (Krivanek and d'Eon 2014, "A Zero-variance-based Sampling Scheme for
+// Monte Carlo Subsurface Scattering", as Cycles' random walk uses it): in a medium that
+// scatters most of its light, a walk wanders far before it finds the surface, so steps are
+// also drawn leaning toward it, by the pdf a zero-variance walk in a half space would use.
+// `v` is that walk's diffusion length for single-scattering albedo `a` (their eq. 67),
+// kept above 1 where the albedo is low and guiding hardly matters.
+float3 dwivedi_v(float3 a) {
+	a = clamp(a, float3(0.05), float3(0.999));
+	float3 e = 2.44294 - 0.0215813 * a + 0.578637 / a;
+	return max(1.0 / sqrt(max(1.0 - pow(a, e), 1e-12)), float3(1.01));
+}
+
+// A direction leaning toward `axis` with Dwivedi's pdf over the cosine mu to it,
+// 1 / ((v - mu) log((v + 1) / (v - 1))), sampled exactly.
+float3 sample_dwivedi(float3 axis, float v) {
+	float mu = clamp(v - (v + 1.0) * pow((v - 1.0) / (v + 1.0), rnd()), -1.0, 1.0);
+	float phi = 2.0 * PI * rnd(), sn = sqrt(max(1.0 - mu * mu, 0.0));
+	float3 t, b;
+	basis(axis, t, b);
+	return normalize(t * (sn * cos(phi)) + b * (sn * sin(phi)) + axis * mu);
+}
+
+// That direction's pdf over solid angle.
+float dwivedi_pdf(float mu, float v) {
+	return 1.0 / (2.0 * PI * (v - mu) * log((v + 1.0) / (v - 1.0)));
+}
+
+// The chance a step after the first is drawn by Dwivedi's guiding rather than the phase
+// function (Cycles' choice); both are weighed together, so either alone stays unbiased.
+static const float WALK_GUIDED = 0.75;
+
 bool subsurface_walk(float3 p, float3 ng, float3 color, float3 radius, float g, inout float3 weight, out float3 p_out, out float3 ng_out, out float3 n_out) {
 	p_out = p;
 	ng_out = ng;
@@ -738,19 +775,47 @@ bool subsurface_walk(float3 p, float3 ng, float3 color, float3 radius, float g, 
 	float3 d = normalize(t * (r * cos(phi)) + b * (r * sin(phi)) - ng * sqrt(max(1.0 - u.x, 0.0)));
 	float3 o = offset_ray(p, -ng);
 	float3 through = float3(1.0);
+	// The guided steps lean toward the surface the light came in by.
+	float3 v = dwivedi_v(albedo);
+	float mu = 0.0, phase = 1.0;
 	for (int step = 0; step < WALK_STEPS; step++) {
-		// A distance drawn by one channel, picked by how much each still carries, and
-		// weighed against drawing it by any (the one-sample balance heuristic), so a
-		// channel that travels far (red in skin) is followed without the others' noise.
+		// A step drawn by one channel, picked by how much each still carries; after the
+		// first, by the phase function or by Dwivedi's guiding, its direction then its
+		// length (a guided step's medium thinned the more the step leans toward the surface,
+		// as the zero-variance walk's is). Each step is weighed against drawing it every way
+		// (the one-sample balance heuristic over channels and techniques), so a channel that
+		// travels far (red in skin) is followed without the others' noise.
 		float3 chance = through / max(through.r + through.g + through.b, 1e-12);
 		float pick = rnd();
-		float sigma = pick < chance.r ? sigma_t.r : (pick < chance.r + chance.g ? sigma_t.g : sigma_t.b);
+		int c = pick < chance.r ? 0 : (pick < chance.r + chance.g ? 1 : 2);
+		float sigma = sigma_t[c];
+		if (step > 0) {
+			float3 before = d;
+			bool guided = rnd() < WALK_GUIDED;
+			d = guided ? sample_dwivedi(ng, v[c]) : sample_phase(before, g);
+			mu = dot(d, ng);
+			phase = phase_hg(dot(before, d), g);
+			if (guided) sigma *= 1.0 - mu / v[c];
+		}
 		float dist = -log(max(1.0 - rnd(), 1e-12)) / sigma;
 		Hit hit;
-		if (trace(o, d, dist, false, hit)) {
+		bool out_now = trace(o, d, dist, false, hit);
+		float t_step = out_now ? hit.t : dist;
+		float3 pass = exp(-sigma_t * t_step);
+		// The chance of this step, every way it could have been drawn: stopping at t_step
+		// (scattering) or getting past it (leaving).
+		float3 classic = out_now ? pass : sigma_t * pass;
+		float pdf = dot(chance, classic);
+		if (step > 0) {
+			float3 sigma_g = sigma_t * (1.0 - mu / v);
+			float3 pass_g = exp(-sigma_g * t_step);
+			float3 guided_t = out_now ? pass_g : sigma_g * pass_g;
+			float3 dir_g = float3(dwivedi_pdf(mu, v.x), dwivedi_pdf(mu, v.y), dwivedi_pdf(mu, v.z));
+			pdf = dot(chance, WALK_GUIDED * dir_g * guided_t + (1.0 - WALK_GUIDED) * phase * classic);
+		}
+		if (out_now) {
 			// Out: the light got this far without scattering again.
-			float3 pass = exp(-sigma_t * hit.t);
-			through *= pass / max(dot(chance, pass), 1e-12);
+			through *= phase * pass / max(pdf, 1e-12);
 			uint ia = indices[3u * hit.tri], ib = indices[3u * hit.tri + 1u], ic = indices[3u * hit.tri + 2u];
 			uint base = items[hit.item].offs.x;
 			float4x4 model = items[hit.item].model;
@@ -766,10 +831,8 @@ bool subsurface_walk(float3 p, float3 ng, float3 color, float3 radius, float g, 
 			return true;
 		}
 		// Scattered here: what was not absorbed, over the chance of stopping here.
-		float3 pass = exp(-sigma_t * dist);
-		through *= albedo * sigma_t * pass / max(dot(chance, sigma_t * pass), 1e-12);
+		through *= phase * albedo * sigma_t * pass / max(pdf, 1e-12);
 		o += d * dist;
-		d = sample_phase(d, g);
 		// Russian roulette once the walk is long, by how much it still carries.
 		if (step >= 8) {
 			float q = clamp(max(through.r, max(through.g, through.b)), 0.05, 0.95);
