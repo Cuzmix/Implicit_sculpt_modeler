@@ -1,0 +1,15 @@
+{
+	"worktree": {
+		"setup": "python3 scripts/task.py link"
+	},
+	"scripts": {
+		"check": { "command": "./build.sh check" },
+		"test": { "command": "./build.sh test" },
+		"build": { "command": "./build.sh" },
+		"smoke": { "command": "./build.sh smoke" },
+		"touch": { "command": "python3 scripts/touch_check.py" },
+		"gate-changed": { "command": "python3 scripts/gate.py --changed" },
+		"gate": { "command": "python3 scripts/gate.py" },
+		"sync": { "command": "python3 scripts/task.py sync" }
+	}
+}
