@@ -58,6 +58,35 @@ Cloth_Settings :: struct {
 	floor:        bool,
 	objects:      bool,
 	self_collide: bool,
+	// On masked (ZBrush's): the mask picks the cloth instead of holding it, so the masked
+	// part moves and the rest stays; hiding still holds what it hides.
+	on_masked:    bool,
+}
+
+// What runs the cloth: a brush stroke or Physics (the Cloth brush's modes, or targets the
+// tool sets), Settle (nothing but gravity and the collisions, ZBrush's Run Simulation) or
+// a filter (sculptor_filter_begin), whose targets are the model inflated, expanded or
+// scaled.
+Cloth_Run :: enum u8 {
+	Brush,
+	Settle,
+	Filter,
+}
+
+// The Physics card's filters, as Blender's cloth filter: the free part is pulled toward
+// the shape the filter makes of it, and stays cloth on the way, so it folds instead of
+// stretching.
+Cloth_Filter_Kind :: enum u8 {
+	Inflate, // out along the normals (in for a negative amount)
+	Expand,  // away from the free part's middle (toward it for a negative amount)
+	Scale,   // scaled about the middle along the chosen axes, from half to twice the size
+}
+
+Cloth_Filter :: struct {
+	kind:   Cloth_Filter_Kind,
+	frame:  matrix[3, 3]f32, // Scale: the axes it scales along, as columns in the mesh's space
+	axes:   bit_set[Axis],   // Scale: which of them
+	middle: Vec3,            // the free part's mean, which Expand and Scale go about
 }
 
 CLOTH_DEFAULTS :: Cloth_Settings {
@@ -86,6 +115,11 @@ Cloth :: struct {
 	// Physics on a pose (sculptor_pose_physics): a vertex keeps its last target through
 	// frames the pose did not set it, as a pose holds still while the pointer does.
 	hold:       bool,
+	run:        Cloth_Run,
+	filter:     Cloth_Filter,
+	// The largest move a vertex made in the last step, in mean links, which tells Settle
+	// when the cloth has come to rest.
+	motion:     f32,
 	steps:      int, // steps taken this stroke, which ease the target modes in
 	brush:      Brush, // for the falloff shape and the symmetry, as the stroke began
 	images:     [dynamic; SYM_IMAGES_MAX]Sym_Image,
@@ -137,6 +171,13 @@ CLOTH_RELAX :: 1.4
 // where it began by CLOTH_RESTORE of the way while anything pulls it, so the cloth hangs
 // at about CLOTH_GRAVITY / CLOTH_RESTORE radii instead of falling for ever.
 CLOTH_GRAVITY :: 0.012
+// Settle's gravity a step at full Gravity, in mean links: the cloth falls at most about
+// CLOTH_SETTLE_GRAVITY / damping links a step, a few, which the substeps keep from
+// tunnelling through a collider.
+CLOTH_SETTLE_GRAVITY :: 0.15
+// How hard a filter's targets pull the cloth each round: low enough that the cloth folds
+// on the way rather than snapping to the filtered shape.
+CLOTH_FILTER_FOLLOW :: 0.05
 CLOTH_RESTORE :: 0.02
 // The target modes move what is under the brush up to this share of the way (of the
 // distance to the centre, or of the radius), times strength, eased in over
@@ -221,10 +262,11 @@ sculptor_cloth_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mode: Clo
 }
 
 @(private = "file")
-cloth_start :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mode: Cloth_Mode, settings: Cloth_Settings, reach, follow: f32) -> int {
+cloth_start :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mode: Cloth_Mode, settings: Cloth_Settings, reach, follow: f32, run := Cloth_Run.Brush) -> int {
 	c := &s.cloth
 	if c.leaves == nil do cloth_init(c, s.history.allocator)
 	sculptor_cloth_end(s)
+	c.run = run
 	c.mode, c.settings, c.invert = mode, settings, brush.invert
 	c.reach, c.follow = reach, clamp(follow, 0, 1)
 	c.center, c.radius, c.strength, c.brush = center, brush.radius, brush.strength, brush
@@ -297,7 +339,7 @@ cloth_gather :: proc(s: ^Sculptor, at, offset: Vec3) -> int {
 				if set.region == .Whole do break
 			}
 			if near2 >= reach2 do continue
-			w := shield(s.fade, s.mask, v)
+			w := cloth_weight(s, v)
 			// Over the whole model a masked or hidden vertex is held where it is, which
 			// its neighbours' links see as well outside the region as in it, so it stays
 			// out: a pose of a small free part simulates that part alone.
@@ -493,6 +535,9 @@ cloth_drives :: proc(s: ^Sculptor, at: Vec3) {
 				c.turn[i], c.focus[i] = 1, j.center
 			}
 			c.drive[i] = strongest * shield(s.fade, s.mask, c.verts[i])
+			// Settle and the filters drive nothing by a brush: Settle pulls only by gravity,
+			// and a filter sets its targets each step.
+			if c.run != .Brush do c.turn[i], c.focus[i], c.drive[i] = 1, j.center, 0
 		}
 	})
 }
@@ -598,7 +643,11 @@ cloth_advance :: proc(s: ^Sculptor, at, offset: Vec3, moved: f32, down: Vec3) ->
 	j := Cloth_Job{s = s, center = at}
 	j.keep = math.pow(1 - clamp(set.damping, 0, 1), dt)
 	j.ease = min(f32(c.steps + 1) / CLOTH_EASE_STEPS, 1) * c.strength * CLOTH_PINCH_MAX
-	if set.gravity > 0 {
+	if set.gravity > 0 && c.run == .Settle {
+		// Settle lets the cloth fall freely, as far as the collisions and what holds it
+		// let it, at a pace of links so a dense mesh falls no faster than a coarse one.
+		j.force = down * (c.link_mean * clamp(set.gravity, 0, 1) * CLOTH_SETTLE_GRAVITY * dt * dt)
+	} else if set.gravity > 0 && c.run == .Brush {
 		g := c.radius * clamp(set.gravity, 0, 1) * CLOTH_GRAVITY * dt * dt
 		// Inverting a Drag stroke lets the cloth float up rather than sag.
 		if c.mode == .Drag do g *= sign
@@ -628,12 +677,23 @@ cloth_advance :: proc(s: ^Sculptor, at, offset: Vec3, moved: f32, down: Vec3) ->
 		}
 	}
 	c.last = offset
+	j.moves = make([]f32, chunks, context.temp_allocator)
 	jobs.parallel_for(pool, chunks, &j, proc(data: rawptr, k: int) {
-		c := &(cast(^Cloth_Job)data).s.cloth
-		m := (cast(^Cloth_Job)data).s.mesh
+		j := cast(^Cloth_Job)data
+		c := &j.s.cloth
+		m := j.s.mesh
 		lo, hi := cloth_range(c, k)
-		for i in lo ..< hi do m.positions[c.verts[i]] = c.pos[i]
+		most: f32
+		for i in lo ..< hi {
+			v := c.verts[i]
+			most = max(most, linalg.length2(c.pos[i] - m.positions[v]))
+			m.positions[v] = c.pos[i]
+		}
+		j.moves[k] = most
 	})
+	most: f32
+	for x in j.moves do most = max(most, x)
+	c.motion = linalg.sqrt(most) / c.link_mean if c.link_mean > 0 else 0
 	sculptor_nodes_moved(s, c.nodes[:])
 	if s.history.recording do for leaf in s.changed do record_changed_node(s, s.node_of[leaf])
 	return n
@@ -656,7 +716,7 @@ sculptor_cloth_end :: proc(s: ^Sculptor) {
 	for a in ([?]^[dynamic]f32{&c.pin, &c.drive, &c.length, &c.bend_len}) do clear(a)
 	clear(&c.turn)
 	clear(&c.images)
-	c.steps, c.last, c.link_mean, c.hold = 0, {}, 0, false
+	c.steps, c.last, c.link_mean, c.hold, c.run, c.motion = 0, {}, 0, false, .Brush, 0
 	clear(&c.collide.colliders)
 	c.collide = {colliders = c.collide.colliders}
 }
@@ -831,3 +891,116 @@ cloth_destroy :: proc(c: ^Cloth) {
 	for a in ([?]^[dynamic]u32{&c.self_slot, &c.self_first, &c.self_order}) do delete(a^)
 	c^ = {}
 }
+
+// How free the cloth leaves vertex `v`: what the mask and hiding leave (shield), or with
+// On masked what the mask covers, still held where hidden.
+@(private)
+cloth_weight :: #force_inline proc(s: ^Sculptor, v: u32) -> f32 {
+	if !s.cloth.settings.on_masked do return shield(s.fade, s.mask, v)
+	if s.mask == nil do return 0
+	w := f32(s.mask[v]) * (1.0 / 255)
+	if s.fade != nil do w *= f32(s.fade[v]) * (1.0 / 255)
+	return w
+}
+
+// The cloth over the model's free part (the whole region), the brush a ball round the
+// whole mesh, for Settle and the filters. Call inside a stroke for it to be undoable.
+@(private = "file")
+cloth_whole :: proc(s: ^Sculptor, settings: Cloth_Settings, follow: f32, run: Cloth_Run) -> int {
+	if len(s.bvh.nodes) == 0 do return 0
+	box := s.bvh.nodes[0].bounds
+	set := settings
+	set.region = .Whole
+	b := Brush{radius = max(linalg.length(box.hi - box.lo) * 0.5, 1e-6), strength = 1}
+	return cloth_start(s, b, (box.lo + box.hi) * 0.5, .Drag, set, CLOTH_REACH, follow, run)
+}
+
+// Settle, as ZBrush's Run Simulation: the free part of the model becomes cloth that falls
+// `down` (sculptor_settle_step) by the settings' gravity, colliding with what
+// sculptor_cloth_collide gives it and with itself, its edges keeping their lengths, until
+// it comes to rest. Returns how many vertices it simulates.
+sculptor_settle_begin :: proc(s: ^Sculptor, settings := CLOTH_DEFAULTS) -> int {
+	return cloth_whole(s, settings, 0, .Settle)
+}
+
+// One step of Settle; returns the largest move it made, in mean links, which falls toward
+// 0 as the cloth comes to rest.
+sculptor_settle_step :: proc(s: ^Sculptor, down: Vec3) -> f32 {
+	c := &s.cloth
+	if c.run != .Settle || len(c.verts) == 0 do return 0
+	// A vertex falls about CLOTH_SETTLE_GRAVITY / damping links a step at most, which the
+	// substeps take a link at a time.
+	fall := c.link_mean * clamp(c.settings.gravity, 0, 1) * CLOTH_SETTLE_GRAVITY / max(c.settings.damping, 0.02)
+	_ = cloth_advance(s, c.center, {}, min(fall, c.link_mean * CLOTH_SUBSTEPS), down)
+	return c.motion
+}
+
+// A filter of the Physics card's, `kind`, on the model's free part: each step
+// (sculptor_filter_step) pulls the cloth toward the shape the filter makes of where it
+// began, CLOTH_FILTER_FOLLOW of the way a round, so it folds rather than stretches. Scale
+// goes along `axes` of `frame` (columns, unit length, in the mesh's space). Returns how
+// many vertices it simulates.
+sculptor_filter_begin :: proc(s: ^Sculptor, kind: Cloth_Filter_Kind, settings := CLOTH_DEFAULTS, frame: matrix[3, 3]f32 = 1, axes := bit_set[Axis]{.X, .Y, .Z}) -> int {
+	n := cloth_whole(s, settings, CLOTH_FILTER_FOLLOW, .Filter)
+	if n == 0 do return 0
+	c := &s.cloth
+	c.hold = true
+	// The free part's mean, summed in order so it is the same on any number of threads.
+	sum: [3]f64
+	for p in c.rest do sum += {f64(p.x), f64(p.y), f64(p.z)}
+	sum /= f64(n)
+	c.filter = {kind = kind, frame = frame, axes = axes, middle = {f32(sum.x), f32(sum.y), f32(sum.z)}}
+	return n
+}
+
+// One step of the filter under way at `amount` (-1 to 1), `down` the way gravity pulls.
+// Returns how many vertices it simulates.
+sculptor_filter_step :: proc(s: ^Sculptor, amount: f32, down: Vec3) -> int {
+	c := &s.cloth
+	n := len(c.verts)
+	if c.run != .Filter || n == 0 do return 0
+	j := Cloth_Job{s = s, ease = clamp(amount, -1, 1)}
+	pool := s.pool if n >= PARALLEL_MIN_VERTS else nil
+	chunks := (n + CLOTH_CHUNK - 1) / CLOTH_CHUNK
+	j.moves = make([]f32, chunks, context.temp_allocator)
+	jobs.parallel_for(pool, chunks, &j, proc(data: rawptr, k: int) {
+		j := cast(^Cloth_Job)data
+		c := &j.s.cloth
+		f := c.filter
+		a := j.ease
+		// Scale doubles at 1 and halves at -1 along each chosen axis.
+		factor := math.pow(f32(2), a)
+		lo, hi := cloth_range(c, k)
+		most: f32
+		for i in lo ..< hi {
+			rest := c.rest[i]
+			target := rest
+			switch f.kind {
+			case .Inflate:
+				target = rest + c.normal[i] * (a * c.radius * CLOTH_FILTER_INFLATE)
+			case .Expand:
+				target = rest + (rest - f.middle) * (a * CLOTH_FILTER_EXPAND)
+			case .Scale:
+				local := linalg.transpose(f.frame) * (rest - f.middle)
+				for axis in Axis do if axis in f.axes do local[int(axis)] *= factor
+				target = f.middle + f.frame * local
+			}
+			c.target[i], c.drive[i] = target, 1
+			most = max(most, linalg.length(target - c.pos[i]))
+		}
+		j.moves[k] = most
+	})
+	// The targets pull a share of the way a round, so the move a step is that share of
+	// the way at most.
+	most: f32
+	for x in j.moves do most = max(most, x)
+	return cloth_advance(s, c.center, {}, most * CLOTH_FILTER_FOLLOW, down)
+}
+
+// Inflate at full amount moves the surface this share of the free part's half size out;
+// Expand moves each vertex this share of its distance from the middle.
+CLOTH_FILTER_INFLATE :: 0.15
+CLOTH_FILTER_EXPAND :: 0.5
+
+// The largest move a vertex made in the cloth's last step, in mean links.
+sculptor_cloth_motion :: proc(s: ^Sculptor) -> f32 {return s.cloth.motion}

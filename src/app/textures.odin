@@ -57,6 +57,10 @@ Texture_Preview :: struct {
 	broken:     bool,
 	topology:   Split_Topology,
 	peel:       f32, // the Peel the vertices were made at (uv_peel_of)
+	// The base level's Mesh_Buffers.index_version the slots were made for, and whether they
+	// were made with the vertex each stands for, so the mesh can pull (texture_pulls).
+	index_version: u64,
+	slots_pulled:  bool,
 }
 
 // How a level of triangles splits where its UVs are (textured_split), kept while its
@@ -263,21 +267,34 @@ texture_remove :: proc(app: ^App, obj: ^Object) {
 // when nothing else is shown, so the islands can be told apart as they lay flat.
 object_texture_view :: proc(app: ^App, obj: ^Object) -> render.Texture_View {
 	if app.texture_view == .Off && uv_peel_of(app, obj) > 0 do return .Uv_Checker
+	// Texture paint shows wherever the object does, as vertex paint does.
+	if app.texture_view == .Off && sculpt.levels_texels_show(&obj.levels) do return .Textured
 	return app.texture_view
+}
+
+// Whether `obj`'s textured mesh pulls its slots from the level's buffers (Textured_Mesh.
+// slot_vertex), so it follows a stroke with nothing gathered: not while a Peel moves the
+// slots, nor on a quad object's base level, whose slots carry the normals its maps were
+// baked with.
+texture_pulls :: proc(app: ^App, obj: ^Object) -> bool {
+	return uv_peel_of(app, obj) == 0 && !(obj.levels.current == 0 && sculpt.levels_has_quad_uvs(&obj.levels))
 }
 
 // a stroke on it right now) and the view has something to show.
 object_textured :: proc(app: ^App, obj: ^Object, lv: ^sculpt.Level) -> bool {
 	view := texture_view_shown(app)
 	if view == .Off && uv_peel_of(app, obj) > 0 do view = .Uv_Checker
+	if view == .Off && sculpt.levels_texels_show(&obj.levels) do view = .Textured
 	if view == .Off || obj.voxel != nil || object_in_hd(obj) || object_dynamic(obj) do return false
 	if !sculpt.levels_has_uvs(&obj.levels) do return false
 	if sculpt.sculptor_hidden_units(&lv.sculptor) != nil || app.show_groups do return false
-	if app.stroke.active && app.stroke.object == obj.id do return false
+	// A pulled mesh follows the stroke as it is made; one that is not would show the
+	// surface as it was, so the object draws as clay until the stroke ends.
+	if app.stroke.active && app.stroke.object == obj.id && !texture_pulls(app, obj) do return false
 	maps := obj.preview.mesh.maps
 	switch view {
 	case .Off:        return false
-	case .Textured:   return maps != {}
+	case .Textured:   return maps != {} || sculpt.levels_texels_show(&obj.levels)
 	case .Normal_Map: return maps[.Normal] != 0
 	case .Uv_Checker: return true
 	}
@@ -294,20 +311,66 @@ texture_preview_frame :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, gpu: ^re
 	texture_decoder_poll(app, obj)
 	if p.decoder == nil && p.maps_stamp != obj.textures.stamp && app.texture_decodes == 0 do texture_decoder_start(app, obj)
 	lv := sculpt.levels_current(&obj.levels)
+	texture_paint_frame(app, cmd, obj)
 	if !object_textured(app, obj, lv) do return nil
 	peel := uv_peel_of(app, obj)
-	current := p.shape == gpu.version && p.layout == obj.textures.layout && p.peel == peel
+	pull := texture_pulls(app, obj)
+	// A pulled mesh reads its positions and normals from the level's buffers, so a sculpt
+	// edit asks for its slots again only where render mode reads their normals.
+	moved := p.shape != gpu.version && (!pull || p.index_version != gpu.index_version || render_running(app))
+	current := !moved && p.layout == obj.textures.layout && p.peel == peel
 	if p.broken && current do return nil
 	if !current || p.mesh.index_count == 0 {
-		vertices, indices, corners := textured_vertices(obj, gpu, &p.topology, &app.pool, peel, app.ui.uv_peel_frame)
-		p.shape, p.layout, p.peel = gpu.version, obj.textures.layout, peel
-		p.broken = !render.textured_mesh_upload(&app.renderer, cmd, &p.mesh, vertices, indices, corners)
+		vertices, indices, corners, slot_vertex := textured_vertices(obj, gpu, &p.topology, &app.pool, peel, app.ui.uv_peel_frame)
+		p.shape, p.index_version, p.layout, p.peel = gpu.version, gpu.index_version, obj.textures.layout, peel
+		p.broken = !render.textured_mesh_upload(&app.renderer, cmd, &p.mesh, vertices, indices, corners, slot_vertex)
 		if p.broken {
 			file_note(app, true, "The GPU refused the textured copy of %s; it shows as clay", object_label(obj))
 			return nil
 		}
+		p.slots_pulled = slot_vertex != nil
 	}
+	p.mesh.pulled = pull && p.slots_pulled
 	return &p.mesh
+}
+
+// Brings `obj`'s texture paint textures up to date on the frame's `cmd`: the composite of
+// its texture layers (sculpt.levels_texels_flush), made at their size, and the tiles that
+// changed since the last frame uploaded; dropped once no texture layer is left. A GPU
+// failure leaves the object without its texture paint, said once.
+texture_paint_frame :: proc(app: ^App, cmd: render.Cmd, obj: ^Object) {
+	l := &obj.levels
+	p := &obj.preview
+	side := u32(l.texels.side) if len(l.texels.layers) > 0 else 0
+	if side != p.mesh.paint_side {
+		if !render.textured_mesh_paint_size(&app.renderer, &p.mesh, side) {
+			file_note(app, true, "The GPU refused the texture paint of %s; it shows without it", object_label(obj))
+			return
+		}
+		// New textures hold nothing: every tile goes up.
+		l.texels.whole = true
+	}
+	if side == 0 do return
+	// The texel map a stroke on the picked texture layer paints through is made here, between
+	// strokes, after a layer, level or UV change, so no stroke starts by waiting for it.
+	if layer, _ := sculpt.levels_texel_picked(l); layer != nil && !app.stroke.active do _ = sculpt.levels_texel_map(l)
+	sculpt.levels_texels_flush(l)
+	changed, all := sculpt.levels_texels_take(l)
+	if len(changed) == 0 && !all do return
+	across := sculpt.texel_tiles_across(int(side))
+	tiles := make([dynamic]render.Paint_Tile, 0, across * across if all else len(changed), context.temp_allocator)
+	add :: proc(tiles: ^[dynamic]render.Paint_Tile, l: ^sculpt.Levels, index, across: int) {
+		t := sculpt.levels_texels_shown(l, index)
+		up := render.Paint_Tile{at = {u32(index % across), u32(index / across)}}
+		if t != nil {
+			up.color = slice.to_bytes(t.color) if t.color != nil else nil
+			up.material = slice.to_bytes(t.material) if t.material != nil else nil
+		}
+		append(tiles, up)
+	}
+	if all do for index in 0 ..< across * across do add(&tiles, l, index, across)
+	else do for index in changed do add(&tiles, l, int(index), across)
+	_ = render.textured_mesh_paint_tiles(&app.renderer, cmd, &p.mesh, tiles[:])
 }
 
 // Level `level` of the object split where its UVs are, as the textured preview draws it
@@ -364,7 +427,7 @@ textured_split :: proc(obj: ^Object, level: int) -> (s: Textured_Split) {
 // (Split_Topology) and reuses it while it fits. With `peel` above 0 each slot moves that
 // far toward its UV coordinate laid on a square through the object's middle along `frame`
 // (right, up and toward the eye, in the object's axes) (Peel). Temp memory.
-textured_vertices :: proc(obj: ^Object, gpu: ^render.Mesh_Buffers, topology: ^Split_Topology, pool: ^jobs.Pool, peel: f32 = 0, frame := [3]geom.Vec3{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}) -> (vertices: []render.Textured_Vertex, indices: []u32, corners: []u32) {
+textured_vertices :: proc(obj: ^Object, gpu: ^render.Mesh_Buffers, topology: ^Split_Topology, pool: ^jobs.Pool, peel: f32 = 0, frame := [3]geom.Vec3{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}) -> (vertices: []render.Textured_Vertex, indices: []u32, corners: []u32, slot_vertex: []u32) {
 	level := obj.levels.current
 	lv := sculpt.levels_current(&obj.levels)
 	Job :: struct {
@@ -442,6 +505,9 @@ textured_vertices :: proc(obj: ^Object, gpu: ^render.Mesh_Buffers, topology: ^Sp
 		}
 	}, geom.RANGE_GRAIN)
 	vertices = job.vertices
+	// The level's own vertex per slot, for pulling: only where the slots stand on the
+	// level's vertices (a level of triangles, not peeled).
+	if job.gather && job.peel == 0 do slot_vertex = job.vertex
 	if job.peel > 0 && job.peel < 1 {
 		// Midway, a piece from the far side turns through edge-on toward the eye, and its
 		// triangles face away until it has: each goes twice, the second turned round with

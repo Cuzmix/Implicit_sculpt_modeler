@@ -115,6 +115,7 @@ Object :: struct {
 	// Its texture maps, while it has quads and UVs (textures.odin), and their GPU copy.
 	textures:  Object_Textures,
 	preview:   Texture_Preview,
+	physics:   Object_Physics, // its Physics card (physics_card.odin)
 }
 
 // The level being sculpted: the HD window while one is open.
@@ -229,7 +230,7 @@ Scene_Command :: struct {
 	// Add: put the new object's middle at `point` (in the world here), where a menu was
 	// opened on the view, rather than at the next free place.
 	placed:   bool,
-	axis:     int, // Symmetrize, Align, Distribute, Repair's Delete half: 0 x, 1 y, 2 z; Curve_Cage: the Curve_Cage_Kind
+	axis:     int, // Symmetrize, Align, Distribute, Repair's Delete half: 0 x, 1 y, 2 z; Curve_Cage: the Curve_Cage_Kind; Stack_Apply: 0 every shown row, or the Stack_Row applied alone plus 1
 	edge:     int, // Align, Distribute: 0 each object's low side, 1 its middle, 2 its high side
 	split:    Split_Mode, // Split: what becomes objects of their own
 	level:    int, // Set_Level; HD steps for Hd_Steps
@@ -1165,7 +1166,9 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			else do history_snapshot_drop(before)
 		}
 	case .Stack_Apply:
-		if obj := selected_object(app); obj != nil && !stack_apply(app, obj) {
+		only: Maybe(Stack_Row)
+		if cmd.axis > 0 && cmd.axis <= len(Stack_Row) do only = Stack_Row(cmd.axis - 1)
+		if obj := selected_object(app); obj != nil && !stack_apply(app, obj, only) {
 			scene_delete_selected(app, undoable = false)
 			return false
 		}

@@ -79,3 +79,39 @@ built_in_presets_are_remembered :: proc(t: ^testing.T) {
 	testing.expect_value(t, p.values.alpha, int(sculpt.Alpha_Shape.Square))
 }
 
+
+// The cloth family puts the Cloth brush on its mode and settings, or a moving brush on
+// with Physics, and the Library lists every one of them under Cloth.
+@(test)
+cloth_presets_set_mode_and_physics :: proc(t: ^testing.T) {
+	app: App
+	defer results_destroy(&app)
+	app.brush.kind, app.brush.alpha = .Draw, -1
+	for &s, kind in app.brush.strengths do s = BRUSHES[kind].strength
+	preset_use(&app, built_in_preset_find("Cloth pinch trails"))
+	testing.expect_value(t, app.brush.kind, sculpt.Brush_Kind.Cloth)
+	testing.expect_value(t, app.brush.cloth_mode, sculpt.Cloth_Mode.Pinch)
+	testing.expect_value(t, app.brush.cloth.region, sculpt.Cloth_Region.Follows)
+	testing.expect_value(t, app.brush.cloth.stiffness, sculpt.CLOTH_DEFAULTS.stiffness)
+	testing.expect(t, !preset_changed(&app))
+	preset_use(&app, built_in_preset_find("Cloth pin"))
+	testing.expect_value(t, app.brush.cloth.gravity, 0.5)
+	preset_use(&app, built_in_preset_find("Cloth ball"))
+	testing.expect_value(t, app.brush.cloth.firmness, 0.95)
+	preset_use(&app, built_in_preset_find("Cloth hook"))
+	testing.expect_value(t, app.brush.kind, sculpt.Brush_Kind.Snake_Hook)
+	testing.expect(t, app.brush.physics)
+	testing.expect_value(t, app.brush.physics_strength, f32(PHYSICS_STRENGTH_DEFAULT))
+	testing.expect(t, !preset_changed(&app))
+	// Leaving it gives the plain brush its own Physics back.
+	command_run(&app, .Brush, int(sculpt.Brush_Kind.Draw))
+	testing.expect(t, !app.brush.physics, "the plain brush kept the preset's Physics")
+	n := 0
+	for r, j in BUILT_IN_PRESETS {
+		if !strings.has_prefix(r.name, "Cloth ") do continue
+		n += 1
+		it := Brush_Item{what = .Slot, slot = {kind = r.kind, preset = BUILT_IN_PRESET + j}}
+		testing.expectf(t, brush_item_category(it) == .Cloth, "%s is not under Cloth", r.name)
+	}
+	testing.expect_value(t, n, 14)
+}

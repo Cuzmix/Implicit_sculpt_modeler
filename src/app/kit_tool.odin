@@ -113,6 +113,10 @@ CHANNEL_HELP := [sculpt.Channel]string {
 // Connected, and for Grab All depth and for Smooth which vertices it smooths. Each switch
 // greys out on brushes it does nothing for, still showing how it is set; the first three
 // are commands too (Front_Only, Lock_Plane, Connected) for keys and pies.
+// The brushes whose Options section has settings of their own under More.
+@(private = "file")
+MORE_OPTION_KINDS :: bit_set[sculpt.Brush_Kind]{.Grab, .Snake_Hook, .Elastic, .Smooth}
+
 @(private = "file")
 kit_brush_options :: proc(app: ^App) {
 	ctx := &app.kit.ctx
@@ -125,10 +129,6 @@ kit_brush_options :: proc(app: ^App) {
 	// Topological, which reaches only what is joined anyway.
 	// Elastic moves the solid round the press, joined or not.
 	_ = ui.switch_row(ctx, "Connected only", &b.connected, .Cloth not_in flags && b.kind != .Elastic && !(b.kind == .Grab && (b.grab_depth || b.grab_topological)), keys = command_hint(app, .Connected))
-	// Physics: what the brush moves drives the surface round it as cloth.
-	physical := flags & {.Cloth, .Paint, .Mask} == {}
-	_ = ui.switch_row(ctx, "Physics", &b.physics, physical, keys = command_hint(app, .Physics))
-	if b.physics && physical do _ = ui.slider(ctx, "Physics strength", &b.physics_strength, 0.05, 1, .Linear, fmt.tprintf("%.0f%%", b.physics_strength * 100))
 	// Where the detail goes, for the brushes that can write into a detail skin, shown once
 	// the object has a skin or the brush was set off Auto, so it never hides a choice made.
 	if b.kind in sculpt.SKIN_KINDS && (object_top_skin(selected_object(app)) != nil || b.detail_to[b.kind] != .Auto) {
@@ -141,35 +141,15 @@ kit_brush_options :: proc(app: ^App) {
 		// Which way the drag moves it: Shift mid-grab takes Along normal and Alt Along
 		// surface, whatever this says, for a pen with no keys to hand.
 		if picked := ui.tabs(ctx, "grab moves", {"Free", "Along normal", "Along surface"}, int(b.grab_mode)); picked >= 0 do b.grab_mode = Grab_Mode(picked)
-		if kit_more(app, .Options) {
-			_ = ui.switch_row(ctx, "Topological", &b.grab_topological, !b.grab_depth)
-			if b.grab_mode == .Free do _ = ui.slider(ctx, "Normal weight", &b.grab_normal, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.grab_normal * 100))
-			_ = ui.switch_row(ctx, "Same side", &b.grab_same_side)
-			_ = ui.switch_row(ctx, "Silhouette", &b.grab_silhouette)
-			_ = ui.switch_row(ctx, "Past the outline", &b.grab_outline)
-			ui.paragraph(ctx, "Free moves what Grab holds as the pointer goes; Along normal pulls it out along the surface's normal where it was pressed (Shift mid-grab), toward where that normal points on screen; Along surface slides it across the surface (Alt mid-grab). Normal weight moves a Free drag that much along the normal instead. Same side picks up only what faces the way the pressed surface does, never the far side of a thin part. Silhouette moves only what faces the way it is dragged, so pulling an edge out leaves the side behind it. Past the outline takes hold from a press just off the model's edge too, at the nearest point within the brush ring; off, a press off the model turns the view. Topological measures the falloff along the surface from the press, so it never reaches a part that only lies near, and bends round a fold.")
-			kit_more_end(app)
-		}
 	}
 	if b.kind == .Snake_Hook {
 		label := fmt.tprintf("Magnify %.0f%%", -b.hook_pinch * 100) if b.hook_pinch < 0 else fmt.tprintf("%.0f%%", b.hook_pinch * 100)
 		_ = ui.slider(ctx, "Pinch", &b.hook_pinch, -1, 1, .Linear, label)
-		if kit_more(app, .Options) {
-			_ = ui.slider(ctx, "Rake", &b.hook_rake, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.hook_rake * 100))
-			_ = ui.switch_row(ctx, "Elastic tip", &b.hook_elastic)
-			ui.paragraph(ctx, "Pinch draws what the hook pulls in toward the line it is pulled along, for a horn that thins to a point; below zero it magnifies, fattening the tip as it goes. Rake turns what the hook drags as the hook turns, so a horn drawn round a bend twists with it instead of shearing flat. Elastic tip drags as the Elastic brush does, the surround stretching after the tip out to three times the ring (by Elastic's Volume).")
-			kit_more_end(app)
-		}
 	}
 	if b.kind == .Elastic {
 		if picked := ui.tabs(ctx, "grab moves", {"Free", "Along normal", "Along surface"}, int(b.grab_mode)); picked >= 0 do b.grab_mode = Grab_Mode(picked)
 		_ = ui.slider(ctx, "Volume", &b.elastic_volume, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.elastic_volume * 100))
 		ui.paragraph(ctx, "Elastic drags what is under the brush as a block of rubber pulled at that point would move: the part pulled keeps its shape and the rest stretches after it smoothly, out to three times the brush ring. Volume is how much of its volume the rubber keeps: at 100% the sides thin as it stretches, at 0% they stay put. Shift and Alt mid-drag work as Grab's.")
-		if kit_more(app, .Options) {
-			_ = ui.switch_row(ctx, "Past the outline", &b.grab_outline)
-			ui.paragraph(ctx, "Past the outline takes hold from a press just off the model's edge too, at the nearest point within the brush ring, as on Grab; off, a press off the model turns the view.")
-			kit_more_end(app)
-		}
 	}
 	if b.kind == .Clay_Strips {
 		_ = ui.slider(ctx, "Tip roundness", &b.tip_roundness, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.tip_roundness * 100))
@@ -193,11 +173,34 @@ kit_brush_options :: proc(app: ^App) {
 		chosen := 0
 		for m, i in modes do if m == b.smooth_mode do chosen = i
 		if picked := ui.tabs(ctx, "smooth mode", {"Smooth", "Relax", "Polish"}, chosen); picked >= 0 do b.smooth_mode = modes[picked]
-		if kit_more(app, .Options) {
+	}
+	// One More fold for the whole section: the brush's own further settings, then
+	// Physics, which keeps the five controls above it to what a dab works on.
+	physical := flags & {.Cloth, .Paint, .Mask} == {}
+	if (physical || b.kind in MORE_OPTION_KINDS) && kit_more(app, .Options) {
+		#partial switch b.kind {
+		case .Grab:
+			_ = ui.switch_row(ctx, "Topological", &b.grab_topological, !b.grab_depth)
+			if b.grab_mode == .Free do _ = ui.slider(ctx, "Normal weight", &b.grab_normal, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.grab_normal * 100))
+			_ = ui.switch_row(ctx, "Same side", &b.grab_same_side)
+			_ = ui.switch_row(ctx, "Silhouette", &b.grab_silhouette)
+			_ = ui.switch_row(ctx, "Past the outline", &b.grab_outline)
+			ui.paragraph(ctx, "Free moves what Grab holds as the pointer goes; Along normal pulls it out along the surface's normal where it was pressed (Shift mid-grab), toward where that normal points on screen; Along surface slides it across the surface (Alt mid-grab). Normal weight moves a Free drag that much along the normal instead. Same side picks up only what faces the way the pressed surface does, never the far side of a thin part. Silhouette moves only what faces the way it is dragged, so pulling an edge out leaves the side behind it. Past the outline takes hold from a press just off the model's edge too, at the nearest point within the brush ring; off, a press off the model turns the view. Topological measures the falloff along the surface from the press, so it never reaches a part that only lies near, and bends round a fold.")
+		case .Snake_Hook:
+			_ = ui.slider(ctx, "Rake", &b.hook_rake, 0, 1, .Linear, fmt.tprintf("%.0f%%", b.hook_rake * 100))
+			_ = ui.switch_row(ctx, "Elastic tip", &b.hook_elastic)
+			ui.paragraph(ctx, "Pinch draws what the hook pulls in toward the line it is pulled along, for a horn that thins to a point; below zero it magnifies, fattening the tip as it goes. Rake turns what the hook drags as the hook turns, so a horn drawn round a bend twists with it instead of shearing flat. Elastic tip drags as the Elastic brush does, the surround stretching after the tip out to three times the ring (by Elastic's Volume).")
+		case .Elastic:
+			_ = ui.switch_row(ctx, "Past the outline", &b.grab_outline)
+			ui.paragraph(ctx, "Past the outline takes hold from a press just off the model's edge too, at the nearest point within the brush ring, as on Grab; off, a press off the model turns the view.")
+		case .Smooth:
 			if picked := ui.tabs(ctx, "smooth only", {"All", "Valleys", "Peaks"}, int(b.smooth_only)); picked >= 0 do b.smooth_only = sculpt.Smooth_Only(picked)
 			_ = ui.switch_row(ctx, "Stable", &b.smooth_stable)
-			kit_more_end(app)
 		}
+		// Physics: what the brush moves drives the surface round it as cloth.
+		_ = ui.switch_row(ctx, "Physics", &b.physics, physical, keys = command_hint(app, .Physics))
+		if b.physics && physical do _ = ui.slider(ctx, "Physics strength", &b.physics_strength, 0.05, 1, .Linear, fmt.tprintf("%.0f%%", b.physics_strength * 100))
+		kit_more_end(app)
 	}
 	ui.paragraph(ctx, "Front faces only leaves the far side of a thin part (an ear, a fin). Lock plane keeps the plane the stroke began on, so long Flatten or Clay strokes do not drift. Connected only leaves what is near in space but not joined through the surface, such as the next finger. All depth lets Grab move everything under the brush however deep, the back too, and then Connected only does not apply. Smooth evens the surface out, Relax only evens out the spacing of its vertices across it, keeping the shape, and Polish takes the roughness off keeping the volume (Alt held while smoothing polishes too). Under More, Smooth can even out only the dents (Valleys) or only the bumps (Peaks), and Stable gives a dense mesh more passes and a coarse one fewer, so a dab evens out about as much at any density; Shift smoothing with any brush does the same.")
 }
@@ -331,10 +334,7 @@ kit_stroke :: proc(app: ^App) {
 			_ = ui.switch_row(ctx, "Keep area", &c.keep_area)
 			_ = ui.switch_row(ctx, "Allow shrink", &c.allow_shrink)
 			_ = ui.switch_row(ctx, "Allow expand", &c.allow_expand)
-			_ = ui.switch_row(ctx, "Collide with floor", &c.floor)
-			_ = ui.switch_row(ctx, "Collide with objects", &c.objects)
-			_ = ui.switch_row(ctx, "Self collision", &c.self_collide)
-			ui.paragraph(ctx, "Local simulates the cloth round where the stroke began, Follows round the brush as it moves, Whole the entire model, held only by the mask. Gravity pulls the cloth toward the bottom of the screen in every mode. Stiffness is how firmly edges keep their length; Firmness how much the cloth resists bending, for wider, fewer folds; Damping how quickly it settles. Keep area holds edges to the stored morph target's lengths, so stretched cloth shrinks back. Allow shrink lets the cloth crumple without pushing back; Allow expand lets it stretch like rubber. The collisions keep it on the floor (where the floor grid stands, at the bottom of the scene), out of the other objects and its folds out of each other; Physics strokes take them too.")
+			ui.paragraph(ctx, "Local simulates the cloth round where the stroke began, Follows round the brush as it moves, Whole the entire model, held only by the mask. Gravity pulls the cloth in every mode, the way the object's Physics card says (World down by default). Stiffness is how firmly edges keep their length; Firmness how much the cloth resists bending, for wider, fewer folds; Damping how quickly it settles. Keep area holds edges to the stored morph target's lengths, so stretched cloth shrinks back. Allow shrink lets the cloth crumple without pushing back; Allow expand lets it stretch like rubber. What it collides with (the floor, the other objects, itself) is the object's, on its Physics card.")
 			kit_more_end(app)
 		}
 	}

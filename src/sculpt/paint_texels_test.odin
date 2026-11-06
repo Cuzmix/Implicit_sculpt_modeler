@@ -1,8 +1,10 @@
 package sculpt
 
+import "core:log"
 import "core:math/linalg"
 import "core:slice"
 import "core:testing"
+import "core:time"
 
 import "../geom"
 import "../jobs"
@@ -202,4 +204,51 @@ texels_round_trip_and_sweep :: proc(t: ^testing.T) {
 	testing.expect(t, len(l.texels.layers) == 1, "a layer its undo step holds was freed")
 	_ = sculptor_undo(s)
 	testing.expect(t, len(s.paint.list) == 1 && texels_layer(&l.texels, s.paint.list[0].texels) != nil)
+}
+
+// A Paint stroke on a picked texture layer paints its tiles and not the vertices, keeps the
+// tiles it changed (as they were) in its undo step, and comes out the same on any thread
+// count; swapping the step back leaves the layer unpainted.
+@(test)
+texel_stroke_paints_tiles :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	run :: proc(t: ^testing.T, pool: ^jobs.Pool) -> (painted: []Color) {
+		l: Levels
+		texel_fixture(&l, pool)
+		defer levels_destroy(&l)
+		testing.expect(t, levels_texel_layer_add(&l, 1024) == 0)
+		s := &levels_current(&l).sculptor
+		testing.expect(t, levels_texels_attach(&l))
+		sculptor_stroke_begin(s)
+		start := time.tick_now()
+		for k in 0 ..< 8 {
+			at := linalg.normalize(Vec3{0.1 * f32(k), 0.2, 1})
+			_ = apply_dab(s, {kind = .Paint, radius = 0.3, strength = 0.8, color = {20, 200, 90}}, at)
+		}
+		took := time.duration_milliseconds(time.tick_since(start))
+		_ = sculptor_stroke_end(s)
+		step := levels_texels_detach(&l)
+		testing.expect(t, step != nil && len(step.saved) > 0, "the stroke kept no tiles")
+		testing.expect(t, s.color == nil && s.paint.list[0].color == nil, "the stroke painted the vertices")
+		layer := texels_layer(&l.texels, s.paint.list[0].texels)
+		count := 0
+		for tile in layer.tiles {
+			if tile == nil do continue
+			for c in tile.color do if c.a > 0 do count += 1
+			painted = slice.concatenate([][]Color{painted, tile.color}, context.temp_allocator)
+		}
+		testing.expectf(t, count > 1000, "%d texels painted", count)
+		log.infof("8 dabs at 1024 texels: %.2f ms, %d texels painted", took, count)
+		if step == nil do return
+		levels_texel_step_swap(&l, step)
+		for tile in layer.tiles do testing.expect(t, tile == nil, "undo left paint")
+		texel_step_free(step)
+		free(step)
+		return
+	}
+	a := run(t, nil)
+	b := run(t, &pool)
+	testing.expect(t, len(a) > 0 && slice.equal(a, b), "serial and parallel strokes differ")
 }

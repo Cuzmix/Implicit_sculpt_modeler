@@ -820,21 +820,21 @@ Studio_Trace_Rq_Comp_Buffers :: enum u32 {instances, run_first}
 Studio_Trace_Rq_Comp_Write_Textures :: enum u32 {visible}
 Studio_Trace_Rq_Comp_Uniforms :: enum u32 {Trace_Uniforms}
 
-// textured.frag.spv sha256 131cb6b4c9b29a58c43663f17383bd2d2a374ff831da04bd8ebe36235ab972d7
+// textured.frag.spv sha256 541b90c6999e8576bb2f7e0001dea24f233ce9262182f6fb3b5b92128d4c4f80
 TEXTURED_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/textured.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
 	format = SHADER_FORMAT,
 	stage = .Fragment,
-	num_samplers = 5,
+	num_samplers = 7,
 	num_storage_textures = 0,
 	num_storage_buffers = 0,
 	num_uniform_buffers = 1,
 }
-Textured_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map}
+Textured_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map, paint_map, paint_material_map}
 Textured_Frag_Uniforms :: enum u32 {Material_Uniforms}
 
-// textured.vert.spv sha256 d894c5dcede739a8c62f47d8271cd3fd236a10d1019904f28bc8e89961c79eeb
+// textured.vert.spv sha256 f5b498413d533aa2389dc8fee3bff34d5e47c87af63781eba7904725cd51e306
 TEXTURED_VERT :: gpu.Shader_Desc{
 	code = #load("shaders/textured.vert" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
@@ -842,37 +842,38 @@ TEXTURED_VERT :: gpu.Shader_Desc{
 	stage = .Vertex,
 	num_samplers = 0,
 	num_storage_textures = 0,
-	num_storage_buffers = 0,
+	num_storage_buffers = 5,
 	num_uniform_buffers = 1,
 }
+Textured_Vert_Buffers :: enum u32 {slot_vertex, positions, normals, paint, paint_material_words}
 Textured_Vert_Uniforms :: enum u32 {Frame_Uniforms}
 
-// textured_area.frag.spv sha256 dfe0b7e7b16f68734b420411810c4b8fb63d651f2d91a5968fe5da39c252e0ef
+// textured_area.frag.spv sha256 957bf703ad62a778403b00e9f6a9841dbf42a8c83f55587c7c0378e5f4a0f5b7
 TEXTURED_AREA_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/textured_area.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
 	format = SHADER_FORMAT,
 	stage = .Fragment,
-	num_samplers = 5,
+	num_samplers = 7,
 	num_storage_textures = 0,
 	num_storage_buffers = 0,
 	num_uniform_buffers = 1,
 }
-Textured_Area_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map}
+Textured_Area_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map, paint_map, paint_material_map}
 Textured_Area_Frag_Uniforms :: enum u32 {Material_Uniforms}
 
-// textured_clip.frag.spv sha256 f04499ba8044230cf5b71e7cbd9b797a23f5e8c8287c1b385ee52ebdcb3fd3c6
+// textured_clip.frag.spv sha256 a7c692ac36417dd02a60d06c5f5432b1fc83ed7c9cd298dff181f972eb272b17
 TEXTURED_CLIP_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/textured_clip.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
 	format = SHADER_FORMAT,
 	stage = .Fragment,
-	num_samplers = 5,
+	num_samplers = 7,
 	num_storage_textures = 0,
 	num_storage_buffers = 0,
 	num_uniform_buffers = 1,
 }
-Textured_Clip_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map}
+Textured_Clip_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map, paint_map, paint_material_map}
 Textured_Clip_Frag_Uniforms :: enum u32 {Material_Uniforms}
 
 // ui.frag.spv sha256 27b36442b9eb8e6ead0810a4529e9bfe0b995ed5c481cb5e7586856a36706ff2

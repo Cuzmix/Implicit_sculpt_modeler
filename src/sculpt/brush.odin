@@ -386,6 +386,9 @@ Sculptor :: struct {
 	material:     []Material_Paint,
 	// What the dab being laid writes, the picked layer's channel dots (paint_dab).
 	paint_writes: Paint_Channels,
+	// The object's texture layers while a stroke paints one (levels_texels_attach): the
+	// Paint dabs go into its tiles (texel_dab). Nil otherwise.
+	texels: ^Texels,
 	color_edited: bool, // painted since the level became current, so a level change carries the colours
 	paint_stamp:  u32,  // see sculptor_paint_stamp
 	// The paint layers, of which `color` is the picked one's (paint_layers.odin).

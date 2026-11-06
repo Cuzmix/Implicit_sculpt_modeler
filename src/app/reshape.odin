@@ -10,7 +10,7 @@ import "../ui"
 // The Deformation card: one slider for each of ZBrush's Deformation
 // operations, with Blender's mesh transforms and filters and Nomad's live filters as the
 // other half. Pick what it does (Offset, Rotate, Size, Skew, S bend, Squeeze, Noise,
-// Inflate, Spherize, Gravity, Polish or Relax), the axes it works along where it has any,
+// Inflate, Spherize, Polish or Relax), the axes it works along where it has any,
 // and drag Amount: the part the mask leaves free (all that is shown, with no mask) takes
 // it live, as a pose (sculpt/reshape.odin), and letting go is one undo step, after which
 // the slider springs back to 0 for the next. Polish and Relax go over the surface's
@@ -28,7 +28,6 @@ Reshape_Choice :: enum u8 {
 	Noise,
 	Inflate,
 	Spherize,
-	Gravity,
 	Polish,
 	Relax,
 }
@@ -44,7 +43,6 @@ RESHAPE_NAMES := [Reshape_Choice]string {
 	.Noise    = "Noise",
 	.Inflate  = "Inflate",
 	.Spherize = "Spherize",
-	.Gravity  = "Gravity",
 	.Polish   = "Polish",
 	.Relax    = "Relax",
 }
@@ -60,7 +58,6 @@ RESHAPE_DONE := [Reshape_Choice]string {
 	.Noise    = "Roughened",
 	.Inflate  = "Inflated",
 	.Spherize = "Spherized",
-	.Gravity  = "Sagged",
 	.Polish   = "Polished",
 	.Relax    = "Relaxed",
 }
@@ -77,7 +74,6 @@ RESHAPE_HELP := [Reshape_Choice]string {
 	.Noise    = "Roughens the surface in and out along its normals, smooth bumps an eighth of the size across.",
 	.Inflate  = "Pushes the surface out along its normals, or in the other way.",
 	.Spherize = "Rounds the free part toward a ball as wide as it is.",
-	.Gravity  = "Sags the outer parts down the axis, the further out the more, as a soft drape.",
 	.Polish   = "Smooths the roughness away and keeps the size, which Smooth shrinks; the amount is the steps.",
 	.Relax    = "Evens out the spacing of the vertices over the surface and keeps its shape; the amount is the steps.",
 }
@@ -144,7 +140,7 @@ reshape_range :: proc(c: Reshape_Choice) -> (lo, hi: f32, unit: string) {
 	case .Size:     return sculpt.RESHAPE_SIZE_MIN * 100, 200, "%"
 	case .Spherize: return 0, 100, "%"
 	case .Polish, .Relax: return 0, RESHAPE_STEPS_MAX, " steps"
-	case .Offset, .S_Bend, .Squeeze, .Noise, .Inflate, .Gravity:
+	case .Offset, .S_Bend, .Squeeze, .Noise, .Inflate:
 	}
 	return -100, 100, "%"
 }

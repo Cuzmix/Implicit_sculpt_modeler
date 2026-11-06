@@ -93,6 +93,10 @@ History_Entry :: struct {
 	// A .Textures entry's maps (and UV layout) on the other side of the change
 	// (textures.odin), owned.
 	textures: ^Texture_Step,
+	// A .Paint entry of a texture paint layer: the tiles it changed as they were on the
+	// other side of it (sculpt.Texel_Step), owned. A texture layer belongs to the object,
+	// not to a level's sculptor, so the entry is undone here.
+	texels: ^sculpt.Texel_Step,
 	// A .Lights entry's scene lights before the change and after it (lights.odin), owned.
 	lights: ^Light_Step,
 	// A .References entry's board before the change and after it (references.odin), owned.
@@ -120,6 +124,11 @@ entry_free :: proc(h: ^History, e: History_Entry) {
 	if e.textures != nil {
 		h.swap_bytes -= texture_step_bytes(e.textures)
 		texture_step_free(e.textures)
+	}
+	if e.texels != nil {
+		h.swap_bytes -= sculpt.texel_step_bytes(e.texels)
+		sculpt.texel_step_free(e.texels)
+		free(e.texels)
 	}
 	if e.swap != nil {
 		h.swap_bytes -= e.swap.size
@@ -245,6 +254,18 @@ history_record_textures :: proc(app: ^App, obj: ^Object, step: ^Texture_Step, wh
 	history_trim(app)
 }
 
+// Lists `step`, the tiles a texture paint command or stroke on `obj` changed, already
+// made, as the newest undo step (a .Paint one).
+history_record_texels :: proc(app: ^App, obj: ^Object, step: ^sculpt.Texel_Step, what: string, chain := false) {
+	if !chain do history_drop_redo(app)
+	app.history.serial += 1
+	if !chain do app.history.edits += 1
+	bytes := sculpt.texel_step_bytes(step)
+	append(&app.history.done, History_Entry{id = obj.id, kind = .Paint, what = what, at = time.tick_now(), texels = step, bytes = bytes, chain = chain && len(app.history.done) > 0, view = camera_view_of(app.camera)})
+	app.history.swap_bytes += bytes
+	history_trim(app)
+}
+
 // Over the memory limit, the oldest snapshots and texture steps go, with every entry
 // older than them, since undo cannot skip one; strokes older than a swap are dropped
 // anyway, so the only older entries are other objects' strokes. A step goes whole, with
@@ -258,7 +279,7 @@ history_trim :: proc(app: ^App) {
 		newest := len(h.done) - 1
 		for newest > 0 && h.done[newest].chain do newest -= 1
 		oldest := -1
-		for e, i in h.done do if e.swap != nil || e.textures != nil {oldest = i; break}
+		for e, i in h.done do if e.swap != nil || e.textures != nil || e.texels != nil {oldest = i; break}
 		if oldest < 0 || oldest >= newest do break
 		end := oldest + 1
 		for end < len(h.done) && h.done[end].chain do end += 1
@@ -435,7 +456,7 @@ history_next_label :: proc(list: []History_Entry) -> string {
 	if len(list) == 0 do return "stroke"
 	e := list[len(list) - 1]
 	if e.swap != nil do return e.swap.what
-	if e.kind == .Transform || e.kind == .Arrange || e.kind == .Textures || e.kind == .Lights || e.kind == .References || e.kind == .Stack do return e.what
+	if e.kind == .Transform || e.kind == .Arrange || e.kind == .Textures || e.kind == .Lights || e.kind == .References || e.kind == .Stack || e.texels != nil do return e.what
 	return "stroke"
 }
 
@@ -507,10 +528,15 @@ brush_stroke_finish :: proc(app: ^App) {
 	}
 	sculpt.sculptor_grab_end(object_sculptor(obj))
 	sculpt.sculptor_cloth_end(object_sculptor(obj))
-	if sculpt.sculptor_stroke_end(object_sculptor(obj)) {
+	texels := sculpt.levels_texels_detach(&obj.levels)
+	sculpted := sculpt.sculptor_stroke_end(object_sculptor(obj))
+	if sculpted {
 		history_record(app, obj, .Mask if .Mask in BRUSHES[app.stroke.kind].flags else .Stroke, stroke_name(&app.stroke))
 		adjust_set_stroke(app, obj)
 	}
+	// What the stroke painted into a texture layer is a step of the object's, undone with
+	// the sculpting it did as one.
+	if texels != nil do history_record_texels(app, obj, texels, stroke_name(&app.stroke), chain = sculpted)
 }
 
 // Applies a mask command to the selected object as an undo step of its own; Blur,
@@ -874,7 +900,7 @@ history_push :: proc(app: ^App, e: History_Entry) {
 @(private = "file")
 history_drop_redo :: proc(app: ^App) {
 	for e in app.history.undone {
-		if e.swap != nil || e.arrange != nil || e.lights != nil || e.refs != nil || e.stack != nil || e.kind == .Transform || e.kind == .Textures {
+		if e.swap != nil || e.arrange != nil || e.lights != nil || e.refs != nil || e.stack != nil || e.kind == .Transform || e.kind == .Textures || e.texels != nil {
 			// Nothing of it is kept anywhere else.
 		} else if obj := object_by_id(app, e.id); obj != nil && obj.voxel != nil {
 			voxel.clay_clear_redo(&obj.voxel.clay)
@@ -979,6 +1005,22 @@ history_step :: proc(app: ^App, from, to: ^[dynamic]History_Entry, can, step: pr
 			app.history.swap_bytes -= texture_step_bytes(e.textures)
 			texture_step_swap(obj, e.textures)
 			app.history.swap_bytes += texture_step_bytes(e.textures)
+			app.scene_edits += 1
+			append(to, e)
+			return true
+		}
+		if e.texels != nil {
+			// The tiles trade places with the step's; no level or sculptor changes, and an
+			// object that is gone takes the step with it.
+			obj := object_by_id(app, e.id)
+			if obj == nil {
+				entry_free(&app.history, e)
+				continue
+			}
+			stroke_finish(app)
+			app.history.swap_bytes -= sculpt.texel_step_bytes(e.texels)
+			sculpt.levels_texel_step_swap(&obj.levels, e.texels)
+			app.history.swap_bytes += sculpt.texel_step_bytes(e.texels)
 			app.scene_edits += 1
 			append(to, e)
 			return true
@@ -1137,7 +1179,7 @@ history_forget_strokes :: proc(app: ^App, id: int) {
 	for list in ([2]^[dynamic]History_Entry{&app.history.done, &app.history.undone}) {
 		kept := 0
 		for e in list {
-			if e.id != id || e.swap != nil || e.arrange != nil || e.lights != nil || e.stack != nil || e.kind == .Transform || e.kind == .Textures {
+			if e.id != id || e.swap != nil || e.arrange != nil || e.lights != nil || e.stack != nil || e.kind == .Transform || e.kind == .Textures || e.texels != nil {
 				list[kept] = e
 				kept += 1
 			} else {
@@ -1157,7 +1199,7 @@ history_forget_level :: proc(app: ^App, id: int, level: Maybe(int)) {
 		kept := 0
 		for e in list {
 			only, one := level.?
-			if e.id != id || e.arrange != nil || e.lights != nil || (one && (e.level != only || e.swap != nil || e.stack != nil || e.kind == .Transform || e.kind == .Textures)) {
+			if e.id != id || e.arrange != nil || e.lights != nil || (one && (e.level != only || e.swap != nil || e.stack != nil || e.kind == .Transform || e.kind == .Textures || e.texels != nil)) {
 				list[kept] = e
 				kept += 1
 			} else {
