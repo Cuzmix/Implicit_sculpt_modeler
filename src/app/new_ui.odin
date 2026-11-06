@@ -1639,7 +1639,7 @@ kit_shading_menu :: proc(app: ^App) {
 	for id in ([?]Command_Id{.Wireframe, .Flat_Shading, .Polygroups, .Transparency}) do _ = command_menu_item(app, id)
 	ui.divider(&app.kit.ctx, across = true)
 	ui.caption(&app.kit.ctx, "  LIGHT")
-	for id in ([?]Command_Id{.Live_Occlusion, .Render_Mode}) do _ = command_menu_item(app, id)
+	_ = command_menu_item(app, .Live_Occlusion)
 	ui.divider(&app.kit.ctx, across = true)
 	ui.caption(&app.kit.ctx, "  TEXTURES")
 	for v in render.Texture_View.Textured ..= render.Texture_View.Uv_Checker do _ = command_menu_item(app, .Texture_View, int(v))

@@ -316,8 +316,8 @@ lens_pass_menu :: proc(app: ^App) {
 
 // The shading's options for view shading `s`, inset under its caption, each named over its
 // tabs (a name beside them pushes the tabs past the menu's edge): the row of looks (left
-// out where the list names them, `looks` false) and, for the main view (`main`), the Render
-// switch; the Colour, toward clay, in every look but Flat; with Clay, which MatCap; and
+// out where the list names them, `looks` false) and, for the main view (`main`), the
+// render's Off, Fast or Full (kit_render_show); the Colour, toward clay, in every look but Flat; with Clay, which MatCap; and
 // where the colours come from. The main view's look runs its command, which its keys and
 // gestures can run too.
 shading_options :: proc(app: ^App, s: ^View_Shading, main: bool, looks := true) {
@@ -350,10 +350,12 @@ shading_options :: proc(app: ^App, s: ^View_Shading, main: bool, looks := true) 
 	}
 	// What the look is for, right under its name, so a newcomer knows what the name means.
 	ui.paragraph(ctx, SHADING_MODE_HINTS[shown])
-	// The render is the Render card's one choice (Off, Fast, Full): this row says which and
-	// opens the card on it, rather than a second control for the same thing.
+	// The render's one choice (Off, Fast, Full), the Render card's own control, so turning
+	// the render on or off takes no trip to the card; its quality and samples stay there.
 	if looks && main {
-		if ui.menu_item(ctx, fmt.tprintf("Render · %s##shading render", RENDER_SHOW_NAMES[render_show(app)]), glyph = ICON_RENDER_PREVIEW) do card_reveal(app, .Render)
+		named(ctx, "Render", inner)
+		kit_render_show(app)
+		ui.end(ctx)
 	}
 	if shown != .Flat {
 		colour := 1 - s.grey
