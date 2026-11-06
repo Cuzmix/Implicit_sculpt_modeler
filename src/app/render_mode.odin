@@ -158,17 +158,7 @@ render_preset_set :: proc(app: ^App, p: Render_Preset) {
 // controls, the exact values under More.
 kit_render :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	names: [len(Render_Show)]string
-	for n, i in RENDER_SHOW_NAMES do names[i] = n
-	hints := [len(Render_Show)]string{"", command_hint(app, .Studio_Render), command_hint(app, .Render_Mode)}
-	if picked := ui.tabs(ctx, "render show", names[:], int(render_show(app)), keys = hints[:]); picked >= 0 {
-		switch Render_Show(picked) {
-		case .Off:  render_set(app, false, app.render_quality)
-		case .Fast: render_set(app, true, .Fast)
-		// As its command does, so whatever Full turns on with it comes too.
-		case .Full: if !app.render_on do command_run(app, .Render_Mode)
-		}
-	}
+	kit_render_show(app)
 	// Off has nothing to set: the qualities' controls show once one is picked, so nothing
 	// looks live while nothing renders.
 	if render_show(app) == .Off {
@@ -183,6 +173,23 @@ kit_render :: proc(app: ^App) {
 	switch app.render_quality {
 	case .Fast: kit_render_fast(app)
 	case .Full: kit_render_full(app)
+	}
+}
+
+// The render's one choice, Off, Fast or Full. The Render card and the shading list both
+// draw it, so the view's render is the same control in either place.
+kit_render_show :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	names: [len(Render_Show)]string
+	for n, i in RENDER_SHOW_NAMES do names[i] = n
+	hints := [len(Render_Show)]string{"", command_hint(app, .Studio_Render), command_hint(app, .Render_Mode)}
+	if picked := ui.tabs(ctx, "render show", names[:], int(render_show(app)), keys = hints[:]); picked >= 0 {
+		switch Render_Show(picked) {
+		case .Off:  render_set(app, false, app.render_quality)
+		case .Fast: render_set(app, true, .Fast)
+		// As its command does, so whatever Full turns on with it comes too.
+		case .Full: if !app.render_on do command_run(app, .Render_Mode)
+		}
 	}
 }
 

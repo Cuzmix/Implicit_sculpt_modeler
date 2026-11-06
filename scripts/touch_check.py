@@ -5866,6 +5866,22 @@ def material_card_matcap_disc_lights_clay():
                                                                                     "selected_material": is_text("Clay"), "material_keeps": near(0), "dabs": near(0)})
 
 
+# The shading chip's list at 1600 x 900: the render's Fast, the Render card's own choice.
+SHADING_RENDER_FAST = At("render show/Fast", 258, 295)
+
+
+@scenario
+def shading_menu_render_fast_turns_the_render_on():
+    """In the shading chip's list a finger's tap on the render's Fast, the Render card's own
+    Off | Fast | Full, turns the Fast render on there, with no trip to the card."""
+    s = Script()
+    s.ftap(SHADING_CHIP)
+    s.wait(10)
+    s.ftap(SHADING_RENDER_FAST)
+    s.wait(8)
+    return s, ["--script=shading_mode clay"], camera_still({"render_switch": near(1), "render_quality": is_text("fast"), "studio": near(1), "render": near(0), "dabs": near(0)})
+
+
 # The Material card's More options at 1600 x 900, and its Cavity slider's knob at 0.35 once
 # they are open: Viewport style's own slider (kit_style_detail).
 MATERIAL_CARD_MORE = At("card Material/more", 1376, 664)
