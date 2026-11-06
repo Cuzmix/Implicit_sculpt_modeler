@@ -13031,8 +13031,41 @@ def history_find_steps_at_a_spot():
     return Steps([run((750, 400), 3), run((560, 600), 0)])
 
 
+# Dial back, from the step menu of the list's group of three strokes: its menu row, the
+# dial's Amount slider and its Done.
+HISTORY_DIAL_ITEM = At("Dial back the group...", 1344, 407)
+HISTORY_DIAL_AMOUNT = At("Amount", 1300, 260)
+HISTORY_DIAL_DONE = At("history dial buttons/Done", 1400, 330)
+
+
+@scenario
+def history_dial_back_a_group():
+    """Dial back the group of three strokes from the list's step menu: the dial opens over
+    the rows at 100%, a press at the slider's left end sets it to 0%, and Done makes it one
+    undo step (four in all) with nothing to redo; the strokes' rows stay."""
+    s = Script()
+    history_three_strokes(s)
+    s.add("move:{:g},{:g}".format(*HISTORY_GROUP_ROW))
+    s.wait(3)
+    s.add("right")
+    s.wait(10)
+    click(s, HISTORY_DIAL_ITEM)
+    s.wait(10)
+    s.add(f"move:{where(HISTORY_DIAL_AMOUNT)}")
+    s.wait(2)
+    s.add("down")
+    s.wait(1)
+    s.add("move:{:g},{:g}".format(900, 260))
+    s.wait(4)
+    s.add("up")
+    s.wait(6)
+    click(s, HISTORY_DIAL_DONE)
+    s.wait(10)
+    return s, [], camera_still({"dials": near(1, 0), "dial_open": near(0, 0), "undo_steps": near(4, 0), "redo_steps": near(0, 0)})
+
+
 # The step menu over the list's newest row (opened at HISTORY_GROUP_ROW): its rows.
-HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_SHOW, HISTORY_MENU_DELETE = (1344, 363), (1344, 407), (1344, 451), (1344, 584)
+HISTORY_MENU_PAINT_BACK, HISTORY_MENU_BOOKMARK, HISTORY_MENU_SHOW, HISTORY_MENU_DELETE = (1344, 363), (1344, 451), (1344, 495), (1344, 628)
 
 
 @scenario

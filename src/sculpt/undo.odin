@@ -129,6 +129,8 @@ history_destroy :: proc(h: ^Undo_History) {
 
 // Starts recording a stroke. Dabs applied until sculptor_stroke_end form one step.
 sculptor_stroke_begin :: proc(s: ^Sculptor) {
+	// An open dial reads saved steps a stroke may drop: it closes as if never opened.
+	if s.dial.active do sculptor_dial_cancel(s)
 	// A new stroke locks its own plane (filters.odin).
 	s.locked, s.steady, s.trim, s.stretch = {}, {}, {}, {}
 	// Its dabs read the normals and move the positions, so the last stroke's readback
@@ -210,6 +212,15 @@ sculptor_can_undo :: proc(s: ^Sculptor) -> bool {return len(s.history.done) > 0}
 sculptor_last_step_id :: proc(s: ^Sculptor) -> u64 {
 	if len(s.history.done) == 0 do return 0
 	return s.history.done[len(s.history.done) - 1].id
+}
+
+// How many steps back the done step with id `id` is (1 is the newest), as
+// sculptor_recall_build and sculptor_dial_begin count; 0 when no done step has it (undone,
+// or dropped by the memory limit).
+sculptor_step_back :: proc(s: ^Sculptor, id: u64) -> int {
+	done := s.history.done[:]
+	#reverse for step, i in done do if step.id == id do return len(done) - i
+	return 0
 }
 
 // What the newest done step holds, in bytes (0 with none): the History panel's size for the
@@ -354,6 +365,8 @@ sculptor_undo_bytes :: proc(s: ^Sculptor) -> int {return s.history.bytes}
 
 @(private)
 step_move :: proc(s: ^Sculptor, from, to: ^[dynamic]Undo_Step) -> bool {
+	// An open dial reads the saved positions this swaps: it closes as if never opened.
+	if s.dial.active do sculptor_dial_cancel(s)
 	// A readback landing after the step is swapped would bring the stroke back.
 	_ = sculptor_gpu_sync(s)
 	_ = sculptor_stroke_end(s)

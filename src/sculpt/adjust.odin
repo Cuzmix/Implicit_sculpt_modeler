@@ -163,8 +163,8 @@ job_adjust :: proc(data: rawptr, i: int) {
 }
 
 // The share k of the way from before to after, measured from the nearer end, so 0 gives
-// before and 1 after exactly.
-@(private = "file")
+// before and 1 after exactly. Dial back shares it (dial.odin).
+@(private)
 adjust_vec :: #force_inline proc(before, after: Vec3, k: f32) -> Vec3 {
 	return before + k * (after - before) if k <= 0.5 else after + (1 - k) * (before - after)
 }

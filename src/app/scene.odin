@@ -946,6 +946,9 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	// A drag of where the object sits ends here as its own step, so a snapshot taken
 	// below never holds it half done.
 	if cmd.kind != .None {
+		// An open dial reads the History's saved positions, which a command may change or
+		// free: it closes first, putting the model back as it found it.
+		history_dial_cancel(app)
 		move_end(app)
 		transform_drag_end(app, force = true)
 		inspector_drags_end(app)

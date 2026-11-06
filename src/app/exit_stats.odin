@@ -537,6 +537,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		near := 0
 		for x in find.found do if x.near do near += 1
 		fmt.printfln("history_finds=%d history_find_on=%d history_found=%d history_found_near=%d", find.finds, int(find.on), len(find.found), near)
+		back := &app.timeline.dial
+		fmt.printfln("dials=%d dial_open=%d dial_verts=%d dial_begin_ms=%.3f dial_set_ms=%.3f dial_end_ms=%.3f", back.dials, int(back.open), back.verts, back.begin_ms, back.set_ms, back.end_ms)
 		// The History panel's view, how many rows its list holds (an opened group's strokes
 		// among them), what the History holds and how many old steps it dropped.
 		history_bytes, _ := history_memory(app)

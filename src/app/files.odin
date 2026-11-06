@@ -2037,6 +2037,8 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 // time-lapse. The caller builds every new object first, so one that fails to build
 // leaves the old scene as it was.
 scene_replace :: proc(app: ^App, objects: []^Object, selected, next_id: int, view: camera.Orbit) {
+	// An open dial was on the old scene's model.
+	history_dial_cancel(app)
 	replay_stop(app)
 	stroke_finish(app)
 	timelapse_stop(app, "the scene was replaced")

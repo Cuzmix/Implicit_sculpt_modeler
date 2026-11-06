@@ -924,9 +924,10 @@ history_can_redo :: proc(app: ^App) -> bool {return !history_busy(app) && len(ap
 
 // A stroke, a gizmo or inspector drag of a transform, or a deformer's Amount drag is
 // under way: it becomes a step of its own when it ends, so nothing is undone or redone
-// beneath it.
+// beneath it. An open dial (history_dial.odin) holds the History still too, since it reads
+// the steps' saved positions.
 history_busy :: proc(app: ^App) -> bool {
-	return app.long_job.on || app.stroke.active || app.move.drag.handle != .None || topo_held(app) || app.ui.transform_drag.active || app.ui.deform.drag.active || app.ui.light_drag.active
+	return app.long_job.on || app.stroke.active || app.move.drag.handle != .None || topo_held(app) || app.ui.transform_drag.active || app.ui.deform.drag.active || app.ui.light_drag.active || history_dial_open(app)
 }
 
 history_undo :: proc(app: ^App) {

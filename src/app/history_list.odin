@@ -163,6 +163,8 @@ kit_history_list :: proc(app: ^App, inner, room: f32, owner: ui.Id, can: bool) {
 	ui.fill_rect(ctx, meter, 2.5, t.track)
 	if full > 0 do ui.fill_rect(ctx, {meter.x, meter.y, max(meter.w * full, 5), meter.h}, 2.5, overlay_color(KIND_COLORS[.Stroke]) if full < 0.8 else t.warning)
 
+	// An open dial over the rows (history_dial.odin).
+	kit_history_dial(app, inner)
 	// Found steps at a spot: their chip over the rows.
 	find := &tl.find
 	history_find_settle(app)
@@ -249,7 +251,7 @@ history_row :: proc(app: ^App, row: History_Row, width: f32, can: bool, recall: 
 	ui.begin(ctx, fmt.tprintf("history row %d %v", row.head, row.sub), {direction = .Row, width = width})
 	chevron: f32 = t.target if group else 0
 	a := ui.area(ctx, fmt.tprintf("Step %d##history row %v", row.head + 1, row.sub), {width - chevron, h}, drag = false)
-	if ui.secondary(ctx) && can do history_menu_open(app, row.head, {a.mouse.x, a.mouse.y, 1, 1}, .Pointer)
+	if ui.secondary(ctx) && can do history_menu_open(app, row.head, row.oldest, {a.mouse.x, a.mouse.y, 1, 1}, .Pointer)
 	// Resting on a row or pressing it shows what its step changed; a finger has no rest,
 	// so only its press does.
 	if (a.hovered && ctx.input.pointer != .Finger) || a.held do history_tint_rest(app, e.at)

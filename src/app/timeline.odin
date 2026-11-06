@@ -58,6 +58,8 @@ Timeline :: struct {
 	list_scroll:   f32,
 	quick:         Quick_Scrub, // a hold on Undo or Redo, or of fingers, slid (quick_scrub.odin)
 	find:          History_Find, // Find steps at a spot (history_find.odin)
+	dial:          History_Dial, // Dial back, from the step menu (history_dial.odin)
+	menu_oldest:   time.Tick, // the oldest entry of the row whose menu is open (a group's first stroke)
 }
 
 // The History panel's two views: the list of steps (Nomad's), and the strip of coloured
@@ -102,6 +104,7 @@ timeline_init :: proc(tl: ^Timeline) {
 timeline_destroy :: proc(tl: ^Timeline) {
 	delete(tl.lapse.dir)
 	history_find_destroy(&tl.find)
+	history_dial_destroy(&tl.dial)
 	tl^ = {}
 }
 
@@ -458,7 +461,7 @@ kit_timeline_bar :: proc(app: ^App, enabled: bool) {
 		head := under_step
 		for head > 0 && history_entry_at(app, head).chain do head -= 1
 		x := x_at(r, under_step, total)
-		history_menu_open(app, head, {x, r.y, max(x_at(r, under_step + 1, total) - x, 1), r.h}, .Above_Center)
+		history_menu_open(app, head, head, {x, r.y, max(x_at(r, under_step + 1, total) - x, 1), r.h}, .Above_Center)
 	}
 	if a.pressed do tl.scrubbing, tl.picked = ctx.input.pointer == .Mouse, false
 	if a.held && !tl.picked && linalg.length(a.mouse - ctx.press_mouse) > ctx.theme.slop do tl.scrubbing = true
