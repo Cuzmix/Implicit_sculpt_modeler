@@ -56,6 +56,7 @@ Command_Id :: enum u16 {
 	Tool_Curve,
 	Tool_Insert,
 	Tool_Model,
+	Tool_Look,
 	Gizmo, // the argument is the gizmo.Mode
 	Gizmo_Snap,
 	Gizmo_Pivot,
@@ -633,6 +634,13 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_GRID,
 		run = proc(app: ^App, _: int) {app.tool = .Model; space_picked(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Model},
+	},
+	.Tool_Look = {
+		label = "Look tool",
+		help = "Changes nothing: a press turns the view, so setting the look or the lights never sculpts by mistake; the lights' markers, picking focus and the Live stack's handles keep their presses.",
+		icon = ICON_LOOK,
+		run = proc(app: ^App, _: int) {app.tool = .Look; space_picked(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Look},
 	},
 	.Add_Cage = {
 		label = "Add cage",

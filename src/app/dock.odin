@@ -115,7 +115,11 @@ TOOL_COMMANDS := [Tool]Command_Id {
 	.Curve  = .Tool_Curve,
 	.Insert = .Tool_Insert,
 	.Model  = .Tool_Model,
+	.Look   = .Tool_Look,
 }
+
+// The Look tool's icon, Lucide's view (an eye in a frame): a look, not a change.
+ICON_LOOK :: rune(0xe1a7)
 
 @(rodata)
 TOOL_ICONS := [Tool]rune {
@@ -124,4 +128,5 @@ TOOL_ICONS := [Tool]rune {
 	.Curve  = ui.ICON_SPLINE,
 	.Insert = ui.ICON_SHAPES,
 	.Model  = ui.ICON_GRID,
+	.Look   = ICON_LOOK,
 }

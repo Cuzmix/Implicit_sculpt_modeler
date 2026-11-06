@@ -690,9 +690,9 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 	if light_marker_pressed(app, mouse, input.size) do return .Tool, false
 	// And the open Live stack row's handle, while its card shows it.
 	if stack_handles_take_press(app, mouse, input.size) do return .Tool, false
-	// Render is for looking: a press there turns the view, so no stroke lands while the
+	// The Look tool is for looking: a press turns the view, so no stroke lands while the
 	// light or the look is being set; picking focus and the lights' own presses stay.
-	if app.kit.spaces.current == .Render && !app.ui.focus_armed && !lights_take_press(app, mouse, input.size) do return .Orbit, false
+	if app.tool == .Look && !app.ui.focus_armed && !lights_take_press(app, mouse, input.size) do return .Orbit, false
 	if d.pointer == .Finger && finger_model_now(app) == .Orbit do return .Orbit, false
 	// The rail's Mask or Hide, for the brushes, keeps empty space for their shapes as Ctrl
 	// does; only held there by a finger does it take the safe zone too, so a view filled

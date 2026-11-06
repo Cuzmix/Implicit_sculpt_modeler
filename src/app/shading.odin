@@ -320,7 +320,9 @@ look_group_now :: proc(app: ^App) -> Look_Group {
 		k.passes.tool_group = .Sculpt
 		return .Sculpt
 	}
-	if app.tool != .Brush do k.passes.tool_group = .Sculpt
+	// The Look tool keeps the group it found, so the look being set is the one shown.
+	if app.tool == .Look {
+	} else if app.tool != .Brush do k.passes.tool_group = .Sculpt
 	else if app.brush.kind == .Paint do k.passes.tool_group = .Paint
 	else if app.brush.kind != .Mask && app.brush.kind != .Smooth do k.passes.tool_group = .Sculpt
 	return .Lights if lights_section_shown(app) else k.passes.tool_group
