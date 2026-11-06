@@ -276,15 +276,21 @@ usda_property :: proc(r: ^Usda, prim: int) -> bool {
 	if strings.has_suffix(prop_name, ".timeSamples") {
 		prop_name = prop_name[:len(prop_name) - len(".timeSamples")]
 		samples = true
-	} else if strings.has_suffix(prop_name, ".connect") || strings.has_suffix(prop_name, ".spline") {
-		is_rel = true // a connection's targets, not a value
+	} else if strings.has_suffix(prop_name, ".connect") {
+		// A connection's targets, kept on the attribute it connects.
+		prop_name = prop_name[:len(prop_name) - len(".connect")]
+		is_rel = true
+	} else if strings.has_suffix(prop_name, ".spline") {
+		is_rel = true // a spline's knots, not a value
 	}
 	prop := r.stage.prims[prim].props[prop_name]
 	prop.type_name = type_name
 	if usda_peek(r).kind == .Equals {
 		usda_next(r)
 		if is_rel {
-			if !usda_value(r, nil, nil) do return false
+			targets := make([dynamic]string, context.temp_allocator)
+			if !usda_value(r, nil, &targets) do return false
+			if type_name == "rel" || strings.has_suffix(name.text, ".connect") do prop.targets = targets[:]
 		} else if samples {
 			v, ok := usda_samples(r, type_name)
 			if !ok do return false
@@ -300,7 +306,7 @@ usda_property :: proc(r: ^Usda, prim: int) -> bool {
 		if r.failed do return false
 		if i, ok := meta.interpolation.?; ok do prop.interpolation = i
 	}
-	if !is_rel do r.stage.prims[prim].props[prop_name] = prop
+	if !is_rel || prop.targets != nil do r.stage.prims[prim].props[prop_name] = prop
 	return true
 }
 
