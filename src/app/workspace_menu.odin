@@ -23,6 +23,7 @@ Workspace_Menu :: struct {
 	renamed: int,
 	deleted: int,
 	moved:   int, // tabs carried to another place
+	scroll:  f32, // the list's scroll, when it is taller than the room under the bar
 }
 
 // A deleted workspace, kept for its toast's Undo: the workspace whole (its strings now the
@@ -76,7 +77,15 @@ workspace_new :: proc(app: ^App, typed: string, from: Starter) -> bool {
 	w.name = strings.clone(name)
 	w.starter = from
 	if from == .None {
+		// The first colour no workspace has, so tabs stay told apart; the one in front's
+		// when all four are taken.
 		w.tint = now.tint
+		used: bit_set[0 ..< 8]
+		for other in ws.list do if other.name != "" do used += {int(other.tint) % 8}
+		for c in 0 ..< 4 do if c not_in used {
+			w.tint = u8(c)
+			break
+		}
 		for c in Layout_Class {
 			text := kit_layout_text(k) if c == ws.class else now.kept[c] if now.kept[c] != "" else workspace_base(k, ws.current, c)
 			w.base[c] = strings.clone(text)
@@ -96,7 +105,7 @@ workspace_new :: proc(app: ^App, typed: string, from: Starter) -> bool {
 	k.layouts.edit.made += 1
 	workspace_switch(app, slot)
 	workspaces_store(app)
-	report(app, nil, {}, "Made %s", name)
+	report(app, nil, {.Quiet}, "Made %s", name)
 	return true
 }
 
@@ -233,18 +242,32 @@ kit_layout_menu :: proc(app: ^App) {
 		ctx.text_focus = 0
 		m.typing = false
 	}
-	if !l.menu do m.naming, m.more, m.ties = false, 0, false
+	if !l.menu do m.naming, m.more, m.ties, m.scroll = false, 0, false, 0
+	owner := ui.id_of(ctx, "layout menu")
 	if !ui.popover_begin(ctx, "layout menu", &l.menu, l.menu_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
 	inner := f32(ui.MENU_W - 2 * ui.MENU_PAD)
+	tabs := workspace_tabs(k)
+	// New workspace's form stands alone: the list is the chevron's.
+	if m.naming {
+		workspace_naming(app)
+		return
+	}
 	ui.caption(ctx, "  WORKSPACES")
 	picked := false
-	tabs := workspace_tabs(k)
+	// The rows scroll when twelve workspaces and an open one's actions are taller than the
+	// room under the bar.
+	room := max(ctx.input.window.y - (l.menu_at.y + l.menu_at.h) - 2 * ui.MENU_PAD - 3 * t.target, 3 * t.target)
+	body := kit_scroll_begin(ctx, "workspace rows", &m.scroll, owner, inner, room, 0)
 	for slot in tabs {
 		w := &k.workspaces.list[slot]
 		ui.begin(ctx, fmt.tprintf("workspace row %d", slot), {direction = .Row, width = inner, center = true})
 		ui.begin(ctx, "switch", {direction = .Column, width = inner - t.target})
-		picked ||= command_menu_item(app, .Workspace_Switch, slot, label = fmt.tprintf("%s##workspace %d", w.name, slot))
+		// Its own icon, as its tab shows it, rather than the command's.
+		if ui.menu_item(ctx, fmt.tprintf("%s##workspace %d", w.name, slot), keys = command_hint(app, .Workspace_Switch, slot), glyph = STARTER_ICONS[w.starter], checked = slot == k.workspaces.current) {
+			command_run(app, .Workspace_Switch, slot)
+			picked = true
+		}
 		ui.end(ctx)
 		if ui.icon_button(ctx, fmt.tprintf("%s's actions##workspace more", w.name), ui.ICON_MORE, selected = m.more == slot + 1, size = t.control) {
 			m.more = 0 if m.more == slot + 1 else slot + 1
@@ -254,10 +277,10 @@ kit_layout_menu :: proc(app: ^App) {
 		row := ctx.last_rect
 		if m.more == slot + 1 do workspace_actions(app, slot, row, len(tabs))
 	}
+	kit_scroll_end(ctx, body)
+	// Below the list, so it stays in sight however far the list scrolls.
 	ui.divider(ctx, across = true)
-	if m.naming {
-		workspace_naming(app)
-	} else if ui.menu_item(ctx, "New workspace...##workspace", glyph = ui.ICON_PLUS, enabled = len(tabs) < WORKSPACE_SLOTS, reason = "All twelve workspaces are taken") {
+	if ui.menu_item(ctx, "New workspace...##workspace", glyph = ui.ICON_PLUS, enabled = len(tabs) < WORKSPACE_SLOTS, reason = "All twelve workspaces are taken") {
 		workspace_naming_open(k)
 	}
 	if picked && !m.naming do l.menu = false
@@ -286,8 +309,14 @@ workspace_naming :: proc(app: ^App) {
 	options := make([]string, len(Starter), context.temp_allocator)
 	for s in Starter do options[s] = fmt.tprintf("This layout (%s)", workspace_now(k).name) if s == .None else fmt.tprintf("%s as it ships", STARTER_NAMES[s])
 	if picked := ui.select(ctx, "start from##new workspace", options, int(m.from)); picked >= 0 do m.from = Starter(picked)
-	ui.paragraph(ctx, "A copy is tied to no tool, so only its tab brings it; a starter brings the tools it ships with that no other workspace holds.", f32(ui.MENU_W - 2 * ui.MENU_PAD), t.text_secondary)
-	make_it, cancel := kit_button_pair(ctx, "Make", "Cancel", tone_a = .Accent)
+	note := "Opened by its tab only" if m.from == .None else fmt.tprintf("Opened by its tab and the tools %s ships with", STARTER_NAMES[m.from])
+	ui.paragraph(ctx, note, f32(ui.MENU_W - 2 * ui.MENU_PAD), t.text_secondary)
+	// Create is the one primary action, solid; Cancel stays quiet.
+	half := (f32(ui.MENU_W - 2 * ui.MENU_PAD) - ui.SPACE_M) * 0.5
+	ui.begin(ctx, "new workspace buttons", {direction = .Row, gap = ui.SPACE_M})
+	make_it := ui.button(ctx, "Create", .Solid, .Accent, width = half)
+	cancel := ui.button(ctx, "Cancel", .Flat, .Neutral, width = half)
+	ui.end(ctx)
 	d := &app.device
 	make_it ||= key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER)
 	if make_it && workspace_new(app, rename_text(m.name[:]), m.from) {
@@ -311,13 +340,16 @@ workspace_actions :: proc(app: ^App, slot: int, row: ui.Rect, count: int) {
 	m := &k.layouts.edit
 	w := &k.workspaces.list[slot]
 	inner := f32(ui.MENU_W - 2 * ui.MENU_PAD)
-	ui.begin(ctx, fmt.tprintf("workspace actions %d", slot), {direction = .Column, width = inner})
+	// Indented a step under its row, a hairline after, so where one workspace's actions end
+	// shows.
+	ui.begin(ctx, fmt.tprintf("workspace actions %d", slot), {direction = .Column, width = inner, padding = ui.SPACE_XL})
+	defer ui.divider(ctx, across = true)
 	defer ui.end(ctx)
-	if ui.menu_item(ctx, "Rename...##workspace", glyph = ui.ICON_PENCIL) {
+	if ui.menu_item(ctx, "Rename...##workspace", glyph = ui.ICON_RENAME) {
 		k.rename = {open = true, workspace = slot + 1, at = row}
 		k.layouts.menu = false
 	}
-	if ui.menu_item(ctx, "Duplicate##workspace", glyph = ui.ICON_COPY, enabled = count < WORKSPACE_SLOTS, reason = "All twelve workspaces are taken") {
+	if ui.menu_item(ctx, "Duplicate##workspace", glyph = ui.ICON_DUPLICATE, enabled = count < WORKSPACE_SLOTS, reason = "All twelve workspaces are taken") {
 		if slot != k.workspaces.current do workspace_switch(app, slot)
 		_ = workspace_new(app, fmt.tprintf("%s copy", w.name), .None)
 		m.more = 0
@@ -332,8 +364,12 @@ workspace_actions :: proc(app: ^App, slot: int, row: ui.Rect, count: int) {
 	tied := strings.builder_make(context.temp_allocator)
 	for tie in Tie do if tie in w.ties do fmt.sbprintf(&tied, "%s%s", ", " if strings.builder_len(tied) > 0 else "", TIE_NAMES[tie])
 	summary := strings.to_string(tied) if strings.builder_len(tied) > 0 else "its tab only"
-	if ui.menu_item(ctx, "Brought by##workspace", checked = m.ties, hint = fmt.tprintf("Now: %s. A tool ticked here brings this workspace when it is picked; ticking one another workspace holds moves it here.", summary)) do m.ties = !m.ties
+	ties_tag := fmt.tprintf("%d tool%s", card(w.ties), "" if card(w.ties) == 1 else "s") if w.ties != {} else "tab only"
+	if ui.menu_item(ctx, "Opened by##workspace", glyph = ui.ICON_CHEVRON_DOWN if m.ties else ui.ICON_CHEVRON_RIGHT, tag = ties_tag, tag_color = t.text_tertiary, hint = fmt.tprintf("Now: %s. A tool ticked here brings this workspace when it is picked; ticking one another workspace holds moves it here.", summary)) do m.ties = !m.ties
 	if m.ties {
+		// A step further in, under their fold.
+		ui.begin(ctx, "workspace ties", {direction = .Column, width = inner - 2 * ui.SPACE_XL, padding = ui.SPACE_M})
+		defer ui.end(ctx)
 		for tie in Tie {
 			holder := workspace_holding(k, tie)
 			tag := "" if holder == slot else fmt.tprintf("in %s", k.workspaces.list[holder].name) if holder >= 0 else "nowhere"
@@ -343,7 +379,7 @@ workspace_actions :: proc(app: ^App, slot: int, row: ui.Rect, count: int) {
 	// The one in front's is the Reset layout command, with its keys; another's forgets what it kept.
 	if slot == k.workspaces.current {
 		_ = command_menu_item(app, .Layout_Reset, label = "Reset layout##workspace")
-	} else if ui.menu_item(ctx, "Reset layout##workspace", glyph = ui.ICON_HISTORY, enabled = layout_changed(k, slot), reason = "Its layout is as it started") {
+	} else if ui.menu_item(ctx, "Reset layout##workspace", glyph = ui.ICON_RESET_LAYOUT, enabled = layout_changed(k, slot), reason = "Its layout is as it started") {
 		workspace_reset(app, slot)
 	}
 	if ui.menu_item(ctx, "Delete##workspace", glyph = ui.ICON_TRASH, tone = .Danger, enabled = count > 1, reason = "The last workspace stays") {

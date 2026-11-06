@@ -6843,14 +6843,14 @@ def lens_pie_editor_brush_slot_chooses_in_search():
 
 # The workspace menu's controls by name: the top bar's +, the menu's Make, a workspace's
 # actions (its ⋯ and the rows under it).
-WORKSPACE_MENU = {"plus": At("top bar/New workspace", 893, 26), "make": At("layout menu/Make", 669, 300),
+WORKSPACE_MENU = {"plus": At("top bar/New workspace", 893, 26), "make": At("layout menu/Create", 669, 300),
                   "rename": At("layout menu/Rename...", 669, 143), "delete": At("layout menu/Delete", 669, 375),
-                  "brought_by": At("layout menu/Brought by", 669, 287), "model_tool": At("layout menu/Model tool", 669, 450)}
+                  "brought_by": At("layout menu/Opened by", 669, 287), "model_tool": At("layout menu/Model tool", 669, 450)}
 
 
 @scenario
 def workspace_plus_makes_a_copy_and_switches():
-    """The top bar's + asks a name; Make with Detail typed makes Detail after Sculpt, a copy of Sculpt's layout tied to no tool, and puts it in front."""
+    """The top bar's + asks a name; Create with Detail typed makes Detail after Sculpt, a copy of Sculpt's layout tied to no tool, and puts it in front."""
     s = Script()
     s.ftap(WORKSPACE_MENU["plus"])
     s.wait(4)
@@ -6894,7 +6894,7 @@ def workspace_delete_current_goes_left():
 
 @scenario
 def workspace_tie_brings_it_with_its_tool():
-    """A new workspace ticked for the Model tool in its Brought by takes the tie from Model: back in Sculpt, the Model tool brings the new one."""
+    """A new workspace ticked for the Model tool in its Opened by takes the tie from Model: back in Sculpt, the Model tool brings the new one."""
     s = Script()
     s.ftap(WORKSPACE_MENU["plus"])
     s.wait(4)

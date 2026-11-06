@@ -405,11 +405,12 @@ top_workspace_tabs :: proc(app: ^App, shown: int) -> f32 {
 	picked := ui.tabs(ctx, "Workspaces", names, chosen, glyphs = glyphs, keys = keys, dragged = &dragged, menu = &menu)
 	seg := ctx.last_rect
 	x := start + 3
-	for slot, i in tabs {
+	for slot in tabs {
 		w := &k.workspaces.list[slot]
 		sw := workspace_tab_width(ctx, w.name)
 		k.workspace_tab_at[slot] = {x, seg.y, sw, seg.h}
-		if i == chosen do ui.fill_circle(ctx, {x + 7, seg.y + 7}, 2.5, t.tints[int(w.tint) % len(t.tints)])
+		// Every tab carries its workspace's colour, the colour the menu sets.
+		ui.fill_circle(ctx, {x + 8, seg.y + 8}, 2.5, t.tints[int(w.tint) % len(t.tints)])
 		if layout_changed(k, slot) do ui.fill_circle(ctx, {x + sw - 9, seg.y + seg.h * 0.5}, 3, t.warning)
 		x += sw
 	}
@@ -432,7 +433,7 @@ top_workspace_tabs :: proc(app: ^App, shown: int) -> f32 {
 		l.edit.more, l.edit.naming = 0, false
 		l.menu_at = ctx.last_rect
 	}
-	if folded > 0 do ui.text(ctx, fmt.tprint(folded), ctx.last_rect.x + ctx.last_rect.w - 6, ctx.last_rect.y + 9, t.caption_size, t.text_secondary, .Semibold, .Center)
+	if folded > 0 do ui.text(ctx, fmt.tprintf("+%d", folded), ctx.last_rect.x + ctx.last_rect.w - 4, ctx.last_rect.y + 9, t.small_size, t.text_secondary, .Semibold, .Center)
 	if ui.icon_button(ctx, "New workspace", ui.ICON_PLUS, selected = l.menu && l.edit.naming, size = t.control, keys = command_hint(app, .Workspace_New)) {
 		was := l.menu && l.edit.naming
 		kit_floats_close(k)
