@@ -4797,6 +4797,21 @@ def model_live_deform_and_displace():
                   (Script(), LENS_1440 + [f"--script={base}; stack open deform"], {"cage_deformed": near(1)})])
 
 @scenario
+def model_live_curve_and_wrap_follow():
+    """A cylinder cage laid along a curve object (fitted, its Y along it) draws closed and follows the curve when the curve is moved; a cube cage wrapped onto the sphere draws closed; both come back from a saved scene as they were, and a Remove takes the row off as one undo step."""
+    path = scene_file()
+    shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+    os.makedirs(os.path.dirname(path))
+    curve = "curve_add -2 0 0 0 1.5 0 2 0 0; add_cage cylinder; select 1; delete_object; select 2; cage_smooth 2; wait 1; stack curve y; wait 1"
+    wrap = "add_cage cube; select 2; move 0 0 0; cage_smooth 2; wait 1; stack wrap 2; wait 1"
+    return Steps([(Script(), LENS_1440 + ["--check-mesh", f"--script={curve}", f"--save={path}"], {"cages": near(1), "cage_following": near(1), "cage_live_broken": near(0), "mesh_closed": is_text("true")}),
+                  (Script(), LENS_1440 + [f"--script={curve}; select 1; move 0 2 0; wait 2"], {"cage_following": near(1), "cage_follow_updates": lambda v: int(v) >= 1}),
+                  (Script(), LENS_1440 + [f"--open={path}"], {"cages": near(1), "cage_following": near(1)}),
+                  (Script(), LENS_1440 + [f"--script={curve}; stack curve off; wait 1; undo"], {"cage_following": near(1)}),
+                  (Script(), LENS_1440 + ["--check-mesh", f"--script={wrap}"], {"cages": near(1), "cage_following": near(1), "cage_live_broken": near(0), "mesh_closed": is_text("true")}),
+                  (Script(), LENS_1440 + [f"--script={wrap}; stack open wrap"], {"cage_following": near(1)})])
+
+@scenario
 def model_live_mirror_shows_both_halves():
     """Mirror X on a cube cage draws its image across the plane; an extrude drag on the cube's right face then grows the left side too (the cage ten faces, the drawing twenty); Apply mirror makes the image part of the cage and turns the mirror off; a mirror comes back from a saved scene as it was."""
     path = scene_file()
