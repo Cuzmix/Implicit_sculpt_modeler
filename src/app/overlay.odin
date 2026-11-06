@@ -445,6 +445,7 @@ draw_move_labels :: proc(app: ^App, o: Overlay, input: Viewport_Input) {
 	if g := app.move.topo; g.phase == .Live {
 		overlay_circle(o, g.down, linalg.length(input.mouse_pos - g.down), overlay_color({1, 0.85, 0.3, 0.6}), 1.5 * px)
 	}
+	if d := app.move.drag; d.live && d.stuck do draw_snap_mark(app, o, input.size, d.stuck_at)
 	if text := move_readout(app); text != "" {
 		overlay_label(o, text, input.mouse_pos + [2]f32{0, -40 * px})
 	}

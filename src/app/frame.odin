@@ -318,12 +318,12 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				mesh   = gpu,
 				textured = textured,
 				// Off while only Material Preview asks for the preview: its shading turns it on.
-				texture_view = app.texture_view if textured != nil else .Off,
+				texture_view = object_texture_view(app, obj) if textured != nil else .Off,
 				model  = transform_matrix(obj.transform),
 				color  = color,
 				material = material.shading,
 				surface = {material.metallic, material.roughness},
-				flat = app.flat || obj.cage != nil,
+				flat = app.flat || obj.cage != nil && obj.cage.look.sharp <= 0,
 				look = object_look(app, selected),
 				style = viewport_style(app),
 				lights = viewport_lights(app),
@@ -331,7 +331,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				wireframe = overlay && app.polyframe_lines && !poly_edges,
 				paint  = sculpt.sculptor_paint_shows(&lv.sculptor) && !obj.paint_off,
 				groups = (app.show_groups || overlay && app.polyframe_fill) && sculpt.sculptor_has_groups(&lv.sculptor),
-				// A cage shows its edges, and its faces flat, as a polygon model does; the
+				// A cage shows its edges, and its faces flat unless Sharp edges shades them
+				// smoothly but at its hard edges, as a polygon model does; the
 				// wireframe of a level with polygons shows their edges the same way.
 				cage_lines = obj.cage != nil || poly_lines,
 				// The HD window's mesh carries no groups.
@@ -657,6 +658,8 @@ frame_settle :: proc(app: ^App, loop: ^Frame_Loop) -> (setting_up: bool, done: b
 	// selection stays on an object in view and in reach.
 	scene_folders_normalize(app)
 	scene_selection_fix(app)
+	// A cage laid along a curve or wrapped onto an object follows it when it changed.
+	if !long_job_busy(app) && !cage_follow_frame(app) do return false, false
 	materials_settle(app)
 	textures_settle(app)
 	if !script_frame(app) do return false, false

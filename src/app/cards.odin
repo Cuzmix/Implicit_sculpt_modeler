@@ -442,6 +442,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Section) {
 	.Delete_Half           = .Mirror,
 	.Unwrap                = .Uvs,
 	.Straighten            = .Uvs,
+	.Texel_Density         = .Uvs,
 	.Mask                  = .Mask,
 	.Store_Selection_Set   = .Sets,
 	.Group                 = .Groups,

@@ -4505,6 +4505,92 @@ def model_points_g_z_keeps_to_the_axis():
 
 
 @scenario
+def model_points_g_snaps_onto_another_cage():
+    """Snap on, snapping to points: a picked corner moved with G lands on the other cube's corner under the pointer, so the cage reaches out to it along X and its Y and Z stay those of the corner it landed on."""
+    s = Script()
+    s.add("move:800,500")
+    s.wait(1)
+    s.press("g")
+    for x, y in [(760, 510), (700, 525), (650, 540), (622, 549), (619, 551)]:
+        s.add(f"move:{x},{y}")
+        s.wait(1)
+    s.press("Return")
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; move 2 0 0; add_cage cube; frame_all; model_action select; set model_pick point; set gizmo_snap 1; set snap_to points; cage pick 0"], {"cage_picked": near(1), "model_xforms": near(1), "cage_lo": lambda got: float(got.split(",")[0]) < -1.4 and all(abs(float(c) + 0.5774) < 1e-3 for c in got.split(",")[1:])}
+
+
+@scenario
+def model_selection_gizmo_tap_types_a_value():
+    """A click on the selection gizmo's X arm that moves nothing opens its value: +0.5 and Enter move the picked corner half a unit along X, as one undo step."""
+    s = Script()
+    click(s, (915, 578))
+    type_value(s, "+0.5")
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action select; set model_pick point; cage pick 0"], {"cage_hi": lambda got: abs(float(got.split(",")[0]) - 1.0774) < 1e-3, "undo_steps": near(1), "gizmo_entry": is_text("none")}
+
+
+@scenario
+def model_edit_separate_split_and_fill():
+    """The Model card's Edit commands by script: Separate makes two selected faces a cage of their own; Split frees a face along its outline (four points more); Fill closes the two holes Separate left (faces 0 and 1 lie opposite), one face each."""
+    sep, split, fill = Script(), Script(), Script()
+    for s in (sep, split, fill):
+        s.wait(5)
+    base = "add_cage cube; select 1; delete_object; frame_all; model_action select; "
+    return Steps([
+        (sep, LENS_1440 + ["--script=" + base + "cage select 0 1; wait 1; cage_edit separate"], {"cages": near(2), "model_edits": near(1)}),
+        (split, LENS_1440 + ["--script=" + base + "cage select 0; wait 1; cage_edit split"], {"cage_points": near(12), "cage_faces": near(6), "model_edits": near(1)}),
+        (fill, LENS_1440 + ["--script=" + base + "cage select 0 1; wait 1; cage_edit separate; wait 1; cage_edit fill"], {"cages": near(2), "cage_faces": near(8), "cage_points": near(16), "model_edits": near(2)}),
+    ])
+
+
+@scenario
+def model_boolean_subtracts_the_cage_below():
+    """Subtract the cage below: a cylinder cage overlapping a cube's corner is cut out of it exactly (more faces, the seam creased) and goes."""
+    s = Script()
+    s.wait(5)
+    setup = "--script=add_cage cube; select 1; delete_object; add_cage cylinder; wait 1; move 0.4 0.3 0.4; wait 1; select 1; wait 1; move 0 0 0; wait 1; frame_all; wait 1; cage_edit subtract"
+    return s, LENS_1440 + [setup], {"cages": near(1), "cage_faces": near(11), "cage_creases": near(8), "model_edits": near(1)}
+
+
+@scenario
+def model_relax_brush_drags_over_a_cage():
+    """Relax: a drag over a subdivided cube evens its points out as one undo step; the cube keeps about its size."""
+    s = Script()
+    s.mouse_drag(line((640, 460), (700, 540), 12))
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action select; select_cage all; wait 1; cage_edit subdivide; wait 1; model_action relax"], {"model_relaxes": near(1), "model_edits": near(1), "cage_faces": near(24), "cage_hi": lambda got: all(0.45 < float(c) < 0.6 for c in got.split(","))}
+
+
+@scenario
+def model_slide_moves_an_edge_along_its_faces():
+    """Slide: a press on the cube's front vertical edge and a drag left slides its two ends along the top and bottom edges, one undo step; the points stay eight."""
+    s = Script()
+    s.mouse_drag(line((752, 530), (690, 530), 12))
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action slide; model_target single"], {"model_slides": near(1), "cage_points": near(8), "model_done": near(1)}
+
+
+@scenario
+def model_measure_drag_snaps_to_corners():
+    """Measure: a drag from near one corner of a cube to near the one below shows their distance, exactly the cube's edge, and changes nothing."""
+    s = Script()
+    s.mouse_drag(line((757, 418), (748, 642), 10))
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action measure"], {"measures": near(1), "measure": near(1.1547, 1e-3), "model_done": near(0), "undo_steps": near(0), "cage_points": near(8)}
+
+
+@scenario
+def model_measure_two_taps():
+    """Measure: a tap on one corner, then one on another, measures between them as a drag does."""
+    s = Script()
+    s.mouse_drag([(757, 418)])
+    s.wait(3)
+    s.mouse_drag([(560, 380)])
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action measure"], {"measures": near(1), "measure": near(1.1547, 1e-3), "model_done": near(0)}
+
+
+@scenario
 def model_select_ctrl_tap_deselects():
     """With every face selected (Select all), a Ctrl tap with Select on the front face deselects it alone."""
     s = Script()
@@ -4697,6 +4783,55 @@ def model_live_stack_bevels_and_thickens():
                   (s, LENS_1440 + [f"--script={cube}; model_action extrude"], {"cage_faces": near(10), "cage_points": near(12), "model_done": near(1), "cage_live_faces": lambda v: int(v) > 38}),
                   (Script(), LENS_1440 + [f"--script={plate}", "--check-mesh"], {"cage_faces": near(1), "cage_live_faces": lambda v: int(v) > 6, "cage_smooth": near(2)}),
                   (Script(), LENS_1440 + ["--check-mesh", f"--script={plate}; apply_cage"], {"cages": near(0), "selected_levels": near(3), "levels_rule": is_text("Smooth"), "mesh_closed": is_text("true")})])
+
+@scenario
+def model_live_deform_and_displace():
+    """Twist along Y and Displace on a smoothed tall cage keep its six faces and draw them moved (the stack's faces as many, every point picked on them still), each setting one undo step; Deform and Displace come back from a saved scene as they were."""
+    path = scene_file()
+    shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+    os.makedirs(os.path.dirname(path))
+    base = "add_cage cube; select 1; delete_object; frame_all; cage_smooth 2; cage_deform twist; cage_deform_axis y; cage_displace 3"
+    return Steps([(Script(), LENS_1440 + ["--check-mesh", f"--script={base}", f"--save={path}"], {"cages": near(1), "cage_faces": near(6), "cage_live_faces": near(6), "cage_live_broken": near(0), "cage_deformed": near(1), "mesh_closed": is_text("true")}),
+                  (Script(), LENS_1440 + [f"--script={base}; undo; undo; undo"], {"cage_faces": near(6), "cage_deformed": near(0), "cage_live_faces": near(0)}),
+                  (Script(), LENS_1440 + [f"--open={path}"], {"cages": near(1), "cage_live_faces": near(6), "cage_deformed": near(1), "cage_smooth": near(2)}),
+                  (Script(), LENS_1440 + [f"--script={base}; stack open deform"], {"cage_deformed": near(1)})])
+
+@scenario
+def model_live_curve_and_wrap_follow():
+    """A cylinder cage laid along a curve object (fitted, its Y along it) draws closed and follows the curve when the curve is moved; a cube cage wrapped onto the sphere draws closed; both come back from a saved scene as they were, and a Remove takes the row off as one undo step."""
+    path = scene_file()
+    shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+    os.makedirs(os.path.dirname(path))
+    curve = "curve_add -2 0 0 0 1.5 0 2 0 0; add_cage cylinder; select 1; delete_object; select 2; cage_smooth 2; wait 1; stack curve y; wait 1"
+    wrap = "add_cage cube; select 2; move 0 0 0; cage_smooth 2; wait 1; stack wrap 2; wait 1"
+    return Steps([(Script(), LENS_1440 + ["--check-mesh", f"--script={curve}", f"--save={path}"], {"cages": near(1), "cage_following": near(1), "cage_live_broken": near(0), "mesh_closed": is_text("true")}),
+                  (Script(), LENS_1440 + [f"--script={curve}; select 1; move 0 2 0; wait 2"], {"cage_following": near(1), "cage_follow_updates": lambda v: int(v) >= 1}),
+                  (Script(), LENS_1440 + [f"--open={path}"], {"cages": near(1), "cage_following": near(1)}),
+                  (Script(), LENS_1440 + [f"--script={curve}; stack curve off; wait 1; undo"], {"cage_following": near(1)}),
+                  (Script(), LENS_1440 + ["--check-mesh", f"--script={wrap}"], {"cages": near(1), "cage_following": near(1), "cage_live_broken": near(0), "mesh_closed": is_text("true")}),
+                  (Script(), LENS_1440 + [f"--script={wrap}; stack open wrap"], {"cage_following": near(1)})])
+
+@scenario
+def model_panel_loops_raise_a_creased_panel():
+    """Panel loops on one face of a cube cage insets it and raises it on a wall (fourteen faces, twelve creased edges), one undo step that undo takes back (a refusal with nothing selected is in poly's tests, as a script stops at a command that changes nothing)."""
+    base = "add_cage cube; select 1; delete_object; frame_all; model_action select; "
+    return Steps([(Script(), LENS_1440 + ["--script=" + base + "cage select 0; wait 1; cage_edit panel_loops"], {"cage_faces": near(14), "cage_creases": near(12), "cage_broken": near(0), "model_edits": near(1)}),
+                  (Script(), LENS_1440 + ["--script=" + base + "cage select 0; wait 1; cage_edit panel_loops; wait 1; undo"], {"cage_faces": near(6), "cage_creases": near(0)})])
+
+@scenario
+def model_sharp_edges_shade_hard_past_the_angle():
+    """Sharp edges at 50° on an eight-sided cylinder cage splits the points of its two rims (the sides meet at 45°, so they stay smooth) and nothing else, the cage itself whole; the row comes back from a saved scene, a Remove is one undo step, and Apply to sculpt makes closed levels with no copies left; an open cube's Apply welds its copies back, leaving only the two holes' edges open."""
+    path = scene_file()
+    shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+    os.makedirs(os.path.dirname(path))
+    base = "add_cage cylinder; select 1; delete_object; frame_all; wait 1; stack sharp 50; wait 1"
+    return Steps([(Script(), LENS_1440 + [f"--script={base}", f"--save={path}"], {"cages": near(1), "cage_sharp_copies": near(16), "cage_broken": near(0)}),
+                  (Script(), LENS_1440 + [f"--open={path}"], {"cages": near(1), "cage_sharp_copies": near(16)}),
+                  (Script(), LENS_1440 + [f"--script={base}; stack sharp off; wait 1"], {"cage_sharp_copies": near(0)}),
+                  (Script(), LENS_1440 + [f"--script={base}; stack sharp off; wait 1; undo"], {"cage_sharp_copies": near(16)}),
+                  (Script(), LENS_1440 + ["--check-mesh", f"--script={base}; apply_cage"], {"cages": near(0), "mesh_closed": is_text("true")}),
+                  (Script(), LENS_1440 + [f"--script={base}; stack open sharp"], {"cage_sharp_copies": near(16)}),
+                  (Script(), LENS_1440 + ["--check-mesh", "--script=add_cage cube; select 1; delete_object; frame_all; model_action select; cage select 0 1; wait 1; cage_edit separate; wait 1; select 1; wait 1; stack sharp 30; wait 1; apply_cage"], {"cages": near(1), "cage_sharp_copies": near(0), "mesh_non_manifold_edges": near(0), "mesh_boundary_edges": near(8)})])
 
 @scenario
 def model_live_mirror_shows_both_halves():
@@ -9203,6 +9338,19 @@ def references_in_scene_by_finger():
     s.fdrag([(700 + 8 * k, 450) for k in range(12)])
     s.wait(6)
     return s, ["--script=reference assets/icon/sculpt-1024.png; view_axis front"], {"ref_planes": near(1), "ref_planes_through": near(1), "refs_moves": near(1), "dabs": near(0), "undo_steps": near(3)}
+
+
+@scenario
+def references_line_up_by_finger():
+    """A picture added by a script stands on the right view's plane with the Proportion
+    guides shown, in the orthographic right view; a finger drags the plane's Brow mark down
+    the picture and lets go: the plane lines up with the guides, one undo step, and nothing
+    sculpts, turns or moves a guide."""
+    s = Script()
+    s.wait(6)
+    s.fdrag([(418, 290 + 5 * k) for k in range(9)])
+    s.wait(6)
+    return s, ["--script=reference assets/icon/sculpt-1024.png; reference_plane right; view_guides; view_axis right; ortho_toggle"], {"refs_lined_up": near(1), "guide_drags": near(0), "dabs": near(0), "undo_steps": near(1)}
 
 
 @scenario

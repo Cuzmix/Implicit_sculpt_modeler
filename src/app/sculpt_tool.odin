@@ -152,6 +152,10 @@ Brush_Settings :: struct {
 	// The secondary colour, which Swap colours trades with `color` (V, or a long press on
 	// the brush bar's Colour).
 	color2:            [3]f32,
+	// The roughness and metal the Paint brush lays, 0 to 1, where the picked paint layer
+	// holds them (sculpt.Paint_Channels).
+	roughness:         f32,
+	metal:             f32,
 	// What every sculpting brush changes: the surface, it and the polypaint, or only the
 	// polypaint (sculpt.Channel; the brush bar's channel button cycles them).
 	channel:           sculpt.Channel,
@@ -715,6 +719,8 @@ stroke_only :: proc(app: ^App) -> int {
 stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: Input_Sample, res: ^Sculpt_Frame_Result) {
 	origin, dir := ray_through(inv, s.pos, input.size)
 	t0 := time.tick_now()
+	// Peel is a look at the UVs, and a stroke wants the model as it is.
+	app.ui.uv_peel = 0
 	// A deformer's Amount held by another finger owns the object's undo until let go.
 	if app.ui.deform.drag.active do return
 	only := stroke_only(app)
@@ -1561,6 +1567,8 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		projected = projected,
 		facing   = facing,
 		color    = brush_color_bytes(app),
+		roughness = u8(clamp(app.brush.roughness, 0, 1) * 255 + 0.5),
+		metal    = u8(clamp(app.brush.metal, 0, 1) * 255 + 0.5),
 		blur     = app.stroke.blur,
 		channel  = brush_channel(app, selected_object(app)) if app.stroke.held else .Sculpt,
 		lock_plane = app.brush.lock_plane,
@@ -1621,7 +1629,7 @@ brush_radius_px :: proc(app: ^App, pressure: f32, tilt: [2]f32) -> f32 {
 
 // The brush as the app starts with it, before the settings file.
 brush_defaults :: proc() -> Brush_Settings {
-	b := Brush_Settings{kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, paint_on = .Both, elastic_volume = ELASTIC_VOLUME_DEFAULT, cloth = sculpt.CLOTH_DEFAULTS, physics_strength = PHYSICS_STRENGTH_DEFAULT}
+	b := Brush_Settings{kind = .Draw, radius_px = DEFAULT_RADIUS_PX, pressure_strength = true, pressure_curve = geom.CURVE_LINEAR, pressure_size_curve = geom.CURVE_LINEAR, detail_px = 10, collapse = true, alpha = -1, color = {0.75, 0.2, 0.15}, color2 = {0.95, 0.92, 0.85}, roughness = 0.5, spray_spread = SPRAY_DEFAULT_SPREAD, spacing = DAB_SPACING, even_strength = true, feather = true, smoothing = 1, pressure_smoothing = 1, catch_up = true, radial_count = RADIAL_DEFAULT, radial_axis = .Y, paint_dial = true, paint_on = .Both, elastic_volume = ELASTIC_VOLUME_DEFAULT, cloth = sculpt.CLOTH_DEFAULTS, physics_strength = PHYSICS_STRENGTH_DEFAULT}
 	// Draw does not build up over itself within a stroke, as ZBrush's and Nomad's.
 	b.sample_radius, b.no_accumulate[.Draw] = 1, true
 	for kind in sculpt.Brush_Kind do b.falloffs[kind].projected = projected_default(kind)

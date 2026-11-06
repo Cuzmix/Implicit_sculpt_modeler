@@ -143,7 +143,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	{
 		// The Model mode cages: how many, what they are made of, and whether every one is sound.
 		cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces := 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-		mirrored, live_broken := 0, 0
+		mirrored, live_broken, deformed, following, sharp_copies := 0, 0, 0, 0, 0
 		for obj in app.scene.objects {
 			cp := obj.cage
 			if cp == nil do continue
@@ -156,6 +156,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			broken += int(!poly.check_ok(c))
 			for x in cp.mesh.selected do chosen += int(x)
 			smooth = max(smooth, cp.look.smooth)
+			sharp_copies += len(cp.dup_from)
 			e, v := poly.crease_count(&cp.mesh)
 			creased += e
 			corners += v
@@ -163,9 +164,11 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 				live_faces += len(cp.live.mesh.face_he)
 				live_broken += int(!poly.check_ok(poly.mesh_check(&cp.live.mesh)))
 				mirrored += int(cp.look.live.mirror != {} && !cp.live.mirror_refused)
+				deformed += int(poly.live_moves(cp.look.live))
+				following += int(cage_follow_curve(app, obj, cp.look.follow) != nil || cage_follow_wrap(app, obj, cp.look.follow) != nil)
 			}
 		}
-		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d cage_smooth=%d cage_creases=%d cage_corners=%d cage_live_faces=%d cage_live_broken=%d cage_mirrored=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces, live_broken, mirrored, app.tool)
+		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d cage_smooth=%d cage_creases=%d cage_corners=%d cage_live_faces=%d cage_live_broken=%d cage_mirrored=%d cage_deformed=%d cage_following=%d cage_follow_updates=%d cage_sharp_copies=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces, live_broken, mirrored, deformed, following, app.model.follow_updates, sharp_copies, app.tool)
 		fmt.printfln("model_action=%v model_target=%v model_done=%d model_refused=%d model_follows=%d model_loop_curves=%d", app.model.action, model_target(&app.model, app.model.action), app.model.done, app.model.refused, app.model.follows, app.model.loop_curves)
 		// The picked points, the gizmo's drags of the selection, and the selected cage's
 		// bounds in its own space, which those drags change.
@@ -176,7 +179,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			b := poly.mesh_bounds(&obj.cage.mesh)
 			lo, hi = b.lo, b.hi
 		}
-		fmt.printfln("cage_picked=%d model_pick=%v model_falloff=%.2f model_xforms=%d cage_lo=%.4f,%.4f,%.4f cage_hi=%.4f,%.4f,%.4f", picked, app.model.pick, app.model.falloff, app.model.xforms, lo.x, lo.y, lo.z, hi.x, hi.y, hi.z)
+		fmt.printfln("cage_picked=%d model_pick=%v model_falloff=%.2f model_xforms=%d model_edits=%d model_slides=%d model_relaxes=%d measures=%d measure=%.4f cage_lo=%.4f,%.4f,%.4f cage_hi=%.4f,%.4f,%.4f", picked, app.model.pick, app.model.falloff, app.model.xforms, app.model.edits, app.model.slide.slides, app.model.relax.strokes, app.model.measure.made, linalg.length(app.model.measure.b - app.model.measure.a) if app.model.measure.ends == 2 else 0, lo.x, lo.y, lo.z, hi.x, hi.y, hi.z)
 		// Where the selected object sits, which Align parts moves a whole cage to.
 		at: Vec3
 		if obj := selected_object(app); obj != nil do at = obj.transform.position
@@ -400,7 +403,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 				if sel != nil do step, pivot, minus = sel.stack.array.offset, sel.stack.radial.pivot, sel.stack.mirror.minus
 				fmt.printfln("stack_step=%.3f,%.3f,%.3f stack_pivot=%.3f,%.3f,%.3f stack_minus=%d stack_handle_moves=%d", step.x, step.y, step.z, pivot.x, pivot.y, pivot.z, int(minus), app.ui.stack_press.moves)
 			}
-			fmt.printfln("refs=%d ref_images=%d refs_shown=%d refs_gpu_mb=%.1f refs_decode_ms=%.0f refs_selected=%d refs_moves=%d ref_notes=%d refs_grey=%d refs_shrunk=%d refs_small=%d ref_planes=%d ref_planes_through=%d", len(app.scene.refs.refs), len(app.scene.refs.images), refs_shown_count(app), refs_gpu_mb(app), app.refs_decode_ms, len(app.kit.board.selected), app.kit.board.moves, refs_note_count(app), refs_grey_count(app), app.refs_shrunk, refs_small_count(app), refs_plane_count(app, false), refs_plane_count(app, true))
+			fmt.printfln("refs=%d ref_images=%d refs_shown=%d refs_gpu_mb=%.1f refs_decode_ms=%.0f refs_selected=%d refs_moves=%d ref_notes=%d refs_grey=%d refs_shrunk=%d refs_small=%d ref_planes=%d ref_planes_through=%d refs_lined_up=%d", len(app.scene.refs.refs), len(app.scene.refs.images), refs_shown_count(app), refs_gpu_mb(app), app.refs_decode_ms, len(app.kit.board.selected), app.kit.board.moves, refs_note_count(app), refs_grey_count(app), app.refs_shrunk, refs_small_count(app), refs_plane_count(app, false), refs_plane_count(app, true), app.kit.board.lined_up)
 			fmt.printfln("environment_turn=%.1f environment_tilt=%.1f environment_turns=%d environment_recent=%d environment_backdrop=%s", env.turn, env.tilt, env.turns, len(env.recent), strings.to_lower(fmt.tprint(environment_backdrop(&env)), context.temp_allocator))
 		}
 		{

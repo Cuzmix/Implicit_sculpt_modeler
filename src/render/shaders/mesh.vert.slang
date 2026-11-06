@@ -28,6 +28,9 @@ float3 srgb_decode(float3 c) {
 [[vk::binding(1, 0)]] StructuredBuffer<uint> indices;
 [[vk::binding(2, 0)]] StructuredBuffer<float> positions; // three floats a vertex, packed
 [[vk::binding(3, 0)]] StructuredBuffer<uint> normals;    // render.Normal_Packed, x in the low half
+// Per vertex: its painted roughness and metal (paint_material.slang); a one-word dummy
+// while the mesh has none, which options.w says.
+[[vk::binding(4, 0)]] StructuredBuffer<uint> paint_material_words;
 
 Mesh_Vertex_Out main(uint corner : SV_VulkanVertexID) {
 	uint tri = corner / 3u;
@@ -47,6 +50,7 @@ Mesh_Vertex_Out main(uint corner : SV_VulkanVertexID) {
 [[vk::binding(4, 0)]] StructuredBuffer<uint> skin_normals;
 [[vk::binding(5, 0)]] StructuredBuffer<uint4> skin_tris;
 [[vk::binding(6, 0)]] StructuredBuffer<uint> skin_heights;
+[[vk::binding(7, 0)]] StructuredBuffer<uint> paint_material_words;
 
 float3 mesh_point(uint v) {
 	return float3(positions[3u * v], positions[3u * v + 1u], positions[3u * v + 2u]);
@@ -144,12 +148,14 @@ Mesh_Vertex_Out main(uint id : SV_VulkanVertexID) {
 	// the triangle drawn whole takes them.
 	uint lead = v[rec.w & 3u];
 	o.v.paint = float4(0.0);
+	o.v.material = float4(0.0);
 	o.v.group = float3(-1.0);
 	o.v.slot = 0u;
 	if (options.x > 0.5) {
 		for (uint m = 0u; m < 3u; m++) {
 			float4 p = unpackUnorm4x8ToFloat(paint[v[m]].x);
 			o.v.paint += float4(srgb_decode(p.rgb), p.a) * w[m];
+			if (options.w > 0.5) o.v.material += paint_material(paint_material_words[v[m]]) * w[m];
 		}
 	}
 	if (options.y > 0.5 || options.z > 0.5) {
@@ -169,6 +175,10 @@ Mesh_Vertex_Out main(uint id : SV_VulkanVertexID) {
 	return o;
 }
 #else
+// Per vertex: its painted roughness and metal (paint_material.slang); a one-word dummy
+// while the mesh has none, which options.w says.
+[[vk::binding(1, 0)]] StructuredBuffer<uint> paint_material_words;
+
 Mesh_Vertex_Out main(
 	[[vk::location(0)]] float3 in_position : POSITION,
 	// Octahedral with the mask in the low bits, see geom.oct_encode_masked.
@@ -183,12 +193,16 @@ Mesh_Vertex_Out main(
 	float3 in_normal;
 	decode_normal_mask(in_normal_oct, in_normal, o.v.mask);
 	o.v.paint = float4(0.0);
+	o.v.material = float4(0.0);
 	o.v.group = float3(-1.0);
 	o.v.slot = 0u;
 	if (options.x > 0.5 || options.y > 0.5 || options.z > 0.5) {
 		uint2 p = paint[vertex];
 		uint group = p.y & 0xffffu;
-		if (options.x > 0.5) o.v.paint = float4(srgb_decode(unpackUnorm4x8ToFloat(p.x).rgb), unpackUnorm4x8ToFloat(p.x).a);
+		if (options.x > 0.5) {
+			o.v.paint = float4(srgb_decode(unpackUnorm4x8ToFloat(p.x).rgb), unpackUnorm4x8ToFloat(p.x).a);
+			if (options.w > 0.5) o.v.material = paint_material(paint_material_words[vertex]);
+		}
 		if (options.y > 0.5) o.v.group = group_color(group);
 		if (options.z > 0.5) {
 			for (uint k = 1u; k < 16u; k++) {

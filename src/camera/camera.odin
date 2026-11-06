@@ -480,16 +480,16 @@ orbit_is_level :: proc(c: Orbit) -> bool {
 
 // Where the level plane at world height `y` crosses level view `c`, as a share of the
 // view's height from its top (0 the top edge, 1 the bottom); outside 0 to 1 it is off the
-// view. The view's middle is at the target's height, and half its height spans the
-// orthographic half height.
+// view. The target's height is drawn at the view's middle moved by the camera's shift (the
+// free area's middle with one view), and half its height spans the orthographic half height.
 orbit_level_frac :: proc(c: Orbit, y: f32) -> f32 {
 	half := max(c.distance * math.tan(c.fov_y / 2), 1e-6)
-	return 0.5 - (y - c.target.y) / (2 * half)
+	return 0.5 - c.shift.y * 0.5 - (y - c.target.y) / (2 * half)
 }
 
 // The world height at share `frac` of level view `c`'s height from its top: the inverse
 // of orbit_level_frac, for a guide dragged to the pointer.
 orbit_level_height :: proc(c: Orbit, frac: f32) -> f32 {
 	half := max(c.distance * math.tan(c.fov_y / 2), 1e-6)
-	return c.target.y + (0.5 - frac) * 2 * half
+	return c.target.y + (0.5 - c.shift.y * 0.5 - frac) * 2 * half
 }

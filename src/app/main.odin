@@ -851,6 +851,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.time_gpu = opts.time_gpu || opts.gpubench != ""
 	app.ui = ui_state_default()
 	app.curve, app.insert = CURVE_DEFAULTS, INSERT_DEFAULTS
+	app.model.panel_width, app.model.panel_depth = PANEL_WIDTH_START, PANEL_DEPTH_START
 	app.brush = brush_defaults()
 	for &s, kind in app.brush.strengths do s = BRUSHES[kind].strength
 	app.nav = NAV_DEFAULT

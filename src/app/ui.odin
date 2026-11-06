@@ -101,7 +101,11 @@ Ui_State :: struct {
 	unwrap_relax:       i32,  // Unwrap: stretch relax steps after flattening (unwrap.odin)
 	unwrap_symmetry:    Unwrap_Symmetry, // ...mirrored islands laid out alike across this plane
 	unwrap_keep_seams:  bool, // ...flattened along the seams the UVs have rather than new ones
+	uv_texel_px:        f32,  // Set texel density: texels of a map Bake's size a unit of the scene takes
 	uv_readout:         Uv_Readout, // the UVs section's stretch, kept until the UVs change
+	uv_peel:            f32,  // Peel: how far object uv_peel_id is laid flat into its UVs, 0 to 1 (a view only, never saved)
+	uv_peel_id:         int,
+	uv_peel_frame:      [3]Vec3, // ...toward a square along these object axes (right, up, toward the eye), the view's when Peel began
 	rebuild_goal:       Rebuild_Goal, // what the Rebuild section makes: an even mesh, fewer polygons or quads
 	rebuild_even:       i32,  // vertices Rebuild's Even goal asks for...
 	remesh_by:          Remesh_By, // ...or a cell size...
@@ -207,7 +211,7 @@ CLOTH_MODE_HELP := [sculpt.Cloth_Mode]cstring {
 }
 
 ui_state_default :: proc() -> Ui_State {
-	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, unwrap_relax = UNWRAP_RELAX_DEFAULT, rebuild_even = 500_000, remesh_cell_mm = REMESH_CELL_MM_DEFAULT, remesh_smooth = geom.REMESH_SMOOTH_DEFAULT, remesh_keep_thin = true, remesh_keep_paint = true, remesh_quads = true, remesh_keep_symmetry = true, decimate_keep_symmetry = true, retopo_keep_symmetry = true, retopo_keep_groups = true, retopo_keep_creases = true, retopo_edge_degrees = retopo.EDGE_DEGREES_DEFAULT, retopo_guide_strength = retopo.GUIDE_STRENGTH_DEFAULT, rebuild_fewer = 100_000, decimate_percent = DECIMATE_PERCENT_DEFAULT, decimate_keep_paint = true, decimate_keep_groups = true, decimate_keep_borders = true, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), physics = {filter_axes = {.X, .Y, .Z}}, weld_distance = WELD_DISTANCE_DEFAULT}
+	return {viewport_request = {1280, 720}, mask_steps = 3, mask_by = MASK_BY_SETTINGS_DEFAULT, smooth_steps = 5, smooth_strength = 0.5, crease_degrees = sculpt.CREASE_GROUP_DEGREES, retopo_quads = 4000, unwrap_relax = UNWRAP_RELAX_DEFAULT, uv_texel_px = UV_TEXEL_PX_DEFAULT, rebuild_even = 500_000, remesh_cell_mm = REMESH_CELL_MM_DEFAULT, remesh_smooth = geom.REMESH_SMOOTH_DEFAULT, remesh_keep_thin = true, remesh_keep_paint = true, remesh_quads = true, remesh_keep_symmetry = true, decimate_keep_symmetry = true, retopo_keep_symmetry = true, retopo_keep_groups = true, retopo_keep_creases = true, retopo_edge_degrees = retopo.EDGE_DEGREES_DEFAULT, retopo_guide_strength = retopo.GUIDE_STRENGTH_DEFAULT, rebuild_fewer = 100_000, decimate_percent = DECIMATE_PERCENT_DEFAULT, decimate_keep_paint = true, decimate_keep_groups = true, decimate_keep_borders = true, bake = {size = 2048, reach_edges = 2, base_color = true, orm = true, occlusion_rays = 16, occlusion_reach = 0.2}, boolean = {live_vertices = 200_000, vertices = 1_000_000, thickness = 0.02}, project = PROJECT_DEFAULTS, deform = {along = .Y, lattice = {points = LATTICE_POINTS_DEFAULT}}, reshape = reshape_panel_default(), physics = {filter_axes = {.X, .Y, .Z}}, weld_distance = WELD_DISTANCE_DEFAULT}
 }
 
 // Turns the studio render on or off; on, it starts from the plain viewport.
