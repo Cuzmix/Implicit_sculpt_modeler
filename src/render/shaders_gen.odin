@@ -296,7 +296,7 @@ GTAO_FRAG :: gpu.Shader_Desc{
 Gtao_Frag_Samplers :: enum u32 {view_depth}
 Gtao_Frag_Uniforms :: enum u32 {Gtao_Uniforms}
 
-// mesh.frag.spv sha256 cc9a9ba9c38b8e80b811f291a361cb6d570805121a19b469274f199964cac3cc
+// mesh.frag.spv sha256 ea8cc4d8d33e63406e6ebf4b5692467664161a8feb5b1d86397316ba10dfcc32
 MESH_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/mesh.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
@@ -324,7 +324,7 @@ MESH_VERT :: gpu.Shader_Desc{
 Mesh_Vert_Buffers :: enum u32 {paint, paint_material_words}
 Mesh_Vert_Uniforms :: enum u32 {Frame_Uniforms}
 
-// mesh_area.frag.spv sha256 b079db3337b31a885d881f21436c3d183d73dd7f292450577f16d0a15702329e
+// mesh_area.frag.spv sha256 6e88e7675f8f187e5a2f6d8e2be30405026b30811784c576986c3c18e7525506
 MESH_AREA_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/mesh_area.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
@@ -338,7 +338,7 @@ MESH_AREA_FRAG :: gpu.Shader_Desc{
 Mesh_Area_Frag_Samplers :: enum u32 {matcap, environment_map}
 Mesh_Area_Frag_Uniforms :: enum u32 {Material_Uniforms, Slot_Uniforms}
 
-// mesh_clip.frag.spv sha256 8635d479e87b99e2f3544f5c2e94bc3d0c75f1c15aebb0b574cb5830cd5ec697
+// mesh_clip.frag.spv sha256 b5deaf2ee5cc64c0bd3bbabb5eb2c6273d34979d9205cd50c8f8959c97c2db9d
 MESH_CLIP_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/mesh_clip.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
@@ -352,7 +352,7 @@ MESH_CLIP_FRAG :: gpu.Shader_Desc{
 Mesh_Clip_Frag_Samplers :: enum u32 {matcap, environment_map}
 Mesh_Clip_Frag_Uniforms :: enum u32 {Material_Uniforms, Slot_Uniforms}
 
-// mesh_wire.frag.spv sha256 893ad9c1cd570889e4974433325000de6258b782f0bb2ca446199dd4f55b8f36
+// mesh_wire.frag.spv sha256 c773baa7e70dc61f61509e6fcc8f1d2de7427b5411cb26c12cccf3ec8e860969
 MESH_WIRE_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/mesh_wire.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
@@ -634,7 +634,7 @@ SHARPEN_FRAG :: gpu.Shader_Desc{
 Sharpen_Frag_Samplers :: enum u32 {graded}
 Sharpen_Frag_Uniforms :: enum u32 {Sharpen_Uniforms}
 
-// skin.frag.spv sha256 02577904d6dc283edf47043e4529dcc35b5e9e083e4c2383b969416dbc5f9b8e
+// skin.frag.spv sha256 0f799827b92de946bd298619d24d6a4c9801330893c62118bb966d0b06325132
 SKIN_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/skin.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
@@ -663,7 +663,7 @@ SKIN_VERT :: gpu.Shader_Desc{
 Skin_Vert_Buffers :: enum u32 {paint, indices, positions, normals, paint_material_words}
 Skin_Vert_Uniforms :: enum u32 {Frame_Uniforms}
 
-// skin_clip.frag.spv sha256 cef6669b8d292f907851301ffc2b502b5ed249dcdd513373d28621f112df0096
+// skin_clip.frag.spv sha256 73c57d7092fa1f01ecee099920f300db6ca24b586234e069b011d75bfa2b3107
 SKIN_CLIP_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/skin_clip.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
@@ -820,21 +820,21 @@ Studio_Trace_Rq_Comp_Buffers :: enum u32 {instances, run_first}
 Studio_Trace_Rq_Comp_Write_Textures :: enum u32 {visible}
 Studio_Trace_Rq_Comp_Uniforms :: enum u32 {Trace_Uniforms}
 
-// textured.frag.spv sha256 ffa743bd805ddd4258a6c3a257be72026dfb6d36633c5a31c0ee14fcbfbcd926
+// textured.frag.spv sha256 6630475ab215392a0ca559777dc3348a499efa25f7cb9e8912f93fd66d689d00
 TEXTURED_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/textured.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
 	format = SHADER_FORMAT,
 	stage = .Fragment,
-	num_samplers = 5,
+	num_samplers = 7,
 	num_storage_textures = 0,
 	num_storage_buffers = 0,
 	num_uniform_buffers = 1,
 }
-Textured_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map}
+Textured_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map, paint_map, paint_material_map}
 Textured_Frag_Uniforms :: enum u32 {Material_Uniforms}
 
-// textured.vert.spv sha256 d894c5dcede739a8c62f47d8271cd3fd236a10d1019904f28bc8e89961c79eeb
+// textured.vert.spv sha256 f5b498413d533aa2389dc8fee3bff34d5e47c87af63781eba7904725cd51e306
 TEXTURED_VERT :: gpu.Shader_Desc{
 	code = #load("shaders/textured.vert" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
@@ -842,37 +842,38 @@ TEXTURED_VERT :: gpu.Shader_Desc{
 	stage = .Vertex,
 	num_samplers = 0,
 	num_storage_textures = 0,
-	num_storage_buffers = 0,
+	num_storage_buffers = 5,
 	num_uniform_buffers = 1,
 }
+Textured_Vert_Buffers :: enum u32 {slot_vertex, positions, normals, paint, paint_material_words}
 Textured_Vert_Uniforms :: enum u32 {Frame_Uniforms}
 
-// textured_area.frag.spv sha256 e90582d88512e35e8ce0787f68525794951355586c64e6f6455cd07411d1be22
+// textured_area.frag.spv sha256 823e22aeae541b0672f64860f541ef082a57cd774ffac14d9efbe32fe227bc1c
 TEXTURED_AREA_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/textured_area.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
 	format = SHADER_FORMAT,
 	stage = .Fragment,
-	num_samplers = 5,
+	num_samplers = 7,
 	num_storage_textures = 0,
 	num_storage_buffers = 0,
 	num_uniform_buffers = 1,
 }
-Textured_Area_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map}
+Textured_Area_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map, paint_map, paint_material_map}
 Textured_Area_Frag_Uniforms :: enum u32 {Material_Uniforms}
 
-// textured_clip.frag.spv sha256 1f6a2ffbf2b8e44b098d94e7ad64c233bf25393a6ebf4e0c1f2dd6fdf9b51f43
+// textured_clip.frag.spv sha256 faab277545dad9979d0a4a949375ad45a74817bbeefea1b8a09ed8026ed13ea8
 TEXTURED_CLIP_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/textured_clip.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
 	format = SHADER_FORMAT,
 	stage = .Fragment,
-	num_samplers = 5,
+	num_samplers = 7,
 	num_storage_textures = 0,
 	num_storage_buffers = 0,
 	num_uniform_buffers = 1,
 }
-Textured_Clip_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map}
+Textured_Clip_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map, paint_map, paint_material_map}
 Textured_Clip_Frag_Uniforms :: enum u32 {Material_Uniforms}
 
 // ui.frag.spv sha256 27b36442b9eb8e6ead0810a4529e9bfe0b995ed5c481cb5e7586856a36706ff2

@@ -757,6 +757,17 @@ kit_stack_add_menu :: proc(app: ^App, obj: ^Object) {
 	}
 }
 
+// The rows of copies Search can add (Stack_Add's arguments), from Mirror to Along.
+STACK_ADD_ROWS :: int(Stack_Row.Along) - int(Stack_Row.Mirror) + 1
+
+// Whether row `r` of copies can be added to the object now: one it can take and does not
+// hold, on something with a surface, Along once the scene has a curve.
+stack_row_addable :: proc(app: ^App, obj: ^Object, r: Stack_Row) -> bool {
+	if stack_row_cage(r) || !stack_row_fits(obj, r) || stack_row_in(app, obj, r) do return false
+	if obj.cage == nil && obj.voxel == nil && !object_draws_triangles(obj) do return false
+	return r != .Along || stack_first_curve(app, obj) != 0
+}
+
 // Adds row `r` with its starting values, one undo step (a cage's as a Cage_Look command).
 stack_row_add :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
 	if stack_row_cage(r) {
@@ -800,6 +811,13 @@ kit_stack_row_menu :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
 	if r == .Cage_Mirror && obj.cage.look.live.mirror != {} {
 		if ui.menu_item(ctx, "Apply mirror##stack menu", glyph = ICON_SYMMETRY, keys = command_hint(app, .Tidy_Cage, int(Cage_Tidy.Apply_Mirror)), hint = "The mirrored half becomes the cage's own") {
 			_ = command_run(app, .Tidy_Cage, int(Cage_Tidy.Apply_Mirror))
+			c.menu = false
+		}
+	}
+	if !stack_row_cage(r) && obj.cage == nil {
+		can := stack_row_applies(app, obj, r) && !app.stroke.active
+		if ui.menu_item(ctx, "Apply this row##stack menu", glyph = ui.ICON_CHECK, enabled = can, hint = "Bakes this row into the mesh; the rows after it stay", reason = "Only the first shown row applies by itself") {
+			app.ui.scene_command = {kind = .Stack_Apply, axis = int(r) + 1}
 			c.menu = false
 		}
 	}
@@ -1055,11 +1073,34 @@ stack_summary :: proc(obj: ^Object) -> string {
 // and weld across each mirror plane, keeping its side, then every Array and Radial copy
 // joined in), one swap step with the rows taken out, so Undo brings back the stack and
 // what it hid. A hidden row stays. False only when rebuilding the object failed.
-stack_apply :: proc(app: ^App, obj: ^Object) -> bool {
+//
+// With `only`, that row alone is applied and the rows after it stay as they were, as
+// Blender's Apply on one modifier does; only the first shown row can be, since each row
+// copies what the rows above it make (stack_row_applies).
+stack_apply :: proc(app: ^App, obj: ^Object, only: Maybe(Stack_Row) = nil) -> bool {
 	if obj.voxel != nil || obj.cage != nil do return true
+	kept: Stack
+	row, alone := only.?
+	if alone {
+		if !stack_row_applies(app, obj, row) {
+			report(app, .Stack, {.Warning}, "Only the first shown row applies by itself: apply or hide the rows above it first")
+			return true
+		}
+		kept = obj.stack
+	}
+	before := history_snapshot(app, obj, "apply row" if alone else "apply stack")
+	if alone {
+		// The other rows hidden for the bake, and shown again after it.
+		for r in Stack_Row.Mirror ..= Stack_Row.Along do if r != row do row_shown(&obj.stack, r)^ = false
+	}
+	defer if alone {
+		for r in Stack_Row.Mirror ..= Stack_Row.Along do if r != row && stack_row_in(app, obj, r) do row_shown(&obj.stack, r)^ = row_shown(&kept, r)^
+	}
 	mirror, copies := stack_mirror_on(obj), stack_array_on(obj) || stack_radial_on(obj) || stack_along_on(app, obj)
-	if !mirror && !copies do return true
-	before := history_snapshot(app, obj, "apply stack")
+	if !mirror && !copies {
+		history_snapshot_drop(before)
+		return true
+	}
 	start := time.tick_now()
 	m := obj.stack.mirror
 	changed := false
@@ -1086,10 +1127,28 @@ stack_apply :: proc(app: ^App, obj: ^Object) -> bool {
 	stack_take_shown(app, obj)
 	history_record_swap(app, obj.id, before)
 	if changed {
-		report(app, .Stack, {.Undo}, "Applied the stack: %d vertices (%.0f ms)", object_vertex_count(obj), time.duration_milliseconds(time.tick_since(start)))
+		report(app, .Stack, {.Undo}, "Applied %s: %d vertices (%.0f ms)", strings.to_lower(STACK_ROW_NAMES[row], context.temp_allocator) if alone else "the stack", object_vertex_count(obj), time.duration_milliseconds(time.tick_since(start)))
 	} else {
 		report(app, .Stack, {.Warning, .Undo}, "Nothing of the object was on the side to keep: the rows are taken out")
 	}
+	return true
+}
+
+// Whether row `r` of a sculpt's copies can be applied by itself: it shows, makes copies,
+// and no row above it shows, so what it copies is the object itself.
+stack_row_applies :: proc(app: ^App, obj: ^Object, r: Stack_Row) -> bool {
+	if obj.voxel != nil || obj.cage != nil || stack_row_cage(r) do return false
+	on :: proc(app: ^App, obj: ^Object, r: Stack_Row) -> bool {
+		#partial switch r {
+		case .Mirror: return stack_mirror_on(obj)
+		case .Array: return stack_array_on(obj)
+		case .Radial: return stack_radial_on(obj)
+		case .Along: return stack_along_on(app, obj)
+		}
+		return false
+	}
+	if !on(app, obj, r) do return false
+	for above in Stack_Row.Mirror ..< r do if on(app, obj, above) do return false
 	return true
 }
 
@@ -1116,7 +1175,7 @@ stack_join_copies :: proc(app: ^App, obj: ^Object) -> (changed, ok: bool) {
 	defer geom.mesh_destroy(&base)
 	s := object_sculptor(obj)
 	groups := sculpt.sculptor_groups(s) if !object_dynamic(obj) else nil
-	shown := sculpt.sculptor_paint_shown(s) if !object_dynamic(obj) else nil
+	shown := object_paint_flat(obj, s) if !object_dynamic(obj) else nil
 	parts := make([]geom.Mesh, len(steps), context.temp_allocator)
 	for step, k in steps {
 		parts[k] = {positions = make([dynamic]geom.Vec3, len(base.positions), context.temp_allocator), indices = base.indices}
@@ -1247,7 +1306,7 @@ stack_shape_in :: proc(app: ^App, obj: ^Object, into: Transform) -> geom.Mesh {
 stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 	if obj == nil do return "nothing is selected"
 	words := strings.fields(text, context.temp_allocator)
-	USAGE :: "stack takes mirror x, array 4 2.2 0 0, radial 6 y, along 8 x, mirror off, show mirror, hide array, open array (or a cage's curve x, wrap 0, curve off, sharp 30, sharp off, open deform, open displace, open curve, open wrap, open sharp) or apply stack"
+	USAGE :: "stack takes mirror x, array 4 2.2 0 0, radial 6 y, along 8 x, mirror off, show mirror, hide array, open array (or a cage's curve x, wrap 0, curve off, sharp 30, sharp off, open deform, open displace, open curve, open wrap, open sharp), apply array (that row alone) or apply stack"
 	if len(words) < 2 do return USAGE
 	s := obj.stack
 	is_row :: proc(w: string) -> bool {return w == "mirror" || w == "array" || w == "radial" || w == "along"}
@@ -1310,6 +1369,16 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		if !stack_row_in(app, obj, r) do return fmt.tprintf("the object has no %s row", words[1])
 		app.kit.stack.object, app.kit.stack.open, app.kit.stack.opened = obj.id, r, true
 		card_open(app, .Stack)
+		return ""
+	case words[0] == "apply" && is_row(words[1]) && len(words) == 2:
+		r := Stack_Row.Mirror
+		switch words[1] {
+		case "array": r = .Array
+		case "radial": r = .Radial
+		case "along": r = .Along
+		}
+		if !stack_row_applies(app, obj, r) do return fmt.tprintf("the %s row is not the first shown row of a mesh", words[1])
+		app.ui.scene_command = {kind = .Stack_Apply, axis = int(r) + 1}
 		return ""
 	case words[0] == "apply" && words[1] == "stack" && len(words) == 2:
 		if !stack_has_rows(s) do return "the object has no live stack"

@@ -70,6 +70,7 @@ Command_Id :: enum u16 {
 	Hide_Gesture_Pick, // the argument is the Gesture_Tool
 	Symmetry_X,
 	Physics,
+	Settle,
 	Local_Symmetry,
 	Radial_Symmetry,
 	Brush_Add,
@@ -135,6 +136,7 @@ Command_Id :: enum u16 {
 	New_Layer,
 	Layer_Edit, // the argument is the Layer_Action, on the Layers section's selected layer
 	New_Paint_Layer,
+	New_Texture_Layer,
 	Paint_Layer_Edit, // the argument is the Paint_Layer_Action, on the picked paint layer
 	Recall_Earlier,
 	Recall_Later,
@@ -168,6 +170,8 @@ Command_Id :: enum u16 {
 	Add_Curve,
 	Apply_Cage,
 	Edit_Cage,
+	Stack_Add,
+	Stack_Apply,
 	Model_Action,
 	Model_Target,
 	Tidy_Cage,
@@ -654,6 +658,34 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Apply_Cage}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
 	},
+	.Stack_Add = {
+		label = "Add to the live stack",
+		help = "Adds a row of copies to the selected object's live stack (a Mirror, an Array, a Radial or copies along a curve) and opens the Live stack card on it.",
+		icon = ui.ICON_COPY,
+		args = STACK_ADD_ROWS,
+		run = proc(app: ^App, arg: int) {
+			obj := selected_object(app)
+			r := Stack_Row(int(Stack_Row.Mirror) + arg)
+			if obj == nil || !stack_row_addable(app, obj, r) do return
+			stack_row_add(app, obj, r)
+			app.kit.stack.object, app.kit.stack.open, app.kit.stack.opened = obj.id, r, true
+			card_open(app, .Stack)
+		},
+		enabled = proc(app: ^App, arg: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && stack_row_addable(app, obj, Stack_Row(int(Stack_Row.Mirror) + arg))
+		},
+	},
+	.Stack_Apply = {
+		label = "Apply stack",
+		help = "Bakes the selected object's shown live stack rows into its mesh, as one undo step that brings them back.",
+		icon = ui.ICON_CHECK,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Stack_Apply}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel == nil && obj.cage == nil && !app.stroke.active && stack_shows(app, obj)
+		},
+	},
 	.Edit_Cage = {
 		label = "Edit cage",
 		help = "Turns the selected sculpt's base level back into a cage for Model mode, when it came from a cage or Retopologize; Apply to sculpt then puts its levels and their detail back on the edited cage.",
@@ -1027,6 +1059,12 @@ COMMANDS := [Command_Id]Command {
 		help = "Makes what a moving brush moves (Grab, Elastic, Snake hook and the dab brushes) drive the surface round it as cloth, which follows in folds, swings past and settles.",
 		run = proc(app: ^App, _: int) {app.brush.physics = !app.brush.physics},
 		checked = proc(app: ^App, _: int) -> bool {return app.brush.physics},
+	},
+	.Settle = {
+		label = "Settle",
+		help = "Lets the selected object's free part fall as cloth onto the floor and the other objects until it comes to rest, as its Physics card says; again, or Escape, stops it. One undo step.",
+		run = proc(app: ^App, _: int) {settle_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.ui.physics.settle.active},
 	},
 	.Local_Symmetry = {
 		label = "Local symmetry",
@@ -1539,6 +1577,16 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
 			return paint_ready(app, 0) && len(sculpt.sculptor_paint_layers(object_sculptor(obj))) < sculpt.MAX_PAINT_LAYERS
+		},
+	},
+	.New_Texture_Layer = {
+		label = "New texture layer",
+		help = "Adds a paint layer that lives in a texture through the UVs, above the picked layer and every vertex layer, and picks it: paint there is as fine as the texture rather than the mesh. Needs UVs.",
+		icon = ui.ICON_PLUS,
+		run = proc(app: ^App, _: int) {texture_layer_add(app, selected_object(app))},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return paint_ready(app, 0) && sculpt.levels_has_uvs(&obj.levels) && len(sculpt.sculptor_paint_layers(object_sculptor(obj))) < sculpt.MAX_PAINT_LAYERS
 		},
 	},
 	.Paint_Layer_Edit = {
@@ -2958,8 +3006,10 @@ command_run :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 		return false
 	}
 	// A drag held in the inspector ends first, as its own step, so the command acts on
-	// what it left (a mask change would otherwise reweigh a deformation mid-drag).
-	inspector_drags_end(app)
+	// what it left (a mask change would otherwise reweigh a deformation mid-drag). Settle
+	// is left running for its own command, which stops it, and ends the drags itself when
+	// it starts.
+	if id != .Settle do inspector_drags_end(app)
 	before := macro_before(app)
 	c.run(app, arg)
 	macro_log(app, id, arg, before)
@@ -2973,6 +3023,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("New scene: %s", NEW_SCENES[arg].name)
 	case .Add_Cage:
 		return fmt.tprintf("Add cage: %s", poly.PRIMITIVE_NAMES[poly.Primitive(arg)])
+	case .Stack_Add:
+		return fmt.tprintf("Live stack: add %s", strings.to_lower(STACK_ROW_NAMES[Stack_Row(int(Stack_Row.Mirror) + arg)], context.temp_allocator))
 	case .Add_Curve:
 		return fmt.tprintf("Add curve: %s", CURVE_SHAPE_NAMES[Curve_Shape(arg + 1)])
 	case .Model_Action:
@@ -3242,7 +3294,10 @@ commands_handle_keys :: proc(app: ^App) {
 		}
 		command_run(app, b.command, b.arg)
 	}
-	if key_pressed(&app.device, KEY_ESCAPE) do replay_stop(app)
+	if key_pressed(&app.device, KEY_ESCAPE) {
+		replay_stop(app)
+		settle_stop(app)
+	}
 }
 
 // A menu row for the command, with its icon, shortcut and state from the table, and a

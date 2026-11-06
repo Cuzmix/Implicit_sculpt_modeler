@@ -263,6 +263,7 @@ brush_item_category :: proc(it: Brush_Item) -> Brush_Category {
 		}
 		if s.preset > 0 && preset_of_pack(s.preset) do return .Pack
 		if s.preset > 0 && !preset_built_in(s.preset) do return .Presets
+		if built_in_preset_cloth(s.preset) do return .Cloth
 		return BRUSH_CATEGORY_OF[s.kind]
 	case .Tool:       return .Curve_Insert
 	case .Mask_Shape: return .Mask

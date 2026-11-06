@@ -386,7 +386,7 @@ link_object_ply :: proc(app: ^App, obj: ^Object, out: ^[dynamic]u8) -> (vertices
 		packed, mask = sculpt.sculptor_compact_mesh(&lv.sculptor)
 		delete(mask)
 		positions, indices = packed.positions[:], packed.indices[:]
-	} else if c := sculpt.sculptor_paint_shown(&lv.sculptor); c != nil {
+	} else if c := object_paint_flat(obj, &lv.sculptor); c != nil {
 		colors = make([][3]u8, len(c))
 		for x, v in c do colors[v] = paint_over(x, {255, 255, 255})
 	}

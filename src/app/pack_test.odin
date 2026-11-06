@@ -517,7 +517,7 @@ pack_materials_install_and_follow :: proc(t: ^testing.T) {
 		"material Lost 1 1 1 0 0.5 nothere\n" +
 		"material wet%20STONE 1 1 1 0 0.5 -\n"
 	pack_write(t, v1, {{"pack.txt", "name Rock Set\nauthor Bolt\n"}, {"matcaps/wet.png", pack_png(3)}, {"matcaps/Glow.png", pack_png(90)}, {"matcaps/jade soft studio highlight v2 long.png", pack_png(40)}, {"materials.txt", lines}})
-	pack_write(t, v2, {{"pack.txt", "name Rock Set\nauthor Bolt\nversion 2\n"}, {"materials.txt", "material Wet%20stone 0.5 0.5 0.5 0 0.6 clay\n"}})
+	pack_write(t, v2, {{"pack.txt", "name Rock Set\nauthor Bolt\nversion 2\n"}, {"materials.txt", "material Wet%20stone 0.5 0.5 0.5 0 0.6 brown-clay\n"}})
 	pixels := make([]u8, 1100 * 4 * 4, context.temp_allocator)
 	pack_write(t, big, {{"pack.txt", "name Big\n"}, {"matcaps/huge.png", string(png_write.encode(pixels, 1100, 4, false, context.temp_allocator))}})
 
@@ -537,7 +537,7 @@ pack_materials_install_and_follow :: proc(t: ^testing.T) {
 	l := &a.library
 	testing.expect_value(t, l.materials[wet].material.matcap, PACK_MATCAP + pack_matcap_find(&a, "rock-set", "wet"))
 	testing.expect_value(t, l.materials[glow].material.matcap, PACK_MATCAP + pack_matcap_find(&a, "rock-set", "glow"))
-	testing.expect_value(t, l.materials[pearly].material.matcap, 5)
+	testing.expect_value(t, l.materials[pearly].material.matcap, 6)
 	testing.expect_value(t, l.materials[brass].material.matcap, 0)
 	testing.expect_value(t, l.materials[brass].material.roughness, 0.35)
 	testing.expect(t, string(l.materials[wet].material.label) == "Wet stone" && l.materials[wet].material.pack == wet + 1)

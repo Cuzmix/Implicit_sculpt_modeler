@@ -47,11 +47,12 @@ MATERIALS := [?]Material {
 	{"PBR clay", {0.55, 0.40, 0.32, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.60, 0, 0},
 	// The matcaps, in white so their pictures show as painted.
 	{"Red wax MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 1, 0},
-	{"Clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 2, 0},
-	{"Grey MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 3, 0},
-	{"Skin MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 4, 0},
-	{"Pearl MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 5, 0},
-	{"Toon MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 6, 0},
+	{"Brown clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 2, 0},
+	{"Grey clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 3, 0},
+	{"Green clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 4, 0},
+	{"Skin MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 5, 0},
+	{"Pearl MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 6, 0},
+	{"Toon MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 7, 0},
 }
 
 // The index of the first physically based material, where the View menu starts a new group.
@@ -91,7 +92,7 @@ current_material :: proc(app: ^App) -> Material {
 
 // How strongly creases darken and crests lighten unless the settings say otherwise:
 // enough for sculpted detail to read at any light angle without outlining every form.
-CAVITY_DEFAULT :: 0.5
+CAVITY_DEFAULT :: 0.35
 RIDGE_DEFAULT :: 0.3
 // The style's rim strength and the share of the ambient light under the forms, matched to
 // renders of grey studio sculpts: a light rim, and deep shade under a jaw or a brow.
@@ -322,7 +323,7 @@ export_material :: proc(m: Material) -> geom.Export_Material {
 		out.base, out.metallic, out.roughness = 0.5 * m.selected.rgb, 0, 0.5
 	case m.matcap > 0 && m.matcap <= len(MATCAP_RECIPES):
 		r := MATCAP_RECIPES[m.matcap - 1]
-		out.base, out.metallic, out.roughness = r.base * m.selected.rgb, 0, phong(r.spec_power)
+		out.base, out.metallic, out.roughness = matcap_base(r) * m.selected.rgb, 0, phong(r.tight_power)
 	case m.roughness == 0:
 		out.metallic, out.roughness = 0, phong(m.shading[2])
 	}

@@ -80,7 +80,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(57)
+SCENE_VERSION :: u32(58)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -1192,7 +1192,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	// the two.
 	material := export_material(object_material(app, obj))
 	colors: [][3]u8
-	if c := sculpt.sculptor_paint_shown(&lv.sculptor); c != nil && !object_dynamic(obj) {
+	if c := object_paint_flat(obj, &lv.sculptor); c != nil && !object_dynamic(obj) {
 		under := [3]u32{255, 255, 255}
 		if ext == ".glb" || ext == ".usda" {
 			for k in 0 ..< 3 do under[k] = u32(math.round(geom.srgb_encode(material.base[k]) * 255))
@@ -1323,7 +1323,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 		if ext == ".usda" && len(from) == 0 do usd_extras(obj, lv, &m)
 		if object_shows_group_materials(obj) && !object_dynamic(obj) {
 			faces := m.groups if ext == ".usda" else lv.sculptor.groups.tris
-			paint := sculpt.sculptor_paint_shown(&lv.sculptor)
+			paint := object_paint_flat(obj, &lv.sculptor)
 			if len(from) > 0 {
 				// A decimated copy's triangles are new: each takes the group of its first
 				// corner's vertex, and the paint goes by the new vertex numbers.
@@ -2151,6 +2151,7 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	geom.byte_put(out, obj.vis_off)
 	geom.byte_put(out, obj.remesh_cell)
 	stack_put(out, obj.stack)
+	physics_put(out, object_physics(obj))
 	geom.byte_put(out, u8(object_kind(obj)))
 	material_put(out, obj.material, refs[0] if len(refs) > 0 else {})
 	group_materials_put(out, obj, refs[1:] if len(refs) > 0 else nil)
@@ -2317,7 +2318,8 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source 
 }
 
 // Reads what object_put writes before the levels: the id, name, placement, pivot, boolean mode,
-// view flags, folder, stored eyes and last remesh cell; r.ok goes false on damage. The caller owns
+// view flags, folder, stored eyes, last remesh cell, live stack and Physics card; r.ok goes
+// false on damage. The caller owns
 // obj.name.
 object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 	obj.id = int(geom.byte_get(r, i32))
@@ -2346,6 +2348,7 @@ object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
 	stack, stack_ok := stack_get(r)
 	if !stack_ok do r.ok = false
 	obj.stack = stack
+	obj.physics = physics_get(r)
 }
 
 // Frees an object read for a scene that never got it: it has no history and draws

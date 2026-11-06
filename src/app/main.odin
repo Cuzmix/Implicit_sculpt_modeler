@@ -75,6 +75,7 @@ Options :: struct {
 	bench_tilt: f32 `usage:"Lean the synthetic pen of --bench-stroke this many degrees to the right (with set tilt_strength in a start-up script)."`,
 	no_vsync:  bool `usage:"Show each frame as soon as it is ready instead of waiting for the display's refresh, so frame times are not capped at the refresh rate."`,
 	idle_sleep: bool `usage:"Rest when idle (Settings > System) in a scripted run too, which otherwise never rests: for testing it."`,
+	physics_budget: int `usage:"Simulate at most this many vertices at once in Physics (Settle, the Physics card's filters, a pose with Physics), in place of 300000 (120000 on tablets): an object over it runs on a coarser subdivision level. For testing the dense-mesh paths."`,
 	memory_free: int `usage:"Take this many MB as what the system leaves the app, in place of asking it, so the memory check before Remesh and Subdivide can be tried on any machine: for testing it."`,
 	async_jobs: bool `usage:"Run Remesh, Decimate and Retopologize on a thread of their own in a scripted run too, and on any size of object, as an interactive run does on a big one: for testing it."`,
 	camera_ease: bool `usage:"Let Frame all, Focus selected, Reset camera, the axis views and Previous and Next view glide in a scripted run too, which otherwise jumps: for testing it."`,
@@ -401,6 +402,7 @@ App :: struct {
 	// and how many were built, for the exit stats.
 	cloth_volumes:       [dynamic]Cloth_Volume_Kept,
 	cloth_volume_builds: int,
+	physics_budget:      int, // --physics-budget, or 0 for PHYSICS_BUDGET (physics_budget)
 	physics_poses:       int, // poses the cloth followed (pose_physics_begin), for the exit stats
 	background:      Background_Settings, // the viewport's background (background.odin)
 	// Screenshots on a see-through ground (capture.odin).
@@ -940,6 +942,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.camera_ease.allowed = interactive || opts.camera_ease
 	app.long_job.allowed, app.long_job.forced = interactive || opts.async_jobs, opts.async_jobs
 	app.memory_free_test = opts.memory_free
+	app.physics_budget = opts.physics_budget
 	autosave_init(&app, interactive, f64(opts.autosave), opts.autosave_folder, f64(opts.autosave_rest), opts.check_autosave, opts.crash_after_autosave)
 	undo_disk_init(&app)
 	defer autosave_destroy(&app)

@@ -97,6 +97,12 @@
 [[vk::binding(2, 2)]] Sampler2D base_map;
 [[vk::binding(3, 2)]] Sampler2D orm_map;
 [[vk::binding(4, 2)]] Sampler2D normal_map;
+// The texture paint layers' composite (render.Textured_Mesh.paint): colour premultiplied
+// by its coverage, and roughness, its coverage, metal, its coverage, the values
+// premultiplied too, so filtering at a painted edge does not darken it. Transparent
+// black, painting nothing, while there is none.
+[[vk::binding(5, 2)]] Sampler2D paint_map;
+[[vk::binding(6, 2)]] Sampler2D paint_material_map;
 
 // A checker laid out by the UVs: 8 by 8 cells over the square, every other one darker,
 // each edged with a thin line and tinted by its column (hue) and row (lightness), so
@@ -252,9 +258,11 @@ float curvature(float3 n, float3 p) {
 }
 
 // Turns per pixel below CURVE_START leave the shading alone, so smooth broad forms are
-// untouched; by CURVE_FULL a crease or ridge takes the whole strength.
-static const float CURVE_START = 0.01;
-static const float CURVE_FULL = 0.12;
+// untouched; by CURVE_FULL a crease or ridge takes the whole strength. The ramp is wide, as
+// ZBrush's cavity is, so the small bends a dense mesh's triangles make across a pixel stay
+// near zero instead of drawing dark hairlines along the edges.
+static const float CURVE_START = 0.02;
+static const float CURVE_FULL = 0.24;
 
 // One light's GGX (Trowbridge-Reitz) specular and Lambert diffuse, Cook-Torrance style;
 // `shine` scales the specular, the light's Highlight (1 as usual).
@@ -526,6 +534,14 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		surf.x = orm.b;
 		surf.y = max(orm.g, 0.04);
 	}
+	// Painted roughness and metal over the material's, on the physically based path only:
+	// the vertex layers', then the texture layers' over them.
+	if (view_mode == 1 && surf.y > 0.0) {
+		surf.xy = paint_surface(surf.xy, frag_in.material);
+		float4 m = paint_material_map.Sample(uv);
+		surf.x = surf.x * (1.0 - m.w) + m.z;
+		surf.y = max(surf.y * (1.0 - m.y) + m.x, 0.04);
+	}
 #elif defined(SKINNED)
 	// A detail skin's normal carries its detail, which flat shading would throw away with
 	// the smoothed normal it replaces, so the skin shades the same with it on or off.
@@ -617,6 +633,11 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 	// The base colour map, times the item's colour (the app passes its tint over the
 	// material, white for none), as glTF multiplies factor and texture.
 	if (view_mode == 1 && maps.x > 0.5) albedo = base.rgb * base_map.Sample(uv).rgb;
+	// The texture paint layers stand over everything else (render.Textured_Mesh.paint).
+	if (view_mode == 1) {
+		float4 p = paint_map.Sample(uv);
+		albedo = albedo * (1.0 - p.a) + p.rgb;
+	}
 	if (view_mode == 3) albedo *= uv_checker(uv);
 #endif
 	// The view's Colour: the paint, the textures and the material's colour taken toward

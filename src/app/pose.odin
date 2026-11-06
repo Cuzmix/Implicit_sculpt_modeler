@@ -101,25 +101,18 @@ pose_begin :: proc(app: ^App, obj: ^Object, drag := false) -> bool {
 	return true
 }
 
-// The most free vertices Physics simulates on a pose: past it a drag of the gizmo, a
-// lattice point or a deformer moves the surface as it would without Physics, as a step a
-// frame over more would no longer keep up with the pointer.
-PHYSICS_POSE_MAX :: 300_000
-
 // With the Physics switch on, the cloth follows the pose just begun on `obj`
 // (sculpt.sculptor_pose_physics): the free part lags behind the handle, swings and settles,
-// colliding with what the Cloth brush's switches say. A pose over PHYSICS_POSE_MAX free
-// vertices says so in `section` and runs without it.
+// colliding with what the object's Physics card says. A pose of more free vertices than the
+// physics budget says so in `section` and runs without it.
 pose_physics_begin :: proc(app: ^App, obj: ^Object, section: Section) {
 	if !app.brush.physics do return
 	s := object_sculptor(obj)
-	if free := sculpt.sculptor_pose_moved(s); free > PHYSICS_POSE_MAX {
-		report(app, section, {.Warning}, "Physics follows a pose of up to %d free vertices; this one has %d and moves without it", PHYSICS_POSE_MAX, free)
+	if free := sculpt.sculptor_pose_moved(s); free > physics_budget(app) {
+		report(app, section, {.Warning}, "Physics follows a pose of up to %d free vertices; this one has %d and moves without it", physics_budget(app), free)
 		return
 	}
-	set := sculpt.CLOTH_DEFAULTS
-	c := app.brush.cloth
-	set.floor, set.objects, set.self_collide = c.floor, c.objects, c.self_collide
+	set := object_cloth_settings(obj)
 	if sculpt.sculptor_pose_physics(s, app.brush.physics_strength, set) == 0 do return
 	sculpt.sculptor_cloth_collide(s, cloth_collisions(app, obj, set))
 	app.physics_poses += 1
@@ -139,9 +132,7 @@ pose_physics_frame :: proc(app: ^App) {
 	if obj == nil do return
 	s := object_sculptor(obj)
 	if !sculpt.sculptor_pose_physics_on(s) do return
-	view := camera.orbit_view(app.camera)
-	down := linalg.normalize0(-to_local_dir(obj.transform, Vec3{view[1, 0], view[1, 1], view[1, 2]}))
-	_ = sculpt.sculptor_pose_physics_step(s, down)
+	_ = sculpt.sculptor_pose_physics_step(s, physics_down(app, obj))
 }
 
 // The pose in `obj`'s own space that the gizmo's change from `from` to `to` makes of

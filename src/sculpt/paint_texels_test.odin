@@ -1,8 +1,10 @@
 package sculpt
 
+import "core:log"
 import "core:math/linalg"
 import "core:slice"
 import "core:testing"
+import "core:time"
 
 import "../geom"
 import "../jobs"
@@ -202,4 +204,195 @@ texels_round_trip_and_sweep :: proc(t: ^testing.T) {
 	testing.expect(t, len(l.texels.layers) == 1, "a layer its undo step holds was freed")
 	_ = sculptor_undo(s)
 	testing.expect(t, len(s.paint.list) == 1 && texels_layer(&l.texels, s.paint.list[0].texels) != nil)
+}
+
+// A Paint stroke on a picked texture layer paints its tiles and not the vertices, keeps the
+// tiles it changed (as they were) in its undo step, and comes out the same on any thread
+// count; swapping the step back leaves the layer unpainted.
+@(test)
+texel_stroke_paints_tiles :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	run :: proc(t: ^testing.T, pool: ^jobs.Pool) -> (painted: []Color) {
+		l: Levels
+		texel_fixture(&l, pool)
+		defer levels_destroy(&l)
+		testing.expect(t, levels_texel_layer_add(&l, 1024) == 0)
+		s := &levels_current(&l).sculptor
+		testing.expect(t, levels_texels_attach(&l))
+		sculptor_stroke_begin(s)
+		start := time.tick_now()
+		for k in 0 ..< 8 {
+			at := linalg.normalize(Vec3{0.1 * f32(k), 0.2, 1})
+			_ = apply_dab(s, {kind = .Paint, radius = 0.3, strength = 0.8, color = {20, 200, 90}}, at)
+		}
+		took := time.duration_milliseconds(time.tick_since(start))
+		_ = sculptor_stroke_end(s)
+		step := levels_texels_detach(&l)
+		testing.expect(t, step != nil && len(step.saved) > 0, "the stroke kept no tiles")
+		testing.expect(t, s.color == nil && s.paint.list[0].color == nil, "the stroke painted the vertices")
+		layer := texels_layer(&l.texels, s.paint.list[0].texels)
+		count := 0
+		for tile in layer.tiles {
+			if tile == nil do continue
+			for c in tile.color do if c.a > 0 do count += 1
+			painted = slice.concatenate([][]Color{painted, tile.color}, context.temp_allocator)
+		}
+		testing.expectf(t, count > 1000, "%d texels painted", count)
+		log.infof("8 dabs at 1024 texels: %.2f ms, %d texels painted", took, count)
+		if step == nil do return
+		levels_texel_step_swap(&l, step)
+		for tile in layer.tiles do testing.expect(t, tile == nil, "undo left paint")
+		texel_step_free(step)
+		free(step)
+		return
+	}
+	a := run(t, nil)
+	b := run(t, &pool)
+	testing.expect(t, len(a) > 0 && slice.equal(a, b), "serial and parallel strokes differ")
+}
+
+// Blur over a painted line's edge spreads its paint thinly onto the clay beside it and
+// softens it inside, the same on one thread as on three, and undoes as one step.
+@(test)
+texel_blur_softens_and_agrees :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	run :: proc(t: ^testing.T, pool: ^jobs.Pool) -> (painted: []Color) {
+		l: Levels
+		texel_fixture(&l, pool)
+		defer levels_destroy(&l)
+		testing.expect(t, levels_texel_layer_add(&l, 512) == 0)
+		s := &levels_current(&l).sculptor
+		at := linalg.normalize(Vec3{0.1, 0.2, 1})
+		stroke :: proc(l: ^Levels, s: ^Sculptor, brush: Brush, at: Vec3, dabs: int) -> ^Texel_Step {
+			_ = levels_texels_attach(l)
+			sculptor_stroke_begin(s)
+			for _ in 0 ..< dabs do _ = apply_dab(s, brush, at)
+			_ = sculptor_stroke_end(s)
+			return levels_texels_detach(l)
+		}
+		counts :: proc(layer: ^Texel_Layer) -> (covered, partial: int) {
+			for tile in layer.tiles {
+				if tile == nil || tile.color == nil do continue
+				for c in tile.color {
+					if c.a > 0 do covered += 1
+					if c.a > 0 && c.a < 250 do partial += 1
+				}
+			}
+			return
+		}
+		first := stroke(&l, s, {kind = .Paint, radius = 0.1, strength = 1, color = {250, 30, 30}}, at, 1)
+		defer if first != nil {texel_step_free(first); free(first)}
+		layer := texels_layer(&l.texels, s.paint.list[0].texels)
+		covered, partial := counts(layer)
+		blurred := stroke(&l, s, {kind = .Paint, radius = 0.25, strength = 1, blur = true}, at, 6)
+		testing.expect(t, blurred != nil, "blur changed no tile")
+		covered2, partial2 := counts(layer)
+		testing.expectf(t, covered2 > covered && partial2 > partial, "covered %d -> %d, partial %d -> %d", covered, covered2, partial, partial2)
+		for tile in layer.tiles do if tile != nil && tile.color != nil do painted = slice.concatenate([][]Color{painted, tile.color}, context.temp_allocator)
+		if blurred == nil do return
+		levels_texel_step_swap(&l, blurred)
+		covered3, _ := counts(layer)
+		testing.expect(t, covered3 == covered, "undo left the blur")
+		texel_step_free(blurred)
+		free(blurred)
+		return
+	}
+	a := run(t, nil)
+	b := run(t, &pool)
+	testing.expect(t, len(a) > 0 && slice.equal(a, b), "serial and parallel blurs differ")
+}
+
+// Laying a texture layer out for new UVs (here each island turned half a turn in the
+// square) keeps the paint where it was on the surface, the same on one thread as on
+// three, and swapping the steps back with the old UVs gives the old tiles bit for bit.
+@(test)
+texels_follow_new_uvs :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	run :: proc(t: ^testing.T, pool: ^jobs.Pool) -> (laid: []Color) {
+		l: Levels
+		texel_fixture(&l, pool)
+		defer levels_destroy(&l)
+		testing.expect(t, levels_texel_layer_add(&l, 512) == 0)
+		s := &levels_current(&l).sculptor
+		_ = levels_texels_attach(&l)
+		sculptor_stroke_begin(s)
+		for k in 0 ..< 6 do _ = apply_dab(s, {kind = .Paint, radius = 0.4, strength = 0.7, color = {30, 120, 240}}, linalg.normalize(Vec3{0.2 * f32(k), 0.3, 1}))
+		_ = sculptor_stroke_end(s)
+		stroke := levels_texels_detach(&l)
+		defer if stroke != nil {texel_step_free(stroke); free(stroke)}
+		layer := &l.texels.layers[0]
+		across := texel_tiles_across(l.texels.side)
+		at_centres :: proc(layer: ^Texel_Layer, u: uv.Uvs, side, across: int) -> []Color {
+			out := make([]Color, len(u.corner), context.temp_allocator)
+			fs := f32(side)
+			for c, i in u.corner {
+				m := (c[0] + c[1] + c[2]) / 3
+				out[i], _, _ = texel_sample(layer, side, across, {m.x * fs - 0.5, (1 - m.y) * fs - 0.5})
+			}
+			return out
+		}
+		before := at_centres(layer, l.uvs, l.texels.side, across)
+		old_tiles: [dynamic]Color
+		old_tiles.allocator = context.temp_allocator
+		for tile in layer.tiles do if tile != nil && tile.color != nil do append(&old_tiles, ..tile.color)
+		next := uv.clone(l.uvs, l.allocator)
+		for &c in next.corner do for &p in c do p = {1 - p.x, 1 - p.y}
+		steps: [dynamic]Texel_Step
+		defer {
+			for &st in steps do texel_step_free(&st)
+			delete(steps)
+		}
+		levels_texels_relayout(&l, next, &steps)
+		testing.expect(t, len(steps) == 1)
+		after := at_centres(layer, next, l.texels.side, across)
+		off := 0
+		for c, i in before {
+			for k in 0 ..< 4 do if abs(int(c[k]) - int(after[i][k])) > 2 do off += 1
+		}
+		testing.expectf(t, off == 0, "%d channel values moved by more than 2", off)
+		for tile in layer.tiles do if tile != nil && tile.color != nil do laid = slice.concatenate([][]Color{laid, tile.color}, context.temp_allocator)
+		for &st in steps do levels_texel_step_swap(&l, &st)
+		uv.destroy(&next, l.allocator)
+		back: [dynamic]Color
+		back.allocator = context.temp_allocator
+		for tile in layer.tiles do if tile != nil && tile.color != nil do append(&back, ..tile.color)
+		testing.expect(t, len(back) > 0 && slice.equal(back[:], old_tiles[:]), "the undo did not give the old tiles back")
+		return
+	}
+	a := run(t, nil)
+	b := run(t, &pool)
+	testing.expect(t, len(a) > 0 && slice.equal(a, b), "serial and parallel layouts differ")
+}
+
+// A filled texture layer flattens onto every vertex in its colour, at its opacity, over
+// the vertex layers below; with no texture layer showing, the vertices' own colours.
+@(test)
+texels_flatten_onto_vertices :: proc(t: ^testing.T) {
+	l: Levels
+	texel_fixture(&l, nil)
+	defer levels_destroy(&l)
+	s := &levels_current(&l).sculptor
+	testing.expect(t, levels_paint_flat(&l, s) == nil, "unpainted levels gave colours")
+	testing.expect(t, levels_texel_layer_add(&l, 512) == 0)
+	testing.expect(t, levels_texel_command(&l, .Fill, {200, 40, 10}, {}, nil))
+	flat := levels_paint_flat(&l, s)
+	testing.expect(t, len(flat) == len(s.mesh.positions))
+	for c in flat do if c != {200, 40, 10, 255} {
+		testing.expectf(t, false, "a vertex took %v", c)
+		break
+	}
+	_ = sculptor_paint_set(s, 0, true, 0.5)
+	flat = levels_paint_flat(&l, s)
+	for c in flat do if abs(int(c.a) - 128) > 1 || abs(int(c.r) - 200) > 2 {
+		testing.expectf(t, false, "a vertex at half opacity took %v", c)
+		break
+	}
+	_ = sculptor_paint_set(s, 0, false, 0.5)
+	testing.expect(t, levels_paint_flat(&l, s) == nil, "a hidden layer still showed")
 }

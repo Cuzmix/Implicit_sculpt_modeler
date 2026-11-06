@@ -137,7 +137,7 @@ object_repair :: proc(app: ^App, obj: ^Object, cmd: Scene_Command) -> (changed, 
 	}
 	// Polypaint and polygroups follow the vertices and triangles they were on.
 	surface: Surface
-	if built && !paged && from.vertex_from != nil do surface = repair_surface(s, from)
+	if built && !paged && from.vertex_from != nil do surface = repair_surface(s, from, object_paint_flat(obj, s))
 	defer {
 		delete(surface.color)
 		delete(surface.groups)
@@ -171,9 +171,10 @@ repair_done :: proc(app: ^App, obj: ^Object, kind: Repair_Kind, start: time.Tick
 // The repaired mesh's polypaint and polygroups from the sculptor's, through where each
 // vertex and triangle came from. A cap's triangles take a new polygroup each (numbered
 // after the highest), as ZBrush's Close Holes gives them, even on an object that had
-// none. Heap memory, or nil for what there is none of.
-repair_surface :: proc(s: ^sculpt.Sculptor, from: geom.Repair_Map) -> (surface: Surface) {
-	if shown := sculpt.sculptor_paint_shown(s); shown != nil {
+// none. `shown` is the colours per vertex to carry (object_paint_flat). Heap memory, or
+// nil for what there is none of.
+repair_surface :: proc(s: ^sculpt.Sculptor, from: geom.Repair_Map, shown: []sculpt.Color) -> (surface: Surface) {
+	if shown != nil {
 		surface.color = make([]sculpt.Color, len(from.vertex_from))
 		for v, i in from.vertex_from do surface.color[i] = shown[v]
 	}

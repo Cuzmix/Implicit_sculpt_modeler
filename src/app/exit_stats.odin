@@ -234,7 +234,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// place the hand switch still draws the bars, how many times view panes faded in, and
 		// how many times Arrange opened (its outlines drawing in each time).
 		fmt.printfln("pie_unfold=%.2f hand_slide=%.2f pane_fades=%d pane_grows=%d arrange_openings=%d", pie_unfolded(app), app.kit.ctx.mirror_slide, app.kit.grid.fades, app.kit.grid.grows, app.kit.arrange.openings)
-		fmt.printfln("long_job_running=%d long_jobs=%d long_job_cancels=%d long_job_ms=%.0f long_job_progress=%.2f long_job_holds=%d", int(app.long_job.on), app.long_job.runs, app.long_job.cancels, app.long_job.ms, long_job_progress(app), app.long_job.holds)
+		fmt.printfln("long_job_running=%d long_jobs=%d long_job_cancels=%d long_job_ms=%.0f long_job_progress=%.2f long_job_holds=%d long_job_earlies=%d", int(app.long_job.on), app.long_job.runs, app.long_job.cancels, app.long_job.ms, long_job_progress(app), app.long_job.holds, app.long_job.earlies)
 		d := app.undo_disk
 		fmt.printfln("undo_disk=%d undo_disk_written=%d undo_disk_reads=%d undo_disk_failed=%d undo_disk_mb=%.1f undo_disk_write_ms=%.0f undo_disk_read_ms=%.0f", int(d.folder != ""), d.written, d.reads, d.failed, f64(history_disk_bytes(&app.history)) / (1 << 20), d.write_ms, d.read_ms)
 		fmt.printfln("cross_fading=%d look_fades=%d mesh_fades=%d view_holds=%d", int(app.cross_fade.on), app.cross_fade.looks, app.cross_fade.meshes, app.cross_fade.holds)
@@ -306,7 +306,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("pressure_response=%d pressure_own=%d", pressure_response(pressure_edit(&app.brush)), int(app.brush.pressures[app.brush.kind].own))
 			fmt.printfln("grab_refine_splits=%d grab_refine_ms=%.2f", app.grab_refine.splits, app.grab_refine.ms)
 			fmt.printfln("stretch_repair_splits=%d stretch_repair_ms=%.2f", app.stretch_repair.splits, app.stretch_repair.ms)
-			fmt.printfln("cloth_volume_builds=%d cloth_volumes=%d physics=%d physics_poses=%d", app.cloth_volume_builds, len(app.cloth_volumes), int(app.brush.physics), app.physics_poses)
+			fmt.printfln("cloth_volume_builds=%d cloth_volumes=%d physics=%d physics_poses=%d settles=%d settle_ms=%.1f physics_filters=%d physics_coarse_runs=%d physics_budget=%d", app.cloth_volume_builds, len(app.cloth_volumes), int(app.brush.physics), app.physics_poses, app.ui.physics.settles, app.ui.physics.settle_ms, app.ui.physics.filters, app.ui.physics.coarse_runs, physics_budget(app))
 			fmt.printfln("skin_settle_strokes=%d skin_settle_vertices=%d skin_settle_ms=%.2f", app.skin_settle.strokes, app.skin_settle.vertices, app.skin_settle.ms)
 			skin_segments: u32
 			if sk := object_skin(selected_object(app)); sk != nil do skin_segments = sk.segments

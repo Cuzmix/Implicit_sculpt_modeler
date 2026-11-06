@@ -107,3 +107,27 @@ memory_counts_read_as_the_presets :: proc(t: ^testing.T) {
 	testing.expect_value(t, memory_count_label(1_300_000), "1.3M")
 	testing.expect_value(t, memory_count_label(440_000), "440k")
 }
+
+// A remesh short of memory that letting its object go first makes fit goes on without
+// asking, where it runs on its own thread (an early release, long_job.odin), and still
+// asks where it runs at once, which keeps the object until it is done.
+@(test)
+a_remesh_that_fits_once_its_object_goes_does_not_ask :: proc(t: ^testing.T) {
+	app: App
+	defer check_scene_free(&app)
+	obj := check_scene(&app)
+	sculpt.levels_destroy(&obj.levels)
+	sculpt.levels_init(&obj.levels, geom.icosphere(7), nil, 64)
+	cmd := Scene_Command{kind = .Remesh, vertices = 500_000}
+	need, _, _ := memory_need(&app, obj, cmd)
+	gain := memory_release_gain(obj)
+	testing.expect(t, gain > 0)
+	// Between what fits with the object and what fits without it.
+	app.memory_free_test = (int(f64(need) / MEMORY_MARGIN) - gain / 2) >> 20
+	testing.expect(t, memory_short_for(&app, obj, cmd))
+	testing.expect(t, memory_check_holds(&app, cmd), "a remesh run at once did not ask")
+	app.memory_ask = {}
+	app.long_job.allowed, app.long_job.forced = true, true
+	testing.expect(t, !memory_check_holds(&app, cmd), "a remesh that fits once its object goes asked")
+	testing.expect(t, !app.memory_ask.on)
+}

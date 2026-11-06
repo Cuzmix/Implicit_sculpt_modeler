@@ -332,10 +332,11 @@ shading_options :: proc(app: ^App, s: ^View_Shading, main: bool, looks := true) 
 		for r in MATCAP_RECIPES do append(&caps, string(r.label))
 		at := (s.matcap if s.matcap > 0 && s.matcap <= len(MATCAP_RECIPES) else SHADING_MATCAP_DEFAULT) - 1
 		named(ctx, "MatCap")
-		// Two rows of three, as six names do not fit across the list.
+		// Rows of three, as more names do not fit across the list.
 		ui.begin(ctx, "matcaps##shading", {direction = .Column, gap = ui.SPACE_XS})
-		for row in 0 ..< 2 {
-			if picked := ui.tabs(ctx, fmt.tprintf("MatCap %d", row), caps[row * 3:row * 3 + 3], at - row * 3 if at / 3 == row else -1); picked >= 0 do s.matcap = row * 3 + picked + 1
+		for start := 0; start < len(caps); start += 3 {
+			row := caps[start:min(start + 3, len(caps))]
+			if picked := ui.tabs(ctx, fmt.tprintf("MatCap %d", start / 3), row, at - start if at >= start && at < start + len(row) else -1); picked >= 0 do s.matcap = start + picked + 1
 		}
 		ui.end(ctx)
 		ui.end(ctx)

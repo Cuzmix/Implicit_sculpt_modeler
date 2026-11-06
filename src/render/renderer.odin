@@ -51,6 +51,9 @@ Renderer :: struct {
 	// filtering, mipmapped, repeating, and anisotropic where the device allows it.
 	no_normal_map:   gpu.Texture,
 	texture_sampler: gpu.Sampler,
+	// Bound in place of a textured mesh's paint textures when it has none: transparent
+	// black, which paints nothing.
+	no_paint_map:    gpu.Texture,
 	anisotropy:      bool, // the device was made with anisotropic filtering
 	last_version:   u64,  // source of Mesh_Buffers.version
 	cull:           bool, // skip off-screen and back-facing chunks of items that have them
@@ -648,6 +651,8 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	if r.matcap_sampler == 0 do log.errorf("matcap sampler: %s", gpu.last_error())
 	flat_normal := [4]u8{128, 128, 255, 255}
 	r.no_normal_map = texture_create(r, TEXTURE_FORMATS[.Normal], flat_normal[:], 1, 1)
+	unpainted := [4]u8{}
+	r.no_paint_map = texture_create(r, .RGBA8_Unorm, unpainted[:], 1, 1)
 	r.texture_sampler = gpu.create_sampler({
 		min_filter = .Linear, mag_filter = .Linear, mipmap_mode = .Linear,
 		address_mode_u = .Repeat, address_mode_v = .Repeat, address_mode_w = .Repeat,
@@ -663,7 +668,7 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	})
 	if r.env_sampler == 0 do log.errorf("environment sampler: %s", gpu.last_error())
 	if r.single.textured == 0 do log.warn("textures: the textured pipeline could not be made; textured objects draw as clay")
-	return r.single.mesh != 0 && r.single.clear != 0 && r.no_paint != 0 && r.no_matcap != 0 && r.matcap_sampler != 0 && r.no_normal_map != 0 && r.texture_sampler != 0 && r.no_environment != 0 && r.env_sampler != 0
+	return r.single.mesh != 0 && r.single.clear != 0 && r.no_paint != 0 && r.no_matcap != 0 && r.matcap_sampler != 0 && r.no_normal_map != 0 && r.no_paint_map != 0 && r.texture_sampler != 0 && r.no_environment != 0 && r.env_sampler != 0
 }
 
 // The GPU's name alone, for people (Settings > System > Graphics). Temp-allocated.
@@ -753,6 +758,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 	if r.no_matcap != 0 do gpu.release_texture(r.no_matcap)
 	if r.matcap_sampler != 0 do gpu.release_sampler(r.matcap_sampler)
 	if r.no_normal_map != 0 do gpu.release_texture(r.no_normal_map)
+	if r.no_paint_map != 0 do gpu.release_texture(r.no_paint_map)
 	if r.texture_sampler != 0 do gpu.release_sampler(r.texture_sampler)
 	if r.no_environment != 0 do gpu.release_texture(r.no_environment)
 	if r.env_sampler != 0 do gpu.release_sampler(r.env_sampler)
@@ -2249,8 +2255,11 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 		// Drawn solid after all where the blended pipeline is missing, and opaque then.
 		if !see do material.look.w = 0
 		if textured {
-			frame.options = {}
+			// Pulled slots read the level's paint (textured.vert.slang); groups and slots
+			// have no place on a textured mesh.
+			frame.options = {frame.options.x, 0, 0, frame.options.w}
 			draw_textured_item(r, cmd, pass, item, &frame, &material, stats)
+			frame.options = {}
 			if item.wireframe && pipes.wire != 0 {
 				// The wire pass draws the sculpt buffers, which hold the same surface.
 				push_vertex(cmd, Mesh_Vert_Uniforms.Frame_Uniforms, &frame)

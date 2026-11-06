@@ -13,7 +13,8 @@
 	// slot 1; 0xffffffff for an unused slot.
 	uint4 slot_group[4];
 	// The detail skin's segments, vertex count and edge count (render.Mesh_Buffers.skin_meta),
-	// read only by the skinned stages (skin.vert.slang).
+	// read by the skinned stages (skin.vert.slang); the textured stage reads x as 1 to pull
+	// its slots from the level's buffers (textured.vert.slang).
 	uint4 skin;
 };
 

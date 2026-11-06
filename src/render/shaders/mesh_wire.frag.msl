@@ -1,4 +1,4 @@
-// slangc metal from mesh_wire.frag.spv sha256 893ad9c1cd570889e4974433325000de6258b782f0bb2ca446199dd4f55b8f36
+// slangc metal from mesh_wire.frag.spv sha256 c773baa7e70dc61f61509e6fcc8f1d2de7427b5411cb26c12cccf3ec8e860969
 // slots s=0:0,1:1 rt= wt= rb=3 wb= u=1,2 a=
 #include <metal_stdlib>
 #include <metal_math>
@@ -24,50 +24,50 @@ float2 paint_surface_0(float2 surf_0, float4 m_0)
 }
 
 
-#line 244 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_shading.slang"
+#line 250 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_shading.slang"
 float curvature_0(float3 n_0, float3 p_0)
 {
 
-#line 245
+#line 251
     float3 dpx_0 = dfdx(p_0);
 
-#line 245
+#line 251
     float3 dpy_0 = dfdy(p_0);
     float3 dnx_0 = dfdx(n_0);
 
-#line 246
+#line 252
     float3 dny_0 = dfdy(n_0);
     float lx_0 = length(dpx_0);
 
-#line 247
+#line 253
     float ly_0 = length(dpy_0);
 
-#line 247
+#line 253
     float c_1;
 
     if(lx_0 > 0.0f)
     {
 
-#line 249
+#line 255
         c_1 = dot(dnx_0, dpx_0) / lx_0;
 
-#line 249
+#line 255
     }
     else
     {
 
-#line 249
+#line 255
         c_1 = 0.0f;
 
-#line 249
+#line 255
     }
     if(ly_0 > 0.0f)
     {
 
-#line 250
+#line 256
         c_1 = c_1 + dot(dny_0, dpy_0) / ly_0;
 
-#line 250
+#line 256
     }
     return c_1;
 }
@@ -112,7 +112,7 @@ struct SLANG_ParameterGroup_Slot_Uniforms_0
 };
 
 
-#line 20 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
+#line 21 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
 struct Mesh_Varyings_0
 {
     float3 view_normal_0;
@@ -127,7 +127,7 @@ struct Mesh_Varyings_0
 };
 
 
-#line 125 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_shading.slang"
+#line 131 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_shading.slang"
 struct KernelContext_0
 {
     SLANG_ParameterGroup_Material_Uniforms_0 constant* Material_Uniforms_0;
@@ -143,61 +143,61 @@ struct KernelContext_0
 };
 
 
-#line 162
+#line 168
 float3 skin_detail_color_0(float3 n_1, float3 v_0, KernelContext_0 thread* kernelContext_0)
 {
 
-#line 163
+#line 169
     float3 flat_n_0 = normalize((&kernelContext_0->frag_in_0)->view_normal_0);
 
-#line 163
+#line 169
     float3 flat_n_1;
     if(!kernelContext_0->front_facing_0)
     {
 
-#line 164
+#line 170
         flat_n_1 = - flat_n_0;
 
-#line 164
+#line 170
     }
     else
     {
 
-#line 164
+#line 170
         flat_n_1 = flat_n_0;
 
-#line 164
+#line 170
     }
 
-#line 186
+#line 192
     return float3(0.5f, 0.5f, 1.0f) * float3((0.69999998807907104f + 0.30000001192092896f * clamp(dot(flat_n_1, v_0), 0.0f, 1.0f))) ;
 }
 
 
-#line 231
+#line 237
 float opacity_0(KernelContext_0 thread* kernelContext_1)
 {
 
-#line 231
+#line 237
     float _S2;
     if((kernelContext_1->Material_Uniforms_0->look_0.w) > 0.0f)
     {
 
-#line 232
+#line 238
         _S2 = kernelContext_1->Material_Uniforms_0->look_0.w;
 
-#line 232
+#line 238
     }
     else
     {
 
-#line 232
+#line 238
         _S2 = 1.0f;
 
-#line 232
+#line 238
     }
 
-#line 232
+#line 238
     return _S2;
 }
 
@@ -211,20 +211,20 @@ float glsl_mod_0(float x_0, float y_0)
 }
 
 
-#line 382 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_shading.slang"
+#line 390 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_shading.slang"
 float light_at_0(int i_0, float3 thread* l_0, float thread* spread_0, KernelContext_0 thread* kernelContext_2)
 {
 
-#line 383
+#line 391
     float4 p_1 = kernelContext_2->Material_Uniforms_0->light_pos_0[i_0];
     float4 shape_0 = kernelContext_2->Material_Uniforms_0->light_shape_0[i_0];
     float _S3 = kernelContext_2->Material_Uniforms_0->light_pos_0[i_0].w;
 
-#line 385
+#line 393
     if(_S3 < 0.5f)
     {
 
-#line 386
+#line 394
         *l_0 = p_1.xyz;
         *spread_0 = shape_0.w;
         return 1.0f;
@@ -236,74 +236,74 @@ float light_at_0(int i_0, float3 thread* l_0, float thread* spread_0, KernelCont
     *spread_0 = min(shape_0.w * inv_0, 1.0f);
     float _S5 = shape_0.x;
 
-#line 395
+#line 403
     float k_0 = _S5 * _S5 / _S4;
     float _S6 = shape_0.y;
 
-#line 396
+#line 404
     float k_1;
 
-#line 396
+#line 404
     if(_S6 > 0.0f)
     {
 
-#line 397
+#line 405
         float x_1 = _S4 / (_S6 * _S6);
         float w_0 = clamp(1.0f - x_1 * x_1, 0.0f, 1.0f);
 
-#line 398
+#line 406
         k_1 = k_0 * (w_0 * w_0);
 
-#line 396
+#line 404
     }
     else
     {
 
-#line 396
+#line 404
         k_1 = k_0;
 
-#line 396
+#line 404
     }
 
-#line 401
+#line 409
     if(_S3 > 1.5f)
     {
 
-#line 401
+#line 409
         k_1 = k_1 * smoothstep(kernelContext_2->Material_Uniforms_0->light_spot_0[i_0].w, shape_0.z, dot(- *l_0, kernelContext_2->Material_Uniforms_0->light_spot_0[i_0].xyz));
 
-#line 401
+#line 409
     }
     return k_1;
 }
 
 
-#line 279
+#line 287
 float3 nearest_in_light_0(float3 l_1, float3 r_0, float spread_1)
 {
 
-#line 280
+#line 288
     float cos_r_0 = sqrt(max(1.0f - spread_1 * spread_1, 0.0f));
     float l_dot_r_0 = dot(l_1, r_0);
     if(l_dot_r_0 >= cos_r_0)
     {
 
-#line 282
+#line 290
         return r_0;
     }
 
-#line 283
+#line 291
     float3 s_0 = r_0 - float3(l_dot_r_0)  * l_1;
     float s2_0 = dot(s_0, s_0);
 
     if(s2_0 < 9.999999960041972e-13f)
     {
 
-#line 286
+#line 294
         return l_1;
     }
 
-#line 287
+#line 295
     return normalize(l_1 * float3(cos_r_0)  + s_0 * float3((rsqrt(s2_0) * spread_1)) );
 }
 
@@ -312,7 +312,7 @@ float3 nearest_in_light_0(float3 l_1, float3 r_0, float spread_1)
 float widened_0(float a_0, float spread_2)
 {
 
-#line 293
+#line 301
     float _S7 = min(a_0 + 0.5f * spread_2, 1.0f);
     return a_0 * a_0 / (_S7 * _S7);
 }
@@ -323,17 +323,17 @@ float widened_0(float a_0, float spread_2)
 float3 direct_sized_0(float3 n_2, float3 v_1, float3 l_2, float3 ls_0, float spread_3, float3 diffuse_0, float3 f0_0, float a_1, float shine_0)
 {
 
-#line 301
+#line 309
     float3 color_0 = diffuse_0 / float3(3.14159274101257324f)  * float3(max(dot(n_2, l_2), 0.0f)) ;
     float _S8 = max(dot(n_2, ls_0), 0.0f);
     if(_S8 <= 0.0f)
     {
 
-#line 303
+#line 311
         return color_0;
     }
 
-#line 304
+#line 312
     float3 h_0 = normalize(ls_0 + v_1);
     float _S9 = max(dot(n_2, v_1), 0.00009999999747379f);
     float _S10 = max(dot(n_2, h_0), 0.0f);
@@ -346,20 +346,20 @@ float3 direct_sized_0(float3 n_2, float3 v_1, float3 l_2, float3 ls_0, float spr
 }
 
 
-#line 261
+#line 269
 float3 direct_0(float3 n_3, float3 v_2, float3 l_3, float3 diffuse_1, float3 f0_1, float a_2, float shine_1)
 {
 
-#line 262
+#line 270
     float _S11 = max(dot(n_3, l_3), 0.0f);
     if(_S11 <= 0.0f)
     {
 
-#line 263
+#line 271
         return float3(0.0f) ;
     }
 
-#line 264
+#line 272
     float3 h_1 = normalize(l_3 + v_2);
     float _S12 = max(dot(n_3, v_2), 0.00009999999747379f);
     float _S13 = max(dot(n_3, h_1), 0.0f);
@@ -372,7 +372,7 @@ float3 direct_0(float3 n_3, float3 v_2, float3 l_3, float3 diffuse_1, float3 f0_
 }
 
 
-#line 221
+#line 227
 float2 env_brdf_0(float n_dot_v_0, float rough_0)
 {
 
@@ -382,19 +382,19 @@ float2 env_brdf_0(float n_dot_v_0, float rough_0)
 }
 
 
-#line 209
+#line 215
 float3 irradiance_0(float3 n_4, KernelContext_0 thread* kernelContext_3)
 {
 
-#line 210
+#line 216
     float3 d_3 = (((transpose(matrix<float,int(3),int(3)> (kernelContext_3->Material_Uniforms_0->env_x_0.xyz, kernelContext_3->Material_Uniforms_0->env_y_0.xyz, kernelContext_3->Material_Uniforms_0->env_z_0.xyz))) * (n_4)));
 
     float _S15 = d_3.y;
 
-#line 212
+#line 218
     float _S16 = d_3.z;
 
-#line 212
+#line 218
     float _S17 = d_3.x;
     float _S18 = 1.09254801273345947f * _S17;
 
@@ -424,11 +424,11 @@ float3 studio_0(float3 dir_1, float rough_2)
 }
 
 
-#line 406 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_shading.slang"
+#line 414 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_shading.slang"
 float sky_facing_0(float3 n_5, matrix<float,int(3),int(3)>  rig_0)
 {
 
-#line 407
+#line 415
     return 0.5f + 0.5f * dot(n_5, rig_0[int(1)]);
 }
 
@@ -437,7 +437,7 @@ float sky_facing_0(float3 n_5, matrix<float,int(3),int(3)>  rig_0)
 float underside_0(float3 n_6, matrix<float,int(3),int(3)>  rig_1, KernelContext_0 thread* kernelContext_4)
 {
 
-#line 413
+#line 421
     return mix(kernelContext_4->Material_Uniforms_0->style_0.y, 1.0f, sky_facing_0(n_6, rig_1));
 }
 
@@ -450,11 +450,11 @@ float2 panorama_uv_0(float3 d_4)
 }
 
 
-#line 199 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_shading.slang"
+#line 205 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_shading.slang"
 float3 reflected_0(float3 dir_2, float rough_3, matrix<float,int(3),int(3)>  to_rig_0, KernelContext_0 thread* kernelContext_5)
 {
 
-#line 200
+#line 206
     if((kernelContext_5->Material_Uniforms_0->env_0.x) > 0.5f)
     {
         return ((kernelContext_5->environment_map_texture_0).sample((kernelContext_5->environment_map_sampler_0), (panorama_uv_0((((transpose(matrix<float,int(3),int(3)> (kernelContext_5->Material_Uniforms_0->env_x_0.xyz, kernelContext_5->Material_Uniforms_0->env_y_0.xyz, kernelContext_5->Material_Uniforms_0->env_z_0.xyz))) * (dir_2))))), level((rough_3 * kernelContext_5->Material_Uniforms_0->env_0.z)))).xyz * float3(kernelContext_5->Material_Uniforms_0->env_0.y) ;
@@ -511,26 +511,26 @@ float3 display_color_0(float3 c_3, float stops_0)
 }
 
 
-#line 235 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_shading.slang"
+#line 241 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_shading.slang"
 float4 display_0(float3 c_4, KernelContext_0 thread* kernelContext_6)
 {
 
-#line 236
+#line 242
     float3 _S23 = display_color_0(c_4, kernelContext_6->Material_Uniforms_0->look_0.x);
 
-#line 236
+#line 242
     float _S24 = opacity_0(kernelContext_6);
 
-#line 236
+#line 242
     return float4(_S23, _S24);
 }
 
 
-#line 459
+#line 467
 float4 shade_0(const Mesh_Varyings_0 thread* v_in_0, float4 position_0, bool is_front_0, KernelContext_0 thread* kernelContext_7)
 {
 
-#line 466
+#line 474
     kernelContext_7->frag_in_0 = *v_in_0;
     kernelContext_7->frag_coord_0 = position_0;
     kernelContext_7->front_facing_0 = is_front_0;
@@ -545,76 +545,76 @@ float4 shade_0(const Mesh_Varyings_0 thread* v_in_0, float4 position_0, bool is_
     float4 _S26 = kernelContext_7->Material_Uniforms_0->params_0;
     thread float4 surf_1 = kernelContext_7->Material_Uniforms_0->surface_0;
 
-#line 478
+#line 486
     float4 base_0;
 
-#line 478
+#line 486
     float4 shading_0;
 
     if(((&kernelContext_7->frag_in_0)->slot_0) > 0U)
     {
 
-#line 481
+#line 489
         float4 _S27 = kernelContext_7->Slot_Uniforms_0->slot_color_0[(&kernelContext_7->frag_in_0)->slot_0];
         float4 _S28 = kernelContext_7->Slot_Uniforms_0->slot_params_0[(&kernelContext_7->frag_in_0)->slot_0];
         surf_1.xy = kernelContext_7->Slot_Uniforms_0->slot_surface_0[(&kernelContext_7->frag_in_0)->slot_0].xy;
         surf_1.w = 0.0f;
 
-#line 484
+#line 492
         base_0 = _S27;
 
-#line 484
+#line 492
         shading_0 = _S28;
 
-#line 480
+#line 488
     }
     else
     {
 
-#line 480
+#line 488
         base_0 = _S25;
 
-#line 480
+#line 488
         shading_0 = _S26;
 
-#line 480
+#line 488
     }
 
-#line 488
+#line 496
     if((surf_1.y) > 0.0f)
     {
 
-#line 488
+#line 496
         surf_1.xy = paint_surface_0(surf_1.xy, (&kernelContext_7->frag_in_0)->material_0);
 
-#line 488
+#line 496
     }
 
-#line 488
+#line 496
     float3 v_3;
 
-#line 495
+#line 503
     if((kernelContext_7->Material_Uniforms_0->env_0.w) > 0.5f)
     {
 
-#line 495
+#line 503
         v_3 = float3(0.0f, 0.0f, 1.0f);
 
-#line 495
+#line 503
     }
     else
     {
 
-#line 495
+#line 503
         v_3 = normalize(- (&kernelContext_7->frag_in_0)->view_pos_0);
 
-#line 495
+#line 503
     }
 
-#line 495
+#line 503
     float3 n_7;
 
-#line 535
+#line 551
     if((kernelContext_7->Material_Uniforms_0->surface_0.z) > 0.5f)
     {
 
@@ -622,21 +622,21 @@ float4 shade_0(const Mesh_Varyings_0 thread* v_in_0, float4 position_0, bool is_
         if((dot(n_8, v_3)) < 0.0f)
         {
 
-#line 539
+#line 555
             n_7 = - n_8;
 
-#line 539
+#line 555
         }
         else
         {
 
-#line 539
+#line 555
             n_7 = n_8;
 
-#line 539
+#line 555
         }
 
-#line 535
+#line 551
     }
     else
     {
@@ -647,162 +647,162 @@ float4 shade_0(const Mesh_Varyings_0 thread* v_in_0, float4 position_0, bool is_
         if(!kernelContext_7->front_facing_0)
         {
 
-#line 542
+#line 558
             n_7 = - n_9;
 
-#line 542
+#line 558
         }
         else
         {
 
-#line 542
+#line 558
             n_7 = n_9;
 
-#line 542
+#line 558
         }
 
-#line 535
+#line 551
     }
 
-#line 548
+#line 564
     float3 _S29 = dfdx(n_7);
 
-#line 548
+#line 564
     float3 _S30 = dfdy(n_7);
     float _S31 = curvature_0(n_7, (&kernelContext_7->frag_in_0)->view_pos_0);
 
-#line 549
+#line 565
     float3 dndx_0;
 
-#line 549
+#line 565
     float3 dndy_0;
 
-#line 549
+#line 565
     float bend_0;
 
     if((kernelContext_7->Material_Uniforms_0->surface_0.z) > 0.5f)
     {
 
-#line 552
+#line 568
         float3 _S32 = float3(0.0f) ;
 
-#line 552
+#line 568
         bend_0 = 0.0f;
 
-#line 552
+#line 568
         dndx_0 = _S32;
 
-#line 552
+#line 568
         dndy_0 = _S32;
 
-#line 551
+#line 567
     }
     else
     {
 
-#line 551
+#line 567
         bend_0 = _S31;
 
-#line 551
+#line 567
         dndx_0 = _S29;
 
-#line 551
+#line 567
         dndy_0 = _S30;
 
-#line 551
+#line 567
     }
 
-#line 559
+#line 575
     int _S33 = int(kernelContext_7->Material_Uniforms_0->pass_0.x + 0.5f);
 
-#line 559
+#line 575
     int view_pass_0;
 
 
     if((kernelContext_7->Material_Uniforms_0->pass_0.w) > 0.5f)
     {
 
-#line 563
+#line 579
         float wipe_0 = kernelContext_7->Material_Uniforms_0->pass_0.w - 1.0f;
         float line_px_0 = floor(wipe_0 / 16.0f);
         if((kernelContext_7->frag_coord_0.x) >= line_px_0)
         {
 
-#line 565
+#line 581
             view_pass_0 = int(wipe_0 - line_px_0 * 16.0f + 0.5f);
 
-#line 565
+#line 581
         }
         else
         {
 
-#line 565
+#line 581
             view_pass_0 = _S33;
 
-#line 565
+#line 581
         }
 
-#line 562
+#line 578
     }
     else
     {
 
-#line 562
+#line 578
         view_pass_0 = _S33;
 
-#line 562
+#line 578
     }
 
-#line 562
+#line 578
     bool _S34;
 
-#line 568
+#line 584
     if(view_pass_0 != int(0))
     {
 
-#line 568
+#line 584
         _S34 = view_pass_0 != int(7);
 
-#line 568
+#line 584
     }
     else
     {
 
-#line 568
+#line 584
         _S34 = false;
 
-#line 568
+#line 584
     }
 
-#line 568
+#line 584
     float3 shown_0;
 
-#line 568
+#line 584
     float c_5;
 
-#line 568
+#line 584
     if(_S34)
     {
         if(view_pass_0 == int(1))
         {
 
-#line 570
+#line 586
             float3 _S35 = float3(0.5f) ;
 
-#line 570
+#line 586
             shown_0 = n_7 * _S35 + _S35;
 
-#line 570
+#line 586
         }
         else
         {
             if(view_pass_0 == int(2))
             {
 
-#line 573
+#line 589
                 shown_0 = float3((1.0f - clamp((- (&kernelContext_7->frag_in_0)->view_pos_0.z - kernelContext_7->Material_Uniforms_0->pass_0.y) / max(kernelContext_7->Material_Uniforms_0->pass_0.z - kernelContext_7->Material_Uniforms_0->pass_0.y, 9.99999997475242708e-07f), 0.0f, 1.0f))) ;
 
-#line 573
+#line 589
             }
             else
             {
@@ -815,199 +815,199 @@ float4 shade_0(const Mesh_Varyings_0 thread* v_in_0, float4 position_0, bool is_
                     if((kernelContext_7->Material_Uniforms_0->surface_0.z) > 0.5f)
                     {
 
-#line 583
+#line 599
                         float3 smooth_n_0 = normalize((&kernelContext_7->frag_in_0)->view_normal_0);
                         if(!kernelContext_7->front_facing_0)
                         {
 
-#line 584
+#line 600
                             shown_0 = - smooth_n_0;
 
-#line 584
+#line 600
                         }
                         else
                         {
 
-#line 584
+#line 600
                             shown_0 = smooth_n_0;
 
-#line 584
+#line 600
                         }
 
-#line 584
+#line 600
                         c_5 = curvature_0(shown_0, (&kernelContext_7->frag_in_0)->view_pos_0);
 
-#line 582
+#line 598
                     }
                     else
                     {
 
-#line 582
+#line 598
                         c_5 = bend_0;
 
-#line 582
+#line 598
                     }
 
-#line 590
-                    float k_2 = clamp(c_5 / 0.11999999731779099f, -1.0f, 1.0f);
+#line 606
+                    float k_2 = clamp(c_5 / 0.23999999463558197f, -1.0f, 1.0f);
 
-#line 590
+#line 606
                     float k_3;
                     if(k_2 > 0.0f)
                     {
 
-#line 591
+#line 607
                         k_3 = k_2 * smoothstep(0.10000000149011612f, 0.40000000596046448f, max(dot(n_7, v_3), 0.0f));
 
-#line 591
+#line 607
                     }
                     else
                     {
 
-#line 591
+#line 607
                         k_3 = k_2;
 
-#line 591
+#line 607
                     }
                     float3 _S36 = float3(0.5f) ;
 
-#line 592
+#line 608
                     if(k_3 < 0.0f)
                     {
 
-#line 592
+#line 608
                         v_3 = float3(0.15000000596046448f, 0.34999999403953552f, 0.85000002384185791f);
 
-#line 592
+#line 608
                     }
                     else
                     {
 
-#line 592
+#line 608
                         v_3 = float3(0.94999998807907104f, 0.55000001192092896f, 0.15000000596046448f);
 
-#line 592
+#line 608
                     }
 
-#line 592
+#line 608
                     shown_0 = mix(_S36, v_3, float3(abs(k_3)) );
 
-#line 577
+#line 593
                 }
                 else
                 {
 
-#line 593
+#line 609
                     if(view_pass_0 == int(4))
                     {
 
-#line 593
+#line 609
                         shown_0 = float3(0.85000002384185791f) ;
 
-#line 593
+#line 609
                     }
                     else
                     {
                         if(view_pass_0 == int(6))
                         {
 
-#line 596
+#line 612
                             float3 _S37 = skin_detail_color_0(n_7, v_3, kernelContext_7);
 
-#line 596
+#line 612
                             shown_0 = _S37;
 
-#line 596
+#line 612
                         }
                         else
                         {
 
-#line 596
+#line 612
                             shown_0 = float3(0.05999999865889549f) ;
 
-#line 596
+#line 612
                         }
 
-#line 593
+#line 609
                     }
 
-#line 577
+#line 593
                 }
 
-#line 573
+#line 589
             }
 
-#line 570
+#line 586
         }
 
-#line 570
+#line 586
         float _S38 = opacity_0(kernelContext_7);
 
-#line 602
+#line 618
         return float4(shown_0, _S38);
     }
 
-#line 608
+#line 624
     float _S39 = dot(n_7, v_3);
 
-#line 608
+#line 624
     float _S40 = max(_S39, 0.0f);
 
 
-    float relief_0 = (1.0f - 0.75f * (kernelContext_7->Material_Uniforms_0->look_0.y * smoothstep(0.00999999977648258f, 0.11999999731779099f, - bend_0))) * (1.0f + 0.60000002384185791f * (kernelContext_7->Material_Uniforms_0->look_0.z * smoothstep(0.00999999977648258f, 0.11999999731779099f, bend_0) * smoothstep(0.10000000149011612f, 0.40000000596046448f, _S40)));
+    float relief_0 = (1.0f - 0.75f * (kernelContext_7->Material_Uniforms_0->look_0.y * smoothstep(0.01999999955296516f, 0.23999999463558197f, - bend_0))) * (1.0f + 0.60000002384185791f * (kernelContext_7->Material_Uniforms_0->look_0.z * smoothstep(0.01999999955296516f, 0.23999999463558197f, bend_0) * smoothstep(0.10000000149011612f, 0.40000000596046448f, _S40)));
 
 
     float3 _S41 = mix(base_0.xyz, (&kernelContext_7->frag_in_0)->paint_0.xyz, float3((&kernelContext_7->frag_in_0)->paint_0.w) );
     if(((&kernelContext_7->frag_in_0)->group_0.x) >= 0.0f)
     {
 
-#line 615
+#line 631
         shown_0 = (&kernelContext_7->frag_in_0)->group_0;
 
-#line 615
+#line 631
     }
     else
     {
 
-#line 615
+#line 631
         shown_0 = _S41;
 
-#line 615
+#line 631
     }
 
-#line 624
+#line 645
     if((kernelContext_7->Material_Uniforms_0->fade_0.w) > 0.0f)
     {
 
-#line 624
+#line 645
         _S34 = ((&kernelContext_7->frag_in_0)->group_0.x) < 0.0f;
 
-#line 624
+#line 645
     }
     else
     {
 
-#line 624
+#line 645
         _S34 = false;
 
-#line 624
+#line 645
     }
 
-#line 624
+#line 645
     if(_S34)
     {
 
-#line 624
+#line 645
         shown_0 = mix(shown_0, kernelContext_7->Material_Uniforms_0->fade_0.xyz, float3(kernelContext_7->Material_Uniforms_0->fade_0.w) );
 
-#line 624
+#line 645
     }
 
-#line 629
+#line 650
     if((kernelContext_7->Material_Uniforms_0->checker_0.w) > 0.0f)
     {
 
-#line 630
+#line 651
         float3 c_6 = ((&kernelContext_7->frag_in_0)->mesh_pos_0 - kernelContext_7->Material_Uniforms_0->checker_0.xyz) / float3(kernelContext_7->Material_Uniforms_0->checker_0.w) ;
         float3 width_0 = max((fwidth((c_6))), float3(9.99999997475242708e-07f) );
         float _S42 = max(max(width_0.x, width_0.y), width_0.z);
@@ -1018,13 +1018,13 @@ float4 shade_0(const Mesh_Varyings_0 thread* v_in_0, float4 position_0, bool is_
 
         float3 cell_0 = floor(c_6);
 
-#line 638
+#line 659
         shown_0 = shown_0 * float3(mix(mix(1.0f, 0.72000002861022949f, glsl_mod_0(cell_0.x + cell_0.y + cell_0.z, 2.0f)) * (1.0f - 0.34999999403953552f * ((1.0f - smoothstep(0.5f, 1.5f, min(min(edge_0.x, edge_0.y), edge_0.z))) * (1.0f - smoothstep(0.0625f, 0.125f, _S42)))), 0.86000001430511475f, smoothstep(0.20000000298023224f, 0.40000000596046448f, _S42))) ;
 
-#line 629
+#line 650
     }
 
-#line 644
+#line 665
     matrix<float,int(3),int(3)>  rig_2 = matrix<float,int(3),int(3)> (kernelContext_7->Material_Uniforms_0->light_x_0.xyz, kernelContext_7->Material_Uniforms_0->light_y_0.xyz, kernelContext_7->Material_Uniforms_0->light_z_0.xyz);
     float ambient_0 = kernelContext_7->Material_Uniforms_0->light_x_0.w;
 
@@ -1036,61 +1036,61 @@ float4 shade_0(const Mesh_Varyings_0 thread* v_in_0, float4 position_0, bool is_
     if(view_pass_0 == int(7))
     {
 
-#line 652
+#line 673
         float3 _S43 = srgb_encode_0(albedo_0 * float3(relief_0)  * float3(exp2(kernelContext_7->Material_Uniforms_0->look_0.x)) );
 
-#line 652
+#line 673
         float _S44 = opacity_0(kernelContext_7);
 
-#line 652
+#line 673
         return float4(_S43, _S44);
     }
     if((surf_1.w) > 0.5f)
     {
 
-#line 660
+#line 681
         float k_4 = 1.0f / (1.0f + v_3.z);
         float _S45 = v_3.x;
 
-#line 661
+#line 682
         float _S46 = - _S45;
 
-#line 661
+#line 682
         float _S47 = v_3.y;
 
-#line 661
+#line 682
         float b_0 = _S46 * _S47 * k_4;
 
         float2 _S48 = float2(0.5f + 0.49599999189376831f * dot(float3(1.0f - _S45 * _S45 * k_4, b_0, _S46), n_7), 0.5f - 0.49599999189376831f * dot(float3(b_0, 1.0f - _S47 * _S47 * k_4, - _S47), n_7));
 
-#line 663
+#line 684
         ;
         float3 _S49 = srgb_encode_0(((kernelContext_7->matcap_texture_0).sample((kernelContext_7->matcap_sampler_0), (_S48))).xyz * albedo_0 * float3(relief_0)  * float3(exp2(kernelContext_7->Material_Uniforms_0->look_0.x)) );
 
-#line 664
+#line 685
         float _S50 = opacity_0(kernelContext_7);
 
-#line 664
+#line 685
         return float4(_S49, _S50);
     }
 
-#line 664
+#line 685
     float3 color_2;
 
-#line 664
+#line 685
     float3 lit_0;
 
-#line 664
+#line 685
     int i_1;
 
 
     if((surf_1.y) > 0.0f)
     {
 
-#line 668
+#line 689
         float metallic_0 = clamp(surf_1.x, 0.0f, 1.0f);
 
-#line 673
+#line 694
         float a_3 = surf_1.y * surf_1.y;
         float rough_4 = clamp(sqrt(sqrt(clamp(a_3 * a_3 + min(2.0f * (0.25f * (dot(dndx_0, dndx_0) + dot(dndy_0, dndy_0))), 0.18000000715255737f), 0.0f, 1.0f))), 0.03999999910593033f, 1.0f);
         float _S51 = rough_4 * rough_4;
@@ -1101,239 +1101,239 @@ float4 shade_0(const Mesh_Varyings_0 thread* v_in_0, float4 position_0, bool is_
 
         float3 _S53 = float3(0.0f) ;
 
-#line 681
+#line 702
         i_1 = int(0);
 
-#line 681
+#line 702
         color_2 = _S53;
 
-#line 698
+#line 719
         for(;;)
         {
 
-#line 698
+#line 719
             if(i_1 < int(8))
             {
             }
             else
             {
 
-#line 698
+#line 719
                 break;
             }
 
-#line 699
+#line 720
             float s_1 = kernelContext_7->Material_Uniforms_0->light_color_0[i_1].w;
             if(s_1 <= 0.0f)
             {
 
-#line 700
+#line 721
                 _S34 = true;
 
-#line 700
+#line 721
             }
             else
             {
 
-#line 700
+#line 721
                 _S34 = (kernelContext_7->Material_Uniforms_0->light_pos_0[i_1].w) > 2.5f;
 
-#line 700
+#line 721
             }
 
-#line 700
+#line 721
             if(_S34)
             {
 
-#line 700
+#line 721
                 i_1 = i_1 + int(1);
 
-#line 698
+#line 719
                 continue;
             }
 
             thread float3 l_4;
             thread float spread_4;
 
-#line 702
+#line 723
             float _S54 = light_at_0(i_1, &l_4, &spread_4, kernelContext_7);
 
             if(_S54 <= 0.0f)
             {
 
-#line 704
+#line 725
                 i_1 = i_1 + int(1);
 
-#line 698
+#line 719
                 continue;
             }
 
-#line 705
+#line 726
             float shine_2 = 1.0f + kernelContext_7->Material_Uniforms_0->light_extra_0[i_1].x;
 
             if(spread_4 > 0.0f)
             {
 
-#line 707
+#line 728
                 lit_0 = direct_sized_0(n_7, v_3, l_4, nearest_in_light_0(l_4, r_2, spread_4), spread_4, diffuse_2, f0_2, _S51, shine_2);
 
-#line 707
+#line 728
             }
             else
             {
 
-#line 707
+#line 728
                 lit_0 = direct_0(n_7, v_3, l_4, diffuse_2, f0_2, _S51, shine_2);
 
-#line 707
+#line 728
             }
 
-#line 707
+#line 728
             color_2 = color_2 + lit_0 * kernelContext_7->Material_Uniforms_0->light_color_0[i_1].xyz * float3((3.0f * (s_1 * _S54))) ;
 
-#line 698
+#line 719
             i_1 = i_1 + int(1);
 
-#line 698
+#line 719
         }
 
-#line 719
+#line 740
         float2 ab_0 = env_brdf_0(_S52, rough_4);
         matrix<float,int(3),int(3)>  to_rig_1 = transpose(rig_2);
         if((kernelContext_7->Material_Uniforms_0->env_0.x) > 0.5f)
         {
 
-#line 721
+#line 742
             float3 _S55 = irradiance_0(n_7, kernelContext_7);
 
-#line 721
+#line 742
             color_2 = color_2 + diffuse_2 * _S55;
 
-#line 721
+#line 742
         }
         else
         {
 
-#line 723
+#line 744
             if((kernelContext_7->Material_Uniforms_0->style_0.w) > 0.5f)
             {
 
-#line 724
+#line 745
                 float3 _S56 = diffuse_2 * studio_0((((to_rig_1) * (n_7))), 1.0f);
 
-#line 724
+#line 745
                 float _S57 = 0.69999998807907104f * ambient_0;
 
-#line 724
+#line 745
                 float _S58 = underside_0(n_7, rig_2, kernelContext_7);
 
-#line 724
+#line 745
                 color_2 = color_2 + _S56 * float3((_S57 * _S58)) ;
 
-#line 723
+#line 744
             }
             else
             {
 
-#line 723
+#line 744
                 color_2 = color_2 + diffuse_2 * studio_0((((to_rig_1) * (n_7))), 1.0f) * float3((0.69999998807907104f * ambient_0)) ;
 
-#line 723
+#line 744
             }
 
-#line 721
+#line 742
         }
 
-#line 721
+#line 742
         float3 _S59 = reflected_0(r_2, rough_4, to_rig_1, kernelContext_7);
 
-#line 721
+#line 742
         float4 _S60 = display_0((color_2 + _S59 * (f0_2 * float3(ab_0.x)  + float3(ab_0.y) ) * float3(highlight_0) ) * float3(relief_0) , kernelContext_7);
 
-#line 729
+#line 750
         return _S60;
     }
 
-#line 735
+#line 756
     float _S61 = shading_0.w;
     float _S62 = shading_0.x * ambient_0;
 
-#line 736
+#line 757
     float3 _S63 = float3(_S62) ;
     float3 _S64 = float3(0.0f) ;
     float3 _S65 = reflect(- v_3, n_7);
 
-#line 738
+#line 759
     i_1 = int(0);
 
-#line 738
+#line 759
     color_2 = _S63;
 
-#line 738
+#line 759
     lit_0 = _S64;
 
-#line 755
+#line 776
     for(;;)
     {
 
-#line 755
+#line 776
         if(i_1 < int(8))
         {
         }
         else
         {
 
-#line 755
+#line 776
             break;
         }
 
-#line 756
+#line 777
         float s_2 = kernelContext_7->Material_Uniforms_0->light_color_0[i_1].w;
         if(s_2 <= 0.0f)
         {
 
-#line 757
+#line 778
             _S34 = true;
 
-#line 757
+#line 778
         }
         else
         {
 
-#line 757
+#line 778
             _S34 = (kernelContext_7->Material_Uniforms_0->light_pos_0[i_1].w) > 2.5f;
 
-#line 757
+#line 778
         }
 
-#line 757
+#line 778
         if(_S34)
         {
 
-#line 757
+#line 778
             i_1 = i_1 + int(1);
 
-#line 755
+#line 776
             continue;
         }
 
         thread float3 l_5;
         thread float spread_5;
 
-#line 759
+#line 780
         float _S66 = light_at_0(i_1, &l_5, &spread_5, kernelContext_7);
         float s_3 = s_2 * _S66;
         if(s_3 <= 0.0f)
         {
 
-#line 761
+#line 782
             i_1 = i_1 + int(1);
 
-#line 755
+#line 776
             continue;
         }
 
-#line 762
+#line 783
         float3 lit_1 = color_2 + kernelContext_7->Material_Uniforms_0->light_color_0[i_1].xyz * float3((max((dot(n_7, l_5) + _S61) / (1.0f + _S61), 0.0f) * s_3)) ;
 
 
@@ -1341,120 +1341,120 @@ float4 shade_0(const Mesh_Varyings_0 thread* v_in_0, float4 position_0, bool is_
         float3 _S67 = normalize(l_5 + v_3);
         float shrink_0 = 1.0f + kernelContext_7->Material_Uniforms_0->light_extra_0[i_1].x;
 
-#line 767
+#line 788
         float3 h_2;
         if(spread_5 > 0.0f)
         {
             float shrink_1 = shrink_0 * widened_0(sqrt(2.0f / (shading_0.z + 2.0f)), spread_5);
 
-#line 770
+#line 791
             h_2 = normalize(nearest_in_light_0(l_5, _S65, spread_5) + v_3);
 
-#line 770
+#line 791
             c_5 = shrink_1;
 
-#line 768
+#line 789
         }
         else
         {
 
-#line 768
+#line 789
             h_2 = _S67;
 
-#line 768
+#line 789
             c_5 = shrink_0;
 
-#line 768
+#line 789
         }
 
 
 
         float3 spec_0 = lit_0 + kernelContext_7->Material_Uniforms_0->light_color_0[i_1].xyz * float3((pow(max(dot(n_7, h_2), 0.0f), shading_0.z) * shading_0.y * s_3 * c_5)) ;
 
-#line 772
+#line 793
         color_2 = lit_1;
 
-#line 772
+#line 793
         lit_0 = spec_0;
 
-#line 755
+#line 776
         i_1 = i_1 + int(1);
 
-#line 755
+#line 776
     }
 
-#line 774
+#line 795
     float _S68 = 1.0f - _S40;
 
-#line 774
+#line 795
     float _S69 = pow(_S68, 3.0f) * 0.25f;
     if((kernelContext_7->Material_Uniforms_0->style_0.w) > 0.5f)
     {
 
-#line 775
+#line 796
         float _S70 = underside_0(n_7, rig_2, kernelContext_7);
 
 
 
         float3 lit_2 = color_2 - float3((_S62 * (1.0f - _S70))) ;
 
-#line 779
+#line 800
         c_5 = pow(_S68, 4.0f) * kernelContext_7->Material_Uniforms_0->style_0.x * mix(0.30000001192092896f, 1.0f, sky_facing_0(n_7, rig_2));
 
-#line 779
+#line 800
         color_2 = lit_2;
 
-#line 775
+#line 796
     }
     else
     {
 
-#line 775
+#line 796
         c_5 = _S69;
 
-#line 775
+#line 796
     }
 
-#line 775
+#line 796
     float4 _S71 = display_0((albedo_0 * color_2 + (lit_0 + float3(c_5) ) * float3(highlight_0) ) * float3(relief_0) , kernelContext_7);
 
-#line 785
+#line 806
     return _S71;
 }
 
 
-#line 433
+#line 441
 float4 wire_over_0(float4 c_7, float3 bary_0, uint primitive_0, KernelContext_0 thread* kernelContext_8)
 {
 
-#line 434
+#line 442
     float3 per_px_0 = max((fwidth((bary_0))), float3(9.99999993922529029e-09f) );
     thread float3 px_0 = bary_0 / per_px_0;
 
-#line 435
+#line 443
     bool _S72;
     if((kernelContext_8->Material_Uniforms_0->wire_0.w) > 0.5f)
     {
 
-#line 436
+#line 444
         _S72 = ((&kernelContext_8->frag_in_0)->tri_base_0) != 4294967295U;
 
-#line 436
+#line 444
     }
     else
     {
 
-#line 436
+#line 444
         _S72 = false;
 
-#line 436
+#line 444
     }
 
-#line 436
+#line 444
     if(_S72)
     {
 
-#line 437
+#line 445
         uint tri_0 = (&kernelContext_8->frag_in_0)->tri_base_0 + primitive_0;
         uint drawn_0 = (kernelContext_8->tri_edges_0[tri_0 >> 3U] >> ((tri_0 & 7U) * 4U)) & 7U;
 
@@ -1462,44 +1462,44 @@ float4 wire_over_0(float4 c_7, float3 bary_0, uint primitive_0, KernelContext_0 
         if((drawn_0 & 1U) == 0U)
         {
 
-#line 441
+#line 449
             px_0.x = 1.0e+08f;
 
-#line 441
+#line 449
         }
         if((drawn_0 & 2U) == 0U)
         {
 
-#line 442
+#line 450
             px_0.y = 1.0e+08f;
 
-#line 442
+#line 450
         }
         if((drawn_0 & 4U) == 0U)
         {
 
-#line 443
+#line 451
             px_0.z = 1.0e+08f;
 
-#line 443
+#line 451
         }
 
-#line 436
+#line 444
     }
 
-#line 449
+#line 457
     return float4(mix(c_7.xyz, srgb_encode_0(kernelContext_8->Material_Uniforms_0->wire_0.xyz), float3(mix(0.5f, saturate(1.20000004768371582f - min(px_0.x, min(px_0.y, px_0.z))), saturate((1.0f / max(per_px_0.x, max(per_px_0.y, per_px_0.z)) - 1.5f) / 3.0f))) ), c_7.w);
 }
 
 
-#line 449
+#line 457
 struct pixelOutput_0
 {
     float4 output_0 [[color(0)]];
 };
 
 
-#line 449
+#line 457
 struct pixelInput_0
 {
     float3 view_normal_1 [[user(NORMAL)]];
@@ -1514,71 +1514,71 @@ struct pixelInput_0
 };
 
 
-#line 454
+#line 462
 [[fragment]] pixelOutput_0 main_0(pixelInput_0 _S73 [[stage_in]], float4 position_1 [[position]], bool is_front_1 [[front_facing]], float3 bary_1 [[barycentric_coord]], uint primitive_1 [[primitive_id]], SLANG_ParameterGroup_Material_Uniforms_0 constant* Material_Uniforms_1 [[buffer(1)]], SLANG_ParameterGroup_Slot_Uniforms_0 constant* Slot_Uniforms_1 [[buffer(2)]], texture2d<float, access::sample> matcap_texture_1 [[texture(0)]], sampler matcap_sampler_1 [[sampler(0)]], texture2d<float, access::sample> environment_map_texture_1 [[texture(1)]], sampler environment_map_sampler_1 [[sampler(1)]], uint device* tri_edges_1 [[buffer(3)]])
 {
 
-#line 454
+#line 462
     thread KernelContext_0 kernelContext_9;
 
-#line 454
+#line 462
     (&kernelContext_9)->Material_Uniforms_0 = Material_Uniforms_1;
 
-#line 454
+#line 462
     (&kernelContext_9)->Slot_Uniforms_0 = Slot_Uniforms_1;
 
-#line 454
+#line 462
     (&kernelContext_9)->matcap_texture_0 = matcap_texture_1;
 
-#line 454
+#line 462
     (&kernelContext_9)->matcap_sampler_0 = matcap_sampler_1;
 
-#line 454
+#line 462
     (&kernelContext_9)->environment_map_texture_0 = environment_map_texture_1;
 
-#line 454
+#line 462
     (&kernelContext_9)->environment_map_sampler_0 = environment_map_sampler_1;
 
-#line 454
+#line 462
     (&kernelContext_9)->tri_edges_0 = tri_edges_1;
 
-#line 454
+#line 462
     thread Mesh_Varyings_0 _S74;
 
-#line 454
+#line 462
     (&_S74)->view_normal_0 = _S73.view_normal_1;
 
-#line 454
+#line 462
     (&_S74)->view_pos_0 = _S73.view_pos_1;
 
-#line 454
+#line 462
     (&_S74)->mask_0 = _S73.mask_1;
 
-#line 454
+#line 462
     (&_S74)->paint_0 = _S73.paint_1;
 
-#line 454
+#line 462
     (&_S74)->group_0 = _S73.group_1;
 
-#line 454
+#line 462
     (&_S74)->mesh_pos_0 = _S73.mesh_pos_1;
 
-#line 454
+#line 462
     (&_S74)->slot_0 = _S73.slot_1;
 
-#line 454
+#line 462
     (&_S74)->tri_base_0 = _S73.tri_base_1;
 
-#line 454
+#line 462
     (&_S74)->material_0 = _S73.material_1;
 
-#line 454
+#line 462
     float4 _S75 = shade_0(&_S74, position_1, is_front_1, &kernelContext_9);
 
-#line 454
+#line 462
     float4 _S76 = wire_over_0(_S75, bary_1, primitive_1, &kernelContext_9);
 
-#line 454
+#line 462
     pixelOutput_0 _S77 = { _S76 };
 
     return _S77;

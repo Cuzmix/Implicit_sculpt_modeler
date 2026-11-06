@@ -56,6 +56,19 @@ paint_command :: proc(app: ^App, command: sculpt.Paint_Command) {
 		gradient = {to = color_bytes(app.brush.color2), axis = -to_local_dir(obj.transform, up)}
 	}
 	material := [2]u8{u8(clamp(app.brush.roughness, 0, 1) * 255 + 0.5), u8(clamp(app.brush.metal, 0, 1) * 255 + 0.5)}
+	if sculpt.sculptor_paint_on_texture(object_sculptor(obj)) {
+		// The picked layer lives in a texture: its tiles change, kept by an undo step of
+		// the object's own.
+		step := new(sculpt.Texel_Step)
+		changed := sculpt.levels_texel_command(&obj.levels, command, brush_color_bytes(app), material, step)
+		log.infof("%s on a texture layer: %.0f ms%s", PAINT_COMMAND_NAMES[command], time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
+		if changed do history_record_texels(app, obj, step, PAINT_COMMAND_NAMES[command])
+		else {
+			sculpt.texel_step_free(step)
+			free(step)
+		}
+		return
+	}
 	changed := sculpt.sculptor_paint_command(object_sculptor(obj), command, brush_color_bytes(app), gradient, material)
 	log.infof("%s: %.0f ms%s", PAINT_COMMAND_NAMES[command], time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
 	if changed do history_record(app, obj, .Paint, PAINT_COMMAND_NAMES[command])
@@ -225,6 +238,30 @@ paint_layer_add :: proc(app: ^App, obj: ^Object) {
 	if sculpt.sculptor_paint_add(object_sculptor(obj)) >= 0 do history_record(app, obj, .Paint, "New paint layer")
 }
 
+// Adds a texture paint layer at the object's texture size (its texture layers' own, else
+// the Bake size) above the picked one and every vertex layer, and picks it, as one History
+// step. Says why when it cannot: no UVs, or a size its texture layers do not have.
+texture_layer_add :: proc(app: ^App, obj: ^Object) {
+	stroke_finish(app)
+	if obj == nil || !paint_allowed(obj) do return
+	if !sculpt.levels_has_uvs(&obj.levels) {
+		file_note(app, true, "%s has no UVs: Unwrap it first (Mesh > UVs)", object_label(obj))
+		return
+	}
+	side := texture_layer_side(app, obj)
+	if sculpt.levels_texel_layer_add(&obj.levels, side) >= 0 do history_record(app, obj, .Paint, "New texture layer")
+}
+
+// The size a new texture layer of `obj` takes: its texture layers' own when it has any,
+// else the Bake size, at most 2048 on a tablet, where a 4096 layer's tiles and map cost
+// too much memory for what the screen shows.
+texture_layer_side :: proc(app: ^App, obj: ^Object) -> int {
+	if len(obj.levels.texels.layers) > 0 do return obj.levels.texels.side
+	side := int(app.ui.bake.size)
+	if !sculpt.texel_side_ok(side) do side = 2048
+	return min(side, 2048) if MOBILE else side
+}
+
 // Whether the picked paint layer can take `action` now.
 paint_layer_ready :: proc(app: ^App, action: Paint_Layer_Action) -> bool {
 	if !paint_ready(app, 0) do return false
@@ -253,6 +290,9 @@ paint_layer_edit :: proc(app: ^App, obj: ^Object, action: Paint_Layer_Action) {
 	case .Delete:     done = sculpt.sculptor_paint_remove(s, i)
 	}
 	if done do history_record(app, obj, .Paint, PAINT_LAYER_ACTION_NAMES[action])
+	// A new step drops what could have been redone, which may have held the last row of a
+	// texture layer.
+	sculpt.levels_texels_sweep(&obj.levels)
 }
 
 @(rodata)
@@ -284,4 +324,11 @@ paint_layer_swatch :: proc(app: ^App, obj: ^Object, index: int) -> (ui.Color, bo
 	if cover <= 0 do return {}, false
 	rgb /= cover
 	return {u8(rgb.r + 0.5), u8(rgb.g + 0.5), u8(rgb.b + 0.5), 255}, true
+}
+
+// `obj`'s colours per vertex on level `s` with its texture layers laid over
+// (sculpt.levels_paint_flat), for the rebuilds and exports that keep colours per vertex
+// only: valid until the frame ends.
+object_paint_flat :: proc(obj: ^Object, s: ^sculpt.Sculptor) -> []sculpt.Color {
+	return sculpt.levels_paint_flat(&obj.levels, s)
 }
