@@ -306,7 +306,7 @@ skin_squeeze :: proc(app: ^App, share: int) -> bool {
 		report(app, Section.Hd, {.Warning}, "%s has no volume to squeeze: close its holes first", object_label(obj))
 		return true
 	}
-	surface := remesh_surface(report_, mesh, source, sculpt.sculptor_paint_shown(s), groups)
+	surface := remesh_surface(report_, mesh, source, object_paint_flat(obj, s), groups)
 	defer surface_free(&surface)
 	segments := skin_carry_segments(len(mesh.indices) / 3, samples)
 	if segments == 0 {

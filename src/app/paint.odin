@@ -325,3 +325,10 @@ paint_layer_swatch :: proc(app: ^App, obj: ^Object, index: int) -> (ui.Color, bo
 	rgb /= cover
 	return {u8(rgb.r + 0.5), u8(rgb.g + 0.5), u8(rgb.b + 0.5), 255}, true
 }
+
+// `obj`'s colours per vertex on level `s` with its texture layers laid over
+// (sculpt.levels_paint_flat), for the rebuilds and exports that keep colours per vertex
+// only: valid until the frame ends.
+object_paint_flat :: proc(obj: ^Object, s: ^sculpt.Sculptor) -> []sculpt.Color {
+	return sculpt.levels_paint_flat(&obj.levels, s)
+}

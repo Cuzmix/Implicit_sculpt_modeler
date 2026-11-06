@@ -1105,8 +1105,8 @@ entry_sculptor :: proc(app: ^App, e: History_Entry) -> ^sculpt.Sculptor {
 
 // Trades the object the entry names, as it is now, for the entry's snapshot, and keeps
 // what it was in the snapshot instead, so the entry can go back the other way. Returns
-// false only on a GPU failure.
-@(private = "file")
+// false only on a GPU failure. A remesh that let its object go early and came to nothing
+// puts it back with it too (long_job.odin).
 history_swap :: proc(app: ^App, e: History_Entry) -> bool {
 	snap := e.swap
 	start := time.tick_now()

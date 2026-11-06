@@ -283,7 +283,7 @@ print_export_many :: proc(app: ^App, objs: []^Object, path: string, once := Expo
 			packed[i], mask = sculpt.sculptor_compact_mesh(&lv.sculptor)
 			delete(mask)
 			at, indices = packed[i].positions[:], packed[i].indices[:]
-		} else if c := sculpt.sculptor_paint_shown(&lv.sculptor); c != nil {
+		} else if c := object_paint_flat(obj, &lv.sculptor); c != nil {
 			colors[i] = make([][3]u8, len(c), context.temp_allocator)
 			for x, v in c do colors[i][v] = paint_over(x, {255, 255, 255})
 			painted = true

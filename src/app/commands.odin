@@ -170,6 +170,8 @@ Command_Id :: enum u16 {
 	Add_Curve,
 	Apply_Cage,
 	Edit_Cage,
+	Stack_Add,
+	Stack_Apply,
 	Model_Action,
 	Model_Target,
 	Tidy_Cage,
@@ -656,6 +658,34 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_BRUSH,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Apply_Cage}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
+	},
+	.Stack_Add = {
+		label = "Add to the live stack",
+		help = "Adds a row of copies to the selected object's live stack (a Mirror, an Array, a Radial or copies along a curve) and opens the Live stack card on it.",
+		icon = ui.ICON_COPY,
+		args = STACK_ADD_ROWS,
+		run = proc(app: ^App, arg: int) {
+			obj := selected_object(app)
+			r := Stack_Row(int(Stack_Row.Mirror) + arg)
+			if obj == nil || !stack_row_addable(app, obj, r) do return
+			stack_row_add(app, obj, r)
+			app.kit.stack.object, app.kit.stack.open, app.kit.stack.opened = obj.id, r, true
+			card_open(app, .Stack)
+		},
+		enabled = proc(app: ^App, arg: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && stack_row_addable(app, obj, Stack_Row(int(Stack_Row.Mirror) + arg))
+		},
+	},
+	.Stack_Apply = {
+		label = "Apply stack",
+		help = "Bakes the selected object's shown live stack rows into its mesh, as one undo step that brings them back.",
+		icon = ui.ICON_CHECK,
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Stack_Apply}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel == nil && obj.cage == nil && !app.stroke.active && stack_shows(app, obj)
+		},
 	},
 	.Edit_Cage = {
 		label = "Edit cage",
@@ -3002,6 +3032,8 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("New scene: %s", NEW_SCENES[arg].name)
 	case .Add_Cage:
 		return fmt.tprintf("Add cage: %s", poly.PRIMITIVE_NAMES[poly.Primitive(arg)])
+	case .Stack_Add:
+		return fmt.tprintf("Live stack: add %s", strings.to_lower(STACK_ROW_NAMES[Stack_Row(int(Stack_Row.Mirror) + arg)], context.temp_allocator))
 	case .Add_Curve:
 		return fmt.tprintf("Add curve: %s", CURVE_SHAPE_NAMES[Curve_Shape(arg + 1)])
 	case .Model_Action:

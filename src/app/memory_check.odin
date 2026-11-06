@@ -103,6 +103,29 @@ memory_need :: proc(app: ^App, obj: ^Object, cmd: Scene_Command) -> (need, fixed
 	return 0, 0, 0
 }
 
+// What a live object holds a vertex, CPU and GPU together, as an 8 GB iPad measured it: a
+// 15M object took 3.8 GB (sculpting on the GPU's lookup among it). An early release
+// (long_job.odin) gives that back but for the triangles, MEMORY_COPY_BYTES a vertex.
+MEMORY_LIVE_BYTES :: 256
+
+// Whether `cmd` on `obj` needs more than the system leaves now, so a remesh lets the old
+// object go before it starts rather than once it is computed.
+memory_short_for :: proc(app: ^App, obj: ^Object, cmd: Scene_Command) -> bool {
+	if cmd.kind != .Remesh do return false
+	free := app.memory_free_test << 20 if app.memory_free_test > 0 else memory_headroom()
+	if free <= 0 do return false
+	need, _, _ := memory_need(app, obj, cmd)
+	return need > int(MEMORY_MARGIN * f64(free))
+}
+
+// What letting `obj` go before its remesh gives back: all of it but the triangles the
+// remesh reads.
+memory_release_gain :: proc(obj: ^Object) -> int {
+	all := 0
+	for lv in obj.levels.levels do all += len(lv.mesh.positions)
+	return max(MEMORY_LIVE_BYTES * all - MEMORY_COPY_BYTES * object_vertex_count(obj), 0)
+}
+
 // About how many vertices a remesh of `obj` makes: the command's count, or at a cell size
 // (Rebuild's Cell size, Remesh again) the surface's area over the cell's, which a remesh
 // at a cell size fills with about 1.7 vertices a cell face (a 15M quad remesh measured).
@@ -129,8 +152,12 @@ memory_check_holds :: proc(app: ^App, cmd: Scene_Command) -> bool {
 	history, _ := history_memory(app)
 	// What is on disk already takes no memory, so freeing it gives none back.
 	history -= history_disk_bytes(&app.history)
-	room := int(MEMORY_MARGIN * f64(free))
-	room_freed := int(MEMORY_MARGIN * f64(free + history))
+	// A remesh short of memory lets its object go before it starts (memory_short_for), so
+	// what the object holds is room too.
+	gain := 0
+	if cmd.kind == .Remesh && !object_dynamic(obj) && long_job_holdable(obj) && long_job_async(app, obj, cmd) do gain = memory_release_gain(obj)
+	room := int(MEMORY_MARGIN * f64(free + gain))
+	room_freed := int(MEMORY_MARGIN * f64(free + gain + history))
 	log.infof("memory: %v needs about %d MB; the system leaves %d MB, the history holds %d MB", cmd.kind, need >> 20, free >> 20, history >> 20)
 	if free <= 0 || need <= room do return false
 	fits := need <= room_freed

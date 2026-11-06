@@ -29,7 +29,7 @@ repair_surface_gives_caps_a_group_and_their_border_colour :: proc(t: ^testing.T)
 		geom.repair_map_destroy(&from)
 	}
 	testing.expect(t, ok && report.closed == 1)
-	surface := repair_surface(&s, from)
+	surface := repair_surface(&s, from, sculpt.sculptor_paint_shown(&s))
 	defer {
 		delete(surface.color)
 		delete(surface.groups)
@@ -42,7 +42,7 @@ repair_surface_gives_caps_a_group_and_their_border_colour :: proc(t: ^testing.T)
 
 	// With groups, the cap's is after the highest.
 	testing.expect(t, sculpt.sculptor_group_command(&s, .Creases, 1))
-	grouped := repair_surface(&s, from)
+	grouped := repair_surface(&s, from, sculpt.sculptor_paint_shown(&s))
 	defer {
 		delete(grouped.color)
 		delete(grouped.groups)
