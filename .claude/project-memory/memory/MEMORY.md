@@ -73,3 +73,4 @@
 - 2026-11-05: UI scale to 60% + shadow strength done; saved layouts stamps #690; pen keeps to active object #694.
 - Curves in 3D space https://claude.ai/artifact/DL4BbVKsirEBDdqmirxww8, #691-#700 merged, awaiting tablet run (curves-3d-space-plan.md).
 - Brush icons 2026-11-05: glossy 3D-render style (grey ball + coloured effect, round tiles), all 18 in notes/icons/glossy/ (ray2.py renderer, README), in app #701 (assets/brush_icons/ PNGs); open: Trim vs Flatten look alike, icons small on shelf.
+- 2026-11-06 Whole-app gap list (beyond modelling) https://claude.ai/artifact/BMtDJHh2h7ktUM7e5MDLPQ, with what to run on a real GPU: notes/app-gaps/gaps-2026-11-06.md (app-gaps-2026-11-06.md).
