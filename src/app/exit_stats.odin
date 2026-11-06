@@ -474,7 +474,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		}
 		changed := 0
 		for s in Space do if !dial_is_default(k, s) do changed += 1
-		fmt.printfln("dial_spaces=%d exposure=%.1f light_place=%d", changed, app.exposure, int(app.ui.light_place))
+		fmt.printfln("dial_spaces=%d exposure=%.1f cavity=%.2f ridge=%.2f light_place=%d", changed, app.exposure, app.cavity, app.ridge, int(app.ui.light_place))
 		fmt.printfln("dock_places=%s dock_looks=%s bar_carries=%d dock_resizes=%d dock_aligns=%d", dock_places_text(k), dock_looks_text(k), k.arrange.carries, k.arrange.resizes, k.arrange.aligns)
 		// The top bar's docks' buttons, and where each dock stood.
 		fa, sa, aa := k.top_at[.File], k.top_at[.Spaces], k.top_at[.App]
