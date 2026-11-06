@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:math"
 import "core:strconv"
+import "core:strings"
 
 import "../render"
 import "../ui"
@@ -278,12 +279,84 @@ shading_items :: proc(app: ^App, items: []render.Draw_Item, froms: []Item_From, 
 	}
 }
 
-// The shading's line in a layout (`shading <look> <colour from> <grey> <matcap>`), written
-// only when it is not a fresh view's.
+// Which kind of tool the main view's look follows while Each tool keeps its look is on
+// (look_group_frame): sculpting, painting, or lighting while the Lights section shows.
+Look_Group :: enum u8 {Sculpt, Paint, Lights}
+
+@(rodata)
+LOOK_GROUP_WORDS := [Look_Group]string {
+	.Sculpt = "sculpt",
+	.Paint  = "paint",
+	.Lights = "lights",
+}
+
+@(rodata)
+LOOK_GROUP_TITLES := [Look_Group]string {
+	.Sculpt = "sculpting",
+	.Paint  = "painting",
+	.Lights = "lighting",
+}
+
+// Each group's look until the person picks another: sculpting and painting as a fresh
+// view shows, and lighting in Full, where the lights' reflections on the materials show.
+@(rodata)
+LOOK_GROUP_DEFAULTS := [Look_Group]View_Shading {
+	.Sculpt = {},
+	.Paint  = {},
+	.Lights = {mode = .Full},
+}
+
+// The look of group `g` as it stands: the one shown for the group the view is in, the
+// one kept for the others.
+look_of :: proc(k: ^Kit_State, g: Look_Group) -> ^View_Shading {
+	return &k.passes.shading if g == k.passes.group else &k.passes.looks[g]
+}
+
+// The group the main view's look follows this frame: Lights while the Lights section is on
+// screen, otherwise the tool's, which the Paint brush makes Paint and every other tool
+// Sculpt; Mask and Smooth, which both kinds of work use, keep the tool's group as it was.
+// Sculpt alone while Each tool keeps its look is off.
+look_group_now :: proc(app: ^App) -> Look_Group {
+	k := &app.kit
+	if !k.look_per_tool {
+		k.passes.tool_group = .Sculpt
+		return .Sculpt
+	}
+	if app.tool != .Brush do k.passes.tool_group = .Sculpt
+	else if app.brush.kind == .Paint do k.passes.tool_group = .Paint
+	else if app.brush.kind != .Mask && app.brush.kind != .Smooth do k.passes.tool_group = .Sculpt
+	return .Lights if lights_section_shown(app) else k.passes.tool_group
+}
+
+// At the start of a frame: a change of group keeps the look shown as the old group's and
+// shows the new group's, the Render switch going off for a look other than Full. The
+// layout holds every group's look, so a change of group is no change of layout.
+look_group_frame :: proc(app: ^App) {
+	k := &app.kit
+	g := look_group_now(app)
+	if g == k.passes.group do return
+	k.passes.looks[k.passes.group] = k.passes.shading
+	k.passes.shading = k.passes.looks[g]
+	k.passes.group = g
+	k.passes.group_switches += 1
+	if k.passes.shading.mode != .Full && render_switch_on(app) do render_set(app, false, app.render_quality)
+}
+
+// The shading's lines in a layout, one a group (`shading <group> <look> <colour from>
+// <grey> <matcap>`), each written only when it is not that group's default.
 shading_layout_line :: proc(k: ^Kit_State) -> string {
-	s := k.passes.shading
-	if s == {} do return ""
-	return fmt.tprintf("shading %s\n", shading_words(s))
+	out := strings.builder_make(context.temp_allocator)
+	for g in Look_Group {
+		s := look_of(k, g)^
+		if s != LOOK_GROUP_DEFAULTS[g] do fmt.sbprintf(&out, "shading %s %s\n", LOOK_GROUP_WORDS[g], shading_words(s))
+	}
+	return strings.to_string(out)
+}
+
+// Every group's look as it starts, before a layout's lines are read.
+shading_layout_clear :: proc(k: ^Kit_State) {
+	k.passes.looks = LOOK_GROUP_DEFAULTS
+	k.passes.shading = LOOK_GROUP_DEFAULTS[k.passes.group]
 }
 
 // Shading `s` as a layout's words: `<look> <colour from> <grey> <matcap>`.
@@ -298,9 +371,10 @@ second_shading_words :: proc(sv: ^Second_View) -> string {
 	return fmt.tprintf(" %s", shading_words(sv.shading))
 }
 
-// Reads a layout's shading line's words.
+// Reads a layout's shading line: its group's word, then the look's words.
 shading_layout_read :: proc(k: ^Kit_State, f: []string) {
-	if len(f) > 1 do shading_words_read(&k.passes.shading, f[1:])
+	if len(f) < 2 do return
+	for g in Look_Group do if f[1] == LOOK_GROUP_WORDS[g] do shading_words_read(look_of(k, g), f[2:])
 }
 
 // Reads shading words `f` into `s`; a word naming nothing keeps what was there, and

@@ -585,7 +585,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			if n := len(k.order); n > 0 do front = fmt.tprint(k.order[n - 1])
 			fmt.printfln("float_front=%s", front)
 			fmt.printfln("pass=%v pass_shown=%v pass_menu=%d pass_switches=%d", k.passes.pass, viewport_pass(k), int(k.passes.menu), k.passes.switches)
-			fmt.printfln("shading_mode=%v shading_from=%v shading_grey=%.2f shading_matcap=%d", main_shading_mode(app), k.passes.shading.from, k.passes.shading.grey, k.passes.shading.matcap)
+			fmt.printfln("shading_mode=%v shading_from=%v shading_grey=%.2f shading_matcap=%d look_group=%v look_per_tool=%d look_group_switches=%d look_row=%d look_row_picks=%d", main_shading_mode(app), k.passes.shading.from, k.passes.shading.grey, k.passes.shading.matcap, k.passes.group, int(k.look_per_tool), k.passes.group_switches, int(k.passes.row), k.passes.row_picks)
 			fmt.printfln("wipe=%d wipe_at=%.3f wipe_right=%v wipe_drags=%d", int(wipe_shown(k)), k.passes.wipe_at, wipe_right(k), k.passes.wipe_drags)
 			fmt.printfln("guides=%d guide_heights=%s guide_lines=%d guide_drags=%d", int(app.scene.guides.shown), guides_heights_text(app.scene.guides), k.guide_lines, k.guide_drags)
 		}

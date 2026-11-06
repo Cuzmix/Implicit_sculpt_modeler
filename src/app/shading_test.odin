@@ -56,22 +56,67 @@ shading_looks_rewrite_items :: proc(t: ^testing.T) {
 	testing.expect_value(t, shading_pass(app, {mode = .Full}, .Shaded), render.View_Pass.Shaded)
 }
 
-// The look and its options go in a space's layout and come back from it, a fresh view's
-// writing nothing; a layout without the line puts a view back to Lit.
+// Each group's look and its options go in a space's layout and come back from it, a
+// group's default writing nothing; a layout without the lines puts every group back to its
+// default.
 @(test)
 shading_is_kept_in_the_layout :: proc(t: ^testing.T) {
 	a: Kit_State
+	shading_layout_clear(&a)
 	testing.expect_value(t, shading_layout_line(&a), "")
 	a.passes.shading = {mode = .Clay, from = .Object, grey = 0.75, matcap = 5}
+	a.passes.looks[.Paint] = {mode = .Flat}
 	text := kit_layout_text(&a)
+	testing.expect(t, strings.contains(text, "shading sculpt Clay Object 0.75 5\nshading paint Flat Material 0.00 0\n"), "the groups' looks are not written")
 	b: Kit_State
 	kit_layout_put(&b, text)
 	testing.expect_value(t, b.passes.shading, a.passes.shading)
+	testing.expect_value(t, b.passes.looks[.Paint], View_Shading{mode = .Flat})
+	testing.expect_value(t, b.passes.looks[.Lights], View_Shading{mode = .Full})
 	kit_layout_put(&b, "")
 	testing.expect_value(t, b.passes.shading, View_Shading{})
+	testing.expect_value(t, b.passes.looks, LOOK_GROUP_DEFAULTS)
 	// Rendered is the Render switch's, never a layout's.
-	shading_layout_read(&b, []string{"shading", "Rendered"})
+	shading_layout_read(&b, []string{"shading", "sculpt", "Rendered"})
 	testing.expect_value(t, b.passes.shading.mode, Shading_Mode.Lit)
+}
+
+// Picking the Paint brush shows painting's look and back on a sculpting brush sculpting's,
+// each keeping the look picked while it showed; Mask keeps the group it came from, and with
+// Each tool keeps its look off the view keeps one look. None of it changes the layout.
+@(test)
+each_tool_keeps_its_look :: proc(t: ^testing.T) {
+	app := new(App)
+	defer free(app)
+	k := &app.kit
+	k.look_per_tool = true
+	shading_layout_clear(k)
+	app.tool, app.brush.kind = .Brush, .Clay
+	look_group_frame(app)
+	k.passes.shading.mode = .Clay
+	layout := kit_layout_text(k)
+	app.brush.kind = .Paint
+	look_group_frame(app)
+	testing.expect_value(t, k.passes.group, Look_Group.Paint)
+	testing.expect_value(t, k.passes.shading.mode, Shading_Mode.Lit)
+	k.passes.shading.mode = .Flat
+	app.brush.kind = .Mask
+	look_group_frame(app)
+	testing.expect_value(t, k.passes.shading.mode, Shading_Mode.Flat)
+	app.brush.kind = .Draw
+	look_group_frame(app)
+	testing.expect_value(t, k.passes.shading.mode, Shading_Mode.Clay)
+	app.brush.kind = .Paint
+	look_group_frame(app)
+	testing.expect_value(t, k.passes.shading.mode, Shading_Mode.Flat)
+	k.look_per_tool = false
+	look_group_frame(app)
+	testing.expect_value(t, k.passes.shading.mode, Shading_Mode.Clay)
+	k.passes.looks[.Paint].mode = .Flat
+	testing.expect(t, strings.contains(kit_layout_text(k), "shading paint Flat"), "painting's look left the layout")
+	k.passes.looks[.Paint] = {}
+	testing.expect_value(t, kit_layout_text(k), layout)
+	testing.expect_value(t, k.passes.group_switches, 4)
 }
 
 // A view pane keeps its own shading in the layout's pane line, after its pass; a line

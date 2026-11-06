@@ -654,6 +654,8 @@ frame_settle :: proc(app: ^App, loop: ^Frame_Loop) -> (setting_up: bool, done: b
 	}
 	// View windows open and close here, before this frame acquires anything to draw into.
 	view_windows_settle(app)
+	// The main view's look follows the kind of tool in hand (Each tool keeps its look).
+	look_group_frame(app)
 	// Whatever changed the scene last frame (a command, a file, an undo), the
 	// selection stays on an object in view and in reach.
 	scene_folders_normalize(app)
@@ -749,6 +751,14 @@ frame_events :: proc(app: ^App, loop: ^Frame_Loop, setting_up: bool) {
 			ps := &app.kit.passes
 			if ps.key_held || (e.key.down && !typing(app)) {
 				ps.key_held = e.key.down
+				continue
+			}
+		}
+		// L holds the looks row up (look_row.odin) and a tap steps to the next look; once it
+		// went down outside typing, its release is the row's too.
+		if (e.type == .KEY_DOWN || e.type == .KEY_UP) && key_of(e.key.key) == KEY_L {
+			if app.kit.passes.row_key || (e.key.down && !typing(app)) {
+				if !e.key.repeat do look_row_key(app, e.key.down)
 				continue
 			}
 		}
