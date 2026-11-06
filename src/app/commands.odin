@@ -258,7 +258,6 @@ Command_Id :: enum u16 {
 	Focus_Pivot,
 	Finish_Reset,
 	Shading_Mode, // the argument is the Shading_Mode (shading.odin)
-	Solid_Lighting, // the argument is the Solid_Lighting
 	Floor_Grid,
 	Second_View,
 	Transparency,
@@ -2300,7 +2299,7 @@ COMMANDS := [Command_Id]Command {
 		checked = proc(app: ^App, _: int) -> bool {return app.wireframe},
 	},
 	.Flat_Shading = {
-		label = "Flat shading",
+		label = "Facets",
 		help = "Shows the triangles as flat facets.",
 		run = proc(app: ^App, _: int) {app.flat = !app.flat},
 		checked = proc(app: ^App, _: int) -> bool {return app.flat},
@@ -2405,19 +2404,11 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Shading_Mode = {
 		label = "Shading",
-		help = "Shows the main view in a shading mode, as Blender's: Wireframe, every edge; Solid, quick shading to sculpt in; Material Preview, the materials whole with their textures; Rendered, with the Render switch on.",
+		help = "Shows the main view in a look: Clay, lit by a MatCap to sculpt in; Lit, the colours under the scene's lights; Full, the materials whole with their textures; Flat, every colour with no light; Rendered, Full with the Render switch on.",
 		icon = ICON_SHADING,
 		args = len(Shading_Mode),
 		run = proc(app: ^App, arg: int) {shading_mode_set(app, Shading_Mode(arg))},
 		checked = proc(app: ^App, arg: int) -> bool {return app.kit.passes.pass == .Shaded && main_shading_mode(app) == Shading_Mode(arg)},
-	},
-	.Solid_Lighting = {
-		label = "Solid lighting",
-		help = "Lights Solid shading by the studio lights, by one MatCap on every object, or not at all (Flat), each colour shown as it is.",
-		icon = ICON_MATERIAL,
-		args = len(Solid_Lighting),
-		run = proc(app: ^App, arg: int) {solid_lighting_set(app, Solid_Lighting(arg))},
-		checked = proc(app: ^App, arg: int) -> bool {return main_shading_mode(app) == .Solid && app.kit.passes.shading.lighting == Solid_Lighting(arg)},
 	},
 	.Stats = {
 		label = "Details",
@@ -3015,8 +3006,10 @@ command_run :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 		return false
 	}
 	// A drag held in the inspector ends first, as its own step, so the command acts on
-	// what it left (a mask change would otherwise reweigh a deformation mid-drag).
-	inspector_drags_end(app)
+	// what it left (a mask change would otherwise reweigh a deformation mid-drag). Settle
+	// is left running for its own command, which stops it, and ends the drags itself when
+	// it starts.
+	if id != .Settle do inspector_drags_end(app)
 	before := macro_before(app)
 	c.run(app, arg)
 	macro_log(app, id, arg, before)
@@ -3091,10 +3084,7 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 	case .View_Axis:
 		return fmt.tprintf("%v view", camera.Axis_View(arg))
 	case .Shading_Mode:
-		// Named as shading so the mode Wireframe reads apart from the Wireframe overlay.
 		return fmt.tprintf("Shading: %s", SHADING_MODE_NAMES[Shading_Mode(arg)])
-	case .Solid_Lighting:
-		return fmt.tprintf("Solid: %s", SOLID_LIGHTING_NAMES[Solid_Lighting(arg)])
 	case .Mask:
 		return MASK_COMMAND_LABELS[sculpt.Mask_Command(arg)]
 	case .Mask_By:

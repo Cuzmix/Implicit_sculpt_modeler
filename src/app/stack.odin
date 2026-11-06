@@ -1175,7 +1175,7 @@ stack_join_copies :: proc(app: ^App, obj: ^Object) -> (changed, ok: bool) {
 	defer geom.mesh_destroy(&base)
 	s := object_sculptor(obj)
 	groups := sculpt.sculptor_groups(s) if !object_dynamic(obj) else nil
-	shown := sculpt.sculptor_paint_shown(s) if !object_dynamic(obj) else nil
+	shown := object_paint_flat(obj, s) if !object_dynamic(obj) else nil
 	parts := make([]geom.Mesh, len(steps), context.temp_allocator)
 	for step, k in steps {
 		parts[k] = {positions = make([dynamic]geom.Vec3, len(base.positions), context.temp_allocator), indices = base.indices}

@@ -1055,7 +1055,7 @@ surface_sample :: proc(app: ^App, at, size: [2]f32) -> (rgb: [3]f32, rm: [2]f32,
 	// Voxel clay, curves, cages and HD windows hold no polypaint of their own.
 	if obj.voxel == nil && obj.curve == nil && obj.cage == nil && !object_in_hd(obj) {
 		t := obj.transform
-		paint, painted, _ = sculpt.sculptor_paint_at(object_sculptor(obj), to_local(t, origin), to_local_dir(t, dir))
+		paint, painted, _ = sculpt.levels_paint_at(&obj.levels, to_local(t, origin), to_local_dir(t, dir))
 	}
 	for c in 0 ..< 2 {
 		cover := f32(painted[2 * c + 1]) / 255

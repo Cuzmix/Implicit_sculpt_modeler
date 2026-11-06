@@ -72,9 +72,16 @@ PHYSICS_GAP_MAX :: f32(0.05)
 PHYSICS_THICKNESS_MIN :: f32(0.5)
 PHYSICS_THICKNESS_MAX :: f32(3)
 
-// The most vertices the cloth simulates at once for Settle, a filter or a pose: past it a
-// step a frame no longer keeps up with the pointer, and the card says so.
-PHYSICS_MAX :: 300_000
+// The most vertices the cloth simulates at once for Settle, a filter or a pose, unless
+// --physics-budget says otherwise: past it a step a frame no longer keeps up with the
+// pointer (about 10 ms on a desktop's cores, the tablets' fewer and slower ones taking
+// fewer). An object over it with subdivision levels runs on the finest level under it.
+PHYSICS_BUDGET :: 120_000 when MOBILE else 300_000
+
+// The most vertices Physics simulates at once: --physics-budget's, or PHYSICS_BUDGET.
+physics_budget :: proc(app: ^App) -> int {
+	return app.physics_budget if app.physics_budget > 0 else PHYSICS_BUDGET
+}
 
 // Settle stops by itself once no vertex has moved more than this share of an edge for
 // PHYSICS_REST_FRAMES frames in a row, or after PHYSICS_SETTLE_FRAMES frames at most.
@@ -95,6 +102,13 @@ Physics_Card :: struct {
 	drag: Filter_Drag,
 	settles, filters: int, // run, for the exit stats
 	settle_ms: f64, // the last Settle's time stepping
+	// The run under way moved to a coarser level to keep under the budget: the object and
+	// the level it goes back to when the run ends (id 0: none). Runs on a coarser level
+	// are counted for the exit stats.
+	back: struct {
+		id, level: int,
+	},
+	coarse_runs: int,
 }
 
 Physics_Filter :: enum u8 {
@@ -202,44 +216,101 @@ physics_card_allowed :: proc(app: ^App, obj: ^Object, quiet := true) -> bool {
 }
 
 // Starts the cloth over the free part of `obj` for Settle (`filter` false) or the card's
-// filter, as one stroke. False, saying why, when it cannot.
+// filter, as one stroke. Over the budget it moves to the finest level under it, where the
+// object has levels, and comes back when the run ends (physics_run_end): the run is then
+// that level's stroke, as ZBrush's Dynamics run on a lower subdivision level, and the
+// levels above take its moves as any lower level's stroke does. False, saying why, when
+// it cannot.
 @(private = "file")
 physics_run_begin :: proc(app: ^App, obj: ^Object, filter: bool) -> bool {
 	if !physics_card_allowed(app, obj, quiet = false) do return false
+	c := &app.ui.physics
+	c.back = {}
+	for {
+		n, began := physics_run_try(app, obj, filter)
+		if began do return true
+		why := ""
+		if n == 0 do why = "Nothing is free to move: the mask holds all that is shown" if !object_physics(obj).on_masked else "Nothing is masked to move (On masked)"
+		else if n < 0 do return physics_run_back(app, obj)
+		else if k := physics_level_under(app, obj, n); k >= 0 {
+			if c.back.id == 0 do c.back = {obj.id, obj.levels.current}
+			if !object_set_level(app, obj, k) {
+				app.running = false // a GPU failure
+				return false
+			}
+			continue
+		} else {
+			why = fmt.tprintf("Physics moves up to %d vertices at once; this one has %d free and no coarser subdivision level to run on", physics_budget(app), n)
+		}
+		report(app, Section.Physics, {.Warning}, "%s", why)
+		return physics_run_back(app, obj)
+	}
+}
+
+// Begins the run on the object's current level when its free part is within the budget:
+// returns how many vertices are free and whether it began (-1: the sculptor was busy).
+@(private = "file")
+physics_run_try :: proc(app: ^App, obj: ^Object, filter: bool) -> (n: int, began: bool) {
 	s := object_sculptor(obj)
-	if s.history.recording || sculpt.sculptor_posing(s) do return false
+	if s.history.recording || sculpt.sculptor_posing(s) do return -1, false
 	p := object_physics(obj)
 	set := object_cloth_settings(obj, gravity = p.gravity)
 	set.on_masked = p.on_masked
 	sculpt.sculptor_stroke_begin(s)
-	n := 0
 	if filter {
 		c := &app.ui.physics
 		n = sculpt.sculptor_filter_begin(s, sculpt.Cloth_Filter_Kind(c.filter), set, physics_filter_frame(app, obj), c.filter_axes)
 	} else {
 		n = sculpt.sculptor_settle_begin(s, set)
 	}
-	why := ""
-	if n == 0 do why = "Nothing is free to move: the mask holds all that is shown" if !p.on_masked else "Nothing is masked to move (On masked)"
-	else if n > PHYSICS_MAX do why = fmt.tprintf("Physics moves up to %d vertices at once; this one has %d free", PHYSICS_MAX, n)
-	if why != "" {
+	if n == 0 || n > physics_budget(app) {
 		sculpt.sculptor_cloth_end(s)
 		_ = sculpt.sculptor_stroke_discard(s)
-		report(app, Section.Physics, {.Warning}, "%s", why)
-		return false
+		return n, false
 	}
 	sculpt.sculptor_cloth_collide(s, physics_collide(app, obj, set))
-	return true
+	return n, true
 }
 
-// Ends the card's run on `obj` as one undo step named `what` when it moved anything.
+// The finest level below the current one where `free` vertices free now would come to no
+// more than the budget, the share of them free taken as the same on every level; -1 for
+// none.
 @(private = "file")
-physics_run_end :: proc(app: ^App, obj: ^Object, what: string) -> bool {
+physics_level_under :: proc(app: ^App, obj: ^Object, free: int) -> int {
+	l := &obj.levels
+	all := max(sculpt.sculptor_vertex_count(&l.levels[l.current].sculptor), 1)
+	for k := l.current - 1; k >= 0; k -= 1 {
+		if sculpt.sculptor_vertex_count(&l.levels[k].sculptor) * free / all <= physics_budget(app) do return k
+	}
+	return -1
+}
+
+// Takes the object back to the level a run moved it from, if it moved; false, for the
+// callers' convenience.
+@(private = "file")
+physics_run_back :: proc(app: ^App, obj: ^Object) -> bool {
+	c := &app.ui.physics
+	if c.back.id != obj.id do return false
+	level := c.back.level
+	c.back = {}
+	if !object_set_level(app, obj, level) do app.running = false // a GPU failure
+	return false
+}
+
+// Ends the card's run on `obj` as one undo step named `what` when it moved anything, and
+// says where it ran when that was a coarser level (" on level 2 of 4", else "").
+@(private = "file")
+physics_run_end :: proc(app: ^App, obj: ^Object, what: string) -> (moved: bool, note: string) {
 	s := object_sculptor(obj)
 	sculpt.sculptor_cloth_end(s)
-	if !sculpt.sculptor_stroke_end(s) do return false
-	history_record(app, obj, .Deform, what)
-	return true
+	moved = sculpt.sculptor_stroke_end(s)
+	if moved do history_record(app, obj, .Deform, what)
+	if c := &app.ui.physics; c.back.id == obj.id {
+		if moved do c.coarse_runs += 1
+		note = fmt.tprintf(" on level %d of %d", obj.levels.current + 1, len(obj.levels.levels))
+		_ = physics_run_back(app, obj)
+	}
+	return
 }
 
 // The axes a filter scales along, as columns in `obj`'s space.
@@ -280,10 +351,11 @@ settle_stop :: proc(app: ^App) {
 	c.settle = {}
 	obj := object_by_id(app, run.id)
 	if obj == nil do return
-	if !physics_run_end(app, obj, "Settle") do return
+	moved, note := physics_run_end(app, obj, "Settle")
+	if !moved do return
 	c.settles += 1
 	c.settle_ms = run.ms
-	report(app, Section.Physics, {.Undo}, "Settled %s: %d steps (%.0f ms)", object_label(obj), run.frames, run.ms)
+	report(app, Section.Physics, {.Undo}, "Settled %s%s: %d steps (%.0f ms)", object_label(obj), note, run.frames, run.ms)
 }
 
 // Starts or stops Settle on the selected object: the Settle command and a tap of the
@@ -324,9 +396,10 @@ filter_drag_end :: proc(app: ^App, force := false) {
 	c.drag, c.amount, c.wait_release = {}, 0, held
 	obj := object_by_id(app, drag.id)
 	if obj == nil do return
-	if !physics_run_end(app, obj, PHYSICS_FILTER_NAMES[c.filter]) do return
+	moved, note := physics_run_end(app, obj, PHYSICS_FILTER_NAMES[c.filter])
+	if !moved do return
 	c.filters += 1
-	report(app, Section.Physics, {.Undo}, "%s %s (%.0f ms)", PHYSICS_FILTER_NAMES[c.filter], object_label(obj), drag.ms)
+	report(app, Section.Physics, {.Undo}, "%s %s%s (%.0f ms)", PHYSICS_FILTER_NAMES[c.filter], object_label(obj), note, drag.ms)
 }
 
 @(rodata)

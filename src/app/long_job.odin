@@ -145,7 +145,7 @@ JOB_ALLOWED_COMMANDS :: Command_Set{
 	.Brush_Value, .Brush_Reset,
 	.Frame_All,
 	.View_Axis, .Ortho_Toggle, .Focus_Selected, .Reset_Camera, .View_Back, .View_Forward, .Camera_Menu, .Shading_Menu,
-	.Wireframe, .Flat_Shading, .Texture_View, .Polygroups, .Live_Occlusion, .Shading_Mode, .Solid_Lighting, .Floor_Grid, .Second_View,
+	.Wireframe, .Flat_Shading, .Texture_View, .Polygroups, .Live_Occlusion, .Shading_Mode, .Floor_Grid, .Second_View,
 	.Transparency,
 	.Stats, .Open_Card, .Open_Section, .Panels_Reset, .Inspect_Mode, .View_Pass,
 	.View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .View_Window, .View_Windows_Close,
@@ -262,7 +262,7 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		j.area, j.bounds = geom.mesh_area_bounds(sculpt.levels_current(&obj.levels).mesh, &app.pool)
 		// The dynamic layout's compacting renumbers the triangles, and it has no groups.
 		if s := object_sculptor(obj); !object_dynamic(obj) {
-			if c := sculpt.sculptor_paint_shown(s); c != nil do j.color = slice.clone(c)
+			if c := object_paint_flat(obj, s); c != nil do j.color = slice.clone(c)
 			if sculpt.sculptor_has_groups(s) do j.groups = slice.clone(sculpt.sculptor_groups(s))
 			if sculpt.sculptor_has_mask(s) do j.mask = slice.clone(s.mask)
 		}

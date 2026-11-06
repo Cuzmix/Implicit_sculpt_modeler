@@ -5,12 +5,13 @@ import "core:testing"
 
 import "../render"
 
-// Each mode rewrites the main view's copy of an item from what it was made of: Solid shows
-// a metal's colour with the classic shading and its MatCap and colour choices, Flat and
-// Wireframe draw in their own passes, Wireframe draws every edge with no paint, and Material
-// Preview keeps the material whole.
+// Each look rewrites the main view's copy of an item from what it was made of: Lit shows a
+// metal's colour with the classic shading, Clay shades it by the MatCap in white, Flat
+// draws in its own pass, Full keeps the material whole, Colour from Object gives each
+// object a colour of its own, and the Colour takes the colours toward clay in every look
+// but Flat.
 @(test)
-shading_modes_rewrite_items :: proc(t: ^testing.T) {
+shading_looks_rewrite_items :: proc(t: ^testing.T) {
 	app := new(App)
 	defer free(app)
 	defer results_destroy(app)
@@ -25,39 +26,43 @@ shading_modes_rewrite_items :: proc(t: ^testing.T) {
 		return items[0]
 	}
 
-	solid := shade(app, made, from, {})
-	testing.expect_value(t, solid.surface, [2]f32{})
-	testing.expect_value(t, solid.color, m.selected)
-	testing.expect(t, solid.paint)
+	lit := shade(app, made, from, {})
+	testing.expect_value(t, lit.surface, [2]f32{})
+	testing.expect_value(t, lit.color, m.selected)
+	testing.expect_value(t, lit.fade, [4]f32{})
+	testing.expect(t, lit.paint)
 	testing.expect_value(t, shading_pass(app, {}, .Shaded), render.View_Pass.Shaded)
 
-	single := shade(app, made, from, {color = .Single})
-	testing.expect_value(t, single.color, SOLID_SINGLE)
-	object := shade(app, made, from, {color = .Object})
+	clay := shade(app, made, from, {mode = .Clay})
+	testing.expect_value(t, clay.color, [4]f32{1, 1, 1, 1})
+	object := shade(app, made, from, {from = .Object})
 	testing.expect_value(t, object.color, shading_object_color(&obj))
 	testing.expect(t, shading_object_color(&obj) != shading_object_color(&Object{id = 4}))
 
-	flat := View_Shading{lighting = .Flat}
+	grey := shade(app, made, from, {grey = 0.25})
+	testing.expect_value(t, grey.fade, [4]f32{SHADING_CLAY.r, SHADING_CLAY.g, SHADING_CLAY.b, 0.25})
+	testing.expect_value(t, grey.color, m.selected)
+	clay_grey := shade(app, made, from, {mode = .Clay, grey = 1})
+	testing.expect_value(t, clay_grey.fade, [4]f32{1, 1, 1, 1})
+
+	flat := View_Shading{mode = .Flat, grey = 1}
+	testing.expect_value(t, shade(app, made, from, flat).fade, [4]f32{})
 	testing.expect_value(t, shading_pass(app, flat, .Shaded), render.View_Pass.Unlit)
-	// A pass that checks the form shows over any mode.
+	// A pass that checks the form shows over any look.
 	testing.expect_value(t, shading_pass(app, flat, .Normals), render.View_Pass.Normals)
 
-	wire := shade(app, made, from, {mode = .Wireframe})
-	testing.expect(t, wire.wireframe && !wire.paint)
-	testing.expect_value(t, shading_pass(app, {mode = .Wireframe}, .Shaded), render.View_Pass.Wire)
-
-	preview := shade(app, made, from, {mode = .Material_Preview})
-	testing.expect_value(t, preview.surface, made.surface)
-	testing.expect_value(t, shading_pass(app, {mode = .Material_Preview}, .Shaded), render.View_Pass.Shaded)
+	full := shade(app, made, from, {mode = .Full})
+	testing.expect_value(t, full.surface, made.surface)
+	testing.expect_value(t, shading_pass(app, {mode = .Full}, .Shaded), render.View_Pass.Shaded)
 }
 
-// The mode and Solid's options go in a space's layout and come back from it, a fresh
-// view's writing nothing; a layout without the line puts a view back to Solid.
+// The look and its options go in a space's layout and come back from it, a fresh view's
+// writing nothing; a layout without the line puts a view back to Lit.
 @(test)
 shading_is_kept_in_the_layout :: proc(t: ^testing.T) {
 	a: Kit_State
 	testing.expect_value(t, shading_layout_line(&a), "")
-	a.passes.shading = {mode = .Wireframe, lighting = .MatCap, color = .Object, matcap = 5}
+	a.passes.shading = {mode = .Clay, from = .Object, grey = 0.75, matcap = 5}
 	text := kit_layout_text(&a)
 	b: Kit_State
 	kit_layout_put(&b, text)
@@ -66,39 +71,39 @@ shading_is_kept_in_the_layout :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.passes.shading, View_Shading{})
 	// Rendered is the Render switch's, never a layout's.
 	shading_layout_read(&b, []string{"shading", "Rendered"})
-	testing.expect_value(t, b.passes.shading.mode, Shading_Mode.Solid)
+	testing.expect_value(t, b.passes.shading.mode, Shading_Mode.Lit)
 }
 
 // A view pane keeps its own shading in the layout's pane line, after its pass; a line
-// without it (a layout from before) is a fresh view's, Solid.
+// without it is a fresh view's, Lit.
 @(test)
 pane_shading_is_kept_in_the_layout :: proc(t: ^testing.T) {
 	k := new(Kit_State)
 	defer free(k)
 	_, _ = grid_set(k, .Side_By_Side)
-	grid_view(&k.grid, 1).shading = {mode = .Wireframe, lighting = .Flat}
+	grid_view(&k.grid, 1).shading = {mode = .Flat, grey = 0.5}
 	text := kit_layout_text(k)
-	testing.expect(t, strings.contains(text, "pane 1 Front Shaded Wireframe Flat Material 0\n"), "the pane's shading is not written")
+	testing.expect(t, strings.contains(text, "pane 1 Front Shaded Flat Material 0.50 0\n"), "the pane's shading is not written")
 	grid_view(&k.grid, 1).shading = {}
 	kit_layout_put(k, text)
-	testing.expect_value(t, grid_view(&k.grid, 1).shading, View_Shading{mode = .Wireframe, lighting = .Flat})
+	testing.expect_value(t, grid_view(&k.grid, 1).shading, View_Shading{mode = .Flat, grey = 0.5})
 	kit_layout_put(k, "panes v500 0 1\npane 1 Top Shaded\n")
 	testing.expect_value(t, grid_view(&k.grid, 1).shading, View_Shading{})
 }
 
-// A view's Shows list names its shading mode while it shows Shaded, Rendered for its Render
-// pass and the pass otherwise; picking a mode keeps Solid's options.
+// A view's Shows list names its look while it shows Shaded, Rendered for its Render pass
+// and the pass otherwise; picking a look keeps its options.
 @(test)
 second_shows_names_modes_and_passes :: proc(t: ^testing.T) {
-	sv := Second_View{pass = .Shaded, shading = {lighting = .MatCap}}
-	testing.expect_value(t, second_shows_name(&sv), "Solid")
+	sv := Second_View{pass = .Shaded, shading = {grey = 0.5}}
+	testing.expect_value(t, second_shows_name(&sv), "Lit")
 	second_shows_set(&sv, 0)
-	testing.expect_value(t, second_shows_name(&sv), "Wireframe")
-	testing.expect_value(t, sv.shading.lighting, Solid_Lighting.MatCap)
-	second_shows_set(&sv, 3)
+	testing.expect_value(t, second_shows_name(&sv), "Clay")
+	testing.expect_value(t, sv.shading.grey, f32(0.5))
+	second_shows_set(&sv, 4)
 	testing.expect_value(t, sv.pass, Second_Pass.Render)
 	testing.expect_value(t, second_shows_name(&sv), "Rendered")
-	testing.expect_value(t, second_shows_index(&sv), 3)
+	testing.expect_value(t, second_shows_index(&sv), 4)
 	sv.pass = .Curvature
 	testing.expect_value(t, second_shows_name(&sv), "Curvature")
 	testing.expect_value(t, SECOND_SHOWS[second_shows_index(&sv)].pass, Second_Pass.Curvature)
@@ -106,6 +111,6 @@ second_shows_names_modes_and_passes :: proc(t: ^testing.T) {
 	for p in Second_Pass {
 		n := 0
 		for e in SECOND_SHOWS do if e.pass == p do n += 1
-		testing.expect_value(t, n, 3 if p == .Shaded else 1)
+		testing.expect_value(t, n, 4 if p == .Shaded else 1)
 	}
 }
