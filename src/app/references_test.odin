@@ -492,3 +492,55 @@ reference_planes_line_up_with_the_guides :: proc(t: ^testing.T) {
 	testing.expect_value(t, p.plane_h, f32(3))
 	testing.expect(t, refs_marks_ok({}) && refs_marks_ok(REF_MARKS) && !refs_marks_ok({0.5, 0.52}))
 }
+
+// The board's order as ids, bottom first.
+@(private = "file")
+test_refs_order :: proc(app: ^App) -> [4]u32 {
+	out: [4]u32
+	for r, i in app.scene.refs.refs do if i < 4 do out[i] = r.id
+	return out
+}
+
+// Bringing places to the front moves them to the list's end, the pressed one last, and
+// passes locked ones by; sending to the back moves them to its start, locked ones too,
+// keeping their order among themselves; neither changes anything already there.
+@(test)
+references_order_front_and_back :: proc(t: ^testing.T) {
+	app: App
+	defer test_refs_free(&app)
+	for _ in 0 ..< 4 do refs_add_note(&app)
+	list := &app.scene.refs.refs
+	testing.expect_value(t, test_refs_order(&app), [4]u32{1, 2, 3, 4})
+	testing.expect(t, refs_bring_front(list, {2}, 2))
+	testing.expect_value(t, test_refs_order(&app), [4]u32{1, 3, 4, 2})
+	testing.expect(t, !refs_bring_front(list, {2}, 2))
+	testing.expect(t, refs_bring_front(list, {1, 3}, 1))
+	testing.expect_value(t, test_refs_order(&app), [4]u32{4, 2, 3, 1})
+	list[0].locked = true
+	testing.expect(t, !refs_bring_front(list, {4}, 4))
+	testing.expect(t, refs_send_back(list, {3, 1}))
+	testing.expect_value(t, test_refs_order(&app), [4]u32{3, 1, 4, 2})
+	testing.expect(t, !refs_send_back(list, {3, 1}))
+	testing.expect(t, refs_send_back(list, {4}))
+	testing.expect_value(t, test_refs_order(&app), [4]u32{4, 3, 1, 2})
+}
+
+// Send to back is one undo step, and undo puts the order back; with nothing to move it
+// lists no step.
+@(test)
+references_send_back_is_one_undo_step :: proc(t: ^testing.T) {
+	app: App
+	defer test_refs_free(&app)
+	for _ in 0 ..< 3 do refs_add_note(&app)
+	steps := len(app.history.done)
+	b := &app.kit.board
+	clear(&b.selected)
+	append(&b.selected, 3)
+	refs_send_back_selected(&app)
+	testing.expect_value(t, test_refs_order(&app), [4]u32{3, 1, 2, 0})
+	testing.expect_value(t, len(app.history.done), steps + 1)
+	refs_send_back_selected(&app)
+	testing.expect_value(t, len(app.history.done), steps + 1)
+	history_undo(&app)
+	testing.expect_value(t, test_refs_order(&app), [4]u32{1, 2, 3, 0})
+}
