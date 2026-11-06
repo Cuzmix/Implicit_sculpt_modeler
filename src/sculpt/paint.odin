@@ -74,7 +74,8 @@ paint_writes :: proc(s: ^Sculptor) -> Paint_Channels {
 // vertices changed colour.
 @(private)
 paint_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
-	if s.dyn != nil || sculptor_paint_on_texture(s) do return 0
+	if s.dyn != nil do return 0
+	if sculptor_paint_on_texture(s) do return texel_dab(s, d, pool) if s.texels != nil else 0
 	color_ensure(s)
 	s.paint_writes = paint_writes(s)
 	if s.history.recording {

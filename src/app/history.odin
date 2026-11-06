@@ -256,12 +256,12 @@ history_record_textures :: proc(app: ^App, obj: ^Object, step: ^Texture_Step, wh
 
 // Lists `step`, the tiles a texture paint command or stroke on `obj` changed, already
 // made, as the newest undo step (a .Paint one).
-history_record_texels :: proc(app: ^App, obj: ^Object, step: ^sculpt.Texel_Step, what: string) {
-	history_drop_redo(app)
+history_record_texels :: proc(app: ^App, obj: ^Object, step: ^sculpt.Texel_Step, what: string, chain := false) {
+	if !chain do history_drop_redo(app)
 	app.history.serial += 1
-	app.history.edits += 1
+	if !chain do app.history.edits += 1
 	bytes := sculpt.texel_step_bytes(step)
-	append(&app.history.done, History_Entry{id = obj.id, kind = .Paint, what = what, at = time.tick_now(), texels = step, bytes = bytes, view = camera_view_of(app.camera)})
+	append(&app.history.done, History_Entry{id = obj.id, kind = .Paint, what = what, at = time.tick_now(), texels = step, bytes = bytes, chain = chain && len(app.history.done) > 0, view = camera_view_of(app.camera)})
 	app.history.swap_bytes += bytes
 	history_trim(app)
 }
@@ -528,10 +528,15 @@ brush_stroke_finish :: proc(app: ^App) {
 	}
 	sculpt.sculptor_grab_end(object_sculptor(obj))
 	sculpt.sculptor_cloth_end(object_sculptor(obj))
-	if sculpt.sculptor_stroke_end(object_sculptor(obj)) {
+	texels := sculpt.levels_texels_detach(&obj.levels)
+	sculpted := sculpt.sculptor_stroke_end(object_sculptor(obj))
+	if sculpted {
 		history_record(app, obj, .Mask if .Mask in BRUSHES[app.stroke.kind].flags else .Stroke, stroke_name(&app.stroke))
 		adjust_set_stroke(app, obj)
 	}
+	// What the stroke painted into a texture layer is a step of the object's, undone with
+	// the sculpting it did as one.
+	if texels != nil do history_record_texels(app, obj, texels, stroke_name(&app.stroke), chain = sculpted)
 }
 
 // Applies a mask command to the selected object as an undo step of its own; Blur,
