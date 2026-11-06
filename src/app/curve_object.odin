@@ -26,7 +26,7 @@ Curve_Use :: enum u8 {
 	Lathe,
 	Along,
 	Brush_Path,
-	Guide, // a line on the surface that Quad Remesh's loops follow (quad_guides), making nothing
+	Guide, // a line on the surface that Quad remesh's loops follow (quad_guides), making nothing
 }
 
 @(rodata)
