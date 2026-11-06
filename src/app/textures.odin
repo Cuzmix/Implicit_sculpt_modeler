@@ -61,6 +61,7 @@ Texture_Preview :: struct {
 	// were made with the vertex each stands for, so the mesh can pull (texture_pulls).
 	index_version: u64,
 	slots_pulled:  bool,
+	hidden_stamp:  u32, // the level's sculpt.sculptor_hidden_stamp the indices left hidden triangles out at
 }
 
 // How a level of triangles splits where its UVs are (textured_split), kept while its
@@ -295,7 +296,7 @@ object_textured :: proc(app: ^App, obj: ^Object, lv: ^sculpt.Level) -> bool {
 	if view == .Off && sculpt.levels_texels_show(&obj.levels) do view = .Textured
 	if view == .Off || obj.voxel != nil || object_in_hd(obj) || object_dynamic(obj) do return false
 	if !sculpt.levels_has_uvs(&obj.levels) do return false
-	if sculpt.sculptor_hidden_units(&lv.sculptor) != nil || app.show_groups do return false
+	if app.show_groups do return false
 	// A pulled mesh follows the stroke as it is made; one that is not would show the
 	// surface as it was, so the object draws as clay until the stroke ends.
 	if app.stroke.active && app.stroke.object == obj.id && !texture_pulls(app, obj) do return false
@@ -326,11 +327,20 @@ texture_preview_frame :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, gpu: ^re
 	// A pulled mesh reads its positions and normals from the level's buffers, so a sculpt
 	// edit asks for its slots again only where render mode reads their normals.
 	moved := p.shape != gpu.version && (!pull || p.index_version != gpu.index_version || render_running(app))
-	current := !moved && p.layout == obj.textures.layout && p.peel == peel
+	hidden_stamp := sculpt.sculptor_hidden_stamp(&lv.sculptor)
+	current := !moved && p.layout == obj.textures.layout && p.peel == peel && p.hidden_stamp == hidden_stamp
 	if p.broken && current do return nil
 	if !current || p.mesh.index_count == 0 {
 		vertices, indices, corners, slot_vertex := textured_vertices(obj, gpu, &p.topology, &app.pool, peel, app.ui.uv_peel_frame)
-		p.shape, p.index_version, p.layout, p.peel = gpu.version, gpu.index_version, obj.textures.layout, peel
+		// Hidden parts leave their triangles out of the draw (one triple a triangle, in the
+		// level's order); the render, which reads the slots by triangle, then traces the
+		// object as clay.
+		if hidden := sculpt.sculptor_hidden_tris(&lv.sculptor); hidden != nil && len(indices) == 3 * len(hidden) {
+			shown := make([dynamic]u32, 0, len(indices), context.temp_allocator)
+			for h, t in hidden do if !h do append(&shown, ..indices[3 * t:][:3])
+			indices, corners = shown[:], nil
+		}
+		p.shape, p.index_version, p.layout, p.peel, p.hidden_stamp = gpu.version, gpu.index_version, obj.textures.layout, peel, hidden_stamp
 		p.broken = !render.textured_mesh_upload(&app.renderer, cmd, &p.mesh, vertices, indices, corners, slot_vertex)
 		if p.broken {
 			file_note(app, true, "The GPU refused the textured copy of %s; it shows as clay", object_label(obj))
