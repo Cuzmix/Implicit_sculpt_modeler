@@ -498,15 +498,15 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		render.ticket_wait(ticket)
 		gpu_wait = time.tick_since(submit_start)
 		ring_push(&app.stats.gpu_ms, time.duration_milliseconds(gpu_wait))
-		if render.sculpt_gpu_recorded(&app.renderer) do render.sculpt_gpu_submitted(&app.renderer, ticket)
+		if render.sculpt_gpu_recorded(&app.renderer) do render.sculpt_gpu_submitted(&app.renderer, ticket, waited = true)
 	} else if render.sculpt_gpu_recorded(&app.renderer) {
-		// The readbacks of normals it holds are collected when its ticket says they landed.
+		// The readbacks it holds land two frames on (render.SCULPT_LAND_FRAMES).
 		ticket, ok := render.cmd_submit_ticket(cmd)
 		if !ok {
 			_ = render.cmd_submit(present_cmd)
 			return false
 		}
-		render.sculpt_gpu_submitted(&app.renderer, ticket)
+		render.sculpt_gpu_submitted(&app.renderer, ticket, waited = false)
 	} else if !frame_submit(app, cmd) {
 		_ = render.cmd_submit(present_cmd)
 		return false

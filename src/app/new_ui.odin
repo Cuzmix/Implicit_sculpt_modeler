@@ -194,6 +194,7 @@ Kit_State :: struct {
 	clean_keep:   Clean_Keep,
 	clean_at:     f64,
 	view_started: bool, // Lens drew the model in the free area at the start (lens_view_frame)
+	view_window:  [2]f32, // the window's size the last frame's layout was made for (lens_view_frame)
 	// The proportion guide tag held (guides.odin), 0 for none, never kept; the guide
 	// lines drawn this frame and the frames a guide moved, for the exit stats.
 	guide_held:  ui.Id,

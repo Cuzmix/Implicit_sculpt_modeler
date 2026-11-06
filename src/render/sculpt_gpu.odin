@@ -23,10 +23,10 @@ import "../jobs"
 //
 // The CPU's copy of the mesh is brought up to date by a readback: the frame copies the
 // ranges' positions and packed normals into a slot of a ring of download buffers, the
-// frame's command buffer is submitted, and a later frame (two on, as a rule) finds its
-// ticket done, copies and decodes them into the mesh, so the CPU's mesh is a
-// mirror a frame or two behind the GPU's while a stroke runs. The slots are applied in the
-// order they were submitted, so an older readback never lands over a newer one. A sync
+// frame's command buffer is submitted, and the frame SCULPT_LAND_FRAMES on copies and
+// decodes them into the mesh, so the CPU's mesh is a mirror that many frames behind the
+// GPU's while a stroke runs. The slots are applied in the order they were submitted, so
+// an older readback never lands over a newer one. A sync
 // waits for the readbacks of one mesh and applies them: the sculptor asks for it before
 // anything reads or writes the positions or normals outside the dab path, so between
 // strokes the CPU's mesh is the GPU's, within the twelve bits the packing keeps.
@@ -40,6 +40,14 @@ SCULPT_SLAB :: 256
 #assert(NODE_NORMALS_COMP.threadcount_x == SCULPT_SLAB && NODE_BOUNDS_COMP.threadcount_x == SCULPT_SLAB && DAB_AREA_COMP.threadcount_x == SCULPT_SLAB && DAB_REDUCE_COMP.threadcount_x == SCULPT_SLAB && DAB_MOVE_COMP.threadcount_x == SCULPT_SLAB && DAB_SMOOTH_TARGETS_COMP.threadcount_x == SCULPT_SLAB && DAB_SMOOTH_APPLY_COMP.threadcount_x == SCULPT_SLAB)
 // More slots than frames may be in flight, so a slot's readback is done when it comes round.
 SCULPT_SLOTS :: FRAMES_IN_FLIGHT_MAX + 1
+// How many frames after the one that recorded it a readback lands, waiting for its ticket
+// if the GPU has not finished it: a count of frames, never whether the GPU happens to be
+// done, since the stroke's later dabs are raycast onto the mesh the readbacks leave and a
+// stroke must sculpt the same bits however fast the frames come. With the default frames
+// in flight the frame two on has waited for that frame's work at its acquire anyway, so
+// the wait costs nothing there.
+SCULPT_LAND_FRAMES :: u64(FRAMES_IN_FLIGHT_DEFAULT)
+#assert(SCULPT_LAND_FRAMES < SCULPT_SLOTS)
 
 // The widest dispatch every device must accept; more slabs spread over rows.
 @(private = "file")
@@ -257,6 +265,7 @@ Sculpt_Slot :: struct {
 	// applied, and for entries of a frame never submitted.
 	submitted:     bool,
 	ticket:        gpu.Ticket,
+	frame:         u64, // the Sculpt_Gpu.frame that recorded them
 	entries:       [dynamic]Sculpt_Entry,
 }
 
@@ -317,6 +326,7 @@ Sculpt_Gpu :: struct {
 	lookup_rate:          f64, // how fast the CPU copied the slices so far, in bytes a millisecond
 	slots:    [SCULPT_SLOTS]Sculpt_Slot,
 	slot:     int,  // the slot this frame records into
+	frame:    u64,  // frames started (sculpt_gpu_frame), which decides when a slot lands
 	recorded: bool, // this frame's command buffer holds readbacks: hand its ticket to sculpt_gpu_submitted
 	landed:   [dynamic]Sculpt_Landed,
 	stats:    Sculpt_Gpu_Stats,
@@ -365,17 +375,19 @@ slot_order :: proc(sg: ^Sculpt_Gpu) -> [SCULPT_SLOTS]int {
 	return order
 }
 
-// Starts a frame: applies every readback whose ticket is done, oldest first and no
-// further than the first still running (all of them, waiting, in sync mode), and frees
-// the slot this frame will record into. Call once a frame before anything is recorded.
+// Starts a frame: applies every readback recorded SCULPT_LAND_FRAMES or more frames ago,
+// oldest first, waiting for any the GPU has not finished (all of them in sync mode), and
+// frees the slot this frame will record into. Call once a frame before anything is
+// recorded.
 sculpt_gpu_frame :: proc(r: ^Renderer) {
 	sg := &r.sculpt_gpu
 	sg.stats.applied_kb, sg.stats.apply_ms, sg.stats.applied = 0, 0, false
+	sg.frame += 1
 	blocked := false
 	for i in slot_order(sg) {
 		s := &sg.slots[i]
 		if s.submitted {
-			if !blocked && (sg.sync || i == sg.slot || gpu.done(s.ticket)) do sculpt_slot_apply(r, s)
+			if !blocked && (sg.sync || i == sg.slot || sg.frame - s.frame >= SCULPT_LAND_FRAMES) do sculpt_slot_apply(r, s)
 			else do blocked = true
 		}
 		// Entries not submitted were recorded by a frame that never was: they
@@ -1267,15 +1279,17 @@ sculpt_refused :: proc(sg: ^Sculpt_Gpu, what: string) -> bool {
 }
 
 // Takes the ticket of the frame's command buffer, once submitted, for the readbacks it
-// recorded; where the GPU has already run it (a frame that waited for it) the readbacks
-// apply now. Call once a frame after the submit, when sculpt_gpu_recorded.
-sculpt_gpu_submitted :: proc(r: ^Renderer, ticket: gpu.Ticket) {
+// recorded; `waited` (the frame waited for the ticket, which Time GPU work does every
+// frame) applies them now. Never on finding the GPU done by chance, which would make
+// where a stroke's later dabs land depend on timing (SCULPT_LAND_FRAMES). Call once a
+// frame after the submit, when sculpt_gpu_recorded.
+sculpt_gpu_submitted :: proc(r: ^Renderer, ticket: gpu.Ticket, waited: bool) {
 	sg := &r.sculpt_gpu
 	s := &sg.slots[sg.slot]
 	sg.recorded = false
 	if len(s.entries) == 0 do return
-	s.submitted, s.ticket = true, ticket
-	if gpu.done(ticket) do sculpt_slot_apply(r, s)
+	s.submitted, s.ticket, s.frame = true, ticket, sg.frame
+	if waited do sculpt_slot_apply(r, s)
 	sg.slot = (sg.slot + 1) % SCULPT_SLOTS
 }
 

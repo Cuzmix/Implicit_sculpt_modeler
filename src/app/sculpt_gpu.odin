@@ -11,7 +11,7 @@ import "../sculpt"
 // its dabs and normals, or its normals alone. Each flush of such a stroke hands its dab
 // records and its vertex ranges here, and the frame dispatches the kernels for them once
 // the positions the CPU moved are uploaded (frame_step) and submits the frame, whose
-// ticket says when their readback is in, whose landing refits the sculptor's bounds. The switch is
+// readback lands two frames on (render.SCULPT_LAND_FRAMES), refitting the sculptor's bounds. The switch is
 // Stats > Drawing's Sculpt on the GPU (--gpu-sculpt for one run), off until the kernels
 // cover a stroke's whole work.
 
