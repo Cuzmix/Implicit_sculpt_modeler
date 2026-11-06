@@ -1,5 +1,6 @@
 package usd
 
+import "core:fmt"
 import "core:math"
 import "core:slice"
 import "core:strings"
@@ -49,7 +50,7 @@ read_usdc :: proc(s: ^Stage, data: []u8) -> geom.Mesh_File_Error {
 	return crate_specs(&c, s, sections[5].start)
 }
 
-@(private = "file")
+@(private)
 Crate :: struct {
 	data:         []u8,
 	major, minor: int,
@@ -330,7 +331,7 @@ SPEC_PRIM :: 6
 SPEC_PSEUDO_ROOT :: 7
 
 // Crate value types the stage reads (crateDataTypes.h).
-@(private = "file")
+@(private)
 Crate_Type :: enum u8 {
 	Invalid      = 0,
 	Bool         = 1,
@@ -363,6 +364,8 @@ Crate_Type :: enum u8 {
 	Vec4f        = 28,
 	Vec4h        = 29,
 	Vec4i        = 30,
+	Path_List_Op = 34,
+	Path_Vector  = 40,
 	Token_Vector = 41,
 	Specifier    = 42,
 	Time_Samples = 46,
@@ -438,6 +441,8 @@ crate_specs :: proc(c: ^Crate, s: ^Stage, at: int) -> geom.Mesh_File_Error {
 					sampled = crate_first_sample(c, rep)
 				case "interpolation":
 					if t, is := crate_value(c, rep).(string); is do prop.interpolation = t
+				case "targetPaths", "connectionPaths":
+					prop.targets = crate_targets(c, rep)
 				}
 			}
 			if prop.value == nil do prop.value = sampled
@@ -531,6 +536,65 @@ crate_value :: proc(c: ^Crate, rep: u64) -> Value {
 		return out
 	}
 	return crate_numbers(c, at, type, is_array, compressed)
+}
+
+// A relationship's or connection's targets (a path list-op or a path vector) as full
+// paths: the explicit, added, prepended and appended lists, in that order (deleted and
+// reordered ones change nothing a single layer means). Nil when they cannot be read.
+@(private)
+crate_targets :: proc(c: ^Crate, rep: u64) -> []string {
+	type := Crate_Type((rep >> 48) & 0xFF)
+	at := int(rep & ((1 << 48) - 1))
+	if rep & (1 << 62) != 0 || at < 0 || at >= len(c.data) do return nil
+	out := make([dynamic]string, context.temp_allocator)
+	// A vector of paths: a count, then each path's index.
+	read_vector :: proc(c: ^Crate, at: int, out: ^[dynamic]string) -> (end: int, ok: bool) {
+		count := crate_u64(c, at) or_else max(u64)
+		if count > u64(len(c.data) - at - 8) / 4 do return 0, false
+		for k in 0 ..< int(count) {
+			p := int((^u32le)(&c.data[at + 8 + 4 * k])^)
+			if p >= len(c.path_parent) do return 0, false
+			append(out, crate_path_string(c, p))
+		}
+		return at + 8 + 4 * int(count), true
+	}
+	#partial switch type {
+	case .Path_Vector:
+		if _, ok := read_vector(c, at, &out); !ok do return nil
+	case .Path_List_Op:
+		// A header byte of which lists follow: explicit 2, added 4, deleted 8, ordered 16,
+		// prepended 32, appended 64, each a vector, in the order USD writes them.
+		header := c.data[at]
+		next := at + 1
+		order := [6]u8{2, 4, 32, 64, 8, 16}
+		for bit in order {
+			if header & bit == 0 do continue
+			keep := bit != 8 && bit != 16
+			got := make([dynamic]string, context.temp_allocator)
+			end, ok := read_vector(c, next, &got)
+			if !ok do return nil
+			if keep do append(&out, ..got[:])
+			next = end
+		}
+	case:
+		return nil
+	}
+	return out[:]
+}
+
+// Path `p`'s full text: its prims' names from the root, "/" between, and a property's
+// name after a ".".
+@(private)
+crate_path_string :: proc(c: ^Crate, p: int) -> string {
+	parts := make([dynamic]string, context.temp_allocator)
+	for q := p; q >= 0 && q < len(c.path_parent); q = int(c.path_parent[q]) {
+		if c.path_parent[q] < 0 do break // the root, "/"
+		append(&parts, fmt.tprintf(".%s" if c.path_prop[q] else "/%s", c.path_name[q]))
+		if len(parts) > len(c.path_parent) do break
+	}
+	b := strings.builder_make(context.temp_allocator)
+	for i := len(parts) - 1; i >= 0; i -= 1 do strings.write_string(&b, parts[i])
+	return strings.to_string(b)
 }
 
 // An inlined value: small numbers and indices in the rep's low bits.
