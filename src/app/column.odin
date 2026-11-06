@@ -59,9 +59,11 @@ CARD_PALM_TOP :: 0.58
 CARD_BODY_MIN :: 120
 
 // Whether a column splits in two: with a mouse, which rests on no palm and has the room;
-// on a tablet one card shows at a time.
+// on a tablet one card shows at a time. It follows the pointer only between presses
+// (columns_update), never in the frame a press lands: the press is hit against the cards
+// as last drawn, so the first finger after the mouse taps the card it was shown on.
 columns_split :: proc(app: ^App) -> bool {
-	return app.device.pointer == .Mouse
+	return !app.kit.cards.single
 }
 
 // The column on the side of the screen that `at` (a button) stands on.
@@ -229,6 +231,9 @@ columns_update :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	if !k.cards.set do cards_default(k)
+	// Whether the columns split follows the pointer only while no button is pressed, held or
+	// let go: the columns stay as they were drawn until the press that hit them is over.
+	if ctx.input.pressed == {} && ctx.input.down == {} && ctx.input.released == {} do k.cards.single = app.device.pointer != .Mouse
 	if ctx.input.pressed == {} || !ctx.input.mouse_valid || !(ctx.pointer_root == 0 || ctx.viewport_drag) do return
 	// A press on what a card put in the view (a light's marker or gizmo, Place highlight's
 	// press, the Move tool's gizmo), or one a card's control waits for (the Eyedropper, Pick
