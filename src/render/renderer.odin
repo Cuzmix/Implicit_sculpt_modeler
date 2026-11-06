@@ -1668,11 +1668,18 @@ render_viewport :: proc(r: ^Renderer, cmd: gpu.Cmd, vt: ^Viewport_Target, view, 
 	pipes := mesh_pipelines(r, vt.samples)
 	see := false
 	for item in items do see ||= blended(pipes, item)
-	if r.partial && !vt.tile && key == vt.frame_key && !(see && vt.samples != ._1) {
+	if r.partial && !vt.tile && key == vt.frame_key {
 		if rect, ok := damage_rect(vt^, view, proj, items); ok {
-			stats.partial = true
-			if rect.w > 0 && rect.h > 0 do render_rect(r, cmd, vt, view, proj, items, rect, &stats)
-			return
+			moved := rect.w > 0 && rect.h > 0
+			// A see-through item under multisampling redraws whole when anything moved (a
+			// rectangle would show a seam), but a frame where nothing did keeps the last
+			// one: redrawn every frame, it would restart render mode and the studio's
+			// samples every frame, and they would never gather.
+			if !(see && vt.samples != ._1 && moved) {
+				stats.partial = true
+				if moved do render_rect(r, cmd, vt, view, proj, items, rect, &stats)
+				return
+			}
 		}
 	}
 	render_full(r, cmd, vt, view, proj, items, use_cache, &stats)
@@ -2484,6 +2491,14 @@ blended :: proc(pipes: ^Mesh_Pipelines, item: Draw_Item) -> bool {
 	see := item.look.w > 0 || item_transmission(item) > 0
 	if draws_textured(pipes, item) do return see && pipes.textured_see != 0
 	return see && pipes.see != 0
+}
+
+// Whether `item` is see-through by its Transparency (Draw_Item.look.w), as render mode and
+// the studio's traced rays leave such items out; glass (blended's other case) they trace
+// as glass.
+transparent :: proc(pipes: ^Mesh_Pipelines, item: Draw_Item) -> bool {
+	if draws_textured(pipes, item) do return item.look.w > 0 && pipes.textured_see != 0
+	return item.look.w > 0 && pipes.see != 0
 }
 
 // How much of what is behind a fully transmitting glass the viewport shows: most, the rest

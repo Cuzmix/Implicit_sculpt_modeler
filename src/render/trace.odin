@@ -190,7 +190,7 @@ trace_prepare :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, vt: ^Viewport_Tar
 		return false
 	}
 	for item in items {
-		if blended(&r.single, item) do continue
+		if transparent(&r.single, item) do continue
 		if !trace_traceable(item) do return false
 	}
 	// Ray queries where offered and on; any refusal sends the whole view to our trees.
@@ -198,7 +198,7 @@ trace_prepare :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, vt: ^Viewport_Tar
 	if tr.rq do return true
 	tr.bytes = 0
 	for item in items {
-		if blended(&r.single, item) do continue
+		if transparent(&r.single, item) do continue
 		if !trace_mesh_update(r, tr, cmd, item, pool) do return false
 		tr.bytes += item.mesh.trace.bytes
 	}
@@ -253,7 +253,7 @@ trace_sample :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, accum, view_depth:
 	}
 	for item in items {
 		if tr.rq do break
-		if blended(&r.single, item) do continue
+		if transparent(&r.single, item) do continue
 		tm := item.mesh.trace
 		if tm == nil || tm.tlas_empty do continue
 		reads := [Studio_Trace_Comp_Buffers]gpu.Buffer {
@@ -522,7 +522,7 @@ trace_prepare_rq :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, items: []Draw_
 	instances := make([dynamic]gpu.Tlas_Instance, context.temp_allocator)
 	bytes := 0
 	for item in items {
-		if blended(&r.single, item) do continue
+		if transparent(&r.single, item) do continue
 		if !trace_mesh_update_rq(r, tr, cmd, item, pool) do return false
 		tm := item.mesh.trace
 		bytes += int(gpu.accel_bytes(tm.blas))
@@ -645,7 +645,7 @@ trace_rq_tables :: proc(r: ^Renderer, tr: ^Tracer, cmd: gpu.Cmd, items: []Draw_I
 	instances := make([dynamic]Rq_Instance, context.temp_allocator)
 	runs := make([dynamic]u32, context.temp_allocator)
 	for item in items {
-		if blended(&r.single, item) do continue
+		if transparent(&r.single, item) do continue
 		tm := item.mesh.trace
 		if tm == nil || tm.rq_empty do continue
 		address := gpu.buffer_address(cmd, item.mesh.indices)
