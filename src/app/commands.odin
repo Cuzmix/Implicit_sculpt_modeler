@@ -269,8 +269,6 @@ Command_Id :: enum u16 {
 	Open_Section, // the argument is the Section: its card, opened on it
 	Panels_Reset,
 	Layout_Reset, // layouts.odin
-	Layout_Save_As,
-	Layout_Load,
 	Space_Switch, // the argument is the Space (spaces.odin)
 	Inspect_Mode,
 	View_Pass, // the argument is the render.View_Pass (passes.odin)
@@ -2477,21 +2475,6 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {layout_reset(&app.kit)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.kit.layouts.modified},
 	},
-	.Layout_Save_As = {
-		label = "Save layout as...",
-		help = "Saves this space's layout (its toolbars, cards, view grid and shading) under a name, to load into any space later.",
-		icon = ui.ICON_PLUS,
-		run = proc(app: ^App, _: int) {layout_save_open(&app.kit)},
-	},
-	.Layout_Load = {
-		label = "Load layout",
-		help = "Puts one of your saved layouts in place in this space; it goes on changing from there as you work.",
-		icon = ICON_LAYOUT_DASHBOARD,
-		args = LAYOUT_SLOTS,
-		run = proc(app: ^App, arg: int) {layout_load(app, arg)},
-		enabled = proc(app: ^App, arg: int) -> bool {return app.kit.layouts.saved[arg].name != ""},
-		checked = proc(app: ^App, arg: int) -> bool {return app.kit.layouts.matching == arg + 1},
-	},
 	.Space_Switch = {
 		label = "Space",
 		help = "Switches to this working space (Sculpt, Model or Render) with the tool you last used there and its layout.",
@@ -3154,8 +3137,6 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return fmt.tprintf("Pie %d", arg + 1)
 	case .Run_Macro:
 		return fmt.tprintf("Macro %d", arg + 1)
-	case .Layout_Load:
-		return fmt.tprintf("Layout %d", arg + 1)
 	case .Run_Plugin:
 		return fmt.tprintf("Plugin %d", arg + 1)
 	case .Visibility_Slot:
