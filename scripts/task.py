@@ -6,6 +6,7 @@
     python scripts/task.py list                  # every task: branch, commits ahead and behind, changes, PR
     python scripts/task.py sync                  # inside a task: merge the latest odin-sculpt into it
     python scripts/task.py done gizmo-snap       # once merged: remove the worktree and its branches
+    python scripts/task.py link                  # in any worktree (Paseo's setup runs it): link deps
 
 Each task is a git worktree beside the main checkout with its own branch and its own build/,
 so builds and edits never collide, and a session opened in it works on that task alone. The
@@ -157,6 +158,20 @@ def cmd_sync(a):
 		sys.exit("task: the merge stopped on conflicts; resolve them, then git commit")
 
 
+def cmd_link(a):
+	"""Links deps in the worktree this runs in, for worktrees made by something other than `new`:
+	Paseo's workspaces run it as their setup step (paseo.json)."""
+	here = git("rev-parse", "--show-toplevel", cwd=os.getcwd())
+	main = main_checkout()
+	if os.path.normpath(here) == os.path.normpath(main):
+		sys.exit("task: link runs inside a worktree; the main checkout has the real deps/")
+	if os.path.lexists(os.path.join(here, "deps")):
+		print(f"task: {here}/deps is already there")
+		return
+	link_deps(main, here)
+	print(f"task: {here}/deps linked to {main}/deps")
+
+
 def cmd_done(a):
 	check_name(a.name)
 	path, branch = task_path(a.name), BRANCH_PREFIX + a.name
@@ -189,11 +204,12 @@ def main():
 	n.add_argument("--base", default=MAIN_BRANCH, help="the branch to start from (default odin-sculpt)")
 	sub.add_parser("list", help="every task and its state")
 	sub.add_parser("sync", help="merge the latest odin-sculpt into the task this runs in")
+	sub.add_parser("link", help="link deps in the worktree this runs in (Paseo's setup step)")
 	d = sub.add_parser("done", help="remove a merged task's worktree and branches")
 	d.add_argument("name")
 	d.add_argument("--force", action="store_true", help="also when unmerged or with uncommitted changes")
 	a = p.parse_args()
-	{"new": cmd_new, "list": cmd_list, "sync": cmd_sync, "done": cmd_done}[a.cmd](a)
+	{"new": cmd_new, "list": cmd_list, "sync": cmd_sync, "link": cmd_link, "done": cmd_done}[a.cmd](a)
 
 
 if __name__ == "__main__":
