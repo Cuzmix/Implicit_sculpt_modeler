@@ -2985,8 +2985,10 @@ command_run :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 		return false
 	}
 	// A drag held in the inspector ends first, as its own step, so the command acts on
-	// what it left (a mask change would otherwise reweigh a deformation mid-drag).
-	inspector_drags_end(app)
+	// what it left (a mask change would otherwise reweigh a deformation mid-drag). Settle
+	// is left running for its own command, which stops it, and ends the drags itself when
+	// it starts.
+	if id != .Settle do inspector_drags_end(app)
 	before := macro_before(app)
 	c.run(app, arg)
 	macro_log(app, id, arg, before)
