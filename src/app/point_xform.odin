@@ -40,6 +40,11 @@ Point_Xform :: struct {
 	amount:       f32, // the axis move, the degrees turned or the scale factor
 	offset:       Vec3, // a plane or view move
 	snapped:      bool,
+	// What a snap to points or a surface must not land on (the owner sets it as the drag
+	// goes live), and where the last snapped move landed, for its mark.
+	skip:         Snap_Skip,
+	stuck:        bool,
+	stuck_at:     Vec3,
 }
 
 // Sets the drag up from the pointer at `at` for points whose middle is `pivot`, with the
@@ -100,6 +105,18 @@ point_xform_map :: proc(app: ^App, x: ^Point_Xform, at, size: [2]f32) -> (m: mat
 	defer if x.snapped && (x.amount != was_amount || x.offset != was_offset) do haptic(app, .Alignment)
 	origin, dir := mouse_ray(app.camera, at, size)
 	m = matrix[3, 3]f32{1, 0, 0, 0, 1, 0, 0, 0, 1}
+	// A snapped move to points or a surface lands the middle on what is under the pointer,
+	// kept to the handle's arm or plane; with nothing near it the move goes free.
+	x.stuck = false
+	if x.snapped && app.move.snap_to != .Grid && drag_mode(x.handle) == .Move {
+		if target, hit := snap_target(app, at, size, x.skip); hit {
+			move, x.amount = snap_move(x.handle, x.pivot, target, x.axes)
+			if x.handle < .X || x.handle > .Z do x.offset = move
+			x.stuck, x.stuck_at = true, x.pivot + move
+			return m, move, true
+		}
+		x.snapped = false
+	}
 	#partial switch x.handle {
 	case .X, .Y, .Z:
 		axis := x.axes[int(x.handle) - int(gizmo.Handle.X)]
@@ -223,5 +240,6 @@ draw_point_xform :: proc(app: ^App, o: Overlay, input: Viewport_Input, x: ^Point
 			overlay_circle(o, x.center, linalg.length(input.mouse_pos - x.center), overlay_color({1, 0.85, 0.3, 0.6}), 1.5 * px)
 		}
 	}
+	if x.live && x.stuck do draw_snap_mark(app, o, input.size, x.stuck_at)
 	if text := point_xform_readout(x); text != "" do overlay_label(o, text, input.mouse_pos + [2]f32{0, -40 * px})
 }

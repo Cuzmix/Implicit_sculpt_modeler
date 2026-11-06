@@ -224,6 +224,7 @@ SETTINGS := [?]Setting {
 	{"gizmo_mode", offset_of(App, move) + offset_of(Move_Tool, mode), gizmo.Mode, 0, 0},
 	{"gizmo_snap", offset_of(App, move) + offset_of(Move_Tool, snap), bool, 0, 0},
 	{"gizmo_orient", offset_of(App, move) + offset_of(Move_Tool, orient), Gizmo_Orient, 0, 0},
+	{"snap_to", offset_of(App, move) + offset_of(Move_Tool, snap_to), Snap_To, 0, 0},
 	{"gizmo_pivot_row_off", offset_of(App, move) + offset_of(Move_Tool, pivot_row_off), bool, 0, 0},
 	{"crease_degrees", U + offset_of(Ui_State, crease_degrees), f32, 1, 90},
 	{"rebuild_goal", U + offset_of(Ui_State, rebuild_goal), Rebuild_Goal, 0, 0},

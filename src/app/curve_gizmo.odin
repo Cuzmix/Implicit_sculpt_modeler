@@ -20,6 +20,7 @@ Curve_Xform :: struct {
 	id:         int,
 	before:     ^Object_Snapshot,
 	start:      [dynamic]geom.Bezier_Point,
+	picked:     [dynamic]u32, // the picked points' numbers, which a snap passes over
 }
 
 // The picked points' middle in the world, with how many are picked.
@@ -92,9 +93,10 @@ curve_xform_begin :: proc(app: ^App, handle: gizmo.Handle, at: [2]f32, keys: boo
 curve_xform_drop :: proc(app: ^App) {
 	x := &app.curve.xform
 	if x.before != nil do history_snapshot_drop(x.before)
-	start := x.start
+	start, picked := x.start, x.picked
 	clear(&start)
-	x^ = {start = start}
+	clear(&picked)
+	x^ = {start = start, picked = picked}
 }
 
 // Puts the points back where the move began and ends it with nothing recorded.
@@ -136,7 +138,12 @@ curve_xform_end :: proc(app: ^App) {
 curve_xform_go_live :: proc(app: ^App, obj: ^Object, at, size: [2]f32) -> bool {
 	sc := curve_gizmo_screen(app, size)
 	pivot, _ := curve_picked_middle(obj)
-	return point_xform_go_live(app, &app.curve.xform.core, sc, pivot, curve_gizmo_axes(app, obj), at, size)
+	x := &app.curve.xform
+	// A snap lands on anything but the picked points.
+	clear(&x.picked)
+	for p, i in obj.curve.points do if p.selected do append(&x.picked, u32(i))
+	x.skip = {id = obj.id, points = x.picked[:]}
+	return point_xform_go_live(app, &x.core, sc, pivot, curve_gizmo_axes(app, obj), at, size)
 }
 
 // Moves the picked points to follow the pointer at `at`, from where they began.

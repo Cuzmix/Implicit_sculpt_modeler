@@ -678,6 +678,12 @@ drag_decide :: proc(app: ^App, input: Viewport_Input) -> (owner: Drag_Owner, emp
 	// A handle of the Move tool's gizmo, before the model, the safe zone or empty space
 	// under it, so every pointer grabs a handle off the model's silhouette.
 	if app.tool == .Move && gizmo_pick(app, mouse, input.size) != .None do return .Tool, false
+	// So does a handle of the cage selection's gizmo, and a press Measure would place an
+	// end with: a corner it snaps to may lie just off the silhouette.
+	if app.tool == .Model && model_gizmo_pick(app, mouse, input.size) != .None do return .Tool, false
+	if app.tool == .Model && app.model.action == .Measure {
+		if _, ok := measure_point(app, mouse, input.size); ok do return .Tool, false
+	}
 	// So does a point of the lattice's cage, which stands in for the gizmo.
 	if app.tool == .Move && lattice_pick(app, mouse, input.size) > 0 do return .Tool, false
 	// And a light's marker, while the Lights section shows them, for any tool.

@@ -127,6 +127,7 @@ curve_tool_destroy :: proc(c: ^Curve_Tool) {
 	if c.drag.before != nil do history_snapshot_drop(c.drag.before)
 	if c.xform.before != nil do history_snapshot_drop(c.xform.before)
 	delete(c.xform.start)
+	delete(c.xform.picked)
 }
 
 // The nearest surface along the ray, with the triangle's normal there, in world space.
@@ -552,7 +553,7 @@ kit_curve_settings :: proc(app: ^App) {
 			orients: [len(Gizmo_Orient)]string
 			for name, o in GIZMO_ORIENT_NAMES do orients[int(o)] = name
 			if picked := ui.tabs(ctx, "curve gizmo orientation", orients[:], int(app.move.orient)); picked >= 0 do app.move.orient = Gizmo_Orient(picked)
-			_ = ui.switch_row(ctx, "Snap", &app.move.snap)
+			kit_snap_rows(app, "curve")
 		}
 	}
 	ui.label(ctx, "Draw on", ctx.theme.small_size)

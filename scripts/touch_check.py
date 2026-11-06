@@ -4505,6 +4505,51 @@ def model_points_g_z_keeps_to_the_axis():
 
 
 @scenario
+def model_points_g_snaps_onto_another_cage():
+    """Snap on, snapping to points: a picked corner moved with G lands on the other cube's corner under the pointer, so the cage reaches out to it along X and its Y and Z stay those of the corner it landed on."""
+    s = Script()
+    s.add("move:800,500")
+    s.wait(1)
+    s.press("g")
+    for x, y in [(760, 510), (700, 525), (650, 540), (622, 549), (619, 551)]:
+        s.add(f"move:{x},{y}")
+        s.wait(1)
+    s.press("Return")
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; move 2 0 0; add_cage cube; frame_all; model_action select; set model_pick point; set gizmo_snap 1; set snap_to points; cage pick 0"], {"cage_picked": near(1), "model_xforms": near(1), "cage_lo": lambda got: float(got.split(",")[0]) < -1.4 and all(abs(float(c) + 0.5774) < 1e-3 for c in got.split(",")[1:])}
+
+
+@scenario
+def model_selection_gizmo_tap_types_a_value():
+    """A click on the selection gizmo's X arm that moves nothing opens its value: +0.5 and Enter move the picked corner half a unit along X, as one undo step."""
+    s = Script()
+    click(s, (915, 578))
+    type_value(s, "+0.5")
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action select; set model_pick point; cage pick 0"], {"cage_hi": lambda got: abs(float(got.split(",")[0]) - 1.0774) < 1e-3, "undo_steps": near(1), "gizmo_entry": is_text("none")}
+
+
+@scenario
+def model_measure_drag_snaps_to_corners():
+    """Measure: a drag from near one corner of a cube to near the one below shows their distance, exactly the cube's edge, and changes nothing."""
+    s = Script()
+    s.mouse_drag(line((757, 418), (748, 642), 10))
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action measure"], {"measures": near(1), "measure": near(1.1547, 1e-3), "model_done": near(0), "undo_steps": near(0), "cage_points": near(8)}
+
+
+@scenario
+def model_measure_two_taps():
+    """Measure: a tap on one corner, then one on another, measures between them as a drag does."""
+    s = Script()
+    s.mouse_drag([(757, 418)])
+    s.wait(3)
+    s.mouse_drag([(560, 380)])
+    s.wait(5)
+    return s, LENS_1440 + ["--script=add_cage cube; select 1; delete_object; frame_all; model_action measure"], {"measures": near(1), "measure": near(1.1547, 1e-3), "model_done": near(0)}
+
+
+@scenario
 def model_select_ctrl_tap_deselects():
     """With every face selected (Select all), a Ctrl tap with Select on the front face deselects it alone."""
     s = Script()

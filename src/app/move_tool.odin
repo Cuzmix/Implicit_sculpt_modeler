@@ -26,6 +26,7 @@ Move_Tool :: struct {
 	drag:  Move_Drag,
 	mode:  gizmo.Mode, // what the handles do: move, turn or scale (remembered)
 	snap:  bool, // the Snap latch: every drag snaps, as Ctrl makes one drag (remembered)
+	snap_to: Snap_To, // what a snapped move lands on (snap.odin, remembered)
 	// The Pivot latch: the next press on a surface puts the pivot there instead of
 	// selecting or moving, and lets go.
 	pivot_latch: bool,
@@ -124,6 +125,9 @@ Move_Drag :: struct {
 	pivot_only:   bool,
 	// The gizmo's arms as the drag went live, so a View orientation holds still through it.
 	axes:         [3]Vec3,
+	// Where this frame's move snapped to a point or a surface (snap.odin), for its mark.
+	stuck:        bool,
+	stuck_at:     Vec3,
 }
 
 // What the drag does, for the undo button and the History panel.
@@ -366,8 +370,27 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 	defer if drag.snapped && (drag.amount != was_amount || drag.offset != was_offset) do haptic(app, .Alignment)
 	t := drag.start
 	origin, dir := mouse_ray(app.camera, input.mouse_pos, input.size)
+	// A snapped move to points or a surface lands the grabbed point (the gizmo's middle, or
+	// where the body was pressed) on what is under the pointer, kept to the handle's arm or
+	// plane, and skips the objects that move; nothing near and it goes free.
+	drag.stuck = false
+	snap_moved := false
+	if drag.snapped && m.snap_to != .Grid && drag_mode(drag.handle) == .Move && !drag.posed {
+		others := make([dynamic]int, context.temp_allocator)
+		for mem in m.members do append(&others, mem.id)
+		if target, hit := snap_target(app, input.mouse_pos, input.size, {id = obj.id, whole = true, others = others[:]}); hit {
+			move, amount := snap_move(drag.handle, drag.grab, target, drag.axes)
+			t.position += move
+			drag.amount = amount
+			if drag.handle < .X || drag.handle > .Z do drag.offset = move
+			drag.stuck, drag.stuck_at, snap_moved = true, drag.grab + move, true
+		} else {
+			drag.snapped = false
+		}
+	}
 	#partial switch drag.handle {
 	case .X, .Y, .Z:
+		if snap_moved do break
 		axis := drag.axes[int(drag.handle) - int(gizmo.Handle.X)]
 		s, ok := gizmo.closest_on_axis(drag.start.position, axis, origin, dir)
 		if !ok do return
@@ -375,6 +398,7 @@ move_tool_frame :: proc(app: ^App, input: Viewport_Input) {
 		if drag.snapped do drag.amount = gizmo.snap(drag.amount, drag.step)
 		t.position += axis * drag.amount
 	case .View, .YZ, .XZ, .XY:
+		if snap_moved do break
 		hit, ok := gizmo.ray_plane(origin, dir, drag.grab, drag.plane_normal)
 		if !ok do return
 		delta := hit - drag.grab
@@ -769,6 +793,7 @@ Gizmo_Entry :: struct {
 	open:   bool,
 	typing: bool, // its field had the keys, which go back when it closes
 	id:     int, // the object
+	cage:   bool, // the value is for the object's cage selection (model_gizmo.odin), not the object
 	handle: gizmo.Handle,
 	at:     ui.Rect, // the tap, in points, that it opens over
 	text:   [32]u8,
@@ -784,11 +809,11 @@ entry_takes :: proc(h: gizmo.Handle) -> bool {
 
 // Opens the value entry for `handle` over `at` (viewport pixels), empty, so what is typed
 // is the value; the field's hint says what it is now.
-gizmo_entry_open :: proc(app: ^App, obj: ^Object, handle: gizmo.Handle, at: [2]f32) {
+gizmo_entry_open :: proc(app: ^App, obj: ^Object, handle: gizmo.Handle, at: [2]f32, cage := false) {
 	k := &app.kit
 	kit_floats_close(k)
 	p := at / gizmo_scale(app)
-	k.gizmo_entry = {open = true, id = obj.id, handle = handle, at = {p.x - 1, p.y - 1, 2, 2}}
+	k.gizmo_entry = {open = true, id = obj.id, cage = cage, handle = handle, at = {p.x - 1, p.y - 1, 2, 2}}
 }
 
 // What the entry asks for, for its title.
@@ -895,15 +920,16 @@ kit_gizmo_entry :: proc(app: ^App) {
 	ctx := &k.ctx
 	e := &k.gizmo_entry
 	obj := object_by_id(app, e.id)
-	if e.open && (obj == nil || app.tool != .Move) do e.open = false
+	if e.open && (obj == nil || app.tool != (.Model if e.cage else .Move) || (e.cage && obj.cage == nil)) do e.open = false
 	if !e.open && e.typing {
 		ctx.text_focus = 0
 		e.typing = false
 	}
 	if !ui.popover_begin(ctx, "gizmo entry", &e.open, e.at, .Above_Center, {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
-	posing := pose_mode(app)
+	posing := pose_mode(app) && !e.cage
 	title := gizmo_entry_title(e.handle)
+	if e.cage do title = fmt.tprintf("Selection: %s", title)
 	if posing do title = fmt.tprintf("Pose: %s", POSE_ENTRY_TITLES[drag_mode(e.handle)])
 	ui.caption(ctx, strings.to_upper(title, context.temp_allocator))
 	hint := "Degrees, such as 90"
@@ -913,6 +939,13 @@ kit_gizmo_entry :: proc(app: ^App) {
 		#partial switch e.handle {
 		case .X, .Y, .Z: hint = "Offset, such as 0.5"
 		case .Scale:     hint = "Factor, such as 1.5"
+		}
+	} else if e.cage && obj != nil && obj.cage != nil {
+		#partial switch e.handle {
+		case .X, .Y, .Z:
+			mid, _ := model_selection_middle(obj)
+			hint = fmt.tprintf("Now %.3f", linalg.dot(mid, model_gizmo_axes(app, obj)[int(e.handle) - int(gizmo.Handle.X)]))
+		case .Scale: hint = "Factor, such as 1.5"
 		}
 	} else if obj != nil {
 		#partial switch e.handle {
@@ -927,6 +960,8 @@ kit_gizmo_entry :: proc(app: ^App) {
 	note := "Enter applies it; +0.5 adds to it."
 	switch {
 	case e.refused:                    note = "That is no value: type a number, such as 0.5."
+	case e.cage && drag_mode(e.handle) == .Scale: note = "Enter scales the selection about its middle by it; +0.5 adds half."
+	case e.cage && drag_mode(e.handle) == .Move:  note = "Enter moves the selection's middle there along the arm; +0.5 moves it that far."
 	case gizmo.stretch_axis(e.handle) >= 0: note = "Enter stretches the mesh along the axis by it (the mask holds back what it covers); +0.5 adds half."
 	case posing:                       note = POSE_ENTRY_NOTES[drag_mode(e.handle)]
 	case drag_mode(e.handle) == .Turn: note = "Enter turns it that far about the ring's axis."
@@ -937,7 +972,8 @@ kit_gizmo_entry :: proc(app: ^App) {
 	d := &app.device
 	apply ||= e.open && (key_pressed(d, KEY_RETURN) || key_pressed(d, KEY_KP_ENTER))
 	if apply && e.open && obj != nil {
-		if gizmo_entry_apply(app, obj, e.handle, string(e.text[:n])) do e.open = false
+		applied := cage_entry_apply(app, obj, e.handle, string(e.text[:n])) if e.cage else gizmo_entry_apply(app, obj, e.handle, string(e.text[:n]))
+		if applied do e.open = false
 		else do e.refused = true
 	}
 	if cancel do e.open = false
