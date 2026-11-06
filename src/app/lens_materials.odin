@@ -185,7 +185,14 @@ material_preview_row :: proc(app: ^App, m: Material, sel: ^Object, width: f32) {
 	}
 	ui.label(ctx, who, t.small_size, t.text_tertiary)
 	if mc.editing {
-		if ui.button(ctx, "Back to the shelf##material", .Bordered, glyph = ICON_MATERIAL, width = 0) do mc.editing = false
+		// Back and Reset side by side, so the way out and the way back are always in sight
+		// however long the layers run.
+		ui.begin(ctx, "material edit head", {direction = .Row, gap = ui.SPACE_S})
+		if ui.button(ctx, "Shelf##material", .Bordered, glyph = ui.ICON_CHEVRON_LEFT) do mc.editing = false
+		if ui.button(ctx, "Reset##material edit", .Flat, glyph = ui.ICON_UNDO) {
+			app.ui.scene_command = {kind = .Material, material = mc.before, material_to = app.ui.material_to}
+		}
+		ui.end(ctx)
 	} else if ui.button(ctx, "Edit##material", .Bordered, glyph = ui.ICON_PENCIL, width = 0) {
 		mc.editing, mc.before = true, m
 	}
@@ -238,13 +245,12 @@ material_chips :: proc(app: ^App, width: f32) {
 
 // Edit: the material's values, each change sent as a Custom material to the objects Apply
 // to names. Surface first, then each layer as a switch that shows its controls while on,
-// then Thin film and the specular under More, and Reset.
+// then Thin film and the specular under More (Reset is beside Shelf, in the head).
 @(private = "file")
 material_edit :: proc(app: ^App, m: Material) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	mc := &k.material_card
 	m := m
 	lit := m.matcap == 0
 	// A classic preset has no roughness yet, so it starts rough.
@@ -258,9 +264,6 @@ material_edit :: proc(app: ^App, m: Material) {
 	if changed {
 		m.label = "Custom"
 		app.ui.scene_command = {kind = .Material, material = m, material_to = app.ui.material_to}
-	}
-	if ui.button(ctx, "Reset##material edit", .Bordered, glyph = ui.ICON_UNDO, width = ui.fill_width(ctx)) {
-		app.ui.scene_command = {kind = .Material, material = mc.before, material_to = app.ui.material_to}
 	}
 	ui.paragraph(ctx, "Each layer adds to the surface under it, as in OpenPBR: light under the skin, a clear coat, cloth's sheen, light through glass, light given off. Full render shows them all.", color = t.text_secondary)
 }
@@ -287,7 +290,7 @@ material_layers_edit :: proc(app: ^App, l: ^geom.Material_Layers) -> (changed: b
 	group_begin :: proc(ctx: ^ui.Context, name: string) {
 		ui.begin(ctx, fmt.tprintf("%s layer", name), {direction = .Column, gap = ui.SPACE_S, padding = ui.SPACE_M, background = .Track, radius = ctx.theme.radius_medium, width = ui.fill_width(ctx)})
 	}
-	ui.label(ctx, "Layers", ctx.theme.small_size, ctx.theme.text_tertiary)
+	ui.label(ctx, "Surface layers", ctx.theme.small_size, ctx.theme.text_tertiary)
 	weight :: proc(ctx: ^ui.Context, name: string, v: ^f32) -> bool {
 		return ui.slider(ctx, name, v, 0.01, 1, .Linear, fmt.tprintf("%.2f", v^))
 	}

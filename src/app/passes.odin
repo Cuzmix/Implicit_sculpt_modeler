@@ -353,7 +353,7 @@ shading_options :: proc(app: ^App, s: ^View_Shading, main: bool, looks := true) 
 	// The render is the Render card's one choice (Off, Fast, Full): this row says which and
 	// opens the card on it, rather than a second control for the same thing.
 	if looks && main {
-		if ui.button(ctx, fmt.tprintf("Render: %s##shading render", RENDER_SHOW_NAMES[render_show(app)]), .Flat, glyph = ICON_RENDER_PREVIEW, width = ui.fill_width(ctx), keys = command_hint(app, .Studio_Render)) do card_reveal(app, .Render)
+		if ui.menu_item(ctx, fmt.tprintf("Render · %s##shading render", RENDER_SHOW_NAMES[render_show(app)]), glyph = ICON_RENDER_PREVIEW) do card_reveal(app, .Render)
 	}
 	if shown != .Flat {
 		colour := 1 - s.grey
