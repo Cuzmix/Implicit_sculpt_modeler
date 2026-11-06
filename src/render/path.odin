@@ -988,7 +988,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^View
 	skin_words: u32
 	pr.tex_meshes, pr.tex_stamps, pr.tex_paint, pr.tex_count, pr.tex_left_out = {}, {}, {}, 0, 0
 	for item, i in items {
-		if blended(&r.single, item) do continue
+		if transparent(&r.single, item) do continue
 		tm := item.mesh.trace
 		// The same items in the same order as trace_prepare_rq's instances, so the k-th
 		// placed is instance k.
