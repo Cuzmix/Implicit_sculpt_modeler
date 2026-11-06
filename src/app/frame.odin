@@ -300,6 +300,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			if !object_shown(app, obj) do continue
 			// The live boolean's preview stands in for it (drawn below).
 			if boolean_hides(app, obj, i) do continue
+			// So does a Physics run's simplified copy (drawn below).
+			if physics_proxy_shows(app, obj) do continue
 			color, live, selected := object_draw_tint(app, obj, i)
 			material := object_material(app, obj)
 			// Polygon edges stand in for the triangles' edges on a level that has them: the
@@ -380,6 +382,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 			})
 		}
 	}
+	physics_proxy_draw(app, &draws, &froms)
 	// The live stack's copies, after every item they copy (the boolean preview's too).
 	stack_draw_copies(app, &draws, &froms)
 	aspect := f32(app.target.width) / f32(app.target.height)
