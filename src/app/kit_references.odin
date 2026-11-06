@@ -61,6 +61,11 @@ Ref_Board :: struct {
 	plane_last:    [2]f32,
 	plane_menu:    bool,
 	plane_menu_at: ui.Rect,
+	// Line up (refs_planes.odin): which of a picked plane's marks a drag moves (1 its brow,
+	// 2 its chin, 0 none) and whose, and how many line ups changed a plane, for the exit stats.
+	mark:          int,
+	mark_id:       u32,
+	lined_up:      int,
 	// The head's Add and Tidy menus, the floating edits' More, and the board's menu at the
 	// pointer (a right click), with where the open one hangs from.
 	add_menu:      bool,

@@ -46,6 +46,7 @@ references_read_back_as_written :: proc(t: ^testing.T) {
 	app.scene.refs.refs[0].view, app.scene.refs.refs[0].view_at, app.scene.refs.refs[0].view_w, app.scene.refs.refs[0].opacity = true, {0.5, -0.25}, 0.4, 0.75
 	app.scene.refs.refs[1].plane, app.scene.refs.refs[1].plane_at, app.scene.refs.refs[1].plane_h = .Right, {0.5, 1, -2}, 1.75
 	app.scene.refs.refs[1].through, app.scene.refs.refs[1].plane_off = true, true
+	app.scene.refs.refs[1].marks = {0.2, 0.7}
 	app.scene.refs.view_off = true
 	refs_add_note(&app)
 	app.scene.refs.refs[2].text = {}
@@ -90,6 +91,8 @@ references_refuse_damage :: proc(t: ^testing.T) {
 		proc(refs: ^References) {refs.refs[0].view_w = -1},
 		proc(refs: ^References) {refs.refs[0].plane = .Top; refs.refs[0].plane_h = 0},
 		proc(refs: ^References) {refs.refs[0].plane_at = {2e6, 0, 0}},
+		proc(refs: ^References) {refs.refs[0].marks = {0.6, 0.5}},
+		proc(refs: ^References) {refs.refs[0].marks = {0.5, 1.5}},
 	}
 	for spoil in cases {
 		saved := app.scene.refs.refs[0]
@@ -184,6 +187,7 @@ references_decode_on_its_own :: proc(t: ^testing.T) {
 	d := Ref_Decode{bytes = bytes, side = 4}
 	ref_decode(&d)
 	defer delete(d.pixels)
+	defer delete(d.sample)
 	testing.expect_value(t, d.why, "")
 	testing.expect_value(t, d.width, 10)
 	testing.expect_value(t, d.height, 6)
@@ -440,4 +444,51 @@ reference_reads_a_progressive_jpeg :: proc(t: ^testing.T) {
 	// The far corner keeps its colour within what JPEG's loss leaves of it.
 	far := rgba[(7 * 16 + 15) * 4:][:4]
 	testing.expect(t, abs(int(far[0]) - 240) < 24 && abs(int(far[1]) - 224) < 24 && abs(int(far[2]) - 128) < 24 && far[3] == 255, "the far corner's colour")
+}
+
+// Line up sizes and moves a side plane so its brow and chin marks stand at the guides'
+// heights, keeping its middle across; it leaves a top plane, crossed guides and locked
+// pictures alone, shows the guides when hidden, and is one undo step.
+@(test)
+reference_planes_line_up_with_the_guides :: proc(t: ^testing.T) {
+	app: App
+	defer test_refs_free(&app)
+	_, _ = refs_add(&app, "a.png", test_png(4, 2, 1), {})
+	refs := &app.scene.refs
+	refs.refs[0].size = {100, 200}
+	b := &app.kit.board
+	append(&b.selected, refs.refs[0].id)
+	refs_plane_put(&app, .Right)
+	p := &refs.refs[0]
+	p.plane_at = {0, 5, 0.25}
+	app.scene.guides.heights = {.Brow = 1.5, .Nose_Base = 1, .Chin = 0.5}
+	app.scene.guides.seeded = true
+	refs_line_up_picked(&app)
+	testing.expect(t, app.scene.guides.shown, "Line up shows the guides")
+	m := ref_marks(p^)
+	testing.expect_value(t, p.marks, REF_MARKS)
+	top := p.plane_at.y + p.plane_h * 0.5
+	testing.expect(t, abs(top - m.x * p.plane_h - 1.5) < 1e-5, "the brow mark at the Brow guide")
+	testing.expect(t, abs(top - m.y * p.plane_h - 0.5) < 1e-5, "the chin mark at the Chin guide")
+	testing.expect(t, p.plane_at.x == 0 && p.plane_at.z == 0.25, "its middle across kept")
+	testing.expect_value(t, b.lined_up, 1)
+	testing.expect_value(t, len(app.history.done), 2)
+	// Again, nothing changes and no step is added.
+	refs_line_up_picked(&app)
+	testing.expect_value(t, len(app.history.done), 2)
+	// Marks dragged elsewhere line up the same way.
+	p.marks = {0.1, 0.5}
+	testing.expect(t, refs_line_up(p, app.scene.guides))
+	top = p.plane_at.y + p.plane_h * 0.5
+	testing.expect(t, abs(top - 0.1 * p.plane_h - 1.5) < 1e-5 && abs(top - 0.5 * p.plane_h - 0.5) < 1e-5)
+	// Crossed guides, a top plane and a locked picture are left as they are.
+	crossed := app.scene.guides
+	crossed.heights[.Chin] = 2
+	testing.expect(t, !refs_line_up(p, crossed))
+	p.plane = .Top
+	testing.expect(t, !refs_line_up(p, app.scene.guides))
+	p.plane, p.locked, p.plane_h = .Right, true, 3
+	refs_line_up_picked(&app)
+	testing.expect_value(t, p.plane_h, f32(3))
+	testing.expect(t, refs_marks_ok({}) && refs_marks_ok(REF_MARKS) && !refs_marks_ok({0.5, 0.52}))
 }

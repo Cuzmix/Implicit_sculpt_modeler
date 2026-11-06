@@ -552,6 +552,18 @@ column_rest_rect :: proc(app: ^App, s: Column_Side) -> ui.Rect {
 	return r
 }
 
+// Where column `s` shows its cards over the view this frame, pinned or opened for a
+// moment, empty when it shows none: what a mark at the view's edge keeps clear of.
+column_shown_rect :: proc(app: ^App, s: Column_Side) -> ui.Rect {
+	k := &app.kit
+	col := &k.cards.columns[s]
+	if col.frame < k.frame - 1 do return {}
+	r: ui.Rect
+	first := 0 if columns_split(app) else col.count - 1
+	for i in max(first, 0) ..< col.count do r = col.rects[i] if r.w <= 0 else ui.rect_union(r, col.rects[i])
+	return r
+}
+
 // The columns' lines in a layout: `column left|right <card>` for each pinned card, which a
 // layout keeps open; cards opened for a moment are no layout's.
 columns_save :: proc(k: ^Kit_State, out: ^strings.Builder) {

@@ -64,7 +64,9 @@ Ref_Image :: struct {
 // `opacity`. And it can stand on a plane in the scene (`plane`, refs_planes.odin), facing
 // that axis view: its middle at `plane_at` in the world, `plane_h` tall (its width from
 // its shape), drawn over the model when `through`, shown from any side when `plane_any`
-// and hidden while `plane_off`; it shares the opacity with the view's.
+// and hidden while `plane_off`; it shares the opacity with the view's. Its `marks` are
+// where the face's brow and chin are on the picture, as parts of its height from its top
+// (refs_planes.odin's Line up), {0, 0} until first put on a plane.
 Ref :: struct {
 	id:      u32,
 	image:   u32,
@@ -87,6 +89,7 @@ Ref :: struct {
 	through:   bool,
 	plane_any: bool,
 	plane_off: bool,
+	marks:     [2]f32,
 	text:    [REF_NOTE_MAX]u8,
 }
 
@@ -869,6 +872,7 @@ refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {
 		geom.byte_put(out, u8(r.through) | u8(r.plane_any) << 1 | u8(r.plane_off) << 2)
 		geom.byte_put(out, r.plane_at)
 		geom.byte_put(out, r.plane_h)
+		geom.byte_put(out, r.marks)
 		if r.image == 0 do geom.byte_put_string(out, ref_note_text(&r))
 	}
 }
@@ -877,7 +881,7 @@ refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {
 // past what it holds, a picture's id twice or past the next one, a place of a picture it
 // does not hold, a size that is not a positive finite number, a crop outside the picture
 // or turned inside out, a turn past three quarters, a note's text too long, a plane of no
-// view, out in the far distance or of a note.
+// view, out in the far distance or of a note, or brow and chin marks out of order.
 refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
 	refs.next_image = geom.byte_get(r, u32)
 	refs.next_ref = geom.byte_get(r, u32)
@@ -920,6 +924,8 @@ refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
 		plane_bits := geom.byte_get(r, u8)
 		p.plane_at = geom.byte_get(r, [3]f32)
 		p.plane_h = geom.byte_get(r, f32)
+		p.marks = geom.byte_get(r, [2]f32)
+		if !refs_marks_ok(p.marks) do return
 		if plane > u8(max(Ref_Plane)) || plane_bits > 7 do return
 		p.plane = Ref_Plane(plane)
 		p.through, p.plane_any, p.plane_off = plane_bits & 1 != 0, plane_bits & 2 != 0, plane_bits & 4 != 0
