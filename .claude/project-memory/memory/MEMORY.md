@@ -18,6 +18,7 @@
 - iPad Air M2 (sideloads), OnePlus Pad (Mali-G710), Windows PC with RTX 3060 Ti. 2026-10-31: app tested on all three, works.
 - Goal: performance to match ZBrush (bench 500k-10M; <1 ms GPU up to 10M on the 3060 Ti; next frontier 20M+).
 - 2026-11-05: iPad build run on odin-sculpt at #679 (Bolt asked); later merges (#681+) not in it.
+- 2026-11-06: Claude Code also runs on Bolt's Linux laptop with a real GPU (Radeon 890M, RADV; Ryzen AI 9 HX 470, 24 threads): there the app, smoke, touch_check, bench and gate.py run for real (local-machine-real-gpu.md).
 
 ## Stack and repo
 - Odin, SDL3 for windows/input, own Vulkan/Metal/WebGPU backends in package src/gpu (#589); G1-G7 GPU abstraction plan (notes/gpu-own-model/design.md), G5c skipped, G6 recommended skip, awaiting Bolt. Own UI kit, Lens is the only layout (#275).

@@ -1,5 +1,6 @@
 package main
 
+import "core:strings"
 import "core:testing"
 
 import "../sculpt"
@@ -75,8 +76,15 @@ brush_palette_lists_categories :: proc(t: ^testing.T) {
 	app.kit.brushes.searching = true
 	copy(app.kit.brushes.search[:], "SMOOTH")
 	found := brush_palette_list(&app, all[:])
-	testing.expect_value(t, len(found), 4)
-	for l in found do testing.expectf(t, l.low[:6] == "smooth", "search found %s", l.name)
+	containing := 0
+	for l in all do if strings.contains(l.low, "smooth") do containing += 1
+	testing.expect_value(t, len(found), containing)
+	cloth := false
+	for l in found {
+		testing.expectf(t, strings.contains(l.low, "smooth"), "search found %s", l.name)
+		if l.name == "Cloth smooth" do cloth = true
+	}
+	testing.expect(t, cloth, "a search matches inside a name, not only at its start")
 	free_all(context.temp_allocator)
 }
 
