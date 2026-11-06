@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 
+import "../sculpt"
 import "../ui"
 
 // Paint as a toggle (the overhaul's round 3, PR 8b), as Nomad's Paint switch and ZBrush's
@@ -38,6 +39,17 @@ colour_island_lift :: proc(app: ^App) -> f32 {
 	return 0
 }
 
+// A roughness or metal chip's width on the island.
+ISLAND_CHIP_W :: 52
+
+// Whether the island shows the roughness and metal chips: the selected object's picked
+// paint layer holds either.
+island_material :: proc(app: ^App) -> bool {
+	obj := selected_object(app)
+	if obj == nil || obj.voxel != nil || obj.curve != nil || obj.cage != nil do return false
+	return sculpt.sculptor_paint_channels(object_sculptor(obj)) & {.Roughness, .Metal} != {}
+}
+
 // The swatches of the colours picked last that the island shows, at most.
 ISLAND_HISTORY :: 5
 
@@ -56,7 +68,9 @@ kit_colour_island :: proc(app: ^App) {
 	room := action_bar_room(app)
 	segment := channel_brush(b.kind)
 	segment_w: f32 = 260 if segment else 0
-	fixed := t.target * 2 + 8 + t.target + segment_w + 4 * ACTION_BAR_PADDING
+	material := island_material(app)
+	chips_w: f32 = 2 * ISLAND_CHIP_W + 16 if material else 0
+	fixed := t.target * 2 + 8 + t.target + segment_w + chips_w + 4 * ACTION_BAR_PADDING
 	history := clamp(int((room - fixed) / (SWATCH_SIDE + 2)), 0, min(ISLAND_HISTORY, c.history_count))
 	mark := ui.vertex_mark(ctx)
 	ui.begin_anchored(ctx, "colour island", .Center, .End, {0, t.edge + dock_lift(app) + dock.y + ACTION_BAR_GAP}, {direction = .Row, gap = ui.SPACE_S, padding = ACTION_BAR_PADDING, radius = t.radius_large + 4, background = .Panel, center = true})
@@ -85,6 +99,18 @@ kit_colour_island :: proc(app: ^App) {
 		}
 	}
 	_ = command_button(app, .Eyedropper, glyph = COMMANDS[.Eyedropper].icon, icon_only = true)
+	if material {
+		// The roughness and metal a stroke lays, while the picked layer holds them: a drag
+		// up or down scrubs one, a tap opens its steps, as the shelf's value chips do.
+		ui.divider(ctx, 24)
+		for v in ([2]Brush_Value{.Roughness, .Metal}) {
+			lit := bar_pop_showing(app, .Value) && k.bar_pop.value == v
+			hint := hint_join(value_text(app, v), command_hint(app, .Brush_Value, int(v)))
+			a := value_chip(app, fmt.tprintf("%s##colour island", BRUSH_VALUE_NAMES[v]), v, {ISLAND_CHIP_W, t.target}, false, true, true, lit, hint)
+			moved := ctx.input.mouse - ctx.press_mouse
+			if a.clicked && abs(moved.y) <= t.slop do value_pop_toggle(app, v, a.rect, .Above_Center)
+		}
+	}
 	if segment {
 		ui.divider(ctx, 24)
 		names := [2]string{"Sculpt + paint", "Paint only"}

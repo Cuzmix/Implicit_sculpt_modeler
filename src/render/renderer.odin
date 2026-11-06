@@ -151,6 +151,7 @@ Floor_Uniforms :: struct {
 // The mesh shaders bind as one family: the drawing loop binds mesh.vert's and mesh.frag's
 // slots whichever of these pipelines is bound, so each shader's matching slots sit where theirs do.
 #assert(int(Mesh_Wire_Vert_Buffers.paint) == int(Mesh_Vert_Buffers.paint) && int(Skin_Vert_Buffers.paint) == int(Mesh_Vert_Buffers.paint))
+#assert(int(Mesh_Wire_Vert_Buffers.paint_material_words) == int(Mesh_Vert_Buffers.paint_material_words))
 #assert(int(Mesh_Wire_Vert_Uniforms.Frame_Uniforms) == int(Mesh_Vert_Uniforms.Frame_Uniforms) && int(Skin_Vert_Uniforms.Frame_Uniforms) == int(Mesh_Vert_Uniforms.Frame_Uniforms))
 #assert(int(Skin_Tess_Vert_Uniforms.Frame_Uniforms) == int(Mesh_Vert_Uniforms.Frame_Uniforms) && int(Textured_Vert_Uniforms.Frame_Uniforms) == int(Mesh_Vert_Uniforms.Frame_Uniforms))
 #assert(len(Mesh_Area_Frag_Samplers) == len(Mesh_Frag_Samplers) && len(Mesh_Wire_Frag_Samplers) == len(Mesh_Frag_Samplers) && len(Skin_Frag_Samplers) == len(Mesh_Frag_Samplers))
@@ -330,6 +331,11 @@ Mesh_Buffers :: struct {
 	// mesh shader as a storage buffer (8 bytes a vertex). Nil until a mesh has paint or
 	// groups (mesh_buffers_upload_paint).
 	paint:       gpu.Buffer,
+	// Per vertex, its painted roughness and metal (sculpt.Material_Paint: roughness, its
+	// coverage, metal, its coverage, a byte each), read by the mesh shaders beside `paint`.
+	// Nil until a paint layer holds either (mesh_buffers_upload_paint's `materials`), so
+	// paint of colour alone and groups pay nothing for it.
+	paint_material: gpu.Buffer,
 	// The caller's stamp for what `paint` holds (the sculptor's paint stamp); 0 when it
 	// holds nothing.
 	paint_stamp: u32,
@@ -1339,6 +1345,7 @@ mesh_buffers_destroy :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	delete(mb.cull.expect)
 	if k, found := slice.linear_search(r.gpu_culling.checked[:], mb); found do unordered_remove(&r.gpu_culling.checked, k)
 	if mb.paint != 0 do gpu.release_buffer(mb.paint)
+	if mb.paint_material != 0 do gpu.release_buffer(mb.paint_material)
 	if mb.edges != 0 do gpu.release_buffer(mb.edges)
 	if mb.tri_edges != 0 do gpu.release_buffer(mb.tri_edges)
 	if mb.skin_normals != 0 do gpu.release_buffer(mb.skin_normals)
@@ -1434,12 +1441,13 @@ UPLOAD_PIECE :: 1 << 14
 @(private)
 UPLOAD_PARALLEL_VERTS :: 1 << 15
 
-// Records copies of the paint data (colours, nil for none, and the groups vertices
-// carry, nil for none) of every vertex in `ranges` into the mesh's paint buffer, or of
+// Records copies of the paint data (colours, nil for none, the groups vertices carry, nil
+// for none, and the painted roughness and metal, sculpt.Material_Paint, nil for none, into
+// their own buffer, paint_material) of every vertex in `ranges` into the mesh's paint buffer, or of
 // every vertex when `all` or when the buffer has to be made first, through upload memory
 // like mesh_buffers_upload_ranges. On failure the buffer is dropped, so
 // the mesh is drawn without paint until a later upload succeeds.
-mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, colors: [][4]u8, groups: []u16, ranges: []geom.Vertex_Range, all: bool) {
+mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, colors: [][4]u8, groups: []u16, ranges: []geom.Vertex_Range, all: bool, materials: [][4]u8 = nil) {
 	debug_group(cmd, "Paint upload", .Uploads)
 	// Recorded inside the group, so the Stats panel times them as uploads.
 	defer gpu.flush_uploads(cmd)
@@ -1452,10 +1460,39 @@ mesh_buffers_upload_paint :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers,
 		}
 		all = true
 	}
+	// The roughness and metal come and go with the layers that hold them: the buffer is
+	// made, filled whole, the first time they do, and dropped when none does.
+	materials_all := all
+	if materials == nil && mb.paint_material != 0 {
+		gpu.release_buffer(mb.paint_material)
+		mb.paint_material = 0
+	}
+	if materials != nil && mb.paint_material == 0 {
+		mb.paint_material = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = max(mb.vertex_capacity, 1) * size_of(u32)})
+		if mb.paint_material == 0 do log.errorf("paint material buffer creation failed: %s", gpu.last_error())
+		materials_all = true
+	}
 	whole := [1]geom.Vertex_Range{{0, mb.vertex_capacity}}
 	if all do ranges = whole[:]
 	r.last_version += 1
 	mb.version = r.last_version
+	if mb.paint_material != 0 {
+		for x in (whole[:] if materials_all else ranges) {
+			if x.count == 0 do continue
+			bytes := gpu.stage_buffer(cmd, mb.paint_material, x.first * size_of(u32), x.count * size_of(u32))
+			if bytes == nil {
+				log.errorf("paint material upload failed: %s", gpu.last_error())
+				gpu.release_buffer(mb.paint_material)
+				mb.paint_material = 0
+				break
+			}
+			dst := slice.reinterpret([][4]u8, bytes)
+			for k in 0 ..< x.count {
+				v := x.first + k
+				dst[k] = materials[v] if int(v) < len(materials) else {}
+			}
+		}
+	}
 	for x in ranges {
 		if x.count == 0 do continue
 		bytes := gpu.stage_buffer(cmd, mb.paint, x.first * size_of(Paint_Packed), x.count * size_of(Paint_Packed))
@@ -2188,7 +2225,7 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 		mb := item.mesh
 		show_paint, show_groups := item.paint && mb.paint != 0, item.groups && mb.paint != 0
 		slotted := item.slots != nil && mb.paint != 0 && !textured
-		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), f32(int(slotted)), 0}}
+		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), f32(int(slotted)), f32(int(show_paint && mb.paint_material != 0))}}
 		frame.slot_group = SLOT_NONE
 		if slotted {
 			frame.slot_group = item.slots.groups
@@ -2212,7 +2249,7 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 			if item.wireframe && pipes.wire != 0 {
 				// The wire pass draws the sculpt buffers, which hold the same surface.
 				push_vertex(cmd, Mesh_Vert_Uniforms.Frame_Uniforms, &frame)
-				paint := [Mesh_Vert_Buffers]gpu.Buffer{.paint = r.no_paint}
+				paint := [Mesh_Vert_Buffers]gpu.Buffer{.paint = r.no_paint, .paint_material_words = r.no_paint}
 				bind_vertex_storage(pass, &paint)
 				samplers := [Mesh_Frag_Samplers]gpu.Texture_Sampler_Binding{.matcap = {texture = r.no_matcap, sampler = r.matcap_sampler}, .environment_map = environment_binding(r)}
 				bind_fragment_samplers(pass, &samplers)
@@ -2227,7 +2264,7 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 		if skinned do frame.skin = {mb.skin_meta[0], mb.skin_meta[1], mb.skin_meta[2], 0}
 		push_vertex(cmd, Mesh_Vert_Uniforms.Frame_Uniforms, &frame)
 		push_fragment(cmd, Mesh_Frag_Uniforms.Material_Uniforms, &material)
-		paint := [Mesh_Vert_Buffers]gpu.Buffer{.paint = mb.paint if mb.paint != 0 else r.no_paint}
+		paint := [Mesh_Vert_Buffers]gpu.Buffer{.paint = mb.paint if mb.paint != 0 else r.no_paint, .paint_material_words = mb.paint_material if show_paint && mb.paint_material != 0 else r.no_paint}
 		bind_vertex_storage(pass, &paint)
 		samplers := [Mesh_Frag_Samplers]gpu.Texture_Sampler_Binding{.matcap = {texture = item.matcap if item.matcap != 0 else r.no_matcap, sampler = r.matcap_sampler}, .environment_map = environment_binding(r)}
 		bind_fragment_samplers(pass, &samplers)

@@ -26,14 +26,30 @@ import "../jobs"
 // How many paint layers one sculptor keeps.
 MAX_PAINT_LAYERS :: 32
 
+// What a layer's strokes write, its channel dots: colour, roughness and metal, as Wafer's
+// layers pick theirs. Each channel has a coverage of its own, so a stroke with a dot off
+// leaves that channel as it was.
+Paint_Channel :: enum u8 {Color, Roughness, Metal}
+Paint_Channels :: bit_set[Paint_Channel; u8]
+PAINT_CHANNELS_ALL :: Paint_Channels{.Color, .Roughness, .Metal}
+
+// A vertex's roughness and metal paint: roughness, its coverage, metal, its coverage, one
+// byte each (the GPU's render.Mesh_Buffers.paint_material). The same four bytes as a
+// Color, so the carries and undo saves move both alike.
+Material_Paint :: Color
+
 Paint_Layer :: struct {
 	id:      u32, // from 1, kept through moves, so an undo step finds its layer (Undo_Step.paint_layer)
 	name:    [32]u8, // zero-terminated
-	visible: bool,
-	opacity: f32, // 0 to 1
+	visible:  bool,
+	opacity:  f32, // 0 to 1
+	channels: Paint_Channels, // what its strokes write
 	// Per vertex, the layer's colour and coverage; nil until painted, and nil while the
 	// layer is picked (its colours are then Sculptor.color).
-	color:   []Color,
+	color:    []Color,
+	// Per vertex, its roughness and metal (Material_Paint); nil until either is first
+	// painted, and nil while picked (Sculptor.material then).
+	material: []Material_Paint,
 }
 
 Paint_Layers :: struct {
@@ -41,8 +57,10 @@ Paint_Layers :: struct {
 	picked:  u32, // the id of the layer whose colours are Sculptor.color; 0 for none
 	next_id: u32, // the id the next new layer takes, less one
 	named:   int, // layers named so far, for the next "Paint N"
-	// The composite per vertex while the stack is not plain; nil while it is.
-	shown:   []Color,
+	// The composite per vertex while the stack is not plain; nil while it is. Its roughness
+	// and metal likewise, nil also while no shown layer has any.
+	shown:          []Color,
+	shown_material: []Material_Paint,
 	// Per node: its paint changed since the composite was brought up to date (listed in
 	// `dirty` once); nil while the stack is plain.
 	marked:  []bool,
@@ -67,11 +85,13 @@ Paint_Op :: struct {
 	name:      [32]u8,
 	visible:   bool,
 	opacity:   f32,
+	channels:  Paint_Channels,
 	move:      bool,
 	a, b:      int,
 	recolor:   bool,
 	colors_of: int,
 	colors:    []Color,
+	materials: []Material_Paint,
 	picked:    u32,
 }
 
@@ -94,6 +114,18 @@ sculptor_paint_layer_colors :: proc(s: ^Sculptor, index: int) -> []Color {
 	return s.color if l.id == s.paint.picked else l.color
 }
 
+// Layer `index`'s roughness and metal wherever they are, as sculptor_paint_layer_colors.
+sculptor_paint_layer_materials :: proc(s: ^Sculptor, index: int) -> []Material_Paint {
+	l := s.paint.list[index]
+	return s.material if l.id == s.paint.picked else l.material
+}
+
+// What the picked layer's strokes write: its channel dots, colour alone with no layer.
+sculptor_paint_channels :: proc(s: ^Sculptor) -> Paint_Channels {
+	i := paint_index(s, s.paint.picked)
+	return s.paint.list[i].channels if i >= 0 else {.Color}
+}
+
 // Whether the stack shows as the picked layer alone: no layers, or one shown at full
 // opacity. Its composite is then Sculptor.color itself.
 paint_plain :: proc(s: ^Sculptor) -> bool {
@@ -110,6 +142,14 @@ sculptor_paint_shown :: proc(s: ^Sculptor) -> []Color {
 	if paint_plain(s) do return s.color
 	if s.paint.whole || len(s.paint.dirty) > 0 || s.paint.shown == nil do paint_flush(s)
 	return s.paint.shown
+}
+
+// The roughness and metal as they show, per vertex, as sculptor_paint_shown: nil when no
+// shown layer has any. The same rule for flushing first.
+sculptor_paint_shown_material :: proc(s: ^Sculptor) -> []Material_Paint {
+	if paint_plain(s) do return s.material
+	if s.paint.whole || len(s.paint.dirty) > 0 || s.paint.shown == nil do paint_flush(s)
+	return s.paint.shown_material
 }
 
 // Whether any paint shows (sculptor_has_color says only that the picked layer has colours).
@@ -132,13 +172,21 @@ paint_colors_by_id :: proc(s: ^Sculptor, id: u32) -> []Color {
 	return s.paint.list[i].color if i >= 0 else nil
 }
 
+// The roughness and metal of the layer with id `id` wherever they are, as paint_colors_by_id.
+@(private)
+paint_materials_by_id :: proc(s: ^Sculptor, id: u32) -> []Material_Paint {
+	if id == 0 || id == s.paint.picked do return s.material
+	i := paint_index(s, id)
+	return s.paint.list[i].material if i >= 0 else nil
+}
+
 // Puts the picked layer's colours back in it, picking none. Returns the id it was.
 @(private)
 paint_unpick :: proc(s: ^Sculptor) -> u32 {
 	id := s.paint.picked
 	if i := paint_index(s, id); i >= 0 {
-		s.paint.list[i].color = s.color
-		s.color = nil
+		s.paint.list[i].color, s.paint.list[i].material = s.color, s.material
+		s.color, s.material = nil, nil
 	}
 	s.paint.picked = 0
 	return id
@@ -148,10 +196,11 @@ paint_unpick :: proc(s: ^Sculptor) -> u32 {
 // sculptor's. The caller unpicked first.
 @(private)
 paint_pick_id :: proc(s: ^Sculptor, id: u32) {
-	assert(s.paint.picked == 0 && s.color == nil, "unpick first")
+	assert(s.paint.picked == 0 && s.color == nil && s.material == nil, "unpick first")
 	i := paint_index(s, id)
 	if i < 0 do return
 	s.color, s.paint.list[i].color = s.paint.list[i].color, nil
+	s.material, s.paint.list[i].material = s.paint.list[i].material, nil
 	s.paint.picked = id
 }
 
@@ -160,7 +209,7 @@ paint_pick_id :: proc(s: ^Sculptor, id: u32) {
 paint_layer_make :: proc(s: ^Sculptor) -> Paint_Layer {
 	s.paint.next_id += 1
 	s.paint.named += 1
-	l := Paint_Layer{id = s.paint.next_id, visible = true, opacity = 1}
+	l := Paint_Layer{id = s.paint.next_id, visible = true, opacity = 1, channels = {.Color}}
 	copy(l.name[:len(l.name) - 1], "Paint ")
 	digits: [8]u8
 	k, n := len(digits), s.paint.named
@@ -239,11 +288,24 @@ sculptor_paint_set :: proc(s: ^Sculptor, index: int, visible: bool, wanted: f32)
 	if l.visible == visible && l.opacity == opacity do return true
 	if !h.recording {
 		sculptor_stroke_begin(s)
-		h.current.paint_op = {active = true, set = true, set_index = index, name = l.name, visible = l.visible, opacity = l.opacity, picked = s.paint.picked}
+		h.current.paint_op = {active = true, set = true, set_index = index, name = l.name, visible = l.visible, opacity = l.opacity, channels = l.channels, picked = s.paint.picked}
 	}
 	l.visible, l.opacity = visible, opacity
 	paint_touch_layer(s, index)
 	return true
+}
+
+// Sets what layer `index`'s strokes write (its channel dots), as an undo step. Nothing that
+// shows changes. Returns false when dynamic topology is on or nothing changed.
+sculptor_paint_set_channels :: proc(s: ^Sculptor, index: int, channels: Paint_Channels) -> bool {
+	_ = sculptor_stroke_end(s)
+	if s.dyn != nil || index < 0 || index >= len(s.paint.list) do return false
+	l := &s.paint.list[index]
+	if l.channels == channels do return false
+	sculptor_stroke_begin(s)
+	s.history.current.paint_op = {active = true, set = true, set_index = index, name = l.name, visible = l.visible, opacity = l.opacity, channels = l.channels, picked = s.paint.picked}
+	l.channels = channels
+	return sculptor_stroke_end(s)
 }
 
 // Swaps layers `index` and `index + 1` (moves one up), as an undo step.
@@ -269,27 +331,41 @@ sculptor_paint_merge_down :: proc(s: ^Sculptor, index: int) -> bool {
 	merged := make([]Color, n, s.history.allocator)
 	pair := [2]int{index - 1, index}
 	Job :: struct {
-		s:      ^Sculptor,
-		layers: [2][]Color,
-		weight: [2]f32,
-		count:  int,
-		out:    []Color,
+		s:         ^Sculptor,
+		layers:    [2][]Color,
+		weight:    [2]f32,
+		count:     int,
+		out:       []Color,
+		materials: [2][]Material_Paint,
+		with:      int,
+		weigh:     [2]f32,
+		out_m:     []Material_Paint,
 	}
 	job := Job{s = s, out = merged}
 	for k in 0 ..< 2 {
 		l := s.paint.list[pair[k]]
 		w := l.opacity if l.visible else 0
-		colors := sculptor_paint_layer_colors(s, pair[k])
-		if w <= 0 || colors == nil do continue
-		job.layers[job.count], job.weight[job.count] = colors, w
-		job.count += 1
+		if w <= 0 do continue
+		if colors := sculptor_paint_layer_colors(s, pair[k]); colors != nil {
+			job.layers[job.count], job.weight[job.count] = colors, w
+			job.count += 1
+		}
+		if m := sculptor_paint_layer_materials(s, pair[k]); m != nil {
+			job.materials[job.with], job.weigh[job.with] = m, w
+			job.with += 1
+		}
 	}
+	if job.with > 0 do job.out_m = make([]Material_Paint, n, s.history.allocator)
 	jobs.parallel_ranges(s.pool, n, &job, proc(data: rawptr, lo, hi: int) {
 		job := cast(^Job)data
-		for v in lo ..< hi do job.out[v] = paint_composite(job.layers[:job.count], job.weight[:job.count], u32(v), job.s.mesh.positions[v])
+		for v in lo ..< hi {
+			p := job.s.mesh.positions[v]
+			job.out[v] = paint_composite(job.layers[:job.count], job.weight[:job.count], u32(v), p)
+			if job.out_m != nil do job.out_m[v] = paint_composite_material(job.materials[:job.with], job.weigh[:job.with], u32(v), p)
+		}
 	}, 1 << 14)
 	sculptor_stroke_begin(s)
-	s.history.current.paint_op = {active = true, toggle = true, index = index, recolor = true, colors_of = index - 1, colors = merged, picked = picked}
+	s.history.current.paint_op = {active = true, toggle = true, index = index, recolor = true, colors_of = index - 1, colors = merged, materials = job.out_m, picked = picked}
 	op := &s.history.current.paint_op
 	paint_op_swap(s, op)
 	// The lower layer shows at full opacity now: its old opacity and eye are the step's to
@@ -315,10 +391,12 @@ paint_op_swap :: proc(s: ^Sculptor, op: ^Paint_Op) {
 		l.name, op.name = op.name, l.name
 		l.visible, op.visible = op.visible, l.visible
 		l.opacity, op.opacity = op.opacity, l.opacity
+		l.channels, op.channels = op.channels, l.channels
 	}
 	if op.recolor {
 		l := &list[op.colors_of]
 		l.color, op.colors = op.colors, l.color
+		l.material, op.materials = op.materials, l.material
 	}
 	if op.move do list[op.a], list[op.b] = list[op.b], list[op.a]
 	if op.toggle {
@@ -359,25 +437,37 @@ paint_touch :: #force_inline proc(s: ^Sculptor, id: u32) {
 paint_touch_layer :: proc(s: ^Sculptor, index: int) {
 	s.color_edited = true
 	colors := sculptor_paint_layer_colors(s, index)
-	if colors == nil do return
+	materials := sculptor_paint_layer_materials(s, index)
+	if colors == nil && materials == nil do return
 	if !paint_plain(s) && s.paint.shown == nil {
 		s.paint.whole = true
 		return
 	}
 	Job :: struct {
-		s:      ^Sculptor,
-		colors: []Color,
-		covers: []bool,
+		s:         ^Sculptor,
+		colors:    []Color,
+		materials: []Material_Paint,
+		covers:    []bool,
 	}
-	job := Job{s, colors, make([]bool, len(s.nodes), context.temp_allocator)}
+	job := Job{s, colors, materials, make([]bool, len(s.nodes), context.temp_allocator)}
 	jobs.parallel_ranges(s.pool, len(s.nodes), &job, proc(data: rawptr, lo, hi: int) {
 		job := cast(^Job)data
 		for id in lo ..< hi {
 			n := job.s.nodes[id]
-			for c in job.colors[n.vert_first:][:n.vert_count] {
-				if c.a != 0 {
-					job.covers[id] = true
-					break
+			if job.colors != nil {
+				for c in job.colors[n.vert_first:][:n.vert_count] {
+					if c.a != 0 {
+						job.covers[id] = true
+						break
+					}
+				}
+			}
+			if job.materials != nil && !job.covers[id] {
+				for m in job.materials[n.vert_first:][:n.vert_count] {
+					if m[1] != 0 || m[3] != 0 {
+						job.covers[id] = true
+						break
+					}
 				}
 			}
 		}
@@ -405,6 +495,29 @@ paint_composite :: #force_inline proc(layers: []([]Color), weight: []f32, v: u32
 	}
 	if a <= 0 do return {}
 	return paint_quantize(rgb / a, min(a, 1), p)
+}
+
+// One vertex's roughness and metal composited as paint_composite does colour, each channel
+// over its own coverage, front to back until both are fully covered.
+@(private)
+paint_composite_material :: #force_inline proc(layers: []([]Material_Paint), weight: []f32, v: u32, p: Vec3) -> Material_Paint {
+	value, cover: [2]f32
+	for k := len(layers) - 1; k >= 0; k -= 1 {
+		m := layers[k][v]
+		for c in 0 ..< 2 {
+			x := f32(m[2 * c + 1]) * (1.0 / 255) * weight[k] * (1 - cover[c])
+			value[c] += f32(m[2 * c]) * x
+			cover[c] += x
+		}
+		if cover[0] >= 1 && cover[1] >= 1 do break
+	}
+	out: Material_Paint
+	for c in 0 ..< 2 {
+		if cover[c] <= 0 do continue
+		q := paint_quantize({value[c] / cover[c], 0, 0}, min(cover[c], 1), p)
+		out[2 * c], out[2 * c + 1] = q.r, q.a
+	}
+	return out
 }
 
 // A composited colour as bytes, with an ordered dither so soft gradients of several 8-bit
@@ -435,8 +548,9 @@ paint_flush :: proc(s: ^Sculptor) {
 	if paint_plain(s) {
 		if p.shown != nil {
 			delete(p.shown, s.history.allocator)
+			delete(p.shown_material, s.history.allocator)
 			delete(p.marked, s.history.allocator)
-			p.shown, p.marked = nil, nil
+			p.shown, p.shown_material, p.marked = nil, nil, nil
 			s.paint_stamp += 1
 		}
 		clear(&p.dirty)
@@ -453,21 +567,43 @@ paint_flush :: proc(s: ^Sculptor) {
 		for id in 0 ..< len(s.nodes) do append(&p.dirty, u32(id))
 		s.paint_stamp += 1
 	}
-	if len(p.dirty) == 0 do return
 	Job :: struct {
-		s:      ^Sculptor,
-		layers: [MAX_PAINT_LAYERS][]Color,
-		weight: [MAX_PAINT_LAYERS]f32,
-		count:  int,
+		s:         ^Sculptor,
+		layers:    [MAX_PAINT_LAYERS][]Color,
+		weight:    [MAX_PAINT_LAYERS]f32,
+		count:     int,
+		materials: [MAX_PAINT_LAYERS][]Material_Paint,
+		weigh:     [MAX_PAINT_LAYERS]f32,
+		with:      int,
 	}
 	job := Job{s = s}
 	for l, i in p.list {
 		w := l.opacity if l.visible else 0
-		colors := sculptor_paint_layer_colors(s, i)
-		if w <= 0 || colors == nil do continue
-		job.layers[job.count], job.weight[job.count] = colors, w
-		job.count += 1
+		if w <= 0 do continue
+		if colors := sculptor_paint_layer_colors(s, i); colors != nil {
+			job.layers[job.count], job.weight[job.count] = colors, w
+			job.count += 1
+		}
+		if m := sculptor_paint_layer_materials(s, i); m != nil {
+			job.materials[job.with], job.weigh[job.with] = m, w
+			job.with += 1
+		}
 	}
+	// Roughness and metal are composited once a shown layer has any, and dropped once none
+	// has: either way everything goes up again.
+	if (job.with > 0) != (p.shown_material != nil) {
+		if job.with > 0 do p.shown_material = make([]Material_Paint, len(s.mesh.positions), s.history.allocator)
+		else {
+			delete(p.shown_material, s.history.allocator)
+			p.shown_material = nil
+		}
+		if !p.whole {
+			clear(&p.dirty)
+			for id in 0 ..< len(s.nodes) do append(&p.dirty, u32(id))
+			s.paint_stamp += 1
+		}
+	}
+	if len(p.dirty) == 0 do return
 	verts: u32
 	for id in p.dirty do verts += s.nodes[id].vert_count
 	jobs.parallel_for(s.pool if verts >= PARALLEL_MIN_VERTS else nil, len(p.dirty), &job, proc(data: rawptr, i: int) {
@@ -475,6 +611,8 @@ paint_flush :: proc(s: ^Sculptor) {
 		s := job.s
 		n := s.nodes[s.paint.dirty[i]]
 		for v in n.vert_first ..< n.vert_first + n.vert_count do s.paint.shown[v] = paint_composite(job.layers[:job.count], job.weight[:job.count], v, s.mesh.positions[v])
+		if job.with == 0 do return
+		for v in n.vert_first ..< n.vert_first + n.vert_count do s.paint.shown_material[v] = paint_composite_material(job.materials[:job.with], job.weigh[:job.with], v, s.mesh.positions[v])
 	})
 	for id in p.dirty do p.marked[id] = false
 	clear(&p.dirty)
@@ -486,9 +624,13 @@ paint_flush :: proc(s: ^Sculptor) {
 @(private)
 paint_layers_destroy :: proc(s: ^Sculptor) {
 	a := s.history.allocator
-	for l in s.paint.list do delete(l.color, a)
+	for l in s.paint.list {
+		delete(l.color, a)
+		delete(l.material, a)
+	}
 	delete(s.paint.list)
 	delete(s.paint.shown, a)
+	delete(s.paint.shown_material, a)
 	delete(s.paint.marked, a)
 	delete(s.paint.dirty)
 	s.paint = {}
@@ -497,16 +639,20 @@ paint_layers_destroy :: proc(s: ^Sculptor) {
 // Frees what a stack step holds (a layer taken out, a merged layer's old colours).
 @(private)
 paint_op_free :: proc(h: ^Undo_History, op: ^Paint_Op) {
-	if op.held do delete(op.layer.color, h.allocator)
+	if op.held {
+		delete(op.layer.color, h.allocator)
+		delete(op.layer.material, h.allocator)
+	}
 	delete(op.colors, h.allocator)
+	delete(op.materials, h.allocator)
 	op^ = {}
 }
 
 // Bytes a stack step holds.
 @(private)
 paint_op_bytes :: proc(op: Paint_Op) -> int {
-	n := len(op.colors) * size_of(Color)
-	if op.held do n += len(op.layer.color) * size_of(Color)
+	n := (len(op.colors) + len(op.materials)) * size_of(Color)
+	if op.held do n += (len(op.layer.color) + len(op.layer.material)) * size_of(Color)
 	return n
 }
 
@@ -523,15 +669,18 @@ paint_mirror :: proc(src, dst: ^Sculptor, allocator := context.temp_allocator) -
 	list := make([dynamic]Paint_Layer, 0, len(src.paint.list))
 	for l, i in src.paint.list {
 		mine := l
-		mine.color = nil
+		mine.color, mine.material = nil, nil
 		if j := paint_index(dst, l.id); j >= 0 {
-			mine.color = dst.paint.list[j].color
-			dst.paint.list[j].color = nil
+			mine.color, mine.material = dst.paint.list[j].color, dst.paint.list[j].material
+			dst.paint.list[j].color, dst.paint.list[j].material = nil, nil
 		}
-		missing[i] = mine.color == nil && l.color != nil
+		missing[i] = (mine.color == nil && l.color != nil) || (mine.material == nil && l.material != nil)
 		append(&list, mine)
 	}
-	for l in dst.paint.list do delete(l.color, a)
+	for l in dst.paint.list {
+		delete(l.color, a)
+		delete(l.material, a)
+	}
 	delete(dst.paint.list)
 	dst.paint.list = list
 	dst.paint.next_id, dst.paint.named = src.paint.next_id, src.paint.named
@@ -548,7 +697,7 @@ paint_same_stack :: proc(a, b: ^Sculptor) -> bool {
 	if len(a.paint.list) != len(b.paint.list) || a.paint.picked != b.paint.picked do return false
 	for l, i in a.paint.list {
 		m := b.paint.list[i]
-		if l.id != m.id || l.name != m.name || l.visible != m.visible || l.opacity != m.opacity do return false
+		if l.id != m.id || l.name != m.name || l.visible != m.visible || l.opacity != m.opacity || l.channels != m.channels do return false
 	}
 	return true
 }
@@ -556,7 +705,7 @@ paint_same_stack :: proc(a, b: ^Sculptor) -> bool {
 // The bytes the stack's layers other than the picked one hold, and the composite: for the
 // memory count.
 sculptor_paint_bytes :: proc(s: ^Sculptor) -> int {
-	n := len(s.paint.shown) * size_of(Color)
-	for l in s.paint.list do n += len(l.color) * size_of(Color)
+	n := (len(s.paint.shown) + len(s.paint.shown_material)) * size_of(Color)
+	for l in s.paint.list do n += (len(l.color) + len(l.material)) * size_of(Color)
 	return n
 }

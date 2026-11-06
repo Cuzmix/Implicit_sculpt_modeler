@@ -26,7 +26,11 @@ Brush_Value :: enum u8 {
 	Spacing,
 	Lazy,
 	Pressure,
-	Exposure, // the view's exposure, in stops: last, as keys and gestures name values by name
+	Exposure, // the view's exposure, in stops
+	// The roughness and metal the Paint brush lays where the picked paint layer holds them
+	// (its channel strip), 0 to 1: after Exposure, so the values before keep their numbers.
+	Roughness,
+	Metal,
 }
 
 Value_Look :: enum u8 {
@@ -44,6 +48,8 @@ BRUSH_VALUE_NAMES := [Brush_Value]string {
 	.Lazy        = "Lazy",
 	.Pressure    = "Pressure",
 	.Exposure    = "Exposure",
+	.Roughness   = "Roughness",
+	.Metal       = "Metal",
 }
 
 // Lucide's nearest glyphs: a radius, a gauge, a lens's focus, dabs in a row, the line
@@ -57,6 +63,8 @@ BRUSH_VALUE_ICONS := [Brush_Value]rune {
 	.Lazy        = rune(0xe38f), // spline
 	.Pressure    = rune(0xe5f7), // signature
 	.Exposure    = rune(0xe044), // aperture
+	.Roughness   = ICON_SPARKLES, // how much it shines
+	.Metal       = ICON_MATERIAL, // a lit sphere
 }
 
 @(rodata)
@@ -76,6 +84,8 @@ BRUSH_VALUE_SECTIONS := [Brush_Value]Section {
 	.Lazy        = .Stroke,
 	.Pressure    = .Pen,
 	.Exposure    = .Material,
+	.Roughness   = .Paint_Color,
+	.Metal       = .Paint_Color,
 }
 
 // The values the popover's steps set, a tap each: the sizes doubling, the strength in
@@ -89,6 +99,8 @@ value_steps :: proc(v: Brush_Value) -> []f32 {
 	@(static, rodata) spacing := [?]f32{0.05, 0.1, 0.2, 0.5}
 	@(static, rodata) lazy := [?]f32{0, 10, 30, 60}
 	@(static, rodata) exposure := [?]f32{-1, 0, 1}
+	@(static, rodata) roughness := [?]f32{0, 0.25, 0.5, 0.75, 1}
+	@(static, rodata) metal := [?]f32{0, 0.5, 1}
 	switch v {
 	case .Size:        return size[:]
 	case .Strength:    return strength[:]
@@ -97,6 +109,8 @@ value_steps :: proc(v: Brush_Value) -> []f32 {
 	case .Lazy:        return lazy[:]
 	case .Pressure:    return nil
 	case .Exposure:    return exposure[:]
+	case .Roughness:   return roughness[:]
+	case .Metal:       return metal[:]
 	}
 	return nil
 }
@@ -129,6 +143,7 @@ value_range :: proc(v: Brush_Value) -> (lo, hi: f32, scale: ui.Scale) {
 	case .Lazy:        return 0, LAZY_MAX_PX, .Linear
 	case .Pressure:    return 0, 1, .Linear
 	case .Exposure:    return -EXPOSURE_RANGE, EXPOSURE_RANGE, .Linear
+	case .Roughness, .Metal: return 0, 1, .Linear
 	}
 	return 0, 1, .Linear
 }
@@ -144,6 +159,8 @@ value_get :: proc(app: ^App, v: Brush_Value) -> f32 {
 	case .Lazy:        return b.lazy_px
 	case .Pressure:    return 1 if b.pressure_size || b.pressure_strength else 0
 	case .Exposure:    return app.exposure
+	case .Roughness:   return b.roughness
+	case .Metal:       return b.metal
 	}
 	return 0
 }
@@ -163,6 +180,8 @@ value_set :: proc(app: ^App, v: Brush_Value, to: f32) {
 	case .Lazy:        b.lazy_px = x
 	case .Pressure:
 	case .Exposure:    app.exposure = math.round(x * 10) / 10
+	case .Roughness:   b.roughness = math.round(x * 100) / 100
+	case .Metal:       b.metal = math.round(x * 100) / 100
 	}
 }
 
@@ -183,6 +202,7 @@ value_text :: proc(app: ^App, v: Brush_Value) -> string {
 	case .Lazy:        return "off" if x < 0.5 else fmt.tprintf("%.0f px", x)
 	case .Pressure:    return "on" if x > 0 else "off"
 	case .Exposure:    return fmt.tprintf("%+.1f stops", x)
+	case .Roughness, .Metal: return fmt.tprintf("%.2f", x)
 	}
 	return ""
 }
@@ -193,6 +213,7 @@ value_short :: proc(app: ^App, v: Brush_Value) -> string {
 	#partial switch v {
 	case .Size:     return fmt.tprintf("%.0f", x)
 	case .Strength: return strings.trim_prefix(fmt.tprintf("%.2f", x), "0")
+	case .Roughness, .Metal: return strings.trim_prefix(fmt.tprintf("%.2f", x), "0") if x > 0 && x < 1 else fmt.tprintf("%.0f", x)
 	case .Lazy:     return "off" if x < 0.5 else fmt.tprintf("%.0f", x)
 	case .Exposure: return fmt.tprintf("%+.1f", x)
 	}
@@ -209,7 +230,7 @@ value_fraction :: proc(app: ^App, v: Brush_Value) -> f32 {
 @(private = "file")
 value_step_text :: proc(v: Brush_Value, x: f32) -> string {
 	#partial switch v {
-	case .Strength: return strings.trim_prefix(fmt.tprintf("%.2f", x), "0")
+	case .Strength, .Roughness, .Metal: return strings.trim_prefix(fmt.tprintf("%.2f", x), "0") if x > 0 && x < 1 else fmt.tprintf("%.0f", x)
 	case .Spacing:  return fmt.tprintf("%.0f%%", x * 100)
 	case .Lazy:     return "off" if x < 0.5 else fmt.tprintf("%.0f", x)
 	case .Exposure: return fmt.tprintf("%+.0f", x) if x != 0 else "0"
@@ -292,12 +313,34 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 		return
 	}
 	size := cell if cell.x > 0 else VALUE_CHIP
-	a := ui.area(ctx, name, size, drag = false)
+	a := value_chip(app, name, v, size, column, enabled && !bar_editing(k, which), enabled, lit, hint)
+	axis := 0 if column else 1
+	if a.id != 0 do bar_slot_lift(app, which, slot, value_slot(v), look)
+	if bar_editing(k, which) {
+		bar_edit_ring(app, a.rect)
+		if a.clicked do bar_slot_open(app, which, slot, a.rect)
+		return
+	}
+	// A scrub that won the drag is not also a tap.
+	moved := ctx.input.mouse - ctx.press_mouse
+	if a.clicked && enabled && abs(moved[axis]) <= t.slop do value_pop_toggle(app, v, a.rect, side)
+	if a.id != 0 && ui.secondary(ctx) do value_menu_open(app, which, slot, v, a.rect, side)
+}
+
+// A value as a chip, `size` points: its icon over its number and a hairline of how far
+// it is set; a drag across `column` (a column bar's width, else its height) scrubs it when
+// `scrubs`, and the pen's roll turns it. What a tap or a long press opens is the caller's:
+// value_item's popover and menu on a bar, the popover on the colour island.
+value_chip :: proc(app: ^App, name: string, v: Brush_Value, size: [2]f32, column, scrubs, enabled, lit: bool, hint: string) -> (a: ui.Area) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	a = ui.area(ctx, name, size, drag = false)
 	pill := ui.Rect{a.rect.x + 2, a.rect.y + 2, a.rect.w - 4, a.rect.h - 4}
 	axis := 0 if column else 1
 	scrubbing := false
 	// Held still, a drag lifts the chip to carry it (bar_drag.odin) rather than scrubbing.
-	if enabled && !bar_editing(k, which) && v != .Pressure && !ui.held_still(ctx, a.id) {
+	if scrubs && v != .Pressure && !ui.held_still(ctx, a.id) {
 		if a.pressed do ctx.press_value = value_fraction(app, v)
 		if a.held && ui.claim_drag(ctx, axis) {
 			d := ctx.input.mouse - ctx.won_mouse
@@ -317,7 +360,7 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 		}
 	}
 	if !a.held && k.value_scrubbing == a.id do k.value_scrubbing = 0
-	if enabled && !bar_editing(k, which) do value_roll(app, v, ui.hover_roll(ctx, a.id, a.hovered))
+	if scrubs do value_roll(app, v, ui.hover_roll(ctx, a.id, a.hovered))
 	if a.held && enabled do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_pressed)
 	else if lit do ui.fill_rect(ctx, pill, t.radius_medium, t.accent_soft)
 	else if a.hovered && enabled do ui.fill_rect(ctx, pill, t.radius_medium, t.fill_hover)
@@ -331,16 +374,7 @@ value_item :: proc(app: ^App, which: Bar_Which, slot: int, v: Brush_Value, cell:
 	ui.fill_rect(ctx, line, 1, t.track)
 	if enabled do ui.fill_rect(ctx, {line.x, line.y, line.w * value_fraction(app, v), line.h}, 1, t.accent)
 	ui.tip(ctx, a.id, pill, BRUSH_VALUE_NAMES[v], hint)
-	if a.id != 0 do bar_slot_lift(app, which, slot, value_slot(v), look)
-	if bar_editing(k, which) {
-		bar_edit_ring(app, a.rect)
-		if a.clicked do bar_slot_open(app, which, slot, a.rect)
-		return
-	}
-	// A scrub that won the drag is not also a tap.
-	moved := ctx.input.mouse - ctx.press_mouse
-	if a.clicked && enabled && abs(moved[axis]) <= t.slop do value_pop_toggle(app, v, a.rect, side)
-	if a.id != 0 && ui.secondary(ctx) do value_menu_open(app, which, slot, v, a.rect, side)
+	return
 }
 
 // The pen's roll on a value item (`degrees`, ui.hover_roll's this frame) sets the value

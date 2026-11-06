@@ -322,8 +322,8 @@ textured_export_carries_the_maps :: proc(t: ^testing.T) {
 	_ = sculpt.sculptor_layer_add(object_sculptor(obj))
 	testing.expect(t, !object_exports_textures(obj), "no maps yet")
 	s := object_sculptor(obj)
-	s.color = make([]sculpt.Color, len(s.mesh.positions))
-	for &c in s.color do c = {200, 30, 20, 255}
+	// Painted through the sculptor, so the paint is a layer of its stack as a stroke makes it.
+	testing.expect(t, sculpt.sculptor_paint_command(s, .Fill, {200, 30, 20}))
 	maps: Object_Textures
 	maps.image[.Base_Color] = qoi_of({200, 30, 20, 255})
 	maps.image[.Normal] = png_of({128, 128, 255, 255})
@@ -345,7 +345,8 @@ textured_export_carries_the_maps :: proc(t: ^testing.T) {
 	json = glb_json(t, path)
 	testing.expect(t, strings.contains(json, `"COLOR_0"`) && strings.contains(json, `"normalTexture"`))
 	testing.expect(t, sculpt.levels_subdivide(&obj.levels))
-	testing.expect(t, !object_exports_textures(obj), "the maps follow the base level's UVs only")
+	// Every level carries the base level's UVs (sculpt.levels_uvs_at), so the maps go too.
+	testing.expect(t, object_exports_textures(obj), "a level above the base lost the maps")
 	free_all(context.temp_allocator)
 }
 

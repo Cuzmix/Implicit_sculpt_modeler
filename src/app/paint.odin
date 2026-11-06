@@ -55,7 +55,8 @@ paint_command :: proc(app: ^App, command: sculpt.Paint_Command) {
 		_, up, _ := camera.orbit_basis(app.camera)
 		gradient = {to = color_bytes(app.brush.color2), axis = -to_local_dir(obj.transform, up)}
 	}
-	changed := sculpt.sculptor_paint_command(object_sculptor(obj), command, brush_color_bytes(app), gradient)
+	material := [2]u8{u8(clamp(app.brush.roughness, 0, 1) * 255 + 0.5), u8(clamp(app.brush.metal, 0, 1) * 255 + 0.5)}
+	changed := sculpt.sculptor_paint_command(object_sculptor(obj), command, brush_color_bytes(app), gradient, material)
 	log.infof("%s: %.0f ms%s", PAINT_COMMAND_NAMES[command], time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
 	if changed do history_record(app, obj, .Paint, PAINT_COMMAND_NAMES[command])
 }
@@ -189,7 +190,8 @@ paint_allowed :: proc(obj: ^Object) -> bool {
 	return true
 }
 
-// Brings the level's paint buffer up to date: everything when its colours or groups
+// Brings the level's paint buffer up to date (colours, groups, and roughness and metal in
+// the group word's high bits): everything when its colours or groups
 // changed as a whole (or the buffer is new), else the vertex `ranges` the flush reported.
 // Returns the bytes sent.
 paint_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: ^sculpt.Level, ranges: []sculpt.Vertex_Range) -> int {
@@ -199,7 +201,8 @@ paint_upload :: proc(app: ^App, cmd: render.Cmd, gpu: ^render.Mesh_Buffers, lv: 
 	stamp := sculpt.sculptor_paint_stamp(s)
 	all := gpu.paint == 0 || gpu.paint_stamp != stamp
 	if !all && len(ranges) == 0 do return 0
-	render.mesh_buffers_upload_paint(&app.renderer, cmd, gpu, colors, groups, ranges, all)
+	materials := sculpt.sculptor_paint_shown_material(s)
+	render.mesh_buffers_upload_paint(&app.renderer, cmd, gpu, colors, groups, ranges, all, materials)
 	gpu.paint_stamp = stamp
 	if all do return int(gpu.vertex_capacity) * size_of(render.Paint_Packed)
 	bytes := 0
