@@ -20,6 +20,9 @@ Cage_Edit :: enum u8 {
 	Join,
 	Relax,
 	Smooth,
+	Union,
+	Subtract,
+	Intersect,
 }
 
 @(rodata)
@@ -34,6 +37,9 @@ CAGE_EDIT_NAMES := [Cage_Edit]string {
 	.Join          = "Join the cage below",
 	.Relax         = "Even out cage points",
 	.Smooth        = "Smooth cage points",
+	.Union         = "Union with the cage below",
+	.Subtract      = "Subtract the cage below",
+	.Intersect     = "Intersect with the cage below",
 }
 
 // What each needs, for the note when the selection has none of it.
@@ -49,6 +55,9 @@ CAGE_EDIT_NEEDS := [Cage_Edit]string {
 	.Join          = "another cage below it in the scene",
 	.Relax         = "a selection",
 	.Smooth        = "a selection",
+	.Union         = "another closed cage below it in the scene",
+	.Subtract      = "another closed cage below it in the scene",
+	.Intersect     = "another closed cage below it in the scene",
 }
 
 // What each one's count in its report counts.
@@ -64,6 +73,9 @@ CAGE_EDIT_COUNTS := [Cage_Edit]string {
 	.Join          = "cages",
 	.Relax         = "points",
 	.Smooth        = "points",
+	.Union         = "cages",
+	.Subtract      = "cages",
+	.Intersect     = "cages",
 }
 
 // How far along each edge Bevel points cuts: a quarter, which leaves the corner's face
@@ -73,6 +85,11 @@ CAGE_POINT_BEVEL :: 0.25
 // Runs edit `kind` on `obj`'s cage. Returns false only on a GPU failure.
 object_cage_edit :: proc(app: ^App, obj: ^Object, kind: Cage_Edit) -> bool {
 	if kind == .Join do return cage_join_below(app, obj)
+	#partial switch kind {
+	case .Union:     return cage_boolean_below(app, obj, .Union)
+	case .Subtract:  return cage_boolean_below(app, obj, .Subtract)
+	case .Intersect: return cage_boolean_below(app, obj, .Intersect)
+	}
 	if kind == .Separate do return cage_separate(app, obj)
 	cage := &obj.cage.mesh
 	faces_before, points_before := len(cage.face_he), len(cage.positions)
@@ -91,7 +108,7 @@ object_cage_edit :: proc(app: ^App, obj: ^Object, kind: Cage_Edit) -> bool {
 	err: poly.Build_Error
 	count := 0
 	switch kind {
-	case .Join, .Separate:
+	case .Join, .Separate, .Union, .Subtract, .Intersect:
 	// Handled above, as they change two objects.
 	case .Subdivide, .Poke, .Split:
 		if len(faces) == 0 || (kind == .Split && len(faces) == len(cage.face_he)) do return refuse(app, obj, before, kind, .None)
@@ -271,4 +288,59 @@ cage_edit_counts :: proc(m: ^poly.Mesh) -> (faces, points: int) {
 	for s in m.selected do if s do faces += 1
 	for p in m.picked do if p do points += 1
 	return
+}
+
+// Union, Subtract or Intersect with the cage below this one in the scene, exactly, along
+// the faces' own planes (poly.cage_boolean), as Plasticity's and Shapr3D's solid booleans
+// and Blender's Boolean modifier applied: the result is this cage, the faces the other
+// adds in a polygroup of their own and the seam creased so Smooth keeps it sharp, and the
+// other cage goes, as Join's does. Two undo entries chained into one step. Returns false
+// only on a GPU failure.
+cage_boolean_below :: proc(app: ^App, obj: ^Object, op: poly.Boolean_Op) -> bool {
+	kinds := [poly.Boolean_Op]Cage_Edit{.Union = .Union, .Subtract = .Subtract, .Intersect = .Intersect}
+	kind := kinds[op]
+	below := app.scene.selected + 1
+	if below >= len(app.scene.objects) || app.scene.objects[below].cage == nil {
+		report(app, nil, {}, "%s needs %s, %s has none", CAGE_EDIT_NAMES[kind], CAGE_EDIT_NEEDS[kind], object_label(obj))
+		return true
+	}
+	other := app.scene.objects[below]
+	name := fmt.aprintf("%s", object_label(other))
+	defer delete(name)
+	before := history_snapshot(app, obj, fmt.tprintf("%s cages", BOOLEAN_OP_WORDS[op]))
+	to := linalg.inverse(transform_matrix(obj.transform)) * transform_matrix(other.transform)
+	result, err := poly.cage_boolean(&obj.cage.mesh, &other.cage.mesh, to, op)
+	if err != .None {
+		history_snapshot_drop(before)
+		#partial switch err {
+		case .Non_Manifold_Edge:
+			report(app, nil, {.Warning}, "%s refused: %s and %s must both be closed, with no open edges, to have an inside", CAGE_EDIT_NAMES[kind], object_label(obj), name)
+		case .Degenerate_Face:
+			report(app, nil, {.Warning}, "%s: nothing would be left of %s and %s", CAGE_EDIT_NAMES[kind], object_label(obj), name)
+		case:
+			report(app, nil, {.Warning}, "%s refused on %s and %s: the result would not be a valid cage (%v)", CAGE_EDIT_NAMES[kind], object_label(obj), name, err)
+		}
+		return true
+	}
+	faces := len(result.face_he)
+	poly.mesh_destroy(&obj.cage.mesh)
+	obj.cage.mesh = result
+	if !cage_rebuild(app, obj) {
+		history_snapshot_drop(before)
+		return false
+	}
+	history_record_swap(app, obj.id, before, kind = .Model)
+	app.scene.selected = below
+	scene_delete_selected(app, chain = true)
+	select_object(app, obj)
+	app.model.edits += 1
+	report(app, nil, {.Undo}, "%s: %s with %s, %d faces", CAGE_EDIT_NAMES[kind], object_label(obj), name, faces)
+	return true
+}
+
+@(rodata)
+BOOLEAN_OP_WORDS := [poly.Boolean_Op]string {
+	.Union     = "union",
+	.Subtract  = "subtract",
+	.Intersect = "intersect",
 }

@@ -688,7 +688,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Cage_Edit = {
 		label = "Edit cage selection",
-		help = "Edits the selected cage's selection as Blender's edit mode does: Subdivide and Poke the selected faces, Triangles to quads (the selected faces, or the whole cage), Split the selected faces off along their outline, Separate them into a cage of their own, Fill the hole a picked border edge lies on (every hole with nothing picked; a grid of quads where the border allows), Bevel points cuts the picked points' corners off, Join takes in the cage below in the scene, Relax evens the selection's points out keeping the shape and Smooth smooths them, both with the Falloff. Each is one undo step.",
+		help = "Edits the selected cage's selection as Blender's edit mode does: Subdivide and Poke the selected faces, Triangles to quads (the selected faces, or the whole cage), Split the selected faces off along their outline, Separate them into a cage of their own, Fill the hole a picked border edge lies on (every hole with nothing picked; a grid of quads where the border allows), Bevel points cuts the picked points' corners off, Join takes in the cage below in the scene, Relax evens the selection's points out keeping the shape and Smooth smooths them, both with the Falloff; Union, Subtract and Intersect combine it exactly with the closed cage below in the scene, which goes. Each is one undo step.",
 		icon = ui.ICON_HAMMER,
 		args = len(Cage_Edit),
 		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Cage_Edit, edit = Cage_Edit(arg)}},

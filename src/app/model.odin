@@ -1054,8 +1054,10 @@ kit_model_tab :: proc(app: ^App) {
 		pair(app, .Split, .Separate, "Split", "Separate")
 		pair(app, .Bevel_Points, .Join, "Bevel points", "Join below")
 		pair(app, .Relax, .Smooth, "Relax", "Smooth")
+		pair(app, .Union, .Subtract, "Union below", "Subtract below")
+		_ = command_button(app, .Cage_Edit, int(Cage_Edit.Intersect), "Intersect below", width = ui.fill_width(ctx))
 		faces, points := cage_edit_counts(&obj.cage.mesh)
-		ui.paragraph(ctx, fmt.tprintf("%d faces selected, %d points picked. Subdivide, Poke, Split and Separate take the selected faces; Tris to quads the selected faces or all; Fill the hole a picked border edge is on, or every hole; Bevel points the picked points; Relax and Smooth the whole selection, with the Falloff; Join takes in the cage listed below this one.", faces, points))
+		ui.paragraph(ctx, fmt.tprintf("%d faces selected, %d points picked. Subdivide, Poke, Split and Separate take the selected faces; Tris to quads the selected faces or all; Fill the hole a picked border edge is on, or every hole; Bevel points the picked points; Relax and Smooth the whole selection, with the Falloff; Join takes in the cage listed below this one, and Union, Subtract and Intersect cut it with that cage exactly, along the faces' planes, the seam creased.", faces, points))
 	}
 	ui.caption(ctx, "TIDY")
 	kit_command_pair(app, .Tidy_Cage, .Tidy_Cage, arg_a = int(Cage_Tidy.Dissolve_Flat), arg_b = int(Cage_Tidy.Merge_Close), label_a = "Dissolve flat", label_b = "Merge close")
