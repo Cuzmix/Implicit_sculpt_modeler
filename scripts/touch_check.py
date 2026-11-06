@@ -6333,7 +6333,7 @@ def settings_dial_put_back():
 
 @scenario
 def settings_dial_is_the_spaces():
-    """In Model, Settings > Dial changes Model's dial: Hide on its bottom sector is Model's alone, which the settings file keeps as a dial_space line."""
+    """In Model, Settings > Dial changes Model's dial: Hide on its bottom sector is Model's alone, which the settings file keeps as a dial line."""
     d = DIAL_SECTORS
     s = Script()
     dial_sectors_shown(s)
@@ -6344,8 +6344,8 @@ def settings_dial_is_the_spaces():
     s.press("escape")
     s.wait(8)
     return s, LENS_1440 + ["--script=space_switch model", f"--settings-file={settings_file()}"], camera_still({
-        "space": is_text("model"), "dial_sectors": is_text("Smooth,Brush_Pie,Hide,Model_Action:Select"), "dial_spaces": near(1), "dabs": near(0),
-        "@saved": saved_line("dial_space Model 2 modifier Hide")})
+        "space": is_text("model"), "dial_sectors": is_text("Smooth,Brush_Pie,Hide,Model_Action:Select"), "hands": is_text("model"), "dial_hands": near(1), "dabs": near(0),
+        "@saved": saved_line("dial Model 2 modifier Hide")})
 
 
 # Arrange's drops at 1440x900 (PR 3c-1): the left edge's middle, and the view right of the Library.

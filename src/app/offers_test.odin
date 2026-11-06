@@ -11,7 +11,7 @@ offers_make_the_selection_fit :: proc(t: ^testing.T) {
 	app: App
 	defer tree_free(&app)
 	objs := tree_scene(&app)
-	app.kit.spaces.current, app.tool, app.brush.kind = .Sculpt, .Brush, .Crease
+	app.kit.hands, app.tool, app.brush.kind = .Sculpt, .Brush, .Crease
 	fits, _ := space_fit(&app)
 	testing.expect(t, fits)
 	vp: Voxel_Part
@@ -33,15 +33,15 @@ offers_make_the_selection_fit :: proc(t: ^testing.T) {
 	objs[0].voxel = nil
 	testing.expect(t, command_enabled(&app, .Remesh))
 	testing.expect_value(t, command_reason(&app, .Remesh), "")
-	app.kit.spaces.current, app.tool = .Model, .Model
+	app.kit.hands, app.tool = .Model, .Model
 	fits5, model := space_fit(&app)
 	testing.expect(t, !fits5)
 	testing.expect(t, model.fix == .Retopologize || model.fix == .Edit_Cage)
-	app.kit.spaces.current = .Render
+	app.kit.hands, app.tool = .Look, .Look
 	fits6, _ := space_fit(&app)
 	testing.expect(t, fits6)
 	app.scene.selected = -1
-	app.kit.spaces.current = .Model
+	app.kit.hands, app.tool = .Model, .Model
 	fits7, _ := space_fit(&app)
 	testing.expect(t, fits7)
 	free_all(context.temp_allocator)

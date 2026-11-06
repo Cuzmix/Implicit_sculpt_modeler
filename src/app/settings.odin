@@ -1009,20 +1009,13 @@ settings_load :: proc(app: ^App, path: string) {
 				if other, taken := chord_owner(app, chord); taken && key_override_find(app, other.command, other.arg) >= 0 do continue
 				_ = bind_assign(app, id, arg, chord)
 			}
-		case "dial_sector":
-			// dial_sector <0-3, clockwise from the top> modifier <name> | command <name>:
-			// Sculpt's dial.
-			if len(f) != 4 do continue
-			i, i_ok := strconv.parse_int(f[1])
-			if !i_ok || i < 0 || i >= 4 do continue
-			if s, ok := dial_sector_parse(f[2], f[3]); ok do app.kit.dials[.Sculpt][i] = s
-		case "dial_space":
-			// dial_space <space> <0-3> modifier <name> | command <name>: Model's or Render's.
+		case "dial":
+			// dial <hands> <0-3, clockwise from the top> modifier <name> | command <name>.
 			if len(f) != 5 do continue
-			space, space_ok := reflect.enum_from_name(Space, f[1])
+			hands, hands_ok := reflect.enum_from_name(Hands, f[1])
 			i, i_ok := strconv.parse_int(f[2])
-			if !space_ok || !i_ok || i < 0 || i >= 4 do continue
-			if s, ok := dial_sector_parse(f[3], f[4]); ok do app.kit.dials[space][i] = s
+			if !hands_ok || !i_ok || i < 0 || i >= 4 do continue
+			if s, ok := dial_sector_parse(f[3], f[4]); ok do app.kit.dials[hands][i] = s
 		case "bar_count", "bar", "bar_look":
 			// bar_count <zone> <n>: how many buttons a bar's zone (BAR_ZONES) has, before its
 			// bar <zone> <slot> <command name> lines; a bar that differs from a fresh
@@ -1225,13 +1218,10 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 		if !pie_changed(app, n) do continue
 		for s, i in app.kit.pies[n] do fmt.sbprintfln(&out, "pie %d %d %s", n, i, command_name(s.id, s.arg) if s.id != .None else "empty")
 	}
-	// Each space's dial only when it differs from a fresh install's, written whole.
-	for space in Space {
-		if dial_is_default(&app.kit, space) do continue
-		for s, i in app.kit.dials[space] {
-			if space == .Sculpt do fmt.sbprintfln(&out, "dial_sector %d %s", i, dial_sector_text(s))
-			else do fmt.sbprintfln(&out, "dial_space %v %d %s", space, i, dial_sector_text(s))
-		}
+	// Each hands' dial only when it differs from a fresh install's, written whole.
+	for hands in Hands {
+		if dial_is_default(&app.kit, hands) do continue
+		for s, i in app.kit.dials[hands] do fmt.sbprintfln(&out, "dial %v %d %s", hands, i, dial_sector_text(s))
 	}
 	for f in app.kit.favourites[:app.kit.favourite_count] do fmt.sbprintfln(&out, "favourite %s", command_name(f.id, f.arg))
 	if off := motion_off_text(&app.kit.ctx); off != "" do fmt.sbprintfln(&out, "motion_off %s", off)

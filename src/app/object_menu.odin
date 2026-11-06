@@ -54,12 +54,12 @@ Object_Verb :: struct {
 	label: string,
 }
 
-// Each type's verbs in each space, the first its main one there, which the other spaces'
-// menus offer with this space's tag, in order. A space with none for a type offers nothing
-// of its own (the rows every object has stay). One list of rows rather than a table of
+// Each type's verbs for each kind of work (Hands), the first its main one there, which the
+// other hands' menus offer with these hands' tag, in order. Hands with none for a type offer
+// nothing of their own (the rows every object has stay). One list of rows rather than a table of
 // slices, as the web build's compiler cannot make a global that holds slices of constants.
 // A curve is drawn and edited in Sculpt's Curve tool; in Model it makes cages, and Bake
-// makes what it shows a mesh in any space.
+// makes what it shows a mesh whatever the hands do.
 @(rodata)
 OBJECT_VERBS := [?]Object_Verb_Row {
 	{.Sculpt_Mesh, .Sculpt, {id = .Subdivide}},
@@ -86,17 +86,17 @@ OBJECT_VERBS := [?]Object_Verb_Row {
 	{.Curve, .Model, {id = .Curve_Bake, label = "Bake to mesh"}},
 }
 
-// A row of OBJECT_VERBS: a verb of objects of `kind` in `space`.
+// A row of OBJECT_VERBS: a verb of objects of `kind` for hands `hands`.
 Object_Verb_Row :: struct {
 	kind:  Object_Type,
-	space: Space,
+	hands: Hands,
 	verb:  Object_Verb,
 }
 
-// The verbs of type `kind` in `space` (OBJECT_VERBS), in temp memory.
-object_verbs :: proc(kind: Object_Type, space: Space) -> []Object_Verb {
+// The verbs of type `kind` for `hands` (OBJECT_VERBS), in temp memory.
+object_verbs :: proc(kind: Object_Type, hands: Hands) -> []Object_Verb {
 	verbs := make([dynamic]Object_Verb, 0, 8, context.temp_allocator)
-	for row in OBJECT_VERBS do if row.kind == kind && row.space == space do append(&verbs, row.verb)
+	for row in OBJECT_VERBS do if row.kind == kind && row.hands == hands do append(&verbs, row.verb)
 	return verbs[:]
 }
 
@@ -226,31 +226,32 @@ kit_object_menu :: proc(app: ^App) {
 		return
 	}
 	kind := object_type(obj)
-	space := k.spaces.current
+	hands := k.hands
 	k.object_menu_type = kind
 	object_menu_head(app, obj, kind)
 	picked := object_menu_quick(app, kind)
 	ui.divider(ctx, across = true)
 	shown := make([dynamic]Object_Verb, 0, 16, context.temp_allocator)
-	for v in object_verbs(kind, space) {
+	for v in object_verbs(kind, hands) {
 		if command_menu_item(app, v.id, v.arg, label = v.label) do picked = true
 		append(&shown, v)
 		k.object_menu_rows += 1
 	}
-	// Another space's main verb (its first that can run on this object), tagged with that
-	// space: enabled as the command is here, so a switch never lands on a refusal; picked, it
-	// switches space, then runs. The tag takes the shortcut's place, so the shortcut is in the tooltip.
-	for s in Space {
+	// Other work's main verb (its first that can run on this object), tagged with those
+	// hands: enabled as the command is here, so a switch never lands on a refusal; picked, it
+	// puts those hands' tool in hand (the layout follows the tool), then runs. The tag takes
+	// the shortcut's place, so the shortcut is in the tooltip.
+	for s in Hands {
 		verbs := object_verbs(kind, s)
-		if s == space || len(verbs) == 0 do continue
+		if s == hands || len(verbs) == 0 do continue
 		v := verbs[0]
 		for w in verbs do if command_enabled(app, w.id, w.arg) {
 			v = w
 			break
 		}
 		label := v.label if v.label != "" else command_label(v.id, v.arg)
-		if ui.menu_item(ctx, fmt.tprintf("%s##in %v", label, s), glyph = COMMANDS[v.id].icon, enabled = command_enabled(app, v.id, v.arg), hint = command_hint(app, v.id, v.arg), tag = SPACE_NAMES[s], tag_color = t.tints[int(s)]) {
-			command_run(app, .Space_Switch, int(s))
+		if ui.menu_item(ctx, fmt.tprintf("%s##in %v", label, s), glyph = COMMANDS[v.id].icon, enabled = command_enabled(app, v.id, v.arg), hint = command_hint(app, v.id, v.arg), tag = HANDS_NAMES[s], tag_color = t.tints[int(s)]) {
+			hands_pick(app, s)
 			command_run(app, v.id, v.arg)
 			picked = true
 		}

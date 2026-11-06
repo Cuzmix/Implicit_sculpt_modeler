@@ -212,7 +212,8 @@ Kit_State :: struct {
 	passes:     Passes, // the pass the viewport shows (passes.odin)
 	wheel_size: Wheel_Size,
 	wheel_labels: Wheel_Labels, // what its sectors show
-	dials:      [Space][4]Dial_Sector, // what each space's sectors do, clockwise from the top
+	dials:      [Hands][4]Dial_Sector, // what each hands' sectors do, clockwise from the top
+	hands:      Hands, // what the hands are doing, from the tool in hand (hands.odin)
 	// The top bar's three docks' buttons (kit_top_lens.odin), a setting; where each dock and
 	// the space tabs were drawn this frame.
 	top_docks:     [Top_Dock]Bar_List,
