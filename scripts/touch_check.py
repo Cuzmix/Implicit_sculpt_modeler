@@ -3696,46 +3696,6 @@ def space_tab_switches_to_model():
 
 
 @scenario
-def space_menu_lists_your_layouts():
-    """Saved layouts are listed in the space tabs' menu, the one the space is exactly ticked,
-    above Save layout as and Reset layout."""
-    s = Script()
-    s.ftap(SPACE_TABS["chevron"])
-    s.wait(10)
-    return s, ["--script=second_view; layout_save Two panes; second_view; layout_save Wide view"], camera_still({
-        "dabs": near(0), "layout_menu": near(1), "layouts_saved": near(2), "layout_matching": is_text("Wide_view")})
-
-
-@scenario
-def space_menu_loads_a_saved_layout():
-    """A tap on a saved layout in the menu puts it in place in the space in front and closes the menu."""
-    s = Script()
-    s.ftap(SPACE_TABS["chevron"])
-    s.wait(10)
-    s.ftap("layout menu/Two panes")
-    s.wait(10)
-    return s, ["--script=second_view; layout_save Two panes; second_view"], camera_still({
-        "dabs": near(0), "layout_menu": near(0), "layout_loads": near(1), "layout_matching": is_text("Two_panes"), "layout_modified": near(1)})
-
-
-@scenario
-def space_menu_saves_a_layout():
-    """Save layout as opens a name field in the menu; Save with it left empty keeps the
-    layout as "Sculpt layout 1", ticked, and the menu stays open on the list with More shown."""
-    s = Script()
-    s.ftap(SPACE_TABS["chevron"])
-    s.wait(10)
-    s.ftap("layout menu/Save layout as...")
-    s.wait(10)
-    s.ftap("layout menu/Save")
-    s.wait(10)
-    s.ftap("layout menu/More")
-    s.wait(10)
-    return s, [], camera_still({"dabs": near(0), "layout_menu": near(1), "layouts_saved": near(1), "layout_saves": near(1),
-                                "layout_matching": is_text("Sculpt_layout_1")})
-
-
-@scenario
 def space_lit_tab_and_chevron_open_the_menu():
     """A tap on the lit tab opens its layouts, a second closes them, and the chevron opens them again."""
     s = Script()

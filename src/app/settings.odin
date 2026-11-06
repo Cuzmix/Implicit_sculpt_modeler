@@ -884,7 +884,7 @@ settings_load :: proc(app: ^App, path: string) {
 		case "ui_scale":
 			want := number(f[1], 1)
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
-		case "space_layout", "space_current", "layout_saved":
+		case "space_layout", "space_current":
 			// space_layout <Space> <layout, escaped>: a space's layout where it differs from
 			// how it ships; space_current <Space>: the space in front.
 			layouts_load_line(&app.kit, f)
