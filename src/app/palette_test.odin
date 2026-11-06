@@ -163,17 +163,17 @@ palette_names_round_trip :: proc(t: ^testing.T) {
 }
 
 // The touch scenarios that star, pie or bind Wireframe (scripts/touch_check.py) type
-// "wire" and tap the footer's buttons by name. Its two rows are Wireframe and the Shading
-// list's Wireframe: no other label is a guess once a word answers.
+// "wire" and tap the footer's buttons by name. Its one row is Wireframe: no other label is
+// a guess once a word answers.
 @(test)
-palette_wire_finds_two_rows :: proc(t: ^testing.T) {
+palette_wire_finds_one_row :: proc(t: ^testing.T) {
 	entries := palette_entries()
 	enabled := make([]bool, len(entries), context.temp_allocator)
 	for &e in enabled do e = true
 	hits := palette_rank("wire", entries, nil, enabled)
 	labels := make([]string, len(hits), context.temp_allocator)
 	for h, i in hits do labels[i] = palette_label(entries[h.entry])
-	testing.expectf(t, len(hits) == 2, "\"wire\" finds %v", labels)
+	testing.expectf(t, len(hits) == 1, "\"wire\" finds %v", labels)
 }
 
 // A tall window shows every result row; a short one fewer, never under two, and each
