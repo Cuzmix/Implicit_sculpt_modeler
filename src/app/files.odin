@@ -354,8 +354,11 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 		case .Crash_Log: suffix = ".txt"
 		}
 	}
+	// A picked Android document keeps its URI whole: the type goes after it as a fragment,
+	// which SDL's IO leaves off (document_uri).
+	mark := "#" if suffix != "" && path_is_document(path) else ""
 	delete(pending.req.path, heap)
-	pending.req = {kind, strings.concatenate({path, suffix}, heap), sheet}
+	pending.req = {kind, strings.concatenate({path, mark, suffix}, heap), sheet}
 }
 
 // Whether a save may write beside `path`, as saving over a file does: a partial copy and the
@@ -437,7 +440,7 @@ file_shutdown :: proc(app: ^App) {
 file_read_any :: proc(path: string, allocator := context.allocator) -> (data: []u8, err: os.Error) {
 	if !strings.has_prefix(path, "content://") do return os.read_entire_file(path, allocator)
 	size: uint
-	raw := sdl.LoadFile(strings.clone_to_cstring(path, context.temp_allocator), &size)
+	raw := sdl.LoadFile(strings.clone_to_cstring(document_uri(path), context.temp_allocator), &size)
 	if raw == nil do return nil, .Not_Exist
 	defer sdl.free(raw)
 	data = make([]u8, int(size), allocator) or_return
@@ -629,7 +632,7 @@ image_save :: proc(app: ^App, path: string, pixels: []u8, w, h: int, alpha := fa
 		written = write_ppm(path, pixels, w, h)
 	} else {
 		data := png_write.encode(pixels, w, h, alpha = alpha, allocator = context.temp_allocator)
-		written = os.write_entire_file(path, data) == nil
+		written = write_durably(path, data) == "" if path_is_document(path) else os.write_entire_file(path, data) == nil
 	}
 	if !written {
 		file_note(app, true, "Could not write %s", path)
@@ -1463,23 +1466,33 @@ scene_save :: proc(app: ^App, path: string, copy := false) -> bool {
 	out := make([dynamic]u8)
 	defer delete(out)
 	hd_dropped := scene_bytes(app, &out)
-	partial, err := write_partial(path, out[:])
-	if err != "" {
-		file_note(app, true, "Cannot save %s: %s", filepath.base(path), err)
-		return false
-	}
-	// The file this save replaces becomes a version first, so that at every moment the
-	// path holds a whole file and the old one is still somewhere. A copy keeps none: it
-	// is a new file, and one it lands on was not this scene's.
-	keep := int(versions_kept(app.versions_kept))
+	// A picked Android document is written in place (write_durably) and keeps no versions:
+	// it has no folder beside it to keep them in.
+	document := path_is_document(path)
+	keep := 0 if document else int(versions_kept(app.versions_kept))
 	keep_err := ""
-	if !copy && keep > 0 && os.exists(path) do _, keep_err = version_keep(path)
-	if err = replace_partial(partial, path); err != "" {
-		file_note(app, true, "Cannot save %s: %s", filepath.base(path), err)
-		return false
+	if document {
+		if err := write_durably(path, out[:]); err != "" {
+			file_note(app, true, "Cannot save %s: %s", filepath.base(path), err)
+			return false
+		}
+	} else {
+		partial, err := write_partial(path, out[:])
+		if err != "" {
+			file_note(app, true, "Cannot save %s: %s", filepath.base(path), err)
+			return false
+		}
+		// The file this save replaces becomes a version first, so that at every moment the
+		// path holds a whole file and the old one is still somewhere. A copy keeps none: it
+		// is a new file, and one it lands on was not this scene's.
+		if !copy && keep > 0 && os.exists(path) do _, keep_err = version_keep(path)
+		if err = replace_partial(partial, path); err != "" {
+			file_note(app, true, "Cannot save %s: %s", filepath.base(path), err)
+			return false
+		}
 	}
 	if !copy {
-		versions_prune(path, keep)
+		if !document do versions_prune(path, keep)
 		autosave_scene_saved(app, path)
 		send_saved_record(app, path)
 	}
@@ -2418,6 +2431,9 @@ WRITE_CHUNK :: 8 << 20
 // Writes `data` to path.partial a chunk at a time, syncs it, and replaces `path` with it
 // (replace_durably). Returns what went wrong, "" for nothing; nothing is left behind.
 write_durably :: proc(path: string, data: []u8) -> string {
+	// A picked Android document has no folder to hold a partial copy: it is written in
+	// place, and the provider keeps the old bytes until it commits on close.
+	if path_is_document(path) do return write_file_whole(path, data, WRITE_CHUNK)
 	partial, err := write_partial(path, data)
 	if err != "" do return err
 	return replace_partial(partial, path)
