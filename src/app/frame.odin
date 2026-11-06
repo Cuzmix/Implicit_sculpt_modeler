@@ -393,7 +393,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	// The main view's role lent to a view pane or given back is no turn of the view: what
 	// either pane shows was already at rest, so neither is simplified for it.
 	travelled := app.kit.grid.work_began || app.kit.grid.work_ended != 0
-	if view_changed(app, view, proj) && !travelled do app.view_moved = time.tick_now()
+	if view_changed(app, view, proj) && !travelled do app.view_moved, app.view_moved_ui = time.tick_now(), app.kit.ctx.time
 	moving := time.tick_since(app.view_moved) < LOD_SETTLE
 	app.renderer.lod_px = app.simplify_px if app.simplify && moving && !timelapse_capturing(app) && !turntable_recording(app) else 0
 	app.renderer.floor = floor_grid_frame(app)
@@ -590,7 +590,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	free_all(context.temp_allocator)
 
 	if setting_up do app.script.frames += 1
-	else do loop.frame_index += 1
+	else if !app.kit.events_held do loop.frame_index += 1
 	if (loop.opts.frames > 0 && loop.frame_index >= loop.opts.frames) || (loop.opts.bench_stroke > 0 && loop.frame_index - loop.bench_skipped >= loop.opts.bench_stroke) {
 		// A --timelapse run goes on until the recording is done.
 		// So does one replaying --load-strokes, which starts the frame after.

@@ -86,6 +86,12 @@ Long_Job :: struct {
 	resumed:       bool,
 	held:          bool,
 	early:         bool, // the object went before the remesh started, its triangles the job's
+	// Scripted runs only (--ui-events jobhold): the next job to start waits at its gate
+	// before any work, so what a scenario does while a job runs finds it running on any
+	// machine; Escape, the pill's Cancel, a jobwait event or the app's end opens it.
+	gate_next:     bool,
+	gated:         bool,
+	gate:          sync.Sema,
 	earlies:       int,
 	sets_lost:     int, // the old object's selection sets, counted as it went, for the note
 	holds:         int,
@@ -321,6 +327,7 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 		} else do j.early = false
 	}
 	jobs.pool_init(&j.pool, max(jobs.pool_size(&app.pool) - 2, 1))
+	j.gated, j.gate_next, j.gate = j.gate_next, false, {}
 	j.thread = thread.create_and_start_with_data(j, long_job_thread, context, .Normal, name = "long job")
 	j.runs += 1
 	return true
@@ -351,6 +358,7 @@ import_job_start :: proc(app: ^App, path: string) {
 	sync.atomic_store(&j.done, false)
 	j.built, j.computed, j.imported, j.note, j.warning = false, {}, {}, "", false
 	jobs.pool_init(&j.pool, max(jobs.pool_size(&app.pool) - 2, 1))
+	j.gated, j.gate_next, j.gate = j.gate_next, false, {}
 	j.thread = thread.create_and_start_with_data(j, long_job_thread, context, .Normal, name = "import")
 	j.runs += 1
 	log.infof("long job: import of %s on its own thread", j.label)
@@ -385,6 +393,7 @@ long_job_thread :: proc(data: rawptr) {
 	arena: runtime.Arena
 	context.temp_allocator = runtime.arena_allocator(&arena)
 	defer runtime.arena_destroy(&arena)
+	if j.gated do sync.sema_wait(&j.gate)
 	share := JOB_COMPUTE_SHARE[j.cmd.kind]
 	jobs.progress_set(&j.progress, 0, 1, 0)
 	if j.importing {
@@ -666,6 +675,14 @@ long_job_cancel :: proc(app: ^App) {
 	}
 	jobs.progress_cancel(&j.progress)
 	long_job_resume(j)
+	long_job_open(j)
+}
+
+// Lets a job held at its gate (jobhold) start its work, once.
+long_job_open :: proc(j: ^Long_Job) {
+	if !j.gated do return
+	j.gated = false
+	sync.sema_post(&j.gate)
 }
 
 // Lets a remesh's thread go on past its wait, once (a thread that never waits leaves the
@@ -738,6 +755,7 @@ long_job_stop :: proc(app: ^App) {
 	j := &app.long_job
 	if j.on do jobs.progress_cancel(&j.progress)
 	long_job_resume(j)
+	long_job_open(j)
 	long_job_join(j)
 	history_snapshot_drop(j.before)
 	long_job_drop(j)

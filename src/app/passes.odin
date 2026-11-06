@@ -408,7 +408,7 @@ kit_wipe :: proc(app: ^App, m: ui.Rect) {
 		if at != ps.wipe_at {
 			ps.wipe_at = at
 			ps.wipe_drags += 1
-			app.view_moved = time.tick_now()
+			app.view_moved, app.view_moved_ui = time.tick_now(), app.kit.ctx.time
 		}
 	}
 

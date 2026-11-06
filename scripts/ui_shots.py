@@ -103,7 +103,7 @@ def shot(screen, size, theme, out, exe):
                f"--settings-file={settings}", f"--dump-screen={dump}", f"--ui-map={out / (key + '.map')}"] + SIZE_FLAGS[size] + extra
         if events:
             cmd.append(f"--ui-events={events}")
-        run = subprocess.run(headless.wrap(cmd), env=headless.env(), capture_output=True, text=True, timeout=600)
+        run = subprocess.run(headless.wrap(cmd), env=headless.env(exact=True), capture_output=True, text=True, timeout=600)
         if run.returncode != 0:
             tail = (run.stdout + run.stderr).strip().splitlines()[-3:]
             return key, False, f"exit {run.returncode}: " + " | ".join(tail)

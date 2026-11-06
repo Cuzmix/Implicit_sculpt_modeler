@@ -102,6 +102,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("script_statements=%d script_ran=%d script_frames=%d script_failed=%d", r.statements, r.ran, r.frames, int(r.failed))
 		if r.failed && r.scripted do exit_code^ = 2
 	}
+	if len(app.kit.events) > 0 do fmt.printfln("ui_events_held=%d", app.kit.events_held_frames)
 	if app.kit.events_unnamed > 0 {
 		fmt.printfln("ui_events_unnamed=%d", app.kit.events_unnamed)
 		exit_code^ = 2
@@ -403,6 +404,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 				if sel != nil do step, pivot, minus = sel.stack.array.offset, sel.stack.radial.pivot, sel.stack.mirror.minus
 				fmt.printfln("stack_step=%.3f,%.3f,%.3f stack_pivot=%.3f,%.3f,%.3f stack_minus=%d stack_handle_moves=%d", step.x, step.y, step.z, pivot.x, pivot.y, pivot.z, int(minus), app.ui.stack_press.moves)
 			}
+			// Decodes still running finish first, so the counts say what the run asked for.
+			refs_finish(app)
 			fmt.printfln("refs=%d ref_images=%d refs_shown=%d refs_gpu_mb=%.1f refs_decode_ms=%.0f refs_selected=%d refs_moves=%d ref_notes=%d refs_grey=%d refs_shrunk=%d refs_small=%d ref_planes=%d ref_planes_through=%d refs_lined_up=%d", len(app.scene.refs.refs), len(app.scene.refs.images), refs_shown_count(app), refs_gpu_mb(app), app.refs_decode_ms, len(app.kit.board.selected), app.kit.board.moves, refs_note_count(app), refs_grey_count(app), app.refs_shrunk, refs_small_count(app), refs_plane_count(app, false), refs_plane_count(app, true), app.kit.board.lined_up)
 			fmt.printfln("environment_turn=%.1f environment_tilt=%.1f environment_turns=%d environment_recent=%d environment_backdrop=%s", env.turn, env.tilt, env.turns, len(env.recent), strings.to_lower(fmt.tprint(environment_backdrop(&env)), context.temp_allocator))
 		}

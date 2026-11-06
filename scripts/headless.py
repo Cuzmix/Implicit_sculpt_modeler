@@ -2,8 +2,13 @@
 """How a script opens the app's window on this machine, shared by gate.py, touch_check.py
 and the other scripts that run build/sculpt.
 
-On a desktop the window opens on the desktop's display. On Linux with no display there
-are two ways:
+On a desktop the window opens on the desktop's display, except where a script needs a
+window of the exact size it asks for (touch scenarios, the screenshot corpus: `exact=True`):
+on a Linux desktop the compositor may shrink a 1600x900 window to fit a smaller screen
+(GNOME at 1536x864 points does), and every scripted tap then misses, so those runs take
+SDL's offscreen driver there, which still renders on the machine's own GPU through Vulkan's
+headless surface and lets the runs go side by side. SCULPT_ON_DISPLAY=1 keeps them on the
+display, to watch one. On Linux with no display there are two ways:
     offscreen  SDL's offscreen video driver: no display at all, so every run has its own
                window and runs side by side need no private servers. A cloud container's
                SDL (setup_deps.sh without the X11 headers) has only this one.
@@ -46,11 +51,14 @@ def video_drivers():
         return None
 
 
-def mode():
-    """'display' (a desktop's own), 'offscreen', 'xvfb', or 'none' (no way to open a window)."""
-    if has_display():
-        return "display"
+def mode(exact=False):
+    """'display' (a desktop's own), 'offscreen', 'xvfb', or 'none' (no way to open a window).
+    With `exact` the window must come out at the size asked for, which a Linux desktop's
+    compositor does not promise, so there the offscreen driver is taken when SDL has it."""
     drivers = video_drivers()
+    if has_display():
+        keep = not exact or not LINUX or os.environ.get("SCULPT_ON_DISPLAY") == "1"
+        return "display" if keep or not drivers or "offscreen" not in drivers else "offscreen"
     if drivers is not None and "x11" not in drivers and "offscreen" in drivers:
         return "offscreen"
     if shutil.which("Xvfb") or shutil.which("xvfb-run"):
@@ -69,14 +77,15 @@ def vulkan_driver():
     return found[-1] if found else None
 
 
-def env(base=None):
+def env(base=None, exact=False):
     """`base` (the process's environment by default) with what the app needs to open its
     window here: the offscreen driver when that is the mode, and a Vulkan driver when the
     system lists none."""
     out = dict(os.environ if base is None else base)
-    if mode() == "offscreen":
+    if mode(exact) == "offscreen":
         out["SDL_VIDEO_DRIVER"] = "offscreen"
         out.pop("DISPLAY", None)
+        out.pop("WAYLAND_DISPLAY", None)
     icd = vulkan_driver()
     if icd:
         out["VK_ICD_FILENAMES"] = icd
@@ -91,4 +100,4 @@ def wrap(cmd, screen="1600x1400x24"):
 
 
 if __name__ == "__main__":
-    print(f"mode={mode()} drivers={video_drivers()} vulkan={vulkan_driver() or 'system'}")
+    print(f"mode={mode()} exact_mode={mode(exact=True)} drivers={video_drivers()} vulkan={vulkan_driver() or 'system'}")

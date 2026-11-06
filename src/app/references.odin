@@ -598,10 +598,7 @@ refs_poll :: proc(app: ^App) {
 	// Grey copies after every colour one, for the pictures a place shows grey.
 	for img in refs.images {
 		if running >= REF_DECODES_MAX do break
-		if img.decode != nil || img.texture == 0 || img.small || img.grey != 0 || img.grey_failed do continue
-		wanted := false
-		for r in refs.refs do if r.image == img.id && r.grey do wanted = true
-		if !wanted do continue
+		if img.decode != nil || !ref_grey_wanted(app, img) do continue
 		ref_decode_start(img, grey = true)
 		running += 1
 	}
@@ -670,16 +667,32 @@ refs_snap_view :: proc(app: ^App) {
 	_ = refs_add_bytes(app, "View", png_write.encode(pixels, w, h, alpha = false))
 }
 
-// Waits for every decode and takes it, for a script or test that must see the pictures.
+// Whether picture `img` needs its grey copy made: a place shows it grey, its colour copy is
+// up and neither a grey one nor its failure is there yet.
+@(private = "file")
+ref_grey_wanted :: proc(app: ^App, img: ^Ref_Image) -> bool {
+	if img.texture == 0 || img.small || img.grey != 0 || img.grey_failed do return false
+	for r in app.scene.refs.refs do if r.image == img.id && r.grey do return true
+	return false
+}
+
+// Waits for every decode, the grey copies the places want included, and takes it, for a
+// script, a test or the exit stats that must see the pictures however fast frames came.
 refs_finish :: proc(app: ^App) {
 	for {
 		pending := false
 		for img in app.scene.refs.images {
-			if img.texture != 0 || img.failed != "" do continue
+			if img.decode == nil {
+				if img.texture == 0 && img.failed == "" {
+					ref_decode_start(img)
+				} else if ref_grey_wanted(app, img) {
+					ref_decode_start(img, grey = true)
+				} else {
+					continue
+				}
+			}
 			pending = true
-			if img.decode == nil do ref_decode_start(img)
-			d := img.decode
-			thread.join(d.thread)
+			thread.join(img.decode.thread)
 			ref_decode_take(app, img)
 		}
 		if !pending do return

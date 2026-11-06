@@ -126,7 +126,11 @@ are on the device checklist.
   frame by frame: `ftap(x, y)` or `ftap(UI["undo"])`, `fdrag(path)`, `fingers(starts, moves, frames)`, `mouse_drag(path, button="left|middle|right", keys=...)`,
   `press(key, mods)`, `type("text")` (each letter as its key and as `text:` input, which lands only while a text field
   has the keys, so from about the second frame after the palette opens), or
-  `add("pdown:x,y")` and the rest of the raw events (README "App flags"). `line(a, b, n)` makes a path; `past_slop`
+  `add("pdown:x,y")` and the rest of the raw events (README "App flags"). A wait for work on another thread (a long job
+  under `--async-jobs`) is `wait_job()` (the `jobwait` event: the events and `--frames` hold while the job runs, the
+  frames going on), never a bigger `wait(N)`: a frame count that covers a job on a slow machine runs out first on a fast one.
+  What must find the job still running (Escape cancelling it, a stroke it holds back) follows `hold_job()` (`jobhold`: the
+  next job waits before its work until `wait_job()` or a cancel). `line(a, b, n)` makes a path; `past_slop`
   makes one whose first move only crosses the slop, so the rest counts in full.
 - Tap controls by name, not by position: `At("top bar/undo", 25, 25)` (in the `UI` dict) is a control's path in
   the control map plus where it sat when it was written, and becomes `@top bar/undo` in `--ui-events` (`FRAME:down:@NAME`

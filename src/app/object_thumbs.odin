@@ -100,7 +100,7 @@ thumbs_frame :: proc(app: ^App, cmd: render.Cmd) {
 	ts := &app.thumb_slots
 	if ts.frame == 0 do ts.frame = 1
 	defer ts.frame += 1
-	if app.stroke.active || time.tick_since(app.view_moved) < LOD_SETTLE do return
+	if app.stroke.active || !view_settled(app) do return
 	for &s, i in ts.slots {
 		if s.id == 0 || s.used != ts.frame || s.want == s.drawn do continue
 		if s.drawn != 0 && time.tick_since(s.changed) < THUMB_SETTLE do continue
