@@ -3,12 +3,12 @@ name: open-decisions-2026-11-06
 description: "What waits on Bolt as of 2026-11-06 (device runs, blocked items, unanswered picks, promised work), from a full read of the exported project chat and 91 threads"
 metadata:
   type: project
-  modified: 2026-11-06T15:00:00.000Z
+  modified: 2026-11-06T18:00:00.000Z
 ---
 
 On 2026-11-06 Bolt exported the cloud project's chat and all 91 threads, and a local session read them in full. What they leave open:
 
-**Device runs (the largest debt).** About 15 merged series never ran on the iPad, the OnePlus Pad, Windows or real Wi-Fi: Send to computer/tablet, Pencil Pro and pen lean, Hover preview and its heat pause, Live stack handles and copies' GPU cost, texture paint, physics, UV, curves, motion, the Android edge strips, Photos import, voxel stage 9, Metal ray tracing and Metal culling, GPU culling numbers on Mali, the detail skin on tablets, the web build on a real browser GPU. Bolt was asked on 2026-11-06 for `gate.py` and `try_it.py --gpubench` from his RTX 3060 Ti PC (the zip). See [[app-gaps-2026-11-06]].
+**Device runs (run 2026-11-06).** About 15 merged series had never run on the iPad, the OnePlus Pad, Windows or real Wi-Fi; on 2026-11-06 Bolt ran the backlog on his iPad Air M2, OnePlus Pad and RTX 3060 Ti PC and said everything looks good, with no per-feature numbers given. What it covered (all run): Send to computer/tablet, Pencil Pro and pen lean, Hover preview and its heat pause, Live stack handles and copies' GPU cost, texture paint, physics, UV, curves, motion, the Android edge strips, Photos import, voxel stage 9, Metal ray tracing and Metal culling, GPU culling numbers on Mali, the detail skin on tablets, the web build on a real browser GPU. Numbers for any one of them still need a new ask. See [[app-gaps-2026-11-06]].
 
 **Blocked on Bolt.** Dense remesh: build #735 for the iPad, remesh to 15M twice, send `sculpt-log.txt`; the per-vertex memory estimates are corrected from that log ([[dense-remesh-memory-plan]]).
 
