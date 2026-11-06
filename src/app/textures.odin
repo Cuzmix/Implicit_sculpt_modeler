@@ -168,6 +168,9 @@ textures_replace :: proc(app: ^App, obj: ^Object, t: Object_Textures, what: stri
 	obj.textures.stamp = step.textures.stamp + 1
 	obj.textures.layout = step.textures.layout
 	if next, ok := uvs.?; ok {
+		// Texture layers follow the UVs: laid out again for the new ones, the old tiles kept
+		// in the step.
+		sculpt.levels_texels_relayout(&obj.levels, next, &step.texels)
 		step.uvs, step.has_uvs = obj.levels.uvs, true
 		obj.levels.uvs = next
 		obj.levels.uv_stamp += 1
@@ -177,19 +180,22 @@ textures_replace :: proc(app: ^App, obj: ^Object, t: Object_Textures, what: stri
 	app.scene_edits += 1
 }
 
-// What a .Textures undo step keeps: the object's maps (and, for Unwrap, its UVs)
-// on the other side of the change. Undo and redo swap them with the object's, so the same
-// step goes back and forth.
+// What a .Textures undo step keeps: the object's maps (and, for Unwrap, its UVs and its
+// texture layers' tiles as they were laid out for them) on the other side of the change.
+// Undo and redo swap them with the object's, so the same step goes back and forth.
 Texture_Step :: struct {
 	textures: Object_Textures,
 	uvs:      uv.Uvs,
 	has_uvs:  bool,
+	texels:   [dynamic]sculpt.Texel_Step,
 }
 
 texture_step_free :: proc(step: ^Texture_Step) {
 	if step == nil do return
 	textures_free(&step.textures)
 	if step.has_uvs do uv.destroy(&step.uvs)
+	for &t in step.texels do sculpt.texel_step_free(&t)
+	delete(step.texels)
 	free(step)
 }
 
@@ -198,6 +204,7 @@ texture_step_bytes :: proc(step: ^Texture_Step) -> int {
 	if step == nil do return 0
 	n := textures_bytes(step.textures)
 	if step.has_uvs do n += uv.bytes(step.uvs)
+	for &t in step.texels do n += sculpt.texel_step_bytes(&t)
 	return n
 }
 
@@ -213,6 +220,7 @@ texture_step_swap :: proc(obj: ^Object, step: ^Texture_Step) {
 		obj.levels.uv_stamp += 1
 		obj.textures.layout += 1
 	}
+	for &t in step.texels do sculpt.levels_texel_step_swap(&obj.levels, &t)
 }
 
 // What a .Textures step that loads map `m` is called in the History (constants: the

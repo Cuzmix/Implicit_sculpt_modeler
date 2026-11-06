@@ -115,7 +115,7 @@ decimate_source :: proc(obj: ^Object, setup: Decimate_Setup, borrow := false) ->
 		copy(src.mesh.positions[:], m.positions[:])
 		copy(src.mesh.indices[:], m.indices[:])
 	}
-	if c := sculpt.sculptor_paint_shown(s); setup.keep_paint && c != nil do src.color = slice.clone(c)
+	if c := object_paint_flat(obj, s); setup.keep_paint && c != nil do src.color = slice.clone(c)
 	if setup.keep_groups && sculpt.sculptor_has_groups(s) do src.groups = slice.clone(sculpt.sculptor_groups(s))
 	if setup.use_mask && s.mask != nil do src.mask = slice.clone(s.mask)
 	return

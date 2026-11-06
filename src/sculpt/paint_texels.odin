@@ -1055,3 +1055,186 @@ blur_toward :: #force_inline proc(c, target: Color, w: f32) -> Color {
 	for k in 0 ..< 4 do next[k] = paint_toward(c[k], target[k], f32(c[k]) + (f32(target[k]) - f32(c[k])) * w)
 	return next
 }
+
+// Lays every texture layer out again for the base level's UVs becoming `next` (Unwrap,
+// Straighten, Set texel density), losing nothing the old layout held: each texel of the
+// new layout finds its place on its base triangle, the same place's coordinates in the
+// old UVs, and the paint there, read bilinearly with each texel counted as far as it
+// covers so bare texels lend no colour. One step a layer (appended to `steps`, each
+// holding all the layer's old tiles) undoes it with levels_texel_step_swap, the caller
+// swapping the UVs back too. Call it before the UVs change; the texel map follows the
+// UVs by itself. Each new tile is one job's, so any thread count gives the same tiles.
+levels_texels_relayout :: proc(l: ^Levels, next: uv.Uvs, steps: ^[dynamic]Texel_Step) {
+	t := &l.texels
+	if len(t.layers) == 0 || !levels_has_uvs(l) || !uv.has(next) do return
+	triangles := len(l.uvs.corner)
+	if len(next.corner) != triangles do return
+	fresh := texel_map_build(next, triangles, t.side, l.pool)
+	defer {
+		h := runtime.heap_allocator()
+		for m in fresh do if m != nil {
+			delete(m.tri, h)
+			delete(m.bary, h)
+			free(m, h)
+		}
+		delete(fresh, h)
+	}
+	across := texel_tiles_across(t.side)
+	Job :: struct {
+		layer: ^Texel_Layer,
+		old:   [][3][2]f32,
+		fresh: []^Texel_Map_Tile,
+		out:   []^Texel_Tile,
+		side:  int,
+		across: int,
+	}
+	for &layer in t.layers {
+		job := Job{&layer, l.uvs.corner, fresh, make([]^Texel_Tile, len(fresh), context.temp_allocator), t.side, across}
+		jobs.parallel_for(l.pool, len(fresh), &job, proc(data: rawptr, i: int) {
+			job := cast(^Job)data
+			m := job.fresh[i]
+			if m == nil do return
+			fs := f32(job.side)
+			out: ^Texel_Tile
+			for k in 0 ..< TILE_TEXELS {
+				tri := m.tri[k]
+				if tri == TEXEL_NONE do continue
+				b := [2]f32{f32(m.bary[k].x), f32(m.bary[k].y)} * (1.0 / 65535)
+				c := job.old[tri]
+				at := c[0] * (1 - b.x - b.y) + c[1] * b.x + c[2] * b.y
+				color, material, any := texel_sample(job.layer, job.side, job.across, {at.x * fs - 0.5, (1 - at.y) * fs - 0.5})
+				if !any do continue
+				if out == nil {
+					out = tile_new(false, false)
+					job.out[i] = out
+				}
+				h := runtime.heap_allocator()
+				if color.a > 0 {
+					if out.color == nil do out.color = make([]Color, TILE_TEXELS, h)
+					out.color[k] = color
+				}
+				if material[1] > 0 || material[3] > 0 {
+					if out.material == nil do out.material = make([]Material_Paint, TILE_TEXELS, h)
+					out.material[k] = material
+				}
+			}
+		})
+		step: Texel_Step
+		for k in 0 ..< len(layer.tiles) {
+			if layer.tiles[k] == nil && job.out[k] == nil do continue
+			texel_step_save(&step, &layer, k)
+			tile_free(layer.tiles[k])
+			layer.tiles[k] = job.out[k]
+			texels_touch(t, u32(k))
+		}
+		if len(step.saved) > 0 do append(steps, step)
+	}
+}
+
+// A texture layer's paint at texel coordinates `p` (texel centres on whole numbers),
+// bilinear over the four texels round it, each colour and material channel counted as
+// far as it covers and the coverage plainly; false where none of the four is painted.
+@(private)
+texel_sample :: proc(layer: ^Texel_Layer, side, across: int, p: [2]f32) -> (color: Color, material: Material_Paint, any: bool) {
+	x0, y0 := int(linalg.floor(p.x)), int(linalg.floor(p.y))
+	fx, fy := p.x - f32(x0), p.y - f32(y0)
+	sum: [4][4]f32 // as texel_blur_target's
+	for dy in 0 ..= 1 do for dx in 0 ..= 1 {
+		x, y := clamp(x0 + dx, 0, side - 1), clamp(y0 + dy, 0, side - 1)
+		w := (fx if dx == 1 else 1 - fx) * (fy if dy == 1 else 1 - fy)
+		tile := layer.tiles[(y / TEXEL_TILE) * across + x / TEXEL_TILE]
+		if tile == nil || w <= 0 do continue
+		at := (y % TEXEL_TILE) * TEXEL_TILE + x % TEXEL_TILE
+		if tile.color != nil {
+			c := tile.color[at]
+			a := f32(c.a) * w
+			sum[0] += {f32(c.r) * a, f32(c.g) * a, f32(c.b) * a, a}
+		}
+		if tile.material != nil {
+			mp := tile.material[at]
+			for c in 0 ..< 2 {
+				a := f32(mp[2 * c + 1]) * w
+				sum[1 + c] += {f32(mp[2 * c]) * a, a, 0, 0}
+			}
+		}
+	}
+	if sum[0].a > 0 {
+		for k in 0 ..< 3 do color[k] = u8(clamp(sum[0][k] / sum[0].a + 0.5, 0, 255))
+		color.a = u8(clamp(sum[0].a + 0.5, 0, 255))
+	}
+	for c in 0 ..< 2 do if sum[1 + c].y > 0 {
+		material[2 * c] = u8(clamp(sum[1 + c].x / sum[1 + c].y + 0.5, 0, 255))
+		material[2 * c + 1] = u8(clamp(sum[1 + c].y + 0.5, 0, 255))
+	}
+	return color, material, color.a > 0 || material[1] > 0 || material[3] > 0
+}
+
+// The colours per vertex of level `s` (one of `l`'s sculptors) with the texture layers
+// laid over its vertex paint, for what can only take colours per vertex: the rebuilds
+// (Remesh, Decimate, Quad Remesh, Mirror and weld, Split and Merge, Close holes, Make
+// skin, the Live stack's bake) and the vertex colour exports. Each vertex reads the
+// texture layers' composite bilinearly at its first corner's UV, as far as it covers,
+// over the vertex layers. The sculptor's own shown colours (sculptor_paint_shown) when
+// no texture layer shows; otherwise made with `allocator`. Colour only: roughness and
+// metal stay the vertex layers'.
+levels_paint_flat :: proc(l: ^Levels, s: ^Sculptor, allocator := context.temp_allocator) -> []Color {
+	shown := sculptor_paint_shown(s)
+	level := -1
+	for lv, i in l.levels do if &lv.sculptor == s do level = i
+	if level < 0 || l.texels.side == 0 do return shown
+	levels_texels_flush(l)
+	if !levels_texels_show(l) do return shown
+	u, ok := levels_uvs_at(l, level, context.temp_allocator)
+	indices := s.mesh.indices[:]
+	if !ok || len(u.corner) != len(indices) / 3 do return shown
+	n := len(s.mesh.positions)
+	// Each vertex's first corner, in triangle order, so the same on any thread count.
+	at := make([][2]f32, n, context.temp_allocator)
+	seen := make([]bool, n, context.temp_allocator)
+	for v, k in indices {
+		if seen[v] do continue
+		seen[v] = true
+		at[v] = u.corner[k / 3][k % 3]
+	}
+	out := make([]Color, n, allocator)
+	if shown != nil do copy(out, shown)
+	Job :: struct {
+		t:      ^Texels,
+		at:     [][2]f32,
+		seen:   []bool,
+		out:    []Color,
+		across: int,
+	}
+	job := Job{&l.texels, at, seen, out, texel_tiles_across(l.texels.side)}
+	CHUNK :: 16384
+	jobs.parallel_for(l.pool, (n + CHUNK - 1) / CHUNK, &job, proc(data: rawptr, c: int) {
+		job := cast(^Job)data
+		side := job.t.side
+		fs := f32(side)
+		for v in c * CHUNK ..< min((c + 1) * CHUNK, len(job.out)) {
+			if !job.seen[v] do continue
+			p := [2]f32{job.at[v].x * fs - 0.5, (1 - job.at[v].y) * fs - 0.5}
+			x0, y0 := int(linalg.floor(p.x)), int(linalg.floor(p.y))
+			fx, fy := p.x - f32(x0), p.y - f32(y0)
+			sum: [4]f32 // premultiplied, as the composite keeps it
+			for dy in 0 ..= 1 do for dx in 0 ..= 1 {
+				x, y := clamp(x0 + dx, 0, side - 1), clamp(y0 + dy, 0, side - 1)
+				tile := job.t.shown[(y / TEXEL_TILE) * job.across + x / TEXEL_TILE]
+				if tile == nil || tile.color == nil do continue
+				w := (fx if dx == 1 else 1 - fx) * (fy if dy == 1 else 1 - fy)
+				c := tile.color[(y % TEXEL_TILE) * TEXEL_TILE + x % TEXEL_TILE]
+				sum += {f32(c.r), f32(c.g), f32(c.b), f32(c.a)} * w
+			}
+			a := sum.a / 255
+			if a <= 0 do continue
+			below := job.out[v]
+			ba := f32(below.a) / 255 * (1 - a)
+			cover := a + ba
+			next: Color
+			for k in 0 ..< 3 do next[k] = u8(clamp((sum[k] + f32(below[k]) * ba) / cover + 0.5, 0, 255))
+			next.a = u8(clamp(cover * 255 + 0.5, 0, 255))
+			job.out[v] = next
+		}
+	})
+	return out
+}
