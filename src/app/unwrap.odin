@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:math/linalg"
 import "core:time"
 
@@ -25,6 +26,11 @@ import "../uv"
 // about 1.005, and past twenty the gain is too small for the time.
 UNWRAP_RELAX_DEFAULT :: 5
 UNWRAP_RELAX_MAX :: 20
+// Set texel density's Density, in texels of a map Bake's size a unit of the scene: from a
+// prop seen far off to a close-up's detail.
+UV_TEXEL_PX_MIN :: 16
+UV_TEXEL_PX_MAX :: 16384
+UV_TEXEL_PX_DEFAULT :: 1024
 
 // The plane mirrored islands are laid out alike across, if any (uv.Symmetry's axis + 1).
 Unwrap_Symmetry :: enum u8 {
@@ -171,6 +177,35 @@ object_straighten :: proc(app: ^App, obj: ^Object) {
 	report(app, Section.Uvs, {}, "Straightened %d %s of %s%s, filling %.0f%% (%.0f ms)%s", r.straightened, "island" if r.straightened == 1 else "islands", object_label(obj), kept, 100 * u.filled, ms, note)
 }
 
+// Set texel density (UV6d): evens out `obj`'s islands to one density and sets it to `px`
+// texels of a map Bake's size a unit of the scene, the object's scale counted, or the most
+// one square holds, in one undo step with the maps that followed the old UVs.
+object_texel_density :: proc(app: ^App, obj: ^Object, px: f64) {
+	l := &obj.levels
+	sculpt.levels_sync(l)
+	if !sculpt.levels_has_uvs(l) {
+		report(app, Section.Uvs, {.Warning}, "Set texel density needs UVs: %s has none", object_label(obj))
+		return
+	}
+	side := f64(app.ui.bake.size)
+	scale := f64(obj.transform.scale)
+	if side <= 0 || scale <= 0 || px <= 0 do return
+	base := l.levels[0]
+	u := uv.clone(l.uvs, l.allocator)
+	r := uv.set_density(&u, base.mesh.positions[:], base.mesh.indices[:], px * scale / side)
+	if r.reached <= 0 {
+		uv.destroy(&u, l.allocator)
+		report(app, Section.Uvs, {.Warning}, "Set texel density left %s as it was: its UVs have no area", object_label(obj))
+		return
+	}
+	had := object_has_textures(obj)
+	textures_replace(app, obj, {}, "texel density", u)
+	reached, most := r.reached * side / scale, r.most * side / scale
+	held := fmt.tprintf(" (%.0f asked, the most one square holds)", px) if most < px - 0.5 else fmt.tprintf(", up to %.0f fits", most)
+	note := ", its maps removed (they followed the old UVs)" if had else ""
+	report(app, Section.Uvs, {}, "Set %s to %.0f px a unit at %d%s, filling %.0f%%%s", object_label(obj), reached, app.ui.bake.size, held, 100 * u.filled, note)
+}
+
 // How far Peel lays `obj` flat: the UVs section's Peel for the object it was set on while
 // that object is selected, else 0.
 uv_peel_of :: proc(app: ^App, obj: ^Object) -> f32 {
@@ -198,7 +233,8 @@ uvs_summary :: proc(obj: ^Object) -> string {
 }
 
 // The Mesh card's UVs section (mock C): Unwrap, its help, Relax, Symmetry and Keep my
-// seams, Peel, then how the UVs read now, and Straighten under More options.
+// seams, Peel, then how the UVs read now, and Straighten and Set texel density under
+// More options.
 kit_uvs_section :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	obj := selected_object(app)
@@ -238,6 +274,10 @@ kit_uvs_section :: proc(app: ^App) {
 	if kit_more(app, .Uvs) {
 		_ = command_button(app, .Straighten, variant = .Bordered)
 		ui.paragraph(ctx, "Lays each quad island out as a grid of rectangles, its rows and columns as long as on the model, so texture rows run along the loops. Islands that are not a clean grid of quads keep their shape, and all are packed again.")
+		// The density Set texel density sets, read in the same texels as the readout above.
+		if ui.slider(ctx, "Density", &app.ui.uv_texel_px, UV_TEXEL_PX_MIN, UV_TEXEL_PX_MAX, .Logarithmic, fmt.tprintf("%.0f px a unit", app.ui.uv_texel_px)) do app.ui.uv_texel_px = math.round(app.ui.uv_texel_px)
+		_ = command_button(app, .Texel_Density, variant = .Bordered)
+		ui.paragraph(ctx, "Evens out every island to one density, so detail is as fine all over, then sets it to Density as near as the square holds: less leaves the square partly empty.")
 		kit_more_end(app)
 	}
 }

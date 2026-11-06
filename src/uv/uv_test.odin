@@ -328,3 +328,33 @@ straighten_lays_quads_on_a_grid :: proc(t: ^testing.T) {
 	testing.expect(t, s.kept > 0 && s.straightened + s.kept == w.islands, "the poles' islands were straightened")
 	testing.expect_value(t, check(w, g.indices, g.faces, len(g.q.positions)), "")
 }
+
+@(test)
+set_density_evens_and_sets_it :: proc(t: ^testing.T) {
+	f := cube_grid(4, true)
+	partner, ok := quad_partners(f.q, f.indices, f.faces, context.temp_allocator)
+	if !testing.expect(t, ok) do return
+	u := make_uvs(len(f.indices) / 3, context.temp_allocator)
+	_ = unwrap(&u, f.q.positions, f.indices, f.faces, partner = partner)
+	if !testing.expect(t, u.islands > 1) do return
+	// One island at half the size of the rest, so the layout's density is uneven.
+	for &c, i in u.corner do if u.island[i] == 0 do for &p in c do p *= 0.5
+	island_density := proc(u: Uvs, positions: []geom.Vec3, indices: []u32, island: u32) -> f64 {
+		tris := make([dynamic]u32, context.temp_allocator)
+		for i, tri in u.island do if i == island do append(&tris, u32(tri))
+		return stretch(u, positions, indices, tris[:]).density
+	}
+	r := set_density(&u, f.q.positions, f.indices, 1e6)
+	testing.expect_value(t, check(u, f.indices, f.faces, len(f.q.positions)), "")
+	testing.expectf(t, r.most > 0 && r.reached == r.most, "asked past the square: %v", r)
+	first := island_density(u, f.q.positions, f.indices, 0)
+	for i in 1 ..< u.islands {
+		d := island_density(u, f.q.positions, f.indices, u32(i))
+		testing.expectf(t, abs(d - first) < 1e-3 * first, "island %d has density %v, island 0 %v", i, d, first)
+	}
+	full := u.filled
+	half := set_density(&u, f.q.positions, f.indices, r.most / 2)
+	testing.expectf(t, abs(half.reached - r.most / 2) < 1e-3 * r.most, "asked %v, reached %v", r.most / 2, half.reached)
+	testing.expectf(t, abs(half.most - r.most) < 1e-3 * r.most, "the most moved: %v then %v", r.most, half.most)
+	testing.expectf(t, abs(u.filled - full / 4) < 1e-3, "half the density fills %v of the square, full %v", u.filled, full)
+}

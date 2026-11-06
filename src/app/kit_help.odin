@@ -274,6 +274,7 @@ GLOSSARY := [?]Glossary_Entry {
 	{"Voxel remesh", "DynaMesh (ZBrush), voxel remesh (Blender, Nomad), voxelize (3DCoat)", "Rebuilds the object as an even mesh that keeps its shape, joining what overlaps.", "dynamesh voxelize", {.Remesh, .Remesh_To}},
 	{"Quad Remesh", "ZRemesher (ZBrush), QuadriFlow (Blender), auto-retopo (3DCoat)", "Builds a light mesh of quads over the sculpt, for animation, UVs and baking.", "zremesher quadriflow retopologize", {.Retopologize}},
 	{"Straighten quad islands", "Follow Active Quads (Blender), UV Squares, Rectangularize (RizomUV)", "Lays each quad island out as a grid of rectangles, rows and columns as long as on the model (Mesh card: UVs, More options).", "rectify straighten rectangularize", {.Straighten}},
+	{"Set texel density", "Texel Density add-on and Average Islands Scale (Blender), TD (RizomUV)", "Evens out every island to one texel density and sets it, in pixels a unit at Bake's size (Mesh card: UVs, More options).", "texel density td", {.Texel_Density}},
 	{"Unwrap", "UV Master (ZBrush), Smart UV Project (Blender), auto unwrap (Nomad), auto seams (3DCoat)", "Gives the object UVs: seams cut where they are least seen, each piece laid flat and packed in the square (Mesh card: UVs).", "master seams unwrap", {.Unwrap}},
 }
 

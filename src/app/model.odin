@@ -908,7 +908,7 @@ CAGE_REFUSED_COMMANDS :: Command_Set{
 }
 
 // The scene commands a cage object refuses, for the same reason.
-CAGE_REFUSED_SCENE :: bit_set[Scene_Command_Kind]{.Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Unwrap, .Straighten, .Skin_Apply, .Squeeze}
+CAGE_REFUSED_SCENE :: bit_set[Scene_Command_Kind]{.Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Unwrap, .Straighten, .Texel_Density, .Skin_Apply, .Squeeze}
 
 // Whether the selected object is a cage.
 selected_cage :: proc(app: ^App) -> bool {

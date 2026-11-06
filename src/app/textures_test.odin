@@ -505,6 +505,38 @@ straighten_is_one_undo_step :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 }
 
+// Set texel density sets the density the UVs section reads, in one undo step, and stops
+// at the most one square holds.
+@(test)
+texel_density_is_set_in_one_step :: proc(t: ^testing.T) {
+	app: App
+	defer tree_free(&app)
+	app.ui = ui_state_default()
+	objs := tree_scene(&app)
+	obj := objs[0]
+	defer textures_free(&obj.textures)
+	testing.expect(t, !command_enabled(&app, .Texel_Density), "Set texel density is offered without UVs")
+	object_unwrap(&app, obj, unwrap_setup(&app))
+	testing.expect(t, command_enabled(&app, .Texel_Density))
+	done := len(app.history.done)
+	px_of := proc(app: ^App, obj: ^Object) -> f64 {
+		return uv_readout(app, obj).density * f64(app.ui.bake.size) / f64(obj.transform.scale)
+	}
+	most := px_of(&app, obj)
+	object_texel_density(&app, obj, most / 2)
+	if !testing.expect_value(t, len(app.history.done), done + 1) do return
+	testing.expect_value(t, app.history.done[done].kind, History_Kind.Textures)
+	half := px_of(&app, obj)
+	testing.expectf(t, abs(half - most / 2) < 0.01 * most, "asked %v px, reads %v", most / 2, half)
+	object_texel_density(&app, obj, 100 * most)
+	full := px_of(&app, obj)
+	testing.expectf(t, full > half * 1.5 && full < most * 1.2, "past the square reads %v px, the unwrap's %v", full, most)
+	history_undo(&app)
+	history_undo(&app)
+	testing.expectf(t, abs(px_of(&app, obj) - most) < 1e-6 * most, "undo left %v px, not %v", px_of(&app, obj), most)
+	free_all(context.temp_allocator)
+}
+
 // Peel lays the preview flat into the UV layout: all the way, every triangle lies in the
 // square's plane facing the eye; midway each goes twice, once turned round, so nothing
 // facing away goes missing; only the object it was set on, while selected, peels.

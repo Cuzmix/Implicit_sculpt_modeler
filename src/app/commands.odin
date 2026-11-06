@@ -156,6 +156,7 @@ Command_Id :: enum u16 {
 	Retopologize,
 	Unwrap,
 	Straighten,
+	Texel_Density,
 	Make_Boolean,
 	Live_Boolean,
 	Extract_Masked,
@@ -1664,6 +1665,16 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
 			return obj != nil && obj.voxel == nil && obj.curve == nil && obj.cage == nil && sculpt.levels_has_quad_uvs(&obj.levels)
+		},
+	},
+	.Texel_Density = {
+		label = "Set texel density",
+		help = "Evens out the selected object's islands to one texel density and sets it to the UVs section's Density, as near as one square holds; the report says the most it holds.",
+		icon = rune(0xe4ee),
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Texel_Density}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel == nil && obj.curve == nil && obj.cage == nil && sculpt.levels_has_uvs(&obj.levels)
 		},
 	},
 	.Make_Boolean = {
