@@ -1,10 +1,15 @@
 package main
 
+import "core:fmt"
 import "core:log"
+import "core:path/filepath"
 import "core:slice"
+import "core:strings"
 import "core:time"
 
 import "../camera"
+import "../geom"
+import "../png_write"
 import "../render"
 import "../sculpt"
 import "../ui"
@@ -331,4 +336,52 @@ paint_layer_swatch :: proc(app: ^App, obj: ^Object, index: int) -> (ui.Color, bo
 // only: valid until the frame ends.
 object_paint_flat :: proc(obj: ^Object, s: ^sculpt.Sculptor) -> []sculpt.Color {
 	return sculpt.levels_paint_flat(&obj.levels, s)
+}
+
+// `obj`'s paint as base colour and ORM maps (sculpt.levels_texels_maps), PNG coded in
+// temporary memory, over its material's colour, roughness and metal: nil unless it has
+// texture layers to show and can show them (no voxels, HD window or dynamic topology).
+object_paint_map_pngs :: proc(app: ^App, obj: ^Object) -> (base, orm: []u8, side: int) {
+	if obj.voxel != nil || obj.curve != nil || obj.cage != nil || object_dynamic(obj) || object_in_hd(obj) do return
+	l := &obj.levels
+	sculpt.levels_texels_flush(l)
+	if !sculpt.levels_texels_show(l) do return
+	// The material as an export gives it (a classic or MatCap one as its nearest
+	// physically based look), so the maps say what the file would without them.
+	m := export_material(object_material(app, obj))
+	under: [3]u8
+	for k in 0 ..< 3 do under[k] = u8(clamp(geom.srgb_encode(m.base[k]) * 255 + 0.5, 0, 255))
+	rm := [2]u8{u8(clamp(m.roughness * 255 + 0.5, 0, 255)), u8(clamp(m.metallic * 255 + 0.5, 0, 255))}
+	b, o := sculpt.levels_texels_maps(l, under, rm, context.temp_allocator)
+	if b == nil do return
+	side = l.texels.side
+	return png_write.encode(b, side, side, false, context.temp_allocator), png_write.encode(o, side, side, false, context.temp_allocator), side
+}
+
+// Writes the selected object's paint (vertex and texture layers, over its material) into
+// `folder` as NAME_base_color.png and NAME_orm.png at its texture layers' size, NAME being
+// the object's, as Bake names its maps. False, with a note saying why, when it cannot.
+paint_maps_export :: proc(app: ^App, folder: string) -> bool {
+	obj := selected_object(app)
+	if obj == nil {
+		file_note(app, true, "Export paint maps: select an object with texture layers first")
+		return false
+	}
+	stroke_finish(app)
+	start := time.tick_now()
+	base, orm, side := object_paint_map_pngs(app, obj)
+	if base == nil {
+		file_note(app, true, "Export paint maps: %s has no texture layer showing (Layers > Paint > New layer > In a texture)", object_label(obj))
+		return false
+	}
+	name, _ := strings.replace_all(object_label(obj), " ", "_", context.temp_allocator)
+	for m in ([2]struct {
+			data:   []u8,
+			suffix: string,
+		}{{base, "_base_color.png"}, {orm, "_orm.png"}}) {
+		path, _ := filepath.join({folder, strings.concatenate({name, m.suffix}, context.temp_allocator)}, context.temp_allocator)
+		if !write_file_safely(app, path, m.data, "export") do return false
+	}
+	file_note(app, false, "%s", fmt.tprintf("Exported %s's paint as %s_base_color.png and %s_orm.png (%d x %d) in %.0f ms", object_label(obj), name, name, side, side, time.duration_milliseconds(time.tick_since(start))))
+	return true
 }

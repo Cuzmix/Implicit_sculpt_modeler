@@ -68,6 +68,7 @@ Script_Verb :: enum u8 {
 	Capture_Vdm,
 	Export_Vdm,
 	Export_Bary,
+	Export_Paint_Maps,
 	Reference,
 	Reference_Plane,
 	Stack,
@@ -109,6 +110,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Capture_Vdm   = {"capture_vdm", "a name for the VDM stamp the selected slab's top face makes, kept in the library and picked"},
 	.Export_Vdm    = {"export_vdm", "an .exr file to write the brush's VDM stamp to, laid out for the app vdm_axes names"},
 	.Export_Bary   = {"export_bary", "a .bary file to write the selected object's detail skin to, as an NVIDIA displacement micro-map"},
+	.Export_Paint_Maps = {"paint_maps", "a folder to write the selected object's paint into as NAME_base_color.png and NAME_orm.png, its texture layers' size"},
 	.Reference     = {"reference", "an image file (PNG, JPEG, BMP, TGA or QOI) to add to the References card's board"},
 	.Reference_Plane = {"reference_plane", "front, back, right, left, top, bottom or none: the view whose plane in the scene the newest picture stands on, and through to draw it over the model"},
 	.Stack         = {"stack", "the selected object's live stack: mirror x (planes together as xz, -x for the - side), array 4 2.2 0 0 (count and step, then turn x y z and size s), radial 6 y (count and axis), along 8 x (count and the axis along the scene's curve), mirror off, show array, hide radial, open array (the card on that row, its handle in the view; a cage's open deform, open displace, open curve, open wrap and open sharp too), and for a cage curve x (laid along the scene's first curve, its X along it; curve off), wrap 2 (wrapped onto the first other object, 2% of its size above; wrap off), sharp 30 (edges past 30° shade hard; sharp off), apply array (that row alone, when it is the first shown) or apply stack"},
@@ -539,7 +541,7 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		n, ok := strconv.parse_int(args[0])
 		st.count = n
 		return ok && n >= 1
-	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack, .Environment, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference, .Stack, .Curve_Add, .Layout_Save, .Cage:
+	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack, .Environment, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Export_Paint_Maps, .Reference, .Stack, .Curve_Add, .Layout_Save, .Cage:
 		// A name or path may have spaces: it is the rest of the line.
 		if len(args) == 0 do return false
 		st.text = strings.join(args, " ")
@@ -685,6 +687,9 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 	case .Export_Bary:
 		if !skin_bary_export(app, st.text) do return app.result.text, true
 		return "", true
+	case .Export_Paint_Maps:
+		if !paint_maps_export(app, st.text) do return app.result.text, true
+		return "", true
 	case .Pack_Mesh:
 		// As Add object does with the mesh picked, in place so the next line sees it.
 		j := pack_mesh_by_ref(app, st.text)
@@ -748,7 +753,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			if why := group_material_set(obj, u16(st.count), current_material(app), st.flip); why != "" do return why, true
 			app.scene_edits += 1
 			return "", true
-		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Reference, .Reference_Plane, .Stack, .Curve_Add, .Layout_Save, .Cage:
+		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Export_Paint_Maps, .Reference, .Reference_Plane, .Stack, .Curve_Add, .Layout_Save, .Cage:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true

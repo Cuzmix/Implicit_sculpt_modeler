@@ -4,7 +4,8 @@ import "core:os"
 import "core:testing"
 
 // The studio look puts on every part of it but the Render switch, Rendered being a shading
-// mode of its own; it touches no object, only what new ones take.
+// mode of its own, and opens the main view in Clay; it touches no object, only what new
+// ones take.
 @(test)
 look_studio_sets_every_part :: proc(t: ^testing.T) {
 	app: App
@@ -18,7 +19,9 @@ look_studio_sets_every_part :: proc(t: ^testing.T) {
 	testing.expect(t, app.styled && app.live_ao_on && !render_switch_on(&app) && app.look_chosen)
 	testing.expect_value(t, app.studio_softness, f32(LOOK_STUDIO_SOFTNESS))
 	testing.expect_value(t, app.ui.scene_command.kind, Scene_Command_Kind{})
-	testing.expect_value(t, main_shading_mode(&app), Shading_Mode.Lit)
+	// The main view opens in Clay on its default MatCap, Grey clay.
+	testing.expect_value(t, main_shading_mode(&app), Shading_Mode.Clay)
+	testing.expect_value(t, app.kit.passes.shading.matcap, 0)
 }
 
 // The first run puts the studio look on once; the settings then keep that it did, and what

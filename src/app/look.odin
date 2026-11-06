@@ -41,8 +41,8 @@ look_lights_studio :: proc() -> Light_Set {
 }
 
 // Puts the studio look on: its material becomes the one new objects take; its lights the
-// scene's and the starting ones; and the background, cavity, style, live occlusion and the
-// render's strengths take its values. The Render switch is left as it is: Rendered is a
+// scene's and the starting ones; the main view's look becomes Clay; and the background,
+// cavity, style, live occlusion and the render's strengths take its values. The Render switch is left as it is: Rendered is a
 // shading mode of its own. Not an undo step, as a material pick is not.
 look_studio_apply :: proc(app: ^App) {
 	if i, ok := material_by_name(LOOK_MATERIAL_STUDIO); ok do app.material = i
@@ -56,6 +56,10 @@ look_studio_apply :: proc(app: ^App) {
 	app.studio_ao = 1
 	app.studio_shadow = LOOK_STUDIO_SHADOW
 	app.studio_softness = LOOK_STUDIO_SOFTNESS
+	// The main view opens in Clay on its default MatCap (Grey clay), as ZBrush opens on a
+	// sculpting MatCap: the first stroke reads every form whatever side faces the camera.
+	// The scene's lights above are kept for Lit, Full and Rendered.
+	app.kit.passes.shading.mode = .Clay
 	render.studio_reset(&app.studio)
 	app.look_chosen = true
 }

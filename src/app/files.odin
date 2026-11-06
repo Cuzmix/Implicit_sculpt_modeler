@@ -64,6 +64,7 @@ File_Kind :: enum u8 {
 	Export_Vdm,   // the brush's VDM alpha goes to an OpenEXR file, laid out for the app vdm_axes names (vdm_files.odin)
 	Skin_Map,     // a displacement or vector displacement image goes into the selected object's skin through its UVs (skin_map.odin)
 	Export_Bary,  // the selected object's skin goes to an NVIDIA displacement micro-map file (skin_map.odin)
+	Paint_Maps,   // the selected object's paint as base colour and ORM maps go into a folder (paint.odin)
 }
 
 File_Request :: struct {
@@ -277,7 +278,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Export_Bary:                                           dialog_save(app, userdata, BARY_FILTERS[:])
 	case .Diagnostic_Report:                                     dialog_save(app, userdata, DIAGNOSTIC_FILTERS[:], diag_report_name(app))
 	case .Crash_Log:                                             dialog_save(app, userdata, TEXT_FILTERS[:], "sculpt-log-crash.txt")
-	case .Timelapse, .Turntable, .Bake:                          dialog_folder(app, userdata)
+	case .Timelapse, .Turntable, .Bake, .Paint_Maps:             dialog_folder(app, userdata)
 	}
 }
 
@@ -559,6 +560,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		_ = skin_map_load(app, req.path)
 	case .Export_Bary:
 		_ = skin_bary_export(app, req.path)
+	case .Paint_Maps:
+		_ = paint_maps_export(app, req.path)
 	case .Diagnostic_Report:
 		_ = diag_export(app, req.path)
 	case .Crash_Log:
@@ -1293,14 +1296,20 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 			morphs[k] = {sculpt.sculptor_layer_name(&l), sculpt.layer_weight(l), vertices, deltas}
 		}
 		layers = len(morphs)
-		if ext == ".glb" && object_exports_textures(obj) {
+		// Texture paint goes as its own base colour and ORM maps (object_paint_map_pngs),
+		// in place of the object's, which it was painted over; the normal map stays.
+		paint_base, paint_orm: []u8
+		if ext == ".glb" do paint_base, paint_orm, _ = object_paint_map_pngs(app, obj)
+		if ext == ".glb" && (object_exports_textures(obj) || paint_base != nil) {
 			// Its maps go as the material's textures, through the UVs, on the quads split
 			// where the UVs are, as a bake's own .glb has them (retopo.odin), with the
 			// polypaint unless a base colour map stands for it (glTF would multiply the
 			// two); polygroup materials stay out, since the maps give one material.
-			paint := colors if obj.textures.image[.Base_Color] == nil else nil
+			maps := obj.textures.image
+			if paint_base != nil do maps[.Base_Color], maps[.Orm] = paint_base, paint_orm
+			paint := colors if maps[.Base_Color] == nil else nil
 			written: bool
-			vertices, written = textured_object_glb(&out, obj, obj.levels.current, object_label(obj), obj.textures.image, material, true, morphs, paint, export_lights(app, obj.transform))
+			vertices, written = textured_object_glb(&out, obj, obj.levels.current, object_label(obj), maps, material, true, morphs, paint, export_lights(app, obj.transform))
 			if !written {
 				free_all(context.temp_allocator)
 				file_note(app, true, "Cannot export %s: a glTF file holds at most 4 GB", name)
