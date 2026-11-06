@@ -378,6 +378,7 @@ Sculptor :: struct {
 	// The History brush's target (recall.odin): the positions from before the step with
 	// id recall_step, and whether the user chose that point; nil when none is built.
 	recall:        []Vec3,
+	dial:          Dial, // an open Dial back (dial.odin)
 	recall_step:   u64,
 	recall_pinned: bool,
 	// The hidden triangles (hide.odin).
@@ -522,6 +523,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	delete(s.layer, s.history.allocator)
 	delete(s.morph, s.history.allocator)
 	delete(s.recall, s.history.allocator)
+	dial_free(s)
 	grab_destroy(&s.grab)
 	cloth_destroy(&s.cloth)
 	pose_free(s)

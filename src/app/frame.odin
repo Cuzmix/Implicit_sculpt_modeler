@@ -656,6 +656,8 @@ frame_settle :: proc(app: ^App, loop: ^Frame_Loop) -> (setting_up: bool, done: b
 		file_request_free(req)
 		if !applied do return false, false
 	}
+	// An open dial closes when what it worked on went (history_dial.odin).
+	history_dial_settle(app)
 	// View windows open and close here, before this frame acquires anything to draw into.
 	view_windows_settle(app)
 	// The main view's look follows the kind of tool in hand (Each tool keeps its look).

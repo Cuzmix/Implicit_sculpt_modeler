@@ -15,7 +15,8 @@ import "../ui"
 // points name a state to come back to, and its rename and removal; View from this step,
 // which puts the camera where it was when the step was made (ZBrush's Restore placement)
 // without moving the History; Only that object's steps, in the list; and Delete everything
-// older, which takes a second tap as the panel's button did.
+// older, which takes a second tap as the panel's button did. Dial back... opens the dial
+// over the list (history_dial.odin).
 
 // Lucide's flag and filter.
 ICON_FLAG :: rune(0xe0d6)
@@ -98,10 +99,12 @@ history_camera_follow :: proc(app: ^App, from: int) {
 
 // Opens the menu of the step whose first entry is at timeline position `head`, beside
 // `anchor` (the pointer in the list, the step's block on the strip).
-history_menu_open :: proc(app: ^App, head: int, anchor: ui.Rect, side: ui.Side) {
+// `oldest` is the row's oldest entry: a group of strokes' first one, else `head`.
+history_menu_open :: proc(app: ^App, head, oldest: int, anchor: ui.Rect, side: ui.Side) {
 	tl := &app.timeline
 	tl.menu, tl.menu_rect, tl.menu_side = true, anchor, side
 	tl.menu_step = history_entry_at(app, head).at
+	tl.menu_oldest = history_entry_at(app, oldest).at
 	tl.delete_armed_at = 0
 	tl.menus += 1
 }
@@ -160,6 +163,15 @@ kit_history_menu :: proc(app: ^App) {
 	}
 	if ui.menu_item(ctx, "Paint back to here", "History brush", ui.ICON_BRUSH, checked = recall >= head && recall <= last, enabled = paint_reason == "", reason = paint_reason, hint = "Makes the History brush paint back to how the object was before this step, and picks the brush") {
 		history_paint_back(app, head)
+		picked = true
+	}
+	// The row's oldest step: a group of strokes is dialled back as one.
+	first := head
+	if oldest, _, found := history_step_of(app, tl.menu_oldest); found && oldest <= head do first = oldest
+	// The dial shows over the list's rows.
+	dial_reason := history_dial_reason(app, first, last) if tl.view == .List else "The dial shows in the History's List view: switch to List first"
+	if ui.menu_item(ctx, "Dial back..." if first == head else "Dial back the group...", glyph = ui.ICON_STRENGTH, enabled = dial_reason == "", reason = dial_reason, hint = "Sets how much of this step stays, from none to more than it did, while the steps after it keep what they did") {
+		history_dial_begin(app, first, last)
 		picked = true
 	}
 	if e.bookmark == "" {

@@ -198,6 +198,11 @@ undo_run :: proc(app: ^App) {
 		stroke_edit_cancel(app)
 		return
 	}
+	// Undo with a dial open puts the model back as the dial found it: it was never kept.
+	if history_dial_open(app) {
+		history_dial_cancel(app)
+		return
+	}
 	if grid_undo_first(app) {
 		grid_undo(app)
 		return
@@ -218,7 +223,7 @@ redo_run :: proc(app: ^App) {
 }
 
 undo_can :: proc(app: ^App) -> bool {
-	return app.stroke_edit.open || history_can_undo(app) || grid_undo_first(app)
+	return app.stroke_edit.open || history_dial_open(app) || history_can_undo(app) || grid_undo_first(app)
 }
 
 redo_can :: proc(app: ^App) -> bool {
