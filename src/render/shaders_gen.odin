@@ -904,7 +904,7 @@ TEXTURED_LAYERS_FRAG :: gpu.Shader_Desc{
 Textured_Layers_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map, paint_map, paint_material_map, paint_height_map}
 Textured_Layers_Frag_Uniforms :: enum u32 {Material_Uniforms, Layer_Uniforms}
 
-// ui.frag.spv sha256 27b36442b9eb8e6ead0810a4529e9bfe0b995ed5c481cb5e7586856a36706ff2
+// ui.frag.spv sha256 7d5ec14dc85dd7574a3f8210f9a76cbce217ff9689bd0f0ba420f2a29feab24f
 UI_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/ui.frag" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,

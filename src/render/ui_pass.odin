@@ -22,6 +22,9 @@ Ui_Draw :: struct {
 	// filtered, which averages its samples, and with its colour taken back out of its
 	// alpha, so its edge does not darken.
 	smooth:      bool,
+	// The image is an sRGB texture (a MatCap), which samples as linear light: its colour
+	// is encoded back to the sRGB curve, so it shows as the viewport shows it.
+	encode:      bool,
 }
 
 // What the interface needs on the GPU: its pipelines (one per target format, made on
@@ -158,7 +161,7 @@ ui_pass_draw :: proc(r: ^Renderer, up: ^Ui_Pass, cmd: gpu.Cmd, pass: gpu.Render_
 		samplers := [Ui_Frag_Samplers]gpu.Texture_Sampler_Binding{.tex = {sampler = up.sampler}}
 		if d.image != 0 {
 			samplers[.tex].texture = d.image
-			fu.params = {1, 1, 1, 1 if d.smooth else 0}
+			fu.params = {1, 1, 2 if d.encode else 1, 1 if d.smooth else 0}
 			if d.smooth do samplers[.tex].sampler = up.smooth
 		} else {
 			samplers[.tex].texture = up.atlas
