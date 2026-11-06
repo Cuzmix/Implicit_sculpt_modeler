@@ -11377,6 +11377,12 @@ def run_one(name, step, screens, displays):
     crashed = any(a.startswith("--crash-test=") for a in args)
     if (proc.returncode == 0) if crashed else (proc.returncode != want_exit):
         failures.append(f"exit code {proc.returncode}: {proc.stderr.strip().splitlines()[-3:]}")
+        # The tracking allocator lists each leak on a line of its own, in no useful order:
+        # the last three lines above may be the tail of a longer list, so every one is
+        # reported, with how many there were.
+        leaks = [line.strip() for line in proc.stderr.splitlines() if "leak:" in line]
+        if leaks:
+            failures.append(f"{len(leaks)} leaks:\n       " + "\n       ".join(leaks))
     for key, ok in checks.items():
         if key.startswith("@"):
             # A check on files, or on several stats at once: it is given all of them.
