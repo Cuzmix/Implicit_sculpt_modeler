@@ -62,6 +62,7 @@ static const uint ITEM_SLOTS = 4u;  // groups may have materials of their own
 static const uint ITEM_TEXTURED = 8u; // shows its maps through its preview's UVs
 static const uint ITEM_SKINNED = 16u; // shades by its detail skin's normals
 static const uint ITEM_MATERIAL = 32u; // its paint has roughness and metal (vertex_material)
+static const uint ITEM_LAYERS = 128u; // a material in its table has a coat, sheen, glow or its own IOR or specular (rows 4 to 9)
 static const uint ITEM_SUBSURFACE = 64u; // a material in its table scatters light under its surface (subsurface_walk)
 static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
 
@@ -593,7 +594,27 @@ struct Surface {
 	float3 diffuse; // the Lambert part's colour
 	float3 f0;      // reflectance seen straight on
 	float a;      // GGX alpha, roughness squared
+	// A clear coat over it (ITEM_LAYERS): how much, its GGX alpha and its reflectance
+	// straight on; and sheen's colour (times its weight) and alpha. All zero for a surface
+	// without layers, which every branch on them then folds away.
+	float coat, coat_a, coat_f0;
+	float3 sheen;
+	float sheen_a;
 };
+
+// A surface with no coat or sheen: its diffuse colour, reflectance and alpha.
+Surface surface_plain(float3 diffuse, float3 f0, float a) {
+	Surface s;
+	s.diffuse = diffuse;
+	s.f0 = f0;
+	s.a = a;
+	s.coat = 0.0;
+	s.coat_a = 1.0;
+	s.coat_f0 = 0.0;
+	s.sheen = float3(0.0);
+	s.sheen_a = 1.0;
+	return s;
+}
 
 float3 fresnel(float3 f0, float c) {
 	return f0 + (1.0 - f0) * pow(1.0 - clamp(c, 0.0, 1.0), 5.0);
@@ -620,9 +641,28 @@ float specular_chance(Surface s, float n_dot_v) {
 	return clamp(es / max(es + ed, 1e-6), 0.05, 0.95);
 }
 
+// The chance the coat's lobe is picked, by how much it reflects toward the eye, kept
+// between bounds so neither it nor the surface under it starves; 0 without a coat.
+float coat_chance(Surface s, float n_dot_v) {
+	if (s.coat <= 0.0) return 0.0;
+	float fc = s.coat_f0 + (1.0 - s.coat_f0) * pow(1.0 - clamp(n_dot_v, 0.0, 1.0), 5.0);
+	return s.coat * clamp(4.0 * fc, 0.15, 0.6);
+}
+
+// Charlie sheen's distribution (Estevez and Kulla 2017, as glTF's KHR_materials_sheen
+// defines it) and Neubelt's visibility: the soft rim of velvet and fuzz.
+float sheen_term(float n_dot_h, float n_dot_l, float n_dot_v, float a) {
+	float inv = 1.0 / max(a, 1e-3);
+	float sin2 = max(1.0 - n_dot_h * n_dot_h, 0.0);
+	float D = (2.0 + inv) * pow(sin2, 0.5 * inv) / (2.0 * PI);
+	return D / (4.0 * (n_dot_l + n_dot_v - n_dot_l * n_dot_v));
+}
+
 // The BSDF times the cosine toward `l`, and the pdf of picking `l` with bsdf_sample (the
-// mixture of both lobes); `shine` scales the specular lobe, as a light's Highlight does
-// (1 as usual).
+// mixture of its lobes); `shine` scales the specular lobe, as a light's Highlight does
+// (1 as usual). A coat (OpenPBR's, layered as Filament does) reflects by its own GGX lobe
+// and dims what is under it by its Fresnel, toward the eye and toward the light; sheen
+// adds to the diffuse part, sampled with it.
 float3 bsdf_eval(Surface s, float3 n, float3 v, float3 l, out float pdf, float shine = 1.0) {
 	pdf = 0.0;
 	float n_dot_l = dot(n, l), n_dot_v = dot(n, v);
@@ -640,7 +680,20 @@ float3 bsdf_eval(Surface s, float3 n, float3 v, float3 l, out float pdf, float s
 	// The visible normals' pdf of h, carried over to l: G1(v) D / (4 n.v).
 	float pdf_spec = D / ((1.0 + lv) * 4.0 * n_dot_v);
 	pdf = ps * pdf_spec + (1.0 - ps) * n_dot_l / PI;
-	return (diff + spec * shine) * n_dot_l;
+	float3 f = (diff + spec * shine) * n_dot_l;
+	if (any(s.sheen > 0.0)) f += s.sheen * (sheen_term(n_dot_h, n_dot_l, n_dot_v, s.sheen_a) * n_dot_l);
+	if (s.coat > 0.0) {
+		float dc = ggx_d(n_dot_h, s.coat_a);
+		float cv = ggx_lambda(n_dot_v, s.coat_a), cl = ggx_lambda(n_dot_l, s.coat_a);
+		float fc = s.coat_f0 + (1.0 - s.coat_f0) * pow(1.0 - v_dot_h, 5.0);
+		float coat = s.coat * fc * dc / ((1.0 + cv + cl) * 4.0 * n_dot_v);
+		float fv = s.coat_f0 + (1.0 - s.coat_f0) * pow(1.0 - n_dot_v, 5.0);
+		float fl = s.coat_f0 + (1.0 - s.coat_f0) * pow(1.0 - n_dot_l, 5.0);
+		f = f * ((1.0 - s.coat * fv) * (1.0 - s.coat * fl)) + coat * shine;
+		float pc = coat_chance(s, n_dot_v);
+		pdf = pc * dc / ((1.0 + cv) * 4.0 * n_dot_v) + (1.0 - pc) * pdf;
+	}
+	return f;
 }
 
 // Whether light `i` is lit by next-event estimation alone, never by a ray the BSDF picked
@@ -672,7 +725,11 @@ bool bsdf_sample(Surface s, float3 n, float3 v, out float3 l) {
 	basis(n, t, b);
 	float n_dot_v = max(dot(n, v), 1e-4);
 	float2 u = float2(rnd(), rnd());
-	if (rnd() < specular_chance(s, n_dot_v)) {
+	if (s.coat > 0.0 && rnd() < coat_chance(s, n_dot_v)) {
+		float3 ve = float3(dot(v, t), dot(v, b), dot(v, n));
+		float3 hl = sample_vndf(ve, s.coat_a, u);
+		l = reflect(-v, t * hl.x + b * hl.y + n * hl.z);
+	} else if (rnd() < specular_chance(s, n_dot_v)) {
 		float3 ve = float3(dot(v, t), dot(v, b), dot(v, n));
 		float3 hl = sample_vndf(ve, s.a, u);
 		float3 h = t * hl.x + b * hl.y + n * hl.z;
@@ -1206,11 +1263,28 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 			guide_a = float4(albedo, 1.0);
 			guide_n = float4(n, hit.t);
 		}
-		Surface s;
 		float metallic = clamp(surf.x, 0.0, 1.0);
-		s.diffuse = albedo * (1.0 - metallic);
-		s.f0 = lerp(float3(0.04), albedo, metallic);
-		s.a = max(surf.y * surf.y, 1e-3);
+		Surface s = surface_plain(albedo * (1.0 - metallic), lerp(float3(0.04), albedo, metallic), max(surf.y * surf.y, 1e-3));
+		if ((flags & ITEM_LAYERS) != 0u) {
+			// The material's layers (rows 4 to 9 of its table, geom.Material_Layers): the
+			// base's reflectance from its IOR and specular weight, the coat, sheen, and the
+			// light it gives off, which a path meeting it gathers (no light estimate aims
+			// at a glowing surface, so nothing counts it twice).
+			float4 coat = material_row(table, material, 4u);
+			float4 sheen = material_row(table, material, 5u);
+			float4 glow = material_row(table, material, 6u);
+			float sheen_r = material_row(table, material, 8u).z;
+			float lessen = material_row(table, material, 9u).w;
+			float r0 = (coat.w - 1.0) / (coat.w + 1.0);
+			s.f0 = lerp(float3(r0 * r0 * (1.0 - lessen)), albedo, metallic);
+			float c0 = (coat.z - 1.0) / (coat.z + 1.0);
+			s.coat = coat.x;
+			s.coat_a = max(coat.y * coat.y, 1e-3);
+			s.coat_f0 = c0 * c0;
+			s.sheen = sheen.rgb * sheen.w;
+			s.sheen_a = max(sheen_r * sheen_r, 1e-3);
+			radiance += weight * (glow.rgb * glow.w);
+		}
 
 		// What the subsurface branch below changes, so the lighting, sampling and leaving of
 		// the loop stay in the one tail after it: a branch holding a break or continue of
@@ -1247,9 +1321,7 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 					absorbed = !subsurface_walk(p, ng, albedo * scatter.rgb, radius, g, weight, p_out, ng_out, n_out);
 					// Out again as a white Lambert surface (the walk carries the colour),
 					// shaded and continued below as any surface is.
-					s.diffuse = float3(1.0);
-					s.f0 = float3(0.0);
-					s.a = 1.0;
+					s = surface_plain(float3(1.0), float3(0.0), 1.0);
 					p = p_out;
 					ng = ng_out;
 					n = n_out;
