@@ -77,6 +77,9 @@ Mesh_Sculpt :: struct {
 	// positions go, nil when the dabs ran on the CPU (nothing to read back of them), and
 	// the stroke heights too, nil when no dab of the stroke keeps them.
 	queued:    [dynamic]geom.Vertex_Range,
+	// The queued dabs are the hover preview's trial (sculpt_gpu_trial): nothing of them
+	// is read back.
+	trial:     bool,
 	// The ranges whose normals the frame reads back as the kernels left them, with
 	// nothing recomputed (sculpt_gpu_queue_back), and where they go.
 	back:         [dynamic]geom.Vertex_Range,
@@ -272,7 +275,7 @@ Sculpt_Landed :: struct {
 Sculpt_Gpu_Stats :: struct {
 	strokes_gpu, strokes_cpu: int, // strokes the GPU took (normals or dabs), and the rest
 	strokes_dabs: int, // of the GPU's, those whose dabs ran there
-	dabs:       int, // dabs the kernels laid
+	dabs:       int, // dabs the kernels laid for strokes (the hover preview's are Sculpt_Trial.trials)
 	dispatches: int, // frames that ran a kernel
 	// The last frame's readbacks applied: bytes read and the time to copy and decode them.
 	applied_kb: f64,
@@ -317,6 +320,19 @@ Sculpt_Gpu :: struct {
 	recorded: bool, // this frame's command buffer holds readbacks: hand its ticket to sculpt_gpu_submitted
 	landed:   [dynamic]Sculpt_Landed,
 	stats:    Sculpt_Gpu_Stats,
+	trial:    Sculpt_Trial,
+}
+
+// The hover preview's trial dabs laid in a mesh's buffers this frame, and what they
+// wrote over, which sculpt_gpu_restore puts back before the frame's command buffer ends.
+Sculpt_Trial :: struct {
+	mesh:               ^Mesh_Buffers, // nil while no trial waits to be put back
+	positions, normals: gpu.Buffer, // the mesh's buffers the trial wrote, so a remade one is left alone
+	ranges:             [dynamic]geom.Vertex_Range,
+	verts:              u32,
+	saved:              gpu.Buffer, // the ranges' positions, then their packed normals
+	saved_capacity:     u32,
+	trials:             int, // trials laid this run, for the exit stats
 }
 
 // Whether the backend sculpts on the GPU at all: the own Vulkan and Metal backends, on a
@@ -808,6 +824,7 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 		clear(&ms.dab_ranges)
 		ms.last = false
 		ms.positions, ms.heights = nil, nil
+		ms.trial = false
 	}
 	back_bytes: u32
 	for rg in ms.back do back_bytes += rg.count * size_of(Normal_Packed)
@@ -892,6 +909,9 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 	}
 	if ms.heights != nil && ms.heights_buffer == 0 do ms.heights = nil // no dab of the stroke has kept a height yet
 	s := &sg.slots[sg.slot]
+	// A trial's ranges are put back as the frame ends: nothing of them comes back.
+	read := !ms.trial
+	if !read do verts = 0
 	pbytes := verts * size_of(geom.Vec3) if ms.positions != nil else 0
 	// With the dabs on the GPU the positions come back alone: nothing on the CPU reads a
 	// stroke's normals before it ends, and unpacking them was nearly all the readback's
@@ -1023,7 +1043,7 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 			gpu.dispatch_compute(compute, u32(groups_x), u32(groups_y), 1)
 		}
 		gpu.end_compute_pass(compute)
-		sg.stats.dabs += len(ms.dabs)
+		if read do sg.stats.dabs += len(ms.dabs)
 	}
 	if normals_count > 0 {
 		Normals_Params :: struct {
@@ -1103,6 +1123,79 @@ sculpt_gpu_dispatch :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers) -> bo
 	}
 	sg.stats.dispatches += 1
 	return true
+}
+
+// Whether a trial can run on `mb` now: the kernels are there, the mesh's lookup is up
+// for these triangles (as sculpt_gpu_begin asks, uploading nothing) and no trial waits to
+// be put back.
+sculpt_gpu_trial_ready :: proc(r: ^Renderer, mb: ^Mesh_Buffers, faces: geom.Vertex_Faces, shared: []u32) -> bool {
+	sg, ms := &r.sculpt_gpu, &mb.sculpt
+	if !r.caps.gpu_sculpt || sg.failed || ms.failed || !mb.storage || sg.trial.mesh != nil do return false
+	sizes := [3]int{len(faces.offsets) * size_of(u32), len(faces.tris) * size_of(u32), len(shared) * size_of(u32)}
+	return ms.lookup_ready && ms.lookup_version == mb.index_version && ms.lookup_sizes == sizes
+}
+
+// Lays the hover preview's trial `dabs` in `mb`'s buffers, after this frame's dispatch for
+// it (sculpt_gpu_dispatch, whose readbacks it must not reach): saves the positions and
+// normals of `ranges` (every range the dabs work on, merged), runs the dabs' kernels and
+// the ranges' normals as a stroke's would, and reads nothing back. The frame draws the
+// mesh so, and sculpt_gpu_restore puts the ranges back before the command buffer ends,
+// so the next frame, a readback or anything else reading the buffers finds them as the
+// CPU's mesh is. False, with nothing to put back, where it could not run.
+sculpt_gpu_trial :: proc(r: ^Renderer, cmd: gpu.Cmd, mb: ^Mesh_Buffers, dabs: []Sculpt_Dab, ranges: []geom.Vertex_Range) -> bool {
+	sg, ms := &r.sculpt_gpu, &mb.sculpt
+	t := &sg.trial
+	if t.mesh != nil || len(dabs) == 0 || len(ranges) == 0 || ms.failed || ms.offsets == 0 || mb.positions == 0 || mb.normals == 0 do return false
+	// The frame's own work for the mesh is recorded already.
+	if len(ms.queued) > 0 || len(ms.dabs) > 0 || len(ms.back) > 0 do return false
+	verts: u32
+	for rg in ranges do verts += rg.count
+	pbytes := verts * size_of(geom.Vec3)
+	bytes := pbytes + verts * size_of(Normal_Packed)
+	if !storage_fit(r, &t.saved, &t.saved_capacity, bytes, {.Storage_Read}) do return sculpt_refused(sg, fmt.tprintf("a hover preview buffer of %d KB", bytes >> 10))
+	debug_group(cmd, "Hover preview")
+	pass := gpu.begin_copy_pass(cmd)
+	at, nat: u32 = 0, pbytes
+	for rg in ranges {
+		gpu.copy_buffer_to_buffer(pass, {buffer = mb.positions, offset = rg.first * size_of(geom.Vec3)}, {buffer = t.saved, offset = at}, rg.count * size_of(geom.Vec3), false)
+		gpu.copy_buffer_to_buffer(pass, {buffer = mb.normals, offset = rg.first * size_of(Normal_Packed)}, {buffer = t.saved, offset = nat}, rg.count * size_of(Normal_Packed), false)
+		at += rg.count * size_of(geom.Vec3)
+		nat += rg.count * size_of(Normal_Packed)
+	}
+	gpu.end_copy_pass(pass)
+	// What the copies saved goes back as the frame ends, whatever the kernels do now.
+	t.mesh, t.positions, t.normals, t.verts = mb, mb.positions, mb.normals, verts
+	clear(&t.ranges)
+	append(&t.ranges, ..ranges)
+	sculpt_gpu_queue_dabs(mb, dabs)
+	append(&ms.queued, ..ranges)
+	ms.trial = true
+	if !sculpt_gpu_dispatch(r, cmd, mb) do return false
+	t.trials += 1
+	return true
+}
+
+// Puts back what this frame's trial wrote over (sculpt_gpu_trial), into the buffers it
+// wrote, unless they were remade since. Call once the frame has drawn everything that
+// shows the trial, before its command buffer is submitted; nothing without a trial.
+sculpt_gpu_restore :: proc(r: ^Renderer, cmd: gpu.Cmd) {
+	t := &r.sculpt_gpu.trial
+	mb := t.mesh
+	if mb == nil do return
+	t.mesh = nil
+	if mb.positions != t.positions || mb.normals != t.normals do return
+	pass := gpu.begin_copy_pass(cmd)
+	at, nat: u32 = 0, t.verts * size_of(geom.Vec3)
+	for rg in t.ranges {
+		gpu.copy_buffer_to_buffer(pass, {buffer = t.saved, offset = at}, {buffer = mb.positions, offset = rg.first * size_of(geom.Vec3)}, rg.count * size_of(geom.Vec3), false)
+		gpu.copy_buffer_to_buffer(pass, {buffer = t.saved, offset = nat}, {buffer = mb.normals, offset = rg.first * size_of(Normal_Packed)}, rg.count * size_of(Normal_Packed), false)
+		at += rg.count * size_of(geom.Vec3)
+		nat += rg.count * size_of(Normal_Packed)
+	}
+	gpu.end_copy_pass(pass)
+	// The buffers hold other values than the frame drew: no cached picture of them stands.
+	r.last_version += 1
+	mb.version = r.last_version
 }
 
 // Records the copies of the normals queued to come back (Mesh_Sculpt.back) into
@@ -1229,6 +1322,8 @@ sculpt_gpu_pending :: proc(r: ^Renderer, mb: ^Mesh_Buffers) -> bool {
 @(private)
 sculpt_gpu_forget :: proc(r: ^Renderer, mb: ^Mesh_Buffers) {
 	sg := &r.sculpt_gpu
+	// A trial on buffers going away has nothing to put back.
+	if sg.trial.mesh == mb do sg.trial.mesh = nil
 	// Buffers made later in the same place start their strokes again from 1, and a brush's
 	// tables may change between strokes: they go up afresh.
 	if sg.tables_mesh == mb {
@@ -1299,6 +1394,8 @@ sculpt_gpu_destroy :: proc(r: ^Renderer) {
 	if sg.bounds != 0 do gpu.release_buffer(sg.bounds)
 	if sg.tables != 0 do gpu.release_buffer(sg.tables)
 	delete(sg.tables_held)
+	if sg.trial.saved != 0 do gpu.release_buffer(sg.trial.saved)
+	delete(sg.trial.ranges)
 	if sg.bounds_pipeline != 0 do gpu.release_compute_pipeline(sg.bounds_pipeline)
 	if sg.pipeline != 0 do gpu.release_compute_pipeline(sg.pipeline)
 	for p in sg.dab_pipelines do if p != 0 do gpu.release_compute_pipeline(p)

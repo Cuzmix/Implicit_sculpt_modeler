@@ -537,6 +537,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		near := 0
 		for x in find.found do if x.near do near += 1
 		fmt.printfln("history_finds=%d history_find_on=%d history_found=%d history_found_near=%d", find.finds, int(find.on), len(find.found), near)
+		fmt.printfln("hover_preview=%d hover_trials=%d hover_gpu_trials=%d hover_capped=%d hover_verts=%d hover_ms=%.3f", int(app.hover_preview), app.hover.trials, app.renderer.sculpt_gpu.trial.trials, app.hover.capped, app.hover.verts, app.hover.ms)
 		back := &app.timeline.dial
 		fmt.printfln("dials=%d dial_open=%d dial_verts=%d dial_begin_ms=%.3f dial_set_ms=%.3f dial_end_ms=%.3f", back.dials, int(back.open), back.verts, back.begin_ms, back.set_ms, back.end_ms)
 		// The History panel's view, how many rows its list holds (an opened group's strokes

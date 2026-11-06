@@ -110,7 +110,16 @@ sculpt_gpu_dabs :: proc(data: rawptr, s: ^sculpt.Sculptor, dabs: []sculpt.Gpu_Da
 	app := cast(^App)data
 	_, _, gpu := sculpt_gpu_level(app, s)
 	if gpu == nil || app.renderer.sculpt_gpu.failed || gpu.sculpt.failed do return false
-	out := make([]render.Sculpt_Dab, len(dabs), context.temp_allocator)
+	out, ok := sculpt_gpu_translate(dabs)
+	if !ok do return false
+	render.sculpt_gpu_queue_dabs(gpu, out)
+	return true
+}
+
+// The sculptor's dab records as the renderer takes them, in temp memory; false for a kind
+// the kernels do not lay.
+sculpt_gpu_translate :: proc(dabs: []sculpt.Gpu_Dab) -> (out: []render.Sculpt_Dab, ok: bool) {
+	out = make([]render.Sculpt_Dab, len(dabs), context.temp_allocator)
 	for d, i in dabs {
 		kind: render.Sculpt_Dab_Kind
 		#partial switch d.kind {
@@ -121,7 +130,7 @@ sculpt_gpu_dabs :: proc(data: rawptr, s: ^sculpt.Sculptor, dabs: []sculpt.Gpu_Da
 		case .Pinch:   kind = .Pinch
 		case .Crease:  kind = .Crease
 		case .Smooth:  kind = .Smooth
-		case:          return false
+		case:          return nil, false
 		}
 		out[i] = {
 			kind         = kind,
@@ -154,8 +163,7 @@ sculpt_gpu_dabs :: proc(data: rawptr, s: ^sculpt.Sculptor, dabs: []sculpt.Gpu_Da
 			ranges       = d.ranges,
 		}
 	}
-	render.sculpt_gpu_queue_dabs(gpu, out)
-	return true
+	return out, true
 }
 
 // Queues a flush's ranges for the frame's dispatch, their positions (and the stroke
@@ -235,4 +243,22 @@ object_gpu_sync :: proc(obj: ^Object) {
 	if obj.voxel != nil do return
 	for lv in obj.levels.levels do _ = sculpt.sculptor_gpu_sync(&lv.sculptor)
 	if window := obj.levels.hd.window; window != nil do _ = sculpt.sculptor_gpu_sync(&window.sculptor)
+}
+
+// The sculptor the hover preview lays its trial dabs on for `obj`, with the level's mesh
+// and the GPU buffers that draw it: the current level, or the HD window while one is
+// open, as a stroke would reach. Nil where the GPU would not take the stroke's dabs there
+// whatever the brush (sculpt_gpu_wanted's conditions before the brush), or its lookup is
+// not up yet.
+sculpt_gpu_trial_target :: proc(app: ^App, obj: ^Object) -> (s: ^sculpt.Sculptor, gpu: ^render.Mesh_Buffers) {
+	if obj == nil || obj.voxel != nil || len(obj.levels.levels) == 0 do return
+	if !app.gpu_sculpt || !render.caps(&app.renderer).gpu_sculpt || app.renderer.sculpt_gpu.failed do return
+	lv := sculpt.levels_current(&obj.levels)
+	buffers := &obj.gpu[obj.levels.current]
+	if window := obj.levels.hd.window; window != nil do lv, buffers = window, &obj.hd_gpu
+	ls := &lv.sculptor
+	if object_dynamic(obj) || sculpt.sculptor_skin(ls) != nil || sculpt.sculptor_hidden_count(ls) > 0 do return
+	if !buffers.storage || buffers.vertex_capacity != u32(len(lv.mesh.positions)) || buffers.index_count != u32(len(lv.mesh.indices)) do return
+	if !render.sculpt_gpu_trial_ready(&app.renderer, buffers, ls.faces, sculpt.sculptor_gpu_shared(ls)) do return
+	return ls, buffers
 }

@@ -218,3 +218,30 @@ void sculpt_android_gesture_exclusion(const int32_t *rects, int32_t count)
 	}
 	(*env)->DeleteLocalRef(env, activity);
 }
+
+/*
+ * How warm the device says it is (src/app/hover_preview.odin): Android's thermal status,
+ * 0 none to 6 shutdown, through AThermal_getCurrentThermalStatus (API 30), looked up once
+ * since the app runs on older Android too; -1 where there is none.
+ */
+typedef struct AThermalManager AThermalManager;
+typedef AThermalManager *(*Thermal_Acquire)(void);
+typedef int (*Thermal_Status)(AThermalManager *);
+
+int sculpt_android_thermal(void)
+{
+	static int looked;
+	static AThermalManager *manager;
+	static Thermal_Status status;
+	if (!looked) {
+		looked = 1;
+		void *lib = dlopen("libandroid.so", RTLD_NOW);
+		if (lib) {
+			Thermal_Acquire acquire = (Thermal_Acquire)dlsym(lib, "AThermal_acquireManager");
+			status = (Thermal_Status)dlsym(lib, "AThermal_getCurrentThermalStatus");
+			if (acquire && status) manager = acquire();
+		}
+	}
+	if (!manager || !status) return -1;
+	return status(manager);
+}

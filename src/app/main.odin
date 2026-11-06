@@ -302,6 +302,8 @@ App :: struct {
 	// The scenes saved or opened lately, newest first, at most HOME_RECENT_MAX (remembered).
 	recent_scenes: [dynamic]string,
 	start_home: bool, // an interactive run given no scene starts on Home (Settings > Interface)
+	hover_preview: bool, // the dab shows under a hovering brush (Settings > Interface; hover_preview.odin)
+	hover:      Hover_Preview,
 	send_receive: bool, // Receive scenes (Settings > Files > Send scenes): a desktop listens for sends
 	timeline: Timeline, // the History panel's scrubbing, playback and time-lapse (timeline.odin)
 	replay:   Replay, // the Stroke recorder's last stroke, recording and replay (replay.odin)
@@ -836,6 +838,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.ray_query = RAY_QUERY_DEFAULT
 	app.async_compute = true
 	app.start_home = true
+	app.hover_preview = true
 	app.idle.forced = opts.idle_sleep
 	app.msaa = MSAA_DEFAULT
 	// Before the settings file, which brings back what earlier runs chose.

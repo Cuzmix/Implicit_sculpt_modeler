@@ -283,7 +283,44 @@ dab_gpu_record :: proc(s: ^Sculptor, d: ^Dab, brush: Brush) {
 	s.gpu_unlanded += 1
 	s.gpu_flush_count += 1
 
-	// The amounts as dab_once sets them for each kind (the area the kernels find themselves).
+	rec := gpu_dab_make(s, d, brush)
+	if rec.once {
+		// The GPU's heights come back with the positions, into the same entries the
+		// CPU's dabs write (sculptor_gpu_heights).
+		layer_heights_fit(s)
+		s.gpu_once = true
+	}
+	// The hit leaves' owned ranges, coalesced in vertex order as the flush reports its own.
+	first := len(s.gpu_ranges)
+	spans := make([]Vertex_Range, len(s.hit), context.temp_allocator)
+	for leaf, i in s.hit {
+		n := s.nodes[s.node_of[leaf]]
+		spans[i] = {n.vert_first, n.vert_count}
+	}
+	slice.sort_by(spans, proc(a, b: Vertex_Range) -> bool {return a.first < b.first})
+	for sp in spans {
+		if len(s.gpu_ranges) > first {
+			last := &s.gpu_ranges[len(s.gpu_ranges) - 1]
+			if last.first + last.count == sp.first {
+				last.count += sp.count
+				continue
+			}
+		}
+		append(&s.gpu_ranges, sp)
+	}
+	rec.range_first, rec.range_count = first, len(s.gpu_ranges) - first
+	append(&s.gpu_dabs, rec)
+	leaf_first := len(s.gpu_leaves)
+	append(&s.gpu_leaves, ..s.hit[:])
+	append(&s.gpu_replay, Gpu_Replay{d = d^, brush = brush, leaf_first = leaf_first, leaf_count = len(s.hit)})
+}
+
+// A dab's record for the GPU's kernels as dab_once prepared `d` (centre, reach, view) for
+// `brush`, with no ranges yet: the amounts as dab_once sets them for each kind, the area
+// being the kernels' own to find. Reads the sculptor, writes nothing (the hover preview's
+// trial dabs make theirs here too).
+@(private)
+gpu_dab_make :: proc(s: ^Sculptor, d: ^Dab, brush: Brush) -> Gpu_Dab {
 	sign: f32 = -1 if brush.invert else 1
 	rec := Gpu_Dab {
 		kind         = brush.kind,
@@ -312,12 +349,6 @@ dab_gpu_record :: proc(s: ^Sculptor, d: ^Dab, brush: Brush) {
 	case .Draw, .Inflate:
 		rec.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
 		rec.once = brush.no_accumulate
-		if rec.once {
-			// The GPU's heights come back with the positions, into the same entries the
-			// CPU's dabs write (sculptor_gpu_heights).
-			layer_heights_fit(s)
-			s.gpu_once = true
-		}
 	case .Clay:
 		rec.amount = sign
 		rec.plane_offset = sign * brush.radius * CLAY_HEIGHT
@@ -332,29 +363,7 @@ dab_gpu_record :: proc(s: ^Sculptor, d: ^Dab, brush: Brush) {
 			rec.passes = i + 1
 		}
 	}
-	// The hit leaves' owned ranges, coalesced in vertex order as the flush reports its own.
-	first := len(s.gpu_ranges)
-	spans := make([]Vertex_Range, len(s.hit), context.temp_allocator)
-	for leaf, i in s.hit {
-		n := s.nodes[s.node_of[leaf]]
-		spans[i] = {n.vert_first, n.vert_count}
-	}
-	slice.sort_by(spans, proc(a, b: Vertex_Range) -> bool {return a.first < b.first})
-	for sp in spans {
-		if len(s.gpu_ranges) > first {
-			last := &s.gpu_ranges[len(s.gpu_ranges) - 1]
-			if last.first + last.count == sp.first {
-				last.count += sp.count
-				continue
-			}
-		}
-		append(&s.gpu_ranges, sp)
-	}
-	rec.range_first, rec.range_count = first, len(s.gpu_ranges) - first
-	append(&s.gpu_dabs, rec)
-	leaf_first := len(s.gpu_leaves)
-	append(&s.gpu_leaves, ..s.hit[:])
-	append(&s.gpu_replay, Gpu_Replay{d = d^, brush = brush, leaf_first = leaf_first, leaf_count = len(s.hit)})
+	return rec
 }
 
 // Hands the frame's dab records to the GPU, from sculptor_flush before the normals; where

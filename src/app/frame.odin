@@ -386,6 +386,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	physics_proxy_draw(app, &draws, &froms)
 	// The live stack's copies, after every item they copy (the boolean preview's too).
 	stack_draw_copies(app, &draws, &froms)
+	// The hover preview's dab, laid after every dispatch above and put back below.
+	hover_preview_frame(app, cmd, input, draws[:], !rested)
 	aspect := f32(app.target.width) / f32(app.target.height)
 	view, proj := camera.orbit_view(app.camera), camera.orbit_proj(app.camera, aspect)
 	// The main view's role lent to a view pane or given back is no turn of the view: what
@@ -463,6 +465,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	}
 	render_mode_frame(app, cmd, view, proj, draws[:], changed)
 	finish_view_frame(app, cmd, changed)
+	// Before captures, pictures and other views, which show the model as it is.
+	hover_preview_restore(app, cmd)
 	// A --dump-viewport run's last frame draws its transparent picture, when that is on.
 	if loop.opts.dump_viewport != "" && app.screenshot_transparent && loop.opts.frames > 0 && loop.frame_index == loop.opts.frames - 1 do capture_request(app, loop.opts.dump_viewport)
 	capture_frame(app, cmd, view, proj, draws[:])

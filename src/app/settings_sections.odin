@@ -49,6 +49,7 @@ SETTINGS_INTERFACE := [?]Settings_Entry {
 	{.Motion, "MOTION"},
 	{.Starting, "STARTING"},
 	{.Brush_Ring, "BRUSH RING"},
+	{.Hover_Preview, "HOVER PREVIEW"},
 	{.Symmetry_Line, "SYMMETRY"},
 	{.View_Grid, "VIEW GRID"},
 	{.Inspector, "CARDS"},
