@@ -507,7 +507,7 @@ RENDER_DISPLAY_LINEAR_FRAG :: gpu.Shader_Desc{
 Render_Display_Linear_Frag_Samplers :: enum u32 {view_color, accum, denoised, guide_albedo}
 Render_Display_Linear_Frag_Uniforms :: enum u32 {Display_Uniforms}
 
-// render_trace.comp.spv sha256 32c789698863550cf292afd07f1bbc567bc76ef311ababec0bbae6f0fe901282
+// render_trace.comp.spv sha256 c0370c8dbc2a913bc3d0accd65e0aaaa80e339e2964937005b84face55bd9beb
 RENDER_TRACE_COMP :: gpu.Compute_Pipeline_Desc{
 	code = #load("shaders/render_trace.comp" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
@@ -528,7 +528,7 @@ Render_Trace_Comp_Write_Textures :: enum u32 {next, guide_albedo, guide_normal}
 Render_Trace_Comp_Uniforms :: enum u32 {Render_Uniforms}
 Render_Trace_Comp_Constants :: enum u32 {RT_ITEMS, RT_ENV_IMAGE, RT_LENS, RT_SPHERE_LIGHTS}
 
-// render_trace_maps.comp.spv sha256 5005b32dc903d05d867b11c6291a997255a0071b3ffbf66d58403c868545c0b8
+// render_trace_maps.comp.spv sha256 de06f8b4eb4fb054fa3cb2319deb01630a92a4a87b7efd2a6859020ad52f5b87
 when gpu.VULKAN {
 	RENDER_TRACE_MAPS_COMP :: gpu.Compute_Pipeline_Desc{
 		code = #load("shaders/render_trace_maps.comp.spv", string),
@@ -551,7 +551,7 @@ Render_Trace_Maps_Comp_Write_Textures :: enum u32 {next, guide_albedo, guide_nor
 Render_Trace_Maps_Comp_Uniforms :: enum u32 {Render_Uniforms}
 Render_Trace_Maps_Comp_Constants :: enum u32 {RT_ITEMS, RT_ENV_IMAGE, RT_LENS, RT_SPHERE_LIGHTS}
 
-// render_trace_maps_rq.comp.spv sha256 53e1b77faa2f315789c02bc56c413ada53714f34c6e888c040746dd5f8e37558
+// render_trace_maps_rq.comp.spv sha256 cb4453a5defdf32108eac379ae53343dbffb83dff42176d9bf22c81bca255887
 when gpu.VULKAN {
 	RENDER_TRACE_MAPS_RQ_COMP :: gpu.Compute_Pipeline_Desc{
 		code = #load("shaders/render_trace_maps_rq.comp.spv", string),
@@ -574,7 +574,7 @@ Render_Trace_Maps_Rq_Comp_Write_Textures :: enum u32 {next, guide_albedo, guide_
 Render_Trace_Maps_Rq_Comp_Uniforms :: enum u32 {Render_Uniforms}
 Render_Trace_Maps_Rq_Comp_Constants :: enum u32 {RT_ITEMS, RT_ENV_IMAGE, RT_LENS, RT_SPHERE_LIGHTS}
 
-// render_trace_rq.comp.spv sha256 7b53aa618867bf416d24cda69884e695f090281b36568338ab992a0e10b1382d
+// render_trace_rq.comp.spv sha256 f8a48cc66c59b8e00b83eff49ea51d692dc6824a9794c979f22d81b095e869b6
 RENDER_TRACE_RQ_COMP :: gpu.Compute_Pipeline_Desc{
 	code = #load("shaders/render_trace_rq.comp" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,

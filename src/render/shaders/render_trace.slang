@@ -40,10 +40,11 @@ struct Item {
 	float4x4 inv_model;
 	float4 color;      // the base colour, linear
 	float4 surface;    // x: metallic, y: roughness
-	uint4 offs;      // x: the item's first vertex in the merged buffers, y: ITEM_ flags, z: under RAY_QUERY where its geometries' first triangles start in `order`
+	// x: the item's first vertex in the merged buffers, y: ITEM_ flags, z: under RAY_QUERY
+	// where its geometries' first triangles start in `order`, w: where its materials start
+	// in `chunks` (material_row), 0 for none
+	uint4 offs;
 	uint4 slot_group[4];   // the polygroup of each material slot from 1
-	float4 slot_color[16];   // each slot's colour, as `color`
-	float4 slot_surface[16]; // ...and surface, as `surface`
 	// ITEM_TEXTURED: its first triangle (a skinned item's too), where its corners and its preview vertices start
 	// in `textured`, and its map slot (bits 0-3, 3 for none; bits 16-23 under MAP_ARRAY), view
 	// (4-7: 1 the maps, 2 the normal map, 3 the UV checker) and maps it has (8-10: base
@@ -569,6 +570,14 @@ void basis(float3 n, out float3 t, out float3 b) {
 	b = float3(c, s + n.y * n.y * a, -n.y);
 }
 
+// Row `row` of material `k` in an item's table, which starts at `table` in `chunks`
+// (render.path_material_rows): 0 its colour, 1 its surface (metallic, roughness), then
+// from 2 its layers' eight rows (geom.Material_Layers).
+static const uint MATERIAL_ROWS = 10u;
+float4 material_row(uint table, uint k, uint row) {
+	return asfloat(chunks[table + MATERIAL_ROWS * k + row]);
+}
+
 float luminance(float3 c) {
 	return dot(c, float3(0.2126, 0.7152, 0.0722));
 }
@@ -928,10 +937,11 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 			// The group from the corner the triangle is drawn from, as mesh.vert.slang takes it.
 			uint group = vertex_paint(base + ia).y & 0xFFFFu;
 			if ((flags & ITEM_SLOTS) != 0u) {
+				uint table = items[hit.item].offs.w;
 				for (uint k = 1u; k < 16u; k++) {
 					if (items[hit.item].slot_group[k >> 2][k & 3u] == group) {
-						albedo = items[hit.item].slot_color[k].rgb;
-						surf = items[hit.item].slot_surface[k].xy;
+						albedo = material_row(table, k, 0u).rgb;
+						surf = material_row(table, k, 1u).xy;
 					}
 				}
 			}

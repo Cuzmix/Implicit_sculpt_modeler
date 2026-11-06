@@ -307,10 +307,10 @@ Item_Record :: struct {
 	inv_model:    Mat4,
 	color:        [4]f32,
 	surface:      [4]f32, // x: metallic, y: roughness
-	offs:         [4]u32, // x: the first vertex, y: the ITEM_ flags
+	// x: the first vertex, y: the ITEM_ flags, w: where its materials start in the chunks
+	// buffer (path_material_rows), 0 for none
+	offs:         [4]u32,
 	slot_group:   [GROUP_SLOTS]u32,
-	slot_color:   [GROUP_SLOTS][4]f32,
-	slot_surface: [GROUP_SLOTS][4]f32,
 	// A textured item's (ITEM_TEXTURED): its first triangle in the merged indices (a skinned
 	// item's too), where
 	// its corners and its preview vertices start in the Textured buffer (words), and its
@@ -320,7 +320,7 @@ Item_Record :: struct {
 	// start in the attributes (words), and the skin's vertex and edge counts.
 	skin:         [4]u32,
 }
-#assert(size_of(Item_Record) == 784)
+#assert(size_of(Item_Record) == 272)
 
 // Matches Render_Uniforms in render_trace.comp.slang (std140).
 Render_Uniforms :: struct {
@@ -1036,7 +1036,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^View
 
 	// The chunks, rebased into the merged buffers, and the tree over the shown ones in the
 	// world.
-	chunks := make([][4]u32, max(chunk_count, 1), context.temp_allocator)
+	chunks := make([dynamic][4]u32, max(chunk_count, 1), context.temp_allocator)
 	world_bounds := make([dynamic]geom.Aabb, context.temp_allocator)
 	world_ids := make([dynamic]u32, context.temp_allocator)
 	records := make([]Item_Record, max(len(placed), 1), context.temp_allocator)
@@ -1046,6 +1046,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^View
 		item := items[p.item]
 		tm := item.mesh.trace
 		records[k] = path_item_record(item, p, skin_base)
+		path_material_rows(&chunks, item, &records[k])
 		if rq {
 			records[k].offs.z = p.word_off
 			for g, j in tm.geometries do starts[p.word_off + u32(j)] = p.tri_off + g.first_triangle
@@ -1128,7 +1129,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^View
 		}
 	}
 	gpu.end_copy_pass(copy_pass)
-	ok := path_upload(r, pr, cmd, .Chunks, 0, slice.to_bytes(chunks)) &&
+	ok := path_upload(r, pr, cmd, .Chunks, 0, slice.to_bytes(chunks[:])) &&
 		path_upload(r, pr, cmd, .Items, 0, slice.to_bytes(records)) &&
 		path_upload(r, pr, cmd, .Nodes, int(node_count) * size_of(geom.Gpu_Bvh_Node), slice.to_bytes(tlas[:])) &&
 		path_upload(r, pr, cmd, .Order, 0, slice.to_bytes(starts))
@@ -1263,13 +1264,40 @@ path_item_record :: proc(item: Draw_Item, p: Path_Item, skin_base: u32) -> (rec:
 			rec.offs.y |= ITEM_SLOTS
 			s := item.slots
 			rec.slot_group = s.groups
-			for k in 0 ..< GROUP_SLOTS {
-				rec.slot_color[k] = s.uniforms.color[k]
-				rec.slot_surface[k] = {s.uniforms.surface[k].x, path_roughness(s.uniforms.params[k], s.uniforms.surface[k].xy), 0, 0}
-			}
 		}
 	}
 	return
+}
+
+// The words of one material in an item's table (render_trace.slang's material_row): its
+// colour, its surface (metallic, roughness) and its layers' eight rows.
+MATERIAL_ROWS :: 2 + size_of(geom.Material_Layers) / size_of([4]f32)
+// render_trace.slang declares the same count.
+#assert(MATERIAL_ROWS == 10)
+
+// Appends an item's materials to `rows`, setting `rec.offs.w` to where they start: its own
+// as slot 0, then each group slot's when it has group materials, which the kernel finds by
+// slot; nothing for an item with neither slots nor layers, which reads its record's own
+// colour and surface. The first row of the chunks buffer is never a table's (a table
+// follows the chunks), so 0 means none.
+@(private = "file")
+path_material_rows :: proc(rows: ^[dynamic][4]u32, item: Draw_Item, rec: ^Item_Record) {
+	slotted := rec.offs.y & ITEM_SLOTS != 0
+	if !slotted && item.layers == {} do return
+	rec.offs.w = u32(len(rows))
+	put :: proc(rows: ^[dynamic][4]u32, color, surface: [4]f32, layers: geom.Material_Layers) {
+		color, surface, layers := color, surface, layers
+		append(rows, transmute([4]u32)color, transmute([4]u32)surface)
+		words := transmute([MATERIAL_ROWS - 2][4]u32)layers
+		append(rows, ..words[:])
+	}
+	put(rows, rec.color, rec.surface, item.layers)
+	if !slotted do return
+	s := item.slots
+	for k in 1 ..< GROUP_SLOTS {
+		surface := [4]f32{s.uniforms.surface[k].x, path_roughness(s.uniforms.params[k], s.uniforms.surface[k].xy), 0, 0}
+		put(rows, s.uniforms.color[k], surface, s.layers[k])
+	}
 }
 
 @(private = "file")

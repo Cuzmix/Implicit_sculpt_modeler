@@ -27,6 +27,7 @@ of them there too.
 import argparse
 import os
 import pathlib
+import platform
 import shutil
 import subprocess
 import sys
@@ -35,7 +36,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SHADERS = ROOT / "src" / "render" / "shaders"
 SOURCE = ROOT / "scripts" / "kernel_stats.c"
 BINARY = ROOT / "build" / "kernel_stats"
-RADV = pathlib.Path("/usr/share/vulkan/icd.d/radeon_icd.json")
+# Debian and Ubuntu name the driver's manifest radeon_icd.json, Fedora by its architecture.
+RADV = next((p for p in (pathlib.Path("/usr/share/vulkan/icd.d/radeon_icd.json"),
+                         pathlib.Path(f"/usr/share/vulkan/icd.d/radeon_icd.{platform.machine()}.json")) if p.exists()),
+            pathlib.Path("/usr/share/vulkan/icd.d/radeon_icd.json"))
 COLUMNS = [("VGPRs", "VGPRs"), ("Subgroups per SIMD", "Waves/SIMD"), ("Instructions", "Instructions"),
            ("Inverse Throughput", "Cycles/wave"), ("Scratch size", "Scratch B"), ("Spilled VGPRs", "Spilled")]
 
