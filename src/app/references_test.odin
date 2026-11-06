@@ -1,5 +1,6 @@
 package main
 
+import "core:math"
 import "core:slice"
 import "core:testing"
 
@@ -47,6 +48,7 @@ references_read_back_as_written :: proc(t: ^testing.T) {
 	app.scene.refs.refs[1].plane, app.scene.refs.refs[1].plane_at, app.scene.refs.refs[1].plane_h = .Right, {0.5, 1, -2}, 1.75
 	app.scene.refs.refs[1].through, app.scene.refs.refs[1].plane_off = true, true
 	app.scene.refs.refs[1].marks = {0.2, 0.7}
+	app.scene.refs.refs[0].angle, app.scene.refs.refs[0].view_angle, app.scene.refs.refs[0].view_locked = 0.5, -2.75, true
 	app.scene.refs.view_off = true
 	refs_add_note(&app)
 	app.scene.refs.refs[2].text = {}
@@ -491,4 +493,130 @@ reference_planes_line_up_with_the_guides :: proc(t: ^testing.T) {
 	refs_line_up_picked(&app)
 	testing.expect_value(t, p.plane_h, f32(3))
 	testing.expect(t, refs_marks_ok({}) && refs_marks_ok(REF_MARKS) && !refs_marks_ok({0.5, 0.52}))
+}
+
+// The board's order as ids, bottom first.
+@(private = "file")
+test_refs_order :: proc(app: ^App) -> [4]u32 {
+	out: [4]u32
+	for r, i in app.scene.refs.refs do if i < 4 do out[i] = r.id
+	return out
+}
+
+// Bringing places to the front moves them to the list's end, the pressed one last, and
+// passes locked ones by; sending to the back moves them to its start, locked ones too,
+// keeping their order among themselves; neither changes anything already there.
+@(test)
+references_order_front_and_back :: proc(t: ^testing.T) {
+	app: App
+	defer test_refs_free(&app)
+	for _ in 0 ..< 4 do refs_add_note(&app)
+	list := &app.scene.refs.refs
+	testing.expect_value(t, test_refs_order(&app), [4]u32{1, 2, 3, 4})
+	testing.expect(t, refs_bring_front(list, {2}, 2))
+	testing.expect_value(t, test_refs_order(&app), [4]u32{1, 3, 4, 2})
+	testing.expect(t, !refs_bring_front(list, {2}, 2))
+	testing.expect(t, refs_bring_front(list, {1, 3}, 1))
+	testing.expect_value(t, test_refs_order(&app), [4]u32{4, 2, 3, 1})
+	list[0].locked = true
+	testing.expect(t, !refs_bring_front(list, {4}, 4))
+	testing.expect(t, refs_send_back(list, {3, 1}))
+	testing.expect_value(t, test_refs_order(&app), [4]u32{3, 1, 4, 2})
+	testing.expect(t, !refs_send_back(list, {3, 1}))
+	testing.expect(t, refs_send_back(list, {4}))
+	testing.expect_value(t, test_refs_order(&app), [4]u32{4, 3, 1, 2})
+}
+
+// Send to back is one undo step, and undo puts the order back; with nothing to move it
+// lists no step.
+@(test)
+references_send_back_is_one_undo_step :: proc(t: ^testing.T) {
+	app: App
+	defer test_refs_free(&app)
+	for _ in 0 ..< 3 do refs_add_note(&app)
+	steps := len(app.history.done)
+	b := &app.kit.board
+	clear(&b.selected)
+	append(&b.selected, 3)
+	refs_send_back_selected(&app)
+	testing.expect_value(t, test_refs_order(&app), [4]u32{3, 1, 2, 0})
+	testing.expect_value(t, len(app.history.done), steps + 1)
+	refs_send_back_selected(&app)
+	testing.expect_value(t, len(app.history.done), steps + 1)
+	history_undo(&app)
+	testing.expect_value(t, test_refs_order(&app), [4]u32{1, 2, 3, 0})
+}
+
+// Add asks for files at once on a desktop or Android; with the iPad's photo picker it opens
+// the choice of Photos and Files instead, and each choice asks for its own.
+@(test)
+references_add_asks_files_or_offers_photos :: proc(t: ^testing.T) {
+	app: App
+	defer test_refs_free(&app)
+	app.no_dialogs = true
+	b := &app.kit.board
+	refs_add_ask(&app, {})
+	testing.expect_value(t, b.asked_files, 1)
+	testing.expect_value(t, app.dialogs_asked, 1)
+	testing.expect(t, !b.add_menu)
+	app.photos_picker = true
+	refs_add_ask(&app, {10, 20, 40, 40})
+	testing.expect(t, b.add_menu)
+	testing.expect_value(t, b.asked_files, 1)
+	refs_ask_photos(&app)
+	testing.expect_value(t, b.asked_photos, 1)
+	testing.expect_value(t, app.dialogs_asked, 1)
+}
+
+// A rect turned about its middle and a point taken back through the turn land where they
+// began, a quarter turn clockwise sends the top right corner to the bottom right, and a
+// pinch and twist about a point leaves that point where it was.
+@(test)
+references_turn_about_the_middle :: proc(t: ^testing.T) {
+	r := ui.Rect{10, 20, 40, 20}
+	c := refs_turned(r, math.PI / 2)
+	testing.expect(t, abs(c[1].x - 40) < 1e-4 && abs(c[1].y - 50) < 1e-4)
+	p := [2]f32{17, 33}
+	q := refs_unturn(r, 0.7, p)
+	back := [2]f32{r.x + r.w * 0.5, r.y + r.h * 0.5} + refs_rotate(q - {r.x + r.w * 0.5, r.y + r.h * 0.5}, 0.7)
+	testing.expect(t, abs(back.x - p.x) < 1e-4 && abs(back.y - p.y) < 1e-4)
+	m := [2]f32{5, -3}
+	testing.expect_value(t, refs_turn_about(m, m, 2, 1.1, {}), m)
+	moved := refs_turn_about({7, -3}, m, 2, math.PI / 2, {1, 1})
+	testing.expect(t, abs(moved.x - 6) < 1e-4 && abs(moved.y - 2) < 1e-4)
+	testing.expect(t, abs(refs_wrap(3 * math.PI / 2) + math.PI / 2) < 1e-5)
+}
+
+// Two fingers that land on a picture over the view while the view has the touch scale and
+// turn it about their middle, and lifting them lists one undo step; on a picture locked on
+// the view they are left to the camera.
+@(test)
+references_two_fingers_turn_a_picture_on_view :: proc(t: ^testing.T) {
+	app: App
+	defer test_refs_free(&app)
+	_, _ = refs_add(&app, "a.png", test_png(4, 4, 10), {})
+	p := &app.scene.refs.refs[0]
+	p.view, p.view_at, p.view_w = true, {0.25, 0.25}, 0.5
+	app.kit.scale = 1
+	app.kit.grid.main = {0, 0, 400, 400}
+	tch := &app.touch
+	tch.owner, tch.gesture = .Viewport, true
+	_ = ui.fingers_down(&tch.fingers, 1, {150, 200}, 0)
+	_ = ui.fingers_down(&tch.fingers, 2, {250, 200}, 0)
+	testing.expect(t, refs_touch_gesture(&app, {zoom = 1, middle = {200, 200}}))
+	testing.expect(t, refs_touch_gesture(&app, {zoom = 1.5, twist = 0.5, middle = {200, 200}}))
+	p = &app.scene.refs.refs[0]
+	testing.expect(t, abs(p.view_w - 0.75) < 1e-5)
+	testing.expect(t, abs(p.view_angle - 0.5) < 1e-5)
+	r := refs_view_rect(app.kit.grid.main, p^)
+	testing.expect(t, abs(r.x + r.w * 0.5 - 200) < 1e-3 && abs(r.y + r.h * 0.5 - 200) < 1e-3)
+	ui.fingers_clear(&tch.fingers)
+	testing.expect(t, !refs_touch_gesture(&app, {zoom = 1}))
+	testing.expect_value(t, len(app.history.done), 1)
+	testing.expect_value(t, app.kit.board.turns, 1)
+	p.view_locked = true
+	_ = ui.fingers_down(&tch.fingers, 1, {150, 200}, 0)
+	_ = ui.fingers_down(&tch.fingers, 2, {250, 200}, 0)
+	testing.expect(t, !refs_touch_gesture(&app, {zoom = 2, middle = {200, 200}}))
+	testing.expect(t, abs(app.scene.refs.refs[0].view_w - 0.75) < 1e-5)
 }

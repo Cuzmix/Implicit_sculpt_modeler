@@ -36,7 +36,7 @@ score clears the bar; and computed checks beat judged ones wherever a number exi
 | Category | 9 or 10 looks like |
 |---|---|
 | Clay first | the model is the brightest, largest thing; chrome recedes; nothing competes with a stroke |
-| Hierarchy | one entry point per panel; the common controls first and largest; secondary text clearly quieter |
+| Hierarchy | one implementation per control, reached where the hand already is; the common controls first and largest; secondary text clearly quieter |
 | Typography | the ramp's steps only; one weight for labels, one for values; nothing cut off that matters |
 | Iconography | one icon one meaning; brushes told apart by their effect; icons aligned on one grid and weight |
 | Colour and contrast | the accent means "active" only; every text 4.5:1 or better; disabled is clearly disabled yet legible |

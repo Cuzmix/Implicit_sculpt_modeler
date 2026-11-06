@@ -185,7 +185,7 @@ grid_lines_put :: proc(k: ^Kit_State, text: string) {
 	grid_undo_clear(&k.grid)
 	for line in strings.split_lines(text, context.temp_allocator) {
 		f := strings.fields(line, context.temp_allocator)
-		if len(f) > 0 do grid_layout_read(&k.grid, f)
+		if len(f) > 0 do grid_layout_read(k, f)
 	}
 }
 

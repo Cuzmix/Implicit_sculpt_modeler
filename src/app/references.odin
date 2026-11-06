@@ -52,7 +52,7 @@ Ref_Image :: struct {
 }
 
 // A place of a picture on the board: its top left and size in board points (a point at
-// zoom 1), drawn in the list's order, the last on top. `sized` is false until the
+// zoom 1), drawn in the list's order, the last on top (a picked one is moved there). `sized` is false until the
 // picture's own shape is known, when the place takes it at the same height. What it shows
 // is the picture's part between crop_lo and crop_hi (its texture coordinates, 0 to 1),
 // mirrored left to right when flipped, then turned a quarter clockwise `turn` times, in
@@ -61,7 +61,10 @@ Ref_Image :: struct {
 // note, its text NUL-ended in `text`, drawn in its box at a size its height sets. A
 // picture's place can also stand over the view (`view`): its top left at `view_at` and
 // its width `view_w`, as parts of the main view's width (its height from its shape), at
-// `opacity`. And it can stand on a plane in the scene (`plane`, refs_planes.odin), facing
+// `opacity`, turned `view_angle` radians clockwise about its middle, and kept there by
+// `view_locked` (two fingers then turn the view, not the picture). On the board it is
+// turned `angle` radians clockwise about its middle (a note never is), shown upright
+// while it is cropped. And it can stand on a plane in the scene (`plane`, refs_planes.odin), facing
 // that axis view: its middle at `plane_at` in the world, `plane_h` tall (its width from
 // its shape), drawn over the model when `through`, shown from any side when `plane_any`
 // and hidden while `plane_off`; it shares the opacity with the view's. Its `marks` are
@@ -75,6 +78,7 @@ Ref :: struct {
 	crop_lo: [2]f32,
 	crop_hi: [2]f32,
 	turn:    u8,
+	angle:   f32,
 	flip:    bool,
 	grey:    bool,
 	locked:  bool,
@@ -83,6 +87,8 @@ Ref :: struct {
 	view_at: [2]f32,
 	view_w:  f32,
 	opacity: f32,
+	view_angle:  f32,
+	view_locked: bool,
 	plane:     Ref_Plane,
 	plane_at:  [3]f32,
 	plane_h:   f32,
@@ -456,6 +462,58 @@ image_size_peek :: proc(b: []u8) -> (w, h: int, ok: bool) {
 	return
 }
 
+// Moves the places of `ids` to the top of `list` (its end, drawn last), keeping their order
+// among themselves with `top` last of all, as picking a picture in PureRef brings it
+// forward; locked places stay where they are in the order, so a backdrop locked behind the
+// rest is never raised over them by a tap that only pans. True when the order changed.
+refs_bring_front :: proc(list: ^[dynamic]Ref, ids: []u32, top: u32) -> bool {
+	raised :: proc(r: Ref, ids: []u32) -> bool {
+		if r.locked do return false
+		for id in ids do if id == r.id do return true
+		return false
+	}
+	out := make([dynamic]Ref, 0, len(list), context.temp_allocator)
+	for r in list do if !raised(r, ids) do append(&out, r)
+	for r in list do if raised(r, ids) && r.id != top do append(&out, r)
+	for r in list do if raised(r, ids) && r.id == top do append(&out, r)
+	return refs_order_take(list, out[:])
+}
+
+// Moves the places of `ids` to the bottom of `list` (its start, drawn first), keeping
+// their order among themselves; locked ones too, since it is asked for by name. True when
+// the order changed.
+refs_send_back :: proc(list: ^[dynamic]Ref, ids: []u32) -> bool {
+	picked :: proc(r: Ref, ids: []u32) -> bool {
+		for id in ids do if id == r.id do return true
+		return false
+	}
+	out := make([dynamic]Ref, 0, len(list), context.temp_allocator)
+	for r in list do if picked(r, ids) do append(&out, r)
+	for r in list do if !picked(r, ids) do append(&out, r)
+	return refs_order_take(list, out[:])
+}
+
+// Puts `order` (the same places as `list`) in its place; true when it differs.
+@(private = "file")
+refs_order_take :: proc(list: ^[dynamic]Ref, order: []Ref) -> bool {
+	same := true
+	for r, i in order do if r.id != list[i].id do same = false
+	if same do return false
+	copy(list[:], order)
+	return true
+}
+
+// Sends the picked places to the bottom of the board and the view, as one undo step.
+refs_send_back_selected :: proc(app: ^App) {
+	b := &app.kit.board
+	before := refs_clone(app.scene.refs.refs[:])
+	if !refs_send_back(&app.scene.refs.refs, b.selected[:]) {
+		delete(before)
+		return
+	}
+	history_record_refs(app, before, "Send reference to back" if len(b.selected) == 1 else "Send references to back")
+}
+
 // A copy of places `list`, owned by the caller.
 refs_clone :: proc(list: []Ref, allocator := context.allocator) -> []Ref {
 	out := make([]Ref, len(list), allocator)
@@ -525,6 +583,8 @@ refs_destroy :: proc(app: ^App) {
 	app.kit.board.opacity_before = nil
 	delete(app.kit.board.fades)
 	app.kit.board.fades = nil
+	delete(app.kit.board.gesture_before)
+	app.kit.board.gesture_before = nil
 }
 
 // Frees the pictures neither the board nor any step of the History places, once the
@@ -813,6 +873,45 @@ ref_decode_take :: proc(app: ^App, img: ^Ref_Image) {
 	for &r in app.scene.refs.refs do if r.image == img.id && !r.sized do r = ref_sized(r, img)
 }
 
+// The places' ids in the board's order, bottom first, comma-separated ("none" for none),
+// for the exit stats.
+refs_order_text :: proc(app: ^App) -> string {
+	if len(app.scene.refs.refs) == 0 do return "none"
+	sb := strings.builder_make(context.temp_allocator)
+	for r, i in app.scene.refs.refs do fmt.sbprintf(&sb, "%s%d", "," if i > 0 else "", r.id)
+	return strings.to_string(sb)
+}
+
+// Each place's angle on the board, its angle over the view (both in whole degrees) or its
+// width over the view (thousandths of the view's), in the board's order, comma-separated
+// ("none" for none), and how many are locked on the view, for the exit stats.
+Refs_Stat :: enum u8 {
+	Angle,
+	View_Angle,
+	View_Width,
+}
+
+refs_stat_text :: proc(app: ^App, what: Refs_Stat) -> string {
+	if len(app.scene.refs.refs) == 0 do return "none"
+	sb := strings.builder_make(context.temp_allocator)
+	for r, i in app.scene.refs.refs {
+		v: f32
+		switch what {
+		case .Angle:      v = r.angle * 180 / math.PI
+		case .View_Angle: v = r.view_angle * 180 / math.PI
+		case .View_Width: v = r.view_w * 1000
+		}
+		fmt.sbprintf(&sb, "%s%d", "," if i > 0 else "", int(math.round(v)))
+	}
+	return strings.to_string(sb)
+}
+
+refs_view_locked_count :: proc(app: ^App) -> int {
+	n := 0
+	for r in app.scene.refs.refs do if r.view_locked do n += 1
+	return n
+}
+
 // How many pictures have their GPU copy, for the exit stats.
 refs_shown_count :: proc(app: ^App) -> int {
 	n := 0
@@ -877,10 +976,12 @@ refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {
 		geom.byte_put(out, r.crop_lo)
 		geom.byte_put(out, r.crop_hi)
 		geom.byte_put(out, r.turn)
-		geom.byte_put(out, u8(r.flip) | u8(r.grey) << 1 | u8(r.locked) << 2 | u8(r.sized) << 3 | u8(r.view) << 4)
+		geom.byte_put(out, u8(r.flip) | u8(r.grey) << 1 | u8(r.locked) << 2 | u8(r.sized) << 3 | u8(r.view) << 4 | u8(r.view_locked) << 5)
 		geom.byte_put(out, r.view_at)
 		geom.byte_put(out, r.view_w)
 		geom.byte_put(out, r.opacity)
+		geom.byte_put(out, r.angle)
+		geom.byte_put(out, r.view_angle)
 		geom.byte_put(out, u8(r.plane))
 		geom.byte_put(out, u8(r.through) | u8(r.plane_any) << 1 | u8(r.plane_off) << 2)
 		geom.byte_put(out, r.plane_at)
@@ -893,7 +994,7 @@ refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {
 // The references as refs_put wrote them; ok is false when the chunk is damaged: a count
 // past what it holds, a picture's id twice or past the next one, a place of a picture it
 // does not hold, a size that is not a positive finite number, a crop outside the picture
-// or turned inside out, a turn past three quarters, a note's text too long, a plane of no
+// or turned inside out, a turn past three quarters, an angle past a half turn either way, a note's text too long, a plane of no
 // view, out in the far distance or of a note, or brow and chin marks out of order.
 refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
 	refs.next_image = geom.byte_get(r, u32)
@@ -933,6 +1034,9 @@ refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
 		p.view_at = geom.byte_get(r, [2]f32)
 		p.view_w = geom.byte_get(r, f32)
 		p.opacity = geom.byte_get(r, f32)
+		p.angle = geom.byte_get(r, f32)
+		p.view_angle = geom.byte_get(r, f32)
+		if !(abs(p.angle) <= math.PI + 1e-3 && abs(p.view_angle) <= math.PI + 1e-3) do return
 		plane := geom.byte_get(r, u8)
 		plane_bits := geom.byte_get(r, u8)
 		p.plane_at = geom.byte_get(r, [3]f32)
@@ -947,13 +1051,13 @@ refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
 		if p.plane != .None && p.image == 0 do return
 		if !(abs(p.view_at.x) <= 4 && abs(p.view_at.y) <= 4 && p.view_w > 0 && p.view_w <= 4) do return
 		if !(p.opacity >= REF_OPACITY_MIN && p.opacity <= 1) do return
-		if !r.ok || bits > 31 || p.turn > 3 || p.id == 0 || p.id > refs.next_ref do return
+		if !r.ok || bits > 63 || p.turn > 3 || p.id == 0 || p.id > refs.next_ref do return
 		if p.image != 0 && ref_image(&refs, p.image) == nil do return
 		if !(p.size.x > 0 && p.size.y > 0 && p.size.x < math.F32_MAX && p.size.y < math.F32_MAX) do return
 		if !(abs(p.at.x) < math.F32_MAX && abs(p.at.y) < math.F32_MAX) do return
 		if !(p.crop_lo.x >= 0 && p.crop_lo.y >= 0 && p.crop_hi.x <= 1 && p.crop_hi.y <= 1) do return
 		if !(p.crop_lo.x < p.crop_hi.x && p.crop_lo.y < p.crop_hi.y) do return
-		p.flip, p.grey, p.locked, p.sized, p.view = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0, bits & 16 != 0
+		p.flip, p.grey, p.locked, p.sized, p.view, p.view_locked = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0, bits & 16 != 0, bits & 32 != 0
 		if p.view && p.image == 0 do return
 		if p.image == 0 {
 			text := geom.byte_get_string(r, context.temp_allocator)

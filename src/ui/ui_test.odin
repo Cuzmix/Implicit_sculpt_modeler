@@ -1786,3 +1786,36 @@ a_hint_opens_its_whole_text :: proc(t: ^testing.T) {
 	testing.expect(t, ctx.hint_open != 0)
 	testing.expect_value(t, string(ctx.hint_text[:]), LONG)
 }
+
+// One frame with an area 200 points square at 100,100 whose root lets the pen through.
+@(private = "file")
+pen_through_area :: proc(ctx: ^Context, input: Input) -> Area {
+	frame_begin(ctx, input)
+	begin_at(ctx, "picture", {100, 100}, {width = 200, height = 200, pen_through = true})
+	a := area(ctx, "ref", {200, 200})
+	end(ctx)
+	_ = frame_end(ctx)
+	return a
+}
+
+// A root that lets the pen through answers a finger's press, while the pen's press on it,
+// even one that lands with no hover before it, is the viewport's.
+@(test)
+the_pen_passes_through_a_pen_through_root :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	at := [2]f32{200, 200}
+	_ = pen_through_area(&ctx, input_at(at))
+	finger := input_at(at, down = {.Left}, pressed = {.Left})
+	finger.pointer = .Finger
+	a := pen_through_area(&ctx, finger)
+	testing.expect(t, a.pressed && !viewport_dragging(&ctx))
+	lift := input_at(at, released = {.Left})
+	lift.pointer = .Finger
+	_ = pen_through_area(&ctx, lift)
+	pen := input_at(at, down = {.Left}, pressed = {.Left})
+	pen.pointer = .Pen
+	a = pen_through_area(&ctx, pen)
+	testing.expect(t, !a.pressed && viewport_dragging(&ctx))
+}

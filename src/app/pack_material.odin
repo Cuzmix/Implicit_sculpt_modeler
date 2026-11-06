@@ -242,7 +242,12 @@ pack_material_at :: proc(app: ^App, j: int) -> (^Pack_Material, bool) {
 
 // Pack `id`'s matcap named `stem` (ignoring case), or -1.
 pack_matcap_find :: proc(app: ^App, id, stem: string) -> int {
-	for m, k in app.library.matcaps do if !m.gone && strings.equal_fold(m.pack, id) && strings.equal_fold(m.stem, stem) do return k
+	return library_matcap_find(&app.library, id, stem)
+}
+
+// The same in library `lib`, for what reads keys without the app (shading_matcap_from_key).
+library_matcap_find :: proc(lib: ^Library, id, stem: string) -> int {
+	for m, k in lib.matcaps do if !m.gone && strings.equal_fold(m.pack, id) && strings.equal_fold(m.stem, stem) do return k
 	return -1
 }
 

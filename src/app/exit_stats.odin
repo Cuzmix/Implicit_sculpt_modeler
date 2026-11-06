@@ -335,7 +335,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			material_layers := 0
 			for o in app.scene.objects do if o.material.layers != {} do material_layers += 1
 			fmt.printfln("material_layers=%d", material_layers)
-			fmt.printfln("material_tab=%s material_previews=%d material_keeps=%d selected_matcap=%d objects_matcap=%d material_to=%s material_favorites=%d material_favorite_changes=%d", strings.to_lower(MATERIAL_TAB_NAMES[app.kit.material_card.tab], context.temp_allocator), app.material_previews, app.material_keeps, obj.material.matcap if obj != nil else 0, objects_matcap, strings.to_lower(fmt.tprint(app.ui.material_to), context.temp_allocator), app.kit.material_card.favorite_count, app.kit.material_card.favorite_changes)
+			fmt.printfln("material_previews=%d material_keeps=%d selected_matcap=%d objects_matcap=%d material_to=%s material_favorites=%d material_favorite_changes=%d", app.material_previews, app.material_keeps, obj.material.matcap if obj != nil else 0, objects_matcap, strings.to_lower(fmt.tprint(app.ui.material_to), context.temp_allocator), app.kit.material_card.favorite_count, app.kit.material_card.favorite_changes)
 			preset := "none"
 			if p, on := brush_preset(app); on do preset, _ = strings.replace_all(preset_name(p), " ", "_", context.temp_allocator)
 			fmt.printfln("presets=%d preset=%d preset_name=%s preset_changed=%d", app.preset_count, app.brush.preset, preset, int(preset_changed(app)))
@@ -413,7 +413,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			}
 			// Decodes still running finish first, so the counts say what the run asked for.
 			refs_finish(app)
-			fmt.printfln("refs=%d ref_images=%d refs_shown=%d refs_gpu_mb=%.1f refs_decode_ms=%.0f refs_selected=%d refs_moves=%d ref_notes=%d refs_grey=%d refs_shrunk=%d refs_small=%d ref_planes=%d ref_planes_through=%d refs_lined_up=%d", len(app.scene.refs.refs), len(app.scene.refs.images), refs_shown_count(app), refs_gpu_mb(app), app.refs_decode_ms, len(app.kit.board.selected), app.kit.board.moves, refs_note_count(app), refs_grey_count(app), app.refs_shrunk, refs_small_count(app), refs_plane_count(app, false), refs_plane_count(app, true), app.kit.board.lined_up)
+			fmt.printfln("refs=%d ref_images=%d refs_shown=%d refs_gpu_mb=%.1f refs_decode_ms=%.0f refs_selected=%d refs_moves=%d ref_notes=%d refs_grey=%d refs_shrunk=%d refs_small=%d ref_planes=%d ref_planes_through=%d refs_lined_up=%d refs_order=%s refs_asked_files=%d refs_asked_photos=%d dialogs_asked=%d refs_angles=%s refs_view_angles=%s refs_view_widths=%s refs_view_locked=%d refs_turns=%d", len(app.scene.refs.refs), len(app.scene.refs.images), refs_shown_count(app), refs_gpu_mb(app), app.refs_decode_ms, len(app.kit.board.selected), app.kit.board.moves, refs_note_count(app), refs_grey_count(app), app.refs_shrunk, refs_small_count(app), refs_plane_count(app, false), refs_plane_count(app, true), app.kit.board.lined_up, refs_order_text(app), app.kit.board.asked_files, app.kit.board.asked_photos, app.dialogs_asked, refs_stat_text(app, .Angle), refs_stat_text(app, .View_Angle), refs_stat_text(app, .View_Width), refs_view_locked_count(app), app.kit.board.turns)
 			fmt.printfln("environment_turn=%.1f environment_tilt=%.1f environment_turns=%d environment_recent=%d environment_backdrop=%s", env.turn, env.tilt, env.turns, len(env.recent), strings.to_lower(fmt.tprint(environment_backdrop(&env)), context.temp_allocator))
 		}
 		{

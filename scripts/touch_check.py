@@ -1042,7 +1042,7 @@ def first_touch_scrolls_inspector():
 
 
 # How much higher a section's controls stand on its card than they stood on the
-# Palettes card (the Lights section at the top of the Look card: "lights"), which put a field picking the section over them, and for the Object
+# Palettes card (the Lights section at the top of the Light card: "lights"), which put a field picking the section over them, and for the Object
 # palette the object's name and size and the section's title, for the Scene card its
 # title (round 3, PR 9b), and for the Brush card the folded Palettes card that stood above
 # it (PR 9c): measured from screen dumps at 1600 x 900.
@@ -1077,7 +1077,7 @@ LIGHT_SPHERE_R = 80
 _ADD_POINT = on_card((1394, 633), "lights")
 LIGHT_ADD_POINT = At("add point light", _ADD_POINT[0], _ADD_POINT[1])
 LIGHT1_EYE = At("light eye 0", 1500, 380)
-# A finger's drag up the Look card's body, which a touch screen's palm zone keeps short,
+# A finger's drag up the Light card's body, which a touch screen's palm zone keeps short,
 # so what stands under the lights' list (Add) comes into view.
 LOOK_BODY_UP = line((1300, 470), (1300, 250), 10)
 
@@ -4169,13 +4169,13 @@ def lens_rail_names_its_buttons_on_a_wide_window():
 
 @scenario
 def lens_rail_opens_beside_itself():
-    """The rail's (eight_rail) Passes opens beside the rail, Lights opens the Look card beside it, and View layout opens its menu of grids."""
+    """The rail's (eight_rail) Passes opens beside the rail, Lights opens the Light card beside it, and View layout opens its menu of grids."""
     def run(name, checks):
         s = Script()
         s.ftap(LENS_RAIL[name])
         s.wait(10)
         return (s, LENS_1440 + eight_rail(), camera_still(checks))
-    return Steps([run("passes", {"pass_menu": near(1)}), run("lights", {"card_front": is_text("look"), "card_section": is_text("Lights")}), run("layout", {"bar_pop": is_text("view_layout")})])
+    return Steps([run("passes", {"pass_menu": near(1)}), run("lights", {"card_front": is_text("light"), "card_section": is_text("Lights")}), run("layout", {"bar_pop": is_text("view_layout")})])
 
 
 # The narrow window's sheet (under 900 points wide): the Tool card's head, where a drag
@@ -5786,110 +5786,146 @@ def lens_pass_popover_groups_the_passes():
     return s, LENS_1440, camera_still({"space": is_text("sculpt"), "inspect_mode": near(1), "pass": is_text("Curvature"), "dabs": near(0)})
 
 
-# Render at 1440x900: its tab, then on its stack the Lights card's Intensity (the picked
-# light's) and Add point light, the Lights card's chevron, the Red wax sphere of the
-# Material card once Lights is folded, and Undo on the top bar.
-LENS_STUDIO = {"render_tab": (685, 26), "intensity": (1218, 526), "add": At("add point light", 1201, 500),
-               "folds": [At("card Look/card body/Look", 1218, 150), At("card Look/card body/Material", 1218, 199), At("card Look/card body/Lights", 1218, 248)],
-               "red_wax": At("material card Materials 1", 1180, 745), "undo": (268, 25)}
+# Render at 1440x900: its tab; the Red wax sphere of the Material card it pins; the shelf's
+# Lights, which opens the Light card beside it, and on that card Add point light and the
+# picked light's Intensity knob; and Undo on the top bar.
+LENS_STUDIO = {"render_tab": (685, 26), "lights": At("dock/Lights", 731, 836), "add": At("add point light", 714, 548),
+               "intensity": (731, 738), "white": At("material card 1", 1178, 388), "undo": (268, 25)}
 
 
 @scenario
-def render_pins_the_look_card():
-    """Render pins the Look card; a tap on a sphere in its Material section puts that material on."""
+def render_pins_the_material_card():
+    """Render pins the Material card, open on the Clay shelf (the material in use is Clay); a tap on a sphere puts that material on."""
     s = Script()
     s.ftap(LENS_STUDIO["render_tab"])
     s.wait(20)
-    s.ftap(LENS_STUDIO["red_wax"])
+    s.ftap(LENS_STUDIO["white"])
     s.wait(10)
-    return s, LENS_1440, camera_still({"space": is_text("render"), "cards": is_text("left:;right:Look*"),
-                                       "selected_material": is_text("Red_wax"), "dabs": near(0)})
+    return s, LENS_1440, camera_still({"space": is_text("render"), "cards": is_text("left:;right:Material*"),
+                                       "selected_material": is_text("White"), "dabs": near(0)})
 
 
-# The Render space's Material card at 1440x900 with the Lights card folded (its
-# chevron): the tabs, Favourites, the Clay and Gold spheres of Materials, the first MatCap
-# (Red wax), and a point off the grid, over the view.
-LENS_MATERIALS = {"lights_fold": At("card Look/card body/Look", 1218, 150), "matcaps": (1218, 241), "favourites": (1146, 283), "clay": (1105, 349),
-                  "gold": (1255, 440), "red_wax_matcap": At("material card Matcaps 0", 1105, 361), "off": (900, 420)}
+# The Render space's Material card at 1440x900: the Starred and Metal choices, the first
+# two spheres of a shelf (Gold and Copper on Metal's: by their keys, and their centres for
+# drags), and a point off the grid, over the view.
+LENS_MATERIALS = {"favourites": At("material categories 0/Starred", 1107, 315), "metal": At("material categories 0/Metal", 1252, 315),
+                  "gold": (1103, 430), "copper": (1178, 430), "first": At("material card 0", 1103, 430), "off": (900, 420)}
 
 
 @scenario
 def material_card_scrub_previews_and_keeps():
-    """On the Material card a press on Clay slid across to Gold shows the spheres it passes on
-    the sphere and keeps Gold when lifted; slid off the grid instead, lifting puts Clay back.
-    Neither is an undo step, as a material pick is not."""
+    """On the Material card's Metal shelf a press on Gold slid across to Copper shows the spheres
+    it passes on the sphere and keeps Copper when lifted; slid off the grid instead, lifting
+    puts Clay back. Neither is an undo step, as a material pick is not."""
     def run(keep):
         s = Script()
         s.ftap(LENS_STUDIO["render_tab"])
         s.wait(20)
-        s.ftap(LENS_MATERIALS["lights_fold"])
-        s.wait(10)
-        end = LENS_MATERIALS["gold"] if keep else LENS_MATERIALS["off"]
-        path = line(LENS_MATERIALS["clay"], LENS_MATERIALS["gold"], 10)
+        s.ftap(LENS_MATERIALS["metal"])
+        s.wait(8)
+        end = LENS_MATERIALS["copper"] if keep else LENS_MATERIALS["off"]
+        path = line(LENS_MATERIALS["gold"], LENS_MATERIALS["copper"], 10)
         if not keep:
-            path += line(LENS_MATERIALS["gold"], end, 8)[1:]
+            path += line(LENS_MATERIALS["copper"], end, 8)[1:]
         s.fdrag(path)
         s.wait(10)
-        return s, LENS_1440, camera_still({"selected_material": is_text("Gold" if keep else "Clay"), "material_keeps": near(1 if keep else 0),
+        return s, LENS_1440, camera_still({"selected_material": is_text("Copper" if keep else "Clay"), "material_keeps": near(1 if keep else 0),
                                            "material_previews": lambda v: int(v) >= 2, "undo_steps": near(0), "dabs": near(0)})
     return Steps([run(True), run(False)])
 
 
+# The shading chip's list in Clay at 1600 x 900: the chip, and the Red wax MatCap's disc.
+SHADING_CHIP = At("readout/Shading", 152, 76)
+MATCAP_RED_WAX = At("matcap disc 0", 169, 413)
+
+
 @scenario
-def material_card_matcap_tab_puts_a_matcap_on():
-    """The Material card's Matcaps tab shows the built-in MatCaps as their own pictures; a tap on
-    Red wax shades the sphere with it."""
+def shading_menu_matcap_disc_lights_clay():
+    """In the shading chip's list a tap on the Red wax disc lights the Clay look with that MatCap,
+    the view's light: no object's material changes."""
     s = Script()
-    s.ftap(LENS_STUDIO["render_tab"])
-    s.wait(20)
-    s.ftap(LENS_MATERIALS["lights_fold"])
+    s.ftap(SHADING_CHIP)
     s.wait(10)
-    s.ftap(LENS_MATERIALS["matcaps"])
+    s.ftap(MATCAP_RED_WAX)
     s.wait(8)
-    s.ftap(LENS_MATERIALS["red_wax_matcap"])
-    s.wait(10)
-    return s, LENS_1440, camera_still({"material_tab": is_text("matcaps"), "selected_matcap": near(1), "material_keeps": near(1), "dabs": near(0)})
+    return s, ["--script=shading_mode clay"], camera_still({"shading_mode": is_text("Clay"), "shading_matcap": near(1), "selected_matcap": near(0),
+                                                           "material_keeps": near(0), "dabs": near(0)})
 
 
 @scenario
 def material_card_favourites_hold_a_sphere():
-    """A right-click on Gold adds it to the Material card's favourites without putting it on;
-    Favourites then shows Gold alone, first in the grid, where a tap puts it on."""
+    """On the Metal shelf a right-click on Gold adds it to the Material card's favourites without
+    putting it on; the Starred choice then shows Gold alone, first in the grid, where a tap
+    puts it on."""
     s = Script()
     s.ftap(LENS_STUDIO["render_tab"])
     s.wait(20)
-    s.ftap(LENS_MATERIALS["lights_fold"])
-    s.wait(10)
+    s.ftap(LENS_MATERIALS["metal"])
+    s.wait(8)
     s.add("move:{:g},{:g}".format(*LENS_MATERIALS["gold"]))
     s.wait(3)
     s.add("right")
     s.wait(6)
     s.ftap(LENS_MATERIALS["favourites"])
     s.wait(6)
-    s.ftap(LENS_MATERIALS["clay"])
+    s.ftap(LENS_MATERIALS["first"])
     s.wait(8)
     return s, LENS_1440, camera_still({"material_favorites": near(1), "material_favorite_changes": near(1), "selected_material": is_text("Gold"), "dabs": near(0)})
 
 
+# The Material card's Edit (beside the big sphere) and, in it, the Coat layer's switch.
+MATERIAL_EDIT = At("material preview words/Edit", 1270, 217)
+MATERIAL_COAT = At("card body/Coat", 1376, 700)
+
+
+@scenario
+def material_card_edit_turns_a_layer_on():
+    """Edit swaps the shelf for the material's values; a tap on Coat's switch gives the selected
+    object a clear coat, as a Custom material, and is no undo step, as a material pick is not."""
+    s = Script()
+    s.ftap(LENS_STUDIO["render_tab"])
+    s.wait(20)
+    s.ftap(MATERIAL_EDIT)
+    s.wait(10)
+    s.ftap(MATERIAL_COAT)
+    s.wait(10)
+    return s, LENS_1440, camera_still({"selected_material": is_text("Custom"), "material_layers": near(1), "undo_steps": near(0), "dabs": near(0)})
+
+
+# In this scene on the Material card, and the row of the second imported object (Cube.001,
+# in the file's materials.glb), whose name selects it.
+MATERIAL_SCENE = At("material source/In this scene", 1376, 265)
+MATERIAL_SCENE_CUBE_001 = At("scene object 1", 1376, 470)
+
+
+@scenario
+def material_card_in_this_scene_names_select_objects():
+    """After a glTF with three materials is dropped in, the Material card's In this scene lists
+    each object's own under its name; a tap on Cube.001's name selects it and changes no
+    material."""
+    s = Script()
+    s.add(f"drop:{os.path.join(ROOT, 'src', 'app', 'testdata', 'import', 'materials.glb')}")
+    s.wait(40)
+    s.ftap(MATERIAL_SCENE)
+    s.wait(8)
+    s.ftap(MATERIAL_SCENE_CUBE_001)
+    s.wait(8)
+    return s, ["--script=open_section material"], camera_still({"selected_name": is_text("Cube.001"), "material_previews": near(0), "dabs": near(0)})
+
+
 @scenario
 def lens_lights_card_picks_and_adds():
-    """On Render's Lights card a drag on the picked light's Intensity is one undo step, and Add point light adds one and picks it."""
+    """In Render the shelf's Lights opens the Light card: a drag on the picked light's Intensity is one undo step, and Add point light adds one and picks it."""
     def run(add):
         s = Script()
         s.ftap(LENS_STUDIO["render_tab"])
         s.wait(20)
-        # Look and Material folded bring the Look card's Lights section up into sight, and
-        # a tap unfolds it.
-        for fold in LENS_STUDIO["folds"]:
-            s.ftap(fold)
-            s.wait(8)
+        s.ftap(LENS_STUDIO["lights"])
+        s.wait(20)
         if add:
             s.ftap(LENS_STUDIO["add"])
             s.wait(10)
             return s, LENS_1440, camera_still({"light_count": near(5), "light_pick": near(5), "dabs": near(0)})
-        # The picked light's sliders are under the list: a drag on the card's edge scrolls them up.
-        s.fdrag(line((1350, 740), (1350, 440), 20))
-        s.wait(10)
         x, y = LENS_STUDIO["intensity"]
         s.fdrag([(x + 14 * i, y) for i in range(7)])
         s.wait(10)
@@ -5897,11 +5933,6 @@ def lens_lights_card_picks_and_adds():
         s.wait(10)
         return s, LENS_1440, camera_still({"light_count": near(4), "light_pick": near(1), "light_pick_strength": near(1.0), "redo_steps": near(1), "dabs": near(0)})
     return Steps([run(True), run(False)])
-
-
-# Name every control at 1440x900: the Model space tab, and the note's Done once the tags
-# are kept on.
-HELP_LABELS = {"model": (604, 28), "done": (858, 182)}
 
 
 @scenario
@@ -9311,19 +9342,19 @@ def alt_click_switches_objects():
 
 
 # The view rail's ⋯ and its menu's Add a button, which opens the Library on its Cards, two
-# of the Library's cards (the Deform and Look cards, which the rail starts without), and
+# of the Library's cards (the Deform and Light cards, which the rail starts without), and
 # the rail's button the Deform card gets at its foot.
 RAIL_MORE = At("view bar/More", 1563, 374)
 RAIL_ADD_CARDS = At("dock menu/Add a button...", 1400, 300)
 PICKER_DEFORM = At("sheet button/Open_Card/Deform", 1300, 160)
-PICKER_LOOK = At("sheet button/Open_Card/Look", 1300, 160)
+PICKER_LIGHT = At("sheet button/Open_Card/Light", 1300, 160)
 RAIL_DEFORM = At("view bar/Deform", 1563, 349)
 
 
 @scenario
 def rail_panels_picker_adds_a_card():
     """A finger taps the rail's ⋯ and Add a button, which opens the Library on its Cards, then (found by typing) its
-    Deform and Look cards: both go on the rail. The Deform button the rail gets opens the Deform card beside it; nothing
+    Deform and Light cards: both go on the rail. The Deform button the rail gets opens the Deform card beside it; nothing
     turns or sculpts."""
     s = Script()
     s.ftap(RAIL_MORE)
@@ -9337,34 +9368,35 @@ def rail_panels_picker_adds_a_card():
     s.wait(4)
     for _ in range(6):
         s.press("Backspace")
-    s.type("look")
+    s.type("light")
     s.wait(4)
-    s.ftap(PICKER_LOOK)
+    s.ftap(PICKER_LIGHT)
     s.wait(4)
     s.press("escape")
     s.wait(6)
     s.ftap(RAIL_DEFORM)
     s.wait(10)
     return s, [], camera_still({"dabs": near(0), "card_front": is_text("deform"), "library_puts": near(2),
-                                "view_rail": is_text("Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:Stack,Open_Card:References,Open_Card:Deform,Open_Card:Look")})
+                                "view_rail": is_text("Open_Card:Tool,Open_Card:Layers,Open_Card:Scene,Open_Card:Mesh,Open_Card:Mask,Open_Card:Symmetry,Open_Card:Stack,Open_Card:References,Open_Card:Deform,Open_Card:Light")})
 
 
 # The References card from its rail button, its Add note, and its board (a drag's points
 # are offsets from the board's middle, where the board, fitted to a first note, shows it).
 REFS_RAIL = At("view bar/References", 1563, 373)
 REFS_ADD = At("card References/Add", 1355, 101)
-REFS_ADD_NOTE = At("refs add menu/Add note", 1300, 160)
+REFS_MORE = At("card References/More", 1406, 101)
+REFS_ADD_NOTE = At("refs board more/Add note", 1300, 250)
 REFS_BOARD = "card References/board"
 
 
 @scenario
 def references_note_by_finger():
-    """A finger opens the References card from the rail, adds a note from its Add menu and drags it across
+    """A finger opens the References card from the rail, adds a note from its ⋯ menu and drags it across
     the board: one note, one move as one undo step; nothing sculpts or turns."""
     s = Script()
     s.ftap(REFS_RAIL)
     s.wait(6)
-    s.ftap(REFS_ADD)
+    s.ftap(REFS_MORE)
     s.wait(6)
     s.ftap(REFS_ADD_NOTE)
     s.wait(4)
@@ -9380,16 +9412,57 @@ def references_note_by_finger():
 
 @scenario
 def references_empty_board_add_image():
-    """A finger opens the References card from the rail; its empty board's Add image opens
-    the Add menu, whose Add note puts a note on the board: one undo step, nothing sculpts."""
+    """A finger opens the References card from the rail; its empty board's Add image, then
+    the head's Add, open the file dialog at once (counted, not opened, under --no-dialogs),
+    with no menu between: two asks for files, none for Photos, and nothing sculpts."""
     s = Script()
     s.ftap(REFS_RAIL)
     s.wait(6)
     s.ftap("refs empty/Add image")
     s.wait(6)
+    s.ftap(REFS_ADD)
+    s.wait(6)
+    return s, ["--no-dialogs"], camera_still({"dabs": near(0), "refs_asked_files": near(2), "refs_asked_photos": near(0), "dialogs_asked": near(2), "undo_steps": near(0)})
+
+
+@scenario
+def references_add_on_the_ipad_offers_photos_and_files():
+    """As on the iPad (--photos-picker): the References card's Add opens a choice of two
+    big tiles, Photos and Files; a finger taps Photos, then Add again and Files: one ask of
+    each, and only Files asks for the file dialog; nothing sculpts."""
+    s = Script()
+    s.ftap(REFS_RAIL)
+    s.wait(6)
+    s.ftap(REFS_ADD)
+    s.wait(6)
+    s.ftap("refs add choice/Photos")
+    s.wait(6)
+    s.ftap(REFS_ADD)
+    s.wait(6)
+    s.ftap("refs add choice/Files")
+    s.wait(6)
+    return s, ["--no-dialogs", "--photos-picker"], camera_still({"dabs": near(0), "refs_asked_files": near(1), "refs_asked_photos": near(1), "dialogs_asked": near(1)})
+
+
+@scenario
+def references_board_long_press_opens_its_menu():
+    """A picture added by a script opens the References card; a finger held still on the
+    board's empty ground opens the board's menu there, whose Snap view puts the view on the
+    board as a picture, and the head's ⋯ menu's Add note adds a note: three places, two
+    undo steps, nothing sculpts or turns."""
+    s = Script()
+    s.wait(6)
+    s.add("fdown:0:1300,700")
+    s.wait(LONG_PRESS_FRAMES + 4)
+    s.add("fup:0")
+    s.wait(4)
+    s.ftap("refs board menu/Snap view")
+    s.wait(8)
+    s.ftap(REFS_MORE)
+    s.wait(6)
     s.ftap(REFS_ADD_NOTE)
     s.wait(6)
-    return s, [], camera_still({"dabs": near(0), "ref_notes": near(1), "undo_steps": near(1)})
+    return s, ["--script=reference assets/icon/sculpt-1024.png"], camera_still({"dabs": near(0), "refs": near(3), "ref_notes": near(1), "undo_steps": near(2)})
 
 
 @scenario
@@ -9470,6 +9543,164 @@ def references_board_by_mouse():
     s.ftap("refs board menu/Grey")
     s.wait(6)
     return s, ["--script=reference assets/icon/sculpt-1024.png"], camera_still({"refs_selected": near(1), "refs_grey": near(1), "refs_moves": near(0), "undo_steps": near(1), "dabs": near(0)})
+
+
+# Two pictures added by a script, the clay brush's icon after the app's: on the board the
+# app's (place 1) at the left and the clay's (place 2, picked) at the right.
+REFS_TWO = ["--script=reference assets/icon/sculpt-1024.png; reference assets/brush_icons/clay.png"]
+REFS_BOARD_FIRST = (1305, 450)
+REFS_BOARD_SECOND = (1446, 450)
+
+
+@scenario
+def references_picked_comes_to_the_front():
+    """Two pictures on the References board: a finger taps the first, which comes to the
+    front; both go on the view (the first over the second), a finger drags the first right,
+    taps the uncovered part of the second, which comes to the front over the view too, and
+    taps where they overlap, which finds the second on top: order 1,2, five undo steps
+    (two On view, two raises, one move), and nothing sculpts or turns."""
+    s = Script()
+    s.wait(6)
+    s.ftap("card References/On view")
+    s.wait(4)
+    s.ftap(REFS_BOARD_FIRST)
+    s.wait(4)
+    s.ftap("card References/On view")
+    s.wait(6)
+    s.fdrag([(300 + 24 * k, 300) for k in range(11)])
+    s.wait(4)
+    s.ftap((200, 300))
+    s.wait(4)
+    s.ftap((500, 300))
+    s.wait(6)
+    return s, REFS_TWO, camera_still({"refs_order": is_text("1,2"), "undo_steps": near(5), "refs_moves": near(1), "dabs": near(0)})
+
+
+@scenario
+def references_send_to_back_from_both_menus():
+    """Two pictures on the References board: a finger taps the first (to the front), then
+    the floating edits' More and its Send to back; the mouse's right click on the second
+    opens the board's menu, whose Send to back sends it under: order 2,1, three undo steps,
+    nothing sculpts or turns."""
+    s = Script()
+    s.wait(6)
+    s.ftap(REFS_BOARD_FIRST)
+    s.wait(4)
+    s.ftap("refs edits/More")
+    s.wait(4)
+    s.ftap("refs more menu/Send to back")
+    s.wait(4)
+    s.mouse_drag([REFS_BOARD_SECOND, REFS_BOARD_SECOND], button="right")
+    s.wait(4)
+    s.ftap("refs board menu/Send to back")
+    s.wait(6)
+    return s, REFS_TWO, camera_still({"refs_order": is_text("2,1"), "undo_steps": near(3), "dabs": near(0)})
+
+
+# A picture put over the view by the card's On view (from its top left, 128,144, 480
+# points square), then the card shut, for the two-finger scenarios over the view.
+REFS_ON_VIEW = ["--script=reference assets/icon/sculpt-1024.png"]
+
+
+def refs_on_view(s, close=True):
+    s.wait(6)
+    s.ftap("card References/On view")
+    s.wait(4)
+    if close:
+        s.ftap("card References/Close")
+        s.wait(6)
+
+
+def angle_between(lo, hi):
+    return lambda v: lo <= float(v.split(",")[0]) <= hi
+
+
+@scenario
+def references_two_fingers_turn_a_picture_over_the_view():
+    """A picture over the view with the References card shut: two fingers land on it,
+    spread and twist: it grows and turns about them, one undo step, while the camera stays
+    still and nothing sculpts."""
+    s = Script()
+    refs_on_view(s)
+    s.fingers([(300, 380), (420, 380)], [(0, -60), (0, 60)], 16)
+    s.wait(6)
+    return s, REFS_ON_VIEW, camera_still({"refs_view_angles": angle_between(30, 60), "refs_view_widths": lambda v: int(v) > 330,
+                                          "refs_turns": near(1), "undo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
+def references_two_fingers_beside_a_picture_turn_the_view():
+    """A picture over the view with the References card shut: two fingers pinching apart on
+    empty space beside it zoom the camera as ever, and the picture stays as it was."""
+    s = Script()
+    refs_on_view(s)
+    s.fingers([(1000, 450), (1080, 450)], [(-60, 0), (60, 0)], 16)
+    s.wait(6)
+    return s, REFS_ON_VIEW, {"camera_distance": lambda v: float(v) < 3.4, "refs_view_widths": is_text("300"), "refs_view_angles": is_text("0"),
+                             "refs_turns": near(0), "dabs": near(0)}
+
+
+@scenario
+def references_locked_on_view_leaves_two_fingers_to_the_camera():
+    """A picture over the view locked by its Lock on view, then the card shut: two fingers
+    pinching apart on it zoom the camera, and the picture stays put."""
+    s = Script()
+    refs_on_view(s, close=False)
+    s.ftap("Lock on view")
+    s.wait(4)
+    s.ftap("card References/Close")
+    s.wait(6)
+    s.fingers([(300, 380), (380, 380)], [(-60, 0), (60, 0)], 16)
+    s.wait(6)
+    return s, REFS_ON_VIEW, {"camera_distance": lambda v: float(v) < 3.4, "refs_view_widths": is_text("300"), "refs_view_locked": near(1),
+                             "refs_turns": near(0), "undo_steps": near(2), "dabs": near(0)}
+
+
+@scenario
+def references_two_fingers_with_the_card_open_turn_the_picture():
+    """With the References card open, a finger takes the picture over the view and a
+    second joins it a few frames later; twisting turns the picture, one undo step for the
+    whole touch, and the camera stays still."""
+    s = Script()
+    refs_on_view(s, close=False)
+    s.add("fdown:0:300,380")
+    s.wait(3)
+    s.add("fdown:1:420,380")
+    s.wait(2)
+    for k in range(1, 17):
+        s.add(f"fmove:0:300,{380 - 4 * k}")
+        s.add(f"fmove:1:420,{380 + 4 * k}")
+        s.wait(1)
+    s.add("fup:0")
+    s.add("fup:1")
+    s.wait(6)
+    return s, REFS_ON_VIEW, camera_still({"refs_view_angles": angle_between(30, 60), "refs_turns": near(1), "undo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
+def references_pen_sculpts_through_a_picture_with_the_card_open():
+    """With the References card open (pinned, so a press on the view keeps it) and a
+    picture over the view, the pen's stroke across the picture where the model is behind
+    it sculpts, and the picture does not move."""
+    s = Script()
+    refs_on_view(s, close=False)
+    s.ftap("card References/Pin")
+    s.wait(4)
+    pen_stroke(s, line((480, 420), (580, 460), 12), pressure=0.8)
+    s.wait(6)
+    return s, REFS_ON_VIEW, camera_still({"dabs": lambda v: float(v) > 0, "refs_moves": near(0), "refs_view_widths": is_text("300")})
+
+
+@scenario
+def references_board_two_fingers_turn_the_picked_picture():
+    """Two pictures on the References board, the second picked: two fingers landing on it
+    twist and spread it on the board, the first left as it was, one undo step."""
+    s = Script()
+    s.wait(6)
+    s.fingers([(1420, 450), (1470, 450)], [(0, -30), (0, 30)], 12)
+    s.wait(6)
+    return s, REFS_TWO, camera_still({"refs_angles": lambda v: v.split(",")[0] == "0" and 30 <= int(v.split(",")[1]) <= 70,
+                                     "undo_steps": near(1), "dabs": near(0)})
 
 
 # The References card's resize corner at its own width, on its foot facing the model.
@@ -11452,7 +11683,7 @@ def first_save():
 
 # Scene: Background's Screenshots without background switch, under the colours, where
 # palettes_only("background") shows it.
-TRANSPARENT_SWITCH = At("card Look/Screenshots without background", *in_section((1378, 506), "background"))
+TRANSPARENT_SWITCH = At("card Light/Screenshots without background", *in_section((1378, 506), "background"))
 
 
 @scenario
@@ -14780,7 +15011,7 @@ def show_where_opens_the_light_settings():
     s.type("place highlight")
     s.press("Return", ("shift",))
     s.wait(10)
-    return s, [], camera_still({"card_front": is_text("look"), "card_section": is_text("Lights"), "card_marked": near(1), "dabs": near(0)})
+    return s, [], camera_still({"card_front": is_text("light"), "card_section": is_text("Lights"), "card_marked": near(1), "dabs": near(0)})
 
 
 def main(argv):

@@ -132,6 +132,11 @@ Box :: struct {
 	center:     bool, // centre children across the main axis (rows: vertically)
 	clip:       bool, // hide what is laid out past its edges (a section opening)
 	inert:      bool, // drawn but not answering the pointer (a popover closing)
+	// An anchored container that answers a finger and the mouse but lets the pen through
+	// to what lies under it (a picture over the view, which the pen sculpts through).
+	// Decided from last frame's place, so a pen that lands with no hover before it passes
+	// through as well.
+	pen_through: bool,
 	scroll:     f32, // how far its content is moved up (with clip, a scrolling panel)
 	// A panel a finger or a pen scrolls by dragging anywhere in it, its controls included
 	// (scroll_update): a control pressed in it waits to see which way the drag goes.
@@ -187,6 +192,7 @@ Placed :: struct {
 	// Where it answers the pointer: its rectangle and, for an anchored container, every
 	// hit area its widgets reach outside it (a 48 point target round a 36 point button).
 	hit:     Rect,
+	pen_through: bool, // an anchored container the pen's presses pass through (Box.pen_through)
 }
 
 // A short message at the bottom of the window that goes by itself.
@@ -458,7 +464,7 @@ frame_begin :: proc(ctx: ^Context, input: Input) {
 	if input.mouse_valid {
 		// The last one drawn is on top.
 		#reverse for p in ctx.placed_prev {
-			if p.root && p.id != INERT_ROOT && rect_contains(p.hit, input.mouse) {
+			if p.root && p.id != INERT_ROOT && rect_contains(p.hit, input.mouse) && !(p.pen_through && input.pointer == .Pen) {
 				ctx.pointer_root = p.id
 				break
 			}
@@ -740,7 +746,7 @@ end :: proc(ctx: ^Context) {
 	}
 	hit := c.rect
 	if c.root == c.id && c.hit.w > 0 && c.hit.h > 0 do hit = rect_union(hit, c.hit)
-	append(&ctx.placed, Placed{c.id, c.rect, natural, c.root == c.id, hit})
+	append(&ctx.placed, Placed{c.id, c.rect, natural, c.root == c.id, hit, c.root == c.id && c.box.pen_through})
 	// The parent placed it at last frame's size; move the parent on by the difference.
 	if n := len(ctx.stack); n > 0 && c.root != c.id {
 		p := &ctx.stack[n - 1]
@@ -1272,6 +1278,18 @@ image_corners :: proc(ctx: ^Context, r: Rect, image_id: u64, uv: [4][2]f32, tint
 		Vertex{{p.x + p.w, p.y + p.h}, uv[2], tint},
 		Vertex{{p.x, p.y + p.h}, uv[3], tint},
 	)
+	draw_add_indices(dl, base, base + 1, base + 2, base, base + 2, base + 3)
+}
+
+// A registered image drawn on the four points `at` (top left, top right, bottom right,
+// bottom left, in points, any quadrilateral), its corners showing texture coordinates
+// `uv`: a picture turned to any angle.
+image_quad :: proc(ctx: ^Context, at: [4][2]f32, image_id: u64, uv: [4][2]f32, tint := Color{255, 255, 255, 255}) {
+	draw_set_state(&ctx.draw, .Image, image_id, ctx.clip)
+	dl := &ctx.draw
+	d := px(ctx)
+	base := u32(len(dl.vertices))
+	for i in 0 ..< 4 do append(&dl.vertices, Vertex{at[i] * d, uv[i], tint})
 	draw_add_indices(dl, base, base + 1, base + 2, base, base + 2, base + 3)
 }
 

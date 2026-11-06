@@ -51,6 +51,9 @@ section_scene_free :: proc(app: ^App) {
 	results_destroy(app)
 	ui.destroy(&app.kit.ctx)
 	layouts_destroy(&app.kit)
+	// The Material card keeps its balls' atlas cells across frames once it has shown, as
+	// kit_destroy frees them in the app.
+	delete(app.kit.material_card.slots)
 }
 
 // How many controls one section lays out in a headless frame, with its More folded or,
@@ -105,6 +108,8 @@ sections_show_at_most_five_controls :: proc(t: ^testing.T) {
 	// The Preset section is widest on a preset.
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)
+	// The Material card's More is in Edit, its widest state.
+	app.kit.material_card.editing = true
 	for sec in BRUSH_SECTIONS {
 		if sec.section != .Preset do continue
 		tab_draw = sec.draw
@@ -153,14 +158,16 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 	// since Show the mask, Mask region, Mask by (Peaks: kind, Strength, Blur, curve, Apply)
 	// and Mask adjust (curve, Blur, Apply) joined its fold; Polygroups 10 since Groups by normals,
 	// pieces and UVs and Merge similar joined its; Hide, clip and slice folds Grow,
-	// Shrink, Grow all, Outer ring, Grow to groups and Show masked. Material is its card
-	// since the section and the card became one: its tabs, the spheres, the colour and
-	// Apply to, and under More Metallic, Cavity, Ridge, Exposure and Dim the others; four
-	// more spheres since Wax, Jade, Marble and Milk joined the presets, four more with Car
-	// paint, Velvet, Satin and Neon, three more with Glass, Frosted glass and Soap film.
-	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 21}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 12}, {.Project, 6}, {.Material, 36}, {.Camera, 6}}
+	// Shrink, Grow all, Outer ring, Grow to groups and Show masked. Material is counted in
+	// Edit, its widest state: the material's values, the five layers' switches and Reset,
+	// and under More Thin film and the specular IOR. Viewport style has Occlusion while working, Cavity, Ridge and
+	// Styled shading, and under More Reach, Exposure and Dim the others (Rim and Underside
+	// only while styled, which a fresh App is not).
+	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 21}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 12}, {.Project, 6}, {.Material, 11}, {.Style, 7}, {.Camera, 6}}
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)
+	// The Material card's More is in Edit, its widest state.
+	app.kit.material_card.editing = true
 	for f in full {
 		draw: proc(app: ^App, obj: ^Object)
 		for sec in OBJECT_SECTIONS do if sec.section == f.section do draw = sec.draw

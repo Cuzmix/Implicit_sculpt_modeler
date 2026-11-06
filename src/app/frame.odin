@@ -480,6 +480,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	nav_head_frame(app, cmd)
 	thumbs_frame(app, cmd)
 	material_balls_dump_frame(app, cmd)
+	material_card_balls_frame(app, cmd)
 	home_frame(app, cmd)
 	app.pictures_drawn = 0
 	grid_frame(app, cmd, draws[:], froms[:])

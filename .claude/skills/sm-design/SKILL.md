@@ -1,6 +1,6 @@
 ---
 name: sm-design
-description: How to choose what to build in the sculpt modeler — take the best of every app (ZBrush, Nomad, Blender, 3D-Coat, Substance, Marmoset...) but never its dated parts; keep a borrowed behaviour only when the reason behind it still holds today, prefer the modern philosophy (continuous values, non-destructive and live, sparse and GPU-resident data, touch first, one UI per thing) and the measured, optimised solution, with the compare table every design must carry. Load for ANY design, plan, mock, tech choice or "should we have X like app Y" question, before forming the plan; it does not replace sm-ui (how panels work), sm-perf (how to measure) or sm-store (what ships).
+description: How to choose what to build in the sculpt modeler — take the best of every app (ZBrush, Nomad, Blender, 3D-Coat, Substance, Marmoset...) but never its dated parts; keep a borrowed behaviour only when the reason behind it still holds today, prefer the modern philosophy (continuous values, non-destructive and live, sparse and GPU-resident data, touch first, one implementation per thing reached from wherever it helps) and the measured, optimised solution, with the compare table every design must carry. Load for ANY design, plan, mock, tech choice or "should we have X like app Y" question, before forming the plan; it does not replace sm-ui (how panels work), sm-perf (how to measure) or sm-store (what ships).
 ---
 
 # Design choices: modern, best of all worlds, optimised
@@ -26,7 +26,9 @@ philosophy, strive for better and modern optimised solutions", after the ZBrush 
 - Continuous values over indices and slots; non-destructive layers, generators and live masks over baked results;
   one store read by every view (no twin data for Sculpt and Render); sparse data (tiles, bricks, nodes) over full
   grids; GPU-resident work with CPU reference code; deterministic and parallel (AGENTS.md).
-- Touch first (ZBrush for iPad's layout is the base), one UI per thing (every entry point draws the same card), no
+- Touch first (ZBrush for iPad's layout is the base), one implementation per thing, as many places to reach it as help (a shortcut
+  to a control in a top-bar chip, a shelf slider, a pie item or another card's row is that same control drawn by the
+  same proc, never a second panel; add one when it saves a real reach or tap), no
   mode that hides the model, no second way to do what has a way already.
 - Undo for everything a user sees; a format that one build writes and reads (no compatibility before release).
 - When a tool's weak spot is known (ArmorPaint's UV-space raster per dab, ZBrush's material index, Blender's

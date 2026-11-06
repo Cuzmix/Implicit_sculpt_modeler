@@ -350,26 +350,20 @@ shading_options :: proc(app: ^App, s: ^View_Shading, main: bool, looks := true) 
 	}
 	// What the look is for, right under its name, so a newcomer knows what the name means.
 	ui.paragraph(ctx, SHADING_MODE_HINTS[shown])
+	// The render is the Render card's one choice (Off, Fast, Full): this row says which and
+	// opens the card on it, rather than a second control for the same thing.
 	if looks && main {
-		on := shown == .Rendered
-		if ui.switch_row(ctx, "Render", &on, keys = command_hint(app, .Studio_Render)) do command_run(app, .Shading_Mode, int(Shading_Mode.Rendered if on else Shading_Mode.Full))
+		if ui.menu_item(ctx, fmt.tprintf("Render · %s##shading render", RENDER_SHOW_NAMES[render_show(app)]), glyph = ICON_RENDER_PREVIEW) do card_reveal(app, .Render)
 	}
 	if shown != .Flat {
 		colour := 1 - s.grey
 		if ui.slider(ctx, "Colour", &colour, 0, 1, .Linear, fmt.tprintf("%.0f%%", colour * 100)) do s.grey = clamp(1 - colour, 0, 1)
 	}
 	if shown == .Clay {
-		caps := make([dynamic]string, 0, len(MATCAP_RECIPES), context.temp_allocator)
-		for r in MATCAP_RECIPES do append(&caps, string(r.label))
-		at := (s.matcap if s.matcap > 0 && s.matcap <= len(MATCAP_RECIPES) else SHADING_MATCAP_DEFAULT) - 1
-		named(ctx, "MatCap", inner)
-		// Rows of three, as more names do not fit across the list.
-		ui.begin(ctx, "matcaps##shading", {direction = .Column, gap = ui.SPACE_XS, width = inner})
-		for start := 0; start < len(caps); start += 3 {
-			row := caps[start:min(start + 3, len(caps))]
-			if picked := ui.tabs(ctx, fmt.tprintf("MatCap %d", start / 3), row, at - start if at >= start && at < start + len(row) else -1); picked >= 0 do s.matcap = start + picked + 1
-		}
-		ui.end(ctx)
+		// The one in use named, as touch has no hover to name a picture.
+		ui.begin(ctx, "MatCap option##shading", {direction = .Column, gap = ui.SPACE_XS, width = inner})
+		ui.label(ctx, fmt.tprintf("MatCap · %s", matcap_label(app, s.matcap if s.matcap != 0 else SHADING_MATCAP_DEFAULT)), ctx.theme.small_size)
+		shading_matcap_discs(app, s, inner)
 		ui.end(ctx)
 	}
 	froms: [len(Colour_From)]string
@@ -385,6 +379,56 @@ shading_options :: proc(app: ^App, s: ^View_Shading, main: bool, looks := true) 
 		if k.look_per_tool do ui.label(ctx, fmt.tprintf("This look is for %s.", LOOK_GROUP_TITLES[k.passes.group]), ctx.theme.small_size)
 	}
 	ui.end(ctx)
+}
+
+// The MatCaps Clay can be lit by, as their own pictures in rows across `width`: the
+// built-in ones, the image loaded last and every content pack's, then Import, which loads
+// another and picks it. The one in use is ringed. This is the only place a MatCap is
+// picked: a MatCap is the view's light, not an object's material.
+shading_matcap_discs :: proc(app: ^App, s: ^View_Shading, width: f32) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	caps := make([dynamic]int, 0, len(MATCAP_RECIPES) + 1, context.temp_allocator)
+	names := make([dynamic]string, 0, len(MATCAP_RECIPES) + 1, context.temp_allocator)
+	for r, i in MATCAP_RECIPES {
+		append(&caps, i + 1)
+		append(&names, string(r.label))
+	}
+	if app.matcap_image != 0 {
+		append(&caps, MATCAP_IMAGE)
+		append(&names, "Imported")
+	}
+	for pm, k in app.library.matcaps {
+		if pm.gone || pm.failed do continue
+		append(&caps, PACK_MATCAP + k)
+		append(&names, pm.stem)
+	}
+	// The packs' pictures are made when first shown (pack_matcaps_settle).
+	app.library.matcaps_wanted = true
+	in_use := s.matcap if s.matcap != 0 else SHADING_MATCAP_DEFAULT
+	side := t.target
+	across := max(int((width + ui.SPACE_XS) / (side + ui.SPACE_XS)), 1)
+	// The Import button takes the last place.
+	count := len(caps) + 1
+	for first := 0; first < count; first += across {
+		ui.begin(ctx, fmt.tprintf("matcap discs %d##shading", first), {direction = .Row, gap = ui.SPACE_XS})
+		for n in first ..< min(first + across, count) {
+			if n == len(caps) {
+				if ui.icon_button(ctx, "Import MatCap##shading", ui.ICON_PLUS) do file_dialog(app, .Matcap)
+				continue
+			}
+			a := ui.area(ctx, fmt.tprintf("%s##matcap disc %d", names[n], n), {side, side}, drag = false)
+			c := [2]f32{a.rect.x + side * 0.5, a.rect.y + side * 0.5}
+			r := side * 0.5 - ui.SPACE_XS
+			ui.fill_circle(ctx, c, r, t.fill)
+			ui.image_disc(ctx, c, r, KIT_MATCAP_IMAGE + u64(caps[n]))
+			if caps[n] == in_use do ui.stroke_circle(ctx, c, r + ui.SPACE_2XS, t.accent, 2)
+			else if a.hovered && ctx.input.pointer != .Finger do ui.stroke_circle(ctx, c, r + ui.SPACE_2XS, t.text_tertiary, 1)
+			ui.tip(ctx, a.id, a.rect, names[n])
+			if a.clicked do s.matcap = caps[n]
+		}
+		ui.end(ctx)
+	}
 }
 
 // The pass's line in a layout, written only when it is not Shaded, then the shading's.

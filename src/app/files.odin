@@ -81,7 +81,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(62)
+SCENE_VERSION :: u32(63)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -252,6 +252,8 @@ dialog_folder :: proc(app: ^App, userdata: rawptr) {
 // nothing while another dialog is showing.
 file_dialog :: proc(app: ^App, kind: File_Kind) {
 	if kind == .None do return
+	app.dialogs_asked += 1
+	if app.no_dialogs do return
 	sync.lock(&pending.lock)
 	busy := pending.dialog
 	pending.dialog = true

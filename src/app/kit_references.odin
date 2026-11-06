@@ -12,11 +12,12 @@ import "../ui"
 // and the model stays in view beside it. A drag on a picture moves the picked ones, its
 // corner sizes it, a drag on the board's ground pans, the wheel or a pinch zooms about the
 // pointer, and a double tap on the ground fits everything; a mouse's left drag on the
-// ground boxes places, its middle button pans and its right opens the board's menu, as
-// PureRef's. The board fills the card: the head's Add and Tidy menus add (a file, the
-// clipboard, the view itself, a note) and tidy (Arrange, Same height, Fit all, the
-// ground), the edits float over the picked places (Flip, Grey, Turn, Crop, In scene, and
-// More with Lock and Delete), and under the board, only while something is picked, are
+// ground boxes places, its middle button pans and its right (or a finger's long press)
+// opens the board's menu, as PureRef's. The board fills the card: the head's Add asks for
+// pictures and its ⋯ adds the rest (the clipboard, the view itself, a note) and tidies
+// (Arrange, Same height, Fit all, the ground), the edits float over the picked places
+// (Flip, Grey, Turn, Crop, In scene, and More with Lock, Send to back and Delete), and
+// under the board, only while something is picked, are
 // where the pictures show (On view, In scene, Behind or Through, Opacity) or a note's text. The pictures are drawn by the interface from their GPU copies
 // (references.odin), only where the board shows them.
 
@@ -69,7 +70,7 @@ Ref_Board :: struct {
 	// The head's Add and Tidy menus, the floating edits' More, and the board's menu at the
 	// pointer (a right click), with where the open one hangs from.
 	add_menu:      bool,
-	tidy_menu:     bool,
+	board_more:    bool,
 	more_menu:     bool,
 	board_menu:    bool,
 	menu_at:       ui.Rect,
@@ -83,6 +84,22 @@ Ref_Board :: struct {
 	middle_pan:    bool,
 	box_from:      [2]f32,
 	box_base:      [dynamic]u32,
+	// The press under way raised the picked places (its `before` is the order it found)
+	// and its drag moved them; a raise over the view waits for the view's loop to end.
+	raised:        bool,
+	moved:         bool,
+	view_raise:    u32,
+	// Asks for pictures from files and from Photos, for the exit stats.
+	asked_files:   int,
+	asked_photos:  int,
+	// Two fingers on the board: the angle between them last frame. Over the view
+	// (refs_touch_gesture): the place two fingers turn, whether this touch was already
+	// decided, the places before it began (owned), and how many changed one.
+	twist:          f32,
+	gesture_id:     u32,
+	gesture_tried:  bool,
+	gesture_before: []Ref,
+	turns:          int,
 }
 
 CROP_LEFT :: 1
@@ -111,6 +128,7 @@ Ref_Drag :: enum u8 {
 	Size,
 	Crop,
 	Box, // a mouse's left drag from the ground, picking what its box touches
+	Turn, // two fingers on a picked place, pinching and twisting the picked ones
 }
 
 // How wide the card is: a board two pictures across beside the model, as every card is
@@ -357,6 +375,8 @@ Ref_Edit :: enum u8 {
 	Behind,
 	Through,
 	Plane_Any,
+	Straighten,
+	View_Lock,
 }
 
 refs_edit :: proc(app: ^App, edit: Ref_Edit) {
@@ -388,6 +408,10 @@ refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 			r.through = true
 		case .Plane_Any:
 			r.plane_any = !f.plane_any
+		case .Straighten:
+			r.angle, r.view_angle = 0, 0
+		case .View_Lock:
+			r.view_locked = !f.view_locked
 		case .Turn:
 			if r.locked do continue
 			middle := r.at + r.size * 0.5
@@ -400,7 +424,7 @@ refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 		delete(before)
 		return
 	}
-	names := [Ref_Edit]string{.Flip = "Flip reference", .Grey = "Grey reference", .Turn = "Turn reference", .Lock = "Lock reference", .View = "Reference on view", .Behind = "Reference behind the model", .Through = "Reference through the model", .Plane_Any = "Reference shown from any side"}
+	names := [Ref_Edit]string{.Flip = "Flip reference", .Grey = "Grey reference", .Turn = "Turn reference", .Lock = "Lock reference", .View = "Reference on view", .Behind = "Reference behind the model", .Through = "Reference through the model", .Plane_Any = "Reference shown from any side", .Straighten = "Straighten reference", .View_Lock = "Lock reference on view"}
 	history_record_refs(app, before, names[edit])
 	if edit == .Turn || edit == .Lock do b.cropping = 0
 }
@@ -564,14 +588,14 @@ refs_chip :: proc(ctx: ^ui.Context, name: string, glyph: rune, words: string, on
 	return a.clicked
 }
 
-// The References card's head buttons, before Pin and Close: Add, which opens the menu
-// that adds pictures, a pasted picture, the view itself or a note, and Tidy, which opens
-// Arrange, Same height and Fit all.
+// The References card's head buttons, before Pin and Close: Add, which opens the file
+// dialog (on the iPad, a choice of Photos and Files: refs_add_ask), and ⋯, the board's
+// menu of what else adds (a pasted picture, the view itself, a note) and what tidies.
 refs_head_buttons :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	b := &app.kit.board
-	if ui.icon_button(ctx, "Add##refs", ui.ICON_PLUS, selected = b.add_menu, size = REFS_HEAD_BUTTON) do b.add_menu, b.menu_at = !b.add_menu, ctx.last_rect
-	if ui.icon_button(ctx, "Tidy##refs", ICON_LAYOUT_DASHBOARD, selected = b.tidy_menu, size = REFS_HEAD_BUTTON) do b.tidy_menu, b.menu_at = !b.tidy_menu, ctx.last_rect
+	if ui.icon_button(ctx, "Add##refs", ui.ICON_PLUS, selected = b.add_menu, size = REFS_HEAD_BUTTON) do refs_add_ask(app, ctx.last_rect)
+	if ui.icon_button(ctx, "More##refs head", ui.ICON_MORE, selected = b.board_more, size = REFS_HEAD_BUTTON) do b.board_more, b.menu_at = !b.board_more, ctx.last_rect
 }
 
 // The head buttons' width, for the head to leave room for them.
@@ -628,8 +652,8 @@ refs_float_bar :: proc(app: ^App) {
 	ui.end(ctx)
 }
 
-// The empty board's Add image, in its middle: it opens the Add menu, as the head's Add
-// does, where a first picture is looked for. Laid out after the cards, as the floating
+// The empty board's Add image, in its middle: it asks for pictures as the head's Add
+// does. Laid out after the cards, as the floating
 // edits are, so a press on it is its own and never the board's.
 @(private = "file")
 refs_empty_add :: proc(app: ^App) {
@@ -644,61 +668,62 @@ refs_empty_add :: proc(app: ^App) {
 	pos := [2]f32{r.x + (r.w - w) * 0.5, r.y + (r.h - t.target) * 0.5}
 	if pos.y < b.shown.y || pos.y + t.target > b.shown.y + b.shown.h do return
 	ui.begin_at(ctx, "refs empty", pos, {direction = .Row})
-	if ui.button(ctx, "Add image##refs empty", .Solid, .Accent, width = w, glyph = ui.ICON_PLUS) do b.add_menu, b.menu_at = !b.add_menu, ctx.last_rect
+	if ui.button(ctx, "Add image##refs empty", .Solid, .Accent, width = w, glyph = ui.ICON_PLUS) do refs_add_ask(app, ctx.last_rect)
 	ui.end(ctx)
 }
 
 // The References card's floating edits and menus, laid out after the cards so they are
-// over them: the edits over the picked places, Add's and Tidy's menus from the head, More
-// from the edits and the In scene menu from its chip. All shut with the card.
+// over them: the edits over the picked places, Add's choice and the board's ⋯ menu from the
+// head, More from the edits and the In scene menu from its chip. All shut with the card.
 refs_card_menus :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	b := &k.board
 	if !card_shown(app, .References) {
-		b.add_menu, b.tidy_menu, b.more_menu, b.board_menu, b.plane_menu = false, false, false, false, false
+		b.add_menu, b.board_more, b.more_menu, b.board_menu, b.plane_menu = false, false, false, false, false
 		return
 	}
 	refs_float_bar(app)
 	refs_empty_add(app)
 	refs := &app.scene.refs
 	box := ui.Box{direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}
-	if ui.popover_begin(ctx, "refs add menu", &b.add_menu, b.menu_at, .Below_End, box) {
-		if ui.menu_item(ctx, "Add pictures##refs add", glyph = ICON_IMAGE_PLUS, hint = "Pictures from your files") {
-			file_dialog(app, .Reference)
+	// The iPad's choice of where pictures come from: two big tiles, as Nomad's.
+	if ui.popover_begin(ctx, "refs add choice", &b.add_menu, b.menu_at, .Below_End, {direction = .Row, gap = ui.SPACE_S, padding = ui.SPACE_S}) {
+		if refs_choice_tile(ctx, "Photos##refs add", ICON_IMAGES, "Photos from your library, several at once") {
+			refs_ask_photos(app)
 			b.add_menu = false
 		}
-		// The iPad keeps photos apart from files, so its own picker has a line of its own.
-		if PHOTOS_PICKER && ui.menu_item(ctx, "Add from Photos##refs add", glyph = ICON_IMAGES, hint = "Several photos at once") {
-			_ = file_dialog_photos(app)
-			b.add_menu = false
-		}
-		if ui.menu_item(ctx, "Paste picture##refs add", glyph = ICON_CLIPBOARD_PASTE, hint = "The picture on the clipboard") {
-			_ = refs_paste(app)
-			b.add_menu = false
-		}
-		if ui.menu_item(ctx, "Snap view##refs add", glyph = ICON_IMAGE_DOWN, hint = "The view as it is now, as a picture") {
-			b.snap = true
-			b.add_menu = false
-		}
-		if ui.menu_item(ctx, "Add note##refs add", glyph = ICON_STICKY_NOTE) {
-			refs_add_note(app)
+		if refs_choice_tile(ctx, "Files##refs add", ui.ICON_FOLDER, "Pictures from your files") {
+			refs_ask_files(app)
 			b.add_menu = false
 		}
 		ui.popover_end(ctx)
 	}
-	if ui.popover_begin(ctx, "refs tidy menu", &b.tidy_menu, b.menu_at, .Below_End, box) {
+	if ui.popover_begin(ctx, "refs board more", &b.board_more, b.menu_at, .Below_End, box) {
+		if ui.menu_item(ctx, "Paste picture##refs more", glyph = ICON_CLIPBOARD_PASTE, hint = "The picture on the clipboard") {
+			_ = refs_paste(app)
+			b.board_more = false
+		}
+		if ui.menu_item(ctx, "Snap view##refs more", glyph = ICON_IMAGE_DOWN, hint = "The view as it is now, as a picture") {
+			b.snap = true
+			b.board_more = false
+		}
+		if ui.menu_item(ctx, "Add note##refs more", glyph = ICON_STICKY_NOTE) {
+			refs_add_note(app)
+			b.board_more = false
+		}
+		ui.divider(ctx, across = true)
 		if ui.menu_item(ctx, "Arrange##refs tidy", glyph = ICON_LAYOUT_DASHBOARD, enabled = len(refs.refs) > 1, hint = "Packed into rows, tallest first") {
 			refs_arrange(app)
-			b.tidy_menu = false
+			b.board_more = false
 		}
 		if ui.menu_item(ctx, "Same height##refs tidy", glyph = ICON_STRETCH_VERTICAL, enabled = len(refs.refs) > 1) {
 			refs_same_height(app)
-			b.tidy_menu = false
+			b.board_more = false
 		}
 		if ui.menu_item(ctx, "Fit all##refs tidy", glyph = ICON_SCAN, enabled = len(refs.refs) > 0) {
 			board_fit(app, b.room)
-			b.tidy_menu = false
+			b.board_more = false
 		}
 		ui.divider(ctx, across = true)
 		// The ground stays a choice of this device, as a canvas app's is, not the scene's.
@@ -706,7 +731,7 @@ refs_card_menus :: proc(app: ^App) {
 		for name, g in grounds {
 			if ui.menu_item(ctx, name, checked = k.refs_ground == g, hint = "The board's background" if g == .Dots else "") {
 				k.refs_ground = g
-				b.tidy_menu = false
+				b.board_more = false
 			}
 		}
 		ui.popover_end(ctx)
@@ -717,6 +742,11 @@ refs_card_menus :: proc(app: ^App) {
 			refs_edit(app, .Lock)
 			b.more_menu = false
 		}
+		if ui.menu_item(ctx, "Send to back##refs more", glyph = ICON_SEND_TO_BACK, enabled = len(b.selected) > 0, hint = "Under the others; picking one brings it to the front") {
+			refs_send_back_selected(app)
+			b.more_menu = false
+		}
+		refs_turn_items(app, &b.more_menu)
 		if ui.menu_item(ctx, "Delete##refs more", glyph = ICON_TRASH_2, tone = .Danger, enabled = len(b.selected) > 0) {
 			refs_delete_selected(app)
 			b.more_menu = false
@@ -727,8 +757,9 @@ refs_card_menus :: proc(app: ^App) {
 	refs_plane_menu(app)
 }
 
-// The board's menu at the pointer, a right click's, as PureRef's: the picked places'
-// edits when some are picked, then what adds and what tidies.
+// The board's menu at the pointer, a right click's or a finger's or the pen's long press,
+// as PureRef's and an iPad app's: the picked places' edits when some are picked, then what
+// adds and what tidies.
 @(private = "file")
 refs_board_menu :: proc(app: ^App) {
 	k := &app.kit
@@ -773,6 +804,11 @@ refs_board_menu :: proc(app: ^App) {
 			refs_edit(app, .Lock)
 			b.board_menu = false
 		}
+		if ui.menu_item(ctx, "Send to back##refs board", glyph = ICON_SEND_TO_BACK) {
+			refs_send_back_selected(app)
+			b.board_menu = false
+		}
+		refs_turn_items(app, &b.board_menu)
 		if ui.menu_item(ctx, "Delete##refs board", glyph = ICON_TRASH_2, tone = .Danger) {
 			refs_delete_selected(app)
 			b.board_menu = false
@@ -780,15 +816,19 @@ refs_board_menu :: proc(app: ^App) {
 		ui.divider(ctx, across = true)
 	}
 	if ui.menu_item(ctx, "Add pictures##refs board", glyph = ICON_IMAGE_PLUS) {
-		file_dialog(app, .Reference)
+		refs_ask_files(app)
 		b.board_menu = false
 	}
-	if PHOTOS_PICKER && ui.menu_item(ctx, "Add from Photos##refs board", glyph = ICON_IMAGES) {
-		_ = file_dialog_photos(app)
+	if app.photos_picker && ui.menu_item(ctx, "Add from Photos##refs board", glyph = ICON_IMAGES) {
+		refs_ask_photos(app)
 		b.board_menu = false
 	}
 	if ui.menu_item(ctx, "Paste picture##refs board", glyph = ICON_CLIPBOARD_PASTE) {
 		_ = refs_paste(app)
+		b.board_menu = false
+	}
+	if ui.menu_item(ctx, "Snap view##refs board", glyph = ICON_IMAGE_DOWN) {
+		b.snap = true
 		b.board_menu = false
 	}
 	if ui.menu_item(ctx, "Add note##refs board", glyph = ICON_STICKY_NOTE) {
@@ -806,10 +846,34 @@ refs_board_menu :: proc(app: ^App) {
 	}
 }
 
+// The picture menus' Lock on view (while a picked picture is over the view) and
+// Straighten (while one is turned on the board or the view), each closing menu `open`.
+@(private = "file")
+refs_turn_items :: proc(app: ^App, open: ^bool) {
+	ctx := &app.kit.ctx
+	b := &app.kit.board
+	viewed, turned := false, false
+	for r in app.scene.refs.refs do if board_picked(b, r.id) && r.image != 0 {
+		viewed ||= r.view
+		turned ||= r.angle != 0 || r.view_angle != 0
+	}
+	if viewed {
+		locked := refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || !r.view || r.view_locked})
+		if ui.menu_item(ctx, "Unlock on view##refs turn" if locked else "Lock on view##refs turn", glyph = ICON_LOCK if locked else ICON_LOCK_OPEN, hint = "" if locked else "Two fingers on it then turn the view") {
+			refs_edit(app, .View_Lock)
+			open^ = false
+		}
+	}
+	if turned && ui.menu_item(ctx, "Straighten##refs turn", glyph = ICON_STRAIGHTEN, hint = "Upright again, on the board and the view") {
+		refs_edit(app, .Straighten)
+		open^ = false
+	}
+}
+
 // Draws picture place `p` at screen rect `at`, at opacity `alpha`: its GPU copy cropped,
 // flipped and turned (the grey copy once made, when grey), or a box saying it loads or
 // why it cannot be shown.
-refs_picture_draw :: proc(app: ^App, at: ui.Rect, p: Ref, alpha: u8) {
+refs_picture_draw :: proc(app: ^App, at: ui.Rect, p: Ref, alpha: u8, angle: f32 = 0) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	refs := &app.scene.refs
@@ -819,10 +883,16 @@ refs_picture_draw :: proc(app: ^App, at: ui.Rect, p: Ref, alpha: u8) {
 	if img.texture != 0 {
 		id := KIT_REF_IMAGE + u64(slot)
 		if p.grey && img.grey != 0 do id += REF_IMAGES_MAX
-		ui.image_corners(ctx, at, id, ref_corners(p), {255, 255, 255, alpha})
+		if angle == 0 do ui.image_corners(ctx, at, id, ref_corners(p), {255, 255, 255, alpha})
+		else do ui.image_quad(ctx, refs_turned(at, angle), id, ref_corners(p), {255, 255, 255, alpha})
 		return
 	}
-	ui.fill_rect(ctx, at, 0, {t.fill.r, t.fill.g, t.fill.b, u8(u32(t.fill.a) * u32(alpha) / 255)})
+	box := ui.Color{t.fill.r, t.fill.g, t.fill.b, u8(u32(t.fill.a) * u32(alpha) / 255)}
+	if angle == 0 do ui.fill_rect(ctx, at, 0, box)
+	else {
+		corners := refs_turned(at, angle)
+		ui.fill_convex(ctx, corners[:], box)
+	}
 	note := "Loading" if img.failed == "" else fmt.tprintf("Cannot show %s: %s", img.name, img.failed)
 	ui.text(ctx, ui.text_fit(ctx, note, t.small_size, at.w - t.gap), at.x + at.w * 0.5, at.y + at.h * 0.5, t.small_size, t.text_tertiary, .Regular, .Center)
 }
@@ -872,14 +942,15 @@ board_draw :: proc(app: ^App, r: ui.Rect) {
 	for p in refs.refs {
 		if !board_picked(b, p.id) do continue
 		at := board_rect(b, r, p)
-		ui.stroke_rect(ctx, at, 0, t.accent, 2)
+		corners := refs_turned(at, board_angle(b, p))
+		ui.polyline(ctx, corners[:], t.accent, 2, closed = true)
 		if p.id == b.cropping {
 			// Each edge's middle and each corner, where a finger takes it.
 			for e in ([?][2]f32{{0, 0}, {0.5, 0}, {1, 0}, {1, 0.5}, {1, 1}, {0.5, 1}, {0, 1}, {0, 0.5}}) {
 				ui.fill_circle(ctx, {at.x + at.w * e.x, at.y + at.h * e.y}, board_corner(ctx) * 0.3, t.accent)
 			}
 		} else if len(b.selected) == 1 && !p.locked {
-			ui.fill_circle(ctx, {at.x + at.w, at.y + at.h}, board_corner(ctx) * 0.4, t.accent)
+			ui.fill_circle(ctx, corners[2], board_corner(ctx) * 0.4, t.accent)
 		}
 	}
 	if b.drag == .Box {
@@ -920,10 +991,17 @@ board_ground :: proc(app: ^App, r: ui.Rect) {
 	}
 }
 
-// Picture place `p` on the board drawn at `r`, at opacity `alpha`.
+// Picture place `p` on the board drawn at `r`, at opacity `alpha`, turned by its angle
+// unless it is being cropped, which shows it upright.
 @(private = "file")
 board_picture :: proc(app: ^App, r: ui.Rect, p: Ref, alpha: u8) {
-	refs_picture_draw(app, board_rect(&app.kit.board, r, p), p, alpha)
+	b := &app.kit.board
+	refs_picture_draw(app, board_rect(b, r, p), p, alpha, board_angle(b, p))
+}
+
+// The angle place `p` shows at on the board: none while cropped, and a note never turns.
+board_angle :: proc(b: ^Ref_Board, p: Ref) -> f32 {
+	return 0 if p.id == b.cropping || p.image == 0 else p.angle
 }
 
 // The reach of a picked picture's corner, which sizes it: a finger's target.
@@ -959,20 +1037,37 @@ board_input :: proc(app: ^App, a: ui.Area) {
 	room := a.rect
 	refs := &app.scene.refs
 	fingers := &app.touch.fingers
+	// A finger's or the pen's long press opens the board's menu where it is held, as a
+	// right click does; called first, while the board's area is still the last widget.
+	long := ctx.input.pointer != .Mouse && .Right not_in ctx.input.released && ui.secondary(ctx)
 	if fingers.count >= 2 && (a.held || b.spread > 0) {
 		// The fingers are in window coordinates; the board is in points.
 		scale := max(k.scale, 1e-3)
 		middle: [2]f32
 		for d in fingers.down[:2] do middle += d.at / (2 * scale)
 		spread := max(abs(fingers.down[0].at.x - fingers.down[1].at.x) + abs(fingers.down[0].at.y - fingers.down[1].at.y), 1) / scale
-		if b.spread > 0 {
+		v := fingers.down[1].at - fingers.down[0].at
+		angle := math.atan2(v.y, v.x)
+		if b.spread == 0 {
+			// Fingers that land on a picked place (the first having taken it as a drag, or
+			// both coming at once) pinch and twist the picked ones; elsewhere they pan and
+			// zoom the board, and a drag a finger began is put back where it found them.
+			hit := board_hit(app, room, fingers.down[0].start / scale)
+			on_picked := hit >= 0 && board_picked(b, refs.refs[hit].id) && !refs.refs[hit].locked
+			if b.drag == .Move || (b.drag == .None && on_picked) {
+				if b.before == nil do b.before = refs_clone(refs.refs[:])
+				b.drag = .Turn
+			} else if b.drag != .Turn {
+				if b.drag == .Size || b.drag == .Crop do board_drag_cancel(app)
+				b.drag = .None
+			}
+		} else if b.drag == .Turn {
+			board_turn_picked(app, room, b.middle, middle, spread / b.spread, refs_wrap(angle - b.twist))
+		} else {
 			b.pan -= (middle - b.middle) / board_zoom(b)
 			board_zoom_about(b, room, middle, spread / b.spread)
 		}
-		b.spread, b.middle = spread, middle
-		// A pinch ends any drag a finger began, putting the pictures back where it found them.
-		if b.drag == .Move || b.drag == .Size || b.drag == .Crop do board_drag_cancel(app)
-		b.drag = .None
+		b.spread, b.middle, b.twist = spread, middle, angle
 		return
 	}
 	b.spread = 0
@@ -996,6 +1091,13 @@ board_input :: proc(app: ^App, a: ui.Area) {
 		} else if i < 0 && !ctx.input.shift do clear(&b.selected)
 		b.board_menu, b.menu_at = true, {a.mouse.x, a.mouse.y, 0, 0}
 	}
+	if long {
+		// The press already picked what is under it; a drag it began ends where it is.
+		board_drag_end(app)
+		b.middle_pan = false
+		b.board_menu, b.menu_at = true, {a.mouse.x, a.mouse.y, 0, 0}
+		return
+	}
 	if a.pressed {
 		b.last = a.mouse
 		hit := board_hit(app, room, a.mouse)
@@ -1006,7 +1108,7 @@ board_input :: proc(app: ^App, a: ui.Area) {
 			if one.id == b.cropping {
 				b.edges = crop_edges_at(ctx, at, a.mouse)
 			} else {
-				d := a.mouse - [2]f32{at.x + at.w, at.y + at.h}
+				d := a.mouse - refs_turned(at, board_angle(b, one^))[2]
 				corner = d.x * d.x + d.y * d.y <= board_corner(ctx) * board_corner(ctx)
 			}
 		}
@@ -1034,6 +1136,15 @@ board_input :: proc(app: ^App, a: ui.Area) {
 				append(&b.selected, id)
 			}
 			b.drag = .Move if board_picked(b, id) && !refs.refs[hit].locked else .Pan
+			// A picked place comes to the top and stays there; the drag that follows lists
+			// the raise with its move as one undo step, a tap as one of its own.
+			if b.drag == .Move {
+				order := refs_clone(refs.refs[:])
+				if refs_bring_front(&refs.refs, b.selected[:], id) {
+					delete(b.before)
+					b.before, b.raised = order, true
+				} else do delete(order)
+			}
 		case ctx.input.pointer == .Mouse:
 			// A mouse's drag from the ground picks what its box touches, as PureRef's
 			// does; a finger's pans, as a finger expects.
@@ -1046,7 +1157,7 @@ board_input :: proc(app: ^App, a: ui.Area) {
 			if !ctx.input.shift do clear(&b.selected)
 			b.drag = .Pan
 		}
-		if b.drag == .Move || b.drag == .Size || b.drag == .Crop {
+		if (b.drag == .Move || b.drag == .Size || b.drag == .Crop) && !b.raised {
 			delete(b.before)
 			b.before = refs_clone(refs.refs[:])
 		}
@@ -1055,15 +1166,18 @@ board_input :: proc(app: ^App, a: ui.Area) {
 		d := a.mouse - b.last
 		z := board_zoom(b)
 		switch b.drag {
-		case .None:
+		case .None, .Turn:
+		// The finger left of two that turned the picked places moves nothing until it lifts.
 		case .Pan:
 			b.pan -= d / z
 		case .Move:
 			for &p in refs.refs do if board_picked(b, p.id) && !p.locked do p.at += d / z
+			b.moved = true
 		case .Size:
 			if p := board_one(app); p != nil {
 				// The corner follows the pointer along the picture's diagonal, so it keeps its shape.
-				grow := (d.x * p.size.x + d.y * p.size.y) / max(p.size.x * p.size.x + p.size.y * p.size.y, 1e-6) / z
+				u := refs_rotate(d, -board_angle(b, p^))
+				grow := (u.x * p.size.x + u.y * p.size.y) / max(p.size.x * p.size.x + p.size.y * p.size.y, 1e-6) / z
 				f := max(1 + grow, REF_MIN_SIDE / max(min(p.size.x, p.size.y), 1e-6))
 				p.size *= f
 			}
@@ -1082,19 +1196,96 @@ board_input :: proc(app: ^App, a: ui.Area) {
 		b.last = a.mouse
 	}
 	if !a.held && b.drag == .Move && b.before != nil && board_pin_drop(app, room, a.mouse) do b.drag = .None
-	if !a.held && b.drag != .None {
-		if (b.drag == .Move || b.drag == .Size || b.drag == .Crop) && b.before != nil {
-			if !slice.equal(b.before, refs.refs[:]) {
-				names := [Ref_Drag]string{.None = "", .Pan = "", .Box = "", .Move = "Move reference", .Size = "Size reference", .Crop = "Crop reference"}
-				history_record_refs(app, b.before, names[b.drag])
-				b.moves += 1
-			} else do delete(b.before)
-			b.before = nil
-		}
-		b.drag = .None
-	}
+	if !a.held && b.drag != .None do board_drag_end(app)
 	if a.clicked && b.drag == .None && len(b.selected) == 0 && handle_double_tap(ctx, &b.tap, a.id) do board_fit(app, room)
 }
+
+// Ends the drag under way where it is: a drag that moved, sized or cropped places, or a
+// press that raised them, is one undo step.
+@(private = "file")
+board_drag_end :: proc(app: ^App) {
+	b := &app.kit.board
+	refs := &app.scene.refs
+	if (b.drag == .Move || b.drag == .Size || b.drag == .Crop || b.drag == .Turn) && b.before != nil {
+		if !slice.equal(b.before, refs.refs[:]) {
+			names := [Ref_Drag]string{.None = "", .Pan = "", .Box = "", .Move = "Move reference", .Size = "Size reference", .Crop = "Crop reference", .Turn = "Turn and size reference"}
+			// A press that only raised the picked places is a step of its own name.
+			if b.drag == .Move && !b.moved {
+				history_record_refs(app, b.before, "Bring reference to front")
+			} else {
+				history_record_refs(app, b.before, names[b.drag])
+				b.moves += 1
+			}
+		} else do delete(b.before)
+		b.before = nil
+	}
+	b.drag = .None
+	b.raised, b.moved = false, false
+}
+
+// Scales the picked unlocked places by `s`, turns them by `twist` and carries them from
+// screen point `from` to `to`, all about `from`, as two fingers on the board do; a note
+// is scaled and carried but never turned.
+@(private = "file")
+board_turn_picked :: proc(app: ^App, room: ui.Rect, from, to: [2]f32, s, twist: f32) {
+	b := &app.kit.board
+	m := board_point(b, room, from)
+	pan := (to - from) / board_zoom(b)
+	grow := clamp(s, 0.5, 2)
+	for &p in app.scene.refs.refs {
+		if !board_picked(b, p.id) || p.locked do continue
+		f := max(grow, REF_MIN_SIDE / max(min(p.size.x, p.size.y), 1e-6))
+		turn := twist if p.image != 0 else 0
+		c := refs_turn_about(p.at + p.size * 0.5, m, f, turn, pan)
+		p.size *= f
+		p.angle = refs_wrap(p.angle + turn)
+		p.at = c - p.size * 0.5
+	}
+	b.moved = true
+}
+
+// Asks for pictures to add: on the iPad (or with --photos-picker) a choice of Photos and
+// Files beside `at`, elsewhere the file dialog at once, whose own list holds the gallery
+// on Android and the photos the system keeps on a desktop.
+refs_add_ask :: proc(app: ^App, at: ui.Rect) {
+	b := &app.kit.board
+	if app.photos_picker {
+		b.add_menu, b.menu_at = !b.add_menu, at
+		return
+	}
+	refs_ask_files(app)
+}
+
+// The file dialog for pictures, and the iPad's photo picker (the file dialog where there
+// is none), each counted for the exit stats.
+refs_ask_files :: proc(app: ^App) {
+	app.kit.board.asked_files += 1
+	file_dialog(app, .Reference)
+}
+
+refs_ask_photos :: proc(app: ^App) {
+	app.kit.board.asked_photos += 1
+	if app.no_dialogs do return
+	if !file_dialog_photos(app) do file_dialog(app, .Reference)
+}
+
+// One of Add's two big choices: `glyph` over its name, a whole tile to aim at. `tip` says
+// where its pictures come from. True when tapped.
+@(private = "file")
+refs_choice_tile :: proc(ctx: ^ui.Context, name: string, glyph: rune, tip: string) -> bool {
+	t := ctx.theme
+	a := ui.area(ctx, name, REFS_CHOICE_TILE, drag = false)
+	r := a.rect
+	ui.fill_rect(ctx, r, t.radius_large, t.fill_hover if a.hovered || a.held else t.fill)
+	ui.icon(ctx, glyph, {r.x + r.w * 0.5, r.y + r.h * 0.42}, t.icon_size * 2, t.text)
+	ui.text(ctx, ui.label_text(name), r.x + r.w * 0.5, r.y + r.h * 0.8, t.text_size, t.text, .Semibold, .Center)
+	ui.tip(ctx, a.id, r, tip)
+	return a.clicked
+}
+
+// The size of Add's choice tiles on the iPad: two big targets side by side, a popover's
+// width together.
+REFS_CHOICE_TILE :: [2]f32{120, 104}
 
 // The index of the topmost place on the board drawn at `room` under `at`, or -1.
 @(private = "file")
@@ -1103,7 +1294,8 @@ board_hit :: proc(app: ^App, room: ui.Rect, at: [2]f32) -> int {
 	refs := &app.scene.refs
 	for i := len(refs.refs) - 1; i >= 0; i -= 1 {
 		r := board_rect(b, room, refs.refs[i])
-		if at.x >= r.x && at.x < r.x + r.w && at.y >= r.y && at.y < r.y + r.h do return i
+		q := refs_unturn(r, board_angle(b, refs.refs[i]), at)
+		if q.x >= r.x && q.x < r.x + r.w && q.y >= r.y && q.y < r.y + r.h do return i
 	}
 	return -1
 }
@@ -1172,6 +1364,7 @@ board_drag_cancel :: proc(app: ^App) {
 	append(&app.scene.refs.refs, ..b.before)
 	delete(b.before)
 	b.before = nil
+	b.raised, b.moved = false, false
 }
 
 // Lucide's image-plus, clipboard-paste, scan and trash-2, image-down, sticky-note,
@@ -1192,3 +1385,7 @@ ICON_GREY :: rune(0xe2b2)
 ICON_TURN :: rune(0xe5d6)
 ICON_CROP :: rune(0xe0af)
 ICON_ON_VIEW :: rune(0xe3b3) // picture-in-picture-2
+// Lucide's rotate-ccw-square, for Straighten.
+ICON_STRAIGHTEN :: rune(0xe5d5)
+// Lucide's send-to-back, for Send to back.
+ICON_SEND_TO_BACK :: rune(0xe4f8)
