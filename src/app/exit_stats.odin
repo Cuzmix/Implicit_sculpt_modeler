@@ -588,7 +588,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			fmt.printfln("view_rail=%s rail_named=%d camera_ortho=%d island=%.0f,%.0f,%.0f,%.0f chips=%.0f,%.0f nav_head=%.0f,%.0f", bar_names(app, .View_Rail), int(dock_named(app, .Rail)), int(app.camera.ortho), island.x, island.y, island.w, island.h, chips.x, chips.y, head.x, head.y)
 			sh := &k.shelf
 			page_word, _ := strings.replace_all(shelf_page_name(k, sh.page), " ", "_", context.temp_allocator)
-			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_pins=%d shelf_shown=%d shelf_fits=%d shelf_tile=%.0f brush_grid_scroll=%.0f shelf_active=%d shelf_pages=%d shelf_page_name=%s shelf_pages_added=%d", sh.page, bar_names(app, shelf_which(sh.page)), int(sh.quick), int(k.browser), sh.drops, sh.turns, sh.swipes, sh.pins, sh.shown, sh.fits, sh.tile_w, k.grid_scroll, int(sh.active), len(shelf_pages(k, k.spaces.current)), page_word, sh.added)
+			fmt.printfln("shelf_page=%v shelf=%s shelf_quick=%d brush_sheet=%d shelf_drops=%d shelf_turns=%d shelf_swipes=%d shelf_pins=%d shelf_shown=%d shelf_fits=%d shelf_tile=%.0f brush_grid_scroll=%.0f shelf_active=%d shelf_pages=%d shelf_page_name=%s shelf_pages_added=%d", sh.page, bar_names(app, shelf_which(sh.page)), int(sh.quick), int(k.browser), sh.drops, sh.turns, sh.swipes, sh.pins, sh.shown, sh.fits, sh.tile_w, k.grid_scroll, int(sh.active), len(shelf_pages(k)), page_word, sh.added)
 			fmt.printfln("brush_pie=%s pie_quicks=%d", bar_names(app, .Brush_Pie), k.pie_quicks)
 			// What floats in front of everything else, as the floating order ends.
 			front := "none"

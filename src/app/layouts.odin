@@ -85,7 +85,8 @@ layout_reset :: proc(k: ^Kit_State) {
 }
 
 // The layout as text: the lines of the hidden zones, the pass, the view grid, the cards
-// pinned in the columns, the floating cards, the docks and the bars, in that order. Places
+// pinned in the columns, the floating cards, the shelf's pages, the docks and the bars, in
+// that order. Places
 // are written as they are for the right-handed layout, so a layout kept with either hand
 // reads the same with the other.
 kit_layout_text :: proc(k: ^Kit_State) -> string {
@@ -101,6 +102,7 @@ kit_layout_text :: proc(k: ^Kit_State) -> string {
 	columns_save(k, &out)
 	cards_float_save(k, &out)
 	cards_size_save(k, &out)
+	strings.write_string(&out, shelf_layout_line(k))
 	// The docks, then the bars after a line that says the layout holds them.
 	docks_save(k, &out)
 	strings.write_string(&out, "bars\n")
@@ -131,10 +133,14 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	k.grid.tree, k.grid.maximised = grid_preset_tree(.Single), 0
 	k.grid.serial += 1
 	grid_undo_clear(&k.grid)
+	// The shelf's default pages unless the layout names others.
+	k.shelf.ordered = 0
 	for line in strings.split_lines(text, context.temp_allocator) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) == 0 do continue
 		switch f[0] {
+		case "shelf":
+			shelf_layout_read(k, f)
 		case "hidden":
 			for word in f[1:] do for z in Zone do if strings.equal_fold(word, fmt.tprint(z)) do k.hidden += {z}
 		case "pass":
@@ -165,24 +171,48 @@ built_in_layout :: proc(s: Space) -> string {
 	text: string
 	switch s {
 	case .Sculpt:
-		// The view clear: every card opens from its dock button when it is wanted.
-		text = ""
+		// The view clear: every card opens from its dock button when it is wanted; the
+		// shelf's brushes, paint, Move and Curve pages.
+		text = "shelf Sculpt Paint Move Curve\n"
 	case .Model:
 		// As Sculpt, without the brush bar: its Size and Strength move no cage, so in Model
-		// they would only take room from the view.
-		text = "hidden Brush_Bar\n"
+		// they would only take room from the view. The shelf's Model page.
+		text = "hidden Brush_Bar\nshelf Model\n"
 	case .Render:
 		// The Material card pinned on the pen side, after round 2's studio2 screen, as picking
 		// and trying materials is Render's work; Second view splits off a pane to watch the
 		// render build up beside it. No brush bar, as in Model: a press in Render turns the
-		// view, so Size and Strength would only take room.
-		text = "hidden Brush_Bar\ncolumn right Material\n"
+		// view, so Size and Strength would only take room. The shelf's Render page.
+		text = "hidden Brush_Bar\ncolumn right Material\nshelf Render\n"
 	}
 	// Read and written again, so it is exactly what the layout writes when it is in place;
 	// every space ships with the bars a fresh install has.
 	st := new(Kit_State, context.temp_allocator)
 	kit_layout_put(st, strings.concatenate({text, "bars\n"}, context.temp_allocator))
 	return kit_layout_text(st)
+}
+
+// Takes added shelf page `p`, deleted, out of the layout every space kept, so a page added
+// later in its slot never shows where this one did.
+layouts_forget_page :: proc(k: ^Kit_State, p: Shelf_Page) {
+	word := fmt.tprint(p)
+	for s in Space {
+		text := k.layouts.kept[s]
+		if text == "" do continue
+		out := strings.builder_make(context.temp_allocator)
+		for line in strings.split_lines(text, context.temp_allocator) {
+			if line == "" do continue
+			f := strings.fields(line, context.temp_allocator)
+			if f[0] != "shelf" {
+				fmt.sbprintln(&out, line)
+				continue
+			}
+			strings.write_string(&out, "shelf")
+			for w in f[1:] do if w != word do fmt.sbprintf(&out, " %s", w)
+			strings.write_byte(&out, '\n')
+		}
+		layout_text_set(&k.layouts.kept[s], strings.to_string(out))
+	}
 }
 
 // Whether the layout, or Focus or Inspect, hides zone `z`.
