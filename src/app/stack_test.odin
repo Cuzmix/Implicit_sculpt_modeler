@@ -364,3 +364,26 @@ stack_script_opens_a_row_and_sets_the_pivot :: proc(t: ^testing.T) {
 	c := app.kit.stack
 	testing.expect(t, c.opened && c.open == .Radial && c.object == obj.id)
 }
+
+// Only the first shown row of copies applies by itself, since the rows after it copy what
+// it makes; Search adds a row the object lacks and labels each by its name.
+@(test)
+stack_first_shown_row_applies_alone :: proc(t: ^testing.T) {
+	app: App
+	defer stack_scene_free(&app)
+	obj := stack_scene(&app)
+	testing.expect_value(t, stack_script(&app, obj, "mirror x"), "")
+	testing.expect_value(t, stack_script(&app, obj, "array 3 2.2 0 0"), "")
+	testing.expect(t, stack_row_applies(&app, obj, .Mirror))
+	testing.expect(t, !stack_row_applies(&app, obj, .Array))
+	testing.expect(t, stack_script(&app, obj, "apply array") != "")
+	testing.expect_value(t, stack_script(&app, obj, "hide mirror"), "")
+	testing.expect(t, stack_row_applies(&app, obj, .Array))
+	testing.expect(t, !stack_row_applies(&app, obj, .Radial))
+	testing.expect(t, !stack_row_addable(&app, obj, .Array))
+	testing.expect(t, stack_row_addable(&app, obj, .Radial))
+	// No curve in the scene: Along waits for one.
+	testing.expect(t, !stack_row_addable(&app, obj, .Along))
+	testing.expect_value(t, command_label(.Stack_Add, int(Stack_Row.Radial) - int(Stack_Row.Mirror)), "Live stack: add radial")
+	testing.expect_value(t, command_label(.Stack_Add, STACK_ADD_ROWS - 1), "Live stack: add along a curve")
+}
