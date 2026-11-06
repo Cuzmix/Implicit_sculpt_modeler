@@ -3722,13 +3722,24 @@ def space_tab_gives_back_the_brush():
 
 @scenario
 def a_press_in_render_turns_the_view():
-    """In Render a drag across the model turns the view and lays no dab, since Render keeps no brush in hand."""
+    """Render's tab gives the Look tool: a drag across the model turns the view and lays no dab."""
     s = Script()
     s.ftap(SPACE_TABS["render"])
     s.wait(10)
     s.fdrag(line((MIDDLE[0] - 60, MIDDLE[1]), (MIDDLE[0] + 120, MIDDLE[1] + 20), 20))
     s.wait(6)
-    return s, [], {"dabs": near(0), "space": is_text("render"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
+    return s, [], {"dabs": near(0), "space": is_text("render"), "tool": is_text("look"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
+
+
+@scenario
+def look_tool_from_search_goes_to_render_and_turns_the_view():
+    """The Look tool picked from Search goes to Render, and a drag across the model there turns the view."""
+    s = Script()
+    palette_run(s, "look tool")
+    s.wait(10)
+    s.fdrag(line((MIDDLE[0] - 60, MIDDLE[1]), (MIDDLE[0] + 120, MIDDLE[1] + 20), 20))
+    s.wait(6)
+    return s, [], {"dabs": near(0), "space": is_text("render"), "tool": is_text("look"), "camera_yaw": lambda v: abs(float(v) - 0.6) > 0.2}
 
 
 # Render's and Model's own shelf and dial at 1600 x 900 (PR 3b): the Render page's
