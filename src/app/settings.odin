@@ -853,7 +853,7 @@ settings_load :: proc(app: ^App, path: string) {
 				if c.matcap != 0 do c.idle = MATCAP_IDLE
 			}
 		case "custom_layers":
-			// custom_layers and 31 numbers: Custom's geom.Material_Layers in field order. A line
+			// custom_layers and 32 numbers: Custom's geom.Material_Layers in field order. A line
 			// with a value no material has is passed over whole.
 			if len(f) == 1 + CUSTOM_LAYER_VALUES {
 				values: [32]f32
