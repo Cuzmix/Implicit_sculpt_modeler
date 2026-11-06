@@ -10,7 +10,7 @@
 - Take the best of all apps (ZBrush, Nomad, Blender, 3D-Coat, Marmoset...) in every design, ZBrush iPad layout as the base; compare credible candidates side by side (best-of-all-worlds.md).
 - When a pain point recurs, build the skills/scripts/fixes that remove it; aim for professional quality.
 - Bolt welcomes pushback/debate on his asks (2026-11-01).
-- One UI per thing: every entry point draws the same card, never two panels for one feature (one-ui-per-card.md, 2026-11-02).
+- One implementation per thing, as many places to reach it as help: one source of truth and one proc per control; any shortcut (top-bar chip, shelf slider, pie item, another card's row) is that same control, never a second panel; add one when it saves a real reach or tap (one-ui-per-card.md, 2026-11-06, replaces the 2026-11-02 "one UI per thing" rule).
 - 2026-11-04: keep removing what isn't needed; refactor for consistency; keep UX/UI simple (one layout per space + saved layout stamps).
 - 2026-11-05: Bolt wants mocks for UI redesigns to pick from before building.
 
