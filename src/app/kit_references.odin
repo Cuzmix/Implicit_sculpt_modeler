@@ -92,6 +92,14 @@ Ref_Board :: struct {
 	// Asks for pictures from files and from Photos, for the exit stats.
 	asked_files:   int,
 	asked_photos:  int,
+	// Two fingers on the board: the angle between them last frame. Over the view
+	// (refs_touch_gesture): the place two fingers turn, whether this touch was already
+	// decided, the places before it began (owned), and how many changed one.
+	twist:          f32,
+	gesture_id:     u32,
+	gesture_tried:  bool,
+	gesture_before: []Ref,
+	turns:          int,
 }
 
 CROP_LEFT :: 1
@@ -120,6 +128,7 @@ Ref_Drag :: enum u8 {
 	Size,
 	Crop,
 	Box, // a mouse's left drag from the ground, picking what its box touches
+	Turn, // two fingers on a picked place, pinching and twisting the picked ones
 }
 
 // How wide the card is: a board two pictures across beside the model, as every card is
@@ -366,6 +375,8 @@ Ref_Edit :: enum u8 {
 	Behind,
 	Through,
 	Plane_Any,
+	Straighten,
+	View_Lock,
 }
 
 refs_edit :: proc(app: ^App, edit: Ref_Edit) {
@@ -397,6 +408,10 @@ refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 			r.through = true
 		case .Plane_Any:
 			r.plane_any = !f.plane_any
+		case .Straighten:
+			r.angle, r.view_angle = 0, 0
+		case .View_Lock:
+			r.view_locked = !f.view_locked
 		case .Turn:
 			if r.locked do continue
 			middle := r.at + r.size * 0.5
@@ -409,7 +424,7 @@ refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 		delete(before)
 		return
 	}
-	names := [Ref_Edit]string{.Flip = "Flip reference", .Grey = "Grey reference", .Turn = "Turn reference", .Lock = "Lock reference", .View = "Reference on view", .Behind = "Reference behind the model", .Through = "Reference through the model", .Plane_Any = "Reference shown from any side"}
+	names := [Ref_Edit]string{.Flip = "Flip reference", .Grey = "Grey reference", .Turn = "Turn reference", .Lock = "Lock reference", .View = "Reference on view", .Behind = "Reference behind the model", .Through = "Reference through the model", .Plane_Any = "Reference shown from any side", .Straighten = "Straighten reference", .View_Lock = "Lock reference on view"}
 	history_record_refs(app, before, names[edit])
 	if edit == .Turn || edit == .Lock do b.cropping = 0
 }
@@ -731,6 +746,7 @@ refs_card_menus :: proc(app: ^App) {
 			refs_send_back_selected(app)
 			b.more_menu = false
 		}
+		refs_turn_items(app, &b.more_menu)
 		if ui.menu_item(ctx, "Delete##refs more", glyph = ICON_TRASH_2, tone = .Danger, enabled = len(b.selected) > 0) {
 			refs_delete_selected(app)
 			b.more_menu = false
@@ -792,6 +808,7 @@ refs_board_menu :: proc(app: ^App) {
 			refs_send_back_selected(app)
 			b.board_menu = false
 		}
+		refs_turn_items(app, &b.board_menu)
 		if ui.menu_item(ctx, "Delete##refs board", glyph = ICON_TRASH_2, tone = .Danger) {
 			refs_delete_selected(app)
 			b.board_menu = false
@@ -829,10 +846,34 @@ refs_board_menu :: proc(app: ^App) {
 	}
 }
 
+// The picture menus' Lock on view (while a picked picture is over the view) and
+// Straighten (while one is turned on the board or the view), each closing menu `open`.
+@(private = "file")
+refs_turn_items :: proc(app: ^App, open: ^bool) {
+	ctx := &app.kit.ctx
+	b := &app.kit.board
+	viewed, turned := false, false
+	for r in app.scene.refs.refs do if board_picked(b, r.id) && r.image != 0 {
+		viewed ||= r.view
+		turned ||= r.angle != 0 || r.view_angle != 0
+	}
+	if viewed {
+		locked := refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || !r.view || r.view_locked})
+		if ui.menu_item(ctx, "Unlock on view##refs turn" if locked else "Lock on view##refs turn", glyph = ICON_LOCK if locked else ICON_LOCK_OPEN, hint = "" if locked else "Two fingers on it then turn the view") {
+			refs_edit(app, .View_Lock)
+			open^ = false
+		}
+	}
+	if turned && ui.menu_item(ctx, "Straighten##refs turn", glyph = ICON_STRAIGHTEN, hint = "Upright again, on the board and the view") {
+		refs_edit(app, .Straighten)
+		open^ = false
+	}
+}
+
 // Draws picture place `p` at screen rect `at`, at opacity `alpha`: its GPU copy cropped,
 // flipped and turned (the grey copy once made, when grey), or a box saying it loads or
 // why it cannot be shown.
-refs_picture_draw :: proc(app: ^App, at: ui.Rect, p: Ref, alpha: u8) {
+refs_picture_draw :: proc(app: ^App, at: ui.Rect, p: Ref, alpha: u8, angle: f32 = 0) {
 	ctx := &app.kit.ctx
 	t := ctx.theme
 	refs := &app.scene.refs
@@ -842,10 +883,16 @@ refs_picture_draw :: proc(app: ^App, at: ui.Rect, p: Ref, alpha: u8) {
 	if img.texture != 0 {
 		id := KIT_REF_IMAGE + u64(slot)
 		if p.grey && img.grey != 0 do id += REF_IMAGES_MAX
-		ui.image_corners(ctx, at, id, ref_corners(p), {255, 255, 255, alpha})
+		if angle == 0 do ui.image_corners(ctx, at, id, ref_corners(p), {255, 255, 255, alpha})
+		else do ui.image_quad(ctx, refs_turned(at, angle), id, ref_corners(p), {255, 255, 255, alpha})
 		return
 	}
-	ui.fill_rect(ctx, at, 0, {t.fill.r, t.fill.g, t.fill.b, u8(u32(t.fill.a) * u32(alpha) / 255)})
+	box := ui.Color{t.fill.r, t.fill.g, t.fill.b, u8(u32(t.fill.a) * u32(alpha) / 255)}
+	if angle == 0 do ui.fill_rect(ctx, at, 0, box)
+	else {
+		corners := refs_turned(at, angle)
+		ui.fill_convex(ctx, corners[:], box)
+	}
 	note := "Loading" if img.failed == "" else fmt.tprintf("Cannot show %s: %s", img.name, img.failed)
 	ui.text(ctx, ui.text_fit(ctx, note, t.small_size, at.w - t.gap), at.x + at.w * 0.5, at.y + at.h * 0.5, t.small_size, t.text_tertiary, .Regular, .Center)
 }
@@ -895,14 +942,15 @@ board_draw :: proc(app: ^App, r: ui.Rect) {
 	for p in refs.refs {
 		if !board_picked(b, p.id) do continue
 		at := board_rect(b, r, p)
-		ui.stroke_rect(ctx, at, 0, t.accent, 2)
+		corners := refs_turned(at, board_angle(b, p))
+		ui.polyline(ctx, corners[:], t.accent, 2, closed = true)
 		if p.id == b.cropping {
 			// Each edge's middle and each corner, where a finger takes it.
 			for e in ([?][2]f32{{0, 0}, {0.5, 0}, {1, 0}, {1, 0.5}, {1, 1}, {0.5, 1}, {0, 1}, {0, 0.5}}) {
 				ui.fill_circle(ctx, {at.x + at.w * e.x, at.y + at.h * e.y}, board_corner(ctx) * 0.3, t.accent)
 			}
 		} else if len(b.selected) == 1 && !p.locked {
-			ui.fill_circle(ctx, {at.x + at.w, at.y + at.h}, board_corner(ctx) * 0.4, t.accent)
+			ui.fill_circle(ctx, corners[2], board_corner(ctx) * 0.4, t.accent)
 		}
 	}
 	if b.drag == .Box {
@@ -943,10 +991,17 @@ board_ground :: proc(app: ^App, r: ui.Rect) {
 	}
 }
 
-// Picture place `p` on the board drawn at `r`, at opacity `alpha`.
+// Picture place `p` on the board drawn at `r`, at opacity `alpha`, turned by its angle
+// unless it is being cropped, which shows it upright.
 @(private = "file")
 board_picture :: proc(app: ^App, r: ui.Rect, p: Ref, alpha: u8) {
-	refs_picture_draw(app, board_rect(&app.kit.board, r, p), p, alpha)
+	b := &app.kit.board
+	refs_picture_draw(app, board_rect(b, r, p), p, alpha, board_angle(b, p))
+}
+
+// The angle place `p` shows at on the board: none while cropped, and a note never turns.
+board_angle :: proc(b: ^Ref_Board, p: Ref) -> f32 {
+	return 0 if p.id == b.cropping || p.image == 0 else p.angle
 }
 
 // The reach of a picked picture's corner, which sizes it: a finger's target.
@@ -991,14 +1046,28 @@ board_input :: proc(app: ^App, a: ui.Area) {
 		middle: [2]f32
 		for d in fingers.down[:2] do middle += d.at / (2 * scale)
 		spread := max(abs(fingers.down[0].at.x - fingers.down[1].at.x) + abs(fingers.down[0].at.y - fingers.down[1].at.y), 1) / scale
-		if b.spread > 0 {
+		v := fingers.down[1].at - fingers.down[0].at
+		angle := math.atan2(v.y, v.x)
+		if b.spread == 0 {
+			// Fingers that land on a picked place (the first having taken it as a drag, or
+			// both coming at once) pinch and twist the picked ones; elsewhere they pan and
+			// zoom the board, and a drag a finger began is put back where it found them.
+			hit := board_hit(app, room, fingers.down[0].start / scale)
+			on_picked := hit >= 0 && board_picked(b, refs.refs[hit].id) && !refs.refs[hit].locked
+			if b.drag == .Move || (b.drag == .None && on_picked) {
+				if b.before == nil do b.before = refs_clone(refs.refs[:])
+				b.drag = .Turn
+			} else if b.drag != .Turn {
+				if b.drag == .Size || b.drag == .Crop do board_drag_cancel(app)
+				b.drag = .None
+			}
+		} else if b.drag == .Turn {
+			board_turn_picked(app, room, b.middle, middle, spread / b.spread, refs_wrap(angle - b.twist))
+		} else {
 			b.pan -= (middle - b.middle) / board_zoom(b)
 			board_zoom_about(b, room, middle, spread / b.spread)
 		}
-		b.spread, b.middle = spread, middle
-		// A pinch ends any drag a finger began, putting the pictures back where it found them.
-		if b.drag == .Move || b.drag == .Size || b.drag == .Crop do board_drag_cancel(app)
-		b.drag = .None
+		b.spread, b.middle, b.twist = spread, middle, angle
 		return
 	}
 	b.spread = 0
@@ -1039,7 +1108,7 @@ board_input :: proc(app: ^App, a: ui.Area) {
 			if one.id == b.cropping {
 				b.edges = crop_edges_at(ctx, at, a.mouse)
 			} else {
-				d := a.mouse - [2]f32{at.x + at.w, at.y + at.h}
+				d := a.mouse - refs_turned(at, board_angle(b, one^))[2]
 				corner = d.x * d.x + d.y * d.y <= board_corner(ctx) * board_corner(ctx)
 			}
 		}
@@ -1097,7 +1166,8 @@ board_input :: proc(app: ^App, a: ui.Area) {
 		d := a.mouse - b.last
 		z := board_zoom(b)
 		switch b.drag {
-		case .None:
+		case .None, .Turn:
+		// The finger left of two that turned the picked places moves nothing until it lifts.
 		case .Pan:
 			b.pan -= d / z
 		case .Move:
@@ -1106,7 +1176,8 @@ board_input :: proc(app: ^App, a: ui.Area) {
 		case .Size:
 			if p := board_one(app); p != nil {
 				// The corner follows the pointer along the picture's diagonal, so it keeps its shape.
-				grow := (d.x * p.size.x + d.y * p.size.y) / max(p.size.x * p.size.x + p.size.y * p.size.y, 1e-6) / z
+				u := refs_rotate(d, -board_angle(b, p^))
+				grow := (u.x * p.size.x + u.y * p.size.y) / max(p.size.x * p.size.x + p.size.y * p.size.y, 1e-6) / z
 				f := max(1 + grow, REF_MIN_SIDE / max(min(p.size.x, p.size.y), 1e-6))
 				p.size *= f
 			}
@@ -1135,9 +1206,9 @@ board_input :: proc(app: ^App, a: ui.Area) {
 board_drag_end :: proc(app: ^App) {
 	b := &app.kit.board
 	refs := &app.scene.refs
-	if (b.drag == .Move || b.drag == .Size || b.drag == .Crop) && b.before != nil {
+	if (b.drag == .Move || b.drag == .Size || b.drag == .Crop || b.drag == .Turn) && b.before != nil {
 		if !slice.equal(b.before, refs.refs[:]) {
-			names := [Ref_Drag]string{.None = "", .Pan = "", .Box = "", .Move = "Move reference", .Size = "Size reference", .Crop = "Crop reference"}
+			names := [Ref_Drag]string{.None = "", .Pan = "", .Box = "", .Move = "Move reference", .Size = "Size reference", .Crop = "Crop reference", .Turn = "Turn and size reference"}
 			// A press that only raised the picked places is a step of its own name.
 			if b.drag == .Move && !b.moved {
 				history_record_refs(app, b.before, "Bring reference to front")
@@ -1150,6 +1221,27 @@ board_drag_end :: proc(app: ^App) {
 	}
 	b.drag = .None
 	b.raised, b.moved = false, false
+}
+
+// Scales the picked unlocked places by `s`, turns them by `twist` and carries them from
+// screen point `from` to `to`, all about `from`, as two fingers on the board do; a note
+// is scaled and carried but never turned.
+@(private = "file")
+board_turn_picked :: proc(app: ^App, room: ui.Rect, from, to: [2]f32, s, twist: f32) {
+	b := &app.kit.board
+	m := board_point(b, room, from)
+	pan := (to - from) / board_zoom(b)
+	grow := clamp(s, 0.5, 2)
+	for &p in app.scene.refs.refs {
+		if !board_picked(b, p.id) || p.locked do continue
+		f := max(grow, REF_MIN_SIDE / max(min(p.size.x, p.size.y), 1e-6))
+		turn := twist if p.image != 0 else 0
+		c := refs_turn_about(p.at + p.size * 0.5, m, f, turn, pan)
+		p.size *= f
+		p.angle = refs_wrap(p.angle + turn)
+		p.at = c - p.size * 0.5
+	}
+	b.moved = true
 }
 
 // Asks for pictures to add: on the iPad (or with --photos-picker) a choice of Photos and
@@ -1202,7 +1294,8 @@ board_hit :: proc(app: ^App, room: ui.Rect, at: [2]f32) -> int {
 	refs := &app.scene.refs
 	for i := len(refs.refs) - 1; i >= 0; i -= 1 {
 		r := board_rect(b, room, refs.refs[i])
-		if at.x >= r.x && at.x < r.x + r.w && at.y >= r.y && at.y < r.y + r.h do return i
+		q := refs_unturn(r, board_angle(b, refs.refs[i]), at)
+		if q.x >= r.x && q.x < r.x + r.w && q.y >= r.y && q.y < r.y + r.h do return i
 	}
 	return -1
 }
@@ -1292,5 +1385,7 @@ ICON_GREY :: rune(0xe2b2)
 ICON_TURN :: rune(0xe5d6)
 ICON_CROP :: rune(0xe0af)
 ICON_ON_VIEW :: rune(0xe3b3) // picture-in-picture-2
+// Lucide's rotate-ccw-square, for Straighten.
+ICON_STRAIGHTEN :: rune(0xe5d5)
 // Lucide's send-to-back, for Send to back.
 ICON_SEND_TO_BACK :: rune(0xe4f8)
