@@ -137,6 +137,7 @@ Command_Id :: enum u16 {
 	Layer_Edit, // the argument is the Layer_Action, on the Layers section's selected layer
 	New_Paint_Layer,
 	New_Texture_Layer,
+	Export_Paint_Maps,
 	Paint_Layer_Edit, // the argument is the Paint_Layer_Action, on the picked paint layer
 	Recall_Earlier,
 	Recall_Later,
@@ -1588,6 +1589,16 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
 			return paint_ready(app, 0) && sculpt.levels_has_uvs(&obj.levels) && len(sculpt.sculptor_paint_layers(object_sculptor(obj))) < sculpt.MAX_PAINT_LAYERS
+		},
+	},
+	.Export_Paint_Maps = {
+		label = "Export paint maps...",
+		help = "Writes the selected object's paint, its vertex and texture layers over its material, into a folder as a base colour map and an ORM map (roughness in green, metal in blue, as glTF reads them) at its texture layers' size, named after it.",
+		icon = ui.ICON_IMAGE,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Paint_Maps)},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel == nil && obj.curve == nil && obj.cage == nil && len(obj.levels.texels.layers) > 0
 		},
 	},
 	.Paint_Layer_Edit = {
