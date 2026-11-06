@@ -1305,7 +1305,7 @@ path_material_rows :: proc(rows: ^[dynamic][4]u32, item: Draw_Item, rec: ^Item_R
 		if layers.subsurface_weight > 0 do rec.offs.y |= ITEM_SUBSURFACE
 		if layers.transmission_weight > 0 do rec.offs.y |= ITEM_TRANSMIT
 		glows := layers.emission_luminance > 0 && layers.emission_color != {}
-		if layers.coat_weight > 0 || layers.sheen_weight > 0 || glows || layers.specular_ior != 0 || layers.specular_lessen > 0 do rec.offs.y |= ITEM_LAYERS
+		if layers.coat_weight > 0 || layers.sheen_weight > 0 || glows || layers.specular_ior != 0 || layers.specular_lessen > 0 || layers.thin_film_weight > 0 do rec.offs.y |= ITEM_LAYERS
 		resolved := geom.material_layers_resolve(layers)
 		append(rows, transmute([4]u32)color, transmute([4]u32)surface)
 		words := transmute([MATERIAL_ROWS - 2][4]u32)resolved

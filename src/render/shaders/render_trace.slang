@@ -202,6 +202,7 @@ static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
 #include "studio_env.slang"
 #include "light_window.slang"
 #include "ggx_albedo.slang"
+#include "thin_film.slang"
 
 static const float PI = 3.14159265;
 // geom.CHUNK_BVH_STACK for each level: a chunk's entries stay above the scene tree's.
@@ -1301,6 +1302,10 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 			float lessen = material_row(table, material, 9u).w;
 			float r0 = (coat.w - 1.0) / (coat.w + 1.0);
 			s.f0 = lerp(float3(r0 * r0 * (1.0 - lessen)), albedo, metallic);
+			// A thin film's colours over that reflectance, at the angle the eye sees it
+			// from, as the viewport takes them.
+			float4 film = material_row(table, material, 9u);
+			if (film.x > 0.0) s.f0 = lerp(s.f0, thin_film(max(dot(n, v), 1e-4), s.f0, film.y, film.z), film.x);
 			float c0 = (coat.z - 1.0) / (coat.z + 1.0);
 			s.coat = coat.x;
 			s.coat_a = max(coat.y * coat.y, 1e-3);
@@ -1341,8 +1346,19 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 				float v_dot_h = max(dot(v, h), 1e-4);
 				float fr = fresnel_dielectric(v_dot_h, eta);
 				if (fr < 1.0) fr *= 1.0 - lessen;
+				// A thin film colours what the interface reflects (and so what passes): the
+				// film's reflectance per channel at this angle, the chance of reflecting its
+				// mean, each way weighted by its colour over that chance.
+				float4 film = material_row(table, material, 9u);
+				float3 fr3 = float3(fr);
+				if ((flags & ITEM_LAYERS) != 0u && film.x > 0.0 && fr < 1.0) {
+					fr3 = lerp(fr3, thin_film(v_dot_h, float3(fr), film.y, film.z), film.x);
+					fr = clamp((fr3.r + fr3.g + fr3.b) / 3.0, 1e-3, 0.999);
+				}
 				l_clear = reflect(-v, h);
-				if (rnd() >= fr) {
+				bool passes = rnd() >= fr;
+				weight *= passes ? (1.0 - fr3) / (1.0 - fr) : fr3 / fr;
+				if (passes) {
 					// Through: tinted at the surface, or by absorption along the inside when
 					// the material gives the depth its colour is reached at.
 					if (thin) l_clear -= 2.0 * dot(l_clear, n) * n;

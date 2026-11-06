@@ -157,8 +157,8 @@ show_every_option_unfolds_the_sections :: proc(t: ^testing.T) {
 	// since the section and the card became one: its tabs, the spheres, the colour and
 	// Apply to, and under More Metallic, Cavity, Ridge, Exposure and Dim the others; four
 	// more spheres since Wax, Jade, Marble and Milk joined the presets, four more with Car
-	// paint, Velvet, Satin and Neon, two more with Glass and Frosted glass.
-	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 21}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 12}, {.Project, 6}, {.Material, 35}, {.Camera, 6}}
+	// paint, Velvet, Satin and Neon, three more with Glass, Frosted glass and Soap film.
+	full := [?]Full{{.Preset, 6}, {.Recorder, 7}, {.Transform, 8}, {.Mask, 21}, {.Groups, 10}, {.Visibility, 11}, {.Retopo, 12}, {.Project, 6}, {.Material, 36}, {.Camera, 6}}
 	app.brush.kind = .Clay
 	_ = preset_save_new(&app)
 	for f in full {
