@@ -22,7 +22,7 @@
 
 ## Stack and repo
 - Odin, SDL3 for windows/input, own Vulkan/Metal/WebGPU backends in package src/gpu (#589); G1-G7 GPU abstraction plan (notes/gpu-own-model/design.md), G5c skipped, G6 recommended skip, awaiting Bolt. Own UI kit, Lens is the only layout (#275).
-- github.com/Cuzmix/Implicit_sculpt_modeler branch `odin-sculpt`. Cloud threads built on Linux with SwiftShader/lavapipe; local sessions run on the real GPU (local-machine-real-gpu.md). Touch scenarios offscreen (touch-check-offscreen.md). Worktrees: one per task beside the repo, with deps symlinked; .gitignore ignores `/deps` in any form since 2026-11-06 (sculpt-worktrees.md).
+- github.com/Cuzmix/Implicit_sculpt_modeler branch `odin-sculpt`. Cloud threads built on Linux with SwiftShader/lavapipe; local sessions run on the real GPU (local-machine-real-gpu.md). Touch scenarios offscreen (touch-check-offscreen.md). Parallel work 2026-11-06: one coordinator session in the main checkout, one worker session per task in a worktree made by scripts/task.py (sm-parallel skill); updates Bolt gives the coordinator go to every worker by message and lasting ones into this memory (sculpt-worktrees.md).
 - Container can't download GitHub release files or dl.google.com unless Network access allows it.
 - Scene file: chunks (SCEN, OBJ , CURV), current version only, no version branches until release (#504); v50 after curves.
 

@@ -6,11 +6,7 @@ metadata:
   modified: 2026-11-06T15:00:00.000Z
 ---
 
-Each task gets its own worktree and branch beside the main checkout, and its own Claude session; the main checkout is only for pulling and for `scripts/setup_deps.sh`:
-
-    git worktree add ../sculpt-<task> -b claude/<task> odin-sculpt
-    ln -s "$PWD/deps" ../sculpt-<task>/deps
-    cd ../sculpt-<task> && claude
+Each task gets its own worktree and branch beside the main checkout, and its own Claude session; the main checkout is only for pulling and for `scripts/setup_deps.sh`. `python scripts/task.py new <task>` makes ../sculpt-<task> on claude/<task> from the latest odin-sculpt with deps linked; `list`, `sync` and `done` do the rest, and the sm-parallel skill holds the coordinator and worker rules.
 
 `deps/` (the pinned Odin, SDL3 and the rest) is shared through the link; `build/` is per worktree, so builds do not collide. One branch per worktree (git refuses two), and `smoke`, `touch_check.py` and bench timings share the one GPU, so run those one at a time when the numbers matter.
 
