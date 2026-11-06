@@ -419,7 +419,7 @@ hold_menu_waits :: proc(app: ^App) -> bool {
 		case .Model:
 			m := &app.model
 			if m.action == .Topo || m.action in MODEL_STROKES || m.drag.state != .Pressed do return false
-		case .Brush, .Curve, .Insert:
+		case .Brush, .Curve, .Insert, .Look:
 			return false
 		}
 	case .None, .Pan, .Zoom, .Muted, .Shape, .Environment:

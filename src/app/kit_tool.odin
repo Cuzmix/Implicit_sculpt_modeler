@@ -19,6 +19,7 @@ kit_tool_name :: proc(tool: Tool) -> string {
 	case .Curve:  return "Curve"
 	case .Insert: return "Insert"
 	case .Model:  return "Model"
+	case .Look:   return "Look"
 	}
 	return ""
 }
@@ -32,7 +33,17 @@ kit_tool_tab :: proc(app: ^App) {
 	case .Curve:  kit_curve_tab(app)
 	case .Insert: kit_insert_tab(app)
 	case .Model:  kit_model_tab(app)
+	case .Look:   kit_look_tab(app)
 	}
+}
+
+// The Tool card under the Look tool: what it does, and the cards the look is set in.
+@(private = "file")
+kit_look_tab :: proc(app: ^App) {
+	ui.paragraph(&app.kit.ctx, "A press turns the view, so nothing changes by mistake while the look is set. The lights' markers, picking focus and the Live stack's handles keep their presses.")
+	_ = command_button(app, .Open_Card, int(Card.Material), label = "Material")
+	_ = command_button(app, .Open_Card, int(Card.Light), label = "Light")
+	_ = command_button(app, .Open_Card, int(Card.Render), label = "Render")
 }
 
 // The palette's heading: an icon on a badge, a title, and a line of help under them.

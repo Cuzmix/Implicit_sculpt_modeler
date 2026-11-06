@@ -19,6 +19,7 @@ Tool :: enum u8 {
 	Curve, // draw a curve or a tube to edit, or stitches or a zipper, over the surface (curve_tool.odin)
 	Insert, // put a shape on the surface (curve_tool.odin)
 	Model, // edit a cage's points, edges and faces (model.odin)
+	Look, // change nothing: a press turns the view, for setting the look and the lights (Render)
 }
 
 Move_Tool :: struct {
