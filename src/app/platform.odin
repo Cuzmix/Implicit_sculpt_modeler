@@ -76,7 +76,7 @@ Read_File :: struct {
 }
 
 read_file_open :: proc(path: string) -> (f: Read_File, ok: bool) {
-	f.io = sdl.IOFromFile(strings.clone_to_cstring(path, context.temp_allocator), "rb")
+	f.io = sdl.IOFromFile(strings.clone_to_cstring(document_uri(path), context.temp_allocator), "rb")
 	return f, f.io != nil
 }
 
@@ -88,6 +88,46 @@ read_file_read :: proc(f: Read_File, buf: []u8) -> int {
 
 read_file_close :: proc(f: Read_File) {
 	_ = sdl.CloseIO(f.io)
+}
+
+// Whether `path` is an Android content:// document: the save dialog hands one back with
+// leave to write it, but it has no folder, so it is written in place through SDL's IO
+// (write_file_whole) and never by a partial copy beside it.
+path_is_document :: proc(path: string) -> bool {
+	return strings.has_prefix(path, "content://")
+}
+
+// The URI to open for `path`: a document whose URI names no file type carries the one
+// its dialog's filter chose as a fragment ("content://…/document/42#.obj", file_dialog_done),
+// so that every writer tells the format by filepath.ext as it does for a named file. A
+// content URI escapes a '#' in its path as %23, so a bare one only ever starts that fragment.
+document_uri :: proc(path: string) -> string {
+	if !path_is_document(path) do return path
+	if at := strings.index_byte(path, '#'); at >= 0 do return path[:at]
+	return path
+}
+
+// Writes `data` over `path` through SDL's IO, which opens Android's content:// documents
+// for writing ("wb" asks the content resolver for "wt", truncating), in chunks of `chunk`
+// bytes, then flushes and closes it, where the provider commits it. "" when written, else
+// why not, in temp memory.
+write_file_whole :: proc(path: string, data: []u8, chunk: int) -> string {
+	io := sdl.IOFromFile(strings.clone_to_cstring(document_uri(path), context.temp_allocator), "wb")
+	if io == nil do return strings.concatenate({"cannot open the file: ", platform_error()}, context.temp_allocator)
+	for at := 0; at < len(data); at += chunk {
+		piece := data[at:min(at + chunk, len(data))]
+		if sdl.WriteIO(io, raw_data(piece), uint(len(piece))) != uint(len(piece)) {
+			why := strings.concatenate({"cannot write the file: ", platform_error()}, context.temp_allocator)
+			_ = sdl.CloseIO(io)
+			return why
+		}
+	}
+	// A provider may refuse the bytes only when they are flushed or the file is closed, so
+	// both results count.
+	flushed := sdl.FlushIO(io)
+	why := "" if flushed else strings.concatenate({"cannot write the file: ", platform_error()}, context.temp_allocator)
+	if !sdl.CloseIO(io) && why == "" do why = strings.concatenate({"cannot close the file: ", platform_error()}, context.temp_allocator)
+	return why
 }
 
 // Whether the device is set to its dark appearance; a system that does not say counts as

@@ -2,6 +2,7 @@ package main
 
 import "base:runtime"
 import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 
@@ -241,6 +242,26 @@ file_read_any_reads_paths_and_uris :: proc(t: ^testing.T) {
 	testing.expect(t, missing == nil && missing_err != nil)
 	uri, uri_err := file_read_any("content://com.android.providers.downloads.documents/document/42")
 	testing.expect(t, uri == nil && uri_err != nil)
+	free_all(context.temp_allocator)
+}
+
+// A picked Android document is written in place through SDL's IO: the file type its
+// dialog chose rides as a fragment that every writer reads by filepath.ext and SDL's IO
+// leaves off, and off Android, where no content:// URI opens, a save to one is a reason
+// to show, never a crash, and leaves no partial copy anywhere.
+@(test)
+documents_are_written_in_place_by_their_uri :: proc(t: ^testing.T) {
+	uri := "content://com.android.providers.downloads.documents/document/42"
+	typed := strings.concatenate({uri, "#.obj"}, context.temp_allocator)
+	testing.expect(t, path_is_document(typed))
+	testing.expect(t, !path_is_document("build/a.obj"))
+	testing.expect_value(t, document_uri(typed), uri)
+	testing.expect_value(t, document_uri(uri), uri)
+	testing.expect_value(t, document_uri("build/a#b.obj"), "build/a#b.obj")
+	testing.expect_value(t, filepath.ext(typed), ".obj")
+	why := write_durably(typed, transmute([]u8)string("v 0 0 0\n"))
+	testing.expect(t, why != "", "a content:// URI wrote off Android")
+	testing.expect(t, !os.exists(strings.concatenate({typed, ".partial"}, context.temp_allocator)))
 	free_all(context.temp_allocator)
 }
 
