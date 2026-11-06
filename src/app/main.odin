@@ -681,6 +681,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer geom.mesh_destroy(&app.ui.boolean.preview_mesh)
 	defer boolean_coarse_drop(&app)
 	defer physics_proxy_drop(&app)
+	defer curve_rope_end(&app)
 	defer scene_destroy(&app)
 	// After the History, whose snapshots delete their files first.
 	defer undo_disk_destroy(&app)
