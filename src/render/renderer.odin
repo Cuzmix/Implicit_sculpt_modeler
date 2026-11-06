@@ -459,6 +459,9 @@ Draw_Item :: struct {
 	// Subsurface scattering, coat, sheen, emission, transmission and thin film over the
 	// base (geom.Material_Layers); zero for none, which shades exactly as before.
 	layers:    geom.Material_Layers,
+	// Glass drawn solid: its transmission shows the environment bent through it rather than
+	// what is drawn behind, in the opaque pass (a material's ball, over nothing).
+	glass_solid: bool,
 	flat:      bool, // shade each triangle with its own normal instead of the smoothed ones
 	wireframe: bool, // draw its triangles' edges over it
 	cage_lines: bool, // draw Mesh_Buffers.edges over it as lines (a cage's edges, or a wireframe's polygon edges)
@@ -2488,7 +2491,7 @@ wire_pass :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Mes
 // (Draw_Item.look.w) and the device made the blended pipeline.
 @(private)
 blended :: proc(pipes: ^Mesh_Pipelines, item: Draw_Item) -> bool {
-	see := item.look.w > 0 || item_transmission(item) > 0
+	see := item.look.w > 0 || item_transmission(item) > 0 && !item.glass_solid
 	if draws_textured(pipes, item) do return see && pipes.textured_see != 0
 	return see && pipes.see != 0
 }
