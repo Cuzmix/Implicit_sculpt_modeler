@@ -29,9 +29,10 @@ MAX_PAINT_LAYERS :: 32
 // What a layer's strokes write, its channel dots: colour, roughness and metal, as Wafer's
 // layers pick theirs. Each channel has a coverage of its own, so a stroke with a dot off
 // leaves that channel as it was.
-Paint_Channel :: enum u8 {Color, Roughness, Metal}
+// Height is a texture layer's only (Height_Paint): on the vertices the sculpt is the height.
+Paint_Channel :: enum u8 {Color, Roughness, Metal, Height}
 Paint_Channels :: bit_set[Paint_Channel; u8]
-PAINT_CHANNELS_ALL :: Paint_Channels{.Color, .Roughness, .Metal}
+PAINT_CHANNELS_ALL :: Paint_Channels{.Color, .Roughness, .Metal, .Height}
 
 // A vertex's roughness and metal paint: roughness, its coverage, metal, its coverage, one
 // byte each (the GPU's render.Mesh_Buffers.paint_material). The same four bytes as a
@@ -322,7 +323,7 @@ sculptor_paint_set_channels :: proc(s: ^Sculptor, index: int, channels: Paint_Ch
 	_ = sculptor_stroke_end(s)
 	if s.dyn != nil || index < 0 || index >= len(s.paint.list) do return false
 	l := &s.paint.list[index]
-	if l.channels == channels do return false
+	if l.channels == channels || (.Height in channels && l.texels == 0) do return false
 	sculptor_stroke_begin(s)
 	s.history.current.paint_op = {active = true, set = true, set_index = index, name = l.name, visible = l.visible, opacity = l.opacity, channels = l.channels, picked = s.paint.picked}
 	l.channels = channels

@@ -147,6 +147,9 @@ Brush :: struct {
 	// Paint: the roughness and metal it paints where the picked layer's dots say (0 to 255).
 	roughness: u8,
 	metal:     u8,
+	// Paint: the height it paints where the picked texture layer paints height, -1 to 1 in
+	// height units (Height_Paint); 0, the zero value, is flat.
+	height:    f32,
 	// Paint: even the colours out instead of laying `color`, as Smooth evens the surface:
 	// each vertex mixes toward the average of its neighbours' paint (the inverted brush
 	// still takes paint off). Paint's Smooth in the dial, as ZBrush's and Nomad's do.

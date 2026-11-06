@@ -234,9 +234,10 @@ write_texels :: proc(w: ^Writer, l: ^Levels) -> bool {
 		for tile, i in layer.tiles {
 			if tile == nil do continue
 			geom.byte_put(out, u32(i))
-			geom.byte_put(out, u8(tile.color != nil) | u8(tile.material != nil) << 1)
+			geom.byte_put(out, u8(tile.color != nil) | u8(tile.material != nil) << 1 | u8(tile.height != nil) << 2)
 			if tile.color != nil && !put_checked(w, slice.to_bytes(tile.color)) do return false
 			if tile.material != nil && !put_checked(w, slice.to_bytes(tile.material)) do return false
+			if tile.height != nil && !put_checked(w, slice.to_bytes(tile.height)) do return false
 		}
 	}
 	return true
@@ -265,7 +266,7 @@ read_texels :: proc(r: ^geom.Byte_Reader, l: ^Levels) -> bool {
 		for _ in 0 ..< painted {
 			index := int(geom.byte_get(r, u32))
 			has := geom.byte_get(r, u8)
-			if !r.ok || index >= len(layer.tiles) || layer.tiles[index] != nil || has == 0 || has > 3 do return false
+			if !r.ok || index >= len(layer.tiles) || layer.tiles[index] != nil || has == 0 || has > 7 do return false
 			tile := new(Texel_Tile, h)
 			layer.tiles[index] = tile
 			if has & 1 != 0 {
@@ -279,6 +280,12 @@ read_texels :: proc(r: ^geom.Byte_Reader, l: ^Levels) -> bool {
 				if !r.ok do return false
 				tile.material = make([]Material_Paint, TILE_TEXELS, h)
 				copy(slice.to_bytes(tile.material), saved)
+			}
+			if has & 4 != 0 {
+				saved := geom.byte_get_bytes(r, TILE_TEXELS * size_of(Height_Paint))
+				if !r.ok do return false
+				tile.height = make([]Height_Paint, TILE_TEXELS, h)
+				copy(slice.to_bytes(tile.height), saved)
 			}
 		}
 	}
@@ -427,7 +434,7 @@ read_paint :: proc(r: ^geom.Byte_Reader, s: ^Sculptor, canon: []u32) -> bool {
 		l.opacity = geom.byte_get(r, f32)
 		channels := geom.byte_get(r, u8)
 		l.texels = geom.byte_get(r, u32)
-		if !r.ok || visible > 1 || channels & ~transmute(u8)PAINT_CHANNELS_ALL != 0 || l.id == 0 || l.id > next_id || paint_index(s, l.id) >= 0 || !(l.opacity >= 0 && l.opacity <= 1) do return false
+		if !r.ok || visible > 1 || channels & ~transmute(u8)PAINT_CHANNELS_ALL != 0 || (channels & transmute(u8)Paint_Channels{.Height} != 0 && l.texels == 0) || l.id == 0 || l.id > next_id || paint_index(s, l.id) >= 0 || !(l.opacity >= 0 && l.opacity <= 1) do return false
 		l.visible = visible == 1
 		l.channels = transmute(Paint_Channels)channels
 		l.name[len(l.name) - 1] = 0

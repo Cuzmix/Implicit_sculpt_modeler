@@ -63,6 +63,9 @@ Textured_Mesh :: struct {
 	// coverages, premultiplied too (linear). Nil while there is none.
 	paint:           gpu.Texture,
 	paint_material:  gpu.Texture,
+	// The painted height (R16_Float, signed, 0 flat), made only once a tile with height
+	// arrives, so a layer that paints none costs no texture and the tracer keys on it.
+	paint_height:    gpu.Texture,
 	paint_side:      u32,
 }
 
@@ -72,6 +75,7 @@ Paint_Tile :: struct {
 	at:       [2]u32,
 	color:    []u8,
 	material: []u8,
+	height:   []u8, // PAINT_TILE square f16 values, nil for flat
 }
 
 // A paint tile's side in texels: sculpt.TEXEL_TILE, which render does not import.
@@ -164,7 +168,8 @@ textured_mesh_paint_size :: proc(r: ^Renderer, tm: ^Textured_Mesh, side: u32) ->
 	if tm.paint_side == side do return true
 	if tm.paint != 0 do gpu.release_texture(tm.paint)
 	if tm.paint_material != 0 do gpu.release_texture(tm.paint_material)
-	tm.paint, tm.paint_material, tm.paint_side = 0, 0, 0
+	if tm.paint_height != 0 do gpu.release_texture(tm.paint_height)
+	tm.paint, tm.paint_material, tm.paint_height, tm.paint_side = 0, 0, 0, 0
 	r.last_version += 1
 	tm.maps_stamp = r.last_version
 	if side == 0 do return true
@@ -190,6 +195,12 @@ textured_mesh_paint_tiles :: proc(r: ^Renderer, cmd: gpu.Cmd, tm: ^Textured_Mesh
 	@(static, rodata)
 	ZERO := [PAINT_TILE * PAINT_TILE * 4]u8{}
 	ok := true
+	if tm.paint_height == 0 {
+		for t in tiles do if t.height != nil {
+			ok = textured_mesh_paint_height(r, tm) && ok
+			break
+		}
+	}
 	for t in tiles {
 		at := t.at * PAINT_TILE
 		if at.x + PAINT_TILE > tm.paint_side || at.y + PAINT_TILE > tm.paint_side do continue
@@ -203,10 +214,34 @@ textured_mesh_paint_tiles :: proc(r: ^Renderer, cmd: gpu.Cmd, tm: ^Textured_Mesh
 				ok = false
 			}
 		}
+		if tm.paint_height != 0 {
+			pixels := t.height if t.height != nil else ZERO[:PAINT_TILE * PAINT_TILE * 2]
+			assert(len(pixels) == PAINT_TILE * PAINT_TILE * 2)
+			if !gpu.upload_texture(cmd, {texture = tm.paint_height, x = at.x, y = at.y, w = PAINT_TILE, h = PAINT_TILE, d = 1}, pixels) {
+				log.errorf("paint height tile upload: %s", gpu.last_error())
+				ok = false
+			}
+		}
 	}
 	r.last_version += 1
 	tm.maps_stamp = r.last_version
 	return ok
+}
+
+// Makes the height texture, flat (f16 zero is all zero bits), the paint's size. False,
+// with the reason logged and none made, when the device refuses.
+@(private = "file")
+textured_mesh_paint_height :: proc(r: ^Renderer, tm: ^Textured_Mesh) -> bool {
+	side := tm.paint_side
+	tex := gpu.create_texture({type = .D2, format = .R16_Float, usage = {.Sampled}, width = side, height = side, layer_count_or_depth = 1, num_levels = 1})
+	zero := make([]u8, int(side) * int(side) * 2, context.temp_allocator)
+	if tex == 0 || !texture_upload(r, tex, zero, int(side), int(side), mips = false) {
+		log.errorf("paint height texture %d square: %s", side, gpu.last_error())
+		if tex != 0 do gpu.release_texture(tex)
+		return false
+	}
+	tm.paint_height = tex
+	return true
 }
 
 @(private = "file")
@@ -246,6 +281,7 @@ draw_textured_item :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, it
 		.normal_map         = map_binding(r, tm, defaults, .Normal),
 		.paint_map          = {texture = tm.paint if tm.paint != 0 else r.no_paint_map, sampler = r.texture_sampler},
 		.paint_material_map = {texture = tm.paint_material if tm.paint_material != 0 else r.no_paint_map, sampler = r.texture_sampler},
+		.paint_height_map   = {texture = tm.paint_height if tm.paint_height != 0 else r.no_paint_map, sampler = r.texture_sampler},
 	}
 	// The see-through pipeline's fragment shader (textured_area.frag) reads the same maps.
 	#assert(len(Textured_Area_Frag_Samplers) == len(Textured_Frag_Samplers) && int(Textured_Area_Frag_Samplers.normal_map) == int(Textured_Frag_Samplers.normal_map))

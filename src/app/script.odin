@@ -75,6 +75,7 @@ Script_Verb :: enum u8 {
 	Curve_Add,
 	Layout_Save,
 	Cage,
+	Paint_Channels,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -110,13 +111,14 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Capture_Vdm   = {"capture_vdm", "a name for the VDM stamp the selected slab's top face makes, kept in the library and picked"},
 	.Export_Vdm    = {"export_vdm", "an .exr file to write the brush's VDM stamp to, laid out for the app vdm_axes names"},
 	.Export_Bary   = {"export_bary", "a .bary file to write the selected object's detail skin to, as an NVIDIA displacement micro-map"},
-	.Export_Paint_Maps = {"paint_maps", "a folder to write the selected object's paint into as NAME_base_color.png and NAME_orm.png, its texture layers' size"},
+	.Export_Paint_Maps = {"paint_maps", "a folder to write the selected object's paint into as NAME_base_color.png and NAME_orm.png, its texture layers' size, with NAME_height.png and NAME_normal.png when a layer paints height"},
 	.Reference     = {"reference", "an image file (PNG, JPEG, BMP, TGA or QOI) to add to the References card's board"},
 	.Reference_Plane = {"reference_plane", "front, back, right, left, top, bottom or none: the view whose plane in the scene the newest picture stands on, and through to draw it over the model"},
 	.Stack         = {"stack", "the selected object's live stack: mirror x (planes together as xz, -x for the - side), array 4 2.2 0 0 (count and step, then turn x y z and size s), radial 6 y (count and axis), along 8 x (count and the axis along the scene's curve), mirror off, show array, hide radial, open array (the card on that row, its handle in the view; a cage's open deform, open displace, open curve, open wrap and open sharp too), and for a cage curve x (laid along the scene's first curve, its X along it; curve off), wrap 2 (wrapped onto the first other object, 2% of its size above; wrap off), sharp 30 (edges past 30° shade hard; sharp off), apply array (that row alone, when it is the first shown) or apply stack"},
 	.Curve_Add     = {"curve_add", "two or more points, x y z each, of an open curve object to add, smooth through them (as the Curve tool lays one)"},
 	.Cage          = {"cage", "the selected cage's selection: pick 0 4 5 (point numbers to pick), move x y z, turn x|y|z degrees or scale f, as its gizmo moves it"},
 	.Layout_Save   = {"layout_save", "a name to save the space's layout under, over a saved layout of that name (as Save layout as does)"},
+	.Paint_Channels = {"paint_channels", "color, roughness, metal and height, one or more: what the picked paint layer's strokes write (height on a texture layer only)"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -564,6 +566,15 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		st.arg = choice(args[0], reflect.enum_field_names(Ref_Plane))
 		st.flip = len(args) == 2
 		return st.arg >= 0 && (len(args) == 1 || script_name(args[1]) == "through")
+	case .Paint_Channels:
+		// The channels as bits of `arg`, each named once.
+		if len(args) == 0 do return false
+		for a in args {
+			c := choice(a, reflect.enum_field_names(sculpt.Paint_Channel))
+			if c < 0 || st.arg & (1 << uint(c)) != 0 do return false
+			st.arg |= 1 << uint(c)
+		}
+		return true
 	case .Layer:
 		if len(args) < 2 || len(args) > 3 do return false
 		n, ok := strconv.parse_int(args[0])
@@ -711,7 +722,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		_, hit, n, on := scene_raycast_surface(app, origin, dir)
 		if !on do return "no surface is under the middle of the view", true
 		if !insert_make(app, hit, n, app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, size.y)) do return "", false
-	case .Move, .Rotate, .Boolean, .Slice, .Knife, .Hide, .Mask_Rect, .Layer, .Group_Material:
+	case .Move, .Rotate, .Boolean, .Slice, .Knife, .Hide, .Mask_Rect, .Layer, .Group_Material, .Paint_Channels:
 		if obj == nil do return "nothing is selected", true
 		switch st.verb {
 		case .Move, .Rotate:
@@ -745,6 +756,17 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			if l.strength == st.numbers[0] && l.visible == !st.flip do return "", true
 			_ = sculpt.sculptor_layer_set(s, st.count - 1, st.numbers[0], !st.flip)
 			if sculpt.sculptor_stroke_end(s) do history_record(app, obj, .Layer, "Layer strength")
+			return "", true
+		case .Paint_Channels:
+			// As the channel strip under the paint layers does, one undo step.
+			s := object_sculptor(obj)
+			i := sculpt.sculptor_paint_picked(s) if s != nil else -1
+			if i < 0 do return "the object has no paint layer picked", true
+			next := transmute(sculpt.Paint_Channels)u8(st.arg)
+			if sculpt.sculptor_paint_layers(s)[i].channels == next do return "", true
+			stroke_finish(app)
+			if !sculpt.sculptor_paint_set_channels(s, i, next) do return "a vertex layer paints no height", true
+			history_record(app, obj, .Paint, "Paint layer channels")
 			return "", true
 		case .Group_Material:
 			// As the Material section's Group target does, in place so the next line sees it.
