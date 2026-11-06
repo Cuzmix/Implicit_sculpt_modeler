@@ -9353,18 +9353,19 @@ def rail_panels_picker_adds_a_card():
 # are offsets from the board's middle, where the board, fitted to a first note, shows it).
 REFS_RAIL = At("view bar/References", 1563, 373)
 REFS_ADD = At("card References/Add", 1355, 101)
-REFS_ADD_NOTE = At("refs add menu/Add note", 1300, 160)
+REFS_MORE = At("card References/More", 1406, 101)
+REFS_ADD_NOTE = At("refs board more/Add note", 1300, 250)
 REFS_BOARD = "card References/board"
 
 
 @scenario
 def references_note_by_finger():
-    """A finger opens the References card from the rail, adds a note from its Add menu and drags it across
+    """A finger opens the References card from the rail, adds a note from its ⋯ menu and drags it across
     the board: one note, one move as one undo step; nothing sculpts or turns."""
     s = Script()
     s.ftap(REFS_RAIL)
     s.wait(6)
-    s.ftap(REFS_ADD)
+    s.ftap(REFS_MORE)
     s.wait(6)
     s.ftap(REFS_ADD_NOTE)
     s.wait(4)
@@ -9380,16 +9381,57 @@ def references_note_by_finger():
 
 @scenario
 def references_empty_board_add_image():
-    """A finger opens the References card from the rail; its empty board's Add image opens
-    the Add menu, whose Add note puts a note on the board: one undo step, nothing sculpts."""
+    """A finger opens the References card from the rail; its empty board's Add image, then
+    the head's Add, open the file dialog at once (counted, not opened, under --no-dialogs),
+    with no menu between: two asks for files, none for Photos, and nothing sculpts."""
     s = Script()
     s.ftap(REFS_RAIL)
     s.wait(6)
     s.ftap("refs empty/Add image")
     s.wait(6)
+    s.ftap(REFS_ADD)
+    s.wait(6)
+    return s, ["--no-dialogs"], camera_still({"dabs": near(0), "refs_asked_files": near(2), "refs_asked_photos": near(0), "dialogs_asked": near(2), "undo_steps": near(0)})
+
+
+@scenario
+def references_add_on_the_ipad_offers_photos_and_files():
+    """As on the iPad (--photos-picker): the References card's Add opens a choice of two
+    big tiles, Photos and Files; a finger taps Photos, then Add again and Files: one ask of
+    each, and only Files asks for the file dialog; nothing sculpts."""
+    s = Script()
+    s.ftap(REFS_RAIL)
+    s.wait(6)
+    s.ftap(REFS_ADD)
+    s.wait(6)
+    s.ftap("refs add choice/Photos")
+    s.wait(6)
+    s.ftap(REFS_ADD)
+    s.wait(6)
+    s.ftap("refs add choice/Files")
+    s.wait(6)
+    return s, ["--no-dialogs", "--photos-picker"], camera_still({"dabs": near(0), "refs_asked_files": near(1), "refs_asked_photos": near(1), "dialogs_asked": near(1)})
+
+
+@scenario
+def references_board_long_press_opens_its_menu():
+    """A picture added by a script opens the References card; a finger held still on the
+    board's empty ground opens the board's menu there, whose Snap view puts the view on the
+    board as a picture, and the head's ⋯ menu's Add note adds a note: three places, two
+    undo steps, nothing sculpts or turns."""
+    s = Script()
+    s.wait(6)
+    s.add("fdown:0:1300,700")
+    s.wait(LONG_PRESS_FRAMES + 4)
+    s.add("fup:0")
+    s.wait(4)
+    s.ftap("refs board menu/Snap view")
+    s.wait(8)
+    s.ftap(REFS_MORE)
+    s.wait(6)
     s.ftap(REFS_ADD_NOTE)
     s.wait(6)
-    return s, [], camera_still({"dabs": near(0), "ref_notes": near(1), "undo_steps": near(1)})
+    return s, ["--script=reference assets/icon/sculpt-1024.png"], camera_still({"dabs": near(0), "refs": near(3), "ref_notes": near(1), "undo_steps": near(2)})
 
 
 @scenario
