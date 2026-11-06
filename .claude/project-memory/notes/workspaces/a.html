@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Workspaces · A. Tabs and one menu</title>
+<style>
+/* The app's Lens tokens (src/ui/theme.odin THEME_LENS); one dark world on purpose. */
+:root{
+  --frame:#0d0f12;--line:#1c2026;--line2:#2a3139;--surface:rgba(22,26,31,.96);--raised:#1f242b;--track:#262c34;
+  --text:#e9ecef;--dim:#a7aeb8;--faint:#7f8793;--accent:#5ed6c4;--chosen:#1c3b37;--warn:#f3b54a;--danger:#f07a6e;
+  --page:#0a0c0f;--sans:system-ui,-apple-system,"Segoe UI",Roboto,"Inter",sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--page);color:#d9e0e6;font-family:var(--sans)}
+body{padding:20px max(16px,env(safe-area-inset-left,0px)) 48px}
+a{color:var(--accent)}
+button{font:inherit;color:inherit}
+.wrap{max-width:1500px;margin:0 auto}
+header .crumbs{font-size:13px;color:var(--faint);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+header .crumbs a{text-decoration:none;padding:3px 9px;border-radius:7px;border:1px solid var(--line2);color:var(--dim)}
+header .crumbs a.on{background:var(--chosen);color:var(--accent);border-color:transparent}
+header h1{font-size:22px;margin:10px 0 4px}
+header p{margin:0 0 12px;color:var(--dim);max-width:90ch;line-height:1.5;font-size:14px}
+.ctl{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:0 0 12px;font-size:13px;color:var(--faint)}
+.seg{display:inline-flex;background:var(--raised);border-radius:9px;padding:3px;gap:2px}
+.seg button{border:0;background:none;padding:6px 12px;border-radius:7px;cursor:pointer;color:var(--dim);font-size:13px}
+.seg button.on{background:var(--chosen);color:var(--accent)}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:18px;align-items:start}
+@media (max-width:1100px){.layout{grid-template-columns:minmax(0,1fr)}}
+#stage{position:relative;width:100%;border-radius:14px;border:1px solid var(--line2);overflow:hidden;background:#000}
+#dev{position:absolute;left:0;top:0;transform-origin:0 0;overflow:hidden;color:var(--text);font-size:13px;
+  background:radial-gradient(120% 90% at 50% 40%,#2a2f35 0%,#1b1f24 60%,#121417 100%);user-select:none;-webkit-user-select:none;touch-action:none}
+svg.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+svg.i.s{width:16px;height:16px}
+.sphere{position:absolute;border-radius:50%;background:radial-gradient(circle at 34% 30%,#e3cdbf 0%,#c4a594 30%,#9a7d6c 68%,#5c4a3f 100%)}
+.sphere.look{background:radial-gradient(circle at 30% 26%,#fff4e2 0%,#e2b588 26%,#94583a 66%,#2e1b12 100%);box-shadow:0 0 120px rgba(255,190,120,.12)}
+.sphere.model{border-radius:22%;background:linear-gradient(135deg,#a9bde6,#55709f);transform:rotate(10deg);
+  box-shadow:inset 0 0 0 2px rgba(255,255,255,.25)}
+.sphere.model::after{content:"";position:absolute;inset:0;border-radius:22%;background:
+  repeating-linear-gradient(90deg,transparent 0 24.6%,rgba(255,255,255,.35) 24.6% 25%),repeating-linear-gradient(0deg,transparent 0 24.6%,rgba(255,255,255,.35) 24.6% 25%)}
+.sphere.paint::after{content:"";position:absolute;left:22%;top:30%;width:40%;height:26%;border-radius:50%;background:rgba(120,170,255,.55);filter:blur(14px)}
+.isl{position:absolute;display:flex;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:0 4px;height:48px;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+.ib{width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:var(--dim);border-radius:10px;cursor:pointer;border:0;background:none;flex:none}
+.ib:hover{color:var(--text)}
+.ib.sel{color:var(--accent)}
+.ib.dimmed{opacity:.35}
+.vdiv{width:1px;height:24px;background:var(--line2);margin:0 4px;flex:none}
+.filechip{display:flex;flex-direction:column;padding:0 14px 0 6px;line-height:1.25;white-space:nowrap}
+.filechip b{font-size:13px;font-weight:600}.filechip span{font-size:12px;color:var(--faint)}
+.well{display:flex;align-items:center;height:36px;background:var(--raised);border-radius:9.5px;padding:0 3px;gap:0;position:relative}
+.tab{position:relative;display:flex;align-items:center;gap:6px;height:30px;padding:0 14px;border-radius:7px;color:var(--dim);font-weight:600;font-size:14px;cursor:pointer;white-space:nowrap;flex:none}
+.tab:hover{color:var(--text)}
+.tab.on{background:var(--chosen);color:var(--accent)}
+.tab .tint{position:absolute;left:4px;top:4px;width:5px;height:5px;border-radius:50%}
+.tab .amb{position:absolute;right:4px;top:50%;margin-top:-3px;width:6px;height:6px;border-radius:50%;background:var(--warn)}
+.tab.lift{box-shadow:0 8px 24px rgba(0,0,0,.6);outline:1.5px solid var(--accent);z-index:3}
+.pill{position:relative;display:flex;align-items:center;gap:6px;height:36px;padding:0 12px;border-radius:9px;background:var(--raised);color:var(--dim);font-weight:600;font-size:14px;cursor:pointer;white-space:nowrap;flex:none}
+.pill.on{background:var(--chosen);color:var(--accent)}
+.pill .tint{width:7px;height:7px;border-radius:50%;flex:none}
+.pill .amb{width:6px;height:6px;border-radius:50%;background:var(--warn);flex:none}
+.pill .more{width:28px;height:28px;margin-right:-8px;display:flex;align-items:center;justify-content:center;border-radius:7px}
+.pill .more:hover{background:rgba(255,255,255,.07)}
+.pill input,.tab input{width:120px;background:var(--frame);border:1px solid var(--accent);border-radius:6px;color:var(--text);font:600 14px var(--sans);padding:3px 6px}
+.strip{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;align-items:center;mask-image:linear-gradient(90deg,transparent 0,#000 14px,#000 calc(100% - 14px),transparent 100%)}
+.strip::-webkit-scrollbar{display:none}
+.wchip{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px 0 12px;border-radius:9px;background:var(--chosen);color:var(--accent);font-weight:600;font-size:14px;cursor:pointer;white-space:nowrap}
+.wchip .tint{width:7px;height:7px;border-radius:50%}
+.wchip .amb{width:6px;height:6px;border-radius:50%;background:var(--warn)}
+.objchip{display:flex;align-items:center;gap:8px;padding:0 8px;font-weight:600;font-size:13px;white-space:nowrap;color:var(--text)}
+.objchip .tag{font-weight:500;font-size:12px;color:var(--dim);background:var(--raised);border-radius:5px;padding:2px 6px}
+.readout{position:absolute;left:22px;top:66px;color:var(--faint);font-size:12px;line-height:1.9}
+.bb{position:absolute;left:4px;width:46px;background:var(--surface);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;align-items:center;padding:14px 0 10px;gap:8px;color:var(--dim);font-size:11px}
+.bb .sl{width:4px;height:120px;border-radius:2px;background:var(--track);position:relative}
+.bb .sl i{position:absolute;left:-6px;width:16px;height:16px;border-radius:50%;background:#e9ecef}
+.bb .sl::after{content:"";position:absolute;left:0;bottom:0;width:4px;height:45%;background:var(--accent);border-radius:2px}
+.rail{position:absolute;width:44px;background:var(--surface);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;align-items:center;padding:12px 0 6px}
+.rail .ib{width:44px;height:46px}
+.card{position:absolute;width:300px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+.card h3{margin:2px 0 10px;font-size:15px;text-align:center}
+.card .row{display:flex;justify-content:space-between;align-items:center;height:36px;color:var(--dim);border-top:1px solid var(--line)}
+.card .row i{display:block;width:120px;height:4px;border-radius:2px;background:var(--track)}
+.card .sw{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.card .sw span{width:28px;height:28px;border-radius:7px}
+.shelf{position:absolute;background:var(--surface);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;align-items:center}
+.pages{display:flex;gap:14px;font-size:12px;color:var(--faint);padding:5px 0 0}
+.pages span.on{color:var(--accent);font-weight:600}
+.tiles{display:flex;gap:2px;padding:2px 6px 6px}
+.tile{width:62px;height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border-radius:9px;cursor:pointer;color:var(--dim);font-size:11px}
+.tile b{display:block;width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ddd,#6c737c)}
+.tile.on{background:var(--chosen);color:var(--accent)}
+.tile:hover{color:var(--text)}
+.dial{position:absolute;border-radius:50%;background:radial-gradient(circle,#1e242b 0 30%,#262c34 31% 100%);border:1px solid var(--line)}
+.gizmo{position:absolute;width:60px;height:60px}
+.pop{position:absolute;background:#1a1e24;border:1px solid var(--line2);border-radius:12px;padding:6px;box-shadow:0 18px 50px rgba(0,0,0,.55);z-index:20}
+.cap{font-size:11px;letter-spacing:.06em;color:var(--faint);font-weight:600;padding:8px 10px 4px;display:flex;align-items:center;gap:8px}
+.mi{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 10px;border-radius:8px;cursor:pointer;color:var(--text);font-size:14px}
+.mi:hover{background:rgba(255,255,255,.05)}
+.mi .sp{flex:1}
+.mi.dis{opacity:.38;pointer-events:none}
+.mi.danger{color:var(--danger)}
+.mi .tagr{font-size:12px;color:var(--faint)}
+.mi.on{color:var(--accent)}
+.hr{height:1px;background:var(--line2);margin:4px 2px}
+.swatches{display:flex;gap:8px;padding:6px 10px 8px}
+.swatches span{width:30px;height:30px;border-radius:50%;cursor:pointer;position:relative}
+.swatches span.on::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--text)}
+.field{display:block;width:calc(100% - 16px);margin:6px 8px;background:var(--frame);border:1px solid var(--line2);border-radius:8px;color:var(--text);font:14px var(--sans);padding:10px}
+.field:focus{outline:none;border-color:var(--accent)}
+.btns{display:flex;gap:8px;padding:6px 8px 4px}
+.btn{flex:1;height:44px;border-radius:9px;border:1px solid var(--line2);background:none;cursor:pointer;font-weight:600}
+.btn.pri{background:var(--text);color:#111;border-color:transparent}
+.btn.dng{color:var(--danger)}
+.btn:disabled{opacity:.38;cursor:default}
+.chk{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--faint);display:flex;align-items:center;justify-content:center;flex:none}
+.chk.on{background:var(--accent);border-color:var(--accent);color:#08201c}
+.tierow .tagr{margin-left:auto}
+.lrow{display:flex;align-items:center;gap:8px;min-height:46px;padding:0 6px 0 4px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:500}
+.lrow:hover{background:rgba(255,255,255,.04)}
+.lrow.on{color:var(--accent)}
+.lrow .grip{width:28px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--faint);cursor:grab}
+.lrow .tint{width:8px;height:8px;border-radius:50%}
+.lrow .amb{width:6px;height:6px;border-radius:50%;background:var(--warn)}
+.lrow .sp{flex:1}
+.lrow.lift{background:var(--raised);box-shadow:0 10px 28px rgba(0,0,0,.6);outline:1.5px solid var(--accent)}
+.sheet{position:absolute;background:#1a1e24;border:1px solid var(--line2);border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.6);z-index:20;padding:14px 16px}
+.sheet h2{font-size:16px;margin:0;display:flex;align-items:center;gap:8px}
+.sheet .x{margin-left:auto}
+.tiegrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding:4px 0}
+.tiet{height:64px;border-radius:10px;background:var(--raised);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;font-size:12px;color:var(--dim);position:relative}
+.tiet.on{background:var(--chosen);color:var(--accent);outline:1.5px solid var(--accent)}
+.tiet em{font-style:normal;font-size:10.5px;color:var(--faint)}
+.schem{display:flex;gap:12px;padding:6px 0}
+.schem figure{margin:0;font-size:12px;color:var(--faint);text-align:center}
+.tilesw{display:grid;gap:10px;padding:8px}
+.wtile{border-radius:12px;background:var(--raised);padding:6px;cursor:pointer;position:relative;border:1.5px solid transparent}
+.wtile.on{border-color:var(--accent)}
+.wtile .nm{display:flex;align-items:center;gap:6px;padding:6px 4px 2px;font-weight:600;font-size:14px}
+.wtile .nm .sp{flex:1}
+.wtile .ties{display:flex;gap:4px;color:var(--faint);padding:0 4px 2px;min-height:18px}
+.wtile .tm{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:var(--dim)}
+.wtile .tm:hover{background:rgba(255,255,255,.06)}
+.wtile.add{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--dim);border:1.5px dashed var(--line2);background:none}
+.wtile.lift{box-shadow:0 14px 34px rgba(0,0,0,.6);outline:1.5px solid var(--accent);z-index:3}
+.toast{position:absolute;left:50%;transform:translateX(-50%);background:#e9ecef;color:#111;border-radius:12px;padding:0 6px 0 16px;height:48px;display:flex;align-items:center;gap:12px;font-size:14px;box-shadow:0 12px 30px rgba(0,0,0,.5);z-index:30;white-space:nowrap}
+.toast button{border:0;background:#111;color:#e9ecef;border-radius:9px;height:36px;padding:0 14px;font-weight:600;cursor:pointer}
+.ring{position:absolute;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;border:3px solid var(--accent);pointer-events:none;z-index:40;opacity:.8;animation:ring .45s linear forwards}
+@keyframes ring{from{transform:scale(.4);opacity:.2}to{transform:scale(1);opacity:.9}}
+aside{background:#111418;border:1px solid var(--line2);border-radius:14px;padding:14px 16px;font-size:13.5px;line-height:1.5;color:#c9d1d8}
+aside h4{margin:14px 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+aside h4:first-child{margin-top:0}
+aside ul{margin:0;padding-left:18px}
+aside li{margin:3px 0}
+aside .tb{display:flex;flex-wrap:wrap;gap:6px}
+aside .tb button{border:1px solid var(--line2);background:var(--raised);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px}
+aside .tb button.on{background:var(--chosen);color:var(--accent);border-color:transparent}
+aside table{width:100%;border-collapse:collapse;font-size:13px}
+aside td{padding:3px 0;border-bottom:1px solid var(--line)}
+aside td:last-child{text-align:right;color:var(--accent)}
+aside .log{font-size:12.5px;color:var(--dim);min-height:90px}
+aside .log div{padding:2px 0;border-bottom:1px solid var(--line)}
+kbd{font:12px ui-monospace,monospace;background:var(--raised);border-radius:4px;padding:1px 5px}
+</style>
+<div class="wrap">
+<header>
+  <div class="crumbs"><a href="index.html">Workspaces mock</a><a href="a.html" id="la">A · tabs and one menu</a><a href="b.html" id="lb">B · browser tabs and a sheet</a><a href="c.html" id="lc">C · one chip and a switcher</a></div>
+  <h1>A. Tabs and one menu</h1>
+  <p id="lede"></p>
+  <div class="ctl">
+    <span>Screen <span class="seg" id="segdev"><button data-v="desktop">Desktop 1600 × 900</button><button data-v="tablet">Tablet 1180 × 820</button></span></span>
+    <span>Pointer <span class="seg" id="segptr"><button data-v="mouse">Mouse</button><button data-v="finger">Finger</button></span></span>
+  </div>
+</header>
+<div class="layout">
+  <div id="stage"><div id="dev"></div></div>
+  <aside id="side"></aside>
+</div>
+</div>
+<script>
+"use strict";
+const DIR = "A";
+const SIZES = {desktop: {w: 1600, h: 900}, tablet: {w: 1180, h: 820}};
+const TINTS = ["#5ed6c4", "#ff9f5a", "#8fb8ff", "#c99bff"];
+const P = {
+  menu: "M4 6h16M4 12h16M4 18h16", save: "M5 3h11l3 3v15H5zM8 3v5h8M8 21v-7h8v7", undo: "M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3",
+  redo: "M15 14l5-5-5-5M20 9H10a6 6 0 0 0 0 12h3", search: "M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14M21 21l-4.3-4.3",
+  history: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l4 2", settings: "M12 15a3 3 0 1 0 0-6a3 3 0 1 0 0 6M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1",
+  brush: "M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z",
+  box: "M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8", aperture: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M14.3 8l5.7 9.9M9.7 8h11.4M7.4 12l5.7-9.9M9.7 16L4 6.1M14.3 16H2.9M16.6 12l-5.7 9.9",
+  palette: "M12 22a10 10 0 1 1 10-10c0 2.8-2.2 4-4 4h-2a2 2 0 0 0-1.5 3.3A2 2 0 0 1 12 22zM7.5 10.5h.01M10.5 6.5h.01M15.5 7.5h.01M17.5 11.5h.01",
+  plus: "M12 5v14M5 12h14", chev: "M6 9l6 6 6-6", more: "M5 12h.01M12 12h.01M19 12h.01", grip: "M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01",
+  check: "M5 12l5 5L20 7", trash: "M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14", pencil: "M17 3l4 4L8 20H4v-4z", copy: "M8 8h12v12H8zM4 16V4h12",
+  link: "M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7",
+  move: "M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20", spline: "M3 20c4 0 4-8 9-8s5-8 9-8",
+  shapes: "M8.3 10a.7.7 0 0 1-.6-1.1l3.7-6a.7.7 0 0 1 1.2 0l3.7 6a.7.7 0 0 1-.6 1.1zM3 14h7v7H3zM17.5 14a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7",
+  eye: "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6", layers: "M12 2l10 5-10 5L2 7zM2 17l10 5 10-5M2 12l10 5 10-5",
+  sliders: "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6", sym: "M12 3v18M8 7l-5 5 5 5zM16 7l5 5-5 5z",
+  layout: "M3 3h18v18H3zM3 9h18M9 21V9", tri: "M12 3L2 21h20z", reset: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5", x: "M6 6l12 12M18 6L6 18",
+  swatch: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18",
+};
+const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24"><path d="${P[n]}"/></svg>`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+
+// Ties: what a tool in hand is, as the design's Tie enum.
+const TIES = [["Brushes", "Sculpt brushes", "brush"], ["Paint_Brush", "Paint brush", "palette"], ["Curve", "Curve tool", "spline"],
+  ["Insert", "Insert tool", "shapes"], ["Model", "Model tool", "box"], ["Look", "Look tool", "eye"]];
+const TIE_NAME = Object.fromEntries(TIES.map(t => [t[0], t[1]]));
+const TIE_ICON = Object.fromEntries(TIES.map(t => [t[0], t[2]]));
+const TOOL_TIE = {brush: "Brushes", paint: "Paint_Brush", curve: "Curve", insert: "Insert", model: "Model", look: "Look", move: null};
+const tieOf = t => t.k === "brush" && (t.name === "Smooth" || t.name === "Mask") ? null : TOOL_TIE[t.k];
+const TOOL_HANDS = {brush: "sculpt", paint: "paint", curve: "sculpt", insert: "sculpt", model: "model", look: "look"};
+const TIE_TOOL = {Brushes: {k: "brush", name: "Clay"}, Paint_Brush: {k: "paint", name: "Paint"}, Curve: {k: "curve", name: "Curve"},
+  Insert: {k: "insert", name: "Insert"}, Model: {k: "model", name: "Model"}, Look: {k: "look", name: "Look"}};
+const PAGES = {
+  Brushes: [["brush", "Clay"], ["brush", "Draw"], ["brush", "Smooth"], ["brush", "Inflate"], ["brush", "Pinch"], ["brush", "Grab"], ["brush", "Flatten"], ["brush", "Mask"]],
+  Move: [["move", "Move"], ["move", "Turn"], ["move", "Scale"]],
+  Curve: [["curve", "Curve"], ["insert", "Insert"], ["curve", "Tube"]],
+  Model: [["model", "Model"], ["model", "Extrude"], ["model", "Inset"], ["model", "Bevel"], ["model", "Loop cut"]],
+  Paint: [["paint", "Paint"], ["paint", "Fill"], ["paint", "Pick"], ["paint", "Blur"]],
+  Render: [["look", "Look"], ["look", "Final"], ["look", "Lit"], ["look", "Exposure"], ["look", "Focus"]],
+};
+const STARTERS = {
+  Sculpt: {ties: ["Brushes", "Curve", "Insert"], tint: 0, icon: "brush", layout: {bar: true, card: null, shelf: ["Brushes", "Move", "Curve"]}, tool: {k: "brush", name: "Clay"}},
+  Model: {ties: ["Model"], tint: 1, icon: "box", layout: {bar: false, card: null, shelf: ["Model"]}, tool: {k: "model", name: "Model"}},
+  Paint: {ties: ["Paint_Brush"], tint: 3, icon: "palette", layout: {bar: true, card: "Colours", shelf: ["Paint", "Brushes"]}, tool: {k: "paint", name: "Paint"}},
+  Render: {ties: ["Look"], tint: 2, icon: "aperture", layout: {bar: false, card: "Look", shelf: ["Render"]}, tool: {k: "look", name: "Look"}},
+};
+const clone = o => JSON.parse(JSON.stringify(o));
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const MAX = 12;
+
+let S;
+function fresh() {
+  S = {dev: S ? S.dev : "tablet", ptr: S ? S.ptr : "finger", ws: [], order: [], cur: 0, tool: {k: "brush", name: "Clay"}, seen: "Brushes",
+    pop: null, toast: null, log: [], next: 1, drag: null, lp: null, field: "", from: "this", renaming: null};
+  for (const name of ["Sculpt", "Model", "Paint", "Render"]) S.order.push(addStarter(name, name).id);
+  S.cur = S.order[0];
+}
+function addStarter(name, st) {
+  const d = STARTERS[st];
+  const lay = {desktop: clone(d.layout), tablet: clone(d.layout)};
+  const w = {id: S.next++, name, tint: d.tint, starter: st, icon: d.icon, ties: new Set(d.ties.filter(t => !holder(t))), kept: clone(lay), base: clone(lay), tool: clone(d.tool), page: 0};
+  S.ws.push(w);
+  return w;
+}
+const W = id => S.ws.find(w => w.id === id);
+const cur = () => W(S.cur);
+const cls = () => S.dev;
+const holder = t => S.ws.find(w => w.ties.has(t));
+const modified = w => !same(w.kept[cls()], w.base[cls()]);
+const say = m => { S.log.unshift(m); S.log.length = Math.min(S.log.length, 7); };
+const finger = () => S.ptr === "finger";
+
+// The design's rules (section 4.3).
+function switchTo(id, restore = true, why = "") {
+  if (id === S.cur) return;
+  const from = cur(), to = W(id);
+  from.tool = clone(S.tool);
+  S.cur = id;
+  if (restore && to.ties.size && !to.ties.has(tieOf(S.tool))) {
+    S.tool = to.ties.has(TOOL_TIE[to.tool.k]) ? clone(to.tool) : clone(TIE_TOOL[[...to.ties][0]]);
+  }
+  if (tieOf(S.tool)) S.seen = tieOf(S.tool);
+  to.page = Math.min(to.page, to.kept[cls()].shelf.length - 1);
+  say(why || `Tab: ${to.name}${restore && to.ties.size ? `, the ${toolLabel()} in hand` : ", the tool kept"}`);
+}
+function pickTool(t) {
+  S.tool = clone(t);
+  const tie = tieOf(t);
+  if (!tie) { say(`${toolLabel()} picked: ${t.k === "move" ? "Move" : "Mask and Smooth have no tie; it"} keeps the tie and the workspace`); return render(); }
+  if (tie !== S.seen) {
+    const h = holder(tie);
+    if (h && h.id !== S.cur) switchTo(h.id, false, `${toolLabel()} picked: ${h.name} (its ${TIE_NAME[tie]} tie)`);
+    else say(`${toolLabel()} picked: ${h ? "already in " + h.name : "no workspace holds " + TIE_NAME[tie] + ", so nothing switches"}`);
+  } else say(`${toolLabel()} picked: same tie, the workspace stays`);
+  S.seen = tie;
+  render();
+}
+function toolLabel() { const k = S.tool.k; return k === "brush" ? `${S.tool.name} brush` : k === "paint" ? "Paint brush" : `${S.tool.name} tool`; }
+function newWs(name, from) {
+  if (S.ws.length >= MAX) { toast(`All ${MAX} workspaces are taken: delete one first`); return; }
+  name = name.trim() || freshName();
+  if (S.ws.some(w => w.name.toLowerCase() === name.toLowerCase())) { toast(`A workspace is called ${name} already`); return; }
+  let w;
+  if (from === "this") {
+    const c = cur();
+    w = {id: S.next++, name, tint: c.tint, starter: null, icon: "layout", ties: new Set(), kept: clone(c.kept), base: clone(c.kept), tool: clone(S.tool), page: 0};
+    S.ws.push(w);
+  } else {
+    w = addStarter(name, from);
+  }
+  const at = S.order.indexOf(S.cur);
+  S.order.splice(at + 1, 0, w.id);
+  switchTo(w.id, true, `New workspace ${name}${from === "this" ? " (a copy of this layout, tied to nothing)" : ` from ${from}${w.ties.size ? ", with " + [...w.ties].map(t => TIE_NAME[t]).join(", ") : ", its ties held elsewhere"}`}`);
+}
+function freshName() { for (let n = S.ws.length + 1; ; n++) { const s = `Workspace ${n}`; if (!S.ws.some(w => w.name === s)) return s; } }
+function delWs(id) {
+  if (S.ws.length <= 1) return;
+  const w = W(id), at = S.order.indexOf(id);
+  if (id === S.cur) switchTo(S.order[at > 0 ? at - 1 : 1], true, `Deleting the current one: ${W(S.order[at > 0 ? at - 1 : 1]).name} comes in front`);
+  S.order.splice(at, 1);
+  S.ws = S.ws.filter(x => x !== w);
+  const lost = [...w.ties].map(t => TIE_NAME[t]);
+  S.undo = {w, at};
+  toast(`Deleted ${w.name}.${lost.length ? " " + lost.join(", ") + " now bring" + (lost.length > 1 ? "" : "s") + " no workspace." : ""}`, "Undo");
+  say(`Deleted ${w.name}`);
+}
+function undoDel() {
+  const u = S.undo; if (!u) return;
+  for (const t of [...u.w.ties]) if (holder(t)) u.w.ties.delete(t);
+  S.ws.push(u.w); S.order.splice(u.at, 0, u.w.id); S.undo = null; S.toast = null;
+  say(`Undo: ${u.w.name} back in its place`);
+  render();
+}
+function tie(w, t) {
+  if (w.ties.has(t)) { w.ties.delete(t); say(`${TIE_NAME[t]} untied from ${w.name}: it now brings no workspace`); return; }
+  const h = holder(t);
+  if (h) h.ties.delete(t);
+  w.ties.add(t);
+  say(`${TIE_NAME[t]} now brings ${w.name}${h ? ` (moved from ${h.name})` : ""}`);
+}
+function rename(w, name) {
+  name = name.trim();
+  if (!name) return false;
+  if (S.ws.some(x => x !== w && x.name.toLowerCase() === name.toLowerCase())) { toast(`A workspace is called ${name} already`); return false; }
+  say(`Renamed ${w.name} to ${name}`); w.name = name; return true;
+}
+function resetLayout(w) { w.kept[cls()] = clone(w.base[cls()]); w.page = 0; say(`Reset ${w.name}'s ${cls()} layout`); }
+function toast(msg, action) {
+  S.toast = {msg, action, t: Date.now()};
+  clearTimeout(S.tt); S.tt = setTimeout(() => { S.toast = null; S.undo = null; render(); }, 6000);
+}
+function changeLayout(what) {
+  const l = cur().kept[cls()];
+  if (what === "bar") l.bar = !l.bar; else l.card = l.card === what ? null : what;
+  say(`${cur().name}'s ${cls()} layout changed (${what === "bar" ? (l.bar ? "brush bar shown" : "brush bar hidden") : (l.card ? l.card + " card pinned" : "card unpinned")})`);
+  render();
+}
+
+// Measuring text the way the kit sizes a tab.
+const cv = document.createElement("canvas").getContext("2d");
+const tw = (s, size = 14, weight = 600) => { cv.font = `${weight} ${size}px system-ui,-apple-system,Segoe UI,Roboto,Inter,sans-serif`; return cv.measureText(s).width; };
+const tabW = w => tw(w.name) + 28 + 16 + 6;
+const pillW = (w, on) => tw(w.name) + 24 + 7 + 6 + (modified(w) ? 12 : 0) + (on ? 26 : 0);
+
+// The top bar's fit, as kit_top_bar gives way: the object chip's tag, the file chip, then the direction's own overflow.
+function fit() {
+  const {w} = SIZES[S.dev];
+  const app = 3 * 48 + 2 * 9 + 8;
+  const obj = full => full ? tw("Sphere 1", 13) + tw("Sculpt mesh", 12, 500) + 80 : tw("Sphere 1", 13) + 56;
+  const fileW = chip => 48 + (chip ? 128 : 0) + 9 + 3 * 48 + 8;
+  const order = S.order.map(W);
+  const tabsAll = DIR === "A" ? order.reduce((s, x) => s + tabW(x), 6) + 44 : DIR === "B" ? order.reduce((s, x) => s + pillW(x, x.id === S.cur) + 4, 0) + 44 : chipW();
+  const mid = (tabs, full) => tabs + 9 + obj(full) + 8;
+  let f = {tag: true, file: true, fold: [], mode: "tabs"};
+  const room = file => w - 24 - 2 * (Math.max(fileW(file), app) + 12);
+  if (mid(tabsAll, true) <= room(true)) return {...f, room: room(true), app, fileW: fileW(true), objW: obj(true)};
+  f.tag = false;
+  if (mid(tabsAll, false) <= room(true)) return {...f, room: room(true), app, fileW: fileW(true), objW: obj(false)};
+  f.file = false;
+  const r = room(false);
+  if (DIR !== "A" || mid(tabsAll, false) <= r) return {...f, room: r, app, fileW: fileW(false), objW: obj(false), strip: r - 9 - obj(false) - 8 - 44};
+  // A: fold the tabs past the room into the chevron's list; the current one always shows.
+  const budget = r - 9 - obj(false) - 8 - 44 - 40 - 6;
+  let used = tabW(cur()); const keep = new Set([S.cur]);
+  for (const x of order) { if (x.id === S.cur) continue; if (used + tabW(x) <= budget) { used += tabW(x); keep.add(x.id); } }
+  f.fold = order.filter(x => !keep.has(x.id)).map(x => x.id);
+  if (tabW(cur()) > budget) f.mode = "chip";
+  return {...f, room: r, app, fileW: fileW(false), objW: obj(false)};
+}
+const chipW = () => tw(cur().name) + 80;
+
+function render() {
+  const {w, h} = SIZES[S.dev];
+  const dev = document.getElementById("dev");
+  const stage = document.getElementById("stage");
+  const sc = stage.clientWidth / w;
+  stage.style.height = h * sc + "px";
+  dev.style.width = w + "px"; dev.style.height = h + "px"; dev.style.transform = `scale(${sc})`;
+  S.scale = sc;
+  const f = fit();
+  const c = cur(), l = c.kept[cls()];
+  const hands = TOOL_HANDS[S.tool.k] || S.lastHands || "sculpt"; S.lastHands = hands;
+  const sd = h * 0.78;
+  let o = `<div class="sphere ${hands === "look" ? "look" : hands === "model" ? "model" : hands === "paint" ? "paint" : ""}" style="left:${w / 2 - sd / 2}px;top:${h * 0.47 - sd / 2}px;width:${sd}px;height:${sd}px"></div>`;
+  o += `<div class="readout">Persp · 33 mm ⌄ &nbsp; ${hands === "look" ? "Full" : "Lit"} ⌄<br>Vertices 41.0k</div>`;
+  o += `<svg class="gizmo" style="left:${w - 140}px;top:62px" viewBox="0 0 60 60"><line x1="30" y1="30" x2="30" y2="8" stroke="#6c6" stroke-width="2"/><line x1="30" y1="30" x2="50" y2="36" stroke="#e55" stroke-width="2"/><line x1="30" y1="30" x2="14" y2="38" stroke="#58f" stroke-width="2"/><circle cx="30" cy="8" r="6" fill="#6c6"/><circle cx="50" cy="36" r="6" fill="#e55"/><circle cx="14" cy="38" r="6" fill="#58f"/></svg>`;
+  // File and App islands.
+  o += `<div class="isl" style="left:12px;top:4px"><button class="ib">${ic("menu")}</button>${f.file ? `<div class="filechip"><b>Untitled</b><span>Not saved</span></div>` : ""}<div class="vdiv"></div><button class="ib">${ic("save")}</button><button class="ib">${ic("undo")}</button><button class="ib">${ic("redo")}</button></div>`;
+  o += `<div class="isl" style="right:12px;top:4px"><button class="ib">${ic("search")}</button><div class="vdiv"></div><button class="ib">${ic("history")}</button><div class="vdiv"></div><button class="ib">${ic("settings")}</button></div>`;
+  // The middle island: the workspaces and the object chip.
+  o += `<div class="isl" id="mid" style="left:50%;top:4px;transform:translateX(-50%);gap:4px;padding:0 6px">${middle(f)}<div class="vdiv"></div><div class="objchip">${ic("tri", "s")}Sphere 1${f.tag ? `<span class="tag">Sculpt mesh</span>` : ""}${ic("chev", "s")}</div></div>`;
+  // Brush bar, view rail, card, shelf, dial.
+  const top = S.dev === "tablet" ? 200 : 240;
+  if (l.bar) o += `<div class="bb" style="top:${top}px"><span>Size</span><div class="sl"><i style="bottom:40%"></i></div><span>60 px</span><span>Strength</span><div class="sl"><i style="bottom:44%"></i></div><span>0.50</span></div>`;
+  const rail = [["sliders", "Tool"], ["layers", "Layers"], ["shapes", "Scene"], ["aperture", "Look"], ["palette", "Colours"], ["sym", "Symmetry"], ["eye", "View"]];
+  o += `<div class="rail" style="right:4px;top:62px">${rail.map(([i, n]) => `<button class="ib ${l.card === n ? "sel" : ""}" data-card="${n}" title="${n}">${ic(i)}</button>`).join("")}</div>`;
+  if (l.card) o += cardHtml(l.card, w);
+  const pg = l.shelf[c.page] || l.shelf[0];
+  const tiles = PAGES[pg] || [];
+  const shW = Math.max(tiles.length * 64 + 16, 300);
+  o += `<div class="shelf" style="left:${w / 2 - shW / 2}px;bottom:4px;width:${shW}px"><div class="pages">${l.shelf.map((p, i) => `<span class="${i === c.page ? "on" : ""}" data-page="${i}" style="cursor:pointer">${p === "Brushes" ? "Brushes" : p}</span>`).join("")}</div><div class="tiles">${tiles.map(([k, n]) => `<div class="tile ${S.tool.k === k && (S.tool.name === n || k !== "brush") ? "on" : ""}" data-tool="${k}" data-name="${n}"><b style="${k === "model" ? "border-radius:7px;background:linear-gradient(135deg,#a9bde6,#55709f)" : k === "look" ? "background:radial-gradient(circle at 35% 30%,#ffe9c8,#94583a)" : k === "paint" ? "background:radial-gradient(circle at 35% 30%,#bcd3ff,#3c64b8)" : ""}"></b>${n}</div>`).join("")}</div></div>`;
+  o += `<div class="dial" style="left:18px;bottom:${S.dev === "tablet" ? 20 : 18}px;width:120px;height:120px"></div>`;
+  o += popover(f);
+  if (S.toast) o += `<div class="toast" style="bottom:${110}px"><span>${esc(S.toast.msg)}</span>${S.toast.action ? `<button data-act="undo">${S.toast.action}</button>` : ""}</div>`;
+  dev.innerHTML = o;
+  side();
+  for (const b of document.querySelectorAll("#segdev button")) b.classList.toggle("on", b.dataset.v === S.dev);
+  for (const b of document.querySelectorAll("#segptr button")) b.classList.toggle("on", b.dataset.v === S.ptr);
+  if (S.focus) { const el = document.getElementById(S.focus); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
+}
+
+function cardHtml(name, w) {
+  const rows = {Tool: ["Radius", "Strength", "Falloff", "Spacing"], Layers: ["Base", "Layer 1", "Layer 2"], Scene: ["Sphere 1", "Light 1", "Camera"], Look: ["Light", "Exposure", "Environment", "Focus"], Colours: [], Symmetry: ["X", "Y", "Z"], View: ["Grid", "Wireframe"]}[name] || [];
+  let body = rows.map(r => `<div class="row"><span>${r}</span><i></i></div>`).join("");
+  if (name === "Colours") body = `<div style="height:120px;border-radius:9px;background:linear-gradient(0deg,#000,transparent),linear-gradient(90deg,#fff,#3c64b8)"></div><div class="sw">${["#3c64b8", "#e2b588", "#94583a", "#5ed6c4", "#c99bff", "#ff9f5a", "#eee", "#333"].map(c => `<span style="background:${c}"></span>`).join("")}</div>`;
+  return `<div class="card" style="right:58px;top:62px"><h3>${name}</h3>${body}</div>`;
+}
+
+// The workspaces in the top bar's middle, by direction.
+function middle(f) {
+  const order = S.order.map(W);
+  if (DIR === "C" || f.mode === "chip") return chip("list");
+  if (DIR === "A") {
+    const shown = order.filter(x => !f.fold.includes(x.id));
+    let o = `<div class="well" id="well">${shown.map(x => tabHtml(x)).join("")}</div>`;
+    if (f.fold.length) o += `<button class="ib" style="width:40px" data-act="fold" title="${f.fold.length} more workspaces">${ic("chev")}<span style="font-size:11px;margin-left:-2px">${f.fold.length}</span></button>`;
+    o += `<button class="ib" style="width:44px" data-act="new" title="New workspace">${ic("plus")}</button>`;
+    return o;
+  }
+  // B: pills that scroll when they overflow.
+  const max = f.strip ? `max-width:${Math.max(f.strip, 160)}px` : "";
+  return `<div class="strip" id="well" style="${max}">${order.map(x => pillHtml(x)).join("")}</div><button class="ib" style="width:44px" data-act="new" title="New workspace">${ic("plus")}</button>`;
+}
+function tabHtml(x) {
+  const on = x.id === S.cur, lift = S.drag && S.drag.id === x.id;
+  const body = S.renaming === x.id ? `<input id="rn" value="${esc(S.field)}">` : esc(x.name);
+  return `<div class="tab ${on ? "on" : ""} ${lift ? "lift" : ""}" data-ws="${x.id}" title="${tipOf(x)}">${on ? `<span class="tint" style="background:${TINTS[x.tint]}"></span>` : ""}${ic(x.icon, "s")}${body}${modified(x) ? `<span class="amb"></span>` : ""}</div>`;
+}
+function pillHtml(x) {
+  const on = x.id === S.cur, lift = S.drag && S.drag.id === x.id;
+  const body = S.renaming === x.id ? `<input id="rn" value="${esc(S.field)}">` : esc(x.name);
+  return `<div class="pill ${on ? "on" : ""} ${lift ? "lift" : ""}" data-ws="${x.id}" title="${tipOf(x)}"><span class="tint" style="background:${TINTS[x.tint]}"></span>${body}${modified(x) ? `<span class="amb"></span>` : ""}${on ? `<span class="more" data-act="sheet">${ic("more")}</span>` : ""}</div>`;
+}
+function chip(act) {
+  const c = cur();
+  return `<div class="wchip" data-act="${act}"><span class="tint" style="background:${TINTS[c.tint]}"></span>${ic(c.icon, "s")}${esc(c.name)}${modified(c) ? `<span class="amb"></span>` : ""}${ic("chev", "s")}</div>`;
+}
+function tipOf(x) {
+  const pos = S.order.indexOf(x.id) + 1;
+  return `${x.name}${pos <= 9 ? ` (Ctrl+${pos})` : ""}${x.ties.size ? "; brought by " + [...x.ties].map(t => TIE_NAME[t]).join(", ") : "; switched only from its tab"}`;
+}
+
+// Popovers and sheets.
+function popover(f) {
+  const p = S.pop; if (!p) return "";
+  const {w} = SIZES[S.dev];
+  const at = p.at || {x: w / 2 - 140, y: 58};
+  const left = x => Math.max(8, Math.min(x, w - 8 - (p.wide || 280)));
+  if (p.kind === "menu") return `<div class="pop" style="left:${left(at.x)}px;top:${at.y}px;width:280px">${menuHtml(W(p.id))}</div>`;
+  if (p.kind === "new") return `<div class="pop" style="left:${left(at.x)}px;top:${at.y}px;width:280px">${newHtml()}</div>`;
+  if (p.kind === "list") return `<div class="pop" style="left:${left(at.x)}px;top:${at.y}px;width:300px">${listHtml()}</div>`;
+  if (p.kind === "sheet") return sheetHtml(W(p.id));
+  if (p.kind === "switcher") return switcherHtml();
+  return "";
+}
+function menuHtml(x) {
+  if (!x) return "";
+  if (S.renaming === x.id && DIR !== "B") {
+    return `<div class="cap">RENAME ${esc(x.name.toUpperCase())}</div><input class="field" id="rn" value="${esc(S.field)}"><div class="btns"><button class="btn pri" data-act="rename-ok">Rename</button><button class="btn" data-act="rename-no">Cancel</button></div>`;
+  }
+  let o = `<div class="cap"><span style="width:8px;height:8px;border-radius:50%;background:${TINTS[x.tint]}"></span>${esc(x.name.toUpperCase())}</div>`;
+  if (x.id !== S.cur) o += `<div class="mi" data-act="go" data-id="${x.id}">${ic(x.icon)}<span class="sp">Switch to it</span></div>`;
+  o += `<div class="mi" data-act="rename" data-id="${x.id}">${ic("pencil")}<span class="sp">Rename...</span></div>`;
+  o += `<div class="mi" data-act="dup" data-id="${x.id}">${ic("copy")}<span class="sp">Duplicate</span></div>`;
+  o += `<div class="swatches">${TINTS.map((t, i) => `<span class="${i === x.tint ? "on" : ""}" style="background:${t}" data-act="tint" data-i="${i}" data-id="${x.id}"></span>`).join("")}</div>`;
+  o += `<div class="mi" data-act="ties" data-id="${x.id}">${ic("link")}<span class="sp">Brought by</span><span class="tagr">${x.ties.size ? x.ties.size + (x.ties.size > 1 ? " tools" : " tool") : "its tab only"}</span>${ic(S.pop.ties ? "chev" : "chev", "s")}</div>`;
+  if (S.pop.ties) o += tieList(x);
+  o += `<div class="mi ${modified(x) ? "" : "dis"}" data-act="reset" data-id="${x.id}">${ic("reset")}<span class="sp">Reset layout</span><span class="tagr">${cls()}</span></div>`;
+  o += `<div class="hr"></div><div class="mi danger ${S.ws.length > 1 ? "" : "dis"}" data-act="del" data-id="${x.id}">${ic("trash")}<span class="sp">Delete</span></div>`;
+  return o;
+}
+function tieList(x) {
+  return `<div style="padding:0 0 4px 22px">${TIES.map(([t, n, i]) => {
+    const h = holder(t), on = x.ties.has(t);
+    return `<div class="mi tierow" data-act="tie" data-t="${t}" data-id="${x.id}"><span class="chk ${on ? "on" : ""}">${on ? ic("check", "s") : ""}</span>${ic(i, "s")}<span>${n}</span><span class="tagr">${h && !on ? "in " + esc(h.name) : on ? "" : "nowhere"}</span></div>`;
+  }).join("")}</div>`;
+}
+function newHtml() {
+  const opts = [["this", `This layout (${esc(cur().name)})`, "layout"], ...Object.keys(STARTERS).map(s => [s, `${s} as it ships`, STARTERS[s].icon])];
+  return `<div class="cap">NEW WORKSPACE</div><input class="field" id="nf" placeholder="${freshName()}" value="${esc(S.field)}"><div class="cap">START FROM</div>${opts.map(([k, n, i]) => `<div class="mi ${S.from === k ? "on" : ""}" data-act="from" data-k="${k}">${ic(i, "s")}<span class="sp">${n}</span>${S.from === k ? ic("check", "s") : ""}</div>`).join("")}<div class="btns"><button class="btn pri" data-act="make">Make</button><button class="btn" data-act="close">Cancel</button></div>`;
+}
+function listHtml() {
+  let o = `<div class="cap">WORKSPACES · DRAG TO REORDER</div><div id="list">`;
+  for (const x of S.order.map(W)) {
+    const on = x.id === S.cur, lift = S.drag && S.drag.id === x.id;
+    o += `<div class="lrow ${on ? "on" : ""} ${lift ? "lift" : ""}" data-ws="${x.id}"><span class="grip" data-grip="${x.id}">${ic("grip", "s")}</span><span class="tint" style="background:${TINTS[x.tint]}"></span>${ic(x.icon, "s")}<span class="sp">${esc(x.name)}</span>${modified(x) ? `<span class="amb"></span>` : ""}<span style="font-size:11px;color:var(--faint)">${x.ties.size ? [...x.ties].map(t => TIE_NAME[t].split(" ")[0]).join(", ") : ""}</span><button class="ib" style="width:40px;height:40px" data-act="rowmenu" data-id="${x.id}">${ic("more")}</button></div>`;
+  }
+  return o + `</div><div class="hr"></div><div class="mi" data-act="new">${ic("plus")}<span class="sp">New workspace...</span></div>`;
+}
+function schematic(l, tint, wd = 150, ht = 90) {
+  const k = wd / 160;
+  let o = `<svg width="${wd}" height="${ht}" viewBox="0 0 160 96" style="display:block;border-radius:8px;background:#14171b"><rect x="2" y="2" width="156" height="8" rx="2" fill="#2a3139"/><circle cx="80" cy="50" r="24" fill="${l.card === "Look" ? "#94583a" : "#8a7062"}" opacity=".6"/>`;
+  if (l.bar) o += `<rect x="2" y="26" width="7" height="40" rx="2" fill="${tint}" opacity=".7"/>`;
+  o += `<rect x="151" y="14" width="7" height="44" rx="2" fill="#3a434d"/>`;
+  if (l.card) o += `<rect x="112" y="14" width="36" height="48" rx="3" fill="${tint}" opacity=".55"/>`;
+  o += `<rect x="${80 - l.shelf.length * 9}" y="84" width="${l.shelf.length * 18}" height="9" rx="2" fill="#3a434d"/>`;
+  return o + `</svg>`;
+}
+function sheetHtml(x) {
+  if (!x) return "";
+  const {w} = SIZES[S.dev];
+  const sw = Math.min(560, w - 40);
+  let o = `<div class="sheet" style="left:${w / 2 - sw / 2}px;top:62px;width:${sw}px"><h2><span style="width:10px;height:10px;border-radius:50%;background:${TINTS[x.tint]}"></span>Workspace<button class="ib x" data-act="close">${ic("x")}</button></h2>`;
+  o += `<input class="field" id="sn" value="${esc(S.renaming === x.id ? S.field : x.name)}" style="margin:10px 0;width:100%">`;
+  o += `<div class="swatches" style="padding:0 0 8px">${TINTS.map((t, i) => `<span class="${i === x.tint ? "on" : ""}" style="background:${t}" data-act="tint" data-i="${i}" data-id="${x.id}"></span>`).join("")}</div>`;
+  o += `<div class="cap" style="padding-left:0">BROUGHT BY THESE TOOLS</div><div class="tiegrid">${TIES.map(([t, n, i]) => { const h = holder(t), on = x.ties.has(t); return `<div class="tiet ${on ? "on" : ""}" data-act="tie" data-t="${t}" data-id="${x.id}">${ic(i)}<span>${n}</span><em>${on ? "here" : h ? "in " + esc(h.name) : "nowhere"}</em></div>`; }).join("")}</div>`;
+  o += `<div class="cap" style="padding-left:0">ITS LAYOUTS</div><div class="schem">${["desktop", "tablet"].map(k => `<figure>${schematic(x.kept[k], TINTS[x.tint])}<figcaption>${k === "desktop" ? "Desktop" : "Tablet"}${!same(x.kept[k], x.base[k]) ? ` <span style="color:var(--warn)">● changed</span>` : ""}</figcaption></figure>`).join("")}</div>`;
+  o += `<div class="btns" style="padding:8px 0 0"><button class="btn" data-act="reset" data-id="${x.id}" ${modified(x) ? "" : "disabled"}>Reset layout</button><button class="btn" data-act="dup" data-id="${x.id}">Duplicate</button><button class="btn dng" data-act="del" data-id="${x.id}" ${S.ws.length > 1 ? "" : "disabled"}>Delete</button></div></div>`;
+  return o;
+}
+function switcherHtml() {
+  const {w} = SIZES[S.dev];
+  const cols = S.dev === "tablet" ? 3 : 4;
+  const sw = Math.min(cols * 190 + 26, w - 40);
+  let o = `<div class="pop" style="left:${w / 2 - sw / 2}px;top:58px;width:${sw}px;padding:4px"><div class="cap">WORKSPACES · <span style="font-weight:500">tap to switch · ${finger() ? "hold then drag" : "drag"} to reorder</span></div><div class="tilesw" id="list" style="grid-template-columns:repeat(${cols},1fr)">`;
+  o += `<div class="wtile add" data-act="new">${ic("plus")}<span>New workspace</span></div>`;
+  for (const x of S.order.map(W)) {
+    const on = x.id === S.cur, lift = S.drag && S.drag.id === x.id;
+    o += `<div class="wtile ${on ? "on" : ""} ${lift ? "lift" : ""}" data-ws="${x.id}">${schematic(x.kept[cls()], TINTS[x.tint], 166, 96)}<div class="nm"><span style="width:8px;height:8px;border-radius:50%;background:${TINTS[x.tint]}"></span><span class="sp">${esc(x.name)}</span>${modified(x) ? `<span style="width:6px;height:6px;border-radius:50%;background:var(--warn)"></span>` : ""}<span class="tm" data-act="rowmenu" data-id="${x.id}">${ic("more")}</span></div><div class="ties">${[...x.ties].map(t => ic(TIE_ICON[t], "s")).join("") || `<span style="font-size:11px">tab only</span>`}</div></div>`;
+  }
+  return o + `</div></div>`;
+}
+
+// The guide beside the screen.
+const LEDE = {
+  A: "Today's tabs, each a workspace, then + for a new one. A tap on the lit tab, a right-click, or a long press on any tab opens that workspace's menu: rename, duplicate, colour, the tools that bring it, Reset layout, Delete. Tabs drag to reorder. What does not fit folds into a chevron list; narrower still, the whole set becomes one chip.",
+  B: "Each workspace is its own pill, like a browser's tabs. A double tap renames in place; the lit pill's ⋯ opens a Workspace sheet with its name, colour, tools and a picture of both layouts. + makes a copy at once and names it in place. Pills that do not fit scroll sideways.",
+  C: "The bar holds only the current workspace's chip. A tap opens a switcher of tiles, each a picture of its layout drawn from its text; drag tiles to reorder, ⋯ for the rest, + first. Ctrl+1 to 9 switch without opening it.",
+};
+const HOW = {
+  A: ["<b>Switch</b>: tap a tab, or <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>.", "<b>Its menu</b>: tap the lit tab; right-click or long-press any tab.", "<b>Reorder</b>: drag a tab (a finger after the long press: the menu closes as you move).", "<b>New</b>: + : a name and Start from (this layout, or a starter).", "<b>Tie</b>: menu, Brought by: tick the tools; a tick takes the tool from where it was.", "<b>Overflow</b>: press Add four workspaces, then try Tablet."],
+  B: ["<b>Switch</b>: tap a pill, or <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>.", "<b>Rename</b>: double-tap a pill.", "<b>Settings</b>: the lit pill's ⋯ (or long-press, right-click any pill): the Workspace sheet.", "<b>Reorder</b>: drag a pill (a finger after the long press).", "<b>New</b>: + makes a copy of this layout and names it in place.", "<b>Overflow</b>: the pills scroll sideways."],
+  C: ["<b>Switch</b>: the chip, then a tile; or <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd>.", "<b>Reorder</b>: drag a tile (a finger after the long press).", "<b>More</b>: a tile's ⋯ : rename, duplicate, colour, tools, reset, delete.", "<b>New</b>: the + tile.", "Each tile's picture is drawn from its layout: brush bar, card, shelf pages."],
+};
+function side() {
+  const order = S.order.map(W);
+  let o = `<h4>How</h4><ul>${HOW[DIR].map(x => `<li>${x}</li>`).join("")}</ul>`;
+  o += `<h4>Pick a tool (as the shelf, a key or Search would)</h4><div class="tb">${[["brush", "Clay"], ["brush", "Draw"], ["paint", "Paint"], ["curve", "Curve"], ["model", "Model"], ["look", "Look"], ["move", "Move"]].map(([k, n]) => `<button data-tool="${k}" data-name="${n}" class="${S.tool.k === k && S.tool.name === n ? "on" : ""}">${k === "brush" ? n + " brush" : k === "paint" ? "Paint brush" : n + " tool"}</button>`).join("")}</div>`;
+  o += `<h4>Change this layout (the amber dot)</h4><div class="tb"><button data-lay="bar">Brush bar</button><button data-lay="Tool">Pin Tool card</button><button data-lay="Layers">Pin Layers card</button></div>`;
+  o += `<h4>Try</h4><div class="tb"><button data-act="four">Add four workspaces</button><button data-act="fresh">Start over</button></div>`;
+  o += `<h4>Which tool brings which workspace</h4><table>${TIES.map(([t, n]) => { const h = holder(t); return `<tr><td>${n}</td><td>${h ? esc(h.name) : "<span style='color:var(--faint)'>nothing</span>"}</td></tr>`; }).join("")}</table>`;
+  o += `<h4>In hand</h4><div>${toolLabel()} · in <b style="color:${TINTS[cur().tint]}">${esc(cur().name)}</b> (${order.length} workspaces)</div>`;
+  o += `<h4>What happened</h4><div class="log">${S.log.map(x => `<div>${esc(x)}</div>`).join("")}</div>`;
+  document.getElementById("side").innerHTML = o;
+}
+
+// Pointer handling: taps, long presses (a finger or the pen), drags to reorder.
+const LONG = 450, SLOP = 8;
+function devPoint(e) { const r = document.getElementById("dev").getBoundingClientRect(); return {x: (e.clientX - r.left) / S.scale, y: (e.clientY - r.top) / S.scale}; }
+function rectOf(el) { const r = el.getBoundingClientRect(), d = document.getElementById("dev").getBoundingClientRect(); return {x: (r.left - d.left) / S.scale, y: (r.top - d.top) / S.scale, w: r.width / S.scale, h: r.height / S.scale}; }
+let press = null, lastTap = {id: 0, t: 0};
+document.addEventListener("pointerdown", e => {
+  const dev = document.getElementById("dev");
+  if (!dev.contains(e.target)) return;
+  const wsEl = e.target.closest("[data-ws]");
+  const act = e.target.closest("[data-act]");
+  const inPop = e.target.closest(".pop,.sheet");
+  if (wsEl && !(act && act.dataset.act !== "go") && !e.target.closest("input")) {
+    const id = +wsEl.dataset.ws;
+    press = {id, x: e.clientX, y: e.clientY, t: Date.now(), lp: false, grip: !!e.target.closest("[data-grip]"), where: wsEl.closest("#list") ? "list" : "bar", el: wsEl};
+    if (e.button === 2) return;
+    press.timer = setTimeout(() => {
+      if (!press || !finger()) return;
+      press.lp = true;
+      const p = devPoint(e);
+      const ring = document.createElement("div"); ring.className = "ring"; ring.style.left = p.x + "px"; ring.style.top = p.y + "px"; dev.appendChild(ring); setTimeout(() => ring.remove(), 600);
+      if (press.where === "bar" || DIR === "C") openMenuFor(id, press.el);
+    }, LONG);
+    e.preventDefault();
+    return;
+  }
+  if (!inPop && !e.target.closest("[data-act]") && !e.target.closest(".tab,.pill,.wchip") && S.pop) { closePop(); render(); }
+});
+document.addEventListener("pointermove", e => {
+  if (!press) return;
+  const dx = e.clientX - press.x, dy = e.clientY - press.y, d = Math.hypot(dx, dy) / S.scale;
+  if (!S.drag && d > SLOP) {
+    const may = !finger() || press.lp || (press.grip && press.where === "list");
+    if (!may) { clearTimeout(press.timer); press = null; return; }
+    clearTimeout(press.timer);
+    if (press.where === "bar" && S.pop && S.pop.kind === "menu") S.pop = null;
+    S.drag = {id: press.id, where: press.where};
+    render();
+  }
+  if (S.drag) {
+    const p = devPoint(e);
+    const els = [...document.querySelectorAll(S.drag.where === "list" ? "#list [data-ws]" : "#well [data-ws]")];
+    let best = null, bd = 1e9;
+    for (const el of els) { const r = rectOf(el); const cx = r.x + r.w / 2, cy = r.y + r.h / 2; const dd = S.drag.where === "list" && DIR !== "C" ? Math.abs(p.y - cy) : Math.hypot(p.x - cx, (p.y - cy) * 0.6); if (dd < bd) { bd = dd; best = +el.dataset.ws; } }
+    if (best && best !== S.drag.id) {
+      const from = S.order.indexOf(S.drag.id), to = S.order.indexOf(best);
+      S.order.splice(from, 1); S.order.splice(to, 0, S.drag.id);
+      render();
+    }
+  }
+});
+document.addEventListener("pointerup", e => {
+  if (!press) return;
+  clearTimeout(press.timer);
+  const p = press; press = null;
+  if (S.drag) { say(`Moved ${W(S.drag.id).name} to place ${S.order.indexOf(S.drag.id) + 1}: Ctrl+${S.order.indexOf(S.drag.id) + 1} now brings it`); S.drag = null; render(); return; }
+  if (p.lp || e.button === 2) return;
+  tapWs(p.id, p.el, p.where);
+});
+document.addEventListener("contextmenu", e => {
+  const wsEl = e.target.closest("#dev [data-ws]");
+  if (!wsEl) return;
+  e.preventDefault();
+  if (press) { clearTimeout(press.timer); press = null; }
+  openMenuFor(+wsEl.dataset.ws, wsEl);
+});
+function openMenuFor(id, el) {
+  const r = rectOf(el);
+  S.renaming = null; S.focus = null;
+  if (DIR === "B") S.pop = {kind: "sheet", id};
+  else if (DIR === "C" && S.pop && S.pop.kind === "switcher") S.pop = {kind: "menu", id, at: {x: r.x, y: r.y + 40}, back: "switcher"};
+  else S.pop = {kind: "menu", id, at: {x: r.x, y: r.y + r.h + 10}};
+  render();
+}
+function tapWs(id, el, where) {
+  if (DIR === "B" && where === "bar") {
+    const now = Date.now();
+    if (lastTap.id === id && now - lastTap.t < 320) { S.renaming = id; S.field = W(id).name; S.focus = "rn"; lastTap = {id: 0, t: 0}; render(); return; }
+    lastTap = {id, t: now};
+  }
+  if (where === "bar" && id === S.cur && DIR === "A") { if (S.pop && S.pop.kind === "menu" && S.pop.id === id) closePop(); else openMenuFor(id, el); render(); return; }
+  if (id !== S.cur) switchTo(id);
+  if (where === "list") closePop();
+  render();
+}
+function closePop() { S.pop = null; S.renaming = null; S.focus = null; }
+
+document.addEventListener("click", e => {
+  if (e.target.closest(".seg button")) {
+    const b = e.target.closest(".seg button");
+    if (b.parentElement.id === "segdev") { cur().tool = clone(S.tool); S.dev = b.dataset.v; say(`Screen: ${S.dev}; each workspace's ${S.dev} layout in place`); }
+    else S.ptr = b.dataset.v;
+    closePop(); return render();
+  }
+  const t = e.target.closest("[data-tool]");
+  if (t) { closePop(); return pickTool({k: t.dataset.tool, name: t.dataset.name}); }
+  const lay = e.target.closest("[data-lay],[data-card]");
+  if (lay) { closePop(); return changeLayout(lay.dataset.lay || lay.dataset.card); }
+  const pg = e.target.closest("[data-page]");
+  if (pg) { cur().page = +pg.dataset.page; return render(); }
+  const a = e.target.closest("[data-act]");
+  if (!a) return;
+  const id = +a.dataset.id, x = W(id) || cur();
+  switch (a.dataset.act) {
+    case "undo": undoDel(); return;
+    case "new": S.pop = {kind: "new", at: {x: rectOf(a).x - 120, y: 58}}; S.field = ""; S.from = "this"; S.focus = "nf";
+      if (DIR === "B") { newWs(freshName(), "this"); S.pop = null; S.renaming = S.cur; S.field = cur().name; S.focus = "rn"; }
+      break;
+    case "from": S.from = a.dataset.k; S.focus = "nf"; break;
+    case "make": { const v = document.getElementById("nf").value; closePop(); newWs(v, S.from); break; }
+    case "close": closePop(); break;
+    case "fold": S.pop = {kind: "list", at: {x: rectOf(a).x - 150, y: 58}}; break;
+    case "list": S.pop = DIR === "C" ? {kind: "switcher"} : {kind: "list", at: {x: rectOf(a).x - 40, y: 58}}; break;
+    case "rowmenu": S.pop = {kind: "menu", id, at: {x: rectOf(a).x - 120, y: rectOf(a).y + 40}, back: S.pop && S.pop.kind}; S.renaming = null; break;
+    case "sheet": S.pop = {kind: "sheet", id: S.cur}; break;
+    case "go": closePop(); switchTo(id); break;
+    case "rename": S.renaming = id; S.field = x.name; S.focus = "rn"; break;
+    case "rename-ok": { const v = document.getElementById("rn").value; if (rename(W(S.renaming), v)) { S.renaming = null; S.focus = null; } break; }
+    case "rename-no": S.renaming = null; S.focus = null; break;
+    case "dup": closePop(); newWs(`${x.name} copy`, "this"); break;
+    case "tint": x.tint = +a.dataset.i; say(`${x.name}'s colour changed`); break;
+    case "ties": S.pop.ties = !S.pop.ties; break;
+    case "tie": tie(x, a.dataset.t); break;
+    case "reset": resetLayout(x); break;
+    case "del": closePop(); delWs(id); break;
+    case "four": for (const n of ["Detail", "Blockout", "Review", "Turntable"]) if (S.ws.length < MAX) { const w = addStarter(n, "Sculpt"); w.starter = null; w.icon = "layout"; w.ties = new Set(); S.order.push(w.id); } say("Four workspaces added, tied to nothing"); break;
+    case "fresh": fresh(); say("Started over: Sculpt, Model, Paint, Render"); break;
+  }
+  render();
+});
+document.addEventListener("keydown", e => {
+  const typing = e.target.tagName === "INPUT";
+  if (typing && e.key === "Enter") {
+    if (e.target.id === "nf") { const v = e.target.value; closePop(); newWs(v, S.from); }
+    else if (e.target.id === "rn" && rename(W(S.renaming), e.target.value)) { S.renaming = null; S.focus = null; }
+    else if (e.target.id === "sn") rename(W(S.pop.id), e.target.value);
+    return render();
+  }
+  if (typing && e.key === "Escape") { S.renaming = null; S.focus = null; return render(); }
+  if (typing) return;
+  if (e.key === "Escape" && S.pop) { closePop(); return render(); }
+  if ((e.ctrlKey || e.metaKey) && /^[1-9]$/.test(e.key)) {
+    const id = S.order[+e.key - 1];
+    if (id) { e.preventDefault(); closePop(); switchTo(id, true, `Ctrl+${e.key}: ${W(id).name}`); render(); }
+  }
+});
+document.addEventListener("input", e => { if (e.target.id === "nf" || e.target.id === "rn") S.field = e.target.value; });
+document.addEventListener("focusout", e => {
+  if (DIR === "B" && e.target.id === "rn" && S.renaming) { if (rename(W(S.renaming), e.target.value)) { S.renaming = null; S.focus = null; } setTimeout(render, 0); }
+});
+window.addEventListener("resize", render);
+fresh();
+document.getElementById("lede").textContent = LEDE[DIR];
+document.getElementById("l" + DIR.toLowerCase()).classList.add("on");
+say("Start: Sculpt, with the Clay brush");
+render();
+</script>

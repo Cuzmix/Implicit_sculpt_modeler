@@ -1149,8 +1149,6 @@ kit_results :: proc(app: ^App) {
 	if serial := ui.toast_take_action(ctx); serial != 0 && serial == k.undo_toast.serial {
 		if undo_mark_on_top(app.history.done[:], k.undo_toast.mark) do command_run(app, .Undo)
 		k.undo_toast = {}
-	} else if serial != 0 && serial == k.layouts.undo.serial {
-		layout_undo(app)
 	} else if serial != 0 && serial == k.bar_removed.serial {
 		// A button let go clear of every bar goes back where it was.
 		bar_removed_undo(app)
@@ -1767,7 +1765,6 @@ Rename_Entry :: struct {
 	layer:  int, // a sculpt layer of object `id`, its index + 1 (lens_layers.odin)
 	shelf_page: int, // a page of the shelf, its Shelf_Page + 1 (lens_shelf.odin)
 	theme:  int, // a theme of the person's own, its place + 1 (themes.odin)
-	layout: int, // a layout of the person's own, its slot + 1 (layouts.odin)
 	at:     ui.Rect,
 	text:   [NAME_BYTES]u8,
 }
@@ -1798,7 +1795,6 @@ kit_rename :: proc(app: ^App) {
 	page := Shelf_Page(max(r.shelf_page - 1, 0))
 	if r.shelf_page > 0 do gone = !shelf_page_used(k, page)
 	if r.theme > 0 do gone = r.theme > k.themes.count
-	if r.layout > 0 do gone = k.layouts.saved[r.layout - 1].name == ""
 	if r.open && gone do r.open = false
 	if !r.open && r.typing {
 		ctx.text_focus = 0
@@ -1806,12 +1802,10 @@ kit_rename :: proc(app: ^App) {
 	}
 	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
-	ui.caption(ctx, "RENAME LAYOUT" if r.layout > 0 else "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
+	ui.caption(ctx, "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
 	now := ""
 	if r.step != {} {
 		if has_step do now = history_entry_at(app, step).bookmark
-	} else if r.layout > 0 {
-		now = k.layouts.saved[r.layout - 1].name
 	} else if r.theme > 0 {
 		now = theme_ref_name(k, {.Lens, i32(r.theme - 1)})
 	} else if r.shelf_page > 0 {
@@ -1837,9 +1831,6 @@ kit_rename :: proc(app: ^App) {
 		name := rename_text(r.text[:])
 		if name == "" do name = history_bookmark_default(app) if fresh else now
 		history_bookmark_set(app, step, name)
-	} else if apply && r.open && r.layout > 0 {
-		// A layout is the settings', no part of the scene; a name another layout has is refused.
-		if name := rename_text(r.text[:]); name != "" && !layout_rename(app, r.layout - 1, name) do apply = false
 	} else if apply && r.open && r.theme > 0 {
 		// A theme is the settings', no part of the scene; a name another theme has is refused.
 		if name := rename_text(r.text[:]); name != "" && !theme_rename(k, r.theme - 1, name) do apply = false

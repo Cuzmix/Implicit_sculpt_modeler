@@ -74,7 +74,6 @@ Script_Verb :: enum u8 {
 	Reference_Plane,
 	Stack,
 	Curve_Add,
-	Layout_Save,
 	Cage,
 	Paint_Channels,
 }
@@ -119,7 +118,6 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Stack         = {"stack", "the selected object's live stack: mirror x (planes together as xz, -x for the - side), array 4 2.2 0 0 (count and step, then turn x y z and size s), radial 6 y (count and axis), along 8 x (count and the axis along the scene's curve), mirror off, show array, hide radial, open array (the card on that row, its handle in the view; a cage's open deform, open displace, open curve, open wrap and open sharp too), and for a cage curve x (laid along the scene's first curve, its X along it; curve off), wrap 2 (wrapped onto the first other object, 2% of its size above; wrap off), sharp 30 (edges past 30° shade hard; sharp off), apply array (that row alone, when it is the first shown) or apply stack"},
 	.Curve_Add     = {"curve_add", "two or more points, x y z each, of an open curve object to add, smooth through them (as the Curve tool lays one)"},
 	.Cage          = {"cage", "the selected cage's selection: pick 0 4 5 (point numbers to pick), move x y z, turn x|y|z degrees or scale f, as its gizmo moves it"},
-	.Layout_Save   = {"layout_save", "a name to save the space's layout under, over a saved layout of that name (as Save layout as does)"},
 	.Paint_Channels = {"paint_channels", "color, roughness, metal and height, one or more: what the picked paint layer's strokes write (height on a texture layer only)"},
 }
 
@@ -564,7 +562,7 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		}
 		st.text = strings.join(args[at:], " ")
 		return true
-	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack, .Environment, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Export_Paint_Maps, .Reference, .Stack, .Curve_Add, .Layout_Save, .Cage:
+	case .Alpha, .Install_Pack, .Matcap, .Preset, .Pack_Mesh, .Make_Pack, .Environment, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Export_Paint_Maps, .Reference, .Stack, .Curve_Add, .Cage:
 		// A name or path may have spaces: it is the rest of the line.
 		if len(args) == 0 do return false
 		st.text = strings.join(args, " ")
@@ -661,9 +659,6 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 	case .Stack:
 		// As the Live stack card's rows do, one undo step each.
 		if why := stack_script(app, obj, st.text); why != "" do return why, true
-		return "", true
-	case .Layout_Save:
-		if !layout_save(app, st.text) do return "every layout slot holds a layout", true
 		return "", true
 	case .Reference:
 		// As Add does, the decode waited for so the next line (a dump, say) sees it.
@@ -799,7 +794,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			if why := group_material_set(obj, u16(st.count), current_material(app), st.flip); why != "" do return why, true
 			app.scene_edits += 1
 			return "", true
-		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Export_Paint_Maps, .Reference, .Reference_Plane, .Stack, .Curve_Add, .Layout_Save, .Cage, .Render_Image:
+		case .Falloff, .Focal, .Hardness, .Alpha, .Matcap, .Project, .Draw_Curve, .Insert_Middle, .Install_Pack, .Preset, .Pack_Mesh, .Make_Pack, .Texture, .Environment, .Render_Focus, .Capture_Vdm, .Export_Vdm, .Export_Bary, .Export_Paint_Maps, .Reference, .Reference_Plane, .Stack, .Curve_Add, .Cage, .Render_Image:
 		}
 	}
 	if script_scene_state(app) == before do return "it left the scene as it was (the log says why)", true
