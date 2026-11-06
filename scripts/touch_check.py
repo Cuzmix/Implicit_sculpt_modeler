@@ -5805,10 +5805,10 @@ def render_pins_the_material_card():
                                        "selected_material": is_text("White"), "dabs": near(0)})
 
 
-# The Render space's Material card at 1440x900: the Favourites and Metal chips, the first
+# The Render space's Material card at 1440x900: the Starred and Metal choices, the first
 # two spheres of a shelf (Gold and Copper on Metal's: by their keys, and their centres for
 # drags), and a point off the grid, over the view.
-LENS_MATERIALS = {"favourites": At("material categories 0/Favourites", 1115, 271), "metal": At("material categories 0/Metal", 1250, 271),
+LENS_MATERIALS = {"favourites": At("material categories 0/Starred", 1115, 271), "metal": At("material categories 0/Metal", 1250, 271),
                   "gold": (1103, 388), "copper": (1178, 388), "first": At("material card 0", 1103, 388), "off": (900, 420)}
 
 
@@ -5855,7 +5855,7 @@ def shading_menu_matcap_disc_lights_clay():
 @scenario
 def material_card_favourites_hold_a_sphere():
     """On the Metal shelf a right-click on Gold adds it to the Material card's favourites without
-    putting it on; the Favourites chip then shows Gold alone, first in the grid, where a tap
+    putting it on; the Starred choice then shows Gold alone, first in the grid, where a tap
     puts it on."""
     s = Script()
     s.ftap(LENS_STUDIO["render_tab"])

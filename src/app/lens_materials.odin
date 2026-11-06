@@ -41,7 +41,7 @@ Material_Category :: enum u8 {
 
 @(rodata)
 MATERIAL_CATEGORY_NAMES := [Material_Category]string {
-	.Favourites = "Favourites",
+	.Favourites = "Starred",
 	.Clay       = "Matte",
 	.Metal      = "Metal",
 	.Glossy     = "Glossy",
@@ -193,16 +193,11 @@ material_preview_row :: proc(app: ^App, m: Material, sel: ^Object, width: f32) {
 	ui.end(ctx)
 }
 
-// A material's values in a line: Metal and Rough (or MatCap, or Classic), then its layers.
+// What a material is, in a line short enough for the card: its category (or MatCap), then
+// the layers it has. The numbers are the sliders' to show, in Edit.
 material_values_line :: proc(m: Material) -> string {
 	parts := make([dynamic]string, 0, 8, context.temp_allocator)
-	switch {
-	case m.matcap != 0:    append(&parts, "MatCap")
-	case m.roughness == 0: append(&parts, "Classic")
-	case:
-		if m.metallic > 0 do append(&parts, fmt.tprintf("Metallic %.2f", m.metallic))
-		append(&parts, fmt.tprintf("Roughness %.2f", m.roughness))
-	}
+	append(&parts, "MatCap" if m.matcap != 0 else MATERIAL_CATEGORY_NAMES[material_category(m)])
 	l := m.layers
 	if l.subsurface_weight > 0 do append(&parts, "Subsurface")
 	if l.coat_weight > 0 do append(&parts, "Coat")
@@ -221,20 +216,24 @@ material_chips :: proc(app: ^App, width: f32) {
 	ctx := &k.ctx
 	t := ctx.theme
 	mc := &k.material_card
-	_ = t
-	// Two rows of four, each a segmented control as wide as the card, so the columns line
-	// up and the chosen one is marked as every choice is.
+	// One well holding two rows of four, so the eight read as one choice with one chosen,
+	// and the columns line up.
 	ACROSS :: 4
+	pad := f32(ui.SPACE_2XS)
+	cell := (width - 2 * pad - (ACROSS - 1) * pad) / ACROSS
+	ui.begin(ctx, "material categories", {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_2XS, background = .Track, radius = t.radius_medium, width = width})
 	for first := 0; first < len(Material_Category); first += ACROSS {
-		names: [ACROSS]string
-		for i in 0 ..< ACROSS do names[i] = MATERIAL_CATEGORY_NAMES[Material_Category(first + i)]
-		at := mc.category - 1 - first
-		if picked := ui.tabs(ctx, fmt.tprintf("material categories %d", first / ACROSS), names[:], at if at >= 0 && at < ACROSS else -1); picked >= 0 {
-			if mc.pressing do material_scrub_end(app, false)
-			mc.category = first + picked + 1
+		ui.begin(ctx, fmt.tprintf("material categories %d", first / ACROSS), {direction = .Row, gap = ui.SPACE_2XS})
+		for c in Material_Category(first) ..= Material_Category(first + ACROSS - 1) {
+			name := MATERIAL_CATEGORY_NAMES[c]
+			if ui.toggle_button(ctx, name, mc.category == int(c) + 1, cell, tooltip = name) {
+				if mc.pressing do material_scrub_end(app, false)
+				mc.category = int(c) + 1
+			}
 		}
+		ui.end(ctx)
 	}
-	_ = width
+	ui.end(ctx)
 }
 
 // Edit: the material's values, each change sent as a Custom material to the objects Apply
@@ -272,6 +271,8 @@ material_layers_edit :: proc(app: ^App, l: ^geom.Material_Layers) -> (changed: b
 	ctx := &app.kit.ctx
 	// A layer turned on gets weight 1 and, where its colour is black, white: whoever turns
 	// a lobe on writes its colour (geom.Material_Layers).
+	// While on, its controls follow in an inset well (group_end closes it), so they read as
+	// the layer's and not the surface's.
 	layer :: proc(ctx: ^ui.Context, name: string, weight: ^f32, color: ^[3]f32, changed: ^bool) -> bool {
 		on := weight^ > 0
 		if ui.switch_row(ctx, name, &on) {
@@ -279,7 +280,12 @@ material_layers_edit :: proc(app: ^App, l: ^geom.Material_Layers) -> (changed: b
 			if on && color != nil && color^ == {} do color^ = 1
 			changed^ = true
 		}
-		return weight^ > 0
+		if weight^ <= 0 do return false
+		group_begin(ctx, name)
+		return true
+	}
+	group_begin :: proc(ctx: ^ui.Context, name: string) {
+		ui.begin(ctx, fmt.tprintf("%s layer", name), {direction = .Column, gap = ui.SPACE_S, padding = ui.SPACE_M, background = .Track, radius = ctx.theme.radius_medium, width = ui.fill_width(ctx)})
 	}
 	ui.label(ctx, "Layers", ctx.theme.small_size, ctx.theme.text_tertiary)
 	weight :: proc(ctx: ^ui.Context, name: string, v: ^f32) -> bool {
@@ -293,10 +299,12 @@ material_layers_edit :: proc(app: ^App, l: ^geom.Material_Layers) -> (changed: b
 			l.subsurface_scale = scale
 			changed = true
 		}
+		ui.end(ctx)
 	}
 	if layer(ctx, "Coat", &l.coat_weight, nil, &changed) {
 		changed |= weight(ctx, "Coat weight", &l.coat_weight)
 		changed |= ui.slider(ctx, "Coat roughness", &l.coat_roughness, 0, 1, .Linear, fmt.tprintf("%.2f", l.coat_roughness))
+		ui.end(ctx)
 	}
 	if layer(ctx, "Sheen", &l.sheen_weight, &l.sheen_color, &changed) {
 		changed |= weight(ctx, "Sheen weight", &l.sheen_weight)
@@ -306,6 +314,7 @@ material_layers_edit :: proc(app: ^App, l: ^geom.Material_Layers) -> (changed: b
 			l.sheen_roughness = rough
 			changed = true
 		}
+		ui.end(ctx)
 	}
 	if layer(ctx, "Transmission", &l.transmission_weight, &l.transmission_color, &changed) {
 		changed |= weight(ctx, "Transmission weight", &l.transmission_weight)
@@ -315,6 +324,7 @@ material_layers_edit :: proc(app: ^App, l: ^geom.Material_Layers) -> (changed: b
 			l.thin_walled = 1 if thin else 0
 			changed = true
 		}
+		ui.end(ctx)
 	}
 	glow := l.emission_luminance > 0
 	if ui.switch_row(ctx, "Glow", &glow) {
@@ -323,8 +333,10 @@ material_layers_edit :: proc(app: ^App, l: ^geom.Material_Layers) -> (changed: b
 		changed = true
 	}
 	if glow {
+		group_begin(ctx, "Glow")
 		changed |= kit_color(app, "Glow colour", &l.emission_color, linear = true, sliders = false)
 		changed |= ui.slider(ctx, "Glow brightness", &l.emission_luminance, 0.01, 10, .Logarithmic, fmt.tprintf("%.2f", l.emission_luminance))
+		ui.end(ctx)
 	}
 	if kit_more(app, .Material) {
 		if layer(ctx, "Thin film", &l.thin_film_weight, nil, &changed) {
@@ -333,6 +345,7 @@ material_layers_edit :: proc(app: ^App, l: ^geom.Material_Layers) -> (changed: b
 				l.thin_film_thickness = nm
 				changed = true
 			}
+			ui.end(ctx)
 		}
 		ior := l.specular_ior if l.specular_ior > 0 else geom.LAYER_SPECULAR_IOR
 		if ui.slider(ctx, "Specular IOR", &ior, 1, 3, .Linear, fmt.tprintf("%.2f", ior)) {
