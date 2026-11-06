@@ -41,7 +41,12 @@ float4 blended(int2 q, float w) {
 
 float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 	int2 px = int2(frag_coord.xy);
-	float3 under = load_texel(view_color, px).rgb;
+	float4 under4 = load_texel(view_color, px);
+	float3 under = under4.rgb;
+	// The render covers the viewport's image by its coverage, alpha too: an opaque image
+	// stays opaque, and over a transparent one (Render image's transparent picture) the
+	// alpha is what the scene and a shadow catcher's shadows cover, the colour
+	// premultiplied by it.
 	float4 t;
 	if (params.w < 0.5) {
 		t = traced(px);
@@ -60,9 +65,9 @@ float4 main(float4 frag_coord : SV_Position) : SV_Target0 {
 	// the grade work on the traced light as it is.
 	float3 below = neutral_inverse(srgb_decode(under));
 	float3 shown = t.a > 0.0 ? t.rgb * exp2(params.x) : below;
-	return float4(lerp(below, shown, clamp(t.a, 0.0, 1.0)), 1.0);
+	return float4(lerp(below, shown, clamp(t.a, 0.0, 1.0)), under4.a + (1.0 - under4.a) * clamp(t.a, 0.0, 1.0));
 #else
 	float3 shown = t.a > 0.0 ? display_color(t.rgb, params.x) : under;
-	return float4(lerp(under, shown, clamp(t.a, 0.0, 1.0)), 1.0);
+	return float4(lerp(under, shown, clamp(t.a, 0.0, 1.0)), under4.a + (1.0 - under4.a) * clamp(t.a, 0.0, 1.0));
 #endif
 }

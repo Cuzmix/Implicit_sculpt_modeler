@@ -86,6 +86,56 @@
 };
 #endif
 
+#ifdef LAYERS
+// The layers of the item's material and its polygroups' (render.Layer_Uniforms), eight rows
+// a slot from slot 0 (the item's own), in geom.Material_Layers' order with its defaults
+// given and a subsurface radius in view units; only the layered variants
+// (*_layers.frag) declare it, so the plain shaders carry none of its code.
+#ifdef TEXTURED
+[[vk::binding(1, 3)]] cbuffer Layer_Uniforms {
+#else
+[[vk::binding(2, 3)]] cbuffer Layer_Uniforms {
+#endif
+	float4 layer_rows[128];
+};
+
+// One light's share of the layers over the base (render.Layer_Uniforms): the subsurface
+// part's diffuse, wrapped past the terminator per channel by how far its light travels
+// against how fast the surface bends (Green's wrap, standing in for a pre-integrated
+// diffusion profile), the clear coat's GGX highlight and sheen's soft rim.
+float3 layer_light(float3 n, float3 v, float3 l, float3 sss_albedo, float3 wrap, float coat, float coat_a, float coat_f0, float3 sheen, float sheen_a) {
+	float n_dot_l = dot(n, l);
+	float3 c = sss_albedo / PI * saturate((n_dot_l + wrap) / (1.0 + wrap));
+	if (n_dot_l <= 0.0) return c;
+	float3 h = normalize(l + v);
+	float n_dot_v = max(dot(n, v), 1e-4);
+	float n_dot_h = max(dot(n, h), 0.0);
+	if (coat > 0.0) {
+		float a2 = coat_a * coat_a;
+		float d = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
+		float D = a2 / (PI * d * d);
+		float V = 0.5 / max(lerp(2.0 * n_dot_l * n_dot_v, n_dot_l + n_dot_v, coat_a), 1e-4);
+		float F = coat_f0 + (1.0 - coat_f0) * pow(1.0 - max(dot(v, h), 0.0), 5.0);
+		c += coat * D * V * F * n_dot_l;
+	}
+	if (any(sheen > 0.0)) {
+		float inv = 1.0 / sheen_a;
+		float sin2 = max(1.0 - n_dot_h * n_dot_h, 0.0);
+		float D = (2.0 + inv) * pow(sin2, 0.5 * inv) / (2.0 * PI);
+		c += sheen * (D / (4.0 * (n_dot_l + n_dot_v - n_dot_l * n_dot_v)) * n_dot_l);
+	}
+	return c;
+}
+#endif
+
+#ifdef LAYERS
+#include "thin_film.slang"
+
+// How much of the ambient light sheen gives back: its lobe's albedo is small and broad, a
+// little more toward the outline, so a fixed share stands in for it.
+static const float SHEEN_AMBIENT = 0.2;
+#endif
+
 // The matcap (render/matcap.odin): a lit sphere, sRGB, so it samples as linear light.
 // SDL_GPU SPIR-V conventions: fragment samplers live in set 2.
 [[vk::binding(0, 2)]] Sampler2D matcap;
@@ -725,6 +775,35 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		float n_dot_v = max(dot(n, v), 1e-4);
 		float3 r = reflect(-v, n);
 		float3 comp = energy_compensation(f0, n_dot_v, rough);
+#ifdef LAYERS
+		uint k = 0u;
+#ifndef TEXTURED
+		k = frag_in.slot;
+#endif
+		float4 L0 = layer_rows[8u * k], L1 = layer_rows[8u * k + 1u], L2 = layer_rows[8u * k + 2u], L3 = layer_rows[8u * k + 3u];
+		float4 L4 = layer_rows[8u * k + 4u], L5 = layer_rows[8u * k + 5u], L6 = layer_rows[8u * k + 6u], L7 = layer_rows[8u * k + 7u];
+		// The base's reflectance from its IOR and specular weight.
+		float r0 = (L2.w - 1.0) / (L2.w + 1.0);
+		f0 = lerp(float3(r0 * r0 * (1.0 - L7.w)), albedo, metallic);
+		// A thin film's colours over that reflectance, at the angle the eye sees it from.
+		if (L7.x > 0.0) f0 = lerp(f0, thin_film(n_dot_v, f0, L7.y, L7.z), L7.x);
+		comp = energy_compensation(f0, n_dot_v, rough);
+		// Subsurface takes its weight's share of the diffuse part and transmission its own;
+		// the wrap per channel is the light's travel (view units) over the radius of the
+		// surface's bend here, the turn per pixel over a pixel's width.
+		float sss = L0.w * (1.0 - metallic), trans = L5.w * (1.0 - metallic);
+		float3 sss_albedo = albedo * L0.rgb * (sss * (1.0 - trans));
+		float bend_per_unit = abs(bend) / max(length(ddx(frag_in.view_pos)), 1e-6);
+		float3 wrap = saturate(L1.rgb * bend_per_unit);
+		diffuse *= (1.0 - sss) * (1.0 - trans);
+		float coat = L2.x, coat_a = max(L2.y * L2.y, 1e-3);
+		float c0 = (L2.z - 1.0) / (L2.z + 1.0);
+		float coat_f0 = c0 * c0;
+		float coat_fv = coat_f0 + (1.0 - coat_f0) * pow(1.0 - n_dot_v, 5.0);
+		float3 sheen = L3.rgb * L3.w;
+		float sheen_a = max(L6.z * L6.z, 1e-3);
+		float under = 1.0 - coat * coat_fv;
+#endif
 
 		float3 color = float3(0.0);
 #ifdef AREA_LIGHTS
@@ -740,7 +819,11 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 			float spread;
 			float k = area_at(i, l, spread);
 			if (k <= 0.0) continue;
+#ifdef LAYERS
+			color += (direct_sized(n, v, l, area_mirror(i, r), spread, diffuse, f0, a, 1.0 + light_extra[i].x, comp) * under + layer_light(n, v, l, sss_albedo, wrap, coat, coat_a, coat_f0, sheen, sheen_a)) * light_color[i].rgb * (3.0 * (s * k));
+#else
 			color += direct_sized(n, v, l, area_mirror(i, r), spread, diffuse, f0, a, 1.0 + light_extra[i].x, comp) * light_color[i].rgb * (3.0 * (s * k));
+#endif
 		}
 #endif
 		for (int i = 0; i < LIGHT_COUNT; i++) {
@@ -757,6 +840,9 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 			} else {
 				lit = direct(n, v, l, diffuse, f0, a, shine, comp);
 			}
+#ifdef LAYERS
+			lit = lit * under + layer_light(n, v, l, sss_albedo, wrap, coat, coat_a, coat_f0, sheen, sheen_a);
+#endif
 			color += lit * light_color[i].rgb * (3.0 * (s * k));
 		}
 		// Light from the whole studio or image environment, which turns with the rig: the
@@ -778,7 +864,23 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		// its own lookup: a white metal in a white environment then reflects exactly white.
 		float3 env_comp = 1.0 + f0 * (1.0 / max(ab.x + ab.y, 0.05) - 1.0);
 		color += reflected(r, rough, to_rig) * ((f0 * ab.x + ab.y) * env_comp) * (highlight * ao);
+#ifdef LAYERS
+		{
+			// The ambient light again, for the subsurface part and sheen's share of it, then
+			// the coat's reflection over everything it dims, and the glow on top.
+			float3 ambient_light = env.x > 0.5 ? irradiance(n) * ao : studio(mul(n, to_rig), 1.0) * (0.7 * ao * ambient);
+			color = color * under + (sss_albedo + SHEEN_AMBIENT * sheen) * ambient_light;
+			float coat_rough = sqrt(coat_a);
+			float2 cab = env_brdf(n_dot_v, coat_rough);
+			color += reflected(r, coat_rough, to_rig) * ((coat_f0 * cab.x + cab.y) * coat) * (highlight * ao);
+			float4 shown = display(color * relief + L4.rgb * L4.w);
+			// Glass shows what is behind it, less so where it reflects most, at grazing angles.
+			if (trans > 0.0) shown.a = lerp(shown.a, 1.0, f0.g + (1.0 - f0.g) * pow(1.0 - n_dot_v, 5.0));
+			return shown;
+		}
+#else
 		return display(color * relief);
+#endif
 	}
 
 	// The classic studio clay shading: wrap lets light reach past the side facing it,

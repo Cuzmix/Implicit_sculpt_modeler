@@ -1,9 +1,19 @@
-// slangc metal from ui.frag.spv sha256 27b36442b9eb8e6ead0810a4529e9bfe0b995ed5c481cb5e7586856a36706ff2
+// slangc metal from ui.frag.spv sha256 7d5ec14dc85dd7574a3f8210f9a76cbce217ff9689bd0f0ba420f2a29feab24f
 // slots s=0:0 rt= wt= rb= wb= u=0 a=
 #include <metal_stdlib>
 #include <metal_math>
 #include <metal_texture>
 using namespace metal;
+
+#line 15 "/home/prime/Manny/Document/sculpt-usd-materials/src/render/shaders/ui.frag.slang"
+float3 ui_srgb_encode_0(float3 c_0)
+{
+
+#line 16
+    float3 _S1 = clamp(c_0, float3(0.0f) , float3(1.0f) );
+    return mix(float3(12.92000007629394531f)  * _S1, float3(1.0549999475479126f)  * pow(_S1, float3(0.4166666567325592f) ) - float3(0.05499999970197678f) , step(float3(0.00313080009073019f) , _S1));
+}
+
 
 #line 90 "core"
 struct pixelOutput_0
@@ -20,7 +30,7 @@ struct pixelInput_0
 };
 
 
-#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/ui.frag.slang"
+#line 9 "/home/prime/Manny/Document/sculpt-usd-materials/src/render/shaders/ui.frag.slang"
 struct SLANG_ParameterGroup_Ui_Fragment_Uniforms_0
 {
     float4 params_0;
@@ -36,60 +46,68 @@ struct KernelContext_0
 };
 
 
-#line 13
-[[fragment]] pixelOutput_0 main_0(pixelInput_0 _S1 [[stage_in]], SLANG_ParameterGroup_Ui_Fragment_Uniforms_0 constant* Ui_Fragment_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> tex_texture_1 [[texture(0)]], sampler tex_sampler_1 [[sampler(0)]])
+#line 20
+[[fragment]] pixelOutput_0 main_0(pixelInput_0 _S2 [[stage_in]], SLANG_ParameterGroup_Ui_Fragment_Uniforms_0 constant* Ui_Fragment_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> tex_texture_1 [[texture(0)]], sampler tex_sampler_1 [[sampler(0)]])
 {
 
-#line 13
+#line 20
     thread KernelContext_0 kernelContext_0;
 
-#line 13
+#line 20
     (&kernelContext_0)->Ui_Fragment_Uniforms_0 = Ui_Fragment_Uniforms_1;
 
-#line 13
+#line 20
     (&kernelContext_0)->tex_texture_0 = tex_texture_1;
 
-#line 13
+#line 20
     (&kernelContext_0)->tex_sampler_0 = tex_sampler_1;
-    float2 _S2 = _S1.uv_0 * Ui_Fragment_Uniforms_1->params_0.xy;
+    float2 _S3 = _S2.uv_0 * Ui_Fragment_Uniforms_1->params_0.xy;
 
-#line 14
+#line 21
     ;
 
-#line 14
-    thread float4 s_0 = (((&kernelContext_0)->tex_texture_0).sample(((&kernelContext_0)->tex_sampler_0), (_S2)));
+#line 21
+    thread float4 s_0 = (((&kernelContext_0)->tex_texture_0).sample(((&kernelContext_0)->tex_sampler_0), (_S3)));
     if((Ui_Fragment_Uniforms_1->params_0.w) > 0.5f)
     {
 
-#line 15
+#line 22
         s_0.xyz = s_0.xyz / float3(max(s_0.w, 0.00392156885936856f)) ;
 
-#line 15
+#line 22
+    }
+    if((Ui_Fragment_Uniforms_1->params_0.z) > 1.5f)
+    {
+
+#line 23
+        s_0.xyz = ui_srgb_encode_0(s_0.xyz);
+
+#line 23
     }
 
-#line 15
-    float4 _S3;
+#line 23
+    float4 _S4;
     if((Ui_Fragment_Uniforms_1->params_0.z) > 0.5f)
     {
 
-#line 16
-        _S3 = _S1.color_0 * s_0;
+#line 24
+        _S4 = _S2.color_0 * s_0;
 
-#line 16
+#line 24
     }
     else
     {
 
-#line 16
-        _S3 = float4(_S1.color_0.xyz, _S1.color_0.w * s_0.x);
+#line 24
+        _S4 = float4(_S2.color_0.xyz, _S2.color_0.w * s_0.x);
 
-#line 16
+#line 24
     }
 
-#line 16
-    pixelOutput_0 _S4 = { _S3 };
+#line 24
+    pixelOutput_0 _S5 = { _S4 };
 
-#line 16
-    return _S4;
+#line 24
+    return _S5;
 }
 
