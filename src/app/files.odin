@@ -80,7 +80,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(54)
+SCENE_VERSION :: u32(55)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -1172,6 +1172,15 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	positions, normals, indices := lv.mesh.positions[:], lv.mesh.normals[:], lv.mesh.indices[:]
 	packed: geom.Mesh
 	defer geom.mesh_destroy(&packed)
+	// A cage with Sharp edges holds copies of its points along the hard edges, which glTF
+	// and USD keep for their split normals; OBJ, PLY and STL carry no normals worth the
+	// seams, so the copies are welded back and the cage goes out closed.
+	welded := false
+	if cp := obj.cage; cp != nil && len(cp.dup_from) > 0 && ext != ".glb" && ext != ".usda" {
+		packed = cage_export_welded(cp, &lv.mesh)
+		positions, normals, indices = packed.positions[:], packed.normals[:], packed.indices[:]
+		welded = true
+	}
 	if vp := obj.voxel; vp != nil {
 		// A voxel object's surface, welded, as Convert to mesh would make it.
 		packed = voxel.clay_to_mesh(&vp.clay)
@@ -1230,7 +1239,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	quads_out := ext == ".obj" && !print && obj.levels.current == 0 && sculpt.levels_has_quads(&obj.levels) && !object_dynamic(obj) && !baked
 	textured := ext == ".glb" && object_exports_textures(obj) && !baked
 	if once.decimate > 0 && len(indices) / 3 > once.decimate && !quads_out && !textured {
-		src := baked_mesh if baked else packed if obj.voxel != nil || object_dynamic(obj) else lv.mesh
+		src := baked_mesh if baked else packed if obj.voxel != nil || object_dynamic(obj) || welded else lv.mesh
 		ok: bool
 		decimated, _, ok = geom.mesh_decimate(src, once.decimate, &app.pool, from = &from)
 		if ok {
@@ -2180,6 +2189,7 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 		geom.byte_put(out, u8(follow.curve_fit))
 		geom.byte_put(out, i32(follow.wrap))
 		geom.byte_put(out, follow.wrap_offset)
+		geom.byte_put(out, cp.look.sharp)
 		geom.byte_put(out, u32(len(cp.held)))
 		append(out, ..cp.held)
 		return true

@@ -419,6 +419,7 @@ Stack_Row :: enum u8 {
 	Curve,
 	Wrap,
 	Displace,
+	Sharp,
 	Mirror,
 	Array,
 	Radial,
@@ -434,6 +435,7 @@ STACK_ROW_NAMES := [Stack_Row]string {
 	.Curve       = "Curve",
 	.Wrap        = "Wrap",
 	.Displace    = "Displace",
+	.Sharp       = "Sharp edges",
 	.Mirror      = "Mirror",
 	.Array       = "Array",
 	.Radial      = "Radial",
@@ -449,6 +451,7 @@ STACK_ROW_GLYPHS := [Stack_Row]rune {
 	.Curve       = ICON_CAGE_CURVE,
 	.Wrap        = ICON_CAGE_WRAP,
 	.Displace    = ICON_DISPLACE,
+	.Sharp       = ICON_SHARP,
 	.Mirror      = ICON_SYMMETRY,
 	.Array       = ui.ICON_COPY,
 	.Radial      = ICON_TURN,
@@ -490,6 +493,7 @@ stack_row_in :: proc(app: ^App, obj: ^Object, r: Stack_Row) -> bool {
 	case .Curve: return cp != nil && (cp.look.follow.curve != 0 || stack_row_held(app, obj, r))
 	case .Wrap: return cp != nil && (cp.look.follow.wrap != 0 || stack_row_held(app, obj, r))
 	case .Displace: return cp != nil && (cp.look.live.displace > 0 || stack_row_held(app, obj, r))
+	case .Sharp: return cp != nil && (cp.look.sharp > 0 || stack_row_held(app, obj, r))
 	case .Mirror: return cp == nil && obj.stack.mirror.added
 	case .Array: return obj.stack.array.added
 	case .Radial: return obj.stack.radial.added
@@ -499,7 +503,7 @@ stack_row_in :: proc(app: ^App, obj: ^Object, r: Stack_Row) -> bool {
 }
 
 // A cage's own rows, which change its polygons and have no eye.
-stack_row_cage :: proc(r: Stack_Row) -> bool {return r <= .Displace}
+stack_row_cage :: proc(r: Stack_Row) -> bool {return r <= .Sharp}
 
 // Whether the object can take row `r` at all: a cage's rows only on a cage, Mirror's
 // copies only on a sculpt (a cage mirrors its polygons instead).
@@ -566,6 +570,9 @@ stack_row_detail :: proc(app: ^App, obj: ^Object, r: Stack_Row) -> string {
 		if l.displace <= 0 do return "Off"
 		size := cage_size(obj.cage)
 		return fmt.tprintf("%.1f%%, features %.0f%%", 100 * l.displace / size, 100 * l.displace_scale / size)
+	case .Sharp:
+		a := obj.cage.look.sharp
+		return "Off" if a <= 0 else fmt.tprintf("Past %.0f°", a)
 	case .Mirror:
 		m := s.mirror
 		if m.axes == {} do return "No plane"
@@ -597,11 +604,11 @@ kit_stack :: proc(app: ^App, obj: ^Object) {
 		ui.paragraph(ctx, "Rows here change how the object is shown, not what it holds: switch them off, tune them or apply them at any time. Copies cost a stroke nothing, and a stroke on any copy sculpts them all.")
 	}
 	shape := false
-	for r in Stack_Row.Smooth ..= Stack_Row.Displace do if stack_row_in(app, obj, r) do shape = true
+	for r in Stack_Row.Smooth ..= Stack_Row.Sharp do if stack_row_in(app, obj, r) do shape = true
 	copies := false
 	for r in Stack_Row.Mirror ..= Stack_Row.Along do if stack_row_in(app, obj, r) do copies = true
 	if shape do ui.caption(ctx, "SHAPE")
-	for r in Stack_Row.Smooth ..= Stack_Row.Displace do if stack_row_in(app, obj, r) do kit_stack_row(app, obj, r)
+	for r in Stack_Row.Smooth ..= Stack_Row.Sharp do if stack_row_in(app, obj, r) do kit_stack_row(app, obj, r)
 	if shape && copies do ui.caption(ctx, "COPIES")
 	for r in Stack_Row.Mirror ..= Stack_Row.Along do if stack_row_in(app, obj, r) do kit_stack_row(app, obj, r)
 	kit_stack_foot(app, obj, has)
@@ -654,6 +661,7 @@ kit_stack_row :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
 	case .Curve: kit_cage_curve(app, obj)
 	case .Wrap: kit_cage_wrap(app, obj)
 	case .Displace: kit_cage_displace(app, obj)
+	case .Sharp: kit_cage_sharp(app, obj)
 	case .Mirror: kit_stack_mirror(app, obj)
 	case .Array: kit_stack_array(app, obj)
 	case .Radial: kit_stack_radial(app, obj)
@@ -728,6 +736,7 @@ kit_stack_add_menu :: proc(app: ^App, obj: ^Object) {
 		.Curve       = "Laid along a curve object, following it",
 		.Wrap        = "Hugging another object's surface",
 		.Displace    = "Pushed in and out by a noise",
+		.Sharp       = "Edges past an angle shade hard",
 		.Mirror      = "The other half, clipped at the plane",
 		.Array       = "Copies a step apart",
 		.Radial      = "Copies turned round an axis",
@@ -762,6 +771,7 @@ stack_row_add :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
 		case .Curve: look.follow.curve, look.follow.curve_fit = stack_first_curve(app, obj), true
 		case .Wrap: look.follow.wrap, look.follow.wrap_offset = cage_first_wrap(app, obj), 0
 		case .Displace: look.live.displace, look.live.displace_scale = 0.02 * size, CAGE_DISPLACE_SCALE_START * size
+		case .Sharp: look.sharp = CAGE_SHARP_START
 		}
 		app.ui.scene_command = {kind = .Cage_Look, look = look}
 		return
@@ -809,6 +819,7 @@ kit_stack_row_menu :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
 			case .Curve: look.follow.curve = 0
 			case .Wrap: look.follow.wrap = 0
 			case .Displace: look.live.displace = 0
+			case .Sharp: look.sharp = 0
 			}
 			app.ui.scene_command = {kind = .Cage_Look, look = look}
 		} else {
@@ -1236,7 +1247,7 @@ stack_shape_in :: proc(app: ^App, obj: ^Object, into: Transform) -> geom.Mesh {
 stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 	if obj == nil do return "nothing is selected"
 	words := strings.fields(text, context.temp_allocator)
-	USAGE :: "stack takes mirror x, array 4 2.2 0 0, radial 6 y, along 8 x, mirror off, show mirror, hide array, open array (or a cage's curve x, wrap 0, curve off, open deform, open displace, open curve, open wrap) or apply stack"
+	USAGE :: "stack takes mirror x, array 4 2.2 0 0, radial 6 y, along 8 x, mirror off, show mirror, hide array, open array (or a cage's curve x, wrap 0, curve off, sharp 30, sharp off, open deform, open displace, open curve, open wrap, open sharp) or apply stack"
 	if len(words) < 2 do return USAGE
 	s := obj.stack
 	is_row :: proc(w: string) -> bool {return w == "mirror" || w == "array" || w == "radial" || w == "along"}
@@ -1270,7 +1281,19 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		}
 		app.ui.scene_command = {kind = .Cage_Look, look = look}
 		return ""
-	case words[0] == "open" && (is_row(words[1]) || words[1] == "deform" || words[1] == "displace" || words[1] == "curve" || words[1] == "wrap") && len(words) == 2:
+	case obj.cage != nil && words[0] == "sharp" && len(words) == 2:
+		// Sharp edges past this many degrees, or off.
+		look := obj.cage.look
+		if words[1] == "off" {
+			look.sharp = 0
+		} else {
+			angle, ok := strconv.parse_f32(words[1])
+			if !ok || !(angle > 0 && angle <= CAGE_SHARP_MAX) do return fmt.tprintf("sharp takes off or an angle in degrees up to %d", CAGE_SHARP_MAX)
+			look.sharp = angle
+		}
+		app.ui.scene_command = {kind = .Cage_Look, look = look}
+		return ""
+	case words[0] == "open" && (is_row(words[1]) || words[1] == "deform" || words[1] == "displace" || words[1] == "curve" || words[1] == "wrap" || words[1] == "sharp") && len(words) == 2:
 		// Opens the card on that row, as a tap on its line does, for its handle in the view
 		// (a cage's Deform and Displace rows have none, but open the same way).
 		r := Stack_Row.Mirror
@@ -1282,6 +1305,7 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		case "displace": r = .Displace
 		case "curve": r = .Curve
 		case "wrap": r = .Wrap
+		case "sharp": r = .Sharp
 		}
 		if !stack_row_in(app, obj, r) do return fmt.tprintf("the object has no %s row", words[1])
 		app.kit.stack.object, app.kit.stack.open, app.kit.stack.opened = obj.id, r, true

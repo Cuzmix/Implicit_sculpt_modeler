@@ -323,7 +323,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				color  = color,
 				material = material.shading,
 				surface = {material.metallic, material.roughness},
-				flat = app.flat || obj.cage != nil,
+				flat = app.flat || obj.cage != nil && obj.cage.look.sharp <= 0,
 				look = object_look(app, selected),
 				style = viewport_style(app),
 				lights = viewport_lights(app),
@@ -331,7 +331,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				wireframe = overlay && app.polyframe_lines && !poly_edges,
 				paint  = sculpt.sculptor_paint_shows(&lv.sculptor) && !obj.paint_off,
 				groups = (app.show_groups || overlay && app.polyframe_fill) && sculpt.sculptor_has_groups(&lv.sculptor),
-				// A cage shows its edges, and its faces flat, as a polygon model does; the
+				// A cage shows its edges, and its faces flat unless Sharp edges shades them
+				// smoothly but at its hard edges, as a polygon model does; the
 				// wireframe of a level with polygons shows their edges the same way.
 				cage_lines = obj.cage != nil || poly_lines,
 				// The HD window's mesh carries no groups.

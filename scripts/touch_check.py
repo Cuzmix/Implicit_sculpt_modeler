@@ -4812,6 +4812,21 @@ def model_live_curve_and_wrap_follow():
                   (Script(), LENS_1440 + [f"--script={wrap}; stack open wrap"], {"cage_following": near(1)})])
 
 @scenario
+def model_sharp_edges_shade_hard_past_the_angle():
+    """Sharp edges at 50° on an eight-sided cylinder cage splits the points of its two rims (the sides meet at 45°, so they stay smooth) and nothing else, the cage itself whole; the row comes back from a saved scene, a Remove is one undo step, and Apply to sculpt makes closed levels with no copies left; an open cube's Apply welds its copies back, leaving only the two holes' edges open."""
+    path = scene_file()
+    shutil.rmtree(os.path.dirname(path), ignore_errors=True)
+    os.makedirs(os.path.dirname(path))
+    base = "add_cage cylinder; select 1; delete_object; frame_all; wait 1; stack sharp 50; wait 1"
+    return Steps([(Script(), LENS_1440 + [f"--script={base}", f"--save={path}"], {"cages": near(1), "cage_sharp_copies": near(16), "cage_broken": near(0)}),
+                  (Script(), LENS_1440 + [f"--open={path}"], {"cages": near(1), "cage_sharp_copies": near(16)}),
+                  (Script(), LENS_1440 + [f"--script={base}; stack sharp off; wait 1"], {"cage_sharp_copies": near(0)}),
+                  (Script(), LENS_1440 + [f"--script={base}; stack sharp off; wait 1; undo"], {"cage_sharp_copies": near(16)}),
+                  (Script(), LENS_1440 + ["--check-mesh", f"--script={base}; apply_cage"], {"cages": near(0), "mesh_closed": is_text("true")}),
+                  (Script(), LENS_1440 + [f"--script={base}; stack open sharp"], {"cage_sharp_copies": near(16)}),
+                  (Script(), LENS_1440 + ["--check-mesh", "--script=add_cage cube; select 1; delete_object; frame_all; model_action select; cage select 0 1; wait 1; cage_edit separate; wait 1; select 1; wait 1; stack sharp 30; wait 1; apply_cage"], {"cages": near(1), "cage_sharp_copies": near(0), "mesh_non_manifold_edges": near(0), "mesh_boundary_edges": near(8)})])
+
+@scenario
 def model_live_mirror_shows_both_halves():
     """Mirror X on a cube cage draws its image across the plane; an extrude drag on the cube's right face then grows the left side too (the cage ten faces, the drawing twenty); Apply mirror makes the image part of the cage and turns the mirror off; a mirror comes back from a saved scene as it was."""
     path = scene_file()
