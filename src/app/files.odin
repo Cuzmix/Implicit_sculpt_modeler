@@ -80,7 +80,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(56)
+SCENE_VERSION :: u32(57)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "

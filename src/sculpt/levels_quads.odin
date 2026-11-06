@@ -55,6 +55,7 @@ levels_take_uvs :: proc(l: ^Levels, u: uv.Uvs) {
 	assert(len(u.corner) == len(l.levels[0].mesh.indices) / 3)
 	uv.destroy(&l.uvs, l.allocator)
 	l.uvs = u
+	l.uv_stamp += 1
 }
 
 levels_has_quads :: proc(l: ^Levels) -> bool {return l.faces.quads != nil}
@@ -72,7 +73,10 @@ levels_quad_uvs :: proc(l: ^Levels, allocator := context.temp_allocator) -> (lay
 	return uv.to_quads(l.uvs, levels_quad_mesh(l), base.mesh.indices[:], base.sculptor.faces, allocator)
 }
 
-levels_drop_uvs :: proc(l: ^Levels) {uv.destroy(&l.uvs, l.allocator)}
+levels_drop_uvs :: proc(l: ^Levels) {
+	uv.destroy(&l.uvs, l.allocator)
+	l.uv_stamp += 1
+}
 
 // Drops the quads and the UVs, for whatever changes the base level's triangles.
 levels_drop_quads :: proc(l: ^Levels) {
