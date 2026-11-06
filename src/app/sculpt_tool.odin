@@ -1606,6 +1606,17 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 	}
 }
 
+// The brush a stroke pressed now at `hit` (local space) would lay its first dab with, for
+// the hover preview: the kind `input`'s keys would pick, at full pressure, with the pen's
+// lean as it hovers. The stroke's own state is left as it was.
+brush_hovering :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3) -> sculpt.Brush {
+	st := &app.stroke
+	kept := st^
+	defer st^ = kept
+	st.kind, st.held, st.blur, st.scale, st.last_set, st.skin = stroke_brush(app, input), held_brush(input), false, 1, false, false
+	return brush_at(app, input, t, hit, 1, input.pen_tilt)
+}
+
 // The falloff of the brush `kind` as a table, made from its curve and focal shift, or nil
 // for the built-in one unshifted, which the dabs work out themselves.
 brush_falloff :: proc(app: ^App, kind: sculpt.Brush_Kind) -> ^sculpt.Falloff {

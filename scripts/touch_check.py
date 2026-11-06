@@ -11224,6 +11224,34 @@ def autosave_crash_then_recover():
     ])
 
 
+def hover_then_stroke(s):
+    """The mouse hovers over the sphere along a short path, resting at its end, then a
+    stroke from there; the run rests after it."""
+    for x, y in line((700, 380), (790, 430), 10):
+        s.add(f"move:{x:g},{y:g}")
+        s.wait(1)
+    s.wait(6)
+    s.mouse_drag([(790, 430), (830, 450), (870, 470)])
+    s.wait(30)
+    return s
+
+
+@scenario
+def hover_preview_leaves_the_stroke_as_it_was():
+    """Hover preview with Sculpt on the GPU: the mouse hovering over the sphere lays trial
+    dabs, and a stroke pressed after them gives the mesh, byte for byte, that the same
+    hover and stroke give with the preview switched off (Settings > Interface): the trial
+    is put back before anything reads the buffers. Look at it with --screens."""
+    folder = os.path.join(ROOT, "build", "touch", "hover")
+    os.makedirs(folder, exist_ok=True)
+    control, previewed = os.path.join(folder, "off.ply"), os.path.join(folder, "on.ply")
+    same = lambda _: file_difference(control, previewed)
+    return Steps([
+        (hover_then_stroke(Script()), ["--gpu-sculpt", "--script=set hover_preview false", f"--export={control}"], {"hover_trials": near(0, 0), "dabs": lambda v: int(v) > 0}),
+        (hover_then_stroke(Script()), ["--gpu-sculpt", f"--export={previewed}"], {"hover_trials": lambda v: int(v) >= 5, "hover_capped": near(0, 0), "@same mesh": same}),
+    ])
+
+
 def background_args(*more):
     """Autosave with an interval far past the run, so only going to the background writes
     one, and the log kept in the scenario's folder (made first: the log opens before the

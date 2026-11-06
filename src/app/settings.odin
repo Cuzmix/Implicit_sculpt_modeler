@@ -397,6 +397,7 @@ SETTINGS := [?]Setting {
 	{"display_link", offset_of(App, display_link), bool, 0, 0},
 	{"idle_sleep", offset_of(App, idle_sleep), bool, 0, 0},
 	{"start_home", offset_of(App, start_home), bool, 0, 0},
+	{"hover_preview", offset_of(App, hover_preview), bool, 0, 0},
 	{"send_receive", offset_of(App, send_receive), bool, 0, 0},
 	{"msaa", offset_of(App, msaa), Msaa, 0, 0},
 	{"async_compute", offset_of(App, async_compute), bool, 0, 0},

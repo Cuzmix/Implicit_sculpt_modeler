@@ -21,6 +21,7 @@ Settings_Block :: enum u8 {
 	Motion,
 	Starting,
 	Brush_Ring,
+	Hover_Preview,
 	Symmetry_Line,
 	View_Grid,
 	Bars,
@@ -92,6 +93,7 @@ SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Motion           = "reduce motion animation",
 	.Starting         = "start at home starting launch",
 	.Brush_Ring       = "brush ring cursor surface circle",
+	.Hover_Preview    = "hover preview dab brush pen mouse shows what a stroke will do before",
 	.Symmetry_Line    = "symmetry line plane mirror mirrored brush ring point radial axis",
 	.View_Grid        = "view grid panes views run under panels work in any view",
 	.Bars             = "bars customise customize buttons dock rail labels names shelf palm tablet width",
@@ -206,6 +208,9 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 	case .Brush_Ring:
 		_ = ui.switch_row(ctx, "Lay the brush ring on the surface", &k.surface_ring)
 		ui.paragraph(ctx, "Over the model the ring tilts with the surface under it, with a tick showing which way it faces, as in ZBrush; off, it stays a flat circle on the screen.")
+	case .Hover_Preview:
+		_ = ui.switch_row(ctx, "Hover preview", &app.hover_preview)
+		ui.paragraph(ctx, "While the pen or the mouse hovers over the model, the surface under the ring shows what the first dab will do, deepened so it reads; the higher the pen, the fainter. It needs Sculpt on the GPU and a brush the GPU lays (Draw, Inflate, Clay, Flatten, Pinch, Crease, Smooth), and up to a quarter million vertices under the brush; past that the ring shows alone.")
 	case .Symmetry_Line:
 		_ = ui.switch_row(ctx, "Show the symmetry line", &k.symmetry_line)
 		ui.paragraph(ctx, "While symmetry is on, a thin line in each plane's colour (X red, Y green, Z blue) runs where the plane crosses the selected object, and with Radial a line along its axis. The brush ring always shows a copy with a dot at every mirrored spot.")
@@ -505,6 +510,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	case .Motion:          k.ctx.motion, k.ctx.motion_off = .Full, {}
 	case .Starting:        app.start_home = true
 	case .Brush_Ring:      k.surface_ring = true
+	case .Hover_Preview:   app.hover_preview = true
 	case .Symmetry_Line:   k.symmetry_line = true
 	case .View_Grid:       k.panes_work = true
 	case .Bars:

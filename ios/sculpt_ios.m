@@ -972,3 +972,12 @@ void sculpt_ios_background_begin(void)
 	/* The system may refuse the task (UIBackgroundTaskInvalid); there is then nothing to end. */
 	sculpt_background_task_held = sculpt_background_task != UIBackgroundTaskInvalid;
 }
+
+/*
+ * How warm iPadOS says the device is (src/app/hover_preview.odin): NSProcessInfo's
+ * thermal state, 0 nominal, 1 fair, 2 serious, 3 critical.
+ */
+int sculpt_ios_thermal(void)
+{
+	return (int)[NSProcessInfo processInfo].thermalState;
+}
