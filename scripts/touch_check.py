@@ -9597,6 +9597,112 @@ def references_send_to_back_from_both_menus():
     return s, REFS_TWO, camera_still({"refs_order": is_text("2,1"), "undo_steps": near(3), "dabs": near(0)})
 
 
+# A picture put over the view by the card's On view (from its top left, 128,144, 480
+# points square), then the card shut, for the two-finger scenarios over the view.
+REFS_ON_VIEW = ["--script=reference assets/icon/sculpt-1024.png"]
+
+
+def refs_on_view(s, close=True):
+    s.wait(6)
+    s.ftap("card References/On view")
+    s.wait(4)
+    if close:
+        s.ftap("card References/Close")
+        s.wait(6)
+
+
+def angle_between(lo, hi):
+    return lambda v: lo <= float(v.split(",")[0]) <= hi
+
+
+@scenario
+def references_two_fingers_turn_a_picture_over_the_view():
+    """A picture over the view with the References card shut: two fingers land on it,
+    spread and twist: it grows and turns about them, one undo step, while the camera stays
+    still and nothing sculpts."""
+    s = Script()
+    refs_on_view(s)
+    s.fingers([(300, 380), (420, 380)], [(0, -60), (0, 60)], 16)
+    s.wait(6)
+    return s, REFS_ON_VIEW, camera_still({"refs_view_angles": angle_between(30, 60), "refs_view_widths": lambda v: int(v) > 330,
+                                          "refs_turns": near(1), "undo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
+def references_two_fingers_beside_a_picture_turn_the_view():
+    """A picture over the view with the References card shut: two fingers pinching apart on
+    empty space beside it zoom the camera as ever, and the picture stays as it was."""
+    s = Script()
+    refs_on_view(s)
+    s.fingers([(1000, 450), (1080, 450)], [(-60, 0), (60, 0)], 16)
+    s.wait(6)
+    return s, REFS_ON_VIEW, {"camera_distance": lambda v: float(v) < 3.4, "refs_view_widths": is_text("300"), "refs_view_angles": is_text("0"),
+                             "refs_turns": near(0), "dabs": near(0)}
+
+
+@scenario
+def references_locked_on_view_leaves_two_fingers_to_the_camera():
+    """A picture over the view locked by its Lock on view, then the card shut: two fingers
+    pinching apart on it zoom the camera, and the picture stays put."""
+    s = Script()
+    refs_on_view(s, close=False)
+    s.ftap("Lock on view")
+    s.wait(4)
+    s.ftap("card References/Close")
+    s.wait(6)
+    s.fingers([(300, 380), (380, 380)], [(-60, 0), (60, 0)], 16)
+    s.wait(6)
+    return s, REFS_ON_VIEW, {"camera_distance": lambda v: float(v) < 3.4, "refs_view_widths": is_text("300"), "refs_view_locked": near(1),
+                             "refs_turns": near(0), "undo_steps": near(2), "dabs": near(0)}
+
+
+@scenario
+def references_two_fingers_with_the_card_open_turn_the_picture():
+    """With the References card open, a finger takes the picture over the view and a
+    second joins it a few frames later; twisting turns the picture, one undo step for the
+    whole touch, and the camera stays still."""
+    s = Script()
+    refs_on_view(s, close=False)
+    s.add("fdown:0:300,380")
+    s.wait(3)
+    s.add("fdown:1:420,380")
+    s.wait(2)
+    for k in range(1, 17):
+        s.add(f"fmove:0:300,{380 - 4 * k}")
+        s.add(f"fmove:1:420,{380 + 4 * k}")
+        s.wait(1)
+    s.add("fup:0")
+    s.add("fup:1")
+    s.wait(6)
+    return s, REFS_ON_VIEW, camera_still({"refs_view_angles": angle_between(30, 60), "refs_turns": near(1), "undo_steps": near(2), "dabs": near(0)})
+
+
+@scenario
+def references_pen_sculpts_through_a_picture_with_the_card_open():
+    """With the References card open (pinned, so a press on the view keeps it) and a
+    picture over the view, the pen's stroke across the picture where the model is behind
+    it sculpts, and the picture does not move."""
+    s = Script()
+    refs_on_view(s, close=False)
+    s.ftap("card References/Pin")
+    s.wait(4)
+    pen_stroke(s, line((480, 420), (580, 460), 12), pressure=0.8)
+    s.wait(6)
+    return s, REFS_ON_VIEW, camera_still({"dabs": lambda v: float(v) > 0, "refs_moves": near(0), "refs_view_widths": is_text("300")})
+
+
+@scenario
+def references_board_two_fingers_turn_the_picked_picture():
+    """Two pictures on the References board, the second picked: two fingers landing on it
+    twist and spread it on the board, the first left as it was, one undo step."""
+    s = Script()
+    s.wait(6)
+    s.fingers([(1420, 450), (1470, 450)], [(0, -30), (0, 30)], 12)
+    s.wait(6)
+    return s, REFS_TWO, camera_still({"refs_angles": lambda v: v.split(",")[0] == "0" and 30 <= int(v.split(",")[1]) <= 70,
+                                     "undo_steps": near(1), "dabs": near(0)})
+
+
 # The References card's resize corner at its own width, on its foot facing the model.
 CARD_CORNER = At("card corner References/Resize References", 1222, 784)
 
