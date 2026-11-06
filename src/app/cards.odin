@@ -624,8 +624,8 @@ section_summary :: proc(app: ^App, sec: Section) -> string {
 	case .Topology:
 		return "Dynamic on" if command_checked(app, .Dyntopo_Toggle, 0) else "Dynamic off"
 	case .Material:
-		if obj == nil || obj.material.label == nil do return ""
-		return string(obj.material.label)
+		// The card's own sphere and name say it already.
+		return ""
 	case .Render:
 		if !render_switch_on(app) do return "Off"
 		return "Full" if app.render_on else "Fast"

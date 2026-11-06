@@ -359,7 +359,9 @@ shading_options :: proc(app: ^App, s: ^View_Shading, main: bool, looks := true) 
 		if ui.slider(ctx, "Colour", &colour, 0, 1, .Linear, fmt.tprintf("%.0f%%", colour * 100)) do s.grey = clamp(1 - colour, 0, 1)
 	}
 	if shown == .Clay {
-		named(ctx, "MatCap", inner)
+		// The one in use named, as touch has no hover to name a picture.
+		ui.begin(ctx, "MatCap option##shading", {direction = .Column, gap = ui.SPACE_XS, width = inner})
+		ui.label(ctx, fmt.tprintf("MatCap · %s", matcap_label(app, s.matcap if s.matcap != 0 else SHADING_MATCAP_DEFAULT)), ctx.theme.small_size)
 		shading_matcap_discs(app, s, inner)
 		ui.end(ctx)
 	}

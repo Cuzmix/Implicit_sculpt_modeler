@@ -5808,7 +5808,7 @@ def render_pins_the_material_card():
 # The Render space's Material card at 1440x900: the Favourites and Metal chips, the first
 # two spheres of a shelf (Gold and Copper on Metal's: by their keys, and their centres for
 # drags), and a point off the grid, over the view.
-LENS_MATERIALS = {"favourites": At("material chips 0/Favourites", 1115, 271), "metal": At("material chips 0/Metal", 1250, 271),
+LENS_MATERIALS = {"favourites": At("material categories 0/Favourites", 1115, 271), "metal": At("material categories 0/Metal", 1250, 271),
                   "gold": (1103, 388), "copper": (1178, 388), "first": At("material card 0", 1103, 388), "off": (900, 420)}
 
 

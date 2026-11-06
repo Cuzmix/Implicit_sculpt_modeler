@@ -257,6 +257,9 @@ Export_Material :: struct {
 	// Each texture's picture, as an index into Mesh_Export.images plus 1; 0 for none. A
 	// texture multiplies the factors above, so they are 1 where one is given.
 	textures:  [Export_Texture]int,
+	// Coat, sheen, emission, transmission, IOR, specular and thin film, written as glTF's
+	// KHR_materials_* extensions (subsurface has no ratified one and is left out).
+	layers:    Material_Layers,
 }
 
 // glTF's numbers for what the accessors and views hold.
@@ -585,8 +588,23 @@ glb_json :: proc(j: ^strings.Builder, g: ^Glb) {
 		for _, k in m.images do fmt.sbprintf(j, `%s{{"sampler":0,"source":%d}}`, "," if k > 0 else "", k)
 		strings.write_byte(j, ']')
 	}
+	// Every extension the file uses, named once: the materials' and the lights'.
+	used := make([dynamic]string, context.temp_allocator)
+	if has_material {
+		glb_material_extensions(&used, material)
+		for gm in m.group_materials do glb_material_extensions(&used, gm)
+	}
+	if len(m.lights) > 0 do append(&used, "KHR_lights_punctual")
+	if len(used) > 0 {
+		strings.write_string(j, `,"extensionsUsed":[`)
+		for name, k in used {
+			if k > 0 do strings.write_byte(j, ',')
+			json_string(j, name)
+		}
+		strings.write_byte(j, ']')
+	}
 	if len(m.lights) > 0 {
-		strings.write_string(j, `,"extensionsUsed":["KHR_lights_punctual"],"extensions":{"KHR_lights_punctual":{"lights":[`)
+		strings.write_string(j, `,"extensions":{"KHR_lights_punctual":{"lights":[`)
 		for l, k in m.lights {
 			_, _, intensity, range := export_light_place(m, l)
 			if k > 0 do strings.write_byte(j, ',')
@@ -666,7 +684,83 @@ glb_material :: proc(j: ^strings.Builder, mat: Export_Material) {
 	strings.write_byte(j, '}')
 	if t := mat.textures[.Normal]; t > 0 do fmt.sbprintf(j, `,"normalTexture":{{"index":%d}}`, t - 1)
 	if t := mat.textures[.Occlusion]; t > 0 do fmt.sbprintf(j, `,"occlusionTexture":{{"index":%d}}`, t - 1)
+	l := mat.layers
+	if l.emission_luminance > 0 && l.emission_color != {} {
+		strings.write_string(j, `,"emissiveFactor":`)
+		json_numbers(j, {clamp(l.emission_color.r, 0, 1), clamp(l.emission_color.g, 0, 1), clamp(l.emission_color.b, 0, 1)})
+	}
+	used := make([dynamic]string, context.temp_allocator)
+	glb_material_extensions(&used, mat)
+	if len(used) > 0 {
+		strings.write_string(j, `,"extensions":{`)
+		for name, k in used {
+			if k > 0 do strings.write_byte(j, ',')
+			json_string(j, name)
+			strings.write_string(j, ":{")
+			switch name {
+			case "KHR_materials_clearcoat":
+				strings.write_string(j, `"clearcoatFactor":`)
+				json_number(j, l.coat_weight)
+				strings.write_string(j, `,"clearcoatRoughnessFactor":`)
+				json_number(j, l.coat_roughness)
+			case "KHR_materials_ior":
+				strings.write_string(j, `"ior":`)
+				json_number(j, l.specular_ior)
+			case "KHR_materials_specular":
+				strings.write_string(j, `"specularFactor":`)
+				json_number(j, 1 - l.specular_lessen)
+			case "KHR_materials_transmission":
+				strings.write_string(j, `"transmissionFactor":`)
+				json_number(j, l.transmission_weight)
+			case "KHR_materials_volume":
+				// The depth its colour is reached at, through a thickness of one unit.
+				strings.write_string(j, `"thicknessFactor":1,"attenuationColor":`)
+				json_numbers(j, {l.transmission_color.r, l.transmission_color.g, l.transmission_color.b})
+				strings.write_string(j, `,"attenuationDistance":`)
+				json_number(j, l.transmission_depth)
+			case "KHR_materials_sheen":
+				strings.write_string(j, `"sheenColorFactor":`)
+				json_numbers(j, {l.sheen_color.r * l.sheen_weight, l.sheen_color.g * l.sheen_weight, l.sheen_color.b * l.sheen_weight})
+				strings.write_string(j, `,"sheenRoughnessFactor":`)
+				json_number(j, l.sheen_roughness if l.sheen_roughness > 0 else LAYER_SHEEN_ROUGHNESS)
+			case "KHR_materials_emissive_strength":
+				strings.write_string(j, `"emissiveStrength":`)
+				json_number(j, l.emission_luminance)
+			case "KHR_materials_iridescence":
+				thickness := l.thin_film_thickness if l.thin_film_thickness > 0 else LAYER_THIN_FILM_THICKNESS
+				strings.write_string(j, `"iridescenceFactor":`)
+				json_number(j, l.thin_film_weight)
+				strings.write_string(j, `,"iridescenceIor":`)
+				json_number(j, l.thin_film_ior if l.thin_film_ior > 0 else LAYER_THIN_FILM_IOR)
+				strings.write_string(j, `,"iridescenceThicknessMinimum":`)
+				json_number(j, thickness)
+				strings.write_string(j, `,"iridescenceThicknessMaximum":`)
+				json_number(j, thickness)
+			}
+			strings.write_byte(j, '}')
+		}
+		strings.write_byte(j, '}')
+	}
 	strings.write_byte(j, '}')
+}
+
+// Adds the KHR_materials_* extensions `mat`'s layers need to `used`, each once and in a
+// fixed order: what glb_material writes and extensionsUsed names.
+@(private = "file")
+glb_material_extensions :: proc(used: ^[dynamic]string, mat: Export_Material) {
+	l := mat.layers
+	add :: proc(used: ^[dynamic]string, name: string) {
+		for u in used do if u == name do return
+		append(used, name)
+	}
+	if l.coat_weight > 0 do add(used, "KHR_materials_clearcoat")
+	if l.specular_ior != 0 do add(used, "KHR_materials_ior")
+	if l.specular_lessen > 0 do add(used, "KHR_materials_specular")
+	if l.transmission_weight > 0 do add(used, "KHR_materials_transmission")
+	if l.transmission_weight > 0 && l.transmission_depth > 0 && l.thin_walled == 0 do add(used, "KHR_materials_volume")
+	if l.sheen_weight > 0 && l.sheen_color != {} do add(used, "KHR_materials_sheen")
+	if l.emission_luminance > 0 && l.emission_luminance != 1 && l.emission_color != {} do add(used, "KHR_materials_emissive_strength")
+	if l.thin_film_weight > 0 do add(used, "KHR_materials_iridescence")
 }
 
 // Writes `s` as a JSON string: quotes, backslashes and control characters escaped, and

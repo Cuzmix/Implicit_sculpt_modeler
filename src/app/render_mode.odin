@@ -169,6 +169,12 @@ kit_render :: proc(app: ^App) {
 		case .Full: if !app.render_on do command_run(app, .Render_Mode)
 		}
 	}
+	// Off has nothing to set: the qualities' controls show once one is picked, so nothing
+	// looks live while nothing renders.
+	if render_show(app) == .Off {
+		ui.paragraph(ctx, "The view is not rendered. Fast lays occlusion and soft shadows over it; Full path traces it.", color = ctx.theme.text_secondary)
+		return
+	}
 	kit_render_progress(app)
 	presets: [len(Render_Preset)]string
 	for n, i in RENDER_PRESET_NAMES do presets[i] = n
@@ -213,7 +219,7 @@ kit_render_progress :: proc(app: ^App) {
 		return
 	}
 	done = min(done, want)
-	what := "Done" if done >= want else "Building up"
+	what := "Samples, done" if done >= want else "Samples"
 	count := fmt.tprintf("%d / %d · %.0f ms each", done, want, ms) if ms >= 0.5 else fmt.tprintf("%d / %d", done, want)
 	ui.value_row(ctx, fmt.tprintf("%s##render progress", what), count)
 	bar := ui.area(ctx, "render progress bar", {ui.fill_width(ctx), ui.SPACE_XS})

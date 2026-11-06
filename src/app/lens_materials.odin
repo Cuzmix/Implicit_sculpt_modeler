@@ -10,7 +10,8 @@ import "../ui"
 // shelf): the one place a material is picked or changed. On top, what the selected object
 // wears, as a big sphere with its name and values, and Edit. Under it the shelf: chips for
 // Favourites and each category (Clay, Metal, Glossy, Glass, Skin & wax, Fabric, Glow), which
-// a material falls into by its own values (material_category), so the presets, Custom and
+// a material falls into by its own values (material_category; Clay is shown as Matte,
+// so the word does not also name the Clay material and the Clay look), so the presets, Custom and
 // the content packs' materials all sort themselves; then the chosen category's spheres,
 // four across and big enough for a finger. A press on a sphere and a slide over the others
 // shows each on the objects as the finger passes, as Nomad's material scrub does; lifting
@@ -41,7 +42,7 @@ Material_Category :: enum u8 {
 @(rodata)
 MATERIAL_CATEGORY_NAMES := [Material_Category]string {
 	.Favourites = "Favourites",
-	.Clay       = "Clay",
+	.Clay       = "Matte",
 	.Metal      = "Metal",
 	.Glossy     = "Glossy",
 	.Glass      = "Glass",
@@ -150,7 +151,7 @@ kit_lens_material :: proc(app: ^App) {
 		ui.label(ctx, fmt.tprintf("Previewing %s: lift to keep it, slide off to go back", mc.label) if mc.shown != 0 else "Slide back onto a sphere, or lift to keep what was there", t.small_size, t.text_secondary)
 	}
 	ui.label(ctx, "Apply to", t.small_size, t.text_tertiary)
-	targets := [len(Material_Target)]string{"Selected", "Its folder", "Every object"}
+	targets := [len(Material_Target)]string{"Selected", "Folder", "Every object"}
 	if picked := ui.tabs(ctx, "material apply to", targets[:], int(app.ui.material_to)); picked >= 0 do app.ui.material_to = Material_Target(picked)
 	ui.paragraph(ctx, "Slide across the spheres to try each on; lift to keep one. Hold a sphere for Favourites. Edit changes the values, making the material Custom.")
 }
@@ -199,8 +200,8 @@ material_values_line :: proc(m: Material) -> string {
 	case m.matcap != 0:    append(&parts, "MatCap")
 	case m.roughness == 0: append(&parts, "Classic")
 	case:
-		if m.metallic > 0 do append(&parts, fmt.tprintf("Metal %.2f", m.metallic))
-		append(&parts, fmt.tprintf("Rough %.2f", m.roughness))
+		if m.metallic > 0 do append(&parts, fmt.tprintf("Metallic %.2f", m.metallic))
+		append(&parts, fmt.tprintf("Roughness %.2f", m.roughness))
 	}
 	l := m.layers
 	if l.subsurface_weight > 0 do append(&parts, "Subsurface")
@@ -220,25 +221,20 @@ material_chips :: proc(app: ^App, width: f32) {
 	ctx := &k.ctx
 	t := ctx.theme
 	mc := &k.material_card
-	row := 0
-	used := width + 1
-	open := false
-	for c in Material_Category {
-		name := MATERIAL_CATEGORY_NAMES[c]
-		w := ui.text_width(ctx, name, t.text_size, .Semibold) + 2 * ui.SPACE_L
-		if used + w > width {
-			if open do ui.end(ctx)
-			ui.begin(ctx, fmt.tprintf("material chips %d", row), {direction = .Row, gap = ui.SPACE_XS})
-			open, used = true, 0
-			row += 1
-		}
-		used += w + ui.SPACE_XS
-		if ui.toggle_button(ctx, fmt.tprintf("%s##material category", name), mc.category == int(c) + 1, w, tooltip = name) {
+	_ = t
+	// Two rows of four, each a segmented control as wide as the card, so the columns line
+	// up and the chosen one is marked as every choice is.
+	ACROSS :: 4
+	for first := 0; first < len(Material_Category); first += ACROSS {
+		names: [ACROSS]string
+		for i in 0 ..< ACROSS do names[i] = MATERIAL_CATEGORY_NAMES[Material_Category(first + i)]
+		at := mc.category - 1 - first
+		if picked := ui.tabs(ctx, fmt.tprintf("material categories %d", first / ACROSS), names[:], at if at >= 0 && at < ACROSS else -1); picked >= 0 {
 			if mc.pressing do material_scrub_end(app, false)
-			mc.category = int(c) + 1
+			mc.category = first + picked + 1
 		}
 	}
-	if open do ui.end(ctx)
+	_ = width
 }
 
 // Edit: the material's values, each change sent as a Custom material to the objects Apply
@@ -285,34 +281,35 @@ material_layers_edit :: proc(app: ^App, l: ^geom.Material_Layers) -> (changed: b
 		}
 		return weight^ > 0
 	}
+	ui.label(ctx, "Layers", ctx.theme.small_size, ctx.theme.text_tertiary)
 	weight :: proc(ctx: ^ui.Context, name: string, v: ^f32) -> bool {
 		return ui.slider(ctx, name, v, 0.01, 1, .Linear, fmt.tprintf("%.2f", v^))
 	}
 	if layer(ctx, "Subsurface", &l.subsurface_weight, &l.subsurface_color, &changed) {
-		changed |= weight(ctx, "Weight##subsurface", &l.subsurface_weight)
-		changed |= kit_color(app, "subsurface colour", &l.subsurface_color, linear = true, sliders = false)
+		changed |= weight(ctx, "Subsurface weight", &l.subsurface_weight)
+		changed |= kit_color(app, "Subsurface colour", &l.subsurface_color, linear = true, sliders = false)
 		scale := l.subsurface_scale if l.subsurface_scale > 0 else geom.LAYER_SUBSURFACE_SCALE
-		if ui.slider(ctx, "Depth##subsurface", &scale, 0.002, 0.5, .Logarithmic, fmt.tprintf("%.3f", scale)) {
+		if ui.slider(ctx, "Subsurface depth", &scale, 0.002, 0.5, .Logarithmic, fmt.tprintf("%.3f", scale)) {
 			l.subsurface_scale = scale
 			changed = true
 		}
 	}
 	if layer(ctx, "Coat", &l.coat_weight, nil, &changed) {
-		changed |= weight(ctx, "Weight##coat", &l.coat_weight)
-		changed |= ui.slider(ctx, "Roughness##coat", &l.coat_roughness, 0, 1, .Linear, fmt.tprintf("%.2f", l.coat_roughness))
+		changed |= weight(ctx, "Coat weight", &l.coat_weight)
+		changed |= ui.slider(ctx, "Coat roughness", &l.coat_roughness, 0, 1, .Linear, fmt.tprintf("%.2f", l.coat_roughness))
 	}
 	if layer(ctx, "Sheen", &l.sheen_weight, &l.sheen_color, &changed) {
-		changed |= weight(ctx, "Weight##sheen", &l.sheen_weight)
-		changed |= kit_color(app, "sheen colour", &l.sheen_color, linear = true, sliders = false)
+		changed |= weight(ctx, "Sheen weight", &l.sheen_weight)
+		changed |= kit_color(app, "Sheen colour", &l.sheen_color, linear = true, sliders = false)
 		rough := l.sheen_roughness if l.sheen_roughness > 0 else geom.LAYER_SHEEN_ROUGHNESS
-		if ui.slider(ctx, "Roughness##sheen", &rough, 0.05, 1, .Linear, fmt.tprintf("%.2f", rough)) {
+		if ui.slider(ctx, "Sheen roughness", &rough, 0.05, 1, .Linear, fmt.tprintf("%.2f", rough)) {
 			l.sheen_roughness = rough
 			changed = true
 		}
 	}
 	if layer(ctx, "Transmission", &l.transmission_weight, &l.transmission_color, &changed) {
-		changed |= weight(ctx, "Weight##transmission", &l.transmission_weight)
-		changed |= kit_color(app, "transmission colour", &l.transmission_color, linear = true, sliders = false)
+		changed |= weight(ctx, "Transmission weight", &l.transmission_weight)
+		changed |= kit_color(app, "Transmission colour", &l.transmission_color, linear = true, sliders = false)
 		thin := l.thin_walled > 0
 		if ui.switch_row(ctx, "Thin sheet", &thin) {
 			l.thin_walled = 1 if thin else 0
@@ -326,13 +323,13 @@ material_layers_edit :: proc(app: ^App, l: ^geom.Material_Layers) -> (changed: b
 		changed = true
 	}
 	if glow {
-		changed |= kit_color(app, "glow colour", &l.emission_color, linear = true, sliders = false)
-		changed |= ui.slider(ctx, "Brightness##glow", &l.emission_luminance, 0.01, 10, .Logarithmic, fmt.tprintf("%.2f", l.emission_luminance))
+		changed |= kit_color(app, "Glow colour", &l.emission_color, linear = true, sliders = false)
+		changed |= ui.slider(ctx, "Glow brightness", &l.emission_luminance, 0.01, 10, .Logarithmic, fmt.tprintf("%.2f", l.emission_luminance))
 	}
 	if kit_more(app, .Material) {
 		if layer(ctx, "Thin film", &l.thin_film_weight, nil, &changed) {
 			nm := l.thin_film_thickness if l.thin_film_thickness > 0 else geom.LAYER_THIN_FILM_THICKNESS
-			if ui.slider(ctx, "Thickness##film", &nm, 100, 1500, .Linear, fmt.tprintf("%.0f nm", nm)) {
+			if ui.slider(ctx, "Film thickness", &nm, 100, 1500, .Linear, fmt.tprintf("%.0f nm", nm)) {
 				l.thin_film_thickness = nm
 				changed = true
 			}

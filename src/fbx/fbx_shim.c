@@ -95,6 +95,79 @@ void sculpt_fbx_material(const sculpt_fbx *f, size_t k, float *color, int32_t *t
 	if (t && base->texture_enabled && t->has_file) *texture_file = (int32_t)t->file_index;
 }
 
+static double map_real(const ufbx_material_map *m, double missing) {
+	return m->has_value ? m->value_real : missing;
+}
+
+static void map_vec3(const ufbx_material_map *m, float *out, double missing) {
+	for (int c = 0; c < 3; c++) out[c] = (float)(m->has_value ? m->value_vec3.v[c] : missing);
+}
+
+// A map's texture file name as the file gives it (relative, else absolute), or none.
+static void map_file(const ufbx_material_map *m, const char **name, size_t *len) {
+	*name = NULL;
+	*len = 0;
+	const ufbx_texture *t = m->texture;
+	if (!t || !m->texture_enabled) return;
+	if (t->relative_filename.length > 0) {
+		*name = t->relative_filename.data;
+		*len = t->relative_filename.length;
+	} else {
+		*name = t->filename.data;
+		*len = t->filename.length;
+	}
+}
+
+// Material `k` in ufbx's PBR view of any FBX shader (Blender's Principled export, Maya's
+// and 3ds Max's physical materials, Phong): `out` takes metallic, roughness, then the 32
+// values of geom.Material_Layers in its order (the app clamps them); `valued` whether
+// ufbx found PBR values at all; its name and its maps' files (base colour, metalness or
+// roughness, normal), all valid until sculpt_fbx_free.
+void sculpt_fbx_material_values(const sculpt_fbx *f, size_t k, float *out, int32_t *valued, const char **name, size_t *name_len, const char **maps, size_t *map_lens) {
+	const ufbx_material *m = f->scene->materials.data[k];
+	const ufbx_material_pbr_maps *p = &m->pbr;
+	*name = m->name.data;
+	*name_len = m->name.length;
+	*valued = m->features.pbr.enabled || p->roughness.has_value || p->metalness.has_value;
+	double rough = map_real(&p->roughness, 0.5);
+	if (m->features.roughness_as_glossiness.enabled) rough = 1.0 - rough;
+	out[0] = (float)map_real(&p->metalness, 0.0);
+	out[1] = (float)rough;
+	float *l = out + 2;
+	map_vec3(&p->subsurface_color, l + 0, 1.0);
+	l[3] = (float)map_real(&p->subsurface_factor, 0.0);
+	map_vec3(&p->subsurface_radius, l + 4, 0.0);
+	l[7] = (float)map_real(&p->subsurface_scale, 0.0);
+	double coat = map_real(&p->coat_factor, 0.0);
+	double coat_rough = map_real(&p->coat_roughness, 0.0);
+	if (m->features.coat_roughness_as_glossiness.enabled) coat_rough = 1.0 - coat_rough;
+	l[8] = (float)coat;
+	l[9] = (float)coat_rough;
+	l[10] = (float)map_real(&p->coat_ior, 0.0);
+	l[11] = (float)map_real(&p->specular_ior, 0.0);
+	map_vec3(&p->sheen_color, l + 12, 0.0);
+	l[15] = (float)map_real(&p->sheen_factor, 0.0);
+	map_vec3(&p->emission_color, l + 16, 0.0);
+	l[19] = (float)map_real(&p->emission_factor, 0.0);
+	map_vec3(&p->transmission_color, l + 20, 1.0);
+	l[23] = (float)map_real(&p->transmission_factor, 0.0);
+	l[24] = (float)map_real(&p->transmission_depth, 0.0);
+	l[25] = m->features.thin_walled.enabled ? 1.0f : 0.0f;
+	l[26] = (float)map_real(&p->sheen_roughness, 0.0);
+	l[27] = (float)map_real(&p->subsurface_anisotropy, 0.0);
+	l[28] = (float)map_real(&p->thin_film_factor, 0.0);
+	l[29] = (float)map_real(&p->thin_film_thickness, 0.0);
+	l[30] = (float)map_real(&p->thin_film_ior, 0.0);
+	// A specular weight only from a physically based shader: Blender's and FBX's Phong
+	// carry a Phong specular strength there (Blender writes 0.25 for its default), which
+	// would dim every reflection to a quarter.
+	bool phong = m->shader_type == UFBX_SHADER_FBX_LAMBERT || m->shader_type == UFBX_SHADER_FBX_PHONG || m->shader_type == UFBX_SHADER_BLENDER_PHONG || m->shader_type == UFBX_SHADER_UNKNOWN;
+	l[31] = phong ? 0.0f : (float)(1.0 - map_real(&p->specular_factor, 1.0));
+	map_file(&p->base_color, &maps[0], &map_lens[0]);
+	map_file(p->metalness.texture ? &p->metalness : &p->roughness, &maps[1], &map_lens[1]);
+	map_file(&p->normal_map, &maps[2], &map_lens[2]);
+}
+
 size_t sculpt_fbx_texture_file_count(const sculpt_fbx *f) {
 	return f ? f->scene->texture_files.count : 0;
 }

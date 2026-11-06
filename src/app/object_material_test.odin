@@ -2,6 +2,7 @@ package main
 
 import "core:math"
 import "core:os"
+import "core:strings"
 import "core:testing"
 
 import "../geom"
@@ -303,6 +304,7 @@ presets_fall_into_their_categories :: proc(t: ^testing.T) {
 		{"Gold", .Metal}, {"Chrome", .Metal},
 		{"Plastic", .Glossy}, {"Ceramic", .Glossy}, {"Car paint", .Glossy},
 		{"Velvet", .Fabric}, {"Satin", .Fabric}, {"Neon", .Glow},
+		{"Glass", .Glass}, {"Frosted glass", .Glass},
 	}
 	for w in wants {
 		i, ok := material_by_name(w.name)
@@ -310,4 +312,44 @@ presets_fall_into_their_categories :: proc(t: ^testing.T) {
 		if ok do testing.expectf(t, material_category(MATERIALS[i]) == w.category, "%s: %v, want %v", w.name, material_category(MATERIALS[i]), w.category)
 	}
 	for m in MATERIALS[:FIRST_MATCAP] do testing.expect(t, material_category(m) != .Favourites)
+}
+
+// Importing Blender's glTF keeps its materials as the objects' own: Car Paint's coat and
+// Glass's transmission on their objects, the empty gold listed but left on the default;
+// the list survives the scene file.
+@(test)
+imported_materials_become_the_objects_own :: proc(t: ^testing.T) {
+	m, note, _, ok := mesh_import_load(#directory + "testdata/import/materials.glb", "Imported", nil, keep_materials = true)
+	defer delete(note)
+	defer mesh_import_free(&m)
+	testing.expect(t, ok)
+	testing.expect_value(t, len(m.materials), 3)
+	if len(m.materials) != 3 do return
+	objs: [3]Object
+	defer for &o in objs {
+		delete(o.group_materials)
+		imported_materials_destroy(&o.imported)
+	}
+	unvalued := 0
+	for &o, k in objs do unvalued += object_take_imported(&o, m.materials[k][:])
+	testing.expect_value(t, unvalued, 1)
+	testing.expect_value(t, objs[0].material.layers.coat_weight, 0.25)
+	testing.expect_value(t, objs[1].material.layers.transmission_weight, 1)
+	testing.expect(t, objs[2].material.label == nil)
+	testing.expect_value(t, objs[2].imported[0].name, "Metal - Gold")
+	testing.expect(t, !objs[2].imported[0].valued)
+	testing.expect(t, strings.contains(note, "\"Metal - Gold\" had no values"))
+	// The list round-trips through the scene file's form.
+	out: [dynamic]u8
+	defer delete(out)
+	imported_put(&out, &objs[1])
+	r := geom.byte_reader(out[:])
+	back: Object
+	defer imported_materials_destroy(&back.imported)
+	imported_get(&r, &back)
+	testing.expect(t, r.ok && r.at == len(out))
+	testing.expect_value(t, len(back.imported), 1)
+	testing.expect_value(t, back.imported[0].name, "Glass")
+	testing.expect_value(t, back.imported[0].group, 0)
+	testing.expect(t, back.imported[0].valued)
 }
