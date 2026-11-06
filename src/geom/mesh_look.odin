@@ -15,10 +15,32 @@ import "core:strings"
 // any percent escapes undone), owned by the caller and kept until the read returns.
 Mesh_Resolve :: #type proc(data: rawptr, uri: string) -> (bytes: []u8, ok: bool)
 
-// One material's base colour: linear red, green and blue, times its image when it has one.
+// One material: its base colour (linear red, green and blue, times its image when it has
+// one), and everything else the file says of it, which import keeps as an object's own
+// material (one polygroup a material) unless it is asked to paint the colours instead.
 Mesh_Material :: struct {
-	color: [3]f32,
-	image: int, // into Mesh_Look.images, or -1
+	color:     [3]f32,
+	image:     int, // into Mesh_Look.images, or -1
+	// The file's name for it, owned; "" for none.
+	name:      string,
+	metallic:  f32,
+	roughness: f32,
+	// Coat, sheen, emission, transmission, IOR and the rest, in OpenPBR's terms.
+	layers:    Material_Layers,
+	// The file names of the maps it names (as the file gives them, owned; "" for none),
+	// for the import note and the list of an object's imported materials.
+	maps:      [Mesh_Map]string,
+	// Whether the file said anything of it beyond a name: an empty glTF material, which
+	// Blender writes when a node graph feeds its shader, is false, and import reports it
+	// rather than inventing values.
+	valued:    bool,
+}
+
+// The maps a material names.
+Mesh_Map :: enum u8 {
+	Base_Color,
+	Metal_Rough,
+	Normal,
 }
 
 // An image a material names: its encoded bytes (PNG, JPEG, BMP, TGA or QOI), or nil when
@@ -35,8 +57,17 @@ Mesh_Look :: struct {
 
 mesh_look_destroy :: proc(look: ^Mesh_Look) {
 	delete(look.images)
+	for &m in look.materials do mesh_material_destroy(&m)
 	delete(look.materials)
 	look^ = {}
+}
+
+// Frees a material's owned names.
+mesh_material_destroy :: proc(m: ^Mesh_Material) {
+	delete(m.name)
+	for name in m.maps do delete(name)
+	m.name = ""
+	m.maps = {}
 }
 
 // What painting the materials did, for the note.
@@ -309,7 +340,10 @@ obj_look :: proc(data: []u8, look: ^Mesh_Look, resolve: Mesh_Resolve, resolve_da
 			for n in order {
 				if n in names do continue
 				mm := materials[n]
-				out := Mesh_Material{color = mm.color, image = -1}
+				// MTL knows only colours and a shininess: a plain, half-rough dielectric of its
+				// colour, under its own name.
+				out := Mesh_Material{color = mm.color, image = -1, name = strings.clone(n), roughness = 0.5, valued = true}
+				if mm.image != "" do out.maps[.Base_Color] = strings.clone(mm.image)
 				if mm.image != "" {
 					path := mm.image if dir == "." || dir == "" else slashpath.join({dir, mm.image}, context.temp_allocator)
 					k, seen := images[path]
@@ -333,4 +367,91 @@ obj_look :: proc(data: []u8, look: ^Mesh_Look, resolve: Mesh_Resolve, resolve_da
 		}
 	}
 	return
+}
+
+// One of an imported part's materials: the polygroup it is on (0 for the whole part, when it
+// has one material) and the material itself, its names owned.
+Part_Material :: struct {
+	group:    u16,
+	material: Mesh_Material,
+}
+
+// The most materials a part keeps as polygroups, as an object holds group materials.
+PART_MATERIALS_MAX :: 15
+
+// Turns each part's materials into polygroups for import to keep as the object's own
+// materials, rather than painting them: a part with one material gives it to the whole
+// part (its file groups stay); a part with more puts each on a polygroup of its own,
+// numbered from 1 in the order its triangles first name them (triangles with none on
+// group 0), the first PART_MATERIALS_MAX kept and any past them merged into the nearest of
+// those by value (`merged` counts them). Returns each part's list (empty for a part with no
+// materials), owned by the caller (part_materials_destroy); the parts' own material lists
+// stay, for mesh_parts_paint to paint textures from. Serial and in triangle order.
+mesh_parts_material_groups :: proc(parts: []Mesh_Part, look: ^Mesh_Look) -> (out: [][dynamic]Part_Material, merged: int) {
+	out = make([][dynamic]Part_Material, len(parts))
+	if look == nil do return
+	for &p, k in parts {
+		if len(p.materials) == 0 do continue
+		order := make([dynamic]i32, context.temp_allocator)
+		for m in p.materials {
+			if m < 0 || int(m) >= len(look.materials) do continue
+			if !slice_has(order[:], m) do append(&order, m)
+		}
+		if len(order) == 0 do continue
+		if len(order) == 1 {
+			append(&out[k], Part_Material{0, mesh_material_clone(look.materials[order[0]])})
+			continue
+		}
+		kept := order[:min(len(order), PART_MATERIALS_MAX)]
+		// The group of each material of the file: its place among those kept, or the
+		// nearest kept one's.
+		group_of := make(map[i32]u16, context.temp_allocator)
+		for m, i in kept do group_of[m] = u16(i + 1)
+		for m in order[len(kept):] {
+			best, best_d := 0, f32(max(f32))
+			for k2, i in kept {
+				d := mesh_material_distance(look.materials[m], look.materials[k2])
+				if d < best_d do best, best_d = i, d
+			}
+			group_of[m] = u16(best + 1)
+			merged += 1
+		}
+		resize(&p.groups, len(p.materials))
+		for m, t in p.materials do p.groups[t] = group_of[m] if m in group_of else 0
+		for m, i in kept do append(&out[k], Part_Material{u16(i + 1), mesh_material_clone(look.materials[m])})
+	}
+	return
+}
+
+@(private = "file")
+slice_has :: proc(s: []i32, x: i32) -> bool {
+	for v in s do if v == x do return true
+	return false
+}
+
+// How far apart two materials look: their colours, metal and roughness, and their main
+// layers' weights, each counted alike.
+mesh_material_distance :: proc(a, b: Mesh_Material) -> f32 {
+	d := a.color - b.color
+	sum := d.r * d.r + d.g * d.g + d.b * d.b
+	sum += (a.metallic - b.metallic) * (a.metallic - b.metallic) + (a.roughness - b.roughness) * (a.roughness - b.roughness)
+	w := [4]f32{a.layers.coat_weight - b.layers.coat_weight, a.layers.transmission_weight - b.layers.transmission_weight, a.layers.subsurface_weight - b.layers.subsurface_weight, a.layers.sheen_weight - b.layers.sheen_weight}
+	return sum + w.x * w.x + w.y * w.y + w.z * w.z + w.w * w.w
+}
+
+// A copy of `m` with names of its own.
+mesh_material_clone :: proc(m: Mesh_Material) -> Mesh_Material {
+	c := m
+	c.name = strings.clone(m.name)
+	for &name in c.maps do name = strings.clone(name)
+	return c
+}
+
+// Frees what mesh_parts_material_groups made.
+part_materials_destroy :: proc(lists: [][dynamic]Part_Material) {
+	for &list in lists {
+		for &e in list do mesh_material_destroy(&e.material)
+		delete(list)
+	}
+	delete(lists)
 }

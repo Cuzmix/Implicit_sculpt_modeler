@@ -191,6 +191,7 @@ gltf_look :: proc(g: ^Gltf_Reader, look: ^Mesh_Look, resolve: Mesh_Resolve, reso
 	materials := gltf_array(g.root, "materials")
 	g.material_base = len(look.materials)
 	g.coord = make([]int, len(materials), context.temp_allocator)
+	images := gltf_array(g.root, "images")
 	for m, k in materials {
 		mo, _ := m.(json.Object)
 		pbr, _ := mo["pbrMetallicRoughness"].(json.Object)
@@ -198,6 +199,7 @@ gltf_look :: proc(g: ^Gltf_Reader, look: ^Mesh_Look, resolve: Mesh_Resolve, reso
 		if factor := gltf_array(pbr, "baseColorFactor"); len(factor) >= 3 {
 			for c in 0 ..< 3 do out.color[c] = clamp(f32(gltf_number(factor[c])), 0, 1)
 		}
+		gltf_material_values(&out, mo, pbr, textures, images)
 		g.coord[k] = -1
 		if texture, has := pbr["baseColorTexture"].(json.Object); has {
 			t := gltf_int(texture, "index", -1)
@@ -556,6 +558,101 @@ gltf_uri_decode :: proc(uri: string) -> string {
 		}
 		return -1
 	}
+}
+
+// The rest of what a glTF material says, into `out`: its name, metallic and roughness
+// (glTF's own defaults, 1 and 1, when the factors are left out, as the specification
+// has it), the maps it names, and the KHR_materials_* extensions Blender writes, in
+// OpenPBR's terms. A material with nothing but a name is left unvalued.
+@(private = "file")
+gltf_material_values :: proc(out: ^Mesh_Material, mo: json.Object, pbr: json.Object, textures, images: json.Array) {
+	if name, has := mo["name"].(json.String); has do out.name = strings.clone(name)
+	out.metallic = gltf_factor(pbr, "metallicFactor", 1)
+	out.roughness = gltf_factor(pbr, "roughnessFactor", 1)
+	ext, _ := mo["extensions"].(json.Object)
+	out.valued = len(pbr) > 0 || len(ext) > 0 || "emissiveFactor" in mo || "normalTexture" in mo
+	// A map's file name: its image's name, else its file (a data URI has none).
+	map_name :: proc(holder: json.Object, key: string, textures, images: json.Array) -> string {
+		texture, has := holder[key].(json.Object)
+		if !has do return ""
+		t := gltf_int(texture, "index", -1)
+		if t < 0 || t >= len(textures) do return ""
+		to, _ := textures[t].(json.Object)
+		source := gltf_int(to, "source", -1)
+		if source < 0 || source >= len(images) do return ""
+		io, _ := images[source].(json.Object)
+		if name, named := io["name"].(json.String); named && name != "" do return strings.clone(name)
+		if uri, has_uri := io["uri"].(json.String); has_uri && !strings.has_prefix(uri, "data:") do return strings.clone(uri)
+		return ""
+	}
+	out.maps[.Base_Color] = map_name(pbr, "baseColorTexture", textures, images)
+	out.maps[.Metal_Rough] = map_name(pbr, "metallicRoughnessTexture", textures, images)
+	out.maps[.Normal] = map_name(mo, "normalTexture", textures, images)
+	l := &out.layers
+	if e, has := ext["KHR_materials_clearcoat"].(json.Object); has {
+		l.coat_weight = gltf_factor(e, "clearcoatFactor", 0)
+		l.coat_roughness = gltf_factor(e, "clearcoatRoughnessFactor", 0)
+	}
+	if e, has := ext["KHR_materials_ior"].(json.Object); has {
+		// glTF's 0 means a mirror (infinite IOR); the record's 0 means 1.5, so the
+		// largest IOR the record holds stands in.
+		ior := gltf_factor(e, "ior", 1.5)
+		l.specular_ior = clamp(ior, 1, LAYER_IOR_MAX) if ior != 0 else LAYER_IOR_MAX
+	}
+	if e, has := ext["KHR_materials_specular"].(json.Object); has {
+		l.specular_lessen = 1 - clamp(gltf_factor(e, "specularFactor", 1), 0, 1)
+	}
+	if e, has := ext["KHR_materials_transmission"].(json.Object); has {
+		l.transmission_weight = gltf_factor(e, "transmissionFactor", 0)
+		// glTF tints what passes through by the base colour.
+		l.transmission_color = out.color
+	}
+	if e, has := ext["KHR_materials_volume"].(json.Object); has {
+		if c := gltf_array(e, "attenuationColor"); len(c) >= 3 {
+			for i in 0 ..< 3 do l.transmission_color[i] = clamp(f32(gltf_number(c[i])), 0, 1)
+		}
+		if d, finite := e["attenuationDistance"]; finite do l.transmission_depth = max(f32(gltf_number(d)), 0)
+	}
+	// Without KHR_materials_volume glTF calls a transmitting surface a thin wall; Blender,
+	// which writes it so for every glass, reads it back as solid glass, and so does import
+	// here: the closed meshes sculptors bring bend light as they did where they were made.
+	if e, has := ext["KHR_materials_sheen"].(json.Object); has {
+		if c := gltf_array(e, "sheenColorFactor"); len(c) >= 3 {
+			for i in 0 ..< 3 do l.sheen_color[i] = clamp(f32(gltf_number(c[i])), 0, 1)
+		}
+		l.sheen_weight = 1 if l.sheen_color != {} else 0
+		l.sheen_roughness = gltf_factor(e, "sheenRoughnessFactor", 0)
+	}
+	if c := gltf_array(mo, "emissiveFactor"); len(c) >= 3 {
+		for i in 0 ..< 3 do l.emission_color[i] = clamp(f32(gltf_number(c[i])), 0, 1)
+		if l.emission_color != {} do l.emission_luminance = 1
+	}
+	if e, has := ext["KHR_materials_emissive_strength"].(json.Object); has && l.emission_luminance > 0 {
+		l.emission_luminance = clamp(gltf_factor(e, "emissiveStrength", 1), 0, LAYER_EMISSION_MAX)
+	}
+	if e, has := ext["KHR_materials_iridescence"].(json.Object); has {
+		l.thin_film_weight = gltf_factor(e, "iridescenceFactor", 0)
+		l.thin_film_ior = clamp(gltf_factor(e, "iridescenceIor", 1.3), 1, LAYER_IOR_MAX)
+		l.thin_film_thickness = clamp(gltf_factor(e, "iridescenceThicknessMaximum", 400), 0, LAYER_THIN_FILM_MAX)
+	}
+	// Weights, colours and roughness in 0..1, as the record holds them.
+	unit :: proc(v: ^f32) {v^ = clamp(v^, 0, 1)}
+	unit(&out.metallic)
+	unit(&out.roughness)
+	unit(&l.coat_weight)
+	unit(&l.coat_roughness)
+	unit(&l.transmission_weight)
+	unit(&l.sheen_roughness)
+	unit(&l.thin_film_weight)
+}
+
+// A number under `key`, or `missing` when there is none; never NaN.
+@(private = "file")
+gltf_factor :: proc(o: json.Object, key: string, missing: f32) -> f32 {
+	v, has := o[key]
+	if !has do return missing
+	x := f32(gltf_number(v))
+	return x if !math.is_nan(x) && !math.is_inf(x) else missing
 }
 
 @(private = "file")

@@ -1874,6 +1874,10 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 			// Without its texture, the head is not drawn at all: a nil image is the atlas.
 			if app.nav_shown == 0 do draws[i].index_count = 0
 		}
+		if c.texture == .Image && c.image == KIT_MATERIAL_BALLS_IMAGE {
+			draws[i].image, draws[i].smooth = app.material_balls.atlas, true
+			if app.material_balls.atlas == 0 do draws[i].index_count = 0
+		}
 		if c.texture == .Image && c.image == KIT_THUMBS_IMAGE {
 			draws[i].image, draws[i].smooth = app.thumbs.atlas, true
 			if app.thumbs.atlas == 0 do draws[i].index_count = 0
@@ -1901,7 +1905,7 @@ kit_draws :: proc(app: ^App, dl: ^ui.Draw_List) -> []render.Ui_Draw {
 		}
 		if c.texture == .Image && c.image >= KIT_MATCAP_IMAGE && c.image < KIT_MATCAP_IMAGE_END {
 			tex := material_matcap(app, {matcap = int(c.image - KIT_MATCAP_IMAGE)})
-			draws[i].image, draws[i].smooth = tex, true
+			draws[i].image, draws[i].smooth, draws[i].encode = tex, true, true
 			if tex == 0 do draws[i].index_count = 0
 		}
 		if c.texture == .Image && c.image >= KIT_TAB_IMAGE && c.image < KIT_TAB_IMAGE_END {

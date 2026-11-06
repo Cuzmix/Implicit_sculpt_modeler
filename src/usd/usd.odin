@@ -29,7 +29,7 @@ USDZ_LIMITS :: zip.Limits{entries = 4096, total = 4 << 30}
 
 // Reads a USD file's meshes as parts appended to `parts`. `line` names the line of a
 // text file's error (0 for none). A file with no mesh is Empty.
-read :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8) -> (skipped: Skipped, err: geom.Mesh_File_Error, line: int) {
+read :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, look: ^geom.Mesh_Look = nil) -> (skipped: Skipped, err: geom.Mesh_File_Error, line: int) {
 	layer := data
 	if bytes.has_prefix(data, []u8{'P', 'K'}) {
 		// A .usdz: its first layer, as USD takes it (the rest are textures and layers it
@@ -59,7 +59,7 @@ read :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8) -> (skipped: Skipped, 
 	}
 	if err != .None do return
 	before := len(parts)
-	err = stage_parts(&s, parts, &skipped)
+	err = stage_parts(&s, parts, &skipped, look)
 	if err == .None && len(parts) == before do err = .Empty
 	return
 }

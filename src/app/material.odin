@@ -66,6 +66,9 @@ MATERIALS := [?]Material {
 	// render shows what is behind it; the viewport, for now, its base.
 	{"Glass", {1, 1, 1, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.02, 0, 0, {transmission_color = {1, 1, 1}, transmission_weight = 1}},
 	{"Frosted glass", {1, 1, 1, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.3, 0, 0, {transmission_color = {0.95, 0.98, 1}, transmission_weight = 1}},
+	// A soap film: a thin sheet that lets light straight through and reflects in the
+	// colours of interference, from a film 350 nm thick.
+	{"Soap film", {1, 1, 1, 1}, {0.42, 0.42, 0.44, 1}, {}, 0, 0.02, 0, 0, {transmission_color = {1, 1, 1}, transmission_weight = 1, thin_walled = 1, thin_film_weight = 1, thin_film_thickness = 350, thin_film_ior = 1.33}},
 	// The matcaps, in white so their pictures show as painted.
 	{"Red wax MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 1, 0, {}},
 	{"Brown clay MatCap", {1, 1, 1, 1}, MATCAP_IDLE, {}, 0, 0, 2, 0, {}},
@@ -79,7 +82,7 @@ MATERIALS := [?]Material {
 // The index of the first physically based material, where the View menu starts a new group.
 FIRST_PBR :: 6
 // The index of the first matcap, where the next group starts.
-FIRST_MATCAP :: 24
+FIRST_MATCAP :: 25
 
 // app.material's value for the material the View > Material sliders made (app.custom).
 CUSTOM_MATERIAL :: len(MATERIALS)
@@ -349,6 +352,7 @@ export_material :: proc(m: Material) -> geom.Export_Material {
 		base      = m.selected.rgb,
 		metallic  = m.metallic,
 		roughness = m.roughness,
+		layers    = material_layers_drawn(m),
 	}
 	phong :: proc(power: f32) -> f32 {return clamp(math.sqrt(math.sqrt(2 / (max(power, 0) + 2))), 0.04, 1)}
 	switch {

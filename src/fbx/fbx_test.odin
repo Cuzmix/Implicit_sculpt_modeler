@@ -174,3 +174,39 @@ fbx_keeps_polygons_folders_and_counts_rigs :: proc(t: ^testing.T) {
 		testing.expectf(t, rig.shapes > 0 && rig.animations > 0, "%v", rig)
 	}
 }
+
+// Blender's FBX of three objects with Car Paint, Glass and a gold material: each comes
+// with its name and the values Blender's exporter wrote, which ufbx reads as PBR.
+@(test)
+blender_materials_come_with_their_values :: proc(t: ^testing.T) {
+	data, err := os.read_entire_file(#directory + "../app/testdata/import/materials.fbx", context.allocator)
+	testing.expect(t, err == nil)
+	defer delete(data)
+	parts: [dynamic]geom.Mesh_Part
+	defer {
+		for &p in parts do geom.mesh_part_destroy(&p)
+		delete(parts)
+	}
+	look: geom.Mesh_Look
+	defer geom.mesh_look_destroy(&look)
+	failed, _, _ := read(&parts, data, &look)
+	testing.expect_value(t, failed, geom.Mesh_File_Error.None)
+	if len(look.materials) != 3 {
+		testing.expect_value(t, len(look.materials), 3)
+		return
+	}
+	// Blender's FBX writes a Phong material: the Principled colours and roughness come,
+	// a clear coat and transmission cannot, and its Phong specular is not taken for one.
+	near :: proc(a, b: f32) -> bool {return abs(a - b) < 1e-3}
+	paint, glass, gold := look.materials[0], look.materials[1], look.materials[2]
+	testing.expect_value(t, paint.name, "Car Paint")
+	testing.expect(t, paint.valued && near(paint.color.b, 0.662) && near(paint.roughness, 0.5))
+	testing.expect_value(t, glass.name, "Glass")
+	testing.expect(t, near(glass.color.r, 0.8) && near(glass.roughness, 0.05))
+	testing.expect_value(t, gold.name, "Metal - Gold")
+	testing.expect(t, gold.valued && near(gold.color.g, 0.6796) && near(gold.roughness, 0.4))
+	for m in look.materials {
+		testing.expect_value(t, m.layers.specular_lessen, 0)
+		testing.expect(t, geom.material_layers_valid(m.layers))
+	}
+}

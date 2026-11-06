@@ -57,6 +57,7 @@ Options :: struct {
 	view_windows: int `usage:"Open this many view windows (up to 3, desktop only) at the start, each showing what Camera > New view window would."`,
 	ui_map: string `usage:"On exit, write the controls the interface drew in its last frame to this file, a line each: its path (the labels of the containers it sits in and its own, joined by /), a tab, and its rectangle's x, y, width and height in points. The names --ui-events taps by."`,
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
+	dump_balls: string `usage:"Draw every preset material's ball for the Material card, a few a frame, and on exit write their atlas (8 x 8 cells of 160 pixels, transparent around the balls) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as Menu > Save screenshot does."`,
 	check_mesh: bool `usage:"On exit, check every object's current mesh (closed, consistently wound, no degenerate triangles or NaN) and print the counts as mesh_* lines (slow on large meshes)."`,
 	no_partial: bool `usage:"Redraw the whole viewport every frame instead of only what changed (for comparison)."`,
@@ -248,6 +249,8 @@ App :: struct {
 	import_folders: int,
 	import_rig:     geom.Rig_Found,
 	import_joined:  int, // quads the last import found again from an STL or glTF file's triangles
+	import_materials: int, // the file's materials the last import kept as the objects' own
+	import_unvalued:  int, // ...of which the file gave no values (left on the default)
 	cursor:   Brush_Cursor, // the surface under the brush ring this frame (cursor.odin)
 	mask_seen: Mask_Seen, // whether the selected object has a mask, kept (history.odin)
 	sets_lost: int, // selection sets a rebuild dropped, for the note of the command that ran it (selection_sets.odin)
@@ -358,6 +361,13 @@ App :: struct {
 	// The Objects card's pictures of objects (object_thumbs.odin): the atlas they are drawn
 	// into and which object each of its cells shows.
 	thumbs:         render.Thumbs,
+	// The Material card's balls (material_balls.odin), and --dump-balls: the path to write
+	// them to and the next preset to draw.
+	material_balls:  render.Material_Balls,
+	// Full render of the view at a size of its own (render_image.odin).
+	render_image:    Render_Image,
+	opts_dump_balls: string,
+	dump_balls_next: int,
 	thumb_slots:    Thumb_Slots,
 	step_pictures:  render.Step_Pictures, // the History's pictures of steps (history_pictures.odin)
 	step_picture_slots: Step_Picture_Slots,
@@ -444,6 +454,9 @@ App :: struct {
 	// Objects other than the selected one show their material's muted colour (on by
 	// default), so the one being sculpted stands out; off, each shows its own colour.
 	dim_others:               bool,
+	// Import paints a file's materials into the vertices as polypaint, as it once always
+	// did, instead of keeping each as the object's own material on a polygroup of its own.
+	import_paint:             bool,
 	// A detail skin is added by itself when a stroke that could go into one, under Detail
 	// goes to Auto, starts finer than the object's mesh (skin_auto_add; on by default).
 	skin_auto:                bool,
@@ -677,6 +690,8 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	defer geom.mesh_destroy(&app.view_model)
 	defer delete(app.view_model_name)
 	defer render.thumbs_destroy(&app.renderer, &app.thumbs)
+	defer render.material_balls_destroy(&app.renderer, &app.material_balls)
+	defer render_image_destroy(&app)
 	defer render.step_pictures_destroy(&app.renderer, &app.step_pictures)
 	defer render.step_pictures_destroy(&app.renderer, &app.layer_pictures)
 	defer delete(app.clipboard)
@@ -814,6 +829,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
+	app.opts_dump_balls = opts.dump_balls
 	app.polyframe_lines = true
 	app.floor = FLOOR_DEFAULT
 	app.background = BACKGROUND_DEFAULT
@@ -1010,6 +1026,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 
 	if opts.dump_viewport != "" && !(app.screenshot_transparent && opts.frames > 0) do _ = screenshot_save(&app, opts.dump_viewport)
 	if opts.dump_view_window != "" do _ = view_window_save(&app, 1, opts.dump_view_window)
+	if opts.dump_balls != "" && !material_balls_save(&app, opts.dump_balls) do log.errorf("--dump-balls: no balls were drawn to write to %s", opts.dump_balls)
 	if opts.ui_map != "" {
 		b := strings.builder_make(context.temp_allocator)
 		ui.names_write(&app.kit.ctx, &b)

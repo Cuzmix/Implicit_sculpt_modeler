@@ -215,6 +215,9 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		spaced, _ := strings.replace_all(strings.to_string(names), " ", "_", context.temp_allocator)
 		fmt.printfln("folders=%d tree_rows=%d scene_order=%s scene_folders=%s scene_names=%s scene_positions=%s folder_parents=%s", len(app.scene.folders), app.kit.tree_rows, strings.to_string(order), strings.to_string(folders), spaced, strings.to_string(places), strings.to_string(parents))
 		fmt.printfln("import_folders=%d import_skins=%d import_animations=%d import_shapes=%d import_quads_joined=%d", app.import_folders, app.import_rig.skins, app.import_rig.animations, app.import_rig.shapes, app.import_joined)
+		fmt.printfln("import_materials=%d import_unvalued=%d", app.import_materials, app.import_unvalued)
+		fmt.printfln("material_balls_drawn=%d material_ball_ms=%.3f", app.material_balls.drawn, app.material_balls.ms)
+		fmt.printfln("render_images=%d render_images_failed=%d render_image_on=%d", app.render_image.written, app.render_image.failed, int(app.render_image.on))
 		// The Scene card's pictures: rows drawn last frame, pictures drawn, its row menu, what Copy holds,
 		// how many objects have their polypaint left out, and how many take part in booleans.
 		paint_off, booleans := 0, 0
