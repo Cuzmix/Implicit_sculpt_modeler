@@ -33,6 +33,7 @@ OBJECT_SECTIONS := [?]Object_Section {
 	{.Paint, "Polypaint", proc(app: ^App, _: ^Object) {kit_paint(app)}},
 	{.Morph, "Morph target", kit_morph},
 	{.Deform, "Deformation", kit_deformation},
+	{.Physics, "Physics", kit_physics},
 	{.Deformers, "Deformers", kit_deformers},
 	{.Voxels, "Voxels", kit_voxels},
 	{.Uvs, "UVs", proc(app: ^App, _: ^Object) {kit_uvs_section(app)}},

@@ -375,9 +375,8 @@ preset_ref :: proc(app: ^App, n: int) -> string {
 // stroke's), tip_roundness= and tip_scale= (Clay strips), trim_angle= and trim_dynamic=0
 // (Trim dynamic), plane_height= and plane_depth= (Flatten) and cloth_region=, cloth_stiffness=,
 // cloth_firmness=, cloth_damping=, cloth_gravity=, keep_area=1, allow_shrink=1 and
-// allow_expand=1, cloth_floor=1, cloth_objects=1 and cloth_self=1 (the Cloth brush's
-// Cloth_Settings) and physics=1 and physics_strength= (the
-// Physics switch), each written only where it
+// allow_expand=1 (the Cloth brush's make-up; what it collides with is the object's) and
+// physics=1 and physics_strength= (the Physics switch), each written only where it
 // is not as a fresh brush has it. A line without accumulate= accumulates,
 // and one without shape= takes its brush's default shape (projected_default).
 preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: string, ok: bool) {
@@ -456,9 +455,6 @@ preset_parse :: proc(f: []string) -> (name: string, v: Preset_Values, alpha: str
 		case "keep_area": v.cloth.keep_area = value == "1"
 		case "allow_shrink": v.cloth.allow_shrink = value == "1"
 		case "allow_expand": v.cloth.allow_expand = value == "1"
-		case "cloth_floor": v.cloth.floor = value == "1"
-		case "cloth_objects": v.cloth.objects = value == "1"
-		case "cloth_self": v.cloth.self_collide = value == "1"
 		case "physics": v.physics = value == "1"
 		case "physics_strength": v.physics_strength = clamp(number(value, PHYSICS_STRENGTH_DEFAULT), 0.05, 1)
 		case "smooth_mode":
@@ -528,9 +524,6 @@ preset_line :: proc(out: ^strings.Builder, name: string, v: Preset_Values, alpha
 		if c.keep_area do fmt.sbprintf(out, " keep_area=1")
 		if c.allow_shrink do fmt.sbprintf(out, " allow_shrink=1")
 		if c.allow_expand do fmt.sbprintf(out, " allow_expand=1")
-		if c.floor do fmt.sbprintf(out, " cloth_floor=1")
-		if c.objects do fmt.sbprintf(out, " cloth_objects=1")
-		if c.self_collide do fmt.sbprintf(out, " cloth_self=1")
 	}
 	strings.write_byte(out, '\n')
 }

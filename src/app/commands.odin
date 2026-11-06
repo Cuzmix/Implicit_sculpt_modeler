@@ -70,6 +70,7 @@ Command_Id :: enum u16 {
 	Hide_Gesture_Pick, // the argument is the Gesture_Tool
 	Symmetry_X,
 	Physics,
+	Settle,
 	Local_Symmetry,
 	Radial_Symmetry,
 	Brush_Add,
@@ -1059,6 +1060,12 @@ COMMANDS := [Command_Id]Command {
 		help = "Makes what a moving brush moves (Grab, Elastic, Snake hook and the dab brushes) drive the surface round it as cloth, which follows in folds, swings past and settles.",
 		run = proc(app: ^App, _: int) {app.brush.physics = !app.brush.physics},
 		checked = proc(app: ^App, _: int) -> bool {return app.brush.physics},
+	},
+	.Settle = {
+		label = "Settle",
+		help = "Lets the selected object's free part fall as cloth onto the floor and the other objects until it comes to rest, as its Physics card says; again, or Escape, stops it. One undo step.",
+		run = proc(app: ^App, _: int) {settle_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.ui.physics.settle.active},
 	},
 	.Local_Symmetry = {
 		label = "Local symmetry",
@@ -3297,7 +3304,10 @@ commands_handle_keys :: proc(app: ^App) {
 		}
 		command_run(app, b.command, b.arg)
 	}
-	if key_pressed(&app.device, KEY_ESCAPE) do replay_stop(app)
+	if key_pressed(&app.device, KEY_ESCAPE) {
+		replay_stop(app)
+		settle_stop(app)
+	}
 }
 
 // A menu row for the command, with its icon, shortcut and state from the table, and a

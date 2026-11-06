@@ -17,7 +17,9 @@ import "../ui"
 // What the tab shows: the picked layer's opacity as a fraction and its eye, or a hint.
 @(private = "file")
 paint_layer_caption :: proc(l: sculpt.Paint_Layer, picked: bool) -> string {
-	return fmt.tprintf("Mix %d%% · %s%s%s", int(l.opacity * 100 + 0.5), paint_channels_text(l.channels), " · hidden" if !l.visible else "", " · painting" if picked else "")
+	// A texture layer says so first, as the mock's "Texture 2K" rows do.
+	kind := "Texture · " if l.texels != 0 else ""
+	return fmt.tprintf("%sMix %d%% · %s%s%s", kind, int(l.opacity * 100 + 0.5), paint_channels_text(l.channels), " · hidden" if !l.visible else "", " · painting" if picked else "")
 }
 
 // A layer's channels as its row lists them: "colour, roughness, metal".
@@ -57,8 +59,19 @@ kit_lens_paint_layers :: proc(app: ^App, obj: ^Object) {
 	width := ui.fill_width(ctx)
 
 	ui.begin(ctx, "lens paint head", {direction = .Row, gap = ui.SPACE_S, center = true, width = width})
-	_ = command_button(app, .New_Paint_Layer, label = "New layer", variant = .Solid, tone = .Accent, glyph = ui.ICON_PLUS, width = ui.text_width(ctx, "New layer", t.text_size, .Semibold) + 52)
-	ui.label(ctx, "On vertices", t.small_size, t.text_secondary)
+	// New layer asks where the layer lives (mock 2A): on the vertices, or in a texture
+	// through the UVs.
+	can := command_enabled(app, .New_Paint_Layer)
+	new_w := ui.text_width(ctx, "New layer", t.text_size, .Semibold) + 72
+	pressed := ui.button(ctx, "New layer##lens paint new", .Solid, .Accent, new_w, ui.ICON_PLUS, can, reason = "" if can else command_reason(app, .New_Paint_Layer))
+	// The menu follows the button as the card moves.
+	app.kit.paint_new_anchor = ctx.last_rect
+	if pressed do app.kit.paint_new_pop = !app.kit.paint_new_pop
+	if picked >= 0 && picked < len(layers) {
+		l := layers[picked]
+		lives := "In a texture" if l.texels != 0 else "On vertices"
+		ui.label(ctx, lives, t.small_size, t.text_secondary)
+	}
 	ui.end(ctx)
 
 	for i := len(layers) - 1; i >= 0; i -= 1 do lens_paint_row(app, obj, i, i == picked, width, allowed)
@@ -81,6 +94,33 @@ kit_lens_paint_layers :: proc(app: ^App, obj: ^Object) {
 	}
 	if !allowed do ui.paragraph(ctx, "Paint layers wait while the HD window or dynamic topology is on.")
 	ui.paragraph(ctx, "Paint layers stack polypaint: each is a colour over the clay with its own opacity and eye, and what shows is every layer laid over the ones below. The lit layer is the one every paint tool paints. Every level shows the same layers, and rebuilds (Remesh, Decimate, Mirror and weld) keep what shows as one layer.")
+}
+
+// The New layer menu (mock 2A): a layer on the vertices, as fine as the mesh and needing
+// no UVs, or in a texture through the UVs, as fine as the texture, at the size every
+// texture layer of the object shares. With no UVs the texture row says so and offers
+// nothing it cannot do.
+kit_paint_new_menu :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	t := ctx.theme
+	obj := selected_object(app)
+	if obj == nil || !paint_ready(app, 0) do k.paint_new_pop = false
+	if !k.paint_new_pop do return
+	if !ui.popover_begin(ctx, "paint new menu", &k.paint_new_pop, k.paint_new_anchor, .Below, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
+	defer ui.popover_end(ctx)
+	if ui.menu_item(ctx, "On vertices##paint new", glyph = ui.ICON_PLUS, hint = "As fine as the mesh. No UVs needed.", enabled = command_enabled(app, .New_Paint_Layer)) {
+		k.paint_new_pop = false
+		paint_layer_add(app, obj)
+	}
+	side := texture_layer_side(app, obj)
+	has_uvs := sculpt.levels_has_uvs(&obj.levels)
+	reason := "" if has_uvs else "Needs UVs: Unwrap first (Mesh > UVs)"
+	if ui.menu_item(ctx, "In a texture##paint new", glyph = ui.ICON_PLUS, tag = fmt.tprintf("%dK", side / 1024) if side >= 1024 else fmt.tprintf("%d", side), tag_color = t.accent, hint = "As fine as the texture. Uses the UVs.", enabled = command_enabled(app, .New_Texture_Layer), reason = reason) {
+		k.paint_new_pop = false
+		texture_layer_add(app, obj)
+	}
+	ui.paragraph(ctx, "A texture layer takes the Bake size and stands above the vertex layers." if len(obj.levels.texels.layers) == 0 else fmt.tprintf("This object's texture layers are %d square.", obj.levels.texels.side))
 }
 
 // The channel strip (mock 1B): what the picked layer's strokes write, a toggle each, as
