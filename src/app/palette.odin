@@ -162,6 +162,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Layer_Edit       = "sculpt layers copy flip negate combine order reorder apply flatten",
 	.New_Paint_Layer  = "polypaint colour color stack texture",
 	.New_Texture_Layer = "texture paint uv texel layer map",
+	.Export_Paint_Maps = "export save texture paint maps png base colour color albedo orm roughness metal",
 	.Paint_Layer_Edit = "polypaint colour color stack combine order reorder flatten remove",
 	.Recall_Earlier   = "historyrecall local undo recall point",
 	.Recall_Later     = "historyrecall local undo recall point",

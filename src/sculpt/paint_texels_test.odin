@@ -415,3 +415,36 @@ texels_under_the_eyedropper :: proc(t: ^testing.T) {
 	c, _, _ = levels_paint_at(&l, origin, dir)
 	testing.expectf(t, abs(int(c.a) - 128) <= 1 && abs(int(c.r) - 200) <= 2, "at half opacity the eyedropper read %v", c)
 }
+
+// The paint maps lay the texture layers over the material: a filled layer at half opacity
+// gives half its colour over the material's on the islands and the material's off them,
+// and roughness painted there shows in the ORM map's green.
+@(test)
+texels_make_paint_maps :: proc(t: ^testing.T) {
+	l: Levels
+	texel_fixture(&l, nil)
+	defer levels_destroy(&l)
+	testing.expect(t, levels_texel_layer_add(&l, 512) == 0)
+	s := &levels_current(&l).sculptor
+	s.paint.list[0].channels = {.Color, .Roughness}
+	testing.expect(t, levels_texel_command(&l, .Fill, {250, 0, 0}, {200, 0}, nil))
+	_ = sculptor_paint_set(s, 0, true, 0.5)
+	base, orm := levels_texels_maps(&l, {50, 50, 50}, {100, 0})
+	defer delete(base)
+	defer delete(orm)
+	testing.expect(t, len(base) == 4 * 512 * 512 && len(orm) == len(base))
+	on, off := 0, 0
+	for k in 0 ..< 512 * 512 {
+		px := base[4 * k:][:4]
+		if px[0] == 50 && px[1] == 50 {
+			off += 1
+			continue
+		}
+		on += 1
+		if abs(int(px[0]) - 150) > 2 || abs(int(px[1]) - 25) > 2 || abs(int(orm[4 * k + 1]) - 150) > 2 || orm[4 * k] != 255 {
+			testing.expectf(t, false, "texel %d: base %v, orm %v", k, px, orm[4 * k:][:4])
+			return
+		}
+	}
+	testing.expectf(t, on > 512 * 512 / 3 && off > 0, "%d texels painted, %d not", on, off)
+}
