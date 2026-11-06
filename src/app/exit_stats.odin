@@ -143,7 +143,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 	{
 		// The Model mode cages: how many, what they are made of, and whether every one is sound.
 		cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces := 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-		mirrored, live_broken, deformed, following := 0, 0, 0, 0
+		mirrored, live_broken, deformed, following, sharp_copies := 0, 0, 0, 0, 0
 		for obj in app.scene.objects {
 			cp := obj.cage
 			if cp == nil do continue
@@ -156,6 +156,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			broken += int(!poly.check_ok(c))
 			for x in cp.mesh.selected do chosen += int(x)
 			smooth = max(smooth, cp.look.smooth)
+			sharp_copies += len(cp.dup_from)
 			e, v := poly.crease_count(&cp.mesh)
 			creased += e
 			corners += v
@@ -167,7 +168,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 				following += int(cage_follow_curve(app, obj, cp.look.follow) != nil || cage_follow_wrap(app, obj, cp.look.follow) != nil)
 			}
 		}
-		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d cage_smooth=%d cage_creases=%d cage_corners=%d cage_live_faces=%d cage_live_broken=%d cage_mirrored=%d cage_deformed=%d cage_following=%d cage_follow_updates=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces, live_broken, mirrored, deformed, following, app.model.follow_updates, app.tool)
+		fmt.printfln("cages=%d cage_points=%d cage_edges=%d cage_faces=%d cage_ngons=%d cage_broken=%d cage_selected=%d cage_smooth=%d cage_creases=%d cage_corners=%d cage_live_faces=%d cage_live_broken=%d cage_mirrored=%d cage_deformed=%d cage_following=%d cage_follow_updates=%d cage_sharp_copies=%d tool=%v", cages, points, edges, faces, ngons, broken, chosen, smooth, creased, corners, live_faces, live_broken, mirrored, deformed, following, app.model.follow_updates, sharp_copies, app.tool)
 		fmt.printfln("model_action=%v model_target=%v model_done=%d model_refused=%d model_follows=%d model_loop_curves=%d", app.model.action, model_target(&app.model, app.model.action), app.model.done, app.model.refused, app.model.follows, app.model.loop_curves)
 		// The picked points, the gizmo's drags of the selection, and the selected cage's
 		// bounds in its own space, which those drags change.
