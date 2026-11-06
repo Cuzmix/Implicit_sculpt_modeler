@@ -62,6 +62,7 @@ static const uint ITEM_SLOTS = 4u;  // groups may have materials of their own
 static const uint ITEM_TEXTURED = 8u; // shows its maps through its preview's UVs
 static const uint ITEM_SKINNED = 16u; // shades by its detail skin's normals
 static const uint ITEM_MATERIAL = 32u; // its paint has roughness and metal (vertex_material)
+static const uint ITEM_TRANSMIT = 256u; // a material in its table lets light through (rows 7 and 8)
 static const uint ITEM_LAYERS = 128u; // a material in its table has a coat, sheen, glow or its own IOR or specular (rows 4 to 9)
 static const uint ITEM_SUBSURFACE = 64u; // a material in its table scatters light under its surface (subsurface_walk)
 static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
@@ -620,6 +621,19 @@ float3 fresnel(float3 f0, float c) {
 	return f0 + (1.0 - f0) * pow(1.0 - clamp(c, 0.0, 1.0), 5.0);
 }
 
+// The exact Fresnel reflectance of a dielectric interface seen at cosine `c` from the side
+// whose IOR over the other's is 1 / `eta` (eta: the far side's IOR over the near side's):
+// 1 past the critical angle, where all the light reflects inside.
+float fresnel_dielectric(float c, float eta) {
+	c = abs(c);
+	float g2 = eta * eta - 1.0 + c * c;
+	if (g2 <= 0.0) return 1.0;
+	float g = sqrt(g2);
+	float a = (g - c) / (g + c);
+	float b = (c * (g + c) - 1.0) / (c * (g - c) + 1.0);
+	return 0.5 * a * a * (1.0 + b * b);
+}
+
 float ggx_d(float n_dot_h, float a) {
 	float a2 = a * a;
 	float d = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
@@ -750,6 +764,10 @@ bool bsdf_sample(Surface s, float3 n, float3 v, out float3 l) {
 // leaf) let light through by themselves, which a diffusion profile spread over the
 // surface does not.
 static const int WALK_STEPS = 256;
+
+// The pdf a glass's lobe passes on for weighing the lights its ray meets: large enough that
+// they count whole (power_weight squares it, so it stays far below the float range).
+static const float CLEAR_PDF = 1e15;
 
 // The single-scattering albedo whose many scatterings give colour `a` back (van de Hulst's
 // relation as Chiang et al. fit it), so the material's colour is the colour seen.
@@ -1122,13 +1140,16 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 		d = dl;
 	}
 
-	float3 radiance = float3(0.0), weight = float3(1.0);
+	float3 radiance = float3(0.0), weight = float3(1.0), absorb = float3(0.0);
 	float covered = 0.0, pdf_bsdf = 0.0;
 	float4 guide_a = float4(0.0), guide_n = float4(0.0);
 	int bounces = int(counts.z);
 	for (int bounce = 0; bounce <= bounces; bounce++) {
 		Hit hit;
 		bool met = trace(o, d, FAR, false, hit);
+		// Light absorbed on the way through a glass's inside (Beer and Lambert), zero
+		// outside one.
+		if (met && any(absorb > 0.0)) weight *= exp(-absorb * hit.t);
 		// The camera never sees the lights, as in the viewport.
 		if (bounce > 0) radiance += weight * lights_met(o, d, met ? hit.t : FAR, !met, pdf_bsdf);
 		if (!met) {
@@ -1146,6 +1167,9 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 		float3 p0 = vertex(base + ia), p1 = vertex(base + ib), p2 = vertex(base + ic);
 		float3 p = (mul(float4(p0 * w0 + p1 * hit.uv.x + p2 * hit.uv.y, 1.0), model)).xyz;
 		float3 ng = normalize(mul(cross(p1 - p0, p2 - p0), (float3x3)model));
+		// Whether the ray met the triangle's front (the mesh's outside), before the normal
+		// is turned to face it: glass refracts in or out by it.
+		bool front = dot(ng, d) <= 0.0;
 		if (dot(ng, d) > 0.0) ng = -ng;
 		float3 nm = (flags & ITEM_SKINNED) != 0u
 			? skin_normal(hit.item, hit.tri - items[hit.item].tex.x, float3(w0, hit.uv), uint3(ia, ib, ic))
@@ -1292,7 +1316,49 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 		// subsurface materials, and cost such a kernel half its speed (kernel_stats.py).
 		bool absorbed = false;
 		float lobe = 1.0;
-		if ((flags & ITEM_SUBSURFACE) != 0u) {
+		// Transmission (glass, liquids): with the chance of its weight the surface is a
+		// dielectric interface, a microfacet normal drawn from GGX's visible normals, then
+		// reflected off it or refracted through it by its exact Fresnel (OpenPBR's
+		// specular weight scaling the reflection, as glTF's specular factor does); a
+		// thin-walled one lets the light straight through. Its direction is given to the
+		// tail below, which neither lights it (a near-mirror lobe gains nothing from a light
+		// estimate) nor weighs the lights it meets against one.
+		bool clear = false;
+		float3 l_clear = float3(0.0);
+		if ((flags & ITEM_TRANSMIT) != 0u) {
+			float4 tint = material_row(table, material, 7u);
+			float4 sheet = material_row(table, material, 8u);
+			if (tint.w * (1.0 - metallic) > 0.0 && rnd() < tint.w * (1.0 - metallic)) {
+				float ior = material_row(table, material, 4u).w;
+				float lessen = material_row(table, material, 9u).w;
+				bool thin = sheet.y > 0.5;
+				float eta = thin || front ? ior : 1.0 / ior;
+				float3 t, b;
+				basis(n, t, b);
+				float3 ve = float3(dot(v, t), dot(v, b), dot(v, n));
+				float3 hl = sample_vndf(ve, s.a, float2(rnd(), rnd()));
+				float3 h = normalize(t * hl.x + b * hl.y + n * hl.z);
+				float v_dot_h = max(dot(v, h), 1e-4);
+				float fr = fresnel_dielectric(v_dot_h, eta);
+				if (fr < 1.0) fr *= 1.0 - lessen;
+				l_clear = reflect(-v, h);
+				if (rnd() >= fr) {
+					// Through: tinted at the surface, or by absorption along the inside when
+					// the material gives the depth its colour is reached at.
+					if (thin) l_clear -= 2.0 * dot(l_clear, n) * n;
+					else l_clear = refract(-v, h, 1.0 / eta);
+					float depth = sheet.x * length(model[0].xyz);
+					if (thin || sheet.x <= 0.0) weight *= tint.rgb;
+					else if (front) absorb = -log(max(tint.rgb, float3(1e-4))) / depth;
+					else absorb = float3(0.0);
+				}
+				// The visible normals' sampling leaves Smith's masking toward the light.
+				float lv = ggx_lambda(max(dot(n, v), 1e-4), s.a), ll = ggx_lambda(abs(dot(n, l_clear)), s.a);
+				weight *= (1.0 + lv) / (1.0 + lv + ll);
+				clear = true;
+			}
+		}
+		if (!clear && (flags & ITEM_SUBSURFACE) != 0u) {
 			// With the chance of its subsurface weight this path's diffuse part goes in
 			// under the surface instead of off it, so on average the surface shows its
 			// specular, the weight's share scattered inside and the rest as diffuse.
@@ -1331,17 +1397,22 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 		}
 		if (absorbed) break;
 
-		radiance += weight * direct_light(s, p, ng, n, v);
+		float3 l = l_clear;
+		if (!clear) {
+			radiance += weight * direct_light(s, p, ng, n, v);
 
-		float3 l;
-		if (!bsdf_sample(s, n, v, l) || dot(l, ng) <= 0.0) break;
-		float3 f = bsdf_eval(s, n, v, l, pdf_bsdf);
-		if (pdf_bsdf <= 0.0) break;
-		weight *= f / pdf_bsdf;
-		// A lobe picked with chance `lobe` (its weight already divided by it) has that
-		// chance in its pdf when weighed against the lights it meets.
-		pdf_bsdf *= lobe;
-		o = offset_ray(p, ng);
+			if (!bsdf_sample(s, n, v, l) || dot(l, ng) <= 0.0) break;
+			float3 f = bsdf_eval(s, n, v, l, pdf_bsdf);
+			if (pdf_bsdf <= 0.0) break;
+			weight *= f / pdf_bsdf;
+			// A lobe picked with chance `lobe` (its weight already divided by it) has that
+			// chance in its pdf when weighed against the lights it meets.
+			pdf_bsdf *= lobe;
+		} else {
+			// A lobe no light estimate shared: the lights it meets count whole.
+			pdf_bsdf = CLEAR_PDF;
+		}
+		o = offset_ray(p, dot(l, ng) >= 0.0 ? ng : -ng);
 		d = l;
 		// Russian roulette from the third bounce on, by how much the path still carries.
 		if (bounce >= 2) {
