@@ -316,6 +316,54 @@ dyn_every_brush_and_the_mask :: proc(t: ^testing.T) {
 	testing.expect(t, expect_valid(t, s), "grow broke the dynamic layout")
 }
 
+// Draw with Accumulate off and the Layer brush raise a vertex only by what the stroke
+// has not given it yet (Sculptor.layer): a vertex dynamic topology makes, moves or
+// renumbers mid-stroke carries that height along, so going back and forth over the same
+// place leaves a smooth surface. Without it a new vertex, already at the height of its
+// ends, was raised again into a spike, and one put in a slot whose height was another's
+// stayed down in a dent, which the wireframe showed as a broken mesh.
+@(test)
+dyn_accumulate_off_raises_once :: proc(t: ^testing.T) {
+	for kind in ([2]Brush_Kind{.Draw, .Layer}) {
+		sp := dyn_make(t, 5)
+		s := &sp.sculptor
+		m := s.mesh
+		sculptor_stroke_begin(s)
+		for k in 0 ..< 400 {
+			x := -0.4 + 0.8 * abs(math.mod(f32(k) / 80, 2) - 1)
+			at := linalg.normalize(Vec3{x, 0.2 * math.sin(x * 6), 1})
+			_ = apply_dab(s, {kind = kind, radius = 0.16, strength = 1, detail = 0.17, collapse = true, no_accumulate = kind == .Draw}, at)
+			_ = sculptor_flush(s)
+		}
+		_ = sculptor_stroke_end(s)
+		ok := expect_valid(t, s)
+		// How far each vertex stands off the middle of its neighbours along its normal, in
+		// neighbouring edge lengths: under a quarter on the rise the stroke makes (Layer's rim
+		// is the steepest), two or three times that where a vertex was raised twice.
+		worst: f32
+		for n in s.nodes {
+			for v in n.vert_first ..< n.vert_first + n.vert_count {
+				sum: Vec3
+				edges, count: f32
+				for f in dyn_faces(s.dyn, v) {
+					for c in u32(0) ..< 3 {
+						w := m.indices[3 * f + c]
+						if w == v do continue
+						sum += m.positions[w]
+						edges += linalg.length(m.positions[w] - m.positions[v])
+						count += 1
+					}
+				}
+				off := linalg.dot(m.positions[v] - sum / count, m.normals[v])
+				worst = max(worst, abs(off) * count / edges)
+			}
+		}
+		testing.expectf(t, worst < 0.3, "%v: a vertex stands %.3f edge lengths off its neighbours", kind, worst)
+		dyn_free(sp)
+		if !ok do return
+	}
+}
+
 // After sculpting, turning dynamic topology off gives a plain closed mesh with what
 // was sculpted, and the mask kept.
 @(test)

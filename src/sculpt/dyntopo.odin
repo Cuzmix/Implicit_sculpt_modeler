@@ -525,6 +525,9 @@ dyn_grow :: proc(s: ^Sculptor, pages: int) {
 	grow(&d.vstamp, pages * DYN_PAGE_VERTS, a)
 	if s.mask != nil do grow(&s.mask, pages * DYN_PAGE_VERTS, s.history.allocator)
 	if s.fade != nil do grow(&s.fade, pages * DYN_PAGE_VERTS, a)
+	// Accumulate off's heights are carried along by every edit (layer_mid), so they need
+	// a slot for every vertex there may be.
+	if s.layer != nil do layer_heights_fit(s)
 	nodes := make([]Node, pages, a)
 	copy(nodes, s.nodes)
 	delete(s.nodes, a)
@@ -645,6 +648,7 @@ remove_vertex :: proc(s: ^Sculptor, v: u32) {
 		m.positions[v] = m.positions[last]
 		m.normals[v] = m.normals[last]
 		if s.mask != nil do s.mask[v] = s.mask[last]
+		if int(last) < len(s.layer) do s.layer[v] = s.layer[last]
 		copy(d.faces[int(v) * DYN_FACES:][:DYN_FACES], d.faces[int(last) * DYN_FACES:][:DYN_FACES])
 		d.face_count[v] = d.face_count[last]
 		d.face_count[last] = 0
@@ -745,6 +749,7 @@ split_edge :: proc(s: ^Sculptor, a, b: u32) -> (res: Op, full, m, c, d: u32) {
 	p := (mesh.positions[a] + mesh.positions[b]) * 0.5
 	m = add_vertex(s, n1, p, linalg.normalize0(mesh.normals[a] + mesh.normals[b]), mask)
 	if s.fade != nil do s.fade[m] = max(s.fade[a], s.fade[b])
+	layer_mid(s, m, a, b)
 	fresh_add(dy, m)
 	idx[3 * t1 + (k1 + 1) % 3] = m // a m c
 	idx[3 * t2 + (k2 + 1) % 3] = m // b m d
@@ -785,6 +790,7 @@ split_border_edge :: proc(s: ^Sculptor, a, b, t1, k1: u32) -> (res: Op, full, m,
 	p := (mesh.positions[a] + mesh.positions[b]) * 0.5
 	m = add_vertex(s, n1, p, linalg.normalize0(mesh.normals[a] + mesh.normals[b]), mask)
 	if s.fade != nil do s.fade[m] = max(s.fade[a], s.fade[b])
+	layer_mid(s, m, a, b)
 	fresh_add(dy, m)
 	idx[3 * t1 + (k1 + 1) % 3] = m // a m c
 	t3 := add_triangle(s, n1, m, b, c)
@@ -797,6 +803,21 @@ split_border_edge :: proc(s: ^Sculptor, a, b, t1, k1: u32) -> (res: Op, full, m,
 	for v in ([3]u32{a, b, c}) do mark(s, vert_page(v), {.Shape})
 	dy.splits += 1
 	return .Done, 0, m, c, c
+}
+
+// Gives vertex v, put at the middle of a and b (a split's new vertex, or a collapse's
+// kept one), the middle of their Accumulate-off heights (Sculptor.layer): Draw with
+// Accumulate off and the Layer brush raise a vertex only by what the stroke has not given
+// it yet, so a vertex made mid-stroke at a height the stroke already gave its ends, with
+// no height of its own, would be raised a second time into a spike.
+@(private = "file")
+layer_mid :: #force_inline proc(s: ^Sculptor, v, a, b: u32) {
+	if int(max(v, a, b)) >= len(s.layer) do return
+	height :: #force_inline proc(s: ^Sculptor, v: u32) -> f32 {
+		l := s.layer[v]
+		return l.height if l.stroke == s.layer_stroke else 0
+	}
+	s.layer[v] = {s.layer_stroke, (height(s, a) + height(s, b)) * 0.5}
 }
 
 // How close to equilateral a triangle is: 1 for an equilateral one, 0 for one with no
@@ -887,6 +908,7 @@ collapse_edge :: proc(s: ^Sculptor, a, b: u32) -> Op {
 	}
 	dy.face_count[b] = 0
 	mesh.positions[a] = p
+	layer_mid(s, a, a, b)
 	mark(s, tri_page(t1), {.Topo, .Shape})
 	mark(s, tri_page(t2), {.Topo, .Shape})
 	remove_triangle(s, max(t1, t2))
@@ -1015,6 +1037,7 @@ split_node :: proc(s: ^Sculptor, id: u32) -> bool {
 	// Then the vertex data, through copies, since slots are both read and written.
 	Vertex :: struct {
 		p, n:  Vec3,
+		layer: Layer_Height,
 		mask:  u8,
 		count: u8,
 		faces: [DYN_FACES]u32,
@@ -1023,6 +1046,7 @@ split_node :: proc(s: ^Sculptor, id: u32) -> bool {
 	for mv, i in moves {
 		saved[i] = {p = m.positions[mv.from], n = m.normals[mv.from], count = d.face_count[mv.from]}
 		if s.mask != nil do saved[i].mask = s.mask[mv.from]
+		if int(mv.from) < len(s.layer) do saved[i].layer = s.layer[mv.from]
 		copy(saved[i].faces[:], d.faces[int(mv.from) * DYN_FACES:][:DYN_FACES])
 		d.face_count[mv.from] = 0
 	}
@@ -1045,6 +1069,7 @@ split_node :: proc(s: ^Sculptor, id: u32) -> bool {
 		x := saved[i]
 		m.positions[mv.to], m.normals[mv.to] = x.p, x.n
 		if s.mask != nil do s.mask[mv.to] = x.mask
+		if int(mv.to) < len(s.layer) do s.layer[mv.to] = x.layer
 		copy(d.faces[int(mv.to) * DYN_FACES:][:DYN_FACES], x.faces[:])
 		d.face_count[mv.to] = x.count
 	}
