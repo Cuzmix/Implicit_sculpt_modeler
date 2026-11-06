@@ -103,6 +103,25 @@
 // black, painting nothing, while there is none.
 [[vk::binding(5, 2)]] Sampler2D paint_map;
 [[vk::binding(6, 2)]] Sampler2D paint_material_map;
+// The texture paint layers' height (render.Textured_Mesh.paint_height): signed, in
+// height units, 0 flat; a 1 x 1 default while none is painted.
+[[vk::binding(7, 2)]] Sampler2D paint_height_map;
+
+// The tangent-space normal the painted height gives at `uv` (image rows down): four taps a
+// texel apart, the slope one height unit a 64th of the UV square makes, so the relief is
+// the same at any texture size; the bitangent points up the image (toward +v).
+float2 paint_height_slope(float2 uv) {
+	uint w, h;
+	paint_height_map.GetDimensions(w, h);
+	if (w <= 1u) return float2(0.0, 0.0);
+	float2 px = float2(1.0 / float(w), 1.0 / float(h));
+	float l = paint_height_map.Sample(uv - float2(px.x, 0.0)).r;
+	float r = paint_height_map.Sample(uv + float2(px.x, 0.0)).r;
+	float up = paint_height_map.Sample(uv - float2(0.0, px.y)).r;
+	float down = paint_height_map.Sample(uv + float2(0.0, px.y)).r;
+	float k = float(w) / 64.0;
+	return float2(r - l, up - down) * 0.5 * k;
+}
 
 // A checker laid out by the UVs: 8 by 8 cells over the square, every other one darker,
 // each edged with a thin line and tinted by its column (hue) and row (lightness), so
@@ -518,11 +537,16 @@ float4 main(Mesh_Varyings v_in, float4 position : SV_Position, bool is_front : S
 		float3 nv = frag_in.view_normal;
 		float3 tv = frag_in.view_tangent.xyz;
 		n = normalize(nv);
-		if ((view_mode == 1 || view_mode == 2) && maps.z > 0.5) {
-			float3 tn = normal_map.Sample(uv).xyz * 2.0 - 1.0;
-			float3 bv = frag_in.view_tangent.w * cross(nv, tv);
-			float3 mapped = tn.x * tv + tn.y * bv + tn.z * nv;
-			if (dot(mapped, mapped) > 0.0) n = normalize(mapped);
+		if (view_mode == 1 || view_mode == 2) {
+			float3 tn = maps.z > 0.5 ? normal_map.Sample(uv).xyz * 2.0 - 1.0 : float3(0.0, 0.0, 1.0);
+			// The painted height's relief over the map's, as a UDN blend adds detail normals.
+			float2 slope = paint_height_slope(uv);
+			tn.xy -= slope;
+			if (maps.z > 0.5 || any(slope != 0.0)) {
+				float3 bv = frag_in.view_tangent.w * cross(nv, tv);
+				float3 mapped = tn.x * tv + tn.y * bv + tn.z * nv;
+				if (dot(mapped, mapped) > 0.0) n = normalize(mapped);
+			}
 		}
 		// The back of the surface: the mapped normal turned round whole, so the map is not
 		// mirrored there.

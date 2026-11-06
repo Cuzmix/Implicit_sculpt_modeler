@@ -309,6 +309,42 @@ float4 map_at(uint slot, uint kind, float2 uv, float lod) {
 }
 #endif
 
+// The size in texels of map `kind` of slot `slot`, as map_at picks it.
+#define MAP_SIZE(s) { return texture_size(s); }
+#ifdef MAP_ARRAY
+int2 map_size(uint slot, uint kind) {
+	MAP_SIZE(maps[NonUniformResourceIndex(slot * 3u + kind)])
+}
+#else
+int2 map_size(uint slot, uint kind) {
+	switch (slot * 3u + kind) {
+	case 0u: MAP_SIZE(map0)
+	case 1u: MAP_SIZE(map1)
+	case 2u: MAP_SIZE(map2)
+	case 3u: MAP_SIZE(map3)
+	case 4u: MAP_SIZE(map4)
+	case 5u: MAP_SIZE(map5)
+	case 6u: MAP_SIZE(map6)
+	case 7u: MAP_SIZE(map7)
+	case 8u: MAP_SIZE(map8)
+	}
+	return int2(1);
+}
+#endif
+
+// The tangent-space normal's tilt the painted height in slot `slot`'s normal place gives
+// at `uv`, as mesh_shading.slang's paint_height_slope reads it: four taps a texel apart on
+// its finest level, one height unit over a 64th of the UV square a slope of one.
+float2 paint_height_slope_at(uint slot, float2 uv) {
+	float2 size = float2(map_size(slot, 2u));
+	float2 px = 1.0 / size;
+	float l = map_at(slot, 2u, uv - float2(px.x, 0.0), -40.0).r;
+	float r = map_at(slot, 2u, uv + float2(px.x, 0.0), -40.0).r;
+	float up = map_at(slot, 2u, uv - float2(0.0, px.y), -40.0).r;
+	float down = map_at(slot, 2u, uv + float2(0.0, px.y), -40.0).r;
+	return float2(r - l, up - down) * 0.5 * (size.x / 64.0);
+}
+
 // The viewport's UV checker (mesh_shading.slang): 8 by 8 cells, every other one darker,
 // each edged with a line and tinted by its column and row; the lines a fixed share of a
 // cell, since render mode smooths edges by its samples rather than by pixel derivatives.
@@ -921,7 +957,7 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 			Tex_Vertex t1 = tex_vertex(tex.z + 8u * textured[at + 1u]);
 			Tex_Vertex t2 = tex_vertex(tex.z + 8u * textured[at + 2u]);
 #ifdef MAP_ARRAY
-			uint slot = (tex.w >> 16) & 255u, view = (tex.w >> 4) & 15u, maps = (tex.w >> 8) & 15u;
+			uint slot = (tex.w >> 16) & 255u, view = (tex.w >> 4) & 15u, maps = (tex.w >> 8) & 31u;
 #else
 			uint slot = tex.w & 15u, view = (tex.w >> 4) & 15u, maps = tex.w >> 8;
 #endif
@@ -949,8 +985,11 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 			float4 tw = t0.t * w0 + t1.t * hit.uv.x + t2.t * hit.uv.y;
 			float3 tv = mul(tw.xyz, turn);
 			float3 mapped = normalize(nv);
-			if ((view == 1u || view == 2u) && (maps & 4u) != 0u) {
-				float3 tn = map_at(slot, 2u, uv, lod).xyz * 2.0 - 1.0;
+			if ((view == 1u || view == 2u) && (maps & 20u) != 0u) {
+				// The painted height, when there is any, holds the normal map's place.
+				float3 tn = float3(0.0, 0.0, 1.0);
+				if ((maps & 16u) != 0u) tn.xy -= paint_height_slope_at(slot, uv);
+				else tn = map_at(slot, 2u, uv, lod).xyz * 2.0 - 1.0;
 				float3 bv = (tw.w < 0.0 ? -1.0 : 1.0) * cross(nv, tv);
 				float3 m = tn.x * tv + tn.y * bv + tn.z * nv;
 				if (dot(m, m) > 0.0) mapped = normalize(m);

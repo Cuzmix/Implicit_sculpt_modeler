@@ -65,7 +65,7 @@ paint_command :: proc(app: ^App, command: sculpt.Paint_Command) {
 		// The picked layer lives in a texture: its tiles change, kept by an undo step of
 		// the object's own.
 		step := new(sculpt.Texel_Step)
-		changed := sculpt.levels_texel_command(&obj.levels, command, brush_color_bytes(app), material, step)
+		changed := sculpt.levels_texel_command(&obj.levels, command, brush_color_bytes(app), material, step, sculpt.height_value(clamp(app.brush.height, -1, 1)))
 		log.infof("%s on a texture layer: %.0f ms%s", PAINT_COMMAND_NAMES[command], time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
 		if changed do history_record_texels(app, obj, step, PAINT_COMMAND_NAMES[command])
 		else {
@@ -338,10 +338,19 @@ object_paint_flat :: proc(obj: ^Object, s: ^sculpt.Sculptor) -> []sculpt.Color {
 	return sculpt.levels_paint_flat(&obj.levels, s)
 }
 
+// An object's paint as PNG files at its texture layers' size: base colour and ORM, and
+// height and its normal when a layer paints height (nil otherwise).
+Paint_Map_Pngs :: struct {
+	base, orm:      []u8,
+	height, normal: []u8,
+	side:           int,
+}
+
 // `obj`'s paint as base colour and ORM maps (sculpt.levels_texels_maps), PNG coded in
-// temporary memory, over its material's colour, roughness and metal: nil unless it has
-// texture layers to show and can show them (no voxels, HD window or dynamic topology).
-object_paint_map_pngs :: proc(app: ^App, obj: ^Object) -> (base, orm: []u8, side: int) {
+// temporary memory, over its material's colour, roughness and metal, with the height maps
+// (sculpt.levels_texels_height_maps): none unless it has texture layers to show and can
+// show them (no voxels, HD window or dynamic topology).
+object_paint_map_pngs :: proc(app: ^App, obj: ^Object) -> (out: Paint_Map_Pngs) {
 	if obj.voxel != nil || obj.curve != nil || obj.cage != nil || object_dynamic(obj) || object_in_hd(obj) do return
 	l := &obj.levels
 	sculpt.levels_texels_flush(l)
@@ -354,13 +363,19 @@ object_paint_map_pngs :: proc(app: ^App, obj: ^Object) -> (base, orm: []u8, side
 	rm := [2]u8{u8(clamp(m.roughness * 255 + 0.5, 0, 255)), u8(clamp(m.metallic * 255 + 0.5, 0, 255))}
 	b, o := sculpt.levels_texels_maps(l, under, rm, context.temp_allocator)
 	if b == nil do return
-	side = l.texels.side
-	return png_write.encode(b, side, side, false, context.temp_allocator), png_write.encode(o, side, side, false, context.temp_allocator), side
+	side := l.texels.side
+	out = {base = png_write.encode(b, side, side, false, context.temp_allocator), orm = png_write.encode(o, side, side, false, context.temp_allocator), side = side}
+	if h, n := sculpt.levels_texels_height_maps(l, context.temp_allocator); h != nil {
+		out.height = png_write.encode_gray16(h, side, side, context.temp_allocator)
+		out.normal = png_write.encode(n, side, side, false, context.temp_allocator)
+	}
+	return
 }
 
 // Writes the selected object's paint (vertex and texture layers, over its material) into
 // `folder` as NAME_base_color.png and NAME_orm.png at its texture layers' size, NAME being
-// the object's, as Bake names its maps. False, with a note saying why, when it cannot.
+// the object's, as Bake names its maps, and NAME_height.png (16-bit grey, mid-grey flat)
+// and NAME_normal.png when a layer paints height. False, with a note saying why, when it cannot.
 paint_maps_export :: proc(app: ^App, folder: string) -> bool {
 	obj := selected_object(app)
 	if obj == nil {
@@ -369,19 +384,21 @@ paint_maps_export :: proc(app: ^App, folder: string) -> bool {
 	}
 	stroke_finish(app)
 	start := time.tick_now()
-	base, orm, side := object_paint_map_pngs(app, obj)
-	if base == nil {
+	maps := object_paint_map_pngs(app, obj)
+	if maps.base == nil {
 		file_note(app, true, "Export paint maps: %s has no texture layer showing (Layers > Paint > New layer > In a texture)", object_label(obj))
 		return false
 	}
 	name, _ := strings.replace_all(object_label(obj), " ", "_", context.temp_allocator)
-	for m in ([2]struct {
+	for m in ([4]struct {
 			data:   []u8,
 			suffix: string,
-		}{{base, "_base_color.png"}, {orm, "_orm.png"}}) {
+		}{{maps.base, "_base_color.png"}, {maps.orm, "_orm.png"}, {maps.height, "_height.png"}, {maps.normal, "_normal.png"}}) {
+		if m.data == nil do continue
 		path, _ := filepath.join({folder, strings.concatenate({name, m.suffix}, context.temp_allocator)}, context.temp_allocator)
 		if !write_file_safely(app, path, m.data, "export") do return false
 	}
-	file_note(app, false, "%s", fmt.tprintf("Exported %s's paint as %s_base_color.png and %s_orm.png (%d x %d) in %.0f ms", object_label(obj), name, name, side, side, time.duration_milliseconds(time.tick_since(start))))
+	also := fmt.tprintf(", %s_height.png and %s_normal.png", name, name) if maps.height != nil else ""
+	file_note(app, false, "%s", fmt.tprintf("Exported %s's paint as %s_base_color.png, %s_orm.png%s (%d x %d) in %.0f ms", object_label(obj), name, name, also, maps.side, maps.side, time.duration_milliseconds(time.tick_since(start))))
 	return true
 }

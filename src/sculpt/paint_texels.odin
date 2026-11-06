@@ -39,11 +39,20 @@ TEXEL_NONE :: max(u32)
 TEXEL_GUTTER :: 2
 
 // A tile's channels, each TILE_TEXELS long in rows from the top, nil when not painted:
-// colour and its coverage, and roughness and metal with theirs (Material_Paint).
+// colour and its coverage, roughness and metal with theirs (Material_Paint), and height
+// with its coverage (Height_Paint).
 Texel_Tile :: struct {
 	color:    []Color,
 	material: []Material_Paint,
+	height:   []Height_Paint,
 }
+
+// A texel's height paint: the height, HEIGHT_FLAT for none (0 and 65535 are -1 and +1
+// height units), and its coverage (0 to 65535). In the composite (Texels.shown) the first
+// is the stack's height H in height units as half-float bits (0 is flat), as the GPU's
+// R16_Float takes it, and the second its coverage.
+Height_Paint :: [2]u16
+HEIGHT_FLAT :: 32768
 
 Texel_Layer :: struct {
 	id:    u32,
@@ -51,7 +60,7 @@ Texel_Layer :: struct {
 }
 
 // One tile of the texel map: per texel its triangle (TEXEL_NONE for none) and its second
-// and third barycentric coordinates as fractions of 65535.
+// and third barycentric coordinates (bary_pack).
 Texel_Map_Tile :: struct {
 	tri:  []u32,
 	bary: [][2]u16,
@@ -104,12 +113,21 @@ texel_side_ok :: proc(side: int) -> bool {
 texel_tiles_across :: proc(side: int) -> int {return side / TEXEL_TILE}
 
 @(private = "file")
-tile_new :: proc(color, material: bool) -> ^Texel_Tile {
+tile_new :: proc(color, material: bool, height := false) -> ^Texel_Tile {
 	h := runtime.heap_allocator()
 	t := new(Texel_Tile, h)
 	if color do t.color = make([]Color, TILE_TEXELS, h)
 	if material do t.material = make([]Material_Paint, TILE_TEXELS, h)
+	if height do t.height = height_new()
 	return t
+}
+
+// A tile's height channel, flat and bare.
+@(private = "file")
+height_new :: proc() -> []Height_Paint {
+	out := make([]Height_Paint, TILE_TEXELS, runtime.heap_allocator())
+	for &v in out do v = {HEIGHT_FLAT, 0}
+	return out
 }
 
 @(private = "file")
@@ -118,21 +136,23 @@ tile_free :: proc(t: ^Texel_Tile) {
 	h := runtime.heap_allocator()
 	delete(t.color, h)
 	delete(t.material, h)
+	delete(t.height, h)
 	free(t, h)
 }
 
 @(private = "file")
 tile_clone :: proc(t: ^Texel_Tile) -> ^Texel_Tile {
 	if t == nil do return nil
-	c := tile_new(t.color != nil, t.material != nil)
+	c := tile_new(t.color != nil, t.material != nil, t.height != nil)
 	copy(c.color, t.color)
 	copy(c.material, t.material)
+	copy(c.height, t.height)
 	return c
 }
 
 @(private = "file")
 tile_bytes :: proc(t: ^Texel_Tile) -> int {
-	return 0 if t == nil else (len(t.color) + len(t.material)) * size_of(Color)
+	return 0 if t == nil else (len(t.color) + len(t.material)) * size_of(Color) + len(t.height) * size_of(Height_Paint)
 }
 
 @(private = "file")
@@ -360,15 +380,16 @@ levels_texels_flush :: proc(l: ^Levels) {
 // of them painted it. Made with the heap allocator, inside a job.
 @(private = "file")
 texel_composite :: proc(rows: []Texel_Row, index, side: int) -> ^Texel_Tile {
-	color, material := false, false
+	color, material, height := false, false, false
 	for r in rows {
 		tile := r.layer.tiles[index]
 		if tile == nil do continue
 		color ||= tile.color != nil
 		material ||= tile.material != nil
+		height ||= tile.height != nil
 	}
-	if !color && !material do return nil
-	out := tile_new(color, material)
+	if !color && !material && !height do return nil
+	out := tile_new(color, material, height)
 	across := texel_tiles_across(side)
 	x0, y0 := (index % across) * TEXEL_TILE, (index / across) * TEXEL_TILE
 	for k in 0 ..< TILE_TEXELS {
@@ -407,9 +428,29 @@ texel_composite :: proc(rows: []Texel_Row, index, side: int) -> ^Texel_Tile {
 				out.material[k][2 * c + 1] = texel_byte(cover[c] * 255, dither)
 			}
 		}
+		if height {
+			// The stack's height, each layer's as far as it covers, bare texels flat; 16
+			// bits do not band, so no dither.
+			value, cover: f32
+			for j := len(rows) - 1; j >= 0; j -= 1 {
+				tile := rows[j].layer.tiles[index]
+				if tile == nil || tile.height == nil do continue
+				hp := tile.height[k]
+				x := f32(hp[1]) * (1.0 / 65535) * rows[j].weight * (1 - cover)
+				value += height_units(hp[0]) * x
+				cover += x
+				if cover >= 1 do break
+			}
+			// Signed, as half-float bits, so a bare texel, a tile with no height and the GPU's
+			// zero default all read flat (0).
+			out.height[k] = {transmute(u16)f16(value), u16(clamp(cover * 65535 + 0.5, 0, 65535))}
+		}
 	}
 	return out
 }
+
+// A Height_Paint value in height units, -1 to 1.
+height_units :: #force_inline proc(v: u16) -> f32 {return (f32(v) - HEIGHT_FLAT) * (1.0 / 32767)}
 
 // An ordered dither for texel (x, y) within ±0.47 of a step, so soft layers over each other
 // do not band in 8 bits and a whole step (one layer at full opacity) comes out exactly.
@@ -469,7 +510,8 @@ levels_texel_map :: proc(l: ^Levels) -> bool {
 // Rasterises the triangles' UVs at `side` texels square: each texel whose centre a
 // triangle covers takes it (the lowest numbered where islands overlap) and its barycentric
 // place; then texels up to TEXEL_GUTTER away from every island take the nearest covered
-// texel's (the lowest triangle, then the first texel, on a tie). The same map on any
+// texel's triangle (the lowest triangle, then the first texel, on a tie) and their own
+// place on its plane. The same map on any
 // thread count: triangles are binned to tiles in order and each tile is one job's.
 @(private = "file")
 texel_map_build :: proc(u: uv.Uvs, triangles, side: int, pool: ^jobs.Pool) -> []^Texel_Map_Tile {
@@ -544,7 +586,7 @@ texel_map_build :: proc(u: uv.Uvs, triangles, side: int, pool: ^jobs.Pool) -> []
 				b2 := ((p[1].x - p[0].x) * (q.y - p[0].y) - (q.x - p[0].x) * (p[1].y - p[0].y)) / area
 				if b1 < 0 || b2 < 0 || b1 + b2 > 1 do continue
 				tri[k] = t
-				bary[k] = {u16(b1 * 65535 + 0.5), u16(b2 * 65535 + 0.5)}
+				bary[k] = bary_pack({b1, b2})
 				covered = true
 			}
 		}
@@ -557,15 +599,34 @@ texel_map_build :: proc(u: uv.Uvs, triangles, side: int, pool: ^jobs.Pool) -> []
 		m.tri, m.bary = tri, bary
 		job.out[i] = m
 	})
-	texel_map_gutter(out, across, pool)
+	texel_map_gutter(out, u, side, across, pool)
 	return out
 }
 
-// Gives the texels around the islands (TEXEL_GUTTER deep, across tiles too) the nearest
-// covered texel's place. Each tile finds its gutter from the covered texels alone, then
-// every tile takes its own, so no job reads what another writes.
+// A texel's barycentric coordinates in 16 bits each, from BARY_LO to BARY_LO + BARY_SPAN:
+// past the triangle's edges as well as on it, since a gutter texel carries its own place
+// on the plane of the nearest triangle, so paint (height above all) goes on changing
+// across an island's edge as it did inside, and a slope read there does not flatten.
+BARY_LO :: -0.5
+BARY_SPAN :: 2.0
+
 @(private = "file")
-texel_map_gutter :: proc(tiles: []^Texel_Map_Tile, across: int, pool: ^jobs.Pool) {
+bary_pack :: #force_inline proc(b: [2]f32) -> [2]u16 {
+	q := (b - BARY_LO) * (65535 / BARY_SPAN) + 0.5
+	return {u16(clamp(q.x, 0, 65535)), u16(clamp(q.y, 0, 65535))}
+}
+
+@(private)
+bary_unpack :: #force_inline proc(b: [2]u16) -> [2]f32 {
+	return [2]f32{f32(b.x), f32(b.y)} * (BARY_SPAN / 65535) + BARY_LO
+}
+
+// Gives the texels around the islands (TEXEL_GUTTER deep, across tiles too) the nearest
+// covered texel's triangle, each at its own place on that triangle's plane. Each tile
+// finds its gutter from the covered texels alone, then every tile takes its own, so no job
+// reads what another writes.
+@(private = "file")
+texel_map_gutter :: proc(tiles: []^Texel_Map_Tile, u: uv.Uvs, side, across: int, pool: ^jobs.Pool) {
 	Found :: struct {
 		at:   u16,
 		tri:  u32,
@@ -573,10 +634,12 @@ texel_map_gutter :: proc(tiles: []^Texel_Map_Tile, across: int, pool: ^jobs.Pool
 	}
 	Job :: struct {
 		tiles:  []^Texel_Map_Tile,
+		u:      uv.Uvs,
+		fs:     f32,
 		across: int,
 		found:  [][dynamic]Found,
 	}
-	job := Job{tiles, across, make([][dynamic]Found, len(tiles), context.temp_allocator)}
+	job := Job{tiles, u, f32(side), across, make([][dynamic]Found, len(tiles), context.temp_allocator)}
 	jobs.parallel_for(pool, len(tiles), &job, proc(data: rawptr, i: int) {
 		job := cast(^Job)data
 		across := job.across
@@ -609,6 +672,15 @@ texel_map_gutter :: proc(tiles: []^Texel_Map_Tile, across: int, pool: ^jobs.Pool
 				}
 			}
 			if best.tri == TEXEL_NONE do continue
+			// The texel's own place on that triangle's plane, past its edge.
+			c := job.u.corner[best.tri]
+			p: [3][2]f32
+			for n in 0 ..< 3 do p[n] = {c[n].x * job.fs, (1 - c[n].y) * job.fs}
+			area := (p[1].x - p[0].x) * (p[2].y - p[0].y) - (p[2].x - p[0].x) * (p[1].y - p[0].y)
+			q := [2]f32{f32(gx) + 0.5, f32(gy) + 0.5}
+			b1 := ((q.x - p[0].x) * (p[2].y - p[0].y) - (p[2].x - p[0].x) * (q.y - p[0].y)) / area
+			b2 := ((p[1].x - p[0].x) * (q.y - p[0].y) - (q.x - p[0].x) * (p[1].y - p[0].y)) / area
+			best.bary = bary_pack({b1, b2})
 			if job.found[i] == nil do job.found[i] = make([dynamic]Found, h)
 			append(&job.found[i], best)
 		}
@@ -638,7 +710,7 @@ levels_texel_position :: proc(l: ^Levels, m: ^Texel_Map_Tile, k: int) -> (p: Vec
 	if t == TEXEL_NONE do return
 	lv := levels_current(l)
 	idx := lv.mesh.indices[3 * t:][:3]
-	b := [2]f32{f32(m.bary[k].x), f32(m.bary[k].y)} * (1.0 / 65535)
+	b := bary_unpack(m.bary[k])
 	pos := lv.mesh.positions[:]
 	return pos[idx[0]] * (1 - b.x - b.y) + pos[idx[1]] * b.x + pos[idx[2]] * b.y, true
 }
@@ -711,7 +783,7 @@ levels_texel_picked :: proc(l: ^Levels) -> (layer: ^Texel_Layer, writes: Paint_C
 // their gutter) with `color` and `material` (roughness, metal), in the channels the layer
 // writes, or clears those channels; the tiles it changes are saved into `step` first.
 // Returns true when it changed a tile. Gradient is the vertices' alone (false).
-levels_texel_command :: proc(l: ^Levels, command: Paint_Command, color: [3]u8, material: [2]u8, step: ^Texel_Step) -> bool {
+levels_texel_command :: proc(l: ^Levels, command: Paint_Command, color: [3]u8, material: [2]u8, step: ^Texel_Step, height: u16 = HEIGHT_FLAT) -> bool {
 	layer, writes := levels_texel_picked(l)
 	s := &levels_current(l).sculptor
 	_ = sculptor_stroke_end(s)
@@ -733,8 +805,9 @@ levels_texel_command :: proc(l: ^Levels, command: Paint_Command, color: [3]u8, m
 		writes:   Paint_Channels,
 		color:    Color,
 		material: [2]u8,
+		height:   u16,
 	}
-	job := Job{layer, m, touched[:], command == .Clear, writes, {color.r, color.g, color.b, 255}, material}
+	job := Job{layer, m, touched[:], command == .Clear, writes, {color.r, color.g, color.b, 255}, material, height}
 	jobs.parallel_for(l.pool, len(touched), &job, proc(data: rawptr, j: int) {
 		job := cast(^Job)data
 		i := job.touched[j]
@@ -751,7 +824,11 @@ levels_texel_command :: proc(l: ^Levels, command: Paint_Command, color: [3]u8, m
 				c := 0 if .Roughness in job.writes else 1
 				if job.writes & {.Roughness, .Metal} != {} do for &v in tile.material do v[2 * c], v[2 * c + 1] = 0, 0
 			}
-			if tile.color == nil && tile.material == nil {
+			if .Height in job.writes {
+				delete(tile.height, runtime.heap_allocator())
+				tile.height = nil
+			}
+			if tile.color == nil && tile.material == nil && tile.height == nil {
 				tile_free(tile)
 				job.layer.tiles[i] = nil
 			}
@@ -764,9 +841,11 @@ levels_texel_command :: proc(l: ^Levels, command: Paint_Command, color: [3]u8, m
 		}
 		if .Color in job.writes && tile.color == nil do tile.color = make([]Color, TILE_TEXELS, h)
 		if job.writes & {.Roughness, .Metal} != {} && tile.material == nil do tile.material = make([]Material_Paint, TILE_TEXELS, h)
+		if .Height in job.writes && tile.height == nil do tile.height = height_new()
 		on := job.m.tiles[i].tri
 		for k in 0 ..< TILE_TEXELS {
 			if on[k] == TEXEL_NONE do continue
+			if .Height in job.writes do tile.height[k] = {job.height, 65535}
 			if .Color in job.writes do tile.color[k] = job.color
 			if .Roughness in job.writes do tile.material[k][0], tile.material[k][1] = job.material[0], 255
 			if .Metal in job.writes do tile.material[k][2], tile.material[k][3] = job.material[1], 255
@@ -866,6 +945,7 @@ texel_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 			}
 			if .Color in writes && tile.color == nil do tile.color = make([]Color, TILE_TEXELS, h)
 			if writes & {.Roughness, .Metal} != {} && tile.material == nil do tile.material = make([]Material_Paint, TILE_TEXELS, h)
+			if .Height in writes && tile.height == nil do tile.height = height_new()
 		}
 	}
 	Job :: struct {
@@ -917,6 +997,11 @@ texel_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 					changed |= next != tile.material[b.at]
 					tile.material[b.at] = next
 				}
+				if .Height in job.writes {
+					next := height_toward(tile.height[b.at], b.height, b.w)
+					changed |= next != tile.height[b.at]
+					tile.height[b.at] = next
+				}
 				if changed do painted += 1
 			}
 			job.painted[j] = painted
@@ -929,7 +1014,7 @@ texel_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 			if mt == nil do continue
 			at := (y % TEXEL_TILE) * TEXEL_TILE + x % TEXEL_TILE
 			if mt.tri[at] != tri do continue
-			b := [2]f32{f32(mt.bary[at].x), f32(mt.bary[at].y)} * (1.0 / 65535)
+			b := bary_unpack(mt.bary[at])
 			w3 := [3]f32{1 - b.x - b.y, b.x, b.y}
 			q := p[0] * w3[0] + p[1] * w3[1] + p[2] * w3[2]
 			delta := q - d.center
@@ -947,8 +1032,8 @@ texel_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 			if w <= 0 do continue
 			if job.blur {
 				if job.targets[j] == nil do job.targets[j] = make([dynamic]Texel_Blur, 0, 64, runtime.heap_allocator())
-				color, material := texel_blur_target(job.layer, job.m, job.side, job.across, x, y, step)
-				append(&job.targets[j], Texel_Blur{u32(k), u32(at), min(w, 1), color, material})
+				color, material, height := texel_blur_target(job.layer, job.m, job.side, job.across, x, y, step)
+				append(&job.targets[j], Texel_Blur{u32(k), u32(at), min(w, 1), color, material, height})
 				continue
 			}
 			tile := job.layer.tiles[k]
@@ -964,6 +1049,13 @@ texel_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 				next := material_mix(tile.material[at], {d.brush.roughness, d.brush.metal}, job.writes, w, d.brush.invert)
 				if next != tile.material[at] {
 					tile.material[at] = next
+					changed = true
+				}
+			}
+			if .Height in job.writes {
+				next := height_mix(tile.height[at], d.brush.height, w, d.brush.invert)
+				if next != tile.height[at] {
+					tile.height[at] = next
 					changed = true
 				}
 			}
@@ -1001,6 +1093,7 @@ Texel_Blur :: struct {
 	w:        f32,
 	color:    Color,
 	material: Material_Paint,
+	height:   Height_Paint,
 }
 
 // What a texel blurs toward: the paint of the texels on a 5 × 5 grid `step` apart round
@@ -1008,8 +1101,8 @@ Texel_Blur :: struct {
 // bare clay lends no colour, and the coverage averaged plainly, as the vertices' Blur
 // does; roughness and metal the same way, each with its own coverage.
 @(private)
-texel_blur_target :: proc(layer: ^Texel_Layer, m: ^Texel_Map, side, across, x, y, step: int) -> (color: Color, material: Material_Paint) {
-	sum: [4][4]f32 // colour rgb·a, a; roughness·cover, cover; metal·cover, cover
+texel_blur_target :: proc(layer: ^Texel_Layer, m: ^Texel_Map, side, across, x, y, step: int) -> (color: Color, material: Material_Paint, height: Height_Paint) {
+	sum: [4][4]f32 // colour rgb·a, a; roughness·cover, cover; metal·cover, cover; height·cover, cover
 	n: f32
 	for dy in -2 ..= 2 do for dx in -2 ..= 2 {
 		px, py := x + dx * step, y + dy * step
@@ -1033,12 +1126,20 @@ texel_blur_target :: proc(layer: ^Texel_Layer, m: ^Texel_Map, side, across, x, y
 				sum[1 + c] += {f32(mp[2 * c]) * a, a, 0, 0}
 			}
 		}
+		if tile.height != nil {
+			hp := tile.height[at]
+			a := f32(hp[1])
+			sum[3] += {height_units(hp[0]) * a, a, 0, 0}
+		}
 	}
 	own := layer.tiles[(y / TEXEL_TILE) * across + x / TEXEL_TILE]
 	at := (y % TEXEL_TILE) * TEXEL_TILE + x % TEXEL_TILE
 	color = own.color[at] if own != nil && own.color != nil else {}
 	material = own.material[at] if own != nil && own.material != nil else {}
+	height = own.height[at] if own != nil && own.height != nil else {HEIGHT_FLAT, 0}
 	if n == 0 do return
+	if sum[3].y > 0 do height[0] = height_value(sum[3].x / sum[3].y)
+	height[1] = u16(clamp(sum[3].y / n + 0.5, 0, 65535))
 	if sum[0].a > 0 do for k in 0 ..< 3 do color[k] = u8(clamp(sum[0][k] / sum[0].a + 0.5, 0, 255))
 	color.a = u8(clamp(sum[0].a / n + 0.5, 0, 255))
 	for c in 0 ..< 2 {
@@ -1099,10 +1200,10 @@ levels_texels_relayout :: proc(l: ^Levels, next: uv.Uvs, steps: ^[dynamic]Texel_
 			for k in 0 ..< TILE_TEXELS {
 				tri := m.tri[k]
 				if tri == TEXEL_NONE do continue
-				b := [2]f32{f32(m.bary[k].x), f32(m.bary[k].y)} * (1.0 / 65535)
+				b := bary_unpack(m.bary[k])
 				c := job.old[tri]
 				at := c[0] * (1 - b.x - b.y) + c[1] * b.x + c[2] * b.y
-				color, material, any := texel_sample(job.layer, job.side, job.across, {at.x * fs - 0.5, (1 - at.y) * fs - 0.5})
+				color, material, height, any := texel_sample(job.layer, job.side, job.across, {at.x * fs - 0.5, (1 - at.y) * fs - 0.5})
 				if !any do continue
 				if out == nil {
 					out = tile_new(false, false)
@@ -1116,6 +1217,10 @@ levels_texels_relayout :: proc(l: ^Levels, next: uv.Uvs, steps: ^[dynamic]Texel_
 				if material[1] > 0 || material[3] > 0 {
 					if out.material == nil do out.material = make([]Material_Paint, TILE_TEXELS, h)
 					out.material[k] = material
+				}
+				if height[1] > 0 {
+					if out.height == nil do out.height = height_new()
+					out.height[k] = height
 				}
 			}
 		})
@@ -1135,10 +1240,11 @@ levels_texels_relayout :: proc(l: ^Levels, next: uv.Uvs, steps: ^[dynamic]Texel_
 // bilinear over the four texels round it, each colour and material channel counted as
 // far as it covers and the coverage plainly; false where none of the four is painted.
 @(private)
-texel_sample :: proc(layer: ^Texel_Layer, side, across: int, p: [2]f32) -> (color: Color, material: Material_Paint, any: bool) {
+texel_sample :: proc(layer: ^Texel_Layer, side, across: int, p: [2]f32) -> (color: Color, material: Material_Paint, height: Height_Paint, any: bool) {
 	x0, y0 := int(linalg.floor(p.x)), int(linalg.floor(p.y))
 	fx, fy := p.x - f32(x0), p.y - f32(y0)
 	sum: [4][4]f32 // as texel_blur_target's
+	height = {HEIGHT_FLAT, 0}
 	for dy in 0 ..= 1 do for dx in 0 ..= 1 {
 		x, y := clamp(x0 + dx, 0, side - 1), clamp(y0 + dy, 0, side - 1)
 		w := (fx if dx == 1 else 1 - fx) * (fy if dy == 1 else 1 - fy)
@@ -1157,7 +1263,13 @@ texel_sample :: proc(layer: ^Texel_Layer, side, across: int, p: [2]f32) -> (colo
 				sum[1 + c] += {f32(mp[2 * c]) * a, a, 0, 0}
 			}
 		}
+		if tile.height != nil {
+			hp := tile.height[at]
+			a := f32(hp[1]) * w
+			sum[3] += {height_units(hp[0]) * a, a, 0, 0}
+		}
 	}
+	if sum[3].y > 0 do height = {height_value(sum[3].x / sum[3].y), u16(clamp(sum[3].y + 0.5, 0, 65535))}
 	if sum[0].a > 0 {
 		for k in 0 ..< 3 do color[k] = u8(clamp(sum[0][k] / sum[0].a + 0.5, 0, 255))
 		color.a = u8(clamp(sum[0].a + 0.5, 0, 255))
@@ -1166,7 +1278,7 @@ texel_sample :: proc(layer: ^Texel_Layer, side, across: int, p: [2]f32) -> (colo
 		material[2 * c] = u8(clamp(sum[1 + c].x / sum[1 + c].y + 0.5, 0, 255))
 		material[2 * c + 1] = u8(clamp(sum[1 + c].y + 0.5, 0, 255))
 	}
-	return color, material, color.a > 0 || material[1] > 0 || material[3] > 0
+	return color, material, height, color.a > 0 || material[1] > 0 || material[3] > 0 || height[1] > 0
 }
 
 // The colours per vertex of level `s` (one of `l`'s sculptors) with the texture layers
@@ -1340,7 +1452,7 @@ levels_texels_maps :: proc(l: ^Levels, under: [3]u8, under_rm: [2]u8, allocator 
 			// The vertex layers where the texel lies, over the material.
 			if mt := t.tex_map.tiles[k]; mt != nil && mt.tri[at] != TEXEL_NONE && (job.colors != nil || job.materials != nil) {
 				tri := mt.tri[at]
-				b := [2]f32{f32(mt.bary[at].x), f32(mt.bary[at].y)} * (1.0 / 65535)
+				b := bary_unpack(mt.bary[at])
 				w := [3]f32{1 - b.x - b.y, b.x, b.y}
 				vs := idx[3 * tri:][:3]
 				if job.colors != nil {
@@ -1374,4 +1486,90 @@ levels_texels_maps :: proc(l: ^Levels, under: [3]u8, under_rm: [2]u8, allocator 
 		}
 	})
 	return
+}
+
+// The texture layers' painted height as maps of `side` square (rows from the top), or nil
+// when no texel has any: `height` 16-bit grey, HEIGHT_FLAT flat as a Height_Paint value
+// is (the shown height clamped to -1 to 1 unit), and `normal` RGBA, the tangent-space
+// normal the viewport shades it with (+Y toward +v, as glTF reads a normal map), from the
+// same four taps a texel apart and one unit over a 64th of the square a slope of one.
+levels_texels_height_maps :: proc(l: ^Levels, allocator := context.allocator) -> (height: []u16, normal: []u8) {
+	t := &l.texels
+	if t.side == 0 || len(t.layers) == 0 do return
+	levels_texels_flush(l)
+	any_height := false
+	for sh in t.shown do if sh != nil && sh.height != nil do any_height = true
+	if !any_height do return
+	side := t.side
+	h := runtime.heap_allocator()
+	units := make([]f32, side * side, h)
+	defer delete(units, h)
+	height = make([]u16, side * side, allocator)
+	normal = make([]u8, 4 * side * side, allocator)
+	Job :: struct {
+		t:      ^Texels,
+		units:  []f32,
+		height: []u16,
+		normal: []u8,
+	}
+	job := Job{t, units, height, normal}
+	// The heights first, then the normals, which read the rows either side.
+	jobs.parallel_for(l.pool, side / TEXEL_TILE, &job, proc(data: rawptr, ty: int) {
+		job := cast(^Job)data
+		side := job.t.side
+		across := texel_tiles_across(side)
+		for y in ty * TEXEL_TILE ..< (ty + 1) * TEXEL_TILE do for x in 0 ..< side {
+			v: f32
+			if sh := job.t.shown[(y / TEXEL_TILE) * across + x / TEXEL_TILE]; sh != nil && sh.height != nil {
+				v = f32(transmute(f16)sh.height[(y % TEXEL_TILE) * TEXEL_TILE + x % TEXEL_TILE][0])
+			}
+			job.units[y * side + x] = v
+			job.height[y * side + x] = height_value(v)
+		}
+	})
+	jobs.parallel_for(l.pool, side / TEXEL_TILE, &job, proc(data: rawptr, ty: int) {
+		job := cast(^Job)data
+		side := job.t.side
+		k := f32(side) / 64
+		at :: #force_inline proc(u: []f32, side, x, y: int) -> f32 {return u[clamp(y, 0, side - 1) * side + clamp(x, 0, side - 1)]}
+		for y in ty * TEXEL_TILE ..< (ty + 1) * TEXEL_TILE do for x in 0 ..< side {
+			sx := (at(job.units, side, x + 1, y) - at(job.units, side, x - 1, y)) * 0.5 * k
+			sy := (at(job.units, side, x, y - 1) - at(job.units, side, x, y + 1)) * 0.5 * k
+			n := linalg.normalize([3]f32{-sx, -sy, 1})
+			o := 4 * (y * side + x)
+			for c in 0 ..< 3 do job.normal[o + c] = u8(clamp((n[c] * 0.5 + 0.5) * 255 + 0.5, 0, 255))
+			job.normal[o + 3] = 255
+		}
+	})
+	return
+}
+
+// A height in units (-1 to 1) as a Height_Paint value.
+height_value :: #force_inline proc(units: f32) -> u16 {return u16(clamp(units * 32767 + HEIGHT_FLAT + 0.5, 0, 65535))}
+
+// Height laid over a texel's with weight `w`, as paint_mix lays colour: the coverage grows
+// by `w` of what is left and the height is the mix of the two as far as each covers; with
+// `erase` the coverage shrinks. Each value moves at least one step toward its target, so a
+// weak dab gets there in the end.
+@(private)
+height_mix :: #force_inline proc(h: Height_Paint, height: f32, w: f32, erase: bool) -> Height_Paint {
+	if erase do return {h[0], height_step(h[1], 0, f32(h[1]) * (1 - w))}
+	old := f32(h[1]) * (1.0 / 65535) * (1 - w)
+	cover := w + old
+	target := height_value(height)
+	return {height_step(h[0], target, (f32(target) * w + f32(h[0]) * old) / cover), height_step(h[1], 65535, 65535 * cover)}
+}
+
+// A height moved `w` of the way toward `target`, value and coverage alike.
+@(private)
+height_toward :: #force_inline proc(h, target: Height_Paint, w: f32) -> Height_Paint {
+	return {height_step(h[0], target[0], f32(h[0]) + (f32(target[0]) - f32(h[0])) * w), height_step(h[1], target[1], f32(h[1]) + (f32(target[1]) - f32(h[1])) * w)}
+}
+
+// paint_toward for 16 bits: lands at `x`, at least one step on and never past `b`.
+@(private)
+height_step :: #force_inline proc(a, b: u16, x: f32) -> u16 {
+	if b > a do return u16(min(f32(b), max(f32(a) + 1, x + 0.5)))
+	if b < a do return u16(max(f32(b), min(f32(a) - 1, x + 0.5)))
+	return a
 }

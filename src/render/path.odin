@@ -288,6 +288,11 @@ TEX_WIDE_SLOT_SHIFT :: 16
 // material and vertex paint as the viewport lays them.
 @(private = "file")
 TEX_MAPS_PAINT :: 8
+// In the maps bits: the normal slot holds the texture paint's height
+// (Textured_Mesh.paint_height), whose slope the kernel turns into the normal, in place of
+// the object's normal map.
+@(private = "file")
+TEX_MAPS_HEIGHT :: 16
 
 // Whether `t`'s texture paint shows in the trace, in place of its base colour and ORM maps
 // (the kernel has three map slots an item): when it has texture paint and shows its maps.
@@ -495,7 +500,13 @@ path_band_record :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, rows: u32
 		t := pr.tex_meshes[slot]
 		for m in Texture_Map {
 			tex := t.maps[m] if t != nil && t.maps[m] != 0 else defaults[m]
-			if t != nil && pr.tex_paint[slot] && m != .Normal do tex = t.paint if m == .Base_Color else t.paint_material
+			if t != nil && pr.tex_paint[slot] {
+				switch m {
+				case .Base_Color: tex = t.paint
+				case .Orm:        tex = t.paint_material
+				case .Normal:     if t.paint_height != 0 do tex = t.paint_height
+				}
+			}
 			samplers[5 + 3 * slot + int(m)] = {texture = tex, sampler = r.texture_sampler}
 		}
 	}
@@ -1231,8 +1242,11 @@ path_item_record :: proc(item: Draw_Item, p: Path_Item, skin_base: u32) -> (rec:
 		maps: u32
 		for m in Texture_Map do if t.maps[m] != 0 do maps |= 1 << u32(m)
 		// Texture paint takes the base colour and ORM slots (path_paint_maps): its own bit,
-		// the normal map's kept.
-		if path_paint_maps(t, item.texture_view) do maps = maps & 4 | TEX_MAPS_PAINT
+		// the normal map's kept unless painted height takes its slot.
+		if path_paint_maps(t, item.texture_view) {
+			maps = maps & 4 | TEX_MAPS_PAINT
+			if t.paint_height != 0 do maps = TEX_MAPS_PAINT | TEX_MAPS_HEIGHT
+		}
 		rec.tex = {p.tri_off, p.tex_corner_off, p.tex_vertex_off, min(p.tex_slot, RENDER_TEXTURED_MAX) | u32(item.texture_view) << TEX_VIEW_SHIFT | maps << TEX_MAPS_SHIFT | p.tex_slot << TEX_WIDE_SLOT_SHIFT}
 	}
 	if p.skin_samples > 0 {
