@@ -177,3 +177,61 @@ paint_layers_follow_levels_and_files :: proc(t: ^testing.T) {
 	_ = sculptor_flush(b)
 	testing.expect_value(t, len(sculptor_paint_shown(b)), len(want))
 }
+
+// A layer with its roughness and metal dots on lays the brush's values with their own
+// coverage and leaves the colour alone when its colour dot is off; undo takes them back,
+// another layer composites over them channel by channel, and the file keeps them.
+@(test)
+paint_layers_roughness_and_metal :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	l: Levels
+	levels_init(&l, geom.icosphere(3), &pool, 64)
+	defer levels_destroy(&l)
+	s := &levels_current(&l).sculptor
+	dab_at(s, UP, {200, 20, 10})
+	colors := slice.clone(s.color, context.temp_allocator)
+	testing.expect(t, sculptor_paint_set_channels(s, 0, {.Roughness, .Metal}))
+	sculptor_stroke_begin(s)
+	_ = apply_dab(s, {kind = .Paint, radius = 0.6, strength = 1, color = {0, 255, 0}, roughness = 40, metal = 230}, UP)
+	_ = sculptor_stroke_end(s)
+	_ = sculptor_flush(s)
+	testing.expect(t, slice.equal(s.color, colors), "a stroke with the colour dot off changed the colour")
+	m := sculptor_paint_shown_material(s)
+	testing.expect(t, m != nil, "no roughness and metal")
+	top := -1
+	for p, v in s.mesh.positions do if p.z > 0.99 do top = v
+	laid := m[top]
+	testing.expect(t, laid[0] == 40 && laid[2] == 230 && laid[1] > 200 && laid[3] == laid[1], "the brush's roughness and metal were not laid")
+	testing.expect(t, sculptor_undo(s))
+	testing.expect_value(t, s.material[top], Material_Paint{})
+	testing.expect(t, sculptor_redo(s))
+	testing.expect_value(t, s.material[top], laid)
+
+	// A metal-only layer at half opacity over it: roughness shows the lower layer's alone,
+	// metal a mix of both.
+	_ = sculptor_paint_add(s)
+	testing.expect(t, sculptor_paint_set_channels(s, 1, {.Metal}))
+	sculptor_stroke_begin(s)
+	_ = apply_dab(s, {kind = .Paint, radius = 0.6, strength = 1, metal = 30}, UP)
+	_ = sculptor_stroke_end(s)
+	testing.expect(t, sculptor_paint_set(s, 1, true, 0.5))
+	_ = sculptor_stroke_end(s)
+	_ = sculptor_flush(s)
+	shown := sculptor_paint_shown_material(s)[top]
+	testing.expect_value(t, shown[0], 40)
+	testing.expect(t, shown[2] > 30 && shown[2] < 230 && shown[3] > laid[3], "metal did not mix")
+
+	out := make([dynamic]u8)
+	defer delete(out)
+	levels_write(&l, &out)
+	back: Levels
+	r := geom.byte_reader(out[:])
+	testing.expect(t, levels_read(&back, &r, &pool, 64), "read failed")
+	defer levels_destroy(&back)
+	b := &levels_current(&back).sculptor
+	testing.expect_value(t, b.paint.list[1].channels, Paint_Channels{.Metal})
+	_ = sculptor_flush(b)
+	testing.expect_value(t, sculptor_paint_shown_material(b)[top], shown)
+}

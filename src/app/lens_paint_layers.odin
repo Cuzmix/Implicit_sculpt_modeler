@@ -1,6 +1,7 @@
 package main
 
 import "core:fmt"
+import "core:strings"
 
 import "../sculpt"
 import "../ui"
@@ -16,7 +17,33 @@ import "../ui"
 // What the tab shows: the picked layer's opacity as a fraction and its eye, or a hint.
 @(private = "file")
 paint_layer_caption :: proc(l: sculpt.Paint_Layer, picked: bool) -> string {
-	return fmt.tprintf("Mix %d%%%s%s", int(l.opacity * 100 + 0.5), " · hidden" if !l.visible else "", " · painting" if picked else "")
+	return fmt.tprintf("Mix %d%% · %s%s%s", int(l.opacity * 100 + 0.5), paint_channels_text(l.channels), " · hidden" if !l.visible else "", " · painting" if picked else "")
+}
+
+// A layer's channels as its row lists them: "colour, roughness, metal".
+paint_channels_text :: proc(channels: sculpt.Paint_Channels) -> string {
+	parts: [len(sculpt.Paint_Channel)]string
+	n := 0
+	for c in sculpt.Paint_Channel do if c in channels {
+		parts[n] = PAINT_CHANNEL_NAMES[c]
+		n += 1
+	}
+	return strings.join(parts[:n], ", ", context.temp_allocator) if n > 0 else "nothing"
+}
+
+@(rodata)
+PAINT_CHANNEL_NAMES := [sculpt.Paint_Channel]string {
+	.Color     = "colour",
+	.Roughness = "roughness",
+	.Metal     = "metal",
+}
+
+// The channel strip's toggles, short enough for a third of the card each.
+@(rodata)
+PAINT_CHANNEL_SHORT := [sculpt.Paint_Channel]string {
+	.Color     = "Colour",
+	.Roughness = "Rough",
+	.Metal     = "Metal",
 }
 
 // The tab's content.
@@ -36,6 +63,7 @@ kit_lens_paint_layers :: proc(app: ^App, obj: ^Object) {
 
 	for i := len(layers) - 1; i >= 0; i -= 1 do lens_paint_row(app, obj, i, i == picked, width, allowed)
 	if len(layers) == 0 do ui.paragraph(ctx, "Paint anything, or add a layer, to start the stack: the Paint brush, a brush's Colour channel and Fill all paint the lit layer.")
+	if picked >= 0 && picked < len(layers) do lens_paint_channels(app, obj, picked, width, allowed)
 
 	// The foot shows with no layers too, its buttons off, so it stays where it is found.
 	{
@@ -53,6 +81,33 @@ kit_lens_paint_layers :: proc(app: ^App, obj: ^Object) {
 	}
 	if !allowed do ui.paragraph(ctx, "Paint layers wait while the HD window or dynamic topology is on.")
 	ui.paragraph(ctx, "Paint layers stack polypaint: each is a colour over the clay with its own opacity and eye, and what shows is every layer laid over the ones below. The lit layer is the one every paint tool paints. Every level shows the same layers, and rebuilds (Remesh, Decimate, Mirror and weld) keep what shows as one layer.")
+}
+
+// The channel strip (mock 1B): what the picked layer's strokes write, a toggle each, as
+// Wafer's layers pick theirs. A stroke writes only the channels that are on, so a layer can
+// hold roughness alone over the colour below; one channel stays on at least. Turning one
+// changes nothing that shows, as an undo step.
+@(private = "file")
+lens_paint_channels :: proc(app: ^App, obj: ^Object, i: int, width: f32, allowed: bool) {
+	ctx := &app.kit.ctx
+	s := object_sculptor(obj)
+	l := sculpt.sculptor_paint_layers(s)[i]
+	ui.caption(ctx, fmt.tprintf("%s PAINTS", strings.to_upper(sculpt.sculptor_paint_layer_name(&l), context.temp_allocator)))
+	gap: f32 = ui.SPACE_XS
+	w := (width - gap * f32(len(sculpt.Paint_Channel) - 1)) / f32(len(sculpt.Paint_Channel))
+	ui.begin(ctx, "lens paint channels", {direction = .Row, gap = gap, width = width})
+	for c in sculpt.Paint_Channel {
+		on := c in l.channels
+		tip := fmt.tprintf("Strokes on this layer %s its %s", "write" if on else "leave", PAINT_CHANNEL_NAMES[c])
+		if ui.toggle_button(ctx, fmt.tprintf("%s##lens paint channel", PAINT_CHANNEL_SHORT[c]), on, w, tooltip = tip) && allowed {
+			next := l.channels ~ {c}
+			if next == {} do continue
+			stroke_finish(app)
+			if sculpt.sculptor_paint_set_channels(s, i, next) do history_record(app, obj, .Paint, "Paint layer channels")
+		}
+	}
+	ui.end(ctx)
+	ui.paragraph(ctx, "Roughness and metal show on a physically based material (PBR clay, the metals, Plastic) over its own, and in Full render; classic and MatCap materials show colour only. Height is the sculpt itself on vertices: sculpt it, or record a sculpt layer.")
 }
 
 // One layer's row: its swatch and name (a tap picks it), the opacity bar and the eye.

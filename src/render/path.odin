@@ -90,10 +90,13 @@ ITEM_TEXTURED :: 8
 // Shades by its detail skin's normals, the skin's segments from ITEM_SKIN_SHIFT.
 @(private = "file")
 ITEM_SKINNED :: 16
+// Its paint has roughness and metal (Mesh_Buffers.paint_material), copied after the paint.
+@(private = "file")
+ITEM_MATERIAL :: 32
 @(private = "file")
 ITEM_SKIN_SHIFT :: 8
 @(private = "file")
-ITEM_ALL :: ITEM_PAINT | ITEM_GROUPS | ITEM_SLOTS | ITEM_TEXTURED | ITEM_SKINNED
+ITEM_ALL :: ITEM_PAINT | ITEM_GROUPS | ITEM_SLOTS | ITEM_TEXTURED | ITEM_SKINNED | ITEM_MATERIAL
 
 // Which of render_trace.slang's features a run's scene uses, its RT_ constants: the item
 // flags any item carries, an image environment, the lens and lights with a place (traced
@@ -1009,7 +1012,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^View
 	world_bounds := make([dynamic]geom.Aabb, context.temp_allocator)
 	world_ids := make([dynamic]u32, context.temp_allocator)
 	records := make([]Item_Record, max(len(placed), 1), context.temp_allocator)
-	skin_base := vertex_count * (size_of(Normal_Packed) + size_of(Paint_Packed)) / size_of(u32)
+	skin_base := vertex_count * (size_of(Normal_Packed) + size_of(Paint_Packed) + size_of(u32)) / size_of(u32)
 	starts := make([]u32, word_count if rq else 0, context.temp_allocator)
 	for p, k in placed {
 		item := items[p.item]
@@ -1044,7 +1047,7 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^View
 	sizes[.Positions] = int(vertex_count) * size_of(geom.Vec3)
 	sizes[.Indices] = int(tri_count) * 3 * size_of(u32)
 	// Each vertex's normal, then its paint, then the skins' sample normals and records.
-	sizes[.Attributes] = int(vertex_count) * (size_of(Normal_Packed) + size_of(Paint_Packed)) + int(skin_words) * size_of(u32)
+	sizes[.Attributes] = int(vertex_count) * (size_of(Normal_Packed) + size_of(Paint_Packed) + size_of(u32)) + int(skin_words) * size_of(u32)
 	sizes[.Nodes] = (int(node_count) + len(tlas)) * size_of(geom.Gpu_Bvh_Node)
 	sizes[.Order] = int(word_count) * size_of(u32)
 	sizes[.Chunks] = len(chunks) * size_of([4]u32)
@@ -1079,6 +1082,9 @@ path_scene_build :: proc(r: ^Renderer, pr: ^Path_Render, cmd: gpu.Cmd, vt: ^View
 		gpu_copy(copy_pass, mb.indices, pr.buffers[.Indices], p.tri_off * 3 * size_of(u32), p.triangles * 3 * size_of(u32))
 		gpu_copy(copy_pass, mb.normals, pr.buffers[.Attributes], p.vertex_off * size_of(Normal_Packed), p.vertices * size_of(Normal_Packed))
 		if p.paint do gpu_copy(copy_pass, mb.paint, pr.buffers[.Attributes], paint_base + p.vertex_off * size_of(Paint_Packed), p.vertices * size_of(Paint_Packed))
+		// The painted roughness and metal after every vertex's paint (render_trace.slang's
+		// vertex_material), where it has any.
+		if p.paint && item.paint && mb.paint_material != 0 do gpu_copy(copy_pass, mb.paint_material, pr.buffers[.Attributes], paint_base + vertex_count * size_of(Paint_Packed) + p.vertex_off * size_of(u32), p.vertices * size_of(u32))
 		if p.skin_samples > 0 {
 			at := (skin_base + p.skin_off) * size_of(u32)
 			gpu_copy(copy_pass, mb.skin_normals, pr.buffers[.Attributes], at, p.skin_samples * size_of(u32))
@@ -1217,6 +1223,7 @@ path_item_record :: proc(item: Draw_Item, p: Path_Item, skin_base: u32) -> (rec:
 	}
 	if p.paint {
 		if item.paint do rec.offs.y |= ITEM_PAINT
+		if item.paint && item.mesh.paint_material != 0 do rec.offs.y |= ITEM_MATERIAL
 		if item.groups do rec.offs.y |= ITEM_GROUPS
 		if item.slots != nil {
 			rec.offs.y |= ITEM_SLOTS

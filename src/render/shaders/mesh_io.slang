@@ -8,7 +8,7 @@
 	float4x4 view_proj;
 	float4x4 view;
 	float4x4 model; // rotation, translation and uniform scale only, so it also transforms normals
-	float4 options; // x: 1 to show the paint, y: 1 to show the polygroups, z: 1 to look up material slots (all read `paint`)
+	float4 options; // x: 1 to show the paint, y: 1 to show the polygroups, z: 1 to look up material slots (all read `paint`), w: 1 when the painted roughness and metal are bound
 	// Slot k's polygroup in component k & 3 of element k >> 2 (render.Material_Slots), from
 	// slot 1; 0xffffffff for an unused slot.
 	uint4 slot_group[4];
@@ -51,6 +51,9 @@ struct Mesh_Varyings {
 	// which the triangle's number in the draw adds to (wire_over in mesh_shading.slang).
 	[[vk::location(13)]] nointerpolation uint tri_base : TRI_BASE;
 #endif
+	// Painted roughness, its coverage, metal, its coverage (paint_material.slang); zero
+	// where nothing is painted.
+	[[vk::location(14)]] float4 material : MATERIAL;
 };
 
 struct Mesh_Vertex_Out {
@@ -74,3 +77,4 @@ void decode_normal_mask(float2 normal_oct, out float3 normal, out float mask) {
 }
 
 #include "skin_grid.slang"
+#include "paint_material.slang"

@@ -155,6 +155,8 @@ SETTINGS := [?]Setting {
 	{"pressure_size", B + offset_of(Brush_Settings, pressure_size), bool, 0, 0},
 	{"pressure_size_floor", B + offset_of(Brush_Settings, pressure_size_floor), f32, 0, 1},
 	{"tilt_strength", B + offset_of(Brush_Settings, tilt_strength), f32, 0, 1},
+	{"paint_roughness", B + offset_of(Brush_Settings, roughness), f32, 0, 1},
+	{"paint_metal", B + offset_of(Brush_Settings, metal), f32, 0, 1},
 	{"tilt_size", B + offset_of(Brush_Settings, tilt_size), f32, 0, 1},
 	{"tilt_soften", B + offset_of(Brush_Settings, tilt_soften), f32, 0, 1},
 	{"lazy_px", B + offset_of(Brush_Settings, lazy_px), f32, 0, 150},

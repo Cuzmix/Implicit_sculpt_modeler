@@ -26,6 +26,7 @@
 
 #include "common.slang"
 #include "skin_grid.slang"
+#include "paint_material.slang"
 struct Node {
 	float3 lo;
 	uint first; // inner: the left child, the right one after it; leaf: see below
@@ -59,6 +60,7 @@ static const uint ITEM_GROUPS = 2u; // each polygroup shows in its own colour in
 static const uint ITEM_SLOTS = 4u;  // groups may have materials of their own
 static const uint ITEM_TEXTURED = 8u; // shows its maps through its preview's UVs
 static const uint ITEM_SKINNED = 16u; // shades by its detail skin's normals
+static const uint ITEM_MATERIAL = 32u; // its paint has roughness and metal (vertex_material)
 static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
 
 // The sum so far: radiance over the samples whose camera ray met the scene in rgb, and
@@ -88,7 +90,7 @@ static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
 [[vk::binding(5, 0)]] StructuredBuffer<float> positions; // 3 floats a vertex, mesh space
 [[vk::binding(6, 0)]] StructuredBuffer<uint> indices; // each item's own, from its first vertex
 // Each vertex's normal (render.Normal_Packed, one word), then from counts.w each vertex's
-// render.Paint_Packed (two words).
+// render.Paint_Packed (two words), then its painted roughness and metal (one word).
 [[vk::binding(7, 0)]] StructuredBuffer<uint> attributes;
 // Every chunk's tree, one after another, a leaf's `first` into its chunk's order; then
 // from extra.x the tree over every chunk, a leaf's `first` a chunk.
@@ -116,7 +118,7 @@ static const uint ITEM_SKIN_SHIFT = 8u; // the skin's segments, five bits
 [[vk::binding(14, 0)]] StructuredBuffer<float> positions; // 3 floats a vertex, mesh space
 [[vk::binding(15, 0)]] StructuredBuffer<uint> indices; // each item's own, from its first vertex
 // Each vertex's normal (render.Normal_Packed, one word), then from counts.w each vertex's
-// render.Paint_Packed (two words).
+// render.Paint_Packed (two words), then its painted roughness and metal (one word).
 [[vk::binding(16, 0)]] StructuredBuffer<uint> attributes;
 // Every chunk's tree, one after another, a leaf's `first` into its chunk's order; then
 // from extra.x the tree over every chunk, a leaf's `first` a chunk.
@@ -325,6 +327,13 @@ float3 uv_checker(float2 uv) {
 uint2 vertex_paint(uint v) {
 	uint at = counts.w + 2u * v;
 	return uint2(attributes[at], attributes[at + 1u]);
+}
+
+// A vertex's painted roughness and metal (render.Mesh_Buffers.paint_material, one word):
+// after the paint, whose two words a vertex follow the normals' one, so from three times
+// counts.w (the vertex count).
+uint vertex_material(uint v) {
+	return attributes[3u * counts.w + v];
 }
 
 float3 srgb_decode(float3 c) {
@@ -896,6 +905,11 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID, uint3 
 				float4 c2 = unpackUnorm4x8ToFloat(vertex_paint(base + ic).x);
 				float4 paint = float4(srgb_decode(c0.rgb), c0.a) * w0 + float4(srgb_decode(c1.rgb), c1.a) * hit.uv.x + float4(srgb_decode(c2.rgb), c2.a) * hit.uv.y;
 				albedo = lerp(albedo, paint.rgb, paint.a);
+				// Painted roughness and metal, on a physically based item as the view shades them.
+				if (surf.y > 0.0 && (flags & ITEM_MATERIAL) != 0u) {
+					float4 m = paint_material(vertex_material(base + ia)) * w0 + paint_material(vertex_material(base + ib)) * hit.uv.x + paint_material(vertex_material(base + ic)) * hit.uv.y;
+					surf = paint_surface(surf, m);
+				}
 			}
 			if ((flags & ITEM_GROUPS) != 0u) albedo = group_color(group);
 		}
