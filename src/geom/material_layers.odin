@@ -113,3 +113,41 @@ material_layers_valid :: proc(l: Material_Layers) -> bool {
 	ok &&= l.subsurface_anisotropy >= -1 && l.subsurface_anisotropy <= 1
 	return ok
 }
+
+// `l` with every value brought into the range material_layers_valid accepts, for layers
+// read from another program's file, which may hold anything: NaN and infinities become
+// zero (the default), weights and colours are kept to 0..1, distances and the emission to
+// zero and up, IORs below 1 to the default.
+material_layers_clamp :: proc(l: Material_Layers) -> Material_Layers {
+	values := transmute([32]f32)l
+	for &v in values do if math.is_nan(v) || math.is_inf(v) do v = 0
+	r := transmute(Material_Layers)values
+	unit :: proc(v: ^f32) {v^ = clamp(v^, 0, 1)}
+	length :: proc(v: ^f32) {v^ = clamp(v^, 0, 1e5)}
+	ior :: proc(v: ^f32) {v^ = 0 if v^ < 1 else min(v^, LAYER_IOR_MAX)}
+	for k in 0 ..< 3 {
+		unit(&r.subsurface_color[k])
+		unit(&r.sheen_color[k])
+		unit(&r.emission_color[k])
+		unit(&r.transmission_color[k])
+		length(&r.subsurface_radius[k])
+	}
+	unit(&r.subsurface_weight)
+	unit(&r.coat_weight)
+	unit(&r.coat_roughness)
+	unit(&r.sheen_weight)
+	unit(&r.transmission_weight)
+	unit(&r.sheen_roughness)
+	unit(&r.thin_film_weight)
+	unit(&r.specular_lessen)
+	r.thin_walled = 1 if r.thin_walled > 0.5 else 0
+	length(&r.subsurface_scale)
+	length(&r.transmission_depth)
+	r.emission_luminance = clamp(r.emission_luminance, 0, LAYER_EMISSION_MAX)
+	r.thin_film_thickness = clamp(r.thin_film_thickness, 0, LAYER_THIN_FILM_MAX)
+	r.subsurface_anisotropy = clamp(r.subsurface_anisotropy, -1, 1)
+	ior(&r.specular_ior)
+	ior(&r.coat_ior)
+	ior(&r.thin_film_ior)
+	return r
+}

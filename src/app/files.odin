@@ -81,7 +81,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(61)
+SCENE_VERSION :: u32(62)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -655,7 +655,7 @@ scene_remember_path :: proc(app: ^App, path: string) {
 // All of it is one undo step unless `record` is off (a start-up flag's set-up). Returns
 // false only on a GPU failure.
 scene_import :: proc(app: ^App, path: string, record := true) -> bool {
-	m, read := mesh_import_read(app, path, fmt.tprintf("Imported %s", filepath.base(path)))
+	m, read := mesh_import_read(app, path, fmt.tprintf("Imported %s", filepath.base(path)), !app.import_paint)
 	if !read do return true
 	defer mesh_import_free(&m)
 	stem := filepath.stem(path)
@@ -699,6 +699,8 @@ import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, rec
 	}
 	first := len(app.scene.objects)
 	ok := true
+	app.import_materials, app.import_unvalued = 0, 0
+	for list in m.materials do app.import_materials += len(list)
 	for &p, k in m.parts {
 		label := name
 		if len(m.parts) > 1 {
@@ -710,6 +712,9 @@ import_add_parts :: proc(app: ^App, m: ^Mesh_Import, name: string, at: Vec3, rec
 			ok = false
 			break
 		}
+		// The file's materials, as the object's own and its polygroups', before the undo
+		// step is taken so undo and redo keep them.
+		if k < len(m.materials) do app.import_unvalued += object_take_imported(app.scene.objects[len(app.scene.objects) - 1], m.materials[k][:])
 		if record do history_record_swap(app, app.scene.objects[len(app.scene.objects) - 1].id, history_snapshot(app, nil, "import"), chain = k > 0 || replaced)
 	}
 	added := app.scene.objects[first:]
@@ -866,12 +871,16 @@ Mesh_Import :: struct {
 	rig:               geom.Rig_Found, // what the file holds for animation, left out
 	joined:            int, // quads found again from the file's triangle pairs (STL, glTF)
 	levels:            []sculpt.Levels, // per part, once mesh_import_prepare made them (each taken by its object)
+	// Per part, the file's materials it keeps and the polygroup each is on
+	// (geom.mesh_parts_material_groups); nil when they were painted.
+	materials:         [][dynamic]geom.Part_Material,
 }
 
 mesh_import_free :: proc(m: ^Mesh_Import) {
 	for &l in m.levels do sculpt.levels_destroy(&l)
 	delete(m.levels)
 	geom.mesh_parts_destroy(&m.parts)
+	if m.materials != nil do geom.part_materials_destroy(m.materials)
 	delete(m.middles)
 	delete(m.files)
 	m^ = {}
@@ -926,13 +935,17 @@ Mesh_File_Info :: struct {
 	empty:   int, // parts nothing was left of once cleaned
 	merged:  int, // parts joined into one object, past MESH_PARTS_MAX
 	joined:  int, // quads found again from an STL or glTF file's triangle pairs
+	// Per part, the materials kept as the objects' own (owned; nil when painted), and how
+	// many past PART_MATERIALS_MAX a part merged into its nearest.
+	materials:        [][dynamic]geom.Part_Material,
+	materials_merged: int,
 }
 
 // Parses a mesh file's bytes into `parts` and cleans each, as Import and a content
 // pack's install both do; a nil pool runs it on the calling thread. `path` is where the
 // file is, for a .gltf's buffers beside it ("" for none). `line` names the line of a
 // parse error (0 for none). On a failure `parts` is left empty.
-mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_Kind, pool: ^jobs.Pool, path := "") -> (info: Mesh_File_Info, failed: geom.Mesh_File_Error, line: int) {
+mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_Kind, pool: ^jobs.Pool, path := "", keep_materials := false) -> (info: Mesh_File_Info, failed: geom.Mesh_File_Error, line: int) {
 	// The files a .gltf, an .obj or an .fbx names beside it: buffers, MTL files and images. A
 	// picked content:// file comes without them.
 	Beside :: struct {
@@ -980,7 +993,27 @@ mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_
 	case .OBJ, .None:
 		failed, line = geom.mesh_read_obj_parts(parts, data, pool, look = &look, resolve = resolve, resolve_data = &beside)
 	}
-	if failed == .None do info.paint = geom.mesh_parts_paint(parts[:], &look)
+	if failed == .None {
+		// With `keep_materials` each part keeps its file's materials (on polygroups of their
+		// own when it has several), which a merge past MESH_PARTS_MAX, giving each part a
+		// group, would undo: that many parts paint them. Textures have nowhere else to go
+		// yet, so a file with any is painted as well, its materials' values still kept.
+		if keep_materials && len(parts) <= geom.MESH_PARTS_MAX {
+			info.materials, info.materials_merged = geom.mesh_parts_material_groups(parts[:], &look)
+			textured := false
+			for mm in look.materials do textured ||= mm.image >= 0
+			if textured {
+				info.paint = geom.mesh_parts_paint(parts[:], &look)
+			} else {
+				for &p in parts {
+					delete(p.materials)
+					p.materials = {}
+				}
+			}
+		} else {
+			info.paint = geom.mesh_parts_paint(parts[:], &look)
+		}
+	}
 	if failed == .None {
 		for k := 0; k < len(parts); {
 			p := &parts[k]
@@ -1018,16 +1051,18 @@ mesh_file_parse :: proc(parts: ^[dynamic]geom.Mesh_Part, data: []u8, kind: Mesh_
 	if failed != .None {
 		for &p in parts do geom.mesh_part_destroy(&p)
 		clear(parts)
+		if info.materials != nil do geom.part_materials_destroy(info.materials)
+		info.materials = nil
 	}
 	return
 }
 
 // Reads the mesh file at `path` for new objects, with a note led by `what` ("Imported
 // rock.obj") saying what it holds; false, with a note saying why, when it cannot.
-mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: bool) {
+mesh_import_read :: proc(app: ^App, path, what: string, keep_materials := false) -> (m: Mesh_Import, ok: bool) {
 	note: string
 	warning: bool
-	m, note, warning, ok = mesh_import_load(path, what, &app.pool)
+	m, note, warning, ok = mesh_import_load(path, what, &app.pool, keep_materials = keep_materials)
 	defer delete(note)
 	file_note(app, warning, "%s", note)
 	return
@@ -1037,7 +1072,7 @@ mesh_import_read :: proc(app: ^App, path, what: string) -> (m: Mesh_Import, ok: 
 // its own `pool`: the import, when `ok`, and its note (owned), a `warning` when the
 // surface is not closed or nothing could be read. `progress`, when given, moves to
 // `read_share` of the way once the file is read; the parse does not report.
-mesh_import_load :: proc(path, what: string, pool: ^jobs.Pool, progress: ^jobs.Progress = nil, read_share: f32 = 0) -> (m: Mesh_Import, note: string, warning, ok: bool) {
+mesh_import_load :: proc(path, what: string, pool: ^jobs.Pool, progress: ^jobs.Progress = nil, read_share: f32 = 0, keep_materials := false) -> (m: Mesh_Import, note: string, warning, ok: bool) {
 	m.start = time.tick_now()
 	// Kept apart from temp memory, which reading frees before the note is written.
 	head := strings.clone(what)
@@ -1057,7 +1092,8 @@ mesh_import_load :: proc(path, what: string, pool: ^jobs.Pool, progress: ^jobs.P
 		note, warning = fmt.aprintf("Cannot import %s: only .obj, .ply, .stl, .glb, .gltf, .usd, .usda, .usdc, .usdz and .fbx files import", name), true
 		return
 	}
-	info, failed, line := mesh_file_parse(&m.parts, data, kind, pool, path)
+	info, failed, line := mesh_file_parse(&m.parts, data, kind, pool, path, keep_materials)
+	m.materials = info.materials
 	if failed != .None {
 		delete(m.parts)
 		switch {
@@ -1131,6 +1167,16 @@ mesh_import_load :: proc(path, what: string, pool: ^jobs.Pool, progress: ^jobs.P
 	case colored: strings.write_string(&text, "; its vertex colours are its polypaint")
 	}
 	if info.paint.unread > 0 do strings.write_string(&text, fmt.tprintf("; %d textures missing or unreadable (PNG, JPEG, BMP, TGA and QOI read)", info.paint.unread))
+	// The materials kept as the objects' own, and any the file named without values.
+	kept := 0
+	unvalued := make([dynamic]string, context.temp_allocator)
+	for list in info.materials {
+		kept += len(list)
+		for e in list do if !e.material.valued do append(&unvalued, fmt.tprintf("\"%s\"", e.material.name) if e.material.name != "" else "one unnamed")
+	}
+	if kept > 0 do strings.write_string(&text, fmt.tprintf("; its %d materials are the objects' own, each on a polygroup of its own where an object has several", kept))
+	if info.materials_merged > 0 do strings.write_string(&text, fmt.tprintf("; %d more merged into the nearest of them, as an object holds %d", info.materials_merged, geom.PART_MATERIALS_MAX))
+	if len(unvalued) > 0 do strings.write_string(&text, fmt.tprintf("; %s had no values in the file (a node graph feeding its shader leaves the exporter none), so %s the default material", strings.join(unvalued[:], ", ", context.temp_allocator), "it keeps" if len(unvalued) == 1 else "they keep"))
 	if info.merged > 0 do strings.write_string(&text, fmt.tprintf("; its %d meshes are one object, a polygroup each", info.merged))
 	else if grouped do strings.write_string(&text, "; its groups are polygroups")
 	// UVs stay only on an object of quads (import_take_polygons).
@@ -2183,6 +2229,7 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	geom.byte_put(out, u8(object_kind(obj)))
 	material_put(out, obj.material, refs[0] if len(refs) > 0 else {})
 	group_materials_put(out, obj, refs[1:] if len(refs) > 0 else nil)
+	imported_put(out, obj)
 	textures_put(out, obj.textures)
 	// A curve's points stand where a mesh's levels go; its empty level is made on reading.
 	if cp := obj.curve; cp != nil {
@@ -2300,6 +2347,7 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source 
 	kind := geom.byte_get(r, u8)
 	obj.material = material_get(r, app, missing)
 	group_materials_get(r, obj, app, missing)
+	imported_get(r, obj)
 	obj.textures = textures_get(r)
 	// A voxel object has no polygroups to shade, nor UVs to lay maps on.
 	most := OBJECT_KIND_CAGE
@@ -2339,6 +2387,7 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source 
 	sculpt.levels_destroy(&obj.levels)
 	delete(obj.name)
 	delete(obj.group_materials)
+	imported_materials_destroy(&obj.imported)
 	textures_free(&obj.textures)
 	free(obj)
 	free_all(context.temp_allocator)
@@ -2390,6 +2439,7 @@ object_discard :: proc(app: ^App, obj: ^Object) {
 	curve_part_free(obj)
 	delete(obj.name)
 	delete(obj.group_materials)
+	imported_materials_destroy(&obj.imported)
 	textures_free(&obj.textures)
 	free(obj)
 }
