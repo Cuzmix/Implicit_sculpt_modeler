@@ -239,14 +239,14 @@ render_switch_runs_one_quality :: proc(t: ^testing.T) {
 	// On again, the switch keeps the quality it had.
 	testing.expect(t, command_run(&a, .Studio_Render))
 	testing.expect(t, a.render_on && !a.studio_on)
-	// Rendered is the switch: picking it keeps the quality, any other mode puts it off.
+	// Rendered is the switch: picking it keeps the quality, any other look puts it off.
 	testing.expect_value(t, main_shading_mode(&a), Shading_Mode.Rendered)
-	testing.expect(t, command_run(&a, .Shading_Mode, int(Shading_Mode.Solid)))
-	testing.expect(t, !render_switch_on(&a) && main_shading_mode(&a) == .Solid)
+	testing.expect(t, command_run(&a, .Shading_Mode, int(Shading_Mode.Lit)))
+	testing.expect(t, !render_switch_on(&a) && main_shading_mode(&a) == .Lit)
 	testing.expect(t, command_run(&a, .Shading_Mode, int(Shading_Mode.Rendered)))
-	testing.expect(t, a.render_on && !a.studio_on && a.kit.passes.shading.mode == .Material_Preview)
+	testing.expect(t, a.render_on && !a.studio_on && a.kit.passes.shading.mode == .Full)
 	render_set(&a, true, .Fast)
 	testing.expect(t, a.studio_on && !a.render_on)
-	testing.expect(t, command_run(&a, .Shading_Mode, int(Shading_Mode.Wireframe)))
-	testing.expect(t, !render_switch_on(&a) && main_shading_mode(&a) == .Wireframe)
+	testing.expect(t, command_run(&a, .Shading_Mode, int(Shading_Mode.Clay)))
+	testing.expect(t, !render_switch_on(&a) && main_shading_mode(&a) == .Clay)
 }

@@ -48,8 +48,7 @@ PASS_LABELS := [render.View_Pass]string {
 	.AO          = "AO only",
 	.Silhouette  = "Silhouette",
 	.Skin_Detail = "Skin detail",
-	// The shading modes' own, never picked as passes.
-	.Wire        = "Wireframe",
+	// The Flat look's own, never picked as a pass.
 	.Unlit       = "Flat",
 }
 
@@ -248,7 +247,6 @@ PASS_ICONS := [render.View_Pass]rune {
 	.AO          = ICON_CONTRAST,
 	.Silhouette  = ui.ICON_FOCUS,
 	.Skin_Detail = ICON_SPARKLES,
-	.Wire        = ICON_WIREFRAME,
 	.Unlit       = ICON_SHADING,
 }
 
@@ -256,9 +254,8 @@ PASS_ICONS := [render.View_Pass]rune {
 @(rodata)
 DIAGNOSTIC_PASSES := [?]render.View_Pass{.Normals, .Curvature, .AO, .Depth, .Silhouette, .Skin_Detail}
 
-// Lens's list (round 2's inspect2 screen, with Blender's shading modes): RECENT, the pass
-// shown and the last other one, to flip between; SHADING, the four modes, and under Solid
-// its lighting, its MatCap and its colour; INSPECT, the passes that check the form and Four views. Each row
+// Lens's list (round 2's inspect2 screen): RECENT, the pass shown and the last other one, to
+// flip between; SHADING, the looks with their options (shading_options); INSPECT, the passes that check the form and Four views. Each row
 // shows its keys; the one shown is highlighted.
 @(private = "file")
 lens_pass_menu :: proc(app: ^App) {
@@ -278,17 +275,7 @@ lens_pass_menu :: proc(app: ^App) {
 		if row(app, ps.last, "recent") do picked = true
 	}
 	ui.caption(ctx, "  SHADING")
-	shown := main_shading_mode(app)
-	for order in Shading_Mode {
-		m := SHADING_MODE_ORDER[order]
-		id := int(m)
-		if ui.menu_item(ctx, fmt.tprintf("%s##shading mode", SHADING_MODE_NAMES[m]), command_keys(app, .Shading_Mode, id), SHADING_MODE_ICONS[m], highlight = ps.pass == .Shaded && shown == m, hint = command_hint(app, .Shading_Mode, id)) {
-			command_run(app, .Shading_Mode, id)
-			// The list stays open on Solid, whose options follow.
-			if m != .Solid do picked = true
-		}
-	}
-	if shown == .Solid && ps.pass == .Shaded do solid_options(app, &ps.shading, true)
+	shading_options(app, &ps.shading, true)
 	ui.caption(ctx, "  INSPECT")
 	for p in DIAGNOSTIC_PASSES do if row(app, p, "diagnostic") do picked = true
 	if command_menu_item(app, .Inspect_Mode) do picked = true
@@ -300,43 +287,64 @@ lens_pass_menu :: proc(app: ^App) {
 	if picked do ps.menu = false
 }
 
-// Solid's options for view shading `s`, inset under its row, each named over its tabs (the
-// name beside them pushes the tabs past the menu's edge): the lighting (Studio, MatCap or
-// Flat); with MatCap, which one; and the colour each object shows in. The main view's
-// (`main`) lighting runs its command, which its keys and gestures can run too.
-solid_options :: proc(app: ^App, s: ^View_Shading, main: bool) {
+// The shading's options for view shading `s`, inset under its caption, each named over its
+// tabs (a name beside them pushes the tabs past the menu's edge): the row of looks (left
+// out where the list names them, `looks` false) and, for the main view (`main`), the Render
+// switch; the Colour, toward clay, in every look but Flat; with Clay, which MatCap; and
+// where the colours come from. The main view's look runs its command, which its keys and
+// gestures can run too.
+shading_options :: proc(app: ^App, s: ^View_Shading, main: bool, looks := true) {
 	ctx := &app.kit.ctx
 	named :: proc(ctx: ^ui.Context, name: string) {
-		ui.begin(ctx, fmt.tprintf("%s option##solid", name), {direction = .Column, gap = ui.SPACE_XS})
+		ui.begin(ctx, fmt.tprintf("%s option##shading", name), {direction = .Column, gap = ui.SPACE_XS})
 		ui.label(ctx, name, ctx.theme.small_size)
 	}
-	ui.begin(ctx, "solid options", {direction = .Column, gap = ui.SPACE_S, padding = ui.SPACE_M})
-	names: [len(Solid_Lighting)]string
-	hints: [len(Solid_Lighting)]string
-	for l in Solid_Lighting do names[l], hints[l] = SOLID_LIGHTING_NAMES[l], command_hint(app, .Solid_Lighting, int(l)) if main else ""
-	named(ctx, "Lighting")
-	if picked := ui.tabs(ctx, "Lighting", names[:], int(s.lighting), keys = hints[:]); picked >= 0 {
-		if main do command_run(app, .Solid_Lighting, picked)
-		else do s.lighting = Solid_Lighting(picked)
+	ui.begin(ctx, "shading options", {direction = .Column, gap = ui.SPACE_S, padding = ui.SPACE_M})
+	shown := main_shading_mode(app) if main else s.mode
+	if looks {
+		names: [len(SHADING_LOOKS)]string
+		glyphs: [len(SHADING_LOOKS)]rune
+		hints: [len(SHADING_LOOKS)]string
+		at := -1
+		for m, k in SHADING_LOOKS {
+			names[k], glyphs[k] = SHADING_MODE_NAMES[m], SHADING_MODE_ICONS[m]
+			if main do hints[k] = command_hint(app, .Shading_Mode, int(m))
+			if m == shown || (m == .Full && shown == .Rendered) do at = k
+		}
+		if main && app.kit.passes.pass != .Shaded do at = -1
+		if picked := ui.tabs(ctx, "Look", names[:], at, glyphs = glyphs[:], keys = hints[:]); picked >= 0 {
+			if main do command_run(app, .Shading_Mode, int(SHADING_LOOKS[picked]))
+			else do s.mode = SHADING_LOOKS[picked]
+		}
 	}
-	ui.end(ctx)
-	if s.lighting == .MatCap {
+	// What the look is for, right under its name, so a newcomer knows what the name means.
+	ui.paragraph(ctx, SHADING_MODE_HINTS[shown])
+	if looks && main {
+		on := shown == .Rendered
+		if ui.switch_row(ctx, "Render", &on, keys = command_hint(app, .Studio_Render)) do command_run(app, .Shading_Mode, int(Shading_Mode.Rendered if on else Shading_Mode.Full))
+	}
+	if shown != .Flat {
+		colour := 1 - s.grey
+		if ui.slider(ctx, "Colour", &colour, 0, 1, .Linear, fmt.tprintf("%.0f%%", colour * 100)) do s.grey = clamp(1 - colour, 0, 1)
+	}
+	if shown == .Clay {
 		caps := make([dynamic]string, 0, len(MATCAP_RECIPES), context.temp_allocator)
 		for r in MATCAP_RECIPES do append(&caps, string(r.label))
 		at := (s.matcap if s.matcap > 0 && s.matcap <= len(MATCAP_RECIPES) else SHADING_MATCAP_DEFAULT) - 1
 		named(ctx, "MatCap")
-		// Two rows of three, as six names do not fit across the list.
-		ui.begin(ctx, "matcaps##solid", {direction = .Column, gap = ui.SPACE_XS})
-		for row in 0 ..< 2 {
-			if picked := ui.tabs(ctx, fmt.tprintf("MatCap %d", row), caps[row * 3:row * 3 + 3], at - row * 3 if at / 3 == row else -1); picked >= 0 do s.matcap = row * 3 + picked + 1
+		// Rows of three, as more names do not fit across the list.
+		ui.begin(ctx, "matcaps##shading", {direction = .Column, gap = ui.SPACE_XS})
+		for start := 0; start < len(caps); start += 3 {
+			row := caps[start:min(start + 3, len(caps))]
+			if picked := ui.tabs(ctx, fmt.tprintf("MatCap %d", start / 3), row, at - start if at >= start && at < start + len(row) else -1); picked >= 0 do s.matcap = start + picked + 1
 		}
 		ui.end(ctx)
 		ui.end(ctx)
 	}
-	colors: [len(Solid_Color)]string
-	for c in Solid_Color do colors[c] = SOLID_COLOR_NAMES[c]
-	named(ctx, "Colour")
-	if picked := ui.tabs(ctx, "Colour", colors[:], int(s.color)); picked >= 0 do s.color = Solid_Color(picked)
+	froms: [len(Colour_From)]string
+	for c in Colour_From do froms[c] = COLOUR_FROM_NAMES[c]
+	named(ctx, "Colour from")
+	if picked := ui.tabs(ctx, "Colour from", froms[:], int(s.from)); picked >= 0 do s.from = Colour_From(picked)
 	ui.end(ctx)
 	ui.end(ctx)
 }

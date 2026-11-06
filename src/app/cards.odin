@@ -461,6 +461,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Section) {
 	.Layer_Edit            = .Layers,
 	.New_Paint_Layer       = .Layers,
 	.New_Texture_Layer     = .Layers,
+	.Export_Paint_Maps     = .Layers,
 	.Paint_Layer_Edit      = .Layers,
 	.Paint                 = .Paint,
 	.Morph_Store           = .Morph,

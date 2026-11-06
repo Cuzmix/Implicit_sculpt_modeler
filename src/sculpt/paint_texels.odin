@@ -1238,3 +1238,140 @@ levels_paint_flat :: proc(l: ^Levels, s: ^Sculptor, allocator := context.temp_al
 	})
 	return out
 }
+
+// The paint as it shows where the ray meets the current level's surface, as
+// sculptor_paint_at, with the texture layers' composite (read bilinearly at the hit's UV)
+// laid over the vertex layers': for the eyedropper.
+levels_paint_at :: proc(l: ^Levels, origin, dir: Vec3) -> (c: Color, material: Material_Paint, hit: bool) {
+	s := &levels_current(l).sculptor
+	c, material, hit = sculptor_paint_at(s, origin, dir)
+	t := &l.texels
+	if !hit || t.side == 0 do return
+	levels_texels_flush(l)
+	if !levels_texels_show(l) || !levels_texel_map(l) do return
+	tri, w, _ := paint_hit(s, origin, dir)
+	if int(tri) >= len(t.tex_map.corner) do return
+	k := t.tex_map.corner[tri]
+	uv := k[0] * w[0] + k[1] * w[1] + k[2] * w[2]
+	side := t.side
+	across := texel_tiles_across(side)
+	fs := f32(side)
+	p := [2]f32{uv.x * fs - 0.5, (1 - uv.y) * fs - 0.5}
+	x0, y0 := int(linalg.floor(p.x)), int(linalg.floor(p.y))
+	fx, fy := p.x - f32(x0), p.y - f32(y0)
+	pc, pm: [4]f32 // premultiplied, as the composite keeps them
+	for dy in 0 ..= 1 do for dx in 0 ..= 1 {
+		x, y := clamp(x0 + dx, 0, side - 1), clamp(y0 + dy, 0, side - 1)
+		tile := t.shown[(y / TEXEL_TILE) * across + x / TEXEL_TILE]
+		if tile == nil do continue
+		f := (fx if dx == 1 else 1 - fx) * (fy if dy == 1 else 1 - fy)
+		at := (y % TEXEL_TILE) * TEXEL_TILE + x % TEXEL_TILE
+		if tile.color != nil {
+			v := tile.color[at]
+			pc += {f32(v.r), f32(v.g), f32(v.b), f32(v.a)} * f
+		}
+		if tile.material != nil {
+			v := tile.material[at]
+			pm += {f32(v[0]), f32(v[1]), f32(v[2]), f32(v[3])} * f
+		}
+	}
+	// Each over what is below as far as it covers: the colour, then roughness and metal.
+	over :: proc(below: [2]u8, value, cover: f32) -> [2]u8 {
+		a := cover / 255
+		if a <= 0 do return below
+		ba := f32(below[1]) / 255 * (1 - a)
+		total := a + ba
+		return {u8(clamp((value + f32(below[0]) * ba) / total + 0.5, 0, 255)), u8(clamp(total * 255 + 0.5, 0, 255))}
+	}
+	for k in 0 ..< 3 do c[k] = over({c[k], c.a}, pc[k], pc.a)[0]
+	c.a = over({0, c.a}, 0, pc.a)[1]
+	for ch in 0 ..< 2 {
+		m := over({material[2 * ch], material[2 * ch + 1]}, pm[2 * ch], pm[2 * ch + 1])
+		material[2 * ch], material[2 * ch + 1] = m[0], m[1]
+	}
+	return
+}
+
+// The paint as maps at the texture layers' size, for the exports (PT5): the base colour
+// (sRGB) is the vertex layers' paint over `under`, the material's colour, with the texture
+// layers over it, and the ORM map is occlusion 1, then roughness and metal the same way
+// over `under_rm`, as glTF reads them (green and blue). RGBA rows top to bottom, v = 1 at
+// the top, made with `allocator`; texels on no island hold the material's values. Nil
+// without texture layers or a texel map. Each tile row of texels is one job's, so any
+// thread count gives the same maps.
+levels_texels_maps :: proc(l: ^Levels, under: [3]u8, under_rm: [2]u8, allocator := context.allocator) -> (base, orm: []u8) {
+	t := &l.texels
+	if t.side == 0 || len(t.layers) == 0 || !levels_texel_map(l) do return
+	levels_texels_flush(l)
+	s := &levels_current(l).sculptor
+	side := t.side
+	base = make([]u8, 4 * side * side, allocator)
+	orm = make([]u8, 4 * side * side, allocator)
+	Job :: struct {
+		t:          ^Texels,
+		s:          ^Sculptor,
+		colors:     []Color,
+		materials:  []Material_Paint,
+		under:      [3]u8,
+		under_rm:   [2]u8,
+		base, orm:  []u8,
+	}
+	job := Job{t, s, sculptor_paint_shown(s), sculptor_paint_shown_material(s), under, under_rm, base, orm}
+	jobs.parallel_for(l.pool, side / TEXEL_TILE, &job, proc(data: rawptr, ty: int) {
+		job := cast(^Job)data
+		t := job.t
+		side := t.side
+		across := texel_tiles_across(side)
+		idx := job.s.mesh.indices[:]
+		over :: proc(c: [4]f32, x: [4]f32) -> [4]f32 {
+			// `x` premultiplied, 0 to 255, over straight `c` (its alpha 0 to 255).
+			a := x.w / 255
+			ba := c.w / 255 * (1 - a)
+			cover := a + ba
+			if cover <= 0 do return c
+			return {(x.x + c.x * ba) / cover, (x.y + c.y * ba) / cover, (x.z + c.z * ba) / cover, cover * 255}
+		}
+		for y in ty * TEXEL_TILE ..< (ty + 1) * TEXEL_TILE do for x in 0 ..< side {
+			k := (y / TEXEL_TILE) * across + x / TEXEL_TILE
+			at := (y % TEXEL_TILE) * TEXEL_TILE + x % TEXEL_TILE
+			color := [4]f32{f32(job.under.r), f32(job.under.g), f32(job.under.b), 255}
+			rough := [4]f32{f32(job.under_rm[0]), 0, 0, 255}
+			metal := [4]f32{f32(job.under_rm[1]), 0, 0, 255}
+			// The vertex layers where the texel lies, over the material.
+			if mt := t.tex_map.tiles[k]; mt != nil && mt.tri[at] != TEXEL_NONE && (job.colors != nil || job.materials != nil) {
+				tri := mt.tri[at]
+				b := [2]f32{f32(mt.bary[at].x), f32(mt.bary[at].y)} * (1.0 / 65535)
+				w := [3]f32{1 - b.x - b.y, b.x, b.y}
+				vs := idx[3 * tri:][:3]
+				if job.colors != nil {
+					v: [4]f32
+					for c in 0 ..< 3 do v += [4]f32{f32(job.colors[vs[c]].r), f32(job.colors[vs[c]].g), f32(job.colors[vs[c]].b), f32(job.colors[vs[c]].a)} * w[c]
+					color = over(color, {v.x * v.w / 255, v.y * v.w / 255, v.z * v.w / 255, v.w})
+				}
+				if job.materials != nil {
+					v: [4]f32
+					for c in 0 ..< 3 do v += [4]f32{f32(job.materials[vs[c]][0]), f32(job.materials[vs[c]][1]), f32(job.materials[vs[c]][2]), f32(job.materials[vs[c]][3])} * w[c]
+					rough = over(rough, {v.x * v.y / 255, 0, 0, v.y})
+					metal = over(metal, {v.z * v.w / 255, 0, 0, v.w})
+				}
+			}
+			// The texture layers' composite over it, premultiplied as it is kept.
+			if sh := t.shown[k]; sh != nil {
+				if sh.color != nil {
+					c := sh.color[at]
+					color = over(color, {f32(c.r), f32(c.g), f32(c.b), f32(c.a)})
+				}
+				if sh.material != nil {
+					m := sh.material[at]
+					rough = over(rough, {f32(m[0]), 0, 0, f32(m[1])})
+					metal = over(metal, {f32(m[2]), 0, 0, f32(m[3])})
+				}
+			}
+			o := 4 * (y * side + x)
+			for c in 0 ..< 3 do job.base[o + c] = u8(clamp(color[c] + 0.5, 0, 255))
+			job.base[o + 3] = 255
+			job.orm[o], job.orm[o + 1], job.orm[o + 2], job.orm[o + 3] = 255, u8(clamp(rough.x + 0.5, 0, 255)), u8(clamp(metal.x + 0.5, 0, 255)), 255
+		}
+	})
+	return
+}

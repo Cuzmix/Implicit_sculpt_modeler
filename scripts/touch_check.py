@@ -6743,28 +6743,26 @@ def each_space_keeps_its_layout_in_settings():
     return Steps([first(), second()])
 
 
-# The view's shading chip at 1600 x 900, and the Wireframe, Normals and Wipe compare rows
-# of its list (the shading modes and Solid's options come first).
-PASS_CHIP, PASS_NORMALS, PASS_MENU_WIPE = UI["pass_chip"], At("pass menu/Normals", 230, 492), At("Wipe compare", 234, 801)
-PASS_MENU_WIREFRAME, PASS_MENU_SOLID = At("pass menu/Wireframe", 220, 158), At("pass menu/Solid", 220, 202)
+# The view's shading chip at 1600 x 900, and the Normals and Wipe compare rows of its list
+# (the looks and their options come first), and the Flat and Lit looks in its row.
+PASS_CHIP, PASS_NORMALS, PASS_MENU_WIPE = UI["pass_chip"], At("pass menu/Normals", 263, 435), At("Wipe compare", 263, 832)
+PASS_MENU_FLAT, PASS_MENU_LIT = At("pass menu/shading options/Look/Flat", 399, 130), At("pass menu/shading options/Look/Lit", 258, 130)
 
 
 @scenario
-def shading_chip_picks_wireframe_then_solid():
-    """A tap on the view's shading chip lists the shading modes; Wireframe there draws every edge, closes the list and marks the layout, and Solid from it again comes back to the layout's own shading, the list staying open for Solid's options."""
+def shading_chip_picks_flat_then_lit():
+    """A tap on the view's shading chip shows the looks; Flat there draws the colours with no light, keeps the list open for its options and marks the layout, and Lit from it again comes back to the layout's own shading."""
     def run(back):
         s = Script()
         s.ftap(PASS_CHIP)
         s.wait(10)
-        s.ftap(PASS_MENU_WIREFRAME)
+        s.ftap(PASS_MENU_FLAT)
         s.wait(10)
         if back:
-            s.ftap(PASS_CHIP)
+            s.ftap(PASS_MENU_LIT)
             s.wait(10)
-            s.ftap(PASS_MENU_SOLID)
-            s.wait(10)
-        return s, [], camera_still({"dabs": near(0), "pass": is_text("Shaded"), "shading_mode": is_text("Solid" if back else "Wireframe"),
-                                    "pass_menu": near(1 if back else 0), "layout_modified": near(0 if back else 1)})
+        return s, [], camera_still({"dabs": near(0), "pass": is_text("Shaded"), "shading_mode": is_text("Lit" if back else "Flat"),
+                                    "pass_menu": near(1), "layout_modified": near(0 if back else 1)})
     return Steps([run(False), run(True)])
 
 
@@ -8316,9 +8314,9 @@ def knife_cuts_away_the_shaded_side():
 
 # The Assign key popover beside the Palettes button, at 1600 by 900: Use it here and Keep
 # it there on a conflict; the palette's Star, Put in a pie and Assign key with "wire"
-# typed (four rows: Wireframe, Shading: Wireframe, Wipe compare, New scene: Figure), and its first row with nothing typed under the STARRED caption.
+# typed (three rows: Wireframe, Wipe compare, New scene: Figure), and its first row with nothing typed under the STARRED caption.
 BIND_USE_HERE, BIND_KEEP = (1345, 250), (1506, 250)
-PALETTE_STAR, PALETTE_PIE, PALETTE_ASSIGN = (932, 387), (980, 387), (1028, 387)
+PALETTE_STAR, PALETTE_PIE, PALETTE_ASSIGN = At("palette/palette footer/Star", 932, 353), At("palette/palette footer/Put in a pie", 980, 353), At("palette/palette footer/Assign key", 1028, 353)
 PALETTE_FIRST_STARRED = UI["palette_row1"]
 # The pie editor opened from the palette: Pie 1's first slot and Pie 3's.
 EDITOR_PIE1_FIRST, EDITOR_PIE3_FIRST = (585, 250), (585, 418)
@@ -8845,7 +8843,7 @@ def mouse_maya_alt_right_zooms():
 
 # An image environment shown behind the scene in Material Preview, where Shift and a right
 # drag turns it rather than panning.
-ENVIRONMENT_SHOWN = "--script=environment src/hdri/testdata/exr/sky_half_zip.exr; set environment_background on; shading_mode material_preview"
+ENVIRONMENT_SHOWN = "--script=environment src/hdri/testdata/exr/sky_half_zip.exr; set environment_background on; shading_mode full"
 
 
 @scenario
@@ -8861,7 +8859,7 @@ def environment_shift_right_pans_in_solid():
     """In Solid, where the environment is not seen, Shift and a right drag pans as it always did and turns nothing."""
     s = Script()
     s.mouse_drag(line((700, 450), (900, 450), 10), button="right", keys=("shift",))
-    script = ENVIRONMENT_SHOWN.replace("material_preview", "solid")
+    script = ENVIRONMENT_SHOWN.replace("full", "lit")
     return s, [script], {"camera_yaw": near(CAMERA0["camera_yaw"]), "camera_target": lambda v: v != "0.0000,0.0000,0.0000", "environment_turn": near(0), "environment_turns": near(0)}
 
 
@@ -11652,14 +11650,14 @@ def view_pane_studio_stroke_in_it_gathers_again():
 
 @scenario
 def view_pane_shading_is_its_own():
-    """Wireframe in the Front pane's Shows draws that pane in Wireframe only: the other panes and the main view stay Solid, and the layout is marked."""
+    """Flat in the top pane's Shows draws that pane in Flat only: the other panes and the main view stay Lit, the list stays open for Flat's options, and the layout is marked."""
     s = Script()
     s.wait(30)
-    s.ftap(FOUR_FRONT_PASS)
+    s.ftap(At("view pane 1 head/Shows", 1005, 90))
     s.wait(10)
-    s.ftap(FOUR_FRONT_PASS[0], 170)
+    s.ftap(At("pane menu/Flat", 1111, 302))
     s.wait(30)
-    return s, ["--script=view_grid four"], camera_still({"pane_shows": is_text("Wireframe,Solid,Solid"), "shading_mode": is_text("Solid"), "pane_menu": near(0),
+    return s, ["--script=view_grid four"], camera_still({"pane_shows": is_text("Flat,Lit,Lit"), "shading_mode": is_text("Lit"), "pane_menu": near(1),
                                                          "layout_modified": near(1), "dabs": near(0)})
 
 
@@ -14659,4 +14657,3 @@ def main(argv):
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
-

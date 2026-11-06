@@ -65,7 +65,7 @@ Second_View :: struct {
 	orbit:    camera.Orbit,
 	camera:   Second_Camera,
 	pass:     Second_Pass,
-	// Its shading mode and Solid's options, shown while the pass is Shaded (shading.odin).
+	// Its look and the look's options, shown while the pass is Shaded (shading.odin).
 	shading:  View_Shading,
 	from:     [2]f32, // where the drag on the picture went down, and where it was last frame
 	last:     [2]f32,
@@ -115,8 +115,8 @@ second_view_pass :: proc(p: Second_Pass) -> render.View_Pass {
 	return .Shaded
 }
 
-// What a view can show, in its Shows list's order: Blender's shading modes (Rendered being
-// the Render pass), then the passes that check the form and the studio render.
+// What a view can show, in its Shows list's order: the looks (Rendered being the Render
+// pass), then the passes that check the form and the studio render.
 Second_Shows :: struct {
 	pass: Second_Pass,
 	mode: Shading_Mode,
@@ -124,9 +124,10 @@ Second_Shows :: struct {
 
 @(rodata)
 SECOND_SHOWS := [?]Second_Shows {
-	{.Shaded, .Wireframe},
-	{.Shaded, .Solid},
-	{.Shaded, .Material_Preview},
+	{.Shaded, .Clay},
+	{.Shaded, .Lit},
+	{.Shaded, .Full},
+	{.Shaded, .Flat},
 	{.Render, .Rendered},
 	{.Silhouette, {}},
 	{.Normals, {}},
@@ -136,10 +137,10 @@ SECOND_SHOWS := [?]Second_Shows {
 	{.Studio, {}},
 }
 
-// How many of SECOND_SHOWS are shading modes, the rest passes.
-SECOND_SHOWS_MODES :: 4
+// How many of SECOND_SHOWS are looks, the rest passes.
+SECOND_SHOWS_MODES :: 5
 
-// The name of what second view `sv` shows: its shading mode, or its pass.
+// The name of what second view `sv` shows: its look, or its pass.
 second_shows_name :: proc(sv: ^Second_View) -> string {
 	if m, ok := second_shading_mode(sv); ok do return SHADING_MODE_NAMES[m]
 	return SECOND_PASS_NAMES[sv.pass]
@@ -152,7 +153,7 @@ second_shows_index :: proc(sv: ^Second_View) -> int {
 	return 0
 }
 
-// Makes second view `sv` show SECOND_SHOWS[i], keeping Solid's options.
+// Makes second view `sv` show SECOND_SHOWS[i], keeping the look's options.
 second_shows_set :: proc(sv: ^Second_View, i: int) {
 	if i < 0 || i >= len(SECOND_SHOWS) do return
 	e := SECOND_SHOWS[i]
@@ -316,7 +317,7 @@ picture_key :: proc(app: ^App, sv: ^Second_View, size: [2]u32, supersample: u32)
 	}
 	pass := u32(second_view_pass(sv.pass)) | u32(sv.pass) << 8
 	s := sv.shading
-	shading := u64(s.mode) | u64(s.lighting) << 8 | u64(s.color) << 16 | u64(s.matcap) << 24
+	shading := u64(s.mode) | u64(s.from) << 8 | u64(transmute(u32)s.grey) << 16 | u64(s.matcap) << 48
 	Ground :: struct {
 		background: render.Background,
 		floor:      Floor_Settings,
@@ -388,13 +389,13 @@ picture_frame :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, fro
 		pic.due = picture_gathers(app, sv, pic)
 		return
 	}
-	// Shaded draws as the view's shading mode says, and Render's picture before its samples
-	// as Material Preview.
+	// Shaded draws as the view's look says, and Render's picture before its samples as
+	// Full.
 	if sv.pass == .Shaded {
 		shading_items(app, items, froms, sv.shading, pane = true)
 		pass = shading_pass(app, sv.shading, pass, pane = true)
 	} else if sv.pass == .Render {
-		shading_items(app, items, froms, {mode = .Material_Preview}, pane = true)
+		shading_items(app, items, froms, {mode = .Full}, pane = true)
 	}
 	// A silhouette is the outline alone: no wireframe, paint, groups or maps over it.
 	if pass == .Silhouette {
