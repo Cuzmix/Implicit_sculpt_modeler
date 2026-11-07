@@ -38,6 +38,25 @@ Blas_Refit_Comp_Buffers :: enum u32 {positions, indices, order, chunks}
 Blas_Refit_Comp_Write_Buffers :: enum u32 {nodes}
 Blas_Refit_Comp_Uniforms :: enum u32 {Params}
 
+// blend_project.comp.spv sha256 b1d6df237f9e00d857e16bbf65c0aa7253e96d62cbc22fdd18693381784ff227
+BLEND_PROJECT_COMP :: gpu.Compute_Pipeline_Desc{
+	code = #load("shaders/blend_project.comp" + SHADER_EXT, string),
+	entrypoint = SHADER_ENTRY,
+	format = SHADER_FORMAT,
+	num_samplers = 0,
+	num_readonly_storage_textures = 0,
+	num_readonly_storage_buffers = 7,
+	num_readwrite_storage_textures = 0,
+	num_readwrite_storage_buffers = 1,
+	num_uniform_buffers = 1,
+	threadcount_x = 256,
+	threadcount_y = 1,
+	threadcount_z = 1,
+}
+Blend_Project_Comp_Buffers :: enum u32 {positions, page_list, fields, brick_table, brick_values, brick_weights, terms}
+Blend_Project_Comp_Write_Buffers :: enum u32 {pages}
+Blend_Project_Comp_Uniforms :: enum u32 {Blend_Params}
+
 // bloom_down.frag.spv sha256 0c6a396d73d52306182f7627e1d56be1719f216013f99d27b551d21626fa98f3
 BLOOM_DOWN_FRAG :: gpu.Shader_Desc{
 	code = #load("shaders/bloom_down.frag" + SHADER_EXT, string),

@@ -71,13 +71,13 @@ blend_pages_set :: proc(r: ^Renderer, cmd: gpu.Cmd, bp: ^Blend_Pages, table: []u
 	pages := u32(len(entries) / BLEND_PAGE_VERTICES)
 	if bp.table == 0 || bp.table_words < u32(len(table)) {
 		if bp.table != 0 do gpu.release_buffer(bp.table)
-		bp.table_words = grown(u32(len(table)))
+		bp.table_words = grown_pow2(u32(len(table)))
 		bp.table = gpu.create_buffer({usage = {.Graphics_Storage_Read, .Storage_Read, .Storage_Write}, size = bp.table_words * size_of(u32)})
 		gpu.set_buffer_name(bp.table, "Blend page table")
 	}
 	if bp.pages == 0 || bp.page_capacity < max(pages, 1) {
 		if bp.pages != 0 do gpu.release_buffer(bp.pages)
-		bp.page_capacity = grown(max(pages, 1))
+		bp.page_capacity = grown_pow2(max(pages, 1))
 		bp.pages = gpu.create_buffer({usage = {.Graphics_Storage_Read, .Storage_Read, .Storage_Write}, size = bp.page_capacity * BLEND_PAGE_VERTICES * size_of(Blend_Entry)})
 		gpu.set_buffer_name(bp.pages, "Blend pages")
 	}
@@ -102,13 +102,6 @@ blend_pages_destroy :: proc(bp: ^Blend_Pages) {
 	if bp.table != 0 do gpu.release_buffer(bp.table)
 	if bp.pages != 0 do gpu.release_buffer(bp.pages)
 	bp^ = {}
-}
-
-@(private = "file")
-grown :: proc(n: u32) -> u32 {
-	c := u32(64)
-	for c < n do c *= 2
-	return c
 }
 
 // What an item's pages add to the keys that decide whether its pictures (the idle cache,

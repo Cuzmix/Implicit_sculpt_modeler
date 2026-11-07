@@ -52,6 +52,7 @@ Blend_Field :: struct {
 	table:   []u64, // open addressing: key, then its slot at the same index of `slots`
 	slots:   []i32,
 	used:    int,
+	painted: bool, // some fill read a painted weight: without one every weight is full
 }
 
 blend_field_init :: proc(f: ^Blend_Field, h, band: f32, allocator := context.allocator) {
@@ -90,19 +91,25 @@ blend_brick_fits :: #force_inline proc(b: [3]i32) -> bool {
 	return abs(b.x) < KEY_OFFSET - 1 && abs(b.y) < KEY_OFFSET - 1 && abs(b.z) < KEY_OFFSET - 1
 }
 
-@(private = "file")
-key_hash :: #force_inline proc(k: u64) -> u64 {
-	// splitmix64's finalizer: neighbouring bricks land far apart in the table.
-	z := k + 0x9e3779b97f4a7c15
-	z = (z ~ (z >> 30)) * 0xbf58476d1ce4e5b9
-	z = (z ~ (z >> 27)) * 0x94d049bb133111eb
-	return z ~ (z >> 31)
+// The table slot a key starts its search at, before the mask: a 32-bit hash of the key's
+// three 21-bit coordinates (lowbias32 over a spatial mix), so the GPU kernel
+// (shaders/blend_project.comp.slang), which has no 64-bit integers everywhere, finds a
+// brick by the same probes.
+blend_key_hash :: #force_inline proc(k: u64) -> u32 {
+	x, y, z := u32(k & KEY_MASK), u32((k >> 21) & KEY_MASK), u32((k >> 42) & KEY_MASK)
+	h := x * 73856093 ~ y * 19349663 ~ z * 83492791
+	h ~= h >> 16
+	h *= 0x7feb352d
+	h ~= h >> 15
+	h *= 0x846ca68b
+	h ~= h >> 16
+	return h
 }
 
 // The slot of the brick with key k, or -1 when the field does not hold it.
 blend_field_slot :: #force_inline proc(f: ^Blend_Field, k: u64) -> i32 {
 	mask := u64(len(f.table) - 1)
-	for i := key_hash(k) & mask; ; i = (i + 1) & mask {
+	for i := u64(blend_key_hash(k)) & mask; ; i = (i + 1) & mask {
 		if f.table[i] == k do return f.slots[i]
 		if f.table[i] == KEY_FREE do return -1
 	}
@@ -112,7 +119,7 @@ blend_field_slot :: #force_inline proc(f: ^Blend_Field, k: u64) -> i32 {
 table_put :: proc(f: ^Blend_Field, k: u64, slot: i32) {
 	if (f.used + 1) * 2 > len(f.table) do table_regrow(f, len(f.table) * 2)
 	mask := u64(len(f.table) - 1)
-	for i := key_hash(k) & mask; ; i = (i + 1) & mask {
+	for i := u64(blend_key_hash(k)) & mask; ; i = (i + 1) & mask {
 		if f.table[i] == k {
 			f.slots[i] = slot
 			return
@@ -164,6 +171,7 @@ blend_field_fill :: proc(f: ^Blend_Field, s: ^Blend_Surface, keys: []u64, pool: 
 		s:     ^Blend_Surface,
 		first: int,
 	}
+	if s.weight != nil do f.painted = true
 	job := Fill{f, s, first}
 	jobs.parallel_for(pool, n * BLEND_SIDE, &job, proc(data: rawptr, i: int) {
 		job := cast(^Fill)data

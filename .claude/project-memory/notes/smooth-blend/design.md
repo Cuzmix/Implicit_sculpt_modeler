@@ -521,3 +521,22 @@ P3.
   drawn against 0.27M).
 - Orbit cost with pages, release, two 2M spheres, 318k moved vertices: GPU p50 1.45-1.46 ms against
   1.41-1.68 ms plain, CPU 0.448-0.454 against 0.434-0.441 ms, triangles 272k against 266k.
+
+## 15. P3: the projection on the GPU (built 2026-11-07)
+- `shaders/blend_project.comp.slang` is `project_vertex` step for step, built exact (`-fp-mode precise`,
+  `create_compute_pipeline_exact`). One workgroup per quarter page; every thread writes its entry (zero
+  where nothing moves), so pages need no clearing and the layout is the host's: the pages of the nodes
+  whose chunk box meets a brick of the instance's own field. Those chunks are padded by 1.25x the reach
+  for culling, since the moves stay on the GPU.
+- The brick table's hash became 32-bit (`geom.blend_key_hash`), so the kernel probes as the CPU does
+  (WebGPU has no 64-bit integers). The term pairs live in the uniforms, so the kernel binds 7 read-only
+  and 1 read-write storage buffers (WebGPU's 8 a stage). At most 8 terms; a larger group stays on the CPU.
+- Against the CPU (`--blend-check`, 1M against 20k, R 0.15): the largest offset difference 1.4e-7,
+  no vertex moved by one and not the other (68,637 moved); the pictures differ in 3 pixels by at most 4.
+- Timing (release, Radeon 890M, alone; two equal spheres crossing, contact circle about 0.8 across, R
+  0.15; dispatch with its submit and wait; both objects summed), two runs each:
+  - 1M: 487 pages, 1.33-1.95 ms; 10M: 3,489 pages, 4.16-4.85 ms; 20M: 6,625 pages, 7.04-8.04 ms.
+  - The design's 3 ms at 20M was for the bench's arm (a quarter of the vertices, 1.25M moved); this
+    scene's contact is far larger (about 6.8M vertices in candidate pages at 20M). Kernel: 128 VGPRs,
+    8 waves a SIMD, no spills, 7.5k instructions (`kernel_stats.py`). Skipping unpainted weights changed
+    nothing measurable (7.0-7.8 ms).
