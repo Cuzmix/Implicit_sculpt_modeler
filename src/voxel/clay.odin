@@ -24,6 +24,9 @@ Clay :: struct {
 	job_slots:     [dynamic]u32, // scratch: the stroke's bricks, for the saddle pass at its end
 	scratch:       [dynamic]Brick, // Smooth writes here, one brick a job, then commits
 	windows:       [dynamic]i16, // a dab's gathered neighbourhoods (WINDOW_VOXELS a job), and the band repair's
+	presses:       [dynamic]i16, // Layer's: the same neighbourhoods as they were at the stroke's start
+	trim_angle:    f32, // Trim's angle as the stroke has eased it, once `trim_set`
+	trim_set:      bool,
 	// The band repair (band.odin): bricks waiting for it, its region, the fixed voxels of
 	// each region brick, the generation that stamps pending slots and the running sweep.
 	pending:       [dynamic][3]i32,
@@ -63,6 +66,7 @@ clay_init :: proc(c: ^Clay, voxel: f32, centre: Vec3, pool: ^jobs.Pool, allocato
 	c.job_slots = make([dynamic]u32, allocator)
 	c.scratch = make([dynamic]Brick, allocator)
 	c.windows = make([dynamic]i16, allocator)
+	c.presses = make([dynamic]i16, allocator)
 	c.pending = make([dynamic][3]i32, allocator)
 	c.region = make([dynamic]u32, allocator)
 	c.fixed = make([dynamic][BRICK_VOXELS / 64]u64, allocator)
@@ -82,6 +86,7 @@ clay_destroy :: proc(c: ^Clay) {
 	delete(c.job_slots)
 	delete(c.scratch)
 	delete(c.windows)
+	delete(c.presses)
 	delete(c.pending)
 	delete(c.region)
 	delete(c.fixed)
@@ -128,6 +133,7 @@ clay_stroke_begin :: proc(c: ^Clay) {
 	assert(!c.in_stroke, "a stroke is already running")
 	c.in_stroke = true
 	c.stroke_bricks, c.stroke_dabs = 0, 0
+	c.trim_set = false
 	undo_begin(&c.history)
 }
 
@@ -159,6 +165,15 @@ clay_stroke_end :: proc(c: ^Clay) -> bool {
 clay_dab :: proc(c: ^Clay, brush: Brush, centre: Vec3) -> int {
 	assert(c.in_stroke, "a dab needs a stroke")
 	d := dab_make(brush, centre, c.volume.voxel, c.volume.origin)
+	if d.kind == .Trim do trim_planes(c, &d, brush, centre)
+	if d.kind == .Smooth && brush.polish {
+		// Polish: the smoothing pass, then one that swells back by a little more.
+		written := clay_dab_step(c, d)
+		d.rate = -SMOOTH_RATE * POLISH_SWELL
+		written += clay_dab_step(c, d)
+		if written > 0 do c.stroke_dabs += 1
+		return written
+	}
 	// A growing dab higher than the band can follow in one step is laid in steps of at
 	// most ADD_MAX_VOXELS, each bringing the band along (brush.odin).
 	steps := dab_steps(&d)
@@ -231,6 +246,11 @@ clay_dab_step :: proc(c: ^Clay, dab: Dab) -> int {
 		side := WINDOW
 		resize(&c.scratch, len(c.jobs))
 		resize(&c.windows, len(c.jobs) * side * side * side)
+		if d.kind == .Layer {
+			resize(&c.presses, len(c.jobs) * side * side * side)
+			run.d.history = &c.history
+			run.d.volume = &c.volume
+		}
 		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
 			r := cast(^Run)data
 			c := r.c
@@ -240,6 +260,10 @@ clay_dab_step :: proc(c: ^Clay, dab: Dab) -> int {
 			d.window = c.windows[i * side * side * side:][:side * side * side]
 			d.window_lo = job.coord * BRICK - 1
 			gather_window(&c.volume, d.window_lo, side, d.window)
+			if d.kind == .Layer {
+				d.press = c.presses[i * side * side * side:][:side * side * side]
+				gather_press(d.history, &c.volume, d.window_lo, side, d.press)
+			}
 			c.jobs[i].effect = dab_brick(&d, job.coord, &c.volume.bricks[job.slot], &c.scratch[i], mask_of(&c.volume, job.slot))
 		})
 		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
