@@ -278,24 +278,29 @@ brick_tile :: proc(b: ^Brick) -> Tile {
 	return .Brick
 }
 
-// The value at voxel `g`: the brick's, or its tile's.
-volume_value :: proc(v: ^Volume, g: [3]i32) -> i16 {
+// The value at voxel `g`: the brick's, or its tile's; with `press`, as it was at the
+// recording stroke's start (undo_press).
+volume_value :: proc(v: ^Volume, g: [3]i32, press: ^Undo_History = nil) -> i16 {
 	if g.x < 0 || g.y < 0 || g.z < 0 do return CLAMP
+	l := and3(g, BRICK - 1)
+	if press != nil {
+		data, value := undo_press(press, v, shr3(g, 3)) // BRICK is 8
+		return value if data == nil else data[voxel_index(int(l.x), int(l.y), int(l.z))]
+	}
 	tile, brick := volume_tile(v, shr3(g, 3)) // BRICK is 8
 	if brick == nil do return tile_value(tile)
-	l := and3(g, BRICK - 1)
 	return brick.d[voxel_index(int(l.x), int(l.y), int(l.z))]
 }
 
 // The field at `p` (object space), trilinear between voxel centres, in voxels.
-volume_sample :: proc(v: ^Volume, p: Vec3) -> f32 {
+volume_sample :: proc(v: ^Volume, p: Vec3, press: ^Undo_History = nil) -> f32 {
 	g := voxel_coords(v, p)
 	f := linalg.floor(g)
 	i := [3]i32{i32(f.x), i32(f.y), i32(f.z)}
 	t := g - f
 	c: [8]f32
 	for k in 0 ..< 8 {
-		c[k] = f32(volume_value(v, i + {i32(k & 1), i32(k >> 1 & 1), i32(k >> 2 & 1)}))
+		c[k] = f32(volume_value(v, i + {i32(k & 1), i32(k >> 1 & 1), i32(k >> 2 & 1)}, press))
 	}
 	x0 := math.lerp(c[0], c[1], t.x)
 	x1 := math.lerp(c[2], c[3], t.x)
@@ -308,12 +313,12 @@ volume_sample :: proc(v: ^Volume, p: Vec3) -> f32 {
 
 // The field's gradient at `p` (object space), unit length, pointing out of the volume;
 // zero where the field is flat (deep inside a tile).
-volume_gradient :: proc(v: ^Volume, p: Vec3) -> Vec3 {
+volume_gradient :: proc(v: ^Volume, p: Vec3, press: ^Undo_History = nil) -> Vec3 {
 	h := 0.5 * v.voxel
 	g := Vec3 {
-		volume_sample(v, p + {h, 0, 0}) - volume_sample(v, p - {h, 0, 0}),
-		volume_sample(v, p + {0, h, 0}) - volume_sample(v, p - {0, h, 0}),
-		volume_sample(v, p + {0, 0, h}) - volume_sample(v, p - {0, 0, h}),
+		volume_sample(v, p + {h, 0, 0}, press) - volume_sample(v, p - {h, 0, 0}, press),
+		volume_sample(v, p + {0, h, 0}, press) - volume_sample(v, p - {0, h, 0}, press),
+		volume_sample(v, p + {0, 0, h}, press) - volume_sample(v, p - {0, 0, h}, press),
 	}
 	return linalg.normalize0(g)
 }
@@ -338,8 +343,9 @@ RAYCAST_MAX_STEPS :: 4 * DOMAIN * 2
 // Where the ray from `origin` along `dir` (object space, any length) first enters the
 // volume, and the surface normal there. Empty tiles are skipped a brick at a time; inside
 // bricks the ray advances by the field's value, so it never overshoots a surface, and the
-// crossing is refined by bisection.
-volume_raycast :: proc(v: ^Volume, origin, dir: Vec3) -> (hit, normal: Vec3, ok: bool) {
+// crossing is refined by bisection. With `press`, the volume as it was at the recording
+// stroke's start.
+volume_raycast :: proc(v: ^Volume, origin, dir: Vec3, press: ^Undo_History = nil) -> (hit, normal: Vec3, ok: bool) {
 	d := linalg.normalize0(dir)
 	if d == {} do return
 	o := voxel_coords(v, origin)
@@ -363,8 +369,12 @@ volume_raycast :: proc(v: ^Volume, origin, dir: Vec3) -> (hit, normal: Vec3, ok:
 		g := o + d * t
 		gi := [3]i32{i32(math.floor(g.x + 0.5)), i32(math.floor(g.y + 0.5)), i32(math.floor(g.z + 0.5))}
 		bc := shr3(gi, 3)
-		tile, brick := volume_tile(v, bc)
-		if brick == nil {
+		tile, _ := volume_tile(v, bc)
+		if press != nil {
+			data, value := undo_press(press, v, bc)
+			tile = .Brick if data != nil else (.Inside if value < 0 else .Empty)
+		}
+		if tile != .Brick {
 			if tile == .Inside do break
 			// Skip to where the ray leaves this brick's box.
 			leave := max(f32)
@@ -377,13 +387,13 @@ volume_raycast :: proc(v: ^Volume, origin, dir: Vec3) -> (hit, normal: Vec3, ok:
 			t = leave + 1e-3
 			continue
 		}
-		s := volume_sample_voxels(v, g)
+		s := volume_sample_voxels(v, g, press)
 		if s <= 0 {
 			// Bisect between the last outside sample and this one.
 			lo, hi := prev_t, t
 			for _ in 0 ..< 12 {
 				mid := 0.5 * (lo + hi)
-				if volume_sample_voxels(v, o + d * mid) <= 0 do hi = mid
+				if volume_sample_voxels(v, o + d * mid, press) <= 0 do hi = mid
 				else do lo = mid
 			}
 			t = hi
@@ -394,14 +404,14 @@ volume_raycast :: proc(v: ^Volume, origin, dir: Vec3) -> (hit, normal: Vec3, ok:
 	}
 	if t > t_exit do return
 	hit = v.origin + (o + d * t) * v.voxel
-	normal = volume_gradient(v, hit)
+	normal = volume_gradient(v, hit, press)
 	return hit, normal, true
 }
 
 // volume_sample with the point already in voxel coordinates.
 @(private)
-volume_sample_voxels :: proc(v: ^Volume, g: Vec3) -> f32 {
-	return volume_sample(v, v.origin + g * v.voxel)
+volume_sample_voxels :: proc(v: ^Volume, g: Vec3, press: ^Undo_History = nil) -> f32 {
+	return volume_sample(v, v.origin + g * v.voxel, press)
 }
 
 // A shape a volume is filled with: a sphere of `radius` or a box `half` its size on each

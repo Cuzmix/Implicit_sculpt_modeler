@@ -29,7 +29,7 @@ for _i in range(70):
 COL={'clay':(0.36,0.52,0.98),'smooth':(0.86,0.88,0.92),'grab':(0.62,0.52,0.96),'flatten':(0.45,0.88,0.62),
      'draw':(0.93,0.93,0.97),'layer':(0.27,0.78,0.74),'clay_strips':(0.45,0.5,1.0),'mask':(0.13,0.15,0.2),
      'paint':(0.92,0.36,0.82),'cloth':(0.96,0.55,0.64),'history':(0.37,0.84,0.77),'morph':(0.71,0.88,0.42),'elastic':(0.56,0.6,1.0),
-     'inflate':(0.98,0.78,0.36),'crease':(0.35,0.72,0.98),'pinch':(0.98,0.4,0.42),'trim':(0.98,0.5,0.32),'snake':(0.45,0.8,0.42)}
+     'inflate':(0.98,0.78,0.36),'crease':(0.35,0.72,0.98),'pinch':(0.98,0.4,0.42),'trim':(0.98,0.5,0.32),'snake':(0.45,0.8,0.42),'tube':(0.99,0.66,0.2)}
 def cap_region(p,c,a0):
     # Distance, along the ball, from the round region of angle a0 about direction c.
     c=norm(c); return (np.arccos(np.clip((p@c)/(L(p)+1e-9),-1,1))-a0)*R
@@ -124,6 +124,14 @@ def scene(n,p):
         for i in range(len(Q)-1): c=np.minimum(c,rcone(p,Q[i],Q[i+1],RQ[i],RQ[i+1]))
         d,h=smin(ball,c,0.2)
         return d, np.clip((ball-c)*5+0.2,0,1)
+    if n=='tube':
+        # A round rope of clay laid along an S on the ball's front, sitting on it.
+        c=np.full(ball.shape,9.0); prev=None
+        for t in np.linspace(-0.62,0.62,25):
+            q=onball(t,0.34*np.sin(t*4.0)+0.06,0.11)
+            if prev is not None: c=np.minimum(c,cap(p,prev,q,0.15))
+            prev=q
+        d,_=smin(ball,c,0.05); return d, np.clip((ball-c)*14+0.3,0,1)
 def render(n):
     M=N*SS; s=(np.arange(M)+0.5)/M*2-1; sc=1.42
     X,Y=np.meshgrid(s*sc+0.08,-s*sc+0.12)

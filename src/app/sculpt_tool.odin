@@ -266,6 +266,10 @@ Stroke :: struct {
 	// Even strength's scale for this stroke's dabs (spacing_strength), or Accumulate off's
 	// (once_strength); 0 until worked out.
 	even:     f32,
+	// Tube on voxel clay: where the last dab's rope ended, its axis in the object's space
+	// (tube_set once there is one), which the next dab joins; a dab off the clay breaks it.
+	tube_from: Vec3,
+	tube_set:  bool,
 	// Size fixed in the scene: how many screen pixels a pixel of radius_px is at the last
 	// dab (brush_size_scale); 0 before it.
 	size_scale: f32,
@@ -780,7 +784,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st.scale = app.stroke_scale_from if app.stroke_scale_from > 0 else (app.nav.touch_strength if app.device.pointer == .Finger else 1)
 	st.pos, st.pressure, st.tilt, st.travel, st.size = s.pos, s.pressure, s.tilt, 0, input.size
 	st.dir, st.facing, st.even, st.size_scale, st.first_dir = {}, 0, 0, 0, {}
-	st.last_set = false
+	st.last_set, st.tube_set = false, false
 	st.line, st.line_leaving, st.joined, st.smooth_was = false, false, false, input.smooth
 	clear(&st.pending)
 	clear(&st.path)
@@ -1419,10 +1423,13 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	t := stroke_frame(app, obj)
 	t0 := time.tick_now()
 	local_dir := to_local_dir(t, dir)
-	hit, normal, ok := object_raycast_local(obj, to_local(t, origin), local_dir)
-	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
-	if !ok do return
 	st := &app.stroke
+	hit, normal, ok := object_raycast_local(obj, to_local(t, origin), local_dir, press = st.kind == .Tube)
+	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
+	if !ok {
+		st.tube_set = false
+		return
+	}
 	if l := linalg.length(normal) * linalg.length(local_dir); l > 0 do st.facing = abs(linalg.dot(normal, local_dir)) / l
 	stroke_dab_at(app, obj, input, hit, normal, pressure, tilt, res, scatter)
 }
@@ -1623,6 +1630,20 @@ brush_hovering :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3
 	return brush_at(app, input, t, hit, 1, input.pen_tilt)
 }
 
+// How many brushes' falloff tables are kept: a frame asks for at most three (the brush
+// set, the one a held key picks and the stroke's own), so a table in use is never the
+// one the least recently asked for. A table a brush is 1 KiB, too much to keep for
+// every brush in App.
+FALLOFF_TABLES :: 4
+
+Falloff_Table :: struct {
+	falloff: sculpt.Falloff,
+	kind:    sculpt.Brush_Kind,
+	shape:   Falloff_Setting,
+	built:   bool,
+	used:    u64, // App.falloff_clock when last asked for
+}
+
 // The falloff of the brush `kind` as a table, made from its curve and focal shift, or nil
 // for the built-in one unshifted, which the dabs work out themselves.
 brush_falloff :: proc(app: ^App, kind: sculpt.Brush_Kind) -> ^sculpt.Falloff {
@@ -1632,10 +1653,20 @@ brush_falloff :: proc(app: ^App, kind: sculpt.Brush_Kind) -> ^sculpt.Falloff {
 	// the dab's to apply.
 	if !f.drawn do f.curve = {}
 	f.projected = false
-	table := &app.falloff_tables[kind]
-	if table.shape != f || !table.built {
+	// This brush's table, or the one asked for least recently.
+	table := &app.falloff_tables[0]
+	for &t in app.falloff_tables {
+		if t.built && t.kind == kind {
+			table = &t
+			break
+		}
+		if t.used < table.used do table = &t
+	}
+	app.falloff_clock += 1
+	table.used = app.falloff_clock
+	if table.shape != f || !table.built || table.kind != kind {
 		sculpt.falloff_set_shaped(&table.falloff, f.curve if f.drawn else nil, f.focal, f.hardness)
-		table.shape, table.built = f, true
+		table.shape, table.built, table.kind = f, true, kind
 	}
 	return &table.falloff
 }

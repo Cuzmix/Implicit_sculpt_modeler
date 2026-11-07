@@ -16,7 +16,9 @@ description: Implicit and SDF modelling for this app — the voxel sculptor in s
   bricks round each brick, in steps of at most `WARP_STEP` (half the clamp, so dilation keeps the band ahead; `dab_warp.odin`); `Layer` grows
   no further than `layer` above the press (the stroke's first undo saves, `Undo_History.first`, `undo_press`; past the clamp
   `layer_press` steps back along the normal), `Clay_Strips` to a plane with a square falloff along `Brush.along`, `Trim` clips
-  to two planes turned by the sides' normals (`trim_planes`), `Brush.polish` adds a swell-back Smooth pass (`brush_more.odin`); `Grab` a warp (`warp.odin`: `clay_grab_begin/move`, every frame
+  to two planes turned by the sides' normals (`trim_planes`), `Brush.polish` adds a swell-back Smooth pass (`brush_more.odin`); `Tube` the smooth union of the press with a capsule
+  `Brush.from`→centre, `min`'d with the field so joints never swell, its points raycast through the press
+  (`clay_raycast_press`; `volume_raycast`/`volume_value` take an optional `^Undo_History`; `tube.odin`); `Grab` a warp (`warp.odin`: `clay_grab_begin/move`, every frame
   samples the press's field, the undo step's first saves, through the inverse of the move found by fixed-point steps,
   long drags chained in steps of 0.4 r, all symmetry images in one warp, sources on a lattice of every other voxel,
   bricks whose sources fall in one tile pruned to it, first in blocks of 4³ bricks, corners shared through

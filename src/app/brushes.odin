@@ -45,6 +45,7 @@ BRUSHES := [sculpt.Brush_Kind]Brush_Info {
 	.History    = {"History", "A local undo: paints the surface back to how it was\nbefore an earlier step, only where you brush.", ui.ICON_PAINT_BACK, 0.5, {}},
 	.Elastic    = {"Elastic", "Drags what is under the brush as rubber would stretch:\nthe part pulled keeps its shape, the rest follows smoothly.", ui.ICON_BRUSH_ELASTIC, 0.5, {.Grab}},
 	.Clay_Strips  = {"Clay strips", "Lays flat-topped strips with square ends along the\nstroke, filling dips first (Ctrl: digs).", ui.ICON_BRUSH_CLAY_STRIPS, 0.5, {}},
+	.Tube         = {"Tube", "Lays a rope of clay along the stroke, as thick as the brush\ntimes its strength; voxel clay only (Ctrl: carves a groove).", ui.ICON_BRUSH_TUBE, 0.5, {}},
 	.Trim_Dynamic = {"Trim dynamic", "Cuts a ridge into two flat planes about the stroke, at\nthe angle it finds, for hard edges (Ctrl: a valley).", ui.ICON_BRUSH_TRIM, 0.5, {}},
 }
 
