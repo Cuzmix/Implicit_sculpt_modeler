@@ -52,6 +52,8 @@ Brush_Kind :: enum {
 	Clay_Strips,  // build flat-topped strips with square ends along the stroke (strips.odin; inverted digs)
 	Trim_Dynamic, // cut a ridge into two planes about the stroke, at the angle it finds (strips.odin; inverted: a valley)
 	Tube,         // voxel clay only: lay a rope of clay along the stroke (voxel.Brush_Kind.Tube; a mesh refuses it)
+	Rotate,       // turn what is under the press about it as the pointer goes round it: Grab's arrays, turned (grab.odin)
+	Thumb,        // smear the surface along the stroke and press it flat, as a thumb in clay (inverted pushes back)
 }
 
 Axis :: enum u8 {
@@ -284,6 +286,9 @@ CLAY_STRIPS_HEIGHT :: 0.08
 // Share of the way to the target that Clay, Flatten and Pinch go per dab at full strength.
 PLANE_RATE :: 0.5
 PINCH_RATE :: 0.25
+// Thumb: how much of the way to the area's plane a dab at full strength presses the
+// middle, so a stroke smears the surface flat as it carries it along.
+THUMB_FLATTEN :: 0.3
 CREASE_PINCH :: 0.2
 LAYER_HEIGHT :: 0.15 // Layer's height at full strength, in brush radii
 LAYER_RATE :: 0.5    // share of the way to that height a dab goes where the falloff is full
@@ -987,7 +992,7 @@ FOCAL_MAX :: 100
 projects :: #force_inline proc(brush: Brush) -> bool {
 	if brush.projected == {} || brush.alpha != nil do return false
 	#partial switch brush.kind {
-	case .Grab, .Elastic, .Cloth, .Snake_Hook, .Clay_Strips: return false
+	case .Grab, .Elastic, .Rotate, .Cloth, .Snake_Hook, .Clay_Strips, .Thumb: return false
 	}
 	return true
 }
@@ -1116,7 +1121,7 @@ Dab :: struct {
 apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	// Tube lays clay, which only a voxel object has: on a mesh it does nothing (the app
 	// refuses the stroke and says so).
-	if brush.kind == .Grab || brush.kind == .Elastic || brush.kind == .Cloth || brush.kind == .Tube do return 0
+	if brush.kind == .Grab || brush.kind == .Elastic || brush.kind == .Cloth || brush.kind == .Tube || brush.kind == .Rotate do return 0
 	stroke_gpu_decide(s, brush)
 	moved := 0
 	images := dab_images(s, brush, center)
@@ -1446,7 +1451,14 @@ dab_lay :: proc(s: ^Sculptor, d: ^Dab, brush: Brush, pool: ^jobs.Pool, img: Sym_
 	case .History:
 		if len(s.recall) != len(s.mesh.positions) do return painted
 		jobs.parallel_for(pool, len(s.hit), d, job_history)
-	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Tube:
+	case .Thumb:
+		// Carried along the stroke across the area's plane, as far as the stroke went since
+		// the last dab times the strength (twice at full strength), backward inverted.
+		if brush.stroke_dir == {} do return painted
+		along := brush.stroke_dir - d.normal * linalg.dot(brush.stroke_dir, d.normal)
+		d.drag_dir = along * (sign * 2 * brush.strength)
+		jobs.parallel_for(pool, len(s.hit), d, job_thumb)
+	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Tube, .Rotate:
 		unreachable()
 	case .Smooth:
 		// Jacobi steps: every target of a pass is computed from that pass's unmoved
@@ -1640,6 +1652,7 @@ layer_heights_fit :: proc(s: ^Sculptor) {
 @(private) job_layer :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Layer, false)}
 @(private) job_morph :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Morph, false)}
 @(private) job_history :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.History, false)}
+@(private) job_thumb :: proc(data: rawptr, i: int) {displace(cast(^Dab)data, i, Brush_Kind.Thumb, false)}
 
 // Moves the owned vertices of hit leaf i that lie inside the brush, as brush kind K
 // does; specialised per kind so each loop has no branch on the kind.
@@ -1711,6 +1724,11 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind, $ONCE: bool) {
 					p = linalg.lerp(p, s.morph[v], min(d.brush.strength * w * MORPH_RATE, 1))
 				} else when K == .History {
 					p = linalg.lerp(p, s.recall[v], min(d.brush.strength * w * MORPH_RATE, 1))
+				} else when K == .Thumb {
+					// Blender's Thumb: carried along the stroke (Dab.drag_dir) and pressed
+					// toward the area's plane, so what it pushes smears out flat.
+					h := linalg.dot(p - d.plane, d.normal)
+					p += d.drag_dir * w - d.normal * (h * min(d.brush.strength * w * THUMB_FLATTEN, 1))
 				} else {
 					#panic("not a displacing brush")
 				}

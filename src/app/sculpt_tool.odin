@@ -321,6 +321,13 @@ Stroke :: struct {
 	// (grab_twist_angle).
 	grab_roll:   f32,
 	grab_turned: f32,
+	// Rotate: where on screen it pressed, the pointer's last angle round that point once it
+	// has gone far enough from it to have one (rotate_set), and the turn since (radians,
+	// unwrapped, so going round twice turns twice).
+	rotate_from:  [2]f32,
+	rotate_last:  f32,
+	rotate_set:   bool,
+	rotate_angle: f32,
 	// Grab: how far what it picked up moves for each unit the pointer goes, from the
 	// brush's Strength as the press found it (grab_gain).
 	grab_gain:   f32,
@@ -827,6 +834,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st.hook_dir = {}
 	st.grab_from, st.grab_normal, st.press_pressure = from, {}, s.pressure
 	st.grab_roll, st.grab_turned = input.pen_roll, 0
+	st.rotate_from, st.rotate_set, st.rotate_angle = s.pos, false, 0
 	st.grab_gain = grab_gain(app, st.kind)
 	if st.grab && obj.voxel == nil {
 		t := t_obj
@@ -923,7 +931,12 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 	offset := to_local_dir(stroke_frame(app, obj), moved) * (st.grab_gain / stroke_frame(app, obj).scale)
 	st.pos = pos
 	twist: sculpt.Grab_Twist
-	if angle := grab_twist_angle(app, input.pen_roll); angle != 0 {
+	if st.kind == .Rotate {
+		// Rotate moves nothing along: it turns what it holds by how far the pointer has
+		// gone round the press, about the way the view looks, scaled as Grab's drag is.
+		offset = {}
+		if angle := rotate_turn(app, pos); angle != 0 do twist = {linalg.normalize0(to_local_dir(stroke_frame(app, obj), facing)), angle * st.grab_gain}
+	} else if angle := grab_twist_angle(app, input.pen_roll); angle != 0 {
 		// Clockwise seen from the pen's top turns what is held clockwise on screen: about
 		// the way the view looks at it, which a viewer looking along sees clockwise.
 		twist = {linalg.normalize0(to_local_dir(stroke_frame(app, obj), facing)), angle}
@@ -934,6 +947,27 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
 }
+
+// How far, in radians, the pointer at `pos` has gone round where a Rotate stroke pressed
+// since it first went ROTATE_DEAD_PX from it, clockwise on screen positive; 0 before.
+// Each move adds its own short way round, so circling the press keeps turning.
+rotate_turn :: proc(app: ^App, pos: [2]f32) -> f32 {
+	st := &app.stroke
+	d := pos - st.rotate_from
+	if linalg.length(d) < ROTATE_DEAD_PX do return st.rotate_angle
+	a := math.atan2(d.y, d.x)
+	if st.rotate_set {
+		step := a - st.rotate_last
+		step -= 2 * math.PI * math.floor((step + math.PI) / (2 * math.PI))
+		st.rotate_angle += step
+	}
+	st.rotate_last, st.rotate_set = a, true
+	return st.rotate_angle
+}
+
+// How far from the press, in pixels, the pointer goes before Rotate reads its angle: any
+// nearer, a hand's tremble would swing it round.
+ROTATE_DEAD_PX :: 12
 
 // The radians a Grab turns what it holds for the pen's roll `roll` (degrees, as the frame
 // reports it), as Nomad's Move turns with the Pencil Pro: the turn since the press, less

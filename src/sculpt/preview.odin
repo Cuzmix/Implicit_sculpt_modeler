@@ -49,7 +49,7 @@ Preview_Start :: enum u8 {
 preview_start :: proc(b: Brush) -> Preview_Start {
 	#partial switch b.kind {
 	case .Smooth:                 return .Bumpy
-	case .Flatten, .Trim_Dynamic: return .Ridges
+	case .Flatten, .Trim_Dynamic, .Thumb: return .Ridges
 	}
 	return .Flat
 }
@@ -112,7 +112,16 @@ preview_render :: proc(brush: Brush, pixels: []u8) -> bool {
 			_ = sculptor_flush(&s)
 		}
 		sculptor_grab_end(&s)
-	case .Draw, .Smooth, .Clay, .Flatten, .Inflate, .Pinch, .Crease, .Mask, .Layer, .Snake_Hook, .Morph, .Paint, .Clay_Strips, .Trim_Dynamic, .Cloth, .History, .Tube:
+	case .Rotate:
+		// Picked up at the middle and turned a quarter about the way the strip faces.
+		at := preview_on(&s, {0, 0})
+		_ = sculptor_grab_begin(&s, b, at)
+		for i in 1 ..= 12 {
+			_ = sculptor_grab_move(&s, {}, {axis = {0, 0, 1}, angle = f32(i) / 12 * math.PI * 0.5})
+			_ = sculptor_flush(&s)
+		}
+		sculptor_grab_end(&s)
+	case .Draw, .Smooth, .Clay, .Flatten, .Inflate, .Pinch, .Crease, .Mask, .Layer, .Snake_Hook, .Morph, .Paint, .Clay_Strips, .Trim_Dynamic, .Cloth, .History, .Tube, .Thumb:
 		last := preview_on(&s, path(0))
 		// Smooth goes over its path three times, as a sculptor's strokes do, so the calmed
 		// band reads against the rough strip on a tile.
