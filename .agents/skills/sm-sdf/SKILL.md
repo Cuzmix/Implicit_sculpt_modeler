@@ -35,6 +35,8 @@ description: Implicit and SDF modelling for this app — the voxel sculptor in s
   `clay_stroke_end`. Never collapse a brick to Empty whose outside voxels may hold a kept surface's distances: set its
   voxels and let the repair empty it. The app runs them as scene commands (`.Symmetrize` on clay, `.Remove_Floaters`) and
   records `history_record(.Deform)`, not a swap.
+- Mask filters on clay (`mask_filter.odin`, `clay_mask_filter`): only voxels with |d| ≤ BAND·SCALE take part (what the mask
+  brush and shapes reach), so Shrink never erodes from the band's edge; `clay_hash` reads the field only, so mask tests hash the masks.
 - Rules it keeps: every new value depends on old values only (serial == parallel, `serial_and_parallel_strokes_agree_bit_for_bit`);
   jobs write disjoint bricks or node slots; the directory changes only in serial passes; a brick dirties the nodes whose
   20³ meshing window sees a change within `NEAR` (3 voxels) of the surface; unused index slots are zeros on a dummy vertex 0;

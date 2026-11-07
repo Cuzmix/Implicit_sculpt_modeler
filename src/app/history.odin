@@ -555,18 +555,20 @@ mask_command :: proc(app: ^App, command: sculpt.Mask_Command, toast := false) {
 	steps := int(max(app.ui.mask_steps, 1))
 	changed: bool
 	if vp := obj.voxel; vp != nil {
-		// Clay takes the whole-mask commands; the ones that read the mesh's shape or its
-		// hidden part need a mesh.
-		op: voxel.Mask_Op
+		// Clay takes the whole-mask commands and the neighbourhood ones; the ones that read
+		// the mesh's shape or its hidden part need a mesh.
 		#partial switch command {
-		case .Clear:  op = .Clear
-		case .Invert: op = .Invert
-		case .Fill:   op = .Fill
+		case .Clear:   changed = voxel.clay_mask_command(&vp.clay, .Clear)
+		case .Invert:  changed = voxel.clay_mask_command(&vp.clay, .Invert)
+		case .Fill:    changed = voxel.clay_mask_command(&vp.clay, .Fill)
+		case .Blur:    changed = voxel.clay_mask_filter(&vp.clay, .Blur, steps)
+		case .Sharpen: changed = voxel.clay_mask_filter(&vp.clay, .Sharpen, steps)
+		case .Grow:    changed = voxel.clay_mask_filter(&vp.clay, .Grow, steps)
+		case .Shrink:  changed = voxel.clay_mask_filter(&vp.clay, .Shrink, steps)
 		case:
 			report(app, Section.Mask, {.Warning}, "%s needs a mesh: convert %s to a mesh first (Voxels card)", MASK_COMMAND_NAMES[command], object_label(obj))
 			return
 		}
-		changed = voxel.clay_mask_command(&vp.clay, op)
 		if changed do voxel_part_edited(vp)
 	} else {
 		changed = sculpt.sculptor_mask_command(object_sculptor(obj), command, steps)
