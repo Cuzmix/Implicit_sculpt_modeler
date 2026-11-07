@@ -1,5 +1,6 @@
 package main
 
+import "base:intrinsics"
 import "base:runtime"
 import "core:hash"
 import "core:log"
@@ -55,6 +56,7 @@ Blend_Object :: struct {
 	back_reach:   f32,
 	stale:        bool,         // placed or filled since its last projection began
 	marked_at:    Vec3,         // where it was when its bricks were last marked
+	slot_ms:      f64,          // the GPU time a slot of 1024 of its vertices took in the slowest recent slice, decaying
 }
 
 Blend_State :: struct {
@@ -96,21 +98,29 @@ Blend_State :: struct {
 	filler:         ^Blend_Filler, // made by the first drag that has bricks to fill
 	drag_checked:   bool, // --blend-check compared the settled drag's pages
 	// Slices recorded on the frames' command buffers, timed by the GPU's timestamps a few
-	// frames later: each one's slots, oldest first, until its time comes back.
-	untimed:        [8]u32,
+	// frames later: each one's object and slots, oldest first, until its time comes back.
+	untimed:        [8]Blend_Slice,
 	untimed_count:  int,
-	slot_ms:        f64, // the GPU time a slot of 1024 vertices took in the slowest recent slice, decaying
+}
+
+Blend_Slice :: struct {
+	object: int,
+	slots:  u32,
 }
 
 // The Blend span's GPU time of a frame a few back (frame.odin): the oldest slice still
-// untimed took it, which sizes the next slices.
+// untimed took it, which sizes the next slices of its object (a slot's cost differs between
+// objects as much as within one).
 blend_timed :: proc(app: ^App, ms: f64) {
 	b := &app.blend
 	if b.untimed_count == 0 do return
-	slots := b.untimed[0]
+	sl := b.untimed[0]
 	copy(b.untimed[:], b.untimed[1:b.untimed_count])
 	b.untimed_count -= 1
-	if slots > 0 do b.slot_ms = max(ms / f64(slots), b.slot_ms * BLEND_SLOT_DECAY)
+	if sl.slots > 0 && sl.object < len(b.objects) {
+		bo := &b.objects[sl.object]
+		bo.slot_ms = max(ms / f64(sl.slots), bo.slot_ms * BLEND_SLOT_DECAY)
+	}
 	b.frame_gpu_most = max(b.frame_gpu_most, ms)
 }
 
@@ -504,8 +514,31 @@ blend_job_begin :: proc(app: ^App, instances: []geom.Blend_Instance, pairs: []ge
 	}
 	pad_out^ = pad
 	if len(page_list) == 0 do return timing, false, true
+	blend_pages_spread(table, page_list[:])
 	timing, ok = render.blend_compute_begin(&app.renderer, &app.blend_gpu, job, mb.positions, u32(bo.vertices), fields[:], terms[:], &term_pairs, reach, self.surface.edge, table, page_list[:], pages, frame)
 	return timing, ok, ok
+}
+
+// Lays the candidate pages (found in node order) into slots in bit-reversed order, and the
+// table to match: a slice of a projection, a run of slots, then takes pages from all over
+// the list, so the pages at the contact, which cost some fifty times the others, spread
+// evenly over the slices and one slice's time a slot sizes the next.
+@(private = "file")
+blend_pages_spread :: proc(table, page_list: []u32) {
+	n := len(page_list)
+	if n < 2 do return
+	order := make([]u32, n, context.temp_allocator)
+	copy(order, page_list)
+	bits := uint(0)
+	for (1 << bits) < n do bits += 1
+	at := 0
+	for r in 0 ..< (1 << bits) {
+		j := int(intrinsics.reverse_bits(u32(r)) >> (32 - bits))
+		if j >= n do continue
+		page_list[at] = order[j]
+		table[order[j]] = u32(at)
+		at += 1
+	}
 }
 
 // The box of every brick a field holds, in its space.
@@ -608,13 +641,15 @@ blend_drag_frame :: proc(app: ^App, cmd: render.Cmd) {
 	if b.job.active && b.job_fresh {
 		b.job_fresh = false
 	} else if b.job.active {
-		// A small first slice until one is measured, then as many as the share holds. Where
+		// A small first slice until one of the object's is measured (a page at the contact,
+		// every vertex marching, takes about a tenth of a millisecond on an integrated GPU,
+		// fifty times one away from it), then as many as the share holds. Where
 		// the GPU writes timestamps the slice goes on the frame's command buffer and nothing
 		// waits for it; elsewhere it is submitted alone and waited for, which times it.
 		timed := app.renderer.caps.timestamps
-		slot_ms := b.slot_ms if timed else b.job.slot_ms
-		slots := u32(32)
-		if slot_ms > 0 do slots = max(u32(BLEND_FRAME_GPU_MS / slot_ms), 16)
+		slot_ms := b.objects[b.job_object].slot_ms if timed else b.job.slot_ms
+		slots := u32(8)
+		if slot_ms > 0 do slots = max(u32(BLEND_FRAME_GPU_MS / slot_ms), 1)
 		slots = min(slots, b.job.slots - b.job.next)
 		ms, done, ok := render.blend_compute_step(&app.renderer, &app.blend_gpu, &b.job, slots, cmd if timed else nil)
 		gpu_ms = ms
@@ -623,7 +658,7 @@ blend_drag_frame :: proc(app: ^App, cmd: render.Cmd) {
 				copy(b.untimed[:], b.untimed[1:])
 				b.untimed_count -= 1
 			}
-			b.untimed[b.untimed_count] = slots
+			b.untimed[b.untimed_count] = {object = b.job_object, slots = slots}
 			b.untimed_count += 1
 		}
 		worked = true
@@ -694,19 +729,21 @@ blend_check :: proc(app: ^App, instances: []geom.Blend_Instance, pairs: []geom.B
 	bo := &app.blend.objects[which]
 	moves := make([dynamic]geom.Blend_Move, context.temp_allocator)
 	_ = geom.blend_project(instances, pairs, which, &moves, &app.pool)
-	slots := u32(0)
 	table := make([]u32, (bo.vertices + render.BLEND_PAGE_VERTICES - 1) / render.BLEND_PAGE_VERTICES, context.temp_allocator)
 	for &w in table do w = render.BLEND_PAGE_NONE
-	// The same table blend_project_gpu laid, found again from the page buffer's order.
+	// The same table blend_job_begin laid, found again from the pads it left.
+	page_list := make([dynamic]u32, context.temp_allocator)
 	s := &bo.level.sculptor
 	for node, k in s.nodes {
 		if node.vert_count == 0 || bo.pads[k] == 0 do continue
 		for page in node.vert_first / render.BLEND_PAGE_VERTICES ..= (node.vert_first + node.vert_count - 1) / render.BLEND_PAGE_VERTICES {
 			if table[page] != render.BLEND_PAGE_NONE do continue
-			table[page] = slots
-			slots += 1
+			table[page] = u32(len(page_list))
+			append(&page_list, page)
 		}
 	}
+	blend_pages_spread(table, page_list[:])
+	slots := u32(len(page_list))
 	entries := render.blend_pages_read(&app.renderer, &bo.pages, slots, context.temp_allocator)
 	if entries == nil {
 		app.blend.check_failed = true

@@ -57,6 +57,7 @@ static const uint SAMPLES = 729;
 static const uint KEY_OFFSET = 1048576u; // 1 << 20
 static const uint KEY_MASK = 2097151u;   // (1 << 21) - 1
 static const float TURN_COS = 0.5735764;
+static const float TURN_COS_SOFT = 0.70710678;
 static const uint STEPS = 10u;
 static const float STEP_MAX = 0.5;
 static const float TOLERANCE = 1e-4;
@@ -380,13 +381,26 @@ uint4 project(uint v) {
 	bool has_out = false;
 	bool has_in = false;
 	int kept = 0;
+	// The guard's soft start, as geom's march.
+	bool softened = false;
+	float3 stop_x = x0;
+	float stop_w = 1.0;
 	while (!converged && steps < STEPS) {
 		Eval e = evaluate(x);
 		if (!e.ok) break;
 		float3 dir = normalize0(e.grad);
-		if (steps > 0u && dot(dir, last_dir) < TURN_COS) {
-			turned = true;
-			break;
+		if (steps > 0u) {
+			float c = dot(dir, last_dir);
+			if (c < TURN_COS_SOFT && !softened) {
+				softened = true;
+				stop_x = best_x;
+				float t = clamp((c - TURN_COS) / (TURN_COS_SOFT - TURN_COS), 0.0, 1.0);
+				stop_w = t * t * (3.0 - 2.0 * t);
+			}
+			if (c < TURN_COS) {
+				turned = true;
+				break;
+			}
 		}
 		last_dir = dir;
 		steps++;
@@ -429,6 +443,7 @@ uint4 project(uint v) {
 		Eval e = evaluate(x);
 		if (e.ok && abs(e.g - target) < best) best_x = x;
 	}
+	if (softened) best_x = stop_x + (best_x - stop_x) * stop_w;
 	if (all(best_x == x0)) return none;
 	Eval f = evaluate(best_x);
 	if (e0.g < a0 && f.amount < LAND_MIN) return none;
