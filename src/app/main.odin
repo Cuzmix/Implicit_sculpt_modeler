@@ -59,6 +59,7 @@ Options :: struct {
 	dump_screen: string `usage:"On exit, write the whole window as the interface drew it (viewport and panels) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	dump_balls: string `usage:"Draw every preset material's ball for the Material card, a few a frame, and on exit write their atlas (8 x 8 cells of 160 pixels, transparent around the balls) to this path: a PNG, or a binary PPM when it ends in .ppm."`,
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as Menu > Save screenshot does."`,
+	blend_test: f32 `usage:"Join every shown sculpt object with every other by Smooth blend at this radius (world units) on the first frame, drawn from then on, as a test of the blend before its Live stack row exists."`,
 	check_mesh: bool `usage:"On exit, check every object's current mesh (closed, consistently wound, no degenerate triangles or NaN) and print the counts as mesh_* lines (slow on large meshes)."`,
 	no_partial: bool `usage:"Redraw the whole viewport every frame instead of only what changed (for comparison)."`,
 	tile_msaa: bool `usage:"With anti-aliasing and partial redraw off, keep the viewport's samples only inside its pass, as a tile GPU does, on any GPU (for testing that mode)."`,
@@ -366,6 +367,9 @@ App :: struct {
 	// What Render image... renders (the Export sheet's Render tab), remembered.
 	render_image_settings: Render_Image_Settings,
 	opts_dump_balls: string,
+	// Smooth blend's fields, pages and grown boxes (blend.odin), and --blend-test's radius.
+	blend:           Blend_State,
+	blend_test:      f32,
 	dump_balls_next: int,
 	thumb_slots:    Thumb_Slots,
 	step_pictures:  render.Step_Pictures, // the History's pictures of steps (history_pictures.odin)
@@ -677,6 +681,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		return false
 	}
 	defer render.renderer_destroy(&app.renderer)
+	defer blend_destroy(&app)
 	matcaps_create(&app)
 	defer matcaps_destroy(&app)
 	defer brush_previews_destroy(&app)
@@ -832,6 +837,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	if len(app.scene.objects) > 1 do frame_all(&app)
 	app.cache_idle = !opts.no_cache
 	app.opts_dump_balls = opts.dump_balls
+	app.blend_test = opts.blend_test
 	app.polyframe_lines = true
 	app.floor = FLOOR_DEFAULT
 	app.background = BACKGROUND_DEFAULT

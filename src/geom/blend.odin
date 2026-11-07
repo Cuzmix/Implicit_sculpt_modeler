@@ -30,6 +30,23 @@ BLEND_TOLERANCE :: 1e-4
 BLEND_HIDDEN_DEPTH :: 0.5
 // The most instances one point's fold takes.
 BLEND_FOLD_MAX :: 16
+// The seam between two objects' sheets, both on the one blended surface: the object with
+// the lower id owns it. Its vertices that would land further than this share of the radius
+// past the bisector (own below its negative) stay where they are, inside the partner and
+// hidden, while the partner's sheet reaches past the bisector to under the owner's; and
+// its moved vertices near the seam are lifted along the surface's normal (blend_seam_lift,
+// fading out by BLEND_SEAM_BAND from it, so the fillet's edge keeps no step), so where
+// both sheets lie the owner's is in front, with no fight for the pixel.
+// Only one side cuts, so no crack can open between two cut lines, and nothing in the
+// fragment stage changes; the seam then follows the owner's triangles.
+BLEND_SEAM_CUT :: 0.05
+BLEND_SEAM_LIFT :: 0.002
+// A coarse sheet's flat triangles stand off the curved fillet by their sagitta, about
+// e² / (8 ρ) for edges e over a curvature radius ρ, which near a seam is about a quarter
+// of the radius: the lift clears this many times that of the coarser sheet (20k against
+// 1M at a radius of 0.15 left clay specks over the owner at the bare 0.2 % of R).
+BLEND_SEAM_SAG :: 0.75
+BLEND_SEAM_BAND :: 0.5
 
 // One drawn copy of an object (the object itself, or a Live stack copy): its surface and
 // field in its own space, where it is placed (local to world: rotation, translation and
@@ -244,7 +261,7 @@ project_vertex :: proc(pr: ^Project, v: u32, out: ^[dynamic]Blend_Move, st: ^Ble
 	}
 	if !near do return
 	st.scanned += 1
-	g0, _, amount0, _, _ := evaluate(pr, x0, false)
+	g0, _, amount0, _, _, _, _ := evaluate(pr, x0, false)
 	// A point inside a partner where nothing blends would fall onto the partner's surface:
 	// it is hidden, and stays.
 	if amount0 <= 0 && g0 < a0 do return
@@ -254,7 +271,7 @@ project_vertex :: proc(pr: ^Project, v: u32, out: ^[dynamic]Blend_Move, st: ^Ble
 	steps := 0
 	converged := best < BLEND_TOLERANCE * pr.reach
 	for !converged && steps < BLEND_STEPS {
-		g, grad, _, _, okg := evaluate(pr, x, false)
+		g, grad, _, _, _, _, okg := evaluate(pr, x, false)
 		if !okg do break
 		steps += 1
 		r := g - target
@@ -273,14 +290,21 @@ project_vertex :: proc(pr: ^Project, v: u32, out: ^[dynamic]Blend_Move, st: ^Ble
 		best_x = x
 	} else {
 		// The last point may be the best one, unmeasured after the final step.
-		if g, _, _, _, okg := evaluate(pr, x, false); okg && abs(g - target) < best do best_x = x
+		if g, _, _, _, _, _, okg := evaluate(pr, x, false); okg && abs(g - target) < best do best_x = x
 		st.unconverged += 1
 	}
 	st.steps += steps
 	st.most_steps = max(st.most_steps, steps)
 	if best_x == x0 do return
-	_, normal, amount, own, _ := evaluate(pr, best_x, true)
-	append(out, Blend_Move{vertex = v, offset = best_x - x0, normal = linalg.normalize0(normal), amount = amount, own = own})
+	_, normal, amount, own, rival, rival_edge, _ := evaluate(pr, best_x, true)
+	n := linalg.normalize0(normal)
+	offset := best_x - x0
+	if pr.self.id < rival {
+		if own < -BLEND_SEAM_CUT do return
+		lift := blend_seam_lift(pr.reach, max(pr.self.surface.edge, rival_edge))
+		offset += n * (lift * clamp(1 - own / BLEND_SEAM_BAND, 0, 1))
+	}
+	append(out, Blend_Move{vertex = v, offset = offset, normal = n, amount = amount, own = own})
 	st.moved += 1
 }
 
@@ -300,11 +324,12 @@ view_normal :: #force_inline proc(view: ^View, x: Vec3) -> (g: Vec3, ok: bool) {
 }
 
 // The blended field at x: its value, gradient, the blend's largest share over the fold
-// (times the fullness), and the seam side of the projected instance (own > 0 where its
-// field is below the others'). `smooth` takes the gradients from the smooth normals, for
-// the final normal. ok is false where the instance's own field holds no brick.
+// (times the fullness), the seam side of the projected instance (own > 0 where its field
+// is below the others') and the id of the nearest other instance (max(u32) for none).
+// `smooth` takes the gradients from the smooth normals, for the final normal. ok is false
+// where the instance's own field holds no brick.
 @(private = "file")
-evaluate :: proc(pr: ^Project, x: Vec3, smooth: bool) -> (g: f32, grad: Vec3, amount, own: f32, ok: bool) {
+evaluate :: proc(pr: ^Project, x: Vec3, smooth: bool) -> (g: f32, grad: Vec3, amount, own: f32, rival: u32, rival_edge: f32, ok: bool) {
 	terms: [BLEND_FOLD_MAX]Term
 	count := 0
 	d, gs, w := blend_field_at(pr.self.field, x) or_return
@@ -312,6 +337,7 @@ evaluate :: proc(pr: ^Project, x: Vec3, smooth: bool) -> (g: f32, grad: Vec3, am
 	terms[0] = {d = d, g = gs, w = w, id = pr.self.id, view = -1}
 	count = 1
 	others := max(f32)
+	rival = max(u32)
 	for &view, i in pr.views {
 		if count == BLEND_FOLD_MAX do break
 		vd, vg, vw := view_at(&view, x) or_continue
@@ -320,7 +346,7 @@ evaluate :: proc(pr: ^Project, x: Vec3, smooth: bool) -> (g: f32, grad: Vec3, am
 		}
 		terms[count] = {d = vd, g = vg, w = vw, id = view.inst.id, view = i}
 		count += 1
-		others = min(others, vd)
+		if vd < others || (vd == others && view.inst.id < rival) do others, rival, rival_edge = vd, view.inst.id, view.inst.surface.edge * view.ratio
 	}
 	sorted := terms[:count]
 	slice.sort_by(sorted, proc(a, b: Term) -> bool {return a.d < b.d || (a.d == b.d && a.id < b.id)})
@@ -340,7 +366,27 @@ evaluate :: proc(pr: ^Project, x: Vec3, smooth: bool) -> (g: f32, grad: Vec3, am
 	}
 	if others < max(f32) do own = clamp((others - d) / pr.reach, -1, 1)
 	else do own = 1
-	return g, grad, amount, own, true
+	return g, grad, amount, own, rival, rival_edge, true
+}
+
+// How far the seam's owner stands out near the seam, for a radius and the coarser of the
+// two sheets' mean edges (both in one space): BLEND_SEAM_LIFT of the radius, or enough to
+// clear that sheet's sagitta over the fillet (BLEND_SEAM_SAG), whichever is more.
+blend_seam_lift :: proc(radius, edge: f32) -> f32 {
+	return max(BLEND_SEAM_LIFT * radius, BLEND_SEAM_SAG * edge * edge / radius)
+}
+
+// A mesh's mean edge, from its area per triangle as if every triangle were equilateral:
+// what Blend_Surface.edge holds, worked out once per surface.
+blend_surface_edge :: proc(m: Mesh) -> f32 {
+	tris := len(m.indices) / 3
+	if tris == 0 do return 0
+	area: f64 = 0
+	for t in 0 ..< tris {
+		p0, p1, p2 := m.positions[m.indices[3 * t]], m.positions[m.indices[3 * t + 1]], m.positions[m.indices[3 * t + 2]]
+		area += f64(linalg.length(linalg.cross(p1 - p0, p2 - p0))) * 0.5
+	}
+	return f32(math.sqrt(4 * area / (f64(tris) * math.sqrt(f64(3)))))
 }
 
 // The radius (in the projected instance's space) and fullness of the pair joining two

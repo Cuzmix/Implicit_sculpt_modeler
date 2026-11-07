@@ -37,6 +37,7 @@ Blend_Surface :: struct {
 	bvh:    Bvh,
 	faces:  Vertex_Faces,
 	weight: []u8,
+	edge:   f32, // the mesh's mean edge (blend_surface_edge), for the seam's lift; 0 for none
 }
 
 // The sampled field: `h` apart, bricks of BLEND_SIDE³ samples, each value the signed

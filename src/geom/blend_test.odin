@@ -42,7 +42,7 @@ scene_make :: proc(balls: []Ball, f: int, radius, strength: f32, pool: ^jobs.Poo
 		m := geodesic_sphere(f, pool)
 		for &p in m.positions do p *= b.radius
 		mesh_recompute_normals(&m)
-		s.surfaces[i] = {mesh = m, bvh = bvh_build_morton(m, LOOKUP_LEAF, pool), faces = vertex_faces_build(m, pool)}
+		s.surfaces[i] = {mesh = m, bvh = bvh_build_morton(m, LOOKUP_LEAF, pool), faces = vertex_faces_build(m, pool), edge = blend_surface_edge(m)}
 		blend_field_init(&s.fields[i], h, blend_band(h, radius))
 		s.instances[i] = {
 			surface = &s.surfaces[i],
@@ -62,6 +62,15 @@ scene_make :: proc(balls: []Ball, f: int, radius, strength: f32, pool: ^jobs.Poo
 		blend_field_fill(&s.fields[p.b], &s.surfaces[p.b], want_b[:], pool)
 	}
 	return s
+}
+
+// The seam's lift between any two of the scene's balls: their meshes share a frequency,
+// but the larger ball's edges are the longer.
+@(private = "file")
+scene_lift :: proc(s: ^Scene, radius: f32) -> f32 {
+	edge: f32
+	for sf in s.surfaces do edge = max(edge, sf.edge)
+	return blend_seam_lift(radius, edge)
 }
 
 @(private = "file")
@@ -182,9 +191,10 @@ blend_does_not_bridge_a_gap :: proc(t: ^testing.T) {
 }
 
 // (c) Three spheres meeting at one place: each object's result is the same whatever the
-// order the instances are given in (bit for bit), and with their ids shuffled too (the
-// fold sorts by value, ids only break exact ties), and every shown moved vertex lies on
-// the one three-way union.
+// order the instances are given in (bit for bit); with their ids shuffled the fold is the
+// same too (it sorts by value, ids only break exact ties) and only the seams' owners
+// change, so every vertex both runs move lands within the seam's lift; and every shown
+// moved vertex lies on the one three-way union.
 @(test)
 blend_three_way_junction_ignores_the_order :: proc(t: ^testing.T) {
 	pool: jobs.Pool
@@ -214,25 +224,28 @@ blend_three_way_junction_ignores_the_order :: proc(t: ^testing.T) {
 	defer scene_destroy(&s3)
 	moves3, _ := project_all(&s3, &pool)
 	defer moves_destroy(moves3)
-	same_order, same_ids := true, true
+	same_order := true
 	ids_worst: f32
+	both := 0
 	for k, j in order {
 		a, b := moves[k][:], moves2[j][:]
 		if len(a) != len(b) || slice.equal(slice.to_bytes(a), slice.to_bytes(b)) == false do same_order = false
 	}
 	for i in 0 ..< 3 {
 		a, b := moves[i][:], moves3[i][:]
-		if len(a) != len(b) {
-			same_ids = false
-			continue
+		k := 0
+		for m in a {
+			for k < len(b) && b[k].vertex < m.vertex do k += 1
+			if k == len(b) || b[k].vertex != m.vertex do continue
+			ids_worst = max(ids_worst, linalg.length(m.offset - b[k].offset))
+			both += 1
 		}
-		for m, k in a do ids_worst = max(ids_worst, linalg.length(m.offset - b[k].offset))
 	}
-	fmt.printfln("blend (c): moved %d, worst |G_ref| %.5f (%.3f%% of R); other order identical %v; other ids: same vertices %v, largest difference %.2e",
-		stats.moved, worst, 100 * worst / R, same_order, same_ids, ids_worst)
+	fmt.printfln("blend (c): moved %d, worst |G_ref| %.5f (%.3f%% of R); other order identical %v; other ids: %d vertices both move, largest difference %.2e (the lift %.2e)",
+		stats.moved, worst, 100 * worst / R, same_order, both, ids_worst, scene_lift(&s, R))
 	testing.expect(t, same_order, "another order gives the same bits")
-	testing.expect(t, same_ids, "other ids move the same vertices")
-	testing.expectf(t, ids_worst < 1e-6, "other ids move them the same: %v", ids_worst)
+	testing.expect(t, both > stats.moved / 2, "other ids move most of the same vertices")
+	testing.expectf(t, ids_worst <= scene_lift(&s, R) * 1.001 + 1e-6, "other ids move them alike but for the lift: %v", ids_worst)
 	testing.expectf(t, worst < 0.01 * R, "every shown moved vertex on the three-way union within 1%% of R: %v", worst)
 }
 
@@ -287,4 +300,46 @@ blend_field_matches_the_distance :: proc(t: ^testing.T) {
 	testing.expectf(t, worst < 1e-3, "within the mesh's sagitta: %v", worst)
 	testing.expect_value(t, signs, 0)
 	_ = math.PI
+}
+
+// The seam: the lower-id object (the owner) never shows past its cut line, the other's
+// sheet reaches past the bisector to under it, so between them nothing is left open, and
+// near the seam the owner's vertices stand the lift further out than the same vertices do
+// when the other object owns the seam (the ids swapped).
+@(test)
+blend_seam_has_one_owner :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	balls := []Ball{{{0, 0, 0}, 1}, {{1.2, 0.1, 0}, 0.6}}
+	R, S: f32 = 0.2, 1
+	s := scene_make(balls, 60, R, S, &pool)
+	defer scene_destroy(&s)
+	moves, _ := project_all(&s, &pool)
+	defer moves_destroy(moves)
+	swapped := scene_make(balls, 60, R, S, &pool, ids = []u32{1, 0})
+	defer scene_destroy(&swapped)
+	moves2, _ := project_all(&swapped, &pool)
+	defer moves_destroy(moves2)
+	owner_past, under := 0, 0
+	for m in moves[0] do if m.own < -BLEND_SEAM_CUT do owner_past += 1
+	for m in moves[1] do if m.own < 0 do under += 1
+	// Ball 0 owns the seam in the first run and not in the second.
+	worst: f32
+	seam := 0
+	k := 0
+	for m in moves[0] {
+		for k < len(moves2[0]) && moves2[0][k].vertex < m.vertex do k += 1
+		if k == len(moves2[0]) || moves2[0][k].vertex != m.vertex || abs(m.own) > 0.05 do continue
+		want := scene_lift(&s, R) * clamp(1 - m.own / BLEND_SEAM_BAND, 0, 1)
+		got := linalg.dot(m.offset - moves2[0][k].offset, m.normal)
+		worst = max(worst, abs(got - want))
+		seam += 1
+	}
+	fmt.printfln("blend seam: owner past its cut %d; other's vertices past the bisector %d; %d owner vertices at the seam stand out by the lift within %.2e (lift %.2e)",
+		owner_past, under, seam, worst, scene_lift(&s, R))
+	testing.expect_value(t, owner_past, 0)
+	testing.expect(t, under > 0, "the other's sheet reaches past the bisector")
+	testing.expect(t, seam > 0, "vertices at the seam")
+	testing.expectf(t, worst < 1e-6, "the owner stands the lift out: off by %v", worst)
 }

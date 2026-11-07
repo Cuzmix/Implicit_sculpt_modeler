@@ -325,6 +325,10 @@ trace_mesh_destroy :: proc(r: ^Renderer, tm: ^Trace_Mesh) {
 trace_traceable :: proc(item: Draw_Item) -> bool {
 	mb, src := item.mesh, item.source
 	if src == nil || !mb.storage do return false
+	// The trees are built from the mesh as it holds, which Smooth blend's pages move: the
+	// view then takes the gather, which is never half done, rather than shadows from a
+	// surface it does not show.
+	if item.blend != nil && item.blend.table != 0 do return false
 	if u32(len(src.positions)) > mb.vertex_capacity || u32(len(src.indices)) > mb.index_count do return false
 	if int(mb.vertex_capacity) * size_of(geom.Vec3) > TRACE_BUFFER_MAX || int(mb.index_count) * size_of(u32) > TRACE_BUFFER_MAX do return false
 	for c in item.chunks do if c.first_index + c.index_count > u32(len(src.indices)) do return false

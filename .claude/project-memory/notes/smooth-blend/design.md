@@ -200,25 +200,19 @@ Convergence and failure cases:
 
 ### 4.6 The seam between the two objects' sheets
 Each object's moved vertices cover its side of the fillet up to the bisector a = b, and a ring past it
-(vertices just inside the partner also flow past the bisector). Where both cover the same place, the
-fragment whose own field is larger there is dropped.
-
-- **Per fragment, not interpolated.** A value interpolated per vertex would cut the two tessellations
-  along two different chords. Where both discard, there is a gap; the inside faces are back-face
-  culled, so the background shows through, worse at mismatched densities. Instead:
-  - the page stores own = clamp((b − a)/R, −1, 1) per vertex;
-  - a fragment whose interpolated |own| < 1 (near the seam) reads both fields from the bricks at its
-    mesh-space position, and discards when its own field is the larger;
-  - every other fragment keeps the cheap path.
-- **The test sits in every mesh fragment variant, behind a uniform.** Plain, layered (Series E),
-  area-light, textured, see-through and shaded wire all get it. Routing blended items through the clip
-  pipelines would drop the layers, the area lights and shaded wire (`renderer.odin:964-968,
-  2304-2321`).
-- **Cost.** A discard turns off early-Z for that pipeline, so gpubench measures the cost. The bricks
-  bind in the fragment stage only for items with pages.
-- **Retired early.** P2's `--blend-test` fills pages from P1's CPU reference, so the seam is checked
-  (background pixels inside the silhouette, counted with `ppm.py`) at 1M against 20k before the row
-  exists.
+(vertices just inside the partner also flow past the bisector). Built in P2b (changed from the per-fragment
+test the review proposed, which would have put a discard and brick reads into every mesh fragment variant):
+- **One owner, the lower id.** Its vertices that would land more than `BLEND_SEAM_CUT` (0.05 R) past the
+  bisector stay where they are, inside the partner and hidden; the partner's sheet reaches past the bisector
+  to under the owner's. Only one side cuts, so no crack can open between two cut lines.
+- **The owner stands a lift out** near the seam, fading to nothing by own = 0.5 so the fillet's edge keeps
+  no step: `blend_seam_lift` = max(0.002 R, 0.75 e² / R), e the coarser sheet's mean edge
+  (`Blend_Surface.edge`). The second term clears a coarse sheet's sagitta over the concave fillet: at
+  20k against 1M (R 0.15) the bare 0.2 % left the coarse sheet's specks over the owner.
+- **Nothing changes in the fragment stage**, so early-Z, the layered and area-light pipelines and shaded
+  wire are untouched. The seam follows the owner's triangles.
+- Checked in P2b: 1M against 20k, R 0.15, no background pixel inside the joint (55 533 dark pixels without the
+  blend, 55 534 with, the one more a fillet in shade at 59 against a background of 54), no specks.
 
 ![spike slice](spike-slice.png) The spike at 400k vertices, slice z = 0: grey before, blue the arm
 after, orange the torso after. There are fillets at both crossings, and the overlap band of
@@ -376,7 +370,7 @@ question 8).
 - `src/geom/blend.odin` (new): `Blend_Params`, `blend_union(...)`, the global fold, and
   `blend_project(...)`, the CPU reference.
 - `src/render/blend.odin` + `shaders/blend_project.comp.slang` (new kernel), the page read in
-  `mesh_io.slang`, the per-fragment own test in `mesh_shading.slang`, the new `shadow.vert` layout;
+  `mesh_io.slang`, the new `shadow.vert` layout;
   `Draw_Item.blend: ^Blend_Pages`.
 - `src/sculpt`: `Sculptor.blend_weight`, `Mask_Target`, the undo field, the carry and the file flag.
   sculpt knows nothing of blending: this is an extra paintable weight.
@@ -448,7 +442,7 @@ What this means:
    textured and shadow vertex shaders (the shadow layout is new, with its MSL and WGSL tables), and a
    dummy for items without pages. Evidence: parity_check at 0 px without pages, and smoke.
 3. **P2b render: what pages change.** Grown chunk, group and LOD boxes, GPU-cull stamps, damage boxes,
-   `static_key` and `studio_scene_key`, the per-fragment own test in every fragment variant, and
+   `static_key` and `studio_scene_key`, the seam's owner and lift (geom), and
    `--blend-test` filling pages from P1's CPU reference for two spheres at mismatched densities (1M
    against 20k). Evidence: `--dump-cull` with no mismatch, a described dump, background pixels inside
    the silhouette counted at the seam (0 expected), and gpubench orbit with and without.
@@ -503,8 +497,8 @@ P3.
 | The derivatives left out Strength | ∂G = 1 − S·h/2 and S·h/2 (4.4) |
 | Folding the fields self-first gives each object a different surface at a three-way junction | one global fold by object id, with per-pair parameters (4.4) |
 | The sign read stored normals: wrong at concave creases, and owed by GPU sculpting after a stroke | Bærentzen pseudo-normals of the closest feature, from positions (4.2) |
-| own interpolated per vertex cuts two tessellations along different chords, so cracks show the background | own per fragment from the bricks near the seam, checked in P2b at 1M against 20k (4.6) |
-| The clip pipelines drop material layers, area lights and shaded wire | the test in every fragment variant, behind a uniform (4.6) |
+| own interpolated per vertex cuts two tessellations along different chords, so cracks show the background | one owner that cuts past the bisector and stands a lift out, no fragment test; checked in P2b at 1M against 20k (4.6) |
+| The clip pipelines drop material layers, area lights and shaded wire | no fragment test at all (4.6) |
 | GPU culling and LOD never see grown boxes; copies need their own | grown chunk, group and LOD boxes per instance; a blend stamp for GPU cull (6) |
 | The keys: a version in frame_key makes damage moot, and studio_scene_key was missed | damage boxes; the version in static_key and studio_scene_key; partners drawn live (6) |
 | shadow.vert has no vertex id or storage | a new layout with MSL and WGSL tables (6, P2a) |
@@ -515,3 +509,15 @@ P3.
 | A binary search per brick read is about 10 dependent loads | a dense brick grid per pair (4.3) |
 | Pages sized from scanned vertices are about 5x the estimate | pages from a GPU pool; P1 prints touched pages (6, 10) |
 | stack_bake has no BVH; joined partners without a row; file validation; invalidations missing hide, ghost, delete, folder and a partner's level | all added (6, 7, 8) |
+
+## 14. Learned while building (P2a, P2b)
+- The sculptor's tree has a node of triangles a leaf (1024): far too coarse for closest-point queries. The
+  `--blend-test` harness builds a 16-triangle lookup tree per object; the row (P4) needs a cheaper one, over
+  only the triangles near the contact, refit after strokes.
+- Grown boxes are found per chunk, once per fill: each touched page's moved vertices at rest, queried in the
+  sculptor's tree (whose leaves are the chunks). A slab round the whole region opened 3x the chunks' cones.
+- The simplified copies' groups are built in place a few a frame under the same tree, so their grown copy is
+  made every frame (it is small); caching it kept every group stale and drew no copy at all (4.5M triangles
+  drawn against 0.27M).
+- Orbit cost with pages, release, two 2M spheres, 318k moved vertices: GPU p50 1.45-1.46 ms against
+  1.41-1.68 ms plain, CPU 0.448-0.454 against 0.434-0.441 ms, triangles 272k against 266k.

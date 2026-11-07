@@ -3,6 +3,7 @@ package render
 import "core:log"
 import "core:math"
 import "core:math/linalg"
+import "core:mem"
 
 import "../gpu"
 
@@ -85,8 +86,8 @@ blend_pages_set :: proc(r: ^Renderer, cmd: gpu.Cmd, bp: ^Blend_Pages, table: []u
 		blend_pages_destroy(bp)
 		return false
 	}
-	ok := gpu.upload(cmd, bp.table, 0, transmute([]u8)table)
-	if len(entries) > 0 do ok = ok && gpu.upload(cmd, bp.pages, 0, transmute([]u8)entries)
+	ok := gpu.upload(cmd, bp.table, 0, mem.slice_to_bytes(table))
+	if len(entries) > 0 do ok = ok && gpu.upload(cmd, bp.pages, 0, mem.slice_to_bytes(entries))
 	if !ok {
 		log.errorf("blend pages: upload failed: %s", gpu.last_error())
 		blend_pages_destroy(bp)
@@ -108,6 +109,13 @@ grown :: proc(n: u32) -> u32 {
 	c := u32(64)
 	for c < n do c *= 2
 	return c
+}
+
+// What an item's pages add to the keys that decide whether its pictures (the idle cache,
+// the studio's samples) still hold: zero without pages, so those keys stay as they were.
+blend_version :: proc(item: Draw_Item) -> u64 {
+	if item.blend == nil || item.blend.table == 0 do return 0
+	return item.blend.version * 0x9e3779b97f4a7c15
 }
 
 // What an item's vertex stage binds for its pages: its own, or the one-word dummies and

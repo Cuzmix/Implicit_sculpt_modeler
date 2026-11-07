@@ -285,6 +285,8 @@ stack_draw_copies :: proc(app: ^App, draws: ^[dynamic]render.Draw_Item, froms: ^
 			c := item
 			c.model = item.model * p
 			c.copy = u32(k + 1)
+			// Smooth blend's moves are the item's own contact; a copy's would be its own.
+			c.blend = nil
 			append(draws, c)
 			append(froms, from)
 			copies += 1
