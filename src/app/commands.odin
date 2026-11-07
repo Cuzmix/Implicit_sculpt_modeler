@@ -699,7 +699,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Stack_Add = {
 		label = "Add to the live stack",
-		help = "Adds a row of copies to the selected object's live stack (a Mirror, an Array, a Radial or copies along a curve) and opens the Live stack card on it.",
+		help = "Adds a row to the selected object's live stack (a Mirror, an Array, a Radial, copies along a curve, or a Smooth blend with the objects it meets) and opens the Live stack card on it.",
 		icon = ui.ICON_STACK_ADD,
 		args = STACK_ADD_ROWS,
 		run = proc(app: ^App, arg: int) {

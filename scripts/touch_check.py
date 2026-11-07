@@ -1214,6 +1214,22 @@ def stack_radial_pivot_dragged_in_the_view():
 
 
 @scenario
+def stack_blend_row_chips_and_checklist():
+    """With the Live stack card open on a Smooth blend joining the small sphere to the big one, a finger tap on the partner's chip takes it out (the pair goes), and Add's checklist, tapped on that object, joins it again (the pair comes back); two undo steps, nothing sculpted, the camera stays."""
+    s = Script()
+    s.ftap("@blend with 0")
+    s.wait(4)
+    s.ftap("@blend with")
+    s.wait(4)
+    s.ftap("@blend pick 1")
+    s.wait(6)
+    setup = "select 1; move 0 0 0; select 2; scale 0.35; move 1.1 0.1 0; stack blend with 1; stack open blend; wait 2"
+    # Two spheres start framed together, so the camera is held where they put it.
+    return s, ["--spheres=2", "--vertices=20000", f"--script={setup}"], {"dabs": near(0), "undo_steps": near(2), "stack_blend": near(1), "blend_live_pairs": near(1),
+                                                                          "camera_distance": near(8.934, 0.01), "camera_target": is_text("1.1250,0.0000,0.0000")}
+
+
+@scenario
 def stack_mirror_chip_tap_keeps_the_other_side():
     """With the Live stack card open on a Mirror across X, a finger tap on the plane's chip in the view (halfway up the plane) keeps the - side; one undo step, nothing sculpted, the camera stays."""
     s = Script()

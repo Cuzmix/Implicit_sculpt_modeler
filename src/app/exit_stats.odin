@@ -400,12 +400,17 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 				stack_rows, mirror, array, radial, along := 0, "none", 0, 0, 0
 				if sel != nil {
 					s := sel.stack
-					stack_rows = int(s.mirror.added) + int(s.array.added) + int(s.radial.added) + int(s.along.added)
+					stack_rows = int(s.mirror.added) + int(s.array.added) + int(s.radial.added) + int(s.along.added) + int(s.blend.added)
 					if s.mirror.added do mirror = strings.to_lower(stack_axes_label(s.mirror.axes), context.temp_allocator) if s.mirror.shown else "hidden"
 					if stack_array_on(sel) do array = s.array.count
 					if stack_radial_on(sel) do radial = s.radial.count
 					if stack_along_on(app, sel) do along = s.along.count
 				}
+				// The live blend: the objects and pairs the rows join, how many of those objects
+				// are drawn with pages, and whether bricks are still filling.
+				paged := 0
+				for bo in app.blend.objects do if bo.pages.table != 0 do paged += 1
+				fmt.printfln("stack_blend=%d blend_live_objects=%d blend_live_pairs=%d blend_live_paged=%d blend_refilling=%d", int(sel != nil && sel.stack.blend.added), len(app.blend.objects), len(app.blend.pairs), paged, int(app.blend.refilling))
 				if app.blend_test > 0 {
 					b := &app.blend
 					fmt.printfln("blend_objects=%d blend_bricks=%d blend_moved=%d blend_fill_ms=%.1f blend_project_ms=%.1f blend_grows=%d", len(b.objects), b.bricks, b.moved, b.fill_ms, b.project_ms, b.grows)

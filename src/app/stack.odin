@@ -1436,10 +1436,55 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 	if obj == nil do return "nothing is selected"
 	words := strings.fields(text, context.temp_allocator)
 	USAGE :: "stack takes mirror x, array 4 2.2 0 0, radial 6 y, along 8 x, blend (then with 2 3, with folder, radius 0.1 or strength 0.8), mirror off, show mirror, hide array, open array (or a cage's curve x, wrap 0, curve off, sharp 30, sharp off, open deform, open displace, open curve, open wrap, open sharp), apply array (that row alone) or apply stack"
-	if len(words) < 2 do return USAGE
+	if len(words) == 0 || len(words) < 2 && words[0] != "blend" do return USAGE
 	s := obj.stack
 	is_row :: proc(w: string) -> bool {return w == "mirror" || w == "array" || w == "radial" || w == "along" || w == "blend"}
 	switch {
+	case words[0] == "blend" && (len(words) == 1 || words[1] != "off"):
+		// The row added (joined with what touches the object most) or changed: with ids
+		// (scene object numbers), with folder, radius r (world units), strength s (0 to 1).
+		if !stack_row_fits(obj, .Blend) do return "a blend joins sculpt meshes, not a cage or clay"
+		b := s.blend
+		if !b.added {
+			b = STACK_BLEND_DEFAULT
+			if other := blend_first_partner(app, obj); other != nil do b.with[0] = i32(other.id)
+		}
+		rest := words[1:]
+		for len(rest) > 0 {
+			switch {
+			case rest[0] == "with" && len(rest) == 2 && rest[1] == "folder":
+				b.folder = true
+				rest = rest[2:]
+			case rest[0] == "with" && len(rest) >= 2:
+				b.folder, b.with = false, {}
+				n := 0
+				for len(rest) > 1 {
+					id, id_ok := strconv.parse_int(rest[1])
+					if !id_ok do break
+					other := object_by_id(app, id)
+					if other == nil || other == obj do return fmt.tprintf("%d is no other object of the scene", id)
+					if n == STACK_BLEND_WITH_MAX do return fmt.tprintf("a blend joins at most %d objects", STACK_BLEND_WITH_MAX)
+					b.with[n] = i32(id)
+					n += 1
+					rest = rest[1:]
+				}
+				if n == 0 do return "with takes object numbers or folder"
+				rest = rest[1:]
+			case rest[0] == "radius" && len(rest) >= 2:
+				v, v_ok := strconv.parse_f32(rest[1])
+				if !v_ok || !(v >= STACK_BLEND_RADIUS_MIN && v <= STACK_BLEND_RADIUS_MAX) do return fmt.tprintf("radius is from %.3f to %.0f", STACK_BLEND_RADIUS_MIN, STACK_BLEND_RADIUS_MAX)
+				b.radius = v
+				rest = rest[2:]
+			case rest[0] == "strength" && len(rest) >= 2:
+				v, v_ok := strconv.parse_f32(rest[1])
+				if !v_ok || !(v >= 0 && v <= 1) do return "strength is from 0 to 1"
+				b.strength = v
+				rest = rest[2:]
+			case:
+				return fmt.tprintf("%q is not with, radius or strength", rest[0])
+			}
+		}
+		s.blend = b
 	case obj.cage != nil && words[0] == "curve" && len(words) == 2:
 		// A cage laid along the scene's first curve, its axis along it, or taken off it.
 		look := obj.cage.look
@@ -1620,51 +1665,6 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		case: return fmt.tprintf("%q is not an axis: x, y or z", words[2])
 		}
 		s.along = l
-	case words[0] == "blend":
-		// The row added (joined with what touches the object most) or changed: with ids
-		// (scene object numbers), with folder, radius r (world units), strength s (0 to 1).
-		if !stack_row_fits(obj, .Blend) do return "a blend joins sculpt meshes, not a cage or clay"
-		b := s.blend
-		if !b.added {
-			b = STACK_BLEND_DEFAULT
-			if other := blend_first_partner(app, obj); other != nil do b.with[0] = i32(other.id)
-		}
-		rest := words[1:]
-		for len(rest) > 0 {
-			switch {
-			case rest[0] == "with" && len(rest) == 2 && rest[1] == "folder":
-				b.folder = true
-				rest = rest[2:]
-			case rest[0] == "with" && len(rest) >= 2:
-				b.folder, b.with = false, {}
-				n := 0
-				for len(rest) > 1 {
-					id, id_ok := strconv.parse_int(rest[1])
-					if !id_ok do break
-					other := object_by_id(app, id)
-					if other == nil || other == obj do return fmt.tprintf("%d is no other object of the scene", id)
-					if n == STACK_BLEND_WITH_MAX do return fmt.tprintf("a blend joins at most %d objects", STACK_BLEND_WITH_MAX)
-					b.with[n] = i32(id)
-					n += 1
-					rest = rest[1:]
-				}
-				if n == 0 do return "with takes object numbers or folder"
-				rest = rest[1:]
-			case rest[0] == "radius" && len(rest) >= 2:
-				v, v_ok := strconv.parse_f32(rest[1])
-				if !v_ok || !(v >= STACK_BLEND_RADIUS_MIN && v <= STACK_BLEND_RADIUS_MAX) do return fmt.tprintf("radius is from %.3f to %.0f", STACK_BLEND_RADIUS_MIN, STACK_BLEND_RADIUS_MAX)
-				b.radius = v
-				rest = rest[2:]
-			case rest[0] == "strength" && len(rest) >= 2:
-				v, v_ok := strconv.parse_f32(rest[1])
-				if !v_ok || !(v >= 0 && v <= 1) do return "strength is from 0 to 1"
-				b.strength = v
-				rest = rest[2:]
-			case:
-				return fmt.tprintf("%q is not with, radius or strength", rest[0])
-			}
-		}
-		s.blend = b
 	case:
 		return USAGE
 	}
