@@ -28,6 +28,7 @@ Layouts :: struct {
 	menu:     bool, // the workspace menu (the workspaces and Reset layout)
 	menu_at:  ui.Rect,
 	resets:   int, // Reset layout runs (an exit stat)
+	edit:     Workspace_Menu, // what the menu edits (workspace_menu.odin)
 }
 
 // The layouts as they start: each starter's as it ships, and the starting workspaces.
@@ -41,6 +42,7 @@ layouts_destroy :: proc(k: ^Kit_State) {
 		delete(s)
 		s = ""
 	}
+	workspace_undo_clear(&k.layouts.edit)
 	workspaces_destroy(k)
 }
 
@@ -280,20 +282,4 @@ kit_workspace_chip :: proc(app: ^App) {
 	r := ctx.last_rect
 	l.menu_at = r
 	if l.modified do ui.fill_circle(ctx, {r.x + r.w - 18, r.y + r.h * 0.5}, 4, t.warning)
-}
-
-// The workspace menu, from the tabs' chevron, the lit tab or the workspace chip: the
-// workspaces, then Reset layout.
-kit_layout_menu :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	l := &k.layouts
-	if !ui.popover_begin(ctx, "layout menu", &l.menu, l.menu_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
-	defer ui.popover_end(ctx)
-	ui.caption(ctx, "  WORKSPACES")
-	picked := false
-	for slot in workspace_tabs(k) do picked ||= command_menu_item(app, .Workspace_Switch, slot, label = fmt.tprintf("%s##layout menu %d", k.workspaces.list[slot].name, slot))
-	ui.divider(ctx, across = true)
-	picked ||= command_menu_item(app, .Layout_Reset)
-	if picked do l.menu = false
 }

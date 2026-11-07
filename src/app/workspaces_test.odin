@@ -481,3 +481,62 @@ desktop_and_tablet_layouts_are_kept_apart :: proc(t: ^testing.T) {
 	workspace_follow(b)
 	testing.expect(t, grid_panes(&b.kit.grid) == 2, "the desktop layout read back")
 }
+
+// A new workspace copies the layout in front and is tied to nothing; one from a starter
+// takes the starter's ties no other holds, so a deleted Model comes back as it was; renames
+// refuse a taken name; Delete gives the one in front's place to its left neighbour, its
+// Undo puts it back (not in front), and the last workspace stays.
+@(test)
+workspaces_made_renamed_and_deleted :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	a := workspaces_app()
+	defer workspaces_app_free(a)
+	k := &a.kit
+	command_run(a, .Second_View, 0)
+	testing.expect(t, workspace_new(a, "", .None))
+	mine := k.workspaces.current
+	testing.expect_value(t, k.workspaces.list[mine].name, "Workspace 5")
+	testing.expect(t, slice.equal(workspace_tabs(k)[:2], []int{SLOT_SCULPT, mine}), "after the tab in front")
+	testing.expect_value(t, k.workspaces.list[mine].ties, bit_set[Tie]{})
+	testing.expect(t, grid_panes(&k.grid) == 2, "a copy of the layout in front")
+	layouts_frame(k)
+	testing.expect(t, !layout_changed(k, mine), "its base is the copy")
+	testing.expect(t, !workspace_new(a, "sculpt", .None), "a name taken")
+	testing.expect(t, !workspace_rename(a, mine, "MODEL"))
+	testing.expect(t, !workspace_rename(a, mine, "Two##ids"))
+	testing.expect(t, workspace_rename(a, mine, "  Big view "))
+	testing.expect_value(t, k.workspaces.list[mine].name, "Big view")
+
+	// Model goes, its tie with it; a new one from Model brings it back with the tie.
+	workspace_delete(a, SLOT_MODEL)
+	testing.expect_value(t, workspace_holding(k, .Model), -1)
+	testing.expect(t, workspace_new(a, "Model", .Model))
+	model := k.workspaces.current
+	testing.expect_value(t, workspace_holding(k, .Model), model)
+	testing.expect_value(t, a.tool, Tool.Model)
+	// A tie ticked elsewhere moves.
+	workspace_tie_toggle(a, mine, .Model)
+	testing.expect_value(t, workspace_holding(k, .Model), mine)
+	testing.expect_value(t, k.workspaces.list[model].ties, bit_set[Tie]{})
+
+	// Deleting the one in front shows its left neighbour; Undo puts it back where it was.
+	workspace_switch(a, mine)
+	before := slice.clone(workspace_tabs(k), context.temp_allocator)
+	workspace_delete(a, mine)
+	testing.expect_value(t, k.workspaces.current, SLOT_SCULPT)
+	testing.expect(t, !workspace_used(k, mine))
+	workspace_undo(a)
+	testing.expect(t, slice.equal(workspace_tabs(k), before), "back in its place")
+	testing.expect_value(t, k.workspaces.current, SLOT_SCULPT)
+	testing.expect_value(t, workspace_holding(k, .Model), mine)
+	// An Undo whose name was taken meanwhile is refused.
+	workspace_delete(a, mine)
+	testing.expect(t, workspace_new(a, "Big view", .None))
+	workspace_undo(a)
+	testing.expect_value(t, len(workspace_tabs(k)), len(before))
+	// The last one stays.
+	for len(workspace_tabs(k)) > 1 do workspace_delete(a, workspace_tabs(k)[0])
+	last := workspace_tabs(k)[0]
+	workspace_delete(a, last)
+	testing.expect(t, workspace_used(k, last))
+}

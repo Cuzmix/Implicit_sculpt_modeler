@@ -49,6 +49,16 @@ STARTER_ICONS := [Starter]rune {
 	.Paint  = ui.ICON_PAINT,
 }
 
+// The tint each starter takes, as the spaces had them, and Paint the fourth.
+@(rodata)
+STARTER_TINTS := [Starter]u8 {
+	.None   = 0,
+	.Sculpt = 0,
+	.Model  = 1,
+	.Render = 2,
+	.Paint  = 3,
+}
+
 // What a tool in hand is, for the ties: picking a tool whose tie another workspace holds
 // brings that workspace.
 Tie :: enum u8 {
@@ -148,7 +158,7 @@ workspaces_init :: proc(k: ^Kit_State) {
 	for s, slot in ([]Starter{.Sculpt, .Model, .Render, .Paint}) {
 		w := &ws.list[slot]
 		w.name = strings.clone(STARTER_NAMES[s])
-		w.starter, w.ties, w.tint = s, STARTER_TIES[s], u8(slot)
+		w.starter, w.ties, w.tint = s, STARTER_TIES[s], STARTER_TINTS[s]
 		w.page = shelf_first_page(s)
 	}
 	for slot, place in ([]i8{0, 1, 3, 2}) do ws.order[place] = slot
@@ -375,9 +385,11 @@ top_workspace_tabs :: proc(app: ^App) -> f32 {
 	seg := ctx.last_rect
 	if picked >= 0 {
 		if picked == chosen {
+			// The lit tab's menu opens on its own actions.
 			was := l.menu
 			kit_floats_close(k)
 			l.menu = !was
+			l.edit.more, l.edit.ties, l.edit.naming = k.workspaces.current + 1, false, false
 		} else {
 			command_run(app, .Workspace_Switch, tabs[picked])
 		}
@@ -394,10 +406,17 @@ top_workspace_tabs :: proc(app: ^App) -> f32 {
 		if layout_changed(k, slot) do ui.fill_circle(ctx, {x + sw - 9, seg.y + seg.h * 0.5}, 3, t.warning)
 		x += sw
 	}
-	if ui.icon_button(ctx, "Workspace menu", ui.ICON_CHEVRON_DOWN, selected = l.menu, size = t.control) {
+	if ui.icon_button(ctx, "Workspace menu", ui.ICON_CHEVRON_DOWN, selected = l.menu && !l.edit.naming, size = t.control) {
 		was := l.menu
 		kit_floats_close(k)
 		l.menu = !was
+		l.edit.more, l.edit.naming = 0, false
+		l.menu_at = ctx.last_rect
+	}
+	if ui.icon_button(ctx, "New workspace", ui.ICON_PLUS, selected = l.menu && l.edit.naming, size = t.control, keys = command_hint(app, .Workspace_New)) {
+		was := l.menu && l.edit.naming
+		kit_floats_close(k)
+		if !was do workspace_naming_open(k)
 		l.menu_at = ctx.last_rect
 	}
 	end := ctx.last_rect
@@ -411,11 +430,11 @@ workspace_tab_width :: proc(ctx: ^ui.Context, name: string) -> f32 {
 	return ui.text_width(ctx, name, t.text_size, .Semibold) + 28 + t.icon_small + 6
 }
 
-// The tabs' width: the tabs in their well, then the chevron.
+// The tabs' width: the tabs in their well, then the chevron and the +.
 workspace_tabs_width :: proc(app: ^App) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
-	w: f32 = 2 * 3 + ctx.theme.control
+	w: f32 = 2 * 3 + 2 * ctx.theme.control
 	for slot in workspace_tabs(k) do w += workspace_tab_width(ctx, k.workspaces.list[slot].name)
 	return w
 }

@@ -3643,7 +3643,7 @@ def floating_card_closes_from_its_dock_button():
 # workspace menu, Model, Render and the chevron after them; and the menu's rows: the
 # workspaces, then Reset layout.
 SPACE_TABS = {"sculpt": At("top bar/Workspaces/Sculpt", 584, 26), "model": At("top bar/Workspaces/Model", 673, 26),
-              "render": At("top bar/Workspaces/Render", 765, 26), "chevron": At("top bar/workspace tabs/Workspace menu", 834, 26)}
+              "paint": At("top bar/Workspaces/Paint", 700, 26), "render": At("top bar/Workspaces/Render", 765, 26), "chevron": At("top bar/workspace tabs/Workspace menu", 834, 26)}
 LAYOUT_CHIP = SPACE_TABS["sculpt"]
 # The layout menu's rows under the lit tab: the three spaces and Reset layout.
 LAYOUT_ROWS = {"sculpt": At("layout menu/Sculpt", 669, 99), "model": At("layout menu/Model", 669, 143),
@@ -4097,7 +4097,7 @@ def a_stroke_under_a_pinned_card_fades_it():
 # Lens's chrome round the view at 1440x900: the island's Size slider, the readout,
 # and the view rail's buttons.
 LENS_ISLAND_SIZE = (42, 380)
-LENS_CHIP_CAMERA, LENS_CHIP_OBJECT = (75, 77), (847, 28)
+LENS_CHIP_CAMERA, LENS_CHIP_OBJECT = (75, 77), At("top bar/Object", 945, 30)
 # Where eight_rail() puts them.
 LENS_RAIL = {"layout": (1403, 85), "passes": (1403, 133), "camera": (1403, 181), "lights": (1403, 373)}
 # Second view's button where eight_rail() puts it.
@@ -4303,7 +4303,7 @@ LENS_SHELF = {"all": At("dock/All", 331, 833), "clay": At("shelf brushes/Clay", 
 # Sculpt's pages, by name ("page Sculpt" shows as Brushes); Model's one page shows only in
 # the Model space, reached by its tab.
 LENS_SHELF_PAGES = {"sculpt": At("page Sculpt", 630, 884), "move": At("page Move", 696, 884), "curve": At("page Curve", 755, 884)}
-LENS_MODEL_TAB = (594, 26)
+LENS_MODEL_TAB = At("top bar/Workspaces/Model", 594, 26)
 # The Model page shows no tools after All: its cage has its own on the page.
 LENS_MODEL_TILES = {"extrude": At("shelf brushes/Extrude", 404, 833), "inset": At("shelf brushes/Inset", 468, 833),
                     "cube": At("shelf brushes/Cube", 980, 833)}
@@ -6031,7 +6031,7 @@ def help_labels_kept_until_done():
 
 # The tour at 1440x900 (--tour): the space tabs, each step's Next and the dial step's
 # Skip, the History button, the Paint toggle and the dial's Smooth.
-TOUR = {"model": (604, 28), "sculpt": (504, 28), "next_spaces": (737, 202), "next_dial": (321, 696), "skip_dial": (240, 696),
+TOUR = {"model": At("top bar/Workspaces/Model", 604, 28), "sculpt": At("top bar/Workspaces/Sculpt", 504, 28), "next_spaces": (737, 202), "next_dial": (321, 696), "skip_dial": (240, 696),
         "next_cards": At("tour card/Next", 1366, 575), "history": (1355, 28), "paint": At("shelf brushes/Paint", 404, 833), "paint_tab": At("top bar/Workspaces/Paint", 760, 28), "smooth": (78, 778)}
 
 
@@ -6839,6 +6839,107 @@ def lens_pie_editor_brush_slot_chooses_in_search():
     s.press("Return")
     s.wait(8)
     return s, LENS_1440, camera_still({"pie_editor": near(0), "palette": near(0), "brush_sheet": near(0), "library_puts": near(1), "brush_pie": lambda v: v.startswith("Brush:Snake_Hook,Brush:Draw")})
+
+
+# The workspace menu's controls by name: the top bar's +, the menu's Make, a workspace's
+# actions (its ⋯ and the rows under it).
+WORKSPACE_MENU = {"plus": At("top bar/New workspace", 893, 26), "make": At("layout menu/Make", 669, 300),
+                  "rename": At("layout menu/Rename...", 669, 143), "delete": At("layout menu/Delete", 669, 375),
+                  "brought_by": At("layout menu/Brought by", 669, 287), "model_tool": At("layout menu/Model tool", 669, 450)}
+
+
+@scenario
+def workspace_plus_makes_a_copy_and_switches():
+    """The top bar's + asks a name; Make with Detail typed makes Detail after Sculpt, a copy of Sculpt's layout tied to no tool, and puts it in front."""
+    s = Script()
+    s.ftap(WORKSPACE_MENU["plus"])
+    s.wait(4)
+    s.type("Detail")
+    s.wait(2)
+    s.ftap(WORKSPACE_MENU["make"])
+    s.wait(10)
+    return s, [], camera_still({"dabs": near(0), "workspace": is_text("detail"), "workspaces": near(5), "workspaces_made": near(1),
+                                "workspace_names": is_text("sculpt,detail,model,paint,render"), "layout_menu": near(0)})
+
+
+@scenario
+def workspace_rename_by_its_menu():
+    """A tap on the lit tab opens the menu on its own actions; Rename takes a typed name and Return applies it."""
+    s = Script()
+    s.ftap(SPACE_TABS["sculpt"])
+    s.wait(6)
+    s.ftap(WORKSPACE_MENU["rename"])
+    s.wait(4)
+    s.type("Clay work")
+    s.press("Return")
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "workspace": is_text("clay_work"), "workspaces_renamed": near(1),
+                                "workspace_names": is_text("clay_work,model,paint,render")})
+
+
+@scenario
+def workspace_delete_current_goes_left():
+    """In Paint, Delete from its lit tab's menu shows Model, its left neighbour, with Model's tool; the toast offers Undo, and the Paint brush now brings no workspace."""
+    s = Script()
+    s.ftap(SPACE_TABS["paint"])
+    s.wait(8)
+    s.ftap(SPACE_TABS["paint"])
+    s.wait(6)
+    s.ftap(WORKSPACE_MENU["delete"])
+    s.wait(6)
+    return s, [], camera_still({"dabs": near(0), "workspace": is_text("model"), "tool": is_text("model"), "workspaces_deleted": near(1),
+                                "workspace_undo": near(1), "workspace_names": is_text("sculpt,model,render"),
+                                "workspace_ties": lambda v: "Paint_Brush" not in v})
+
+
+@scenario
+def workspace_tie_brings_it_with_its_tool():
+    """A new workspace ticked for the Model tool in its Brought by takes the tie from Model: back in Sculpt, the Model tool brings the new one."""
+    s = Script()
+    s.ftap(WORKSPACE_MENU["plus"])
+    s.wait(4)
+    s.ftap(WORKSPACE_MENU["make"])
+    s.wait(10)
+    s.ftap("top bar/Workspaces/Workspace 5")
+    s.wait(6)
+    s.ftap(WORKSPACE_MENU["brought_by"])
+    s.wait(4)
+    s.ftap(WORKSPACE_MENU["model_tool"])
+    s.wait(4)
+    s.press("Escape")
+    s.ftap(SPACE_TABS["sculpt"])
+    s.wait(6)
+    palette_run(s, "model tool")
+    s.wait(8)
+    return s, [], camera_still({"dabs": near(0), "workspace": is_text("workspace_5"), "tool": is_text("model"),
+                                "workspace_ties": lambda v: "Model:workspace_5" in v and "Model:model" not in v})
+
+
+@scenario
+def untied_workspace_keeps_its_brush_picks():
+    """In a workspace of one's own, tied to nothing, brushes picked from the shelf, Move, Mask and Smooth keep it in front; the Model tool still brings Model."""
+    s = Script()
+    s.ftap(WORKSPACE_MENU["plus"])
+    s.wait(4)
+    s.ftap(WORKSPACE_MENU["make"])
+    s.wait(10)
+    for b in ("draw", "inflate", "pinch"):
+        s.ftap(LENS_SHELF[b])
+        s.wait(4)
+    palette_run(s, "move tool")
+    s.wait(4)
+    s.ftap(LENS_SHELF["clay"])
+    s.wait(6)
+    keep = s
+    after = Script()
+    after.ftap(WORKSPACE_MENU["plus"])
+    after.wait(4)
+    after.ftap(WORKSPACE_MENU["make"])
+    after.wait(10)
+    palette_run(after, "model tool")
+    after.wait(8)
+    return Steps([(keep, [], camera_still({"dabs": near(0), "workspace": is_text("workspace_5"), "brush_kind": is_text("clay")})),
+                  (after, [], camera_still({"dabs": near(0), "workspace": is_text("model"), "tool": is_text("model")}))])
 
 
 @scenario
