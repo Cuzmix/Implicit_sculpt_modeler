@@ -465,7 +465,12 @@ mtl_compile_quiet :: proc(code: string, entrypoint: cstring, exact: bool, consta
 	library, err = MTL.Device_newLibraryWithSource(mtl_state.device, mtl_string(code), options)
 	if library == nil do return nil, nil, err, "a shader did not compile"
 	entry := string(entrypoint) if entrypoint != nil else "main_0"
-	if len(constants) == 0 {
+	// Metal refuses a pipeline made from a function that declares function constants
+	// unless the function came from newFunctionWithName:constantValues:, even when every
+	// constant has a default (slangc's is_function_constant_defined fallbacks). So a
+	// kernel that declares them and is given none (render mode's general kernel) is asked
+	// for with no values set, and its defaults stand.
+	if len(constants) == 0 && !strings.contains(code, "[[function_constant(") {
 		function = MTL.Library_newFunctionWithName(library, mtl_string(entry))
 	} else {
 		// slangc gives each specialization constant its constant_id as the function

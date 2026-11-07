@@ -42,9 +42,9 @@ elastic_moves_the_press_by_the_pull_and_stops_at_its_reach :: proc(t: ^testing.T
 elastic_volume_thins_the_sides :: proc(t: ^testing.T) {
 	pull := Vec3{1, 0, 0}
 	ahead, beside := Vec3{0.2, 0, 0}, Vec3{0, 0.2, 0}
-	soft, firm := kelvinlet_make(0.2, 0), kelvinlet_make(0.2, 1)
-	soft_ahead, firm_ahead := (kelvinlet_follow(&soft, ahead) * pull).x, (kelvinlet_follow(&firm, ahead) * pull).x
-	soft_beside, firm_beside := (kelvinlet_follow(&soft, beside) * pull).x, (kelvinlet_follow(&firm, beside) * pull).x
+	soft, firm := geom.kelvinlet_make(0.2, 0), geom.kelvinlet_make(0.2, 1)
+	soft_ahead, firm_ahead := (geom.kelvinlet_follow(&soft, ahead) * pull).x, (geom.kelvinlet_follow(&firm, ahead) * pull).x
+	soft_beside, firm_beside := (geom.kelvinlet_follow(&soft, beside) * pull).x, (geom.kelvinlet_follow(&firm, beside) * pull).x
 	testing.expectf(t, firm_ahead > soft_ahead && firm_beside < soft_beside && soft_beside > 0, "ahead %v to %v, beside %v to %v", soft_ahead, firm_ahead, soft_beside, firm_beside)
 }
 

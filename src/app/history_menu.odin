@@ -18,10 +18,6 @@ import "../ui"
 // older, which takes a second tap as the panel's button did. Dial back... opens the dial
 // over the list (history_dial.odin).
 
-// Lucide's flag and filter.
-ICON_FLAG :: rune(0xe0d6)
-ICON_FILTER :: rune(0xe0d5)
-
 // The step whose first entry was made at `at`, as timeline positions: its first entry and
 // its last (chained) one; ok is false once it is gone (dropped, or replaced by a new step).
 history_step_of :: proc(app: ^App, at: time.Tick) -> (head, last: int, ok: bool) {
@@ -147,7 +143,7 @@ kit_history_menu :: proc(app: ^App) {
 	ui.divider(ctx, across = true)
 
 	picked := false
-	if ui.menu_item(ctx, "Go here", "Tap", ui.ICON_HISTORY, enabled = can && last + 1 != done, reason = "The scene stands at this step" if can else "Wait for the stroke or the time-lapse to end") {
+	if ui.menu_item(ctx, "Go here", "Tap", ui.ICON_GO_HERE, enabled = can && last + 1 != done, reason = "The scene stands at this step" if can else "Wait for the stroke or the time-lapse to end") {
 		timeline_seek_to(tl, last + 1)
 		picked = true
 	}
@@ -161,7 +157,7 @@ kit_history_menu :: proc(app: ^App) {
 	case !entry_is_step(e) || entry_sculptor(app, e) == nil:
 		paint_reason = "Only a sculpting step can be what the History brush paints back to"
 	}
-	if ui.menu_item(ctx, "Paint back to here", "History brush", ui.ICON_BRUSH, checked = recall >= head && recall <= last, enabled = paint_reason == "", reason = paint_reason, hint = "Makes the History brush paint back to how the object was before this step, and picks the brush") {
+	if ui.menu_item(ctx, "Paint back to here", "History brush", ui.ICON_PAINT_BACK, checked = recall >= head && recall <= last, enabled = paint_reason == "", reason = paint_reason, hint = "Makes the History brush paint back to how the object was before this step, and picks the brush") {
 		history_paint_back(app, head)
 		picked = true
 	}
@@ -175,12 +171,12 @@ kit_history_menu :: proc(app: ^App) {
 		picked = true
 	}
 	if e.bookmark == "" {
-		if ui.menu_item(ctx, "Bookmark...", glyph = ICON_FLAG, hint = "Names this step, to find it again in the list and on the strip") {
+		if ui.menu_item(ctx, "Bookmark...", glyph = ui.ICON_FLAG, hint = "Names this step, to find it again in the list and on the strip") {
 			app.kit.rename = {open = true, step = e.at, at = tl.menu_rect}
 			picked = true
 		}
 	} else {
-		if ui.menu_item(ctx, "Rename bookmark...", glyph = ICON_FLAG) {
+		if ui.menu_item(ctx, "Rename bookmark...", glyph = ui.ICON_FLAG) {
 			app.kit.rename = {open = true, step = e.at, at = tl.menu_rect}
 			picked = true
 		}
@@ -189,18 +185,18 @@ kit_history_menu :: proc(app: ^App) {
 			picked = true
 		}
 	}
-	if ui.menu_item(ctx, "Show what it changed", glyph = ICON_SCAN_EYE, hint = "Tints the part of the model this step changed until the next press; resting on a step shows it too") {
+	if ui.menu_item(ctx, "Show what it changed", glyph = ui.ICON_TINT_STEP, hint = "Tints the part of the model this step changed until the next press; resting on a step shows it too") {
 		tl.tint_kept, tl.tint_kept_at = e.at, ctx.time
 		picked = true
 	}
-	if ui.menu_item(ctx, "View from this step", glyph = ICON_CAMERA, enabled = e.view != {}, reason = "This step kept no view", hint = "Puts the camera where it was when this step was made; the History stays where it is") {
+	if ui.menu_item(ctx, "View from this step", glyph = ui.ICON_CAMERA, enabled = e.view != {}, reason = "This step kept no view", hint = "Puts the camera where it was when this step was made; the History stays where it is") {
 		history_view_go(app, e.view)
 		picked = true
 	}
 	if tl.view == .List && obj != nil {
 		sel := selected_object(app)
 		only := tl.only_selected && sel == obj
-		if ui.menu_item(ctx, "Every object's steps" if only else fmt.tprintf("Only %s's steps", object_label(obj)), glyph = ICON_FILTER) {
+		if ui.menu_item(ctx, "Every object's steps" if only else fmt.tprintf("Only %s's steps", object_label(obj)), glyph = ui.ICON_FILTER) {
 			if !only do for o, i in app.scene.objects do if o == obj do select_only(app, i)
 			tl.only_selected = !only
 			tl.list_scroll = 0

@@ -20,12 +20,6 @@ import "../ui"
 // Scene interface: the Scene card's Objects and Add object sections open this card (Add
 // object with its Add menu open, the size at its head).
 
-// Lucide's lock and lock-open: the row's lock, shut while the object is locked.
-ICON_LOCK :: rune(0xe10f)
-ICON_LOCK_OPEN :: rune(0xe110)
-// Lucide's bookmark, for a selection set's row.
-ICON_BOOKMARK :: rune(0xe064)
-
 // What the outliner's chips show: everything, or one kind of thing.
 Scene_Kind :: enum u8 {
 	All,
@@ -233,7 +227,7 @@ lens_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i, depth: int, dr
 	if lo, hi, ok := thumb_for(app, obj); ok do parts.image, parts.lo, parts.hi = KIT_THUMBS_IMAGE, lo, hi
 	toggles := [3]ui.Row_Toggle{
 		{name = fmt.tprintf("Show %s", label) if obj.off else fmt.tprintf("Hide %s", label), glyph = ui.ICON_EYE_OFF if obj.off else ui.ICON_EYE, faint = obj.off},
-		{name = fmt.tprintf("Unlock %s", label) if obj.locked else fmt.tprintf("Lock %s", label), glyph = ICON_LOCK if obj.locked else ICON_LOCK_OPEN, lit = obj.locked, faint = !obj.locked, keys = "Ctrl: lock the others"},
+		{name = fmt.tprintf("Unlock %s", label) if obj.locked else fmt.tprintf("Lock %s", label), glyph = ui.ICON_LOCK if obj.locked else ui.ICON_LOCK_OPEN, lit = obj.locked, faint = !obj.locked, keys = "Ctrl: lock the others"},
 		{name = fmt.tprintf("%s's menu", label), glyph = ui.ICON_MORE},
 	}
 	dragged := k.tree_drag.active && k.tree_drag.key == obj.id
@@ -289,7 +283,7 @@ scene_light_rows :: proc(app: ^App, query: string, only: bool) {
 	if !only {
 		open := ol.lights_open || query != ""
 		was := open
-		parts := ui.Thumb_Row{glyph = ui.ICON_SUN, count = -1, compact = true, open = &open, detail = fmt.tprintf("%d on", lights_on_count(set))}
+		parts := ui.Thumb_Row{glyph = ui.ICON_LIGHTS, count = -1, compact = true, open = &open, detail = fmt.tprintf("%d on", lights_on_count(set))}
 		row := ui.thumb_row(ctx, fmt.tprintf("Lights · %d##scene lights", set.count), parts)
 		if row.clicked do open = !open
 		if open != was && query == "" do ol.lights_open = open
@@ -392,7 +386,7 @@ kit_scene_add_menu :: proc(app: ^App) {
 	if picked := ui.select(ctx, "Size##scene add", kit_size_names(), k.add_size); picked >= 0 do k.add_size = picked
 	for shape in geom.Primitive {
 		if geom.is_starter(shape) do continue
-		if ui.menu_item(ctx, fmt.tprintf("%v##scene add", shape), glyph = ui.ICON_SHAPES) {
+		if ui.menu_item(ctx, fmt.tprintf("%v##scene add", shape), glyph = ui.ICON_ADD_OBJECT) {
 			app.ui.scene_command = {kind = .Add, vertices = vertices, shape = shape}
 			picked = true
 		}
@@ -401,21 +395,21 @@ kit_scene_add_menu :: proc(app: ^App) {
 	if ol.starters {
 		for shape in geom.Primitive {
 			if !geom.is_starter(shape) do continue
-			if ui.menu_item(ctx, fmt.tprintf("%v##scene add", shape), glyph = ui.ICON_SHAPES) {
+			if ui.menu_item(ctx, fmt.tprintf("%v##scene add", shape), glyph = ui.ICON_ADD_OBJECT) {
 				app.ui.scene_command = {kind = .Add, vertices = vertices, shape = shape}
 				picked = true
 			}
 		}
 	}
 	ui.divider(ctx, across = true)
-	if ui.menu_item(ctx, "Voxel sphere##scene add", glyph = ui.ICON_SHAPES, hint = fmt.tprintf("Clay %d voxels across, sculpted as a volume", voxel_resolution_for(vertices))) {
+	if ui.menu_item(ctx, "Voxel sphere##scene add", glyph = ui.ICON_VOXEL_CLAY, hint = fmt.tprintf("Clay %d voxels across, sculpted as a volume", voxel_resolution_for(vertices))) {
 		app.ui.scene_command = {kind = .Add, vertices = vertices, shape = .Sphere, voxels = voxel_resolution_for(vertices)}
 		picked = true
 	}
 	if ui.menu_item(ctx, "Cage##scene add", glyph = ui.ICON_CHEVRON_DOWN if ol.cages else ui.ICON_CHEVRON_RIGHT, trailing = true) do ol.cages = !ol.cages
 	if ol.cages {
 		for p in poly.Primitive {
-			if ui.menu_item(ctx, fmt.tprintf("%s cage##scene add", poly.PRIMITIVE_NAMES[p]), glyph = ui.ICON_GRID, hint = command_hint(app, .Add_Cage, int(p))) {
+			if ui.menu_item(ctx, fmt.tprintf("%s cage##scene add", poly.PRIMITIVE_NAMES[p]), glyph = ui.ICON_ADD_CAGE, hint = command_hint(app, .Add_Cage, int(p))) {
 				_ = command_run(app, .Add_Cage, int(p))
 				picked = true
 			}
@@ -425,7 +419,7 @@ kit_scene_add_menu :: proc(app: ^App) {
 	if ol.curves {
 		for shape in Curve_Shape {
 			if shape == .None do continue
-			if ui.menu_item(ctx, fmt.tprintf("%s curve##scene add", CURVE_SHAPE_NAMES[shape]), glyph = ui.ICON_SPLINE, hint = command_hint(app, .Add_Curve, int(shape) - 1)) {
+			if ui.menu_item(ctx, fmt.tprintf("%s curve##scene add", CURVE_SHAPE_NAMES[shape]), glyph = ui.ICON_ADD_CURVE, hint = command_hint(app, .Add_Curve, int(shape) - 1)) {
 				_ = command_run(app, .Add_Curve, int(shape) - 1)
 				picked = true
 			}
@@ -470,7 +464,7 @@ lens_scene_sets :: proc(app: ^App) {
 	ui.caption(ctx, "SELECTION SETS")
 	sets := sculpt.levels_sets(&obj.levels)
 	for &set, i in sets {
-		row := ui.list_row(ctx, fmt.tprintf("%s##lens set %d %d", sculpt.selection_set_name(&set), obj.id, set.id), set_percent(set.masked), glyph = ICON_BOOKMARK)
+		row := ui.list_row(ctx, fmt.tprintf("%s##lens set %d %d", sculpt.selection_set_name(&set), obj.id, set.id), set_percent(set.masked), glyph = ui.ICON_BOOKMARK)
 		if row.clicked {
 			app.ui.set_selected = i
 			set_restore(app, set.id, .Replace)

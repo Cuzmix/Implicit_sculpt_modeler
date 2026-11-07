@@ -102,14 +102,11 @@ an_objects_material_is_in_its_bytes :: proc(t: ^testing.T) {
 	out: [dynamic]u8
 	defer delete(out)
 	testing.expect(t, object_put_bytes(&out, objs[1]))
-	back: Object
-	r := geom.byte_reader(out[:])
-	object_get_fields(&r, &back)
-	defer delete(back.name)
-	kind := geom.byte_get(&r, u8)
-	testing.expect_value(t, kind, u8(OBJECT_KIND_MESH))
-	testing.expect_value(t, material_get(&r), MATERIALS[gold])
-	testing.expect(t, r.ok)
+	rec := test_object_record(out[:])
+	testing.expect_value(t, geom.rec_get(&rec, Object_Tag.Kind, u8, 9), u8(OBJECT_KIND_MESH))
+	mr, _ := geom.rec_reader(&rec, Object_Tag.Material)
+	testing.expect_value(t, material_get(&mr), MATERIALS[gold])
+	testing.expect(t, mr.ok && rec.ok)
 }
 
 // Picking a material gives it to every selected object and makes it the one new objects

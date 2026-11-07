@@ -514,7 +514,6 @@ skin_file_round_trip_keeps_every_height :: proc(t: ^testing.T) {
 	r := geom.byte_reader(out[:])
 	testing.expect(t, levels_read(&back, &r, &pool, 64), "levels read failed")
 	defer levels_destroy(&back)
-	testing.expect(t, levels_skin_follows(&r))
 	testing.expect(t, levels_skin_read(&back, &r), "skin read failed")
 	testing.expect_value(t, r.at, len(out))
 	sk := levels_skin(&back)

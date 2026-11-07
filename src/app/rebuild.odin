@@ -415,7 +415,7 @@ kit_remesh_quick :: proc(app: ^App) {
 	} else {
 		ui.paragraph(ctx, fmt.tprintf("Now %s vertices. Hold Density to see its cells.", count_label(now)))
 	}
-	if ui.button(ctx, "Voxel remesh##quick", .Flat, .Accent, inner, ICON_REMESH, enabled = command_enabled(app, .Remesh), keys = command_hint(app, .Rebuild)) {
+	if ui.button(ctx, "Voxel remesh##quick", .Flat, .Accent, inner, ui.ICON_REMESH, enabled = command_enabled(app, .Remesh), keys = command_hint(app, .Rebuild)) {
 		app.ui.rebuild_goal = .Even
 		rebuild_command(app)
 	}

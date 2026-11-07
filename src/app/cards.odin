@@ -55,22 +55,22 @@ CARD_NAMES := [Card]string {
 
 @(rodata)
 CARD_ICONS := [Card]rune {
-	.Tool     = ui.ICON_BRUSH,
-	.Layers   = ICON_LAYERS,
-	.Scene    = ui.ICON_SHAPES,
-	.Mesh     = ICON_SUBDIVIDE,
-	.Mask     = ICON_MASK,
-	.Deform   = ui.ICON_WAND,
-	.Paint    = ui.ICON_PAINTBRUSH,
-	.Colours  = ICON_COLOUR,
-	.Symmetry = ICON_SYMMETRY,
-	.Material = ICON_MATERIAL,
-	.Light    = ui.ICON_SUN,
-	.Render   = ICON_RENDER_PREVIEW,
+	.Tool     = ui.ICON_SCULPT_TOOL,
+	.Layers   = ui.ICON_LAYERS,
+	.Scene    = ui.ICON_SCENE,
+	.Mesh     = ui.ICON_MESH,
+	.Mask     = ui.ICON_MASK,
+	.Deform   = ui.ICON_DEFORM,
+	.Paint    = ui.ICON_PAINT,
+	.Colours  = ui.ICON_COLOUR,
+	.Symmetry = ui.ICON_SYMMETRY,
+	.Material = ui.ICON_MATERIAL,
+	.Light    = ui.ICON_LIGHTS,
+	.Render   = ui.ICON_RENDER,
 	.History  = ui.ICON_HISTORY,
-	.Details  = ui.ICON_ACTIVITY,
-	.References = ICON_REFERENCES,
-	.Stack    = ICON_LIVE_STACK,
+	.Details  = ui.ICON_DETAILS,
+	.References = ui.ICON_REFERENCES,
+	.Stack    = ui.ICON_LIVE_STACK,
 }
 
 // The cards that draw their whole body themselves, each with a scroll and controls of its
@@ -320,76 +320,63 @@ section_title :: proc(sec: Section) -> string {
 }
 
 // Each section's icon, for its button on a dock and its tile in the Library: the look's
-// own where a card shows it, else the nearest of the interface's glyphs (Lucide's
-// download, camera, video and printer by their code points).
+// own where a card shows it, else the interface's icon for what the section is about.
 @(rodata)
 SECTION_ICONS := [Section]rune {
 	.Brush       = ui.ICON_BRUSH,
-	.Preset      = ICON_BOOKMARK,
-	.Stroke      = ui.ICON_SPLINE,
-	.Paint_Color = ICON_COLOUR,
-	.Recall      = ui.ICON_HISTORY,
-	.Falloff     = ICON_CIRCLE_DASHED,
-	.Samples     = ui.ICON_ACTIVITY,
-	.Alpha       = ui.ICON_IMAGE,
-	.Pen         = ui.ICON_PENCIL,
+	.Preset      = ui.ICON_BOOKMARK,
+	.Stroke      = ui.ICON_STROKE,
+	.Paint_Color = ui.ICON_COLOUR,
+	.Recall      = ui.ICON_RECALL,
+	.Falloff     = ui.ICON_FALLOFF,
+	.Samples     = ui.ICON_SAMPLES,
+	.Alpha       = ui.ICON_ALPHA,
+	.Pen         = ui.ICON_PEN,
 	.Options     = ui.ICON_SETTINGS,
-	.Recorder    = ui.ICON_RECORD,
-	.Layers      = ICON_LAYERS,
-	.Scene       = ui.ICON_SHAPES,
-	.Symmetry    = ICON_SYMMETRY,
-	.Colours     = ICON_COLOUR,
+	.Recorder    = ui.ICON_RECORDER,
+	.Layers      = ui.ICON_LAYERS,
+	.Scene       = ui.ICON_SCENE,
+	.Symmetry    = ui.ICON_SYMMETRY,
+	.Colours     = ui.ICON_COLOUR,
 	.History     = ui.ICON_HISTORY,
-	.Details     = ui.ICON_ACTIVITY,
-	.References  = ICON_REFERENCES,
-	.Stack       = ICON_LIVE_STACK,
-	.Levels      = ICON_SUBDIVIDE,
-	.Hd          = ui.ICON_ZOOM_IN,
-	.Topology    = ICON_DYNTOPO,
-	.Remesh      = ICON_REMESH,
-	.Mirror      = ICON_SYMMETRY,
-	.Voxels      = ICON_VOXEL_CLAY,
-	.Uvs         = rune(0xe4ee), // scissors-line-dashed: seams
-	.Retopo      = ICON_RETOPO,
-	.Booleans    = ICON_BOOLEAN,
-	.Extract     = ICON_SPLIT,
-	.Project     = rune(0xe0b6), // download
-	.Mask        = ICON_MASK,
+	.Details     = ui.ICON_DETAILS,
+	.References  = ui.ICON_REFERENCES,
+	.Stack       = ui.ICON_LIVE_STACK,
+	.Levels      = ui.ICON_LEVELS,
+	.Hd          = ui.ICON_HD,
+	.Topology    = ui.ICON_DYNTOPO,
+	.Remesh      = ui.ICON_REMESH,
+	.Mirror      = ui.ICON_SYMMETRY,
+	.Voxels      = ui.ICON_VOXEL_CLAY,
+	.Uvs         = ui.ICON_UVS,
+	.Retopo      = ui.ICON_RETOPO,
+	.Booleans    = ui.ICON_BOOLEAN,
+	.Extract     = ui.ICON_EXTRACT,
+	.Project     = ui.ICON_PROJECT,
+	.Mask        = ui.ICON_MASK,
 	.Sets        = ui.ICON_TAG,
-	.Groups      = ui.ICON_GRID,
+	.Groups      = ui.ICON_GROUPS,
 	.Visibility  = ui.ICON_EYE,
-	.Transform   = ui.ICON_MOVE,
-	.Morph       = ICON_FLIP_VIEW,
-	.Deform      = ui.ICON_WAND,
-	.Physics     = rune(0xe1ca), // shirt, as the Cloth brush
-	.Deformers   = ui.ICON_ROTATE_3D,
-	.Paint       = ui.ICON_PAINTBRUSH,
-	.Textures    = ICON_FILL_GRADIENT,
-	.Material    = ICON_MATERIAL,
-	.Lights      = ui.ICON_SUN,
-	.Environment = ui.ICON_IMAGE,
-	.Floor       = ICON_FLOOR,
-	.Background  = ui.ICON_FRAME,
-	.Style       = ICON_SHADING,
-	.Render      = ICON_RENDER_PREVIEW,
-	.Lens        = rune(0xe068), // camera
-	.Finish      = ICON_SPARKLES,
-	.Camera      = ICON_CAMERA,
-	.Turntable   = rune(0xe1a5), // video
-	.Print       = rune(0xe145), // printer
+	.Transform   = ui.ICON_TRANSFORM,
+	.Morph       = ui.ICON_MORPH,
+	.Deform      = ui.ICON_DEFORM,
+	.Physics     = ui.ICON_PHYSICS,
+	.Deformers   = ui.ICON_DEFORMERS,
+	.Paint       = ui.ICON_PAINT,
+	.Textures    = ui.ICON_TEXTURES,
+	.Material    = ui.ICON_MATERIAL,
+	.Lights      = ui.ICON_LIGHTS,
+	.Environment = ui.ICON_ENVIRONMENT,
+	.Floor       = ui.ICON_FLOOR,
+	.Background  = ui.ICON_BACKGROUND,
+	.Style       = ui.ICON_STYLE,
+	.Render      = ui.ICON_RENDER,
+	.Lens        = ui.ICON_CAMERA,
+	.Finish      = ui.ICON_FINISH,
+	.Camera      = ui.ICON_CAMERA,
+	.Turntable   = ui.ICON_TURNTABLE,
+	.Print       = ui.ICON_PRINTER,
 }
-
-// Lucide's icons the cards use that the kit does not name already.
-ICON_CONTRAST :: rune(0xe0a1) // half filled: inverting
-ICON_SPARKLES :: rune(0xe417)
-// Lucide's images: the References card, a stack of pictures.
-ICON_REFERENCES :: rune(0xe5c9)
-// Lucide's layers-3: the Live stack card, rows over the object.
-ICON_LIVE_STACK :: rune(0xe52f)
-ICON_MINUS :: rune(0xe120)
-ICON_CIRCLE_DASHED :: rune(0xe4b5) // a hole's open border
-ICON_MASK :: rune(0xe2aa) // venetian-mask: the one glyph of masking, on the brush, the card and the history
-ICON_SCAN_EYE :: rune(0xe53b) // facing the eye: masking by angle, a step's tint
 
 // Whether card `c` shows section `sec` now: the brush's own sections while the brush is
 // the tool (the History brush's only on it), every other section always.
@@ -430,6 +417,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Section) {
 	.Level_Up              = .Levels,
 	.Level_Down            = .Levels,
 	.Delete_Lower_Levels   = .Levels,
+	.Rebuild_Levels        = .Levels,
 	.Delete_Higher_Levels  = .Levels,
 	.Hd_Divide             = .Hd,
 	.Detail_Skin           = .Hd,
@@ -478,6 +466,8 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Section) {
 	.Convert_To_Voxels     = .Voxels,
 	.Voxel_Res_Up          = .Voxels,
 	.Voxel_Res_Down        = .Voxels,
+	.Remove_Floaters       = .Voxels,
+	.Separate_Pieces       = .Voxels,
 	.Duplicate_Object      = .Scene,
 	.Delete_Object         = .Scene,
 	.Studio_Render         = .Render,
@@ -758,7 +748,7 @@ card_brush :: proc(app: ^App, inner: f32) {
 	ui.label(ctx, ui.text_fit(ctx, family, t.small_size, text_w), size = t.small_size, color = t.text_tertiary)
 	ui.end(ctx)
 	_, favourite := brush_favorite(&k.brushes, key)
-	if ui.icon_button(ctx, "Favorite (on)##card" if favourite else "Favorite##card", ICON_HEART, selected = favourite) do brush_favorite_toggle(&k.brushes, key)
+	if ui.icon_button(ctx, "Favorite (on)##card" if favourite else "Favorite##card", ui.ICON_HEART, selected = favourite) do brush_favorite_toggle(&k.brushes, key)
 	ui.end(ctx)
 	// With the brush bar's sliders in sight the card leaves Size and Strength to them (its
 	// head already says the size); without them the card holds the sliders.

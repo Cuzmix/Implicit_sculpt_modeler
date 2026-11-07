@@ -133,10 +133,10 @@ modifier_name :: proc(app: ^App, m: Modifier) -> string {
 
 @(rodata)
 MODIFIER_ICONS := [Modifier]rune {
-	.Smooth = 0xe283, // waves
-	.Invert = 0xe30c, // diff: plus over minus
-	.Mask   = ICON_MASK,
-	.Hide   = 0xe0bf, // eye-off
+	.Smooth = ui.ICON_BRUSH_SMOOTH,
+	.Invert = ui.ICON_INVERT,
+	.Mask   = ui.ICON_MASK,
+	.Hide   = ui.ICON_HIDE,
 }
 
 // The keyboard's modifier that does the same, for the tooltip.

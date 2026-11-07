@@ -388,10 +388,7 @@ refs_scene_read :: proc(path: string) -> (refs: References, why: string) {
 	if err != nil do return {}, fmt.tprint(err)
 	defer delete(data)
 	r := geom.byte_reader(data)
-	magic: [len(SCENE_MAGIC)]u8
-	geom.byte_get_slice(&r, magic[:])
-	version := geom.byte_get(&r, u32)
-	if !r.ok || string(magic[:]) != SCENE_MAGIC || version != SCENE_VERSION do return {}, "it is not a scene this version of the app reads"
+	if !scene_head_read(&r) do return {}, "it is not a scene this version of the app reads"
 	if !preview_block_skip(&r) do return {}, "it is damaged"
 	for {
 		tag, chunk, more := scene_chunk_next(&r)
@@ -948,46 +945,101 @@ refs_gpu_mb :: proc(app: ^App) -> f64 {
 	return f64(bytes) / f64(1 << 20)
 }
 
-// The references chunk of a scene file: each picture's id, name, size and bytes, then
-// each place.
+// The references chunk of a scene file, its fields a record's (tags are never reused or
+// retyped, geom/record.odin): the next ids, then a field a picture (its id, name, size and
+// bytes) and a field a place.
 CHUNK_REFS :: "REFS"
+
+Refs_Tag :: enum u16 {
+	Next_Image = 1, // u32
+	Next_Ref   = 2, // u32
+	View_Off   = 3, // u8: places on the view hidden
+	Image      = 4, // Ref_Image_Tag record
+	Ref        = 5, // Ref_Tag record
+}
+
+Ref_Image_Tag :: enum u16 {
+	Id     = 1, // u32, required
+	Name   = 2, // text
+	Width  = 3, // i32
+	Height = 4, // i32
+	Bytes  = 5, // the picture's file as it was added
+}
+
+Ref_Tag :: enum u16 {
+	Id          = 1,  // u32, required
+	Image       = 2,  // u32: its picture, 0 for a note
+	At          = 3,  // [2]f32
+	Size        = 4,  // [2]f32
+	Crop_Lo     = 5,  // [2]f32
+	Crop_Hi     = 6,  // [2]f32
+	Turn        = 7,  // u8 quarter turns
+	Flip        = 8,  // u8
+	Grey        = 9,  // u8
+	Locked      = 10, // u8
+	Sized       = 11, // u8
+	View        = 12, // u8: shown on the view
+	View_Locked = 13, // u8
+	View_At     = 14, // [2]f32
+	View_W      = 15, // f32
+	Opacity     = 16, // f32
+	Angle       = 17, // f32
+	View_Angle  = 18, // f32
+	Plane       = 19, // u8 Ref_Plane
+	Through     = 20, // u8
+	Plane_Any   = 21, // u8
+	Plane_Off   = 22, // u8
+	Plane_At    = 23, // [3]f32
+	Plane_H     = 24, // f32
+	Marks       = 25, // [2]f32: brow and chin
+	Text        = 26, // text, a note's
+}
 
 refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {
 	at := scene_chunk_begin(out, CHUNK_REFS)
 	defer scene_chunk_end(out, at)
-	geom.byte_put(out, refs.next_image)
-	geom.byte_put(out, refs.next_ref)
-	geom.byte_put(out, u8(refs.view_off))
-	geom.byte_put(out, u32(len(refs.images)))
+	geom.rec_put(out, Refs_Tag.Next_Image, refs.next_image)
+	geom.rec_put(out, Refs_Tag.Next_Ref, refs.next_ref)
+	geom.rec_put(out, Refs_Tag.View_Off, u8(refs.view_off))
 	for img in refs.images {
-		geom.byte_put(out, img.id)
-		geom.byte_put_string(out, img.name)
-		geom.byte_put(out, i32(img.width))
-		geom.byte_put(out, i32(img.height))
-		geom.byte_put(out, u64(len(img.bytes)))
-		append(out, ..img.bytes)
+		ia := geom.rec_begin(out, Refs_Tag.Image)
+		geom.rec_put(out, Ref_Image_Tag.Id, img.id)
+		geom.rec_put_string(out, Ref_Image_Tag.Name, img.name)
+		geom.rec_put(out, Ref_Image_Tag.Width, i32(img.width))
+		geom.rec_put(out, Ref_Image_Tag.Height, i32(img.height))
+		geom.rec_put_slice(out, Ref_Image_Tag.Bytes, img.bytes)
+		geom.rec_end(out, ia)
 	}
-	geom.byte_put(out, u32(len(refs.refs)))
 	for &r in refs.refs {
-		geom.byte_put(out, r.id)
-		geom.byte_put(out, r.image)
-		geom.byte_put(out, r.at)
-		geom.byte_put(out, r.size)
-		geom.byte_put(out, r.crop_lo)
-		geom.byte_put(out, r.crop_hi)
-		geom.byte_put(out, r.turn)
-		geom.byte_put(out, u8(r.flip) | u8(r.grey) << 1 | u8(r.locked) << 2 | u8(r.sized) << 3 | u8(r.view) << 4 | u8(r.view_locked) << 5)
-		geom.byte_put(out, r.view_at)
-		geom.byte_put(out, r.view_w)
-		geom.byte_put(out, r.opacity)
-		geom.byte_put(out, r.angle)
-		geom.byte_put(out, r.view_angle)
-		geom.byte_put(out, u8(r.plane))
-		geom.byte_put(out, u8(r.through) | u8(r.plane_any) << 1 | u8(r.plane_off) << 2)
-		geom.byte_put(out, r.plane_at)
-		geom.byte_put(out, r.plane_h)
-		geom.byte_put(out, r.marks)
-		if r.image == 0 do geom.byte_put_string(out, ref_note_text(&r))
+		T :: Ref_Tag
+		ra := geom.rec_begin(out, Refs_Tag.Ref)
+		geom.rec_put(out, T.Id, r.id)
+		geom.rec_put(out, T.Image, r.image)
+		geom.rec_put(out, T.At, r.at)
+		geom.rec_put(out, T.Size, r.size)
+		geom.rec_put(out, T.Crop_Lo, r.crop_lo)
+		geom.rec_put(out, T.Crop_Hi, r.crop_hi)
+		geom.rec_put(out, T.Turn, r.turn)
+		geom.rec_put(out, T.Flip, u8(r.flip))
+		geom.rec_put(out, T.Grey, u8(r.grey))
+		geom.rec_put(out, T.Locked, u8(r.locked))
+		geom.rec_put(out, T.Sized, u8(r.sized))
+		geom.rec_put(out, T.View, u8(r.view))
+		geom.rec_put(out, T.View_Locked, u8(r.view_locked))
+		geom.rec_put(out, T.View_At, r.view_at)
+		geom.rec_put(out, T.View_W, r.view_w)
+		geom.rec_put(out, T.Opacity, r.opacity)
+		geom.rec_put(out, T.Angle, r.angle)
+		geom.rec_put(out, T.View_Angle, r.view_angle)
+		geom.rec_put(out, T.Plane, u8(r.plane))
+		geom.rec_put(out, T.Through, u8(r.through))
+		geom.rec_put(out, T.Plane_Any, u8(r.plane_any))
+		geom.rec_put(out, T.Plane_Off, u8(r.plane_off))
+		geom.rec_put(out, T.Plane_At, r.plane_at)
+		geom.rec_put(out, T.Plane_H, r.plane_h)
+		geom.rec_put(out, T.Marks, r.marks)
+		if r.image == 0 do geom.rec_put_string(out, T.Text, ref_note_text(&r))
+		geom.rec_end(out, ra)
 	}
 }
 
@@ -997,76 +1049,92 @@ refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {
 // or turned inside out, a turn past three quarters, an angle past a half turn either way, a note's text too long, a plane of no
 // view, out in the far distance or of a note, or brow and chin marks out of order.
 refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
-	refs.next_image = geom.byte_get(r, u32)
-	refs.next_ref = geom.byte_get(r, u32)
-	view_off := geom.byte_get(r, u8)
+	rec := geom.record_of(r.data[r.at:])
+	r.at = len(r.data)
+	known, _ := geom.record_known(&rec, Refs_Tag)
+	refs.next_image = geom.rec_get(&rec, Refs_Tag.Next_Image, u32, 0)
+	refs.next_ref = geom.rec_get(&rec, Refs_Tag.Next_Ref, u32, 0)
+	view_off := geom.rec_get(&rec, Refs_Tag.View_Off, u8, 0)
 	refs.view_off = view_off == 1
-	images := int(geom.byte_get(r, u32))
-	if !r.ok || images > REF_IMAGES_MAX || view_off > 1 do return {}, false
+	images := geom.rec_count(&rec, Refs_Tag.Image)
+	if !rec.ok || !known || images > REF_IMAGES_MAX || view_off > 1 do return {}, false
 	defer if !ok do refs_free(&refs)
+	at := 0
 	for _ in 0 ..< images {
+		payload, _ := geom.rec_next(&rec, Refs_Tag.Image, &at)
+		ir := geom.record_of(payload)
 		img := new(Ref_Image)
 		append(&refs.images, img)
-		img.id = geom.byte_get(r, u32)
-		img.name = geom.byte_get_string(r)
-		img.width = int(geom.byte_get(r, i32))
-		img.height = int(geom.byte_get(r, i32))
-		size := geom.byte_get(r, u64)
-		if !r.ok || size > u64(len(r.data) - r.at) do return
-		bytes := geom.byte_get_bytes(r, int(size))
+		img.id = geom.rec_need(&ir, Ref_Image_Tag.Id, u32)
+		img.name = geom.rec_get_string(&ir, Ref_Image_Tag.Name)
+		img.width = int(geom.rec_get(&ir, Ref_Image_Tag.Width, i32, 0))
+		img.height = int(geom.rec_get(&ir, Ref_Image_Tag.Height, i32, 0))
+		bytes, _ := geom.rec_find(&ir, Ref_Image_Tag.Bytes)
 		img.bytes = make([]u8, len(bytes))
 		copy(img.bytes, bytes)
-		if img.id == 0 || img.id > refs.next_image || img.width < 0 || img.height < 0 do return
+		if !ir.ok || img.id == 0 || img.id > refs.next_image || img.width < 0 || img.height < 0 do return
 		for other in refs.images[:len(refs.images) - 1] do if other.id == img.id do return
 	}
-	count := int(geom.byte_get(r, u32))
-	if !r.ok || count > len(r.data) do return
-	for _ in 0 ..< count {
+	at = 0
+	for _ in 0 ..< geom.rec_count(&rec, Refs_Tag.Ref) {
+		T :: Ref_Tag
+		payload, _ := geom.rec_next(&rec, Refs_Tag.Ref, &at)
+		pr := geom.record_of(payload)
 		p: Ref
-		p.id = geom.byte_get(r, u32)
-		p.image = geom.byte_get(r, u32)
-		p.at = geom.byte_get(r, [2]f32)
-		p.size = geom.byte_get(r, [2]f32)
-		p.crop_lo = geom.byte_get(r, [2]f32)
-		p.crop_hi = geom.byte_get(r, [2]f32)
-		p.turn = geom.byte_get(r, u8)
-		bits := geom.byte_get(r, u8)
-		p.view_at = geom.byte_get(r, [2]f32)
-		p.view_w = geom.byte_get(r, f32)
-		p.opacity = geom.byte_get(r, f32)
-		p.angle = geom.byte_get(r, f32)
-		p.view_angle = geom.byte_get(r, f32)
+		p.id = geom.rec_need(&pr, T.Id, u32)
+		p.image = geom.rec_get(&pr, T.Image, u32, 0)
+		p.at = geom.rec_get(&pr, T.At, [2]f32, [2]f32{})
+		p.size = geom.rec_get(&pr, T.Size, [2]f32, REF_ADD_HEIGHT)
+		p.crop_lo = geom.rec_get(&pr, T.Crop_Lo, [2]f32, [2]f32{})
+		p.crop_hi = geom.rec_get(&pr, T.Crop_Hi, [2]f32, [2]f32{1, 1})
+		p.turn = geom.rec_get(&pr, T.Turn, u8, 0)
+		flags := [6]u8 {
+			geom.rec_get(&pr, T.Flip, u8, 0),
+			geom.rec_get(&pr, T.Grey, u8, 0),
+			geom.rec_get(&pr, T.Locked, u8, 0),
+			geom.rec_get(&pr, T.Sized, u8, 0),
+			geom.rec_get(&pr, T.View, u8, 0),
+			geom.rec_get(&pr, T.View_Locked, u8, 0),
+		}
+		p.view_at = geom.rec_get(&pr, T.View_At, [2]f32, REF_VIEW_AT)
+		p.view_w = geom.rec_get(&pr, T.View_W, f32, REF_VIEW_W)
+		p.opacity = geom.rec_get(&pr, T.Opacity, f32, REF_OPACITY)
+		p.angle = geom.rec_get(&pr, T.Angle, f32, 0)
+		p.view_angle = geom.rec_get(&pr, T.View_Angle, f32, 0)
+		plane := geom.rec_get(&pr, T.Plane, u8, 0)
+		plane_flags := [3]u8{geom.rec_get(&pr, T.Through, u8, 0), geom.rec_get(&pr, T.Plane_Any, u8, 0), geom.rec_get(&pr, T.Plane_Off, u8, 0)}
+		p.plane_at = geom.rec_get(&pr, T.Plane_At, [3]f32, [3]f32{})
+		p.plane_h = geom.rec_get(&pr, T.Plane_H, f32, 0)
+		p.marks = geom.rec_get(&pr, T.Marks, [2]f32, [2]f32{})
+		text, _ := geom.rec_find(&pr, T.Text)
+		if !pr.ok do return
+		for f in flags do if f > 1 do return
+		for f in plane_flags do if f > 1 do return
 		if !(abs(p.angle) <= math.PI + 1e-3 && abs(p.view_angle) <= math.PI + 1e-3) do return
-		plane := geom.byte_get(r, u8)
-		plane_bits := geom.byte_get(r, u8)
-		p.plane_at = geom.byte_get(r, [3]f32)
-		p.plane_h = geom.byte_get(r, f32)
-		p.marks = geom.byte_get(r, [2]f32)
 		if !refs_marks_ok(p.marks) do return
-		if plane > u8(max(Ref_Plane)) || plane_bits > 7 do return
+		if plane > u8(max(Ref_Plane)) do return
 		p.plane = Ref_Plane(plane)
-		p.through, p.plane_any, p.plane_off = plane_bits & 1 != 0, plane_bits & 2 != 0, plane_bits & 4 != 0
+		p.through, p.plane_any, p.plane_off = plane_flags[0] == 1, plane_flags[1] == 1, plane_flags[2] == 1
 		if !(abs(p.plane_at.x) < REF_PLANE_FAR && abs(p.plane_at.y) < REF_PLANE_FAR && abs(p.plane_at.z) < REF_PLANE_FAR) do return
 		if p.plane != .None && !(p.plane_h > 0 && p.plane_h < REF_PLANE_FAR) do return
 		if p.plane != .None && p.image == 0 do return
 		if !(abs(p.view_at.x) <= 4 && abs(p.view_at.y) <= 4 && p.view_w > 0 && p.view_w <= 4) do return
 		if !(p.opacity >= REF_OPACITY_MIN && p.opacity <= 1) do return
-		if !r.ok || bits > 63 || p.turn > 3 || p.id == 0 || p.id > refs.next_ref do return
+		if p.turn > 3 || p.id == 0 || p.id > refs.next_ref do return
 		if p.image != 0 && ref_image(&refs, p.image) == nil do return
 		if !(p.size.x > 0 && p.size.y > 0 && p.size.x < math.F32_MAX && p.size.y < math.F32_MAX) do return
 		if !(abs(p.at.x) < math.F32_MAX && abs(p.at.y) < math.F32_MAX) do return
 		if !(p.crop_lo.x >= 0 && p.crop_lo.y >= 0 && p.crop_hi.x <= 1 && p.crop_hi.y <= 1) do return
 		if !(p.crop_lo.x < p.crop_hi.x && p.crop_lo.y < p.crop_hi.y) do return
-		p.flip, p.grey, p.locked, p.sized, p.view, p.view_locked = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0, bits & 16 != 0, bits & 32 != 0
+		p.flip, p.grey, p.locked, p.sized, p.view, p.view_locked = flags[0] == 1, flags[1] == 1, flags[2] == 1, flags[3] == 1, flags[4] == 1, flags[5] == 1
 		if p.view && p.image == 0 do return
 		if p.image == 0 {
-			text := geom.byte_get_string(r, context.temp_allocator)
-			if !r.ok || len(text) >= REF_NOTE_MAX do return
+			if len(text) >= REF_NOTE_MAX do return
 			copy(p.text[:], text)
 		}
 		append(&refs.refs, p)
 	}
-	ok = r.ok && r.at == len(r.data)
+	ok = true
 	return
 }
 

@@ -55,9 +55,6 @@ REF_MARKS :: [2]f32{0.3, 0.85}
 // up never makes a plane of no height or turns one upside down.
 REF_MARKS_GAP :: 0.05
 
-// Lucide's wallpaper: a picture on a wall, for In scene and the planes' rows.
-ICON_REF_PLANE :: rune(0xe450)
-
 // The plane's axes in the world for axis view `plane`: the screen's right and up in that
 // view, and the way it faces, toward that view's eye (camera.orbit_axis_view's turns).
 refs_plane_axes :: proc(plane: Ref_Plane) -> (right, up, facing: Vec3) {
@@ -480,7 +477,7 @@ scene_ref_rows :: proc(app: ^App, query: string) {
 	was := open
 	shown := 0
 	for p in refs.refs do if p.plane != .None && p.image != 0 && !p.plane_off do shown += 1
-	head_parts := ui.Thumb_Row{glyph = ICON_REF_PLANE, count = -1, compact = true, open = &open, detail = fmt.tprintf("%d shown", shown)}
+	head_parts := ui.Thumb_Row{glyph = ui.ICON_REF_PLANE, count = -1, compact = true, open = &open, detail = fmt.tprintf("%d shown", shown)}
 	if ui.thumb_row(ctx, fmt.tprintf("References · %d##scene refs", count), head_parts).clicked do open = !open
 	if open != was && query == "" do ol.refs_open = open
 	k.scene_rows += 1
@@ -491,10 +488,10 @@ scene_ref_rows :: proc(app: ^App, query: string) {
 		name := img.name if img != nil && img.name != "" else "Picture"
 		if query != "" && !strings.contains(strings.to_lower(name, context.temp_allocator), query) && !strings.contains(strings.to_lower(REF_PLANE_NAMES[p.plane], context.temp_allocator), query) do continue
 		detail := fmt.tprintf("%s · %s", REF_PLANE_NAMES[p.plane], "through the model" if p.through else "behind the model")
-		parts := ui.Thumb_Row{glyph = ICON_REF_PLANE, count = -1, compact = true, detail = detail}
+		parts := ui.Thumb_Row{glyph = ui.ICON_REF_PLANE, count = -1, compact = true, detail = detail}
 		toggles := [2]ui.Row_Toggle {
 			{name = fmt.tprintf("%s %s", "Show" if p.plane_off else "Hide", name), glyph = ui.ICON_EYE_OFF if p.plane_off else ui.ICON_EYE, faint = p.plane_off},
-			{name = fmt.tprintf("%s %s", "Unlock" if p.locked else "Lock", name), glyph = ICON_LOCK if p.locked else ICON_LOCK_OPEN, lit = p.locked, faint = !p.locked},
+			{name = fmt.tprintf("%s %s", "Unlock" if p.locked else "Lock", name), glyph = ui.ICON_LOCK if p.locked else ui.ICON_LOCK_OPEN, lit = p.locked, faint = !p.locked},
 		}
 		row := ui.thumb_row(ctx, fmt.tprintf("%s##scene ref %d", name, p.id), parts, dim = p.plane_off, all_toggles = toggles[:])
 		if row.toggled >= 0 {

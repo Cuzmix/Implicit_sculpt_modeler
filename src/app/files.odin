@@ -77,11 +77,24 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-// The version this app writes and the only one it reads. The scene is a list of chunks
-// after the preview block (scene_chunk_begin), each read whole. Until release a format
-// change replaces the old reader: the writer and the reader change together, with no
-// branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(64)
+// The scene file's form, after its magic: what every part inside it is built of, tagged
+// records (geom/record.odin) in chunks. Fields come and go between builds without changing
+// it: an earlier build steps over a field a later one added and gives a field it lacks its
+// default, and a later build marks critical any field an earlier one must not open the
+// file without (AGENTS.md, the scene file rule). It changes only when the file is laid out
+// another way, which no earlier build could read at all; a file of another form is
+// refused.
+SCENE_FORMAT :: u32(1)
+
+// Reads a scene file's magic and form: the one check every reader of the file makes
+// (opening it, its preview, its references, Send). False for a file that is not a scene
+// this app reads.
+scene_head_read :: proc(r: ^geom.Byte_Reader) -> bool {
+	magic: [len(SCENE_MAGIC)]u8
+	geom.byte_get_slice(r, magic[:])
+	format := geom.byte_get(r, u32)
+	return r.ok && string(magic[:]) == SCENE_MAGIC && format == SCENE_FORMAT
+}
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -1644,90 +1657,75 @@ scene_save_request :: proc(app: ^App, req: File_Request) {
 	}
 }
 
-// The scene file's start: its magic and version, the preview block, then the scene's
-// chunk: how many objects follow, the selected one, the next id, the camera and the rest
-// of what the scene itself keeps.
+
+// The scene file's start: its magic and form, the preview block, then the scene's
+// chunk, a record (Scene_Tag) of how many objects follow, the selected one, the next id,
+// the camera and the rest of what the scene itself keeps.
 scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	append(out, SCENE_MAGIC)
-	geom.byte_put(out, SCENE_VERSION)
+	geom.byte_put(out, SCENE_FORMAT)
 	preview_block_put(app, out)
 	at := scene_chunk_begin(out, CHUNK_SCENE)
 	curves, _ := curve_counts(app)
-	geom.byte_put(out, u32(len(app.scene.objects) - curves))
-	geom.byte_put(out, i32(scene_selected_without_curves(app)))
-	geom.byte_put(out, i32(app.scene.next_id))
+	geom.rec_put(out, Scene_Tag.Count, u32(len(app.scene.objects) - curves))
+	geom.rec_put(out, Scene_Tag.Selected, i32(scene_selected_without_curves(app)))
+	geom.rec_put(out, Scene_Tag.Next_Id, i32(app.scene.next_id))
 	c := main_camera(app)
-	geom.byte_put(out, c.target)
-	geom.byte_put(out, c.distance)
-	geom.byte_put(out, c.yaw)
-	geom.byte_put(out, c.pitch)
-	geom.byte_put(out, c.roll)
-	geom.byte_put(out, u8(app.scene.solo))
-	// The folders, each with how it is shown.
-	geom.byte_put(out, u32(len(app.scene.folders)))
+	geom.rec_put(out, Scene_Tag.Target, c.target)
+	geom.rec_put(out, Scene_Tag.Distance, c.distance)
+	geom.rec_put(out, Scene_Tag.Yaw, c.yaw)
+	geom.rec_put(out, Scene_Tag.Pitch, c.pitch)
+	geom.rec_put(out, Scene_Tag.Roll, c.roll)
+	geom.rec_put(out, Scene_Tag.Solo, u8(app.scene.solo))
 	for f in app.scene.folders {
-		geom.byte_put(out, i32(f.id))
-		geom.byte_put_string(out, f.name)
-		geom.byte_put(out, u8(f.open) | u8(f.off) << 1 | u8(f.ghost) << 2)
-		geom.byte_put(out, f.vis_off)
-		geom.byte_put(out, i32(f.parent))
+		fa := geom.rec_begin(out, Scene_Tag.Folder)
+		folder_put(out, f)
+		geom.rec_end(out, fa)
 	}
-	geom.byte_put(out, i32(app.scene.next_folder_id))
+	geom.rec_put(out, Scene_Tag.Next_Folder_Id, i32(app.scene.next_folder_id))
 	// The stored visibility chosen and those in use.
-	geom.byte_put(out, u8(app.scene.vis_slot))
-	geom.byte_put(out, app.scene.vis_used)
-	geom.byte_put(out, app.scene.link_token)
+	geom.rec_put(out, Scene_Tag.Vis_Slot, u8(app.scene.vis_slot))
+	geom.rec_put(out, Scene_Tag.Vis_Used, app.scene.vis_used)
+	geom.rec_put(out, Scene_Tag.Link_Token, app.scene.link_token)
+	la := geom.rec_begin(out, Scene_Tag.Lights)
 	lights_put(out, app.scene.lights)
-	geom.byte_put(out, print_scale(app))
+	geom.rec_end(out, la)
+	geom.rec_put(out, Scene_Tag.Print_Mm, print_scale(app))
+	ga := geom.rec_begin(out, Scene_Tag.Guides)
 	guides_put(out, app.scene.guides)
-	// How many CURV chunks follow (SCENE_CURVE_FIELD_BYTES), and the selected object's
-	// place in the whole list, curves and all.
-	geom.byte_put(out, i32(curves))
-	geom.byte_put(out, i32(app.scene.selected))
-	lights_more_put(out, app.scene.lights)
+	geom.rec_end(out, ga)
+	// How many CURV chunks follow, and the selected object's place in the whole list,
+	// curves and all.
+	geom.rec_put(out, Scene_Tag.Curves, i32(curves))
+	geom.rec_put(out, Scene_Tag.Selected_Any, i32(app.scene.selected))
 	scene_chunk_end(out, at)
 	// The reference pictures belong to the scene, so every writer of one (a save, the
 	// autosave, Send) carries them after its own chunk.
 	refs_put(out, &app.scene.refs)
 }
 
-// What each light keeps besides lights_put's, at the scene chunk's end: how many lights, then each one's kind (an area light is a
-// spot in lights_put's), its area's width and height, whether it is a disc, its
-// highlight and whether it casts shadows.
-lights_more_put :: proc(out: ^[dynamic]u8, set: Light_Set) {
-	set := set
-	count := clamp(set.count, 0, LIGHT_COUNT)
-	geom.byte_put(out, u8(count))
-	for l in set.lights[:count] {
-		geom.byte_put(out, u8(l.kind))
-		geom.byte_put(out, l.width)
-		geom.byte_put(out, l.height)
-		geom.byte_put(out, u8(l.disc))
-		geom.byte_put(out, l.shine)
-		geom.byte_put(out, u8(l.no_shadows))
-	}
-}
-
-// The lights `set` (as lights_get read them) with what lights_more_put wrote after them;
-// ok is false when it is damaged: another count, an unknown kind, an area light where
-// lights_put wrote no spot, a flag past 1 or a number out of its range.
-lights_more_get :: proc(r: ^geom.Byte_Reader, set: Light_Set) -> (out: Light_Set, ok: bool) {
-	out = set
-	count := int(geom.byte_get(r, u8))
-	if !r.ok || count != int(set.count) do return {}, false
-	for &l in out.lights[:count] {
-		kind := geom.byte_get(r, u8)
-		l.width = geom.byte_get(r, f32)
-		l.height = geom.byte_get(r, f32)
-		disc := geom.byte_get(r, u8)
-		l.shine = geom.byte_get(r, f32)
-		no_shadows := geom.byte_get(r, u8)
-		if !r.ok || kind >= len(Light_Kind) || disc > 1 || no_shadows > 1 do return {}, false
-		if Light_Kind(kind) != l.kind && !(Light_Kind(kind) == .Area && l.kind == .Spot) do return {}, false
-		if !(l.width >= 0 && l.width <= LIGHT_RADIUS_MAX) || !(l.height >= 0 && l.height <= LIGHT_RADIUS_MAX) || !(l.shine >= -1 && l.shine <= 1) do return {}, false
-		l.kind, l.disc, l.no_shadows = Light_Kind(kind), disc == 1, no_shadows == 1
-	}
-	return out, true
+// The scene chunk's fields (scene_header_put, scene_fields_get). Numbers are the file's:
+// never reused or given another meaning (AGENTS.md).
+Scene_Tag :: enum u16 {
+	Count          = 1, // u32, required: the objects that are not curves
+	Selected       = 2, // i32: the selected one among them, -1 for none
+	Next_Id        = 3, // i32
+	Target         = 4, // Vec3: the camera's
+	Distance       = 5, // f32
+	Yaw            = 6, // f32
+	Pitch          = 7, // f32
+	Roll           = 8, // f32
+	Solo           = 9, // u8 0 or 1
+	Folder         = 10, // a Folder_Tag record, one field a folder, in the scene's order
+	Next_Folder_Id = 11, // i32
+	Vis_Slot       = 12, // u8: the stored visibility chosen, 0 for none
+	Vis_Used       = 13, // u8: the stored visibilities in use, a bit each
+	Link_Token     = 14, // u64: the Blender link's
+	Lights         = 15, // a Light_Set_Tag record
+	Print_Mm       = 16, // f32: Scene > 3D print's millimetres a unit
+	Guides         = 17, // a Guides_Tag record
+	Curves         = 18, // i32, required: how many CURV chunks follow
+	Selected_Any   = 19, // i32: the selected object's place among all, curves too
 }
 
 // The selected object's place among the objects that are not curves, as the scene chunk's
@@ -1788,116 +1786,204 @@ object_chunk_put :: proc(app: ^App, out: ^[dynamic]u8, obj: ^Object) {
 	scene_chunk_end(out, at)
 }
 
-// The proportion guides as a scene file stores them: a byte of flags (shown, seeded) and
-// the three heights.
+
+// The proportion guides as a record (Guides_Tag).
 guides_put :: proc(out: ^[dynamic]u8, g: Guides) {
-	geom.byte_put(out, u8(g.shown) | u8(g.seeded) << 1)
-	for h in g.heights do geom.byte_put(out, h)
+	geom.rec_put(out, Guides_Tag.Shown, u8(g.shown))
+	geom.rec_put(out, Guides_Tag.Seeded, u8(g.seeded))
+	geom.rec_put(out, Guides_Tag.Heights, g.heights)
 }
 
-// The proportion guides from a scene file; false for flags no version wrote or a height
-// that is not a number.
-guides_get :: proc(r: ^geom.Byte_Reader) -> (g: Guides, ok: bool) {
-	flags := geom.byte_get(r, u8)
-	for &h in g.heights do h = geom.byte_get(r, f32)
-	g.shown, g.seeded = flags & 1 != 0, flags & 2 != 0
-	ok = r.ok && flags <= 3
+Guides_Tag :: enum u16 {
+	Shown   = 1, // u8 0 or 1
+	Seeded  = 2, // u8 0 or 1
+	Heights = 3, // [Guide]f32
+}
+
+
+// The proportion guides from their record; false for a flag past 1 or a height that is not
+// a number. Missing ones are hidden guides at no height, as a new scene has.
+guides_get :: proc(rec: ^geom.Record) -> (g: Guides, ok: bool) {
+	shown := geom.rec_get(rec, Guides_Tag.Shown, u8, 0)
+	seeded := geom.rec_get(rec, Guides_Tag.Seeded, u8, 0)
+	g.heights = geom.rec_get(rec, Guides_Tag.Heights, [Guide]f32, [Guide]f32{})
+	g.shown, g.seeded = shown == 1, seeded == 1
+	ok = rec.ok && shown <= 1 && seeded <= 1
 	for h in g.heights do ok &&= finite({h, 0, 0})
 	return
 }
 
-// The lights as a scene file stores them: how many, the ambient light, then each light.
+
+// The lights as a record (Light_Set_Tag): the ambient light, then a Light_Tag record each.
 lights_put :: proc(out: ^[dynamic]u8, set: Light_Set) {
 	set := set
 	count := clamp(set.count, 0, LIGHT_COUNT)
-	geom.byte_put(out, u8(count))
-	geom.byte_put(out, set.ambient)
+	geom.rec_put(out, Light_Set_Tag.Ambient, set.ambient)
 	for l in set.lights[:count] {
-		geom.byte_put(out, u8(l.on))
-		// An area light is a spot here; its own kind is in lights_more_put's.
-		geom.byte_put(out, u8(Light_Kind.Spot if l.kind == .Area else l.kind))
-		geom.byte_put(out, u8(l.space))
-		geom.byte_put(out, l.dir)
-		geom.byte_put(out, l.pos)
-		geom.byte_put(out, l.strength)
-		geom.byte_put(out, l.ref)
-		geom.byte_put(out, l.reach)
-		geom.byte_put(out, l.cone)
-		geom.byte_put(out, l.blend)
-		geom.byte_put(out, l.color)
-		geom.byte_put(out, l.kelvin)
-		geom.byte_put(out, l.name)
-		geom.byte_put(out, l.angle)
-		geom.byte_put(out, l.radius)
+		at := geom.rec_begin(out, Light_Set_Tag.Light)
+		geom.rec_put(out, Light_Tag.On, u8(l.on))
+		geom.rec_put(out, Light_Tag.Kind, u8(l.kind))
+		geom.rec_put(out, Light_Tag.Space, u8(l.space))
+		geom.rec_put(out, Light_Tag.Dir, l.dir)
+		geom.rec_put(out, Light_Tag.Pos, l.pos)
+		geom.rec_put(out, Light_Tag.Strength, l.strength)
+		geom.rec_put(out, Light_Tag.Ref, l.ref)
+		geom.rec_put(out, Light_Tag.Reach, l.reach)
+		geom.rec_put(out, Light_Tag.Cone, l.cone)
+		geom.rec_put(out, Light_Tag.Blend, l.blend)
+		geom.rec_put(out, Light_Tag.Color, l.color)
+		geom.rec_put(out, Light_Tag.Kelvin, l.kelvin)
+		name := l.name
+		n := 0
+		for n < LIGHT_NAME && name[n] != 0 do n += 1
+		geom.rec_put_string(out, Light_Tag.Name, string(name[:n]))
+		geom.rec_put(out, Light_Tag.Angle, l.angle)
+		geom.rec_put(out, Light_Tag.Radius, l.radius)
+		geom.rec_put(out, Light_Tag.Width, l.width)
+		geom.rec_put(out, Light_Tag.Height, l.height)
+		geom.rec_put(out, Light_Tag.Disc, u8(l.disc))
+		geom.rec_put(out, Light_Tag.Shine, l.shine)
+		geom.rec_put(out, Light_Tag.No_Shadows, u8(l.no_shadows))
+		geom.rec_end(out, at)
 	}
 }
 
-// The lights lights_put wrote, the ones past their count as `rest` has them; ok is false when they are damaged: too many, an unknown kind or space,
-// a number that is not finite or out of its range, a name not ended by a zero or not
-// UTF-8.
-lights_get :: proc(r: ^geom.Byte_Reader, rest: Light_Set) -> (set: Light_Set, ok: bool) {
+Light_Set_Tag :: enum u16 {
+	Ambient = 1, // f32
+	Light   = 2, // a Light_Tag record, one field a light, at most LIGHT_COUNT
+}
+
+Light_Tag :: enum u16 {
+	On         = 1, // u8 0 or 1
+	Kind       = 2, // u8 Light_Kind, required
+	Space      = 3, // u8 Light_Space
+	Dir        = 4, // Vec3
+	Pos        = 5, // Vec3
+	Strength   = 6, // f32
+	Ref        = 7, // f32
+	Reach      = 8, // f32
+	Cone       = 9, // f32
+	Blend      = 10, // f32
+	Color      = 11, // Vec3
+	Kelvin     = 12, // f32, 0 for a colour picked directly
+	Name       = 13, // UTF-8, under LIGHT_NAME bytes
+	Angle      = 14, // f32
+	Radius     = 15, // f32
+	Width      = 16, // f32: an area light's
+	Height     = 17, // f32
+	Disc       = 18, // u8 0 or 1
+	Shine      = 19, // f32, -1 to 1
+	No_Shadows = 20, // u8 0 or 1
+}
+
+
+// The lights lights_put wrote, the ones past their count as `rest` has them, a light's missing
+// values as a new light of its kind has them; ok is false when they are damaged: too many,
+// an unknown kind or space, a number that is not finite or out of its range, a name too
+// long or not UTF-8.
+lights_get :: proc(rec: ^geom.Record, rest: Light_Set) -> (set: Light_Set, ok: bool) {
 	set = rest
-	count := int(geom.byte_get(r, u8))
+	count := geom.rec_count(rec, Light_Set_Tag.Light)
 	set.count = i32(count)
-	set.ambient = geom.byte_get(r, f32)
-	if !r.ok || count > LIGHT_COUNT || !(set.ambient >= 0 && set.ambient <= LIGHT_STRENGTH_MAX) do return {}, false
+	set.ambient = geom.rec_get(rec, Light_Set_Tag.Ambient, f32, rest.ambient)
+	if !rec.ok || count > LIGHT_COUNT || !(set.ambient >= 0 && set.ambient <= LIGHT_STRENGTH_MAX) do return {}, false
+	at := 0
 	for &l in set.lights[:count] {
-		on, kind, space := geom.byte_get(r, u8), geom.byte_get(r, u8), geom.byte_get(r, u8)
-		l.dir = geom.byte_get(r, Vec3)
-		l.pos = geom.byte_get(r, Vec3)
-		l.strength = geom.byte_get(r, f32)
-		l.ref = geom.byte_get(r, f32)
-		l.reach = geom.byte_get(r, f32)
-		l.cone = geom.byte_get(r, f32)
-		l.blend = geom.byte_get(r, f32)
-		l.color = geom.byte_get(r, Vec3)
-		// An area light is never written here (lights_put), so the kinds are the first three.
-		if !r.ok || on > 1 || kind > u8(Light_Kind.Spot) || space >= len(Light_Space) || !finite(l.dir) || !finite(l.pos) || !finite(l.color) do return {}, false
+		payload, _ := geom.rec_next(rec, Light_Set_Tag.Light, &at)
+		lr := geom.record_of(payload)
+		if !lr.ok do return {}, false
+		base := LIGHTS_DEFAULT.lights[0]
+		on := geom.rec_get(&lr, Light_Tag.On, u8, 1)
+		kind := geom.rec_need(&lr, Light_Tag.Kind, u8)
+		space := geom.rec_get(&lr, Light_Tag.Space, u8, u8(base.space))
+		l.dir = geom.rec_get(&lr, Light_Tag.Dir, Vec3, base.dir)
+		l.pos = geom.rec_get(&lr, Light_Tag.Pos, Vec3, base.pos)
+		l.strength = geom.rec_get(&lr, Light_Tag.Strength, f32, base.strength)
+		l.ref = geom.rec_get(&lr, Light_Tag.Ref, f32, base.ref)
+		l.reach = geom.rec_get(&lr, Light_Tag.Reach, f32, base.reach)
+		l.cone = geom.rec_get(&lr, Light_Tag.Cone, f32, base.cone)
+		l.blend = geom.rec_get(&lr, Light_Tag.Blend, f32, base.blend)
+		l.color = geom.rec_get(&lr, Light_Tag.Color, Vec3, base.color)
+		l.kelvin = geom.rec_get(&lr, Light_Tag.Kelvin, f32, 0)
+		name, _ := geom.rec_find(&lr, Light_Tag.Name)
+		l.angle = geom.rec_get(&lr, Light_Tag.Angle, f32, 0)
+		l.radius = geom.rec_get(&lr, Light_Tag.Radius, f32, 0)
+		l.width = geom.rec_get(&lr, Light_Tag.Width, f32, 0)
+		l.height = geom.rec_get(&lr, Light_Tag.Height, f32, 0)
+		disc := geom.rec_get(&lr, Light_Tag.Disc, u8, 0)
+		l.shine = geom.rec_get(&lr, Light_Tag.Shine, f32, 0)
+		no_shadows := geom.rec_get(&lr, Light_Tag.No_Shadows, u8, 0)
+		if !lr.ok || on > 1 || kind >= len(Light_Kind) || space >= len(Light_Space) || disc > 1 || no_shadows > 1 || !finite(l.dir) || !finite(l.pos) || !finite(l.color) do return {}, false
 		// Written as `!(in range)`, so NaN is refused too.
 		if !(l.strength >= 0 && l.strength <= LIGHT_STRENGTH_MAX) || !(l.ref >= 0 && l.ref < 1e30) || !(l.reach >= 0 && l.reach < 1e30) do return {}, false
 		if !(l.cone >= LIGHT_CONE_MIN && l.cone <= LIGHT_CONE_MAX) || !(l.blend >= 0 && l.blend <= 1) || min(l.color.r, l.color.g, l.color.b) < 0 do return {}, false
-		l.on, l.kind, l.space = on == 1, Light_Kind(kind), Light_Space(space)
-		// What lights_more_get reads after the scene's other fields.
-		l.width, l.height, l.disc, l.shine, l.no_shadows = 0, 0, false, 0, false
-		l.kelvin = geom.byte_get(r, f32)
-		l.name = geom.byte_get(r, [LIGHT_NAME]u8)
-		if !r.ok || !(l.kelvin == 0 || (l.kelvin >= LIGHT_KELVIN_MIN && l.kelvin <= LIGHT_KELVIN_MAX)) do return {}, false
-		n := 0
-		for n < LIGHT_NAME && l.name[n] != 0 do n += 1
-		if n == LIGHT_NAME || !utf8.valid_string(string(l.name[:n])) do return {}, false
-		for b in l.name[n:] do if b != 0 do return {}, false
-		l.angle = geom.byte_get(r, f32)
-		l.radius = geom.byte_get(r, f32)
-		if !r.ok || !(l.angle >= 0 && l.angle <= LIGHT_ANGLE_MAX) || !(l.radius >= 0 && l.radius <= LIGHT_RADIUS_MAX) do return {}, false
+		if !(l.kelvin == 0 || (l.kelvin >= LIGHT_KELVIN_MIN && l.kelvin <= LIGHT_KELVIN_MAX)) do return {}, false
+		if !(l.angle >= 0 && l.angle <= LIGHT_ANGLE_MAX) || !(l.radius >= 0 && l.radius <= LIGHT_RADIUS_MAX) do return {}, false
+		if !(l.width >= 0 && l.width <= LIGHT_RADIUS_MAX) || !(l.height >= 0 && l.height <= LIGHT_RADIUS_MAX) || !(l.shine >= -1 && l.shine <= 1) do return {}, false
+		if len(name) >= LIGHT_NAME || !utf8.valid_string(string(name)) do return {}, false
+		for b in name do if b == 0 do return {}, false
+		l.name = {}
+		copy(l.name[:], name)
+		l.on, l.kind, l.space, l.disc, l.no_shadows = on == 1, Light_Kind(kind), Light_Space(space), disc == 1, no_shadows == 1
 	}
 	return set, true
 }
 
-// The folders a scene file lists after its header, owned; ok is false
-// when they are damaged (an id twice or not positive, a parent below zero, unknown
-// flags), with none kept.
-folders_get :: proc(r: ^geom.Byte_Reader) -> (folders: [dynamic]Folder, next_id: int, ok: bool) {
-	count := int(geom.byte_get(r, u32))
-	if !r.ok || count > MAX_FOLDERS do return nil, 0, false
+
+// A folder as a record (Folder_Tag), one Scene_Tag.Folder field each.
+folder_put :: proc(out: ^[dynamic]u8, f: Folder) {
+	geom.rec_put(out, Folder_Tag.Id, i32(f.id))
+	geom.rec_put_string(out, Folder_Tag.Name, f.name)
+	geom.rec_put(out, Folder_Tag.Open, u8(f.open))
+	geom.rec_put(out, Folder_Tag.Off, u8(f.off))
+	geom.rec_put(out, Folder_Tag.Ghost, u8(f.ghost))
+	geom.rec_put(out, Folder_Tag.Vis_Off, f.vis_off)
+	geom.rec_put(out, Folder_Tag.Parent, i32(f.parent))
+}
+
+Folder_Tag :: enum u16 {
+	Id      = 1, // i32 above 0, required
+	Name    = 2, // UTF-8
+	Open    = 3, // u8 0 or 1
+	Off     = 4, // u8 0 or 1
+	Ghost   = 5, // u8 0 or 1
+	Vis_Off = 6, // u8: the stored visibilities it is hidden in, a bit each
+	Parent  = 7, // i32, 0 for the top
+}
+
+// The folders a scene chunk lists (Scene_Tag.Folder fields) and the next folder id, owned;
+// ok is false when they are damaged (an id twice or not positive, a parent below zero, a
+// flag past 1), with none kept.
+folders_get :: proc(rec: ^geom.Record) -> (folders: [dynamic]Folder, next_id: int, ok: bool) {
+	count := geom.rec_count(rec, Scene_Tag.Folder)
+	if !rec.ok || count > MAX_FOLDERS do return nil, 0, false
 	folders = make([dynamic]Folder, 0, count)
+	at := 0
 	for _ in 0 ..< count {
-		f := Folder{id = int(geom.byte_get(r, i32)), name = geom.byte_get_string(r)}
-		bits := geom.byte_get(r, u8)
-		f.open, f.off, f.ghost = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0
-		f.vis_off = geom.byte_get(r, u8)
+		payload, _ := geom.rec_next(rec, Scene_Tag.Folder, &at)
+		fr := geom.record_of(payload)
+		f := Folder{id = int(geom.rec_need(&fr, Folder_Tag.Id, i32)), name = geom.rec_get_string(&fr, Folder_Tag.Name)}
+		open := geom.rec_get(&fr, Folder_Tag.Open, u8, 0)
+		off := geom.rec_get(&fr, Folder_Tag.Off, u8, 0)
+		ghost := geom.rec_get(&fr, Folder_Tag.Ghost, u8, 0)
+		f.open, f.off, f.ghost = open == 1, off == 1, ghost == 1
+		f.vis_off = geom.rec_get(&fr, Folder_Tag.Vis_Off, u8, 0)
 		// A parent that is not there, or a ring, is mended by scene_folders_normalize, as an
 		// object's unknown folder is.
-		f.parent = int(geom.byte_get(r, i32))
+		f.parent = int(geom.rec_get(&fr, Folder_Tag.Parent, i32, 0))
 		append(&folders, f)
 		unique := true
 		for g in folders[:len(folders) - 1] do unique &&= g.id != f.id
-		if !r.ok || f.id <= 0 || f.parent < 0 || bits > 7 || !unique {
+		if !fr.ok || f.id <= 0 || f.parent < 0 || open > 1 || off > 1 || ghost > 1 || !unique || !utf8.valid_string(f.name) {
 			folders_clear(&folders)
 			delete(folders)
 			return nil, 0, false
 		}
 	}
-	next_id = int(geom.byte_get(r, i32))
+	most := 0
+	for f in folders do most = max(most, f.id)
+	// The last id given out, never below one a folder holds.
+	next_id = max(int(geom.rec_get(rec, Scene_Tag.Next_Folder_Id, i32, i32(most))), most)
 	return folders, next_id, true
 }
 
@@ -1933,33 +2019,38 @@ scene_fields_destroy :: proc(f: ^Scene_Fields) {
 	f.folders = nil
 }
 
+
 // The scene's own fields as scene_header_put wrote them, checked: ok is false for any
-// damage, with nothing kept.
+// damage, with nothing kept. A field a file lacks takes what a new scene has.
 scene_fields_get :: proc(app: ^App, r: ^geom.Byte_Reader) -> (f: Scene_Fields, ok: bool) {
-	f.count = int(geom.byte_get(r, u32))
-	f.selected = int(geom.byte_get(r, i32))
-	f.next_id = int(geom.byte_get(r, i32))
+	rec := geom.record_of(r.data[r.at:])
+	known, _ := geom.record_known(&rec, Scene_Tag)
+	if !rec.ok || !known do return {}, false
+	f.count = int(geom.rec_need(&rec, Scene_Tag.Count, u32))
+	f.selected = int(geom.rec_get(&rec, Scene_Tag.Selected, i32, -1))
+	f.next_id = int(geom.rec_get(&rec, Scene_Tag.Next_Id, i32, 1))
 	view := app.camera
-	view.target = geom.byte_get(r, Vec3)
-	view.distance = geom.byte_get(r, f32)
-	view.yaw = geom.byte_get(r, f32)
-	view.pitch = geom.byte_get(r, f32)
-	view.roll = geom.byte_get(r, f32)
-	f.solo = geom.byte_get(r, u8)
+	view.target = geom.rec_get(&rec, Scene_Tag.Target, Vec3, view.target)
+	view.distance = geom.rec_get(&rec, Scene_Tag.Distance, f32, view.distance)
+	view.yaw = geom.rec_get(&rec, Scene_Tag.Yaw, f32, view.yaw)
+	view.pitch = geom.rec_get(&rec, Scene_Tag.Pitch, f32, view.pitch)
+	view.roll = geom.rec_get(&rec, Scene_Tag.Roll, f32, view.roll)
+	f.solo = geom.rec_get(&rec, Scene_Tag.Solo, u8, 0)
 	folders_ok: bool
-	f.folders, f.next_folder_id, folders_ok = folders_get(r)
-	f.vis_slot = geom.byte_get(r, u8)
-	f.vis_used = geom.byte_get(r, u8)
-	f.link_token = geom.byte_get(r, u64)
-	lights_ok, more_ok, guides_ok: bool
-	f.lights, lights_ok = lights_get(r, app.start_lights)
-	f.print_mm = geom.byte_get(r, f32)
-	f.guides, guides_ok = guides_get(r)
-	f.curves = int(geom.byte_get(r, i32))
-	f.selected_any = int(geom.byte_get(r, i32))
-	if f.curves < 0 || f.selected_any < -1 || f.selected_any >= f.count + f.curves do r.ok = false
-	if r.ok && lights_ok do f.lights, more_ok = lights_more_get(r, f.lights)
-	if !guides_ok || !lights_ok || !more_ok || !folders_ok || !r.ok || !(f.print_mm >= PRINT_MM_MIN && f.print_mm <= PRINT_MM_MAX) || f.solo > 1 || f.vis_slot > VIS_SLOTS || (f.vis_slot > 0 && f.vis_used & (1 << (f.vis_slot - 1)) == 0) || f.count < 0 || f.selected >= f.count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
+	f.folders, f.next_folder_id, folders_ok = folders_get(&rec)
+	f.vis_slot = geom.rec_get(&rec, Scene_Tag.Vis_Slot, u8, 0)
+	f.vis_used = geom.rec_get(&rec, Scene_Tag.Vis_Used, u8, 0)
+	f.link_token = geom.rec_get(&rec, Scene_Tag.Link_Token, u64, 0)
+	lights_ok, guides_ok := true, true
+	f.lights = app.start_lights
+	if lr, present := geom.rec_sub(&rec, Scene_Tag.Lights); present do f.lights, lights_ok = lights_get(&lr, app.start_lights)
+	f.print_mm = geom.rec_get(&rec, Scene_Tag.Print_Mm, f32, PRINT_MM_DEFAULT)
+	gr, _ := geom.rec_sub(&rec, Scene_Tag.Guides)
+	f.guides, guides_ok = guides_get(&gr)
+	f.curves = int(geom.rec_need(&rec, Scene_Tag.Curves, i32))
+	f.selected_any = int(geom.rec_get(&rec, Scene_Tag.Selected_Any, i32, -1))
+	if f.curves < 0 || f.selected_any < -1 || f.selected_any >= f.count + f.curves do rec.ok = false
+	if !guides_ok || !lights_ok || !folders_ok || !rec.ok || !(f.print_mm >= PRINT_MM_MIN && f.print_mm <= PRINT_MM_MAX) || f.solo > 1 || f.vis_slot > VIS_SLOTS || (f.vis_slot > 0 && f.vis_used & (1 << (f.vis_slot - 1)) == 0) || f.count < 0 || f.selected < -1 || f.selected >= f.count || !finite(view.target) || !finite({view.distance, view.yaw, view.pitch}) || !finite({view.roll, 0, 0}) {
 		scene_fields_destroy(&f)
 		return {}, false
 	}
@@ -1983,10 +2074,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	}
 	defer delete(data)
 	r := geom.byte_reader(data)
-	magic: [len(SCENE_MAGIC)]u8
-	geom.byte_get_slice(&r, magic[:])
-	version := geom.byte_get(&r, u32)
-	if !r.ok || string(magic[:]) != SCENE_MAGIC || version != SCENE_VERSION {
+	if !scene_head_read(&r) {
 		file_note(app, true, "Cannot open %s: it is not a scene this version of the app reads", name)
 		return false, true
 	}
@@ -2213,67 +2301,128 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	// Room for it up front: a 50M-vertex object is about 2 GB, and growing the buffer to
 	// that a doubling at a time copies it all over again and touches twice the memory.
 	reserve(out, len(out) + object_put_estimate(obj))
-	geom.byte_put(out, i32(obj.id))
-	geom.byte_put_string(out, obj.name)
-	put_transform(out, obj.transform)
-	put_transform(out, obj.file)
-	geom.byte_put(out, obj.transform.rotation)
-	geom.byte_put(out, u8(obj.pivot.set))
-	geom.byte_put(out, obj.pivot.at)
-	geom.byte_put(out, obj.pivot.normal)
-	geom.byte_put(out, u8(obj.boolean))
-	geom.byte_put(out, object_view_bits(obj))
-	geom.byte_put(out, i32(obj.folder))
-	geom.byte_put(out, obj.vis_off)
-	geom.byte_put(out, obj.remesh_cell)
+	rec := geom.record_begin(out)
+	geom.rec_put(out, Object_Tag.Id, i32(obj.id))
+	geom.rec_put_string(out, Object_Tag.Name, obj.name)
+	geom.rec_put(out, Object_Tag.Position, obj.transform.position)
+	geom.rec_put(out, Object_Tag.Scale, obj.transform.scale)
+	geom.rec_put(out, Object_Tag.File_Position, obj.file.position)
+	geom.rec_put(out, Object_Tag.File_Scale, obj.file.scale)
+	geom.rec_put(out, Object_Tag.Rotation, obj.transform.rotation)
+	geom.rec_put(out, Object_Tag.Pivot_Set, u8(obj.pivot.set))
+	geom.rec_put(out, Object_Tag.Pivot_At, obj.pivot.at)
+	geom.rec_put(out, Object_Tag.Pivot_Normal, obj.pivot.normal)
+	geom.rec_put(out, Object_Tag.Boolean, u8(obj.boolean))
+	geom.rec_put(out, Object_Tag.Off, u8(obj.off))
+	geom.rec_put(out, Object_Tag.Ghost, u8(obj.ghost))
+	geom.rec_put(out, Object_Tag.Paint_Off, u8(obj.paint_off))
+	geom.rec_put(out, Object_Tag.Locked, u8(obj.locked))
+	geom.rec_put(out, Object_Tag.Folder, i32(obj.folder))
+	geom.rec_put(out, Object_Tag.Vis_Off, obj.vis_off)
+	geom.rec_put(out, Object_Tag.Remesh_Cell, obj.remesh_cell)
+	at := geom.rec_begin(out, Object_Tag.Stack)
 	stack_put(out, obj.stack)
+	geom.rec_end(out, at)
+	at = geom.rec_begin(out, Object_Tag.Physics)
 	physics_put(out, object_physics(obj))
-	geom.byte_put(out, u8(object_kind(obj)))
+	geom.rec_end(out, at)
+	geom.rec_put(out, Object_Tag.Kind, u8(object_kind(obj)))
+	at = geom.rec_begin(out, Object_Tag.Material)
 	material_put(out, obj.material, refs[0] if len(refs) > 0 else {})
+	geom.rec_end(out, at)
+	at = geom.rec_begin(out, Object_Tag.Group_Materials)
 	group_materials_put(out, obj, refs[1:] if len(refs) > 0 else nil)
+	geom.rec_end(out, at)
+	at = geom.rec_begin(out, Object_Tag.Imported)
 	imported_put(out, obj)
+	geom.rec_end(out, at)
+	at = geom.rec_begin(out, Object_Tag.Textures)
 	textures_put(out, obj.textures)
-	// A curve's points stand where a mesh's levels go; its empty level is made on reading.
+	geom.rec_end(out, at)
+	// A curve's points, a voxel object's clay or a cage stand where a mesh's levels go; the
+	// level each draws from is made again on reading.
 	if cp := obj.curve; cp != nil {
+		at = geom.rec_begin(out, Object_Tag.Curve)
 		curve_part_put(out, cp)
-		return true
+		geom.rec_end(out, at)
+	} else if vp := obj.voxel; vp != nil {
+		geom.rec_put(out, Object_Tag.Voxel_Resolution, i32(vp.resolution))
+		at = geom.rec_begin(out, Object_Tag.Voxel_Clay)
+		if !voxel.clay_write(&vp.clay, out, opts.abort) do return false
+		geom.rec_end(out, at)
+	} else if cp := obj.cage; cp != nil {
+		at = geom.rec_begin(out, Object_Tag.Cage)
+		cage_part_put(out, cp)
+		geom.rec_end(out, at)
+	} else {
+		at = geom.rec_begin(out, Object_Tag.Levels)
+		if !sculpt.levels_write(&obj.levels, out, opts) do return false
+		geom.rec_end(out, at)
+		if sculpt.levels_skin(&obj.levels) != nil {
+			at = geom.rec_begin(out, Object_Tag.Skin)
+			if !sculpt.levels_skin_write(&obj.levels, out, opts.abort) do return false
+			geom.rec_end(out, at)
+		}
 	}
-	// A voxel object's clay and the resolution it started at stand where a mesh's levels
-	// go; its empty level is made again on reading.
-	if vp := obj.voxel; vp != nil {
-		geom.byte_put(out, i32(vp.resolution))
-		return voxel.clay_write(&vp.clay, out, opts.abort)
-	}
-	// Likewise a cage stands there: its level is cut from it again on reading.
-	if cp := obj.cage; cp != nil {
-		poly.mesh_write(&cp.mesh, out)
-		geom.byte_put(out, u8(cp.look.smooth))
-		geom.byte_put(out, u8(cp.look.flat))
-		live := cp.look.live
-		geom.byte_put(out, live.thickness)
-		geom.byte_put(out, u8(live.thickness_segments))
-		geom.byte_put(out, u8(live.side))
-		geom.byte_put(out, live.bevel)
-		geom.byte_put(out, u8(live.bevel_segments))
-		geom.byte_put(out, transmute(u8)live.mirror)
-		geom.byte_put(out, u8(live.deform))
-		geom.byte_put(out, u8(live.deform_axis))
-		geom.byte_put(out, live.deform_amount)
-		geom.byte_put(out, live.displace)
-		geom.byte_put(out, live.displace_scale)
-		follow := cp.look.follow
-		geom.byte_put(out, i32(follow.curve))
-		geom.byte_put(out, u8(follow.curve_axis))
-		geom.byte_put(out, u8(follow.curve_fit))
-		geom.byte_put(out, i32(follow.wrap))
-		geom.byte_put(out, follow.wrap_offset)
-		geom.byte_put(out, cp.look.sharp)
-		geom.byte_put(out, u32(len(cp.held)))
-		append(out, ..cp.held)
-		return true
-	}
-	// The detail skin, when there is one, goes after the levels (levels_skin_follows).
-	return sculpt.levels_write(&obj.levels, out, opts) && sculpt.levels_skin_write(&obj.levels, out, opts.abort)
+	geom.record_end(out, rec)
+	return true
+}
+
+// A cage object's fields in the scene file (cage_part_put, cage_part_get); tags are never
+// reused or retyped (geom/record.odin). A missing field is the plain cage's value.
+Cage_Part_Tag :: enum u16 {
+	Mesh               = 1,  // poly.mesh_write's record, required
+	Smooth             = 2,  // u8: Catmull-Clark steps shown
+	Flat               = 3,  // u8
+	Thickness          = 4,  // f32
+	Thickness_Segments = 5,  // u8
+	Side               = 6,  // u8 poly.Thickness_Side
+	Bevel              = 7,  // f32
+	Bevel_Segments     = 8,  // u8
+	Mirror             = 9,  // u8 poly.Mirror_Axes
+	Deform             = 10, // u8 poly.Deform_Kind
+	Deform_Axis        = 11, // u8 poly.Mirror_Axis
+	Deform_Amount      = 12, // f32
+	Displace           = 13, // f32
+	Displace_Scale     = 14, // f32
+	Curve              = 15, // i32: the object the cage follows, 0 for none
+	Curve_Axis         = 16, // u8 poly.Mirror_Axis
+	Curve_Fit          = 17, // u8
+	Wrap               = 18, // i32: the object it wraps onto, 0 for none
+	Wrap_Offset        = 19, // f32
+	Sharp              = 20, // f32: Sharp edges' angle
+	Held               = 21, // sculpt.levels_write's record of the sculpt Edit cage took it from
+}
+
+// Writes the cage in the levels' place of object_put, as a record.
+cage_part_put :: proc(out: ^[dynamic]u8, cp: ^Cage_Part) {
+	rec := geom.record_begin(out)
+	defer geom.record_end(out, rec)
+	at := geom.rec_begin(out, Cage_Part_Tag.Mesh)
+	poly.mesh_write(&cp.mesh, out)
+	geom.rec_end(out, at)
+	geom.rec_put(out, Cage_Part_Tag.Smooth, u8(cp.look.smooth))
+	geom.rec_put(out, Cage_Part_Tag.Flat, u8(cp.look.flat))
+	live := cp.look.live
+	geom.rec_put(out, Cage_Part_Tag.Thickness, live.thickness)
+	geom.rec_put(out, Cage_Part_Tag.Thickness_Segments, u8(live.thickness_segments))
+	geom.rec_put(out, Cage_Part_Tag.Side, u8(live.side))
+	geom.rec_put(out, Cage_Part_Tag.Bevel, live.bevel)
+	geom.rec_put(out, Cage_Part_Tag.Bevel_Segments, u8(live.bevel_segments))
+	geom.rec_put(out, Cage_Part_Tag.Mirror, transmute(u8)live.mirror)
+	geom.rec_put(out, Cage_Part_Tag.Deform, u8(live.deform))
+	geom.rec_put(out, Cage_Part_Tag.Deform_Axis, u8(live.deform_axis))
+	geom.rec_put(out, Cage_Part_Tag.Deform_Amount, live.deform_amount)
+	geom.rec_put(out, Cage_Part_Tag.Displace, live.displace)
+	geom.rec_put(out, Cage_Part_Tag.Displace_Scale, live.displace_scale)
+	follow := cp.look.follow
+	geom.rec_put(out, Cage_Part_Tag.Curve, i32(follow.curve))
+	geom.rec_put(out, Cage_Part_Tag.Curve_Axis, u8(follow.curve_axis))
+	geom.rec_put(out, Cage_Part_Tag.Curve_Fit, u8(follow.curve_fit))
+	geom.rec_put(out, Cage_Part_Tag.Wrap, i32(follow.wrap))
+	geom.rec_put(out, Cage_Part_Tag.Wrap_Offset, follow.wrap_offset)
+	geom.rec_put(out, Cage_Part_Tag.Sharp, cp.look.sharp)
+	if len(cp.held) > 0 do geom.rec_put_slice(out, Cage_Part_Tag.Held, cp.held)
 }
 
 // What `obj` is in the scene file.
@@ -2307,7 +2456,8 @@ Object_Source :: enum u8 {
 // layers, the base's triangles and node layout, and the shown level's mask, paint and
 // groups.
 object_put_estimate :: proc(obj: ^Object) -> int {
-	bytes := 4096
+	// The fixed fields and every field's head (geom.RECORD_FIELD_HEAD), a few dozen of them.
+	bytes := 4096 + 64 * geom.RECORD_FIELD_HEAD
 	for lv, j in obj.levels.levels {
 		bytes += size_of(Vec3) * len(lv.mesh.positions)
 		if j == 0 do bytes += size_of(u32) * len(lv.mesh.indices) + 8 * len(lv.sculptor.nodes)
@@ -2324,7 +2474,7 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	for set in sculpt.levels_sets(&obj.levels) do bytes += 64 + set.vertices
 	if vp := obj.voxel; vp != nil do bytes += 4 + voxel.clay_write_estimate(&vp.clay)
 	// A cage writes each point, corner and face once, with a few bytes a corner.
-	if cp := obj.curve; cp != nil do bytes += CURVE_POINT_BYTES * len(cp.points) + CURVE_TUBE_BYTES + CURVE_LATHE_BYTES + CURVE_ALONG_BYTES
+	if cp := obj.curve; cp != nil do bytes += CURVE_POINT_BYTES * len(cp.points) + CURVE_OPTIONS_BYTES
 	if cp := obj.cage; cp != nil do bytes += 20 * len(cp.mesh.positions) + 8 * len(cp.mesh.he_vert) + 6 * len(cp.mesh.face_he) + len(cp.held)
 	bytes += textures_bytes(obj.textures)
 	if sk := sculpt.levels_skin(&obj.levels); sk != nil do bytes += 32 + size_of(f16) * len(sk.heights)
@@ -2338,46 +2488,70 @@ object_view_bits :: proc(obj: ^Object) -> u8 {
 	return u8(obj.off) | u8(obj.ghost) << 1 | u8(obj.paint_off) << 2 | u8(obj.locked) << 3
 }
 
-// Reads one object written by object_put and uploads
-// its shown level; an object whose material is a content pack's that is not installed
-// counts in `missing` (material_get). `read` is false
-// when the bytes are damaged (no object is made); `made` is false on a GPU failure,
+
+// Reads one object written by object_put and uploads its shown level; an object whose
+// material is a content pack's that is not installed counts in `missing` (material_get).
+// `read` is false when the bytes are damaged (no object is made), or hold a field this
+// build must understand and does not (a later build's); `made` is false on a GPU failure,
 // with the object returned for the caller to discard.
 object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source := Object_Source.Copy) -> (obj: ^Object, read, made: bool) {
+	rec := geom.record_take(r)
+	known, _ := geom.record_known(&rec, Object_Tag)
+	if !rec.ok || !known do return nil, false, false
 	obj = new(Object)
-	object_get_fields(r, obj)
-	kind := geom.byte_get(r, u8)
-	obj.material = material_get(r, app, missing)
-	group_materials_get(r, obj, app, missing)
-	imported_get(r, obj)
-	obj.textures = textures_get(r)
+	object_get_fields(&rec, obj)
+	kind := geom.rec_need(&rec, Object_Tag.Kind, u8)
+	if mr, present := geom.rec_reader(&rec, Object_Tag.Material); present {
+		obj.material = material_get(&mr, app, missing)
+		if !mr.ok do rec.ok = false
+	} else do obj.material = MATERIALS[0]
+	if gr, present := geom.rec_reader(&rec, Object_Tag.Group_Materials); present {
+		group_materials_get(&gr, obj, app, missing)
+		if !gr.ok do rec.ok = false
+	}
+	if ir, present := geom.rec_reader(&rec, Object_Tag.Imported); present {
+		imported_get(&ir, obj)
+		if !ir.ok do rec.ok = false
+	}
+	if tr, present := geom.rec_reader(&rec, Object_Tag.Textures); present {
+		obj.textures = textures_get(&tr)
+		if !tr.ok do rec.ok = false
+	}
 	// A voxel object has no polygroups to shade, nor UVs to lay maps on.
 	most := OBJECT_KIND_CAGE
 	if source == .Copy do most = OBJECT_KIND_CURVE
 	// Nor has a cage UVs to lay maps on, yet, nor a curve anything at all.
 	curve_ok := (int(kind) == OBJECT_KIND_CURVE) == (source == .Curve_Chunk) || source == .Copy
-	fields_ok := r.ok && obj.transform.scale > 0 && obj.file.scale > 0 && (int(kind) <= most || source == .Curve_Chunk) && curve_ok && !(kind == OBJECT_KIND_VOXEL && (len(obj.group_materials) > 0 || object_has_textures(obj))) && !(kind == OBJECT_KIND_CAGE && object_has_textures(obj)) && !(kind == OBJECT_KIND_CURVE && (len(obj.group_materials) > 0 || object_has_textures(obj)))
+	fields_ok := rec.ok && obj.transform.scale > 0 && obj.file.scale > 0 && (int(kind) <= most || source == .Curve_Chunk) && curve_ok && !(kind == OBJECT_KIND_VOXEL && (len(obj.group_materials) > 0 || object_has_textures(obj))) && !(kind == OBJECT_KIND_CAGE && object_has_textures(obj)) && !(kind == OBJECT_KIND_CURVE && (len(obj.group_materials) > 0 || object_has_textures(obj)))
 	if fields_ok && kind == OBJECT_KIND_CURVE {
-		read, made = curve_part_get(app, r, obj)
-		if read {
-			free_all(context.temp_allocator)
-			return obj, true, made
+		if cr, present := geom.rec_reader(&rec, Object_Tag.Curve); present {
+			read, made = curve_part_get(app, &cr, obj)
+			if read {
+				free_all(context.temp_allocator)
+				return obj, true, made
+			}
 		}
 	} else if fields_ok && kind == OBJECT_KIND_VOXEL {
-		read, made = voxel_part_get(app, r, obj)
-		if read {
-			free_all(context.temp_allocator)
-			return obj, true, made
+		vr, present := geom.rec_reader(&rec, Object_Tag.Voxel_Clay)
+		resolution := int(geom.rec_need(&rec, Object_Tag.Voxel_Resolution, i32))
+		if present && rec.ok {
+			read, made = voxel_part_get(app, &vr, obj, resolution)
+			if read {
+				free_all(context.temp_allocator)
+				return obj, true, made
+			}
 		}
 	} else if fields_ok && kind == OBJECT_KIND_CAGE {
-		read, made = cage_part_get(app, r, obj)
-		if read {
-			free_all(context.temp_allocator)
-			return obj, true, made
+		if cr, present := geom.rec_reader(&rec, Object_Tag.Cage); present {
+			read, made = cage_part_get(app, &cr, obj)
+			if read {
+				free_all(context.temp_allocator)
+				return obj, true, made
+			}
 		}
-	} else if fields_ok && sculpt.levels_read(&obj.levels, r, &app.pool) && (sculpt.levels_has_uvs(&obj.levels) || !object_has_textures(obj)) {
+	} else if lr, present := geom.rec_reader(&rec, Object_Tag.Levels); fields_ok && present && sculpt.levels_read(&obj.levels, &lr, &app.pool) && (sculpt.levels_has_uvs(&obj.levels) || !object_has_textures(obj)) {
 		// A damaged skin is left out, and the object opens without it.
-		if sculpt.levels_skin_follows(r) && !sculpt.levels_skin_read(&obj.levels, r) {
+		if sr, skin := geom.rec_reader(&rec, Object_Tag.Skin); skin && !sculpt.levels_skin_read(&obj.levels, &sr) {
 			report(app, Section.Hd, {.Warning}, "The detail skin of %s is damaged: it opens without it", obj.name)
 		}
 		lv := sculpt.levels_current(&obj.levels)
@@ -2396,37 +2570,85 @@ object_get :: proc(app: ^App, r: ^geom.Byte_Reader, missing: ^int = nil, source 
 	return nil, false, false
 }
 
-// Reads what object_put writes before the levels: the id, name, placement, pivot, boolean mode,
-// view flags, folder, stored eyes, last remesh cell, live stack and Physics card; r.ok goes
-// false on damage. The caller owns
-// obj.name.
-object_get_fields :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
-	obj.id = int(geom.byte_get(r, i32))
-	obj.name = geom.byte_get_string(r)
-	obj.transform = get_transform(r)
-	obj.file = get_transform(r)
-	obj.transform.rotation = geom.byte_get(r, Vec3)
-	if !finite(obj.transform.rotation) do r.ok = false
-	pivot_set := geom.byte_get(r, u8)
+
+// Reads what object_put writes besides the object's kind and its parts: the id, name,
+// placement, pivot, boolean mode, view flags, folder, stored eyes, last remesh cell, live
+// stack and Physics card; rec.ok goes false on damage. A field the record lacks takes what
+// a new object has. The caller owns obj.name.
+object_get_fields :: proc(rec: ^geom.Record, obj: ^Object) {
+	obj.id = int(geom.rec_need(rec, Object_Tag.Id, i32))
+	obj.name = geom.rec_get_string(rec, Object_Tag.Name)
+	obj.transform.position = geom.rec_get(rec, Object_Tag.Position, Vec3, Vec3{})
+	obj.transform.scale = geom.rec_get(rec, Object_Tag.Scale, f32, 1)
+	obj.file.position = geom.rec_get(rec, Object_Tag.File_Position, Vec3, Vec3{})
+	obj.file.scale = geom.rec_get(rec, Object_Tag.File_Scale, f32, 1)
+	obj.transform.rotation = geom.rec_get(rec, Object_Tag.Rotation, Vec3, Vec3{})
+	if !finite(obj.transform.position) || !finite({obj.transform.scale, 0, 0}) || !finite(obj.file.position) || !finite({obj.file.scale, 0, 0}) do rec.ok = false
+	if !finite(obj.transform.rotation) do rec.ok = false
+	pivot_set := geom.rec_get(rec, Object_Tag.Pivot_Set, u8, 0)
 	obj.pivot.set = pivot_set == 1
-	obj.pivot.at = geom.byte_get(r, Vec3)
-	obj.pivot.normal = geom.byte_get(r, Vec3)
-	if pivot_set > 1 || !finite(obj.pivot.at) || !finite(obj.pivot.normal) do r.ok = false
-	mode := geom.byte_get(r, u8)
-	if mode > u8(max(Boolean_Mode)) do r.ok = false
+	obj.pivot.at = geom.rec_get(rec, Object_Tag.Pivot_At, Vec3, Vec3{})
+	obj.pivot.normal = geom.rec_get(rec, Object_Tag.Pivot_Normal, Vec3, Vec3{})
+	if pivot_set > 1 || !finite(obj.pivot.at) || !finite(obj.pivot.normal) do rec.ok = false
+	mode := geom.rec_get(rec, Object_Tag.Boolean, u8, u8(Boolean_Mode.None))
+	if mode > u8(max(Boolean_Mode)) do rec.ok = false
 	else do obj.boolean = Boolean_Mode(mode)
-	bits := geom.byte_get(r, u8)
-	if bits > OBJECT_VIEW_BITS do r.ok = false
-	obj.off, obj.ghost, obj.paint_off, obj.locked = bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0
-	obj.folder = int(geom.byte_get(r, i32))
-	if obj.folder < 0 do r.ok = false
-	obj.vis_off = geom.byte_get(r, u8)
-	obj.remesh_cell = geom.byte_get(r, f32)
-	if !(obj.remesh_cell >= 0 && obj.remesh_cell <= max(f32)) do r.ok = false
-	stack, stack_ok := stack_get(r)
-	if !stack_ok do r.ok = false
-	obj.stack = stack
-	obj.physics = physics_get(r)
+	off := geom.rec_get(rec, Object_Tag.Off, u8, 0)
+	ghost := geom.rec_get(rec, Object_Tag.Ghost, u8, 0)
+	paint_off := geom.rec_get(rec, Object_Tag.Paint_Off, u8, 0)
+	locked := geom.rec_get(rec, Object_Tag.Locked, u8, 0)
+	if off > 1 || ghost > 1 || paint_off > 1 || locked > 1 do rec.ok = false
+	obj.off, obj.ghost, obj.paint_off, obj.locked = off == 1, ghost == 1, paint_off == 1, locked == 1
+	obj.folder = int(geom.rec_get(rec, Object_Tag.Folder, i32, 0))
+	if obj.folder < 0 do rec.ok = false
+	obj.vis_off = geom.rec_get(rec, Object_Tag.Vis_Off, u8, 0)
+	obj.remesh_cell = geom.rec_get(rec, Object_Tag.Remesh_Cell, f32, 0)
+	if !(obj.remesh_cell >= 0 && obj.remesh_cell <= max(f32)) do rec.ok = false
+	if sr, present := geom.rec_reader(rec, Object_Tag.Stack); present {
+		stack, stack_ok := stack_get(&sr)
+		if !stack_ok || !sr.ok do rec.ok = false
+		obj.stack = stack
+	}
+	if pr, present := geom.rec_reader(rec, Object_Tag.Physics); present {
+		obj.physics = physics_get(&pr)
+		if !pr.ok do rec.ok = false
+	}
+}
+
+// An object's fields (object_put_bytes, object_get). Numbers are the file's: never reused or
+// given another meaning (AGENTS.md).
+Object_Tag :: enum u16 {
+	Id               = 1, // i32, required
+	Name             = 2, // UTF-8
+	Position         = 3, // Vec3
+	Scale            = 4, // f32
+	File_Position    = 5, // Vec3: where the file placed it
+	File_Scale       = 6, // f32
+	Rotation         = 7, // Vec3
+	Pivot_Set        = 8, // u8 0 or 1
+	Pivot_At         = 9, // Vec3
+	Pivot_Normal     = 10, // Vec3
+	Boolean          = 11, // u8 Boolean_Mode
+	Off              = 12, // u8 0 or 1: its eye
+	Ghost            = 13, // u8 0 or 1
+	Paint_Off        = 14, // u8 0 or 1: polypaint left out of its look
+	Locked           = 15, // u8 0 or 1
+	Folder           = 16, // i32, 0 for none
+	Vis_Off          = 17, // u8: the stored visibilities it is hidden in, a bit each
+	Remesh_Cell      = 18, // f32: the last remesh's cell
+	Stack            = 19, // the live stack (stack_put)
+	Physics          = 20, // the Physics card (physics_put)
+	Kind             = 21, // u8 OBJECT_KIND_*, required
+	Material         = 22, // material_put
+	Group_Materials  = 23, // group_materials_put
+	Imported         = 24, // imported_put
+	Textures         = 25, // textures_put
+	Curve            = 26, // a curve's points and tube (curve_part_put), for kind Curve
+	Voxel_Resolution = 27, // i32, for kind Voxel
+	Voxel_Clay       = 28, // voxel.clay_write, for kind Voxel
+	Cage             = 29, // cage_part_put, for kind Cage
+	Levels           = 30, // sculpt.levels_write, for kind Mesh
+	Skin             = 31, // sculpt.levels_skin_write, for a mesh with a detail skin
 }
 
 // Frees an object read for a scene that never got it: it has no history and draws
@@ -2443,19 +2665,6 @@ object_discard :: proc(app: ^App, obj: ^Object) {
 	imported_materials_destroy(&obj.imported)
 	textures_free(&obj.textures)
 	free(obj)
-}
-
-@(private = "file")
-put_transform :: proc(out: ^[dynamic]u8, t: Transform) {
-	geom.byte_put(out, t.position)
-	geom.byte_put(out, t.scale)
-}
-
-@(private = "file")
-get_transform :: proc(r: ^geom.Byte_Reader) -> Transform {
-	t := Transform{position = geom.byte_get(r, Vec3), scale = geom.byte_get(r, f32)}
-	if !finite(t.position) || !finite({t.scale, 0, 0}) do r.ok = false
-	return t
 }
 
 finite :: proc(v: Vec3) -> bool {

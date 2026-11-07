@@ -711,77 +711,47 @@ cage_quads :: proc(cage: ^poly.Mesh, vert_of: []u32) -> (quads: [][4]u32, all: b
 // `read` is false when the bytes are damaged (nothing is made); `made` is false on a GPU
 // failure.
 cage_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, made: bool) {
-	cage, ok := poly.mesh_read(r)
-	if !ok do return false, false
-	look: Cage_Look
-	smooth := int(geom.byte_get(r, u8))
-	flat := geom.byte_get(r, u8)
-	if !r.ok || smooth > poly.SUBDIVIDE_MAX || flat > 1 {
-		poly.mesh_destroy(&cage)
-		return false, false
-	}
-	look = {smooth, flat == 1, {}, {}, 0}
-	// The live stack: Thickness and Bevel creases.
+	rec := geom.record_take(r)
+	if !rec.ok do return false, false
+	if known, _ := geom.record_known(&rec, Cage_Part_Tag); !known do return false, false
+	T :: Cage_Part_Tag
+	smooth := int(geom.rec_get(&rec, T.Smooth, u8, 0))
+	flat := geom.rec_get(&rec, T.Flat, u8, 0)
 	l: poly.Live
-	l.thickness = geom.byte_get(r, f32)
-	l.thickness_segments = int(geom.byte_get(r, u8))
-	side := geom.byte_get(r, u8)
-	l.bevel = geom.byte_get(r, f32)
-	l.bevel_segments = int(geom.byte_get(r, u8))
-	l.side = poly.Thickness_Side(side)
+	l.thickness = geom.rec_get(&rec, T.Thickness, f32, 0)
+	l.thickness_segments = int(geom.rec_get(&rec, T.Thickness_Segments, u8, 0))
+	side := geom.rec_get(&rec, T.Side, u8, 0)
+	l.bevel = geom.rec_get(&rec, T.Bevel, f32, 0)
+	l.bevel_segments = int(geom.rec_get(&rec, T.Bevel_Segments, u8, 0))
+	axes := geom.rec_get(&rec, T.Mirror, u8, 0)
+	kind := geom.rec_get(&rec, T.Deform, u8, 0)
+	axis := geom.rec_get(&rec, T.Deform_Axis, u8, 0)
+	l.deform_amount = geom.rec_get(&rec, T.Deform_Amount, f32, 0)
+	l.displace = geom.rec_get(&rec, T.Displace, f32, 0)
+	l.displace_scale = geom.rec_get(&rec, T.Displace_Scale, f32, 0)
+	curve := geom.rec_get(&rec, T.Curve, i32, 0)
+	curve_axis := geom.rec_get(&rec, T.Curve_Axis, u8, 0)
+	curve_fit := geom.rec_get(&rec, T.Curve_Fit, u8, 0)
+	wrap := geom.rec_get(&rec, T.Wrap, i32, 0)
+	offset := geom.rec_get(&rec, T.Wrap_Offset, f32, 0)
+	sharp := geom.rec_get(&rec, T.Sharp, f32, 0)
+	held_bytes, _ := geom.rec_find(&rec, T.Held)
+	finite :: proc(x: f32) -> bool {return x == x && abs(x) < 1e6}
+	all := transmute(u8)poly.Mirror_Axes{.X, .Y, .Z}
 	sizes_ok := l.thickness >= 0 && l.thickness < 1e6 && l.bevel >= 0 && l.bevel < 1e6
 	segments_ok := l.thickness_segments <= poly.LIVE_THICKNESS_SEGMENTS_MAX && l.bevel_segments <= poly.BEVEL_SEGMENTS_MAX
-	if !r.ok || side > u8(max(poly.Thickness_Side)) || !sizes_ok || !segments_ok {
-		poly.mesh_destroy(&cage)
-		return false, false
-	}
-	look.live = l
-	// The live mirror's axes.
-	axes := geom.byte_get(r, u8)
-	all := transmute(u8)poly.Mirror_Axes{.X, .Y, .Z}
-	if !r.ok || axes & ~all != 0 {
-		poly.mesh_destroy(&cage)
-		return false, false
-	}
-	look.live.mirror = transmute(poly.Mirror_Axes)axes
-	// The deformers: Deform's kind, axis and amount, then Displace's strength and size.
-	kind := geom.byte_get(r, u8)
-	axis := geom.byte_get(r, u8)
-	look.live.deform_amount = geom.byte_get(r, f32)
-	look.live.displace = geom.byte_get(r, f32)
-	look.live.displace_scale = geom.byte_get(r, f32)
-	finite :: proc(x: f32) -> bool {return x == x && abs(x) < 1e6}
-	if !r.ok || kind > u8(max(poly.Deform_Kind)) || axis > u8(max(poly.Mirror_Axis)) || !finite(look.live.deform_amount) || !finite(look.live.displace) || !finite(look.live.displace_scale) || look.live.displace_scale < 0 {
-		poly.mesh_destroy(&cage)
-		return false, false
-	}
-	look.live.deform, look.live.deform_axis = poly.Deform_Kind(kind), poly.Mirror_Axis(axis)
-	// The follow rows: Curve's object and axis, Wrap's object and offset.
-	curve := geom.byte_get(r, i32)
-	curve_axis := geom.byte_get(r, u8)
-	curve_fit := geom.byte_get(r, u8)
-	wrap := geom.byte_get(r, i32)
-	offset := geom.byte_get(r, f32)
-	if !r.ok || curve < 0 || wrap < 0 || curve_axis > u8(max(poly.Mirror_Axis)) || curve_fit > 1 || !finite(offset) {
-		poly.mesh_destroy(&cage)
-		return false, false
-	}
-	look.follow = {int(curve), poly.Mirror_Axis(curve_axis), curve_fit == 1, int(wrap), offset}
-	// Sharp edges' angle.
-	look.sharp = geom.byte_get(r, f32)
-	if !r.ok || !(look.sharp >= 0 && look.sharp <= CAGE_SHARP_MAX) {
-		poly.mesh_destroy(&cage)
-		return false, false
-	}
-	// The sculpt Edit cage took it from, read only on Apply.
+	deform_ok := kind <= u8(max(poly.Deform_Kind)) && axis <= u8(max(poly.Mirror_Axis)) && finite(l.deform_amount) && finite(l.displace) && finite(l.displace_scale) && l.displace_scale >= 0
+	follow_ok := curve >= 0 && wrap >= 0 && curve_axis <= u8(max(poly.Mirror_Axis)) && curve_fit <= 1 && finite(offset)
+	if !rec.ok || smooth > poly.SUBDIVIDE_MAX || flat > 1 || side > u8(max(poly.Thickness_Side)) || axes & ~all != 0 || !sizes_ok || !segments_ok || !deform_ok || !follow_ok || !(sharp >= 0 && sharp <= CAGE_SHARP_MAX) do return false, false
+	l.side, l.mirror = poly.Thickness_Side(side), transmute(poly.Mirror_Axes)axes
+	l.deform, l.deform_axis = poly.Deform_Kind(kind), poly.Mirror_Axis(axis)
+	look := Cage_Look{smooth, flat == 1, l, {int(curve), poly.Mirror_Axis(curve_axis), curve_fit == 1, int(wrap), offset}, sharp}
+	mr, has_mesh := geom.rec_reader(&rec, T.Mesh)
+	if !has_mesh do return false, false
+	cage, ok := poly.mesh_read(&mr)
+	if !ok do return false, false
 	held: []u8
-	size := int(geom.byte_get(r, u32))
-	bytes := geom.byte_get_bytes(r, size)
-	if !r.ok {
-		poly.mesh_destroy(&cage)
-		return false, false
-	}
-	if size > 0 do held = slice.clone(bytes)
+	if len(held_bytes) > 0 do held = slice.clone(held_bytes)
 	return true, object_build_cage(app, obj, cage, look, held)
 }
 
@@ -811,11 +781,6 @@ CAGE_DISPLACE_PERCENT_MAX :: 10
 CAGE_DISPLACE_SCALE_START :: 0.25
 CAGE_DISPLACE_SCALE_MAX :: 1
 
-// The Live stack's Deform (a tornado: a twist) and Displace (a rough peak) glyphs, on
-// their rows and commands.
-ICON_DEFORM :: rune(0xe218)
-ICON_DISPLACE :: rune(0xe232)
-
 // Sharp edges' largest angle, and the angle the row starts at (Blender's Smooth by Angle).
 CAGE_SHARP_MAX :: 180
 CAGE_SHARP_START :: 30
@@ -827,7 +792,6 @@ PANEL_WIDTH_MAX :: 10.0
 PANEL_DEPTH_MAX :: 10.0
 PANEL_WIDTH_START :: 0.03
 PANEL_DEPTH_START :: 0.02
-ICON_SHARP :: rune(0xe242) // gem, whose facets meet at hard edges
 
 // The amount Deform starts at for `kind`: a quarter turn for Bend and Twist, half as wide
 // again at the far end for Taper.
@@ -1082,7 +1046,7 @@ CAGE_REFUSED_COMMANDS :: Command_Set{
 }
 
 // The scene commands a cage object refuses, for the same reason.
-CAGE_REFUSED_SCENE :: bit_set[Scene_Command_Kind]{.Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Unwrap, .Straighten, .Texel_Density, .Skin_Apply, .Squeeze}
+CAGE_REFUSED_SCENE :: bit_set[Scene_Command_Kind]{.Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Rebuild_Levels, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Unwrap, .Straighten, .Texel_Density, .Skin_Apply, .Squeeze}
 
 // Whether the selected object is a cage.
 selected_cage :: proc(app: ^App) -> bool {
@@ -1169,7 +1133,7 @@ model_segments :: proc(m: Model_Tool) -> poly.Primitive_Options {
 kit_model_tab :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	m := &app.model
-	kit_tool_head(ctx, ui.ICON_GRID, "Model", "Builds and edits cages: polygons with their edges shown, as ZBrush's ZModeler and Blender's edit mode work. Pick an action and a target, then press on a cage: the faces it would reach light up under the pen first. Add a primitive here; Apply to sculpt turns a cage into a mesh to sculpt.")
+	kit_tool_head(ctx, ui.ICON_MODEL, "Model", "Builds and edits cages: polygons with their edges shown, as ZBrush's ZModeler and Blender's edit mode work. Pick an action and a target, then press on a cage: the faces it would reach light up under the pen first. Add a primitive here; Apply to sculpt turns a cage into a mesh to sculpt.")
 	ui.caption(ctx, "ACTION")
 	actions: [len(Model_Action)]string
 	for a, i in Model_Action do actions[i] = MODEL_ACTION_NAMES[a]

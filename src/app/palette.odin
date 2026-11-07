@@ -106,6 +106,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Symmetry_X       = "mirror",
 	.Local_Symmetry   = "mirror centre center own middle",
 	.Radial_Symmetry  = "mirror around rotate repeat kaleidoscope",
+	.Poseable_Symmetry = "mirror posed pose topology topological",
 	.Brush_Add        = "zadd raise build positive plus",
 	.Brush_Subtract   = "zsub dig carve negative minus invert",
 	.Paint_Channel    = "rgb mrgb colour color channel paint sculpt both",
@@ -148,6 +149,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Paint            = "polypaint colour color",
 	.Group            = "polygroup face set",
 	.Delete_Lower_Levels  = "subdivision",
+	.Rebuild_Levels       = "reconstruct subdivision unsubdivide levels multires rebuild",
 	.Delete_Higher_Levels = "subdivision",
 	.Hd_Divide        = "hd geometry",
 	.Hd_Delete        = "hd geometry",
@@ -193,6 +195,8 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Convert_To_Voxels = "mesh clay volume voxelise voxelize sdf",
 	.Voxel_Res_Up     = "resolution double finer voxels increase resample",
 	.Voxel_Res_Down   = "resolution halve coarser voxels decrease resample",
+	.Remove_Floaters  = "loose parts pieces islands clean keep largest delete floating bits",
+	.Separate_Pieces  = "split loose parts pieces islands objects break apart",
 	.Adjust_Last      = "redo last tweak change settings again stroke amount",
 	.Add_Object       = "subtool primitive append sphere cube",
 	.Frame_All        = "fit zoom extents home",
@@ -544,7 +548,7 @@ palette_icon :: proc(e: Palette_Entry) -> rune {
 	if e.id == .Brush_Value && e.arg >= 0 && e.arg < len(Brush_Value) do return BRUSH_VALUE_ICONS[Brush_Value(e.arg)]
 	if e.id == .Model_Action && e.arg >= 0 && e.arg < len(Model_Action) do return MODEL_ACTION_ICONS[Model_Action(e.arg)]
 	if e.id == .Add_Cage && e.arg >= 0 && e.arg < len(poly.Primitive) do return PRIMITIVE_ICONS[poly.Primitive(e.arg)]
-	return COMMANDS[e.id].icon if COMMANDS[e.id].icon != 0 else ui.ICON_WAND
+	return COMMANDS[e.id].icon if COMMANDS[e.id].icon != 0 else ui.ICON_COMMAND
 }
 
 // The entry's name as settings.txt and the exit stats write it: the command's name, and

@@ -555,18 +555,20 @@ mask_command :: proc(app: ^App, command: sculpt.Mask_Command, toast := false) {
 	steps := int(max(app.ui.mask_steps, 1))
 	changed: bool
 	if vp := obj.voxel; vp != nil {
-		// Clay takes the whole-mask commands; the ones that read the mesh's shape or its
-		// hidden part need a mesh.
-		op: voxel.Mask_Op
+		// Clay takes the whole-mask commands and the neighbourhood ones; the ones that read
+		// the mesh's shape or its hidden part need a mesh.
 		#partial switch command {
-		case .Clear:  op = .Clear
-		case .Invert: op = .Invert
-		case .Fill:   op = .Fill
+		case .Clear:   changed = voxel.clay_mask_command(&vp.clay, .Clear)
+		case .Invert:  changed = voxel.clay_mask_command(&vp.clay, .Invert)
+		case .Fill:    changed = voxel.clay_mask_command(&vp.clay, .Fill)
+		case .Blur:    changed = voxel.clay_mask_filter(&vp.clay, .Blur, steps)
+		case .Sharpen: changed = voxel.clay_mask_filter(&vp.clay, .Sharpen, steps)
+		case .Grow:    changed = voxel.clay_mask_filter(&vp.clay, .Grow, steps)
+		case .Shrink:  changed = voxel.clay_mask_filter(&vp.clay, .Shrink, steps)
 		case:
 			report(app, Section.Mask, {.Warning}, "%s needs a mesh: convert %s to a mesh first (Voxels card)", MASK_COMMAND_NAMES[command], object_label(obj))
 			return
 		}
-		changed = voxel.clay_mask_command(&vp.clay, op)
 		if changed do voxel_part_edited(vp)
 	} else {
 		changed = sculpt.sculptor_mask_command(object_sculptor(obj), command, steps)
@@ -824,7 +826,7 @@ clip_command :: proc(app: ^App, a, b: [2]f32, flip: bool, size: [2]f32) {
 	if flip do normal = -normal
 	planes := make([dynamic]sculpt.Clip_Plane, 0, sculpt.SYM_IMAGES_MAX, context.temp_allocator)
 	sym := brush_symmetry(app, obj)
-	for img in sculpt.symmetry_images(sym) do append(&planes, sculpt.Clip_Plane{point = sculpt.sym_point(img, sym.sym_center, point), normal = img.turn * normal})
+	for img in sculpt.symmetry_images(sym) do append(&planes, sculpt.Clip_Plane{point = sculpt.sym_point(img, point), normal = img.turn * normal})
 	changed := sculpt.sculptor_clip(object_sculptor(obj), planes[:])
 	report(app, Section.Visibility, {.Quiet}, "Clip in %.0f ms%s", time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
 	if changed do history_record(app, obj, .Deform, "Clip")

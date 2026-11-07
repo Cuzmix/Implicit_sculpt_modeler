@@ -13,6 +13,7 @@ import "../png_write"
 import "../render"
 import "../sculpt"
 import "../ui"
+import "../voxel"
 
 // Polypaint and polygroups on the app side: the Polypaint and Polygroups commands as
 // undo steps, the Ctrl + Shift click that isolates a group, and their GPU upload.
@@ -59,6 +60,23 @@ paint_command :: proc(app: ^App, command: sculpt.Paint_Command) {
 		// view's down in the object's own space.
 		_, up, _ := camera.orbit_basis(app.camera)
 		gradient = {to = color_bytes(app.brush.color2), axis = -to_local_dir(obj.transform, up)}
+	}
+	if vp := obj.voxel; vp != nil {
+		// Clay's colour lives in its volume: the fill, gradient or clear go there, by the
+		// same rules (colour only, as the clay keeps no roughness or metal).
+		op: voxel.Paint_Op
+		switch command {
+		case .Fill:     op = .Fill
+		case .Clear:    op = .Clear
+		case .Gradient: op = .Gradient
+		}
+		changed := voxel.clay_paint_command(&vp.clay, op, brush_color_bytes(app), gradient.to, gradient.axis)
+		log.infof("%s on clay: %.0f ms%s", PAINT_COMMAND_NAMES[command], time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
+		if changed {
+			voxel_part_edited(vp)
+			history_record(app, obj, .Paint, PAINT_COMMAND_NAMES[command])
+		}
+		return
 	}
 	material := [2]u8{u8(clamp(app.brush.roughness, 0, 1) * 255 + 0.5), u8(clamp(app.brush.metal, 0, 1) * 255 + 0.5)}
 	if sculpt.sculptor_paint_on_texture(object_sculptor(obj)) {

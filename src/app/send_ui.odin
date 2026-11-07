@@ -17,13 +17,6 @@ import "../ui"
 // scenes (Receive scenes, the paired devices with Forget). The threads only fill
 // Send_Shared under its lock; everything here reads it once a frame.
 
-// Lucide's send, monitor and tablet.
-ICON_SEND :: rune(0xe156)
-@(private = "file")
-ICON_MONITOR :: rune(0xe121)
-@(private = "file")
-ICON_TABLET :: rune(0xe182)
-
 Send_Phase :: enum u8 {
 	Idle,
 	Finding, // asking the network for the computer named
@@ -198,7 +191,7 @@ kit_send_pill :: proc(app: ^App) {
 	defer ui.end(ctx)
 	r := ui.place(ctx, {28, 28})
 	if asking {
-		ui.icon(ctx, ICON_TABLET, {r.x + 14, r.y + 14}, t.icon_size, t.accent)
+		ui.icon(ctx, ui.ICON_TABLET, {r.x + 14, r.y + 14}, t.icon_size, t.accent)
 		ui.label(ctx, fmt.tprintf("%s asks to send you scenes", ask_name), t.small_size, t.text, .Semibold)
 		ui.label(ctx, fmt.tprintf("Code %s", send_code_text(ask_code)), t.small_size, t.text_secondary)
 		if ui.button(ctx, "Decline##send ask", .Light) do sync.atomic_store(&sh.asking.reply, Ask_Reply.Decline)
@@ -207,7 +200,7 @@ kit_send_pill :: proc(app: ^App) {
 	}
 	if arrived && !send_busy(app) {
 		a := app.send.arrived
-		ui.icon(ctx, ICON_SEND, {r.x + 14, r.y + 14}, t.icon_size, t.accent)
+		ui.icon(ctx, ui.ICON_SEND, {r.x + 14, r.y + 14}, t.icon_size, t.accent)
 		if a.conflict {
 			ui.label(ctx, fmt.tprintf("Changed here too: %s sent its copy", a.from), t.small_size, t.text, .Semibold)
 		} else {
@@ -263,7 +256,7 @@ send_settings_rows :: proc(app: ^App) {
 		ui.paragraph(ctx, "No device is paired yet: the first send between two devices pairs them, with the same six digits on both screens.", color = t.text_secondary)
 	}
 	for p, i in pairs {
-		row := ui.list_row(ctx, fmt.tprintf("%s##send pair %d", p.name, i), "Forget", glyph = ICON_TABLET if MOBILE else ICON_MONITOR)
+		row := ui.list_row(ctx, fmt.tprintf("%s##send pair %d", p.name, i), "Forget", glyph = ui.ICON_TABLET if MOBILE else ui.ICON_MONITOR)
 		if row.clicked {
 			send_pair_drop(app, p.device)
 			file_note(app, false, "Forgot %s: the next send between you pairs again", p.name)
@@ -294,7 +287,7 @@ export_send_options :: proc(app: ^App) {
 	for f, i in targets {
 		other := f.protocol != send.PROTOCOL
 		detail := "another version" if other else ("sent here" if i < backs else ("paired" if send_paired(sh, f.device) else ""))
-		glyph := ICON_TABLET if i < backs else ICON_MONITOR
+		glyph := ui.ICON_TABLET if i < backs else ui.ICON_MONITOR
 		row := ui.list_row(ctx, fmt.tprintf("%s##send computer %d", f.name if f.name != "" else "Sculpt", i), detail, selected = typed == "" && app.send.pick == i, glyph = glyph)
 		if row.clicked {
 			app.send.pick = i

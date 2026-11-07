@@ -343,6 +343,7 @@ fmt_light_key :: proc(i: int, field: string) -> string {
 	return fmt.tprintf("light%d_%s", i + 1, field)
 }
 
+
 // The scene file keeps the lights as they were, bit for bit, and refuses damaged ones.
 @(test)
 lights_round_trip_in_the_scene_file :: proc(t: ^testing.T) {
@@ -353,47 +354,62 @@ lights_round_trip_in_the_scene_file :: proc(t: ^testing.T) {
 	out: [dynamic]u8
 	defer delete(out)
 	lights_put(&out, set)
-	r := geom.byte_reader(out[:])
-	back, ok := lights_get(&r, LIGHTS_DEFAULT)
-	testing.expect(t, ok && r.ok && r.at == len(out))
+	rec := geom.record_of(out[:])
+	back, ok := lights_get(&rec, LIGHTS_DEFAULT)
+	testing.expect(t, ok && rec.ok)
 	testing.expect_value(t, back, set)
 	// Past the count the lights are the ones given for the rest.
 	set.count = 1
 	clear(&out)
 	lights_put(&out, set)
-	r = geom.byte_reader(out[:])
-	back, ok = lights_get(&r, LIGHTS_DEFAULT)
+	rec = geom.record_of(out[:])
+	back, ok = lights_get(&rec, LIGHTS_DEFAULT)
 	testing.expect(t, ok && back.lights[1] == LIGHTS_DEFAULT.lights[1] && back.count == 1)
 
-	damage :: proc(t: ^testing.T, set: Light_Set, at: int, value: u8, bytes := 1) {
+	// Sets the bytes of light `light`'s field `tag` to `value` and expects a refusal.
+	damage :: proc(t: ^testing.T, set: Light_Set, light: int, tag: Light_Tag, value: []u8, loc := #caller_location) {
 		out: [dynamic]u8
 		defer delete(out)
 		lights_put(&out, set)
-		for &b in out[at:][:bytes] do b = value
-		r := geom.byte_reader(out[:])
-		_, ok := lights_get(&r, LIGHTS_DEFAULT)
-		testing.expectf(t, !ok, "byte %d set to %d was read", at, value)
+		rec := geom.record_of(out[:])
+		at := 0
+		payload: []u8
+		for _ in 0 ..= light do payload, _ = geom.rec_next(&rec, Light_Set_Tag.Light, &at)
+		lr := geom.record_of(payload)
+		field, present := geom.rec_find(&lr, tag)
+		testing.expect(t, present, loc = loc)
+		for &b, i in field do b = value[i % len(value)]
+		_, ok := lights_get(&rec, LIGHTS_DEFAULT)
+		testing.expectf(t, !ok, "light %d's %v set to %v was read", light, tag, value, loc = loc)
 	}
 	set.count = 2
-	damage(t, set, 0, 9) // too many lights
-	damage(t, set, 5, 2) // `on` is not 0 or 1
-	damage(t, set, 6, 3) // no such kind
-	damage(t, set, 7, 2) // no such space
-	damage(t, set, 5 + 3, 0xff, 4) // the first direction's x a NaN
-	damage(t, set, 5 + 3 + 24, 0xff, 4) // the strength a NaN
-	damage(t, set, 5 + 3 + 24 + 12, 0, 4) // the cone 0 degrees
-	LIGHT_BYTES :: 3 + 24 + 5 * 4 + 12 + 4 + LIGHT_NAME + 8
-	damage(t, set, 5 + LIGHT_BYTES + 59, 0x10, 4) // the second light's temperature far too cold
-	damage(t, set, 5 + LIGHT_BYTES + 63 + LIGHT_NAME - 1, 'x') // its name not ended by a zero
-	damage(t, set, 5 + LIGHT_BYTES + 63 + 1, 0xff) // its name not UTF-8
-	damage(t, set, 5 + LIGHT_BYTES + 63 + 10, 'x') // a byte after its name's zero
-	damage(t, set, 5 + LIGHT_BYTES + 87, 0xff, 4) // its angle a NaN
-	damage(t, set, 5 + LIGHT_BYTES + 91, 0x7f, 4) // its radius far too big
-	// Cut short.
+	damage(t, set, 0, .On, {2}) // `on` is not 0 or 1
+	damage(t, set, 0, .Kind, {9}) // no such kind
+	damage(t, set, 0, .Space, {2}) // no such space
+	damage(t, set, 0, .Dir, {0xff}) // the direction a NaN
+	damage(t, set, 0, .Strength, {0xff}) // the strength a NaN
+	damage(t, set, 0, .Cone, {0}) // the cone 0 degrees
+	damage(t, set, 1, .Kelvin, {0, 0, 0x10, 0}) // the second light's temperature far too cold
+	damage(t, set, 1, .Name, {0xff}) // its name not UTF-8
+	damage(t, set, 1, .Name, {0}) // a zero in its name
+	damage(t, set, 1, .Angle, {0xff}) // its angle a NaN
+	damage(t, set, 1, .Radius, {0, 0, 0, 0x7f}) // its radius far too big
+	// Too many lights.
+	many := set
+	many.count = LIGHT_COUNT
 	clear(&out)
-	lights_put(&out, set)
-	r = geom.byte_reader(out[:len(out) - 1])
-	_, ok = lights_get(&r, LIGHTS_DEFAULT)
+	lights_put(&out, many)
+	geom.rec_put(&out, Light_Set_Tag.Light, u8(0))
+	rec = geom.record_of(out[:])
+	_, ok = lights_get(&rec, LIGHTS_DEFAULT)
+	testing.expect(t, !ok)
+	// A light without a kind.
+	clear(&out)
+	lb := geom.rec_begin(&out, Light_Set_Tag.Light)
+	geom.rec_put(&out, Light_Tag.On, u8(1))
+	geom.rec_end(&out, lb)
+	rec = geom.record_of(out[:])
+	_, ok = lights_get(&rec, LIGHTS_DEFAULT)
 	testing.expect(t, !ok)
 }
 

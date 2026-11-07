@@ -29,9 +29,9 @@ SPACE_NAMES := [Space]string {
 
 @(rodata)
 SPACE_ICONS := [Space]rune {
-	.Sculpt = ui.ICON_BRUSH,
-	.Model  = ICON_OBJECT_BOX,
-	.Render = ICON_PASSES,
+	.Sculpt = ui.ICON_SCULPT_SPACE,
+	.Model  = ui.ICON_SPACE_MODEL,
+	.Render = ui.ICON_SPACE_RENDER,
 }
 
 // The tool a space was left with, which a tap on its tab gives back: the tool, and for

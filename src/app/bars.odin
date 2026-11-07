@@ -409,7 +409,7 @@ bar_slot_actions :: proc(app: ^App, which: Bar_Which, slot: int) -> (close: bool
 	ctx := &k.ctx
 	count := bar_count(app, which)^
 	across := !bar_column(which)
-	if ui.icon_button(ctx, "Move earlier", ICON_CHEVRON_LEFT if across else ui.ICON_CHEVRON_UP, enabled = slot > 0) do bar_slot_moved(app, bar_move(app, which, slot, -1))
+	if ui.icon_button(ctx, "Move earlier", ui.ICON_CHEVRON_LEFT if across else ui.ICON_CHEVRON_UP, enabled = slot > 0) do bar_slot_moved(app, bar_move(app, which, slot, -1))
 	if ui.icon_button(ctx, "Move later", ui.ICON_CHEVRON_RIGHT if across else ui.ICON_CHEVRON_DOWN, enabled = slot < count - 1) do bar_slot_moved(app, bar_move(app, which, slot, 1))
 	if ui.icon_button(ctx, "Remove from the bar", ui.ICON_TRASH) {
 		bar_remove(app, which, slot)
@@ -448,32 +448,32 @@ bar_label :: proc(app: ^App, s: Bar_Slot) -> string {
 // A slot's icon: the bars' own for the commands they always had, the command's, or a wand.
 bar_icon :: proc(app: ^App, s: Bar_Slot) -> rune {
 	#partial switch s.id {
-	case .Tool_Move:       return ICON_GIZMO
-	case .Remesh:          return ICON_REMESH
-	case .Dyntopo_Toggle:  return ICON_DYNTOPO
-	case .Retopologize:    return ICON_RETOPO
-	case .Subdivide:       return ICON_SUBDIVIDE
-	case .Live_Boolean:    return ICON_BOOLEAN
-	case .Studio_Render:   return ui.ICON_SUN
-	case .Ortho_Toggle:    return ICON_ORTHO
-	case .Floor_Grid:      return ICON_FLOOR
-	case .Symmetry_X:      return ICON_SYMMETRY
-	case .Local_Symmetry:  return ICON_LOCAL_SYMMETRY
+	case .Tool_Move:       return ui.ICON_GIZMO
+	case .Remesh:          return ui.ICON_REMESH
+	case .Dyntopo_Toggle:  return ui.ICON_DYNTOPO
+	case .Retopologize:    return ui.ICON_RETOPO
+	case .Subdivide:       return ui.ICON_SUBDIVIDE
+	case .Live_Boolean:    return ui.ICON_BOOLEAN
+	case .Studio_Render:   return ui.ICON_STUDIO_RENDER
+	case .Ortho_Toggle:    return ui.ICON_ORTHO
+	case .Floor_Grid:      return ui.ICON_FLOOR
+	case .Symmetry_X:      return ui.ICON_SYMMETRY
+	case .Local_Symmetry:  return ui.ICON_LOCAL_SYMMETRY
 	case .Focus_Selected:  return ui.ICON_FOCUS
-	case .Wireframe:       return ICON_WIREFRAME
-	case .Transparency:    return ICON_TRANSPARENCY
+	case .Wireframe:       return ui.ICON_WIREFRAME
+	case .Transparency:    return ui.ICON_TRANSPARENCY
 	case .Ghost_Object:    return ui.ICON_GHOST
-	case .Solo_Object:     return ICON_SOLO
+	case .Solo_Object:     return ui.ICON_SOLO
 	case .Command_Palette: return ui.ICON_SEARCH
 	case .Brush:           return BRUSHES[sculpt.Brush_Kind(s.arg)].icon
 	case .Brush_Preset:    return preset_slot_icon(app, s.arg)
 	case .Mask_Shape_Pick: return SHAPE_TOOL_ICONS[Mask_Shape_Kind(s.arg)]
 	case .Hide_Gesture_Pick: return GESTURE_ICONS[Gesture_Tool(s.arg)]
-	case .Camera_Menu:     return ICON_CAMERA
-	case .Shading_Menu:    return ICON_SHADING
-	case .Second_View:       return ICON_SECOND_VIEW
-	case .View_Layout_Menu: return ICON_VIEW_LAYOUT
-	case .Pass_Menu:       return ICON_PASSES
+	case .Camera_Menu:     return ui.ICON_CAMERA
+	case .Shading_Menu:    return ui.ICON_SHADING
+	case .Second_View:       return ui.ICON_SECOND_VIEW
+	case .View_Layout_Menu: return ui.ICON_VIEW_LAYOUT
+	case .Pass_Menu:       return ui.ICON_PASSES
 	case .Open_Card:       return card_icon(app, Card(s.arg)) if s.arg >= 0 && s.arg < len(Card) else ui.ICON_PANEL
 	case .Open_Section:    return SECTION_ICONS[Section(s.arg)] if s.arg >= 0 && s.arg < len(Section) else ui.ICON_PANEL
 	case .Brush_Value:     if v, ok := value_of(s); ok do return BRUSH_VALUE_ICONS[v]

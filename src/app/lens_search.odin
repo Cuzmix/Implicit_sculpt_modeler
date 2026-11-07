@@ -181,7 +181,14 @@ lens_palette_row :: proc(app: ^App, e: Palette_Entry, title, id: string, width: 
 	else if a.hovered && !picked do ui.fill_rect(ctx, full, t.radius_small + 2, t.fill_hover)
 	fg := t.text if enabled else ui.disabled_ink(t)
 	mid := r.y + r.h * 0.5
-	ui.icon(ctx, palette_icon(e), {r.x + 10 + t.icon_small * 0.5, mid}, t.icon_small, fg if !enabled else t.text_secondary)
+	// A brush's row shows the brush's own picture, as the shelf does.
+	icon_at := [2]f32{r.x + 10 + t.icon_small * 0.5, mid}
+	if pic := bar_picture(app, {e.id, e.arg}) if e.kind == .Command else {}; pic.image != 0 {
+		ui.picture_icon(ctx, pic, icon_at, t.icon_small * ui.MENU_PICTURE, 1 if enabled else ui.DISABLED_FADE)
+	} else {
+		// bar_icon gives a brush's or a preset's own glyph, and the palette's for the rest.
+		ui.icon(ctx, bar_icon(app, {e.id, e.arg}) if e.kind == .Command else palette_icon(e), icon_at, t.icon_small, fg if !enabled else t.text_secondary)
+	}
 	x := r.x + 20 + t.icon_small
 	keys := command_keys(app, e.id, e.arg) if e.kind == .Command else ""
 	checked := e.kind == .Command && command_checked(app, e.id, e.arg)
@@ -238,7 +245,7 @@ lens_palette_footer :: proc(app: ^App, e: Maybe(Palette_Entry), width: f32, anch
 	r := ui.place(ctx, {width - 16 - buttons, t.target})
 	ui.text(ctx, ui.text_fit(ctx, hint, t.caption_size, r.w - 8), r.x + 4, r.y + r.h * 0.5, t.caption_size, t.text_tertiary)
 	if c, ok := e.?; ok && c.kind == .Command && k.palette_for == nil {
-		show = ui.icon_button(ctx, "Show where it lives##palette show", ui.ICON_FOCUS, enabled = palette_home(c) != "", keys = "Tab")
+		show = ui.icon_button(ctx, "Show where it lives##palette show", ui.ICON_LOCATE, enabled = palette_home(c) != "", keys = "Tab")
 		starred := favourite_find(app, c.id, c.arg) >= 0
 		if ui.icon_button(ctx, "Starred##palette star" if starred else "Star##palette star", ui.ICON_STAR, selected = starred) {
 			if favourite_toggle(app, c.id, c.arg) do pies_saved(app)
@@ -249,7 +256,7 @@ lens_palette_footer :: proc(app: ^App, e: Maybe(Palette_Entry), width: f32, anch
 		if pin {
 			which := shelf_which(k.shelf.page)
 			_, held := shelf_holds(app, which, {c.id, c.arg})
-			if ui.icon_button(ctx, "On the shelf##palette pin" if held else "Pin to shelf##palette pin", ICON_PIN, selected = held, enabled = !held) do shelf_pin(app, {c.id, c.arg}, which)
+			if ui.icon_button(ctx, "On the shelf##palette pin" if held else "Pin to shelf##palette pin", ui.ICON_PIN, selected = held, enabled = !held) do shelf_pin(app, {c.id, c.arg}, which)
 		}
 	}
 	ui.end(ctx)
