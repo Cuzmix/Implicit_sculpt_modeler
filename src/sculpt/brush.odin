@@ -54,6 +54,7 @@ Brush_Kind :: enum {
 	Tube,         // voxel clay only: lay a rope of clay along the stroke (voxel.Brush_Kind.Tube; a mesh refuses it)
 	Rotate,       // turn what is under the press about it as the pointer goes round it: Grab's arrays, turned (grab.odin)
 	Thumb,        // smear the surface along the stroke and press it flat, as a thumb in clay (inverted pushes back)
+	Pose,         // bend what the press reaches along the surface about a joint a radius away: Grab's arrays, turned (grab.odin)
 }
 
 Axis :: enum u8 {
@@ -992,7 +993,7 @@ FOCAL_MAX :: 100
 projects :: #force_inline proc(brush: Brush) -> bool {
 	if brush.projected == {} || brush.alpha != nil do return false
 	#partial switch brush.kind {
-	case .Grab, .Elastic, .Rotate, .Cloth, .Snake_Hook, .Clay_Strips, .Thumb: return false
+	case .Grab, .Elastic, .Rotate, .Pose, .Cloth, .Snake_Hook, .Clay_Strips, .Thumb: return false
 	}
 	return true
 }
@@ -1121,7 +1122,7 @@ Dab :: struct {
 apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	// Tube lays clay, which only a voxel object has: on a mesh it does nothing (the app
 	// refuses the stroke and says so).
-	if brush.kind == .Grab || brush.kind == .Elastic || brush.kind == .Cloth || brush.kind == .Tube || brush.kind == .Rotate do return 0
+	if brush.kind == .Grab || brush.kind == .Elastic || brush.kind == .Cloth || brush.kind == .Tube || brush.kind == .Rotate || brush.kind == .Pose do return 0
 	stroke_gpu_decide(s, brush)
 	moved := 0
 	images := dab_images(s, brush, center)
@@ -1458,7 +1459,7 @@ dab_lay :: proc(s: ^Sculptor, d: ^Dab, brush: Brush, pool: ^jobs.Pool, img: Sym_
 		along := brush.stroke_dir - d.normal * linalg.dot(brush.stroke_dir, d.normal)
 		d.drag_dir = along * (sign * 2 * brush.strength)
 		jobs.parallel_for(pool, len(s.hit), d, job_thumb)
-	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Tube, .Rotate:
+	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Tube, .Rotate, .Pose:
 		unreachable()
 	case .Smooth:
 		// Jacobi steps: every target of a pass is computed from that pass's unmoved

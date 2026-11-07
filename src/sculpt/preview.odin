@@ -103,7 +103,7 @@ preview_render :: proc(brush: Brush, pixels: []u8) -> bool {
 	}
 	dabs := max(int(length / (PREVIEW_RADIUS * PREVIEW_SPACING)), 2)
 	switch b.kind {
-	case .Grab, .Elastic:
+	case .Grab, .Elastic, .Pose:
 		// Picked up left of the middle and pulled up and to the right.
 		at := preview_on(&s, {-0.25, -0.05})
 		_ = sculptor_grab_begin(&s, b, at)

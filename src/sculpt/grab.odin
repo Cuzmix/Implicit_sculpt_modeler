@@ -1,5 +1,6 @@
 package sculpt
 
+import "core:math"
 import "core:math/linalg"
 import "core:slice"
 
@@ -37,7 +38,19 @@ Grab :: struct {
 	weight:     [dynamic]f32,
 	centers:    [dynamic]Vec3,
 	turns:      [dynamic]matrix[3, 3]f32,
+	// Pose: the joint each image bends about (pose_pivot), where it pressed being `centers`;
+	// empty for the other kinds.
+	pivots:     [dynamic]Vec3,
+	// Pose: each grabbed vertex's weight under each image, len(pivots) a vertex, so where
+	// images overlap (a press on the mirror plane) each bends its share and they add up,
+	// as Grab's follow sums the images' drags.
+	pose_w:     [dynamic]f32,
 }
+
+// Pose: the joint lies a radius along the surface from the press, and the bend fades out
+// across this share of the radius either side of it, so the joint bends smoothly instead
+// of folding along a line.
+POSE_SOFT :: 0.25
 
 // A turn of what a grab holds about the way the view looks, as Nomad's Move turns with the
 // Pencil Pro's roll: `angle` radians about `axis` (unit length, the mesh's space) through
@@ -82,6 +95,13 @@ Grab_Job :: struct {
 	// ELASTIC_REACH radii, which r2 holds.
 	elastic: bool,
 	kelvin:  geom.Kelvinlet,
+	// Pose: what the press reaches along the surface is held whole out to `pose_in` and
+	// fades out by `pose_out` (POSE_SOFT either side of the radius).
+	pose:            bool,
+	pose_in, pose_out: f32,
+	// Pose, in a move: per image the turn the drag gives what is held whole.
+	pose_axes:   [dynamic; SYM_IMAGES_MAX]Vec3,
+	pose_angles: [dynamic; SYM_IMAGES_MAX]f32,
 }
 
 // Starts dragging the vertices within the brush around `center`. Call inside a stroke
@@ -99,6 +119,14 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		reach = ELASTIC_REACH * brush.radius
 		j.elastic, j.kelvin, j.r2 = true, geom.kelvinlet_make(brush.radius, brush.volume), reach * reach
 		brush.through, brush.connected, brush.topological, brush.same_side, brush.silhouette = {}, false, false, false, false
+	}
+	if brush.kind == .Pose {
+		// Pose reaches along the surface, past the radius to where its joint fades out, and
+		// keeps to the surface it pressed: none of the other reaches apply.
+		j.pose, j.pose_in, j.pose_out = true, brush.radius * (1 - POSE_SOFT), brush.radius * (1 + POSE_SOFT)
+		reach = j.pose_out
+		j.r2 = reach * reach
+		brush.through, brush.connected, brush.topological, brush.same_side, brush.silhouette = {}, false, true, false, false
 	}
 	through := linalg.normalize0(brush.through)
 	g.normal, g.silhouette = {}, false
@@ -133,12 +161,14 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	if n == 0 do return 0
 	// Reaching through the depth wins over Connected and Topological, which keep to the
 	// round reach; Topological reaches only what joins the press, so it is Connected too.
+	clear(&g.pivots)
 	if brush.topological && through == {} {
 		j.connected, j.topological = true, true
 		for k in 0 ..< len(j.centers) {
-			verts, dist := geodesic_reach(s, j.centers[k], brush.radius)
+			verts, dist := geodesic_reach(s, j.centers[k], reach)
 			append(&j.reach, verts)
 			append(&j.geodesic, dist)
+			if j.pose do append(&g.pivots, pose_pivot(s, verts, dist, brush.radius, j.centers[k]))
 		}
 	} else if brush.connected && through == {} {
 		j.connected = true
@@ -180,6 +210,7 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	resize(&g.normals, total if g.silhouette else 0)
 	resize(&g.image, total)
 	resize(&g.weight, total)
+	resize(&g.pose_w, total * len(g.pivots))
 	jobs.parallel_for(pool, n, &j, proc(data: rawptr, i: int) {
 		j := cast(^Grab_Job)data
 		g := &j.s.grab
@@ -191,6 +222,11 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 			g.verts[k], g.start[k], g.follow[k] = v, j.s.mesh.positions[v], f
 			g.image[k], g.weight[k] = u16(image), weight
 			if g.silhouette do g.normals[k] = j.s.mesh.normals[v]
+			if j.pose {
+				shielded := shield(j.s.fade, j.s.mask, v)
+				images := len(g.pivots)
+				for c in 0 ..< images do g.pose_w[int(k) * images + c] = pose_weight(j, v, c) * shielded
+			}
 			k += 1
 		}
 	})
@@ -218,6 +254,21 @@ sculptor_grab_move :: proc(s: ^Sculptor, offset: Vec3, twist := Grab_Twist{}) ->
 			append(&j.centers, g.centers[k] + turn * offset)
 		}
 	}
+	if len(g.pivots) == len(g.centers) && len(g.pivots) > 0 && len(g.weight) == len(g.verts) {
+		// Pose: each image turns what it holds about its joint, by the turn that takes the
+		// press, seen from the joint, to where the drag (turned as the image is) has it.
+		j.pose = true
+		for turn, k in g.turns {
+			a := g.centers[k] - g.pivots[k]
+			b := a + turn * offset
+			axis := linalg.cross(a, b)
+			n := linalg.length(axis)
+			angle: f32
+			if n > 1e-12 do angle = math.atan2(n, linalg.dot(a, b))
+			append(&j.pose_axes, axis / n if n > 1e-12 else Vec3{0, 0, 1})
+			append(&j.pose_angles, angle)
+		}
+	}
 	if g.silhouette {
 		// Blender's Grab silhouette: the drag's way out of the surface, so pulling an edge
 		// outward leaves the side facing back, and pushing it in the side facing out.
@@ -235,6 +286,19 @@ sculptor_grab_move :: proc(s: ^Sculptor, offset: Vec3, twist := Grab_Twist{}) ->
 			// A vertex Silhouette leaves stays where the grab found it.
 			if j.drag_out != {} && !grab_silhouette_keeps(g.normals[k], g.follow[k] * j.drag_out) {
 				m.positions[g.verts[k]] = g.start[k]
+				continue
+			}
+			if j.pose {
+				// Each image's bend of the vertex by its own weight there, added up.
+				images := len(g.pivots)
+				p := g.start[k]
+				for c in 0 ..< images {
+					w := g.pose_w[int(k) * images + c]
+					if w <= 0 do continue
+					q := g.pivots[c]
+					p += q + linalg.matrix3_rotate_f32(j.pose_angles[c] * w, j.pose_axes[c]) * (g.start[k] - q) - g.start[k]
+				}
+				m.positions[g.verts[k]] = p
 				continue
 			}
 			p := g.start[k] + g.follow[k] * j.offset
@@ -361,6 +425,21 @@ grab_follow :: #force_inline proc(j: ^Grab_Job, v: u32) -> (f: matrix[3, 3]f32, 
 		}
 		return
 	}
+	if j.pose {
+		// Held whole near the press, fading out across the joint, by the distance along the
+		// surface; each image its own.
+		for _, k in j.centers {
+			w := pose_weight(j, v, k)
+			if w <= 0 do continue
+			f += mat_scaled(j.turns[k], w)
+			if w > weight do image, weight = k, w
+		}
+		if f != 0 {
+			shielded := shield(j.s.fade, j.s.mask, v)
+			f, weight = mat_scaled(f, shielded), weight * shielded
+		}
+		return
+	}
 	for c, k in j.centers {
 		delta := p - c
 		// Reaching through the depth, only the distance across the line counts.
@@ -432,6 +511,8 @@ grab_init :: proc(g: ^Grab, allocator := context.allocator) {
 	g.weight = make([dynamic]f32, 0, 1024, allocator)
 	g.centers = make([dynamic]Vec3, 0, 8, allocator)
 	g.turns = make([dynamic]matrix[3, 3]f32, 0, 8, allocator)
+	g.pivots = make([dynamic]Vec3, 0, 8, allocator)
+	g.pose_w = make([dynamic]f32, 0, 0, allocator)
 }
 
 @(private)
@@ -447,5 +528,45 @@ grab_destroy :: proc(g: ^Grab) {
 	delete(g.weight)
 	delete(g.centers)
 	delete(g.turns)
+	delete(g.pivots)
+	delete(g.pose_w)
 	g^ = {}
+}
+
+// Pose's joint for a press at `center`: the middle of the ring of the surface a radius
+// from the press along it (the reach's vertices within a tenth of a radius of that), so a
+// press on a finger's tip with the radius the finger's length bends it at its root. With no
+// such ring (the reach ends sooner, on a small part), the middle of all it reaches.
+@(private = "file")
+pose_pivot :: proc(s: ^Sculptor, verts: []u32, dist: []f32, radius: f32, center: Vec3) -> Vec3 {
+	ring, all: Vec3
+	nring, nall: f32
+	for v, i in verts {
+		p := s.mesh.positions[v]
+		all += p
+		nall += 1
+		if abs(dist[i] - radius) <= 0.1 * radius {
+			ring += p
+			nring += 1
+		}
+	}
+	if nring > 0 do return ring / nring
+	if nall > 0 do return all / nall
+	return center
+}
+
+// 0 below 0, 1 above 1, a smooth rise between.
+@(private = "file")
+smooth01 :: #force_inline proc(x: f32) -> f32 {
+	t := clamp(x, 0, 1)
+	return t * t * (3 - 2 * t)
+}
+
+// Pose: how much image `k` bends vertex v, by its distance along the surface from where the
+// image pressed: whole near the press, fading out across the joint, 0 out of its reach.
+@(private = "file")
+pose_weight :: proc(j: ^Grab_Job, v: u32, k: int) -> f32 {
+	at, found := slice.binary_search(j.reach[k], v)
+	if !found do return 0
+	return 1 - smooth01((j.geodesic[k][at] - j.pose_in) / (j.pose_out - j.pose_in))
 }
