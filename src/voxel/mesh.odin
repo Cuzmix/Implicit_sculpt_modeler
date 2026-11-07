@@ -37,6 +37,7 @@ Surface :: struct {
 	mesh:         geom.Mesh,
 	codes:        [dynamic]u32, // per vertex slot, beside mesh.positions: the vertex's code (below)
 	mask:         [dynamic]u8, // per vertex slot: the mask field sampled at the vertex (mask.odin), 255 fully masked
+	color:        [dynamic][4]u8, // per vertex slot: the colour sampled at the vertex (color.odin), sRGB and the painted weight
 	nodes:        [dynamic]Node,
 	chunks:       [dynamic]geom.Chunk, // one per node with triangles, sorted by first_index, for the Draw_Item
 	free_verts:   [dynamic]geom.Vertex_Range, // holes, sorted and merged
@@ -90,6 +91,7 @@ Mesh_Result :: struct {
 	normals:   [dynamic]Vec3,
 	codes:     [dynamic]u32,
 	mask:      [dynamic]u8,
+	color:     [dynamic][4]u8,
 	indices:   [dynamic]u32,
 	bounds:    geom.Aabb,
 	cone_axis:   Vec3,
@@ -114,11 +116,13 @@ surface_init :: proc(s: ^Surface, allocator: runtime.Allocator) {
 	s.mesh.indices = make([dynamic]u32, allocator)
 	s.codes = make([dynamic]u32, allocator)
 	s.mask = make([dynamic]u8, allocator)
+	s.color = make([dynamic][4]u8, allocator)
 	// Vertex 0 is the dummy every unused index slot points at.
 	append(&s.mesh.positions, Vec3{})
 	append(&s.mesh.normals, Vec3{})
 	append(&s.codes, 0)
 	append(&s.mask, 0)
+	append(&s.color, [4]u8{})
 	s.nodes = make([dynamic]Node, allocator)
 	s.chunks = make([dynamic]geom.Chunk, allocator)
 	s.free_verts = make([dynamic]geom.Vertex_Range, allocator)
@@ -134,6 +138,7 @@ surface_destroy :: proc(s: ^Surface) {
 	geom.mesh_destroy(&s.mesh)
 	delete(s.codes)
 	delete(s.mask)
+	delete(s.color)
 	delete(s.nodes)
 	delete(s.chunks)
 	delete(s.free_verts)
@@ -303,6 +308,7 @@ clay_flush :: proc(c: ^Clay) -> (f: Flush) {
 		copy(s.mesh.normals[n.vert_first:][:n.vert_count], r.normals[:])
 		copy(s.codes[n.vert_first:][:n.vert_count], r.codes[:])
 		copy(s.mask[n.vert_first:][:n.vert_count], r.mask[:])
+		copy(s.color[n.vert_first:][:n.vert_count], r.color[:])
 		out := s.mesh.indices[n.idx_first:][:n.idx_cap]
 		for k, j in r.indices do out[j] = n.vert_first + k
 		slice.zero(out[n.idx_count:])
@@ -329,8 +335,9 @@ mesh_result_destroy :: proc(r: ^Mesh_Result) {
 	delete(r.normals)
 	delete(r.codes)
 	delete(r.mask)
+	delete(r.color)
 	delete(r.indices)
-	r.positions, r.normals, r.codes, r.mask, r.indices = nil, nil, nil, nil, nil
+	r.positions, r.normals, r.codes, r.mask, r.color, r.indices = nil, nil, nil, nil, nil, nil
 }
 
 @(private)
@@ -426,10 +433,12 @@ surface_alloc_verts :: proc(s: ^Surface, count: u32) -> u32 {
 	non_zero_resize(&s.mesh.normals, int(first + count + slack))
 	non_zero_resize(&s.codes, int(first + count + slack))
 	non_zero_resize(&s.mask, int(first + count + slack))
+	non_zero_resize(&s.color, int(first + count + slack))
 	slice.zero(s.mesh.positions[first:])
 	slice.zero(s.mesh.normals[first:])
 	slice.zero(s.codes[first:])
 	slice.zero(s.mask[first:])
+	slice.zero(s.color[first:])
 	if slack > 0 do free_insert_verts(&s.free_verts, {first + count, slack})
 	s.regrow = true
 	return first
@@ -534,6 +543,7 @@ surface_compact :: proc(s: ^Surface) {
 	normals := make([dynamic]Vec3, 1, len(s.mesh.positions) - holes, s.allocator)
 	codes := make([dynamic]u32, 1, len(s.mesh.positions) - holes, s.allocator)
 	mask := make([dynamic]u8, 1, len(s.mesh.positions) - holes, s.allocator)
+	color := make([dynamic][4]u8, 1, len(s.mesh.positions) - holes, s.allocator)
 	indices := make([dynamic]u32, s.allocator)
 	for &n in s.nodes {
 		if n.vert_cap == 0 do continue
@@ -542,10 +552,12 @@ surface_compact :: proc(s: ^Surface) {
 		append(&normals, ..s.mesh.normals[n.vert_first:][:n.vert_count])
 		append(&codes, ..s.codes[n.vert_first:][:n.vert_count])
 		append(&mask, ..s.mask[n.vert_first:][:n.vert_count])
+		append(&color, ..s.color[n.vert_first:][:n.vert_count])
 		resize(&positions, int(vf + n.vert_cap))
 		resize(&normals, int(vf + n.vert_cap))
 		resize(&codes, int(vf + n.vert_cap))
 		resize(&mask, int(vf + n.vert_cap))
+		resize(&color, int(vf + n.vert_cap))
 		resize(&indices, int(ifi + n.idx_cap))
 		for k, j in s.mesh.indices[n.idx_first:][:n.idx_count] do indices[int(ifi) + j] = k - n.vert_first + vf
 		n.vert_first, n.idx_first = vf, ifi
@@ -554,8 +566,9 @@ surface_compact :: proc(s: ^Surface) {
 	delete(s.mesh.normals)
 	delete(s.codes)
 	delete(s.mask)
+	delete(s.color)
 	delete(s.mesh.indices)
-	s.mesh.positions, s.mesh.normals, s.codes, s.mask, s.mesh.indices = positions, normals, codes, mask, indices
+	s.mesh.positions, s.mesh.normals, s.codes, s.mask, s.color, s.mesh.indices = positions, normals, codes, mask, color, indices
 	clear(&s.free_verts)
 	clear(&s.free_indices)
 	surface_chunks_rebuild(s)
@@ -586,6 +599,13 @@ mesh_node :: proc(c: ^Clay, r: ^Mesh_Result) {
 		mask_window = make([]u8, MESH_WINDOW_VOXELS, heap)
 		gather_mask_window(&c.volume, lo, MESH_WINDOW, mask_window)
 	}
+	// The colour likewise, only when a brick under the window is painted.
+	color_window: [][4]u8
+	defer delete(color_window, heap)
+	if volume_colored_over(&c.volume, lo, MESH_WINDOW) {
+		color_window = make([][4]u8, MESH_WINDOW_VOXELS, heap)
+		gather_color_window(&c.volume, lo, MESH_WINDOW, color_window)
+	}
 	cells := make([]Cell_Verts, MESH_CELLS * MESH_CELLS * MESH_CELLS, heap)
 	defer delete(cells, heap)
 	for &cell in cells do cell.first = CELL_NONE
@@ -593,6 +613,7 @@ mesh_node :: proc(c: ^Clay, r: ^Mesh_Result) {
 	r.normals = make([dynamic]Vec3, heap)
 	r.codes = make([dynamic]u32, heap)
 	r.mask = make([dynamic]u8, heap)
+	r.color = make([dynamic][4]u8, heap)
 	r.indices = make([dynamic]u32, heap)
 	r.bounds = geom.AABB_EMPTY
 	for axis in 0 ..< 3 {
@@ -618,7 +639,7 @@ mesh_node :: proc(c: ^Clay, r: ^Mesh_Result) {
 					cell[cc] -= 1
 					corner |= 1 << uint(cc)
 				}
-				quad[k] = cell_vertex(c, r, window, mask_window, cells, n.coord, cell, cell_edge(axis, corner))
+				quad[k] = cell_vertex(c, r, window, mask_window, color_window, cells, n.coord, cell, cell_edge(axis, corner))
 			}
 			// Outward is toward the positive value.
 			if d0 >= 0 do quad[1], quad[3] = quad[3], quad[1]
@@ -649,7 +670,7 @@ mesh_node :: proc(c: ^Clay, r: ^Mesh_Result) {
 					if cell[p] < 0 || cell[p] >= NODE do continue
 					if cells[((cell.z + 1) * MESH_CELLS + cell.y + 1) * MESH_CELLS + cell.x + 1].first != CELL_NONE do continue
 					corner := 1 << uint(o) | side << uint(p)
-					_ = cell_vertex(c, r, window, mask_window, cells, n.coord, cell, cell_edge(axis, corner))
+					_ = cell_vertex(c, r, window, mask_window, color_window, cells, n.coord, cell, cell_edge(axis, corner))
 				}
 			}
 		}
@@ -715,7 +736,7 @@ cell_edge :: #force_inline proc(axis, corner: int) -> int {
 // shares the cell runs this same proc on the same voxel values, so the copies agree bit for
 // bit: never inline it, or the compiler may fold the arithmetic differently per caller.
 @(private)
-cell_vertex :: #force_no_inline proc(c: ^Clay, r: ^Mesh_Result, window: []i16, mask_window: []u8, cells: []Cell_Verts, nc: [3]i32, cell: [3]int, edge: int) -> u32 {
+cell_vertex :: #force_no_inline proc(c: ^Clay, r: ^Mesh_Result, window: []i16, mask_window: []u8, color_window: [][4]u8, cells: []Cell_Verts, nc: [3]i32, cell: [3]int, edge: int) -> u32 {
 	at := ((cell.z + 1) * MESH_CELLS + cell.y + 1) * MESH_CELLS + cell.x + 1
 	cv := &cells[at]
 	if cv.first != CELL_NONE do return cv.first + u32(cv.loop[edge])
@@ -839,6 +860,15 @@ cell_vertex :: #force_no_inline proc(c: ^Clay, r: ^Mesh_Result, window: []i16, m
 			m = u8(math.lerp(my0, my1, local.z) + 0.5)
 		}
 		append(&r.mask, m)
+		col: [4]u8
+		if color_window != nil {
+			cc: [8][4]u8
+			for k in 0 ..< 8 {
+				cc[k] = color_window[base + (k & 1) + (k >> 1 & 1) * MESH_WINDOW + (k >> 2 & 1) * MESH_WINDOW * MESH_WINDOW]
+			}
+			col = color_trilinear(cc, local)
+		}
+		append(&r.color, col)
 	}
 	return cv.first + u32(cv.loop[edge])
 }

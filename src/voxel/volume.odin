@@ -77,6 +77,10 @@ Volume :: struct {
 	masks:       [dynamic]u32,
 	mask_bricks: [dynamic]Mask_Brick,
 	mask_free:   [dynamic]u32,
+	// Colours (color.odin): per pool slot the index of the brick's colour brick, or COLOR_NONE.
+	colors:       [dynamic]u32,
+	color_bricks: [dynamic]Color_Brick,
+	color_free:   [dynamic]u32,
 	allocator: runtime.Allocator,
 }
 
@@ -97,6 +101,9 @@ volume_init :: proc(v: ^Volume, voxel: f32, centre: Vec3, allocator := context.a
 	v.masks = make([dynamic]u32, allocator)
 	v.mask_bricks = make([dynamic]Mask_Brick, allocator)
 	v.mask_free = make([dynamic]u32, allocator)
+	v.colors = make([dynamic]u32, allocator)
+	v.color_bricks = make([dynamic]Color_Brick, allocator)
+	v.color_free = make([dynamic]u32, allocator)
 }
 
 volume_destroy :: proc(v: ^Volume) {
@@ -112,12 +119,15 @@ volume_destroy :: proc(v: ^Volume) {
 	delete(v.masks)
 	delete(v.mask_bricks)
 	delete(v.mask_free)
+	delete(v.colors)
+	delete(v.color_bricks)
+	delete(v.color_free)
 	v^ = {}
 }
 
-// How many bytes the field takes: bricks (free slots included), tables and masks.
+// How many bytes the field takes: bricks (free slots included), tables, masks and colours.
 volume_bytes :: proc(v: ^Volume) -> int {
-	return len(v.bricks) * size_of(Brick) + len(v.tables) * size_of(Chunk_Table) + len(v.chunks) * size_of(u32) + mask_bytes(v)
+	return len(v.bricks) * size_of(Brick) + len(v.tables) * size_of(Chunk_Table) + len(v.chunks) * size_of(u32) + mask_bytes(v) + color_bytes(v)
 }
 
 // Bricks holding values (not free slots).
@@ -243,11 +253,13 @@ volume_brick_make :: proc(v: ^Volume, bc: [3]i32, fill: i16) -> (slot: u32, bric
 		append(&v.pending, 0)
 		append(&v.region, 0)
 		append(&v.masks, MASK_NONE)
+		append(&v.colors, COLOR_NONE)
 	}
 	// A reused slot starts over: its stamps were another brick's, and it has no mask.
 	v.coords[slot] = bc
 	v.saved[slot], v.pending[slot] = 0, 0
 	v.masks[slot] = MASK_NONE
+	v.colors[slot] = COLOR_NONE
 	table.bricks[at] = slot
 	brick = &v.bricks[slot]
 	slice.fill(brick.d[:], fill)
@@ -261,6 +273,7 @@ volume_brick_collapse :: proc(v: ^Volume, bc: [3]i32, tile: Tile) {
 	at := brick_slot_in_chunk(bc)
 	if s := table.bricks[at]; s != TILE_EMPTY && s != TILE_INSIDE {
 		mask_drop(v, s)
+		color_drop(v, s)
 		v.coords[s] = BRICK_FREE
 		append(&v.free, s)
 	}
@@ -457,6 +470,9 @@ volume_fill :: proc(v: ^Volume, shape: Fill_Shape, pool: ^jobs.Pool = nil) {
 	clear(&v.masks)
 	clear(&v.mask_bricks)
 	clear(&v.mask_free)
+	clear(&v.colors)
+	clear(&v.color_bricks)
+	clear(&v.color_free)
 	extent := Vec3{shape.radius, shape.radius, shape.radius} if shape.radius > 0 else shape.half
 	reach := extent / v.voxel + BAND + 2
 	c := voxel_coords(v, shape.centre)

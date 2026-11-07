@@ -237,6 +237,7 @@ clay_dab_step :: proc(c: ^Clay, dab: Dab) -> int {
 		}
 		// The Mask brush writes the brick's mask, made here (the jobs allocate nothing).
 		if d.kind == .Mask do _ = mask_make(v, slot)
+		if d.kind == .Paint do _ = color_make(v, slot)
 		append(&c.jobs, Dab_Job{slot = slot, coord = bc})
 	}
 	if len(c.jobs) == 0 do return 0
@@ -297,6 +298,12 @@ clay_dab_step :: proc(c: ^Clay, dab: Dab) -> int {
 			job := &r.c.jobs[i]
 			job.effect = dab_mask_brick(&r.d, job.coord, mask_of(&r.c.volume, job.slot))
 		})
+	} else if d.kind == .Paint {
+		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
+			r := cast(^Run)data
+			job := &r.c.jobs[i]
+			job.effect = dab_paint_brick(&r.d, job.coord, color_of(&r.c.volume, job.slot), mask_of(&r.c.volume, job.slot))
+		})
 	} else {
 		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
 			r := cast(^Run)data
@@ -315,7 +322,7 @@ clay_dab_step :: proc(c: ^Clay, dab: Dab) -> int {
 	for job in c.jobs {
 		b := &v.bricks[job.slot]
 		surface_mark_box(c, job.coord, job.effect.lo, job.effect.hi)
-		if d.kind == .Mask {
+		if d.kind == .Mask || d.kind == .Paint {
 			// The field is as it was: nothing to collapse, repair or dilate.
 			if job.effect.changed do written += 1
 			continue

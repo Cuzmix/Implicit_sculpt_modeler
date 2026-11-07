@@ -17,6 +17,7 @@ Saved_Brick :: struct {
 	coord: [3]i32,
 	tile:  Tile, // Empty or Inside: the brick was that tile and `values` is unused
 	mask:  i32, // the brick's mask, an index into the step's masks, or -1 for none
+	color: i32, // the brick's colour, an index into the step's colors, or -1 for none
 	d:     [BRICK_VOXELS]i16,
 }
 
@@ -27,6 +28,7 @@ Saved_Brick :: struct {
 Undo_Step :: struct {
 	bricks: [dynamic]Saved_Brick,
 	masks:  [dynamic]Mask_Brick, // the saved bricks' masks, those that had one
+	colors: [dynamic]Color_Brick, // the saved bricks' colours, those that had one
 }
 
 Undo_History :: struct {
@@ -60,12 +62,13 @@ undo_destroy :: proc(h: ^Undo_History) {
 undo_step_destroy :: proc(s: ^Undo_Step) {
 	delete(s.bricks)
 	delete(s.masks)
+	delete(s.colors)
 	s^ = {}
 }
 
 @(private)
 undo_step_bytes :: proc(s: ^Undo_Step) -> int {
-	return len(s.bricks) * size_of(Saved_Brick) + len(s.masks) * size_of(Mask_Brick)
+	return len(s.bricks) * size_of(Saved_Brick) + len(s.masks) * size_of(Mask_Brick) + len(s.colors) * size_of(Color_Brick)
 }
 
 // Starts a stroke's step: the redo steps are dropped, as a new stroke makes them unreachable.
@@ -77,7 +80,7 @@ undo_begin :: proc(h: ^Undo_History) {
 		undo_step_destroy(&h.steps[i])
 	}
 	resize(&h.steps, h.cursor)
-	append(&h.steps, Undo_Step{bricks = make([dynamic]Saved_Brick, h.allocator), masks = make([dynamic]Mask_Brick, h.allocator)})
+	append(&h.steps, Undo_Step{bricks = make([dynamic]Saved_Brick, h.allocator), masks = make([dynamic]Mask_Brick, h.allocator), colors = make([dynamic]Color_Brick, h.allocator)})
 	h.stroke += 1
 	h.recording = true
 	clear(&h.first)
@@ -99,6 +102,7 @@ undo_record :: proc(h: ^Undo_History, v: ^Volume, bc: [3]i32) {
 	saved := Saved_Brick {
 		coord = bc,
 		mask  = -1,
+		color = -1,
 	}
 	tile, brick := volume_tile(v, bc)
 	saved.tile = tile
@@ -111,6 +115,11 @@ undo_record :: proc(h: ^Undo_History, v: ^Volume, bc: [3]i32) {
 			saved.mask = i32(len(step.masks))
 			append(&step.masks, m^)
 			h.bytes += size_of(Mask_Brick)
+		}
+		if b := color_of(v, slot); b != nil {
+			saved.color = i32(len(step.colors))
+			append(&step.colors, b^)
+			h.bytes += size_of(Color_Brick)
 		}
 	}
 	if bc not_in h.first do h.first[bc] = i32(len(step.bricks))
@@ -169,11 +178,15 @@ undo_swap :: proc(c: ^Clay, s: ^Undo_Step, backwards: bool) {
 		live_tile, live := volume_tile(v, bc)
 		live_d: [BRICK_VOXELS]i16
 		live_mask: Mask_Brick
-		had_mask := false
+		live_color: Color_Brick
+		had_mask, had_color := false, false
 		if live != nil {
 			live_d = live.d
 			if m := mask_of(v, volume_slot(v, bc)); m != nil {
 				live_mask, had_mask = m^, true
+			}
+			if b := color_of(v, volume_slot(v, bc)); b != nil {
+				live_color, had_color = b^, true
 			}
 		}
 		if saved.tile == .Brick {
@@ -181,6 +194,8 @@ undo_swap :: proc(c: ^Clay, s: ^Undo_Step, backwards: bool) {
 			b.d = saved.d
 			if saved.mask >= 0 do mask_make(v, slot)^ = s.masks[saved.mask]
 			else do mask_drop(v, slot)
+			if saved.color >= 0 do color_make(v, slot)^ = s.colors[saved.color]
+			else do color_drop(v, slot)
 		} else {
 			volume_brick_collapse(v, bc, saved.tile)
 		}
@@ -197,6 +212,17 @@ undo_swap :: proc(c: ^Clay, s: ^Undo_Step, backwards: bool) {
 			}
 		} else {
 			saved.mask = -1
+		}
+		if had_color {
+			if saved.color < 0 {
+				saved.color = i32(len(s.colors))
+				append(&s.colors, live_color)
+				c.history.bytes += size_of(Color_Brick)
+			} else {
+				s.colors[saved.color] = live_color
+			}
+		} else {
+			saved.color = -1
 		}
 		surface_mark_brick(c, bc)
 	}

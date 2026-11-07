@@ -33,6 +33,7 @@ Brush_Kind :: enum u8 {
 	Clay_Strips, // builds flat-topped strips with square ends along the stroke (inverted digs)
 	Trim,        // cuts a ridge into two planes about the stroke, at the angle it finds (inverted: a valley)
 	Tube,        // lays a capsule from Brush.from to the dab, blended into the clay (tube.odin; inverted carves)
+	Paint,       // paints colour (color.odin) rather than the field; inverted it erases
 }
 
 Brush :: struct {
@@ -48,6 +49,7 @@ Brush :: struct {
 	trim_angle: f32, // Trim: the angle between its two planes, radians, while `trim_fixed`
 	trim_fixed: bool, // Trim: keep trim_angle rather than find the angle under the brush
 	from:     Vec3, // Tube: where the last dab's capsule ended, object space (the dab's own centre at the first); radius is the tube's
+	color:    [3]u8, // Paint: the colour laid, sRGB
 }
 
 // How far a full-strength dab raises or lowers the surface, in radii (the mesh Draw
@@ -101,12 +103,14 @@ Dab :: struct {
 	history:   ^Undo_History,
 	// Tube: its capsule's ends, in voxels, and the blend's width.
 	tube_a, tube_b: Vec3,
+	color:     [3]u8, // Paint's colour
 	blend:     f32,
 }
 
 // The dab's numbers for `brush` at `centre` (object space) on a volume of `voxel` size.
 dab_make :: proc(brush: Brush, centre: Vec3, voxel: f32, origin: Vec3) -> (d: Dab) {
 	d.kind, d.invert = brush.kind, brush.invert
+	d.color = brush.color
 	d.centre = (centre - origin) / voxel
 	d.radius = max(brush.radius / voxel, 0.5)
 	d.strength = clamp(brush.strength, 0, 1)
@@ -224,7 +228,7 @@ dab_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick, mask: ^Mask_Brick
 	p0 := Vec3{f32(bc.x), f32(bc.y), f32(bc.z)} * BRICK
 	inv_r2 := 1 / (d.radius * d.radius)
 	switch d.kind {
-	case .Mask:
+	case .Mask, .Paint:
 		unreachable()
 	case .Add, .Subtract, .Clay, .Inflate, .Layer, .Clay_Strips:
 		grow_brick(d, bc, b, out, mask, &e)
@@ -447,7 +451,7 @@ dab_touches :: proc(d: ^Dab, bc: [3]i32, tile: Tile, reach: f32) -> bool {
 		HALF_DIAGONAL :: BRICK * 0.8660254
 		h := max(linalg.dot(mid - d.plane, d.trim_plus), linalg.dot(mid - d.plane, d.trim_minus))
 		return h + HALF_DIAGONAL > -(BAND + 1)
-	case .Smooth, .Inflate, .Mask, .Add, .Subtract, .Clay, .Pinch, .Crease, .Snake_Hook, .Layer, .Clay_Strips, .Tube:
+	case .Smooth, .Inflate, .Mask, .Paint, .Add, .Subtract, .Clay, .Pinch, .Crease, .Snake_Hook, .Layer, .Clay_Strips, .Tube:
 		// They move the surface at most a voxel, the warps WARP_STEP voxels a step, less
 		// than the clamp, so the surface never reaches a tile within a step (the band grows
 		// into tiles through band dilation after each, not here), and a mask lives on

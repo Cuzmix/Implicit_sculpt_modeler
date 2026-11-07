@@ -51,6 +51,12 @@ clay_copy :: proc(c: ^Clay, src: ^Clay, allocator := context.allocator) {
 	copy(v.mask_bricks[:], s.mask_bricks[:])
 	resize(&v.mask_free, len(s.mask_free))
 	copy(v.mask_free[:], s.mask_free[:])
+	resize(&v.colors, len(s.colors))
+	copy(v.colors[:], s.colors[:])
+	resize(&v.color_bricks, len(s.color_bricks))
+	copy(v.color_bricks[:], s.color_bricks[:])
+	resize(&v.color_free, len(s.color_free))
+	copy(v.color_free[:], s.color_free[:])
 	surface_mark_all(c)
 }
 
