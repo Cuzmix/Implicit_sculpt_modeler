@@ -193,6 +193,43 @@ blend_field_fill :: proc(f: ^Blend_Field, s: ^Blend_Surface, keys: []u64, pool: 
 	return n
 }
 
+// Takes out every brick whose box, grown by `pad`, meets one of `boxes` (in the field's
+// space), keeping the others in their order, and returns how many went: what a surface
+// changed there leaves stale, to be filled again from it.
+blend_field_drop :: proc(f: ^Blend_Field, boxes: []Aabb, pad: f32) -> int {
+	size := f.h * BLEND_BRICK
+	kept := 0
+	for k, i in f.keys {
+		b := blend_unkey(k)
+		lo := Vec3{f32(b.x), f32(b.y), f32(b.z)} * size - pad
+		hi := lo + size + 2 * pad
+		hit := false
+		for box in boxes {
+			if box.lo.x <= hi.x && box.hi.x >= lo.x && box.lo.y <= hi.y && box.hi.y >= lo.y && box.lo.z <= hi.z && box.hi.z >= lo.z {
+				hit = true
+				break
+			}
+		}
+		if hit do continue
+		if kept != i {
+			f.keys[kept] = k
+			copy(f.values[kept * BLEND_SAMPLES:][:BLEND_SAMPLES], f.values[i * BLEND_SAMPLES:][:BLEND_SAMPLES])
+			copy(f.extras[kept * BLEND_SAMPLES:][:BLEND_SAMPLES], f.extras[i * BLEND_SAMPLES:][:BLEND_SAMPLES])
+		}
+		kept += 1
+	}
+	dropped := len(f.keys) - kept
+	if dropped == 0 do return 0
+	resize(&f.keys, kept)
+	resize(&f.values, kept * BLEND_SAMPLES)
+	resize(&f.extras, kept * BLEND_SAMPLES)
+	slice.fill(f.table, KEY_FREE)
+	f.used = 0
+	for k, i in f.keys do table_put(f, k, i32(i))
+	f.revision += 1
+	return dropped
+}
+
 // One brick's samples, filled apart from any field: by blend_brick_sample on any thread
 // (it reads only the surface, which must not change meanwhile), then published by
 // blend_field_put on the thread that owns the field. A fill that must not hold up a frame

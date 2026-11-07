@@ -315,6 +315,7 @@ ICON_STACK_APPLY         model   tb:square-check
 ICON_ARRAY               model   tb:copy
 ICON_RADIAL              model   tb:rotate-360
 ICON_ALONG               model   tb:route-2
+ICON_STACK_BLEND         model   ph:unite
 ICON_STACK_BEVEL         model   tb:border-radius
 ICON_DISPLACE            model   lu:mountain-snow
 ICON_CAGE_DEFORM         model   ph:tornado

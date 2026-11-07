@@ -49,6 +49,7 @@ Stack :: struct {
 	array:  Stack_Array,
 	radial: Stack_Radial,
 	along:  Stack_Along,
+	blend:  Stack_Blend,
 }
 
 // A row is in the stack while `added`; `shown` is its eye.
@@ -79,6 +80,23 @@ Stack_Along :: struct {
 	count:        int, // the copies laid on the curve, from end to end
 	axis:         sculpt.Axis, // the object's own axis that runs along the curve
 }
+
+// Smooth blend (blend.odin): the object joined with others by a soft fillet where they
+// meet, drawn moved on the GPU, nothing under the sculpt changed. Each pair of objects
+// blends once whichever of them names the other; both sides move, as the fillet lies
+// outside both surfaces.
+Stack_Blend :: struct {
+	added, shown: bool,
+	folder:       bool, // joins every object of the object's own folder instead of `with`
+	with:         [STACK_BLEND_WITH_MAX]i32, // the objects chosen, by id; 0 an empty place
+	radius:       f32, // world units: how far along each surface the fillet reaches
+	strength:     f32, // how full it is, from a sharp crease at 0 to a full round at 1
+}
+
+STACK_BLEND_WITH_MAX :: 8
+STACK_BLEND_RADIUS_MIN :: 0.005
+STACK_BLEND_RADIUS_MAX :: 2
+STACK_BLEND_DEFAULT :: Stack_Blend{added = true, shown = true, radius = 0.12, strength = 0.8}
 
 STACK_ARRAY_DEFAULT :: Stack_Array{added = true, shown = true, count = 3, offset = {2.2, 0, 0}, grow = 1}
 STACK_RADIAL_DEFAULT :: Stack_Radial{added = true, shown = true, count = 6, axis = .Y, pivot = {-2.5, 0, 0}}
@@ -125,7 +143,19 @@ stack_along_curve :: proc(app: ^App, obj: ^Object) -> ^Object {
 stack_along_on :: proc(app: ^App, obj: ^Object) -> bool {return stack_along_curve(app, obj) != nil}
 
 // Whether any row of the object's stack is in it, shown or not.
-stack_has_rows :: proc(s: Stack) -> bool {return s.mirror.added || s.array.added || s.radial.added || s.along.added}
+stack_has_rows :: proc(s: Stack) -> bool {return s.mirror.added || s.array.added || s.radial.added || s.along.added || s.blend.added}
+
+// Whether the object's Smooth blend row shows.
+stack_blend_on :: proc(obj: ^Object) -> bool {return obj.stack.blend.added && obj.stack.blend.shown}
+
+// Whether the row names `other`: chosen by id, or in the same folder with Same folder on.
+stack_blend_names :: proc(obj, other: ^Object) -> bool {
+	if obj == other do return false
+	b := obj.stack.blend
+	if b.folder do return obj.folder != 0 && other.folder == obj.folder
+	for id in b.with do if id != 0 && int(id) == other.id do return true
+	return false
+}
 
 // The placings of the Along row's copies in the object's own space: the curve sampled
 // evenly from end to end (round a closed one), each sample's frame turning the object's
@@ -358,6 +388,7 @@ Stack_Tag :: enum u16 {
 	Array  = 2,
 	Radial = 3,
 	Along  = 4,
+	Blend  = 5,
 }
 
 // The fields of a row, each row taking those it has.
@@ -373,6 +404,10 @@ Stack_Row_Tag :: enum u16 {
 	Grow   = 9,  // f32: the array's size a step
 	Pivot  = 10, // Vec3: what the radial copies turn about
 	Curve  = 11, // i32: the curve object Along lays copies on
+	Folder = 12, // u8: the blend joins the object's folder
+	With   = 13, // i32 array: the objects the blend joins, by id
+	Radius = 14, // f32: the blend's radius, world units
+	Strength = 15, // f32: the blend's fullness, 0 to 1
 }
 
 stack_put :: proc(out: ^[dynamic]u8, s: Stack) {
@@ -409,6 +444,14 @@ stack_put :: proc(out: ^[dynamic]u8, s: Stack) {
 	geom.rec_put(out, R.Axis, u8(l.axis))
 	geom.rec_put(out, R.Curve, i32(l.curve))
 	geom.rec_end(out, at)
+	b := s.blend
+	at = row(out, .Blend, b.added, b.shown)
+	geom.rec_put(out, R.Folder, u8(b.folder))
+	with := b.with
+	geom.rec_put_slice(out, R.With, with[:])
+	geom.rec_put(out, R.Radius, b.radius)
+	geom.rec_put(out, R.Strength, b.strength)
+	geom.rec_end(out, at)
 }
 
 stack_get :: proc(r: ^geom.Byte_Reader) -> (s: Stack, ok: bool) {
@@ -419,6 +462,7 @@ stack_get :: proc(r: ^geom.Byte_Reader) -> (s: Stack, ok: bool) {
 	ar, _ := geom.rec_sub(&rec, Stack_Tag.Array)
 	rr, _ := geom.rec_sub(&rec, Stack_Tag.Radial)
 	lr, _ := geom.rec_sub(&rec, Stack_Tag.Along)
+	br, _ := geom.rec_sub(&rec, Stack_Tag.Blend)
 	flags :: proc(rec: ^geom.Record) -> (added, shown: u8) {
 		return geom.rec_get(rec, Stack_Row_Tag.Added, u8, 0), geom.rec_get(rec, Stack_Row_Tag.Shown, u8, 0)
 	}
@@ -432,7 +476,16 @@ stack_get :: proc(r: ^geom.Byte_Reader) -> (s: Stack, ok: bool) {
 	pivot := geom.rec_get(&rr, R.Pivot, Vec3, Vec3{})
 	la, ls := flags(&lr)
 	lc, lax, curve := geom.rec_get(&lr, R.Count, u8, 0), geom.rec_get(&lr, R.Axis, u8, 0), geom.rec_get(&lr, R.Curve, i32, 0)
-	if !rec.ok || !mr.ok || !ar.ok || !rr.ok || !lr.ok do return
+	ba, bs := flags(&br)
+	folder := geom.rec_get(&br, R.Folder, u8, 0)
+	with: [STACK_BLEND_WITH_MAX]i32
+	_ = geom.rec_get_into(&br, R.With, with[:])
+	radius, strength := geom.rec_get(&br, R.Radius, f32, 0), geom.rec_get(&br, R.Strength, f32, 0)
+	if !rec.ok || !mr.ok || !ar.ok || !rr.ok || !lr.ok || !br.ok do return
+	// A blend in the stack has a radius in range, a fullness from 0 to 1 and no id below 0.
+	if ba > 1 || bs > 1 || folder > 1 do return
+	if ba == 1 && (!(radius >= STACK_BLEND_RADIUS_MIN && radius <= STACK_BLEND_RADIUS_MAX) || !(strength >= 0 && strength <= 1)) do return
+	for id in with do if id < 0 do return
 	if ma > 1 || ms > 1 || minus > 1 || axes > 7 || aa > 1 || as > 1 || ra > 1 || rs > 1 || rax > 2 || la > 1 || ls > 1 || lax > 2 do return
 	if ac > STACK_COUNT_MAX || rc > STACK_COUNT_MAX || lc > STACK_COUNT_MAX || curve < 0 do return
 	if la == 1 && lc < 1 do return
@@ -443,6 +496,7 @@ stack_get :: proc(r: ^geom.Byte_Reader) -> (s: Stack, ok: bool) {
 	s.array = {added = aa == 1, shown = as == 1, count = int(ac), offset = offset, turn = turn, grow = grow}
 	s.radial = {added = ra == 1, shown = rs == 1, count = int(rc), axis = sculpt.Axis(rax), pivot = pivot}
 	s.along = {added = la == 1, shown = ls == 1, count = int(lc), axis = sculpt.Axis(lax), curve = int(curve)}
+	s.blend = {added = ba == 1, shown = bs == 1, folder = folder == 1, with = with, radius = radius, strength = strength}
 	return s, true
 }
 
@@ -475,6 +529,7 @@ Stack_Row :: enum u8 {
 	Array,
 	Radial,
 	Along,
+	Blend,
 }
 
 STACK_ROW_NAMES := [Stack_Row]string {
@@ -491,6 +546,7 @@ STACK_ROW_NAMES := [Stack_Row]string {
 	.Array       = "Array",
 	.Radial      = "Radial",
 	.Along       = "Along a curve",
+	.Blend       = "Smooth blend",
 }
 
 STACK_ROW_GLYPHS := [Stack_Row]rune {
@@ -507,6 +563,7 @@ STACK_ROW_GLYPHS := [Stack_Row]rune {
 	.Array       = ui.ICON_ARRAY,
 	.Radial      = ui.ICON_RADIAL,
 	.Along       = ui.ICON_ALONG,
+	.Blend       = ui.ICON_STACK_BLEND,
 }
 
 // The card's own state between frames, which holds no sculpt state: which object's row is
@@ -521,6 +578,8 @@ Stack_Card :: struct {
 	menu_at:   ui.Rect,
 	menu_row:  Stack_Row,
 	menu_side: ui.Side,
+	with_menu: bool, // the Smooth blend row's checklist of objects to join
+	with_at:   ui.Rect,
 }
 
 // Whether a cage's row `r` is the one open, which keeps it in the card while its value is
@@ -549,6 +608,7 @@ stack_row_in :: proc(app: ^App, obj: ^Object, r: Stack_Row) -> bool {
 	case .Array: return obj.stack.array.added
 	case .Radial: return obj.stack.radial.added
 	case .Along: return obj.stack.along.added
+	case .Blend: return obj.cage == nil && obj.stack.blend.added
 	}
 	return false
 }
@@ -561,6 +621,8 @@ stack_row_cage :: proc(r: Stack_Row) -> bool {return r <= .Sharp}
 @(private = "file")
 stack_row_fits :: proc(obj: ^Object, r: Stack_Row) -> bool {
 	if stack_row_cage(r) do return obj.cage != nil
+	// A blend joins sculpt meshes: a cage has its own rows, and clay remakes its vertices.
+	if r == .Blend do return obj.cage == nil && obj.voxel == nil
 	return r != .Mirror || obj.cage == nil
 }
 
@@ -570,6 +632,7 @@ row_shown :: proc(s: ^Stack, r: Stack_Row) -> ^bool {
 	case .Array: return &s.array.shown
 	case .Radial: return &s.radial.shown
 	case .Along: return &s.along.shown
+	case .Blend: return &s.blend.shown
 	}
 	return &s.mirror.shown
 }
@@ -637,6 +700,8 @@ stack_row_detail :: proc(app: ^App, obj: ^Object, r: Stack_Row) -> string {
 		curve := object_by_id(app, s.along.curve)
 		if curve == nil || curve.curve == nil do return "No curve picked"
 		return fmt.tprintf("%d along %s", s.along.count, stack_curve_label(app, curve))
+	case .Blend:
+		return blend_row_detail(app, obj)
 	}
 	return ""
 }
@@ -657,11 +722,12 @@ kit_stack :: proc(app: ^App, obj: ^Object) {
 	shape := false
 	for r in Stack_Row.Smooth ..= Stack_Row.Sharp do if stack_row_in(app, obj, r) do shape = true
 	copies := false
-	for r in Stack_Row.Mirror ..= Stack_Row.Along do if stack_row_in(app, obj, r) do copies = true
+	for r in Stack_Row.Mirror ..= Stack_Row.Blend do if stack_row_in(app, obj, r) do copies = true
 	if shape do ui.caption(ctx, "SHAPE")
 	for r in Stack_Row.Smooth ..= Stack_Row.Sharp do if stack_row_in(app, obj, r) do kit_stack_row(app, obj, r)
-	if shape && copies do ui.caption(ctx, "COPIES")
-	for r in Stack_Row.Mirror ..= Stack_Row.Along do if stack_row_in(app, obj, r) do kit_stack_row(app, obj, r)
+	if shape && copies do ui.caption(ctx, "COPIES AND JOINS")
+	for r in Stack_Row.Mirror ..= Stack_Row.Blend do if stack_row_in(app, obj, r) do kit_stack_row(app, obj, r)
+	kit_blend_joined(app, obj)
 	kit_stack_foot(app, obj, has)
 	kit_last_result(app, .Stack)
 }
@@ -717,6 +783,7 @@ kit_stack_row :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
 	case .Array: kit_stack_array(app, obj)
 	case .Radial: kit_stack_radial(app, obj)
 	case .Along: kit_stack_along(app, obj)
+	case .Blend: kit_stack_blend(app, obj)
 	}
 }
 
@@ -758,8 +825,12 @@ kit_stack_menus :: proc(app: ^App) {
 	c := &app.kit.stack
 	obj := selected_object(app)
 	if obj == nil || obj.id != c.object {
-		c.add, c.menu = false, false
+		c.add, c.menu, c.with_menu = false, false, false
 		return
+	}
+	if c.with_menu && ui.popover_begin(ctx, "stack blend with menu", &c.with_menu, c.with_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) {
+		kit_blend_with_menu(app, obj)
+		ui.popover_end(ctx)
 	}
 	if c.add && ui.popover_begin(ctx, "stack add menu", &c.add, c.add_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) {
 		kit_stack_add_menu(app, obj)
@@ -792,6 +863,7 @@ kit_stack_add_menu :: proc(app: ^App, obj: ^Object) {
 		.Array       = "Copies a step apart",
 		.Radial      = "Copies turned round an axis",
 		.Along       = "Copies laid along a curve object",
+		.Blend       = "A soft fillet where it meets other objects",
 	}
 	for group in 0 ..< 2 {
 		if obj.cage != nil do ui.label(ctx, "SHAPE" if group == 0 else "COPIES", t.caption_size, t.text_tertiary, .Semibold)
@@ -808,8 +880,9 @@ kit_stack_add_menu :: proc(app: ^App, obj: ^Object) {
 	}
 }
 
-// The rows of copies Search can add (Stack_Add's arguments), from Mirror to Along.
-STACK_ADD_ROWS :: int(Stack_Row.Along) - int(Stack_Row.Mirror) + 1
+// The rows of copies and joins Search can add (Stack_Add's arguments), from Mirror to
+// Smooth blend.
+STACK_ADD_ROWS :: int(Stack_Row.Blend) - int(Stack_Row.Mirror) + 1
 
 // Whether row `r` of copies can be added to the object now: one it can take and does not
 // hold, on something with a surface, Along once the scene has a curve.
@@ -844,6 +917,10 @@ stack_row_add :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
 	case .Array: s.array = STACK_ARRAY_DEFAULT
 	case .Radial: s.radial = STACK_RADIAL_DEFAULT
 	case .Along: s.along = {added = true, shown = true, count = 6, curve = stack_first_curve(app, obj)}
+	case .Blend:
+		// Joined at once with what touches it most, so the row shows something from the start.
+		s.blend = STACK_BLEND_DEFAULT
+		if other := blend_first_partner(app, obj); other != nil do s.blend.with[0] = i32(other.id)
 	}
 	stack_set(app, obj, s, fmt.tprintf("Add %s", strings.to_lower(STACK_ROW_NAMES[r], context.temp_allocator)))
 }
@@ -898,6 +975,7 @@ kit_stack_row_menu :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
 			case .Array: s.array = {}
 			case .Radial: s.radial = {}
 			case .Along: s.along = {}
+			case .Blend: s.blend = {}
 			}
 			stack_set(app, obj, s, fmt.tprintf("Remove %s", lower))
 		}
@@ -907,7 +985,6 @@ kit_stack_row_menu :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
 }
 
 // One undo step for a body's change: a tap (`what`) at once, a drag at its release.
-@(private = "file")
 stack_body_changed :: proc(app: ^App, obj: ^Object, before: Stack, tapped: string) {
 	if obj.stack == before do return
 	if tapped == "" {
@@ -1117,6 +1194,7 @@ stack_summary :: proc(obj: ^Object) -> string {
 	if a := s.array; a.added do append(&parts, fmt.tprintf("Array %d", a.count) if a.shown else "Array (hidden)")
 	if r := s.radial; r.added do append(&parts, fmt.tprintf("Radial %d", r.count) if r.shown else "Radial (hidden)")
 	if l := s.along; l.added do append(&parts, fmt.tprintf("Along %d", l.count) if l.shown else "Along (hidden)")
+	if b := s.blend; b.added do append(&parts, "Smooth blend" if b.shown else "Smooth blend (hidden)")
 	return strings.join(parts[:], ", ", context.temp_allocator)
 }
 
@@ -1357,10 +1435,10 @@ stack_shape_in :: proc(app: ^App, obj: ^Object, into: Transform) -> geom.Mesh {
 stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 	if obj == nil do return "nothing is selected"
 	words := strings.fields(text, context.temp_allocator)
-	USAGE :: "stack takes mirror x, array 4 2.2 0 0, radial 6 y, along 8 x, mirror off, show mirror, hide array, open array (or a cage's curve x, wrap 0, curve off, sharp 30, sharp off, open deform, open displace, open curve, open wrap, open sharp), apply array (that row alone) or apply stack"
+	USAGE :: "stack takes mirror x, array 4 2.2 0 0, radial 6 y, along 8 x, blend (then with 2 3, with folder, radius 0.1 or strength 0.8), mirror off, show mirror, hide array, open array (or a cage's curve x, wrap 0, curve off, sharp 30, sharp off, open deform, open displace, open curve, open wrap, open sharp), apply array (that row alone) or apply stack"
 	if len(words) < 2 do return USAGE
 	s := obj.stack
-	is_row :: proc(w: string) -> bool {return w == "mirror" || w == "array" || w == "radial" || w == "along"}
+	is_row :: proc(w: string) -> bool {return w == "mirror" || w == "array" || w == "radial" || w == "along" || w == "blend"}
 	switch {
 	case obj.cage != nil && words[0] == "curve" && len(words) == 2:
 		// A cage laid along the scene's first curve, its axis along it, or taken off it.
@@ -1411,6 +1489,7 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		case "array": r = .Array
 		case "radial": r = .Radial
 		case "along": r = .Along
+		case "blend": r = .Blend
 		case "deform": r = .Deform
 		case "displace": r = .Displace
 		case "curve": r = .Curve
@@ -1441,6 +1520,7 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		case "array": s.array = {}
 		case "radial": s.radial = {}
 		case "along": s.along = {}
+		case "blend": s.blend = {}
 		}
 	case (words[0] == "show" || words[0] == "hide") && is_row(words[1]) && len(words) == 2:
 		on := words[0] == "show"
@@ -1457,6 +1537,9 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		case "along":
 			if !s.along.added do return "the object has no along row"
 			s.along.shown = on
+		case "blend":
+			if !s.blend.added do return "the object has no blend row"
+			s.blend.shown = on
 		}
 	case words[0] == "mirror" && len(words) == 2:
 		axes := words[1]
@@ -1537,6 +1620,51 @@ stack_script :: proc(app: ^App, obj: ^Object, text: string) -> string {
 		case: return fmt.tprintf("%q is not an axis: x, y or z", words[2])
 		}
 		s.along = l
+	case words[0] == "blend":
+		// The row added (joined with what touches the object most) or changed: with ids
+		// (scene object numbers), with folder, radius r (world units), strength s (0 to 1).
+		if !stack_row_fits(obj, .Blend) do return "a blend joins sculpt meshes, not a cage or clay"
+		b := s.blend
+		if !b.added {
+			b = STACK_BLEND_DEFAULT
+			if other := blend_first_partner(app, obj); other != nil do b.with[0] = i32(other.id)
+		}
+		rest := words[1:]
+		for len(rest) > 0 {
+			switch {
+			case rest[0] == "with" && len(rest) == 2 && rest[1] == "folder":
+				b.folder = true
+				rest = rest[2:]
+			case rest[0] == "with" && len(rest) >= 2:
+				b.folder, b.with = false, {}
+				n := 0
+				for len(rest) > 1 {
+					id, id_ok := strconv.parse_int(rest[1])
+					if !id_ok do break
+					other := object_by_id(app, id)
+					if other == nil || other == obj do return fmt.tprintf("%d is no other object of the scene", id)
+					if n == STACK_BLEND_WITH_MAX do return fmt.tprintf("a blend joins at most %d objects", STACK_BLEND_WITH_MAX)
+					b.with[n] = i32(id)
+					n += 1
+					rest = rest[1:]
+				}
+				if n == 0 do return "with takes object numbers or folder"
+				rest = rest[1:]
+			case rest[0] == "radius" && len(rest) >= 2:
+				v, v_ok := strconv.parse_f32(rest[1])
+				if !v_ok || !(v >= STACK_BLEND_RADIUS_MIN && v <= STACK_BLEND_RADIUS_MAX) do return fmt.tprintf("radius is from %.3f to %.0f", STACK_BLEND_RADIUS_MIN, STACK_BLEND_RADIUS_MAX)
+				b.radius = v
+				rest = rest[2:]
+			case rest[0] == "strength" && len(rest) >= 2:
+				v, v_ok := strconv.parse_f32(rest[1])
+				if !v_ok || !(v >= 0 && v <= 1) do return "strength is from 0 to 1"
+				b.strength = v
+				rest = rest[2:]
+			case:
+				return fmt.tprintf("%q is not with, radius or strength", rest[0])
+			}
+		}
+		s.blend = b
 	case:
 		return USAGE
 	}
