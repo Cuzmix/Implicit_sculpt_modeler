@@ -11592,6 +11592,122 @@ def hover_preview_leaves_the_stroke_as_it_was():
     ])
 
 
+# The hover preview inverted (#755's bug): every route to Invert reaches the hover's trial
+# dab as it reaches a press's, read as the sign of the last trial's first dab
+# (hover_amount: negative inverted, positive not). Draw, the starting brush, on the GPU.
+HOVER_ARGS = ["--gpu-sculpt"]
+
+
+def hover_inverted(sign=-1):
+    """Checks that the hover laid trials and its last trial's dab went the way `sign` says,
+    and that nothing was sculpted."""
+    return camera_still({"hover_trials": lambda v: int(v) >= 3, "hover_amount": lambda v: float(v) * sign > 0,
+                         "dabs": near(0), "undo_steps": near(0)})
+
+
+def mouse_hover(s, frames=10):
+    """The mouse moved over the sphere, a frame a point, and resting there a few frames."""
+    for x, y in line((700, 380), (790, 430), frames):
+        s.add(f"move:{x:g},{y:g}")
+        s.wait(1)
+    s.wait(6)
+    return s
+
+
+def pen_hover_over(s, kind="pmove", frames=10):
+    """The pen near and moved over the sphere without touching, by its tip (pmove) or its
+    eraser end (pemove), resting a few frames."""
+    s.add("pnear")
+    for x, y in line((700, 380), (790, 430), frames):
+        s.add(f"{kind}:{x:g},{y:g}")
+        s.wait(1)
+    s.wait(6)
+    return s
+
+
+@scenario
+def hover_preview_plain_raises():
+    """The mouse hovering over the sphere with Draw and no modifier: the trial dab raises, as a stroke would."""
+    return mouse_hover(Script()), HOVER_ARGS, hover_inverted(+1)
+
+
+@scenario
+def hover_preview_ctrl_inverts():
+    """Ctrl held while the mouse hovers: the trial dab digs, as a stroke pressed with Ctrl would."""
+    s = Script()
+    s.add("key:ctrl")
+    # Still held as the run ends: the last trial is the one read.
+    mouse_hover(s)
+    return s, HOVER_ARGS, hover_inverted()
+
+
+@scenario
+def hover_preview_wheel_latched_invert():
+    """The modifier wheel's Invert tapped (latched), then the mouse hovers: the trial dab digs."""
+    s = Script()
+    rail_tap(s, "invert")
+    s.wait(4)
+    mouse_hover(s)
+    return s, HOVER_ARGS, hover_inverted()
+
+
+@scenario
+def hover_preview_wheel_held_invert():
+    """A finger held on the wheel's Invert while the pen hovers over the sphere: the trial dab digs, latching nothing."""
+    s = Script()
+    rail_hold(s, "invert")
+    # Still held as the run ends: the last trial is the one read.
+    pen_hover_over(s)
+    return s, HOVER_ARGS, {**hover_inverted(), "rail_latched": is_text("none")}
+
+
+@scenario
+def hover_preview_subtract_command():
+    """Subtract run as a command (the brush card's, a pie's and the palette's way to it), then the mouse hovers: the trial dab digs."""
+    s = Script()
+    palette_run(s, "subtract")
+    mouse_hover(s)
+    return s, HOVER_ARGS, {**hover_inverted(), "rail_latched": is_text("invert")}
+
+
+@scenario
+def hover_preview_pen_button_subtract():
+    """The pen's second barrel button set to Subtract, pressed while hovering: the trial dab under the hovering pen digs."""
+    s = Script()
+    write_settings("gesture_map Pen_Button_2 Brush_Subtract\n")
+    pen_hover(s, 700, 380, frames=4)
+    s.add("pbutton:2")
+    s.wait(4)
+    pen_hover_over(s)
+    return s, [*HOVER_ARGS, f"--settings-file={settings_file()}"], hover_inverted()
+
+
+@scenario
+def hover_preview_eraser_end_inverts():
+    """The eraser end set to Invert (Settings > Pen), hovering over the sphere: the trial dab digs, as its stroke would."""
+    s = pen_hover_over(Script(), kind="pemove")
+    return s, [*HOVER_ARGS, "--script=set pen_eraser invert"], hover_inverted()
+
+
+@scenario
+def hover_preview_tip_after_the_eraser_raises():
+    """After a stroke with the eraser end set to Invert, the pen turned back hovers by its tip: the trial dab raises, the eraser no longer in use."""
+    s = Script()
+    path = line((760, 430), (860, 470), 10)
+    s.add("pnear")
+    s.add(f"pedown:{path[0][0]:g},{path[0][1]:g}")
+    for x, y in path[1:]:
+        s.wait(1)
+        s.add(f"pemove:{x:g},{y:g}")
+    s.wait(1)
+    s.add("pup")
+    s.add("pfar")
+    s.wait(4)
+    pen_hover_over(s)
+    return s, [*HOVER_ARGS, "--script=set pen_eraser invert"], {"hover_trials": lambda v: int(v) >= 3, "hover_amount": lambda v: float(v) > 0,
+                                                                "undo_steps": near(1), "stroke_invert": near(1)}
+
+
 def background_args(*more):
     """Autosave with an interval far past the run, so only going to the background writes
     one, and the log kept in the scenario's folder (made first: the log opens before the

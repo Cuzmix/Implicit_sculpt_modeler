@@ -177,7 +177,7 @@ rail_press_keeps_what_it_took :: proc(t: ^testing.T) {
 	a.device.pressed, a.device.down, a.device.ctrl = {.Left}, {.Left}, true
 	input = {primary = true}
 	rail_press(&a, &input)
-	testing.expect(t, !input.mask && !input.mask_shape)
+	testing.expect(t, !input.mask && input.invert)
 }
 
 // The rail sets what the keyboard's modifiers would, as the design's table says.
@@ -200,18 +200,53 @@ rail_presses_as_the_keyboard_would :: proc(t: ^testing.T) {
 		{{.Hide, .Invert}, {smooth = true, invert = true, alt = true}},
 	}
 	for c in cases {
-		input := Viewport_Input{primary = true}
-		rail_resolve(c.mods, &input)
-		got := Want{input.smooth, input.invert, input.alt, input.mask, input.mask_shape}
+		m: Stroke_Mods
+		rail_resolve(c.mods, &m)
+		got := Want{m.smooth, m.invert, m.alt, m.mask, m.mask_shape}
 		testing.expectf(t, got == c.want, "%v: %v, not %v", c.mods, got, c.want)
 	}
 	// Only a primary drag takes them.
+	a: App
+	rail_toggle(&a.rail, .Hide)
+	a.rail.latched += {.Invert}
+	a.device.pressed, a.device.down = {.Left}, {.Left}
 	idle: Viewport_Input
-	rail_resolve({.Hide, .Invert}, &idle)
+	rail_press(&a, &idle)
 	testing.expect(t, !idle.smooth && !idle.invert && !idle.alt && !idle.mask)
 	testing.expect(t, rail_keeps_empty_space({.Mask}) && rail_keeps_empty_space({.Hide, .Invert}))
 	testing.expect(t, !rail_keeps_empty_space({.Smooth, .Invert}))
 	testing.expect_value(t, keyboard_mods(true, true), Modifiers{.Hide})
+}
+
+// The hover preview reads invert where a press would, by every route there is to it: Ctrl,
+// the wheel's Invert latched (as Subtract latches it from a card, a pie or a pen's
+// button) or held, and the pen's eraser end set to Invert; and a press going down then
+// takes the same.
+@(test)
+hover_inverts_as_a_press_would :: proc(t: ^testing.T) {
+	Route :: enum {
+		Ctrl,
+		Latched,
+		Held,
+		Eraser,
+	}
+	for route in Route {
+		a: App
+		a.tool = .Brush
+		testing.expectf(t, !hover_mods(&a).invert, "%v: inverted before", route)
+		switch route {
+		case .Ctrl:    a.device.ctrl = true
+		case .Latched: COMMANDS[.Brush_Subtract].run(&a, 0)
+		case .Held:    _ = rail_finger_down(&a.rail, 1, .Invert, {0, 0}, 1)
+		case .Eraser:  a.device.pointer, a.pencil.eraser, a.nav.eraser = .Pen, true, .Invert
+		}
+		hover := hover_mods(&a)
+		testing.expectf(t, hover.invert && !hover.mask && !hover.smooth, "%v: hovering %v", route, hover)
+		a.device.pressed, a.device.down = {.Left}, {.Left}
+		input := Viewport_Input{primary = true}
+		rail_press(&a, &input)
+		testing.expectf(t, input.invert == hover.invert && input.smooth == hover.smooth && input.mask == hover.mask, "%v: pressed %v, hovered %v", route, input, hover)
+	}
 }
 
 // A stroke made with the rail's Mask is saved as one, reads back as one, and a file of an

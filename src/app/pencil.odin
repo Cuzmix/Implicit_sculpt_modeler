@@ -70,7 +70,7 @@ Pencil :: struct {
 	// A squeeze that began while a stroke or a drag was under way does nothing when it
 	// ends: pressing the barrel mid-stroke is the hand's grip, not a gesture.
 	spoiled:    bool,
-	eraser:     bool, // the pen's last touch was with its eraser end
+	eraser:     bool, // the pen's eraser end is the one in use, as its last report said
 	// The brush held before the one held now, for Switch to the last used.
 	brush_now:    sculpt.Brush_Kind,
 	brush_before: sculpt.Brush_Kind,
@@ -260,6 +260,9 @@ pencil_event :: proc(app: ^App, e: ^sdl.Event) -> bool {
 	#partial switch e.type {
 	case .PEN_DOWN:
 		p.eraser = e.ptouch.eraser
+	case .PEN_MOTION:
+		// Hovering too, so the hover preview shows what the end held over the model would do.
+		p.eraser = .ERASER_TIP in e.pmotion.pen_state
 	case .PEN_BUTTON_DOWN:
 		if second && e.pbutton.button == PEN_BUTTON_SECOND do p.pending = here
 	case .MOUSE_BUTTON_DOWN, .MOUSE_BUTTON_UP:
