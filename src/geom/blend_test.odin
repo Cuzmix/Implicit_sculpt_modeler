@@ -458,6 +458,20 @@ blend_brick_put_matches_the_fill :: proc(t: ^testing.T) {
 	}
 }
 
+// The guard's soft start: nothing of the march past a turn at the guard, all of it before
+// its start, and more the gentler the turn, so a vertex's place follows the angle without a jump.
+@(test)
+blend_turn_weight_is_smooth :: proc(t: ^testing.T) {
+	testing.expect_value(t, blend_turn_weight(BLEND_TURN_COS), 0)
+	testing.expect_value(t, blend_turn_weight(BLEND_TURN_COS_SOFT), 1)
+	testing.expect_value(t, blend_turn_weight(0), 0)
+	testing.expect_value(t, blend_turn_weight(1), 1)
+	last: f32 = 0
+	for i in 0 ..= 100 {
+		c := BLEND_TURN_COS + (BLEND_TURN_COS_SOFT - BLEND_TURN_COS) * f32(i) / 100
+		w := blend_turn_weight(c)
+		testing.expectf(t, w >= last && w - last < 0.02, "step %d: %v after %v", i, w, last)
+		last = w
 // Dropping the bricks a box meets takes out those and only those, and the rest still read
 // the same distances by key.
 @(test)
