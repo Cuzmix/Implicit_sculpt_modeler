@@ -11671,6 +11671,21 @@ def hover_preview_subtract_command():
 
 
 @scenario
+def hover_preview_pie_subtract():
+    """Subtract put in Pie 1's right slice, picked there by the mouse after Q, then the mouse hovers: the trial dab digs."""
+    s = Script()
+    write_settings("pie 0 2 Brush_Subtract\n")
+    s.add(f"move:{PIE_MIDDLE[0]},{PIE_MIDDLE[1]}")
+    s.wait(4)
+    s.press("q")
+    s.wait(4)
+    click(s, PIE_RIGHT)
+    mouse_hover(s)
+    return s, [*HOVER_ARGS, f"--settings-file={settings_file()}"], {**hover_inverted(), "pie_open": near(-1), "pie_runs": near(1),
+                                                                   "rail_latched": is_text("invert")}
+
+
+@scenario
 def hover_preview_pen_button_subtract():
     """The pen's second barrel button set to Subtract, pressed while hovering: the trial dab under the hovering pen digs."""
     s = Script()
