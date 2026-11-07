@@ -35,6 +35,9 @@ Undo_History :: struct {
 	bytes:     int,
 	stroke:    u32, // the recording stroke's id, stamped on the slots it saved; never 0
 	recording: bool, // between clay_stroke_begin and clay_stroke_end
+	// The recording step's first save of each brick, which holds it as it was at the
+	// stroke's start (Layer reads the clay as it was).
+	first:     map[[3]i32]i32,
 	allocator: runtime.Allocator,
 }
 
@@ -42,12 +45,14 @@ Undo_History :: struct {
 undo_init :: proc(h: ^Undo_History, allocator: runtime.Allocator) {
 	h.allocator = allocator
 	h.steps = make([dynamic]Undo_Step, allocator)
+	h.first = make(map[[3]i32]i32, allocator)
 }
 
 @(private)
 undo_destroy :: proc(h: ^Undo_History) {
 	for &s in h.steps do undo_step_destroy(&s)
 	delete(h.steps)
+	delete(h.first)
 	h^ = {}
 }
 
@@ -75,6 +80,7 @@ undo_begin :: proc(h: ^Undo_History) {
 	append(&h.steps, Undo_Step{bricks = make([dynamic]Saved_Brick, h.allocator), masks = make([dynamic]Mask_Brick, h.allocator)})
 	h.stroke += 1
 	h.recording = true
+	clear(&h.first)
 }
 
 // The step being recorded.
@@ -107,8 +113,23 @@ undo_record :: proc(h: ^Undo_History, v: ^Volume, bc: [3]i32) {
 			h.bytes += size_of(Mask_Brick)
 		}
 	}
+	if bc not_in h.first do h.first[bc] = i32(len(step.bricks))
 	append(&step.bricks, saved)
 	h.bytes += size_of(Saved_Brick)
+}
+
+// Brick `bc` as it was when the recording stroke began: its values, or nil and the value
+// of the tile it was.
+@(private)
+undo_press :: proc(h: ^Undo_History, v: ^Volume, bc: [3]i32) -> (data: ^[BRICK_VOXELS]i16, value: i16) {
+	if i, ok := h.first[bc]; ok {
+		saved := &undo_current(h).bricks[i]
+		if saved.tile == .Brick do return &saved.d, 0
+		return nil, tile_value(saved.tile)
+	}
+	tile, brick := volume_tile(v, bc)
+	if brick != nil do return &brick.d, 0
+	return nil, tile_value(tile)
 }
 
 // Ends the stroke's step; an empty one (the stroke changed nothing) is dropped. Returns

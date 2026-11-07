@@ -28,6 +28,10 @@ Brush_Kind :: enum u8 {
 	Pinch,      // draws the clay along the surface toward the centre (inverted pushes it away)
 	Crease,     // cuts a sharp groove: pushes in with a narrow falloff and pinches (inverted: a ridge)
 	Snake_Hook, // drags the clay under the brush by Brush.drag, so a stroke pulls out a horn
+	// More growing and clipping brushes (brush_more.odin).
+	Layer,       // raises the clay by one height a stroke, however often it passes (inverted lowers)
+	Clay_Strips, // builds flat-topped strips with square ends along the stroke (inverted digs)
+	Trim,        // cuts a ridge into two planes about the stroke, at the angle it finds (inverted: a valley)
 }
 
 Brush :: struct {
@@ -38,6 +42,10 @@ Brush :: struct {
 	normal:   Vec3, // the surface normal under the pointer, unit length, in the object's space
 	drag:     Vec3, // Snake hook: how far this dab drags, object space
 	pinch:    f32, // Snake hook: draws the clay in across the drag (below 0 swells it), -1 to 1
+	along:    Vec3, // Clay strips and Trim: the way the stroke goes, object space (zero at its first dab)
+	polish:   bool, // Smooth: keep the volume (Taubin's two passes)
+	trim_angle: f32, // Trim: the angle between its two planes, radians, while `trim_fixed`
+	trim_fixed: bool, // Trim: keep trim_angle rather than find the angle under the brush
 }
 
 // How far a full-strength dab raises or lowers the surface, in radii (the mesh Draw
@@ -77,6 +85,18 @@ Dab :: struct {
 	window:    []i16,
 	window_lo: [3]i32,
 	volume:    ^Volume, // a warping dab reads it as it was before the dab, round each brick
+	// Layer: the clay as it was at the stroke's start, in the window's layout, and the
+	// layer's height in voxels.
+	press:     []i16,
+	layer:     f32,
+	// Clay strips and Trim: the stroke's frame, x along it and y across, unit length; Trim's
+	// two planes' normals, for either side of the stroke.
+	sx, sy:    Vec3,
+	trim_plus, trim_minus: Vec3,
+	plane:     Vec3, // Trim: a point both planes pass through, in voxels
+	// Smooth: the pass's rate, below 0 for Polish's pass that swells back.
+	rate:      f32,
+	history:   ^Undo_History,
 }
 
 // The dab's numbers for `brush` at `centre` (object space) on a volume of `voxel` size.
@@ -99,7 +119,16 @@ dab_make :: proc(brush: Brush, centre: Vec3, voxel: f32, origin: Vec3) -> (d: Da
 	case .Crease:
 		// Cuts in by default, as the mesh Crease does.
 		d.push = -(1 if !d.invert else -1) * d.radius * d.strength * CREASE_HEIGHT
+	case .Layer:
+		d.layer = d.radius * d.strength * LAYER_HEIGHT
+		d.height = d.layer * LAYER_RATE
+	case .Clay_Strips:
+		d.height = d.radius * d.strength * CLAY_STRIPS_RATE
+		d.lift = d.radius * CLAY_STRIPS_HEIGHT
+	case .Smooth:
+		d.rate = SMOOTH_RATE
 	}
+	if d.kind == .Clay_Strips || d.kind == .Trim do d.sx, d.sy = stroke_frame(d.normal, brush.along)
 	d.share = 1
 	// The weight's own strength factor is in the height, so a step's weight is the falloff.
 	if d.height > 0 do d.strength = 1
@@ -112,7 +141,7 @@ dab_make :: proc(brush: Brush, centre: Vec3, voxel: f32, origin: Vec3) -> (d: Da
 MAX_DAB_STEPS :: 8
 dab_steps :: proc(d: ^Dab) -> int {
 	#partial switch d.kind {
-	case .Add, .Subtract, .Clay, .Inflate:
+	case .Add, .Subtract, .Clay, .Inflate, .Layer, .Clay_Strips:
 		if d.height <= 0 do return 0
 		n := int(math.ceil(d.height / ADD_MAX_VOXELS))
 		if n > MAX_DAB_STEPS {
@@ -129,7 +158,7 @@ dab_steps :: proc(d: ^Dab) -> int {
 // Whether the dab reads its bricks' neighbourhoods (a window a brick).
 dab_reads_window :: #force_inline proc(kind: Brush_Kind) -> bool {
 	#partial switch kind {
-	case .Smooth, .Add, .Subtract, .Clay, .Inflate:
+	case .Smooth, .Add, .Subtract, .Clay, .Inflate, .Layer, .Clay_Strips:
 		return true
 	}
 	return false
@@ -142,6 +171,7 @@ dab_adds :: #force_inline proc(d: ^Dab) -> bool {
 
 // The brush's reach from its centre, in voxels: the voxels it may change lie within it.
 dab_reach :: proc(d: ^Dab) -> f32 {
+	if d.kind == .Clay_Strips do return d.radius * math.SQRT_TWO + 1
 	return d.radius + 1 + f32(d.margin)
 }
 
@@ -185,8 +215,10 @@ dab_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick, mask: ^Mask_Brick
 	switch d.kind {
 	case .Mask:
 		unreachable()
-	case .Add, .Subtract, .Clay, .Inflate:
+	case .Add, .Subtract, .Clay, .Inflate, .Layer, .Clay_Strips:
 		grow_brick(d, bc, b, out, mask, &e)
+	case .Trim:
+		trim_brick(d, bc, b, mask, &e)
 	case .Flatten:
 		for z in 0 ..< BRICK do for y in 0 ..< BRICK do for x in 0 ..< BRICK {
 			p := p0 + {f32(x), f32(y), f32(z)}
@@ -216,7 +248,7 @@ dab_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick, mask: ^Mask_Brick
 		for z in 0 ..< BRICK do for y in 0 ..< BRICK do for x in 0 ..< BRICK {
 			p := p0 + {f32(x), f32(y), f32(z)}
 			delta := p - d.centre
-			w := falloff(linalg.dot(delta, delta) * inv_r2) * d.strength * SMOOTH_RATE
+			w := falloff(linalg.dot(delta, delta) * inv_r2) * d.strength * d.rate
 			i := voxel_index(x, y, z)
 			out.d[i] = b.d[i]
 			if w == 0 do continue
@@ -233,8 +265,9 @@ dab_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick, mask: ^Mask_Brick
 	return
 }
 
-// The growing brushes on one brick: Add, Subtract, Clay and Inflate. Worked as growing
-// on the field turned inside out when the dab takes clay away, so one rule serves both:
+// The growing brushes on one brick: Add, Subtract, Clay, Clay strips, Layer and Inflate.
+// Worked as growing on the field turned inside out when the dab takes clay away, so one
+// rule serves both:
 // every value within the band goes down by the height times the weight (Clay no lower
 // than its plane, the field's distance to it; Inflate along the field's own normals,
 // which is the same offset), a value at the clamp stays (it is a bound, not a distance),
@@ -242,40 +275,69 @@ dab_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick, mask: ^Mask_Brick
 // voxel. Reads the dab's window (the brick and a voxel around it), writes `out`.
 @(private)
 grow_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick, mask: ^Mask_Brick, e: ^Dab_Effect) {
+	// Each shape its own loop, so Add's per-voxel work has no branch for the others.
+	#partial switch d.kind {
+	case .Clay:
+		grow_shaped(d, bc, b, out, mask, e, Grow_Shape.Plane)
+	case .Clay_Strips:
+		grow_shaped(d, bc, b, out, mask, e, Grow_Shape.Strip)
+	case .Layer:
+		grow_shaped(d, bc, b, out, mask, e, Grow_Shape.Layer)
+	case:
+		grow_shaped(d, bc, b, out, mask, e, Grow_Shape.Bump)
+	}
+}
+
+// How a growing brush's offset is bounded: not at all (Add, Subtract, Inflate), by a plane
+// (Clay), by a plane with a square falloff (Clay strips), by the layer (Layer).
+@(private)
+Grow_Shape :: enum u8 {Bump, Plane, Strip, Layer}
+
+@(private)
+grow_shaped :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick, mask: ^Mask_Brick, e: ^Dab_Effect, $SHAPE: Grow_Shape) {
 	W :: BRICK + 2
 	flip: f32 = 1 if dab_adds(d) else -1
 	inv_r2 := 1 / (d.radius * d.radius)
 	base := bc * BRICK - d.window_lo
-	clay := d.kind == .Clay
-	// The voxel at window offset (wx, wy, wz) after the offset, in voxels, on the grown side.
-	grown :: #force_inline proc(d: ^Dab, flip, inv_r2: f32, clay: bool, q: Vec3, value: i16) -> f32 {
-		v := flip * f32(value) / SCALE
+	// The voxel at window index `k` (at `q`) after the offset, in voxels, on the grown side.
+	grown :: #force_inline proc(d: ^Dab, flip, inv_r2: f32, q: Vec3, k: int, $SHAPE: Grow_Shape) -> f32 {
+		v := flip * f32(d.window[k]) / SCALE
 		if v >= CLAMP_VOXELS do return v // at least this far: left as it is
 		delta := q - d.centre
-		w := falloff(linalg.dot(delta, delta) * inv_r2) * d.strength
+		when SHAPE == .Strip {
+			w := falloff(strip_x2(d, delta, inv_r2))
+		} else {
+			w := falloff(linalg.dot(delta, delta) * inv_r2) * d.strength
+		}
 		if w == 0 do return v
 		g := v - d.height * w
-		if clay {
+		when SHAPE == .Plane || SHAPE == .Strip {
 			// Down to the plane above the hit (its distance, on the grown side), never up.
 			plane := flip * (linalg.dot(delta, d.normal) - d.lift)
 			g = min(v, max(g, plane))
+		} else when SHAPE == .Layer {
+			// No further than the layer's height from where the clay was at the stroke's
+			// start, wherever the brush is in its falloff: a flat top however often it passes.
+			g = min(v, max(g, layer_press(d, flip, q, d.press[k]) - d.layer))
 		}
 		return g
 	}
+	// Nothing within reach of the brush, the voxel or its neighbours is changed (Clay
+	// strips' square reaches its corners, √2 radii out).
+	far := d.radius * (math.SQRT_TWO if SHAPE == .Strip else 1) + 1
 	origin := Vec3{f32(d.window_lo.x), f32(d.window_lo.y), f32(d.window_lo.z)}
 	for z in 0 ..< BRICK do for y in 0 ..< BRICK do for x in 0 ..< BRICK {
 		i := voxel_index(x, y, z)
 		out.d[i] = b.d[i]
 		wx, wy, wz := int(base.x) + x, int(base.y) + y, int(base.z) + z
 		p := origin + {f32(wx), f32(wy), f32(wz)}
-		// Nothing within reach of the brush, the voxel or its neighbours: unchanged.
 		delta := p - d.centre
-		if linalg.dot(delta, delta) > (d.radius + 1) * (d.radius + 1) do continue
+		if linalg.dot(delta, delta) > far * far do continue
 		at :: #force_inline proc(wx, wy, wz: int) -> int {return (wz * W + wy) * W + wx}
 		value := d.window[at(wx, wy, wz)]
 		// Inside at the clamp (on the grown side) it stays there.
 		if flip * f32(value) <= -f32(CLAMP) do continue
-		g := grown(d, flip, inv_r2, clay, p, value)
+		g := grown(d, flip, inv_r2, p, at(wx, wy, wz), SHAPE)
 		if flip * f32(value) / SCALE >= RELAX_FROM {
 			// Far outside: no farther than its neighbours allow. Nearer the surface the
 			// offset values stand (a stroke's offsets steepen or flatten the field there, and
@@ -283,9 +345,9 @@ grow_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick, mask: ^Mask_Bric
 			// The eikonal solution from the nearer neighbour on each axis (band.odin's
 			// update), which is exact for a plane at any angle where a neighbour plus a
 			// voxel would bound it by steps along the axes and leave a grain in the field.
-			gx := min(grown(d, flip, inv_r2, clay, p - {1, 0, 0}, d.window[at(wx - 1, wy, wz)]), grown(d, flip, inv_r2, clay, p + {1, 0, 0}, d.window[at(wx + 1, wy, wz)]))
-			gy := min(grown(d, flip, inv_r2, clay, p - {0, 1, 0}, d.window[at(wx, wy - 1, wz)]), grown(d, flip, inv_r2, clay, p + {0, 1, 0}, d.window[at(wx, wy + 1, wz)]))
-			gz := min(grown(d, flip, inv_r2, clay, p - {0, 0, 1}, d.window[at(wx, wy, wz - 1)]), grown(d, flip, inv_r2, clay, p + {0, 0, 1}, d.window[at(wx, wy, wz + 1)]))
+			gx := min(grown(d, flip, inv_r2, p - {1, 0, 0}, at(wx - 1, wy, wz), SHAPE), grown(d, flip, inv_r2, p + {1, 0, 0}, at(wx + 1, wy, wz), SHAPE))
+			gy := min(grown(d, flip, inv_r2, p - {0, 1, 0}, at(wx, wy - 1, wz), SHAPE), grown(d, flip, inv_r2, p + {0, 1, 0}, at(wx, wy + 1, wz), SHAPE))
+			gz := min(grown(d, flip, inv_r2, p - {0, 0, 1}, at(wx, wy, wz - 1), SHAPE), grown(d, flip, inv_r2, p + {0, 0, 1}, at(wx, wy, wz + 1), SHAPE))
 			g = min(g, eikonal_update({max(gx, 0), max(gy, 0), max(gz, 0)}))
 		}
 		put(e, &out.d[i], masked(b.d[i], quantize(flip * g), mask, i), x, y, z)
@@ -364,7 +426,14 @@ dab_touches :: proc(d: ^Dab, bc: [3]i32, tile: Tile, reach: f32) -> bool {
 		mid := Vec3{f32(bc.x), f32(bc.y), f32(bc.z)} * BRICK + (BRICK - 1) * 0.5
 		HALF_DIAGONAL :: BRICK * 0.8660254 // sqrt(3) / 2
 		return abs(linalg.dot(mid - d.centre, d.normal)) - HALF_DIAGONAL < BAND + 1
-	case .Smooth, .Inflate, .Mask, .Add, .Subtract, .Clay, .Pinch, .Crease, .Snake_Hook:
+	case .Trim:
+		// It carves Inside tiles either plane passes.
+		if tile == .Empty do return false
+		mid := Vec3{f32(bc.x), f32(bc.y), f32(bc.z)} * BRICK + (BRICK - 1) * 0.5
+		HALF_DIAGONAL :: BRICK * 0.8660254
+		h := max(linalg.dot(mid - d.plane, d.trim_plus), linalg.dot(mid - d.plane, d.trim_minus))
+		return h + HALF_DIAGONAL > -(BAND + 1)
+	case .Smooth, .Inflate, .Mask, .Add, .Subtract, .Clay, .Pinch, .Crease, .Snake_Hook, .Layer, .Clay_Strips:
 		// They move the surface at most a voxel, the warps WARP_STEP voxels a step, less
 		// than the clamp, so the surface never reaches a tile within a step (the band grows
 		// into tiles through band dilation after each, not here), and a mask lives on

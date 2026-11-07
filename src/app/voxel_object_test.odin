@@ -32,7 +32,7 @@ voxel_brushes_stand_for_the_mesh_brushes_that_have_a_meaning_on_clay :: proc(t: 
 		voxel: voxel.Brush_Kind,
 		ok:    bool,
 	}{
-		{.Draw, .Add, true}, {.Clay, .Clay, true}, {.Layer, .Add, true}, {.Smooth, .Smooth, true},
+		{.Draw, .Add, true}, {.Clay, .Clay, true}, {.Layer, .Layer, true}, {.Clay_Strips, .Clay_Strips, true}, {.Trim_Dynamic, .Trim, true}, {.Smooth, .Smooth, true},
 		{.Flatten, .Flatten, true}, {.Inflate, .Inflate, true},
 		{.Grab, .Add, false}, {.Mask, .Mask, true}, {.Pinch, .Pinch, true}, {.Crease, .Crease, true}, {.Snake_Hook, .Snake_Hook, true}, {.Paint, .Add, false}, {.Cloth, .Add, false},
 	}
