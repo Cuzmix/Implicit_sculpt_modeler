@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks an exported .glb, .usda or .stl with the tools other programs will read it with.
+"""Checks an exported .glb, .usda, .stl or .fbx with the tools other programs will read it with.
 
     python scripts/export_check.py --setup                        # once: the tools, into build/export-tools
     python scripts/export_check.py build/out.glb
@@ -9,13 +9,16 @@
     python scripts/export_check.py build/out.glb --face-materials "Gold=2,Steel=10"
     python scripts/export_check.py build/out.usda --lights "SUN=3.1416,POINT=145.08"
     python scripts/export_check.py build/out.stl --vertices 642 --triangles 1280
+    python scripts/export_check.py build/out.fbx --keys "Layer 1=1" --colors
 
 Two checks for each, each reported on its own line as PASS, FAIL or SKIP:
 - validator: for .glb, the Khronos glTF validator (npm package gltf-validator, run with
   node); for .usda, USD's own validators (UsdValidation, from the usd-core wheel); for
   .stl, a check of the binary layout here (the length the count gives, a header that does
   not start as a text file's does, finite numbers, each normal of unit length and on the
-  side its corners wind to). Any error fails; warnings are listed.
+  side its corners wind to); for .fbx, a walk of the binary node tree here (the magic,
+  version 7400, every top-level record ending where its offset says, the null record, and
+  Objects holding a Geometry and a Model). Any error fails; warnings are listed.
 - blender: Blender itself (the bpy wheel from PyPI, Python 3.13) imports the file into an
   empty scene, and the check reads back what a person would see: the mesh's vertices and
   triangles, its shape keys with their values, whether it has a colour attribute, and the
@@ -60,7 +63,7 @@ BLENDER_PY = r"""
 import bpy, json, sys
 path = sys.argv[-1]
 bpy.ops.wm.read_factory_settings(use_empty=True)
-importer = {'.glb': bpy.ops.import_scene.gltf, '.stl': bpy.ops.wm.stl_import}.get(path.lower()[-4:], bpy.ops.wm.usd_import)
+importer = {'.glb': bpy.ops.import_scene.gltf, '.stl': bpy.ops.wm.stl_import, '.fbx': bpy.ops.import_scene.fbx}.get(path.lower()[-4:], bpy.ops.wm.usd_import)
 importer(filepath=path)
 # Blender keys a USD file's blend shape weights in an action, which applies once the
 # scene is at a frame.
@@ -208,6 +211,52 @@ print('RESULT ' + json.dumps({'validators': len(validators), 'errors': [e.GetErr
 """
 
 
+def check_fbx(path):
+    """The binary FBX layout, read here: the top-level records and the names under Objects."""
+    import struct
+    with open(path, "rb") as f:
+        data = f.read()
+    if len(data) < 27 or data[:23] != b"Kaydara FBX Binary  \x00\x1a\x00":
+        return "FAIL", "not a binary FBX file (the magic is missing)"
+    version = struct.unpack_from("<I", data, 23)[0]
+    if version != 7400:
+        return "FAIL", "version %d, not 7400" % version
+
+    def children(start, end):
+        """The records from start to end, each (name, start of its children, its end); None when broken."""
+        found = []
+        at = start
+        while at + 13 <= end:
+            stop, count, props = struct.unpack_from("<III", data, at)
+            if stop == 0:
+                return found
+            size = data[at + 12]
+            if stop <= at or stop > end:
+                return None
+            found.append((data[at + 13:at + 13 + size].decode("ascii", "replace"), at + 13 + size + props, stop))
+            at = stop
+        return None
+
+    top = children(27, len(data))
+    if top is None:
+        return "FAIL", "a top-level record runs past its end or the null record is missing"
+    names = [n for n, _, _ in top]
+    wanted = ["FBXHeaderExtension", "GlobalSettings", "Definitions", "Objects", "Connections"]
+    missing = [n for n in wanted if n not in names]
+    if missing:
+        return "FAIL", "no %s record" % ", ".join(missing)
+    _, inner, stop = top[names.index("Objects")]
+    objects = children(inner, stop)
+    if objects is None:
+        return "FAIL", "a record under Objects runs past its end"
+    kinds = {}
+    for n, _, _ in objects:
+        kinds[n] = kinds.get(n, 0) + 1
+    if not kinds.get("Geometry") or not kinds.get("Model"):
+        return "FAIL", "Objects holds no Geometry or no Model"
+    return "PASS", "%d top-level records; Objects: %s" % (len(top), ", ".join("%s %d" % kv for kv in sorted(kinds.items())))
+
+
 def check_usd(path):
     for python in (os.environ.get("SCULPT_BPY_PYTHON"), VENV_PYTHON, sys.executable):
         if python and os.path.exists(python) and subprocess.run([python, "-c", "from pxr import UsdValidation"], capture_output=True).returncode == 0:
@@ -313,7 +362,7 @@ def check_blender(path, args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("file", nargs="?", help="the exported .glb, .usda or .stl")
+    parser.add_argument("file", nargs="?", help="the exported .glb, .usda, .stl or .fbx")
     parser.add_argument("--setup", action="store_true", help="install the tools into build/export-tools")
     parser.add_argument("--vertices", type=int)
     parser.add_argument("--triangles", type=int)
@@ -339,6 +388,8 @@ def main():
         results.append(("validator",) + check_validator(path))
     elif path.lower().endswith(".stl"):
         results.append(("validator",) + check_stl(path))
+    elif path.lower().endswith(".fbx"):
+        results.append(("validator",) + check_fbx(path))
     else:
         results.append(("validator",) + check_usd(path))
     results.append(("blender",) + check_blender(path, args))

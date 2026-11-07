@@ -426,7 +426,7 @@ kit_falloff :: proc(app: ^App) {
 	names: [len(FALLOFF_PRESETS)]string
 	chosen := -1
 	for p, i in FALLOFF_PRESETS {
-		names[i] = string(p.label)
+		names[i] = ui.trc(ctx, "falloff", string(p.label))
 		if shape.drawn == p.drawn && (!p.drawn || shape.curve == p.curve) do chosen = i
 	}
 	if picked := ui.tabs(ctx, "falloff", names[:], chosen); picked >= 0 {
@@ -489,7 +489,7 @@ kit_pen :: proc(app: ^App) {
 		global := !b.pressures[b.kind].own
 		if ui.switch_row(ctx, "Use global", &global) do brush_pressure_own(b, b.kind, !global)
 		names: [len(PRESSURE_RESPONSES)]string
-		for r, i in PRESSURE_RESPONSES do names[i] = string(r.label)
+		for r, i in PRESSURE_RESPONSES do names[i] = ui.trc(ctx, "pressure", string(r.label))
 		if picked := ui.tabs(ctx, "response", names[:], pressure_response(at)); picked >= 0 do pressure_put(at, PRESSURE_RESPONSES[picked].pressure)
 		floor := at.size_floor^ * 100
 		if ui.slider(ctx, "Smallest size", &floor, MIN_PRESSURE_SIZE * 100, 100, .Linear, fmt.tprintf("%.0f%%", max(floor, MIN_PRESSURE_SIZE * 100)), enabled = at.size^) {
@@ -511,7 +511,7 @@ kit_pen :: proc(app: ^App) {
 	names: [len(PRESSURE_PRESETS)]string
 	chosen := -1
 	for p, i in PRESSURE_PRESETS {
-		names[i] = string(p.label)
+		names[i] = ui.trc(ctx, "falloff", string(p.label))
 		if curve^ == p.curve do chosen = i
 	}
 	if picked := ui.tabs(ctx, "pressure", names[:], chosen); picked >= 0 do curve^ = PRESSURE_PRESETS[picked].curve

@@ -285,6 +285,9 @@ Context :: struct {
 	// How icons are drawn and how heavy their lines are (Settings > Interface > Icons).
 	icon_style:     Icon_Style,
 	icon_weight:    Icon_Weight,
+	// The language the interface's words are shown in (language.odin), nil for English;
+	// the app owns it.
+	language:       ^Language,
 	// While the hand changes: how much of the way back to its mirror image each outermost
 	// container is drawn (1 there, 0 where the layout puts it), so the bars and panels slide
 	// across rather than jump; with motion Reduced they fade in where they go instead. Only

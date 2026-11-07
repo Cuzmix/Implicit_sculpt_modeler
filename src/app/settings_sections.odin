@@ -44,6 +44,7 @@ SETTINGS_SECTION_NAMES := [Settings_Section]string {
 SETTINGS_INTERFACE := [?]Settings_Entry {
 	{.Look, "LOOK"},
 	{.Size, "SIZE"},
+	{.Language, "LANGUAGE"},
 	{.Icons, "ICONS"},
 	{.Hands, "SCREEN LAYOUT"},
 	{.Layouts, "LAYOUTS FOR"},

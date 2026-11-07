@@ -15,6 +15,7 @@ Settings_Block :: enum u8 {
 	// Interface.
 	Look,
 	Size,
+	Language,
 	Icons,
 	Clean_Dial,
 	Hands,
@@ -89,6 +90,7 @@ SETTINGS_KEYS := [?]Settings_Entry{{.Keys, ""}}
 SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Look             = "look theme themes colour color lens studio graphite paper midnight high contrast accent dark light match device night day tint opacity corners black oled shadow shadows panel",
 	.Size             = "size interface scale bigger text touch targets zoom smaller",
+	.Language         = "language languages translation english deutsch german français french español spanish locale",
 	.Icons            = "icons icon colour color coloured duotone mono monochrome weight bold regular lines",
 	.Clean_Dial       = "clean view keeps dial shelf focus mode tab four-finger hide interface",
 	.Hands            = "left-handed right-handed hand mirror screen layout",
@@ -196,6 +198,13 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		if picked := ui.select(ctx, "Interface size", names[:], chosen); picked >= 0 do k.ui_scale = UI_SCALES[picked]
 		ui.paragraph(ctx, "How big panels, text and touch targets are, on top of the size the screen asks for.")
 		if k.ui_scale < 1 do ui.paragraph(ctx, "Below 100% the buttons are smaller than a fingertip: best with a mouse or a pen.", color = t.warning)
+	case .Language:
+		names: [len(Language_Choice)]string
+		for name, c in LANGUAGE_NAMES do names[c] = name
+		system := k.language.system if k.language.system != .Automatic else .English
+		names[Language_Choice.Automatic] = fmt.tprintf("%s (%s)", ui.tr(ctx, "Automatic"), LANGUAGE_NAMES[system])
+		if picked := ui.select(ctx, "Language", names[:], int(k.language.choice)); picked >= 0 do k.language.choice = Language_Choice(picked)
+		ui.paragraph(ctx, "The words of the interface. Automatic follows the device's language. A line with no translation yet shows in English; scripts, keys and files are the same in every language.")
 	case .Icons:
 		styles := [len(ui.Icon_Style)]string{"Colour", "Duotone", "Mono"}
 		if picked := ui.tabs(ctx, "Icons", styles[:], int(ctx.icon_style)); picked >= 0 do ctx.icon_style = ui.Icon_Style(picked)
@@ -520,6 +529,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	switch b {
 	case .Look:            themes_reset(k)
 	case .Size:            k.ui_scale = 1
+	case .Language:        k.language.choice = .Automatic
 	case .Icons:           k.ctx.icon_style, k.ctx.icon_weight = .Colour, .Regular
 	case .Clean_Dial:      k.clean_keep = .Dial
 	case .Hands:           k.ctx.mirror = false

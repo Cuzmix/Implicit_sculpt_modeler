@@ -41,6 +41,12 @@ report :: proc(app: ^App, section: Maybe(Section), flags: Report_Flags, format: 
 	text := fmt.aprintf(format, ..args)
 	if .Warning in flags do log.warn(text)
 	else do log.info(text)
+	// The log keeps the English; the interface shows the message in its language, the
+	// format translated before the arguments go in.
+	if shown := ui.tr(&app.kit.ctx, format); shown != format {
+		delete(text)
+		text = fmt.aprintf(shown, ..args)
+	}
 	results_destroy(app)
 	app.result = {
 		text    = text,

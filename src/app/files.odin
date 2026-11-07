@@ -129,9 +129,9 @@ when ODIN_PLATFORM_SUBTARGET == .Android {
 // Export writes two formats Import does not read, so it offers its own list; a name
 // typed without an extension takes the one of the filter chosen (EXPORT_SUFFIX).
 @(private = "file")
-EXPORT_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, STL, glTF, USD)", "obj;ply;stl;glb;usda"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"STL (3D printing)", "stl"}, {"glTF binary (layers as shape keys)", "glb"}, {"USD text (layers as blend shapes)", "usda"}}
+EXPORT_FILTERS := [?]sdl.DialogFileFilter{{"Meshes (OBJ, PLY, STL, glTF, USD, FBX)", "obj;ply;stl;glb;usda;fbx"}, {"OBJ", "obj"}, {"PLY", "ply"}, {"STL (3D printing)", "stl"}, {"glTF binary (layers as shape keys)", "glb"}, {"USD text (layers as blend shapes)", "usda"}, {"FBX binary (layers as blend shapes)", "fbx"}}
 @(private = "file")
-EXPORT_SUFFIX := [len(EXPORT_FILTERS)]string{".obj", ".obj", ".ply", ".stl", ".glb", ".usda"}
+EXPORT_SUFFIX := [len(EXPORT_FILTERS)]string{".obj", ".obj", ".ply", ".stl", ".glb", ".usda", ".fbx"}
 @(private = "file")
 STL_FILTERS := [?]sdl.DialogFileFilter{{"STL (3D printing)", "stl"}}
 @(private = "file")
@@ -188,6 +188,7 @@ Export_Filter :: enum u8 {
 	STL  = 3,
 	GLTF = 4,
 	USD  = 5,
+	FBX  = 6,
 }
 
 // The suffix an export in `f` takes.
@@ -1229,8 +1230,8 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 		file_note(app, true, "Cannot export %s for printing: the name needs to end in .stl or .obj", name)
 		return false
 	}
-	if ext != ".obj" && ext != ".ply" && ext != ".stl" && ext != ".glb" && ext != ".usda" {
-		file_note(app, true, "Cannot export to %s: the name needs to end in .obj, .ply, .stl, .glb or .usda", name)
+	if ext != ".obj" && ext != ".ply" && ext != ".stl" && ext != ".glb" && ext != ".usda" && ext != ".fbx" {
+		file_note(app, true, "Cannot export to %s: the name needs to end in .obj, .ply, .stl, .glb, .usda or .fbx", name)
 		return false
 	}
 	// A stroke, pose or slider drag under way would otherwise land half in the file, and
@@ -1246,7 +1247,10 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	// and USD keep for their split normals; OBJ, PLY and STL carry no normals worth the
 	// seams, so the copies are welded back and the cage goes out closed.
 	welded := false
-	if cp := obj.cage; cp != nil && len(cp.dup_from) > 0 && ext != ".glb" && ext != ".usda" {
+	// USD and FBX are written alike from here: the material, quads and UVs, layers as
+	// blend shapes.
+	usd_like := ext == ".usda" || ext == ".fbx"
+	if cp := obj.cage; cp != nil && len(cp.dup_from) > 0 && ext != ".glb" && !usd_like {
 		packed = cage_export_welded(cp, &lv.mesh)
 		positions, normals, indices = packed.positions[:], packed.normals[:], packed.indices[:]
 		welded = true
@@ -1264,7 +1268,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	colors: [][3]u8
 	if c := object_paint_flat(obj, &lv.sculptor); c != nil && !object_dynamic(obj) {
 		under := [3]u32{255, 255, 255}
-		if ext == ".glb" || ext == ".usda" {
+		if ext == ".glb" || usd_like {
 			for k in 0 ..< 3 do under[k] = u32(math.round(geom.srgb_encode(material.base[k]) * 255))
 			material.base = 1
 		}
@@ -1343,7 +1347,7 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 	// glTF copies the vertices on a seam between two group materials.
 	vertices := len(positions)
 	switch {
-	case ext == ".glb" || ext == ".usda":
+	case ext == ".glb" || usd_like:
 		// Dynamic topology bakes the layers, so a dynamic object has none to write.
 		sculpt.sculptor_refresh_normals(&lv.sculptor)
 		// A baked stack's copies share their vertices' shape keys, which glTF and USD give
@@ -1398,9 +1402,9 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 			material  = material,
 			lights    = export_lights(app, obj.transform),
 		}
-		if ext == ".usda" && len(from) == 0 do usd_extras(obj, lv, &m)
+		if usd_like && len(from) == 0 do usd_extras(obj, lv, &m)
 		if object_shows_group_materials(obj) && !object_dynamic(obj) {
-			faces := m.groups if ext == ".usda" else lv.sculptor.groups.tris
+			faces := m.groups if usd_like else lv.sculptor.groups.tris
 			paint := object_paint_flat(obj, &lv.sculptor)
 			if len(from) > 0 {
 				// A decimated copy's triangles are new: each takes the group of its first
@@ -1422,6 +1426,12 @@ object_export :: proc(app: ^App, obj: ^Object, path: string, print := false, onc
 		vertices = len(m.positions)
 		if ext == ".usda" {
 			geom.mesh_write_usda(&out, m, &app.pool)
+		} else if ext == ".fbx" {
+			if !geom.mesh_write_fbx(&out, m) {
+				free_all(context.temp_allocator)
+				file_note(app, true, "Cannot export %s: an FBX file holds at most 4 GB; fewer layers or a lower level would fit", name)
+				return false
+			}
 		} else if !geom.mesh_write_glb(&out, m, &app.pool) {
 			free_all(context.temp_allocator)
 			file_note(app, true, "Cannot export %s: a glTF file holds at most 4 GB; fewer layers or a lower level would fit", name)

@@ -26,6 +26,7 @@ import "../ui"
 Kit_State :: struct {
 	ctx:        ui.Context,
 	pass:       render.Ui_Pass,
+	language:   Language_State, // the interface's language (language.odin)
 	scale:      f32, // window coordinates per point, this frame
 	last_frame: time.Tick, // for the animations' clock
 	fixed_dt:   f32, // seconds a frame on that clock instead, when above 0 (--ui-dt)
@@ -1020,6 +1021,7 @@ kit_destroy :: proc(app: ^App) {
 	}
 	delete(app.kit.events)
 	render.ui_pass_destroy(&app.renderer, &app.kit.pass)
+	language_destroy(&app.kit)
 	ui.destroy(&app.kit.ctx)
 	layouts_destroy(&app.kit)
 	panel_motion_destroy(&app.kit.moving)
@@ -1103,6 +1105,7 @@ kit_begin :: proc(app: ^App, window: ^sdl.Window) -> (size, pixels: [2]i32) {
 	theme_follow_device(k, platform_dark())
 	k.ctx.theme = kit_theme(app)
 	kit_mirror(k)
+	language_update(k)
 	ui.frame_begin(&k.ctx, in_)
 	// When the hand changes, the bars and panels slide across from where the other hand
 	// had them (Changing hands); the first frame starts where the hand is.
