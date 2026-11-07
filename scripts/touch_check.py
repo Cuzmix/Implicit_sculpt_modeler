@@ -6843,14 +6843,14 @@ def lens_pie_editor_brush_slot_chooses_in_search():
 
 # The workspace menu's controls by name: the top bar's +, the menu's Make, a workspace's
 # actions (its ⋯ and the rows under it).
-WORKSPACE_MENU = {"plus": At("top bar/New workspace", 893, 26), "make": At("layout menu/Make", 669, 300),
+WORKSPACE_MENU = {"plus": At("top bar/New workspace", 893, 26), "make": At("layout menu/Create", 669, 300),
                   "rename": At("layout menu/Rename...", 669, 143), "delete": At("layout menu/Delete", 669, 375),
-                  "brought_by": At("layout menu/Brought by", 669, 287), "model_tool": At("layout menu/Model tool", 669, 450)}
+                  "brought_by": At("layout menu/Opened by", 669, 287), "model_tool": At("layout menu/Model tool", 669, 450)}
 
 
 @scenario
 def workspace_plus_makes_a_copy_and_switches():
-    """The top bar's + asks a name; Make with Detail typed makes Detail after Sculpt, a copy of Sculpt's layout tied to no tool, and puts it in front."""
+    """The top bar's + asks a name; Create with Detail typed makes Detail after Sculpt, a copy of Sculpt's layout tied to no tool, and puts it in front."""
     s = Script()
     s.ftap(WORKSPACE_MENU["plus"])
     s.wait(4)
@@ -6894,7 +6894,7 @@ def workspace_delete_current_goes_left():
 
 @scenario
 def workspace_tie_brings_it_with_its_tool():
-    """A new workspace ticked for the Model tool in its Brought by takes the tie from Model: back in Sculpt, the Model tool brings the new one."""
+    """A new workspace ticked for the Model tool in its Opened by takes the tie from Model: back in Sculpt, the Model tool brings the new one."""
     s = Script()
     s.ftap(WORKSPACE_MENU["plus"])
     s.wait(4)
@@ -6940,6 +6940,60 @@ def untied_workspace_keeps_its_brush_picks():
     after.wait(8)
     return Steps([(keep, [], camera_still({"dabs": near(0), "workspace": is_text("workspace_5"), "brush_kind": is_text("clay")})),
                   (after, [], camera_still({"dabs": near(0), "workspace": is_text("model"), "tool": is_text("model")}))])
+
+
+@scenario
+def workspace_tabs_reorder_by_drag():
+    """A mouse drag carries the Model tab left past Sculpt at once; a finger's carries Render left past Paint only after the long press, which opens Render's menu first and closes it as the finger moves. Ctrl+1 then brings Model."""
+    def run(finger):
+        s = Script()
+        if finger:
+            s.add("fdown:0:@top bar/Workspaces/Render")
+            s.wait(34)
+            s.add("fmove:0:@top bar/Workspaces/Paint~-30,0")
+            s.wait(4)
+            s.add("fup:0")
+            s.wait(6)
+            return s, [], camera_still({"dabs": near(0), "workspace": is_text("sculpt"), "workspaces_moved": near(1), "layout_menu": near(0),
+                                        "workspace_names": is_text("sculpt,model,render,paint")})
+        s.add("move:@top bar/Workspaces/Model")
+        s.wait(2)
+        s.add("down")
+        s.wait(2)
+        for dx in (-20, -40, -60, -80, -100):
+            s.add(f"move:@top bar/Workspaces/Model~{dx},0")
+            s.wait(1)
+        s.add("up")
+        s.wait(4)
+        s.press("1", ("ctrl",))
+        s.wait(6)
+        return s, [], camera_still({"dabs": near(0), "workspace": is_text("model"), "workspaces_moved": near(1),
+                                    "workspace_names": is_text("model,sculpt,paint,render")})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def workspace_long_press_opens_its_menu():
+    """On the tablet a finger held on the Model tab opens the menu on Model's actions, switches nothing and sculpts nothing."""
+    s = Script()
+    s.add("fdown:0:@top bar/Workspaces/Model")
+    s.wait(34)
+    s.add("fup:0")
+    s.wait(6)
+    return s, ["--width=1180", "--height=820"], camera_still({"dabs": near(0), "workspace": is_text("sculpt"), "layout_menu": near(1), "workspace_more": near(2)})
+
+
+@scenario
+def workspace_tabs_overflow_on_a_tablet():
+    """With six workspaces at 1180 x 820 the tabs that do not fit fold into the menu, the one in front still shown, and + still makes another."""
+    s = Script()
+    for _ in range(3):
+        s.ftap(WORKSPACE_MENU["plus"])
+        s.wait(4)
+        s.ftap(WORKSPACE_MENU["make"])
+        s.wait(10)
+    return s, ["--width=1180", "--height=820"], camera_still({"dabs": near(0), "workspaces": near(7), "workspace": is_text("workspace_7"),
+                                                              "workspace_tabs_shown": lambda v: 1 <= int(v) < 7})
 
 
 @scenario

@@ -204,6 +204,7 @@ Glossary_Entry :: struct {
 @(rodata)
 GLOSSARY := [?]Glossary_Entry {
 	{"Object", "SubTool (ZBrush), object (Blender, Nomad), layer (3DCoat)", "One mesh in the scene, sculpted, moved, hidden and saved on its own. The Scene card lists them.", "subtool", {.Delete_Object, .Duplicate_Object, .Add_Object}},
+	{"Workspace", "Workspace (Blender, Photoshop, Substance 3D Painter), room (3D-Coat)", "A named layout of the screen, a tab each in the top bar: the bars, docks, cards and shelf pages that show. The tools tied to it bring it when they are picked; the menu after the tabs makes, renames, colours, ties and deletes them.", "room", {.Workspace_New, .Workspace_Tabs}},
 	{"Folder", "Folder (ZBrush), collection (Blender), group (Nomad, Maya)", "A row in the Scene card that gathers objects and other folders; its eye and ghost apply to everything inside it.", "collection", {.New_Folder}},
 	{"Solo", "Solo (ZBrush, Nomad), local view (Blender), isolate (Maya)", "Only the selected object shown, whichever that is, until Solo is off; the others keep their eyes as they were.", "isolate", {.Solo_Object}},
 	{"Ghost", "Transparent (ZBrush), in front and wire display (Blender)", "An object dimmed and out of reach, to sculpt another against it.", "transparent", {.Ghost_Object}},

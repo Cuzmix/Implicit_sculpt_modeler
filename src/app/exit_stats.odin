@@ -590,7 +590,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 					for t in Tie do if t in w.ties do fmt.sbprintf(&ties, "%s%v:%s", "," if strings.builder_len(ties) > 0 else "", t, stat_word(w.name))
 				}
 				m := &k.layouts.edit
-				fmt.printfln("workspace_names=%s workspace_ties=%s workspace_tints=%d workspaces_made=%d workspaces_renamed=%d workspaces_deleted=%d workspace_undo=%d workspace_more=%d workspace_naming=%d", strings.to_string(names), strings.to_string(ties) if strings.builder_len(ties) > 0 else "none", workspace_now(k).tint, m.made, m.renamed, m.deleted, int(m.undo.serial != 0), m.more, int(m.naming))
+				fmt.printfln("workspace_names=%s workspace_ties=%s workspace_tints=%d workspaces_made=%d workspaces_renamed=%d workspaces_deleted=%d workspaces_moved=%d workspace_undo=%d workspace_more=%d workspace_naming=%d workspace_tabs_shown=%d", strings.to_string(names), strings.to_string(ties) if strings.builder_len(ties) > 0 else "none", workspace_now(k).tint, m.made, m.renamed, m.deleted, m.moved, int(m.undo.serial != 0), m.more, int(m.naming), k.workspaces.shown)
 			}
 			fmt.printfln("workspace=%s workspace_slot=%d workspaces=%d workspace_switches=%d layout_class=%s focus_mode=%d inspect_mode=%d object_chip=%s readout=%d readout_at=%.0f,%.0f readout_menus=%d readout_memory_mb=%.0f", stat_word(workspace_now(k).name), k.workspaces.current + 1, len(workspace_tabs(k)), k.workspaces.switches, stat_word(fmt.tprint(k.workspaces.class)), int(k.focus_mode), int(k.inspect.on), object_chip_stat(app), int(k.readout.shown), k.readout.at.x, k.readout.at.y, k.readout.menus, f64(k.readout.memory) / (1 << 20))
 			// The second line of the top bar's file block.
