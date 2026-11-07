@@ -16,6 +16,8 @@
 	// read by the skinned stages (skin.vert.slang); the textured stage reads x as 1 to pull
 	// its slots from the level's buffers (textured.vert.slang).
 	uint4 skin;
+	// x: 1 while the item's Smooth blend pages are bound (blend_pages.slang).
+	uint4 blend;
 };
 
 struct Mesh_Varyings {

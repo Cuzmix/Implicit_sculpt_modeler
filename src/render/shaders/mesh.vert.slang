@@ -4,6 +4,15 @@
 // first index position over three).
 #include "mesh_io.slang"
 
+#if !defined(SKINNED) && !defined(SKIN_TESS)
+// Smooth blend's pages move the plain mesh's vertices; a mesh with a detail skin pauses
+// the row (its skin draws some chunks as their own grid), so the skinned stages read none.
+#define BLEND_TABLE_BINDING 2
+#define BLEND_PAGES_BINDING 3
+#define BLEND_NORMALS 1
+#include "blend_pages.slang"
+#endif
+
 // Per vertex: its polypaint (sRGB red, green, blue and coverage, one byte each, red
 // lowest) and the polygroup it carries (low 16 bits); see render.Mesh_Buffers.paint.
 [[vk::binding(0, 0)]] StructuredBuffer<uint2> paint;
@@ -192,6 +201,9 @@ Mesh_Vertex_Out main(
 	Mesh_Vertex_Out o;
 	float3 in_normal;
 	decode_normal_mask(in_normal_oct, in_normal, o.v.mask);
+#ifdef BLEND_TABLE_BINDING
+	blend_apply(vertex, in_position, in_normal);
+#endif
 	o.v.paint = float4(0.0);
 	o.v.material = float4(0.0);
 	o.v.group = float3(-1.0);

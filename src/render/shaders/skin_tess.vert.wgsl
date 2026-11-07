@@ -1,4 +1,4 @@
-// slangc wgsl from skin_tess.vert.spv sha256 9f53ec4ce387cd5d509e4a3be40592fc92826e35ba33ff3a1c36ad715475a377
+// slangc wgsl from skin_tess.vert.spv sha256 d8aa312a129affefc2d371c5783fe20387659ac82e9106153baa202b1207ca47
 diagnostic(off, derivative_uniformity);
 struct _MatrixStorage_float4x4std140_0
 {
@@ -13,6 +13,7 @@ struct SLANG_ParameterGroup_Frame_Uniforms_std140_0
     @align(16) options_0 : vec4<f32>,
     @align(16) slot_group_0 : array<vec4<u32>, i32(4)>,
     @align(16) skin_0 : vec4<u32>,
+    @align(16) blend_0 : vec4<u32>,
 };
 
 @binding(0) @group(1) var<uniform> Frame_Uniforms_0 : SLANG_ParameterGroup_Frame_Uniforms_std140_0;

@@ -16,6 +16,17 @@ import "../geom"
 Shadow_Uniforms :: struct {
 	light_view_proj: Mat4,
 	model:           Mat4,
+	blend:           [4]u32, // x: 1 while the item's Smooth blend pages are bound
+}
+
+// Binds an item's Smooth blend pages (or the dummies) for the depth-only vertex stage and
+// pushes its uniforms with the flag that says which.
+shadow_item_bind :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, item: Draw_Item, light_view_proj: Mat4) {
+	table, pages, on := blend_bindings(r, item)
+	u := Shadow_Uniforms{light_view_proj, item.model, {on, 0, 0, 0}}
+	push_vertex(cmd, Shadow_Vert_Uniforms.Shadow_Uniforms, &u)
+	storage := [Shadow_Vert_Buffers]gpu.Buffer{.blend_table = table, .blend_pages = pages}
+	bind_vertex_storage(pass, &storage)
 }
 
 // Draws the camera's depth into `target` (one sample, `width` by `height`, the
@@ -55,10 +66,9 @@ view_depth_draw :: proc(r: ^Renderer, cmd: gpu.Cmd, depth_pipeline, clear_pipeli
 		// See-through items leave the viewport's own depth be, so they stay out of this
 		// one too: the anti-aliased viewport then shades as the plain one does.
 		if blended(&r.single, item) do continue
-		u := Shadow_Uniforms{proj * view, item.model}
 		// The pipeline culls back faces, which a reflected copy winds the other way.
 		gpu.set_front_face(pass, model_reflected(item.model))
-		push_vertex(cmd, Shadow_Vert_Uniforms.Shadow_Uniforms, &u)
+		shadow_item_bind(r, cmd, pass, item, proj * view)
 		vbufs := [1]gpu.Buffer_Binding{{buffer = item.mesh.positions}}
 		gpu.bind_vertex_buffers(pass, 0, &vbufs[0], 1)
 		draw_item_triangles(r, pass, item, nil)

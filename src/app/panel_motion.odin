@@ -351,22 +351,22 @@ dock_motion_end :: proc(app: ^App, id: Dock_Id, m: ui.Motion_Mark) {
 	e.way, e.fade = dock_way(app, id, r)
 }
 
-// Whether the space changed this frame: what comes and goes then fades across rather than
+// Whether the workspace changed this frame: what comes and goes then fades across rather than
 // sliding off an edge.
 @(private = "file")
 space_changing :: proc(k: ^Kit_State) -> bool {
-	return k.spaces.switches != k.moving.switches || k.moving.space_frame == k.ctx.frame
+	return k.workspaces.switches != k.moving.switches || k.moving.space_frame == k.ctx.frame
 }
 
 // After every dock: one drawn last frame and not this one slides off its edge from a copy
-// of its last drawing, or fades as the space changes.
+// of its last drawing, or fades as the workspace changes.
 docks_leaving :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	pm := &k.moving
 	space := space_changing(k)
-	if k.spaces.switches != pm.switches {
-		pm.switches = k.spaces.switches
+	if k.workspaces.switches != pm.switches {
+		pm.switches = k.workspaces.switches
 		pm.space_frame = ctx.frame
 	}
 	n := 0

@@ -1,4 +1,4 @@
-// slangc wgsl from shadow.vert.spv sha256 67f5bdaedd655f3d3d4645c816d7fa3c342198996e711c1d978a355b70564690
+// slangc wgsl from shadow.vert.spv sha256 ddf01ea36d3a41755e43b64b123843ad560228052ccdc8fd85fe8747326e9784
 diagnostic(off, derivative_uniformity);
 struct _MatrixStorage_float4x4std140_0
 {
@@ -9,9 +9,28 @@ struct SLANG_ParameterGroup_Shadow_Uniforms_std140_0
 {
     @align(16) light_view_proj_0 : _MatrixStorage_float4x4std140_0,
     @align(16) model_0 : _MatrixStorage_float4x4std140_0,
+    @align(16) blend_0 : vec4<u32>,
 };
 
 @binding(0) @group(1) var<uniform> Shadow_Uniforms_0 : SLANG_ParameterGroup_Shadow_Uniforms_std140_0;
+@binding(0) @group(0) var<storage, read> blend_table_0 : array<u32>;
+
+@binding(2) @group(0) var<storage, read> blend_pages_0 : array<vec4<u32>>;
+
+fn blend_entry_0( vertex_0 : u32) -> vec4<u32>
+{
+    if((Shadow_Uniforms_0.blend_0.x) == u32(0))
+    {
+        return vec4<u32>(u32(0));
+    }
+    var page_0 : u32 = blend_table_0[(vertex_0 >> (u32(10)))];
+    if(page_0 == u32(4294967295))
+    {
+        return vec4<u32>(u32(0));
+    }
+    return blend_pages_0[page_0 * u32(1024) + ((vertex_0 & (u32(1023))))];
+}
+
 struct vertexOutput_0
 {
     @builtin(position) output_0 : vec4<f32>,
@@ -23,9 +42,9 @@ struct vertexInput_0
 };
 
 @vertex
-fn main( _S1 : vertexInput_0) -> vertexOutput_0
+fn main( _S1 : vertexInput_0, @builtin(vertex_index) vertex_1 : u32) -> vertexOutput_0
 {
-    var _S2 : vertexOutput_0 = vertexOutput_0( ((((((mat4x4<f32>(Shadow_Uniforms_0.light_view_proj_0.data_0[i32(0)][i32(0)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(0)][i32(1)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(0)][i32(2)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(0)][i32(3)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(1)][i32(0)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(1)][i32(1)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(1)][i32(2)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(1)][i32(3)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(2)][i32(0)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(2)][i32(1)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(2)][i32(2)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(2)][i32(3)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(3)][i32(0)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(3)][i32(1)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(3)][i32(2)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(3)][i32(3)])) * (mat4x4<f32>(Shadow_Uniforms_0.model_0.data_0[i32(0)][i32(0)], Shadow_Uniforms_0.model_0.data_0[i32(0)][i32(1)], Shadow_Uniforms_0.model_0.data_0[i32(0)][i32(2)], Shadow_Uniforms_0.model_0.data_0[i32(0)][i32(3)], Shadow_Uniforms_0.model_0.data_0[i32(1)][i32(0)], Shadow_Uniforms_0.model_0.data_0[i32(1)][i32(1)], Shadow_Uniforms_0.model_0.data_0[i32(1)][i32(2)], Shadow_Uniforms_0.model_0.data_0[i32(1)][i32(3)], Shadow_Uniforms_0.model_0.data_0[i32(2)][i32(0)], Shadow_Uniforms_0.model_0.data_0[i32(2)][i32(1)], Shadow_Uniforms_0.model_0.data_0[i32(2)][i32(2)], Shadow_Uniforms_0.model_0.data_0[i32(2)][i32(3)], Shadow_Uniforms_0.model_0.data_0[i32(3)][i32(0)], Shadow_Uniforms_0.model_0.data_0[i32(3)][i32(1)], Shadow_Uniforms_0.model_0.data_0[i32(3)][i32(2)], Shadow_Uniforms_0.model_0.data_0[i32(3)][i32(3)]))))) * (vec4<f32>(_S1.position_0, 1.0f)))) );
+    var _S2 : vertexOutput_0 = vertexOutput_0( ((((((mat4x4<f32>(Shadow_Uniforms_0.light_view_proj_0.data_0[i32(0)][i32(0)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(0)][i32(1)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(0)][i32(2)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(0)][i32(3)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(1)][i32(0)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(1)][i32(1)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(1)][i32(2)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(1)][i32(3)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(2)][i32(0)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(2)][i32(1)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(2)][i32(2)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(2)][i32(3)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(3)][i32(0)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(3)][i32(1)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(3)][i32(2)], Shadow_Uniforms_0.light_view_proj_0.data_0[i32(3)][i32(3)])) * (mat4x4<f32>(Shadow_Uniforms_0.model_0.data_0[i32(0)][i32(0)], Shadow_Uniforms_0.model_0.data_0[i32(0)][i32(1)], Shadow_Uniforms_0.model_0.data_0[i32(0)][i32(2)], Shadow_Uniforms_0.model_0.data_0[i32(0)][i32(3)], Shadow_Uniforms_0.model_0.data_0[i32(1)][i32(0)], Shadow_Uniforms_0.model_0.data_0[i32(1)][i32(1)], Shadow_Uniforms_0.model_0.data_0[i32(1)][i32(2)], Shadow_Uniforms_0.model_0.data_0[i32(1)][i32(3)], Shadow_Uniforms_0.model_0.data_0[i32(2)][i32(0)], Shadow_Uniforms_0.model_0.data_0[i32(2)][i32(1)], Shadow_Uniforms_0.model_0.data_0[i32(2)][i32(2)], Shadow_Uniforms_0.model_0.data_0[i32(2)][i32(3)], Shadow_Uniforms_0.model_0.data_0[i32(3)][i32(0)], Shadow_Uniforms_0.model_0.data_0[i32(3)][i32(1)], Shadow_Uniforms_0.model_0.data_0[i32(3)][i32(2)], Shadow_Uniforms_0.model_0.data_0[i32(3)][i32(3)]))))) * (vec4<f32>(_S1.position_0 + (bitcast<vec3<f32>>((blend_entry_0(vertex_1).xyz))), 1.0f)))) );
     return _S2;
 }
 
