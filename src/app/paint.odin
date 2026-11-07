@@ -83,7 +83,7 @@ paint_command :: proc(app: ^App, command: sculpt.Paint_Command) {
 		// The picked layer lives in a texture: its tiles change, kept by an undo step of
 		// the object's own.
 		step := new(sculpt.Texel_Step)
-		changed := sculpt.levels_texel_command(&obj.levels, command, brush_color_bytes(app), material, step, sculpt.height_value(clamp(app.brush.height, -1, 1)))
+		changed := sculpt.levels_texel_command(&obj.levels, command, brush_color_bytes(app), material, step, sculpt.height_value(clamp(app.brush.height, -1, 1)), gradient)
 		log.infof("%s on a texture layer: %.0f ms%s", PAINT_COMMAND_NAMES[command], time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
 		if changed do history_record_texels(app, obj, step, PAINT_COMMAND_NAMES[command])
 		else {
@@ -264,7 +264,7 @@ paint_layer_add :: proc(app: ^App, obj: ^Object) {
 // Adds a texture paint layer at the object's texture size (its texture layers' own, else
 // the Bake size) above the picked one and every vertex layer, and picks it, as one History
 // step. Says why when it cannot: no UVs, or a size its texture layers do not have.
-texture_layer_add :: proc(app: ^App, obj: ^Object) {
+texture_layer_add :: proc(app: ^App, obj: ^Object, prefix := "Texture ") {
 	stroke_finish(app)
 	if obj == nil || !paint_allowed(obj) do return
 	if !sculpt.levels_has_uvs(&obj.levels) {
@@ -272,7 +272,7 @@ texture_layer_add :: proc(app: ^App, obj: ^Object) {
 		return
 	}
 	side := texture_layer_side(app, obj)
-	if sculpt.levels_texel_layer_add(&obj.levels, side) >= 0 do history_record(app, obj, .Paint, "New texture layer")
+	if sculpt.levels_texel_layer_add(&obj.levels, side, prefix) >= 0 do history_record(app, obj, .Paint, "New fill layer" if prefix == "Fill " else "New texture layer")
 }
 
 // The size a new texture layer of `obj` takes: its texture layers' own when it has any,

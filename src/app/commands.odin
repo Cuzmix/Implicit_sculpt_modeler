@@ -143,6 +143,8 @@ Command_Id :: enum u16 {
 	Layer_Edit, // the argument is the Layer_Action, on the Layers section's selected layer
 	New_Paint_Layer,
 	New_Texture_Layer,
+	New_Fill_Layer,
+	Fill_Layer_Update,
 	Export_Paint_Maps,
 	Paint_Layer_Edit, // the argument is the Paint_Layer_Action, on the picked paint layer
 	Recall_Earlier,
@@ -1638,6 +1640,20 @@ COMMANDS := [Command_Id]Command {
 			obj := selected_object(app)
 			return paint_ready(app, 0) && sculpt.levels_has_uvs(&obj.levels) && len(sculpt.sculptor_paint_layers(object_sculptor(obj))) < sculpt.MAX_PAINT_LAYERS
 		},
+	},
+	.New_Fill_Layer = {
+		label = "New fill layer",
+		help = "Adds a texture layer that is made rather than painted: the brush's colour, roughness, metal and height over the surface as far as a mask made from the sculpt allows (its cavities, edges, curvature, what faces up or down, its height, or the sculpt's mask), chosen under the layers. Needs UVs.",
+		icon = ui.ICON_PLUS,
+		run = proc(app: ^App, _: int) {fill_layer_add(app, selected_object(app))},
+		enabled = proc(app: ^App, _: int) -> bool {return command_enabled(app, .New_Texture_Layer)},
+	},
+	.Fill_Layer_Update = {
+		label = "Update fill layer",
+		help = "Makes the picked fill layer again from the sculpt as it is now, after sculpting has moved its cavities and edges, as one undo step.",
+		icon = ui.ICON_FILL_UPDATE,
+		run = proc(app: ^App, _: int) {fill_layer_update(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return fill_layer_picked(app)},
 	},
 	.Export_Paint_Maps = {
 		label = "Export paint maps...",

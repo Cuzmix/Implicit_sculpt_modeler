@@ -715,9 +715,10 @@ COLOUR_WELL, POPOVER_SKIN = At("card Tool/Pick a colour", 1322, 514), At("colour
 
 @scenario
 def colour_well_opens_the_picker():
-    """A tap on the Colour section's well opens the colour popover beside it, as
-    Procreate's colour well does; a tap on a swatch in it sets the paint colour and puts it
-    in the history, with the popover still open; a second tap on the well puts it away."""
+    """A finger's tap on the Colour section's well opens the colour popover beside it, as
+    Procreate's colour well does, though the Tool card stands over Paint's pinned Colours
+    card in the same column; a tap on a swatch in it sets the paint colour and puts it in the
+    history, with the popover still open; a second tap on the well puts it away."""
     # The Paint brush brings the Paint workspace on the first frame, whose layout puts the
     # cards it pins in place, so the section opens a frame later.
     setup = "--script=brush paint; wait 2; open_section paint_color"
@@ -731,35 +732,30 @@ def colour_well_opens_the_picker():
     closed.wait(10)
     closed.ftap(COLOUR_WELL)
     closed.wait(10)
-    return Steps([(s, [setup], camera_still({"dabs": near(0), "color_popover": near(1), "paint_color": is_text("F8E1D4"), "color_history": near(1)})),
+    return Steps([(s, [setup], camera_still({"dabs": near(0), "color_popover": near(1), "paint_color": is_text("F8E1D4"), "color_history": near(1),
+                                             "cards": lambda v: "Colours*" in v})),
                   (closed, [setup], camera_still({"dabs": near(0), "color_popover": near(0)}))])
 
-
-# The Colours card's Pin, in the pen side's column where COLORS opens it.
-COLOURS_PIN = At("card Colours/pin", 1450, 102)
 
 
 @scenario
 def finger_tap_reaches_the_card_over_a_pinned_one():
-    """With the Colours card pinned in the pen side's column and the Tool card opened over it
-    there, the mouse moved splits the column in two (the pinned card above); the first finger
+    """With the Colours card pinned in the pen side's column (as the Paint workspace pins it)
+    and the Tool card opened over it there, the mouse moved splits the column in two (the
+    pinned card above); the first finger
     tap on the Tool card's colour well, where it is shown, opens the colour popover. The
     column keeps the cards as drawn until the tap is over and shows the Tool card alone from
     the frame after, rather than laying itself out again under the finger's press, which
     sent the tap to whatever stood there next (the pinned card, or More options)."""
     s = Script()
-    s.wait(4)
-    s.ftap(COLOURS_PIN)
-    s.wait(6)
-    s.ftap(UI["inspector"])
-    s.wait(10)
+    s.wait(20)
     s.add("move:800,450")
     s.wait(6)
     s.ftap(COLOUR_WELL)
     s.wait(10)
-    # The Paint brush brings the Paint workspace on the first frame, whose layout replaces
-    # the cards open then, so they open a frame later.
-    return s, ["--script=brush paint; wait 2; open_section paint_color; open_card colours"], camera_still(
+    # The Paint brush brings the Paint workspace on the first frame, whose layout pins the
+    # Colours card and replaces the cards open then, so the section opens a frame later.
+    return s, ["--script=brush paint; wait 2; open_section paint_color"], camera_still(
         {"cards": is_text("left:;right:Colours*,Tool"), "card_front": is_text("tool"), "color_popover": near(1), "dabs": near(0)})
 
 
@@ -4084,6 +4080,61 @@ def four_finger_tap_hides_the_interface():
     return s, [], camera_still({"clean_view": near(1)})
 
 
+# --- Clean view's motion (panel_motion.odin's clean_leaving): what it hides slides off from
+# copies of its drawing and slides back as it ends; a press during the slide reaches the view.
+
+def four_finger_tap(s):
+    s.fingers([(500, 300), (560, 300), (620, 300), (680, 300)], [(0, 0)] * 4, 2)
+
+
+def at_least(n):
+    return lambda v: float(v) >= n
+
+
+@scenario
+def clean_view_by_finger_slides_the_controls_out_and_back():
+    """Four fingers with the Tool card pinned: the docks, the top bar, the navigation head, the
+    card and the readout slide off from copies; a finger on the hint brings them back, the
+    bars sliding in, the card still pinned in its column."""
+    s = Script()
+    pin_tool_card(s)
+    four_finger_tap(s)
+    s.wait(30)
+    s.ftap("@clean hint/Bring the interface back")
+    s.wait(30)
+    return s, [], camera_still({"clean_view": near(0), "clean_out": at_least(7), "clean_in": at_least(2), "cards": is_text("left:;right:Tool*"), "dabs": near(0)})
+
+
+@scenario
+def clean_view_by_mouse_takes_the_floating_card_and_brings_it_back():
+    """Tab with the Tool card floating: it fades off toward its side with the bars; a click on
+    the hint brings the controls back, the floating card fading in where it floated."""
+    s = Script()
+    float_tool_card(s)
+    s.press("Tab")
+    s.wait(30)
+    s.add("move:@clean hint/Bring the interface back")
+    s.wait(1)
+    s.add("down")
+    s.wait(1)
+    s.add("up")
+    s.wait(30)
+    return s, [], camera_still({"clean_view": near(0), "clean_out": at_least(7), "clean_in": at_least(3), "cards_float": is_text("Tool"), "dabs": near(0)})
+
+
+@scenario
+def tap_during_the_clean_view_slide_reaches_the_view():
+    """A finger tapping where the floating Tool card stood, four frames into Clean view's slide:
+    the leaving copy takes nothing, so the tap sculpts the model under it and the card stays
+    floating, Clean view on."""
+    s = Script()
+    float_tool_card(s)
+    s.press("Tab")
+    s.ftap(800, 450)
+    s.wait(24)
+    return s, [], camera_still({"clean_view": near(1), "dabs": at_least(1), "undo_steps": near(1), "cards_float": is_text("Tool"), "clean_in": near(0)})
+
+
 @scenario
 def a_stroke_under_a_pinned_card_fades_it():
     """A stroke that starts on the model and runs under the pinned Tool card fades the card while it lasts; the stroke goes on under it."""
@@ -6843,14 +6894,14 @@ def lens_pie_editor_brush_slot_chooses_in_search():
 
 # The workspace menu's controls by name: the top bar's +, the menu's Make, a workspace's
 # actions (its ⋯ and the rows under it).
-WORKSPACE_MENU = {"plus": At("top bar/New workspace", 893, 26), "make": At("layout menu/Make", 669, 300),
+WORKSPACE_MENU = {"plus": At("top bar/New workspace", 893, 26), "make": At("layout menu/Create", 669, 300),
                   "rename": At("layout menu/Rename...", 669, 143), "delete": At("layout menu/Delete", 669, 375),
-                  "brought_by": At("layout menu/Brought by", 669, 287), "model_tool": At("layout menu/Model tool", 669, 450)}
+                  "brought_by": At("layout menu/Opened by", 669, 287), "model_tool": At("layout menu/Model tool", 669, 450)}
 
 
 @scenario
 def workspace_plus_makes_a_copy_and_switches():
-    """The top bar's + asks a name; Make with Detail typed makes Detail after Sculpt, a copy of Sculpt's layout tied to no tool, and puts it in front."""
+    """The top bar's + asks a name; Create with Detail typed makes Detail after Sculpt, a copy of Sculpt's layout tied to no tool, and puts it in front."""
     s = Script()
     s.ftap(WORKSPACE_MENU["plus"])
     s.wait(4)
@@ -6894,7 +6945,7 @@ def workspace_delete_current_goes_left():
 
 @scenario
 def workspace_tie_brings_it_with_its_tool():
-    """A new workspace ticked for the Model tool in its Brought by takes the tie from Model: back in Sculpt, the Model tool brings the new one."""
+    """A new workspace ticked for the Model tool in its Opened by takes the tie from Model: back in Sculpt, the Model tool brings the new one."""
     s = Script()
     s.ftap(WORKSPACE_MENU["plus"])
     s.wait(4)
@@ -6940,6 +6991,60 @@ def untied_workspace_keeps_its_brush_picks():
     after.wait(8)
     return Steps([(keep, [], camera_still({"dabs": near(0), "workspace": is_text("workspace_5"), "brush_kind": is_text("clay")})),
                   (after, [], camera_still({"dabs": near(0), "workspace": is_text("model"), "tool": is_text("model")}))])
+
+
+@scenario
+def workspace_tabs_reorder_by_drag():
+    """A mouse drag carries the Model tab left past Sculpt at once; a finger's carries Render left past Paint only after the long press, which opens Render's menu first and closes it as the finger moves. Ctrl+1 then brings Model."""
+    def run(finger):
+        s = Script()
+        if finger:
+            s.add("fdown:0:@top bar/Workspaces/Render")
+            s.wait(34)
+            s.add("fmove:0:@top bar/Workspaces/Paint~-30,0")
+            s.wait(4)
+            s.add("fup:0")
+            s.wait(6)
+            return s, [], camera_still({"dabs": near(0), "workspace": is_text("sculpt"), "workspaces_moved": near(1), "layout_menu": near(0),
+                                        "workspace_names": is_text("sculpt,model,render,paint")})
+        s.add("move:@top bar/Workspaces/Model")
+        s.wait(2)
+        s.add("down")
+        s.wait(2)
+        for dx in (-20, -40, -60, -80, -100):
+            s.add(f"move:@top bar/Workspaces/Model~{dx},0")
+            s.wait(1)
+        s.add("up")
+        s.wait(4)
+        s.press("1", ("ctrl",))
+        s.wait(6)
+        return s, [], camera_still({"dabs": near(0), "workspace": is_text("model"), "workspaces_moved": near(1),
+                                    "workspace_names": is_text("model,sculpt,paint,render")})
+    return Steps([run(False), run(True)])
+
+
+@scenario
+def workspace_long_press_opens_its_menu():
+    """On the tablet a finger held on the Model tab opens the menu on Model's actions, switches nothing and sculpts nothing."""
+    s = Script()
+    s.add("fdown:0:@top bar/Workspaces/Model")
+    s.wait(34)
+    s.add("fup:0")
+    s.wait(6)
+    return s, ["--width=1180", "--height=820"], camera_still({"dabs": near(0), "workspace": is_text("sculpt"), "layout_menu": near(1), "workspace_more": near(2)})
+
+
+@scenario
+def workspace_tabs_overflow_on_a_tablet():
+    """With six workspaces at 1180 x 820 the tabs that do not fit fold into the menu, the one in front still shown, and + still makes another."""
+    s = Script()
+    for _ in range(3):
+        s.ftap(WORKSPACE_MENU["plus"])
+        s.wait(4)
+        s.ftap(WORKSPACE_MENU["make"])
+        s.wait(10)
+    return s, ["--width=1180", "--height=820"], camera_still({"dabs": near(0), "workspaces": near(7), "workspace": is_text("workspace_7"),
+                                                              "workspace_tabs_shown": lambda v: 1 <= int(v) < 7})
 
 
 @scenario
@@ -9854,6 +9959,45 @@ def references_two_fingers_with_the_card_open_turn_the_picture():
     s.add("fup:1")
     s.wait(6)
     return s, REFS_ON_VIEW, camera_still({"refs_view_angles": angle_between(30, 60), "refs_turns": near(1), "undo_steps": near(2), "dabs": near(0)})
+
+
+# --- References: a picture over the view put behind the model -------------------------
+
+
+def refs_view_behind(s):
+    refs_on_view(s, close=False)
+    s.ftap("refs edits/More")
+    s.wait(4)
+    s.ftap("refs more menu/Behind the model")
+    s.wait(6)
+
+
+@scenario
+def references_view_picture_goes_behind_the_model_and_back_by_undo():
+    """A picture over the view put behind the model from the card's More menu, one undo
+    step, then undone: it stands in front again, the step on the redo list, and nothing
+    turns or sculpts."""
+    s = Script()
+    refs_view_behind(s)
+    s.press("z", ("ctrl",))
+    s.wait(4)
+    return s, REFS_ON_VIEW, camera_still({"refs_view_behind": near(0), "undo_steps": near(1), "redo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
+def references_behind_the_model_pen_sculpts_and_two_fingers_turn_it():
+    """A picture behind the model, the card shut: the pen sculpts the model over it, and two
+    fingers landing on the picture beside the model twist it, one undo step each."""
+    s = Script()
+    refs_view_behind(s)
+    s.ftap("card References/Close")
+    s.wait(6)
+    pen_stroke(s, line((480, 420), (580, 460), 12), pressure=0.8)
+    s.wait(4)
+    s.fingers([(300, 380), (420, 380)], [(0, -60), (0, 60)], 16)
+    s.wait(6)
+    return s, REFS_ON_VIEW, {"refs_view_behind": near(1), "dabs": lambda v: float(v) > 0, "refs_view_angles": angle_between(30, 60),
+                             "refs_turns": near(1), "undo_steps": near(4)}
 
 
 @scenario

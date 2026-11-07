@@ -47,7 +47,14 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 		case 1: v.field = false
 		case 2: if v.fit > .Name do v.fit = .Name
 		case 3: v.file = false
-		case 4: if v.tabs == 0 do v.tabs = 1
+		case 4:
+			// The tabs fold away from the last, the one in front staying, and only when one
+			// tab will not fit does the workspace chip stand in for them all.
+			if v.tabs != 0 do break
+			for v.shown = len(workspace_tabs(k)) - 1; v.shown >= 1; v.shown -= 1 {
+				if fits(top_widths(app, v, chip), width) do break
+			}
+			if v.shown < 1 do v.shown, v.tabs = 0, 1
 		case 5: if v.fit > .Icon do v.fit = .Icon
 		}
 	}
@@ -149,6 +156,7 @@ Top_Fit :: struct {
 	file:    bool, // the file chip
 	field:   bool, // Search as its field rather than its icon
 	tabs:    int, // the workspace tabs (0), the workspace chip (1) or neither (2); editing, all of the controls (0) or Done alone
+	shown:   int, // how many workspace tabs show, the one in front among them; 0 for all
 	fit:     Object_Chip_Fit,
 }
 
@@ -183,7 +191,7 @@ top_slot_width :: proc(app: ^App, s: Bar_Slot, v: Top_Fit, chip: Object_Chip) ->
 		return top_file_width(app) if v.file else 0
 	case .Workspace_Tabs:
 		switch v.tabs {
-		case 0: return workspace_tabs_width(app)
+		case 0: return workspace_tabs_width(app, v.shown)
 		case 1: return WORKSPACE_CHIP_ROOM
 		}
 		return 0
@@ -279,7 +287,7 @@ top_dock_draw :: proc(app: ^App, d: Top_Dock, v: Top_Fit, chip: Object_Chip, men
 			undo_at = ctx.last_rect if undo_at.w <= 0 else ui.rect_union(undo_at, ctx.last_rect)
 		case .Workspace_Tabs:
 			if v.tabs == 0 {
-				_ = top_workspace_tabs(app)
+				_ = top_workspace_tabs(app, v.shown)
 				k.workspace_tabs_at = ui.last_ended(ctx)
 			} else {
 				kit_workspace_chip(app)

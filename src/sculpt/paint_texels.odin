@@ -3,6 +3,7 @@ package sculpt
 import "base:runtime"
 import "core:math/linalg"
 
+import "../geom"
 import "../jobs"
 import "../uv"
 
@@ -55,8 +56,12 @@ Height_Paint :: [2]u16
 HEIGHT_FLAT :: 32768
 
 Texel_Layer :: struct {
-	id:    u32,
-	tiles: []^Texel_Tile, // (side / TEXEL_TILE)² from the top left, row by row; nil: unpainted
+	id:     u32,
+	tiles:  []^Texel_Tile, // (side / TEXEL_TILE)² from the top left, row by row; nil: unpainted
+	// A fill layer (paint_fill.odin): what its paint is made from, which making it again
+	// reads.
+	fill:   Paint_Fill,
+	filled: bool,
 }
 
 // One tile of the texel map: per texel its triangle (TEXEL_NONE for none) and its second
@@ -227,7 +232,7 @@ texels_bytes :: proc(t: ^Texels) -> (n: int) {
 // or -1: dynamic topology on, no UVs, a full stack, a size that is not one of the bake's,
 // or a size other than the one the object's texture layers already have (counting the ones
 // an undo step holds).
-levels_texel_layer_add :: proc(l: ^Levels, side: int) -> int {
+levels_texel_layer_add :: proc(l: ^Levels, side: int, prefix := "Texture ") -> int {
 	s := &levels_current(l).sculptor
 	_ = sculptor_stroke_end(s)
 	if s.dyn != nil || !levels_has_uvs(l) || len(s.paint.list) >= MAX_PAINT_LAYERS || !texel_side_ok(side) do return -1
@@ -246,7 +251,7 @@ levels_texel_layer_add :: proc(l: ^Levels, side: int) -> int {
 	top := 0
 	for row, i in s.paint.list do if row.texels == 0 do top = i + 1
 	index = max(index, top)
-	row := paint_layer_make(s, "Texture ")
+	row := paint_layer_make(s, prefix)
 	row.texels = t.next_id
 	sculptor_stroke_begin(s)
 	s.history.current.paint_op = {active = true, toggle = true, index = index, held = true, layer = row, picked = row.id}
@@ -727,11 +732,16 @@ Texel_Step :: struct {
 	layer: u32,
 	saved: [dynamic]Texel_Saved,
 	seen:  []bool, // per tile: saved already
+	// A fill layer made (again): its settings as they were, which swap with the live ones
+	// as the tiles do.
+	fill:     Paint_Fill,
+	filled:   bool,
+	fill_set: bool,
 }
 
 // Saves tile `index` of `layer` into `step` the first time a step writes it (copy on
 // write). Serial: called before the jobs that write the tiles.
-@(private = "file")
+@(private)
 texel_step_save :: proc(step: ^Texel_Step, layer: ^Texel_Layer, index: int) {
 	if step == nil do return
 	h := runtime.heap_allocator()
@@ -754,6 +764,10 @@ levels_texel_step_swap :: proc(l: ^Levels, step: ^Texel_Step) {
 	for &s in step.saved {
 		layer.tiles[s.index], s.tile = s.tile, layer.tiles[s.index]
 		texels_touch(t, s.index)
+	}
+	if step.fill_set {
+		layer.fill, step.fill = step.fill, layer.fill
+		layer.filled, step.filled = step.filled, layer.filled
 	}
 }
 
@@ -782,13 +796,27 @@ levels_texel_picked :: proc(l: ^Levels) -> (layer: ^Texel_Layer, writes: Paint_C
 // Fills every texel of the picked texture layer that lies on the surface (its islands and
 // their gutter) with `color` and `material` (roughness, metal), in the channels the layer
 // writes, or clears those channels; the tiles it changes are saved into `step` first.
-// Returns true when it changed a tile. Gradient is the vertices' alone (false).
-levels_texel_command :: proc(l: ^Levels, command: Paint_Command, color: [3]u8, material: [2]u8, step: ^Texel_Step, height: u16 = HEIGHT_FLAT) -> bool {
+// Returns true when it changed a tile. Gradient runs the colour from `color` to
+// `gradient.to` along its axis as sculptor_paint_command's does, over the span of the
+// vertices shown, each texel coloured for where it lies on the surface.
+levels_texel_command :: proc(l: ^Levels, command: Paint_Command, color: [3]u8, material: [2]u8, step: ^Texel_Step, height: u16 = HEIGHT_FLAT, gradient := Paint_Gradient{}) -> bool {
 	layer, writes := levels_texel_picked(l)
-	s := &levels_current(l).sculptor
+	lv := levels_current(l)
+	s := &lv.sculptor
 	_ = sculptor_stroke_end(s)
-	if layer == nil || s.dyn != nil || command == .Gradient || !levels_texel_map(l) do return false
+	if layer == nil || s.dyn != nil || !levels_texel_map(l) do return false
 	m := &l.texels.tex_map
+	// Gradient's span along its axis, over the vertices shown, as the vertices' has it.
+	lo, per: f32
+	if command == .Gradient {
+		a, b := max(f32), -max(f32)
+		for p, v in lv.mesh.positions {
+			if s.fade != nil && s.fade[v] == 0 do continue
+			x := linalg.dot(p, gradient.axis)
+			a, b = min(a, x), max(b, x)
+		}
+		if b > a do lo, per = a, 1 / (b - a)
+	}
 	touched := make([dynamic]int, 0, len(layer.tiles), context.temp_allocator)
 	for tile, i in m.tiles {
 		if tile == nil do continue
@@ -806,8 +834,16 @@ levels_texel_command :: proc(l: ^Levels, command: Paint_Command, color: [3]u8, m
 		color:    Color,
 		material: [2]u8,
 		height:   u16,
+		// Gradient: the far colour, the axis, its first value and 1 over its span, and
+		// the current level's triangles and positions each texel's place is read from.
+		gradient: bool,
+		to:       [3]u8,
+		axis:     Vec3,
+		lo, per:  f32,
+		indices:  []u32,
+		pos:      []Vec3,
 	}
-	job := Job{layer, m, touched[:], command == .Clear, writes, {color.r, color.g, color.b, 255}, material, height}
+	job := Job{layer, m, touched[:], command == .Clear, writes, {color.r, color.g, color.b, 255}, material, height, command == .Gradient, gradient.to, gradient.axis, lo, per, lv.mesh.indices[:], lv.mesh.positions[:]}
 	jobs.parallel_for(l.pool, len(touched), &job, proc(data: rawptr, j: int) {
 		job := cast(^Job)data
 		i := job.touched[j]
@@ -846,7 +882,18 @@ levels_texel_command :: proc(l: ^Levels, command: Paint_Command, color: [3]u8, m
 		for k in 0 ..< TILE_TEXELS {
 			if on[k] == TEXEL_NONE do continue
 			if .Height in job.writes do tile.height[k] = {job.height, 65535}
-			if .Color in job.writes do tile.color[k] = job.color
+			if .Color in job.writes {
+				c := job.color
+				if job.gradient {
+					t := on[k]
+					idx := job.indices[3 * t:][:3]
+					b := bary_unpack(job.m.tiles[i].bary[k])
+					p := job.pos[idx[0]] * (1 - b.x - b.y) + job.pos[idx[1]] * b.x + job.pos[idx[2]] * b.y
+					f := clamp((linalg.dot(p, job.axis) - job.lo) * job.per, 0, 1)
+					for n in 0 ..< 3 do c[n] = u8(f32(job.color[n]) + (f32(job.to[n]) - f32(job.color[n])) * f + 0.5)
+				}
+				tile.color[k] = c
+			}
 			if .Roughness in job.writes do tile.material[k][0], tile.material[k][1] = job.material[0], 255
 			if .Metal in job.writes do tile.material[k][2], tile.material[k][3] = job.material[1], 255
 		}
@@ -960,6 +1007,42 @@ texel_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 		blur:    bool,
 		painted: []int,
 		targets: [][dynamic]Texel_Blur,
+		// A sourced dab (paint_source.odin): colour alone, each texel's target found
+		// first as Blur's; Smudge's sums per triangle and the colour it drags.
+		sourced: bool,
+		sums:    [][5]f32,
+		carry:   [4]f32,
+		reach:   f32,
+	}
+	// What texel `at` of tile `k` (at `q` on the surface, facing `n`, weighed `w`) moves
+	// toward under the dab's source: Smudge sums its colour into the triangle's sums
+	// (the carried colour is its target); Clone reads the layer where the surface nearest
+	// `q` moved by the offset lies in the texture; Stencil the picture there, its alpha
+	// as how much to lay.
+	texel_source_target :: proc(job: ^Job, j: int, q, n: Vec3, k, at: int, w: f32, hint: ^u32) -> (target: Color, ok: bool) {
+		s, d := job.s, job.d
+		switch d.brush.source {
+		case .Color:
+		case .Smudge:
+			c := job.layer.tiles[k].color[at]
+			a := f32(c.a) * w
+			job.sums[j] += {f32(c.r) * a, f32(c.g) * a, f32(c.b) * a, a, w}
+			return {}, true
+		case .Clone:
+			tri, bary, _, found := geom.bvh_closest(s.bvh, s.mesh^, q + d.brush.clone_offset, job.reach, hint^, n)
+			if !found do return
+			hint^ = tri
+			c := job.m.corner[tri]
+			p := c[0] * bary[0] + c[1] * bary[1] + c[2] * bary[2]
+			fs := f32(job.side)
+			color, _, _, _ := texel_sample(job.layer, job.side, job.across, {p.x * fs - 0.5, (1 - p.y) * fs - 0.5})
+			return color, true
+		case .Stencil:
+			rgb, a, seen := stencil_sample(d.brush.stencil, stencil_point(d.brush, q))
+			if !seen do return
+			return {u8(clamp(rgb.r + 0.5, 0, 255)), u8(clamp(rgb.g + 0.5, 0, 255)), u8(clamp(rgb.b + 0.5, 0, 255)), u8(clamp(a * 255 + 0.5, 0, 255))}, true
+		}
+		return
 	}
 	texel_triangle :: proc(job: ^Job, j: int, apply: bool) {
 		s, d := job.s, job.d
@@ -972,6 +1055,20 @@ texel_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 		// (from this triangle's texels a unit of the surface), so a dab softens as far on
 		// a 4096 texture as on a 512 one and a big dab as much as the vertices' Blur.
 		step := 1
+		if job.sourced && apply {
+			painted := 0
+			stencil := d.brush.source == .Stencil
+			for b in job.targets[j] {
+				tile := job.layer.tiles[b.tile]
+				target := job.carry if d.brush.source == .Smudge else [4]f32{f32(b.color.r), f32(b.color.g), f32(b.color.b), f32(b.color.a) / 255 if stencil else f32(b.color.a)}
+				next := source_lay(tile.color[b.at], target, b.w, stencil)
+				if next == tile.color[b.at] do continue
+				tile.color[b.at] = next
+				painted += 1
+			}
+			job.painted[j] = painted
+			return
+		}
 		if job.blur && !apply {
 			c := job.m.corner[tri]
 			uv := linalg.abs(linalg.cross(Vec3{c[1].x - c[0].x, c[1].y - c[0].y, 0}, Vec3{c[2].x - c[0].x, c[2].y - c[0].y, 0}).z)
@@ -1008,6 +1105,7 @@ texel_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 			return
 		}
 		painted := 0
+		hint := geom.BVH_NONE
 		for y in lo.y ..= hi.y do for x in lo.x ..= hi.x {
 			k := (y / TEXEL_TILE) * job.across + x / TEXEL_TILE
 			mt := job.m.tiles[k]
@@ -1030,6 +1128,13 @@ texel_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 				w *= clamp(linalg.dot(n, d.brush.facing) * 5 + 0.5, 0, 1)
 			}
 			if w <= 0 do continue
+			if job.sourced {
+				target, ok := texel_source_target(job, j, q, linalg.normalize0(nv[0] * w3[0] + nv[1] * w3[1] + nv[2] * w3[2]), k, at, w, &hint)
+				if !ok do continue
+				if job.targets[j] == nil do job.targets[j] = make([dynamic]Texel_Blur, 0, 64, runtime.heap_allocator())
+				append(&job.targets[j], Texel_Blur{u32(k), u32(at), min(w, 1), target, {}, {}})
+				continue
+			}
 			if job.blur {
 				if job.targets[j] == nil do job.targets[j] = make([dynamic]Texel_Blur, 0, 64, runtime.heap_allocator())
 				color, material, height := texel_blur_target(job.layer, job.m, job.side, job.across, x, y, step)
@@ -1064,8 +1169,31 @@ texel_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 		job.painted[j] = painted
 	}
 	blur := d.brush.blur && !d.brush.invert
-	job := Job{s, d, layer, m, tris[:], t.side, across, writes, blur, make([]int, len(tris), context.temp_allocator), nil}
-	if blur {
+	sourced := paint_sourced(d.brush) && .Color in writes
+	job := Job{s, d, layer, m, tris[:], t.side, across, writes, blur, make([]int, len(tris), context.temp_allocator), nil, sourced, nil, {}, 0}
+	if sourced {
+		// Every target is found from the tiles as they were before the dab, as Blur's,
+		// then laid: Smudge's carried colour between, from the sums in triangle order.
+		job.targets = make([][dynamic]Texel_Blur, len(tris), context.temp_allocator)
+		job.sums = make([][5]f32, len(tris), context.temp_allocator)
+		job.reach = 2 * reach + linalg.length(d.brush.clone_offset)
+		jobs.parallel_for(pool, len(tris), &job, proc(data: rawptr, j: int) {
+			job := cast(^Job)data
+			texel_triangle(job, j, false)
+		})
+		go := true
+		if d.brush.source == .Smudge {
+			go = smudge_carry(s, d.brush.image, job.sums)
+			job.carry = s.smudge[d.brush.image] if go else {}
+		}
+		if go {
+			jobs.parallel_for(pool, len(tris), &job, proc(data: rawptr, j: int) {
+				job := cast(^Job)data
+				texel_triangle(job, j, true)
+			})
+		}
+		if d.brush.source == .Smudge do smudge_pick_up(s, d.brush.image, job.sums)
+	} else if blur {
 		// Every target is found from the tiles as they were before the dab and only then
 		// written, so no triangle reads a texel another has already blurred and the
 		// result is the same on any number of threads.
@@ -1075,10 +1203,12 @@ texel_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 			texel_triangle(job, j, false)
 		})
 	}
-	jobs.parallel_for(pool, len(tris), &job, proc(data: rawptr, j: int) {
-		job := cast(^Job)data
-		texel_triangle(job, j, true)
-	})
+	if !sourced {
+		jobs.parallel_for(pool, len(tris), &job, proc(data: rawptr, j: int) {
+			job := cast(^Job)data
+			texel_triangle(job, j, true)
+		})
+	}
 	for &list in job.targets do delete(list)
 	total := 0
 	for n in job.painted do total += n

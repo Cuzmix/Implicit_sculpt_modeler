@@ -1,7 +1,7 @@
 # Renders the brush icons in the "grey ball, coloured effect" style: each brush's effect
 # modelled as a signed distance field on a unit ball, ray marched, the effect in its own
 # glossy colour, the ball matte grey, with a soft shadow and occlusion. Writes RGBA PNGs.
-import numpy as np, sys
+import numpy as np, os, sys
 from PIL import Image
 N=384; SS=2; R=1.0
 BUMPS2=[]
@@ -29,7 +29,8 @@ for _i in range(70):
 COL={'clay':(0.36,0.52,0.98),'smooth':(0.86,0.88,0.92),'grab':(0.62,0.52,0.96),'flatten':(0.45,0.88,0.62),
      'draw':(0.93,0.93,0.97),'layer':(0.27,0.78,0.74),'clay_strips':(0.45,0.5,1.0),'mask':(0.13,0.15,0.2),
      'paint':(0.92,0.36,0.82),'cloth':(0.96,0.55,0.64),'history':(0.37,0.84,0.77),'morph':(0.71,0.88,0.42),'elastic':(0.56,0.6,1.0),
-     'inflate':(0.98,0.78,0.36),'crease':(0.35,0.72,0.98),'pinch':(0.98,0.4,0.42),'trim':(0.98,0.5,0.32),'snake':(0.45,0.8,0.42),'tube':(0.99,0.66,0.2)}
+     'inflate':(0.98,0.78,0.36),'crease':(0.35,0.72,0.98),'pinch':(0.98,0.4,0.42),'trim':(0.98,0.5,0.32),'snake':(0.45,0.8,0.42),'tube':(0.99,0.66,0.2),
+     'rotate':(0.98,0.42,0.62),'thumb':(0.52,0.82,0.98)}
 def cap_region(p,c,a0):
     # Distance, along the ball, from the round region of angle a0 about direction c.
     c=norm(c); return (np.arccos(np.clip((p@c)/(L(p)+1e-9),-1,1))-a0)*R
@@ -132,6 +133,23 @@ def scene(n,p):
             if prev is not None: c=np.minimum(c,cap(p,prev,q,0.15))
             prev=q
         d,_=smin(ball,c,0.05); return d, np.clip((ball-c)*14+0.3,0,1)
+    if n=='rotate':
+        # A patch of the ball's front turned about its middle: a coloured swirl, its arms
+        # sweeping round, raised a little where it was turned.
+        c=norm([0.12,0.22,1.0]); u=norm(np.cross(c,[0,1,0])); v=np.cross(c,u)
+        x=p@u; y=p@v; r=np.sqrt(x*x+y*y); a=np.arctan2(y,x)+3.2*r
+        arms=np.cos(3*a)*np.clip(1-r/0.75,0,1)
+        reg=cap_region(p,c,0.7)
+        sh=smax(L(p)-(R+0.04*np.clip(arms,0,1)),reg,0.04)[0]; d,_=smin(ball,sh,0.02)
+        return d, np.clip((arms-0.15)*4,0,1)*np.clip(-reg*10,0,1)
+    if n=='thumb':
+        # A thumb's smear: a shallow flat groove pressed along the ball, the clay it pushed
+        # piled at its end.
+        a=onball(-0.55,-0.2,0.0); b=onball(0.3,0.35,0.0)
+        g=rcone(p,a,b,0.2,0.24)
+        d,_=smax(ball,-g,0.05)
+        pile=L(p-onball(0.42,0.43,0.04))-0.2; d,_=smin(d,pile,0.12)
+        return d, np.clip((0.06-g)*12,0,1)+np.clip((ball-pile)*8+0.2,0,1)*0.8
 def render(n):
     M=N*SS; s=(np.arange(M)+0.5)/M*2-1; sc=1.42
     X,Y=np.meshgrid(s*sc+0.08,-s*sc+0.12)
@@ -162,5 +180,6 @@ def render(n):
     rgba=np.concatenate([col,hit[...,None].astype(float)],-1)
     img=Image.fromarray((rgba*255).astype(np.uint8),'RGBA').resize((N,N),Image.LANCZOS)
     return img
+OUT=os.environ.get('GLOSSY_OUT','/mnt/project-files/notes/icons/glossy')
 for n in sys.argv[1:]:
-    render(n).save(f'/mnt/project-files/notes/icons/glossy/{n}.png'); print(n,flush=True)
+    render(n).save(f'{OUT}/{n}.png'); print(n,flush=True)

@@ -3,8 +3,8 @@ package ui
 // Written by scripts/icons_build.py from assets/icons/manifest.txt: edit that and run the
 // script. One name per meaning, each its own drawing in the icon fonts (text.odin).
 
-ICONS_SOURCE_HASH :: "f2167b3449ceefdf7a60649156826c695584a7d521670ded6034ac4c6db66fb9"
-ICONS_FONTS_HASH :: "6f8ee7678e9b7827998dd8e510d7f21af4ae1e42a21e19ce10b8ef996f618455"
+ICONS_SOURCE_HASH :: "5e714b1feb82d8c01e44892ebac74e09a0a58720d69b0f4f3a67470d0337082d"
+ICONS_FONTS_HASH :: "7e075b7844683d89b6cd29266becdf6564cd5a87c225b7f047b471372662f8e0"
 
 // What an icon works on, which colours it in the Colour icon style.
 Icon_Group :: enum u8 {
@@ -19,7 +19,7 @@ Icon_Group :: enum u8 {
 }
 
 ICON_FIRST :: rune(0xE000)
-ICON_COUNT :: 412
+ICON_COUNT :: 416
 
 ICON_MENU                :: rune(0xE000) // ph:list
 ICON_MORE                :: rune(0xE001) // ph:dots-three-circle
@@ -376,63 +376,67 @@ ICON_GREY                :: rune(0xE15F) // tb:contrast
 ICON_TURN                :: rune(0xE160) // tb:rotate-clockwise
 ICON_CROP                :: rune(0xE161) // tb:crop
 ICON_ON_VIEW             :: rune(0xE162) // ph:picture-in-picture
-ICON_STRAIGHTEN          :: rune(0xE163) // tb:ruler-2
-ICON_SEND_TO_BACK        :: rune(0xE164) // tb:layers-subtract
-ICON_HEAD                :: rune(0xE165) // ph:user
-ICON_CAMERA              :: rune(0xE166) // ph:camera
-ICON_RESET_CAMERA        :: rune(0xE167) // ph:camera-rotate
-ICON_FRAME               :: rune(0xE168) // ph:frame-corners
-ICON_FOCUS               :: rune(0xE169) // tb:focus
-ICON_PICK_FOCUS          :: rune(0xE16A) // tb:focus-auto
-ICON_ORTHO               :: rune(0xE16B) // tb:perspective
-ICON_FLOOR               :: rune(0xE16C) // lu:axis-3d
-ICON_VIEW_GRID           :: rune(0xE16D) // ph:hash
-ICON_WIREFRAME           :: rune(0xE16E) // ph:grid-nine
-ICON_TRANSPARENCY        :: rune(0xE16F) // tb:square-toggle
-ICON_CLEAN_VIEW          :: rune(0xE170) // tb:maximize
-ICON_VIEW_LAYOUT         :: rune(0xE171) // tb:layout-board
-ICON_FOUR_VIEWS          :: rune(0xE172) // tb:layout-grid-add
-ICON_VIEW_WINDOW         :: rune(0xE173) // ph:browsers
-ICON_SECOND_VIEW         :: rune(0xE174) // tb:picture-in-picture
-ICON_VIEW_GUIDES         :: rune(0xE175) // lu:align-vertical-space-between
-ICON_VIEW_GUIDES_RESET   :: rune(0xE176) // tb:refresh
-ICON_ORBIT_VIEW          :: rune(0xE177) // ph:planet
-ICON_FLIP_VIEW           :: rune(0xE178) // tb:flip-horizontal
-ICON_ROTATE_3D           :: rune(0xE179) // tb:rotate-3d
-ICON_LOOK                :: rune(0xE17A) // ph:binoculars
-ICON_SHADING             :: rune(0xE17B) // ph:circle-half-tilt
-ICON_LAST_SHADING        :: rune(0xE17C) // tb:arrow-back-up
-ICON_STYLE               :: rune(0xE17D) // ph:paint-brush-broad
-ICON_FINISH              :: rune(0xE17E) // tb:sparkles
-ICON_WIPE                :: rune(0xE17F) // tb:columns-2
-ICON_BACKGROUND          :: rune(0xE180) // tb:background
-ICON_RENDER              :: rune(0xE181) // ph:film-slate
-ICON_RENDER_PREVIEW      :: rune(0xE182) // tb:device-tv
-ICON_STUDIO_RENDER       :: rune(0xE183) // ph:sun-horizon
-ICON_RENDER_FULL         :: rune(0xE184) // ph:sparkle
-ICON_PASSES              :: rune(0xE185) // tb:stack-3
-ICON_SPACE_RENDER        :: rune(0xE186) // ph:aperture
-ICON_SPACE_MODEL         :: rune(0xE187) // ph:cube-transparent
-ICON_LIGHTS              :: rune(0xE188) // ph:sun
-ICON_LIGHT_POINT         :: rune(0xE189) // ph:lightbulb
-ICON_LIGHT_SPOT          :: rune(0xE18A) // ph:lamp-pendant
-ICON_LIGHT_AREA          :: rune(0xE18B) // tb:rectangle
-ICON_LIGHT_SUN           :: rune(0xE18C) // tb:sun-low
-ICON_PLACE_LIGHT         :: rune(0xE18D) // tb:bulb
-ICON_ENVIRONMENT         :: rune(0xE18E) // tb:world-longitude
-ICON_PASS_AO             :: rune(0xE18F) // tb:circle-half
-ICON_PASS_CURVATURE      :: rune(0xE190) // tb:chart-arcs
-ICON_PASS_DEPTH          :: rune(0xE191) // tb:arrows-down-up
-ICON_PASS_NORMALS        :: rune(0xE192) // tb:arrows-diagonal
-ICON_PASS_SHADED         :: rune(0xE193) // tb:sun-high
-ICON_PASS_SILHOUETTE     :: rune(0xE194) // ph:user-focus
-ICON_PASS_SKIN           :: rune(0xE195) // tb:fingerprint
-ICON_PASS_UNLIT          :: rune(0xE196) // tb:sun-off
-ICON_SHADE_CLAY          :: rune(0xE197) // tb:sphere-plus
-ICON_SHADE_FLAT          :: rune(0xE198) // tb:circle-half-vertical
-ICON_SHADE_FULL          :: rune(0xE199) // ph:sphere
-ICON_SHADE_LIT           :: rune(0xE19A) // ph:sun-dim
-ICON_SHADE_RENDERED      :: rune(0xE19B) // tb:stars
+ICON_VIEW_BEHIND         :: rune(0xE163) // tb:stack-back
+ICON_STRAIGHTEN          :: rune(0xE164) // tb:ruler-2
+ICON_SEND_TO_BACK        :: rune(0xE165) // tb:layers-subtract
+ICON_HEAD                :: rune(0xE166) // ph:user
+ICON_CAMERA              :: rune(0xE167) // ph:camera
+ICON_RESET_CAMERA        :: rune(0xE168) // ph:camera-rotate
+ICON_FRAME               :: rune(0xE169) // ph:frame-corners
+ICON_FOCUS               :: rune(0xE16A) // tb:focus
+ICON_PICK_FOCUS          :: rune(0xE16B) // tb:focus-auto
+ICON_ORTHO               :: rune(0xE16C) // tb:perspective
+ICON_FLOOR               :: rune(0xE16D) // lu:axis-3d
+ICON_VIEW_GRID           :: rune(0xE16E) // ph:hash
+ICON_WIREFRAME           :: rune(0xE16F) // ph:grid-nine
+ICON_TRANSPARENCY        :: rune(0xE170) // tb:square-toggle
+ICON_CLEAN_VIEW          :: rune(0xE171) // tb:maximize
+ICON_VIEW_LAYOUT         :: rune(0xE172) // tb:layout-board
+ICON_FOUR_VIEWS          :: rune(0xE173) // tb:layout-grid-add
+ICON_VIEW_WINDOW         :: rune(0xE174) // ph:browsers
+ICON_SECOND_VIEW         :: rune(0xE175) // tb:picture-in-picture
+ICON_VIEW_GUIDES         :: rune(0xE176) // lu:align-vertical-space-between
+ICON_VIEW_GUIDES_RESET   :: rune(0xE177) // tb:refresh
+ICON_ORBIT_VIEW          :: rune(0xE178) // ph:planet
+ICON_FLIP_VIEW           :: rune(0xE179) // tb:flip-horizontal
+ICON_ROTATE_3D           :: rune(0xE17A) // tb:rotate-3d
+ICON_LOOK                :: rune(0xE17B) // ph:binoculars
+ICON_SHADING             :: rune(0xE17C) // ph:circle-half-tilt
+ICON_LAST_SHADING        :: rune(0xE17D) // tb:arrow-back-up
+ICON_STYLE               :: rune(0xE17E) // ph:paint-brush-broad
+ICON_FINISH              :: rune(0xE17F) // tb:sparkles
+ICON_WIPE                :: rune(0xE180) // tb:columns-2
+ICON_BACKGROUND          :: rune(0xE181) // tb:background
+ICON_RENDER              :: rune(0xE182) // ph:film-slate
+ICON_RENDER_PREVIEW      :: rune(0xE183) // tb:device-tv
+ICON_STUDIO_RENDER       :: rune(0xE184) // ph:sun-horizon
+ICON_RENDER_FULL         :: rune(0xE185) // ph:sparkle
+ICON_PASSES              :: rune(0xE186) // tb:stack-3
+ICON_SPACE_RENDER        :: rune(0xE187) // ph:aperture
+ICON_SPACE_MODEL         :: rune(0xE188) // ph:cube-transparent
+ICON_LIGHTS              :: rune(0xE189) // ph:sun
+ICON_LIGHT_POINT         :: rune(0xE18A) // ph:lightbulb
+ICON_LIGHT_SPOT          :: rune(0xE18B) // ph:lamp-pendant
+ICON_LIGHT_AREA          :: rune(0xE18C) // tb:rectangle
+ICON_LIGHT_SUN           :: rune(0xE18D) // tb:sun-low
+ICON_PLACE_LIGHT         :: rune(0xE18E) // tb:bulb
+ICON_ENVIRONMENT         :: rune(0xE18F) // tb:world-longitude
+ICON_PASS_AO             :: rune(0xE190) // tb:circle-half
+ICON_PASS_CURVATURE      :: rune(0xE191) // tb:chart-arcs
+ICON_PASS_DEPTH          :: rune(0xE192) // tb:arrows-down-up
+ICON_PASS_NORMALS        :: rune(0xE193) // tb:arrows-diagonal
+ICON_PASS_SHADED         :: rune(0xE194) // tb:sun-high
+ICON_PASS_SILHOUETTE     :: rune(0xE195) // ph:user-focus
+ICON_PASS_SKIN           :: rune(0xE196) // tb:fingerprint
+ICON_PASS_UNLIT          :: rune(0xE197) // tb:sun-off
+ICON_SHADE_CLAY          :: rune(0xE198) // tb:sphere-plus
+ICON_SHADE_FLAT          :: rune(0xE199) // tb:circle-half-vertical
+ICON_SHADE_FULL          :: rune(0xE19A) // ph:sphere
+ICON_SHADE_LIT           :: rune(0xE19B) // ph:sun-dim
+ICON_SHADE_RENDERED      :: rune(0xE19C) // tb:stars
+ICON_FILL_UPDATE         :: rune(0xE19D) // ph:arrows-counter-clockwise
+ICON_BRUSH_ROTATE        :: rune(0xE19E) // ph:arrow-arc-right
+ICON_BRUSH_THUMB         :: rune(0xE19F) // ph:hand-swipe-right
 
 ICON_GROUP_TABLE := [ICON_COUNT]Icon_Group {
 	.App, // ICON_MENU
@@ -790,6 +794,7 @@ ICON_GROUP_TABLE := [ICON_COUNT]Icon_Group {
 	.App, // ICON_TURN
 	.App, // ICON_CROP
 	.App, // ICON_ON_VIEW
+	.App, // ICON_VIEW_BEHIND
 	.App, // ICON_STRAIGHTEN
 	.App, // ICON_SEND_TO_BACK
 	.App, // ICON_HEAD
@@ -847,4 +852,7 @@ ICON_GROUP_TABLE := [ICON_COUNT]Icon_Group {
 	.Render, // ICON_SHADE_FULL
 	.Render, // ICON_SHADE_LIT
 	.Render, // ICON_SHADE_RENDERED
+	.Paint, // ICON_FILL_UPDATE
+	.Sculpt, // ICON_BRUSH_ROTATE
+	.Sculpt, // ICON_BRUSH_THUMB
 }

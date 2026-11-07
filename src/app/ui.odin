@@ -76,6 +76,13 @@ Ui_State :: struct {
 	layer_drag_wide:    bool, // the dragged strength slider began on the wide range, which it keeps until release
 	layers_paint:       bool, // the Layers card shows its Paint tab (paint layers) rather than its Sculpt tab
 	layer_drag_paint:   bool, // the drag is a paint layer's opacity (lens_paint_layers.odin), not a sculpt layer's strength
+	// The picked fill layer's settings as the card edits them, until a release makes the
+	// layer again (paint_fill.odin): whose they are, and how many fills were made.
+	fill_edit:          sculpt.Paint_Fill,
+	fill_editing:       bool,
+	fill_obj:           int,
+	fill_layer:         u32,
+	fill_made:          int,
 	layer_mask:         Layer_Mask_Paint, // the layer mask a row's mask square picked for painting (layer_masks.odin)
 	deform:             Deform_Panel, // the Deformers section's choices and its Amount drag (deformers.odin)
 	reshape:            Reshape_Panel, // the Deformation section's choices and its Amount drag (reshape.odin)

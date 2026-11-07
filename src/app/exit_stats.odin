@@ -414,7 +414,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			}
 			// Decodes still running finish first, so the counts say what the run asked for.
 			refs_finish(app)
-			fmt.printfln("refs=%d ref_images=%d refs_shown=%d refs_gpu_mb=%.1f refs_decode_ms=%.0f refs_selected=%d refs_moves=%d ref_notes=%d refs_grey=%d refs_shrunk=%d refs_small=%d ref_planes=%d ref_planes_through=%d refs_lined_up=%d refs_order=%s refs_asked_files=%d refs_asked_photos=%d dialogs_asked=%d refs_angles=%s refs_view_angles=%s refs_view_widths=%s refs_view_locked=%d refs_turns=%d", len(app.scene.refs.refs), len(app.scene.refs.images), refs_shown_count(app), refs_gpu_mb(app), app.refs_decode_ms, len(app.kit.board.selected), app.kit.board.moves, refs_note_count(app), refs_grey_count(app), app.refs_shrunk, refs_small_count(app), refs_plane_count(app, false), refs_plane_count(app, true), app.kit.board.lined_up, refs_order_text(app), app.kit.board.asked_files, app.kit.board.asked_photos, app.dialogs_asked, refs_stat_text(app, .Angle), refs_stat_text(app, .View_Angle), refs_stat_text(app, .View_Width), refs_view_locked_count(app), app.kit.board.turns)
+			fmt.printfln("refs=%d ref_images=%d refs_shown=%d refs_gpu_mb=%.1f refs_decode_ms=%.0f refs_selected=%d refs_moves=%d ref_notes=%d refs_grey=%d refs_shrunk=%d refs_small=%d ref_planes=%d ref_planes_through=%d refs_lined_up=%d refs_order=%s refs_asked_files=%d refs_asked_photos=%d dialogs_asked=%d refs_angles=%s refs_view_angles=%s refs_view_widths=%s refs_view_locked=%d refs_turns=%d refs_view_behind=%d", len(app.scene.refs.refs), len(app.scene.refs.images), refs_shown_count(app), refs_gpu_mb(app), app.refs_decode_ms, len(app.kit.board.selected), app.kit.board.moves, refs_note_count(app), refs_grey_count(app), app.refs_shrunk, refs_small_count(app), refs_plane_count(app, false), refs_plane_count(app, true), app.kit.board.lined_up, refs_order_text(app), app.kit.board.asked_files, app.kit.board.asked_photos, app.dialogs_asked, refs_stat_text(app, .Angle), refs_stat_text(app, .View_Angle), refs_stat_text(app, .View_Width), refs_view_locked_count(app), app.kit.board.turns, refs_view_behind_count(app))
 			fmt.printfln("environment_turn=%.1f environment_tilt=%.1f environment_turns=%d environment_recent=%d environment_backdrop=%s", env.turn, env.tilt, env.turns, len(env.recent), strings.to_lower(fmt.tprint(environment_backdrop(&env)), context.temp_allocator))
 		}
 		{
@@ -565,8 +565,9 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// torn out of a column and put back.
 		fmt.printfln("cards=%s cards_shut=%s card_opens=%d card_folds=%d card_pins=%d card_closes=%d cards_float=%s card_floated=%d card_returned=%d panel_menu=%d card_sizes=%s card_resizes=%d", columns_text(k), cards_shut_text(k), k.cards.opens, k.cards.folds, k.cards.pins, k.cards.closes, cards_float_text(k), k.cards.floated, k.cards.returned, int(k.panels.menu), cards_size_text(k), k.cards.resizes)
 		// Panels sliding (panel_motion.odin): cards and docks that slid in, that left from a
-		// copy of their drawing, and narrow-window sheets put away by a drag.
-		fmt.printfln("panel_slides=%d panel_leaves=%d sheet_pulls=%d card_glides=%d card_lifts=%d dock_glides=%d slot_moves=%d pills_in=%d pills_out=%d", k.moving.slides, k.moving.leaves, k.moving.pulled_away, k.moving.glides, k.moving.lifts, k.moving.dock_glides, k.moving.slot_moves, k.moving.popped, k.moving.unpopped)
+		// copy of their drawing, and narrow-window sheets put away by a drag; what Clean view
+		// sent off and the bars and floating cards it brought back.
+		fmt.printfln("panel_slides=%d panel_leaves=%d sheet_pulls=%d card_glides=%d card_lifts=%d dock_glides=%d slot_moves=%d pills_in=%d pills_out=%d clean_out=%d clean_in=%d", k.moving.slides, k.moving.leaves, k.moving.pulled_away, k.moving.glides, k.moving.lifts, k.moving.dock_glides, k.moving.slot_moves, k.moving.popped, k.moving.unpopped, k.moving.clean_out, k.moving.clean_in)
 		// Each space's layout: which differ from how they ship (the current one's dot), the
 		// layout menu, Reset layout's runs, and the zones hidden (by it or a view toggle).
 		{
@@ -591,7 +592,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 					for t in Tie do if t in w.ties do fmt.sbprintf(&ties, "%s%v:%s", "," if strings.builder_len(ties) > 0 else "", t, stat_word(w.name))
 				}
 				m := &k.layouts.edit
-				fmt.printfln("workspace_names=%s workspace_ties=%s workspace_tints=%d workspaces_made=%d workspaces_renamed=%d workspaces_deleted=%d workspace_undo=%d workspace_more=%d workspace_naming=%d", strings.to_string(names), strings.to_string(ties) if strings.builder_len(ties) > 0 else "none", workspace_now(k).tint, m.made, m.renamed, m.deleted, int(m.undo.serial != 0), m.more, int(m.naming))
+				fmt.printfln("workspace_names=%s workspace_ties=%s workspace_tints=%d workspaces_made=%d workspaces_renamed=%d workspaces_deleted=%d workspaces_moved=%d workspace_undo=%d workspace_more=%d workspace_naming=%d workspace_tabs_shown=%d", strings.to_string(names), strings.to_string(ties) if strings.builder_len(ties) > 0 else "none", workspace_now(k).tint, m.made, m.renamed, m.deleted, m.moved, int(m.undo.serial != 0), m.more, int(m.naming), k.workspaces.shown)
 			}
 			fmt.printfln("workspace=%s workspace_slot=%d workspaces=%d workspace_switches=%d layout_class=%s focus_mode=%d inspect_mode=%d object_chip=%s readout=%d readout_at=%.0f,%.0f readout_menus=%d readout_memory_mb=%.0f", stat_word(workspace_now(k).name), k.workspaces.current + 1, len(workspace_tabs(k)), k.workspaces.switches, stat_word(fmt.tprint(k.workspaces.class)), int(k.focus_mode), int(k.inspect.on), object_chip_stat(app), int(k.readout.shown), k.readout.at.x, k.readout.at.y, k.readout.menus, f64(k.readout.memory) / (1 << 20))
 			// The second line of the top bar's file block.
