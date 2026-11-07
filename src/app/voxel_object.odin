@@ -184,9 +184,22 @@ voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: b
 // Whether a stroke with `kind` can start on a voxel object; said once a press (`say`) when
 // not, so the press does nothing in silence.
 voxel_brush_allowed :: proc(app: ^App, kind: sculpt.Brush_Kind, say: bool) -> bool {
+	if kind == .Grab do return true
 	if _, ok := voxel_brush_of({kind = kind}, {}); ok do return true
-	if say do report(app, Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Smooth, Flatten, Inflate and Mask; convert the object to a mesh for the rest", BRUSHES[kind].name)
+	if say do report(app, Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Smooth, Flatten, Inflate, Grab and Mask; convert the object to a mesh for the rest", BRUSHES[kind].name)
 	return false
+}
+
+// Starts a Grab on the clay: the brush pressed at `at` (the object's space) and at each
+// of its symmetry images, which drag their clay the mirrored or turned way.
+voxel_grab_begin :: proc(vp: ^Voxel_Part, brush: sculpt.Brush, at: Vec3) {
+	centres: [dynamic; sculpt.SYM_IMAGES_MAX]Vec3
+	turns: [dynamic; sculpt.SYM_IMAGES_MAX]matrix[3, 3]f32
+	for img in sculpt.symmetry_images(brush) {
+		append(&centres, sculpt.sym_point(img, brush.sym_center, at))
+		append(&turns, img.turn)
+	}
+	voxel.clay_grab_begin(&vp.clay, brush.radius, centres[:], turns[:])
 }
 
 // One dab on the object at `at` (its space): the sculptor's for a mesh, the clay's for a

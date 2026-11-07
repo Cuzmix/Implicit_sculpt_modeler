@@ -12,7 +12,11 @@ description: Implicit and SDF modelling for this app — the voxel sculptor in s
   stroke_end/flush/to_mesh/write/read/undo/redo` in `clay.odin`, `mesh.odin`, `undo.odin`, `file.odin`, `convert.odin`;
   brushes `Add, Subtract, Clay, Inflate` as an offset of the band's values by height × falloff (never the clamp's,
   which are bounds; far voxels bounded by the eikonal update from their neighbours; a voxel a step, `dab_steps`), `Smooth`
-  a 27-mean, `Flatten` a plane clip or fill (`brush.odin`); band repair by Godunov sweeps at `clay_stroke_end` (`band.odin`): the region's bricks run in WAVEFRONTS
+  a 27-mean, `Flatten` a plane clip or fill (`brush.odin`); `Grab` a warp (`warp.odin`: `clay_grab_begin/move`, every frame
+  samples the press's field, the undo step's first saves, through the inverse of the move found by fixed-point steps,
+  long drags chained in steps of 0.4 r, all symmetry images in one warp, sources on a lattice of every other voxel,
+  bricks whose sources fall in one tile pruned to it; `mesh_node` insets crossings by `CROSSING_INSET` so squeezed
+  values never fold a triangle onto a lattice point); band repair by Godunov sweeps at `clay_stroke_end` (`band.odin`): the region's bricks run in WAVEFRONTS
   (bricks of one coordinate sum share no face, so a wavefront is one `parallel_for` reading neighbours live: Gauss-Seidel
   across bricks, no snapshot), a sweep per direction (`sweep & 7`), stopping at the first sweep that moves no value by
   more than `REPAIR_SETTLED` (`Clay.repair_sweeps` says how many; `band_repair(c, every_sweep = true)` runs them all for
