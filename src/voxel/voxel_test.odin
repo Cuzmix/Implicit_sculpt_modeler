@@ -88,6 +88,55 @@ add_raises_the_surface_and_subtract_lowers_it_under_the_brush_only :: proc(t: ^t
 }
 
 @(test)
+an_add_dab_is_a_smooth_bump_of_its_height :: proc(t: ^testing.T) {
+	// One full-strength dab raises the surface under its centre by ADD_HEIGHT radii and
+	// less toward its rim, by the falloff, with nothing past it: a bump that follows the
+	// sphere, not a disc or a half sphere standing on it.
+	c := test_sphere(128)
+	defer clay_destroy(&c)
+	r := f32(0.3)
+	voxel := c.volume.voxel
+	height := r * ADD_HEIGHT
+	clay_stroke_begin(&c)
+	_ = test_dab(&c, .Add, {0, 0, 1}, r)
+	_ = clay_stroke_end(&c)
+	rise :: proc(c: ^Clay, angle: f32) -> f32 {
+		dir := Vec3{math.sin(angle), 0, math.cos(angle)}
+		hit, _, ok := clay_raycast(c, dir * 5, -dir)
+		return linalg.length(hit) - 1 if ok else -1
+	}
+	centre := rise(&c, 0)
+	testing.expectf(t, math.abs(centre - height) < 0.4 * voxel, "the centre rose %v, the dab's height is %v", centre, height)
+	// Half way out the falloff is (1 - 0.25)² of the height (the sphere bends away a little).
+	half := rise(&c, 0.5 * r)
+	testing.expectf(t, math.abs(half - height * 0.5625) < 0.5 * voxel, "half way out the surface rose %v, wanted %v", half, height * 0.5625)
+	testing.expectf(t, half < centre, "half way out (%v) is not below the centre (%v)", half, centre)
+	outside := rise(&c, 1.3 * r)
+	testing.expectf(t, math.abs(outside) < 0.3 * voxel, "past the rim the surface moved %v", outside)
+}
+
+@(test)
+clay_builds_up_to_its_plane_and_levels_off :: proc(t: ^testing.T) {
+	c := test_sphere(128)
+	defer clay_destroy(&c)
+	r := f32(0.3)
+	voxel := c.volume.voxel
+	clay_stroke_begin(&c)
+	for _ in 0 ..< 40 do _ = test_dab(&c, .Clay, {0, 0, 1}, r)
+	_ = clay_stroke_end(&c)
+	hit, _, ok := clay_raycast(&c, {0, 0, 5}, {0, 0, -1})
+	plane := 1 + r * CLAY_PLANE
+	testing.expectf(t, ok && math.abs(hit.z - plane) < voxel, "the top is at %v, the plane at %v", hit.z, plane)
+	// Off centre the top is flat too: on the plane, not rounded below it.
+	off, _, off_ok := clay_raycast(&c, {0.3 * r, 0, 5}, {0, 0, -1})
+	testing.expectf(t, off_ok && math.abs(off.z - plane) < 1.5 * voxel, "off centre the top is at %v, the plane at %v", off.z, plane)
+	m := clay_to_mesh(&c)
+	defer geom.mesh_destroy(&m)
+	check := geom.mesh_check(m)
+	testing.expectf(t, check.closed && check.non_manifold_edges == 0, "%v", check)
+}
+
+@(test)
 serial_and_parallel_strokes_agree_bit_for_bit :: proc(t: ^testing.T) {
 	pool: jobs.Pool
 	jobs.pool_init(&pool, 3)

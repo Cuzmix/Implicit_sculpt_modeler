@@ -10,8 +10,9 @@ description: Implicit and SDF modelling for this app — the voxel sculptor in s
   4096 units a voxel, `BAND` 3, `CLAMP` ±4 voxels, tiles `TILE_EMPTY`/`TILE_INSIDE` in each chunk's table, 4096³ domain)
   in `volume.odin`; `Clay` (volume + `Surface` + undo + pool) with `clay_init/destroy/fill_sphere/raycast/stroke_begin/dab/
   stroke_end/flush/to_mesh/write/read/undo/redo` in `clay.odin`, `mesh.odin`, `undo.odin`, `file.odin`, `convert.odin`;
-  brushes `Add, Subtract, Smooth, Flatten, Inflate` as a stamp `smin`, a 27-mean, a plane clip or fill and an offset
-  (`brush.odin`); band repair by Godunov sweeps at `clay_stroke_end` (`band.odin`): the region's bricks run in WAVEFRONTS
+  brushes `Add, Subtract, Clay, Inflate` as an offset of the band's values by height × falloff (never the clamp's,
+  which are bounds; far voxels bounded by the eikonal update from their neighbours; a voxel a step, `dab_steps`), `Smooth`
+  a 27-mean, `Flatten` a plane clip or fill (`brush.odin`); band repair by Godunov sweeps at `clay_stroke_end` (`band.odin`): the region's bricks run in WAVEFRONTS
   (bricks of one coordinate sum share no face, so a wavefront is one `parallel_for` reading neighbours live: Gauss-Seidel
   across bricks, no snapshot), a sweep per direction (`sweep & 7`), stopping at the first sweep that moves no value by
   more than `REPAIR_SETTLED` (`Clay.repair_sweeps` says how many; `band_repair(c, every_sweep = true)` runs them all for

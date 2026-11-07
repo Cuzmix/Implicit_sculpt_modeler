@@ -48,7 +48,7 @@ Dab_Job :: struct {
 	effect: Dab_Effect, // written by the job
 }
 
-// Smooth's window: the brick and a voxel around it.
+// A dab's window (Smooth and the growing brushes): the brick and a voxel around it.
 WINDOW :: BRICK + 2
 WINDOW_VOXELS :: WINDOW * WINDOW * WINDOW
 
@@ -154,8 +154,23 @@ clay_stroke_end :: proc(c: ^Clay) -> bool {
 // bricks it wrote.
 clay_dab :: proc(c: ^Clay, brush: Brush, centre: Vec3) -> int {
 	assert(c.in_stroke, "a dab needs a stroke")
+	d := dab_make(brush, centre, c.volume.voxel, c.volume.origin)
+	// A growing dab higher than the band can follow in one step is laid in steps of at
+	// most ADD_MAX_VOXELS, each bringing the band along (brush.odin).
+	steps := dab_steps(&d)
+	if steps == 0 do return 0
+	d.height /= f32(steps)
+	written := 0
+	for _ in 0 ..< steps do written += clay_dab_step(c, d)
+	if written > 0 do c.stroke_dabs += 1
+	return written
+}
+
+// One pass of dab `d` over its bricks: how many it wrote.
+@(private)
+clay_dab_step :: proc(c: ^Clay, dab: Dab) -> int {
 	v := &c.volume
-	d := dab_make(brush, centre, v.voxel, v.origin)
+	d := dab
 	reach := dab_reach(&d)
 	lo := brick_floor(d.centre - reach)
 	hi := brick_floor(d.centre + reach)
@@ -178,17 +193,16 @@ clay_dab :: proc(c: ^Clay, brush: Brush, centre: Vec3) -> int {
 		append(&c.jobs, Dab_Job{slot = slot, coord = bc})
 	}
 	if len(c.jobs) == 0 do return 0
-	c.stroke_dabs += 1
 
-	// The parallel pass: one brick a job. Smooth reads neighbourhoods other jobs' bricks
-	// hold, so it writes scratch bricks from windows gathered before anything changes and
-	// commits them in a second pass.
+	// The parallel pass: one brick a job. Smooth and the growing brushes read
+	// neighbourhoods other jobs' bricks hold, so they write scratch bricks from windows
+	// gathered before anything changes and commit them in a second pass.
 	Run :: struct {
 		c: ^Clay,
 		d: Dab,
 	}
 	run := Run{c, d}
-	if d.kind == .Smooth {
+	if dab_reads_window(d.kind) {
 		resize(&c.scratch, len(c.jobs))
 		resize(&c.windows, len(c.jobs) * WINDOW_VOXELS)
 		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {

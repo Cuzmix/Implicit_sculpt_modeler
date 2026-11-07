@@ -164,13 +164,14 @@ object_raycast_local :: proc(obj: ^Object, origin, dir: Vec3) -> (hit, normal: V
 	return
 }
 
-// The voxel brush a mesh brush stands for: Draw, Clay and Layer add clay (take it away
-// inverted), Smooth, Flatten and Inflate do what they do on a mesh; the rest have no
-// meaning on a volume (false). `normal` is the surface normal under the dab.
+// The voxel brush a mesh brush stands for: Draw and Layer add clay (take it away
+// inverted), Clay builds up to a plane above the surface (digs inverted), Smooth, Flatten
+// and Inflate do what they do on a mesh; the rest have no meaning on a volume (false). `normal` is the surface normal under the dab.
 voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: bool) {
 	vb = {radius = b.radius, strength = b.strength, invert = b.invert, normal = normal}
 	#partial switch b.kind {
-	case .Draw, .Clay, .Layer: vb.kind = .Add
+	case .Draw, .Layer: vb.kind = .Add
+	case .Clay:    vb.kind = .Clay
 	case .Smooth:  vb.kind = .Smooth
 	case .Flatten: vb.kind = .Flatten
 	case .Inflate: vb.kind = .Inflate
