@@ -29,6 +29,8 @@
 //   --files      instead, OBJ, PLY and scene files written and read (see run_files)
 //   --masks      instead, every mask command on a half-masked sphere (see run_masks)
 //   --voxel      instead, the voxel clay table; sizes are voxels across (see run_voxel)
+//   --blend      instead, Smooth blend's field and projection, 1M, 10M and 20M by default
+//                (see run_blend)
 //   --profile    instead, steady strokes per brush for a profiler, 12.5M and 25M by default
 //                (see run_profile); --seconds=N per case
 //   --meshes=N   spheres per size, all sculpt-ready; only the first is sculpted
@@ -76,6 +78,7 @@ dyntopo := false
 files := false
 masks := false
 voxels := false
+blends := false
 uvs := false
 profile := false
 sends := false
@@ -121,6 +124,8 @@ main :: proc() {
 			files = true
 		} else if arg == "--masks" {
 			masks = true
+		} else if arg == "--blend" {
+			blends = true
 		} else if arg == "--voxel" {
 			voxels = true
 		} else if arg == "--send" {
@@ -148,6 +153,8 @@ main :: proc() {
 		for v in ([]int{1_000_000, 10_000_000, 25_000_000}) do append(&cases, Case{v, 1})
 	} else if uvs && len(targets) == 0 {
 		for v in ([]int{100_000, 1_000_000}) do append(&cases, Case{v, 1})
+	} else if blends && len(targets) == 0 {
+		for v in ([]int{1_000_000, 10_000_000, 20_000_000}) do append(&cases, Case{v, 1})
 	} else if voxels && len(targets) == 0 {
 		for v in ([]int{256, 512, 1024}) do append(&cases, Case{v, 1})
 	} else if len(targets) == 0 {
@@ -216,6 +223,12 @@ main :: proc() {
 		send_header()
 		for c in cases do if c.meshes == 1 do run_send(c.vertices, pool)
 		send_footer()
+		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
+		return
+	}
+	if blends {
+		blend_header()
+		for c in cases do if c.meshes == 1 do run_blend(c.vertices, pool)
 		if prefault_mb == 0 do fmt.printfln("peak RSS: %.0f MB", peak_rss_mb())
 		return
 	}
