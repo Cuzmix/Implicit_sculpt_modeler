@@ -11,16 +11,18 @@ import "../jobs"
 // of an instance near an instance it is joined with is moved onto the smooth union of their
 // distance fields by Newton steps along the union's gradient, as Implicit Skinning
 // (Vaillant et al. 2013) projects skin onto its parts' fields. The union takes Gourmel et
-// al.'s 2013 idea, the blend's amount following the angle between the two gradients, on
-// signed distances: a full fillet where the surfaces cross, none where they only face each
-// other across a gap, where a plain smooth minimum would build a bridge.
+// al.'s 2013 gradient-based blend on signed distances: how much it blends follows the angle
+// between the two gradients through their opening function (blend_opening_theta), so it
+// rounds where surfaces cross, and is a plain union where they face each other across a
+// gap (where a plain smooth minimum builds a bridge) and, as the preset asks, where they
+// lie along each other (where it swells the shape: Gourmel's bulging problem).
 
-// Gradients' cosine from which the blend is full (outward normals up to ~107° apart).
-BLEND_FULL_COS :: -0.3
-// Gradients' cosine at and below which there is no blend: the surfaces face each other.
-BLEND_NONE_COS :: -0.8
-// Newton steps a vertex takes at most; the spike needed 3 on average and never 6.
-BLEND_STEPS :: 6
+// Vaillant's guard: a vertex whose march turns the gradient by more than this (55°) from
+// one step to the next has met a contact surface, a crease of the field, and stops there.
+BLEND_TURN_COS :: 0.5735764
+// Steps a vertex's march takes at most: Newton's until the target is bracketed, then
+// false position (the spike's plain Newton needed 3 on average and never 6).
+BLEND_STEPS :: 10
 // A step's length at most, in radii, so a step from a poor gradient cannot fly off.
 BLEND_STEP_MAX :: 0.5
 // Converged when |G − target| is below this share of the radius.
@@ -28,6 +30,11 @@ BLEND_TOLERANCE :: 1e-4
 // A vertex deeper inside a partner than this share of the radius is hidden inside the
 // union and stays where it is.
 BLEND_HIDDEN_DEPTH :: 0.5
+// A vertex that starts inside a partner moves only to land on the fillet, where the blend
+// takes at least this share: one that would land where it hardly blends would end on the
+// partner's own surface, on top of the partner's sheet (Gourmel's ramps leave a sliver of
+// blend there that a plain union would not), and stays hidden instead.
+BLEND_LAND_MIN :: 0.05
 // The most instances one point's fold takes.
 BLEND_FOLD_MAX :: 16
 // The seam between two objects' sheets, both on the one blended surface: the object with
@@ -59,12 +66,32 @@ Blend_Instance :: struct {
 	id:      u32,
 }
 
-// Two instances joined by a row: the fillet's radius in world units and its fullness
-// (0 a plain union with a crease, 1 a full round).
+// Two instances joined by a row: the fillet's radius in world units, its fullness (0 a
+// plain union with a crease, 1 a full round) and the opening function deciding where it
+// blends.
 Blend_Pair :: struct {
 	a, b:     int,
 	radius:   f32,
 	strength: f32,
+	opening:  Blend_Opening,
+}
+
+// Gourmel et al. 2013's opening functions (Table I): Organic, theirs for organic modelling,
+// blends fully from 60° between the gradients, a third where they align, and turns to a
+// union toward opposed gradients (sharp creases in deep folds); Camel is a union both where
+// the gradients align and where they oppose, and blends fully only where they are square,
+// so surfaces lying along each other never swell.
+Blend_Opening :: enum u8 {
+	Organic,
+	Camel,
+}
+
+// Per opening function, Gourmel's eight parameters (eq. 15): the angles α0, α1, α2, the
+// opening angles θ0, θ1, θ2 there, and the slopes w0, w1.
+@(rodata)
+BLEND_OPENINGS := [Blend_Opening][8]f32 {
+	.Organic = {0, math.PI / 3, 3 * math.PI / 4, math.PI / 6, 0, math.PI / 4, 3, 1},
+	.Camel   = {0, math.PI / 2, math.PI, math.PI / 4, 0, math.PI / 4, 1, 1},
 }
 
 // A moved vertex of an instance: where it moves by, the blended surface's normal there,
@@ -81,6 +108,7 @@ Blend_Move :: struct {
 Blend_Stats :: struct {
 	scanned, moved, steps, unconverged: int,
 	most_steps:                         int,
+	stopped:                            int, // marches Vaillant's turn guard ended at a crease
 }
 
 // The smooth union of a and b (unit gradients na and nb) with radius k and fullness s:
@@ -100,12 +128,32 @@ blend_union :: #force_inline proc(a, b: f32, ga, gb: Vec3, k, s: f32) -> (g: f32
 	return g, gb * (1 - s * h * 0.5) + ga * (s * h * 0.5), h
 }
 
-// The blend radius at a point whose two unit gradients have cosine c: full from
-// BLEND_FULL_COS up, none at BLEND_NONE_COS and below, smoothstepped between, times the
-// painted weight w (0 no blend to 1).
-blend_radius_at :: #force_inline proc(radius, c, w: f32) -> f32 {
-	t := clamp((c - BLEND_NONE_COS) / (BLEND_FULL_COS - BLEND_NONE_COS), 0, 1)
-	return radius * w * t * t * (3 - 2 * t)
+// The blend radius at a point whose two unit gradients have cosine c: the radius times the
+// share of a blend the opening function gives the angle between them (θ = 0 a full blend,
+// π/4 a union), times the painted weight w (0 no blend to 1).
+blend_radius_at :: proc(radius, c, w: f32, opening: Blend_Opening) -> f32 {
+	theta := blend_opening_theta(opening, math.acos(clamp(c, -1, 1)))
+	return radius * w * (1 - theta / (math.PI / 4))
+}
+
+// Gourmel's opening function θ(α) (eq. 15): constant outside [α0, α2], and between them
+// two flat-ended C∞ ramps through θ1 at α1 shaped by κ (eq. 16) raised to the slopes.
+blend_opening_theta :: proc(opening: Blend_Opening, alpha: f32) -> f32 {
+	q := BLEND_OPENINGS[opening]
+	a0, a1, a2, t0, t1, t2, w0, w1 := q[0], q[1], q[2], q[3], q[4], q[5], q[6], q[7]
+	switch {
+	case alpha <= a0: return t0
+	case alpha <= a1: return math.pow(blend_kappa((alpha - a1) / (a0 - a1)), w0) * (t0 - t1) + t1
+	case alpha < a2: return math.pow(blend_kappa((alpha - a1) / (a2 - a1)), w1) * (t2 - t1) + t1
+	}
+	return t2
+}
+
+// Gourmel's κ (eq. 16): 0 at 0, 1 at 1, every derivative 0 at both ends.
+blend_kappa :: proc(x: f32) -> f32 {
+	if x <= 0 do return 0
+	if x >= 1 do return 1
+	return 1 - math.exp(1 - 1 / (1 - math.exp(1 - 1 / x)))
 }
 
 // The field spacing for a radius: a power of two between radius/6 and radius/3, so a
@@ -149,7 +197,7 @@ blend_views :: proc(instances: []Blend_Instance, pairs: []Blend_Pair, which: int
 		into := linalg.inverse(o.place) * self.place
 		lin := matrix[3, 3]f32{into[0, 0], into[0, 1], into[0, 2], into[1, 0], into[1, 1], into[1, 2], into[2, 0], into[2, 1], into[2, 2]}
 		v := Blend_View{inst = o, index = j, into = into, back = linalg.transpose(lin), ratio = o.scale / self.scale}
-		v.radius, v.strength = blend_pair_between(pairs, which, j, self.scale)
+		v.radius, v.strength, _ = blend_pair_between(pairs, which, j, self.scale)
 		v.joined = v.radius > 0
 		reach = max(reach, v.radius)
 		append(&out, v)
@@ -157,12 +205,12 @@ blend_views :: proc(instances: []Blend_Instance, pairs: []Blend_Pair, which: int
 	return out[:], reach
 }
 
-// The radius (in the space of an instance of scale `scale`) and fullness of the pair
-// joining instances ia and ib, the largest when several do; zero when none does.
-blend_pair_between :: proc(pairs: []Blend_Pair, ia, ib: int, scale: f32) -> (radius, strength: f32) {
+// The radius (in the space of an instance of scale `scale`), fullness and opening function
+// of the pair joining instances ia and ib, the largest when several do; zero when none does.
+blend_pair_between :: proc(pairs: []Blend_Pair, ia, ib: int, scale: f32) -> (radius, strength: f32, opening: Blend_Opening) {
 	for p in pairs {
 		if (p.a == ia && p.b == ib) || (p.a == ib && p.b == ia) {
-			if r := p.radius / scale; r > radius do radius, strength = r, p.strength
+			if r := p.radius / scale; r > radius do radius, strength, opening = r, p.strength, p.opening
 		}
 	}
 	return
@@ -231,6 +279,7 @@ blend_project :: proc(instances: []Blend_Instance, pairs: []Blend_Pair, which: i
 		stats.steps += s.steps
 		stats.unconverged += s.unconverged
 		stats.most_steps = max(stats.most_steps, s.most_steps)
+		stats.stopped += s.stopped
 	}
 	return
 }
@@ -272,7 +321,7 @@ project_vertex :: proc(pr: ^Project, v: u32, out: ^[dynamic]Blend_Move, st: ^Ble
 	}
 	if !near do return
 	st.scanned += 1
-	g0, _, amount0, _, _, _, _ := evaluate(pr, x0, false)
+	g0, _, amount0, _, _, _, _ := evaluate(pr, x0)
 	// A point inside a partner where nothing blends would fall onto the partner's surface:
 	// it is hidden, and stays.
 	if amount0 <= 0 && g0 < a0 do return
@@ -281,15 +330,45 @@ project_vertex :: proc(pr: ^Project, v: u32, out: ^[dynamic]Blend_Move, st: ^Ble
 	best, best_x := abs(g0 - target), x0
 	steps := 0
 	converged := best < BLEND_TOLERANCE * pr.reach
+	turned := false
+	last_dir: Vec3
+	// The march's bracket: the last point found outside the target (r > 0) and inside it
+	// (r < 0). The Newton step's gradient leaves out how the opening function's radius
+	// turns with the gradients' angle, which Gourmel's ramps make steep; once the target
+	// is bracketed, false position between the two (Illinois's variant, halving a side
+	// kept twice) needs values only and closes in whatever that term does.
+	out_x, in_x: Vec3
+	out_r, in_r: f32
+	has_out, has_in := false, false
+	kept := 0 // +1 when the outside point was kept last, -1 the inside one
 	for !converged && steps < BLEND_STEPS {
-		g, grad, _, _, _, _, okg := evaluate(pr, x, false)
+		g, grad, _, _, _, _, okg := evaluate(pr, x)
 		if !okg do break
+		dir := linalg.normalize0(grad)
+		if steps > 0 && linalg.dot(dir, last_dir) < BLEND_TURN_COS {
+			turned = true
+			break
+		}
+		last_dir = dir
 		steps += 1
 		r := g - target
 		if abs(r) < best do best, best_x = abs(r), x
 		if abs(r) < BLEND_TOLERANCE * pr.reach {
 			converged = true
 			break
+		}
+		if r > 0 {
+			out_x, out_r, has_out = x, r, true
+			if kept > 0 do in_r *= 0.5
+			kept = 1
+		} else {
+			in_x, in_r, has_in = x, r, true
+			if kept < 0 do out_r *= 0.5
+			kept = -1
+		}
+		if has_out && has_in {
+			x = out_x + (in_x - out_x) * (out_r / (out_r - in_r))
+			continue
 		}
 		gg := linalg.dot(grad, grad)
 		if gg < 1e-8 do break
@@ -299,15 +378,19 @@ project_vertex :: proc(pr: ^Project, v: u32, out: ^[dynamic]Blend_Move, st: ^Ble
 	}
 	if converged {
 		best_x = x
+	} else if turned {
+		// Stopped at a crease: the best point met before it stands.
+		st.stopped += 1
 	} else {
 		// The last point may be the best one, unmeasured after the final step.
-		if g, _, _, _, _, _, okg := evaluate(pr, x, false); okg && abs(g - target) < best do best_x = x
+		if g, _, _, _, _, _, okg := evaluate(pr, x); okg && abs(g - target) < best do best_x = x
 		st.unconverged += 1
 	}
 	st.steps += steps
 	st.most_steps = max(st.most_steps, steps)
 	if best_x == x0 do return
-	_, normal, amount, own, rival, rival_edge, _ := evaluate(pr, best_x, true)
+	_, normal, amount, own, rival, rival_edge, _ := evaluate(pr, best_x)
+	if g0 < a0 && amount < BLEND_LAND_MIN do return
 	n := linalg.normalize0(normal)
 	offset := best_x - x0
 	if pr.self.id < rival {
@@ -327,24 +410,15 @@ view_at :: #force_inline proc(view: ^Blend_View, x: Vec3) -> (d: f32, g: Vec3, w
 	return d * view.ratio, view.back * g * view.ratio, w, true
 }
 
-@(private = "file")
-view_normal :: #force_inline proc(view: ^Blend_View, x: Vec3) -> (g: Vec3, ok: bool) {
-	p := (view.into * [4]f32{x.x, x.y, x.z, 1}).xyz
-	g = blend_field_normal(view.inst.field, p) or_return
-	return view.back * g * view.ratio, true
-}
-
 // The blended field at x: its value, gradient, the blend's largest share over the fold
 // (times the fullness), the seam side of the projected instance (own > 0 where its field
-// is below the others') and the id of the nearest other instance (max(u32) for none).
-// `smooth` takes the gradients from the smooth normals, for the final normal. ok is false
+// is below the others') and the id of the nearest other instance (max(u32) for none). ok is false
 // where the instance's own field holds no brick.
 @(private = "file")
-evaluate :: proc(pr: ^Project, x: Vec3, smooth: bool) -> (g: f32, grad: Vec3, amount, own: f32, rival: u32, rival_edge: f32, ok: bool) {
+evaluate :: proc(pr: ^Project, x: Vec3) -> (g: f32, grad: Vec3, amount, own: f32, rival: u32, rival_edge: f32, ok: bool) {
 	terms: [BLEND_FOLD_MAX]Term
 	count := 0
 	d, gs, w := blend_field_at(pr.self.field, x) or_return
-	if smooth do gs = blend_field_normal(pr.self.field, x) or_return
 	terms[0] = {d = d, g = gs, w = w, id = pr.self.id, view = -1}
 	count = 1
 	others := max(f32)
@@ -352,9 +426,6 @@ evaluate :: proc(pr: ^Project, x: Vec3, smooth: bool) -> (g: f32, grad: Vec3, am
 	for &view, i in pr.views {
 		if count == BLEND_FOLD_MAX do break
 		vd, vg, vw := view_at(&view, x) or_continue
-		if smooth {
-			if n, okn := view_normal(&view, x); okn do vg = n
-		}
 		terms[count] = {d = vd, g = vg, w = vw, id = view.inst.id, view = i}
 		count += 1
 		if vd < others || (vd == others && view.inst.id < rival) do others, rival, rival_edge = vd, view.inst.id, view.inst.surface.edge * view.ratio
@@ -366,11 +437,12 @@ evaluate :: proc(pr: ^Project, x: Vec3, smooth: bool) -> (g: f32, grad: Vec3, am
 		e := sorted[j]
 		// The pair with the largest radius between this field and any before it.
 		radius, strength, pw: f32
+		opening: Blend_Opening
 		for i in 0 ..< j {
-			r, s := pair_of(pr, e.view, sorted[i].view)
-			if r > radius do radius, strength, pw = r, s, e.w * sorted[i].w
+			r, s, o := pair_of(pr, e.view, sorted[i].view)
+			if r > radius do radius, strength, pw, opening = r, s, e.w * sorted[i].w, o
 		}
-		k := blend_radius_at(radius, linalg.dot(linalg.normalize0(grad), linalg.normalize0(e.g)), pw)
+		k := blend_radius_at(radius, linalg.dot(linalg.normalize0(grad), linalg.normalize0(e.g)), pw, opening)
 		h: f32
 		g, grad, h = blend_union(g, e.d, grad, e.g, k, strength)
 		amount = max(amount, strength * h)
@@ -403,7 +475,7 @@ blend_surface_edge :: proc(m: Mesh) -> f32 {
 // The radius (in the projected instance's space) and fullness of the pair joining two
 // fold terms (view indices, -1 the projected instance), zero when they are not joined.
 @(private = "file")
-pair_of :: proc(pr: ^Project, a, b: int) -> (radius, strength: f32) {
+pair_of :: proc(pr: ^Project, a, b: int) -> (radius, strength: f32, opening: Blend_Opening) {
 	ia := pr.which if a < 0 else pr.views[a].index
 	ib := pr.which if b < 0 else pr.views[b].index
 	return blend_pair_between(pr.pairs, ia, ib, pr.self.scale)
@@ -535,11 +607,11 @@ cull_bricks :: proc(self, other: ^Blend_Instance, into: matrix[4, 4]f32, radius:
 		mid := (Vec3{f32(b.x), f32(b.y), f32(b.z)} + 0.5) * (h * BLEND_BRICK)
 		half := h * BLEND_BRICK * 0.5 * math.SQRT_THREE
 		r_self := c.radius / c.self.scale + half
-		_, _, _, near_self := surface_distance(c.self.surface, mid, r_self)
+		_, _, _, _, near_self := surface_distance(c.self.surface, mid, r_self)
 		if !near_self do return
 		r_other := (c.radius + half * c.self.scale) / c.other.scale
 		p := (c.into * [4]f32{mid.x, mid.y, mid.z, 1}).xyz
-		_, _, _, near_other := surface_distance(c.other.surface, p, r_other)
+		_, _, _, _, near_other := surface_distance(c.other.surface, p, r_other)
 		c.keep[i] = near_other
 	})
 	for k, i in fresh do if c.keep[i] do append(want, k)

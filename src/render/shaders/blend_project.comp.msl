@@ -1,15 +1,15 @@
-// slangc metal from blend_project.comp.spv sha256 b1d6df237f9e00d857e16bbf65c0aa7253e96d62cbc22fdd18693381784ff227
+// slangc metal from blend_project.comp.spv sha256 3c8ac46ec784f56e0278cfd6978d4ae16d7e761387447061d985a9e397db850a
 // slots s= rt= wt= rb=0,1,2,3,4,5,6 wb=7 u=8 a=
 #include <metal_stdlib>
 #include <metal_math>
 #include <metal_texture>
 using namespace metal;
 
-#line 79 "src/render/shaders/blend_project.comp.slang"
+#line 78 "src/render/shaders/blend_project.comp.slang"
 uint key_hash_0(uint x_0, uint y_0, uint z_0)
 {
 
-#line 80
+#line 79
     uint h_0 = ((x_0 * 73856093U) ^ (y_0 * 19349663U)) ^ (z_0 * 83492791U);
 
     uint h_1 = (h_0 ^ (h_0 >> 16U)) * 2146121005U;
@@ -20,7 +20,7 @@ uint key_hash_0(uint x_0, uint y_0, uint z_0)
 }
 
 
-#line 30
+#line 32
 struct SLANG_ParameterGroup_Blend_Params_0
 {
     uint vertex_count_0;
@@ -31,11 +31,11 @@ struct SLANG_ParameterGroup_Blend_Params_0
     float self_edge_0;
     uint _pad0_0;
     uint _pad1_0;
-    array<float4, int(32)> pair_table_0;
+    array<float4, int(64)> pair_table_0;
 };
 
 
-#line 28
+#line 30
 struct KernelContext_0
 {
     SLANG_ParameterGroup_Blend_Params_0 constant* Blend_Params_0;
@@ -45,66 +45,66 @@ struct KernelContext_0
     packed_uint4 device* fields_0;
     packed_uint4 device* brick_table_0;
     float device* brick_values_0;
-    uint device* brick_weights_0;
+    uint device* brick_extras_0;
     packed_uint4 device* pages_0;
 };
 
 
-#line 90
+#line 89
 int brick_base_0(uint f_0, int3 b_0, KernelContext_0 thread* kernelContext_0)
 {
 
-#line 91
+#line 90
     int _S1 = b_0.x;
 
-#line 91
+#line 90
     bool _S2;
 
-#line 91
+#line 90
     if((abs(_S1)) >= int(1048575))
     {
 
-#line 91
+#line 90
         _S2 = true;
 
-#line 91
+#line 90
     }
     else
     {
 
-#line 91
+#line 90
         _S2 = (abs(b_0.y)) >= int(1048575);
 
-#line 91
+#line 90
     }
 
-#line 91
+#line 90
     if(_S2)
     {
 
-#line 91
+#line 90
         _S2 = true;
 
-#line 91
+#line 90
     }
     else
     {
 
-#line 91
+#line 90
         _S2 = (abs(b_0.z)) >= int(1048575);
 
-#line 91
+#line 90
     }
 
-#line 91
+#line 90
     if(_S2)
     {
 
-#line 91
+#line 90
         return int(-1);
     }
 
-#line 91
+#line 90
     uint4 _S3 = uint4(*(kernelContext_0->fields_0+f_0)) ;
 
     uint x_1 = uint(_S1 + int(1048576)) & 2097151U;
@@ -112,531 +112,538 @@ int brick_base_0(uint f_0, int3 b_0, KernelContext_0 thread* kernelContext_0)
     uint z_1 = uint(b_0.z + int(1048576)) & 2097151U;
     uint _S4 = x_1 | (y_1 << 21U);
     uint _S5 = (y_1 >> 11U) | (z_1 << 10U);
-    uint mask_0 = (_S3.z) & 2147483647U;
+    uint mask_0 = _S3.z;
 
-#line 98
+#line 97
     uint i_0 = (key_hash_0(x_1, y_1, z_1)) & mask_0;
 
-#line 98
+#line 97
     uint n_0 = 0U;
 
     for(;;)
     {
 
-#line 100
+#line 99
         if(n_0 <= mask_0)
         {
         }
         else
         {
 
-#line 100
+#line 99
             break;
         }
 
-#line 100
+#line 99
         uint4 _S6 = uint4(*(kernelContext_0->brick_table_0+(_S3.y + i_0))) ;
 
         uint _S7 = _S6.x;
 
-#line 102
+#line 101
         if(_S7 == _S4)
         {
 
-#line 102
+#line 101
             _S2 = (_S6.y) == _S5;
 
-#line 102
+#line 101
         }
         else
         {
 
-#line 102
+#line 101
             _S2 = false;
 
-#line 102
+#line 101
         }
 
-#line 102
+#line 101
         if(_S2)
         {
 
-#line 102
+#line 101
             return int((_S3.w + _S6.z) * 729U);
         }
 
-#line 102
+#line 101
         bool _S8;
         if(_S7 == 4294967295U)
         {
 
-#line 103
+#line 102
             _S8 = (_S6.y) == 4294967295U;
 
-#line 103
+#line 102
         }
         else
         {
 
-#line 103
+#line 102
             _S8 = false;
 
-#line 103
+#line 102
         }
 
-#line 103
+#line 102
         if(_S8)
         {
 
-#line 103
+#line 102
             return int(-1);
         }
 
-#line 104
+#line 103
         uint _S9 = (i_0 + 1U) & mask_0;
 
-#line 100
+#line 99
         uint _S10 = n_0 + 1U;
 
-#line 100
+#line 99
         i_0 = _S9;
 
-#line 100
+#line 99
         n_0 = _S10;
 
-#line 100
+#line 99
     }
 
-#line 106
+#line 105
     return int(-1);
-}
-
-struct Cell_0
-{
-    int base_0;
-    int3 l_0;
-    float3 t_0;
-};
-
-
-#line 115
-Cell_0 locate_0(uint f_1, float3 p_0, KernelContext_0 thread* kernelContext_1)
-{
-
-    float3 q_0 = p_0 / float3((as_type<float>(((uint4(*(kernelContext_1->fields_0+f_1)) ).x)))) ;
-    float3 cell_0 = floor(q_0);
-    int3 _S11 = int3(floor(cell_0 / float3(8.0f) ));
-
-#line 116
-    thread Cell_0 c_0;
-
-#line 116
-    int _S12 = brick_base_0(f_1, _S11, kernelContext_1);
-
-#line 121
-    (&c_0)->base_0 = _S12;
-    (&c_0)->l_0 = int3(cell_0) - _S11 * int3(int(8)) ;
-    (&c_0)->t_0 = q_0 - cell_0;
-    return c_0;
 }
 
 uint sample_index_0(int3 at_0)
 {
 
-#line 127
+#line 108
     return uint((at_0.z * int(9) + at_0.y) * int(9) + at_0.x);
 }
 
 
-#line 129
-float sample_at_0(int base_1, int3 l_1, uint k_0, KernelContext_0 thread* kernelContext_2)
+#line 110
+uint corner_at_0(int base_0, int3 l_0, uint k_0)
 {
 
-#line 130
-    return kernelContext_2->brick_values_0[uint(base_1) + sample_index_0(l_1 + int3(int(k_0 & 1U), int((k_0 >> 1U) & 1U), int((k_0 >> 2U) & 1U)))];
-}
-
-float weight_at_0(int base_2, int3 l_2, uint k_1, KernelContext_0 thread* kernelContext_3)
-{
-
-#line 134
-    uint i_1 = uint(base_2) + sample_index_0(l_2 + int3(int(k_1 & 1U), int((k_1 >> 1U) & 1U), int((k_1 >> 2U) & 1U)));
-    return float((kernelContext_3->brick_weights_0[i_1 >> 2U] >> (8U * (i_1 & 3U))) & 255U);
+#line 111
+    return uint(base_0) + sample_index_0(l_0 + int3(int(k_0 & 1U), int((k_0 >> 1U) & 1U), int((k_0 >> 2U) & 1U)));
 }
 
 
 #line 70
-float mixf_0(float a_0, float b_1, float t_1)
+float3 normalize0_0(float3 v_0)
 {
 
-#line 70
-    return a_0 * (1.0f - t_1) + b_1 * t_1;
-}
+#line 71
+    float l_1 = length(v_0);
 
-
-#line 139
-bool field_at_0(uint f_2, float3 p_1, float thread* d_0, float3 thread* g_0, float thread* w_0, KernelContext_0 thread* kernelContext_4)
-{
-
-#line 140
-    *d_0 = 0.0f;
-    *g_0 = float3(0.0f) ;
-    *w_0 = 0.0f;
-
-#line 142
-    Cell_0 _S13 = locate_0(f_2, p_1, kernelContext_4);
-
-    if((_S13.base_0) < int(0))
+#line 71
+    float3 _S11;
+    if(l_1 > 0.0f)
     {
 
-#line 144
+#line 72
+        _S11 = v_0 / float3(l_1) ;
+
+#line 72
+    }
+    else
+    {
+
+#line 72
+        _S11 = float3(0.0f) ;
+
+#line 72
+    }
+
+#line 72
+    return _S11;
+}
+
+
+#line 115
+float3 extra_normal_0(uint x_2, float thread* w_0)
+{
+
+#line 116
+    *w_0 = float(x_2 >> 24U);
+    uint qx_0 = x_2 & 4095U;
+    uint qy_0 = (x_2 >> 12U) & 4095U;
+    if(qx_0 == 0U)
+    {
+
+#line 119
+        return float3(0.0f) ;
+    }
+
+#line 120
+    float _S12 = float(qx_0 - 1U) / 4094.0f * 2.0f - 1.0f;
+
+#line 120
+    float _S13 = float(qy_0 - 1U) / 4094.0f * 2.0f - 1.0f;
+    float _S14 = 1.0f - abs(_S12);
+
+#line 121
+    float _S15 = abs(_S13);
+
+#line 121
+    float _S16 = _S14 - _S15;
+
+#line 121
+    thread float3 v_1 = float3(_S12, _S13, _S16);
+    if(_S16 < 0.0f)
+    {
+
+#line 122
+        float sx_0;
+        if(_S12 >= 0.0f)
+        {
+
+#line 123
+            sx_0 = 1.0f;
+
+#line 123
+        }
+        else
+        {
+
+#line 123
+            sx_0 = -1.0f;
+
+#line 123
+        }
+
+#line 123
+        float sy_0;
+        if(_S13 >= 0.0f)
+        {
+
+#line 124
+            sy_0 = 1.0f;
+
+#line 124
+        }
+        else
+        {
+
+#line 124
+            sy_0 = -1.0f;
+
+#line 124
+        }
+        v_1.x = (1.0f - _S15) * sx_0;
+        v_1.y = _S14 * sy_0;
+
+#line 122
+    }
+
+#line 128
+    return normalize0_0(v_1);
+}
+
+
+#line 67
+float mixf_0(float a_0, float b_1, float t_0)
+{
+
+#line 67
+    return a_0 * (1.0f - t_0) + b_1 * t_0;
+}
+
+
+#line 68
+float3 mix3_0(float3 a_1, float3 b_2, float t_1)
+{
+
+#line 68
+    return a_1 * float3((1.0f - t_1))  + b_2 * float3(t_1) ;
+}
+
+
+#line 132
+bool field_at_0(uint f_1, float3 p_0, float thread* d_0, float3 thread* g_0, float thread* w_1, KernelContext_0 thread* kernelContext_1)
+{
+
+#line 133
+    *d_0 = 0.0f;
+    *g_0 = float3(0.0f) ;
+    *w_1 = 0.0f;
+
+    float3 q_0 = p_0 / float3((as_type<float>(((uint4(*(kernelContext_1->fields_0+f_1)) ).x)))) ;
+    float3 cell_0 = floor(q_0);
+    int3 _S17 = int3(floor(cell_0 / float3(8.0f) ));
+
+#line 139
+    int _S18 = brick_base_0(f_1, _S17, kernelContext_1);
+
+    if(_S18 < int(0))
+    {
+
+#line 141
         return false;
     }
 
-#line 145
-    float h_3 = (as_type<float>(((uint4(*(kernelContext_4->fields_0+f_2)) ).x)));
-    bool _S14 = (((uint4(*(kernelContext_4->fields_0+f_2)) ).z) & 2147483648U) != 0U;
-    thread array<float, int(8)> v_0;
+#line 142
+    int3 _S19 = int3(cell_0) - _S17 * int3(int(8)) ;
+    float3 t_2 = q_0 - cell_0;
+    thread array<float, int(8)> v_2;
+    thread array<float3, int(8)> gc_0;
     thread array<float, int(8)> wc_0;
 
-#line 148
-    uint k_2 = 0U;
+#line 146
+    uint k_1 = 0U;
     for(;;)
     {
 
-#line 149
-        if(k_2 < 8U)
+#line 147
+        if(k_1 < 8U)
         {
         }
         else
         {
 
-#line 149
+#line 147
             break;
         }
 
-#line 149
-        float _S15 = sample_at_0(_S13.base_0, _S13.l_0, k_2, kernelContext_4);
-        v_0[k_2] = _S15;
-
-#line 150
-        float _S16;
-        if(_S14)
-        {
+#line 148
+        uint i_1 = corner_at_0(_S18, _S19, k_1);
+        v_2[k_1] = kernelContext_1->brick_values_0[i_1];
+        thread float wb_0;
+        float3 _S20 = extra_normal_0(kernelContext_1->brick_extras_0[i_1], &wb_0);
 
 #line 151
-            float _S17 = weight_at_0(_S13.base_0, _S13.l_0, k_2, kernelContext_4);
+        gc_0[k_1] = _S20;
+        wc_0[k_1] = wb_0;
 
-#line 151
-            _S16 = _S17;
+#line 147
+        k_1 = k_1 + 1U;
 
-#line 151
-        }
-        else
-        {
-
-#line 151
-            _S16 = 0.0f;
-
-#line 151
-        }
-
-#line 151
-        wc_0[k_2] = _S16;
-
-#line 149
-        k_2 = k_2 + 1U;
-
-#line 149
+#line 147
     }
 
 #line 154
-    float _S18 = _S13.t_0.x;
+    float _S21 = t_2.x;
 
 
 
-    float _S19 = _S13.t_0.y;
+    float _S22 = t_2.y;
 
 #line 158
-    float y0_0 = mixf_0(mixf_0(v_0[int(0)], v_0[int(1)], _S18), mixf_0(v_0[int(2)], v_0[int(3)], _S18), _S19);
-    float y1_0 = mixf_0(mixf_0(v_0[int(4)], v_0[int(5)], _S18), mixf_0(v_0[int(6)], v_0[int(7)], _S18), _S19);
-    float _S20 = _S13.t_0.z;
+    float _S23 = t_2.z;
 
-#line 160
-    *d_0 = mixf_0(y0_0, y1_0, _S20);
+#line 158
+    *d_0 = mixf_0(mixf_0(mixf_0(v_2[int(0)], v_2[int(1)], _S21), mixf_0(v_2[int(2)], v_2[int(3)], _S21), _S22), mixf_0(mixf_0(v_2[int(4)], v_2[int(5)], _S21), mixf_0(v_2[int(6)], v_2[int(7)], _S21), _S22), _S23);
 
-
-    *g_0 = float3(mixf_0(mixf_0(v_0[int(1)] - v_0[int(0)], v_0[int(3)] - v_0[int(2)], _S19), mixf_0(v_0[int(5)] - v_0[int(4)], v_0[int(7)] - v_0[int(6)], _S19), _S20), mixf_0(mixf_0(v_0[int(2)] - v_0[int(0)], v_0[int(3)] - v_0[int(1)], _S18), mixf_0(v_0[int(6)] - v_0[int(4)], v_0[int(7)] - v_0[int(5)], _S18), _S20), y1_0 - y0_0) / float3(h_3) ;
+#line 163
+    *g_0 = mix3_0(mix3_0(mix3_0(gc_0[int(0)], gc_0[int(1)], _S21), mix3_0(gc_0[int(2)], gc_0[int(3)], _S21), _S22), mix3_0(mix3_0(gc_0[int(4)], gc_0[int(5)], _S21), mix3_0(gc_0[int(6)], gc_0[int(7)], _S21), _S22), _S23);
 
 #line 168
-    *w_0 = 1.0f - mixf_0(mixf_0(mixf_0(wc_0[int(0)], wc_0[int(1)], _S18), mixf_0(wc_0[int(2)], wc_0[int(3)], _S18), _S19), mixf_0(mixf_0(wc_0[int(4)], wc_0[int(5)], _S18), mixf_0(wc_0[int(6)], wc_0[int(7)], _S18), _S19), _S20) / 255.0f;
+    *w_1 = 1.0f - mixf_0(mixf_0(mixf_0(wc_0[int(0)], wc_0[int(1)], _S21), mixf_0(wc_0[int(2)], wc_0[int(3)], _S21), _S22), mixf_0(mixf_0(wc_0[int(4)], wc_0[int(5)], _S21), mixf_0(wc_0[int(6)], wc_0[int(7)], _S21), _S22), _S23) / 255.0f;
     return true;
 }
 
 
-#line 71
-float3 mix3_0(float3 a_1, float3 b_2, float t_2)
-{
-
-#line 71
-    return a_1 * float3((1.0f - t_2))  + b_2 * float3(t_2) ;
-}
-
-
-#line 173
-bool field_normal_0(uint f_3, float3 p_2, float3 thread* g_1, KernelContext_0 thread* kernelContext_5)
+bool term_at_0(uint j_0, float3 x_3, float thread* d_1, float3 thread* g_1, float thread* w_2, KernelContext_0 thread* kernelContext_2)
 {
 
 #line 174
-    *g_1 = float3(0.0f) ;
+    uint _S24 = 4U * j_0;
 
 #line 174
-    Cell_0 _S21 = locate_0(f_3, p_2, kernelContext_5);
+    float4 _S25 = float4(*(kernelContext_2->terms_0+_S24)) ;
 
-    if((_S21.base_0) < int(0))
-    {
+#line 174
+    float4 _S26 = float4(*(kernelContext_2->terms_0+(_S24 + 1U))) ;
 
-#line 176
-        return false;
-    }
+#line 174
+    float4 _S27 = float4(*(kernelContext_2->terms_0+(_S24 + 2U))) ;
 
-#line 177
-    float _S22 = (as_type<float>(((uint4(*(kernelContext_5->fields_0+f_3)) ).x)));
-    thread array<float3, int(8)> gc_0;
+#line 174
+    float4 _S28 = float4(*(kernelContext_2->terms_0+(_S24 + 3U))) ;
+
+
+
+    float3 _S29 = _S25.xyz;
 
 #line 178
-    uint k_3 = 0U;
-    for(;;)
+    float3 _S30 = _S26.xyz;
+
+#line 178
+    float3 _S31 = _S27.xyz;
+
+#line 178
+    bool _S32 = field_at_0((as_type<uint>((_S28.w))), float3(dot(_S29, x_3) + _S25.w, dot(_S30, x_3) + _S26.w, dot(_S31, x_3) + _S27.w), d_1, g_1, w_2, kernelContext_2);
+    if(!_S32)
     {
 
 #line 179
-        if(k_3 < 8U)
-        {
-        }
-        else
-        {
-
-#line 179
-            break;
-        }
-
-#line 180
-        int3 _S23 = _S21.l_0 + int3(int(k_3 & 1U), int((k_3 >> 1U) & 1U), int((k_3 >> 2U) & 1U));
-
-#line 180
-        uint a_2 = 0U;
-        for(;;)
-        {
-
-#line 181
-            if(a_2 < 3U)
-            {
-            }
-            else
-            {
-
-#line 181
-                break;
-            }
-
-#line 182
-            thread int3 lo_0 = _S23;
-            thread int3 hi_0 = _S23;
-            if((lo_0[a_2]) > int(0))
-            {
-
-#line 184
-                lo_0[a_2] = lo_0[a_2] - int(1);
-
-#line 184
-            }
-            if((hi_0[a_2]) < int(8))
-            {
-
-#line 185
-                hi_0[a_2] = hi_0[a_2] + int(1);
-
-#line 185
-            }
-            uint _S24 = uint(_S21.base_0);
-
-#line 186
-            gc_0[k_3][a_2] = (kernelContext_5->brick_values_0[_S24 + sample_index_0(hi_0)] - kernelContext_5->brick_values_0[_S24 + sample_index_0(lo_0)]) / (float(hi_0[a_2] - lo_0[a_2]) * _S22);
-
-#line 181
-            a_2 = a_2 + 1U;
-
-#line 181
-        }
-
-#line 179
-        k_3 = k_3 + 1U;
-
-#line 179
-    }
-
-#line 190
-    float _S25 = _S21.t_0.x;
-
-
-
-    float _S26 = _S21.t_0.y;
-
-#line 194
-    *g_1 = mix3_0(mix3_0(mix3_0(gc_0[int(0)], gc_0[int(1)], _S25), mix3_0(gc_0[int(2)], gc_0[int(3)], _S25), _S26), mix3_0(mix3_0(gc_0[int(4)], gc_0[int(5)], _S25), mix3_0(gc_0[int(6)], gc_0[int(7)], _S25), _S26), _S21.t_0.z);
-    return true;
-}
-
-
-bool term_at_0(uint j_0, float3 x_2, bool smooth_0, float thread* d_1, float3 thread* g_2, float thread* w_1, KernelContext_0 thread* kernelContext_6)
-{
-
-#line 200
-    uint _S27 = 4U * j_0;
-
-#line 200
-    float4 _S28 = float4(*(kernelContext_6->terms_0+_S27)) ;
-
-#line 200
-    float4 _S29 = float4(*(kernelContext_6->terms_0+(_S27 + 1U))) ;
-
-#line 200
-    float4 _S30 = float4(*(kernelContext_6->terms_0+(_S27 + 2U))) ;
-
-#line 200
-    float4 _S31 = float4(*(kernelContext_6->terms_0+(_S27 + 3U))) ;
-
-
-
-    uint f_4 = (as_type<uint>((_S31.w)));
-    float3 _S32 = _S28.xyz;
-
-#line 205
-    float3 _S33 = _S29.xyz;
-
-#line 205
-    float3 _S34 = _S30.xyz;
-
-#line 205
-    float3 p_3 = float3(dot(_S32, x_2) + _S28.w, dot(_S33, x_2) + _S29.w, dot(_S34, x_2) + _S30.w);
-
-#line 205
-    bool _S35 = field_at_0(f_4, p_3, d_1, g_2, w_1, kernelContext_6);
-    if(!_S35)
-    {
-
-#line 206
         return false;
     }
 
-#line 207
-    if(smooth_0)
-    {
+#line 180
+    float _S33 = _S28.x;
 
-#line 208
-        thread float3 n_1;
-
-#line 208
-        bool _S36 = field_normal_0(f_4, p_3, &n_1, kernelContext_6);
-        if(_S36)
-        {
-
-#line 209
-            *g_2 = n_1;
-
-#line 209
-        }
-
-#line 207
-    }
-
-
-
-    float _S37 = _S31.x;
-
-#line 211
-    *d_1 = *d_1 * _S37;
-    *g_2 = (_S32 * float3((*g_2).x)  + _S33 * float3((*g_2).y)  + _S34 * float3((*g_2).z) ) * float3(_S37) ;
+#line 180
+    *d_1 = *d_1 * _S33;
+    *g_1 = (_S29 * float3((*g_1).x)  + _S30 * float3((*g_1).y)  + _S31 * float3((*g_1).z) ) * float3(_S33) ;
     return true;
 }
 
 
-#line 63
-float2 term_pair_0(uint a_3, uint b_3, KernelContext_0 thread* kernelContext_7)
+#line 75
+float4 term_pair_0(uint a_2, uint b_3, KernelContext_0 thread* kernelContext_3)
 {
 
-#line 64
-    uint i_2 = a_3 * 8U + b_3;
-    float4 two_0 = kernelContext_7->Blend_Params_0->pair_table_0[i_2 >> 1U];
+#line 75
+    return kernelContext_3->Blend_Params_0->pair_table_0[a_2 * 8U + b_3];
+}
 
-#line 65
-    float2 _S38;
-    if((i_2 & 1U) == 0U)
+
+#line 186
+float kappa_0(float x_4)
+{
+
+#line 187
+    if(x_4 <= 0.0f)
     {
 
-#line 66
-        _S38 = two_0.xy;
+#line 187
+        return 0.0f;
+    }
 
-#line 66
+#line 188
+    if(x_4 >= 1.0f)
+    {
+
+#line 188
+        return 1.0f;
+    }
+
+#line 189
+    return 1.0f - exp(1.0f - 1.0f / (1.0f - exp(1.0f - 1.0f / x_4)));
+}
+
+
+float opening_theta_0(uint opening_0, float alpha_0)
+{
+    bool _S34 = opening_0 == 0U;
+
+#line 195
+    float a1_0;
+
+#line 195
+    if(_S34)
+    {
+
+#line 195
+        a1_0 = 1.04719758033752441f;
+
+#line 195
     }
     else
     {
 
-#line 66
-        _S38 = two_0.zw;
+#line 195
+        a1_0 = 1.57079637050628662f;
 
-#line 66
+#line 195
     }
 
-#line 66
-    return _S38;
-}
-
-
-#line 73
-float3 normalize0_0(float3 v_1)
-{
-
-#line 74
-    float l_3 = length(v_1);
-
-#line 74
-    float3 _S39;
-    if(l_3 > 0.0f)
+#line 195
+    float a2_0;
+    if(_S34)
     {
 
-#line 75
-        _S39 = v_1 / float3(l_3) ;
+#line 196
+        a2_0 = 2.35619449615478516f;
 
-#line 75
+#line 196
     }
     else
     {
 
-#line 75
-        _S39 = float3(0.0f) ;
+#line 196
+        a2_0 = 3.14159274101257324f;
 
-#line 75
+#line 196
     }
 
-#line 75
-    return _S39;
+#line 196
+    float t0_0;
+    if(_S34)
+    {
+
+#line 197
+        t0_0 = 0.52359879016876221f;
+
+#line 197
+    }
+    else
+    {
+
+#line 197
+        t0_0 = 0.78539818525314331f;
+
+#line 197
+    }
+
+#line 197
+    float w0_0;
+
+
+    if(_S34)
+    {
+
+#line 200
+        w0_0 = 3.0f;
+
+#line 200
+    }
+    else
+    {
+
+#line 200
+        w0_0 = 1.0f;
+
+#line 200
+    }
+
+    if(alpha_0 <= 0.0f)
+    {
+
+#line 202
+        return t0_0;
+    }
+
+#line 203
+    if(alpha_0 <= a1_0)
+    {
+
+#line 203
+        return pow(kappa_0((alpha_0 - a1_0) / (0.0f - a1_0)), w0_0) * t0_0;
+    }
+
+#line 204
+    if(alpha_0 < a2_0)
+    {
+
+#line 204
+        return pow(kappa_0((alpha_0 - a1_0) / (a2_0 - a1_0)), 1.0f) * 0.78539818525314331f;
+    }
+
+#line 205
+    return 0.78539818525314331f;
 }
 
 
-#line 217
-float radius_at_0(float radius_0, float c_1, float w_2)
+float radius_at_0(float radius_0, float c_0, float w_3, uint opening_1)
 {
-
-#line 218
-    float t_3 = clamp((c_1 - -0.80000001192092896f) / 0.5f, 0.0f, 1.0f);
-    return radius_0 * w_2 * t_3 * t_3 * (3.0f - 2.0f * t_3);
+    return radius_0 * w_3 * (1.0f - opening_theta_0(opening_1, acos(clamp(c_0, -1.0f, 1.0f))) / 0.78539818525314331f);
 }
 
 struct Eval_0
 {
     bool ok_0;
-    float g_3;
+    float g_2;
     float3 grad_0;
     float amount_0;
     float own_0;
@@ -644,507 +651,513 @@ struct Eval_0
     float rival_edge_0;
 };
 
-Eval_0 evaluate_0(float3 x_3, bool smooth_1, KernelContext_0 thread* kernelContext_8)
+Eval_0 evaluate_0(float3 x_5, KernelContext_0 thread* kernelContext_4)
 {
 
-#line 233
+#line 225
     uint at_1;
 
-#line 233
+#line 225
     float others_0;
 
-#line 233
+#line 225
     float self_d_0;
     thread Eval_0 e_0;
     (&e_0)->ok_0 = false;
-    (&e_0)->g_3 = 0.0f;
-    float3 _S40 = float3(0.0f) ;
+    (&e_0)->g_2 = 0.0f;
+    float3 _S35 = float3(0.0f) ;
 
-#line 237
-    (&e_0)->grad_0 = _S40;
+#line 229
+    (&e_0)->grad_0 = _S35;
     (&e_0)->amount_0 = 0.0f;
     (&e_0)->own_0 = 1.0f;
     (&e_0)->rival_0 = 4294967295U;
     (&e_0)->rival_edge_0 = 0.0f;
     thread array<float, int(8)> d_2;
-    thread array<float3, int(8)> g_4;
-    thread array<float, int(8)> w_3;
+    thread array<float3, int(8)> g_3;
+    thread array<float, int(8)> w_4;
     thread array<uint, int(8)> id_0;
     thread array<uint, int(8)> term_0;
 
-#line 246
+#line 238
     uint z_2 = 0U;
     for(;;)
     {
 
-#line 247
+#line 239
         if(z_2 < 8U)
         {
         }
         else
         {
 
-#line 247
+#line 239
             break;
         }
 
-#line 248
+#line 240
         d_2[z_2] = 0.0f;
-        g_4[z_2] = _S40;
-        w_3[z_2] = 0.0f;
+        g_3[z_2] = _S35;
+        w_4[z_2] = 0.0f;
         id_0[z_2] = 0U;
         term_0[z_2] = 0U;
 
-#line 247
+#line 239
         z_2 = z_2 + 1U;
 
-#line 247
+#line 239
     }
 
-#line 247
+#line 239
     float others_1 = 3.4028234663852886e+38f;
 
-#line 247
+#line 239
     float self_d_1 = 0.0f;
 
-#line 247
+#line 239
     uint j_1 = 0U;
 
-#line 247
+#line 239
     uint count_0 = 0U;
 
-#line 257
+#line 249
     for(;;)
     {
 
-#line 257
-        if(j_1 < (kernelContext_8->Blend_Params_0->term_count_0))
+#line 249
+        if(j_1 < (kernelContext_4->Blend_Params_0->term_count_0))
         {
         }
         else
         {
 
-#line 257
+#line 249
             break;
         }
 
-#line 258
+#line 250
         thread float td_0;
         thread float3 tg_0;
         thread float tw_0;
 
-#line 260
-        bool _S41 = term_at_0(j_1, x_3, smooth_1, &td_0, &tg_0, &tw_0, kernelContext_8);
-        if(!_S41)
+#line 252
+        bool _S36 = term_at_0(j_1, x_5, &td_0, &tg_0, &tw_0, kernelContext_4);
+        if(!_S36)
         {
 
-#line 262
+#line 254
             if(j_1 == 0U)
             {
 
-#line 262
+#line 254
                 return e_0;
             }
 
-#line 262
+#line 254
             others_0 = others_1;
 
-#line 257
-            uint _S42 = j_1 + 1U;
+#line 249
+            uint _S37 = j_1 + 1U;
 
-#line 257
+#line 249
             others_1 = others_0;
 
-#line 257
-            j_1 = _S42;
+#line 249
+            j_1 = _S37;
 
-#line 257
+#line 249
             continue;
         }
 
-#line 265
-        uint _S43 = 4U * j_1 + 3U;
+#line 257
+        uint _S38 = 4U * j_1 + 3U;
 
-#line 265
-        uint tid_0 = (as_type<uint>(((float4(*(kernelContext_8->terms_0+_S43)) ).z)));
+#line 257
+        uint tid_0 = (as_type<uint>(((float4(*(kernelContext_4->terms_0+_S38)) ).z)));
 
-#line 265
-        bool _S44;
+#line 257
+        bool _S39;
         if(j_1 == 0U)
         {
 
-#line 266
+#line 258
             others_0 = others_1;
 
-#line 266
+#line 258
             self_d_0 = td_0;
 
-#line 266
+#line 258
         }
         else
         {
 
-#line 268
+#line 260
             if(td_0 < others_1)
             {
 
-#line 268
-                _S44 = true;
+#line 260
+                _S39 = true;
 
-#line 268
+#line 260
             }
             else
             {
 
-#line 268
+#line 260
                 if(td_0 == others_1)
                 {
 
-#line 268
-                    _S44 = tid_0 < ((&e_0)->rival_0);
+#line 260
+                    _S39 = tid_0 < ((&e_0)->rival_0);
 
-#line 268
+#line 260
                 }
                 else
                 {
 
-#line 268
-                    _S44 = false;
+#line 260
+                    _S39 = false;
 
-#line 268
+#line 260
                 }
 
-#line 268
+#line 260
             }
 
-#line 268
-            if(_S44)
+#line 260
+            if(_S39)
             {
                 (&e_0)->rival_0 = tid_0;
-                (&e_0)->rival_edge_0 = (float4(*(kernelContext_8->terms_0+_S43)) ).y;
+                (&e_0)->rival_edge_0 = (float4(*(kernelContext_4->terms_0+_S38)) ).y;
 
-#line 271
+#line 263
                 others_0 = td_0;
 
-#line 268
+#line 260
             }
             else
             {
 
-#line 268
+#line 260
                 others_0 = others_1;
 
-#line 268
+#line 260
             }
 
-#line 268
+#line 260
             self_d_0 = self_d_1;
 
-#line 266
+#line 258
         }
 
-#line 266
+#line 258
         at_1 = count_0;
 
-#line 275
+#line 267
         for(;;)
         {
 
-#line 275
+#line 267
             if(at_1 > 0U)
             {
 
-#line 275
-                uint _S45 = at_1 - 1U;
+#line 267
+                uint _S40 = at_1 - 1U;
 
-#line 275
-                if(td_0 < d_2[_S45])
+#line 267
+                if(td_0 < d_2[_S40])
                 {
 
-#line 275
-                    _S44 = true;
+#line 267
+                    _S39 = true;
 
-#line 275
+#line 267
                 }
                 else
                 {
 
-#line 275
-                    if(td_0 == d_2[_S45])
+#line 267
+                    if(td_0 == d_2[_S40])
                     {
 
-#line 275
-                        _S44 = tid_0 < id_0[_S45];
+#line 267
+                        _S39 = tid_0 < id_0[_S40];
 
-#line 275
+#line 267
                     }
                     else
                     {
 
-#line 275
-                        _S44 = false;
+#line 267
+                        _S39 = false;
 
-#line 275
+#line 267
                     }
 
-#line 275
+#line 267
                 }
 
-#line 275
+#line 267
             }
             else
             {
 
-#line 275
-                _S44 = false;
+#line 267
+                _S39 = false;
 
-#line 275
+#line 267
             }
 
-#line 275
-            if(_S44)
+#line 267
+            if(_S39)
             {
             }
             else
             {
 
-#line 275
+#line 267
                 break;
             }
 
-#line 276
-            uint _S46 = at_1 - 1U;
+#line 268
+            uint _S41 = at_1 - 1U;
 
-#line 276
-            d_2[at_1] = d_2[_S46];
-            g_4[at_1] = g_4[_S46];
-            w_3[at_1] = w_3[_S46];
-            id_0[at_1] = id_0[_S46];
-            term_0[at_1] = term_0[_S46];
+#line 268
+            d_2[at_1] = d_2[_S41];
+            g_3[at_1] = g_3[_S41];
+            w_4[at_1] = w_4[_S41];
+            id_0[at_1] = id_0[_S41];
+            term_0[at_1] = term_0[_S41];
 
-#line 280
-            at_1 = _S46;
+#line 272
+            at_1 = _S41;
 
-#line 275
+#line 267
         }
 
-#line 283
+#line 275
         d_2[at_1] = td_0;
-        g_4[at_1] = tg_0;
-        w_3[at_1] = tw_0;
+        g_3[at_1] = tg_0;
+        w_4[at_1] = tw_0;
         id_0[at_1] = tid_0;
         term_0[at_1] = j_1;
-        uint _S47 = count_0 + 1U;
+        uint _S42 = count_0 + 1U;
 
-#line 288
+#line 280
         self_d_1 = self_d_0;
 
-#line 288
-        count_0 = _S47;
+#line 280
+        count_0 = _S42;
 
-#line 257
-        uint _S42 = j_1 + 1U;
+#line 249
+        uint _S37 = j_1 + 1U;
 
-#line 257
+#line 249
         others_1 = others_0;
 
-#line 257
-        j_1 = _S42;
+#line 249
+        j_1 = _S37;
 
-#line 257
+#line 249
     }
 
-#line 257
-    float3 grad_1 = g_4[int(0)];
+#line 249
+    float3 grad_1 = g_3[int(0)];
 
-#line 257
+#line 249
     others_0 = d_2[int(0)];
 
-#line 257
+#line 249
     self_d_0 = 0.0f;
 
-#line 257
+#line 249
     j_1 = 1U;
 
-#line 293
+#line 285
     for(;;)
     {
 
-#line 293
+#line 285
         if(j_1 < count_0)
         {
         }
         else
         {
 
-#line 293
+#line 285
             break;
         }
 
-#line 293
+#line 285
         float radius_1 = 0.0f;
 
-#line 293
+#line 285
         float pw_0 = 0.0f;
 
-#line 293
-        float strength_0 = 0.0f;
-
-#line 293
+#line 285
         at_1 = 0U;
 
+#line 285
+        float strength_0 = 0.0f;
 
+#line 285
+        uint i_2 = 0U;
 
+#line 290
         for(;;)
         {
 
-#line 297
-            if(at_1 < j_1)
+#line 290
+            if(i_2 < j_1)
             {
             }
             else
             {
 
-#line 297
+#line 290
                 break;
             }
 
-#line 297
-            float2 _S48 = term_pair_0(term_0[j_1], term_0[at_1], kernelContext_8);
+#line 290
+            float4 _S43 = term_pair_0(term_0[j_1], term_0[i_2], kernelContext_4);
 
-            float _S49 = _S48.x;
+            float _S44 = _S43.x;
 
-#line 299
-            if(_S49 > radius_1)
+#line 292
+            if(_S44 > radius_1)
             {
-                float _S50 = _S48.y;
-                float _S51 = w_3[j_1] * w_3[at_1];
+                float _S45 = _S43.y;
+                float _S46 = w_4[j_1] * w_4[i_2];
+                uint _S47 = uint(_S43.z);
 
-#line 302
-                radius_1 = _S49;
+#line 296
+                radius_1 = _S44;
 
-#line 302
-                pw_0 = _S51;
+#line 296
+                pw_0 = _S46;
 
-#line 302
-                strength_0 = _S50;
+#line 296
+                at_1 = _S47;
 
-#line 299
+#line 296
+                strength_0 = _S45;
+
+#line 292
             }
 
-#line 297
-            at_1 = at_1 + 1U;
+#line 290
+            i_2 = i_2 + 1U;
 
-#line 297
+#line 290
         }
 
-#line 305
-        float k_4 = radius_at_0(radius_1, dot(normalize0_0(grad_1), normalize0_0(g_4[j_1])), pw_0);
+#line 299
+        float k_2 = radius_at_0(radius_1, dot(normalize0_0(grad_1), normalize0_0(g_3[j_1])), pw_0, at_1);
 
 
         float b_4 = d_2[j_1];
 
-#line 308
+#line 302
         float3 grad_2;
-        if(k_4 <= 0.0f)
+        if(k_2 <= 0.0f)
         {
 
-#line 309
+#line 303
             float acc_0;
             if(others_0 <= b_4)
             {
 
-#line 310
+#line 304
                 grad_2 = grad_1;
 
-#line 310
+#line 304
                 acc_0 = others_0;
 
-#line 310
+#line 304
             }
             else
             {
 
-#line 310
-                grad_2 = g_4[j_1];
+#line 304
+                grad_2 = g_3[j_1];
 
-#line 310
+#line 304
                 acc_0 = b_4;
 
-#line 310
+#line 304
             }
 
-#line 310
+#line 304
             others_0 = acc_0;
 
-#line 309
+#line 303
         }
         else
         {
 
-#line 317
-            float h_4 = max(k_4 - abs(others_0 - b_4), 0.0f) / k_4;
-            float _S52 = strength_0 * h_4;
+#line 311
+            float h_3 = max(k_2 - abs(others_0 - b_4), 0.0f) / k_2;
+            float _S48 = strength_0 * h_3;
 
-#line 318
-            float _S53 = min(others_0, b_4) - _S52 * h_4 * k_4 * 0.25f;
+#line 312
+            float _S49 = min(others_0, b_4) - _S48 * h_3 * k_2 * 0.25f;
             if(others_0 <= b_4)
             {
 
-#line 320
-                float _S54 = _S52 * 0.5f;
+#line 314
+                float _S50 = _S48 * 0.5f;
 
-#line 320
-                grad_2 = grad_1 * float3((1.0f - _S54))  + g_4[j_1] * float3(_S54) ;
+#line 314
+                grad_2 = grad_1 * float3((1.0f - _S50))  + g_3[j_1] * float3(_S50) ;
 
-#line 319
+#line 313
             }
             else
             {
-                float _S55 = _S52 * 0.5f;
+                float _S51 = _S48 * 0.5f;
 
-#line 322
-                grad_2 = g_4[j_1] * float3((1.0f - _S55))  + grad_1 * float3(_S55) ;
+#line 316
+                grad_2 = g_3[j_1] * float3((1.0f - _S51))  + grad_1 * float3(_S51) ;
 
-#line 319
+#line 313
             }
 
-#line 324
-            float _S56 = max(self_d_0, _S52);
+#line 318
+            float _S52 = max(self_d_0, _S48);
 
-#line 324
-            others_0 = _S53;
+#line 318
+            others_0 = _S49;
 
-#line 324
-            self_d_0 = _S56;
+#line 318
+            self_d_0 = _S52;
 
-#line 309
+#line 303
         }
 
-#line 293
-        uint _S57 = j_1 + 1U;
+#line 285
+        uint _S53 = j_1 + 1U;
 
-#line 293
+#line 285
         grad_1 = grad_2;
 
-#line 293
-        j_1 = _S57;
+#line 285
+        j_1 = _S53;
 
-#line 293
+#line 285
     }
 
-#line 327
+#line 321
     (&e_0)->ok_0 = true;
-    (&e_0)->g_3 = others_0;
+    (&e_0)->g_2 = others_0;
     (&e_0)->grad_0 = grad_1;
     (&e_0)->amount_0 = self_d_0;
     if(others_1 < 3.4028234663852886e+38f)
     {
 
-#line 331
-        (&e_0)->own_0 = clamp((others_1 - self_d_1) / kernelContext_8->Blend_Params_0->reach_0, -1.0f, 1.0f);
+#line 325
+        (&e_0)->own_0 = clamp((others_1 - self_d_1) / kernelContext_4->Blend_Params_0->reach_0, -1.0f, 1.0f);
 
-#line 331
+#line 325
     }
     return e_0;
 }
@@ -1153,607 +1166,905 @@ Eval_0 evaluate_0(float3 x_3, bool smooth_1, KernelContext_0 thread* kernelConte
 uint4 entry_0(float3 offset_0, float3 normal_0, float amount_1, float own_1)
 {
 
-#line 337
-    float3 n_2 = normalize0_0(normal_0);
-    float _S58 = n_2.z;
+#line 331
+    float3 n_1 = normalize0_0(normal_0);
+    float _S54 = n_1.z;
 
-#line 338
-    float l_4 = abs(n_2.x) + abs(n_2.y) + abs(_S58);
-    float2 _S59 = float2(0.0f) ;
+#line 332
+    float l_2 = abs(n_1.x) + abs(n_1.y) + abs(_S54);
+    float2 _S55 = float2(0.0f) ;
 
-#line 339
+#line 333
     float2 e_1;
-    if(l_4 > 0.0f)
+    if(l_2 > 0.0f)
     {
 
-#line 341
-        float2 e_2 = n_2.xy / float2(l_4) ;
-        if(_S58 < 0.0f)
+#line 335
+        float2 e_2 = n_1.xy / float2(l_2) ;
+        if(_S54 < 0.0f)
         {
 
-#line 343
-            float _S60 = e_2.x;
+#line 337
+            float _S56 = e_2.x;
 
-#line 343
-            float sx_0;
+#line 337
+            float sx_1;
 
-#line 343
-            if(_S60 >= 0.0f)
+#line 337
+            if(_S56 >= 0.0f)
             {
 
-#line 343
-                sx_0 = 1.0f;
+#line 337
+                sx_1 = 1.0f;
 
-#line 343
+#line 337
             }
             else
             {
 
-#line 343
-                sx_0 = -1.0f;
+#line 337
+                sx_1 = -1.0f;
 
-#line 343
+#line 337
             }
-            float _S61 = e_2.y;
+            float _S57 = e_2.y;
 
-#line 344
-            float sy_0;
+#line 338
+            float sy_1;
 
-#line 344
-            if(_S61 >= 0.0f)
+#line 338
+            if(_S57 >= 0.0f)
             {
 
-#line 344
-                sy_0 = 1.0f;
+#line 338
+                sy_1 = 1.0f;
 
-#line 344
+#line 338
             }
             else
             {
 
-#line 344
-                sy_0 = -1.0f;
+#line 338
+                sy_1 = -1.0f;
 
-#line 344
+#line 338
             }
 
-#line 344
-            e_1 = float2((1.0f - abs(_S61)) * sx_0, (1.0f - abs(_S60)) * sy_0);
+#line 338
+            e_1 = float2((1.0f - abs(_S57)) * sx_1, (1.0f - abs(_S56)) * sy_1);
 
-#line 342
+#line 336
         }
         else
         {
 
-#line 342
+#line 336
             e_1 = e_2;
 
-#line 342
+#line 336
         }
 
-#line 340
+#line 334
     }
     else
     {
 
-#line 340
-        e_1 = _S59;
+#line 334
+        e_1 = _S55;
 
-#line 340
+#line 334
     }
 
-#line 352
+#line 346
     return uint4((as_type<uint>((offset_0.x))), (as_type<uint>((offset_0.y))), (as_type<uint>((offset_0.z))), ((uint(round(clamp(e_1.x * 0.5f + 0.5f, 0.0f, 1.0f) * 4095.0f)) | (uint(round(clamp(e_1.y * 0.5f + 0.5f, 0.0f, 1.0f) * 4095.0f)) << 12U)) | (uint(round(clamp(amount_1, 0.0f, 1.0f) * 15.0f)) << 24U)) | (uint(round(clamp(own_1 * 0.5f + 0.5f, 0.0f, 1.0f) * 15.0f)) << 28U));
 }
 
 
-uint4 project_0(uint v_2, KernelContext_0 thread* kernelContext_9)
+uint4 project_0(uint v_3, KernelContext_0 thread* kernelContext_5)
 {
 
-#line 356
-    bool converged_0;
+#line 350
+    bool has_out_0;
 
-#line 356
+#line 350
+    bool has_in_0;
+
+#line 350
+    bool near_0;
+
+#line 350
+    bool turned_0;
+
+#line 350
     float3 offset_1;
     uint4 none_0 = uint4(0U) ;
-    uint _S62 = 3U * v_2;
+    uint _S58 = 3U * v_3;
 
-#line 358
-    float3 x0_0 = float3(kernelContext_9->positions_0[_S62], kernelContext_9->positions_0[_S62 + 1U], kernelContext_9->positions_0[_S62 + 2U]);
+#line 352
+    float3 x0_0 = float3(kernelContext_5->positions_0[_S58], kernelContext_5->positions_0[_S58 + 1U], kernelContext_5->positions_0[_S58 + 2U]);
     thread float a0_0;
     thread float3 ga_0;
     thread float wa_0;
 
-#line 361
-    bool _S63 = term_at_0(0U, x0_0, false, &a0_0, &ga_0, &wa_0, kernelContext_9);
-    if(!_S63)
+#line 355
+    bool _S59 = term_at_0(0U, x0_0, &a0_0, &ga_0, &wa_0, kernelContext_5);
+    if(!_S59)
     {
 
-#line 362
+#line 356
         return none_0;
     }
 
-#line 362
-    bool near_0 = false;
+#line 356
+    bool near_1 = false;
 
-#line 362
+#line 356
     uint j_2 = 1U;
 
     for(;;)
     {
 
-#line 364
-        if(j_2 < (kernelContext_9->Blend_Params_0->term_count_0))
+#line 358
+        if(j_2 < (kernelContext_5->Blend_Params_0->term_count_0))
         {
         }
         else
         {
 
-#line 364
+#line 358
             break;
         }
 
-#line 364
-        float2 _S64 = term_pair_0(0U, j_2, kernelContext_9);
-        float radius_2 = _S64.x;
+#line 358
+        float4 _S60 = term_pair_0(0U, j_2, kernelContext_5);
+        float radius_2 = _S60.x;
         if(radius_2 <= 0.0f)
         {
 
-#line 366
+#line 360
             j_2 = j_2 + 1U;
 
-#line 364
+#line 358
             continue;
         }
 
         thread float b_5;
         thread float3 gb_0;
-        thread float wb_0;
+        thread float wb_1;
 
-#line 369
-        bool _S65 = term_at_0(j_2, x0_0, false, &b_5, &gb_0, &wb_0, kernelContext_9);
-        if(_S65)
+#line 363
+        bool _S61 = term_at_0(j_2, x0_0, &b_5, &gb_0, &wb_1, kernelContext_5);
+        if(_S61)
         {
-
-#line 370
-            converged_0 = b_5 > (-0.5f * radius_2);
-
-#line 370
-        }
-        else
-        {
-
-#line 370
-            converged_0 = false;
-
-#line 370
-        }
-
-#line 370
-        bool _S66;
-
-#line 370
-        if(converged_0)
-        {
-
-#line 370
-            _S66 = b_5 < radius_2;
-
-#line 370
-        }
-        else
-        {
-
-#line 370
-            _S66 = false;
-
-#line 370
-        }
-
-#line 370
-        bool near_1;
-
-#line 370
-        if(_S66)
-        {
-
-#line 370
-            near_1 = true;
-
-#line 370
-        }
-        else
-        {
-
-#line 370
-            near_1 = near_0;
-
-#line 370
-        }
-
-#line 370
-        near_0 = near_1;
 
 #line 364
+            has_out_0 = b_5 > (-0.5f * radius_2);
+
+#line 364
+        }
+        else
+        {
+
+#line 364
+            has_out_0 = false;
+
+#line 364
+        }
+
+#line 364
+        if(has_out_0)
+        {
+
+#line 364
+            has_in_0 = b_5 < radius_2;
+
+#line 364
+        }
+        else
+        {
+
+#line 364
+            has_in_0 = false;
+
+#line 364
+        }
+
+#line 364
+        if(has_in_0)
+        {
+
+#line 364
+            near_0 = true;
+
+#line 364
+        }
+        else
+        {
+
+#line 364
+            near_0 = near_1;
+
+#line 364
+        }
+
+#line 364
+        near_1 = near_0;
+
+#line 358
         j_2 = j_2 + 1U;
 
-#line 364
+#line 358
     }
 
-#line 372
-    if(!near_0)
+#line 366
+    if(!near_1)
     {
 
-#line 372
+#line 366
         return none_0;
     }
 
-#line 372
-    Eval_0 _S67 = evaluate_0(x0_0, false, kernelContext_9);
+#line 366
+    Eval_0 _S62 = evaluate_0(x0_0, kernelContext_5);
 
-    if((_S67.amount_0) <= 0.0f)
+    if((_S62.amount_0) <= 0.0f)
     {
 
-#line 374
-        near_0 = (_S67.g_3) < a0_0;
+#line 368
+        near_1 = (_S62.g_2) < a0_0;
 
-#line 374
+#line 368
     }
     else
     {
 
-#line 374
-        near_0 = false;
+#line 368
+        near_1 = false;
 
-#line 374
+#line 368
     }
 
-#line 374
-    if(near_0)
+#line 368
+    if(near_1)
     {
 
-#line 374
+#line 368
         return none_0;
     }
 
-#line 375
-    float target_0 = a0_0 * (1.0f - _S67.amount_0);
+#line 369
+    float target_0 = a0_0 * (1.0f - _S62.amount_0);
 
-    float best_0 = abs(_S67.g_3 - target_0);
+    float best_0 = abs(_S62.g_2 - target_0);
 
 
-    bool _S68 = best_0 < (0.00009999999747379f * kernelContext_9->Blend_Params_0->reach_0);
+    bool _S63 = best_0 < (0.00009999999747379f * kernelContext_5->Blend_Params_0->reach_0);
 
-#line 380
+    float3 _S64 = float3(0.0f) ;
+
+#line 376
+    float3 last_dir_0 = _S64;
+
+#line 376
     float best_1 = best_0;
 
-#line 380
+#line 376
+    int kept_0 = int(0);
+
+#line 376
+    has_out_0 = false;
+
+#line 376
+    has_in_0 = false;
+
+#line 376
+    float3 out_x_0 = _S64;
+
+#line 376
+    float3 in_x_0 = _S64;
+
+#line 376
     float3 best_x_0 = x0_0;
 
-#line 380
+#line 376
     uint steps_0 = 0U;
 
-#line 380
-    float3 x_4 = x0_0;
+#line 376
+    float3 x_6 = x0_0;
+
+#line 376
+    float in_r_0 = 0.0f;
+
+#line 376
+    float out_r_0 = 0.0f;
+
+#line 385
     for(;;)
     {
 
-#line 381
-        if(!_S68)
+#line 385
+        if(!_S63)
         {
 
-#line 381
-            near_0 = steps_0 < 6U;
+#line 385
+            near_1 = steps_0 < 10U;
 
-#line 381
+#line 385
         }
         else
         {
 
-#line 381
+#line 385
+            near_1 = false;
+
+#line 385
+        }
+
+#line 385
+        if(near_1)
+        {
+        }
+        else
+        {
+
+#line 385
+            near_0 = _S63;
+
+#line 385
+            turned_0 = false;
+
+#line 385
+            break;
+        }
+
+#line 385
+        Eval_0 _S65 = evaluate_0(x_6, kernelContext_5);
+
+        if(!_S65.ok_0)
+        {
+
+#line 387
+            near_0 = _S63;
+
+#line 387
+            turned_0 = false;
+
+#line 387
+            break;
+        }
+
+#line 388
+        float3 dir_0 = normalize0_0(_S65.grad_0);
+        if(steps_0 > 0U)
+        {
+
+#line 389
+            near_0 = (dot(dir_0, last_dir_0)) < 0.57357639074325562f;
+
+#line 389
+        }
+        else
+        {
+
+#line 389
             near_0 = false;
 
-#line 381
+#line 389
         }
 
-#line 381
+#line 389
         if(near_0)
         {
-        }
-        else
-        {
 
-#line 381
-            converged_0 = _S68;
+#line 389
+            near_0 = _S63;
 
-#line 381
+#line 389
+            turned_0 = true;
+
             break;
         }
 
-#line 381
-        Eval_0 _S69 = evaluate_0(x_4, false, kernelContext_9);
+        uint _S66 = steps_0 + 1U;
+        float r_0 = _S65.g_2 - target_0;
+        float _S67 = abs(r_0);
 
-        if(!_S69.ok_0)
-        {
-
-#line 383
-            converged_0 = _S68;
-
-#line 383
-            break;
-        }
-
-#line 384
-        uint _S70 = steps_0 + 1U;
-        float r_0 = _S69.g_3 - target_0;
-        float _S71 = abs(r_0);
-
-#line 386
+#line 396
         float best_2;
 
-#line 386
-        if(_S71 < best_1)
+#line 396
+        if(_S67 < best_1)
         {
 
-#line 386
-            best_2 = _S71;
+#line 396
+            best_2 = _S67;
 
-#line 386
-            offset_1 = x_4;
+#line 396
+            offset_1 = x_6;
 
-#line 386
+#line 396
         }
         else
         {
 
-#line 386
+#line 396
             best_2 = best_1;
 
-#line 386
+#line 396
             offset_1 = best_x_0;
 
-#line 386
+#line 396
         }
 
 
 
-        if(_S71 < (0.00009999999747379f * kernelContext_9->Blend_Params_0->reach_0))
+        if(_S67 < (0.00009999999747379f * kernelContext_5->Blend_Params_0->reach_0))
         {
 
-#line 390
-            converged_0 = true;
+#line 400
+            near_0 = true;
 
-#line 390
+#line 400
+            turned_0 = false;
+
+#line 400
             best_1 = best_2;
 
-#line 390
+#line 400
             best_x_0 = offset_1;
 
             break;
         }
 
-#line 392
-        float3 _S72 = _S69.grad_0;
+#line 402
+        bool has_in_1;
 
-        float gg_0 = dot(_S72, _S72);
+#line 402
+        float3 out_x_1;
+
+#line 402
+        float3 in_x_1;
+
+#line 402
+        float out_r_1;
+
+#line 402
+        float in_r_1;
+
+#line 402
+        int kept_1;
+
+        if(r_0 > 0.0f)
+        {
+
+
+            if(kept_0 > int(0))
+            {
+
+#line 408
+                out_r_1 = in_r_0 * 0.5f;
+
+#line 408
+            }
+            else
+            {
+
+#line 408
+                out_r_1 = in_r_0;
+
+#line 408
+            }
+
+#line 381
+            float _S68 = out_r_1;
+
+#line 381
+            turned_0 = true;
+
+#line 381
+            has_in_1 = has_in_0;
+
+#line 381
+            out_x_1 = x_6;
+
+#line 381
+            in_x_1 = in_x_0;
+
+#line 381
+            kept_1 = int(1);
+
+#line 381
+            out_r_1 = r_0;
+
+#line 381
+            in_r_1 = _S68;
+
+#line 404
+        }
+        else
+        {
+
+#line 414
+            if(kept_0 < int(0))
+            {
+
+#line 414
+                out_r_1 = out_r_0 * 0.5f;
+
+#line 414
+            }
+            else
+            {
+
+#line 414
+                out_r_1 = out_r_0;
+
+#line 414
+            }
+
+#line 414
+            turned_0 = has_out_0;
+
+#line 414
+            has_in_1 = true;
+
+#line 414
+            out_x_1 = out_x_0;
+
+#line 414
+            in_x_1 = x_6;
+
+#line 414
+            kept_1 = int(-1);
+
+#line 414
+            in_r_1 = r_0;
+
+#line 404
+        }
+
+#line 404
+        bool _S69;
+
+#line 417
+        if(turned_0)
+        {
+
+#line 417
+            _S69 = has_in_1;
+
+#line 417
+        }
+        else
+        {
+
+#line 417
+            _S69 = false;
+
+#line 417
+        }
+
+#line 417
+        if(_S69)
+        {
+
+#line 418
+            float3 _S70 = out_x_1 + (in_x_1 - out_x_1) * float3((out_r_1 / (out_r_1 - in_r_1))) ;
+
+#line 418
+            last_dir_0 = dir_0;
+
+#line 418
+            best_1 = best_2;
+
+#line 418
+            kept_0 = kept_1;
+
+#line 418
+            has_out_0 = turned_0;
+
+#line 418
+            has_in_0 = has_in_1;
+
+#line 418
+            out_x_0 = out_x_1;
+
+#line 418
+            in_x_0 = in_x_1;
+
+#line 418
+            best_x_0 = offset_1;
+
+#line 418
+            steps_0 = _S66;
+
+#line 418
+            x_6 = _S70;
+
+#line 418
+            in_r_0 = in_r_1;
+
+#line 418
+            out_r_0 = out_r_1;
+            continue;
+        }
+        float gg_0 = dot(_S65.grad_0, _S65.grad_0);
         if(gg_0 < 9.99999993922529029e-09f)
         {
 
-#line 395
-            converged_0 = _S68;
+#line 422
+            near_0 = _S63;
 
-#line 395
+#line 422
+            turned_0 = false;
+
+#line 422
             best_1 = best_2;
 
-#line 395
+#line 422
             best_x_0 = offset_1;
 
-#line 395
+#line 422
             break;
         }
 
-#line 396
-        float3 step_0 = _S69.grad_0 * float3((r_0 / gg_0)) ;
-        float l_5 = length(step_0);
+#line 423
+        float3 step_0 = _S65.grad_0 * float3((r_0 / gg_0)) ;
+        float l_3 = length(step_0);
 
-#line 397
+#line 424
         float3 step_1;
-        if(l_5 > (0.5f * kernelContext_9->Blend_Params_0->reach_0))
+        if(l_3 > (0.5f * kernelContext_5->Blend_Params_0->reach_0))
         {
 
-#line 398
-            step_1 = step_0 * float3((0.5f * kernelContext_9->Blend_Params_0->reach_0 / l_5)) ;
+#line 425
+            step_1 = step_0 * float3((0.5f * kernelContext_5->Blend_Params_0->reach_0 / l_3)) ;
 
-#line 398
+#line 425
         }
         else
         {
 
-#line 398
+#line 425
             step_1 = step_0;
 
-#line 398
+#line 425
         }
-        float3 x_5 = x_4 - step_1;
+        float3 x_7 = x_6 - step_1;
 
-#line 399
+#line 426
+        last_dir_0 = dir_0;
+
+#line 426
         best_1 = best_2;
 
-#line 399
+#line 426
+        kept_0 = kept_1;
+
+#line 426
+        has_out_0 = turned_0;
+
+#line 426
+        has_in_0 = has_in_1;
+
+#line 426
+        out_x_0 = out_x_1;
+
+#line 426
+        in_x_0 = in_x_1;
+
+#line 426
         best_x_0 = offset_1;
 
-#line 399
-        steps_0 = _S70;
+#line 426
+        steps_0 = _S66;
 
-#line 399
-        x_4 = x_5;
+#line 426
+        x_6 = x_7;
 
-#line 381
+#line 426
+        in_r_0 = in_r_1;
+
+#line 426
+        out_r_0 = out_r_1;
+
+#line 385
     }
 
-#line 401
-    if(converged_0)
+#line 428
+    if(near_0)
     {
 
-#line 401
-        best_x_0 = x_4;
+#line 428
+        best_x_0 = x_6;
 
-#line 401
+#line 428
     }
     else
     {
 
-#line 401
-        Eval_0 _S73 = evaluate_0(x_4, false, kernelContext_9);
-
-
-
-        if(_S73.ok_0)
+#line 430
+        if(!turned_0)
         {
 
-#line 405
-            near_0 = (abs(_S73.g_3 - target_0)) < best_1;
+#line 430
+            Eval_0 _S71 = evaluate_0(x_6, kernelContext_5);
 
-#line 405
+            if(_S71.ok_0)
+            {
+
+#line 432
+                near_1 = (abs(_S71.g_2 - target_0)) < best_1;
+
+#line 432
+            }
+            else
+            {
+
+#line 432
+                near_1 = false;
+
+#line 432
+            }
+
+#line 432
+            if(near_1)
+            {
+
+#line 432
+                best_x_0 = x_6;
+
+#line 432
+            }
+
+#line 430
         }
-        else
-        {
 
-#line 405
-            near_0 = false;
-
-#line 405
-        }
-
-#line 405
-        if(near_0)
-        {
-
-#line 405
-            best_x_0 = x_4;
-
-#line 405
-        }
-
-#line 401
+#line 428
     }
 
-#line 407
+#line 434
     if(all(best_x_0 == x0_0))
     {
 
-#line 407
+#line 434
         return none_0;
     }
 
-#line 407
-    Eval_0 _S74 = evaluate_0(best_x_0, true, kernelContext_9);
+#line 434
+    Eval_0 _S72 = evaluate_0(best_x_0, kernelContext_5);
 
-    float3 n_3 = normalize0_0(_S74.grad_0);
-    float3 offset_2 = best_x_0 - x0_0;
-    if((as_type<uint>(((float4(*(kernelContext_9->terms_0+3U)) ).z))) < (_S74.rival_0))
+    if((_S62.g_2) < a0_0)
     {
 
-#line 412
-        if((_S74.own_0) < -0.05000000074505806f)
+#line 436
+        near_1 = (_S72.amount_0) < 0.05000000074505806f;
+
+#line 436
+    }
+    else
+    {
+
+#line 436
+        near_1 = false;
+
+#line 436
+    }
+
+#line 436
+    if(near_1)
+    {
+
+#line 436
+        return none_0;
+    }
+
+#line 437
+    float3 n_2 = normalize0_0(_S72.grad_0);
+    float3 offset_2 = best_x_0 - x0_0;
+    if((as_type<uint>(((float4(*(kernelContext_5->terms_0+3U)) ).z))) < (_S72.rival_0))
+    {
+
+#line 440
+        if((_S72.own_0) < -0.05000000074505806f)
         {
 
-#line 412
+#line 440
             return none_0;
         }
 
-#line 413
-        float _S75 = max(kernelContext_9->Blend_Params_0->self_edge_0, _S74.rival_edge_0);
+#line 441
+        float _S73 = max(kernelContext_5->Blend_Params_0->self_edge_0, _S72.rival_edge_0);
 
-#line 413
-        offset_1 = offset_2 + n_3 * float3((max(0.0020000000949949f * kernelContext_9->Blend_Params_0->reach_0, 0.75f * _S75 * _S75 / kernelContext_9->Blend_Params_0->reach_0) * clamp(1.0f - _S74.own_0 / 0.5f, 0.0f, 1.0f))) ;
+#line 441
+        offset_1 = offset_2 + n_2 * float3((max(0.0020000000949949f * kernelContext_5->Blend_Params_0->reach_0, 0.75f * _S73 * _S73 / kernelContext_5->Blend_Params_0->reach_0) * clamp(1.0f - _S72.own_0 / 0.5f, 0.0f, 1.0f))) ;
 
-#line 411
+#line 439
     }
     else
     {
 
-#line 411
+#line 439
         offset_1 = offset_2;
 
-#line 411
+#line 439
     }
 
-#line 417
-    return entry_0(offset_1, n_3, _S74.amount_0, _S74.own_0);
+#line 445
+    return entry_0(offset_1, n_2, _S72.amount_0, _S72.own_0);
 }
 
 
-[[kernel]] void main_0(uint3 group_id_0 [[threadgroup_position_in_grid]], uint3 local_id_0 [[thread_position_in_threadgroup]], SLANG_ParameterGroup_Blend_Params_0 constant* Blend_Params_1 [[buffer(8)]], uint device* page_list_1 [[buffer(1)]], float device* positions_1 [[buffer(0)]], packed_float4 device* terms_1 [[buffer(6)]], packed_uint4 device* fields_1 [[buffer(2)]], packed_uint4 device* brick_table_1 [[buffer(3)]], float device* brick_values_1 [[buffer(4)]], uint device* brick_weights_1 [[buffer(5)]], packed_uint4 device* pages_1 [[buffer(7)]])
+[[kernel]] void main_0(uint3 group_id_0 [[threadgroup_position_in_grid]], uint3 local_id_0 [[thread_position_in_threadgroup]], SLANG_ParameterGroup_Blend_Params_0 constant* Blend_Params_1 [[buffer(8)]], uint device* page_list_1 [[buffer(1)]], float device* positions_1 [[buffer(0)]], packed_float4 device* terms_1 [[buffer(6)]], packed_uint4 device* fields_1 [[buffer(2)]], packed_uint4 device* brick_table_1 [[buffer(3)]], float device* brick_values_1 [[buffer(4)]], uint device* brick_extras_1 [[buffer(5)]], packed_uint4 device* pages_1 [[buffer(7)]])
 {
 
-#line 421
-    thread KernelContext_0 kernelContext_10;
+#line 449
+    thread KernelContext_0 kernelContext_6;
 
-#line 421
-    (&kernelContext_10)->Blend_Params_0 = Blend_Params_1;
+#line 449
+    (&kernelContext_6)->Blend_Params_0 = Blend_Params_1;
 
-#line 421
-    (&kernelContext_10)->page_list_0 = page_list_1;
+#line 449
+    (&kernelContext_6)->page_list_0 = page_list_1;
 
-#line 421
-    (&kernelContext_10)->positions_0 = positions_1;
+#line 449
+    (&kernelContext_6)->positions_0 = positions_1;
 
-#line 421
-    (&kernelContext_10)->terms_0 = terms_1;
+#line 449
+    (&kernelContext_6)->terms_0 = terms_1;
 
-#line 421
-    (&kernelContext_10)->fields_0 = fields_1;
+#line 449
+    (&kernelContext_6)->fields_0 = fields_1;
 
-#line 421
-    (&kernelContext_10)->brick_table_0 = brick_table_1;
+#line 449
+    (&kernelContext_6)->brick_table_0 = brick_table_1;
 
-#line 421
-    (&kernelContext_10)->brick_values_0 = brick_values_1;
+#line 449
+    (&kernelContext_6)->brick_values_0 = brick_values_1;
 
-#line 421
-    (&kernelContext_10)->brick_weights_0 = brick_weights_1;
+#line 449
+    (&kernelContext_6)->brick_extras_0 = brick_extras_1;
 
-#line 421
-    (&kernelContext_10)->pages_0 = pages_1;
-    uint g_5 = group_id_0.y * Blend_Params_1->groups_x_0 + group_id_0.x;
-    uint slot_0 = g_5 >> 2U;
+#line 449
+    (&kernelContext_6)->pages_0 = pages_1;
+    uint g_4 = group_id_0.y * Blend_Params_1->groups_x_0 + group_id_0.x;
+    uint slot_0 = g_4 >> 2U;
     if(slot_0 >= (Blend_Params_1->slot_count_0))
     {
 
-#line 424
+#line 452
         return;
     }
 
-#line 425
-    uint k_5 = (g_5 & 3U) * 256U + local_id_0.x;
-    uint v_3 = (&kernelContext_10)->page_list_0[slot_0] * 1024U + k_5;
-    uint4 _S76 = uint4(0U) ;
+#line 453
+    uint k_3 = (g_4 & 3U) * 256U + local_id_0.x;
+    uint v_4 = (&kernelContext_6)->page_list_0[slot_0] * 1024U + k_3;
+    uint4 _S74 = uint4(0U) ;
 
-#line 427
+#line 455
     uint4 result_0;
-    if(v_3 < ((&kernelContext_10)->Blend_Params_0->vertex_count_0))
+    if(v_4 < ((&kernelContext_6)->Blend_Params_0->vertex_count_0))
     {
 
-#line 428
-        uint4 _S77 = project_0(v_3, &kernelContext_10);
+#line 456
+        uint4 _S75 = project_0(v_4, &kernelContext_6);
 
-#line 428
-        result_0 = _S77;
+#line 456
+        result_0 = _S75;
 
-#line 428
+#line 456
     }
     else
     {
 
-#line 428
-        result_0 = _S76;
+#line 456
+        result_0 = _S74;
 
-#line 428
+#line 456
     }
 
-#line 428
-    *((&kernelContext_10)->pages_0+(slot_0 * 1024U + k_5)) = packed_uint4(result_0) ;
+#line 456
+    *((&kernelContext_6)->pages_0+(slot_0 * 1024U + k_3)) = packed_uint4(result_0) ;
 
     return;
 }

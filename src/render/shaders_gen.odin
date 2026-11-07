@@ -38,7 +38,7 @@ Blas_Refit_Comp_Buffers :: enum u32 {positions, indices, order, chunks}
 Blas_Refit_Comp_Write_Buffers :: enum u32 {nodes}
 Blas_Refit_Comp_Uniforms :: enum u32 {Params}
 
-// blend_project.comp.spv sha256 b1d6df237f9e00d857e16bbf65c0aa7253e96d62cbc22fdd18693381784ff227
+// blend_project.comp.spv sha256 3c8ac46ec784f56e0278cfd6978d4ae16d7e761387447061d985a9e397db850a
 BLEND_PROJECT_COMP :: gpu.Compute_Pipeline_Desc{
 	code = #load("shaders/blend_project.comp" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
@@ -53,7 +53,7 @@ BLEND_PROJECT_COMP :: gpu.Compute_Pipeline_Desc{
 	threadcount_y = 1,
 	threadcount_z = 1,
 }
-Blend_Project_Comp_Buffers :: enum u32 {positions, page_list, fields, brick_table, brick_values, brick_weights, terms}
+Blend_Project_Comp_Buffers :: enum u32 {positions, page_list, fields, brick_table, brick_values, brick_extras, terms}
 Blend_Project_Comp_Write_Buffers :: enum u32 {pages}
 Blend_Project_Comp_Uniforms :: enum u32 {Blend_Params}
 

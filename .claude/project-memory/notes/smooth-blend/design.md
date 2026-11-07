@@ -540,3 +540,32 @@ P3.
     scene's contact is far larger (about 6.8M vertices in candidate pages at 20M). Kernel: 128 VGPRs,
     8 waves a SIMD, no spills, 7.5k instructions (`kernel_stats.py`). Skipping unpainted weights changed
     nothing measurable (7.0-7.8 ms).
+
+## 16. What the papers changed (P3b, 2026-11-07)
+Bolt uploaded Gourmel et al. 2013 (TOG preprint) and Vaillant et al. 2013 (SIGGRAPH); read and folded in.
+- **Gourmel's opening function** (eq. 15-16, Table I) replaces our smoothstep controller. θ(α) over the angle
+  between the gradients, built from κ(x) = 1 − exp(1 − 1/(1 − exp(1 − 1/x))) (C∞, flat at both ends);
+  θ = 0 a full blend, π/4 a union; the blend radius is R·(1 − θ/(π/4)). Presets (`geom.Blend_Opening`,
+  per pair): **Organic** (default; theirs for organic modelling: a third of a blend where gradients align,
+  full from 60°, a union by 135°) and **Camel** (a union both aligned and opposed, full only at 90°: no
+  swell where surfaces lie along each other, their "bulging problem"). Ours had blended fully when aligned.
+  Test `blend_aligned_surfaces_do_not_bulge`: two equal spheres 0.03 apart, R 0.2: Camel swells 0, Organic
+  0.0196 (a third of the full R/4 plus the seam lift).
+- **Exact gradients in the field.** The opening's steep ramps turn small angle errors into radius errors;
+  gradients rebuilt from sampled distances turned by a few degrees from cell to cell (the two-sphere
+  fillet 1.9 % of R off the analytic union, marches failing to converge). Each sample now keeps its exact
+  gradient (the way from its closest point, or the pseudo-normal on the surface) with its weight in one
+  word (`blend_extra_pack`: oct 12+12 bits, weight 8), mixed trilinearly; this also drops the
+  48-load central-difference normal from the kernel.
+- **The march** brackets the target and switches from Newton to false position (Illinois) once bracketed:
+  the gradient leaves out how the opening's radius turns with the angle, which Gourmel's ramps make steep.
+  At most 10 steps (4.4 on average in test (a), at most 7, none unconverged).
+- **Vaillant's guard**: a march whose gradient turns more than 55° between steps has met a contact
+  crease and stops (`BLEND_TURN_COS`). Vaillant also confirms the target: each vertex returns to its own
+  rest iso value (our `c = a(x0)·(1 − amount)`); they damp steps (σ 0.35), which our bracketing replaces.
+- **Landing rule**: a vertex that starts inside a partner moves only to land where the blend takes at least
+  5 % (`BLEND_LAND_MIN`), else it would sit on the partner's own surface over its sheet.
+- Accuracy now: two spheres crossing within 0.60 % of R (lift included); the three-way junction all but
+  0.2 % of moved vertices within 1 % of R, every one within 3.6 % (the triple point, where three fillets meet
+  and the radius turns steeply; halving the spacing gave 2.7 %, so it is the method more than sampling).
+  GPU against CPU: 1.9e-5 (0.013 % of R), no mismatch.

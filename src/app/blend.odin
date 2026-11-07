@@ -174,11 +174,11 @@ blend_project_gpu :: proc(app: ^App, instances: []geom.Blend_Instance, pairs: []
 		append(&fields, v.inst.field)
 		append(&index, v.index)
 	}
-	term_pairs: [render.BLEND_TERMS_MAX][render.BLEND_TERMS_MAX][2]f32
+	term_pairs: [render.BLEND_TERMS_MAX][render.BLEND_TERMS_MAX][3]f32
 	for a in 0 ..< len(terms) do for b in 0 ..< len(terms) {
 		if a == b do continue
-		radius, strength := geom.blend_pair_between(pairs, index[a], index[b], self.scale)
-		term_pairs[a][b] = {radius, strength}
+		radius, strength, opening := geom.blend_pair_between(pairs, index[a], index[b], self.scale)
+		term_pairs[a][b] = {radius, strength, f32(opening)}
 	}
 	// The candidate pages, from the nodes near the field.
 	s := &bo.level.sculptor

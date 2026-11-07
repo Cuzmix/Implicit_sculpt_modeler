@@ -59,7 +59,7 @@ Blend_Params :: struct {
 	vertex_count, slot_count, term_count, groups_x: u32,
 	reach, self_edge:                               f32,
 	_:                                              [2]u32,
-	pair_table:                                     [BLEND_TERMS_MAX * BLEND_TERMS_MAX / 2][4]f32,
+	pair_table:                                     [BLEND_TERMS_MAX * BLEND_TERMS_MAX][4]f32,
 }
 
 blend_compute_ready :: proc(r: ^Renderer, bc: ^Blend_Compute) -> bool {
@@ -86,7 +86,7 @@ blend_compute_destroy :: proc(r: ^Renderer, bc: ^Blend_Compute) {
 // BLEND_PAGE_VERTICES vertices, gives each its slot) of a mesh whose positions are the
 // storage buffer `positions`, into `bp`. `terms[0]` is the instance itself (identity, ratio
 // 1, its own field 0); `pairs[a][b]` is the radius (in its space) and fullness joining
-// terms a and b. Waits for the GPU. False, with nothing changed but `bp` released, when
+// terms a and b, and its opening function (geom.Blend_Opening) as a float. Waits for the GPU. False, with nothing changed but `bp` released, when
 // the GPU refuses something; the caller then projects on the CPU.
 blend_compute_run :: proc(
 	r: ^Renderer,
@@ -95,7 +95,7 @@ blend_compute_run :: proc(
 	vertex_count: u32,
 	fields: []^geom.Blend_Field,
 	terms: []Blend_Term,
-	pairs: ^[BLEND_TERMS_MAX][BLEND_TERMS_MAX][2]f32,
+	pairs: ^[BLEND_TERMS_MAX][BLEND_TERMS_MAX][3]f32,
 	reach, self_edge: f32,
 	page_table, page_list: []u32,
 	bp: ^Blend_Pages,
@@ -109,18 +109,15 @@ blend_compute_run :: proc(
 	descs := make([][4]u32, len(fields), context.temp_allocator)
 	table := make([dynamic][4]u32, context.temp_allocator)
 	values := make([dynamic]f32, context.temp_allocator)
-	weights := make([dynamic]u8, context.temp_allocator)
+	extras := make([dynamic]u32, context.temp_allocator)
 	slot_first := 0
 	for f, i in fields {
-		// The mask's top bit says the field has painted weights to read; without, every
-		// weight is full and the kernel reads none.
-		descs[i] = {transmute(u32)f.h, u32(len(table)), u32(len(f.table) - 1) | (0x80000000 if f.painted else 0), u32(slot_first)}
+		descs[i] = {transmute(u32)f.h, u32(len(table)), u32(len(f.table) - 1), u32(slot_first)}
 		for k, j in f.table do append(&table, [4]u32{u32(k), u32(k >> 32), u32(f.slots[j]), 0})
 		append(&values, ..f.values[:])
-		append(&weights, ..f.weights[:])
+		append(&extras, ..f.extras[:])
 		slot_first += len(f.keys)
 	}
-	for len(weights) % 4 != 0 do append(&weights, 0)
 	rows := make([][4][4]f32, len(terms), context.temp_allocator)
 	for t, i in terms {
 		for r in 0 ..< 3 do rows[i][r] = {t.into[r, 0], t.into[r, 1], t.into[r, 2], t.into[r, 3]}
@@ -131,7 +128,7 @@ blend_compute_run :: proc(
 		.fields        = mem.slice_to_bytes(descs),
 		.brick_table   = mem.slice_to_bytes(table[:]),
 		.brick_values  = mem.slice_to_bytes(values[:]),
-		.brick_weights = weights[:],
+		.brick_extras  = mem.slice_to_bytes(extras[:]),
 		.terms         = mem.slice_to_bytes(rows),
 	}
 	for kind in Blend_Project_Comp_Buffers {
@@ -186,12 +183,8 @@ blend_compute_run :: proc(
 		reach        = reach,
 		self_edge    = self_edge,
 	}
-	for a in 0 ..< BLEND_TERMS_MAX {
-		for b in 0 ..< BLEND_TERMS_MAX {
-			i := a * BLEND_TERMS_MAX + b
-			params.pair_table[i >> 1][2 * (i & 1)] = pairs[a][b][0]
-			params.pair_table[i >> 1][2 * (i & 1) + 1] = pairs[a][b][1]
-		}
+	for a in 0 ..< BLEND_TERMS_MAX do for b in 0 ..< BLEND_TERMS_MAX {
+		params.pair_table[a * BLEND_TERMS_MAX + b] = {pairs[a][b][0], pairs[a][b][1], pairs[a][b][2], 0}
 	}
 	push_compute(cmd, Blend_Project_Comp_Uniforms.Blend_Params, &params)
 	writes := [Blend_Project_Comp_Write_Buffers]gpu.Storage_Buffer_Binding{.pages = {buffer = bp.pages}}

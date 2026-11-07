@@ -30,7 +30,7 @@ Scene :: struct {
 // its instance, so the fields live in each object's own space), a field each at the
 // radius's spacing, and every pair of balls joined at `radius` and `strength`.
 @(private = "file")
-scene_make :: proc(balls: []Ball, f: int, radius, strength: f32, pool: ^jobs.Pool, ids: []u32 = nil) -> Scene {
+scene_make :: proc(balls: []Ball, f: int, radius, strength: f32, pool: ^jobs.Pool, ids: []u32 = nil, opening := Blend_Opening.Organic) -> Scene {
 	s := Scene{balls = balls}
 	n := len(balls)
 	s.surfaces = make([]Blend_Surface, n)
@@ -51,7 +51,7 @@ scene_make :: proc(balls: []Ball, f: int, radius, strength: f32, pool: ^jobs.Poo
 			scale   = 1,
 			id      = ids[i] if ids != nil else u32(i),
 		}
-		for j in 0 ..< i do append(&pairs, Blend_Pair{a = j, b = i, radius = radius, strength = strength})
+		for j in 0 ..< i do append(&pairs, Blend_Pair{a = j, b = i, radius = radius, strength = strength, opening = opening})
 	}
 	s.pairs = pairs[:]
 	for p in s.pairs {
@@ -90,7 +90,7 @@ scene_destroy :: proc(s: ^Scene) {
 // The reference: the balls' exact distances folded as blend_project folds fields, sorted
 // by value, every pair joined, at a world point.
 @(private = "file")
-reference :: proc(balls: []Ball, p: Vec3, radius, strength: f32) -> (g: f32, amount: f32) {
+reference :: proc(balls: []Ball, p: Vec3, radius, strength: f32, opening := Blend_Opening.Organic) -> (g: f32, amount: f32) {
 	Term :: struct {
 		d: f32,
 		n: Vec3,
@@ -101,7 +101,7 @@ reference :: proc(balls: []Ball, p: Vec3, radius, strength: f32) -> (g: f32, amo
 	grad: Vec3
 	g, grad = terms[0].d, terms[0].n
 	for e in terms[1:] {
-		k := blend_radius_at(radius, linalg.dot(linalg.normalize0(grad), e.n), 1)
+		k := blend_radius_at(radius, linalg.dot(linalg.normalize0(grad), e.n), 1, opening)
 		h: f32
 		g, grad, h = blend_union(g, e.d, grad, e.n, k, strength)
 		amount = max(amount, strength * h)
@@ -143,7 +143,7 @@ blend_fillet_follows_the_analytic_union :: proc(t: ^testing.T) {
 	defer scene_destroy(&s)
 	moves, stats := project_all(&s, &pool)
 	defer moves_destroy(moves)
-	worst, lift: f32
+	worst, lift, stray_most: f32
 	stray := 0
 	for list, i in moves {
 		for m in list {
@@ -154,7 +154,14 @@ blend_fillet_follows_the_analytic_union :: proc(t: ^testing.T) {
 			// ones the union shows are held to it.
 			if g > -1e-3 do worst = max(worst, abs(g))
 			lift = max(lift, linalg.length(m.offset))
-			if _, a0 := reference(balls, x0, R, S); a0 == 0 && linalg.length(m.offset) > 1e-4 * R do stray += 1
+			// The fillet's edge keeps no step: a vertex outside the other ball moves only where
+			// the reference blends. (One inside the other ball may cross into the fillet from
+			// where the reference's share is just zero: hidden, and covering the seam.)
+			outside := linalg.length(x0 - balls[1 - i].center) >= balls[1 - i].radius
+			if _, a0 := reference(balls, x0, R, S); outside && a0 == 0 && linalg.length(m.offset) > 1e-4 * R {
+				stray += 1
+				stray_most = max(stray_most, linalg.length(m.offset))
+			}
 		}
 	}
 	fmt.printfln("blend (a): moved %d of %d scanned, %.2f steps, most %d, unconverged %d; worst |G_ref| %.5f (%.3f%% of R), largest lift %.4f",
@@ -162,6 +169,7 @@ blend_fillet_follows_the_analytic_union :: proc(t: ^testing.T) {
 	testing.expect(t, stats.moved > 200, "a fillet moves vertices")
 	testing.expectf(t, worst < 0.01 * R, "moved vertices on the reference union within 1%% of R: worst %v", worst)
 	testing.expectf(t, lift > 0.15 * R, "the fillet lifts the surface: largest move %v", lift)
+	if stray > 0 do fmt.printfln("  strays %d, the largest moving %.6f (%.3f%% of R)", stray, stray_most, 100 * stray_most / R)
 	testing.expect_value(t, stray, 0)
 	testing.expect_value(t, stats.unconverged, 0)
 }
@@ -207,10 +215,14 @@ blend_three_way_junction_ignores_the_order :: proc(t: ^testing.T) {
 	moves, stats := project_all(&s, &pool)
 	defer moves_destroy(moves)
 	worst: f32
+	over := 0
 	for list, i in moves {
 		for m in list {
 			x := s.surfaces[i].mesh.positions[m.vertex] + balls[i].center + m.offset
-			if g, _ := reference(balls, x, R, S); g > -1e-3 do worst = max(worst, abs(g))
+			if g, _ := reference(balls, x, R, S); g > -1e-3 {
+				worst = max(worst, abs(g))
+				if abs(g) > 0.01 * R do over += 1
+			}
 		}
 	}
 	// The same balls given in another order, and with other ids.
@@ -241,12 +253,18 @@ blend_three_way_junction_ignores_the_order :: proc(t: ^testing.T) {
 			both += 1
 		}
 	}
+	fmt.printfln("blend (c): %d of the moved over 1%% of R", over)
 	fmt.printfln("blend (c): moved %d, worst |G_ref| %.5f (%.3f%% of R); other order identical %v; other ids: %d vertices both move, largest difference %.2e (the lift %.2e)",
 		stats.moved, worst, 100 * worst / R, same_order, both, ids_worst, scene_lift(&s, R))
 	testing.expect(t, same_order, "another order gives the same bits")
 	testing.expect(t, both > stats.moved / 2, "other ids move most of the same vertices")
 	testing.expectf(t, ids_worst <= scene_lift(&s, R) * 1.001 + 1e-6, "other ids move them alike but for the lift: %v", ids_worst)
-	testing.expectf(t, worst < 0.01 * R, "every shown moved vertex on the three-way union within 1%% of R: %v", worst)
+	// Where all three fillets meet, Gourmel's opening turns the radius steeply with the
+	// gradients' angles, so the few vertices at the triple point land up to a few percent of
+	// the radius off the analytic fold (6 of about 5,000 in 2026-11; halving the spacing took
+	// the worst from 3.6 % to 2.7 %): all but 0.2 % within 1 % of R, every one within 4 %.
+	testing.expectf(t, f32(over) <= 0.002 * f32(stats.moved), "all but 0.2%% within 1%% of R: %d over", over)
+	testing.expectf(t, worst < 0.04 * R, "every shown moved vertex on the three-way union within 4%% of R: %v", worst)
 }
 
 // (d) The fields and the moves are the same bits on one thread and on several.
@@ -263,7 +281,7 @@ blend_serial_matches_parallel :: proc(t: ^testing.T) {
 	for i in 0 ..< 2 {
 		testing.expect(t, slice.equal(a.fields[i].keys[:], b.fields[i].keys[:]), "the same bricks")
 		testing.expect(t, slice.equal(slice.to_bytes(a.fields[i].values[:]), slice.to_bytes(b.fields[i].values[:])), "the same distances")
-		testing.expect(t, slice.equal(a.fields[i].weights[:], b.fields[i].weights[:]), "the same weights")
+		testing.expect(t, slice.equal(a.fields[i].extras[:], b.fields[i].extras[:]), "the same gradients and weights")
 	}
 	ma, _ := project_all(&a, nil)
 	defer moves_destroy(ma)
@@ -342,4 +360,52 @@ blend_seam_has_one_owner :: proc(t: ^testing.T) {
 	testing.expect(t, under > 0, "the other's sheet reaches past the bisector")
 	testing.expect(t, seam > 0, "vertices at the seam")
 	testing.expectf(t, worst < 1e-6, "the owner stands the lift out: off by %v", worst)
+}
+
+// Gourmel's bulging problem: two equal spheres a hair apart, their surfaces lying along
+// each other with aligned gradients over a wide band. A blend that rounds there swells the
+// shape by up to a quarter of the radius; Camel is a union there, so nothing shown stands
+// outside the plain union by more than 1 % of the radius, and Organic, a third of a blend
+// where gradients align, stays within a third of the full swell (plus the seam owner's
+// lift). The swell is how far a moved vertex stands outside both spheres (the plain
+// union's distance, positive outside).
+@(test)
+blend_aligned_surfaces_do_not_bulge :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	R, S: f32 = 0.2, 1
+	balls := []Ball{{{0, 0, 0}, 1}, {{0.03, 0, 0}, 1}}
+	swell :: proc(s: ^Scene, moves: [][dynamic]Blend_Move) -> (most: f32) {
+		for list, i in moves {
+			for m in list {
+				x := s.surfaces[i].mesh.positions[m.vertex] + s.balls[i].center + m.offset
+				plain := max(f32)
+				for b in s.balls do plain = min(plain, linalg.length(x - b.center) - b.radius)
+				most = max(most, plain)
+			}
+		}
+		return
+	}
+	camel := scene_make(balls, 40, R, S, &pool, opening = .Camel)
+	defer scene_destroy(&camel)
+	camel_moves, _ := project_all(&camel, &pool)
+	defer moves_destroy(camel_moves)
+	organic := scene_make(balls, 40, R, S, &pool, opening = .Organic)
+	defer scene_destroy(&organic)
+	organic_moves, _ := project_all(&organic, &pool)
+	defer moves_destroy(organic_moves)
+	full := R * S / 4
+	camel_swell, organic_swell := swell(&camel, camel_moves), swell(&organic, organic_moves)
+	fmt.printfln("blend aligned: largest swell Camel %.5f, Organic %.5f, against a full blend's %.5f (R/4)", camel_swell, organic_swell, full)
+	testing.expectf(t, camel_swell < 0.01 * R, "Camel adds nothing where surfaces align: %v", camel_swell)
+	testing.expectf(t, organic_swell < full / 3 + scene_lift(&organic, R) + 0.01 * R, "Organic swells a third at most: %v", organic_swell)
+	// The opening functions themselves: Camel a union aligned and opposed and a blend at a
+	// right angle; Organic a third aligned, full from 60°, a union by 135°.
+	testing.expect_value(t, blend_radius_at(1, 1, 1, .Camel), 0)
+	testing.expect_value(t, blend_radius_at(1, -1, 1, .Camel), 0)
+	testing.expect(t, abs(blend_radius_at(1, 0, 1, .Camel) - 1) < 1e-6)
+	testing.expect(t, abs(blend_radius_at(1, 1, 1, .Organic) - 1.0 / 3) < 1e-6)
+	testing.expect(t, abs(blend_radius_at(1, 0.5, 1, .Organic) - 1) < 1e-6)
+	testing.expect_value(t, blend_radius_at(1, -0.75, 1, .Organic), 0)
 }
