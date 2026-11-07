@@ -888,7 +888,8 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	if st.grab && obj.voxel != nil {
 		voxel_grab_begin(obj.voxel, brush, local)
 	} else if st.grab {
-		sculpt.sculptor_grab_begin(object_sculptor(obj), brush, local)
+		held := sculpt.sculptor_grab_begin(object_sculptor(obj), brush, local)
+		if held == 0 && brush.kind == .Boundary && s.kind == .Press do report(app, Section.Brush, {.Warning}, "Boundary drags an open edge: press within the brush's radius of one")
 	} else if st.cloth {
 		// Invert (Ctrl) turns each mode about: Pinch spreads, Push lifts, Twist turns back.
 		set := cloth_brush_settings(app, obj)

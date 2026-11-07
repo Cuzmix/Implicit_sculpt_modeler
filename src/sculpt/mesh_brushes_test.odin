@@ -137,3 +137,71 @@ pose_swings_a_finger :: proc(t: ^testing.T) {
 	testing.expectf(t, abs(linalg.length(m.positions[at] - pivot) - linalg.length(before[at] - pivot)) < 1e-3, "the tip did not keep its length from the joint")
 	for q, i in m.positions do if before[i].z < -1.2 do testing.expect_value(t, q, before[i])
 }
+
+// A flat sheet 2 by 2 in z = 0, n vertices a side, facing +z: an open edge all round.
+@(private = "file")
+sheet :: proc(n: int) -> (m: geom.Mesh) {
+	m.positions = make([dynamic]Vec3, 0, n * n)
+	m.normals = make([dynamic]Vec3, 0, n * n)
+	m.indices = make([dynamic]u32, 0, (n - 1) * (n - 1) * 6)
+	for j in 0 ..< n do for i in 0 ..< n {
+		append(&m.positions, Vec3{-1 + 2 * f32(i) / f32(n - 1), -1 + 2 * f32(j) / f32(n - 1), 0})
+		append(&m.normals, Vec3{0, 0, 1})
+	}
+	for j in 0 ..< n - 1 do for i in 0 ..< n - 1 {
+		a := u32(j * n + i)
+		b, c, d := a + 1, a + u32(n), a + u32(n) + 1
+		append(&m.indices, a, b, d, a, d, c)
+	}
+	return
+}
+
+// Boundary pressed beside a sheet's edge picks up the edge, not the press: the edge's
+// middle takes the whole drag, the edge further along it less, the sheet a radius in from
+// it nothing; serial and parallel agree bit for bit, and undo puts it back. On a closed
+// ball it holds nothing.
+@(test)
+boundary_drags_the_open_edge :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	result: [2][]Vec3
+	for p, i in ([2]^jobs.Pool{nil, &pool}) {
+		m := sheet(81)
+		s: Sculptor
+		sculptor_init(&s, &m, p, 64)
+		before := slice.clone(m.positions[:], context.temp_allocator)
+		sculptor_stroke_begin(&s)
+		held := sculptor_grab_begin(&s, {kind = .Boundary, radius = 0.3, strength = 0.5}, {0, -0.85, 0})
+		testing.expect(t, held > 0, "boundary held nothing")
+		_ = sculptor_grab_move(&s, {0, 0, 0.2})
+		sculptor_grab_end(&s)
+		testing.expect(t, sculptor_stroke_end(&s), "the drag was not an undo step")
+		lift :: proc(m: ^geom.Mesh, before: []Vec3, at: Vec3) -> f32 {
+			k := nearest_to(before, at)
+			return m.positions[k].z - before[k].z
+		}
+		edge, along, far_along := lift(&m, before, {0, -1, 0}), lift(&m, before, {0.4, -1, 0}), lift(&m, before, {0.65, -1, 0})
+		testing.expectf(t, abs(edge - 0.2) < 1e-4, "the edge's middle rose %v", edge)
+		testing.expectf(t, abs(lift(&m, before, {0.25, -1, 0}) - 0.2) < 1e-4, "the edge a little along rose %v", lift(&m, before, {0.25, -1, 0}))
+		testing.expectf(t, along > 0.01 && along < 0.2 && far_along == 0, "along the edge it rose %v then %v", along, far_along)
+		// The press lies 0.15 in from the edge; the edge, not the press, takes the most.
+		testing.expectf(t, lift(&m, before, {0, -0.85, 0}) < edge, "the press rose as much as the edge")
+		for q, k in m.positions do if before[k].y > -0.69 do testing.expect_value(t, q, before[k])
+		result[i] = slice.clone(m.positions[:], context.temp_allocator)
+		testing.expect(t, sculptor_undo(&s))
+		testing.expect(t, slice.equal(m.positions[:], before), "undo left the drag")
+		sculptor_destroy(&s)
+		geom.mesh_destroy(&m)
+	}
+	testing.expect(t, slice.equal(result[0], result[1]), "parallel boundary differs from serial")
+	m: geom.Mesh
+	s: Sculptor
+	_ = ball(&s, &m)
+	defer {sculptor_destroy(&s); geom.mesh_destroy(&m)}
+	sculptor_stroke_begin(&s)
+	testing.expect(t, sculptor_grab_begin(&s, {kind = .Boundary, radius = 0.3, strength = 0.5}, {0, 0, 1}) == 0, "a closed ball has an open edge")
+	testing.expect(t, sculptor_grab_move(&s, {0, 0, 0.2}) == 0)
+	sculptor_grab_end(&s)
+	_ = sculptor_stroke_end(&s)
+}

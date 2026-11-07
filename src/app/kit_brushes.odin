@@ -93,6 +93,7 @@ BRUSH_CATEGORY_OF := [sculpt.Brush_Kind]Brush_Category {
 	.Rotate       = .Move,
 	.Thumb        = .Move,
 	.Pose         = .Move,
+	.Boundary     = .Move,
 }
 
 // The Library's own state, in Kit_State.
