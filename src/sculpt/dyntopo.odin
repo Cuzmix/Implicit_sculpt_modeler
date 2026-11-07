@@ -293,6 +293,8 @@ sculptor_dyn_enable :: proc(s: ^Sculptor, allocator := context.allocator) -> boo
 	}
 	delete(old_nodes)
 	geom.vertex_faces_destroy(&s.faces)
+	// Poseable symmetry's pairs do not survive triangles that change under every stroke.
+	sculptor_mirror_clear(s)
 	delete(s.shared)
 	delete(s.owners)
 	s.shared, s.owners = {}, {}

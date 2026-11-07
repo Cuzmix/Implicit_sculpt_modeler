@@ -251,7 +251,7 @@ kit_memory_ask :: proc(app: ^App) {
 	what := fmt.tprintf("%s to %s", verb, memory_count_label(a.cmd.vertices)) if a.cmd.kind == .Remesh && a.cmd.remesh.cell <= 0 else verb
 	title := fmt.tprintf("%s needs more memory", what) if a.fits else fmt.tprintf("%s won't fit right now", what)
 	if a.saving do title = "Saving the scene first"
-	inner, _, shown := sheet_begin(app, "memory ask", title, ICON_CHECK_WARN, &open, 440)
+	inner, _, shown := sheet_begin(app, "memory ask", title, ui.ICON_CHECK_WARN, &open, 440)
 	if !shown do return
 	defer sheet_end(app)
 	if a.saving {

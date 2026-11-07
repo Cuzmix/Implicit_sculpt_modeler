@@ -139,7 +139,7 @@ levels_file_refuses_damage :: proc(t: ^testing.T) {
 	// A corner past the base's vertices.
 	bad := slice.clone(out[:], context.temp_allocator)
 	base_vertices := len(l.levels[0].mesh.positions)
-	first_index := 5 * 4 + 8 + base_vertices * size_of(Vec3)
+	first_index := levels_field_at(out[:], 6) // the indices
 	past := transmute([4]u8)u32(base_vertices)
 	copy(bad[first_index:], past[:])
 	back: Levels
@@ -239,4 +239,19 @@ levels_file_write_stops_when_asked :: proc(t: ^testing.T) {
 	defer delete(part)
 	testing.expect(t, !levels_write(&l, &part, {serial = true, abort = &abort, synced = true}))
 	testing.expectf(t, len(part) < len(whole) / 4, "wrote %d of %d bytes after the abort", len(part), len(whole))
+}
+
+// Where in `out`, which levels_write wrote, the payload of the field of `tags[0]` starts,
+// or of `tags[1]` inside that field's record, and so on; -1 when there is none. The tags
+// are Levels_Tag's numbers and those of the records inside it.
+levels_field_at :: proc(out: []u8, tags: ..u16) -> int {
+	at, data := size_of(u64), out[size_of(u64):]
+	for tag in tags {
+		rec := geom.record_of(data)
+		payload, _, present := geom.rec_find_from(&rec, tag, 0)
+		if !rec.ok || !present do return -1
+		at += int(uintptr(raw_data(payload)) - uintptr(raw_data(data)))
+		data = payload
+	}
+	return at
 }

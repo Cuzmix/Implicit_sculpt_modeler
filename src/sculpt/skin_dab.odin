@@ -314,7 +314,7 @@ skin_split_brush :: proc(d: ^Dab, share: f32) {
 	case .Snake_Hook:
 		// The hook drags by its drag, not its strength.
 		d.brush.drag *= 1 - share
-	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Pinch, .Morph, .History, .Clay_Strips, .Trim_Dynamic, .Clay, .Flatten, .Layer:
+	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Pinch, .Morph, .History, .Clay_Strips, .Trim_Dynamic, .Clay, .Flatten, .Layer, .Tube:
 		d.brush.strength *= 1 - share
 	}
 }
@@ -394,7 +394,7 @@ skin_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 		jobs.parallel_for(pool, items, d, job_skin_pinch)
 	case .Snake_Hook:
 		if brush.drag == {} do return 0
-		if brush.hook_elastic do d.kelvin = kelvinlet_make(brush.radius, brush.volume)
+		if brush.hook_elastic do d.kelvin = geom.kelvinlet_make(brush.radius, brush.volume)
 		step := linalg.length(brush.drag)
 		d.pinch = clamp(brush.hook_pinch, -1, 1) * step / brush.radius
 		d.drag_dir = brush.drag / step
@@ -413,7 +413,7 @@ skin_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 			jobs.parallel_for(pool, items, d, job_skin_smooth_targets)
 			jobs.parallel_for(pool, len(s.hit), d, job_skin_smooth_apply)
 		}
-	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Morph, .History, .Clay_Strips, .Trim_Dynamic:
+	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Morph, .History, .Clay_Strips, .Trim_Dynamic, .Tube:
 		unreachable()
 	}
 	if brush.kind != .Smooth {

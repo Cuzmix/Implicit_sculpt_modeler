@@ -7,26 +7,25 @@ import "core:sync"
 
 import "../geom"
 
-// The detail skin in the scene file, after the levels (levels_write), in an order only
-// the top level's topology decides, since sculptor_init renumbers vertices, edges and
-// triangles each time a sculptor is built: the vertices' samples in the level's file
-// order (level_canon), then each edge's by the file places of its ends (lower first),
-// running from the lower end, then each triangle's inside samples by tri_canon's order,
-// counted from its corner placed first, keeping its winding. Then a byte saying whether
-// the vector page follows, and if so each sample's sideways offset in the same order, as
-// a vector in the mesh's space (three f16), since the owner frame it is kept in depends on
+// The detail skin in the scene file, beside the levels (levels_write), as a record
+// (Skin_Tag) whose samples run in an order only the top level's topology decides, since
+// sculptor_init renumbers vertices, edges and triangles each time a sculptor is built: the
+// vertices' samples in the level's file order (level_canon), then each edge's by the file
+// places of its ends (lower first), running from the lower end, then each triangle's
+// inside samples by tri_canon's order, counted from its corner placed first, keeping its
+// winding. The sideways offsets, when the vector page is on, run in the same order, each a
+// vector in the mesh's space (three f16), since the owner frame it is kept in depends on
 // the numbering the reader builds anew. Normals are worked out again on reading.
 
+// Tags are never reused or retyped (geom/record.odin).
 @(private = "file")
-SKIN_TAG :: u32(0x4e49_4b53) // "SKIN" in the file
-
-// Whether the bytes at the reader's place start a skin (levels_skin_write), without
-// reading them.
-levels_skin_follows :: proc(r: ^geom.Byte_Reader) -> bool {
-	if !r.ok || len(r.data) - r.at < size_of(u32) do return false
-	tag: u32
-	copy(slice.bytes_from_ptr(&tag, size_of(u32)), r.data[r.at:][:size_of(u32)])
-	return tag == SKIN_TAG
+Skin_Tag :: enum u16 {
+	Segments  = 1, // u8, required: 2 to 16
+	Vertices  = 2, // u32, required: the top level's, which the skin must fit
+	Edges     = 3, // u32, required
+	Triangles = 4, // u32, required
+	Heights   = 5, // f16 per sample, required
+	Side      = 6, // [3]f16 per sample: the vector page
 }
 
 // The top level's skin, nil for none.
@@ -106,24 +105,29 @@ skin_face_row :: #force_inline proc(S, i, j: u32) -> u32 {
 @(private = "file")
 stopped_skin :: #force_inline proc(abort: ^bool) -> bool {return abort != nil && sync.atomic_load(abort)}
 
-// Appends the top level's detail skin, when it has one: its tag, segments, counts and
-// heights in the file's order. False only when `abort` stopped it.
+// Appends the top level's detail skin as a record, when it has one: its segments, counts
+// and heights in the file's order, and the vector page when it is on. False only when
+// `abort` stopped it.
 levels_skin_write :: proc(l: ^Levels, out: ^[dynamic]u8, abort: ^bool = nil) -> bool {
 	sk := levels_skin(l)
 	if sk == nil do return true
 	order, ok := skin_file_order(l, abort)
 	if !ok do return false
-	geom.byte_put(out, SKIN_TAG)
-	geom.byte_put(out, u8(sk.segments))
-	geom.byte_put(out, sk.vert_count)
-	geom.byte_put(out, sk.edge_count)
-	geom.byte_put(out, sk.tri_count)
+	rec := geom.record_begin(out)
+	defer geom.record_end(out, rec)
+	geom.rec_put(out, Skin_Tag.Segments, u8(sk.segments))
+	geom.rec_put(out, Skin_Tag.Vertices, sk.vert_count)
+	geom.rec_put(out, Skin_Tag.Edges, sk.edge_count)
+	geom.rec_put(out, Skin_Tag.Triangles, sk.tri_count)
+	at := geom.rec_begin(out, Skin_Tag.Heights)
 	to := geom.byte_put_bytes(out, len(sk.heights) * size_of(f16))
+	geom.rec_end(out, at)
 	for h, x in sk.heights do intrinsics.unaligned_store(cast(^f16)&to[size_of(f16) * int(order[x])], h)
-	geom.byte_put(out, u8(sk.side != nil))
 	if sk.side != nil {
 		s := &l.levels[len(l.levels) - 1].sculptor
+		at = geom.rec_begin(out, Skin_Tag.Side)
 		side := geom.byte_put_bytes(out, len(sk.side) * size_of([3]f16))
+		geom.rec_end(out, at)
 		io := Side_Io{side, order}
 		skin_side_each(s, sk, proc(s: ^Sculptor, sk: ^Skin, x: u32, tu, tv: Vec3, data: rawptr) {
 			io := cast(^Side_Io)data
@@ -161,30 +165,20 @@ skin_side_each :: proc(s: ^Sculptor, sk: ^Skin, each: proc(s: ^Sculptor, sk: ^Sk
 // Reads what levels_skin_write wrote onto the levels just read (levels_read), giving the
 // top level the skin. False when the skin is damaged or does not fit the top level, which
 // is then left without one; the reader has then gone past it either way, or is not ok
-// when even its counts are damaged.
+// when even its record is damaged.
 levels_skin_read :: proc(l: ^Levels, r: ^geom.Byte_Reader) -> bool {
-	if !levels_skin_follows(r) do return false
-	_ = geom.byte_get(r, u32)
-	segments := u32(geom.byte_get(r, u8))
-	V, E, T := geom.byte_get(r, u32), geom.byte_get(r, u32), geom.byte_get(r, u32)
-	if !r.ok || segments < 2 || segments > 16 do return false
+	rec := geom.record_take(r)
+	if !rec.ok do return false
+	if known, _ := geom.record_known(&rec, Skin_Tag); !known do return false
+	segments := u32(geom.rec_need(&rec, Skin_Tag.Segments, u8))
+	V, E, T := geom.rec_need(&rec, Skin_Tag.Vertices, u32), geom.rec_need(&rec, Skin_Tag.Edges, u32), geom.rec_need(&rec, Skin_Tag.Triangles, u32)
+	heights, _ := geom.rec_find(&rec, Skin_Tag.Heights)
+	side, has_side := geom.rec_find(&rec, Skin_Tag.Side)
+	if !rec.ok || segments < 2 || segments > 16 || len(l.levels) == 0 do return false
 	S := segments
 	count := u64(V) + u64(E) * u64(S - 1) + u64(T) * u64((S - 1) * (S - 2) / 2)
-	if u64(len(r.data) - r.at) / size_of(f16) < count {
-		r.ok = false
-		return false
-	}
-	heights := geom.byte_get_bytes(r, int(count) * size_of(f16))
-	has_side := geom.byte_get(r, u8)
-	side: []u8
-	if has_side != 0 {
-		if u64(len(r.data) - r.at) / size_of([3]f16) < count {
-			r.ok = false
-			return false
-		}
-		side = geom.byte_get_bytes(r, int(count) * size_of([3]f16))
-	}
-	if !r.ok || has_side > 1 || len(l.levels) == 0 do return false
+	if u64(len(heights)) != count * size_of(f16) || (has_side && u64(len(side)) != count * size_of([3]f16)) do return false
+	if !has_side do side = nil
 	s := &l.levels[len(l.levels) - 1].sculptor
 	if s.dyn != nil || !sculptor_skin_set(s, S) do return false
 	sk := s.skin

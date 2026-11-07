@@ -133,10 +133,10 @@ modifier_name :: proc(app: ^App, m: Modifier) -> string {
 
 @(rodata)
 MODIFIER_ICONS := [Modifier]rune {
-	.Smooth = 0xe283, // waves
-	.Invert = 0xe30c, // diff: plus over minus
-	.Mask   = ICON_MASK,
-	.Hide   = 0xe0bf, // eye-off
+	.Smooth = ui.ICON_BRUSH_SMOOTH,
+	.Invert = ui.ICON_INVERT,
+	.Mask   = ui.ICON_MASK,
+	.Hide   = ui.ICON_HIDE,
 }
 
 // The keyboard's modifier that does the same, for the tooltip.
@@ -376,35 +376,28 @@ rail_press_mods :: proc(r: ^Modifier_Rail) -> (mods: Modifiers, held: bool) {
 }
 
 // Follows the left button on the viewport (kit_viewport_input, while the viewport has the
-// pointer): as it goes down, takes what the rail says, unless a key of the keyboard's own
-// is held, which then says it all; the fingers held then made this press, so lifting
-// them never latches. Until it comes up the press keeps what it took, which this frame's
-// input gets, but for Smooth held down after it: that, as Shift pressed mid-stroke, turns
-// the stroke into a straight line (Stroke.line), and is used, so lifting it never latches.
+// pointer) and sets what the press does: as it goes down, takes what the rail says
+// (rail_press_now), the fingers held then making this press, so lifting them never
+// latches. Until it comes up the press keeps what it took, which this frame's input gets
+// with the keyboard's (press_mods), but for Smooth held down after it: that, as Shift
+// pressed mid-stroke, turns the stroke into a straight line (Stroke.line), and is used, so
+// lifting it never latches.
 rail_press :: proc(app: ^App, input: ^Viewport_Input) {
 	r := &app.rail
 	d := &app.device
 	if .Left in d.pressed {
 		r.press = {active = true}
-		if !d.shift && !d.ctrl && !d.alt {
-			r.press.mods, r.press.held = rail_press_mods(r)
-			// The pen's eraser end presses as its sector held would (Settings > Pen).
-			if d.pointer == .Pen && app.pencil.eraser {
-				switch app.nav.eraser {
-				case .Tip:
-				case .Invert:        r.press.mods ~= {.Invert}
-				case .Smooth, .Mask: r.press.mods = eraser_mods(app.nav.eraser) + (r.press.mods & {.Invert})
-				}
-				r.press.held ||= app.nav.eraser != .Tip
-			}
-		}
+		r.press.mods, r.press.held = rail_press_now(app)
 		for &f in r.fingers[:r.count] do f.used = true
 		if r.key.held do r.key.used = true
 	} else if .Left not_in d.down {
 		r.press = {}
 	}
+	if input.primary {
+		m := press_mods(app, r.press.mods if r.press.active else {})
+		input.smooth, input.invert, input.mask, input.mask_shape, input.alt = m.smooth, m.invert, m.mask, m.mask_shape, m.alt
+	}
 	if !r.press.active do return
-	rail_resolve(r.press.mods, input)
 	// Only a brush stroke under way makes a line of it; any other drag leaves the button
 	// to latch as before.
 	if app.tool != .Brush || !app.stroke.active do return
@@ -413,6 +406,48 @@ rail_press :: proc(app: ^App, input: ^Viewport_Input) {
 		if !f.used do f.used, r.press.line = true, true
 		if r.press.line do input.smooth = true
 	}
+}
+
+// What a left press going down now takes from the rail, latched or held, and from the
+// pen's eraser end, with whether its mode came from something held; nothing while a key of
+// the keyboard's own is held, which then says it all (press_mods).
+rail_press_now :: proc(app: ^App) -> (mods: Modifiers, held: bool) {
+	d := &app.device
+	if d.shift || d.ctrl || d.alt do return
+	mods, held = rail_press_mods(&app.rail)
+	// The pen's eraser end presses as its sector held would (Settings > Pen).
+	if d.pointer == .Pen && app.pencil.eraser {
+		switch app.nav.eraser {
+		case .Tip:
+		case .Invert:        mods ~= {.Invert}
+		case .Smooth, .Mask: mods = eraser_mods(app.nav.eraser) + (mods & {.Invert})
+		}
+		held ||= app.nav.eraser != .Tip
+	}
+	return
+}
+
+// What a left press that drives the tool does with the keys held now and the rail's
+// `rail` (what its press took): Shift smooths, Ctrl alone inverts, and Ctrl+Alt with a
+// brush paints the mask, as Ctrl does in ZBrush, and from empty space still draws the
+// unmasking shape (Alt, mask_shape.odin); then the rail's on top (rail_resolve). The one
+// place both a press and the hover preview (hover_mods) read them, so the preview shows
+// the dab the press would lay.
+press_mods :: proc(app: ^App, rail: Modifiers) -> (m: Stroke_Mods) {
+	d := &app.device
+	mask_keys := d.ctrl && d.alt && !d.shift && app.tool == .Brush
+	m.smooth, m.alt, m.mask = d.shift, d.alt, mask_keys
+	m.invert = d.ctrl && !mask_keys
+	m.mask_shape = (m.invert && !d.shift) || mask_keys
+	rail_resolve(rail, &m)
+	return
+}
+
+// What a left press going down now would do, for the hover preview, which shows its first
+// dab: the keys held and the rail as the press would find them, the pen's eraser end too.
+hover_mods :: proc(app: ^App) -> Stroke_Mods {
+	rail, _ := rail_press_now(app)
+	return press_mods(app, rail)
 }
 
 // The keyboard's modifiers as the rail's, to light its buttons: Shift smooths, Ctrl
@@ -442,8 +477,7 @@ rail_mode :: proc(mods: Modifiers) -> Maybe(Modifier) {
 // shape from empty space (Invert: erases, unmasks); Hide runs the gesture tool (Invert:
 // flipped), so a tap on a polygroup isolates it (Invert: masks it) and a tap off one
 // shows everything, as Ctrl+Shift's click does.
-rail_resolve :: proc(mods: Modifiers, input: ^Viewport_Input) {
-	if !input.primary do return
+rail_resolve :: proc(mods: Modifiers, input: ^Stroke_Mods) {
 	invert := .Invert in mods
 	mode, has := rail_mode(mods).?
 	switch {

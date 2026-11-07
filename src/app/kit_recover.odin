@@ -42,7 +42,7 @@ kit_recover :: proc(app: ^App) {
 	ui.begin(ctx, "recover badge", {width = 36, height = 36, radius = t.radius_medium, background = .Track})
 	ui.end(ctx)
 	r := ctx.last_rect
-	ui.icon(ctx, ui.ICON_HISTORY, {r.x + 18, r.y + 18}, t.icon_size, t.accent)
+	ui.icon(ctx, ui.ICON_AUTOSAVE, {r.x + 18, r.y + 18}, t.icon_size, t.accent)
 	ui.label(ctx, "Recover your work?", t.text_size, t.text, .Semibold)
 	ui.end(ctx)
 	ui.paragraph(ctx, recover_text(o), color = t.text)

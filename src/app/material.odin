@@ -1,6 +1,7 @@
 package main
 
 import "core:math"
+import "core:slice"
 import "core:strings"
 
 import "../geom"
@@ -277,21 +278,103 @@ materials_settle :: proc(app: ^App) {
 	}
 }
 
-// The scene file's form of a material (object_put): its label ("" for none yet, which
-// reads back as none), colours, classic shading, metallic, roughness and matcap, then
-// what of it is a content pack's, by name: the material as `<id>/<name>`
-// and the matcap as `<id>/<stem>`, each "" for none (material_refs), then its layers. A pack's matcap
-// goes as 0, so a scene opened where the pack is not installed shows the lights.
+// The scene file's form of a material (object_put), a record (tags are never reused or
+// retyped, geom/record.odin): its label ("" for none yet, which reads back as none),
+// colours, classic shading, metallic, roughness and matcap, then what of it is a content
+// pack's, by name: the material as `<id>/<name>` and the matcap as `<id>/<stem>`, each
+// absent for none (material_refs), then its layers, a field each. A pack's matcap goes as
+// 0, so a scene opened where the pack is not installed shows the lights.
+Material_Tag :: enum u16 {
+	Label         = 1,  // text
+	Selected      = 2,  // [3]f32 linear colour while selected
+	Idle          = 3,  // [3]f32 colour otherwise
+	Shading       = 4,  // [4]f32 classic shading
+	Metallic      = 5,  // f32
+	Roughness     = 6,  // f32
+	Matcap        = 7,  // i32
+	Pack_Material = 8,  // text `<id>/<name>`
+	Pack_Matcap   = 9,  // text `<id>/<stem>`
+	Layers        = 10, // Material_Layer_Tag record
+}
+
+// A material's layers (geom.Material_Layers), a field a value; a value the file lacks is
+// zero, which material_layers_resolve reads as the layer's default.
+Material_Layer_Tag :: enum u16 {
+	Subsurface_Color      = 1,
+	Subsurface_Weight     = 2,
+	Subsurface_Radius     = 3,
+	Subsurface_Scale      = 4,
+	Coat_Weight           = 5,
+	Coat_Roughness        = 6,
+	Coat_Ior              = 7,
+	Specular_Ior          = 8,
+	Sheen_Color           = 9,
+	Sheen_Weight          = 10,
+	Emission_Color        = 11,
+	Emission_Luminance    = 12,
+	Transmission_Color    = 13,
+	Transmission_Weight   = 14,
+	Transmission_Depth    = 15,
+	Thin_Walled           = 16,
+	Sheen_Roughness       = 17,
+	Subsurface_Anisotropy = 18,
+	Thin_Film_Weight      = 19,
+	Thin_Film_Thickness   = 20,
+	Thin_Film_Ior         = 21,
+	Specular_Lessen       = 22,
+}
+
+// Where each layer's value sits in geom.Material_Layers and how many bytes it takes.
+@(private = "file")
+MATERIAL_LAYER_FIELDS := [Material_Layer_Tag]struct {
+	offset, size: uintptr,
+} {
+	.Subsurface_Color = {offset_of(geom.Material_Layers, subsurface_color), size_of([3]f32)},
+	.Subsurface_Weight = {offset_of(geom.Material_Layers, subsurface_weight), size_of(f32)},
+	.Subsurface_Radius = {offset_of(geom.Material_Layers, subsurface_radius), size_of([3]f32)},
+	.Subsurface_Scale = {offset_of(geom.Material_Layers, subsurface_scale), size_of(f32)},
+	.Coat_Weight = {offset_of(geom.Material_Layers, coat_weight), size_of(f32)},
+	.Coat_Roughness = {offset_of(geom.Material_Layers, coat_roughness), size_of(f32)},
+	.Coat_Ior = {offset_of(geom.Material_Layers, coat_ior), size_of(f32)},
+	.Specular_Ior = {offset_of(geom.Material_Layers, specular_ior), size_of(f32)},
+	.Sheen_Color = {offset_of(geom.Material_Layers, sheen_color), size_of([3]f32)},
+	.Sheen_Weight = {offset_of(geom.Material_Layers, sheen_weight), size_of(f32)},
+	.Emission_Color = {offset_of(geom.Material_Layers, emission_color), size_of([3]f32)},
+	.Emission_Luminance = {offset_of(geom.Material_Layers, emission_luminance), size_of(f32)},
+	.Transmission_Color = {offset_of(geom.Material_Layers, transmission_color), size_of([3]f32)},
+	.Transmission_Weight = {offset_of(geom.Material_Layers, transmission_weight), size_of(f32)},
+	.Transmission_Depth = {offset_of(geom.Material_Layers, transmission_depth), size_of(f32)},
+	.Thin_Walled = {offset_of(geom.Material_Layers, thin_walled), size_of(f32)},
+	.Sheen_Roughness = {offset_of(geom.Material_Layers, sheen_roughness), size_of(f32)},
+	.Subsurface_Anisotropy = {offset_of(geom.Material_Layers, subsurface_anisotropy), size_of(f32)},
+	.Thin_Film_Weight = {offset_of(geom.Material_Layers, thin_film_weight), size_of(f32)},
+	.Thin_Film_Thickness = {offset_of(geom.Material_Layers, thin_film_thickness), size_of(f32)},
+	.Thin_Film_Ior = {offset_of(geom.Material_Layers, thin_film_ior), size_of(f32)},
+	.Specular_Lessen = {offset_of(geom.Material_Layers, specular_lessen), size_of(f32)},
+}
+
 material_put :: proc(out: ^[dynamic]u8, m: Material, refs := Material_Refs{}) {
-	geom.byte_put_string(out, string(m.label) if m.label != nil else "")
-	geom.byte_put(out, m.selected.rgb)
-	geom.byte_put(out, m.idle.rgb)
-	geom.byte_put(out, m.shading)
-	geom.byte_put(out, [2]f32{m.metallic, m.roughness})
-	geom.byte_put(out, i32(m.matcap if m.matcap < PACK_MATCAP else 0))
-	geom.byte_put_string(out, refs.material)
-	geom.byte_put_string(out, refs.matcap)
-	geom.byte_put(out, m.layers)
+	T :: Material_Tag
+	rec := geom.record_begin(out)
+	defer geom.record_end(out, rec)
+	if m.label != nil do geom.rec_put_string(out, T.Label, string(m.label))
+	geom.rec_put(out, T.Selected, m.selected.rgb)
+	geom.rec_put(out, T.Idle, m.idle.rgb)
+	geom.rec_put(out, T.Shading, m.shading)
+	geom.rec_put(out, T.Metallic, m.metallic)
+	geom.rec_put(out, T.Roughness, m.roughness)
+	geom.rec_put(out, T.Matcap, i32(m.matcap if m.matcap < PACK_MATCAP else 0))
+	if refs.material != "" do geom.rec_put_string(out, T.Pack_Material, refs.material)
+	if refs.matcap != "" do geom.rec_put_string(out, T.Pack_Matcap, refs.matcap)
+	at := geom.rec_begin(out, T.Layers)
+	layers := m.layers
+	bytes := slice.bytes_from_ptr(&layers, size_of(layers))
+	for f, tag in MATERIAL_LAYER_FIELDS {
+		geom.byte_put(out, u16(tag))
+		geom.byte_put(out, u64(f.size))
+		append(out, ..bytes[f.offset:][:f.size])
+	}
+	geom.rec_end(out, at)
 }
 
 // Reads what material_put writes; r.ok goes false on values
@@ -301,21 +384,31 @@ material_put :: proc(out: ^[dynamic]u8, m: Material, refs := Material_Refs{}) {
 // (or with no app) leaves a Custom material with the same colours and the lights, and
 // counts in `missing`.
 material_get :: proc(r: ^geom.Byte_Reader, app: ^App = nil, missing: ^int = nil) -> (m: Material) {
-	name := geom.byte_get_string(r)
-	defer delete(name)
-	m.selected.rgb = geom.byte_get(r, [3]f32)
-	m.idle.rgb = geom.byte_get(r, [3]f32)
+	T :: Material_Tag
+	rec := geom.record_take(r)
+	known, _ := geom.record_known(&rec, Material_Tag)
+	name, _ := geom.rec_find(&rec, T.Label)
+	m.selected.rgb = geom.rec_get(&rec, T.Selected, [3]f32, [3]f32{1, 1, 1})
+	m.idle.rgb = geom.rec_get(&rec, T.Idle, [3]f32, [3]f32{1, 1, 1})
 	m.selected.a, m.idle.a = 1, 1
-	m.shading = geom.byte_get(r, [4]f32)
-	surface := geom.byte_get(r, [2]f32)
-	m.metallic, m.roughness = surface[0], surface[1]
-	m.matcap = int(geom.byte_get(r, i32))
-	refs := Material_Refs{geom.byte_get_string(r), geom.byte_get_string(r)}
-	defer delete(refs.material)
-	defer delete(refs.matcap)
-	m.layers = geom.byte_get(r, geom.Material_Layers)
+	m.shading = geom.rec_get(&rec, T.Shading, [4]f32, [4]f32{})
+	m.metallic = geom.rec_get(&rec, T.Metallic, f32, 0)
+	m.roughness = geom.rec_get(&rec, T.Roughness, f32, 0.5)
+	m.matcap = int(geom.rec_get(&rec, T.Matcap, i32, 0))
+	pack_material, _ := geom.rec_find(&rec, T.Pack_Material)
+	pack_matcap, _ := geom.rec_find(&rec, T.Pack_Matcap)
+	refs := Material_Refs{string(pack_material), string(pack_matcap)}
+	lr, _ := geom.rec_sub(&rec, T.Layers)
+	known_layers, _ := geom.record_known(&lr, Material_Layer_Tag)
+	bytes := slice.bytes_from_ptr(&m.layers, size_of(m.layers))
+	for f, tag in MATERIAL_LAYER_FIELDS {
+		payload, present := geom.rec_find(&lr, tag)
+		if !present do continue
+		if uintptr(len(payload)) != f.size do lr.ok = false
+		else do copy(bytes[f.offset:][:f.size], payload)
+	}
 	unit :: proc(v: f32) -> bool {return v >= 0 && v <= 1}
-	ok := unit(m.metallic) && unit(m.roughness) && m.matcap >= 0 && m.matcap <= MATCAP_IMAGE
+	ok := rec.ok && lr.ok && known && known_layers && unit(m.metallic) && unit(m.roughness) && m.matcap >= 0 && m.matcap <= MATCAP_IMAGE
 	// A reference is `<id>/<name>`, and a pack's matcap stands in for the number.
 	ok &&= material_ref_valid(refs.material) && material_ref_valid(refs.matcap) && (refs.matcap == "" || m.matcap == 0)
 	for k in 0 ..< 3 do ok &&= unit(m.selected[k]) && unit(m.idle[k])
@@ -326,8 +419,8 @@ material_get :: proc(r: ^geom.Byte_Reader, app: ^App = nil, missing: ^int = nil)
 		r.ok = false
 		return {}
 	}
-	if name == "" do return {}
-	i, found := material_by_name(name)
+	if len(name) == 0 do return {}
+	i, found := material_by_name(string(name))
 	m.label = MATERIALS[i].label if found && i < len(MATERIALS) else "Custom"
 	if refs.material == "" && refs.matcap == "" do return
 	if j := pack_material_by_ref(app, refs.material) if app != nil else -1; j >= 0 {

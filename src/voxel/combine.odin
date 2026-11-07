@@ -51,6 +51,12 @@ clay_copy :: proc(c: ^Clay, src: ^Clay, allocator := context.allocator) {
 	copy(v.mask_bricks[:], s.mask_bricks[:])
 	resize(&v.mask_free, len(s.mask_free))
 	copy(v.mask_free[:], s.mask_free[:])
+	resize(&v.colors, len(s.colors))
+	copy(v.colors[:], s.colors[:])
+	resize(&v.color_bricks, len(s.color_bricks))
+	copy(v.color_bricks[:], s.color_bricks[:])
+	resize(&v.color_free, len(s.color_free))
+	copy(v.color_free[:], s.color_free[:])
 	surface_mark_all(c)
 }
 
@@ -70,6 +76,11 @@ Combine :: struct {
 	op:       Clay_Op,
 	blend:    f32, // in this clay's voxels
 	slots:    []u32, // the bricks to compute, in this clay's pool
+	// When the other is painted and its clay can show (not a subtract): each slot's colour,
+	// whether it changed and whether any of it is painted, committed after the jobs.
+	colors:   []Color_Brick,
+	recolor:  []bool,
+	painted:  []bool,
 }
 
 // Applies `other`, placed by `to_other` (a point of this clay's object space into the
@@ -154,10 +165,24 @@ clay_combine :: proc(c: ^Clay, other: ^Volume, to_other: matrix[4, 4]f32, scale:
 		}
 	}
 	x.slots = slots[:]
+	// The other's paint comes along where its clay makes the surface.
+	if op != .Subtract && len(other.color_bricks) > len(other.color_free) {
+		x.colors = make([]Color_Brick, len(slots), heap)
+		x.recolor = make([]bool, len(slots), heap)
+		x.painted = make([]bool, len(slots), heap)
+	}
+	defer delete(x.colors, heap)
+	defer delete(x.recolor, heap)
+	defer delete(x.painted, heap)
 	jobs.parallel_for(c.pool, len(slots), &x, proc(data: rawptr, i: int) {
 		x := cast(^Combine)data
-		combine_brick(x, x.slots[i])
+		combine_brick(x, i)
 	})
+	if x.colors != nil do for slot, i in slots {
+		if !x.recolor[i] do continue
+		if x.painted[i] do color_make(v, slot)^ = x.colors[i]
+		else do color_drop(v, slot)
+	}
 
 	// Bricks that came out all one clamp are tiles; the rest are repaired and remeshed.
 	kept := make([dynamic]u32, 0, len(slots), heap)
@@ -215,12 +240,22 @@ other_tile_over :: proc(x: ^Combine, bc: [3]i32) -> Tile {
 	return .Inside if .Inside in seen else .Empty
 }
 
-// Combines one brick, every voxel from its own value and the other's sample there.
+// Combines job `i`'s brick, every voxel from its own value and the other's sample there,
+// and, when the other is painted, its colour: the other's nearest voxel's where the other
+// gives the result (union: it is nearer; intersect: it is farther), its own elsewhere.
 @(private = "file")
-combine_brick :: proc(x: ^Combine, slot: u32) {
+combine_brick :: proc(x: ^Combine, i: int) {
 	v := &x.c.volume
+	slot := x.slots[i]
 	b := &v.bricks[slot]
 	bc := v.coords[slot]
+	own := color_of(v, slot)
+	out: ^Color_Brick
+	if x.colors != nil {
+		out = &x.colors[i]
+		if own != nil do out^ = own^
+		else do out^ = {}
+	}
 	for z in 0 ..< BRICK do for y in 0 ..< BRICK do for xx in 0 ..< BRICK {
 		k := voxel_index(xx, y, z)
 		a := f32(b.d[k]) / SCALE
@@ -237,5 +272,15 @@ combine_brick :: proc(x: ^Combine, slot: u32) {
 			r = -smin(-a, -o, x.blend)
 		}
 		b.d[k] = quantize(r)
+		if out != nil && (o < a if x.op == .Union else o > a) {
+			g := linalg.round(voxel_coords(x.other, q))
+			out.c[k] = color_value(x.other, {i32(g.x), i32(g.y), i32(g.z)})
+		}
 	}
+	if out == nil do return
+	for c in out.c do if c[3] != 0 {
+		x.painted[i] = true
+		break
+	}
+	x.recolor[i] = out.c != own.c if own != nil else x.painted[i]
 }

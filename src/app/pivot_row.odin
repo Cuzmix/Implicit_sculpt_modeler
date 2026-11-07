@@ -58,7 +58,7 @@ kit_pivot_row :: proc(app: ^App) {
 		if id == .Gizmo_Pivot_Unmasked && !command_enabled(app, id, 0) do continue
 		glyph := COMMANDS[id].icon
 		// The lock shows what a drag of a handle does now: locked moves the object.
-		if id == .Gizmo_Pivot_Edit && !app.move.pivot_edit do glyph = ICON_LOCK
+		if id == .Gizmo_Pivot_Edit && !app.move.pivot_edit do glyph = ui.ICON_LOCK
 		if ui.icon_button(ctx, command_label(id, 0), glyph, selected = command_checked(app, id, 0), enabled = command_enabled(app, id, 0), keys = command_hint(app, id, 0), size = cell) {
 			command_run(app, id, 0)
 		}

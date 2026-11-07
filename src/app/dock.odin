@@ -83,22 +83,21 @@ MASK_SHAPE_NAMES := [Mask_Shape_Kind]string {
 	.Lasso     = "lasso",
 }
 
-// Lucide's square-dashed and lasso for the mask shapes; square-dashed-mouse-pointer and
-// lasso-select for hiding (a selection); crop, scissors-line-dashed and slice (a knife)
-// for the cuts.
+// A dashed rectangle and a lasso for the mask shapes, their struck-through twins for
+// hiding, and a crop, scissors and a knife for the cuts.
 @(rodata)
 SHAPE_TOOL_ICONS := [Mask_Shape_Kind]rune {
-	.Rectangle = 0xe1cb,
-	.Lasso     = 0xe1ce,
+	.Rectangle = ui.ICON_RECT_SHAPE,
+	.Lasso     = ui.ICON_LASSO,
 }
 
 @(rodata)
 GESTURE_ICONS := [Gesture_Tool]rune {
-	.Hide_Rectangle = 0xe50e,
-	.Hide_Lasso     = 0xe1cf,
-	.Clip           = 0xe0af,
-	.Slice          = 0xe4ee,
-	.Knife          = 0xe2f0,
+	.Hide_Rectangle = ui.ICON_HIDE_RECT,
+	.Hide_Lasso     = ui.ICON_HIDE_LASSO,
+	.Clip           = ui.ICON_CLIP,
+	.Slice          = ui.ICON_SLICE,
+	.Knife          = ui.ICON_KNIFE_GESTURE,
 }
 
 // Picks `tool` and shows its settings: the Tool card, from its top.
@@ -118,15 +117,12 @@ TOOL_COMMANDS := [Tool]Command_Id {
 	.Look   = .Tool_Look,
 }
 
-// The Look tool's icon, Lucide's view (an eye in a frame): a look, not a change.
-ICON_LOOK :: rune(0xe1a7)
-
 @(rodata)
 TOOL_ICONS := [Tool]rune {
-	.Move   = ui.ICON_MOVE,
-	.Brush  = ui.ICON_BRUSH,
-	.Curve  = ui.ICON_SPLINE,
-	.Insert = ui.ICON_SHAPES,
-	.Model  = ui.ICON_GRID,
-	.Look   = ICON_LOOK,
+	.Move   = ui.ICON_MOVE_TOOL,
+	.Brush  = ui.ICON_SCULPT_TOOL,
+	.Curve  = ui.ICON_CURVE,
+	.Insert = ui.ICON_INSERT,
+	.Model  = ui.ICON_MODEL,
+	.Look   = ui.ICON_LOOK,
 }

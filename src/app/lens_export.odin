@@ -5,6 +5,7 @@ import "core:math"
 import "core:path/filepath"
 import "core:strings"
 
+import "../render"
 import "../ui"
 
 // The Export sheet (round 2's export2 screen, presets after round 3's mExport): every way
@@ -34,6 +35,7 @@ Export_Format :: enum u8 {
 	Link,
 	Print_3MF,
 	Send, // the scene to another device over Wi-Fi (send_ui.odin)
+	Render, // the view rendered at a size of its own (render_image.odin)
 }
 
 @(rodata)
@@ -51,6 +53,7 @@ EXPORT_FORMAT_NAMES := [Export_Format]string {
 	.Link       = "Blender link",
 	.Print_3MF  = "3D print 3MF",
 	.Send       = "Send over Wi-Fi",
+	.Render     = "Render image",
 }
 
 // What each format makes.
@@ -69,6 +72,7 @@ EXPORT_FORMAT_DETAIL := [Export_Format]string {
 	.Link       = "the link's folder",
 	.Print_3MF  = ".3mf, sized",
 	.Send       = ".sculpt, sent",
+	.Render     = ".png",
 }
 
 // Each format's name on its preset's format tabs, where the preset says the rest.
@@ -87,6 +91,7 @@ EXPORT_FORMAT_TABS := [Export_Format]string {
 	.Link       = "Live link",
 	.Print_3MF  = "3MF",
 	.Send       = "Wi-Fi",
+	.Render     = "Render",
 }
 
 // What a file is for, the sheet's first choice.
@@ -118,36 +123,20 @@ EXPORT_PRESET_DETAIL := [Export_Preset]string {
 	.Game      = "glTF with its maps and shape keys",
 	.Blender   = "The live link, or USD with layers and lights" when LINK_AVAILABLE else "USD with layers and lights",
 	.Turntable = "Once round, as frames and a loop",
-	.Picture   = "A screenshot of the view or of its render",
+	.Picture   = "The view rendered at any size, or a screenshot",
 	.Send      = "The scene, over Wi-Fi",
 	.Formats   = "Scene, OBJ, PLY, STL, glTF, USD",
 }
 
-// Lucide's printer, gamepad-2, rotate-3d, video, camera and file-box, and download.
-@(private = "file")
-ICON_PRINTER :: rune(0xe145)
-@(private = "file")
-ICON_GAMEPAD :: rune(0xe0e2)
-@(private = "file")
-ICON_ROTATE_3D :: rune(0xe2ea)
-@(private = "file")
-ICON_VIDEO :: rune(0xe1a5)
-@(private = "file")
-ICON_CAMERA_SHOT :: rune(0xe068)
-@(private = "file")
-ICON_FILE_BOX :: rune(0xe313)
-@(private = "file")
-ICON_DOWNLOAD :: rune(0xe0b6)
-
 @(rodata)
 EXPORT_PRESET_ICONS := [Export_Preset]rune {
-	.Print     = ICON_PRINTER,
-	.Game      = ICON_GAMEPAD,
-	.Blender   = ICON_ROTATE_3D,
-	.Turntable = ICON_VIDEO,
-	.Picture   = ICON_CAMERA_SHOT,
-	.Send      = ICON_SEND,
-	.Formats   = ICON_FILE_BOX,
+	.Print     = ui.ICON_PRINTER,
+	.Game      = ui.ICON_GAMEPAD,
+	.Blender   = ui.ICON_BLENDER_SEND,
+	.Turntable = ui.ICON_TURNTABLE,
+	.Picture   = ui.ICON_CAMERA_SHOT,
+	.Send      = ui.ICON_SEND,
+	.Formats   = ui.ICON_FORMATS,
 }
 
 // The formats each preset offers, its first the one it starts on. Blender's live link
@@ -161,7 +150,7 @@ EXPORT_BLENDER_FORMATS := [?]Export_Format{.Link, .USD}
 @(private = "file", rodata)
 EXPORT_TURNTABLE_FORMATS := [?]Export_Format{.Turntable}
 @(private = "file", rodata)
-EXPORT_PICTURE_FORMATS := [?]Export_Format{.Screenshot}
+EXPORT_PICTURE_FORMATS := [?]Export_Format{.Render, .Screenshot}
 @(private = "file", rodata)
 EXPORT_SEND_FORMATS := [?]Export_Format{.Send}
 @(private = "file", rodata)
@@ -270,6 +259,7 @@ export_command :: proc(f: Export_Format, copy := false) -> Command_Id {
 	case .Print, .Print_OBJ, .Print_3MF:   return .Export_Print
 	case .Link:                            return .Send_To_Blender
 	case .Send:                            return .Send_Scene
+	case .Render:                          return .Render_Picture
 	}
 	return .None
 }
@@ -428,7 +418,7 @@ export_file_name :: proc(app: ^App, f: Export_Format) -> string {
 	case .Turntable:  return "a folder of frames"
 	case .Link:       return "Blender link folder"
 	case .Send:       suffix = ".sculpt"
-	case .Scene, .OBJ, .PLY, .STL, .GLTF, .USD, .Screenshot:
+	case .Scene, .OBJ, .PLY, .STL, .GLTF, .USD, .Screenshot, .Render:
 	}
 	stem := "Untitled"
 	if app.scene_path != "" do stem = filepath.stem(app.scene_path)
@@ -486,7 +476,7 @@ kit_export_sheet :: proc(app: ^App) {
 	s := &k.export
 	// The sheet (sheet.odin), its head naming what ran last.
 	last := export_last_label(s.last_preset, s.last_format) if s.ran else ""
-	inner, _, shown := sheet_begin(app, "export sheet", "Export", ICON_DOWNLOAD, &s.open, EXPORT_SHEET_W, last, gap = ui.SPACE_L)
+	inner, _, shown := sheet_begin(app, "export sheet", "Export", ui.ICON_DOWNLOAD, &s.open, EXPORT_SHEET_W, last, gap = ui.SPACE_L)
 	if !shown do return
 	defer sheet_end(app)
 	export_settle(s)
@@ -604,7 +594,7 @@ export_preview :: proc(app: ^App, f: Export_Format, w: f32) {
 	pic := ui.place(ctx, {EXPORT_PICTURE, EXPORT_PICTURE})
 	ui.fill_rect(ctx, pic, t.radius_medium, t.fill)
 	drawn := false
-	if f == .Scene || f == .Screenshot || f == .Turntable || f == .Send {
+	if f == .Scene || f == .Screenshot || f == .Render || f == .Turntable || f == .Send {
 		// The view's middle square, as the view stands.
 		v := k.grid.main
 		if v.w > 0 && v.h > 0 {
@@ -644,6 +634,13 @@ export_preview_lines :: proc(app: ^App, f: Export_Format) -> []string {
 		if render_switch_on(app) do append(&lines, "With the render" if app.render_quality == .Fast else "With the path-traced render")
 	case .Send:
 		export_send_lines(app, &lines)
+	case .Render:
+		st := app.render_image_settings
+		w, h := render_image_dims(app, st.size)
+		append(&lines, fmt.tprintf("%d x %d, %d samples in %s", w, h, render_image_samples(app, st.fast), "Fast" if st.fast else "Full"))
+		append(&lines, "Without its background" if app.screenshot_transparent else "With its background")
+		if st.passes do append(&lines, "With its passes: albedo, normal, depth and five more")
+		if _, line, on := render_image_progress(app); on do append(&lines, line)
 	case .Turntable:
 		append(&lines, fmt.tprintf("%d frames, %.1f s at %d a second", app.turntable_frames, f32(app.turntable_frames) / TURNTABLE_FPS, TURNTABLE_FPS))
 		append(&lines, "Numbered PNG pictures and one looping PNG")
@@ -745,6 +742,8 @@ export_options :: proc(app: ^App, f: Export_Format) {
 		transparent := app.screenshot_transparent
 		if ui.switch_row(ctx, "Without background", &transparent, keys = command_hint(app, .Screenshot_Transparent)) do command_run(app, .Screenshot_Transparent)
 		ui.paragraph(ctx, "The view as a PNG. Render it lays soft shadows and occlusion over it (Fast) or path traces it with the scene's lights (Full) first; without the background, the model stands on a transparent ground for a page or a slide.")
+	case .Render:
+		export_render_options(app)
 	case .Turntable:
 		frames := f32(app.turntable_frames)
 		seconds := fmt.tprintf("%d · %.1f s", app.turntable_frames, frames / TURNTABLE_FPS)
@@ -808,4 +807,25 @@ export_print_options :: proc(app: ^App) {
 	ui.end(ctx)
 	// The note has room only while the rows under it are folded.
 	if !s.decimate && !s.hollow && !stacked do ui.paragraph(ctx, "Width and depth follow, at the scene's one print scale, so parts printed apart fit. Hollow keeps a wall that thick inside; the slicer adds the drain holes.", color = t.text_tertiary)
+}
+
+// Render image's options: the picture's size, Full or Fast with its samples (the Render
+// card's own for that quality), the background, the shadow catcher and the passes.
+@(private = "file")
+export_render_options :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	st := &app.render_image_settings
+	sizes: [len(Render_Image_Size)]string
+	for n, i in RENDER_IMAGE_SIZE_NAMES do sizes[i] = n
+	if picked := ui.tabs(ctx, "render image size", sizes[:], int(st.size)); picked >= 0 do st.size = Render_Image_Size(picked)
+	qualities := [2]string{"Full", "Fast"}
+	if picked := ui.tabs(ctx, "render image quality", qualities[:], int(st.fast)); picked >= 0 do st.fast = picked == 1
+	samples := &app.studio_samples if st.fast else &app.render_samples
+	most := STUDIO_SAMPLES_MAX if st.fast else render.RENDER_SAMPLES_MAX
+	n := f32(samples^)
+	if ui.slider(ctx, "Samples##render image", &n, 1, f32(most), .Logarithmic, fmt.tprintf("%d", samples^)) do samples^ = i32(n + 0.5)
+	transparent := app.screenshot_transparent
+	if ui.switch_row(ctx, "Without background##render image", &transparent, keys = command_hint(app, .Screenshot_Transparent)) do command_run(app, .Screenshot_Transparent)
+	if !st.fast && app.screenshot_transparent do _ = ui.switch_row(ctx, "Shadow catcher", &st.catcher)
+	_ = ui.switch_row(ctx, "Passes beside it", &st.passes)
 }

@@ -454,6 +454,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("scene_menu=%d object_menu_opened_by=%s right_click=%s", int(app.kit.scene_menu), strings.to_lower(fmt.tprint(app.kit.object_menu_by), context.temp_allocator), strings.to_lower(fmt.tprint(app.nav.right_click), context.temp_allocator))
 		fmt.printfln("offer=%v offer_fixes=%d colour_island=%d paint_on=%s", app.kit.offer, app.kit.offer_fixes, int(app.kit.colour_island), strings.to_lower(fmt.tprint(app.brush.paint_on), context.temp_allocator))
 		fmt.printfln("motion=%s motion_off=%s", strings.to_lower(fmt.tprint(app.kit.ctx.motion), context.temp_allocator), strings.join(strings.fields(motion_off_text(&app.kit.ctx), context.temp_allocator), ",", context.temp_allocator) if motion_off_text(&app.kit.ctx) != "" else "none")
+		fmt.printfln("icon_style=%s icon_weight=%s", strings.to_lower(fmt.tprint(app.kit.ctx.icon_style), context.temp_allocator), strings.to_lower(fmt.tprint(app.kit.ctx.icon_weight), context.temp_allocator))
 		// How far the card in front of the pen side's column is scrolled.
 		card_scroll: f32
 		if col := &app.kit.cards.columns[.Right]; col.count > 0 do card_scroll = col.scrolls[col.cards[col.count - 1].card]
@@ -545,7 +546,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		near := 0
 		for x in find.found do if x.near do near += 1
 		fmt.printfln("history_finds=%d history_find_on=%d history_found=%d history_found_near=%d", find.finds, int(find.on), len(find.found), near)
-		fmt.printfln("hover_preview=%d hover_trials=%d hover_gpu_trials=%d hover_capped=%d hover_verts=%d hover_ms=%.3f", int(app.hover_preview), app.hover.trials, app.renderer.sculpt_gpu.trial.trials, app.hover.capped, app.hover.verts, app.hover.ms)
+		fmt.printfln("hover_preview=%d hover_trials=%d hover_gpu_trials=%d hover_capped=%d hover_verts=%d hover_ms=%.3f hover_amount=%.6f", int(app.hover_preview), app.hover.trials, app.renderer.sculpt_gpu.trial.trials, app.hover.capped, app.hover.verts, app.hover.ms, app.hover.amount)
 		back := &app.timeline.dial
 		fmt.printfln("dials=%d dial_open=%d dial_verts=%d dial_begin_ms=%.3f dial_set_ms=%.3f dial_end_ms=%.3f", back.dials, int(back.open), back.verts, back.begin_ms, back.set_ms, back.end_ms)
 		// The History panel's view, how many rows its list holds (an opened group's strokes

@@ -6,7 +6,7 @@ import "../ui"
 
 // Offers, not refusals (the overhaul's round 3, PR 7): when the selected object does not
 // fit the space at work or the tool held (a cage in Sculpt, a mesh in Model, voxel clay
-// under a brush that needs a mesh), the object chip warns in amber and one line over the
+// under a brush that needs a mesh, a mesh under Tube, which lays clay), the object chip warns in amber and one line over the
 // dock, where the action bar is, names what the object is, what the space needs and the
 // one tap that makes it fit, as Blender's and Nomad's mode switches offer the conversion
 // rather than a greyed-out tool. Commands that cannot act on the selection are dimmed with
@@ -41,6 +41,8 @@ space_fit :: proc(app: ^App) -> (fits: bool, offer: Offer) {
 			if _, ok := voxel_brush_of({kind = app.brush.kind}, {}); !ok {
 				offer = {fmt.tprintf("%s is voxel clay", name), fmt.tprintf("%s needs a mesh", BRUSHES[app.brush.kind].name), .Convert_To_Mesh, 0, "Convert to mesh"}
 			}
+		} else if kind == .Sculpt_Mesh && app.tool == .Brush && app.brush.kind == .Tube {
+			offer = {fmt.tprintf("%s is a mesh", name), "Tube lays voxel clay", .Convert_To_Voxels, 0, "Convert to voxels"}
 		}
 	case .Model:
 		if app.tool != .Model do break
@@ -84,7 +86,7 @@ command_reason :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 // scene commands, which scene_apply still refuses for scripts.
 VOXEL_REFUSED_COMMANDS :: Command_Set{
 	.Remesh, .Remesh_To, .Decimate_To, .Dyntopo_Toggle, .Subdivide, .Level_Up, .Level_Down, .Hd_Toggle, .Hd_Divide, .Detail_Skin, .Skin_Apply, .Skin_Squeeze,
-	.Hd_Delete, .Hd_Sculpt, .Hd_Leave, .Delete_Lower_Levels, .Delete_Higher_Levels, .Mirror_Weld, .Close_Holes,
+	.Hd_Delete, .Hd_Sculpt, .Hd_Leave, .Delete_Lower_Levels, .Delete_Higher_Levels, .Close_Holes,
 	.Delete_Hidden, .Weld_Points, .Fix_Mesh, .Delete_Half, .Retopologize, .Extract_Masked, .Split_Object, .Merge_Down,
 	.Merge_Visible, .Remove_Textures,
 }

@@ -35,10 +35,6 @@ Guides :: struct {
 	heights: [Guide]f32,
 }
 
-// Lucide's align-vertical-space-between for the guides, and rotate-ccw for putting them back.
-ICON_GUIDES :: rune(0xe27b)
-ICON_GUIDES_RESET :: rune(0xe14c)
-
 // The bytes guides_put writes: the flags and three heights.
 GUIDES_BYTES :: 1 + 3 * size_of(f32)
 

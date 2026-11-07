@@ -158,13 +158,10 @@ App :: struct {
 	// The selected object's lookup for the GPU's kernels is still going up a slice a frame
 	// (sculpt_gpu_prepare_level): the app does not rest, and --bench-stroke waits for it.
 	gpu_lookup_waiting: bool,
-	// Each brush's drawn or shifted falloff as the sculptor reads it, remade when its curve
-	// or focal shift changes.
-	falloff_tables: [sculpt.Brush_Kind]struct {
-		falloff: sculpt.Falloff,
-		shape:   Falloff_Setting,
-		built:   bool,
-	},
+	// The drawn or shifted falloffs of the brushes last asked for, as the sculptor reads
+	// them, remade when a curve or focal shift changes (brush_falloff).
+	falloff_tables: [FALLOFF_TABLES]Falloff_Table,
+	falloff_clock:  u64,
 	stroke:   Stroke,
 	stroke_edit: Stroke_Edit, // the stroke held to edit, while one is (stroke_edit.odin)
 	script:   Script_Run, // the script running: the start-up one (--run, --script), or a macro
@@ -366,6 +363,8 @@ App :: struct {
 	material_balls:  render.Material_Balls,
 	// Full render of the view at a size of its own (render_image.odin).
 	render_image:    Render_Image,
+	// What Render image... renders (the Export sheet's Render tab), remembered.
+	render_image_settings: Render_Image_Settings,
 	opts_dump_balls: string,
 	dump_balls_next: int,
 	thumb_slots:    Thumb_Slots,
@@ -427,6 +426,7 @@ App :: struct {
 	// Screenshots on a see-through ground (capture.odin).
 	screenshot_transparent: bool,
 	sym_center:      Symmetry_Center, // local symmetry's middle, kept (symmetry.odin)
+	poseable:        Poseable_Tried, // what poseable symmetry last paired (symmetry.odin)
 	sym_lines:       Symmetry_Lines, // where the mirror planes cut the selected object, kept (symmetry.odin)
 	// Transparency: every shown object but the selected one is drawn see-through, at
 	// SEE_THROUGH_OPACITY, so the selected one shows through whatever stands before it.

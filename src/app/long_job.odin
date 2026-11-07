@@ -145,7 +145,7 @@ Long_Job :: struct {
 // brush or the panels, never the scene. Any other command waits for the job (its control
 // dims, with the reason in its tooltip), so a new command is held back unless listed here.
 JOB_ALLOWED_COMMANDS :: Command_Set{
-	.Screenshot, .Screenshot_Transparent,
+	.Screenshot, .Screenshot_Transparent, .Render_Picture_Stop,
 	.Tool_Move, .Tool_Sculpt, .Tool_Curve, .Tool_Insert, .Tool_Model, .Tool_Look, .Gizmo, .Gizmo_Snap,
 	.Brush, .Symmetry_X, .Local_Symmetry, .Radial_Symmetry, .Brush_Add, .Brush_Subtract, .Paint_Channel, .Paint_Toggle,
 	.Swap_Colors, .Front_Only, .Lock_Plane, .Connected, .Detail_To, .Detail_To_Next, .Size_Down, .Size_Up, .Strength_Down, .Strength_Up,
@@ -272,6 +272,11 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 			if c := object_paint_flat(obj, s); c != nil do j.color = slice.clone(c)
 			if sculpt.sculptor_has_groups(s) do j.groups = slice.clone(sculpt.sculptor_groups(s))
 			if sculpt.sculptor_has_mask(s) do j.mask = slice.clone(s.mask)
+		}
+	case .Mesh_To_Voxels:
+		// The polypaint becomes the clay's colour; a dynamic layout keeps none.
+		if !object_dynamic(obj) {
+			if c := object_paint_flat(obj, object_sculptor(obj)); c != nil do j.color = slice.clone(c)
 		}
 	case .Decimate:
 		src := decimate_source(obj, cmd.decimate)
@@ -429,14 +434,17 @@ long_job_thread :: proc(data: rawptr) {
 	case .Subdivide:
 		j.level, j.built = sculpt.levels_subdivide_build(&j.object.levels, &j.pool, &j.progress)
 	case .Mesh_To_Voxels:
-		j.voxels = voxels_compute(j.input, j.cmd.voxels, &j.pool, &j.progress)
+		j.voxels = voxels_compute(j.input, j.cmd.voxels, &j.pool, &j.progress, j.color)
 		j.built = j.voxels != nil
 	case .Voxel_Resample:
 		j.clay, j.built = resample_compute(j.object.voxel, j.cmd.voxels, &j.pool, &j.progress)
 	case .Unwrap:
 		j.uvs, j.unwrapped, j.built = unwrap_compute(j.object, j.cmd.unwrap, &j.pool, &j.progress)
 	case .Voxel_To_Mesh:
-		j.mesh = voxel.clay_to_mesh(&j.object.voxel.clay, mask = &j.values if j.masked else nil, flush = false, pool = &j.pool)
+		// The colours ride on the prepared level as polypaint.
+		colors: [][4]u8
+		j.mesh = voxel.clay_to_mesh(&j.object.voxel.clay, mask = &j.values if j.masked else nil, flush = false, pool = &j.pool, colors = &colors if voxel.clay_colored(&j.object.voxel.clay) else nil)
+		j.surface.color = colors
 		jobs.progress_set(&j.progress, 0, 1, share)
 		j.built = true
 		long_job_prepare(j, normals = true)

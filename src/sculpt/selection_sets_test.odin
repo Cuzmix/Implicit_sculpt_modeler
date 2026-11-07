@@ -219,9 +219,23 @@ selection_sets_file_round_trip :: proc(t: ^testing.T) {
 	testing.expect(t, !levels_read(&broken, &r, &pool, 64))
 }
 
-// Levels written before sets (no LEVELS_SETS flag) read with none; a sets block with too
-// many sets, a level past the levels, a runs flag past 1 or runs that do not add up is
-// refused.
+// The levels' field of a selection set and the set's own fields, by their numbers in
+// levels_file.odin, for writing damaged sets by hand.
+@(private = "file")
+Sets_Field :: enum u16 {
+	Set = 16,
+}
+
+@(private = "file")
+Set_Field :: enum u16 {
+	Level  = 2,
+	Masked = 3,
+	Runs   = 4,
+	Data   = 5,
+}
+
+// Levels with no sets read with none; more sets than the most, a level past the levels, a
+// runs flag past 1 or runs that do not add up is refused.
 @(test)
 selection_sets_old_and_damaged_files :: proc(t: ^testing.T) {
 	l := sets_levels(1)
@@ -229,16 +243,8 @@ selection_sets_old_and_damaged_files :: proc(t: ^testing.T) {
 	out := make([dynamic]u8)
 	defer delete(out)
 	testing.expect(t, levels_write(&l, &out))
-	// No sets: the block is a count of 0, four bytes before the texture layers' block, which
-	// with none is three zero words (size, next id, count) and ends the file.
-	TEXELS_NONE :: [12]u8{}
-	head := out[:len(out) - 4 - len(TEXELS_NONE)]
-	none := TEXELS_NONE
-	old := slice.concatenate([][]u8{head, none[:]}, context.temp_allocator)
-	flags := (^u32)(&old[4])
-	flags^ &~= 32 // LEVELS_SETS
 	back: Levels
-	r := geom.byte_reader(old)
+	r := geom.byte_reader(out[:])
 	testing.expect(t, levels_read(&back, &r, nil, 64))
 	testing.expect_value(t, len(levels_sets(&back)), 0)
 	levels_destroy(&back)
@@ -258,17 +264,20 @@ selection_sets_old_and_damaged_files :: proc(t: ^testing.T) {
 	}
 	for c, i in cases {
 		bad := make([dynamic]u8, context.temp_allocator)
-		append(&bad, ..head)
-		geom.byte_put(&bad, c.count)
-		name: [32]u8
-		geom.byte_put_slice(&bad, name[:])
-		geom.byte_put(&bad, c.level)
-		geom.byte_put(&bad, f32(1))
-		geom.byte_put(&bad, c.runs)
-		geom.byte_put(&bad, u32(RUN_BYTES))
-		geom.byte_put(&bad, c.run)
-		geom.byte_put(&bad, u8(255))
-		append(&bad, ..none[:])
+		at := geom.record_begin(&bad)
+		append(&bad, ..out[size_of(u64):])
+		for _ in 0 ..< c.count {
+			set := geom.rec_begin(&bad, Sets_Field.Set)
+			geom.rec_put(&bad, Set_Field.Level, c.level)
+			geom.rec_put(&bad, Set_Field.Masked, f32(1))
+			geom.rec_put(&bad, Set_Field.Runs, c.runs)
+			data := geom.rec_begin(&bad, Set_Field.Data)
+			geom.byte_put(&bad, c.run)
+			geom.byte_put(&bad, u8(255))
+			geom.rec_end(&bad, data)
+			geom.rec_end(&bad, set)
+		}
+		geom.record_end(&bad, at)
 		r = geom.byte_reader(bad[:])
 		read := levels_read(&back, &r, nil, 64)
 		testing.expectf(t, read == (i == len(cases) - 1), "case %d: read %v", i, read)

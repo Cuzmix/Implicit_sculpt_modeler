@@ -5,18 +5,27 @@ import "core:unicode/utf8"
 import fs "vendor:fontstash"
 import stbtt "vendor:stb/truetype"
 
-// The typefaces: Inter for text (SIL Open Font License) and Lucide for icons (ISC), both
-// embedded so the app needs no files beside it. Their licences are beside them.
+// The typefaces: Inter for text (SIL Open Font License), and for icons the app's own font,
+// built from Phosphor (MIT), Tabler (MIT) and Lucide (ISC) drawings by scripts/icons_build.py
+// (icons_gen.odin names them), all embedded so the app needs no files beside them. Their
+// licences are in assets/fonts and assets/licenses.
 // Loaded as strings and turned into bytes where used: Odin's wasm64p32 code generation
 // stops on #load as bytes (README "Web").
 INTER_REGULAR := #load("../../assets/fonts/Inter-Regular.ttf", string)
 INTER_SEMIBOLD := #load("../../assets/fonts/Inter-SemiBold.ttf", string)
-LUCIDE := #load("../../assets/fonts/Lucide.ttf", string)
+ICONS_REGULAR := #load("../../assets/fonts/Icons-Regular.ttf", string)
+ICONS_BOLD := #load("../../assets/fonts/Icons-Bold.ttf", string)
+ICONS_FILL := #load("../../assets/fonts/Icons-Fill.ttf", string)
 
 Font :: enum u8 {
 	Regular,
 	Semibold,
 	Icons,
+	// The icons' lines drawn heavier (Settings > Interface > Icons, Bold), and the soft
+	// shapes drawn under the lines in the Duotone and Colour styles: the same code points
+	// in each, laid on the same grid, so one pen position lines them up.
+	Icons_Bold,
+	Icons_Fill,
 }
 
 // The glyph atlas starts this many pixels square and doubles when full.
@@ -41,9 +50,11 @@ Fonts :: struct {
 fonts_init :: proc(f: ^Fonts) {
 	fs.Init(&f.stash, ATLAS_START, ATLAS_START, .TOPLEFT)
 	data := [Font][]u8 {
-		.Regular  = transmute([]u8)INTER_REGULAR,
-		.Semibold = transmute([]u8)INTER_SEMIBOLD,
-		.Icons    = transmute([]u8)LUCIDE,
+		.Regular    = transmute([]u8)INTER_REGULAR,
+		.Semibold   = transmute([]u8)INTER_SEMIBOLD,
+		.Icons      = transmute([]u8)ICONS_REGULAR,
+		.Icons_Bold = transmute([]u8)ICONS_BOLD,
+		.Icons_Fill = transmute([]u8)ICONS_FILL,
 	}
 	for font in Font {
 		f.ids[font] = fs.AddFontMem(&f.stash, "", data[font], false)
@@ -112,26 +123,72 @@ text :: proc(ctx: ^Context, s: string, x, y: f32, size: f32, color: Color, font 
 	glyphs(ctx, s, x * d, baseline, color)
 }
 
-// Draws an icon from the icon font, its ink centred on `center` (points), `size`
-// points across.
+// How icons are drawn (Settings > Interface > Icons): Colour lays a soft shape in the
+// colour of what the icon works on (its Icon_Group, the theme's `icons`) under its lines;
+// Duotone lays the same shape in the lines' own colour, faint; Mono draws the lines alone.
+// Colour comes first so a fresh Context has it.
+Icon_Style :: enum u8 {
+	Colour,
+	Duotone,
+	Mono,
+}
+
+// How heavy the icons' lines are.
+Icon_Weight :: enum u8 {
+	Regular,
+	Bold,
+}
+
+// The soft shape's share of the lines' opacity: faint in Duotone, where it is the lines'
+// own colour, and stronger in Colour, where its hue is what tells the kinds apart.
+ICON_FILL_DUOTONE :: 0.2
+ICON_FILL_COLOUR :: 0.6
+
+// Draws an icon from the icon fonts, its lines' ink centred on `center` (points), `size`
+// points across, in the style and weight the context holds. A code point outside the
+// app's icons draws as its lines alone.
 icon :: proc(ctx: ^Context, codepoint: rune, center: [2]f32, size: f32, color: Color) {
 	d := px(ctx)
 	stash := &ctx.fonts.stash
-	text_state(ctx, size, .Icons)
+	line := Font.Icons_Bold if ctx.icon_weight == .Bold else Font.Icons
 	buf, n := utf8.encode_rune(codepoint)
 	s := string(buf[:n])
 	c := center * d
-	if run, glyphs := text_run(ctx, s, .Icons); run != nil {
-		b := run.bounds
-		text_run_draw(ctx, glyphs, f32(int(c.x - (b[0] + b[2]) * 0.5 + 0.5)), f32(int(c.y - (b[1] + b[3]) * 0.5 + 0.5)), .Left, color)
+	text_state(ctx, size, line)
+	b: [4]f32
+	if run, _ := text_run(ctx, s, line); run != nil {
+		b = run.bounds
+	} else {
+		fs.SetAlignHorizontal(stash, .LEFT)
+		fs.SetAlignVertical(stash, .BASELINE)
+		fs.TextBounds(stash, s, 0, 0, &b)
+	}
+	x := f32(int(c.x - (b[0] + b[2]) * 0.5 + 0.5))
+	y := f32(int(c.y - (b[1] + b[3]) * 0.5 + 0.5))
+	index := int(codepoint - ICON_FIRST)
+	if ctx.icon_style != .Mono && index >= 0 && index < ICON_COUNT {
+		fill := color_fade(color, ICON_FILL_DUOTONE)
+		if ctx.icon_style == .Colour {
+			g := ctx.theme.icons[ICON_GROUP_TABLE[index]]
+			fill = {g.r, g.g, g.b, u8(f32(color.a) * f32(g.a) / 255 * ICON_FILL_COLOUR + 0.5)}
+		}
+		icon_layer(ctx, s, .Icons_Fill, size, x, y, fill)
+	}
+	icon_layer(ctx, s, line, size, x, y, color)
+}
+
+// One of an icon's layers with its pen at `x` and its baseline at `y` (physical pixels).
+// Each layer looks its line up again, since laying out another can move the cache's pools.
+@(private = "file")
+icon_layer :: proc(ctx: ^Context, s: string, font: Font, size, x, y: f32, color: Color) {
+	stash := &ctx.fonts.stash
+	text_state(ctx, size, font)
+	if run, laid := text_run(ctx, s, font); run != nil {
+		text_run_draw(ctx, laid, x, y, .Left, color)
 		return
 	}
 	fs.SetAlignHorizontal(stash, .LEFT)
 	fs.SetAlignVertical(stash, .BASELINE)
-	bounds: [4]f32
-	fs.TextBounds(stash, s, 0, 0, &bounds)
-	x := f32(int(c.x - (bounds[0] + bounds[2]) * 0.5 + 0.5))
-	y := f32(int(c.y - (bounds[1] + bounds[3]) * 0.5 + 0.5))
 	glyphs(ctx, s, x, y, color)
 }
 

@@ -332,7 +332,7 @@ top_focus_middle :: proc(app: ^App) {
 	t := ctx.theme
 	kit_space_chip(app)
 	x := command_checked(app, .Symmetry_X)
-	if a := lens_chip(ctx, "Symmetry X##focus", "X", glyph = ICON_SYMMETRY, lit = x, keys = command_hint(app, .Symmetry_X)); a.clicked do command_run(app, .Symmetry_X)
+	if a := lens_chip(ctx, "Symmetry X##focus", "X", glyph = ui.ICON_SYMMETRY, lit = x, keys = command_hint(app, .Symmetry_X)); a.clicked do command_run(app, .Symmetry_X)
 	if x do ui.stroke_rect(ctx, {ctx.last_rect.x, ctx.last_rect.y + (ctx.last_rect.h - LENS_CHIP_H) * 0.5, ctx.last_rect.w, LENS_CHIP_H}, t.radius_medium, t.accent, 1)
 }
 
@@ -344,9 +344,9 @@ top_focus_view :: proc(app: ^App) {
 	ctx := &k.ctx
 	top_divider(ctx)
 	layout := bar_pop_showing(app, .View_Layout)
-	if ui.icon_button(ctx, "View layout", ICON_VIEW_LAYOUT, selected = layout, keys = command_hint(app, .View_Layout_Menu)) do bar_pop_toggle(app, .View_Layout, ctx.last_rect, .Below)
+	if ui.icon_button(ctx, "View layout", ui.ICON_VIEW_LAYOUT, selected = layout, keys = command_hint(app, .View_Layout_Menu)) do bar_pop_toggle(app, .View_Layout, ctx.last_rect, .Below)
 	k.bar_at[.View_Layout], k.bar_side[.View_Layout] = ctx.last_rect, .Below
-	if ui.icon_button(ctx, "Shading modes", ICON_PASSES, selected = k.passes.menu, keys = command_hint(app, .Pass_Menu)) {
+	if ui.icon_button(ctx, "Shading modes", ui.ICON_PASSES, selected = k.passes.menu, keys = command_hint(app, .Pass_Menu)) {
 		k.passes.menu_at, k.passes.menu_side = ctx.last_rect, .Below
 		pass_menu_toggle(app)
 	}

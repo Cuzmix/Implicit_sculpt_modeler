@@ -29,7 +29,7 @@ LAYER_SLIDER_W :: 92
 // How far a row slides open to show Merge down and Delete.
 LAYER_SWIPE_W :: 92
 
-// The record dot's red, as the mock has it; a hollow circle (ICON_CIRCLE) while the
+// The record dot's red, as the mock has it; a hollow circle (ui.ICON_RECORD) while the
 // layer does not record.
 LAYER_RECORD_COLOR :: ui.Color{240, 106, 94, 255}
 
@@ -99,7 +99,7 @@ kit_lens_layers :: proc(app: ^App) {
 	base := ui.place(ctx, {width, 48})
 	mid := base.y + base.h * 0.5
 	ui.fill_rect(ctx, {base.x + 4, mid - 18, 36, 36}, t.radius_small, t.fill)
-	ui.icon(ctx, ICON_LOCK if recording >= 0 else ui.ICON_FRAME, {base.x + 22, mid}, t.icon_small, t.text_secondary)
+	ui.icon(ctx, ui.ICON_LOCK if recording >= 0 else ui.ICON_FRAME, {base.x + 22, mid}, t.icon_small, t.text_secondary)
 	ui.text(ctx, "Base sculpt", base.x + 50, mid - 8, t.text_size, t.text)
 	under := "locked while a layer records" if recording >= 0 else "everything outside the layers"
 	ui.text(ctx, ui.text_fit(ctx, under, t.caption_size, base.w - 56), base.x + 50, mid + 10, t.caption_size, t.text_tertiary)
@@ -174,7 +174,7 @@ lens_layer_row :: proc(app: ^App, obj: ^Object, i: int, width: f32, allowed: boo
 	pic := p.rect
 	if !layer_picture_draw(app, obj, i, pic, fade) {
 		ui.fill_rect(ctx, pic, t.radius_small, t.fill)
-		ui.icon(ctx, ICON_LAYERS, {pic.x + pic.w * 0.5, pic.y + pic.h * 0.5}, t.icon_small, ui.color_fade(t.text_tertiary, fade))
+		ui.icon(ctx, ui.ICON_LAYERS, {pic.x + pic.w * 0.5, pic.y + pic.h * 0.5}, t.icon_small, ui.color_fade(t.text_tertiary, fade))
 	}
 	on_mask := lens_layer_mask_badge(app, obj, i, p, picked, fade)
 	rec := recording == i
@@ -189,7 +189,7 @@ lens_layer_row :: proc(app: ^App, obj: ^Object, i: int, width: f32, allowed: boo
 		ui.fill_circle(ctx, dc, 7, ui.color_fade(LAYER_RECORD_COLOR, 0.25))
 		ui.fill_circle(ctx, dc, 4.5, LAYER_RECORD_COLOR)
 	} else {
-		ui.icon(ctx, ICON_CIRCLE, dc, t.icon_small - 4, t.text_tertiary if d.hovered else ui.color_fade(t.text_tertiary, 0.6))
+		ui.icon(ctx, ui.ICON_RECORD, dc, t.icon_small - 4, t.text_tertiary if d.hovered else ui.color_fade(t.text_tertiary, 0.6))
 	}
 	ui.tip(ctx, d.id, d.rect, "Stop recording" if rec else "Record into this layer")
 	if d.clicked && allowed {
@@ -215,7 +215,7 @@ lens_layer_row :: proc(app: ^App, obj: ^Object, i: int, width: f32, allowed: boo
 	if open {
 		// Swiped open: Merge down and Delete, as an iOS list's row offers them.
 		ui.begin(ctx, fmt.tprintf("lens layer %d actions", i), {direction = .Row, gap = ui.SPACE_XS, center = true, width = LAYER_SWIPE_W})
-		if ui.icon_button(ctx, fmt.tprintf("Merge down##lens layer swipe %d", i), ICON_MERGE, enabled = allowed && i > 0) {
+		if ui.icon_button(ctx, fmt.tprintf("Merge down##lens layer swipe %d", i), ui.ICON_MERGE, enabled = allowed && i > 0) {
 			app.ui.layer_selected = i
 			layer_action(app, .Merge_Down)
 			lp.swiped = 0
@@ -259,7 +259,7 @@ lens_layer_mask_badge :: proc(app: ^App, obj: ^Object, i: int, p: ui.Area, picke
 	ui.fill_rect(ctx, {sq.x - 2, sq.y - 2, sq.w + 4, sq.h + 4}, t.radius_small + 2, t.surface)
 	if has {
 		ui.fill_rect(ctx, sq, t.radius_small, ui.color_fade(t.text, fade * 0.9))
-		ui.icon(ctx, ICON_CONTRAST, c, t.icon_small - 8, t.surface)
+		ui.icon(ctx, ui.ICON_LAYER_MASK, c, t.icon_small - 8, t.surface)
 	} else {
 		// A dashed square: three short strokes a side, as an empty slot reads.
 		line := ui.color_fade(t.text_secondary, fade * (1 if p.hovered && over else 0.8))
@@ -366,11 +366,11 @@ kit_layer_menu :: proc(app: ^App) {
 	ui.divider(ctx, across = true)
 	rec := sculpt.sculptor_layer_recording(s) == i
 	picked := false
-	if ui.menu_item(ctx, "Rename...", glyph = ui.ICON_PENCIL) {
+	if ui.menu_item(ctx, "Rename...", glyph = ui.ICON_RENAME) {
 		app.kit.rename = {open = true, id = obj.id, layer = i + 1, at = lp.menu_at}
 		picked = true
 	}
-	if ui.menu_item(ctx, "Stop recording" if rec else "Record into it", glyph = ICON_CIRCLE, enabled = allowed) {
+	if ui.menu_item(ctx, "Stop recording" if rec else "Record into it", glyph = ui.ICON_RECORD, enabled = allowed) {
 		stroke_finish(app)
 		if sculpt.sculptor_layer_record(s, -1 if rec else i) do history_record(app, obj, .Layer, "Stop recording" if rec else "Record into layer")
 		picked = true
@@ -385,12 +385,12 @@ kit_layer_menu :: proc(app: ^App) {
 	// The layer's mask: painting it, and what acts on it whole.
 	painting := layer_mask_painting(app, obj) == i
 	has := sculpt.sculptor_layer_has_mask(s, i)
-	if ui.menu_item(ctx, "Stop painting the mask" if painting else "Paint its mask" if has else "Add a mask", glyph = ICON_CONTRAST, enabled = allowed) {
+	if ui.menu_item(ctx, "Stop painting the mask" if painting else "Paint its mask" if has else "Add a mask", glyph = ui.ICON_LAYER_MASK, enabled = allowed) {
 		if painting do layer_mask_stop(app, restore = true)
 		else do layer_mask_paint(app, obj, i)
 		picked = true
 	}
-	if ui.menu_item(ctx, "Invert the mask", glyph = ICON_FLIP_VIEW, enabled = allowed, hint = "Hides the layer where it showed and shows it where it hid") {
+	if ui.menu_item(ctx, "Invert the mask", glyph = ui.ICON_FLIP_VIEW, enabled = allowed, hint = "Hides the layer where it showed and shows it where it hid") {
 		layer_mask_edit(app, obj, i, .Invert)
 		picked = true
 	}
@@ -408,7 +408,7 @@ kit_layer_menu :: proc(app: ^App) {
 		label:  string,
 		glyph:  rune,
 	}
-	rows := [?]Row{{.Duplicate, "Duplicate", ui.ICON_COPY}, {.Invert, "Invert", ICON_FLIP_VIEW}, {.Merge_Down, "Merge down", ICON_MERGE}, {.Move_Up, "Move up", ui.ICON_CHEVRON_UP}, {.Move_Down, "Move down", ui.ICON_CHEVRON_DOWN}}
+	rows := [?]Row{{.Duplicate, "Duplicate", ui.ICON_COPY}, {.Invert, "Invert", ui.ICON_FLIP_VIEW}, {.Merge_Down, "Merge down", ui.ICON_MERGE}, {.Move_Up, "Move up", ui.ICON_CHEVRON_UP}, {.Move_Down, "Move down", ui.ICON_CHEVRON_DOWN}}
 	for r in rows {
 		if ui.menu_item(ctx, fmt.tprintf("%s##layer menu", r.label), glyph = r.glyph, enabled = layer_action_ready(app, r.action)) {
 			layer_action(app, r.action)
@@ -416,7 +416,7 @@ kit_layer_menu :: proc(app: ^App) {
 		}
 	}
 	ui.divider(ctx, across = true)
-	if ui.menu_item(ctx, "Bake into the base", glyph = ICON_LOCK, enabled = allowed, hint = "Keeps the layer's work at its strength in the surface and takes the layer away") {
+	if ui.menu_item(ctx, "Bake into the base", glyph = ui.ICON_LOCK, enabled = allowed, hint = "Keeps the layer's work at its strength in the surface and takes the layer away") {
 		layer_remove(app, obj, i, bake = true)
 		picked = true
 	}

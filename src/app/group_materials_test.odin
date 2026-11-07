@@ -82,11 +82,10 @@ group_materials_round_trip_and_refuse_damage :: proc(t: ^testing.T) {
 
 	write :: proc(out: ^[dynamic]u8, entries: []Group_Material) {
 		clear(out)
-		geom.byte_put(out, u16(len(entries)))
-		for e in entries {
-			geom.byte_put(out, e.group)
-			material_put(out, e.material)
-		}
+		table: Object
+		table.group_materials = make([dynamic]Group_Material, context.temp_allocator)
+		append(&table.group_materials, ..entries)
+		group_materials_put(out, &table)
 	}
 	bad := [?][]Group_Material {
 		{{0, gold()}},
@@ -103,8 +102,9 @@ group_materials_round_trip_and_refuse_damage :: proc(t: ^testing.T) {
 		testing.expectf(t, !r.ok, "case %d read", i)
 		delete(damaged.group_materials)
 	}
-	clear(&out)
-	geom.byte_put(&out, u16(GROUP_MATERIALS_MAX + 1))
+	many := make([]Group_Material, GROUP_MATERIALS_MAX + 1, context.temp_allocator)
+	for &e, i in many do e = {u16(i + 1), gold()}
+	write(&out, many)
 	r = geom.byte_reader(out[:])
 	group_materials_get(&r, &back)
 	testing.expect(t, !r.ok)

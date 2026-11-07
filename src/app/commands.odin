@@ -38,6 +38,8 @@ Command_Id :: enum u16 {
 	Export_Sheet, // lens_export.odin
 	Screenshot,
 	Screenshot_Transparent,
+	Render_Picture,
+	Render_Picture_Stop,
 	Show_References,
 	Record_Turntable,
 	Send_To_Blender,
@@ -75,6 +77,7 @@ Command_Id :: enum u16 {
 	Settle,
 	Local_Symmetry,
 	Radial_Symmetry,
+	Poseable_Symmetry,
 	Brush_Add,
 	Brush_Subtract,
 	Paint_Channel,
@@ -123,6 +126,7 @@ Command_Id :: enum u16 {
 	Group, // the argument is the sculpt.Group_Command
 	Pick_Group,
 	Delete_Lower_Levels,
+	Rebuild_Levels,
 	Delete_Higher_Levels,
 	Hd_Divide,
 	Hd_Delete,
@@ -169,6 +173,8 @@ Command_Id :: enum u16 {
 	Convert_To_Voxels,
 	Voxel_Res_Up,
 	Voxel_Res_Down,
+	Remove_Floaters,
+	Separate_Pieces,
 	Add_Cage,
 	Add_Curve,
 	Apply_Cage,
@@ -414,7 +420,7 @@ COMMANDS := [Command_Id]Command {
 	.Home = {
 		label = "Home",
 		help = "Shows the Home screen: new scenes, and the scenes saved lately and the autosaves of earlier sessions as pictures, to open one.",
-		icon = ICON_HOME,
+		icon = ui.ICON_HOME,
 		run = proc(app: ^App, _: int) {
 			if app.kit.home do home_close(app)
 			else do home_open(app)
@@ -424,7 +430,7 @@ COMMANDS := [Command_Id]Command {
 	.New_Scene = {
 		label = "New scene",
 		help = "Replaces the scene with this one shape at the Scene card's Add size; with work to lose, it goes ahead on a second run.",
-		icon = ui.ICON_SHAPES,
+		icon = ui.ICON_NEW_SCENE,
 		args = len(NEW_SCENES),
 		run = new_scene_run,
 	},
@@ -449,20 +455,20 @@ COMMANDS := [Command_Id]Command {
 	.Save_Scene_Copy = {
 		label = "Save a copy...",
 		help = "Saves the scene to another file and keeps saving it where it was: a backup, or a variation to come back to.",
-		icon = ICON_SAVE_COPY,
+		icon = ui.ICON_SAVE_COPY,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Save_Copy)},
 	},
 	.Save_Scene_Next = {
 		label = "Save next",
 		help = "Saves the scene as the next numbered file beside its own (dragon_002.sculpt after dragon.sculpt or dragon_001.sculpt) and keeps saving there, so each stage of a sculpt stays a file of its own.",
-		icon = ui.ICON_SAVE,
+		icon = ui.ICON_SAVE_NEXT,
 		enabled = proc(app: ^App, _: int) -> bool {return save_next_allowed(app)},
 		run = proc(app: ^App, _: int) {save_scene_next(app)},
 	},
 	.Scene_Versions = {
 		label = "Earlier saves...",
 		help = "Lists the files earlier saves of this scene replaced, to open one again.",
-		icon = ICON_EARLIER_SAVES,
+		icon = ui.ICON_EARLIER_SAVES,
 		run = proc(app: ^App, _: int) {
 			versions_refresh(app)
 			k := &app.kit
@@ -473,7 +479,7 @@ COMMANDS := [Command_Id]Command {
 	.Open_Last_Autosave = {
 		label = "Open the last autosave",
 		help = "Opens the newest autosave an earlier run left, whether it crashed or closed without saving.",
-		icon = ui.ICON_HISTORY,
+		icon = ui.ICON_AUTOSAVE,
 		run = proc(app: ^App, _: int) {file_post(.Recover, "")},
 		enabled = proc(app: ^App, _: int) -> bool {return app.autosave.on},
 	},
@@ -493,28 +499,28 @@ COMMANDS := [Command_Id]Command {
 	.Export_Print = {
 		label = "Export for printing...",
 		help = "Writes the selected object as an STL file for a 3D printer: at its print size in millimetres (Scene > 3D print), Z up, standing on the bed.",
-		icon = ui.ICON_EXPORT,
+		icon = ui.ICON_PRINT_EXPORT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Export_Print)},
 		enabled = has_object,
 	},
 	.Send_To_Blender = {
 		label = "Send to Blender",
 		help = "Writes the selected objects to the Blender link's folder, for Get from Sculpt in Blender's Sculpt tab (Settings > System > Blender link).",
-		icon = ui.ICON_EXPORT,
+		icon = ui.ICON_BLENDER_SEND,
 		run = proc(app: ^App, _: int) {file_post(.Link_Send, "")},
 		enabled = proc(app: ^App, _: int) -> bool {return link_can_send(app)},
 	},
 	.Get_From_Blender = {
 		label = "Get from Blender",
 		help = "Brings back what Blender's Send to Sculpt left in the link's folder: same triangles move the vertices, others rebuild the object, new ones are added; one undo step. Switching back to Sculpt does it too.",
-		icon = ui.ICON_IMPORT,
+		icon = ui.ICON_BLENDER_GET,
 		run = proc(app: ^App, _: int) {file_post(.Link_Get, "")},
 		enabled = proc(app: ^App, _: int) -> bool {return link_can_get(app)},
 	},
 	.Send_Scene = {
 		label = "Send scene",
 		help = "Sends the whole scene over Wi-Fi to the computer it went to last, which opens it; the first time, Menu > Export... > Send picks the computer (Settings > Files > Send scenes).",
-		icon = ICON_SEND,
+		icon = ui.ICON_SEND,
 		run = proc(app: ^App, _: int) {
 			if !send_scene_last(app) do export_sheet_open_on(app, .Send)
 		},
@@ -523,33 +529,47 @@ COMMANDS := [Command_Id]Command {
 	.Export_Sheet = {
 		label = "Export...",
 		help = "Opens one sheet for every way out of the app: the scene, OBJ, PLY, STL, glTF and USD meshes, a screenshot, a turntable and a 3D print, each with its options and the file it makes.",
-		icon = ui.ICON_EXPORT,
+		icon = ui.ICON_EXPORT_SHEET,
 		run = proc(app: ^App, _: int) {export_sheet_open(app)},
 	},
 	.Screenshot = {
 		label = "Save screenshot...",
 		help = "Saves the window as a PNG image.",
-		icon = ui.ICON_IMAGE,
+		icon = ui.ICON_SCREENSHOT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Screenshot)},
+	},
+	.Render_Picture = {
+		label = "Render image...",
+		help = "Renders the view at a size of its own, up to 8192 pixels a side, in Full render or Fast, and saves it as a PNG once its samples are in, with its passes beside it if asked: the Export sheet's Picture > Render sets how.",
+		icon = ui.ICON_RENDER,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Render_Image)},
+		enabled = proc(app: ^App, _: int) -> bool {return !app.render_image.on},
+	},
+	.Render_Picture_Stop = {
+		label = "Stop rendering",
+		help = "Stops the picture Render image is making, writing nothing.",
+		icon = ui.ICON_STOP,
+		run = proc(app: ^App, _: int) {render_image_stop(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.render_image.on},
 	},
 	.Screenshot_Transparent = {
 		label = "Screenshots without background",
 		help = "Saves screenshots with the objects alone on a see-through ground, soft at their edges, to lay over other pictures: no background, floor grid or environment picture.",
-		icon = ui.ICON_IMAGE,
+		icon = ui.ICON_SCREENSHOT_CLEAR,
 		run = proc(app: ^App, _: int) {app.screenshot_transparent = !app.screenshot_transparent},
 		checked = proc(app: ^App, _: int) -> bool {return app.screenshot_transparent},
 	},
 	.Show_References = {
 		label = "Show refs",
 		help = "Shows or hides every reference picture standing over the view at once, as they are; the References card puts a picture over the view.",
-		icon = ICON_SHOW_REFS,
+		icon = ui.ICON_SHOW_REFS,
 		run = proc(app: ^App, _: int) {refs_view_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return !app.scene.refs.view_off},
 	},
 	.Record_Turntable = {
 		label = "Record turntable...",
 		help = "Turns the camera once round the scene and saves every frame into a folder you pick, as numbered PNG pictures and one animated PNG that plays in a browser; again, while it records, stops it.",
-		icon = ui.ICON_FILM,
+		icon = ui.ICON_TURNTABLE,
 		run = proc(app: ^App, _: int) {
 			if turntable_recording(app) do turntable_stop(app, "stopped")
 			else do file_dialog(app, .Turntable)
@@ -582,7 +602,7 @@ COMMANDS := [Command_Id]Command {
 	.History_Find = {
 		label = "Find steps at a spot",
 		help = "The next press on the model picks a spot, and the History list then shows only the steps that changed it, until its chip is tapped.",
-		icon = rune(0xe53c), // scan-search
+		icon = ui.ICON_FIND_STEPS,
 		run = proc(app: ^App, _: int) {history_find_command(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.timeline.find.armed || app.timeline.find.on},
 	},
@@ -596,56 +616,56 @@ COMMANDS := [Command_Id]Command {
 	.Duplicate_Object = {
 		label = "Duplicate",
 		help = "Adds a copy of each selected object, keeping their spacing.",
-		icon = ui.ICON_COPY,
+		icon = ui.ICON_DUPLICATE,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Duplicate}},
 		enabled = has_object,
 	},
 	.Tool_Move = {
 		label = "Move tool",
 		help = "Selects objects and moves, turns or scales them with the gizmo; its key again steps the gizmo through the three.",
-		icon = ui.ICON_MOVE,
+		icon = ui.ICON_MOVE_TOOL,
 		run = proc(app: ^App, _: int) {app.tool = .Move; space_picked(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Move},
 	},
 	.Tool_Sculpt = {
 		label = "Sculpt tool",
 		help = "Sculpts the object under the brush with the chosen brush.",
-		icon = ui.ICON_BRUSH,
+		icon = ui.ICON_SCULPT_TOOL,
 		run = proc(app: ^App, _: int) {app.tool = .Brush; space_picked(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Brush},
 	},
 	.Tool_Curve = {
 		label = "Curve tool",
 		help = "Draws curves on the model or in space: lines, tubes, stitches or a zipper.",
-		icon = ui.ICON_SPLINE,
+		icon = ui.ICON_CURVE,
 		run = proc(app: ^App, _: int) {app.tool = .Curve; space_picked(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Curve},
 	},
 	.Tool_Insert = {
 		label = "Insert tool",
 		help = "Places a shape on the surface where you tap.",
-		icon = ui.ICON_SHAPES,
+		icon = ui.ICON_INSERT,
 		run = proc(app: ^App, _: int) {app.tool = .Insert; space_picked(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Insert},
 	},
 	.Tool_Model = {
 		label = "Model tool",
 		help = "Edits a cage's points, edges and faces, as ZBrush's ZModeler does; a tap on an object selects it.",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_MODEL,
 		run = proc(app: ^App, _: int) {app.tool = .Model; space_picked(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Model},
 	},
 	.Tool_Look = {
 		label = "Look tool",
 		help = "Changes nothing: a press turns the view, so setting the look or the lights never sculpts by mistake; the lights' markers, picking focus and the Live stack's handles keep their presses.",
-		icon = ICON_LOOK,
+		icon = ui.ICON_LOOK,
 		run = proc(app: ^App, _: int) {app.tool = .Look; space_picked(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Look},
 	},
 	.Add_Cage = {
 		label = "Add cage",
 		help = "Adds a primitive as a cage for Model mode: polygons with their edges shown, edited with the Model tool.",
-		icon = ui.ICON_PLUS,
+		icon = ui.ICON_ADD_CAGE,
 		args = len(poly.Primitive),
 		run = proc(app: ^App, arg: int) {
 			app.model.primitive = poly.Primitive(arg)
@@ -657,7 +677,7 @@ COMMANDS := [Command_Id]Command {
 	.Add_Curve = {
 		label = "Add curve",
 		help = "Adds a curve object at the view's centre, facing the view, with no model needed: a Line, a Bézier S, a Circle, a Spiral or a Helix. The Curve tool comes on to edit it, its last point picked. One undo step.",
-		icon = ui.ICON_SPLINE,
+		icon = ui.ICON_ADD_CURVE,
 		args = len(Curve_Shape) - 1,
 		run = proc(app: ^App, arg: int) {
 			app.ui.scene_command = {kind = .Add, curve_shape = Curve_Shape(arg + 1)}
@@ -669,14 +689,14 @@ COMMANDS := [Command_Id]Command {
 	.Apply_Cage = {
 		label = "Apply to sculpt",
 		help = "Turns the selected cage into an ordinary mesh of its triangles, which every brush can sculpt; Model mode no longer edits it.",
-		icon = ui.ICON_BRUSH,
+		icon = ui.ICON_APPLY_CAGE,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Apply_Cage}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
 	},
 	.Stack_Add = {
 		label = "Add to the live stack",
 		help = "Adds a row of copies to the selected object's live stack (a Mirror, an Array, a Radial or copies along a curve) and opens the Live stack card on it.",
-		icon = ui.ICON_COPY,
+		icon = ui.ICON_STACK_ADD,
 		args = STACK_ADD_ROWS,
 		run = proc(app: ^App, arg: int) {
 			obj := selected_object(app)
@@ -694,7 +714,7 @@ COMMANDS := [Command_Id]Command {
 	.Stack_Apply = {
 		label = "Apply stack",
 		help = "Bakes the selected object's shown live stack rows into its mesh, as one undo step that brings them back.",
-		icon = ui.ICON_CHECK,
+		icon = ui.ICON_STACK_APPLY,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Stack_Apply}},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
@@ -704,14 +724,14 @@ COMMANDS := [Command_Id]Command {
 	.Edit_Cage = {
 		label = "Edit cage",
 		help = "Turns the selected sculpt's base level back into a cage for Model mode, when it came from a cage or Retopologize; Apply to sculpt then puts its levels and their detail back on the edited cage.",
-		icon = ui.ICON_SHAPES,
+		icon = ui.ICON_EDIT_CAGE,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Edit_Cage}},
 		enabled = proc(app: ^App, _: int) -> bool {return object_can_edit_cage(selected_object(app))},
 	},
 	.Model_Action = {
 		label = "Model action",
 		help = "Picks what a press on a cage does with the Model tool (Extrude, Inset, Move, Delete, Polygroup, Flip), and takes the Model tool.",
-		icon = ui.ICON_SHAPES,
+		icon = ui.ICON_MODEL_ACTION,
 		args = len(Model_Action),
 		run = proc(app: ^App, arg: int) {model_pick_action(app, Model_Action(arg))},
 		// Only a cage (or a curve) takes the actions: on a sculpt mesh or voxel clay they
@@ -722,7 +742,7 @@ COMMANDS := [Command_Id]Command {
 	.Model_Target = {
 		label = "Model target",
 		help = "Picks which faces the Model tool's action reaches from the face under the pen: that face, its loop, its island, its flat island or its polygroup.",
-		icon = ui.ICON_FOCUS,
+		icon = ui.ICON_MODEL_TARGET,
 		args = len(Model_Target),
 		run = proc(app: ^App, arg: int) {model_pick_target(app, Model_Target(arg))},
 		checked = proc(app: ^App, arg: int) -> bool {return model_target(&app.model, app.model.action) == Model_Target(arg)},
@@ -731,7 +751,7 @@ COMMANDS := [Command_Id]Command {
 	.Tidy_Cage = {
 		label = "Tidy cage",
 		help = "Cleans the selected cage up: Dissolve flat joins faces that lie flat to each other (within 5 degrees, inside one polygroup); Merge close points joins points closer than a thousandth of its size; Apply mirror makes the cage's live mirror images part of it and turns the mirror off. Each is one undo step.",
-		icon = ui.ICON_WAND,
+		icon = ui.ICON_TIDY,
 		args = len(Cage_Tidy),
 		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Tidy_Cage, tidy = Cage_Tidy(arg)}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
@@ -739,7 +759,7 @@ COMMANDS := [Command_Id]Command {
 	.Cage_Edit = {
 		label = "Edit cage selection",
 		help = "Edits the selected cage's selection as Blender's edit mode does: Subdivide and Poke the selected faces, Triangles to quads (the selected faces, or the whole cage), Split the selected faces off along their outline, Separate them into a cage of their own, Fill the hole a picked border edge lies on (every hole with nothing picked; a grid of quads where the border allows), Bevel points cuts the picked points' corners off, Join takes in the cage below in the scene, Relax evens the selection's points out keeping the shape and Smooth smooths them, both with the Falloff; Union, Subtract and Intersect combine it exactly with the closed cage below in the scene, which goes; Panel loops insets the selected faces and raises them into a creased panel, as ZBrush's Panel Loops. Each is one undo step.",
-		icon = ui.ICON_HAMMER,
+		icon = ui.ICON_CAGE_EDIT,
 		args = len(Cage_Edit),
 		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Cage_Edit, edit = Cage_Edit(arg)}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
@@ -747,7 +767,7 @@ COMMANDS := [Command_Id]Command {
 	.Select_Cage = {
 		label = "Cage selection",
 		help = "Changes the selected cage's selection as Select picks it, its faces (which the Selected target works on) or its points and edges (which the gizmo moves): All, None (faces and points both), Invert, Grow (adds what lies beside the selection) or Shrink (drops its edge). Each is one undo step.",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_CAGE_SELECT,
 		args = len(poly.Select_Op),
 		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Select_Cage, select = poly.Select_Op(arg), pick = app.model.pick}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
@@ -755,7 +775,7 @@ COMMANDS := [Command_Id]Command {
 	.Cage_Smooth = {
 		label = "Cage smooth",
 		help = "Draws the selected cage smoothed by Catmull-Clark subdivision, 1 to 4 steps (each four times the faces), live as ZBrush's Dynamic Subdivision: creased edges stay sharp, the cage's edges show along the surface, and every action still works on the cage. Off draws the cage as it is. One undo step.",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_CAGE_SMOOTH,
 		args = poly.SUBDIVIDE_MAX + 1,
 		run = proc(app: ^App, arg: int) {
 			if look, ok := cage_look_now(app); ok {
@@ -772,7 +792,7 @@ COMMANDS := [Command_Id]Command {
 	.Cage_Flat = {
 		label = "Cage flat",
 		help = "Splits the selected cage's smoothing steps without rounding anything, for hard surfaces that want more faces and no curves. One undo step.",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_CAGE_FLAT,
 		run = proc(app: ^App, _: int) {
 			if look, ok := cage_look_now(app); ok {
 				look.flat = !look.flat
@@ -788,7 +808,7 @@ COMMANDS := [Command_Id]Command {
 	.Cage_Thickness = {
 		label = "Cage thickness",
 		help = "Draws the selected cage as a shell this thick (a share of the cage's size, 0 for off), as Blender's Solidify does: the cage is one side of it, each border is closed by a rim whose edges are creased, and Smooth and Apply to sculpt take the shell. One undo step.",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_THICKNESS,
 		args = CAGE_LIVE_PERCENT_MAX + 1,
 		run = proc(app: ^App, arg: int) {
 			if look, ok := cage_look_now(app); ok {
@@ -801,7 +821,7 @@ COMMANDS := [Command_Id]Command {
 	.Cage_Thickness_Segments = {
 		label = "Cage thickness segments",
 		help = "How many faces across the rims of the selected cage's Thickness shell, 1 to 6. One undo step.",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_THICKNESS,
 		args = poly.LIVE_THICKNESS_SEGMENTS_MAX,
 		run = proc(app: ^App, arg: int) {
 			if look, ok := cage_look_now(app); ok {
@@ -818,7 +838,7 @@ COMMANDS := [Command_Id]Command {
 	.Cage_Thickness_Side = {
 		label = "Cage thickness side",
 		help = "Where the selected cage's Thickness shell grows: Out along its normals, In, or Centre, half each way. One undo step.",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_THICKNESS,
 		args = len(poly.Thickness_Side),
 		run = proc(app: ^App, arg: int) {
 			if look, ok := cage_look_now(app); ok {
@@ -835,7 +855,7 @@ COMMANDS := [Command_Id]Command {
 	.Cage_Bevel = {
 		label = "Bevel creases",
 		help = "Draws every creased edge of the selected cage as a strip this wide (a share of the cage's size, 0 for off), as ZBrush's QGrid and Blender's Bevel modifier do, so Smooth rounds it to a tight fillet; the crease's sharpness then only says which edges are bevelled. Apply to sculpt takes the strips. One undo step.",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_BEVEL,
 		args = CAGE_LIVE_PERCENT_MAX + 1,
 		run = proc(app: ^App, arg: int) {
 			if look, ok := cage_look_now(app); ok {
@@ -848,7 +868,7 @@ COMMANDS := [Command_Id]Command {
 	.Cage_Bevel_Segments = {
 		label = "Bevel creases segments",
 		help = "How many faces across each strip of the selected cage's Bevel creases, 1 to 6. One undo step.",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_BEVEL,
 		args = CAGE_BEVEL_SEGMENTS_SHOWN,
 		run = proc(app: ^App, arg: int) {
 			if look, ok := cage_look_now(app); ok {
@@ -865,7 +885,7 @@ COMMANDS := [Command_Id]Command {
 	.Cage_Deform = {
 		label = "Cage deform",
 		help = "Bends, twists or tapers the selected cage as drawn along an axis (Deform in the Live stack, as ZBrush's Gizmo deformers and Blender's Simple Deform do), over the span the cage covers, the cage itself left as modelled; Off takes it away. Bend and Twist start at a quarter turn, Taper at half as wide again. One undo step.",
-		icon = ICON_DEFORM,
+		icon = ui.ICON_CAGE_DEFORM,
 		args = len(poly.Deform_Kind),
 		run = proc(app: ^App, arg: int) {
 			if look, ok := cage_look_now(app); ok {
@@ -884,7 +904,7 @@ COMMANDS := [Command_Id]Command {
 	.Cage_Deform_Axis = {
 		label = "Cage deform axis",
 		help = "The axis the selected cage's Deform bends, twists or tapers along: X, Y or Z. One undo step.",
-		icon = ICON_DEFORM,
+		icon = ui.ICON_CAGE_DEFORM,
 		args = len(poly.Mirror_Axis),
 		run = proc(app: ^App, arg: int) {
 			if look, ok := cage_look_now(app); ok {
@@ -901,7 +921,7 @@ COMMANDS := [Command_Id]Command {
 	.Cage_Displace = {
 		label = "Cage displace",
 		help = "Pushes the selected cage's drawn surface in and out along its normals by a smooth noise this strong (a share of the cage's size, 0 for off), as Blender's Displace with a Clouds texture does, for rock, bark or hammered metal; the features start a quarter of the cage across. One undo step.",
-		icon = ICON_DISPLACE,
+		icon = ui.ICON_DISPLACE,
 		args = CAGE_DISPLACE_PERCENT_MAX + 1,
 		run = proc(app: ^App, arg: int) {
 			if look, ok := cage_look_now(app); ok {
@@ -916,7 +936,7 @@ COMMANDS := [Command_Id]Command {
 	.Cage_Mirror = {
 		label = "Cage mirror",
 		help = "Draws the selected cage with its mirror image across the plane through its middle square to X, Y or Z (a tap turns that axis on or off), as Blender's Mirror modifier does: points on the plane are shared by both halves and kept on it, so modelling one half shows the whole. The image has no edges drawn and takes no actions; Apply mirror makes it part of the cage. One undo step.",
-		icon = ICON_SYMMETRY,
+		icon = ui.ICON_CAGE_MIRROR,
 		args = len(poly.Mirror_Axis),
 		run = proc(app: ^App, arg: int) {
 			if look, ok := cage_look_now(app); ok {
@@ -933,7 +953,7 @@ COMMANDS := [Command_Id]Command {
 	.Crease_Cage = {
 		label = "Crease cage",
 		help = "Creases the selected cage's edges so Smooth keeps them sharp: By angle creases every edge whose faces bend more than 30 degrees, Polygroup borders every edge between two polygroups, and Clear removes every crease and corner. One undo step.",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_CREASE,
 		args = len(Cage_Crease),
 		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Crease_Cage, crease = Cage_Crease(arg)}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_cage(app)},
@@ -941,14 +961,14 @@ COMMANDS := [Command_Id]Command {
 	.Cage_Check = {
 		label = "Cage check",
 		help = "Colours what would trouble smoothing, printing or a game engine on the shown cages while the Model tool is in hand: open edges and polygons of five or more corners red, triangles yellow, faces that are not flat pink, and poles green (three edges) or magenta (five or more).",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_CAGE_CHECK,
 		run = proc(app: ^App, _: int) {app.model.check = !app.model.check},
 		checked = proc(app: ^App, _: int) -> bool {return app.model.check},
 	},
 	.Gizmo = {
 		label = "Gizmo",
 		help = "Picks the Move tool and what its gizmo's handles do: move along an arm or across a plane, turn about a ring, or scale from the middle; All shows the three at once, its arrows moving, its rings turning, its coloured knobs stretching the mesh along their axes and its white knob scaling evenly. With a mask on the one object selected, they pose its unmasked part instead.",
-		icon = ui.ICON_MOVE,
+		icon = ui.ICON_GIZMO,
 		args = len(gizmo.Mode),
 		run = proc(app: ^App, arg: int) {
 			app.tool = .Move
@@ -959,14 +979,14 @@ COMMANDS := [Command_Id]Command {
 	.Gizmo_Snap = {
 		label = "Snap the gizmo",
 		help = "Makes every gizmo drag snap: moves to steps of a grid that follows the zoom, turns to 15 degrees, scales to steps of 0.1. Ctrl snaps one drag.",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_GIZMO_SNAP,
 		run = proc(app: ^App, _: int) {app.move.snap = !app.move.snap},
 		checked = proc(app: ^App, _: int) -> bool {return app.move.snap},
 	},
 	.Gizmo_Pivot = {
 		label = "Set the pivot",
 		help = "The next tap or click on a surface puts the gizmo there, so turns and scales go about that point; the selection stays.",
-		icon = ui.ICON_FOCUS,
+		icon = ui.ICON_PIVOT,
 		run = proc(app: ^App, _: int) {
 			app.tool = .Move
 			app.move.pivot_latch = !app.move.pivot_latch
@@ -977,14 +997,14 @@ COMMANDS := [Command_Id]Command {
 	.Gizmo_Pivot_Reset = {
 		label = "Reset the pivot",
 		help = "Puts the gizmo back on the selected object's origin.",
-		icon = ICON_PIVOT_RESET,
+		icon = ui.ICON_PIVOT_RESET,
 		run = proc(app: ^App, _: int) {if obj := selected_object(app); obj != nil do obj.pivot = {}},
 		enabled = proc(app: ^App, _: int) -> bool {return gizmo_pivot_set(app)},
 	},
 	.Gizmo_Pivot_Edit = {
 		label = "Edit the pivot",
 		help = "While on, the gizmo's arrows, plane squares and middle move the pivot itself, not the object, as ZBrush's unlocked gizmo and Nomad's Edit pivot do; turns and scales then go about where it was left.",
-		icon = ICON_LOCK_OPEN,
+		icon = ui.ICON_PIVOT_EDIT,
 		run = proc(app: ^App, _: int) {
 			app.tool = .Move
 			app.move.pivot_edit = !app.move.pivot_edit
@@ -995,14 +1015,14 @@ COMMANDS := [Command_Id]Command {
 	.Gizmo_Pivot_Center = {
 		label = "Pivot to the middle",
 		help = "Puts the gizmo in the middle of the selected object's bounds, so turns and scales go about its middle.",
-		icon = ICON_PIVOT_CENTER,
+		icon = ui.ICON_PIVOT_CENTER,
 		run = proc(app: ^App, _: int) {pivot_to_middle(app)},
 		enabled = has_object,
 	},
 	.Gizmo_Pivot_Unmasked = {
 		label = "Pivot to the unmasked middle",
 		help = "Puts the gizmo in the middle of what the mask leaves free, as ZBrush's Go to unmasked center does, so a pose turns about the free part.",
-		icon = ICON_PIVOT_UNMASKED,
+		icon = ui.ICON_PIVOT_UNMASKED,
 		run = proc(app: ^App, _: int) {pivot_to_unmasked(app)},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
@@ -1012,7 +1032,7 @@ COMMANDS := [Command_Id]Command {
 	.Gizmo_Orient = {
 		label = "Gizmo orientation",
 		help = "Which way the gizmo's arms, rings and stretch knobs point: along the world's axes, the object's own, the surface where Set pivot put the pivot (its normal along the blue arm), or the view.",
-		icon = rune(0xe0eb),
+		icon = ui.ICON_GIZMO_ORIENT,
 		args = len(Gizmo_Orient),
 		run = proc(app: ^App, arg: int) {app.move.orient = Gizmo_Orient(arg)},
 		checked = proc(app: ^App, arg: int) -> bool {return app.move.orient == Gizmo_Orient(arg)},
@@ -1037,7 +1057,7 @@ COMMANDS := [Command_Id]Command {
 	.Brush_Preset = {
 		label = "Preset",
 		help = "Picks a brush preset and the Sculpt tool.",
-		icon = ui.ICON_BRUSH,
+		icon = ui.ICON_PRESET,
 		args = PRESET_SLOTS,
 		run = proc(app: ^App, arg: int) {
 			preset_use(app, preset_slot_number(arg))
@@ -1050,7 +1070,7 @@ COMMANDS := [Command_Id]Command {
 	.Mask_Shape_Pick = {
 		label = "Mask shape",
 		help = "Makes Ctrl + drag on empty space (and Mask on the dial) mask this shape.",
-		icon = ui.ICON_BRUSH,
+		icon = ui.ICON_MASK_SHAPE,
 		args = len(Mask_Shape_Kind),
 		run = proc(app: ^App, arg: int) {shape_tool_pick(app, Mask_Shape_Kind(arg))},
 		checked = proc(app: ^App, arg: int) -> bool {return app.ui.mask_shape_kind == Mask_Shape_Kind(arg)},
@@ -1058,7 +1078,7 @@ COMMANDS := [Command_Id]Command {
 	.Hide_Gesture_Pick = {
 		label = "Hide shape",
 		help = "Makes Ctrl + Shift + drag (and Hide on the dial) run this shape: hide, clip, slice or knife.",
-		icon = ui.ICON_BRUSH,
+		icon = ui.ICON_HIDE_SHAPE,
 		args = len(Gesture_Tool),
 		run = proc(app: ^App, arg: int) {shape_tool_pick(app, Gesture_Tool(arg))},
 		checked = proc(app: ^App, arg: int) -> bool {return app.gesture == Gesture_Tool(arg)},
@@ -1093,24 +1113,30 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {app.brush.radial_on = !app.brush.radial_on},
 		checked = proc(app: ^App, _: int) -> bool {return app.brush.radial_on},
 	},
+	.Poseable_Symmetry = {
+		label = "Poseable symmetry",
+		help = "Makes the symmetry mirror strokes by the mesh's own topology instead of across the plane, so a posed model (an arm raised, the head turned) still gets each stroke on the same place of its other side. Needs a mesh whose two halves are built alike; found once when turned on, and again for each level.",
+		run = proc(app: ^App, _: int) {poseable_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.brush.poseable},
+	},
 	.Brush_Add = {
 		label = "Add",
 		help = "Brushes work their usual way: Draw raises, Clay builds up (as without Ctrl).",
-		icon = ICON_ADD,
+		icon = ui.ICON_ADD,
 		run = proc(app: ^App, _: int) {app.rail.latched -= {.Invert}},
 		checked = proc(app: ^App, _: int) -> bool {return .Invert not_in app.rail.latched},
 	},
 	.Brush_Subtract = {
 		label = "Subtract",
 		help = "Brushes work the other way until Add is chosen: Draw digs, Clay carves (as with Ctrl held, or the dial's Invert latched).",
-		icon = ICON_SUBTRACT,
+		icon = ui.ICON_SUBTRACT,
 		run = proc(app: ^App, _: int) {app.rail.latched += {.Invert}},
 		checked = proc(app: ^App, _: int) -> bool {return .Invert in app.rail.latched},
 	},
 	.Paint_Channel = {
 		label = "Sculpt and paint",
 		help = "Steps the sculpting brushes from moving the surface, to moving and painting it with the colour, to only painting it (Paint, Mask, Grab and Cloth keep to their own).",
-		icon = ICON_CHANNEL_BOTH,
+		icon = ui.ICON_CHANNEL_BOTH,
 		run = proc(app: ^App, _: int) {
 			c := &app.brush.channel
 			c^ = sculpt.Channel((int(c^) + 1) % len(sculpt.Channel))
@@ -1120,20 +1146,20 @@ COMMANDS := [Command_Id]Command {
 	.Paint_Toggle = {
 		label = "Paint",
 		help = "Turns painting on for the sculpting brushes, laying the main colour as they sculpt (Sculpt + paint) or in place of sculpting (Paint only), as the colour island's switch says; off, they only sculpt.",
-		icon = ui.ICON_PAINTBRUSH,
+		icon = ui.ICON_PAINT,
 		run = proc(app: ^App, _: int) {paint_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.brush.channel != .Sculpt},
 	},
 	.Swap_Colors = {
 		label = "Swap colours",
 		help = "Trades the main colour, which brushes paint, with the secondary one.",
-		icon = ICON_SWAP_COLORS,
+		icon = ui.ICON_SWAP_COLORS,
 		run = proc(app: ^App, _: int) {swap_colors(app)},
 	},
 	.Eyedropper = {
 		label = "Eyedropper",
 		help = "Picks the colour of the surface under the pointer; from a button, the next press on the model picks it, and dragging shows it in a loupe first.",
-		icon = ICON_EYEDROPPER,
+		icon = ui.ICON_EYEDROPPER,
 		run = proc(app: ^App, _: int) {eyedropper_command(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.ui.eyedrop_armed || app.ui.eyedrop_held},
 	},
@@ -1182,14 +1208,14 @@ COMMANDS := [Command_Id]Command {
 	.Brush_Value = {
 		label = "Brush value",
 		help = "Opens the value's slider and steps; on a bar it shows as a tall slider, a chip to tap or scrub, or an icon.",
-		icon = rune(0xe29a), // sliders-horizontal
+		icon = ui.ICON_BRUSH_VALUE,
 		args = len(Brush_Value),
 		run = value_command,
 	},
 	.Preset_Save_New = {
 		label = "Save brush as preset",
 		help = "Keeps the brush as it is (strength, falloff, alpha, stroke) as a new preset, and puts the brush on it.",
-		icon = ui.ICON_SAVE,
+		icon = ui.ICON_PRESET_SAVE,
 		run = proc(app: ^App, _: int) {_ = preset_save_new(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.preset_count < MAX_PRESETS},
 	},
@@ -1202,7 +1228,7 @@ COMMANDS := [Command_Id]Command {
 	.Preset_Revert = {
 		label = "Revert preset",
 		help = "Puts the brush back to the preset it is on, undoing changes made since it was saved.",
-		icon = ui.ICON_UNDO,
+		icon = ui.ICON_REVERT,
 		run = proc(app: ^App, _: int) {preset_revert(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return preset_changed(app)},
 	},
@@ -1222,7 +1248,7 @@ COMMANDS := [Command_Id]Command {
 	.Replay_Stroke = {
 		label = "Replay stroke",
 		help = "Replays the recorded strokes, or else the last stroke, at the pointer.",
-		icon = ui.ICON_PLAY,
+		icon = ui.ICON_REPLAY,
 		run = proc(app: ^App, _: int) {replay_shortcut(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.tool == .Brush && app.ui.viewport_hovered},
 	},
@@ -1260,7 +1286,7 @@ COMMANDS := [Command_Id]Command {
 	.Subdivide = {
 		label = "Subdivide",
 		help = "Adds a subdivision level to the selected object.",
-		icon = ui.ICON_PLUS,
+		icon = ui.ICON_SUBDIVIDE,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Subdivide}},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
@@ -1309,8 +1335,8 @@ COMMANDS := [Command_Id]Command {
 	.Mask_Key = {
 		label = "Mask while held",
 		help = "Its key held, a stroke paints the mask (from empty space it draws a mask shape), as the dial's Mask held; a quick tap latches Mask on until the next tap, as a tap on the dial does. Run from Search or a menu, it latches.",
-		// The dial's Mask sector's own icon (Lucide's contrast).
-		icon = rune(0xe0a1),
+		// The dial's Mask sector's own icon.
+		icon = ui.ICON_MASK_KEY,
 		run = proc(app: ^App, _: int) {rail_toggle(&app.rail, .Mask)},
 		checked = proc(app: ^App, _: int) -> bool {return .Mask in app.rail.latched},
 	},
@@ -1328,61 +1354,61 @@ COMMANDS := [Command_Id]Command {
 	.Show_All = {
 		label = "Show all",
 		help = "Shows every hidden part of the object again.",
-		icon = ui.ICON_EYE,
+		icon = ui.ICON_SHOW_ALL,
 		run = proc(app: ^App, _: int) {hide_command(app, .Show_All)},
 	},
 	.Invert_Hidden = {
 		label = "Invert hidden",
 		help = "Hides what is shown and shows what is hidden.",
-		icon = ui.ICON_EYE_OFF,
+		icon = ui.ICON_INVERT_HIDDEN,
 		run = proc(app: ^App, _: int) {hide_command(app, .Invert)},
 	},
 	.Hide_Masked = {
 		label = "Hide masked",
 		help = "Hides the masked part of the object: each triangle masked at least half at every corner.",
-		icon = ui.ICON_EYE_OFF,
+		icon = ui.ICON_HIDE,
 		run = proc(app: ^App, _: int) {hide_command(app, .Masked)},
 		enabled = has_mask,
 	},
 	.Hide_Unmasked = {
 		label = "Hide unmasked",
 		help = "Hides all but the masked part of the object, to work on that part alone.",
-		icon = ui.ICON_EYE_OFF,
+		icon = ui.ICON_HIDE_UNMASKED,
 		run = proc(app: ^App, _: int) {hide_command(app, .Unmasked)},
 		enabled = has_mask,
 	},
 	.Grow_Visible = {
 		label = "Grow visibility",
 		help = "Shows one ring more of the hidden triangles round what is shown.",
-		icon = ui.ICON_EYE,
+		icon = ui.ICON_GROW,
 		run = proc(app: ^App, _: int) {hide_command(app, .Grow)},
 		enabled = has_hidden,
 	},
 	.Shrink_Visible = {
 		label = "Shrink visibility",
 		help = "Hides one ring of triangles off the edge of what is shown, holes and open borders included.",
-		icon = ui.ICON_EYE_OFF,
+		icon = ui.ICON_SHRINK,
 		run = proc(app: ^App, _: int) {hide_command(app, .Shrink)},
 		enabled = hide_ready,
 	},
 	.Grow_All_Visible = {
 		label = "Grow all",
 		help = "Shows the whole of each piece of the object that has anything shown.",
-		icon = ui.ICON_EYE,
+		icon = ui.ICON_GROW,
 		run = proc(app: ^App, _: int) {hide_command(app, .Grow_All)},
 		enabled = has_hidden,
 	},
 	.Outer_Ring = {
 		label = "Outer ring",
 		help = "Keeps only the ring of triangles along the edge of what is shown.",
-		icon = ui.ICON_EYE_OFF,
+		icon = ui.ICON_OUTER_RING,
 		run = proc(app: ^App, _: int) {hide_command(app, .Outer_Ring)},
 		enabled = hide_ready,
 	},
 	.Grow_To_Groups = {
 		label = "Grow to groups",
 		help = "Shows the whole of each polygroup that has anything shown.",
-		icon = ui.ICON_EYE,
+		icon = ui.ICON_GROW_GROUPS,
 		run = proc(app: ^App, _: int) {hide_command(app, .Grow_Groups)},
 		enabled = proc(app: ^App, arg: int) -> bool {
 			return has_hidden(app, arg) && sculpt.sculptor_has_groups(object_sculptor(selected_object(app)))
@@ -1391,7 +1417,7 @@ COMMANDS := [Command_Id]Command {
 	.Show_Masked = {
 		label = "Show masked",
 		help = "Shows the hidden triangles masked at least half at every corner, undoing Hide masked.",
-		icon = ui.ICON_EYE,
+		icon = ui.ICON_SHOW_MASKED,
 		run = proc(app: ^App, _: int) {hide_command(app, .Show_Masked)},
 		enabled = proc(app: ^App, arg: int) -> bool {return has_hidden(app, arg) && has_mask(app, arg)},
 	},
@@ -1441,10 +1467,19 @@ COMMANDS := [Command_Id]Command {
 			return obj != nil && obj.voxel == nil && !object_in_hd(obj) && sculpt.sculptor_has_groups(object_sculptor(obj))
 		},
 	},
+	.Rebuild_Levels = {
+		label = "Rebuild levels",
+		help = "Finds the coarser levels a subdivided mesh was made from (an import from ZBrush or Blender, say) and gives them back below it, its own surface kept as the top level, as ZBrush's Reconstruct Subdiv does. For an object of one level; its polygroups, UVs and sculpt layers go, Undo brings them back.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Rebuild_Levels}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel == nil && obj.curve == nil && obj.cage == nil && len(obj.levels.levels) == 1 && !object_dynamic(obj)
+		},
+	},
 	.Delete_Lower_Levels = {
 		label = "Delete lower levels",
 		help = "Removes the subdivision levels below the current one.",
-		icon = ui.ICON_TRASH,
+		icon = ui.ICON_DELETE_LEVELS,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Delete_Lower}},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
@@ -1454,7 +1489,7 @@ COMMANDS := [Command_Id]Command {
 	.Delete_Higher_Levels = {
 		label = "Delete higher levels",
 		help = "Removes the subdivision levels above the current one.",
-		icon = ui.ICON_TRASH,
+		icon = ui.ICON_DELETE_LEVELS,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Delete_Higher}},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
@@ -1560,7 +1595,7 @@ COMMANDS := [Command_Id]Command {
 	.Morph_Delete = {
 		label = "Delete morph target",
 		help = "Forgets the stored morph target of this level.",
-		icon = ui.ICON_TRASH,
+		icon = ui.ICON_MORPH_DELETE,
 		run = proc(app: ^App, _: int) {sculpt.sculptor_morph_clear(object_sculptor(selected_object(app)))},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
@@ -1607,7 +1642,7 @@ COMMANDS := [Command_Id]Command {
 	.Export_Paint_Maps = {
 		label = "Export paint maps...",
 		help = "Writes the selected object's paint, its vertex and texture layers over its material, into a folder as a base colour map and an ORM map (roughness in green, metal in blue, as glTF reads them) at its texture layers' size, named after it.",
-		icon = ui.ICON_IMAGE,
+		icon = ui.ICON_PAINT_MAPS,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Paint_Maps)},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
@@ -1779,14 +1814,14 @@ COMMANDS := [Command_Id]Command {
 	.Unwrap = {
 		label = "Unwrap",
 		help = "Gives the selected object new UVs: seams along creases and polygroup borders, each piece laid flat, relaxed as the UVs section's Relax says and packed in the square; a quad object keeps its quads whole.",
-		icon = rune(0xe4ee),
+		icon = ui.ICON_UNWRAP,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Unwrap, unwrap = unwrap_setup(app)}},
 		enabled = has_mesh_object,
 	},
 	.Straighten = {
 		label = "Straighten quad islands",
 		help = "Lays each of a quad object's islands out as a grid of rectangles, its rows and columns as long as on the model; islands that are not a clean grid of quads keep their shape.",
-		icon = rune(0xe4ee),
+		icon = ui.ICON_STRAIGHTEN_ISLANDS,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Straighten}},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
@@ -1796,7 +1831,7 @@ COMMANDS := [Command_Id]Command {
 	.Texel_Density = {
 		label = "Set texel density",
 		help = "Evens out the selected object's islands to one texel density and sets it to the UVs section's Density, as near as one square holds; the report says the most it holds.",
-		icon = rune(0xe4ee),
+		icon = ui.ICON_TEXEL_DENSITY,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Texel_Density}},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
@@ -1933,7 +1968,7 @@ COMMANDS := [Command_Id]Command {
 	.Curve_Bake = {
 		label = "Bake curve",
 		help = "Makes the selected curve's tube a mesh object to sculpt, in the curve's place; the curve goes, and Undo brings it back (Duplicate first to keep it).",
-		icon = ui.ICON_SPLINE,
+		icon = ui.ICON_CURVE_BAKE,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Bake_Curve}},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_curve(app)
@@ -1943,7 +1978,7 @@ COMMANDS := [Command_Id]Command {
 	.Curve_Use = {
 		label = "Curve use",
 		help = "What the selected curve makes: Line (nothing, a line to edit), Tube (a tube along it), Lathe (the curve spun round an axis, the view's vertical when chosen) Along (stitches, zipper teeth or balls set along it) Brush path (a path to run the brush along) or Guide (a line Quad remesh's loops follow). It stays editable until Bake. One undo step.",
-		icon = ui.ICON_SPLINE,
+		icon = ui.ICON_CURVE_USE,
 		args = len(Curve_Use),
 		run = proc(app: ^App, arg: int) {
 			if obj := selected_curve(app); obj != nil do app.ui.scene_command = {kind = .Curve_Look, curve = curve_use_look(app, obj, Curve_Use(arg))}
@@ -1961,28 +1996,28 @@ COMMANDS := [Command_Id]Command {
 	.Curve_Brush_Run = {
 		label = "Run brush along curve",
 		help = "Lays the brush in hand along the selected curve on the model under it, each point's radius and intensity its own, and opens the stroke for editing as a stroke held still does: drag its points, then Validate keeps it as one undo step. Not for Grab, Snake hook or Cloth, whose dabs follow the pointer.",
-		icon = ui.ICON_SPLINE,
+		icon = ui.ICON_CURVE_RUN,
 		run = proc(app: ^App, _: int) {_ = curve_brush_run(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return curve_brush_refusal(app) == ""},
 	},
 	.Curve_Pipe_Cage = {
 		label = "Pipe cage from curve",
 		help = "Makes a new Model mode cage of quads round the selected curve: a ring of Around points at each of its points and Steps between, as wide as its radius there, a corner point's ring creased; the ends closed with Cage caps. The curve stays. One undo step.",
-		icon = ui.ICON_SPLINE,
+		icon = ui.ICON_CURVE_PIPE,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Curve_Cage, axis = int(Curve_Cage_Kind.Pipe)}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_curve(app) != nil},
 	},
 	.Curve_Lathe_Cage = {
 		label = "Lathe cage from curve",
 		help = "Makes a new Model mode cage of quads by spinning the selected curve round its lathe axis (the view's vertical if it has none yet) in Around steps, a point on the axis a pole of triangles. The curve stays. One undo step.",
-		icon = ui.ICON_SPLINE,
+		icon = ui.ICON_CURVE_LATHE,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Curve_Cage, axis = int(Curve_Cage_Kind.Lathe)}},
 		enabled = proc(app: ^App, _: int) -> bool {return selected_curve(app) != nil},
 	},
 	.Curve_Loft_Cage = {
 		label = "Loft cage from curves",
 		help = "Makes a new Model mode cage of quads through two or more curves: the selected ones, or the selected curve and every other shown Line curve, from the selected one to the nearest next. Each is cut into Around points evenly by length and turned to follow the one before, with Steps rows between along a smooth path; a closed loft takes Cage caps. The curves stay. One undo step.",
-		icon = ui.ICON_SPLINE,
+		icon = ui.ICON_CURVE_LOFT,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Curve_Cage, axis = int(Curve_Cage_Kind.Loft)}},
 		enabled = proc(app: ^App, _: int) -> bool {
 			_, why := curve_loft_sections(app)
@@ -2031,6 +2066,24 @@ COMMANDS := [Command_Id]Command {
 			return obj != nil && obj.voxel != nil && obj.voxel.resolution / 2 >= VOXELS_MIN
 		},
 	},
+	.Remove_Floaters = {
+		label = "Remove floaters",
+		help = "Keeps the largest piece of the selected voxel object and removes every piece cut off from it, as one undo step.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Remove_Floaters}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel != nil
+		},
+	},
+	.Separate_Pieces = {
+		label = "Separate pieces",
+		help = "Makes each piece of the selected voxel object cut off from the rest a voxel object of its own, in place, as one undo step.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Separate_Pieces}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel != nil
+		},
+	},
 	.Reset_Transform = {
 		label = "Reset transform",
 		help = "Puts each selected object back at the world's middle, unturned, at scale 1, as one undo step.",
@@ -2041,7 +2094,7 @@ COMMANDS := [Command_Id]Command {
 	.Add_Object = {
 		label = "Add object",
 		help = "Adds the shape and size picked in the Scene card's Add object (with As voxels a voxel sphere of that size), or the content pack's mesh picked there.",
-		icon = ui.ICON_PLUS,
+		icon = ui.ICON_ADD_OBJECT,
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
 			vertices := int(SPHERE_PRESETS[k.add_size].vertices)
@@ -2090,21 +2143,21 @@ COMMANDS := [Command_Id]Command {
 	.Lock_Object = {
 		label = "Lock object",
 		help = "Locks the selected object, so presses in the view pass over it (it stays in sight), and selects the next one; its lock in the Scene card unlocks it.",
-		icon = ICON_LOCK,
+		icon = ui.ICON_LOCK,
 		run = proc(app: ^App, _: int) {view_command(app, .Lock)},
 		enabled = has_object,
 	},
 	.Object_Menu = {
 		label = "Object menu",
 		help = "Opens the menu of the object under the pointer (the scene's menu over empty space), or the selected object's under its chip when the pointer is not on the view: what a right click and the pen's side button open.",
-		icon = ui.ICON_MENU,
+		icon = ui.ICON_OBJECT_MENU,
 		run = proc(app: ^App, _: int) {object_menu_here(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return !pie_busy(app)},
 	},
 	.Solo_Object = {
 		label = "Solo",
 		help = "Shows only the selected object, and whichever is selected next, until Solo is off again; the others keep their eyes as they were.",
-		icon = ICON_SOLO,
+		icon = ui.ICON_SOLO,
 		run = proc(app: ^App, _: int) {view_command(app, .Solo)},
 		enabled = has_object,
 		checked = proc(app: ^App, _: int) -> bool {return app.scene.solo},
@@ -2163,14 +2216,14 @@ COMMANDS := [Command_Id]Command {
 	.All_Lowest_Level = {
 		label = "All low",
 		help = "Shows every object at its lowest subdivision level, to keep a heavy scene light while posing or arranging it.",
-		icon = ui.ICON_CHEVRON_DOWN,
+		icon = ui.ICON_LEVEL_DOWN,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Levels_All}},
 		enabled = any_levels,
 	},
 	.All_Highest_Level = {
 		label = "All high",
 		help = "Shows every object at its highest subdivision level again.",
-		icon = ui.ICON_CHEVRON_UP,
+		icon = ui.ICON_LEVEL_UP,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Levels_All, on = true}},
 		enabled = any_levels,
 	},
@@ -2185,7 +2238,7 @@ COMMANDS := [Command_Id]Command {
 	.Split_Object = {
 		label = "Split",
 		help = "Makes part of the selected object an object of its own: its hidden part, its masked part, each polygroup or each connected piece; one undo step.",
-		icon = ICON_SPLIT,
+		icon = ui.ICON_SPLIT,
 		args = len(Split_Mode),
 		run = proc(app: ^App, arg: int) {app.ui.scene_command = {kind = .Split, split = Split_Mode(arg)}},
 		// Each mode while there is something to split by (Split to parts finds out on the
@@ -2206,14 +2259,14 @@ COMMANDS := [Command_Id]Command {
 	.Merge_Down = {
 		label = "Merge down",
 		help = "Makes the selected object and the one below it in the list one object, each keeping its own polygroups; one undo step.",
-		icon = ICON_MERGE,
+		icon = ui.ICON_MERGE,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Merge}},
 		enabled = proc(app: ^App, _: int) -> bool {return app.scene.selected >= 0 && app.scene.selected + 1 < len(app.scene.objects)},
 	},
 	.Merge_Visible = {
 		label = "Merge visible",
 		help = "Adds one new object made of every shown object, each keeping its own polygroups; the objects stay as they are.",
-		icon = ICON_MERGE,
+		icon = ui.ICON_MERGE,
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Merge, on = true}},
 		enabled = proc(app: ^App, _: int) -> bool {
 			shown := 0
@@ -2237,7 +2290,7 @@ COMMANDS := [Command_Id]Command {
 	.Rename_Object = {
 		label = "Rename...",
 		help = "Gives the selected object a name of your own, shown in the Scene card and kept in the scene file; one undo step.",
-		icon = ui.ICON_PENCIL,
+		icon = ui.ICON_RENAME,
 		run = proc(app: ^App, _: int) {
 			if obj := selected_object(app); obj != nil {
 				w, h := app.kit.ctx.input.window.x, app.kit.ctx.input.window.y
@@ -2276,7 +2329,7 @@ COMMANDS := [Command_Id]Command {
 	.Reset_Camera = {
 		label = "Reset camera",
 		help = "Goes back to the starting view, keeping the projection and the field of view.",
-		icon = ui.ICON_SUN,
+		icon = ui.ICON_RESET_CAMERA,
 		run = proc(app: ^App, _: int) {
 			before := camera_ease_begin(app)
 			reset_camera(app)
@@ -2306,14 +2359,14 @@ COMMANDS := [Command_Id]Command {
 	.Camera_Menu = {
 		label = "Camera",
 		help = "Opens the camera's menu beside its button: orthographic, the field of view, framing, resetting and stepping between views.",
-		icon = ICON_CAMERA,
+		icon = ui.ICON_CAMERA,
 		run = proc(app: ^App, _: int) {bar_menu_toggle(app, .Camera)},
 		checked = proc(app: ^App, _: int) -> bool {return bar_pop_showing(app, .Camera)},
 	},
 	.Shading_Menu = {
 		label = "Shading",
 		help = "Opens the shading menu beside its button: the shading modes, wireframe, flat shading, polygroups, occlusion, the render and the texture views.",
-		icon = ICON_SHADING,
+		icon = ui.ICON_SHADING,
 		run = proc(app: ^App, _: int) {bar_menu_toggle(app, .Shading)},
 		checked = proc(app: ^App, _: int) -> bool {return bar_pop_showing(app, .Shading)},
 	},
@@ -2371,7 +2424,7 @@ COMMANDS := [Command_Id]Command {
 	.Second_View = {
 		label = "Second view",
 		help = "Splits the view in two: the view you sculpt in and a pane with its own camera and shading (following the camera or from the front, side or top, as a silhouette, shaded or a pass), to judge the whole form as if from across the room. Again joins them.",
-		icon = rune(0xe3b2), // picture-in-picture
+		icon = ui.ICON_SECOND_VIEW,
 		run = proc(app: ^App, _: int) {grid_choose(app, .Single if grid_panes(&app.kit.grid) > 1 else .Side_By_Side)},
 		checked = proc(app: ^App, _: int) -> bool {return grid_panes(&app.kit.grid) > 1},
 	},
@@ -2396,21 +2449,21 @@ COMMANDS := [Command_Id]Command {
 	.Render_Mode = {
 		label = "Full render",
 		help = "Renders the view at Full quality while it is still, path traced: every light with soft shadows, the environment, and light bounced between surfaces.",
-		icon = rune(0xe417), // sparkles
+		icon = ui.ICON_RENDER_FULL,
 		run = proc(app: ^App, _: int) {render_set(app, !app.render_on, .Full)},
 		checked = proc(app: ^App, _: int) -> bool {return app.render_on},
 	},
 	.Pick_Focus = {
 		label = "Pick focus",
 		help = "Render mode's depth of field focuses where the next press meets the model; dragging moves the focus with the finger.",
-		icon = rune(0xe0b0), // crosshair
+		icon = ui.ICON_PICK_FOCUS,
 		run = proc(app: ^App, _: int) {focus_pick_command(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.ui.focus_armed || app.ui.focus_held},
 	},
 	.Place_Light = {
 		label = "Place highlight",
 		help = "Switches Place highlight, as the Lights section's switch does: a press on the model moves the picked light so its highlight lands there. Turned on, it opens the Lights section, whose markers show which light moves.",
-		icon = ICON_LIGHTBULB,
+		icon = ui.ICON_PLACE_LIGHT,
 		run = proc(app: ^App, _: int) {light_place_command(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.scene.lights.count > 0},
 		checked = proc(app: ^App, _: int) -> bool {return app.ui.light_place && lights_section_shown(app)},
@@ -2430,7 +2483,7 @@ COMMANDS := [Command_Id]Command {
 	.Shading_Mode = {
 		label = "Shading",
 		help = "Shows the main view in a look: Clay, lit by a MatCap to sculpt in; Lit, the colours under the scene's lights; Full, the materials whole with their textures; Flat, every colour with no light; Rendered, Full with the Render switch on.",
-		icon = ICON_SHADING,
+		icon = ui.ICON_SHADING,
 		args = len(Shading_Mode),
 		run = proc(app: ^App, arg: int) {shading_mode_set(app, Shading_Mode(arg))},
 		checked = proc(app: ^App, arg: int) -> bool {return app.kit.passes.pass == .Shaded && main_shading_mode(app) == Shading_Mode(arg)},
@@ -2438,14 +2491,14 @@ COMMANDS := [Command_Id]Command {
 	.Stats = {
 		label = "Details",
 		help = "Shows the Details card: how smoothly the app runs, the mesh and the memory.",
-		icon = ui.ICON_ACTIVITY,
+		icon = ui.ICON_DETAILS,
 		run = proc(app: ^App, _: int) {if card_shown(app, .Details) do card_close(app, .Details); else do card_open(app, .Details)},
 		checked = proc(app: ^App, _: int) -> bool {return card_shown(app, .Details)},
 	},
 	.Open_Card = {
 		label = "Open card",
 		help = "Opens this card beside its button (from Search or a key, on the pen side); again, closes it. Pin keeps it open while you sculpt.",
-		icon = ui.ICON_PANEL,
+		icon = ui.ICON_OPEN_CARD,
 		args = len(Card),
 		run = proc(app: ^App, arg: int) {
 			c := Card(arg)
@@ -2457,7 +2510,7 @@ COMMANDS := [Command_Id]Command {
 	.Open_Section = {
 		label = "Open section",
 		help = "Opens the card that holds this section, unfolded and scrolled to it (a section of the brush's switches to the brush).",
-		icon = ui.ICON_PANEL,
+		icon = ui.ICON_OPEN_CARD,
 		args = len(Section),
 		run = proc(app: ^App, arg: int) {card_reveal(app, Section(arg))},
 		// The History brush's section only on that brush.
@@ -2473,20 +2526,20 @@ COMMANDS := [Command_Id]Command {
 	.Panels_Reset = {
 		label = "Reset panels",
 		help = "Puts every panel back where it starts and shows every bar.",
-		icon = ui.ICON_PANEL,
+		icon = ui.ICON_RESET_PANELS,
 		run = proc(app: ^App, _: int) {windows_reset(&app.kit)},
 	},
 	.Layout_Reset = {
 		label = "Reset layout",
 		help = "Puts this space's layout (its toolbars, cards, view grid and shading) back as it ships.",
-		icon = ui.ICON_HISTORY,
+		icon = ui.ICON_RESET_LAYOUT,
 		run = proc(app: ^App, _: int) {layout_reset(&app.kit)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.kit.layouts.modified},
 	},
 	.Space_Switch = {
 		label = "Space",
 		help = "Switches to this working space (Sculpt, Model or Render) with the tool you last used there and its layout.",
-		icon = ui.ICON_PANEL,
+		icon = ui.ICON_SPACE,
 		args = len(Space),
 		run = proc(app: ^App, arg: int) {space_switch(app, Space(arg))},
 		checked = proc(app: ^App, arg: int) -> bool {return app.kit.spaces.current == Space(arg)},
@@ -2494,15 +2547,14 @@ COMMANDS := [Command_Id]Command {
 	.Inspect_Mode = {
 		label = "Four views",
 		help = "Shows the form four ways (shaded, curvature, normals and a front silhouette) with the brush toolbar and the view toolbar aside; again puts the view back.",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_FOUR_VIEWS,
 		run = proc(app: ^App, _: int) {inspect_set(&app.kit, !app.kit.inspect.on)},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.inspect.on},
 	},
 	.View_Pass = {
 		label = "Shading",
 		help = "Shows the viewport in this shading: its mode, or the normals, depth, curvature, occlusion or silhouette alone, to check the form, or what the detail skin holds as normal-map colours.",
-		icon = ui.ICON_EYE,
-		// The shading modes' own passes are the modes', not picked here.
+		icon = ui.ICON_SHADING,
 		args = PASS_PICKED,
 		run = proc(app: ^App, arg: int) {pass_set(&app.kit, render.View_Pass(arg))},
 		enabled = proc(app: ^App, arg: int) -> bool {
@@ -2513,14 +2565,14 @@ COMMANDS := [Command_Id]Command {
 	.View_Pass_Last = {
 		label = "Last shading",
 		help = "Goes back to the shading shown before this one, so one key flips between two.",
-		icon = ui.ICON_UNDO,
+		icon = ui.ICON_LAST_SHADING,
 		run = proc(app: ^App, _: int) {pass_back(&app.kit)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.kit.passes.last != app.kit.passes.pass},
 	},
 	.View_Grid = {
 		label = "View grid",
 		help = "Splits the viewport into panes: the main view, where you sculpt, and views beside it from the front, the side or the top, each with its own camera and shading, drawn again once a stroke is over.",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_VIEW_GRID,
 		args = len(Grid_Preset),
 		run = proc(app: ^App, arg: int) {grid_choose(app, Grid_Preset(arg))},
 		checked = proc(app: ^App, arg: int) -> bool {
@@ -2533,7 +2585,7 @@ COMMANDS := [Command_Id]Command {
 	.View_Wipe = {
 		label = "Wipe compare",
 		help = "Splits the main view by a line you drag: the shading picked on its left, the last other one on its right, to compare the two on the same form.",
-		icon = ICON_WIPE,
+		icon = ui.ICON_WIPE,
 		run = proc(app: ^App, _: int) {wipe_toggle(&app.kit)},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.passes.wipe},
 		// A recording keeps one pass in every frame it takes.
@@ -2542,27 +2594,27 @@ COMMANDS := [Command_Id]Command {
 	.View_Guides = {
 		label = "Proportion guides",
 		help = "Shows dashed lines at the brow, the nose's base and the chin across every level side view; drag a line's tag in any of them to move it in all.",
-		icon = ICON_GUIDES,
+		icon = ui.ICON_VIEW_GUIDES,
 		run = proc(app: ^App, _: int) {guides_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.scene.guides.shown},
 	},
 	.View_Guides_Reset = {
 		label = "Reset guides",
 		help = "Puts the proportion guides back at the face's thirds over what is selected (or every shown object), and shows them.",
-		icon = ICON_GUIDES_RESET,
+		icon = ui.ICON_VIEW_GUIDES_RESET,
 		run = proc(app: ^App, _: int) {guides_reset(app)},
 	},
 	.Render_Preview = {
 		label = "Render preview pane",
 		help = "Shows render mode's path tracing in a view pane beside the view you sculpt in, linked to its camera and built up while you rest; again, puts the pane back to Shaded.",
-		icon = ICON_RENDER_PREVIEW,
+		icon = ui.ICON_RENDER_PREVIEW,
 		run = proc(app: ^App, _: int) {render_preview_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return render_preview_pane(&app.kit) != 0},
 	},
 	.View_Window = {
 		label = "New view window",
 		help = "Opens a view in a window of its own, to move to another monitor: the first view pane's camera and shading, else the main camera shaded, with its own head to change them. Up to three; desktop only.",
-		icon = ICON_VIEW_WINDOW,
+		icon = ui.ICON_VIEW_WINDOW,
 		run = proc(app: ^App, _: int) {view_window_request(app, view_window_default(app))},
 		// With three open it still runs, to say why no fourth opens.
 		enabled = proc(app: ^App, _: int) -> bool {return VIEW_WINDOWS_AVAILABLE},
@@ -2577,7 +2629,7 @@ COMMANDS := [Command_Id]Command {
 	.Pane_Tab_Texture = {
 		label = "New texture tab",
 		help = "Adds a tab to the view pane you used last that shows the selected object's maps flat: drag to pan, the wheel or a pinch to zoom, a double tap to fit.",
-		icon = ui.ICON_IMAGE,
+		icon = ui.ICON_TEXTURE_TAB,
 		run = proc(app: ^App, _: int) {pane_tab_command(app, 0, .Pane_Tab_Texture)},
 		enabled = proc(app: ^App, _: int) -> bool {return pane_tab_command_enabled(app, 0, .Pane_Tab_Texture)},
 	},
@@ -2598,35 +2650,35 @@ COMMANDS := [Command_Id]Command {
 	.Pane_Tab_Previous = {
 		label = "Previous tab",
 		help = "Shows the tab before this one in the view pane you used last, round to the last.",
-		icon = ICON_CHEVRON_LEFT,
+		icon = ui.ICON_CHEVRON_LEFT,
 		run = proc(app: ^App, _: int) {pane_tab_command(app, 0, .Pane_Tab_Previous)},
 		enabled = proc(app: ^App, _: int) -> bool {return pane_tab_command_enabled(app, 0, .Pane_Tab_Previous)},
 	},
 	.Clean_View = {
 		label = "Clean view",
 		help = "Hides the controls so you can judge the form, keeping the dial, nothing, or the shelf and dial as Settings > Dial says; again, Escape or a four-finger tap brings them back.",
-		icon = ICON_CLEAN_VIEW,
+		icon = ui.ICON_CLEAN_VIEW,
 		run = proc(app: ^App, _: int) {clean_view_set(app, !clean_view_on(&app.kit))},
 		checked = proc(app: ^App, _: int) -> bool {return clean_view_on(&app.kit)},
 	},
 	.View_Layout_Menu = {
 		label = "View layout",
 		help = "Opens the view layout's menu beside its button: one view or a grid of them, the render preview and a view window.",
-		icon = ICON_VIEW_LAYOUT,
+		icon = ui.ICON_VIEW_LAYOUT,
 		run = proc(app: ^App, _: int) {bar_menu_toggle(app, .View_Layout)},
 		checked = proc(app: ^App, _: int) -> bool {return bar_pop_showing(app, .View_Layout)},
 	},
 	.Pass_Menu = {
 		label = "Shading modes",
 		help = "Opens the shading list beside its button: the shading modes with Solid's lighting, MatCap and colour, the form checks with Four views, and wipe compare.",
-		icon = ICON_PASSES,
+		icon = ui.ICON_PASSES,
 		run = proc(app: ^App, _: int) {pass_menu_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.passes.menu},
 	},
 	.Brush_Picker = {
 		label = "Brush picker",
 		help = "Opens every brush, tool and preset as cards showing each one's stroke, by category, with a search; a tap picks one, a drag puts it on the shelf (B in the Lens layout).",
-		icon = ui.ICON_GRID,
+		icon = ui.ICON_BRUSH_PICKER,
 		run = proc(app: ^App, _: int) {brush_picker_toggle(app)},
 		checked = proc(app: ^App, _: int) -> bool {return app.kit.browser},
 	},
@@ -2660,7 +2712,7 @@ COMMANDS := [Command_Id]Command {
 	.File_Chip = {
 		label = "File",
 		help = "The top bar's file chip: the scene's file and whether it is saved; a tap opens the menu.",
-		icon = ICON_FILE,
+		icon = ui.ICON_FILE,
 		run = proc(app: ^App, _: int) {
 			app.kit.menu = !app.kit.menu
 			app.kit.menu_scroll = 0
@@ -2669,13 +2721,13 @@ COMMANDS := [Command_Id]Command {
 	.Space_Tabs = {
 		label = "Space tabs",
 		help = "The top bar's space tabs: Sculpt, Model, Render and the rest, a tap switching to one; run, it goes to the next space.",
-		icon = ui.ICON_PANEL,
+		icon = ui.ICON_SPACE,
 		run = proc(app: ^App, _: int) {space_switch(app, Space((int(app.kit.spaces.current) + 1) % len(Space)))},
 	},
 	.Object_Chip = {
 		label = "Object chip",
 		help = "The top bar's object chip: the selected object's name and kind; a tap opens its menu.",
-		icon = ICON_SCULPT_MESH,
+		icon = ui.ICON_SCULPT_MESH,
 		run = proc(app: ^App, _: int) {command_run(app, .Object_Menu)},
 	},
 	.Viewport_Readout = {
@@ -2715,7 +2767,7 @@ COMMANDS := [Command_Id]Command {
 	.Customise_Bars = {
 		label = "Edit toolbars",
 		help = "Edits the toolbars in place (or hold any toolbar's ⋯): a tap on a ringed button moves, removes or changes it and + adds one; a toolbar's head carries it to an edge or anywhere and opens its menu; its curved corner gives it more or fewer lines; the Library chooses which bars show and where each panel goes; Done ends it.",
-		icon = ICON_CUSTOMISE,
+		icon = ui.ICON_CUSTOMISE,
 		run = proc(app: ^App, _: int) {
 			k := &app.kit
 			k.bars_edit, k.edit_dock = !k.bars_edit, nil
@@ -2742,7 +2794,7 @@ COMMANDS := [Command_Id]Command {
 	.Coach_Tips = {
 		label = "Show the first-run tips",
 		help = "Shows the three tips a first run starts with again: sculpt, turn the view, move and zoom it.",
-		icon = ui.ICON_HELP,
+		icon = ui.ICON_TIPS,
 		run = proc(app: ^App, _: int) {
 			coach_restart(app)
 			// The card shows only with nothing open over its place.
@@ -2766,7 +2818,7 @@ COMMANDS := [Command_Id]Command {
 	.Take_Tour = {
 		label = "Take the tour",
 		help = "Walks through the spaces, the dial, the palettes, History and Paint, one step at a time, each lit on the screen to try there.",
-		icon = ui.ICON_HELP,
+		icon = ui.ICON_TOUR,
 		run = proc(app: ^App, _: int) {tour_restart(app)},
 	},
 	.Pie = {
@@ -2780,7 +2832,7 @@ COMMANDS := [Command_Id]Command {
 	.Brush_Pie = {
 		label = "Brush pie",
 		help = "Opens the brush pie at the pointer, for a tap on a brush: what Space opens, and a right click with Settings > Keys > Right click opens set to Brush pie.",
-		icon = ui.ICON_PIE,
+		icon = ui.ICON_BRUSH_PIE,
 		run = proc(app: ^App, _: int) {pie_toggle(app, 0)},
 		enabled = proc(app: ^App, _: int) -> bool {return !pie_busy(app)},
 	},
@@ -2803,20 +2855,20 @@ COMMANDS := [Command_Id]Command {
 	.Macros = {
 		label = "Macros...",
 		help = "Lists your macros, to run, rename, delete or give a key, runs script files, and lists the script plugins.",
-		icon = ui.ICON_FILM,
+		icon = ui.ICON_MACROS,
 		run = proc(app: ^App, _: int) {macros_open(app)},
 	},
 	.Run_Script = {
 		label = "Run script...",
 		help = "Runs a command script file (.cmd) on what is selected, each command its own undo step.",
-		icon = ui.ICON_OPEN,
+		icon = ui.ICON_RUN_SCRIPT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Run_Script)},
 		enabled = proc(app: ^App, _: int) -> bool {return script_can_start(app)},
 	},
 	.Run_Plugin = {
 		label = "Run plugin",
 		help = "Runs a script plugin's command on what is selected, each command it runs its own undo step.",
-		icon = ui.ICON_PLAY,
+		icon = ui.ICON_RUN_PLUGIN,
 		args = PLUGIN_COMMANDS_MAX,
 		run = proc(app: ^App, arg: int) {plugin_run(app, arg)},
 		enabled = plugin_can_run,
@@ -2824,40 +2876,40 @@ COMMANDS := [Command_Id]Command {
 	.Reload_Plugins = {
 		label = "Reload plugins",
 		help = "Reads the script plugins in the plugins folder beside the settings again, after you change one.",
-		icon = ui.ICON_REDO,
+		icon = ui.ICON_RELOAD,
 		run = proc(app: ^App, _: int) {plugins_reload_request(app)},
 		enabled = proc(app: ^App, _: int) -> bool {return PLUGINS_AVAILABLE && app.plugins.folder != "" && script_can_start(app)},
 	},
 	.Library = {
 		label = "Library...",
 		help = "Opens the Library on its packs: the content packs installed and your own alphas, to install a pack, make one or remove one.",
-		icon = ui.ICON_FOLDER,
+		icon = ui.ICON_LIBRARY,
 		run = proc(app: ^App, _: int) {library_packs_open(app)},
 	},
 	.Pick_Pack = {
 		label = "Install pack...",
 		help = "Adds a content pack (.sculptpack) to your library: its alphas, brush presets and meshes join the app under its name.",
-		icon = ui.ICON_IMPORT,
+		icon = ui.ICON_INSTALL_PACK,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Install_Pack)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.library.folder != "" && !pack_busy(app)},
 	},
 	.Save_Pack = {
 		label = "Make a pack...",
 		help = "Writes your own alphas and brush presets as a content pack (.sculptpack) named after its file, to install on another device or pass on.",
-		icon = ui.ICON_EXPORT,
+		icon = ui.ICON_MAKE_PACK,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Make_Pack)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.library.alphas > 0 || app.preset_count > 0},
 	},
 	.Pencil_Preferred = {
 		label = "Follow the Pencil setting",
 		help = "Does what the iPad's Settings > Apple Pencil asks of a double-tap or squeeze: the palette at the tip opens the brush pie, the eraser turns Smooth on or off, the last used brush comes back, and the colour palette or the tool's attributes open their cards.",
-		icon = ui.ICON_PENCIL,
+		icon = ui.ICON_PEN,
 		run = proc(app: ^App, _: int) {pencil_preferred_run(app)},
 	},
 	.Input_Diagnostics = {
 		label = "Input diagnostics",
 		help = "Shows the developer's guided tests of fingers, the Pencil, the keyboard and system gestures, which log what the app received and what its controls did, to export as a report.",
-		icon = ui.ICON_ACTIVITY,
+		icon = ui.ICON_DIAGNOSTICS,
 		run = proc(app: ^App, _: int) {
 			if app.diag.open do diag_close(app)
 			else do diag_open(app)
@@ -2868,22 +2920,21 @@ COMMANDS := [Command_Id]Command {
 	.Save_Crash_Log = {
 		label = "Save the crash log...",
 		help = "Saves a copy of the log of the last run that crashed, which says what went wrong and where, to send with a bug report.",
-		icon = ui.ICON_EXPORT,
+		icon = ui.ICON_CRASH_LOG,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Crash_Log)},
 		enabled = proc(app: ^App, _: int) -> bool {return crash_log_kept()},
 	},
 	.Pen_As_Empty = {
 		label = "As over empty space",
 		help = "Does what the pencil's double-tap, squeeze or second button does over empty space (Settings > Pen, Where the pen points).",
-		icon = ui.ICON_PENCIL,
-		// pencil_slot_here runs the empty-space slot in its place; held anywhere else (a
+		icon = ui.ICON_PEN_EMPTY,
 		// settings file can put it on any slot), it does nothing rather than loop.
 		run = proc(app: ^App, _: int) {},
 	},
 	.Pie_Editor = {
 		label = "Edit pies",
 		help = "Shows the four pies' slots, to empty them or put the defaults back.",
-		icon = ui.ICON_PIE,
+		icon = ui.ICON_EDIT_PIES,
 		run = proc(app: ^App, _: int) {pie_editor_open(app, .None, 0, {})},
 	},
 }
@@ -3319,7 +3370,11 @@ command_menu_item :: proc(app: ^App, id: Command_Id, arg := 0, label := "", tone
 	// With the icon where the shortcut goes, the shortcut moves to the tooltip.
 	hint := hint_join(keys, gesture) if gesture != "" || (trailing && keys != "") else ""
 	can := command_enabled(app, id, arg)
-	if !ui.menu_item(&app.kit.ctx, text, keys, c.icon, command_checked(app, id, arg), tone, can, hint = hint, trailing = trailing, reason = "" if can else command_reason(app, id, arg)) do return false
+	// A brush or a preset shows its brush's own picture, and its own glyph without one,
+	// rather than the one icon every brush command shares.
+	slot := Bar_Slot{id, arg}
+	glyph := bar_icon(app, slot) if id == .Brush || id == .Brush_Preset else c.icon
+	if !ui.menu_item(&app.kit.ctx, text, keys, glyph, command_checked(app, id, arg), tone, can, hint = hint, trailing = trailing, reason = "" if can else command_reason(app, id, arg), picture = bar_picture(app, slot)) do return false
 	return command_run(app, id, arg)
 }
 

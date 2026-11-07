@@ -68,7 +68,7 @@ coach_text :: proc(app: ^App, step: Coach_Step) -> (glyph: rune, text: string) {
 			text = "Right drag, or Alt + left drag, to turn the view."
 		}
 	case .Move:
-		glyph = ui.ICON_ZOOM_IN
+		glyph = ui.ICON_ZOOM
 		switch {
 		case pointer == .Mouse || (pointer == .Pen && !app.finger_seen):
 			text = "Middle drag to move the view; the wheel zooms."

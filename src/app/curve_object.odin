@@ -112,19 +112,10 @@ Curve_Part :: struct {
 // The fewest points a curve has: a curve of one point would be nothing to see or edit.
 CURVE_MIN_POINTS :: 2
 
-// Bytes a point takes in a scene file: three vectors, three numbers and the corner byte.
+// Bytes a point takes in a scene file, and the options after them, about: what object_put
+// reserves for a curve.
 CURVE_POINT_BYTES :: 3 * size_of(Vec3) + 3 * size_of(f32) + 1
-
-// Bytes the tube's options take after the points: radius mode, one, sides, density, caps,
-// then the profile's count, Mirror and every slot of it, then the width along's count and
-// every slot of it.
-CURVE_TUBE_BYTES :: 3 + 2 * size_of(f32) + 2 + geom.PROFILE_POINTS_MAX * (6 * size_of(f32) + 1) + 1 + geom.PROFILE_POINTS_MAX * (6 * size_of(f32) + 1)
-
-// Bytes the lathe's options take after the tube's: axis, through, angle, segments, caps.
-CURVE_LATHE_BYTES :: size_of(Vec3) + 1 + size_of(f32) + size_of(u16) + 1
-
-// Bytes Along's options take after the lathe's: part, gap, alternate, lift, up.
-CURVE_ALONG_BYTES :: 1 + size_of(f32) + 1 + size_of(f32) + size_of(Vec3)
+CURVE_OPTIONS_BYTES :: 4096
 
 // How far, in pixels, a press may land from a curve's line on screen and pick it.
 CURVE_PICK_PX :: 10
@@ -359,149 +350,223 @@ curve_name :: proc(app: ^App, id: int) -> string {
 	return fmt.tprintf("Curve %d", n + 1)
 }
 
-// Writes the curve in the levels' place of object_put: the count, closed, the use, each
-// point, then the tube's options field by field. A later use's settings follow these, at
-// the end, where an older reader stops.
+// A curve object's fields in the scene file (curve_part_put); tags are never reused or
+// retyped (geom/record.odin). The points are runs of values, one a point, so every run
+// must hold as many as the positions.
+Curve_Tag :: enum u16 {
+	Closed    = 1,  // u8
+	Use       = 2,  // u8 Curve_Use
+	Points    = 3,  // Vec3 per point, required
+	Handle_In = 4,  // Vec3 per point
+	Handle_Out = 5, // Vec3 per point
+	Radius    = 6,  // f32 per point
+	Intensity = 7,  // f32 per point
+	Twist     = 8,  // f32 per point
+	Handles   = 9,  // u8 Handle_Type per point
+	Tube      = 10, // Tube_Tag record
+	Lathe     = 11, // Lathe_Tag record
+	Along     = 12, // Along_Tag record
+}
+
+Tube_Tag :: enum u16 {
+	Radius          = 1,  // u8 Tube_Radius
+	One             = 2,  // f32
+	Sides           = 3,  // u8
+	Density         = 4,  // f32
+	Caps            = 5,  // u8 Tube_Caps
+	Profile_Count   = 6,  // u8
+	Profile_Mirror  = 7,  // u8
+	Profile         = 8,  // [2]f32 per profile slot, used or not
+	Profile_In      = 9,  // [2]f32 per slot
+	Profile_Out     = 10, // [2]f32 per slot
+	Profile_Handles = 11, // u8 per slot
+	Width_Count     = 12, // u8
+	Width           = 13, // [2]f32 per width slot, used or not
+	Width_In        = 14, // [2]f32 per slot
+	Width_Out       = 15, // [2]f32 per slot
+	Width_Handles   = 16, // u8 per slot
+}
+
+Lathe_Tag :: enum u16 {
+	Axis     = 1, // Vec3
+	Through  = 2, // u8 Lathe_Through
+	Angle    = 3, // f32 degrees
+	Segments = 4, // u16
+	Caps     = 5, // u8
+}
+
+Along_Tag :: enum u16 {
+	Part      = 1, // u8 Along_Part
+	Gap       = 2, // f32
+	Alternate = 3, // u8
+	Lift      = 4, // f32
+	Up        = 5, // Vec3
+}
+
+// Writes the curve in the levels' place of object_put, as a record: closed, the use, the
+// points as runs of values, then the tube's, lathe's and Along's options.
 curve_part_put :: proc(out: ^[dynamic]u8, cp: ^Curve_Part) {
-	geom.byte_put(out, u32(len(cp.points)))
-	geom.byte_put(out, u8(cp.closed))
-	geom.byte_put(out, u8(cp.use))
-	for p in cp.points {
-		geom.byte_put(out, p.p)
-		geom.byte_put(out, p.h_in)
-		geom.byte_put(out, p.h_out)
-		geom.byte_put(out, p.radius)
-		geom.byte_put(out, p.intensity)
-		geom.byte_put(out, p.twist)
-		geom.byte_put(out, u8(p.handles))
+	rec := geom.record_begin(out)
+	defer geom.record_end(out, rec)
+	geom.rec_put(out, Curve_Tag.Closed, u8(cp.closed))
+	geom.rec_put(out, Curve_Tag.Use, u8(cp.use))
+	n := len(cp.points)
+	t := context.temp_allocator
+	p, h_in, h_out := make([]Vec3, n, t), make([]Vec3, n, t), make([]Vec3, n, t)
+	radius, intensity, twist := make([]f32, n, t), make([]f32, n, t), make([]f32, n, t)
+	handles := make([]u8, n, t)
+	for q, i in cp.points {
+		p[i], h_in[i], h_out[i] = q.p, q.h_in, q.h_out
+		radius[i], intensity[i], twist[i], handles[i] = q.radius, q.intensity, q.twist, u8(q.handles)
 	}
+	geom.rec_put_slice(out, Curve_Tag.Points, p)
+	geom.rec_put_slice(out, Curve_Tag.Handle_In, h_in)
+	geom.rec_put_slice(out, Curve_Tag.Handle_Out, h_out)
+	geom.rec_put_slice(out, Curve_Tag.Radius, radius)
+	geom.rec_put_slice(out, Curve_Tag.Intensity, intensity)
+	geom.rec_put_slice(out, Curve_Tag.Twist, twist)
+	geom.rec_put_slice(out, Curve_Tag.Handles, handles)
 	o := cp.tube
-	geom.byte_put(out, u8(o.radius))
-	geom.byte_put(out, o.one)
-	geom.byte_put(out, u8(o.sides))
-	geom.byte_put(out, o.density)
-	geom.byte_put(out, u8(o.caps))
-	// The profile: its count and Mirror, then every slot, used or not, so the block keeps
-	// one size.
-	geom.byte_put(out, u8(o.profile.count))
-	geom.byte_put(out, u8(o.profile.mirror))
-	for q in o.profile.points {
-		geom.byte_put(out, q.p)
-		geom.byte_put(out, q.h_in)
-		geom.byte_put(out, q.h_out)
-		geom.byte_put(out, u8(q.handles))
-	}
-	geom.byte_put(out, u8(o.width.count))
-	for q in o.width.points {
-		geom.byte_put(out, q.p)
-		geom.byte_put(out, q.h_in)
-		geom.byte_put(out, q.h_out)
-		geom.byte_put(out, u8(q.handles))
-	}
+	at := geom.rec_begin(out, Curve_Tag.Tube)
+	geom.rec_put(out, Tube_Tag.Radius, u8(o.radius))
+	geom.rec_put(out, Tube_Tag.One, o.one)
+	geom.rec_put(out, Tube_Tag.Sides, u8(o.sides))
+	geom.rec_put(out, Tube_Tag.Density, o.density)
+	geom.rec_put(out, Tube_Tag.Caps, u8(o.caps))
+	geom.rec_put(out, Tube_Tag.Profile_Count, u8(o.profile.count))
+	geom.rec_put(out, Tube_Tag.Profile_Mirror, u8(o.profile.mirror))
+	shape_put(out, o.profile.points[:], Tube_Tag.Profile, Tube_Tag.Profile_In, Tube_Tag.Profile_Out, Tube_Tag.Profile_Handles)
+	geom.rec_put(out, Tube_Tag.Width_Count, u8(o.width.count))
+	shape_put(out, o.width.points[:], Tube_Tag.Width, Tube_Tag.Width_In, Tube_Tag.Width_Out, Tube_Tag.Width_Handles)
+	geom.rec_end(out, at)
 	l := cp.lathe
-	geom.byte_put(out, l.axis)
-	geom.byte_put(out, u8(l.through))
-	geom.byte_put(out, l.angle)
-	geom.byte_put(out, u16(l.segments))
-	geom.byte_put(out, u8(l.caps))
+	at = geom.rec_begin(out, Curve_Tag.Lathe)
+	geom.rec_put(out, Lathe_Tag.Axis, l.axis)
+	geom.rec_put(out, Lathe_Tag.Through, u8(l.through))
+	geom.rec_put(out, Lathe_Tag.Angle, l.angle)
+	geom.rec_put(out, Lathe_Tag.Segments, u16(l.segments))
+	geom.rec_put(out, Lathe_Tag.Caps, u8(l.caps))
+	geom.rec_end(out, at)
 	a := cp.along
-	geom.byte_put(out, u8(a.part))
-	geom.byte_put(out, a.opts.gap)
-	geom.byte_put(out, u8(a.opts.alternate))
-	geom.byte_put(out, a.opts.lift)
-	geom.byte_put(out, a.opts.up)
+	at = geom.rec_begin(out, Curve_Tag.Along)
+	geom.rec_put(out, Along_Tag.Part, u8(a.part))
+	geom.rec_put(out, Along_Tag.Gap, a.opts.gap)
+	geom.rec_put(out, Along_Tag.Alternate, u8(a.opts.alternate))
+	geom.rec_put(out, Along_Tag.Lift, a.opts.lift)
+	geom.rec_put(out, Along_Tag.Up, a.opts.up)
+	geom.rec_end(out, at)
+}
+
+// A profile's or width's slots as four runs of values.
+@(private = "file")
+shape_put :: proc(out: ^[dynamic]u8, points: []geom.Profile_Point, p, h_in, h_out, handles: Tube_Tag) {
+	n := len(points)
+	t := context.temp_allocator
+	ps, ins, outs, hs := make([][2]f32, n, t), make([][2]f32, n, t), make([][2]f32, n, t), make([]u8, n, t)
+	for q, i in points do ps[i], ins[i], outs[i], hs[i] = q.p, q.h_in, q.h_out, u8(q.handles)
+	geom.rec_put_slice(out, p, ps)
+	geom.rec_put_slice(out, h_in, ins)
+	geom.rec_put_slice(out, h_out, outs)
+	geom.rec_put_slice(out, handles, hs)
+}
+
+// Reads the slots shape_put wrote into `points`, which keep their values where the file has
+// none; false when a run holds another count of slots, a handle type no version wrote or
+// a value that is not a number.
+@(private = "file")
+shape_get :: proc(rec: ^geom.Record, points: []geom.Profile_Point, p, h_in, h_out, handles: Tube_Tag) -> bool {
+	n := len(points)
+	t := context.temp_allocator
+	if !geom.rec_has(rec, p) do return true
+	ps := geom.rec_get_slice(rec, p, [2]f32, t)
+	ins := geom.rec_get_slice(rec, h_in, [2]f32, t)
+	outs := geom.rec_get_slice(rec, h_out, [2]f32, t)
+	hs := geom.rec_get_slice(rec, handles, u8, t)
+	if !rec.ok || len(ps) != n || len(ins) != n || len(outs) != n || len(hs) != n do return false
+	for &q, i in points {
+		q = {p = ps[i], h_in = ins[i], h_out = outs[i], handles = geom.Handle_Type(hs[i])}
+		if int(hs[i]) >= len(geom.Handle_Type) || !finite({q.p.x, q.p.y, q.h_in.x}) || !finite({q.h_in.y, q.h_out.x, q.h_out.y}) do return false
+	}
+	return true
 }
 
 // Reads what curve_part_put wrote into a new curve on `obj`, and makes its level. `read`
-// is false, with nothing made, for damage: too few points, more than the bytes hold, a
-// flag, use or option no version wrote, a value that is not a number, or tube, lathe or
-// Along options missing. `made` is false on a GPU failure, with the curve on the object
-// for object_discard.
+// is false, with nothing made, for damage: too few points, runs of other counts, a flag,
+// use or option no version wrote, or a value that is not a number. Options the file lacks
+// take the defaults a new curve has. `made` is false on a GPU failure, with the curve on
+// the object for object_discard.
 curve_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, made: bool) {
-	count := int(geom.byte_get(r, u32))
-	closed := geom.byte_get(r, u8)
-	use := geom.byte_get(r, u8)
-	if !r.ok || count < CURVE_MIN_POINTS || count > (len(r.data) - r.at) / CURVE_POINT_BYTES || closed > 1 || int(use) >= len(Curve_Use) do return false, false
+	rec := geom.record_take(r)
+	if !rec.ok do return false, false
+	if known, _ := geom.record_known(&rec, Curve_Tag); !known do return false, false
+	t := context.temp_allocator
+	closed := geom.rec_get(&rec, Curve_Tag.Closed, u8, 0)
+	use := geom.rec_get(&rec, Curve_Tag.Use, u8, 0)
+	if !geom.rec_has(&rec, Curve_Tag.Points) do return false, false
+	p := geom.rec_get_slice(&rec, Curve_Tag.Points, Vec3, t)
+	n := len(p)
+	h_in, h_out := make([]Vec3, n, t), make([]Vec3, n, t)
+	radius, intensity, twist := make([]f32, n, t), make([]f32, n, t), make([]f32, n, t)
+	handles := make([]u8, n, t)
+	for &x in radius do x = 1
+	for &x in intensity do x = 1
+	geom.rec_get_into(&rec, Curve_Tag.Handle_In, h_in)
+	geom.rec_get_into(&rec, Curve_Tag.Handle_Out, h_out)
+	geom.rec_get_into(&rec, Curve_Tag.Radius, radius)
+	geom.rec_get_into(&rec, Curve_Tag.Intensity, intensity)
+	geom.rec_get_into(&rec, Curve_Tag.Twist, twist)
+	geom.rec_get_into(&rec, Curve_Tag.Handles, handles)
+	if !rec.ok || n < CURVE_MIN_POINTS || closed > 1 || int(use) >= len(Curve_Use) do return false, false
+	for i in 0 ..< n {
+		if int(handles[i]) >= len(geom.Handle_Type) || !finite(p[i]) || !finite(h_in[i]) || !finite(h_out[i]) || !finite({radius[i], intensity[i], twist[i]}) do return false, false
+	}
+
+	look := CURVE_LOOK_DEFAULTS
+	look.use = Curve_Use(use)
+	tr, _ := geom.rec_sub(&rec, Curve_Tag.Tube)
+	o := look.tube
+	radius_kind := geom.rec_get(&tr, Tube_Tag.Radius, u8, u8(o.radius))
+	o.one = geom.rec_get(&tr, Tube_Tag.One, f32, o.one)
+	o.sides = int(geom.rec_get(&tr, Tube_Tag.Sides, u8, u8(o.sides)))
+	o.density = geom.rec_get(&tr, Tube_Tag.Density, f32, o.density)
+	caps := geom.rec_get(&tr, Tube_Tag.Caps, u8, u8(o.caps))
+	count := geom.rec_get(&tr, Tube_Tag.Profile_Count, u8, u8(o.profile.count))
+	mirror := geom.rec_get(&tr, Tube_Tag.Profile_Mirror, u8, u8(o.profile.mirror))
+	width_count := geom.rec_get(&tr, Tube_Tag.Width_Count, u8, u8(o.width.count))
+	shapes_ok := shape_get(&tr, o.profile.points[:], Tube_Tag.Profile, Tube_Tag.Profile_In, Tube_Tag.Profile_Out, Tube_Tag.Profile_Handles)
+	shapes_ok &&= shape_get(&tr, o.width.points[:], Tube_Tag.Width, Tube_Tag.Width_In, Tube_Tag.Width_Out, Tube_Tag.Width_Handles)
+	o.profile.count, o.profile.mirror, o.width.count = int(count), mirror == 1, int(width_count)
+	if !rec.ok || !tr.ok || !shapes_ok || int(width_count) < geom.WIDTH_POINTS_MIN || int(width_count) > geom.PROFILE_POINTS_MAX || count < 3 || int(count) > geom.PROFILE_POINTS_MAX || mirror > 1 || int(radius_kind) >= len(geom.Tube_Radius) || int(caps) >= len(geom.Tube_Caps) || o.sides < 3 || o.sides > geom.TUBE_SIDES_MAX || !finite({o.one, o.density, 0}) || o.one < 0 || o.density <= 0 do return false, false
+	o.radius, o.caps = geom.Tube_Radius(radius_kind), geom.Tube_Caps(caps)
+	look.tube = o
+
+	lr, _ := geom.rec_sub(&rec, Curve_Tag.Lathe)
+	l := look.lathe
+	l.axis = geom.rec_get(&lr, Lathe_Tag.Axis, Vec3, l.axis)
+	through := geom.rec_get(&lr, Lathe_Tag.Through, u8, u8(l.through))
+	l.angle = geom.rec_get(&lr, Lathe_Tag.Angle, f32, l.angle)
+	l.segments = int(geom.rec_get(&lr, Lathe_Tag.Segments, u16, u16(l.segments)))
+	lathe_caps := geom.rec_get(&lr, Lathe_Tag.Caps, u8, u8(l.caps))
+	if !rec.ok || !lr.ok || !finite(l.axis) || linalg.length(l.axis) < 1e-6 || int(through) >= len(geom.Lathe_Through) || !(l.angle >= 1 && l.angle <= 360) || l.segments < 3 || l.segments > geom.LATHE_SEGMENTS_MAX || lathe_caps > 1 do return false, false
+	l.through, l.caps = geom.Lathe_Through(through), lathe_caps == 1
+	look.lathe = l
+
+	ar, _ := geom.rec_sub(&rec, Curve_Tag.Along)
+	a := look.along
+	part := geom.rec_get(&ar, Along_Tag.Part, u8, u8(a.part))
+	a.opts.gap = geom.rec_get(&ar, Along_Tag.Gap, f32, a.opts.gap)
+	alternate := geom.rec_get(&ar, Along_Tag.Alternate, u8, u8(a.opts.alternate))
+	a.opts.lift = geom.rec_get(&ar, Along_Tag.Lift, f32, a.opts.lift)
+	a.opts.up = geom.rec_get(&ar, Along_Tag.Up, Vec3, a.opts.up)
+	if !rec.ok || !ar.ok || int(part) >= len(Along_Part) || alternate > 1 || !finite({a.opts.gap, a.opts.lift, 0}) || !finite(a.opts.up) || linalg.length(a.opts.up) < 1e-6 do return false, false
+	a.part, a.opts.alternate = Along_Part(part), alternate == 1
+	look.along = a
+
 	cp := new(Curve_Part)
-	cp.closed, cp.look = closed == 1, CURVE_LOOK_DEFAULTS
-	cp.use = Curve_Use(use)
-	reserve(&cp.points, count)
-	damaged := false
-	for _ in 0 ..< count {
-		p: geom.Bezier_Point
-		p.p = geom.byte_get(r, Vec3)
-		p.h_in = geom.byte_get(r, Vec3)
-		p.h_out = geom.byte_get(r, Vec3)
-		p.radius = geom.byte_get(r, f32)
-		p.intensity = geom.byte_get(r, f32)
-		p.twist = geom.byte_get(r, f32)
-		handles := geom.byte_get(r, u8)
-		p.handles = geom.Handle_Type(handles)
-		if !r.ok || int(handles) >= len(geom.Handle_Type) || !finite(p.p) || !finite(p.h_in) || !finite(p.h_out) || !finite({p.radius, p.intensity, p.twist}) {
-			damaged = true
-			break
-		}
-		append(&cp.points, p)
-	}
-	if !damaged {
-		o: geom.Tube_Options
-		radius := geom.byte_get(r, u8)
-		o.one = geom.byte_get(r, f32)
-		o.sides = int(geom.byte_get(r, u8))
-		o.density = geom.byte_get(r, f32)
-		caps := geom.byte_get(r, u8)
-		count, mirror := geom.byte_get(r, u8), geom.byte_get(r, u8)
-		bad_point := false
-		for &q in o.profile.points {
-			q.p = geom.byte_get(r, [2]f32)
-			q.h_in = geom.byte_get(r, [2]f32)
-			q.h_out = geom.byte_get(r, [2]f32)
-			handles := geom.byte_get(r, u8)
-			q.handles = geom.Handle_Type(handles)
-			if int(handles) >= len(geom.Handle_Type) || !finite({q.p.x, q.p.y, q.h_in.x}) || !finite({q.h_in.y, q.h_out.x, q.h_out.y}) do bad_point = true
-		}
-		o.profile.count, o.profile.mirror = int(count), mirror == 1
-		width_count := geom.byte_get(r, u8)
-		for &q in o.width.points {
-			q.p = geom.byte_get(r, [2]f32)
-			q.h_in = geom.byte_get(r, [2]f32)
-			q.h_out = geom.byte_get(r, [2]f32)
-			handles := geom.byte_get(r, u8)
-			q.handles = geom.Handle_Type(handles)
-			if int(handles) >= len(geom.Handle_Type) || !finite({q.p.x, q.p.y, q.h_in.x}) || !finite({q.h_in.y, q.h_out.x, q.h_out.y}) do bad_point = true
-		}
-		o.width.count = int(width_count)
-		bad_point ||= int(width_count) < geom.WIDTH_POINTS_MIN || int(width_count) > geom.PROFILE_POINTS_MAX
-		damaged = !r.ok || bad_point || count < 3 || int(count) > geom.PROFILE_POINTS_MAX || mirror > 1 || int(radius) >= len(geom.Tube_Radius) || int(caps) >= len(geom.Tube_Caps) || o.sides < 3 || o.sides > geom.TUBE_SIDES_MAX || !finite({o.one, o.density, 0}) || o.one < 0 || o.density <= 0
-		o.radius, o.caps = geom.Tube_Radius(radius), geom.Tube_Caps(caps)
-		cp.tube = o
-	}
-	if !damaged {
-		l: geom.Lathe_Options
-		l.axis = geom.byte_get(r, Vec3)
-		through := geom.byte_get(r, u8)
-		l.angle = geom.byte_get(r, f32)
-		l.segments = int(geom.byte_get(r, u16))
-		caps := geom.byte_get(r, u8)
-		damaged = !r.ok || !finite(l.axis) || linalg.length(l.axis) < 1e-6 || int(through) >= len(geom.Lathe_Through) || !(l.angle >= 1 && l.angle <= 360) || l.segments < 3 || l.segments > geom.LATHE_SEGMENTS_MAX || caps > 1
-		l.through, l.caps = geom.Lathe_Through(through), caps == 1
-		cp.lathe = l
-	}
-	if !damaged {
-		a: Along_Look
-		part := geom.byte_get(r, u8)
-		a.opts.gap = geom.byte_get(r, f32)
-		alternate := geom.byte_get(r, u8)
-		a.opts.lift = geom.byte_get(r, f32)
-		a.opts.up = geom.byte_get(r, Vec3)
-		damaged = !r.ok || int(part) >= len(Along_Part) || alternate > 1 || !finite({a.opts.gap, a.opts.lift, 0}) || !finite(a.opts.up) || linalg.length(a.opts.up) < 1e-6
-		a.part, a.opts.alternate = Along_Part(part), alternate == 1
-		cp.along = a
-	}
-	if damaged {
-		delete(cp.points)
-		free(cp)
-		return false, false
+	cp.closed, cp.look = closed == 1, look
+	reserve(&cp.points, n)
+	for i in 0 ..< n {
+		append(&cp.points, geom.Bezier_Point{p = p[i], h_in = h_in[i], h_out = h_out[i], radius = radius[i], intensity = intensity[i], twist = twist[i], handles = geom.Handle_Type(handles[i])})
 	}
 	return true, curve_part_attach(app, obj, cp)
 }

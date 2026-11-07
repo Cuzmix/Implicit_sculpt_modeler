@@ -770,7 +770,7 @@ kit_theme_menus :: proc(app: ^App) {
 	if ts.code.open && !k.settings do ts.code.open = false
 	if ui.popover_begin(ctx, "theme menu", &ts.menu, ts.menu_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) {
 		r := theme_ref_valid(k, ts.menu_of)
-		if r.user >= 0 && ui.menu_item(ctx, "Rename...##theme", glyph = ui.ICON_PENCIL) {
+		if r.user >= 0 && ui.menu_item(ctx, "Rename...##theme", glyph = ui.ICON_RENAME) {
 			k.rename = {open = true, theme = int(r.user) + 1, at = ts.menu_at}
 			ts.menu = false
 		}

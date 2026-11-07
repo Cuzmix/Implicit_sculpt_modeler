@@ -104,7 +104,7 @@ kit_texture_tab :: proc(app: ^App, i: int, r: ui.Rect, tab: ^Pane_Tab) {
 		note := "Select an object to see its maps"
 		if obj != nil do note = fmt.tprintf("%s has no %s map: bake one or load it in the Textures card", object_label(obj), TEXTURE_MAP_NAMES[f.which])
 		if obj != nil && obj.textures.image[f.which] != nil do note = fmt.tprintf("The %s map of %s is loading", TEXTURE_MAP_NAMES[f.which], object_label(obj))
-		ui.icon(ctx, ui.ICON_IMAGE, {r.x + r.w * 0.5, r.y + r.h * 0.5 - 22}, t.icon_small * 2, t.text_tertiary)
+		ui.icon(ctx, ui.ICON_TEXTURE_TAB, {r.x + r.w * 0.5, r.y + r.h * 0.5 - 22}, t.icon_small * 2, t.text_tertiary)
 		ui.text(ctx, ui.text_fit(ctx, note, t.small_size, r.w - 24), r.x + r.w * 0.5, r.y + r.h * 0.5 + 6, t.small_size, t.text_secondary, .Regular, .Center)
 		return
 	}

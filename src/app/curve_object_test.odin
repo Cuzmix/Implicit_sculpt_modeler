@@ -3,6 +3,7 @@ package main
 import "core:math"
 import "core:math/linalg"
 import "core:os"
+import "core:slice"
 import "core:testing"
 
 import "../camera"
@@ -215,8 +216,9 @@ curve_selection_without_curves :: proc(t: ^testing.T) {
 	testing.expect_value(t, scene_selected_without_curves(&app), 0)
 }
 
-// Damaged curve bytes are refused before anything is made: too few points, more points
-// than bytes, a corner or use no version wrote, a value that is not a number.
+// Damaged curve bytes are refused before anything is made: too few points, runs of
+// another count, a use or handle type no version wrote, a value that is not a number, a
+// critical field this build does not know. A field a later build added is stepped over.
 @(test)
 curve_damage_is_refused :: proc(t: ^testing.T) {
 	good := Curve_Part{look = CURVE_LOOK_DEFAULTS}
@@ -235,35 +237,21 @@ curve_damage_is_refused :: proc(t: ^testing.T) {
 		sculpt.levels_destroy(&obj.levels)
 	}
 	check(t, bytes[:], true, "whole")
-	check(t, bytes[:len(bytes) - 1], false, "along options cut short")
-	check(t, bytes[:len(bytes) - CURVE_ALONG_BYTES - 1], false, "lathe options cut short")
-	check(t, bytes[:len(bytes) - CURVE_ALONG_BYTES - CURVE_LATHE_BYTES - 1], false, "tube options cut short")
-	check(t, bytes[:6 + CURVE_POINT_BYTES], false, "points cut short")
-	one := make([]u8, len(bytes), context.temp_allocator)
-	copy(one, bytes[:])
-	one[0] = 1
-	check(t, one, false, "one point")
-	many := make([]u8, len(bytes), context.temp_allocator)
-	copy(many, bytes[:])
-	many[0] = 200
-	check(t, many, false, "more points than bytes")
-	use := make([]u8, len(bytes), context.temp_allocator)
-	copy(use, bytes[:])
-	use[5] = 9
-	check(t, use, false, "a use past the last")
-	corner := make([]u8, len(bytes), context.temp_allocator)
-	copy(corner, bytes[:])
-	corner[6 + CURVE_POINT_BYTES - 1] = u8(len(geom.Handle_Type))
-	check(t, corner, false, "a handle type past the last")
-	nan := make([]u8, len(bytes), context.temp_allocator)
-	copy(nan, bytes[:])
-	bits := transmute([4]u8)math.nan_f32()
-	copy(nan[6:][:4], bits[:])
-	check(t, nan, false, "not a number")
+	check(t, bytes[:len(bytes) - 1], false, "cut short")
+	one := []Vec3{{0, 0, 0}}
+	check(t, test_record_set(bytes[:], slice.to_bytes(one), u16(Curve_Tag.Points)), false, "one point")
+	radius := []f32{1}
+	check(t, test_record_set(bytes[:], slice.to_bytes(radius), u16(Curve_Tag.Radius)), false, "a run of another count")
+	check(t, test_record_set(bytes[:], {9}, u16(Curve_Tag.Use)), false, "a use past the last")
+	check(t, test_record_set(bytes[:], {0, u8(len(geom.Handle_Type))}, u16(Curve_Tag.Handles)), false, "a handle type past the last")
+	nan := []Vec3{{math.nan_f32(), 0, 0}, {1, 0, 0}}
+	check(t, test_record_set(bytes[:], slice.to_bytes(nan), u16(Curve_Tag.Points)), false, "not a number")
+	check(t, test_record_set(bytes[:], {1}, geom.RECORD_TAG_CRITICAL | 900), false, "a critical field from a later build")
+	check(t, test_record_set(bytes[:], {1}, 900), true, "a plain field from a later build")
 }
 
-// A curve's tube, lathe and Along options come back as written; a curve whose options are
-// cut short, or hold values no version wrote, is damage.
+// A curve's tube, lathe and Along options come back as written; options that hold values
+// no version wrote are damage.
 @(test)
 curve_tube_options_read_back :: proc(t: ^testing.T) {
 	cp := Curve_Part{closed = true, look = CURVE_LOOK_DEFAULTS}
@@ -275,7 +263,6 @@ curve_tube_options_read_back :: proc(t: ^testing.T) {
 	bytes: [dynamic]u8
 	defer delete(bytes)
 	curve_part_put(&bytes, &cp)
-	testing.expect_value(t, len(bytes), 6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES + CURVE_LATHE_BYTES + CURVE_ALONG_BYTES)
 	read :: proc(data: []u8) -> (o: Curve_Look, ok: bool) {
 		obj: Object
 		app: App
@@ -288,35 +275,17 @@ curve_tube_options_read_back :: proc(t: ^testing.T) {
 	}
 	got, ok := read(bytes[:])
 	testing.expect(t, ok && got == cp.look, "options did not come back")
-	for cut in ([3]int{0, CURVE_TUBE_BYTES, CURVE_TUBE_BYTES + CURVE_LATHE_BYTES}) {
-		_, ok = read(bytes[:6 + 3 * CURVE_POINT_BYTES + cut])
-		testing.expectf(t, !ok, "a curve cut after %d bytes of options was read", cut)
+	refused :: proc(t: ^testing.T, data: []u8, what: string, loc := #caller_location) {
+		_, ok := read(data)
+		testing.expectf(t, !ok, "%s was read", what, loc = loc)
 	}
-	part := make([]u8, len(bytes), context.temp_allocator)
-	copy(part, bytes[:])
-	part[6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES + CURVE_LATHE_BYTES] = 7
-	_, ok = read(part)
-	testing.expect(t, !ok, "a part past the last was read")
-	axis := make([]u8, len(bytes), context.temp_allocator)
-	copy(axis, bytes[:])
-	for &b in axis[6 + 3 * CURVE_POINT_BYTES + CURVE_TUBE_BYTES:][:size_of(Vec3)] do b = 0
-	_, ok = read(axis)
-	testing.expect(t, !ok, "a lathe with no axis was read")
-	sides := make([]u8, len(bytes), context.temp_allocator)
-	copy(sides, bytes[:])
-	sides[6 + 3 * CURVE_POINT_BYTES + 5] = 2
-	_, ok = read(sides)
-	testing.expect(t, !ok, "two sides were read")
-	profile := make([]u8, len(bytes), context.temp_allocator)
-	copy(profile, bytes[:])
-	profile[6 + 3 * CURVE_POINT_BYTES + 11] = 2
-	_, ok = read(profile)
-	testing.expect(t, !ok, "a profile of two points was read")
-	width := make([]u8, len(bytes), context.temp_allocator)
-	copy(width, bytes[:])
-	width[6 + 3 * CURVE_POINT_BYTES + 13 + geom.PROFILE_POINTS_MAX * (6 * size_of(f32) + 1)] = 1
-	_, ok = read(width)
-	testing.expect(t, !ok, "a width along of one point was read")
+	refused(t, test_record_set(bytes[:], {7}, u16(Curve_Tag.Along), u16(Along_Tag.Part)), "a part past the last")
+	zero: [size_of(Vec3)]u8
+	refused(t, test_record_set(bytes[:], zero[:], u16(Curve_Tag.Lathe), u16(Lathe_Tag.Axis)), "a lathe with no axis")
+	refused(t, test_record_set(bytes[:], {2}, u16(Curve_Tag.Tube), u16(Tube_Tag.Sides)), "two sides")
+	refused(t, test_record_set(bytes[:], {2}, u16(Curve_Tag.Tube), u16(Tube_Tag.Profile_Count)), "a profile of two points")
+	refused(t, test_record_set(bytes[:], {1}, u16(Curve_Tag.Tube), u16(Tube_Tag.Width_Count)), "a width along of one point")
+	refused(t, test_record_set(bytes[:], {0, 0}, u16(Curve_Tag.Tube), u16(Tube_Tag.Profile_Handles)), "a profile run of another count")
 }
 
 // Choosing Lathe sets the axis to the view's vertical in the curve's space, through the

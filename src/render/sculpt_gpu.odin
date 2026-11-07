@@ -161,6 +161,7 @@ Sculpt_Dab :: struct {
 	peaks:        bool, // Smooth: only vertices above it
 	once:         bool, // Draw, Inflate: Accumulate off, the stroke's heights cap the move
 	stroke:       u32,  // the stroke's number for the heights
+	sweep:        geom.Vec3, // with `once`: sculpt.Brush.sweep, zero for none (never with an alpha)
 	masked:       bool, // the mesh's mask bytes shield the vertices (sculpt_gpu_bytes_upload)
 	faded:        bool, // the HD window's fade bytes do too
 	falloff:      []f32, // a drawn falloff's table (sculpt.FALLOFF_STEPS + 1 values), nil for the round one
@@ -202,7 +203,7 @@ Sculpt_Dab_Record :: struct {
 	tilt1:         [4]f32, // .w 1 / (the sample radius)²
 	tilt2:         [4]f32, // .w Clay's plane offset
 	misc:          [4]f32, // plane_short above and below, the radius, the alpha's or else the drawn falloff's first float in `tables`
-	alpha_up:      [4]f32, // the alpha's up (FLAG_ALPHA), .w its size a side
+	alpha_up:      [4]f32, // the alpha's up (FLAG_ALPHA), or else the sweep (FLAG_SWEEP); .w the alpha's size a side
 	slabs:         [4]u32, // first slab, slab count, kind, flags
 }
 
@@ -232,6 +233,8 @@ DAB_FLAG_FADE :: 128
 DAB_FLAG_ALPHA :: 256
 @(private = "file")
 DAB_FLAG_MIRROR :: 512
+@(private = "file")
+DAB_FLAG_SWEEP :: 1024
 
 // The dab kernels, in the order a dab runs them.
 Sculpt_Dab_Stage :: enum {
@@ -1241,6 +1244,12 @@ dab_record :: proc(d: Sculpt_Dab, first_slab, slab_count, table_first: u32) -> S
 	if d.faded do flags |= DAB_FLAG_FADE
 	if d.alpha != nil do flags |= DAB_FLAG_ALPHA
 	if d.alpha_mirror do flags |= DAB_FLAG_MIRROR
+	// The sweep never comes with an alpha (sculpt.dab_sweep), so it rides in the alpha's row.
+	up := d.alpha_up
+	if d.once && d.sweep != {} && d.alpha == nil {
+		flags |= DAB_FLAG_SWEEP
+		up = d.sweep
+	}
 	t := d.tilt
 	return {
 		center_r2     = {d.center.x, d.center.y, d.center.z, d.r2},
@@ -1250,7 +1259,7 @@ dab_record :: proc(d: Sculpt_Dab, first_slab, slab_count, table_first: u32) -> S
 		tilt1         = {t[1, 0], t[1, 1], t[1, 2], d.inv_sample2},
 		tilt2         = {t[2, 0], t[2, 1], t[2, 2], d.plane_offset},
 		misc          = {d.plane_short[0], d.plane_short[1], d.radius, f32(table_first)},
-		alpha_up      = {d.alpha_up.x, d.alpha_up.y, d.alpha_up.z, f32(d.alpha_size)},
+		alpha_up      = {up.x, up.y, up.z, f32(d.alpha_size)},
 		slabs         = {first_slab, slab_count, u32(d.kind), flags},
 	}
 }

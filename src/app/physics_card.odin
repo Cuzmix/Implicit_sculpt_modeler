@@ -656,36 +656,83 @@ kit_physics :: proc(app: ^App, obj: ^Object) {
 	kit_last_result(app, .Physics)
 }
 
-// What physics_put writes: six numbers, the set direction, the way and the switches.
-PHYSICS_BYTES :: 6 * 4 + 3 * 4 + 1 + 1
+// The card's settings in the scene file's object, a record (tags are never reused or
+// retyped, geom/record.odin); a setting the file lacks takes the card's default.
+Physics_Tag :: enum u16 {
+	Gravity      = 1,  // f32
+	Gap          = 2,  // f32
+	Thickness    = 3,  // f32
+	Stiffness    = 4,  // f32
+	Firmness     = 5,  // f32
+	Damping      = 6,  // f32
+	Down         = 7,  // Vec3, unit
+	Way          = 8,  // u8 Gravity_Way
+	Floor        = 9,  // u8
+	Objects      = 10, // u8
+	Self_Collide = 11, // u8
+	On_Masked    = 12, // u8
+	Keep_Area    = 13, // u8
+	Allow_Shrink = 14, // u8
+	Allow_Expand = 15, // u8
+}
 
 // Appends the card's settings as the scene file's object keeps them.
 physics_put :: proc(out: ^[dynamic]u8, p: Object_Physics) {
-	geom.byte_put(out, [6]f32{p.gravity, p.gap, p.thickness, p.stiffness, p.firmness, p.damping})
-	geom.byte_put(out, p.down)
-	geom.byte_put(out, u8(p.way))
-	flags := u8(p.floor) | u8(p.objects) << 1 | u8(p.self_collide) << 2 | u8(p.on_masked) << 3 | u8(p.keep_area) << 4 | u8(p.allow_shrink) << 5 | u8(p.allow_expand) << 6
-	geom.byte_put(out, flags)
+	T :: Physics_Tag
+	rec := geom.record_begin(out)
+	defer geom.record_end(out, rec)
+	geom.rec_put(out, T.Gravity, p.gravity)
+	geom.rec_put(out, T.Gap, p.gap)
+	geom.rec_put(out, T.Thickness, p.thickness)
+	geom.rec_put(out, T.Stiffness, p.stiffness)
+	geom.rec_put(out, T.Firmness, p.firmness)
+	geom.rec_put(out, T.Damping, p.damping)
+	geom.rec_put(out, T.Down, p.down)
+	geom.rec_put(out, T.Way, u8(p.way))
+	geom.rec_put(out, T.Floor, u8(p.floor))
+	geom.rec_put(out, T.Objects, u8(p.objects))
+	geom.rec_put(out, T.Self_Collide, u8(p.self_collide))
+	geom.rec_put(out, T.On_Masked, u8(p.on_masked))
+	geom.rec_put(out, T.Keep_Area, u8(p.keep_area))
+	geom.rec_put(out, T.Allow_Shrink, u8(p.allow_shrink))
+	geom.rec_put(out, T.Allow_Expand, u8(p.allow_expand))
 }
 
 // Reads what physics_put writes; r.ok goes false on values out of the card's ranges.
 physics_get :: proc(r: ^geom.Byte_Reader) -> (p: Object_Physics) {
-	v := geom.byte_get(r, [6]f32)
-	p.gravity, p.gap, p.thickness, p.stiffness, p.firmness, p.damping = v[0], v[1], v[2], v[3], v[4], v[5]
-	p.down = geom.byte_get(r, Vec3)
-	way := geom.byte_get(r, u8)
-	flags := geom.byte_get(r, u8)
+	T :: Physics_Tag
+	rec := geom.record_take(r)
+	d := PHYSICS_DEFAULTS
+	p.gravity = geom.rec_get(&rec, T.Gravity, f32, d.gravity)
+	p.gap = geom.rec_get(&rec, T.Gap, f32, d.gap)
+	p.thickness = geom.rec_get(&rec, T.Thickness, f32, d.thickness)
+	p.stiffness = geom.rec_get(&rec, T.Stiffness, f32, d.stiffness)
+	p.firmness = geom.rec_get(&rec, T.Firmness, f32, d.firmness)
+	p.damping = geom.rec_get(&rec, T.Damping, f32, d.damping)
+	p.down = geom.rec_get(&rec, T.Down, Vec3, d.down)
+	way := geom.rec_get(&rec, T.Way, u8, u8(d.way))
+	switches := [7]u8 {
+		geom.rec_get(&rec, T.Floor, u8, u8(d.floor)),
+		geom.rec_get(&rec, T.Objects, u8, u8(d.objects)),
+		geom.rec_get(&rec, T.Self_Collide, u8, u8(d.self_collide)),
+		geom.rec_get(&rec, T.On_Masked, u8, u8(d.on_masked)),
+		geom.rec_get(&rec, T.Keep_Area, u8, u8(d.keep_area)),
+		geom.rec_get(&rec, T.Allow_Shrink, u8, u8(d.allow_shrink)),
+		geom.rec_get(&rec, T.Allow_Expand, u8, u8(d.allow_expand)),
+	}
+	known, _ := geom.record_known(&rec, Physics_Tag)
 	in_unit :: proc(x: f32) -> bool {return x >= 0 && x <= 1}
-	ok := in_unit(p.gravity) && in_unit(p.stiffness) && in_unit(p.firmness) && in_unit(p.damping)
+	ok := rec.ok && known && in_unit(p.gravity) && in_unit(p.stiffness) && in_unit(p.firmness) && in_unit(p.damping)
 	ok &&= p.gap >= 0 && p.gap <= PHYSICS_GAP_MAX && p.thickness >= PHYSICS_THICKNESS_MIN && p.thickness <= PHYSICS_THICKNESS_MAX
-	ok &&= way <= u8(max(Gravity_Way)) && flags < 1 << 7 && abs(linalg.length(p.down) - 1) < 1e-3
+	ok &&= way <= u8(max(Gravity_Way)) && abs(linalg.length(p.down) - 1) < 1e-3
+	for s in switches do ok &&= s <= 1
 	if !ok {
 		r.ok = false
-		return
+		return {}
 	}
 	p.way = Gravity_Way(way)
-	p.floor, p.objects, p.self_collide, p.on_masked = flags & 1 != 0, flags & 2 != 0, flags & 4 != 0, flags & 8 != 0
-	p.keep_area, p.allow_shrink, p.allow_expand = flags & 16 != 0, flags & 32 != 0, flags & 64 != 0
+	p.floor, p.objects, p.self_collide, p.on_masked = switches[0] == 1, switches[1] == 1, switches[2] == 1, switches[3] == 1
+	p.keep_area, p.allow_shrink, p.allow_expand = switches[4] == 1, switches[5] == 1, switches[6] == 1
 	p.set = true
 	return
 }

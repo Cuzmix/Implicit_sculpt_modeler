@@ -153,7 +153,7 @@ Dab_Area_Comp_Buffers :: enum u32 {indices, offsets, tris, slabs, dabs, normals,
 Dab_Area_Comp_Write_Buffers :: enum u32 {positions, partials, areas, scratch, heights}
 Dab_Area_Comp_Uniforms :: enum u32 {Params}
 
-// dab_move.comp.spv sha256 645bef0164085e2b415f2c071635f3863c76bbee82e503606bbb9d8a14c5118e
+// dab_move.comp.spv sha256 68a38c89f4b613ac4bfce77399f584f6398ac10b41a6845cd8860a7e483ded88
 DAB_MOVE_COMP :: gpu.Compute_Pipeline_Desc{
 	code = #load("shaders/dab_move.comp" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
