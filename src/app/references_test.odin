@@ -655,16 +655,29 @@ references_behind_the_model_is_one_undo_step :: proc(t: ^testing.T) {
 @(test)
 references_behind_the_model_stand_where_shown :: proc(t: ^testing.T) {
 	main := ui.Rect{100, 50, 800, 600}
-	scale: f32 = 2
-	origin := [2]f32{200, 100}
-	size := [2]f32{1600, 1200}
 	p := Ref{size = {4, 3}, view = true, view_w = 1}
 	near :: proc(a, b: [3]f32) -> bool {return abs(a.x - b.x) < 1e-5 && abs(a.y - b.y) < 1e-5 && a.z == b.z}
-	c, r, u := refs_view_backdrop(main, p, scale, origin, size)
+	c, r, u := refs_view_backdrop(main, p)
 	testing.expectf(t, near(c, {0, 0, 0}) && near(r, {1, 0, 0}) && near(u, {0, 1, 0}), "%v %v %v", c, r, u)
 	p.size, p.view_angle = {1, 1}, math.PI / 2
-	c, r, u = refs_view_backdrop(main, p, scale, origin, size)
+	c, r, u = refs_view_backdrop(main, p)
 	testing.expectf(t, near(c, {0, -1.0 / 3, 0}) && near(r, {0, -4.0 / 3, 0}) && near(u, {1, 0, 0}), "%v %v %v", c, r, u)
+}
+
+// Behind the model leaves a picked picture that is not on the view as it was.
+@(test)
+references_behind_the_model_only_on_the_view :: proc(t: ^testing.T) {
+	app: App
+	defer test_refs_free(&app)
+	_, _ = refs_add(&app, "a.png", test_png(4, 2, 1), {})
+	_, _ = refs_add(&app, "b.png", test_png(4, 2, 2), {})
+	app.scene.refs.refs[1].view = true
+	b := &app.kit.board
+	clear(&b.selected)
+	append(&b.selected, app.scene.refs.refs[0].id, app.scene.refs.refs[1].id)
+	refs_edit(&app, .View_Behind)
+	testing.expect(t, !app.scene.refs.refs[0].view_behind)
+	testing.expect(t, app.scene.refs.refs[1].view_behind)
 }
 
 // With no plane in the scene and no picture behind the model, the renderer is given

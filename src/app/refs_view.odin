@@ -280,9 +280,10 @@ refs_view_color :: proc(app: ^App, at: [2]f32) -> (rgb: [3]f32, over, ok: bool) 
 	refs := &app.scene.refs
 	if refs.view_off || k.scale <= 0 do return
 	point := (app.ui.viewport_origin + at) / k.scale
-	for i := len(refs.refs) - 1; i >= 0; i -= 1 {
+	// Those in front first, whatever the order: the interface draws them over every one behind.
+	for pass in 0 ..< 2 do for i := len(refs.refs) - 1; i >= 0; i -= 1 {
 		p := refs.refs[i]
-		if !p.view || p.image == 0 do continue
+		if !p.view || p.image == 0 || p.view_behind != (pass == 1) do continue
 		r := refs_view_rect(k.grid.main, p)
 		if !ui.rect_contains(r, refs_unturn(r, p.view_angle, point)) do continue
 		if p.view_behind && refs_model_at(app, point) do continue
@@ -298,9 +299,10 @@ refs_view_hit :: proc(app: ^App, at: [2]f32) -> u32 {
 	refs := &app.scene.refs
 	if refs.view_off do return 0
 	main := app.kit.grid.main
-	for i := len(refs.refs) - 1; i >= 0; i -= 1 {
+	// Those in front first, whatever the order: the interface draws them over every one behind.
+	for pass in 0 ..< 2 do for i := len(refs.refs) - 1; i >= 0; i -= 1 {
 		p := refs.refs[i]
-		if !p.view || p.image == 0 do continue
+		if !p.view || p.image == 0 || p.view_behind != (pass == 1) do continue
 		r := refs_view_rect(main, p)
 		if !ui.rect_contains(r, refs_unturn(r, p.view_angle, at)) do continue
 		if p.view_behind && refs_model_at(app, at) do continue
@@ -313,7 +315,9 @@ refs_view_hit :: proc(app: ^App, at: [2]f32) -> u32 {
 // behind it there.
 @(private = "file")
 refs_model_at :: proc(app: ^App, at: [2]f32) -> bool {
-	size := [2]f32{f32(app.target.width), f32(app.target.height)}
+	// The ray is cast in the window's coordinates, as the viewport's input is.
+	main := app.kit.grid.main
+	size := [2]f32{main.w, main.h} * app.kit.scale
 	if size.x <= 0 || size.y <= 0 do return false
 	origin, dir := mouse_ray(app.camera, at * app.kit.scale - app.ui.viewport_origin, size)
 	_, _, hit := scene_raycast(app, origin, dir)

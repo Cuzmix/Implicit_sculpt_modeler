@@ -1002,7 +1002,7 @@ Ref_Tag :: enum u16 {
 	Plane_H     = 24, // f32
 	Marks       = 25, // [2]f32: brow and chin
 	Text        = 26, // text, a note's
-	View_Behind = 27, // u8: drawn behind the model; an earlier build shows it in front
+	View_Behind = 27, // u8: over the view, drawn behind the model as a backdrop
 }
 
 refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {

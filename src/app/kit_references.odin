@@ -385,7 +385,9 @@ refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 	b := &app.kit.board
 	first: Maybe(Ref)
 	planes := edit == .Behind || edit == .Through || edit == .Plane_Any
-	for r in refs.refs do if board_picked(b, r.id) && (r.image != 0 || edit == .Lock) && (!planes || r.plane != .None) {
+	// Lock on view and Behind the model are about the picked pictures on the view alone.
+	viewed := edit == .View_Lock || edit == .View_Behind
+	for r in refs.refs do if board_picked(b, r.id) && (r.image != 0 || edit == .Lock) && (!planes || r.plane != .None) && (!viewed || r.view) {
 		first = r
 		break
 	}
@@ -393,7 +395,7 @@ refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 	if !ok do return
 	before := refs_clone(refs.refs[:])
 	for &r in refs.refs {
-		if !board_picked(b, r.id) || (r.image == 0 && edit != .Lock) || (planes && r.plane == .None) do continue
+		if !board_picked(b, r.id) || (r.image == 0 && edit != .Lock) || (planes && r.plane == .None) || (viewed && !r.view) do continue
 		switch edit {
 		case .Flip:
 			r.flip = !f.flip
@@ -427,8 +429,11 @@ refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 		delete(before)
 		return
 	}
-	names := [Ref_Edit]string{.Flip = "Flip reference", .Grey = "Grey reference", .Turn = "Turn reference", .Lock = "Lock reference", .View = "Reference on view", .Behind = "Reference behind the model", .Through = "Reference through the model", .Plane_Any = "Reference shown from any side", .Straighten = "Straighten reference", .View_Lock = "Lock reference on view", .View_Behind = "Reference behind the model"}
-	history_record_refs(app, before, names[edit])
+	names := [Ref_Edit]string{.Flip = "Flip reference", .Grey = "Grey reference", .Turn = "Turn reference", .Lock = "Lock reference", .View = "Reference on view", .Behind = "Reference behind the model", .Through = "Reference through the model", .Plane_Any = "Reference shown from any side", .Straighten = "Straighten reference", .View_Lock = "Lock reference on view", .View_Behind = "Reference on view behind the model"}
+	what := names[edit]
+	if edit == .View_Behind && !f.view_behind do what = "Reference on view behind the model"
+	else if edit == .View_Behind do what = "Reference on view in front of the model"
+	history_record_refs(app, before, what)
 	if edit == .Turn || edit == .Lock do b.cropping = 0
 }
 

@@ -152,21 +152,19 @@ refs_view_behind_on :: proc(app: ^App, p: Ref) -> bool {
 	return p.view && p.view_behind && p.image != 0 && !app.scene.refs.view_off
 }
 
-// Where place `p`, over the main view `main` in points, stands in a viewport of `size`
-// pixels whose top left is `origin` in the window's pixels, `scale` pixels a point: its
-// middle and its half sides along its turned width and up its turned height, in the
+// Where place `p` stands over the main view `main`, which the viewport fills, as its
+// middle and its half sides along its turned width and up its turned height in the
 // viewport's normalized coordinates (x right, y up, -1 to 1), as render.Ref_Plane's
-// on_screen takes them.
-refs_view_backdrop :: proc(main: ui.Rect, p: Ref, scale: f32, origin, size: [2]f32) -> (center, right, up: [3]f32) {
+// on_screen takes them. Worked in points against the main view alone, so the window's
+// pixel density and the target's size never enter it.
+refs_view_backdrop :: proc(main: ui.Rect, p: Ref) -> (center, right, up: [3]f32) {
 	c := refs_turned(refs_view_rect(main, p), p.view_angle)
-	ndc :: proc(q: [2]f32, scale: f32, origin, size: [2]f32) -> [3]f32 {
-		px := q * scale - origin
-		return {2 * px.x / size.x - 1, 1 - 2 * px.y / size.y, 0}
+	ndc :: proc(q: [2]f32, main: ui.Rect) -> [3]f32 {
+		return {2 * (q.x - main.x) / main.w - 1, 1 - 2 * (q.y - main.y) / main.h, 0}
 	}
-	mid := (c[0] + c[2]) * 0.5
-	center = ndc(mid, scale, origin, size)
-	right = ndc((c[1] + c[2]) * 0.5, scale, origin, size) - center
-	up = ndc((c[0] + c[1]) * 0.5, scale, origin, size) - center
+	center = ndc((c[0] + c[2]) * 0.5, main)
+	right = ndc((c[1] + c[2]) * 0.5, main) - center
+	up = ndc((c[0] + c[1]) * 0.5, main) - center
 	return
 }
 
@@ -200,14 +198,13 @@ refs_planes_frame :: proc(app: ^App) -> []render.Ref_Plane {
 		if render.ref_plane_shown(plane, forward) do ref_image(refs, p.image).seen = app.kit.ctx.time
 		append(&out, plane)
 	}
-	k := &app.kit
-	size := [2]f32{f32(app.target.width), f32(app.target.height)}
-	if k.scale <= 0 || size.x <= 0 || size.y <= 0 || k.grid.main.w <= 0 || k.grid.main.h <= 0 do return out[:]
+	main := app.kit.grid.main
+	if main.w <= 0 || main.h <= 0 do return out[:]
 	for p in refs.refs {
 		if !refs_view_behind_on(app, p) do continue
 		texture := refs_plane_texture(app, p)
 		if texture == 0 do continue
-		center, right, up := refs_view_backdrop(k.grid.main, p, k.scale, app.ui.viewport_origin, size)
+		center, right, up := refs_view_backdrop(main, p)
 		ref_image(refs, p.image).seen = app.kit.ctx.time
 		append(&out, render.Ref_Plane{texture = texture, center = center, right = right, up = up, facing = {0, 0, 1}, uv = ref_corners(p), opacity = p.opacity, on_screen = true})
 	}
