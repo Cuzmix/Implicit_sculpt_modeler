@@ -18,6 +18,9 @@ import "../gpu"
 BLEND_PAGE_VERTICES :: 1024
 #assert(BLEND_PAGE_VERTICES == 1 << 10)
 BLEND_PAGE_NONE :: max(u32)
+// A table word's top bit: a candidate page a projection on the GPU has not found a move in,
+// which the vertex stages read as no page (blend_pages.slang).
+BLEND_PAGE_PENDING :: u32(0x8000_0000)
 
 // One vertex's move, as blend_pages.slang reads it: the offset in the mesh's own space,
 // then the blended surface's normal (two 12-bit octahedral halves, low first), how much of

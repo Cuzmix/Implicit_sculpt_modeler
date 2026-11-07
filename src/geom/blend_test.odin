@@ -474,3 +474,45 @@ blend_turn_weight_is_smooth :: proc(t: ^testing.T) {
 		last = w
 	}
 }
+
+// Dropping the bricks a box meets takes out those and only those, and the rest still read
+// the same distances by key.
+@(test)
+blend_field_drop_takes_what_the_box_meets :: proc(t: ^testing.T) {
+	balls := []Ball{{{0, 0, 0}, 1}, {{1.2, 0.1, 0}, 0.6}}
+	s := scene_make(balls, 40, 0.2, 1, nil)
+	defer scene_destroy(&s)
+	f := &s.fields[0]
+	before := make([]u64, len(f.keys))
+	defer delete(before)
+	copy(before, f.keys[:])
+	values := make([]f32, len(f.values))
+	defer delete(values)
+	copy(values, f.values[:])
+	box := Aabb{{0.8, -0.2, -0.2}, {1.0, 0.2, 0.2}}
+	size := f.h * BLEND_BRICK
+	meets :: proc(k: u64, box: Aabb, size: f32) -> bool {
+		b := blend_unkey(k)
+		lo := Vec3{f32(b.x), f32(b.y), f32(b.z)} * size
+		hi := lo + size
+		return box.lo.x <= hi.x && box.hi.x >= lo.x && box.lo.y <= hi.y && box.hi.y >= lo.y && box.lo.z <= hi.z && box.hi.z >= lo.z
+	}
+	want := 0
+	for k in before do if meets(k, box, size) do want += 1
+	testing.expect(t, want > 0 && want < len(before), "the box meets some bricks and not all")
+	revision := f.revision
+	testing.expect_value(t, blend_field_drop(f, {box}, 0), want)
+	testing.expect(t, f.revision != revision, "the table moved on")
+	testing.expect_value(t, len(f.keys), len(before) - want)
+	for k, i in before {
+		slot := blend_field_slot(f, k)
+		if meets(k, box, size) {
+			testing.expectf(t, slot < 0, "brick %d dropped", i)
+			continue
+		}
+		testing.expectf(t, slot >= 0, "brick %d kept", i)
+		if slot < 0 do continue
+		a, c := values[i * BLEND_SAMPLES:][:BLEND_SAMPLES], f.values[int(slot) * BLEND_SAMPLES:][:BLEND_SAMPLES]
+		testing.expectf(t, slice.equal(slice.to_bytes(a), slice.to_bytes(c)), "brick %d reads the same", i)
+	}
+}

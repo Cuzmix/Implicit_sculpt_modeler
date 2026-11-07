@@ -43,7 +43,6 @@ Script_Kind :: enum u8 {
 Script_Verb :: enum u8 {
 	Move,
 	Rotate,
-	Scale,
 	Boolean,
 	Slice,
 	Hide,
@@ -78,6 +77,7 @@ Script_Verb :: enum u8 {
 	Cage,
 	Paint_Channels,
 	Fill_Layer,
+	Scale,
 }
 
 // Each verb's name and what it takes, for errors and the README.

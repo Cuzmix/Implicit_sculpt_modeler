@@ -15,13 +15,14 @@ import "../jobs"
 import "../render"
 import "../sculpt"
 
-// Smooth blend in the app (the Live stack row being built; design in
+// Smooth blend in the app (the Live stack row; design in
 // .claude/project-memory/notes/smooth-blend/design.md): each joined object's field, its
-// drawn pages and the chunk boxes the pages grow. So far one way in, `--blend-test=R`:
-// on the first frame after any start-up script, every shown sculpt object is joined with every other at radius R
-// (world units, full strength), projected once on the CPU (geom.blend_project) and drawn
-// moved from then on, so the drawing, the seam and the culling can be looked at before
-// the row exists.
+// drawn pages and the chunk boxes the pages grow, kept to what the scene's rows ask for
+// (blend_sync) and worked toward a frame at a time (blend_frame): bricks marked and sampled
+// on threads of their own, projections sliced on the GPU, nothing at all while a stroke
+// runs, and after one the bricks its changes touched filled again. `--blend-test=R` joins
+// every shown sculpt object with every other at radius R and settles them at once, for
+// measuring.
 
 // One object's part: its surface (the shown level's mesh and vertex lists, borrowed,
 // with a lookup tree of its own: the sculptor's leaves hold a node of triangles each, far
@@ -55,7 +56,9 @@ Blend_Object :: struct {
 	back_touched: [dynamic]geom.Aabb,
 	back_reach:   f32,
 	stale:        bool,         // placed or filled since its last projection began
-	marked_at:    Vec3,         // where it was when its bricks were last marked
+	marked_place: render.Mat4,  // where it was when its bricks were last marked; zero to mark again
+	place:        render.Mat4,  // where it was last frame, to tell a moving object
+	stamp:        u64,          // the newest of its sculptor's group stamps seen: a newer one is a change
 	slot_ms:      f64,          // the GPU time a slot of 1024 of its vertices took in the slowest recent slice, decaying
 }
 
@@ -95,7 +98,14 @@ Blend_State :: struct {
 	fill_most:      f64, // the most a frame's fills took
 	begin_most:     f64, // the most a projection's start took (pages found, data laid out)
 	upload_most:    f64, // of which the upload and its wait
-	filler:         ^Blend_Filler, // made by the first drag that has bricks to fill
+	filler:         ^Blend_Filler, // made by the first marking that has bricks to fill
+	// Fields filling afresh (a new object, or bricks a change dropped): no projection begins
+	// until a marking begun after it has handed its bricks over and all are filled, so the
+	// blend never shows half its bricks.
+	refilling:      bool,
+	refill_mark:    int, // the marking that must have finished
+	marks:          int, // markings begun
+	marks_done:     int, // the newest marking finished
 	drag_checked:   bool, // --blend-check compared the settled drag's pages
 	// Slices recorded on the frames' command buffers, timed by the GPU's timestamps a few
 	// frames later: each one's object and slots, oldest first, until its time comes back.
@@ -176,6 +186,7 @@ Blend_Filler :: struct {
 	done:    [dynamic]^Blend_Filled,
 	taken:   [dynamic]^Blend_Filled, // the frame loop's: swapped with done, then published
 	working: int, // tasks taken and not yet done
+	idle:    sync.Cond, // signalled when `working` falls to 0
 	stop:    bool,
 }
 
@@ -230,6 +241,7 @@ blend_filler_thread :: proc(data: rawptr) {
 		sync.mutex_lock(&f.mutex)
 		append(&f.done, out)
 		f.working -= 1
+		if f.working == 0 do sync.cond_broadcast(&f.idle)
 		sync.mutex_unlock(&f.mutex)
 	}
 }
@@ -254,6 +266,22 @@ blend_filler_free :: proc(f: ^Blend_Filler) {
 	delete(f.done)
 	delete(f.taken)
 	free(f)
+}
+
+// Drops every brick asked for and every one sampled but not published, once the bricks
+// being sampled are done (a few milliseconds at most): what a change to a surface leaves
+// stale, before its tree is refit under the threads.
+@(private = "file")
+blend_filler_quiesce :: proc(f: ^Blend_Filler) {
+	sync.mutex_lock(&f.mutex)
+	defer sync.mutex_unlock(&f.mutex)
+	clear(&f.queue)
+	for f.working > 0 do sync.cond_wait(&f.idle, &f.mutex)
+	heap := runtime.heap_allocator()
+	for d in f.done do free(d, heap)
+	for d in f.taken do free(d, heap)
+	clear(&f.done)
+	clear(&f.taken)
 }
 
 // Hands a finished marking's lists to the filler in place of the bricks an earlier one
@@ -322,10 +350,7 @@ BLEND_DRAG_STEP :: Vec3{0, 0.004, 0}
 BLEND_LAYOUT_MIX :: u64(0x5bd1e9955bd1e995)
 
 blend_destroy :: proc(app: ^App) {
-	if app.blend.mark != nil do blend_mark_free(app.blend.mark)
-	app.blend.mark = nil
-	if app.blend.filler != nil do blend_filler_free(app.blend.filler)
-	app.blend.filler = nil
+	blend_quiet(app)
 	for &bo in app.blend.objects do blend_object_free(&bo)
 	render.blend_compute_destroy(&app.renderer, &app.blend_gpu)
 	delete(app.blend.objects)
@@ -350,6 +375,140 @@ blend_object_free :: proc(bo: ^Blend_Object) {
 	delete(bo.back_touched)
 }
 
+// Stops what works on the fields from other threads and forgets their copies on the GPU,
+// before the objects are made again: the marking is waited for and dropped, the filler's
+// threads stopped with its bricks, and the projection under way cancelled.
+@(private = "file")
+blend_quiet :: proc(app: ^App) {
+	b := &app.blend
+	if b.mark != nil do blend_mark_free(b.mark)
+	b.mark = nil
+	if b.filler != nil do blend_filler_free(b.filler)
+	b.filler = nil
+	b.job.active = false
+	b.untimed_count = 0
+	render.blend_compute_forget(&app.blend_gpu)
+}
+
+// What the scene's rows ask for, made the state's: every object a shown row joins and every
+// one it names, each pair once at the largest radius of the rows naming it (with that
+// row's strength). The objects stay as they are while the set, their levels and their
+// field spacings stay; otherwise they are made again (blend_rebuild), keeping those that
+// did not change. New radii or strengths alone only mark every object to project again.
+blend_sync :: proc(app: ^App) {
+	b := &app.blend
+	Want :: struct {
+		a, b:             int, // object ids, a below b
+		radius, strength: f32,
+	}
+	wants := make([dynamic]Want, 0, 4, context.temp_allocator)
+	for o in app.scene.objects {
+		if !stack_blend_on(o) || !blend_fits(app, o) do continue
+		for p in app.scene.objects {
+			if p == o || !stack_blend_names(o, p) || !blend_fits(app, p) do continue
+			lo, hi := min(o.id, p.id), max(o.id, p.id)
+			r, st := o.stack.blend.radius, o.stack.blend.strength
+			found := false
+			for &w in wants do if w.a == lo && w.b == hi {
+				found = true
+				if r > w.radius do w.radius, w.strength = r, st
+			}
+			if !found do append(&wants, Want{lo, hi, r, st})
+		}
+	}
+	ids := make([dynamic]int, 0, 8, context.temp_allocator)
+	for w in wants {
+		for id in ([2]int{w.a, w.b}) {
+			at := 0
+			for at < len(ids) && ids[at] < id do at += 1
+			if at == len(ids) || ids[at] != id do inject_at(&ids, at, id)
+		}
+	}
+	reach := make([]f32, len(ids), context.temp_allocator)
+	index :: proc(ids: []int, id: int) -> int {
+		for x, i in ids do if x == id do return i
+		return -1
+	}
+	for w in wants {
+		ia, ib := index(ids[:], w.a), index(ids[:], w.b)
+		reach[ia], reach[ib] = max(reach[ia], w.radius), max(reach[ib], w.radius)
+	}
+	same := len(ids) == len(b.objects)
+	for id, i in ids {
+		if !same do break
+		bo := &b.objects[i]
+		obj := object_by_id(app, id)
+		lv := sculpt.levels_current(&obj.levels)
+		h := geom.blend_spacing(reach[i] / max(obj.transform.scale, 1e-6))
+		same = bo.id == id && bo.level == lv && bo.vertices == len(lv.mesh.positions) && bo.field.h == h
+	}
+	if !same do blend_rebuild(app, ids[:], reach)
+	pairs := make([dynamic]geom.Blend_Pair, 0, len(wants), context.temp_allocator)
+	for w in wants do append(&pairs, geom.Blend_Pair{a = index(ids[:], w.a), b = index(ids[:], w.b), radius = w.radius, strength = w.strength})
+	changed := len(pairs) != len(b.pairs)
+	for p, i in pairs do if !changed && p != b.pairs[i] do changed = true
+	if changed {
+		clear(&b.pairs)
+		append(&b.pairs, ..pairs[:])
+		for &bo in b.objects do bo.stale = true
+	}
+}
+
+// Makes the state's objects those of `ids` (ascending), each field spaced for its largest
+// radius in `reach`: an object whose level, size and spacing are unchanged is kept with
+// its field, tree and pages; the rest are made, filling afresh, and those left out freed.
+@(private = "file")
+blend_rebuild :: proc(app: ^App, ids: []int, reach: []f32) {
+	b := &app.blend
+	blend_quiet(app)
+	old := b.objects
+	b.objects = make([dynamic]Blend_Object, 0, len(ids))
+	fresh := false
+	for id, i in ids {
+		obj := object_by_id(app, id)
+		lv := sculpt.levels_current(&obj.levels)
+		scale := max(obj.transform.scale, 1e-6)
+		h := geom.blend_spacing(reach[i] / scale)
+		kept := false
+		for &bo in old {
+			if bo.id != id || bo.level != lv || bo.vertices != len(lv.mesh.positions) || bo.field.h != h do continue
+			append(&b.objects, bo)
+			bo.id = -1 // moved, not to be freed
+			kept = true
+			break
+		}
+		if kept do continue
+		append(&b.objects, Blend_Object{id = id, level = lv, vertices = len(lv.mesh.positions), stale = true})
+		bo := &b.objects[len(b.objects) - 1]
+		bo.surface = {mesh = lv.mesh, bvh = geom.bvh_build_morton(lv.mesh, geom.LOOKUP_LEAF, &app.pool), faces = lv.sculptor.faces, edge = geom.blend_surface_edge(lv.mesh)}
+		geom.blend_field_init(&bo.field, h, geom.blend_band(h, reach[i] / scale))
+		for st in lv.sculptor.group_stamps do bo.stamp = max(bo.stamp, st)
+		fresh = true
+	}
+	for &bo in old do if bo.id >= 0 do blend_object_free(&bo)
+	delete(old)
+	// The instances point into the objects, which stay put until the next rebuild.
+	clear(&b.instances)
+	for &bo in b.objects {
+		obj := object_by_id(app, bo.id)
+		append(&b.instances, geom.Blend_Instance{surface = &bo.surface, field = &bo.field, place = transform_matrix(obj.transform), scale = max(obj.transform.scale, 1e-6), id = u32(obj.id)})
+		bo.marked_place = {}
+		bo.stale = true
+	}
+	clear(&b.pairs)
+	b.job_object = 0
+	if fresh do blend_refill(b)
+}
+
+// Holds projections back until a marking begun from now on has finished and its bricks
+// are all filled (blend_frame clears it).
+@(private = "file")
+blend_refill :: proc(b: ^Blend_State) {
+	b.refilling = true
+	b.refill_mark = b.marks + 1
+	for &bo in b.objects do bo.marked_place = {}
+}
+
 // Whether an object can take part: a shown sculpt mesh, no cage or clay, no dynamic
 // topology (its vertices move between pages as it splits) and no HD window (drawn apart).
 @(private = "file")
@@ -366,24 +525,22 @@ blend_fits :: proc(app: ^App, obj: ^Object) -> bool {
 blend_test_run :: proc(app: ^App, cmd: render.Cmd, radius: f32) {
 	app.blend.tested = true
 	app.blend.radius = radius
+	// A row on every shown sculpt object naming every other, at full strength.
 	for obj in app.scene.objects {
 		if !blend_fits(app, obj) do continue
-		lv := sculpt.levels_current(&obj.levels)
-		scale := max(obj.transform.scale, 1e-6)
-		h := geom.blend_spacing(radius / scale)
-		append(&app.blend.objects, Blend_Object{id = obj.id, level = lv, vertices = len(lv.mesh.positions)})
-		bo := &app.blend.objects[len(app.blend.objects) - 1]
-		bo.surface = {mesh = lv.mesh, bvh = geom.bvh_build_morton(lv.mesh, geom.LOOKUP_LEAF, &app.pool), faces = lv.sculptor.faces, edge = geom.blend_surface_edge(lv.mesh)}
-		geom.blend_field_init(&bo.field, h, geom.blend_band(h, radius / scale))
+		obj.stack.blend = {added = true, shown = true, radius = radius, strength = 1}
+		n := 0
+		for o in app.scene.objects do if o != obj && blend_fits(app, o) && n < STACK_BLEND_WITH_MAX {
+			obj.stack.blend.with[n] = i32(o.id)
+			n += 1
+		}
 	}
-	// The instances point into the objects, which no longer move in memory.
-	for &bo in app.blend.objects {
-		obj := object_by_id(app, bo.id)
-		append(&app.blend.instances, geom.Blend_Instance{surface = &bo.surface, field = &bo.field, place = transform_matrix(obj.transform), scale = max(obj.transform.scale, 1e-6), id = u32(obj.id)})
-		bo.marked_at = obj.transform.position
-	}
-	instances, pairs := app.blend.instances[:], &app.blend.pairs
-	for i in 0 ..< len(instances) do for j in i + 1 ..< len(instances) do append(pairs, geom.Blend_Pair{a = i, b = j, radius = radius, strength = 1})
+	blend_sync(app)
+	// Settled here and now: no marking or fill waits for the frames.
+	b := &app.blend
+	b.refilling = false
+	for &bo in b.objects do bo.marked_place, bo.place = transform_matrix(object_by_id(app, bo.id).transform), transform_matrix(object_by_id(app, bo.id).transform)
+	instances, pairs := b.instances[:], &b.pairs
 	t0 := time.tick_now()
 	for p in pairs^ {
 		want_a := make([dynamic]u64, context.temp_allocator)
@@ -399,11 +556,13 @@ blend_test_run :: proc(app: ^App, cmd: render.Cmd, radius: f32) {
 		app.blend.bricks += len(bo.field.keys)
 		if !app.blend_cpu && blend_project_gpu(app, instances, pairs[:], i) {
 			if app.blend_check do blend_check(app, instances, pairs[:], i)
+			bo.stale = false
 			continue
 		}
 		moves := make([dynamic]geom.Blend_Move, context.temp_allocator)
 		_ = geom.blend_project(instances, pairs[:], i, &moves, &app.pool)
 		blend_pages_fill(app, cmd, &bo, moves[:])
+		bo.stale = false
 		app.blend.moved += len(moves)
 		log.infof("blend test: object %d moved %d vertices on the CPU, the furthest by %v, through %d pages", bo.id, len(moves), bo.reach, len(bo.touched))
 	}
@@ -555,46 +714,55 @@ field_bounds :: proc(f: ^geom.Blend_Field) -> geom.Aabb {
 	return out
 }
 
-// --blend-drag's frame: moves the second object a step while the drag lasts, then works the
-// blend toward the new place within the frame's budgets: bricks marked again once an
-// object has moved half a brick, queued bricks filled, and a projection begun or carried
-// on a slice at a time into each object's back pages, shown once whole. Records the
-// largest CPU and GPU share any frame took and how many frames after the drag the blend
-// took to settle.
-blend_drag_frame :: proc(app: ^App, cmd: render.Cmd) {
+// The blend's frame: --blend-drag's step first (the second object moved a step a frame
+// while the drag lasts), then the work toward what the scene shows now, within the frame's
+// budgets. Nothing runs while a stroke does: the pages stay, and the shader adds them to
+// where the stroke puts the vertices. After a change to an object's surface (a stroke, an
+// undo, any edit that moves vertices; its sculptor's group stamps tell) its lookup tree is
+// refit where the change lies and its bricks there dropped, to be filled again. Bricks are
+// marked again once an object has moved half a brick (any way at all once it stops), the
+// ones filled published, and a projection begun or carried on a slice at a time into each
+// object's back pages, shown once whole. Records the largest CPU and GPU share any frame
+// took and, for --blend-drag, how many frames after the drag the blend took to settle.
+blend_frame :: proc(app: ^App, cmd: render.Cmd) {
 	b := &app.blend
-	if len(b.objects) < 2 || len(b.instances) != len(b.objects) do return
+	if len(b.objects) == 0 || len(b.instances) != len(b.objects) do return
 	start := time.tick_now()
-	moving := b.drag_left > 0
-	if moving {
+	dragging := b.drag_left > 0 && len(b.objects) > 1
+	if dragging {
 		b.drag_left -= 1
 		obj := object_by_id(app, b.objects[1].id)
 		obj.transform.position += BLEND_DRAG_STEP
-		b.objects[1].stale = true
-		b.objects[0].stale = true
 	}
+	if app.stroke.active do return
+	moving := dragging
 	for &bo, i in b.objects {
-		obj := object_by_id(app, bo.id)
-		b.instances[i].place = transform_matrix(obj.transform)
+		place := transform_matrix(object_by_id(app, bo.id).transform)
+		if place != bo.place {
+			moving = true
+			for &o in b.objects do o.stale = true
+		}
+		bo.place = place
+		b.instances[i].place = place
 	}
 	worked := false
-	// A finished marking's lists queued; a new one begun once an object has moved half a
-	// brick from where it was last marked, or at all once it stops.
+	// A finished marking's lists queued.
 	if m := b.mark; m != nil && sync.atomic_load(&m.done) {
 		if b.filler == nil do b.filler = blend_filler_make(app)
 		blend_filler_ask(b, m)
 		b.mark_most = max(b.mark_most, m.ms)
 		blend_mark_free(m)
 		b.mark = nil
+		b.marks_done = b.marks
 		worked = true
 	}
+	// Changed surfaces, once no marking reads the trees and fields.
+	if b.mark == nil do for &bo in b.objects do if blend_surface_changed(app, &bo) do worked = true
 	if b.mark == nil {
 		for &bo in b.objects {
-			obj := object_by_id(app, bo.id)
 			// Half a brick while it moves; once it stops, any way at all, so the settled
 			// fields hold every brick its place needs.
-			moved := linalg.length(obj.transform.position - bo.marked_at)
-			if moved == 0 || (moving && moved < 0.5 * bo.field.h * geom.BLEND_BRICK) do continue
+			if !blend_marks_again(bo, moving) do continue
 			m := new(Blend_Mark)
 			m.instances = make([]geom.Blend_Instance, len(b.instances))
 			copy(m.instances, b.instances[:])
@@ -603,14 +771,20 @@ blend_drag_frame :: proc(app: ^App, cmd: render.Cmd) {
 			m.want = make([][dynamic]u64, len(b.instances))
 			m.thread = thread.create_and_start_with_data(m, blend_mark_thread, context, .Low, name = "blend mark")
 			b.mark = m
-			for &o in b.objects do o.marked_at = object_by_id(app, o.id).transform.position
+			b.marks += 1
+			for &o in b.objects do o.marked_place = o.place
 			worked = true
 			break
 		}
 	}
+	// A refill ends once a marking begun after it has finished and every brick is in.
+	if b.refilling && b.mark == nil && b.marks_done >= b.refill_mark && !blend_filler_busy(b.filler) {
+		b.refilling = false
+		for &bo in b.objects do bo.stale = true
+	}
 	// A projection begun for the next stale object, or the one under way carried on below.
 	gpu_ms: f64
-	if !b.job.active {
+	if !b.job.active && !b.refilling {
 		// The next stale object after the last one projected, so none waits behind another
 		// that keeps moving.
 		for step in 1 ..= len(b.objects) {
@@ -619,7 +793,12 @@ blend_drag_frame :: proc(app: ^App, cmd: render.Cmd) {
 			if !bo.stale do continue
 			bo.stale = false
 			worked = true
+			b.job_object = i
 			t := time.tick_now()
+			if app.blend_cpu {
+				blend_project_cpu(app, cmd, i)
+				break
+			}
 			// The upload goes on this frame's command buffer, waiting for nothing. The
 			// first slice follows it there, or next frame, once this one is submitted, when
 			// slices go on command buffers of their own.
@@ -629,7 +808,8 @@ blend_drag_frame :: proc(app: ^App, cmd: render.Cmd) {
 			b.begin_most = max(b.begin_most, begin)
 			b.upload_most = max(b.upload_most, timing.upload_ms)
 			if taken && !ok do blend_back_show(bo) // nothing near any more: no pages
-			b.job_object = i
+			// A GPU that cannot take it: the CPU projects, all at once.
+			if !taken do blend_project_cpu(app, cmd, i)
 			break
 		}
 	}
@@ -675,9 +855,11 @@ blend_drag_frame :: proc(app: ^App, cmd: render.Cmd) {
 	busy := b.job.active || b.mark != nil
 	busy ||= blend_filler_busy(b.filler)
 	for bo in b.objects do busy ||= bo.stale
-	if moving || busy || worked {
+	busy ||= b.refilling
+	if app.blend_drag <= 0 do return
+	if dragging || busy || worked {
 		b.frames += 1
-		if !moving do b.settled_after += 1
+		if !dragging do b.settled_after += 1
 	} else if app.blend_check && !b.drag_checked {
 		// Settled: what is shown against the CPU's projection where the objects now are.
 		b.drag_checked = true
@@ -688,6 +870,69 @@ blend_drag_frame :: proc(app: ^App, cmd: render.Cmd) {
 		}
 		for _, i in b.objects do blend_check(app, b.instances[:], b.pairs[:], i)
 	}
+}
+
+// Whether the object's bricks should be marked again: never where they were marked; at
+// once after a turn, a change of size or a stop; while it moves, once it has gone half a
+// brick, so a drag marks every few frames rather than every frame.
+@(private = "file")
+blend_marks_again :: proc(bo: Blend_Object, moving: bool) -> bool {
+	a, p := bo.marked_place, bo.place
+	if a == p do return false
+	if a == {} || !moving do return true
+	for r in 0 ..< 3 do for c in 0 ..< 3 do if a[r, c] != p[r, c] do return true
+	scale := linalg.length(Vec3{p[0, 0], p[1, 0], p[2, 0]})
+	moved := linalg.length(Vec3{p[0, 3] - a[0, 3], p[1, 3] - a[1, 3], p[2, 3] - a[2, 3]})
+	return moved >= 0.5 * bo.field.h * geom.BLEND_BRICK * scale
+}
+
+// Takes in a change to the object's surface since it was last seen, by its sculptor's group
+// stamps (a group is stamped again whenever a vertex in it moves: a stroke landing, an
+// undo, a filter): the lookup tree refit over the changed groups' triangles, the bricks
+// near them dropped and filled again, every object projected again once they are. False
+// when nothing changed.
+@(private = "file")
+blend_surface_changed :: proc(app: ^App, bo: ^Blend_Object) -> bool {
+	s := &bo.level.sculptor
+	top := bo.stamp
+	for st in s.group_stamps do top = max(top, st)
+	if top == bo.stamp do return false
+	boxes := make([dynamic]geom.Aabb, context.temp_allocator)
+	tris := make([dynamic]u32, context.temp_allocator)
+	faces := bo.surface.faces
+	for st, g in s.group_stamps {
+		if st <= bo.stamp do continue
+		if g < len(s.chunk_groups) do append(&boxes, s.chunk_groups[g].bounds)
+		for k in g * geom.CHUNK_GROUP ..< min((g + 1) * geom.CHUNK_GROUP, len(s.nodes)) {
+			node := s.nodes[k]
+			for v in int(node.vert_first) ..< int(node.vert_first + node.vert_count) do append(&tris, ..faces.tris[faces.offsets[v]:faces.offsets[v + 1]])
+		}
+	}
+	bo.stamp = top
+	b := &app.blend
+	if b.filler != nil do blend_filler_quiesce(b.filler)
+	geom.bvh_refit_triangles(&bo.surface.bvh, bo.surface.mesh, tris[:])
+	if geom.blend_field_drop(&bo.field, boxes[:], bo.field.band) > 0 {
+		// The field's slots moved: its copy on the GPU is laid out again, and a projection
+		// still reading the old one is dropped.
+		b.job.active = false
+		b.untimed_count = 0
+		render.blend_compute_forget(&app.blend_gpu)
+	}
+	blend_refill(b)
+	for &o in b.objects do o.stale = true
+	return true
+}
+
+// Projects object `i` on the CPU into its pages, all at once: where the GPU cannot, and
+// with --blend-cpu.
+@(private = "file")
+blend_project_cpu :: proc(app: ^App, cmd: render.Cmd, i: int) {
+	b := &app.blend
+	moves := make([dynamic]geom.Blend_Move, context.temp_allocator)
+	_ = geom.blend_project(b.instances[:], b.pairs[:], i, &moves, &app.pool)
+	blend_pages_fill(app, cmd, &b.objects[i], moves[:])
+	render.viewport_invalidate(&app.target)
 }
 
 // A finished projection's pages shown: the back pages and their pads become the shown ones.
@@ -863,8 +1108,11 @@ blend_draw_items :: proc(app: ^App, cmd: render.Cmd, draws: []render.Draw_Item, 
 		blend_test_run(app, cmd, app.blend_test)
 		app.blend.drag_left = app.blend_drag
 	}
-	if len(app.blend.objects) == 0 do return
-	if app.blend_drag > 0 do blend_drag_frame(app, cmd)
+	rows := len(app.blend.objects) > 0
+	for o in app.scene.objects do rows ||= o.stack.blend.added
+	if !rows do return
+	blend_sync(app)
+	blend_frame(app, cmd)
 	for &d, i in draws {
 		bo := blend_part_of(app, froms[i].obj, d)
 		if bo == nil || bo.pages.table == 0 || len(bo.pads) != len(d.chunks) do continue

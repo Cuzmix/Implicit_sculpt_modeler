@@ -222,14 +222,18 @@ blend_compute_begin :: proc(
 	}
 	descs := make([][4]u32, len(fields), context.temp_allocator)
 	for f, i in fields do descs[i] = {transmute(u32)f.h, residents[i].table_first, u32(len(f.table) - 1), residents[i].slot_first}
-	rows := make([][4][4]f32, len(terms), context.temp_allocator)
+	// The terms' rows, then each field's description as the rows' bits (the kernel's
+	// field_desc).
+	rows := make([][4]f32, 4 * len(terms) + len(fields), context.temp_allocator)
 	for t, i in terms {
-		for r in 0 ..< 3 do rows[i][r] = {t.into[r, 0], t.into[r, 1], t.into[r, 2], t.into[r, 3]}
-		rows[i][3] = {t.ratio, t.edge, transmute(f32)t.id, transmute(f32)t.field}
+		for r in 0 ..< 3 do rows[4 * i + r] = {t.into[r, 0], t.into[r, 1], t.into[r, 2], t.into[r, 3]}
+		rows[4 * i + 3] = {t.ratio, t.edge, transmute(f32)t.id, transmute(f32)t.field}
 	}
+	for d, i in descs do rows[4 * len(terms) + i] = transmute([4]f32)d
+	// Each candidate page goes up pending, read as none until the kernel finds a move in it.
+	for page, slot in page_list do page_table[page] = u32(slot) | BLEND_PAGE_PENDING
 	sources := #partial [Blend_Project_Comp_Buffers][]u8 {
 		.page_list     = mem.slice_to_bytes(page_list),
-		.fields        = mem.slice_to_bytes(descs),
 		.terms         = mem.slice_to_bytes(rows),
 	}
 	for kind in Blend_Project_Comp_Buffers {
@@ -333,7 +337,7 @@ blend_compute_step :: proc(r: ^Renderer, bc: ^Blend_Compute, job: ^Blend_Job, ma
 	params.slot_count = job.next + count
 	params.groups_x = u32(groups_x)
 	push_compute(cmd, Blend_Project_Comp_Uniforms.Blend_Params, &params)
-	writes := [Blend_Project_Comp_Write_Buffers]gpu.Storage_Buffer_Binding{.pages = {buffer = job.pages.pages}}
+	writes := [Blend_Project_Comp_Write_Buffers]gpu.Storage_Buffer_Binding{.pages = {buffer = job.pages.pages}, .table = {buffer = job.pages.table}}
 	pass := begin_compute(cmd, &writes)
 	gpu.bind_compute_pipeline(pass, bc.pipeline)
 	reads := bc.buffers

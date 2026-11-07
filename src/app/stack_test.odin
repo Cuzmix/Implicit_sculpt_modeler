@@ -120,6 +120,7 @@ stack_bytes_round_trip :: proc(t: ^testing.T) {
 		array  = {added = true, shown = true, count = 5, offset = {1, 2, 3}, turn = {0, 15, 0}, grow = 0.9},
 		radial = {added = true, shown = false, count = 8, axis = .Z, pivot = {0, -1, 0}},
 		along  = {added = true, shown = true, count = 7, axis = .Y, curve = 12},
+		blend  = {added = true, shown = false, with = {3, 0, 9, 0, 0, 0, 0, 0}, radius = 0.25, strength = 0.6},
 	}
 	out: [dynamic]u8
 	defer delete(out)
@@ -149,6 +150,17 @@ stack_bytes_round_trip :: proc(t: ^testing.T) {
 	r2 := geom.byte_reader(out2[:])
 	_, grown_ok := stack_get(&r2)
 	testing.expect(t, !grown_ok)
+	// A blend's radius out of range or fullness past 1 is damage.
+	for bad_blend in ([2]Stack_Blend{{added = true, radius = 0, strength = 1}, {added = true, radius = 0.1, strength = 1.5}}) {
+		b := s
+		b.blend = bad_blend
+		out4: [dynamic]u8
+		defer delete(out4)
+		stack_put(&out4, b)
+		r4 := geom.byte_reader(out4[:])
+		_, blend_ok := stack_get(&r4)
+		testing.expect(t, !blend_ok, "a damaged blend row was read")
+	}
 	r3 := geom.byte_reader(out[:10])
 	_, short_ok := stack_get(&r3)
 	testing.expect(t, !short_ok)
@@ -387,5 +399,51 @@ stack_first_shown_row_applies_alone :: proc(t: ^testing.T) {
 	// No curve in the scene: Along waits for one.
 	testing.expect(t, !stack_row_addable(&app, obj, .Along))
 	testing.expect_value(t, command_label(.Stack_Add, int(Stack_Row.Radial) - int(Stack_Row.Mirror)), "Live stack: add radial")
-	testing.expect_value(t, command_label(.Stack_Add, STACK_ADD_ROWS - 1), "Live stack: add along a curve")
+	testing.expect_value(t, command_label(.Stack_Add, int(Stack_Row.Along) - int(Stack_Row.Mirror)), "Live stack: add along a curve")
+	testing.expect_value(t, command_label(.Stack_Add, STACK_ADD_ROWS - 1), "Live stack: add smooth blend")
+}
+
+// The blend row by script: added (joined with the other object at once), its partners,
+// radius and fullness set, each one undo step; the row names its partners, and the
+// partner's own card says it is joined.
+@(test)
+stack_blend_script_and_undo :: proc(t: ^testing.T) {
+	app: App
+	defer stack_scene_free(&app)
+	obj := stack_scene(&app)
+	other := new(Object)
+	other.id = 2
+	other.transform = {position = {1.5, 0, 0}, scale = 1}
+	sculpt.levels_init(&other.levels, geom.icosphere(2), nil, 64)
+	append(&app.scene.objects, other)
+	testing.expect_value(t, stack_script(&app, obj, "blend"), "")
+	testing.expect(t, obj.stack.blend.added && obj.stack.blend.shown)
+	testing.expect_value(t, obj.stack.blend.with[0], 2)
+	testing.expect(t, stack_blend_names(obj, other) && !stack_blend_names(other, obj))
+	testing.expect_value(t, stack_script(&app, obj, "blend radius 0.3 strength 0.5"), "")
+	testing.expect_value(t, obj.stack.blend.radius, 0.3)
+	testing.expect_value(t, obj.stack.blend.strength, 0.5)
+	testing.expect(t, stack_script(&app, obj, "blend radius 9") != "", "a radius past the row's is refused")
+	testing.expect(t, stack_script(&app, obj, "blend with 1") != "", "the object itself is no partner")
+	testing.expect(t, stack_script(&app, obj, "blend with 7") != "", "an object not in the scene is no partner")
+	testing.expect_value(t, stack_script(&app, obj, "blend with folder"), "")
+	testing.expect(t, obj.stack.blend.folder && !stack_blend_names(obj, other), "neither is in a folder")
+	obj.folder, other.folder = 5, 5
+	testing.expect(t, stack_blend_names(obj, other), "the folder joins them")
+	testing.expect_value(t, stack_script(&app, obj, "hide blend"), "")
+	testing.expect(t, !stack_blend_on(obj))
+	testing.expect_value(t, stack_summary(obj), "Smooth blend (hidden)")
+	testing.expect_value(t, len(app.history.done), 4)
+	history_undo(&app)
+	testing.expect(t, stack_blend_on(obj))
+	history_undo(&app)
+	testing.expect(t, !obj.stack.blend.folder)
+	history_undo(&app)
+	testing.expect_value(t, obj.stack.blend.radius, STACK_BLEND_DEFAULT.radius)
+	history_undo(&app)
+	testing.expect(t, !obj.stack.blend.added)
+	history_redo(&app)
+	testing.expect_value(t, stack_script(&app, obj, "blend off"), "")
+	testing.expect(t, !obj.stack.blend.added)
+	free_all(context.temp_allocator)
 }
