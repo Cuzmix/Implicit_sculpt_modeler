@@ -12,7 +12,8 @@ description: Implicit and SDF modelling for this app — the voxel sculptor in s
   stroke_end/flush/to_mesh/write/read/undo/redo` in `clay.odin`, `mesh.odin`, `undo.odin`, `file.odin`, `convert.odin`;
   brushes `Add, Subtract, Clay, Inflate` as an offset of the band's values by height × falloff (never the clamp's,
   which are bounds; far voxels bounded by the eikonal update from their neighbours; a voxel a step, `dab_steps`), `Smooth`
-  a 27-mean, `Flatten` a plane clip or fill (`brush.odin`); `Grab` a warp (`warp.odin`: `clay_grab_begin/move`, every frame
+  a 27-mean, `Flatten` a plane clip or fill (`brush.odin`); `Pinch`, `Crease`, `Snake_Hook` a dab's warp read from the 27
+  bricks round each brick, in steps of at most `WARP_STEP` (half the clamp, so dilation keeps the band ahead; `dab_warp.odin`); `Grab` a warp (`warp.odin`: `clay_grab_begin/move`, every frame
   samples the press's field, the undo step's first saves, through the inverse of the move found by fixed-point steps,
   long drags chained in steps of 0.4 r, all symmetry images in one warp, sources on a lattice of every other voxel,
   bricks whose sources fall in one tile pruned to it, first in blocks of 4³ bricks, corners shared through

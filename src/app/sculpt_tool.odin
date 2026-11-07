@@ -1047,7 +1047,7 @@ hook_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: I
 			}
 		}
 		if way != {} do st.hook_dir = way
-		sculpt.apply_dab(object_sculptor(obj), brush, to_local(t, st.anchor))
+		object_dab(app, obj, brush, to_local(t, st.anchor), {})
 		st.anchor += part
 		res.dabs += 1
 	}
