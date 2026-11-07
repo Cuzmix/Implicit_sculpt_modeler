@@ -201,12 +201,13 @@ Kit_State :: struct {
 	guide_lines: int,
 	guide_drags: int,
 	rail_side:  Rail_Side, // where the modifier wheel sits, if anywhere (modifiers.odin)
-	// What the layout hides, and each space's layout (layouts.odin).
+	// What the layout hides, and the layouts' state (layouts.odin).
 	hidden:     bit_set[Zone],
 	layouts:    Layouts,
-	// The working space (spaces.odin), and the view toggles Focus and Inspect, which hide
-	// bars or show the form four ways without changing the layout.
-	spaces:     Spaces,
+	// The workspaces (workspaces.odin), and the views Focus and Inspect, which hide bars or
+	// show the form four ways without changing the layout.
+	workspaces: Workspaces,
+	layouts_for: Layouts_For, // which class of layouts shows: by the device, or set (Settings > Interface)
 	focus_mode: bool,
 	inspect:    Inspect_View,
 	passes:     Passes, // the pass the viewport shows (passes.odin)
@@ -215,10 +216,11 @@ Kit_State :: struct {
 	dials:      [Hands][4]Dial_Sector, // what each hands' sectors do, clockwise from the top
 	hands:      Hands, // what the hands are doing, from the tool in hand (hands.odin)
 	// The top bar's three docks' buttons (kit_top_lens.odin), a setting; where each dock and
-	// the space tabs were drawn this frame.
+	// the workspace tabs were drawn this frame.
 	top_docks:     [Top_Dock]Bar_List,
 	top_at:        [Top_Dock]ui.Rect,
-	space_tabs_at: ui.Rect,
+	workspace_tabs_at: ui.Rect,
+	workspace_tab_at: [WORKSPACE_SLOTS]ui.Rect, // each workspace's tab, where drawn this frame
 	wheel_turn: f32, // how far it is turned clockwise, in degrees, -180 to 180
 	wheel_offset: [2]f32, // how far its grip dragged it from its place, in points
 	// The hand the moved windows and the wheel's drag were placed for: ctx.mirror is the
@@ -1155,6 +1157,8 @@ kit_results :: proc(app: ^App) {
 	if serial := ui.toast_take_action(ctx); serial != 0 && serial == k.undo_toast.serial {
 		if undo_mark_on_top(app.history.done[:], k.undo_toast.mark) do command_run(app, .Undo)
 		k.undo_toast = {}
+	} else if serial != 0 && serial == k.layouts.edit.undo.serial {
+		workspace_undo(app)
 	} else if serial != 0 && serial == k.bar_removed.serial {
 		// A button let go clear of every bar goes back where it was.
 		bar_removed_undo(app)
@@ -1411,7 +1415,7 @@ kit_layout :: proc(app: ^App) {
 	E := t.edge
 
 	// The space follows a tool picked last frame, before anything is laid out for it.
-	space_follow(app)
+	workspace_follow(app)
 	lens_view_frame(app)
 	// The Home screen covers the window and stands in for every panel while it shows.
 	// Input diagnostics covers the window as Home does (kit_diag.odin), and Home too: an
@@ -1762,6 +1766,7 @@ Rename_Entry :: struct {
 	layer:  int, // a sculpt layer of object `id`, its index + 1 (lens_layers.odin)
 	shelf_page: int, // a page of the shelf, its Shelf_Page + 1 (lens_shelf.odin)
 	theme:  int, // a theme of the person's own, its place + 1 (themes.odin)
+	workspace: int, // a workspace, its slot + 1 (workspaces.odin)
 	at:     ui.Rect,
 	text:   [NAME_BYTES]u8,
 }
@@ -1792,6 +1797,7 @@ kit_rename :: proc(app: ^App) {
 	page := Shelf_Page(max(r.shelf_page - 1, 0))
 	if r.shelf_page > 0 do gone = !shelf_page_used(k, page)
 	if r.theme > 0 do gone = r.theme > k.themes.count
+	if r.workspace > 0 do gone = !workspace_used(k, r.workspace - 1)
 	if r.open && gone do r.open = false
 	if !r.open && r.typing {
 		ctx.text_focus = 0
@@ -1799,10 +1805,12 @@ kit_rename :: proc(app: ^App) {
 	}
 	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
-	ui.caption(ctx, "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
+	ui.caption(ctx, "RENAME WORKSPACE" if r.workspace > 0 else "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
 	now := ""
 	if r.step != {} {
 		if has_step do now = history_entry_at(app, step).bookmark
+	} else if r.workspace > 0 {
+		now = k.workspaces.list[r.workspace - 1].name
 	} else if r.theme > 0 {
 		now = theme_ref_name(k, {.Lens, i32(r.theme - 1)})
 	} else if r.shelf_page > 0 {
@@ -1828,6 +1836,9 @@ kit_rename :: proc(app: ^App) {
 		name := rename_text(r.text[:])
 		if name == "" do name = history_bookmark_default(app) if fresh else now
 		history_bookmark_set(app, step, name)
+	} else if apply && r.open && r.workspace > 0 {
+		// A workspace is the settings', no part of the scene; a name another has is refused.
+		if name := rename_text(r.text[:]); name != "" && !workspace_rename(app, r.workspace - 1, name) do apply = false
 	} else if apply && r.open && r.theme > 0 {
 		// A theme is the settings', no part of the scene; a name another theme has is refused.
 		if name := rename_text(r.text[:]); name != "" && !theme_rename(k, r.theme - 1, name) do apply = false

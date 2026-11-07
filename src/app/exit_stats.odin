@@ -479,8 +479,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("hands=%s dial_hands=%d exposure=%.1f cavity=%.2f ridge=%.2f light_place=%d", strings.to_lower(HANDS_NAMES[k.hands], context.temp_allocator), changed, app.exposure, app.cavity, app.ridge, int(app.ui.light_place))
 		fmt.printfln("dock_places=%s dock_looks=%s bar_carries=%d dock_resizes=%d dock_aligns=%d", dock_places_text(k), dock_looks_text(k), k.arrange.carries, k.arrange.resizes, k.arrange.aligns)
 		// The top bar's docks' buttons, and where each dock stood.
-		fa, sa, aa := k.top_at[.File], k.top_at[.Spaces], k.top_at[.App]
-		fmt.printfln("top_file=%s top_spaces=%s top_app=%s top_file_at=%.0f,%.0f,%.0f top_spaces_at=%.0f,%.0f,%.0f top_app_at=%.0f,%.0f,%.0f", bar_names(app, .Top_File), bar_names(app, .Top_Spaces), bar_names(app, .Top_App), fa.x, fa.y, fa.w, sa.x, sa.y, sa.w, aa.x, aa.y, aa.w)
+		fa, sa, aa := k.top_at[.File], k.top_at[.Workspaces], k.top_at[.App]
+		fmt.printfln("top_file=%s top_workspaces=%s top_app=%s top_file_at=%.0f,%.0f,%.0f top_workspaces_at=%.0f,%.0f,%.0f top_app_at=%.0f,%.0f,%.0f", bar_names(app, .Top_File), bar_names(app, .Top_Workspaces), bar_names(app, .Top_App), fa.x, fa.y, fa.w, sa.x, sa.y, sa.w, aa.x, aa.y, aa.w)
 		// The person's docks, and where each one shown was laid out, for touch_check.
 		fmt.printf("user_docks=%s docks_made=%d docks_deleted=%d", user_docks_text(k), k.arrange.docks_made, k.arrange.docks_deleted)
 		for i in 0 ..< USER_DOCKS do if k.docks[user_dock_id(i)].used {
@@ -572,7 +572,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		{
 			l := &k.layouts
 			changed := strings.builder_make(context.temp_allocator)
-			for s in Space do if layout_changed(k, s) do fmt.sbprintf(&changed, "%s%s", "," if strings.builder_len(changed) > 0 else "", strings.to_lower(SPACE_NAMES[s], context.temp_allocator))
+			for slot in workspace_tabs(k) do if layout_changed(k, slot) do fmt.sbprintf(&changed, "%s%s", "," if strings.builder_len(changed) > 0 else "", stat_word(k.workspaces.list[slot].name))
 			zones := strings.builder_make(context.temp_allocator)
 			for z in Zone do if zone_hidden(k, z) do fmt.sbprintf(&zones, "%s%s", "," if strings.builder_len(zones) > 0 else "", strings.to_lower(fmt.tprint(z), context.temp_allocator))
 			fmt.printfln("layout_modified=%d layouts_changed=%s layout_menu=%d layout_resets=%d zones_hidden=%s", int(l.modified), strings.to_string(changed) if strings.builder_len(changed) > 0 else "none", int(l.menu), l.resets, strings.to_string(zones) if strings.builder_len(zones) > 0 else "none")
@@ -581,7 +581,19 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			// whose children lie over each other or spill out of a fixed size.
 			lo := k.ctx.overlap_prev
 			fmt.printfln("layout_overlaps=%d layout_overlap_at=%.0f,%.0f,%.0f,%.0f", k.ctx.overlaps_prev, lo.x, lo.y, lo.w, lo.h)
-			fmt.printfln("space=%s space_switches=%d focus_mode=%d inspect_mode=%d object_chip=%s readout=%d readout_at=%.0f,%.0f readout_menus=%d readout_memory_mb=%.0f", strings.to_lower(SPACE_NAMES[k.spaces.current], context.temp_allocator), k.spaces.switches, int(k.focus_mode), int(k.inspect.on), object_chip_stat(app), int(k.readout.shown), k.readout.at.x, k.readout.at.y, k.readout.menus, f64(k.readout.memory) / (1 << 20))
+			// The workspaces in tab order by name, the tie each holds, and the menu's work.
+			{
+				names := strings.builder_make(context.temp_allocator)
+				ties := strings.builder_make(context.temp_allocator)
+				for slot in workspace_tabs(k) {
+					w := &k.workspaces.list[slot]
+					fmt.sbprintf(&names, "%s%s", "," if strings.builder_len(names) > 0 else "", stat_word(w.name))
+					for t in Tie do if t in w.ties do fmt.sbprintf(&ties, "%s%v:%s", "," if strings.builder_len(ties) > 0 else "", t, stat_word(w.name))
+				}
+				m := &k.layouts.edit
+				fmt.printfln("workspace_names=%s workspace_ties=%s workspace_tints=%d workspaces_made=%d workspaces_renamed=%d workspaces_deleted=%d workspace_undo=%d workspace_more=%d workspace_naming=%d", strings.to_string(names), strings.to_string(ties) if strings.builder_len(ties) > 0 else "none", workspace_now(k).tint, m.made, m.renamed, m.deleted, int(m.undo.serial != 0), m.more, int(m.naming))
+			}
+			fmt.printfln("workspace=%s workspace_slot=%d workspaces=%d workspace_switches=%d layout_class=%s focus_mode=%d inspect_mode=%d object_chip=%s readout=%d readout_at=%.0f,%.0f readout_menus=%d readout_memory_mb=%.0f", stat_word(workspace_now(k).name), k.workspaces.current + 1, len(workspace_tabs(k)), k.workspaces.switches, stat_word(fmt.tprint(k.workspaces.class)), int(k.focus_mode), int(k.inspect.on), object_chip_stat(app), int(k.readout.shown), k.readout.at.x, k.readout.at.y, k.readout.menus, f64(k.readout.memory) / (1 << 20))
 			// The second line of the top bar's file block.
 			fmt.printfln("file_status=%s clean_view=%d panels_faded=%d camera_shift=%.3f,%.3f", preset_escape(file_status(app, time.now())), int(k.clean), k.panels_faded, app.camera.shift.x, app.camera.shift.y)
 			// The chrome round the view: the view rail's slots, the main camera's projection,
@@ -610,7 +622,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		// and accent, and how many themes of their own the settings hold.
 		ts := &k.themes
 		shown := theme_current(k)
-		fmt.printfln("theme=%s theme_draft=%d theme_mode=%v theme_accent=%s theme_frame=%s user_themes=%d theme_match=%d theme_background=%d theme_marks=%d", preset_escape(theme_ref_name(k, theme_ref(k))), int(theme_draft(k)), ts.seed.mode, theme_hex(shown.accent), theme_hex(shown.frame), ts.count, int(ts.match), int(ts.bring), card(theme_shown_over(k).set & {.Space_Sculpt, .Space_Model, .Space_Render, .Wire, .Selection}))
+		fmt.printfln("theme=%s theme_draft=%d theme_mode=%v theme_accent=%s theme_frame=%s user_themes=%d theme_match=%d theme_background=%d theme_marks=%d", preset_escape(theme_ref_name(k, theme_ref(k))), int(theme_draft(k)), ts.seed.mode, theme_hex(shown.accent), theme_hex(shown.frame), ts.count, int(ts.match), int(ts.bring), card(theme_shown_over(k).set & {.Tint_1, .Tint_2, .Tint_3, .Tint_4, .Wire, .Selection}))
 		// The brush's colours and channel, whether it subtracts, and how many vertices of the
 		// selected object carry paint.
 		painted := 0
@@ -822,4 +834,12 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		}
 	}
 	return true
+}
+
+// A name as one exit-stat word: lower case, spaces as underscores ("My view" is my_view).
+@(private = "file")
+stat_word :: proc(name: string) -> string {
+	lower := strings.to_lower(name, context.temp_allocator)
+	out, _ := strings.replace_all(lower, " ", "_", context.temp_allocator)
+	return out
 }

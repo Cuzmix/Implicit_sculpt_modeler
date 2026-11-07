@@ -53,7 +53,7 @@ Sources from their manuals as known to this session; not re-checked against the 
 | Starting workspaces, editable and deletable | Blender's + menu templates (General > Sculpting ...) | a fresh install must work at once | Blender's templates as a separate list from the tabs | the four starters are ordinary workspaces; New workspace's "Start from" brings any back |
 | A layout per device kind | Apple's idiom split (iPad and Mac apps differ); Affinity's iPad studio differing from desktop | a 1600 pt desk with a mouse and an 1180 pt tablet with a palm want different docks | one layout stretched to every screen (Blender, Nomad) | two texts per workspace, chosen by device kind, kept apart, override in Settings |
 | Reorder and rename on touch | browsers' tab drag; iPadOS long-press menus | fingers have no double-click or hover | Blender's double-click rename, hover X close buttons | long press opens the tab's menu; a drag after the long press (at once with a mouse) reorders; rename in the menu |
-| Saved-layout stamps (#690) | our own | — | two things for one need (a stamp and a space) | removed: a workspace is the saved layout (one UI per thing) |
+| Saved-layout stamps (#690) | our own | — | two things for one need (a stamp and a space) | removed: a workspace is the saved layout, so two stores and two menus for one need become one (one implementation per thing) |
 
 ## 4. The model
 
@@ -96,8 +96,9 @@ small fixed fields keep `App` far under its 256 KB stack bound; the layout texts
 ### 4.2 Hands and the Look tool (`hands.odin`)
 - `Tool` gains `Look`: a press on the view turns it (today's Render rule, `navigate.odin:695`, keyed
   on `app.tool == .Look`), lights' markers, focus picking and the Live stack's handles keep their
-  presses. Its Tool card says so and opens the Look card (one UI per thing). Its icon is the passes
-  icon Render uses now.
+  presses. Its Tool card says so and has buttons that open the Material, Light and Render cards,
+  the same cards their own buttons open (one implementation per thing, reached from here too). Its
+  icon is Lucide's view, an eye in a frame, which no other control uses.
 - `hands_of(tool) -> (Hands, bool)`: Brush, Curve, Insert are Sculpt; Model is Model; Look is Look;
   Move is none (keeps the last). `App.hands` is updated once a frame in `workspace_follow`.
 - `tie_of(app) -> Maybe(Tie)`: the Brush tool with the Paint brush is `Paint_Brush`; Mask and Smooth,
@@ -166,7 +167,7 @@ small fixed fields keep `App` far under its 256 KB stack bound; the layout texts
 |---|---|---|---|---|
 | Sculpt | Brushes, Curve, Insert | today's Sculpt (`built_in_layout`, `layouts.odin:219`) | Brushes, Move, Curve | tints[0] |
 | Model | Model | `hidden Brush_Bar` | Model | tints[1] |
-| Paint | Paint_Brush | Colours card pinned on the pen side, brush bar shown | Paint, Brushes | tints[3] |
+| Paint | Paint_Brush | brush bar shown, no card pinned (built: a pinned card took a finger's taps on a card opened over it, so Colours opens from the shelf's tile) | Paint, Brushes | tints[3] |
 | Render | Look | `hidden Brush_Bar`, `column right Look` | Render | tints[2] |
 
 The tablet class ships the same texts as desktop for now; they part as soon as the person changes
@@ -191,8 +192,9 @@ layout_class auto|desktop|tablet                             one SETTINGS row
   starter-none workspace with no base takes its kept text (or Sculpt's built-in) as its base.
   `workspaces_loaded` repairs the rest: an order naming a free slot or a slot twice is cut, slots
   missing from it go at the end, and a `workspace_current` naming a free slot becomes the first tab.
-- Reset all settings brings the four starters back: workspaces become a `Settings_Block` of their
-  own (`settings_blocks.odin:581` resets every block, and today none holds the layouts).
+- Reset all settings leaves the workspaces as they are, as it left the layouts (built: a reset of
+  Settings > Interface throwing away the person's workspaces would cost more than it saves; the
+  starters come back from New workspace's Start from).
 - The `space_layout`, `space_current`, `layout_saved`, `dial_sector` and `dial_space` lines are
   deleted with their readers; a settings file from an earlier build loses them (passed over, never
   converted: AGENTS.md section 5). `dial <hands> <0-3> modifier <name> | command <name>` replaces the

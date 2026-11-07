@@ -197,10 +197,10 @@ viewport_marks_follow_only_colours_set_by_hand :: proc(t: ^testing.T) {
 	theme_choose(&k, {.Paper, -1})
 	testing.expect_value(t, theme_wire_color(&k), [4]f32{})
 	testing.expect_value(t, theme_selection_color(&k), MODEL_SELECTION_COLOR)
-	k.themes.over.set += {.Wire, .Selection, .Space_Model}
+	k.themes.over.set += {.Wire, .Selection, .Tint_2}
 	k.themes.over.colors[.Wire] = {255, 255, 255, 255}
 	k.themes.over.colors[.Selection] = {0, 0, 255, 255}
-	k.themes.over.colors[.Space_Model] = {0x20, 0xa0, 0x40, 255}
+	k.themes.over.colors[.Tint_2] = {0x20, 0xa0, 0x40, 255}
 	testing.expect_value(t, theme_wire_color(&k), [4]f32{1, 1, 1, 1})
 	testing.expect_value(t, theme_selection_color(&k), [4]f32{0, 0, 1, MODEL_SELECTION_COLOR.a})
 	shown := theme_current(&k)

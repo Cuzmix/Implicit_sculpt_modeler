@@ -351,11 +351,12 @@ Theme_Token :: enum u8 {
 	Success,
 	Warning,
 	Danger,
-	// The working spaces' tints (the Spaces tabs, the dots by an object's name), then the
-	// viewport's marks.
-	Space_Sculpt,
-	Space_Model,
-	Space_Render,
+	// The workspaces' four tints (the dot on the chosen workspace tab), then the viewport's
+	// marks.
+	Tint_1,
+	Tint_2,
+	Tint_3,
+	Tint_4,
 	Wire,
 	Selection,
 	// The icons' colours in the Colour style, one per kind of icon.
@@ -369,7 +370,8 @@ Theme_Token :: enum u8 {
 	Icon_File,
 }
 
-// Each token's word in a theme code and a settings line, which never changes once written.
+// Each token's word in a theme code and a settings line; a code or line naming a word this
+// build does not know is passed over.
 @(rodata)
 THEME_TOKEN_KEYS := [Theme_Token]string {
 	.Frame          = "frame",
@@ -395,9 +397,10 @@ THEME_TOKEN_KEYS := [Theme_Token]string {
 	.Success        = "success",
 	.Warning        = "warning",
 	.Danger         = "danger",
-	.Space_Sculpt   = "space_sculpt",
-	.Space_Model    = "space_model",
-	.Space_Render   = "space_render",
+	.Tint_1         = "tint_1",
+	.Tint_2         = "tint_2",
+	.Tint_3         = "tint_3",
+	.Tint_4         = "tint_4",
 	.Wire           = "wire",
 	.Selection      = "selection",
 	.Icon_App       = "icon_app",
@@ -436,9 +439,10 @@ THEME_TOKEN_NAMES := [Theme_Token]string {
 	.Success        = "Done",
 	.Warning        = "Careful",
 	.Danger         = "Destructive",
-	.Space_Sculpt   = "Sculpt space",
-	.Space_Model    = "Model space",
-	.Space_Render   = "Render space",
+	.Tint_1         = "Workspace tint 1 (Sculpt)",
+	.Tint_2         = "Workspace tint 2 (Model)",
+	.Tint_3         = "Workspace tint 3 (Render)",
+	.Tint_4         = "Workspace tint 4 (Paint)",
 	.Wire           = "Wireframe",
 	.Selection      = "Model mode's selected faces",
 	.Icon_App       = "Icons: app and editing",
@@ -482,9 +486,10 @@ theme_token :: proc(t: ^Theme, token: Theme_Token) -> ^Color {
 	case .Success:        return &t.success
 	case .Warning:        return &t.warning
 	case .Danger:         return &t.danger
-	case .Space_Sculpt:   return &t.tints[0]
-	case .Space_Model:    return &t.tints[1]
-	case .Space_Render:   return &t.tints[2]
+	case .Tint_1:         return &t.tints[0]
+	case .Tint_2:         return &t.tints[1]
+	case .Tint_3:         return &t.tints[2]
+	case .Tint_4:         return &t.tints[3]
 	case .Wire:           return &t.wire
 	case .Selection:      return &t.selection
 	case .Icon_App:       return &t.icons[.App]

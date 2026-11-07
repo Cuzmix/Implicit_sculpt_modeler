@@ -83,7 +83,7 @@ macro_kind :: proc(id: Command_Id) -> Macro_Kind {
 	#partial switch id {
 	case .None, .Undo, .Redo, .Macro_Record, .Run_Macro, .Run_Plugin, .Reload_Plugins:
 		return .Skip
-	case .Open_Card, .Open_Section, .Panels_Reset, .Layout_Reset, .View_Pass, .View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .Render_Preview, .View_Window, .View_Windows_Close, .Settings, .Help, .Stats, .Main_Menu, .File_Chip, .Space_Tabs, .Object_Chip, .Viewport_Readout, .Readout_Gpu, .Coach_Tips, .Name_Controls, .Take_Tour, .Adjust_Last, .Reduce_Motion, .Left_Handed, .Macros, .Library, .New_Dock:
+	case .Open_Card, .Open_Section, .Panels_Reset, .Layout_Reset, .View_Pass, .View_Pass_Last, .View_Grid, .View_Wipe, .View_Guides, .View_Guides_Reset, .Render_Preview, .View_Window, .View_Windows_Close, .Settings, .Help, .Stats, .Main_Menu, .File_Chip, .Workspace_Tabs, .Workspace_Tab, .Workspace_New, .Object_Chip, .Viewport_Readout, .Readout_Gpu, .Coach_Tips, .Name_Controls, .Take_Tour, .Adjust_Last, .Reduce_Motion, .Left_Handed, .Macros, .Library, .New_Dock:
 		return .Skip
 	case .View_Axis, .Focus_Selected, .Frame_All, .Reset_Camera, .View_Back, .View_Forward:
 		return .Skip

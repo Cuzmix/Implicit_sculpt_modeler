@@ -41,7 +41,7 @@ Tour :: struct {
 }
 
 TOUR_TITLES := [Tour_Step]string {
-	.Spaces   = "Three spaces, one model",
+	.Spaces   = "Workspaces, one model",
 	.Dial     = "The dial is under your thumb",
 	.Cards    = "Cards beside the toolbars",
 	.History  = "Every step, kept",
@@ -49,11 +49,11 @@ TOUR_TITLES := [Tour_Step]string {
 }
 
 TOUR_TEXT := [Tour_Step]string {
-	.Spaces   = "Sculpt, Model and Render each keep their own tools and layout. Tap Model, then Sculpt to come back.",
+	.Spaces   = "Each workspace keeps its own layout and brings back its tools: picking the Model tool brings Model. Tap Model, then Sculpt to come back.",
 	.Dial     = "Hold Smooth while you draw to smooth, Invert to dig, Mask to mask; tap one to keep it on. Try it now on the model.",
 	.Cards    = "A toolbar button opens its card beside it, and a tap on the view closes it again. Pin keeps a card open while you sculpt, and Search opens any section by name. Tap one to try it.",
 	.History  = "History lists what you did: tap a step to go back to it, or hold Undo to scrub. Open it now.",
-	.Paint    = "The shelf's Paint page holds the painting brushes, and Also paint colour in any brush's quick settings (a long press on its tile) makes it paint too. Pick Paint and paint a stroke.",
+	.Paint    = "Painting has a workspace of its own: Paint, with the Paint brush in hand and the Colours card beside it, and the Paint brush picked anywhere brings it. Tap Paint and paint a stroke.",
 }
 
 // Starts the tour from its first step (Take the tour), closing what would cover it.
@@ -70,7 +70,7 @@ tour_target :: proc(app: ^App, s: Tour_Step) -> ui.Rect {
 	k := &app.kit
 	switch s {
 	case .Spaces:
-		return k.space_tabs_at
+		return k.workspace_tabs_at
 	case .Dial:
 		r := &app.rail
 		if r.outer <= 0 do return {}
@@ -81,7 +81,9 @@ tour_target :: proc(app: ^App, s: Tour_Step) -> ui.Rect {
 	case .History:
 		return k.history_at
 	case .Paint:
-		// The shelf with its page names, so the card stands clear of the tiles to tap.
+		// The Paint workspace's tab; with no Paint workspace, the shelf and its page names,
+		// so the card stands clear of the tiles to tap.
+		for slot in workspace_tabs(k) do if k.workspaces.list[slot].starter == .Paint && k.workspace_tab_at[slot].w > 0 do return k.workspace_tab_at[slot]
 		dock, pages := ui.prev_root_rect(&k.ctx, "dock"), ui.prev_root_rect(&k.ctx, "dock pages")
 		if dock.w <= 0 do return pages
 		return ui.rect_union(dock, pages) if pages.w > 0 else dock
@@ -108,7 +110,7 @@ tour_update :: proc(app: ^App) {
 	s := Tour_Step(tr.step)
 	if tr.since != tr.step {
 		tr.since, tr.done = tr.step, false
-		tr.switches, tr.paint = k.spaces.switches, app.brush.channel != .Sculpt
+		tr.switches, tr.paint = k.workspaces.switches, app.brush.channel != .Sculpt
 	}
 	target := tour_target(app, s)
 	if target.w <= 0 || target.h <= 0 {
@@ -120,7 +122,7 @@ tour_update :: proc(app: ^App) {
 		pressed_in := .Left in ctx.input.pressed && ui.rect_contains(target, ctx.input.mouse)
 		did := false
 		switch s {
-		case .Spaces:   did = k.spaces.switches > tr.switches
+		case .Spaces:   did = k.workspaces.switches > tr.switches
 		case .Dial:     did = app.stroke.active && (app.rail.press.mods != {} || app.rail.latched != {})
 		case .Cards:    did = pressed_in
 		case .History:  did = card_shown(app, .History)

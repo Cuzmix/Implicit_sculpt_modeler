@@ -85,21 +85,29 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
   Android's side-edge gesture strips: `gesture_edges.odin`.
 - Layouts (`src/app/layouts.odin`, `k.layouts`): one per space. A layout is text,
   `kit_layout_text(k)` (`hidden`, `open`, `window`, `column`, `card_float`, dock and `bars` lines, places written
-  right-handed) and `kit_layout_put(k, text)`. `shipped[s]` is `built_in_layout(s)`; `kept[s]` is a space left
-  with changes ("" = as shipped); `layouts_frame` sets `modified` (the current text against `shipped`), and
-  `layout_changed(k, s)` drives each tab's amber dot. `layout_switch` (from `space_switch`) keeps the one left and
-  puts the next in place; `.Layout_Reset` puts the shipped one back. Settings: `space_layout <Space> <escaped>`
-  and `space_current <Space>` (`layouts_save`, `layouts_load_line`, `layouts_loaded`). A hidden `Zone` skips its
-  bar in `kit_layout` (the top bar takes Undo/Redo or Search); read the wheel's side with `rail_shown(k)`, never
-  `k.rail_side`, and the action bar with `action_bar_shown`. A new panel that a layout should open goes in
-  `LAYOUT_PANELS`. The lit tab or the chevron (`kit_space_chip` when narrow) opens `kit_layout_menu`. The person's own layouts are stamps, `saved[LAYOUT_SLOTS]` (name and text, `layout_saved` settings lines): `layout_save`/`layout_load` (command `.Layout_Load`, arg the slot)/`layout_update`/`layout_rename` (through `k.rename.layout`)/`layout_delete`; a load or delete keeps `undo` for its toast's Undo (`layout_undo` from `kit_results`); `matching` (slot + 1) is set in `layouts_frame` and ticks the row. Never add a "current saved layout": loading only puts the text in place.
-- Spaces (`src/app/spaces.odin`, `k.spaces`): Sculpt, Model, Render. The tool decides the space: `space_follow`
-  runs once a frame and switches when `app.tool` changes (Move keeps the space); a command that picks a tool calls
-  `space_picked(app)` so the space follows even when the tool was already in hand. `space_switch(app, to)` stores the
-  tool left (`Space_Tool`), the shelf page and the layout of the space left, puts `to`'s back, and turns the
-  views off. Focus and Inspect are views, not layouts (`k.focus_mode`, `inspect_set`, `zone_hidden` adds their
-  zones), so they never set the modified dot. Commands `Space_Switch` (Ctrl+1..3), `Focus_Mode`, `Inspect_Mode`; exit stats `space= space_switches= focus_mode=
-  inspect_mode=`.
+  right-handed, plus the shelf's `shelf` line) and `kit_layout_put(k, text)`. `shipped[starter]` is
+  `built_in_layout(starter)`; each workspace keeps `kept[class]` (left with changes, "" = its base) and, when it is
+  the person's own, `base[class]`, one per `Layout_Class` (Desktop, Tablet: `layout_class(k)` from the device or
+  `k.layouts_for`; `layout_class_switch` swaps them as a workspace switch does); `workspace_base(k, slot)` is the one Reset puts back. `layouts_frame` sets `modified` (the
+  current text against its base) and `layout_changed(k, slot)` drives each tab's amber dot. `layout_switch(k, from,
+  to)` (from `workspace_switch`) keeps the one left and puts the next in place; `.Layout_Reset` puts the base back.
+  A hidden `Zone` skips its bar in `kit_layout` (the top bar takes Undo/Redo or Search); read the wheel's side with
+  `rail_shown(k)`, never `k.rail_side`, and the action bar with `action_bar_shown`. A new panel that a layout should
+  open goes in `LAYOUT_PANELS`. The lit tab or the chevron (`kit_workspace_chip` when narrow) opens `kit_layout_menu`.
+- Workspaces (`src/app/workspaces.odin`, `k.workspaces`): named layouts in fixed slots (`WORKSPACE_SLOTS`, tab order
+  in `order`), the starters Sculpt, Model and Render among them as ordinary ones. A workspace decides only the layout;
+  the tool decides the hands (`hands.odin`: `k.hands`, the dial `dial_of`, the object menu's verbs, the offer line).
+  Ties (`Tie`, `tie_of(app)`, each held by at most one workspace): `workspace_follow` runs once a frame and switches
+  when the tool's tie changes to one another workspace holds (Move, Mask and Smooth have none; nothing switches while
+  `app.stroke.active`); its first frame gives the workspace in front its tool, since start-up hands the Brush over.
+  `workspace_switch(app, slot)` stores the tool left (`Workspace_Tool`), the shelf page and the layout, puts the new
+  one's back, gives a tied one a tool of its own and turns the views off. Focus and Inspect are views, not layouts
+  (`views.odin`: `k.focus_mode`, `inspect_set`, `zone_hidden` adds their zones), so they never set the modified dot.
+  Settings lines `workspace`, `workspace_layout`, `workspace_base`, `workspace_order`, `workspace_current`
+  (`workspaces_save`, `workspaces_load_line`, `workspaces_loaded`, which keeps the starters when none is read).
+  Commands `Workspace_Switch` (arg the slot), `Workspace_Tab` (arg the place, Ctrl+1..9), `Workspace_Tabs`,
+  `Focus_Mode`, `Inspect_Mode`; exit stats `workspace= workspace_slot= workspaces= workspace_switches= hands=
+  focus_mode= inspect_mode=`.
 - Passes (`src/app/passes.odin`, `k.passes`): `kit_pass_chip` in the top bar before History (fixed width,
   `pass_chip_width`), its list `kit_pass_menu`, commands `View_Pass` (arg the pass, Alt+1..6) and
   `View_Pass_Last` (Alt+0); a peek is `chip_held` (from `ui.held_long`, true while a press stays past the long press, mouse

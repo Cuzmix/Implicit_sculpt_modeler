@@ -276,7 +276,8 @@ Command_Id :: enum u16 {
 	Open_Section, // the argument is the Section: its card, opened on it
 	Panels_Reset,
 	Layout_Reset, // layouts.odin
-	Space_Switch, // the argument is the Space (spaces.odin)
+	Workspace_Switch, // the argument is the workspace's slot (workspaces.odin)
+	Workspace_Tab, // the argument is the tab's place, from 0
 	Inspect_Mode,
 	View_Pass, // the argument is the render.View_Pass (passes.odin)
 	View_Pass_Last,
@@ -299,7 +300,8 @@ Command_Id :: enum u16 {
 	Settings,
 	Main_Menu, // kit_top_lens.odin: the top bar's chips and menu
 	File_Chip,
-	Space_Tabs,
+	Workspace_Tabs,
+	Workspace_New,
 	Object_Chip,
 	Viewport_Readout,
 	Readout_Gpu,
@@ -624,42 +626,42 @@ COMMANDS := [Command_Id]Command {
 		label = "Move tool",
 		help = "Selects objects and moves, turns or scales them with the gizmo; its key again steps the gizmo through the three.",
 		icon = ui.ICON_MOVE_TOOL,
-		run = proc(app: ^App, _: int) {app.tool = .Move; space_picked(app)},
+		run = proc(app: ^App, _: int) {app.tool = .Move},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Move},
 	},
 	.Tool_Sculpt = {
 		label = "Sculpt tool",
 		help = "Sculpts the object under the brush with the chosen brush.",
 		icon = ui.ICON_SCULPT_TOOL,
-		run = proc(app: ^App, _: int) {app.tool = .Brush; space_picked(app)},
+		run = proc(app: ^App, _: int) {app.tool = .Brush},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Brush},
 	},
 	.Tool_Curve = {
 		label = "Curve tool",
 		help = "Draws curves on the model or in space: lines, tubes, stitches or a zipper.",
 		icon = ui.ICON_CURVE,
-		run = proc(app: ^App, _: int) {app.tool = .Curve; space_picked(app)},
+		run = proc(app: ^App, _: int) {app.tool = .Curve},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Curve},
 	},
 	.Tool_Insert = {
 		label = "Insert tool",
 		help = "Places a shape on the surface where you tap.",
 		icon = ui.ICON_INSERT,
-		run = proc(app: ^App, _: int) {app.tool = .Insert; space_picked(app)},
+		run = proc(app: ^App, _: int) {app.tool = .Insert},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Insert},
 	},
 	.Tool_Model = {
 		label = "Model tool",
 		help = "Edits a cage's points, edges and faces, as ZBrush's ZModeler does; a tap on an object selects it.",
 		icon = ui.ICON_MODEL,
-		run = proc(app: ^App, _: int) {app.tool = .Model; space_picked(app)},
+		run = proc(app: ^App, _: int) {app.tool = .Model},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Model},
 	},
 	.Tool_Look = {
 		label = "Look tool",
 		help = "Changes nothing: a press turns the view, so setting the look or the lights never sculpts by mistake; the lights' markers, picking focus and the Live stack's handles keep their presses.",
 		icon = ui.ICON_LOOK,
-		run = proc(app: ^App, _: int) {app.tool = .Look; space_picked(app)},
+		run = proc(app: ^App, _: int) {app.tool = .Look},
 		checked = proc(app: ^App, _: int) -> bool {return app.tool == .Look},
 	},
 	.Add_Cage = {
@@ -670,8 +672,9 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, arg: int) {
 			app.model.primitive = poly.Primitive(arg)
 			app.ui.scene_command = {kind = .Add_Cage, cage = poly.Primitive(arg), segments = model_segments(app.model)}
-			// A cage is modelled: adding one goes to Model with the Model tool.
-			space_switch(app, .Model)
+			// A cage is modelled: adding one puts the Model tool in hand, and the workspace
+			// tied to it follows.
+			app.tool = .Model
 		},
 	},
 	.Add_Curve = {
@@ -683,7 +686,6 @@ COMMANDS := [Command_Id]Command {
 			app.ui.scene_command = {kind = .Add, curve_shape = Curve_Shape(arg + 1)}
 			// A curve is edited with the Curve tool's Curve kind, whose pen moves its points.
 			app.tool, app.curve.kind = .Curve, .Curve
-			space_picked(app)
 		},
 	},
 	.Apply_Cage = {
@@ -1047,7 +1049,6 @@ COMMANDS := [Command_Id]Command {
 			preset_leave(app)
 			app.brush.kind = sculpt.Brush_Kind(arg)
 			app.tool = .Brush
-			space_picked(app)
 		},
 		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Brush && app.brush.kind == sculpt.Brush_Kind(arg) && app.brush.preset == 0},
 	},
@@ -1061,7 +1062,6 @@ COMMANDS := [Command_Id]Command {
 		args = PRESET_SLOTS,
 		run = proc(app: ^App, arg: int) {
 			preset_use(app, preset_slot_number(arg))
-			space_picked(app)
 		},
 		enabled = proc(app: ^App, arg: int) -> bool {_, ok := preset_at(app, preset_slot_number(arg)); return ok},
 		checked = proc(app: ^App, arg: int) -> bool {return app.tool == .Brush && app.brush.preset == preset_slot_number(arg)},
@@ -2536,13 +2536,26 @@ COMMANDS := [Command_Id]Command {
 		run = proc(app: ^App, _: int) {layout_reset(&app.kit)},
 		enabled = proc(app: ^App, _: int) -> bool {return app.kit.layouts.modified},
 	},
-	.Space_Switch = {
-		label = "Space",
-		help = "Switches to this working space (Sculpt, Model or Render) with the tool you last used there and its layout.",
+	.Workspace_Switch = {
+		label = "Workspace",
+		help = "Switches to this workspace: its layout, and when tools are tied to it, the one you last used there.",
 		icon = ui.ICON_SPACE,
-		args = len(Space),
-		run = proc(app: ^App, arg: int) {space_switch(app, Space(arg))},
-		checked = proc(app: ^App, arg: int) -> bool {return app.kit.spaces.current == Space(arg)},
+		args = WORKSPACE_SLOTS,
+		run = proc(app: ^App, arg: int) {workspace_switch(app, arg)},
+		enabled = proc(app: ^App, arg: int) -> bool {return workspace_used(&app.kit, arg)},
+		checked = proc(app: ^App, arg: int) -> bool {return app.kit.workspaces.current == arg},
+	},
+	.Workspace_Tab = {
+		label = "Workspace tab",
+		help = "Switches to the workspace whose tab stands at this place in the top bar, counting from the first.",
+		icon = ui.ICON_SPACE,
+		args = 9,
+		run = proc(app: ^App, arg: int) {
+			tabs := workspace_tabs(&app.kit)
+			if arg < len(tabs) do workspace_switch(app, tabs[arg])
+		},
+		enabled = proc(app: ^App, arg: int) -> bool {return arg < len(workspace_tabs(&app.kit))},
+		checked = proc(app: ^App, arg: int) -> bool {tabs := workspace_tabs(&app.kit); return arg < len(tabs) && tabs[arg] == app.kit.workspaces.current},
 	},
 	.Inspect_Mode = {
 		label = "Four views",
@@ -2718,11 +2731,18 @@ COMMANDS := [Command_Id]Command {
 			app.kit.menu_scroll = 0
 		},
 	},
-	.Space_Tabs = {
-		label = "Space tabs",
-		help = "The top bar's space tabs: Sculpt, Model, Render and the rest, a tap switching to one; run, it goes to the next space.",
+	.Workspace_New = {
+		label = "New workspace...",
+		help = "Makes a workspace: a copy of the layout in front, tied to no tool, or a starting workspace as it ships. Its name is asked first.",
+		icon = ui.ICON_PLUS,
+		run = proc(app: ^App, _: int) {kit_floats_close(&app.kit); workspace_naming_open(&app.kit); app.kit.layouts.menu_at = app.kit.workspace_tabs_at},
+		enabled = proc(app: ^App, _: int) -> bool {return len(workspace_tabs(&app.kit)) < WORKSPACE_SLOTS},
+	},
+	.Workspace_Tabs = {
+		label = "Workspace tabs",
+		help = "The top bar's workspace tabs, a tap switching to one; run, it goes to the next tab's workspace.",
 		icon = ui.ICON_SPACE,
-		run = proc(app: ^App, _: int) {space_switch(app, Space((int(app.kit.spaces.current) + 1) % len(Space)))},
+		run = proc(app: ^App, _: int) {workspace_switch(app, workspace_next(&app.kit))},
 	},
 	.Object_Chip = {
 		label = "Object chip",
@@ -2969,9 +2989,15 @@ DEFAULT_BINDINGS := [?]Binding {
 	{{KEY_6, {.Alt}, false}, .View_Pass, 5},
 	{{KEY_7, {.Alt}, false}, .View_Pass, 6},
 	{{KEY_0, {.Alt}, false}, .View_Pass_Last, 0},
-	{{KEY_1, {.Ctrl}, false}, .Space_Switch, 0},
-	{{KEY_2, {.Ctrl}, false}, .Space_Switch, 1},
-	{{KEY_3, {.Ctrl}, false}, .Space_Switch, 2},
+	{{KEY_1, {.Ctrl}, false}, .Workspace_Tab, 0},
+	{{KEY_2, {.Ctrl}, false}, .Workspace_Tab, 1},
+	{{KEY_3, {.Ctrl}, false}, .Workspace_Tab, 2},
+	{{KEY_4, {.Ctrl}, false}, .Workspace_Tab, 3},
+	{{KEY_5, {.Ctrl}, false}, .Workspace_Tab, 4},
+	{{KEY_6, {.Ctrl}, false}, .Workspace_Tab, 5},
+	{{KEY_7, {.Ctrl}, false}, .Workspace_Tab, 6},
+	{{KEY_8, {.Ctrl}, false}, .Workspace_Tab, 7},
+	{{KEY_9, {.Ctrl}, false}, .Workspace_Tab, 8},
 	{{KEY_1, {}, false}, .Brush, 0},
 	{{KEY_2, {}, false}, .Brush, 1},
 	{{KEY_3, {}, false}, .Brush, 2},
@@ -3183,8 +3209,10 @@ command_label :: proc(id: Command_Id, arg := 0) -> string {
 		return "Shading: Mode" if render.View_Pass(arg) == .Shaded else fmt.tprintf("Shading: %s", PASS_LABELS[render.View_Pass(arg)])
 	case .View_Grid:
 		return fmt.tprintf("Grid: %s", GRID_NAMES[Grid_Preset(arg)])
-	case .Space_Switch:
-		return fmt.tprintf("Space: %s", SPACE_NAMES[Space(arg)])
+	case .Workspace_Switch:
+		return fmt.tprintf("Workspace %d", arg + 1)
+	case .Workspace_Tab:
+		return fmt.tprintf("Workspace tab %d", arg + 1)
 	case .Gizmo_Orient:
 		return fmt.tprintf("Gizmo orientation: %s", GIZMO_ORIENT_NAMES[Gizmo_Orient(arg)])
 	case .Curve_Handles:
