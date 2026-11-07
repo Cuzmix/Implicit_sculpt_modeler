@@ -42,6 +42,9 @@ Renderer :: struct {
 	// Bound in place of a mesh's paint buffer when it has none: the mesh shader reads
 	// the binding only for items that show paint or groups, but it must be bound.
 	no_paint:       gpu.Buffer,
+	// Bound in place of an item's Smooth blend pages (blend.odin) when it has none: one
+	// entry of 16 bytes, read by no shader while the uniforms' blend.x is 0.
+	no_blend:       gpu.Buffer,
 	// Bound in place of a matcap for items that have none, as no_paint is; and the
 	// filtering, mipmapped sampler every matcap is read through.
 	no_matcap:      gpu.Texture,
@@ -155,6 +158,7 @@ Floor_Uniforms :: struct {
 // slots whichever of these pipelines is bound, so each shader's matching slots sit where theirs do.
 #assert(int(Mesh_Wire_Vert_Buffers.paint) == int(Mesh_Vert_Buffers.paint) && int(Skin_Vert_Buffers.paint) == int(Mesh_Vert_Buffers.paint))
 #assert(int(Mesh_Wire_Vert_Buffers.paint_material_words) == int(Mesh_Vert_Buffers.paint_material_words))
+#assert(int(Mesh_Wire_Vert_Buffers.blend_table) == int(Mesh_Vert_Buffers.blend_table) && int(Mesh_Wire_Vert_Buffers.blend_pages) == int(Mesh_Vert_Buffers.blend_pages))
 #assert(int(Mesh_Wire_Vert_Uniforms.Frame_Uniforms) == int(Mesh_Vert_Uniforms.Frame_Uniforms) && int(Skin_Vert_Uniforms.Frame_Uniforms) == int(Mesh_Vert_Uniforms.Frame_Uniforms))
 #assert(int(Skin_Tess_Vert_Uniforms.Frame_Uniforms) == int(Mesh_Vert_Uniforms.Frame_Uniforms) && int(Textured_Vert_Uniforms.Frame_Uniforms) == int(Mesh_Vert_Uniforms.Frame_Uniforms))
 #assert(len(Mesh_Area_Frag_Samplers) == len(Mesh_Frag_Samplers) && len(Mesh_Wire_Frag_Samplers) == len(Mesh_Frag_Samplers) && len(Skin_Frag_Samplers) == len(Mesh_Frag_Samplers))
@@ -414,6 +418,7 @@ Frame_Uniforms :: struct {
 	options:   [4]f32, // x: show the paint, y: show the polygroups, z: look up material slots
 	slot_group: [GROUP_SLOTS]u32, // Material_Slots.groups, as mesh_io.slang's uint4 slot_group[4]
 	skin:       [4]u32, // the detail skin's segments, vertex and edge counts (Mesh_Buffers.skin_meta)
+	blend:      [4]u32, // x: 1 while the item's Smooth blend pages are bound (blend_bindings)
 }
 
 // How many material slots an item has: slot 0 is its own material, the rest polygroups'.
@@ -541,6 +546,10 @@ Draw_Item :: struct {
 	// mesh pipelines (Mesh_Pipelines.clip). The depth-only passes (Live AO's, the studio's)
 	// draw it whole.
 	clip: [3]f32,
+	// Smooth blend's moves of this item's vertices (blend.odin), read by its vertex stages,
+	// the depth-only passes' included; nil for none. A copy has its own, as its contact
+	// with other objects is its own. The detail skin's stages read none.
+	blend: ^Blend_Pages,
 }
 
 // Whether `model` turns space over (a reflection): its triangles then wind the other way.
@@ -656,6 +665,8 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	if r.single.wire == 0 do log.warn("wireframe: this device cannot draw lines; the wireframe stays off")
 	r.no_paint = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = size_of(Paint_Packed)})
 	if r.no_paint == 0 do log.errorf("paint buffer creation failed: %s", gpu.last_error())
+	r.no_blend = gpu.create_buffer({usage = {.Graphics_Storage_Read}, size = size_of(Blend_Entry)})
+	if r.no_blend == 0 do log.errorf("blend buffer creation failed: %s", gpu.last_error())
 	white := [4]u8{255, 255, 255, 255}
 	r.no_matcap = matcap_create(r, white[:], 1, 1)
 	r.matcap_sampler = gpu.create_sampler({
@@ -683,7 +694,7 @@ renderer_init :: proc(r: ^Renderer, window: ^sdl.Window, debug: bool) -> bool {
 	})
 	if r.env_sampler == 0 do log.errorf("environment sampler: %s", gpu.last_error())
 	if r.single.textured == 0 do log.warn("textures: the textured pipeline could not be made; textured objects draw as clay")
-	return r.single.mesh != 0 && r.single.clear != 0 && r.no_paint != 0 && r.no_matcap != 0 && r.matcap_sampler != 0 && r.no_normal_map != 0 && r.no_paint_map != 0 && r.texture_sampler != 0 && r.no_environment != 0 && r.env_sampler != 0
+	return r.single.mesh != 0 && r.single.clear != 0 && r.no_paint != 0 && r.no_blend != 0 && r.no_matcap != 0 && r.matcap_sampler != 0 && r.no_normal_map != 0 && r.no_paint_map != 0 && r.texture_sampler != 0 && r.no_environment != 0 && r.env_sampler != 0
 }
 
 // The GPU's name alone, for people (Settings > System > Graphics). Temp-allocated.
@@ -770,6 +781,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 	mesh_pipelines_destroy(r, &r.single)
 	mesh_pipelines_destroy(r, &r.multi)
 	if r.no_paint != 0 do gpu.release_buffer(r.no_paint)
+	if r.no_blend != 0 do gpu.release_buffer(r.no_blend)
 	if r.no_matcap != 0 do gpu.release_texture(r.no_matcap)
 	if r.matcap_sampler != 0 do gpu.release_sampler(r.matcap_sampler)
 	if r.no_normal_map != 0 do gpu.release_texture(r.no_normal_map)
@@ -2334,6 +2346,8 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 		show_paint, show_groups := item.paint && mb.paint != 0, item.groups && mb.paint != 0
 		slotted := item.slots != nil && mb.paint != 0 && !textured
 		frame := Frame_Uniforms{view_proj = proj * view, view = view, model = item.model, options = {f32(int(show_paint)), f32(int(show_groups)), f32(int(slotted)), f32(int(show_paint && mb.paint_material != 0))}}
+		blend_table, blend_pages, blend_on := blend_bindings(r, item)
+		frame.blend.x = blend_on
 		frame.slot_group = SLOT_NONE
 		if slotted {
 			frame.slot_group = item.slots.groups
@@ -2368,7 +2382,7 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 			if item.wireframe && pipes.wire != 0 {
 				// The wire pass draws the sculpt buffers, which hold the same surface.
 				push_vertex(cmd, Mesh_Vert_Uniforms.Frame_Uniforms, &frame)
-				paint := [Mesh_Vert_Buffers]gpu.Buffer{.paint = r.no_paint, .paint_material_words = r.no_paint}
+				paint := [Mesh_Vert_Buffers]gpu.Buffer{.paint = r.no_paint, .paint_material_words = r.no_paint, .blend_table = blend_table, .blend_pages = blend_pages}
 				bind_vertex_storage(pass, &paint)
 				samplers := [Mesh_Frag_Samplers]gpu.Texture_Sampler_Binding{.matcap = {texture = r.no_matcap, sampler = r.matcap_sampler}, .environment_map = environment_binding(r)}
 				bind_fragment_samplers(pass, &samplers)
@@ -2383,7 +2397,12 @@ draw_items :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes: ^Me
 		if skinned do frame.skin = {mb.skin_meta[0], mb.skin_meta[1], mb.skin_meta[2], 0}
 		push_vertex(cmd, Mesh_Vert_Uniforms.Frame_Uniforms, &frame)
 		push_fragment(cmd, Mesh_Frag_Uniforms.Material_Uniforms, &material)
-		paint := [Mesh_Vert_Buffers]gpu.Buffer{.paint = mb.paint if mb.paint != 0 else r.no_paint, .paint_material_words = mb.paint_material if show_paint && mb.paint_material != 0 else r.no_paint}
+		paint := [Mesh_Vert_Buffers]gpu.Buffer {
+			.paint                = mb.paint if mb.paint != 0 else r.no_paint,
+			.paint_material_words = mb.paint_material if show_paint && mb.paint_material != 0 else r.no_paint,
+			.blend_table          = blend_table,
+			.blend_pages          = blend_pages,
+		}
 		bind_vertex_storage(pass, &paint)
 		samplers := [Mesh_Frag_Samplers]gpu.Texture_Sampler_Binding{.matcap = {texture = item.matcap if item.matcap != 0 else r.no_matcap, sampler = r.matcap_sampler}, .environment_map = environment_binding(r)}
 		bind_fragment_samplers(pass, &samplers)

@@ -294,12 +294,17 @@ draw_textured_item :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, it
 	frame.skin.x = 1 if pull else 0
 	push_vertex(cmd, Textured_Vert_Uniforms.Frame_Uniforms, frame)
 	frame.skin = skin
+	// Smooth blend's pages name the level's vertices, so only a pulled mesh reads them.
+	blend_table, blend_pages, _ := blend_bindings(r, item)
+	if !pull do blend_table, blend_pages = r.no_blend, r.no_blend
 	storage := [Textured_Vert_Buffers]gpu.Buffer{
 		.slot_vertex          = tm.slot_vertex if pull else r.no_paint,
 		.positions            = mb.positions if pull else r.no_paint,
 		.normals              = mb.normals if pull else r.no_paint,
 		.paint                = mb.paint if pull && mb.paint != 0 else r.no_paint,
 		.paint_material_words = mb.paint_material if pull && mb.paint_material != 0 else r.no_paint,
+		.blend_table          = blend_table,
+		.blend_pages          = blend_pages,
 	}
 	bind_vertex_storage(pass, &storage)
 	vbuf := gpu.Buffer_Binding{buffer = tm.vertices}

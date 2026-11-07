@@ -1,77 +1,77 @@
-// slangc metal from mesh_wire.vert.spv sha256 db4691d83d607fa8a908aaf822b7be4ee5d53563fc908b289063e9cb7145f6d1
-// slots s= rt= wt= rb=1,2 wb= u=0 a=
+// slangc metal from mesh_wire.vert.spv sha256 10b93dfe3f3c9d46b2fa92c8aa1f2ac5aa0292174a5f61c8f4fe8c3f933ff009
+// slots s= rt= wt= rb=3,4,1,2 wb= u=0 a=
 #include <metal_stdlib>
 #include <metal_math>
 #include <metal_texture>
 using namespace metal;
 
-#line 65 "src/render/shaders/mesh_io.slang"
+#line 67 "src/render/shaders/mesh_io.slang"
 float3 oct_decode_0(float2 e_0)
 {
 
-#line 66
+#line 68
     float _S1 = e_0.x;
 
-#line 66
+#line 68
     float _S2 = e_0.y;
 
-#line 66
+#line 68
     float3 _S3 = float3(e_0, 1.0f - abs(_S1) - abs(_S2));
 
-#line 66
+#line 68
     thread float3 v_0 = _S3;
     if((_S3.z) < 0.0f)
     {
 
-#line 67
+#line 69
         float2 _S4 = float2(1.0f)  - abs(e_0.yx);
 
-#line 67
+#line 69
         float _S5;
 
-#line 67
+#line 69
         if(_S1 >= 0.0f)
         {
 
-#line 67
+#line 69
             _S5 = 1.0f;
 
-#line 67
+#line 69
         }
         else
         {
 
-#line 67
+#line 69
             _S5 = -1.0f;
 
-#line 67
+#line 69
         }
 
-#line 67
+#line 69
         float _S6;
 
-#line 67
+#line 69
         if(_S2 >= 0.0f)
         {
 
-#line 67
+#line 69
             _S6 = 1.0f;
 
-#line 67
+#line 69
         }
         else
         {
 
-#line 67
+#line 69
             _S6 = -1.0f;
 
-#line 67
+#line 69
         }
 
-#line 67
+#line 69
         v_0.xy = _S4 * float2(_S5, _S6);
 
-#line 67
+#line 69
     }
     return normalize(v_0);
 }
@@ -82,7 +82,7 @@ float3 oct_decode_0(float2 e_0)
 void decode_normal_mask_0(float2 normal_oct_0, float3 thread* normal_0, float thread* mask_0)
 {
 
-#line 74
+#line 76
     float2 _S7 = float2(32767.0f) ;
     int2 _S8 = int2(round(max(normal_oct_0, float2(-1.0f) ) * _S7));
     *normal_0 = oct_decode_0(float2(_S8 & (int2(int(-16)) )) / _S7);
@@ -91,11 +91,84 @@ void decode_normal_mask_0(float2 normal_oct_0, float3 thread* normal_0, float th
 }
 
 
-#line 21 "src/render/shaders/mesh.vert.slang"
+#line 7
+struct SLANG_ParameterGroup_Frame_Uniforms_0
+{
+    matrix<float,int(4),int(4)>  view_proj_0;
+    matrix<float,int(4),int(4)>  view_0;
+    matrix<float,int(4),int(4)>  model_0;
+    float4 options_0;
+    array<uint4, int(4)> slot_group_0;
+    uint4 skin_0;
+    uint4 blend_0;
+};
+
+
+#line 189 "src/render/shaders/mesh.vert.slang"
+struct KernelContext_0
+{
+    SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_0;
+    uint device* blend_table_0;
+    packed_uint4 device* blend_pages_0;
+    packed_uint2 device* paint_0;
+    uint device* paint_material_words_0;
+};
+
+
+#line 17 "src/render/shaders/blend_pages.slang"
+uint4 blend_entry_0(uint vertex_0, KernelContext_0 thread* kernelContext_0)
+{
+
+#line 18
+    if((kernelContext_0->Frame_Uniforms_0->blend_0.x) == 0U)
+    {
+
+#line 18
+        return uint4(0U) ;
+    }
+
+#line 19
+    uint page_0 = kernelContext_0->blend_table_0[vertex_0 >> 10U];
+    if(page_0 == 4294967295U)
+    {
+
+#line 20
+        return uint4(0U) ;
+    }
+
+#line 21
+    return uint4(*(kernelContext_0->blend_pages_0+(page_0 * 1024U + (vertex_0 & 1023U)))) ;
+}
+
+
+#line 28
+void blend_apply_0(uint vertex_1, float3 thread* position_0, float3 thread* normal_1, KernelContext_0 thread* kernelContext_1)
+{
+
+#line 28
+    uint4 _S9 = blend_entry_0(vertex_1, kernelContext_1);
+
+    *position_0 = *position_0 + (as_type<float3>((_S9.xyz)));
+    uint _S10 = _S9.w;
+
+#line 31
+    float amount_0 = float((_S10 >> 24U) & 15U) / 15.0f;
+    if(amount_0 <= 0.0f)
+    {
+
+#line 32
+        return;
+    }
+    *normal_1 = normalize(mix(*normal_1, oct_decode_0(float2(float(_S10 & 4095U), float((_S10 >> 12U) & 4095U)) / float2(4095.0f)  * float2(2.0f)  - float2(1.0f) ), float3(amount_0) ));
+    return;
+}
+
+
+#line 30 "src/render/shaders/mesh.vert.slang"
 float3 srgb_decode_0(float3 c_0)
 {
 
-#line 22
+#line 31
     return mix(c_0 / float3(12.92000007629394531f) , pow((c_0 + float3(0.05499999970197678f) ) / float3(1.0549999475479126f) , float3(2.40000009536743164f) ), step(float3(0.04044999927282333f) , c_0));
 }
 
@@ -109,48 +182,48 @@ float4 paint_material_0(uint word_0)
 }
 
 
-#line 13 "src/render/shaders/mesh.vert.slang"
+#line 22 "src/render/shaders/mesh.vert.slang"
 float3 group_color_0(uint g_0)
 {
 
-#line 13
-    float3 _S9 = float3(3.0f) ;
+#line 22
+    float3 _S11 = float3(3.0f) ;
 
-    float3 _S10 = float3(1.0f) ;
+    float3 _S12 = float3(1.0f) ;
 
-#line 15
-    float3 rgb_0 = clamp(abs(fract(float3(fract(float(g_0) * 0.6180340051651001f + 0.11999999731779099f))  + float3(0.0f, 2.0f, 1.0f) / _S9) * float3(6.0f)  - _S9) - float3(1.0f) , float3(0.0f) , _S10);
+#line 24
+    float3 rgb_0 = clamp(abs(fract(float3(fract(float(g_0) * 0.6180340051651001f + 0.11999999731779099f))  + float3(0.0f, 2.0f, 1.0f) / _S11) * float3(6.0f)  - _S11) - float3(1.0f) , float3(0.0f) , _S12);
 
-#line 15
+#line 24
     float light_0;
     if((g_0 & 1U) == 0U)
     {
 
-#line 16
+#line 25
         light_0 = 0.75f;
 
-#line 16
+#line 25
     }
     else
     {
 
-#line 16
+#line 25
         light_0 = 0.55000001192092896f;
 
-#line 16
+#line 25
     }
-    return mix(_S10, rgb_0, float3(0.55000001192092896f) ) * float3(light_0) ;
+    return mix(_S12, rgb_0, float3(0.55000001192092896f) ) * float3(light_0) ;
 }
 
 
-#line 90 "core"
+#line 26
 struct main_Result_0
 {
-    float4 position_0 [[position]];
+    float4 position_1 [[position]];
     float3 view_normal_0 [[user(NORMAL)]];
     float3 view_pos_0 [[user(POSITION_1)]];
     float mask_1 [[user(MASK)]];
-    float4 paint_0 [[user(COLOR)]];
+    float4 paint_1 [[user(COLOR)]];
     float3 group_0 [[user(GROUP)]];
     float3 mesh_pos_0 [[user(POSITION_2)]];
     uint slot_0 [[user(SLOT)]];
@@ -159,7 +232,7 @@ struct main_Result_0
 };
 
 
-#line 90
+#line 26
 struct vertexInput_0
 {
     float3 in_position_0 [[attribute(0)]];
@@ -167,28 +240,7 @@ struct vertexInput_0
 };
 
 
-#line 7 "src/render/shaders/mesh_io.slang"
-struct SLANG_ParameterGroup_Frame_Uniforms_0
-{
-    matrix<float,int(4),int(4)>  view_proj_0;
-    matrix<float,int(4),int(4)>  view_0;
-    matrix<float,int(4),int(4)>  model_0;
-    float4 options_0;
-    array<uint4, int(4)> slot_group_0;
-    uint4 skin_0;
-};
-
-
-#line 180 "src/render/shaders/mesh.vert.slang"
-struct KernelContext_0
-{
-    SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_0;
-    packed_uint2 device* paint_1;
-    uint device* paint_material_words_0;
-};
-
-
-#line 21 "src/render/shaders/mesh_io.slang"
+#line 23 "src/render/shaders/mesh_io.slang"
 struct Mesh_Varyings_0
 {
     float3 view_normal_1;
@@ -203,204 +255,219 @@ struct Mesh_Varyings_0
 };
 
 
-#line 60
+#line 62
 struct Mesh_Vertex_Out_0
 {
-    float4 position_1;
+    float4 position_2;
     Mesh_Varyings_0 v_1;
 };
 
 
-#line 200 "src/render/shaders/mesh.vert.slang"
-[[vertex]] main_Result_0 main_0(vertexInput_0 _S11 [[stage_in]], uint instance_0 [[instance_id]], uint vertex_0 [[vertex_id]], SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_1 [[buffer(0)]], packed_uint2 device* paint_3 [[buffer(1)]], uint device* paint_material_words_1 [[buffer(2)]])
+#line 212 "src/render/shaders/mesh.vert.slang"
+[[vertex]] main_Result_0 main_0(vertexInput_0 _S13 [[stage_in]], uint instance_0 [[instance_id]], uint vertex_2 [[vertex_id]], SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_1 [[buffer(0)]], uint device* blend_table_1 [[buffer(1)]], packed_uint4 device* blend_pages_1 [[buffer(2)]], packed_uint2 device* paint_3 [[buffer(3)]], uint device* paint_material_words_1 [[buffer(4)]])
 {
 
-#line 200
-    thread KernelContext_0 kernelContext_0;
+#line 212
+    thread KernelContext_0 kernelContext_2;
 
-#line 200
-    (&kernelContext_0)->Frame_Uniforms_0 = Frame_Uniforms_1;
+#line 212
+    (&kernelContext_2)->Frame_Uniforms_0 = Frame_Uniforms_1;
 
-#line 200
-    (&kernelContext_0)->paint_1 = paint_3;
+#line 212
+    (&kernelContext_2)->blend_table_0 = blend_table_1;
 
-#line 200
-    (&kernelContext_0)->paint_material_words_0 = paint_material_words_1;
+#line 212
+    (&kernelContext_2)->blend_pages_0 = blend_pages_1;
 
-#line 192
+#line 212
+    (&kernelContext_2)->paint_0 = paint_3;
+
+#line 212
+    (&kernelContext_2)->paint_material_words_0 = paint_material_words_1;
+
+#line 191
+    thread float3 _S14 = _S13.in_position_0;
+
+#line 201
     thread Mesh_Vertex_Out_0 o_0;
     thread float3 in_normal_0;
-    decode_normal_mask_0(_S11.in_normal_oct_0, &in_normal_0, &(&(&o_0)->v_1)->mask_2);
-    float4 _S12 = float4(0.0f) ;
+    decode_normal_mask_0(_S13.in_normal_oct_0, &in_normal_0, &(&(&o_0)->v_1)->mask_2);
 
-#line 195
-    (&(&o_0)->v_1)->paint_2 = _S12;
-    (&(&o_0)->v_1)->material_1 = _S12;
+#line 203
+    blend_apply_0(vertex_2, &_S14, &in_normal_0, &kernelContext_2);
+
+
+
+    float4 _S15 = float4(0.0f) ;
+
+#line 207
+    (&(&o_0)->v_1)->paint_2 = _S15;
+    (&(&o_0)->v_1)->material_1 = _S15;
     (&(&o_0)->v_1)->group_1 = float3(-1.0f) ;
     (&(&o_0)->v_1)->slot_1 = 0U;
 
-#line 198
-    bool _S13;
-    if((Frame_Uniforms_1->options_0.x) > 0.5f)
+#line 210
+    bool _S16;
+    if(((&kernelContext_2)->Frame_Uniforms_0->options_0.x) > 0.5f)
     {
 
-#line 199
-        _S13 = true;
+#line 211
+        _S16 = true;
 
-#line 199
+#line 211
     }
     else
     {
 
-#line 199
-        _S13 = (Frame_Uniforms_1->options_0.y) > 0.5f;
+#line 211
+        _S16 = ((&kernelContext_2)->Frame_Uniforms_0->options_0.y) > 0.5f;
 
-#line 199
+#line 211
     }
 
-#line 199
-    if(_S13)
+#line 211
+    if(_S16)
     {
 
-#line 199
-        _S13 = true;
+#line 211
+        _S16 = true;
 
-#line 199
+#line 211
     }
     else
     {
 
-#line 199
-        _S13 = (Frame_Uniforms_1->options_0.z) > 0.5f;
+#line 211
+        _S16 = ((&kernelContext_2)->Frame_Uniforms_0->options_0.z) > 0.5f;
 
-#line 199
+#line 211
     }
 
-#line 199
-    if(_S13)
+#line 211
+    if(_S16)
     {
 
-#line 199
-        uint2 _S14 = uint2(*((&kernelContext_0)->paint_1+vertex_0)) ;
+#line 211
+        uint2 _S17 = uint2(*((&kernelContext_2)->paint_0+vertex_2)) ;
 
-        uint group_2 = (_S14.y) & 65535U;
-        if((Frame_Uniforms_1->options_0.x) > 0.5f)
+        uint group_2 = (_S17.y) & 65535U;
+        if(((&kernelContext_2)->Frame_Uniforms_0->options_0.x) > 0.5f)
         {
 
-#line 203
-            float4 _S15 = unpack_unorm4x8_to_float(_S14.x);
+#line 215
+            float4 _S18 = unpack_unorm4x8_to_float(_S17.x);
 
-#line 203
-            (&(&o_0)->v_1)->paint_2 = float4(srgb_decode_0(_S15.xyz), _S15.w);
-            if((Frame_Uniforms_1->options_0.w) > 0.5f)
+#line 215
+            (&(&o_0)->v_1)->paint_2 = float4(srgb_decode_0(_S18.xyz), _S18.w);
+            if(((&kernelContext_2)->Frame_Uniforms_0->options_0.w) > 0.5f)
             {
 
-#line 204
-                (&(&o_0)->v_1)->material_1 = paint_material_0((&kernelContext_0)->paint_material_words_0[vertex_0]);
+#line 216
+                (&(&o_0)->v_1)->material_1 = paint_material_0((&kernelContext_2)->paint_material_words_0[vertex_2]);
 
-#line 204
+#line 216
             }
 
-#line 202
+#line 214
         }
 
 
 
-        if((Frame_Uniforms_1->options_0.y) > 0.5f)
+        if(((&kernelContext_2)->Frame_Uniforms_0->options_0.y) > 0.5f)
         {
 
-#line 206
+#line 218
             (&(&o_0)->v_1)->group_1 = group_color_0(group_2);
 
-#line 206
+#line 218
         }
-        if((Frame_Uniforms_1->options_0.z) > 0.5f)
+        if(((&kernelContext_2)->Frame_Uniforms_0->options_0.z) > 0.5f)
         {
 
-#line 207
+#line 219
             uint k_0 = 1U;
             for(;;)
             {
 
-#line 208
+#line 220
                 if(k_0 < 16U)
                 {
                 }
                 else
                 {
 
-#line 208
+#line 220
                     break;
                 }
 
-#line 209
-                if(((&kernelContext_0)->Frame_Uniforms_0->slot_group_0[k_0 >> 2U][k_0 & 3U]) == group_2)
+#line 221
+                if(((&kernelContext_2)->Frame_Uniforms_0->slot_group_0[k_0 >> 2U][k_0 & 3U]) == group_2)
                 {
 
-#line 209
+#line 221
                     (&(&o_0)->v_1)->slot_1 = k_0;
 
-#line 209
+#line 221
                 }
 
-#line 208
+#line 220
                 k_0 = k_0 + 1U;
 
-#line 208
+#line 220
             }
 
-#line 207
+#line 219
         }
 
-#line 199
+#line 211
     }
 
-#line 213
-    float4 world_0 = ((((&kernelContext_0)->Frame_Uniforms_0->model_0) * (float4(_S11.in_position_0, 1.0f))));
-    (&o_0)->position_1 = ((((&kernelContext_0)->Frame_Uniforms_0->view_proj_0) * (world_0)));
-    (&(&o_0)->v_1)->view_normal_1 = ((((((matrix<float,int(3),int(3)> ((&kernelContext_0)->Frame_Uniforms_0->view_0[int(0)].xyz, (&kernelContext_0)->Frame_Uniforms_0->view_0[int(1)].xyz, (&kernelContext_0)->Frame_Uniforms_0->view_0[int(2)].xyz)) * (matrix<float,int(3),int(3)> ((&kernelContext_0)->Frame_Uniforms_0->model_0[int(0)].xyz, (&kernelContext_0)->Frame_Uniforms_0->model_0[int(1)].xyz, (&kernelContext_0)->Frame_Uniforms_0->model_0[int(2)].xyz))))) * (in_normal_0)));
-    (&(&o_0)->v_1)->view_pos_1 = ((((&kernelContext_0)->Frame_Uniforms_0->view_0) * (world_0))).xyz;
-    (&(&o_0)->v_1)->mesh_pos_1 = _S11.in_position_0;
+#line 225
+    float4 world_0 = ((((&kernelContext_2)->Frame_Uniforms_0->model_0) * (float4(_S14, 1.0f))));
+    (&o_0)->position_2 = ((((&kernelContext_2)->Frame_Uniforms_0->view_proj_0) * (world_0)));
+    (&(&o_0)->v_1)->view_normal_1 = ((((((matrix<float,int(3),int(3)> ((&kernelContext_2)->Frame_Uniforms_0->view_0[int(0)].xyz, (&kernelContext_2)->Frame_Uniforms_0->view_0[int(1)].xyz, (&kernelContext_2)->Frame_Uniforms_0->view_0[int(2)].xyz)) * (matrix<float,int(3),int(3)> ((&kernelContext_2)->Frame_Uniforms_0->model_0[int(0)].xyz, (&kernelContext_2)->Frame_Uniforms_0->model_0[int(1)].xyz, (&kernelContext_2)->Frame_Uniforms_0->model_0[int(2)].xyz))))) * (in_normal_0)));
+    (&(&o_0)->v_1)->view_pos_1 = ((((&kernelContext_2)->Frame_Uniforms_0->view_0) * (world_0))).xyz;
+    (&(&o_0)->v_1)->mesh_pos_1 = _S14;
 
-#line 229
+#line 241
     (&(&o_0)->v_1)->tri_base_1 = instance_0;
 
-    Mesh_Vertex_Out_0 _S16 = o_0;
+    Mesh_Vertex_Out_0 _S19 = o_0;
 
-#line 231
-    thread main_Result_0 _S17;
+#line 243
+    thread main_Result_0 _S20;
 
-#line 231
-    (&_S17)->position_0 = _S16.position_1;
+#line 243
+    (&_S20)->position_1 = _S19.position_2;
 
-#line 231
-    (&_S17)->view_normal_0 = _S16.v_1.view_normal_1;
+#line 243
+    (&_S20)->view_normal_0 = _S19.v_1.view_normal_1;
 
-#line 231
-    (&_S17)->view_pos_0 = _S16.v_1.view_pos_1;
+#line 243
+    (&_S20)->view_pos_0 = _S19.v_1.view_pos_1;
 
-#line 231
-    (&_S17)->mask_1 = _S16.v_1.mask_2;
+#line 243
+    (&_S20)->mask_1 = _S19.v_1.mask_2;
 
-#line 231
-    (&_S17)->paint_0 = _S16.v_1.paint_2;
+#line 243
+    (&_S20)->paint_1 = _S19.v_1.paint_2;
 
-#line 231
-    (&_S17)->group_0 = _S16.v_1.group_1;
+#line 243
+    (&_S20)->group_0 = _S19.v_1.group_1;
 
-#line 231
-    (&_S17)->mesh_pos_0 = _S16.v_1.mesh_pos_1;
+#line 243
+    (&_S20)->mesh_pos_0 = _S19.v_1.mesh_pos_1;
 
-#line 231
-    (&_S17)->slot_0 = _S16.v_1.slot_1;
+#line 243
+    (&_S20)->slot_0 = _S19.v_1.slot_1;
 
-#line 231
-    (&_S17)->tri_base_0 = _S16.v_1.tri_base_1;
+#line 243
+    (&_S20)->tri_base_0 = _S19.v_1.tri_base_1;
 
-#line 231
-    (&_S17)->material_0 = _S16.v_1.material_1;
+#line 243
+    (&_S20)->material_0 = _S19.v_1.material_1;
 
-#line 231
-    return _S17;
+#line 243
+    return _S20;
 }
 
