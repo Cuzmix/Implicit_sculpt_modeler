@@ -127,6 +127,8 @@ Brush_Settings :: struct {
 	// Local symmetry: the planes (and the radial axis) pass through the object's own middle
 	// instead of its origin (symmetry_center).
 	sym_local:         bool,
+	// Poseable symmetry: dabs mirror by the mesh's topology (symmetry.odin's poseable_*).
+	poseable:          bool,
 	// Radial symmetry: while on, every dab has radial_count copies evenly round radial_axis.
 	radial_on:         bool,
 	radial_count:      i32,
@@ -208,11 +210,11 @@ STROKE_MODE_SHORT := [Stroke_Mode]string {
 	.Drag_Dot  = "Drag",
 }
 STROKE_MODE_ICONS := [Stroke_Mode]rune {
-	.Dots      = rune(0xe0ba), // Lucide ellipsis
-	.Drag_Rect = rune(0xe37a), // rectangle-horizontal
-	.Spray     = rune(0xe49a), // spray-can
-	.Roll      = rune(0xe5a3), // paint-roller
-	.Drag_Dot  = rune(0xe495), // move-right
+	.Dots      = ui.ICON_STROKE_DOTS,
+	.Drag_Rect = ui.ICON_STROKE_RECT,
+	.Spray     = ui.ICON_STROKE_SPRAY,
+	.Roll      = ui.ICON_STROKE_ROLL,
+	.Drag_Dot  = ui.ICON_STROKE_DRAG_DOT,
 }
 
 // A brush's falloff: the built-in smooth one, or a curve the user drew (read from the
@@ -266,6 +268,10 @@ Stroke :: struct {
 	// Even strength's scale for this stroke's dabs (spacing_strength), or Accumulate off's
 	// (once_strength); 0 until worked out.
 	even:     f32,
+	// Tube on voxel clay: where the last dab's rope ended, its axis in the object's space
+	// (tube_set once there is one), which the next dab joins; a dab off the clay breaks it.
+	tube_from: Vec3,
+	tube_set:  bool,
 	// Size fixed in the scene: how many screen pixels a pixel of radius_px is at the last
 	// dab (brush_size_scale); 0 before it.
 	size_scale: f32,
@@ -780,7 +786,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st.scale = app.stroke_scale_from if app.stroke_scale_from > 0 else (app.nav.touch_strength if app.device.pointer == .Finger else 1)
 	st.pos, st.pressure, st.tilt, st.travel, st.size = s.pos, s.pressure, s.tilt, 0, input.size
 	st.dir, st.facing, st.even, st.size_scale, st.first_dir = {}, 0, 0, 0, {}
-	st.last_set = false
+	st.last_set, st.tube_set = false, false
 	st.line, st.line_leaving, st.joined, st.smooth_was = false, false, false, input.smooth
 	clear(&st.pending)
 	clear(&st.path)
@@ -810,6 +816,9 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 		if n, found := sculpt.sculptor_area_normal(object_sculptor(obj), local, 0.5 * brush.radius, to_local_dir(t, camera.orbit_toward(app.camera, hit))); found {
 			st.grab_normal = linalg.normalize0(to_world_dir(t, n))
 		}
+	} else if st.grab {
+		// The clay's own normal there: the field's gradient.
+		st.grab_normal = linalg.normalize0(to_world_dir(t_obj, object_normal_local(obj, local)))
 	}
 	st.cloth = .Cloth in flags
 	st.physics = false
@@ -851,7 +860,9 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	case .Dots, .Drag_Rect, .Drag_Dot:
 	}
 	t1 := time.tick_now()
-	if st.grab {
+	if st.grab && obj.voxel != nil {
+		voxel_grab_begin(obj.voxel, brush, local)
+	} else if st.grab {
 		sculpt.sculptor_grab_begin(object_sculptor(obj), brush, local)
 	} else if st.cloth {
 		// Invert (Ctrl) turns each mode about: Pinch spreads, Push lifts, Twist turns back.
@@ -901,7 +912,8 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 		twist = {linalg.normalize0(to_local_dir(stroke_frame(app, obj), facing)), angle}
 	}
 	t1 := time.tick_now()
-	sculpt.sculptor_grab_move(object_sculptor(obj), offset, twist)
+	if vp := obj.voxel; vp != nil do _ = voxel.clay_grab_move(&vp.clay, offset, twist.axis, twist.angle)
+	else do sculpt.sculptor_grab_move(object_sculptor(obj), offset, twist)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
 }
@@ -1041,7 +1053,7 @@ hook_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: I
 			}
 		}
 		if way != {} do st.hook_dir = way
-		sculpt.apply_dab(object_sculptor(obj), brush, to_local(t, st.anchor))
+		object_dab(app, obj, brush, to_local(t, st.anchor), {})
 		st.anchor += part
 		res.dabs += 1
 	}
@@ -1413,10 +1425,13 @@ stroke_dab :: proc(app: ^App, obj: ^Object, input: Viewport_Input, inv: matrix[4
 	t := stroke_frame(app, obj)
 	t0 := time.tick_now()
 	local_dir := to_local_dir(t, dir)
-	hit, normal, ok := object_raycast_local(obj, to_local(t, origin), local_dir)
-	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
-	if !ok do return
 	st := &app.stroke
+	hit, normal, ok := object_raycast_local(obj, to_local(t, origin), local_dir, press = st.kind == .Tube)
+	res.raycast_ms += time.duration_milliseconds(time.tick_since(t0))
+	if !ok {
+		st.tube_set = false
+		return
+	}
 	if l := linalg.length(normal) * linalg.length(local_dir); l > 0 do st.facing = abs(linalg.dot(normal, local_dir)) / l
 	stroke_dab_at(app, obj, input, hit, normal, pressure, tilt, res, scatter)
 }
@@ -1561,6 +1576,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		radial   = sym.radial,
 		radial_axis = sym.radial_axis,
 		sym_center = sym.sym_center,
+		poseable = sym.poseable,
 		detail   = brush_detail(&app.brush, kind, brush_radius_px(app, pressure, tilt)),
 		detail_falloff = app.brush.detail_falloff,
 		collapse = app.brush.collapse,
@@ -1617,6 +1633,20 @@ brush_hovering :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3
 	return brush_at(app, input, t, hit, 1, input.pen_tilt)
 }
 
+// How many brushes' falloff tables are kept: a frame asks for at most three (the brush
+// set, the one a held key picks and the stroke's own), so a table in use is never the
+// one the least recently asked for. A table a brush is 1 KiB, too much to keep for
+// every brush in App.
+FALLOFF_TABLES :: 4
+
+Falloff_Table :: struct {
+	falloff: sculpt.Falloff,
+	kind:    sculpt.Brush_Kind,
+	shape:   Falloff_Setting,
+	built:   bool,
+	used:    u64, // App.falloff_clock when last asked for
+}
+
 // The falloff of the brush `kind` as a table, made from its curve and focal shift, or nil
 // for the built-in one unshifted, which the dabs work out themselves.
 brush_falloff :: proc(app: ^App, kind: sculpt.Brush_Kind) -> ^sculpt.Falloff {
@@ -1626,10 +1656,20 @@ brush_falloff :: proc(app: ^App, kind: sculpt.Brush_Kind) -> ^sculpt.Falloff {
 	// the dab's to apply.
 	if !f.drawn do f.curve = {}
 	f.projected = false
-	table := &app.falloff_tables[kind]
-	if table.shape != f || !table.built {
+	// This brush's table, or the one asked for least recently.
+	table := &app.falloff_tables[0]
+	for &t in app.falloff_tables {
+		if t.built && t.kind == kind {
+			table = &t
+			break
+		}
+		if t.used < table.used do table = &t
+	}
+	app.falloff_clock += 1
+	table.used = app.falloff_clock
+	if table.shape != f || !table.built || table.kind != kind {
 		sculpt.falloff_set_shaped(&table.falloff, f.curve if f.drawn else nil, f.focal, f.hardness)
-		table.shape, table.built = f, true
+		table.shape, table.built, table.kind = f, true, kind
 	}
 	return &table.falloff
 }

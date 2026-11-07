@@ -536,11 +536,11 @@ refs_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 	if !note && pictures {
 		ui.begin(ctx, "refs places", {direction = .Row, width = inner, gap = t.gap, center = true})
 		on_view := refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.view})
-		if refs_chip(ctx, "On view##refs", ICON_ON_VIEW, "On view", on_view, false) do refs_edit(app, .View)
+		if refs_chip(ctx, "On view##refs", ui.ICON_ON_VIEW, "On view", on_view, false) do refs_edit(app, .View)
 		plane, in_scene := refs_picked_plane(app)
 		words := "In scene"
 		if in_scene do words = REF_PLANE_NAMES[plane] if plane != .None else "Mixed"
-		if refs_chip(ctx, "In scene##refs view", ICON_REF_PLANE, words, in_scene || b.plane_menu, true) {
+		if refs_chip(ctx, "In scene##refs view", ui.ICON_REF_PLANE, words, in_scene || b.plane_menu, true) {
 			b.plane_menu, b.plane_menu_at = !b.plane_menu, ctx.last_rect
 		}
 		if in_scene {
@@ -641,13 +641,13 @@ refs_float_bar :: proc(app: ^App) {
 	pos.x = clamp(pos.x, s.x + ui.SPACE_XS, max(s.x + s.w - size.x - ui.SPACE_XS, s.x + ui.SPACE_XS))
 	ui.begin_at(ctx, "refs edits", pos, {direction = .Row, gap = 0, padding = ui.SPACE_2XS, radius = t.radius_large, background = .Raised, center = true})
 	if pictures {
-		if ui.icon_button(ctx, "Flip##refs", ICON_FLIP_PICTURE, selected = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.flip}), size = REFS_FLOAT_BUTTON) do refs_edit(app, .Flip)
-		if ui.icon_button(ctx, "Grey##refs", ICON_GREY, selected = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.grey}), size = REFS_FLOAT_BUTTON) do refs_edit(app, .Grey)
-		if ui.icon_button(ctx, "Turn##refs", ICON_TURN, size = REFS_FLOAT_BUTTON) do refs_edit(app, .Turn)
+		if ui.icon_button(ctx, "Flip##refs", ui.ICON_FLIP_PICTURE, selected = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.flip}), size = REFS_FLOAT_BUTTON) do refs_edit(app, .Flip)
+		if ui.icon_button(ctx, "Grey##refs", ui.ICON_GREY, selected = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.grey}), size = REFS_FLOAT_BUTTON) do refs_edit(app, .Grey)
+		if ui.icon_button(ctx, "Turn##refs", ui.ICON_TURN, size = REFS_FLOAT_BUTTON) do refs_edit(app, .Turn)
 		crop_ok := one != nil && one.image != 0 && !one.locked
-		if ui.icon_button(ctx, "Crop##refs", ICON_CROP, selected = b.cropping != 0, enabled = crop_ok, size = REFS_FLOAT_BUTTON) do b.cropping = 0 if b.cropping != 0 else one.id
+		if ui.icon_button(ctx, "Crop##refs", ui.ICON_CROP, selected = b.cropping != 0, enabled = crop_ok, size = REFS_FLOAT_BUTTON) do b.cropping = 0 if b.cropping != 0 else one.id
 		_, in_scene := refs_picked_plane(app)
-		if ui.icon_button(ctx, "In scene##refs", ICON_REF_PLANE, selected = in_scene, size = REFS_FLOAT_BUTTON) {
+		if ui.icon_button(ctx, "In scene##refs", ui.ICON_REF_PLANE, selected = in_scene, size = REFS_FLOAT_BUTTON) {
 			refs_plane_put(app, .None if in_scene else refs_plane_facing(app))
 		}
 	}
@@ -692,7 +692,7 @@ refs_card_menus :: proc(app: ^App) {
 	box := ui.Box{direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}
 	// The iPad's choice of where pictures come from: two big tiles, as Nomad's.
 	if ui.popover_begin(ctx, "refs add choice", &b.add_menu, b.menu_at, .Below_End, {direction = .Row, gap = ui.SPACE_S, padding = ui.SPACE_S}) {
-		if refs_choice_tile(ctx, "Photos##refs add", ICON_IMAGES, "Photos from your library, several at once") {
+		if refs_choice_tile(ctx, "Photos##refs add", ui.ICON_PHOTOS, "Photos from your library, several at once") {
 			refs_ask_photos(app)
 			b.add_menu = false
 		}
@@ -703,28 +703,28 @@ refs_card_menus :: proc(app: ^App) {
 		ui.popover_end(ctx)
 	}
 	if ui.popover_begin(ctx, "refs board more", &b.board_more, b.menu_at, .Below_End, box) {
-		if ui.menu_item(ctx, "Paste picture##refs more", glyph = ICON_CLIPBOARD_PASTE, hint = "The picture on the clipboard") {
+		if ui.menu_item(ctx, "Paste picture##refs more", glyph = ui.ICON_PASTE, hint = "The picture on the clipboard") {
 			_ = refs_paste(app)
 			b.board_more = false
 		}
-		if ui.menu_item(ctx, "Snap view##refs more", glyph = ICON_IMAGE_DOWN, hint = "The view as it is now, as a picture") {
+		if ui.menu_item(ctx, "Snap view##refs more", glyph = ui.ICON_IMAGE_DOWN, hint = "The view as it is now, as a picture") {
 			b.snap = true
 			b.board_more = false
 		}
-		if ui.menu_item(ctx, "Add note##refs more", glyph = ICON_STICKY_NOTE) {
+		if ui.menu_item(ctx, "Add note##refs more", glyph = ui.ICON_STICKY_NOTE) {
 			refs_add_note(app)
 			b.board_more = false
 		}
 		ui.divider(ctx, across = true)
-		if ui.menu_item(ctx, "Arrange##refs tidy", glyph = ICON_LAYOUT_DASHBOARD, enabled = len(refs.refs) > 1, hint = "Packed into rows, tallest first") {
+		if ui.menu_item(ctx, "Arrange##refs tidy", glyph = ui.ICON_LAYOUT_DASHBOARD, enabled = len(refs.refs) > 1, hint = "Packed into rows, tallest first") {
 			refs_arrange(app)
 			b.board_more = false
 		}
-		if ui.menu_item(ctx, "Same height##refs tidy", glyph = ICON_STRETCH_VERTICAL, enabled = len(refs.refs) > 1) {
+		if ui.menu_item(ctx, "Same height##refs tidy", glyph = ui.ICON_STRETCH_VERTICAL, enabled = len(refs.refs) > 1) {
 			refs_same_height(app)
 			b.board_more = false
 		}
-		if ui.menu_item(ctx, "Fit all##refs tidy", glyph = ICON_SCAN, enabled = len(refs.refs) > 0) {
+		if ui.menu_item(ctx, "Fit all##refs tidy", glyph = ui.ICON_SCAN, enabled = len(refs.refs) > 0) {
 			board_fit(app, b.room)
 			b.board_more = false
 		}
@@ -741,16 +741,16 @@ refs_card_menus :: proc(app: ^App) {
 	}
 	if ui.popover_begin(ctx, "refs more menu", &b.more_menu, b.menu_at, .Below_End, box) {
 		locked := refs_picked_all(app, proc(r: Ref) -> bool {return r.locked})
-		if ui.menu_item(ctx, "Unlock##refs more" if locked else "Lock##refs more", glyph = ICON_LOCK if locked else ICON_LOCK_OPEN, enabled = len(b.selected) > 0, hint = "" if locked else "Kept where it is: a drag on it pans") {
+		if ui.menu_item(ctx, "Unlock##refs more" if locked else "Lock##refs more", glyph = ui.ICON_LOCK if locked else ui.ICON_LOCK_OPEN, enabled = len(b.selected) > 0, hint = "" if locked else "Kept where it is: a drag on it pans") {
 			refs_edit(app, .Lock)
 			b.more_menu = false
 		}
-		if ui.menu_item(ctx, "Send to back##refs more", glyph = ICON_SEND_TO_BACK, enabled = len(b.selected) > 0, hint = "Under the others; picking one brings it to the front") {
+		if ui.menu_item(ctx, "Send to back##refs more", glyph = ui.ICON_SEND_TO_BACK, enabled = len(b.selected) > 0, hint = "Under the others; picking one brings it to the front") {
 			refs_send_back_selected(app)
 			b.more_menu = false
 		}
 		refs_turn_items(app, &b.more_menu)
-		if ui.menu_item(ctx, "Delete##refs more", glyph = ICON_TRASH_2, tone = .Danger, enabled = len(b.selected) > 0) {
+		if ui.menu_item(ctx, "Delete##refs more", glyph = ui.ICON_TRASH, tone = .Danger, enabled = len(b.selected) > 0) {
 			refs_delete_selected(app)
 			b.more_menu = false
 		}
@@ -775,75 +775,75 @@ refs_board_menu :: proc(app: ^App) {
 	pictures := false
 	for r in refs.refs do if board_picked(b, r.id) && r.image != 0 do pictures = true
 	if pictures {
-		if ui.menu_item(ctx, "Flip##refs board", glyph = ICON_FLIP_PICTURE, checked = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.flip})) {
+		if ui.menu_item(ctx, "Flip##refs board", glyph = ui.ICON_FLIP_PICTURE, checked = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.flip})) {
 			refs_edit(app, .Flip)
 			b.board_menu = false
 		}
-		if ui.menu_item(ctx, "Grey##refs board", glyph = ICON_GREY, checked = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.grey})) {
+		if ui.menu_item(ctx, "Grey##refs board", glyph = ui.ICON_GREY, checked = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.grey})) {
 			refs_edit(app, .Grey)
 			b.board_menu = false
 		}
-		if ui.menu_item(ctx, "Turn##refs board", glyph = ICON_TURN) {
+		if ui.menu_item(ctx, "Turn##refs board", glyph = ui.ICON_TURN) {
 			refs_edit(app, .Turn)
 			b.board_menu = false
 		}
-		if ui.menu_item(ctx, "Crop##refs board", glyph = ICON_CROP, checked = b.cropping != 0, enabled = one != nil && one.image != 0 && !one.locked) {
+		if ui.menu_item(ctx, "Crop##refs board", glyph = ui.ICON_CROP, checked = b.cropping != 0, enabled = one != nil && one.image != 0 && !one.locked) {
 			b.cropping = 0 if b.cropping != 0 else one.id
 			b.board_menu = false
 		}
-		if ui.menu_item(ctx, "On view##refs board", glyph = ICON_ON_VIEW, checked = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.view})) {
+		if ui.menu_item(ctx, "On view##refs board", glyph = ui.ICON_ON_VIEW, checked = refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || r.view})) {
 			refs_edit(app, .View)
 			b.board_menu = false
 		}
 		_, in_scene := refs_picked_plane(app)
-		if ui.menu_item(ctx, "In scene##refs board", glyph = ICON_REF_PLANE, checked = in_scene, hint = "On a plane facing the view") {
+		if ui.menu_item(ctx, "In scene##refs board", glyph = ui.ICON_REF_PLANE, checked = in_scene, hint = "On a plane facing the view") {
 			refs_plane_put(app, .None if in_scene else refs_plane_facing(app))
 			b.board_menu = false
 		}
 	}
 	if len(b.selected) > 0 {
 		locked := refs_picked_all(app, proc(r: Ref) -> bool {return r.locked})
-		if ui.menu_item(ctx, "Unlock##refs board" if locked else "Lock##refs board", glyph = ICON_LOCK if locked else ICON_LOCK_OPEN) {
+		if ui.menu_item(ctx, "Unlock##refs board" if locked else "Lock##refs board", glyph = ui.ICON_LOCK if locked else ui.ICON_LOCK_OPEN) {
 			refs_edit(app, .Lock)
 			b.board_menu = false
 		}
-		if ui.menu_item(ctx, "Send to back##refs board", glyph = ICON_SEND_TO_BACK) {
+		if ui.menu_item(ctx, "Send to back##refs board", glyph = ui.ICON_SEND_TO_BACK) {
 			refs_send_back_selected(app)
 			b.board_menu = false
 		}
 		refs_turn_items(app, &b.board_menu)
-		if ui.menu_item(ctx, "Delete##refs board", glyph = ICON_TRASH_2, tone = .Danger) {
+		if ui.menu_item(ctx, "Delete##refs board", glyph = ui.ICON_TRASH, tone = .Danger) {
 			refs_delete_selected(app)
 			b.board_menu = false
 		}
 		ui.divider(ctx, across = true)
 	}
-	if ui.menu_item(ctx, "Add pictures##refs board", glyph = ICON_IMAGE_PLUS) {
+	if ui.menu_item(ctx, "Add pictures##refs board", glyph = ui.ICON_IMAGE_PLUS) {
 		refs_ask_files(app)
 		b.board_menu = false
 	}
-	if app.photos_picker && ui.menu_item(ctx, "Add from Photos##refs board", glyph = ICON_IMAGES) {
+	if app.photos_picker && ui.menu_item(ctx, "Add from Photos##refs board", glyph = ui.ICON_PHOTOS) {
 		refs_ask_photos(app)
 		b.board_menu = false
 	}
-	if ui.menu_item(ctx, "Paste picture##refs board", glyph = ICON_CLIPBOARD_PASTE) {
+	if ui.menu_item(ctx, "Paste picture##refs board", glyph = ui.ICON_PASTE) {
 		_ = refs_paste(app)
 		b.board_menu = false
 	}
-	if ui.menu_item(ctx, "Snap view##refs board", glyph = ICON_IMAGE_DOWN) {
+	if ui.menu_item(ctx, "Snap view##refs board", glyph = ui.ICON_IMAGE_DOWN) {
 		b.snap = true
 		b.board_menu = false
 	}
-	if ui.menu_item(ctx, "Add note##refs board", glyph = ICON_STICKY_NOTE) {
+	if ui.menu_item(ctx, "Add note##refs board", glyph = ui.ICON_STICKY_NOTE) {
 		refs_add_note(app)
 		b.board_menu = false
 	}
 	ui.divider(ctx, across = true)
-	if ui.menu_item(ctx, "Arrange##refs board", glyph = ICON_LAYOUT_DASHBOARD, enabled = len(refs.refs) > 1) {
+	if ui.menu_item(ctx, "Arrange##refs board", glyph = ui.ICON_LAYOUT_DASHBOARD, enabled = len(refs.refs) > 1) {
 		refs_arrange(app)
 		b.board_menu = false
 	}
-	if ui.menu_item(ctx, "Fit all##refs board", glyph = ICON_SCAN, enabled = len(refs.refs) > 0) {
+	if ui.menu_item(ctx, "Fit all##refs board", glyph = ui.ICON_SCAN, enabled = len(refs.refs) > 0) {
 		board_fit(app, b.room)
 		b.board_menu = false
 	}
@@ -862,19 +862,19 @@ refs_turn_items :: proc(app: ^App, open: ^bool) {
 	}
 	if viewed {
 		locked := refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || !r.view || r.view_locked})
-		if ui.menu_item(ctx, "Unlock on view##refs turn" if locked else "Lock on view##refs turn", glyph = ICON_LOCK if locked else ICON_LOCK_OPEN, hint = "" if locked else "Two fingers on it then turn the view") {
+		if ui.menu_item(ctx, "Unlock on view##refs turn" if locked else "Lock on view##refs turn", glyph = ui.ICON_LOCK if locked else ui.ICON_LOCK_OPEN, hint = "" if locked else "Two fingers on it then turn the view") {
 			refs_edit(app, .View_Lock)
 			open^ = false
 		}
 	}
 	if viewed {
 		behind := refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || !r.view || r.view_behind})
-		if ui.menu_item(ctx, "Behind the model##refs turn", glyph = ICON_VIEW_BEHIND, checked = behind, hint = "" if behind else "A backdrop the model covers") {
+		if ui.menu_item(ctx, "Behind the model##refs turn", glyph = ui.ICON_VIEW_BEHIND, checked = behind, hint = "" if behind else "A backdrop the model covers") {
 			refs_edit(app, .View_Behind)
 			open^ = false
 		}
 	}
-	if turned && ui.menu_item(ctx, "Straighten##refs turn", glyph = ICON_STRAIGHTEN, hint = "Upright again, on the board and the view") {
+	if turned && ui.menu_item(ctx, "Straighten##refs turn", glyph = ui.ICON_STRAIGHTEN, hint = "Upright again, on the board and the view") {
 		refs_edit(app, .Straighten)
 		open^ = false
 	}
@@ -922,7 +922,7 @@ board_draw :: proc(app: ^App, r: ui.Rect) {
 	if len(refs.refs) == 0 {
 		// Its middle holds Add image (refs_empty_add, laid out after the cards), the icon
 		// over it and what else adds a picture under it.
-		ui.icon(ctx, ICON_REFERENCES, {r.x + r.w * 0.5, r.y + r.h * 0.5 - 1.5 * t.target}, t.icon_small * 2, t.text_tertiary)
+		ui.icon(ctx, ui.ICON_REFERENCES, {r.x + r.w * 0.5, r.y + r.h * 0.5 - 1.5 * t.target}, t.icon_small * 2, t.text_tertiary)
 		line := "or paste one, or drop image files here"
 		ui.text(ctx, ui.text_fit(ctx, line, t.small_size, r.w - 2 * t.gap), r.x + r.w * 0.5, r.y + r.h * 0.5 + t.target, t.small_size, t.text_secondary, .Regular, .Center)
 		return
@@ -946,7 +946,7 @@ board_draw :: proc(app: ^App, r: ui.Rect) {
 			}
 		} else do board_picture(app, r, p, 255)
 		if p.locked && at.w > t.icon_small * 2 && at.h > t.icon_small * 2 {
-			ui.icon(ctx, ICON_LOCK, {at.x + at.w - t.icon_small, at.y + t.icon_small}, t.icon_small, t.text_secondary)
+			ui.icon(ctx, ui.ICON_LOCK, {at.x + at.w - t.icon_small, at.y + t.icon_small}, t.icon_small, t.text_secondary)
 		}
 	}
 	for p in refs.refs {
@@ -1377,27 +1377,3 @@ board_drag_cancel :: proc(app: ^App) {
 	b.raised, b.moved = false, false
 }
 
-// Lucide's image-plus, clipboard-paste, scan and trash-2, image-down, sticky-note,
-// layout-dashboard, stretch-vertical, flip-horizontal, sun-moon, rotate-cw-square and
-// crop, for the card's actions.
-ICON_IMAGE_PLUS :: rune(0xe1f7)
-// Lucide's images, for Add from Photos.
-ICON_IMAGES :: rune(0xe5c9)
-ICON_CLIPBOARD_PASTE :: rune(0xe3ec)
-ICON_SCAN :: rune(0xe257)
-ICON_TRASH_2 :: rune(0xe18e)
-ICON_IMAGE_DOWN :: rune(0xe541)
-ICON_STICKY_NOTE :: rune(0xe303)
-ICON_LAYOUT_DASHBOARD :: rune(0xe1c1)
-ICON_STRETCH_VERTICAL :: rune(0xe27d)
-ICON_FLIP_PICTURE :: rune(0xe361)
-ICON_GREY :: rune(0xe2b2)
-ICON_TURN :: rune(0xe5d6)
-ICON_CROP :: rune(0xe0af)
-ICON_ON_VIEW :: rune(0xe3b3) // picture-in-picture-2
-// Lucide's layers-2, for Behind the model.
-ICON_VIEW_BEHIND :: rune(0xe52e)
-// Lucide's rotate-ccw-square, for Straighten.
-ICON_STRAIGHTEN :: rune(0xe5d5)
-// Lucide's send-to-back, for Send to back.
-ICON_SEND_TO_BACK :: rune(0xe4f8)

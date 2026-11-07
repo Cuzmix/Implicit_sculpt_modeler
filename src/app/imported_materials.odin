@@ -68,33 +68,63 @@ object_take_imported :: proc(obj: ^Object, list: []geom.Part_Material) -> (unval
 	return
 }
 
-// The scene file's form of obj.imported (object_put): a count, then each entry's name,
-// group, whether it was valued and its maps' names.
+// The scene file's form of obj.imported (object_put), a record (tags are never reused or
+// retyped, geom/record.odin) of an entry each: its name, group, whether it was valued and
+// its maps' names.
+Imported_Tag :: enum u16 {
+	Entry = 1, // Imported_Entry_Tag record
+}
+
+Imported_Entry_Tag :: enum u16 {
+	Name        = 1, // text
+	Group       = 2, // u16
+	Valued      = 3, // u8
+	Base_Color  = 4, // text: the map's file name
+	Metal_Rough = 5, // text
+	Normal      = 6, // text
+}
+
+// The field of each map's name.
+@(private = "file")
+IMPORTED_MAP_TAGS := [geom.Mesh_Map]Imported_Entry_Tag {
+	.Base_Color  = .Base_Color,
+	.Metal_Rough = .Metal_Rough,
+	.Normal      = .Normal,
+}
+
 imported_put :: proc(out: ^[dynamic]u8, obj: ^Object) {
-	geom.byte_put(out, u16(len(obj.imported)))
+	rec := geom.record_begin(out)
+	defer geom.record_end(out, rec)
 	for e in obj.imported {
-		geom.byte_put_string(out, e.name)
-		geom.byte_put(out, e.group)
-		geom.byte_put(out, u8(1) if e.valued else u8(0))
-		for name in e.maps do geom.byte_put_string(out, name)
+		at := geom.rec_begin(out, Imported_Tag.Entry)
+		geom.rec_put_string(out, Imported_Entry_Tag.Name, e.name)
+		geom.rec_put(out, Imported_Entry_Tag.Group, e.group)
+		geom.rec_put(out, Imported_Entry_Tag.Valued, u8(e.valued))
+		for name, m in e.maps do if name != "" do geom.rec_put_string(out, IMPORTED_MAP_TAGS[m], name)
+		geom.rec_end(out, at)
 	}
 }
 
 // Reads what imported_put writes; r.ok goes false on a count or flag no object has.
 imported_get :: proc(r: ^geom.Byte_Reader, obj: ^Object) {
-	n := int(geom.byte_get(r, u16))
-	if !r.ok || n > IMPORTED_MATERIALS_MAX {
+	rec := geom.record_take(r)
+	known, _ := geom.record_known(&rec, Imported_Tag)
+	n := geom.rec_count(&rec, Imported_Tag.Entry)
+	if !rec.ok || !known || n > IMPORTED_MATERIALS_MAX {
 		r.ok = false
 		return
 	}
+	at := 0
 	for _ in 0 ..< n {
-		e := Imported_Material{name = geom.byte_get_string(r)}
-		e.group = geom.byte_get(r, u16)
-		valued := geom.byte_get(r, u8)
+		payload, _ := geom.rec_next(&rec, Imported_Tag.Entry, &at)
+		er := geom.record_of(payload)
+		e := Imported_Material{name = geom.rec_get_string(&er, Imported_Entry_Tag.Name)}
+		e.group = geom.rec_get(&er, Imported_Entry_Tag.Group, u16, 0)
+		valued := geom.rec_get(&er, Imported_Entry_Tag.Valued, u8, 0)
 		e.valued = valued == 1
-		for &name in e.maps do name = geom.byte_get_string(r)
+		for &name, m in e.maps do name = geom.rec_get_string(&er, IMPORTED_MAP_TAGS[m])
 		append(&obj.imported, e)
-		if !r.ok || valued > 1 || int(e.group) > geom.PART_MATERIALS_MAX {
+		if !er.ok || valued > 1 || int(e.group) > geom.PART_MATERIALS_MAX {
 			r.ok = false
 			return
 		}

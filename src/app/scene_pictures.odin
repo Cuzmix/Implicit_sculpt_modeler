@@ -59,15 +59,15 @@ CARD_ACTION_NAMES := [Card_Action]string {
 // X's, as seen from above.
 @(rodata)
 ALIGN_GLYPHS := [3][3]rune {
-	{0xe271, 0xe26d, 0xe26f}, // align-start-, -center- and -end-vertical
-	{0xe26e, 0xe26c, 0xe270}, // align-end-, -center- and -start-horizontal: bottom, middle, top
-	{0xe271, 0xe26d, 0xe26f},
+	{ui.ICON_ALIGN_LEFT, ui.ICON_ALIGN_CENTER_H, ui.ICON_ALIGN_RIGHT},
+	{ui.ICON_ALIGN_BOTTOM, ui.ICON_ALIGN_CENTER_V, ui.ICON_ALIGN_TOP},
+	{ui.ICON_ALIGN_LEFT, ui.ICON_ALIGN_CENTER_H, ui.ICON_ALIGN_RIGHT},
 }
 @(rodata)
 DISTRIBUTE_GLYPHS := [3][3]rune {
-	{0xe03f, 0xe03d, 0xe03e}, // align-horizontal-distribute-start, -center, -end
-	{0xe27f, 0xe27e, 0xe280}, // align-vertical-distribute-end, -center, -start: bottom, middle, top
-	{0xe03f, 0xe03d, 0xe03e},
+	{ui.ICON_DISTRIBUTE_LEFT, ui.ICON_DISTRIBUTE_CENTER_H, ui.ICON_DISTRIBUTE_RIGHT},
+	{ui.ICON_DISTRIBUTE_BOTTOM, ui.ICON_DISTRIBUTE_CENTER_V, ui.ICON_DISTRIBUTE_TOP},
+	{ui.ICON_DISTRIBUTE_LEFT, ui.ICON_DISTRIBUTE_CENTER_H, ui.ICON_DISTRIBUTE_RIGHT},
 }
 
 // The Actions' content: Store visibility's V1 to V8, then a section for each action.
@@ -147,7 +147,7 @@ card_object_row :: proc(app: ^App, spots: ^[dynamic]Tree_Spot, i, depth: int, dr
 	parts.under_on = obj.boolean != .None
 	painted := object_has_paint(obj)
 	toggles := [2]ui.Row_Toggle{
-		{name = fmt.tprintf("Show %s's polypaint", label) if obj.paint_off else fmt.tprintf("Hide %s's polypaint", label), glyph = ui.ICON_PAINTBRUSH, lit = painted && !obj.paint_off, faint = !painted || obj.paint_off},
+		{name = fmt.tprintf("Show %s's polypaint", label) if obj.paint_off else fmt.tprintf("Hide %s's polypaint", label), glyph = ui.ICON_PAINT, lit = painted && !obj.paint_off, faint = !painted || obj.paint_off},
 		{name = fmt.tprintf("Show %s", label) if obj.off else fmt.tprintf("Hide %s", label), glyph = ui.ICON_EYE_OFF if obj.off else ui.ICON_EYE, faint = obj.off},
 	}
 	dragged := k.tree_drag.active && k.tree_drag.key == obj.id

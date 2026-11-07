@@ -336,7 +336,7 @@ history_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 	// The view, List or Strip, and in the list which object's steps it shows.
 	ui.begin(ctx, "history head", {direction = .Row, gap = ui.SPACE_M, center = true, width = inner})
 	views := [len(History_View)]string{"List", "Strip"}
-	glyphs := [len(History_View)]rune{ICON_HISTORY_LIST, ICON_HISTORY_STRIP}
+	glyphs := [len(History_View)]rune{ui.ICON_HISTORY_LIST, ui.ICON_HISTORY_STRIP}
 	// A view's tab also leaves the Settings page.
 	if picked := ui.tabs(ctx, "History view", views[:], -1 if tl.settings else int(tl.view), 84, glyphs = glyphs[:]); picked >= 0 do tl.view, tl.settings = History_View(picked), false
 	gear := t.target
@@ -427,7 +427,7 @@ timeline_flags :: proc(app: ^App, enabled: bool) {
 		x := r.x + r.w * f32(i) / f32(total)
 		flag := ui.Rect{x, r.y, max(right - x, 14), r.h}
 		colour := t.warning if i < len(app.history.done) else ui.color_fade(t.warning, 0.45)
-		ui.icon(ctx, ICON_FLAG, {x + 6, r.y + r.h * 0.5}, t.icon_small - 4, colour)
+		ui.icon(ctx, ui.ICON_FLAG, {x + 6, r.y + r.h * 0.5}, t.icon_small - 4, colour)
 		if room := right - x - 16; room > 12 do ui.text(ctx, ui.text_fit(ctx, e.bookmark, t.caption_size, room, .Semibold), x + 14, r.y + r.h * 0.5, t.caption_size, colour, .Semibold)
 		if a.clicked && enabled && ui.rect_contains(flag, a.mouse) {
 			_, last, _ := history_step_of(app, e.at)

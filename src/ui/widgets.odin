@@ -4,74 +4,6 @@ import "core:fmt"
 import "core:math"
 import "core:strings"
 
-// Icons in the Lucide font, by what they stand for here.
-ICON_MENU :: rune(0xe119)
-ICON_UNDO :: rune(0xe2a1)
-ICON_REDO :: rune(0xe2a0)
-ICON_GRID :: rune(0xe105)
-ICON_CLOSE :: rune(0xe1b2)
-ICON_CHEVRON_DOWN :: rune(0xe071)
-ICON_CHEVRON_UP :: rune(0xe074)
-ICON_CHEVRON_LEFT :: rune(0xe072)
-ICON_CHEVRON_RIGHT :: rune(0xe073)
-ICON_CHECK :: rune(0xe070)
-ICON_PANEL :: rune(0xe436)
-ICON_MOVE :: rune(0xe125)
-ICON_BRUSH :: rune(0xe1d3)
-ICON_PLUS :: rune(0xe141)
-ICON_COPY :: rune(0xe0a2)
-ICON_TRASH :: rune(0xe18e)
-ICON_FOCUS :: rune(0xe29e)
-ICON_EYE :: rune(0xe0be)
-ICON_SAVE :: rune(0xe151)
-ICON_SAVE_AS :: rune(0xe323) // file-pen-line: the scene saved under a new name
-ICON_OPEN :: rune(0xe247)
-ICON_IMPORT :: rune(0xe0c9)
-ICON_EXPORT :: rune(0xe0cc)
-ICON_IMAGE :: rune(0xe0f9)
-ICON_ACTIVITY :: rune(0xe038)
-ICON_SETTINGS :: rune(0xe158)
-ICON_WAND :: rune(0xe35b)
-ICON_HAMMER :: rune(0xe0ef) // hammer: edits that rework the cage selection
-ICON_FRAME :: rune(0xe291)
-ICON_SUN :: rune(0xe17c)
-ICON_SIZE :: rune(0xe07a) // circle
-ICON_STRENGTH :: rune(0xe1bf) // gauge
-ICON_HISTORY :: rune(0xe1f5)
-ICON_PLAY :: rune(0xe140)
-ICON_PAUSE :: rune(0xe132)
-ICON_SKIP_BACK :: rune(0xe163)
-ICON_SKIP_FORWARD :: rune(0xe164)
-ICON_STEP_BACK :: rune(0xe3ed)
-ICON_STEP_FORWARD :: rune(0xe3ee)
-ICON_SPLINE :: rune(0xe38f)
-ICON_SHAPES :: rune(0xe4b8)
-ICON_FILM :: rune(0xe0d4)
-ICON_STOP :: rune(0xe087) // circle-stop
-ICON_RECORD :: rune(0xe349) // circle-dot
-ICON_EYE_OFF :: rune(0xe0bf)
-ICON_GHOST :: rune(0xe20e)
-ICON_GRIP :: rune(0xe0ee) // grip-vertical: a handle that drags what it is on
-ICON_FOLDER :: rune(0xe0dc)
-ICON_FOLDER_PLUS :: rune(0xe0de)
-ICON_PENCIL :: rune(0xe1f9)
-ICON_MINIMISE :: rune(0xe120) // minus, as a desktop window's minimise button
-ICON_RESTORE :: rune(0xe117) // maximize-2: open a folded window again
-ICON_SEARCH :: rune(0xe155)
-ICON_HELP :: rune(0xe082) // circle-help
-ICON_TAG :: rune(0xe183) // tag: the Help overlay naming every control
-ICON_ROTATE_3D :: rune(0xe2ea)
-ICON_ZOOM_IN :: rune(0xe1b6)
-ICON_STAR :: rune(0xe17a)
-ICON_PIE :: rune(0xe06f) // chart-pie
-ICON_KEYBOARD :: rune(0xe284)
-ICON_CIRCLE_PLUS :: rune(0xe086)
-ICON_MORE :: rune(0xe34a) // circle-ellipsis
-ICON_PAINTBRUSH :: rune(0xe2e7)
-ICON_PASTE :: rune(0xe3ec) // clipboard-paste
-ICON_TO_TOP :: rune(0xe460) // arrow-up-to-line
-ICON_TO_BOTTOM :: rune(0xe45a) // arrow-down-to-line
-
 // Every pressable control shares this: the wash under the pointer fades in, deepens
 // while held, and the control dips to 97% while held. Returns the scale to draw at.
 @(private)
@@ -894,7 +826,7 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 // it. Returns true when picked.
 // `tag`, when given, is a small pill at the right end in `tag_color` (where the row
 // belongs, say), in place of the shortcut.
-menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "", starred := false, keys_accent := false, keys_muted := false, trailing := false, tag := "", tag_color: Color = {}, reason := "") -> bool {
+menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "", starred := false, keys_accent := false, keys_muted := false, trailing := false, tag := "", tag_color: Color = {}, reason := "", picture: Picture = {}) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	shown := label_text(s)
@@ -915,7 +847,13 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 	glyph_color := fg if tone == .Danger || !enabled else t.text_secondary
 	// Every row keeps the icon's column, with an icon or without, so a menu's labels all
 	// start at one x.
-	if glyph != 0 && !trailing do icon(ctx, glyph, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, glyph_color)
+	// A picture (a brush's own) stands for the glyph, a little larger since its ink does
+	// not fill its square, and faded as the label is when the row cannot be used.
+	if picture.image != 0 && !trailing {
+		picture_icon(ctx, picture, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small * MENU_PICTURE, 1 if enabled else DISABLED_FADE)
+	} else if glyph != 0 && !trailing {
+		icon(ctx, glyph, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, glyph_color)
+	}
 	x += t.icon_small + 10
 	text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, fg)
 	if starred {
@@ -1660,6 +1598,10 @@ Picture :: struct {
 // How large a picture icon is drawn on a tile or an icon button, in points: a little
 // larger than the glyph it replaces, since a picture's ink does not fill its square.
 PICTURE_ICON :: 34
+
+// How much larger than a row's glyph a picture standing for it is drawn in a menu or a
+// list row, by the same reasoning as PICTURE_ICON's.
+MENU_PICTURE :: 1.5
 
 // Draws picture icon `pic` centred on `center`, `size` points square, faded by `fade`.
 picture_icon :: proc(ctx: ^Context, pic: Picture, center: [2]f32, size: f32, fade: f32 = 1) {

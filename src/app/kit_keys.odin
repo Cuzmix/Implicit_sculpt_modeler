@@ -111,7 +111,7 @@ settings_keys :: proc(app: ^App) {
 		room := ui.fill_width(ctx) - 20 - t.icon_small - 10 - ui.text_width(ctx, shown, t.small_size) - 16
 		label = ui.text_fit(ctx, label, t.text_size, room)
 		changed := key_override_find(app, e.id, e.arg) >= 0
-		if ui.menu_item(ctx, fmt.tprintf("%s##keys %s", label, command_name(e.id, e.arg)), shown, palette_icon(e), keys_accent = changed, keys_muted = keys == "") {
+		if ui.menu_item(ctx, fmt.tprintf("%s##keys %s", label, command_name(e.id, e.arg)), shown, bar_icon(app, {e.id, e.arg}), keys_accent = changed, keys_muted = keys == "", picture = bar_picture(app, {e.id, e.arg})) {
 			bind_open(app, e.id, e.arg, ctx.last_rect)
 			b.from_keys = true
 		}

@@ -81,7 +81,7 @@ Grab_Job :: struct {
 	// Elastic: the Kelvinlet's constants for the brush (elastic.odin); its reach is
 	// ELASTIC_REACH radii, which r2 holds.
 	elastic: bool,
-	kelvin:  Kelvinlet,
+	kelvin:  geom.Kelvinlet,
 }
 
 // Starts dragging the vertices within the brush around `center`. Call inside a stroke
@@ -97,7 +97,7 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	brush := brush
 	if brush.kind == .Elastic {
 		reach = ELASTIC_REACH * brush.radius
-		j.elastic, j.kelvin, j.r2 = true, kelvinlet_make(brush.radius, brush.volume), reach * reach
+		j.elastic, j.kelvin, j.r2 = true, geom.kelvinlet_make(brush.radius, brush.volume), reach * reach
 		brush.through, brush.connected, brush.topological, brush.same_side, brush.silhouette = {}, false, false, false, false
 	}
 	through := linalg.normalize0(brush.through)
@@ -111,9 +111,9 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		if n, ok := sculptor_area_normal(s, center, 0.5 * brush.radius, nearest_normal(s, center, brush.radius)); ok do g.normal = linalg.normalize0(n)
 		g.silhouette = brush.silhouette && g.normal != {}
 	}
-	for img in symmetry_images(brush) {
+	for img in dab_images(s, brush, center) {
 		if brush.same_side && g.normal != {} do append(&j.sides, img.turn * g.normal)
-		at := sym_point(img, brush.sym_center, center)
+		at := sym_point(img, center)
 		dir := img.turn * through
 		append(&j.centers, at)
 		append(&j.turns, img.turn)
@@ -351,7 +351,7 @@ grab_follow :: #force_inline proc(j: ^Grab_Job, v: u32) -> (f: matrix[3, 3]f32, 
 		for c, k in j.centers {
 			r := p - c
 			if linalg.dot(r, r) >= j.r2 do continue
-			follow := kelvinlet_follow(&j.kelvin, r)
+			follow := geom.kelvinlet_follow(&j.kelvin, r)
 			f += follow * j.turns[k]
 			if w := (follow[0, 0] + follow[1, 1] + follow[2, 2]) / 3; w > weight do image, weight = k, w
 		}

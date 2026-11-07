@@ -123,31 +123,15 @@ EXPORT_PRESET_DETAIL := [Export_Preset]string {
 	.Formats   = "Scene, OBJ, PLY, STL, glTF, USD",
 }
 
-// Lucide's printer, gamepad-2, rotate-3d, video, camera and file-box, and download.
-@(private = "file")
-ICON_PRINTER :: rune(0xe145)
-@(private = "file")
-ICON_GAMEPAD :: rune(0xe0e2)
-@(private = "file")
-ICON_ROTATE_3D :: rune(0xe2ea)
-@(private = "file")
-ICON_VIDEO :: rune(0xe1a5)
-@(private = "file")
-ICON_CAMERA_SHOT :: rune(0xe068)
-@(private = "file")
-ICON_FILE_BOX :: rune(0xe313)
-@(private = "file")
-ICON_DOWNLOAD :: rune(0xe0b6)
-
 @(rodata)
 EXPORT_PRESET_ICONS := [Export_Preset]rune {
-	.Print     = ICON_PRINTER,
-	.Game      = ICON_GAMEPAD,
-	.Blender   = ICON_ROTATE_3D,
-	.Turntable = ICON_VIDEO,
-	.Picture   = ICON_CAMERA_SHOT,
-	.Send      = ICON_SEND,
-	.Formats   = ICON_FILE_BOX,
+	.Print     = ui.ICON_PRINTER,
+	.Game      = ui.ICON_GAMEPAD,
+	.Blender   = ui.ICON_BLENDER_SEND,
+	.Turntable = ui.ICON_TURNTABLE,
+	.Picture   = ui.ICON_CAMERA_SHOT,
+	.Send      = ui.ICON_SEND,
+	.Formats   = ui.ICON_FORMATS,
 }
 
 // The formats each preset offers, its first the one it starts on. Blender's live link
@@ -486,7 +470,7 @@ kit_export_sheet :: proc(app: ^App) {
 	s := &k.export
 	// The sheet (sheet.odin), its head naming what ran last.
 	last := export_last_label(s.last_preset, s.last_format) if s.ran else ""
-	inner, _, shown := sheet_begin(app, "export sheet", "Export", ICON_DOWNLOAD, &s.open, EXPORT_SHEET_W, last, gap = ui.SPACE_L)
+	inner, _, shown := sheet_begin(app, "export sheet", "Export", ui.ICON_DOWNLOAD, &s.open, EXPORT_SHEET_W, last, gap = ui.SPACE_L)
 	if !shown do return
 	defer sheet_end(app)
 	export_settle(s)

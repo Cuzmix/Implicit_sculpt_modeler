@@ -173,7 +173,7 @@ visibility_slots_round_trip_in_the_file :: proc(t: ^testing.T) {
 	testing.expect(t, object_put_bytes(&out, objs[0]))
 	back: Object
 	r := geom.byte_reader(out[:])
-	object_get_fields(&r, &back)
+	test_object_fields(&r, &back)
 	defer delete(back.name)
 	testing.expect(t, r.ok)
 	testing.expect_value(t, back.vis_off, objs[0].vis_off)
@@ -182,19 +182,9 @@ visibility_slots_round_trip_in_the_file :: proc(t: ^testing.T) {
 	head: [dynamic]u8
 	defer delete(head)
 	scene_header_put(&app, &head)
-	// The two bytes come before the link token's eight, the lights, the print scale's four
-	// the guides, the curves' fields and the lights' further fields, the header's end.
-	lights: [dynamic]u8
-	defer delete(lights)
-	lights_put(&lights, app.scene.lights)
-	// After the curves' fields, the lights' kinds, highlights and shadows (lights_more_put).
-	more: [dynamic]u8
-	defer delete(more)
-	lights_more_put(&more, app.scene.lights)
-	// The references' chunk follows the scene's.
-	end := len(head) - len(more) - test_refs_chunk_len(&app)
-	testing.expect_value(t, head[end - len(lights) - 4 - GUIDES_BYTES - SCENE_CURVE_FIELD_BYTES - 10], 3)
-	testing.expect_value(t, head[end - len(lights) - 4 - GUIDES_BYTES - SCENE_CURVE_FIELD_BYTES - 9], 0b100)
+	rec := test_scene_record(head[:])
+	testing.expect_value(t, geom.rec_get(&rec, Scene_Tag.Vis_Slot, u8, 0), 3)
+	testing.expect_value(t, geom.rec_get(&rec, Scene_Tag.Vis_Used, u8, 0), 0b100)
 }
 
 // Past the swap limit the newest step stays whole however large it is, so a merge's

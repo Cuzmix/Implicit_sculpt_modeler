@@ -18,9 +18,6 @@ BRUSH_RECENT :: 12
 BRUSH_FAVORITES :: 48
 BRUSH_KEY :: 80
 
-// Lucide's heart.
-ICON_HEART :: rune(0xe0f5)
-
 // All comes first so a fresh install opens on it; the column lists them in
 // BRUSH_CATEGORY_ORDER, ZBrush's, with Recent and Favourites above All, then the buttons
 // that are not brushes: cards, sliders and every other command.
@@ -92,6 +89,7 @@ BRUSH_CATEGORY_OF := [sculpt.Brush_Kind]Brush_Category {
 	.Elastic    = .Move,
 	.Clay_Strips  = .Clay,
 	.Trim_Dynamic = .Smooth,
+	.Tube         = .Clay,
 }
 
 // The Library's own state, in Kit_State.

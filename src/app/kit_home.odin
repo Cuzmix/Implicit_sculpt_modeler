@@ -19,9 +19,6 @@ import "../ui"
 // scene. It owns nothing of the scene: opening is a file request and a new scene a
 // command, both run at the next frame.
 
-ICON_HOME :: rune(0xe0f8) // house
-ICON_FILE_GONE :: rune(0xe0d1) // file-x
-
 // A scene tile's picture is at least this wide and at most that, in points.
 @(private = "file")
 HOME_TILE_MIN :: 200
@@ -195,7 +192,7 @@ home_scene_tile :: proc(app: ^App, i: int, tw: f32) {
 		pic.lo, pic.hi = render.picture_uv(tile.cell, tile.w, tile.h)
 		pic.image, pic.aspect = KIT_PICTURES_IMAGE, f32(tile.w) / f32(tile.h)
 	case .Missing:
-		pic.glyph = ICON_FILE_GONE
+		pic.glyph = ui.ICON_FILE_GONE
 	case .None, .Waiting, .Asked:
 	}
 	ring := ui.Tile_Ring.Danger if armed else (.Accent if current else .Hairline)

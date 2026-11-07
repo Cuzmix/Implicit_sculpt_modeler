@@ -11,13 +11,6 @@ import "../ui"
 // had ("brush bar", "points", "view bar"), so whatever keeps clear of those keeps clear of
 // these. Left-handed, the kit's mirror swaps every side.
 
-// Lucide's layout-grid, aperture and box, for the view layout, the passes and the object.
-ICON_VIEW_LAYOUT :: ui.ICON_GRID
-ICON_PASSES :: rune(0xe044)
-ICON_SECOND_VIEW :: ui.ICON_IMAGE
-ICON_OBJECT_BOX :: rune(0xe065)
-ICON_FLIP_VIEW :: rune(0xe361) // flip-horizontal
-
 // The island's tall sliders' track, in points: short enough that both stand between the
 // chips and the dial on a laptop's window.
 OFFHAND_TRACK :: 96

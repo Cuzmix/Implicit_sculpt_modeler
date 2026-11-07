@@ -98,7 +98,7 @@ kit_view_layout_lens :: proc(app: ^App, width: f32) {
 	t := ctx.theme
 	ui.begin(ctx, "view layout head", {direction = .Row, center = true, width = width})
 	head := ui.area(ctx, "view layout title", {width, 28})
-	ui.icon(ctx, ui.ICON_GRID, {head.rect.x + 8, head.rect.y + 14}, t.icon_small, t.text_secondary)
+	ui.icon(ctx, ui.ICON_VIEW_LAYOUT, {head.rect.x + 8, head.rect.y + 14}, t.icon_small, t.text_secondary)
 	ui.text(ctx, "View layout", head.rect.x + 24, head.rect.y + 14, t.text_size, t.text, .Semibold)
 	if keys := command_keys(app, .View_Layout_Menu); keys != "" {
 		kw := ui.text_width(ctx, keys, t.small_size) + 12
@@ -173,7 +173,7 @@ lens_pane_head :: proc(app: ^App, i: int, at: [2]f32, r: ui.Rect, cells: [GRID_P
 	left = max(rest - GAP, 0)
 	dragged := lens_chip_drag(app, i, cam, cells, n)
 	if cam.clicked && !dragged do pane_menu_toggle(k, i, chip_menu, cam.rect)
-	icon := lens_chip_width(ctx, "", glyph = ICON_LINK)
+	icon := lens_chip_width(ctx, "", glyph = ui.ICON_LINK)
 	// New tab, beside the tabs as a browser's is: its list of kinds; its tip says two 3D
 	// views read best side by side, which tabs cannot show.
 	if g.tabs[i - 1].count < PANE_TABS && fits(&left, icon) {
@@ -185,8 +185,8 @@ lens_pane_head :: proc(app: ^App, i: int, at: [2]f32, r: ui.Rect, cells: [GRID_P
 		// A 2D tab's own chips: its zoom (a tap fits, or shows one texel a pixel), then
 		// Maximise.
 		zoom := "Fit" if tab.flat.zoom <= 0 else "1:1"
-		if fits(&left, lens_chip_width(ctx, zoom, glyph = ui.ICON_ZOOM_IN)) {
-			z := lens_chip(ctx, fmt.tprintf("%s##pane %d zoom", "One texel a pixel" if tab.flat.zoom <= 0 else "Fit the map", i), zoom, glyph = ui.ICON_ZOOM_IN)
+		if fits(&left, lens_chip_width(ctx, zoom, glyph = ui.ICON_ZOOM)) {
+			z := lens_chip(ctx, fmt.tprintf("%s##pane %d zoom", "One texel a pixel" if tab.flat.zoom <= 0 else "Fit the map", i), zoom, glyph = ui.ICON_ZOOM)
 			if z.clicked do flat_zoom_toggle(app, &tab.flat)
 		}
 		if maxed || fits(&left, icon) {
@@ -203,7 +203,7 @@ lens_pane_head :: proc(app: ^App, i: int, at: [2]f32, r: ui.Rect, cells: [GRID_P
 	}
 	if fits(&left, icon) {
 		linked := second_linked(sv)
-		link := lens_chip(ctx, fmt.tprintf("%s##pane %d", "Unlink from the main camera" if linked else "Link to the main camera", i), "", glyph = ICON_LINK, lit = linked)
+		link := lens_chip(ctx, fmt.tprintf("%s##pane %d", "Unlink from the main camera" if linked else "Link to the main camera", i), "", glyph = ui.ICON_LINK, lit = linked)
 		if link.clicked do second_link_toggle(app, sv)
 	}
 	if maxed || fits(&left, icon) {
@@ -211,7 +211,7 @@ lens_pane_head :: proc(app: ^App, i: int, at: [2]f32, r: ui.Rect, cells: [GRID_P
 		if grow.clicked do g.maximised = 0 if maxed else i
 	}
 	if VIEW_WINDOWS_AVAILABLE && fits(&left, icon) {
-		if win := lens_chip(ctx, fmt.tprintf("Open in a window##pane %d", i), "", glyph = ICON_VIEW_WINDOW); win.clicked do view_window_request(app, sv^)
+		if win := lens_chip(ctx, fmt.tprintf("Open in a window##pane %d", i), "", glyph = ui.ICON_VIEW_WINDOW); win.clicked do view_window_request(app, sv^)
 	}
 	ui.end(ctx)
 }

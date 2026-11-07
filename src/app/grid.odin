@@ -8,7 +8,6 @@ import "core:strconv"
 import "core:strings"
 import "core:time"
 
-
 import "../camera"
 import "../render"
 import "../ui"
@@ -1091,17 +1090,11 @@ view_head_pass :: proc(ctx: ^ui.Context, sv: ^Second_View) {
 // A view's link button: links an independent view to the main camera, or lets a linked one go.
 view_head_link :: proc(app: ^App, ctx: ^ui.Context, sv: ^Second_View) {
 	linked := second_linked(sv)
-	if ui.icon_button(ctx, "Unlink from the main camera" if linked else "Link to the main camera", ICON_LINK, selected = linked) do second_link_toggle(app, sv)
+	if ui.icon_button(ctx, "Unlink from the main camera" if linked else "Link to the main camera", ui.ICON_LINK, selected = linked) do second_link_toggle(app, sv)
 }
-
-// Lucide's monitor-up: a view opened in a window of its own (view_window.odin).
-ICON_VIEW_WINDOW :: rune(0xe427)
 
 // A view pane's selects, in points: room for "Skin detail" and "Mirrored".
 GRID_SELECT_W :: 140
-
-// Lucide's link: a view's camera tied to the main one.
-ICON_LINK :: rune(0xe108)
 
 // Draws each view pane shown whose picture is due, as the second view does (thumbnail.odin),
 // but the one worked in, where the main view is drawn.
@@ -1265,9 +1258,6 @@ grid_work_gpu :: proc(app: ^App) -> bool {
 	want := app.ui.viewport_request
 	return msaa_viewport_resize(app, u32(want.x), u32(want.y))
 }
-
-// Lucide's monitor-play: the render preview pane.
-ICON_RENDER_PREVIEW :: rune(0xe48a)
 
 // The view pane (1 to 3) showing Render in the grid in use, 0 for none.
 render_preview_pane :: proc(k: ^Kit_State) -> int {

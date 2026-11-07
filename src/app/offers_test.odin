@@ -3,7 +3,8 @@ package main
 import "core:strings"
 import "core:testing"
 
-// Voxel clay under a brush that needs a mesh is offered Convert to mesh, a voxel brush or
+// Voxel clay under a brush that needs a mesh is offered Convert to mesh, a mesh under
+// Tube Convert to voxels, a voxel brush or
 // the Move tool fits it; a mesh in Model with the Model tool is offered a cage; nothing
 // selected always fits. The mesh-only commands are dimmed on clay with the reason why.
 @(test)
@@ -11,9 +12,15 @@ offers_make_the_selection_fit :: proc(t: ^testing.T) {
 	app: App
 	defer tree_free(&app)
 	objs := tree_scene(&app)
-	app.kit.hands, app.tool, app.brush.kind = .Sculpt, .Brush, .Crease
+	app.kit.hands, app.tool, app.brush.kind = .Sculpt, .Brush, .Morph
 	fits, _ := space_fit(&app)
 	testing.expect(t, fits)
+	// Tube lays voxel clay, so a mesh under it is offered the conversion.
+	app.brush.kind = .Tube
+	tube_fits, tube := space_fit(&app)
+	testing.expect(t, !tube_fits)
+	testing.expect_value(t, tube.fix, Command_Id.Convert_To_Voxels)
+	app.brush.kind = .Morph
 	vp: Voxel_Part
 	objs[0].voxel = &vp
 	defer objs[0].voxel = nil
@@ -24,7 +31,7 @@ offers_make_the_selection_fit :: proc(t: ^testing.T) {
 	app.brush.kind = .Clay
 	fits3, _ := space_fit(&app)
 	testing.expect(t, fits3)
-	app.brush.kind, app.tool = .Crease, .Move
+	app.brush.kind, app.tool = .Morph, .Move
 	fits4, _ := space_fit(&app)
 	testing.expect(t, fits4)
 	testing.expect(t, !command_enabled(&app, .Remesh))

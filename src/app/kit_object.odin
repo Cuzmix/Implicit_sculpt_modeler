@@ -92,8 +92,13 @@ kit_levels :: proc(app: ^App, obj: ^Object) {
 	case can:
 		ui.paragraph(ctx, fmt.tprintf("Adds a level of %s vertices, about %s. %s", count_label(vertices), bytes_label(bytes), command_keys(app, .Subdivide)))
 	}
-	kit_command_pair(app, .Delete_Lower_Levels, .Delete_Higher_Levels, label_a = "Delete lower", label_b = "Delete higher", tone_a = .Danger, tone_b = .Danger)
-	if object_can_edit_cage(obj) do _ = command_button(app, .Edit_Cage, width = ui.fill_width(ctx), glyph = ui.ICON_SHAPES)
+	// With one level there is nothing to delete, and Rebuild levels may find some below.
+	if len(levels.levels) > 1 {
+		kit_command_pair(app, .Delete_Lower_Levels, .Delete_Higher_Levels, label_a = "Delete lower", label_b = "Delete higher", tone_a = .Danger, tone_b = .Danger)
+	} else {
+		_ = command_button(app, .Rebuild_Levels, width = ui.fill_width(ctx))
+	}
+	if object_can_edit_cage(obj) do _ = command_button(app, .Edit_Cage, width = ui.fill_width(ctx), glyph = ui.ICON_EDIT_CAGE)
 	if up, down := command_keys(app, .Level_Up), command_keys(app, .Level_Down); up != "" && down != "" {
 		ui.paragraph(ctx, fmt.tprintf("%s and %s go up and down. All levels use %s of memory; %s undoes a deletion.", up, down, bytes_label(sculpt.levels_bytes(levels)), keys_or_name(app, .Undo)))
 	} else {
@@ -352,7 +357,10 @@ kit_paint :: proc(app: ^App) {
 	_ = kit_color(app, "paint colour", &app.brush.color)
 	kit_command_pair(app, .Paint, .Paint, int(sculpt.Paint_Command.Fill), int(sculpt.Paint_Command.Clear), tone_b = .Danger)
 	_ = command_button(app, .Paint, int(sculpt.Paint_Command.Gradient), width = ui.fill_width(ctx))
-	ui.paragraph(ctx, "The Paint brush paints this colour over the clay, Ctrl takes it off. Fill gradient runs from the main colour at the top, as seen, to the secondary at the bottom. Fill and Clear skip what is masked or hidden. Each level keeps its own paint.")
+	// Voxel clay keeps its paint in the volume rather than on a level's vertices.
+	obj := selected_object(app)
+	keeps := "Voxel clay keeps its paint in the clay, and it goes with the clay as it is moved." if obj != nil && obj.voxel != nil else "Each level keeps its own paint."
+	ui.paragraph(ctx, fmt.tprintf("The Paint brush paints this colour over the clay, Ctrl takes it off. Fill gradient runs from the main colour at the top, as seen, to the secondary at the bottom. Fill and Clear skip what is masked or hidden. %s", keeps))
 }
 
 // Polygroups: making them, and showing them.

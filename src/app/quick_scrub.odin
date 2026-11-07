@@ -206,8 +206,8 @@ kit_quick_scrub :: proc(app: ^App) {
 		colour := overlay_color(KIND_COLORS[e.kind])
 		if i >= at do colour = ui.color_fade(colour, 0.35)
 		ui.fill_rect(ctx, {x + 1, row.y + 14, block - 2, 16}, 3, colour)
-		if e.bookmark != "" do ui.icon(ctx, ICON_FLAG, {x + block * 0.5, row.y + 6}, t.icon_small - 6, t.warning)
-		else if recall >= places[i] && (i + 1 >= n || recall < places[i + 1]) do ui.icon(ctx, ui.ICON_BRUSH, {x + block * 0.5, row.y + 6}, t.icon_small - 6, t.accent)
+		if e.bookmark != "" do ui.icon(ctx, ui.ICON_FLAG, {x + block * 0.5, row.y + 6}, t.icon_small - 6, t.warning)
+		else if recall >= places[i] && (i + 1 >= n || recall < places[i + 1]) do ui.icon(ctx, ui.ICON_PAINT_BACK, {x + block * 0.5, row.y + 6}, t.icon_small - 6, t.accent)
 	}
 	// Where the History stands: between the last done step and the first undone one.
 	ui.fill_rect(ctx, {mid - 1.5, row.y + 10, 3, 24}, 1.5, t.text)

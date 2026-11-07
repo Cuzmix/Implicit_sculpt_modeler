@@ -179,7 +179,7 @@ lens_paint_row :: proc(app: ^App, obj: ^Object, i: int, picked: bool, width: f32
 	if c, ok := paint_layer_swatch(app, obj, i); ok {
 		ui.fill_rect(ctx, {sw.x + 6, sw.y + 6, sw.w - 12, sw.h - 12}, t.radius_small, ui.color_fade(c, fade))
 	} else {
-		ui.icon(ctx, ICON_LAYERS, {sw.x + sw.w * 0.5, sw.y + sw.h * 0.5}, t.icon_small, ui.color_fade(t.text_tertiary, fade))
+		ui.icon(ctx, ui.ICON_LAYERS, {sw.x + sw.w * 0.5, sw.y + sw.h * 0.5}, t.icon_small, ui.color_fade(t.text_tertiary, fade))
 	}
 	weight: ui.Font = .Semibold if picked else .Regular
 	tx := a.rect.x + LAYER_PICTURE + 8

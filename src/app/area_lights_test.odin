@@ -95,9 +95,10 @@ studio_samples_skip_lights_without_shadows :: proc(t: ^testing.T) {
 	testing.expect_value(t, sl.shadow.pick.y, f32(1))
 }
 
-// The scene file keeps an area light, its highlight and its shadows at the scene chunk's
-// end, while the lights an older app reads hold it as a spot; a file without that end
-// reads its lights as they were, and damaged ends are refused.
+
+// The scene file keeps an area light, its size, its highlight and its shadows, and refuses
+// damaged ones; a light that lacks them (a file before area lights had them) reads as
+// a light with none.
 @(test)
 area_lights_round_trip_in_the_scene_file :: proc(t: ^testing.T) {
 	app := area_app()
@@ -108,32 +109,29 @@ area_lights_round_trip_in_the_scene_file :: proc(t: ^testing.T) {
 	out: [dynamic]u8
 	defer delete(out)
 	lights_put(&out, set)
-	at := len(out)
-	lights_more_put(&out, set)
-	r := geom.byte_reader(out[:at])
-	old, ok := lights_get(&r, LIGHTS_DEFAULT)
-	testing.expect(t, ok && old.lights[2].kind == .Spot && old.lights[2].width == 0 && !old.lights[1].no_shadows)
-	r = geom.byte_reader(out[at:])
-	back, more_ok := lights_more_get(&r, old)
-	testing.expect(t, more_ok && r.at == len(out) - at)
+	rec := geom.record_of(out[:])
+	back, ok := lights_get(&rec, LIGHTS_DEFAULT)
+	testing.expect(t, ok)
 	testing.expect_value(t, back, set)
 
-	damage :: proc(t: ^testing.T, out: []u8, at, offset: int, value: u8, old: Light_Set) {
-		bytes := make([]u8, len(out) - at)
-		defer delete(bytes)
-		copy(bytes, out[at:])
-		bytes[offset] = value
-		r := geom.byte_reader(bytes)
-		_, ok := lights_more_get(&r, old)
-		testing.expectf(t, !ok, "byte %d set to %d was read", offset, value)
+	damage :: proc(t: ^testing.T, set: Light_Set, light: int, tag: Light_Tag, value: []u8, loc := #caller_location) {
+		out: [dynamic]u8
+		defer delete(out)
+		lights_put(&out, set)
+		rec := geom.record_of(out[:])
+		at := 0
+		payload: []u8
+		for _ in 0 ..= light do payload, _ = geom.rec_next(&rec, Light_Set_Tag.Light, &at)
+		lr := geom.record_of(payload)
+		field, _ := geom.rec_find(&lr, tag)
+		for &b, i in field do b = value[i % len(value)]
+		_, ok := lights_get(&rec, LIGHTS_DEFAULT)
+		testing.expectf(t, !ok, "light %d's %v set to %v was read", light, tag, value, loc = loc)
 	}
-	LIGHT_MORE :: 1 + 4 + 4 + 1 + 4 + 1
-	damage(t, out[:], at, 0, 2, old) // another count
-	damage(t, out[:], at, 1, u8(Light_Kind.Area), old) // the first light, a sun, read as an area
-	damage(t, out[:], at, 1 + 2 * LIGHT_MORE, 9, old) // no such kind
-	damage(t, out[:], at, 1 + 2 * LIGHT_MORE + 9, 2, old) // `disc` not 0 or 1
-	damage(t, out[:], at, 1 + 2 * LIGHT_MORE + 13, 0x7f, old) // the highlight far past 1
-	damage(t, out[:], at, 1 + 2 * LIGHT_MORE + 14, 2, old) // `no_shadows` not 0 or 1
+	damage(t, set, 2, .Disc, {2}) // `disc` not 0 or 1
+	damage(t, set, 2, .Shine, {0, 0, 0, 0x7f}) // the highlight far past 1
+	damage(t, set, 2, .No_Shadows, {2}) // `no_shadows` not 0 or 1
+	damage(t, set, 2, .Width, {0xff}) // the width a NaN
 }
 
 // An exported area light is the file's area light, turned whole: its -Z the way it

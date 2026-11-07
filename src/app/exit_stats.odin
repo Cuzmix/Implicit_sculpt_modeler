@@ -454,6 +454,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 		fmt.printfln("scene_menu=%d object_menu_opened_by=%s right_click=%s", int(app.kit.scene_menu), strings.to_lower(fmt.tprint(app.kit.object_menu_by), context.temp_allocator), strings.to_lower(fmt.tprint(app.nav.right_click), context.temp_allocator))
 		fmt.printfln("offer=%v offer_fixes=%d colour_island=%d paint_on=%s", app.kit.offer, app.kit.offer_fixes, int(app.kit.colour_island), strings.to_lower(fmt.tprint(app.brush.paint_on), context.temp_allocator))
 		fmt.printfln("motion=%s motion_off=%s", strings.to_lower(fmt.tprint(app.kit.ctx.motion), context.temp_allocator), strings.join(strings.fields(motion_off_text(&app.kit.ctx), context.temp_allocator), ",", context.temp_allocator) if motion_off_text(&app.kit.ctx) != "" else "none")
+		fmt.printfln("icon_style=%s icon_weight=%s", strings.to_lower(fmt.tprint(app.kit.ctx.icon_style), context.temp_allocator), strings.to_lower(fmt.tprint(app.kit.ctx.icon_weight), context.temp_allocator))
 		// How far the card in front of the pen side's column is scrolled.
 		card_scroll: f32
 		if col := &app.kit.cards.columns[.Right]; col.count > 0 do card_scroll = col.scrolls[col.cards[col.count - 1].card]

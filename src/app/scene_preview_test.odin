@@ -30,7 +30,8 @@ preview_shrink_averages_what_each_pixel_covers :: proc(t: ^testing.T) {
 
 // A scene's start carries its preview block, which the Home screen reads alone: the
 // numbers and the picture's bytes as written; opening steps over it; a length past the
-// file or the limit is damage; another version is not read.
+// file or the limit, or a block that is not whole fields, is damage; another form is not
+// read.
 @(test)
 preview_block_reads_from_the_start_of_the_file :: proc(t: ^testing.T) {
 	path := "build/preview_test.sculpt"
@@ -42,14 +43,14 @@ preview_block_reads_from_the_start_of_the_file :: proc(t: ^testing.T) {
 	out: [dynamic]u8
 	defer delete(out)
 	append(&out, SCENE_MAGIC)
-	geom.byte_put(&out, SCENE_VERSION)
+	geom.byte_put(&out, SCENE_FORMAT)
 	preview_block_put(&app, &out)
 	block_end := len(out)
 	append(&out, ..[]u8{9, 9, 9})
 	testing.expect(t, os.write_entire_file(path, out[:]) == nil)
 
 	info, png, ok := scene_preview_read(path)
-	testing.expect(t, ok && info.version == SCENE_VERSION && info.saved > 0 && info.objects == 0 && info.w == 32 && info.h == 18)
+	testing.expect(t, ok && info.saved > 0 && info.objects == 0 && info.w == 32 && info.h == 18)
 	testing.expect(t, slice.equal(png, []u8{1, 2, 3, 4, 5}))
 	delete(png)
 	r := geom.byte_reader(out[len(SCENE_MAGIC) + 4:])
@@ -57,11 +58,11 @@ preview_block_reads_from_the_start_of_the_file :: proc(t: ^testing.T) {
 
 	// The length run past the file, or past the limit.
 	at := len(SCENE_MAGIC) + 4
-	for bad in ([]u32{u32(len(out)), PREVIEW_BLOCK_MAX + 1, 3}) {
+	for bad in ([]u64{u64(len(out)), PREVIEW_BLOCK_MAX + 1, 3}) {
 		damaged := make([]u8, len(out))
 		defer delete(damaged)
 		copy(damaged, out[:])
-		(^u32le)(&damaged[at])^ = u32le(bad)
+		(^u64le)(&damaged[at])^ = u64le(bad)
 		r = geom.byte_reader(damaged[at:])
 		testing.expectf(t, !preview_block_skip(&r), "a length of %d was stepped over", bad)
 		testing.expect(t, os.write_entire_file(path, damaged) == nil)
@@ -73,13 +74,13 @@ preview_block_reads_from_the_start_of_the_file :: proc(t: ^testing.T) {
 	clear(&app.preview.png)
 	clear(&out)
 	append(&out, SCENE_MAGIC)
-	geom.byte_put(&out, SCENE_VERSION)
+	geom.byte_put(&out, SCENE_FORMAT)
 	preview_block_put(&app, &out)
 	testing.expect(t, os.write_entire_file(path, out[:]) == nil)
 	info, png, ok = scene_preview_read(path)
 	testing.expect(t, ok && png == nil && info.w == 0 && info.saved > 0)
 
-	// Another version is not a scene this app reads.
+	// Another form is not a scene this app reads.
 	clear(&out)
 	append(&out, SCENE_MAGIC)
 	geom.byte_put(&out, u32(21))

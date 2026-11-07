@@ -133,6 +133,23 @@ clay_resampled :: proc(c: ^Clay, factor: f32, pool: ^jobs.Pool = nil, progress: 
 		}
 		append(&kept, slot)
 	}
+	// The colour comes across onto the bricks whose old voxels are painted, each voxel taking
+	// its nearest old voxel's.
+	if clay_colored(c) {
+		painted := make([dynamic]u32, 0, len(kept), heap)
+		defer delete(painted)
+		for slot in kept {
+			lo, n := resample_old_span(&x, nv.coords[slot])
+			if !volume_colored_over(old, lo, n) do continue
+			_ = color_make(nv, slot)
+			append(&painted, slot)
+		}
+		x.slots = painted[:]
+		jobs.parallel_for(out.pool, len(x.slots), &x, proc(data: rawptr, i: int) {
+			x := cast(^Resampler)data
+			fill_color(x, x.slots[i])
+		})
+	}
 	// Coarser sampling makes saddle faces freely; finer sampling cannot (the sign of a
 	// bilinear patch between four centres is one curve), but the pass costs little.
 	flips := resolve_saddles(&out, kept[:], false)
@@ -260,5 +277,30 @@ fill_brick :: proc(x: ^Resampler, slot: u32) {
 		x3 := math.lerp(c[6], c[7], t.x)
 		d := math.lerp(math.lerp(x0, x1, t.y), math.lerp(x2, x3, t.y), t.z) / SCALE
 		b.d[voxel_index(xx, y, z)] = quantize(d * x.scale)
+	}
+}
+
+// The old voxels new brick `bc` reads its colour from: the first, and how many along each
+// axis (nearest old centres, so a voxel either side of the brick's span).
+@(private = "file")
+resample_old_span :: proc(x: ^Resampler, bc: [3]i32) -> (lo: [3]i32, n: int) {
+	shift := f32(DOMAIN) * 0.5 * (1 - x.scale)
+	first := [3]f32{f32(bc.x * BRICK), f32(bc.y * BRICK), f32(bc.z * BRICK)}
+	for a in 0 ..< 3 do lo[a] = i32(math.floor((first[a] - shift) / x.scale)) - 1
+	return lo, int(math.ceil(f32(BRICK) / x.scale)) + 3
+}
+
+// New brick `slot`'s colour: each voxel's nearest old voxel's.
+@(private = "file")
+fill_color :: proc(x: ^Resampler, slot: u32) {
+	v := x.new
+	bc := v.coords[slot]
+	out := color_of(v, slot)
+	shift := f32(DOMAIN) * 0.5 * (1 - x.scale)
+	for z in 0 ..< BRICK do for y in 0 ..< BRICK do for xx in 0 ..< BRICK {
+		g := [3]f32{f32(bc.x * BRICK + i32(xx)), f32(bc.y * BRICK + i32(y)), f32(bc.z * BRICK + i32(z))}
+		o: [3]i32
+		for a in 0 ..< 3 do o[a] = i32(math.round((g[a] - shift) / x.scale))
+		out.c[voxel_index(xx, y, z)] = color_value(x.old, o)
 	}
 }

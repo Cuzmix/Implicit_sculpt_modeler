@@ -191,6 +191,7 @@ SETTINGS := [?]Setting {
 	{"stabilize", B + offset_of(Brush_Settings, stabilize), f32, 0, sculpt.STABILIZE_MAX},
 	{"sample_radius", B + offset_of(Brush_Settings, sample_radius), f32, sculpt.SAMPLE_RADIUS_MIN, 1},
 	{"symmetry_local", B + offset_of(Brush_Settings, sym_local), bool, 0, 0},
+	{"symmetry_poseable", B + offset_of(Brush_Settings, poseable), bool, 0, 0},
 	{"radial", B + offset_of(Brush_Settings, radial_on), bool, 0, 0},
 	{"radial_count", B + offset_of(Brush_Settings, radial_count), i32, RADIAL_MIN, sculpt.RADIAL_MAX},
 	{"radial_axis", B + offset_of(Brush_Settings, radial_axis), sculpt.Axis, 0, 0},
@@ -345,6 +346,8 @@ SETTINGS := [?]Setting {
 	{"ridge", offset_of(App, ridge), f32, 0, 1},
 	{"motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, motion), ui.Motion_Level, 0, 0},
 	{"left_handed", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, mirror), bool, 0, 0},
+	{"icon_style", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, icon_style), ui.Icon_Style, 0, 0},
+	{"icon_weight", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, icon_weight), ui.Icon_Weight, 0, 0},
 	{"ortho", offset_of(App, camera) + offset_of(camera.Orbit, ortho), bool, 0, 0},
 	{"fov", offset_of(App, camera) + offset_of(camera.Orbit, fov_y), f32, camera.FOV_MIN, camera.FOV_MAX},
 	// Settings > Interface, Camera, Touch and Performance.

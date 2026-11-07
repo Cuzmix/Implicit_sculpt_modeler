@@ -67,7 +67,7 @@ send_answer_begin :: proc(sh: ^Send_Shared, gen: int, ctx: runtime.Context) -> (
 	}
 	sync.unlock(&sh.lock)
 	txt := make([dynamic]u8, context.temp_allocator)
-	send.txt_put(&txt, advert, SCENE_VERSION)
+	send.txt_put(&txt, advert, SCENE_FORMAT)
 	label := strings.clone_to_cstring(send.instance_label(advert), context.temp_allocator)
 	if err := DNSServiceRegister(&a.ref, 0, 0, label, SERVICE_TYPE, nil, nil, be16(advert.port), u16(len(txt)), raw_data(txt), nil, nil); err != 0 {
 		log.warnf("send: cannot register with Bonjour (%d): type this computer's address on the tablet instead", err)

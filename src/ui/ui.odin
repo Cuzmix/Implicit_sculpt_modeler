@@ -282,6 +282,9 @@ Context :: struct {
 	// other, and popovers open the other way, so the tools a hand reaches for are under it.
 	// A window the user moved stays where it was put.
 	mirror:         bool,
+	// How icons are drawn and how heavy their lines are (Settings > Interface > Icons).
+	icon_style:     Icon_Style,
+	icon_weight:    Icon_Weight,
 	// While the hand changes: how much of the way back to its mirror image each outermost
 	// container is drawn (1 there, 0 where the layout puts it), so the bars and panels slide
 	// across rather than jump; with motion Reduced they fade in where they go instead. Only

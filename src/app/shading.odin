@@ -61,11 +61,11 @@ SHADING_MODE_HINTS := [Shading_Mode]string {
 
 @(rodata)
 SHADING_MODE_ICONS := [Shading_Mode]rune {
-	.Clay     = ICON_SHADING,
-	.Lit      = ui.ICON_SUN,
-	.Full     = ICON_MATERIAL,
-	.Flat     = ICON_CONTRAST,
-	.Rendered = ICON_SPARKLES,
+	.Clay     = ui.ICON_SHADE_CLAY,
+	.Lit      = ui.ICON_SHADE_LIT,
+	.Full     = ui.ICON_SHADE_FULL,
+	.Flat     = ui.ICON_SHADE_FLAT,
+	.Rendered = ui.ICON_SHADE_RENDERED,
 }
 
 // Where each object's colour comes from: its material (with its paint and textures), or a

@@ -86,6 +86,8 @@ python "%ROOT%scripts\ui_audit.py" --quiet || exit /b 1
 python "%ROOT%scripts\shaders_msl.py" --check || exit /b 1
 python "%ROOT%scripts\shaders_wgsl.py" --check || exit /b 1
 python "%ROOT%scripts\shaders_gen.py" --check || exit /b 1
+rem The icon fonts and their names (src\ui\icons_gen.odin) match assets\icons\manifest.txt.
+python "%ROOT%scripts\icons_build.py" --check || exit /b 1
 rem The web version compiles the engine for js, where a core:os or core:thread call on a
 rem sculpt path would fail; checking it here keeps that from going unnoticed.
 python "%ROOT%scripts\web_build.py" --check || exit /b 1
