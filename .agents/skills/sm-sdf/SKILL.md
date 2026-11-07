@@ -29,6 +29,12 @@ description: Implicit and SDF modelling for this app — the voxel sculptor in s
   face-neighbour's order so the bits are the same; levels counting-sorted), a sweep per direction (`sweep & 7`), stopping at the first sweep that moves no value by
   more than `REPAIR_SETTLED` (`Clay.repair_sweeps` says how many; `band_repair(c, every_sweep = true)` runs them all for
   the test); the end marks only nodes that see a change within `NEAR` (`Clay.repair_seen`, `surface_mark_box`). Negative is inside, as here.
+- Whole-clay steps outside a stroke copy `clay_mirror` (`mirror.odin`) and `clay_keep_largest` (`pieces.odin`): work the new
+  bricks out in parallel into scratch (or per-brick labels), then `clay_stroke_begin`, `undo_record` before each write,
+  `band_mark` what needs true distances again (and `undo_record` it: the repair writes only saved bricks), `surface_mark_brick`,
+  `clay_stroke_end`. Never collapse a brick to Empty whose outside voxels may hold a kept surface's distances: set its
+  voxels and let the repair empty it. The app runs them as scene commands (`.Symmetrize` on clay, `.Remove_Floaters`) and
+  records `history_record(.Deform)`, not a swap.
 - Rules it keeps: every new value depends on old values only (serial == parallel, `serial_and_parallel_strokes_agree_bit_for_bit`);
   jobs write disjoint bricks or node slots; the directory changes only in serial passes; a brick dirties the nodes whose
   20³ meshing window sees a change within `NEAR` (3 voxels) of the surface; unused index slots are zeros on a dummy vertex 0;

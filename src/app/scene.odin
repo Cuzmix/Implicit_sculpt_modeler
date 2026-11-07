@@ -200,16 +200,16 @@ Surface :: struct {
 	mask:   []u8,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Unwrap, Straighten, Texel_Density, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Cage_Edit, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Curve_Points, Bake_Curve, Curve_Cage, Skin_Apply, Squeeze, Stack_Apply}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Unwrap, Straighten, Texel_Density, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Cage_Edit, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Curve_Points, Bake_Curve, Curve_Cage, Skin_Apply, Squeeze, Stack_Apply, Remove_Floaters}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
 // either kind.
-MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Stack_Apply, .Remesh, .Decimate, .Retopo, .Symmetrize, .Slice, .Knife, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Split, .Merge, .Group_Material, .Unwrap, .Straighten, .Texel_Density, .Remove_Textures, .Repair, .Skin_Apply, .Squeeze}
+MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Stack_Apply, .Remesh, .Decimate, .Retopo, .Slice, .Knife, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Split, .Merge, .Group_Material, .Unwrap, .Straighten, .Texel_Density, .Remove_Textures, .Repair, .Skin_Apply, .Squeeze}
 
 // The commands a curve object refuses: everything that works on a surface, as a voxel
 // object's or a cage's do; placing, copying, listing, showing and deleting work on it.
-CURVE_REFUSED_SCENE :: MESH_ONLY_COMMANDS + bit_set[Scene_Command_Kind]{.Boolean, .Material, .Voxel_To_Mesh, .Mesh_To_Voxels, .Voxel_Resample, .Apply_Cage, .Edit_Cage, .Tidy_Cage, .Cage_Edit, .Select_Cage, .Cage_Look, .Crease_Cage}
+CURVE_REFUSED_SCENE :: MESH_ONLY_COMMANDS + bit_set[Scene_Command_Kind]{.Symmetrize, .Remove_Floaters, .Boolean, .Material, .Voxel_To_Mesh, .Mesh_To_Voxels, .Voxel_Resample, .Apply_Cage, .Edit_Cage, .Tidy_Cage, .Cage_Edit, .Select_Cage, .Cage_Look, .Crease_Cage}
 
 Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
@@ -1157,8 +1157,37 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			if changed do history_record_swap(app, obj.id, before)
 			else do history_snapshot_drop(before)
 		}
+	case .Remove_Floaters:
+		obj := selected_object(app)
+		if obj == nil || obj.voxel == nil {
+			report(app, Section.Voxels, {.Warning}, "Remove floaters works on voxel clay: the selected object is not")
+			return true
+		}
+		stroke_finish(app)
+		start := time.tick_now()
+		removed := voxel.clay_keep_largest(&obj.voxel.clay)
+		ms := time.duration_milliseconds(time.tick_since(start))
+		if removed > 0 {
+			voxel_part_edited(obj.voxel)
+			history_record(app, obj, .Deform, "Remove floaters")
+			report(app, Section.Voxels, {.Undo}, "Removed %d floating piece%s in %.0f ms", removed, "" if removed == 1 else "s", ms)
+		} else {
+			report(app, Section.Voxels, {}, "Nothing floats: %s is one piece", object_label(obj))
+		}
 	case .Symmetrize:
-		if obj := selected_object(app); obj != nil {
+		if obj := selected_object(app); obj != nil && obj.voxel != nil {
+			// Clay mirrors in place as one undo step of its own, keeping its resolution.
+			stroke_finish(app)
+			start := time.tick_now()
+			changed := voxel.clay_mirror(&obj.voxel.clay, cmd.axis, cmd.on)
+			ms := time.duration_milliseconds(time.tick_since(start))
+			if changed {
+				voxel_part_edited(obj.voxel)
+				history_record(app, obj, .Deform, "Mirror and weld")
+			}
+			if changed do report(app, Section.Voxels, {.Undo}, "Mirrored %s in %.0f ms", object_label(obj), ms)
+			else do report(app, Section.Voxels, {}, "Nothing to mirror: nothing of %s is on the side to keep, or it is symmetric already", object_label(obj))
+		} else if obj != nil {
 			before := history_snapshot(app, obj, "mirror and weld")
 			changed, ok := object_symmetrize(app, obj, cmd.axis, cmd.on)
 			if !ok {
