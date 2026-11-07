@@ -154,7 +154,7 @@ query_times :: proc(f: ^geom.Blend_Field, s: ^geom.Blend_Surface) -> (p50, p99: 
 		u := Vec3{rand.float32(rand.default_random_generator(&r)), rand.float32(rand.default_random_generator(&r)), rand.float32(rand.default_random_generator(&r))}
 		p := (Vec3{f32(b.x), f32(b.y), f32(b.z)} + u) * (f.h * geom.BLEND_BRICK)
 		t0 := time.tick_now()
-		_, _, _, _ = geom.surface_distance(s, p, f.band)
+		_, _, _, _, _ = geom.surface_distance(s, p, f.band)
 		t = time.duration_microseconds(time.tick_since(t0))
 	}
 	slice.sort(times)
@@ -172,7 +172,7 @@ reference :: proc(x: Vec3) -> (g: f32, grad: Vec3) {
 		b := linalg.length(x - balls[1].center) - balls[1].radius
 		na, nb := linalg.normalize0(x - balls[0].center), linalg.normalize0(x - balls[1].center)
 		if b < a do a, b, na, nb = b, a, nb, na
-		k := geom.blend_radius_at(BLEND_RADIUS, linalg.dot(na, nb), 1)
+		k := geom.blend_radius_at(BLEND_RADIUS, linalg.dot(na, nb), 1, .Organic)
 		g, _, _ := geom.blend_union(a, b, na, nb, k, 1)
 		return g
 	}

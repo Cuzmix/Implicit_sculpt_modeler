@@ -41,32 +41,36 @@ Blend_Surface :: struct {
 }
 
 // The sampled field: `h` apart, bricks of BLEND_SIDE³ samples, each value the signed
-// distance clamped to ±band and each weight the painted weight at the sample's closest
-// point. Slots are given in the sorted order of the keys each fill adds, so a field's
+// distance clamped to ±band, and beside it the field's exact gradient there (the way from
+// the closest point, or the pseudo-normal on the surface) with the painted weight at the
+// closest point (blend_extra_pack). Gourmel's opening function turns the angle between two
+// fields' gradients into the blend's radius through steep ramps, so the gradients are kept
+// exact at the samples rather than rebuilt from the distances, whose differences turned by
+// a few degrees from cell to cell and moved a three-way junction's fillet by 4 % of the
+// radius. Slots are given in the sorted order of the keys each fill adds, so a field's
 // contents never depend on thread timing.
 Blend_Field :: struct {
 	h, band: f32,
 	keys:    [dynamic]u64, // per slot
 	values:  [dynamic]f32, // BLEND_SAMPLES per slot, x fastest
-	weights: [dynamic]u8,  // likewise; 255 = no blend
+	extras:  [dynamic]u32, // likewise: the gradient and weight (blend_extra_pack)
 	table:   []u64, // open addressing: key, then its slot at the same index of `slots`
 	slots:   []i32,
 	used:    int,
-	painted: bool, // some fill read a painted weight: without one every weight is full
 }
 
 blend_field_init :: proc(f: ^Blend_Field, h, band: f32, allocator := context.allocator) {
 	f^ = {h = h, band = band}
 	f.keys = make([dynamic]u64, allocator)
 	f.values = make([dynamic]f32, allocator)
-	f.weights = make([dynamic]u8, allocator)
+	f.extras = make([dynamic]u32, allocator)
 	table_regrow(f, 64)
 }
 
 blend_field_destroy :: proc(f: ^Blend_Field) {
 	delete(f.keys)
 	delete(f.values)
-	delete(f.weights)
+	delete(f.extras)
 	delete(f.table, f.keys.allocator)
 	delete(f.slots, f.keys.allocator)
 	f^ = {}
@@ -165,13 +169,12 @@ blend_field_fill :: proc(f: ^Blend_Field, s: ^Blend_Surface, keys: []u64, pool: 
 		table_put(f, k, i32(first + i))
 	}
 	resize(&f.values, len(f.keys) * BLEND_SAMPLES)
-	resize(&f.weights, len(f.keys) * BLEND_SAMPLES)
+	resize(&f.extras, len(f.keys) * BLEND_SAMPLES)
 	Fill :: struct {
 		f:     ^Blend_Field,
 		s:     ^Blend_Surface,
 		first: int,
 	}
-	if s.weight != nil do f.painted = true
 	job := Fill{f, s, first}
 	jobs.parallel_for(pool, n * BLEND_SIDE, &job, proc(data: rawptr, i: int) {
 		job := cast(^Fill)data
@@ -196,16 +199,16 @@ fill_slice :: proc(f: ^Blend_Field, s: ^Blend_Surface, slot, z: int) {
 	for y in 0 ..< BLEND_SIDE {
 		for x in 0 ..< BLEND_SIDE {
 			p := lo + Vec3{f32(x), f32(y), f32(z)} * f.h
-			d, w, tri, ok := surface_distance(s, p, f.band, hint)
+			d, n, w, tri, ok := surface_distance(s, p, f.band, hint)
 			at := base + y * BLEND_SIDE + x
 			if !ok {
 				f.values[at] = math.nan_f32()
-				f.weights[at] = 0
+				f.extras[at] = 0
 				continue
 			}
 			hint = tri
 			f.values[at] = d
-			f.weights[at] = w
+			f.extras[at] = blend_extra_pack(n, w)
 		}
 	}
 }
@@ -248,9 +251,11 @@ sign_unknown :: proc(f: ^Blend_Field, slot: int) {
 	for &x, i in v do if math.is_nan(x) do x = f.band if sign[i] >= 0 else -f.band
 }
 
-// The signed distance from p to the surface within `band`, its painted weight there, and
-// the closest triangle (a hint for the next sample); ok is false past the band.
-surface_distance :: proc(s: ^Blend_Surface, p: Vec3, band: f32, hint := BVH_NONE) -> (d: f32, w: u8, tri: u32, ok: bool) {
+// The signed distance from p to the surface within `band`, the field's unit gradient there
+// (the way from the closest point outward, or the pseudo-normal where p is on the surface),
+// its painted weight, and the closest triangle (a hint for the next sample); ok is false
+// past the band.
+surface_distance :: proc(s: ^Blend_Surface, p: Vec3, band: f32, hint := BVH_NONE) -> (d: f32, g: Vec3, w: u8, tri: u32, ok: bool) {
 	bary: [3]f32
 	dist: f32
 	tri, bary, dist, ok = bvh_closest(s.bvh, s.mesh, p, band, hint)
@@ -259,6 +264,8 @@ surface_distance :: proc(s: ^Blend_Surface, p: Vec3, band: f32, hint := BVH_NONE
 	q := s.mesh.positions[c[0]] * bary[0] + s.mesh.positions[c[1]] * bary[1] + s.mesh.positions[c[2]] * bary[2]
 	n := pseudo_normal(s, tri, c, bary)
 	d = dist if linalg.dot(p - q, n) >= 0 else -dist
+	// Off the surface the gradient is the way from the closest point, outward either side.
+	g = (p - q) / d if dist > 1e-6 * band else linalg.normalize0(n)
 	if s.weight != nil {
 		w = u8(math.round(f32(s.weight[c[0]]) * bary[0] + f32(s.weight[c[1]]) * bary[1] + f32(s.weight[c[2]]) * bary[2]))
 	}
@@ -306,9 +313,40 @@ face_unit :: #force_inline proc(m: Mesh, t: u32) -> Vec3 {
 	return linalg.normalize0(linalg.cross(p1 - p0, p2 - p0))
 }
 
-// The field at p by trilinear reads of its brick: the distance, its gradient (the
-// trilinear's own, constant across a cell's faces only to first order: Newton's steps),
-// and the weight 0 (no blend) to 1. ok is false where no brick holds p.
+// A sample's gradient and weight in one word: the unit gradient octahedrally, 12 bits a
+// half from 1 (0 for none, a sample past the band), and the weight in the top byte.
+blend_extra_pack :: proc(n: Vec3, w: u8) -> u32 {
+	l := abs(n.x) + abs(n.y) + abs(n.z)
+	if l == 0 do return u32(w) << 24
+	e := n.xy / l
+	if n.z < 0 {
+		sx: f32 = 1 if e.x >= 0 else -1
+		sy: f32 = 1 if e.y >= 0 else -1
+		e = {(1 - abs(e.y)) * sx, (1 - abs(e.x)) * sy}
+	}
+	qx := u32(math.round(clamp(e.x * 0.5 + 0.5, 0, 1) * 4094)) + 1
+	qy := u32(math.round(clamp(e.y * 0.5 + 0.5, 0, 1) * 4094)) + 1
+	return qx | qy << 12 | u32(w) << 24
+}
+
+// The gradient blend_extra_pack kept (zero for none) and the weight byte.
+blend_extra_unpack :: proc(x: u32) -> (n: Vec3, w: u8) {
+	w = u8(x >> 24)
+	qx, qy := x & 0xfff, (x >> 12) & 0xfff
+	if qx == 0 do return
+	e := [2]f32{f32(qx - 1) / 4094 * 2 - 1, f32(qy - 1) / 4094 * 2 - 1}
+	v := Vec3{e.x, e.y, 1 - abs(e.x) - abs(e.y)}
+	if v.z < 0 {
+		sx: f32 = 1 if e.x >= 0 else -1
+		sy: f32 = 1 if e.y >= 0 else -1
+		v.xy = {(1 - abs(e.y)) * sx, (1 - abs(e.x)) * sy}
+	}
+	return linalg.normalize0(v), w
+}
+
+// The field at p by trilinear reads of its brick: the distance, the gradient (the samples'
+// exact gradients mixed, smooth across cells) and the weight 0 (no blend) to 1. ok is
+// false where no brick holds p.
 blend_field_at :: proc(f: ^Blend_Field, p: Vec3) -> (d: f32, g: Vec3, w: f32, ok: bool) {
 	slot, l, t := locate(f, p) or_return
 	v := f.values[slot * BLEND_SAMPLES:][:BLEND_SAMPLES]
@@ -320,41 +358,24 @@ blend_field_at :: proc(f: ^Blend_Field, p: Vec3) -> (d: f32, g: Vec3, w: f32, ok
 	y0 := math.lerp(x0, x1, t.y)
 	y1 := math.lerp(x2, x3, t.y)
 	d = math.lerp(y0, y1, t.z)
-	gx := math.lerp(math.lerp(c[1] - c[0], c[3] - c[2], t.y), math.lerp(c[5] - c[4], c[7] - c[6], t.y), t.z)
-	gy := math.lerp(math.lerp(c[2] - c[0], c[3] - c[1], t.x), math.lerp(c[6] - c[4], c[7] - c[5], t.x), t.z)
-	g = Vec3{gx, gy, y1 - y0} / f.h
-	ws := f.weights[slot * BLEND_SAMPLES:][:BLEND_SAMPLES]
+	xs := f.extras[slot * BLEND_SAMPLES:][:BLEND_SAMPLES]
+	gc: [8]Vec3
 	wc: [8]f32
-	for k in 0 ..< 8 do wc[k] = f32(ws[corner_index(l, k)])
+	for k in 0 ..< 8 {
+		n, wb := blend_extra_unpack(xs[corner_index(l, k)])
+		gc[k], wc[k] = n, f32(wb)
+	}
+	gx0 := linalg.lerp(gc[0], gc[1], t.x)
+	gx1 := linalg.lerp(gc[2], gc[3], t.x)
+	gx2 := linalg.lerp(gc[4], gc[5], t.x)
+	gx3 := linalg.lerp(gc[6], gc[7], t.x)
+	g = linalg.lerp(linalg.lerp(gx0, gx1, t.y), linalg.lerp(gx2, gx3, t.y), t.z)
 	wx0 := math.lerp(wc[0], wc[1], t.x)
 	wx1 := math.lerp(wc[2], wc[3], t.x)
 	wx2 := math.lerp(wc[4], wc[5], t.x)
 	wx3 := math.lerp(wc[6], wc[7], t.x)
 	w = 1 - math.lerp(math.lerp(wx0, wx1, t.y), math.lerp(wx2, wx3, t.y), t.z) / 255
 	return d, g, w, true
-}
-
-// The field's gradient at p, smooth across cell faces: the trilinear mix of the central
-// differences at the cell's eight corners (one-sided on a brick's faces), for normals,
-// where the trilinear's own gradient would facet a fillet a few cells across.
-blend_field_normal :: proc(f: ^Blend_Field, p: Vec3) -> (g: Vec3, ok: bool) {
-	slot, l, t := locate(f, p) or_return
-	v := f.values[slot * BLEND_SAMPLES:][:BLEND_SAMPLES]
-	gc: [8]Vec3
-	for k in 0 ..< 8 {
-		at := l + {k & 1, (k >> 1) & 1, (k >> 2) & 1}
-		for a in 0 ..< 3 {
-			lo, hi := at, at
-			if lo[a] > 0 do lo[a] -= 1
-			if hi[a] < BLEND_SIDE - 1 do hi[a] += 1
-			gc[k][a] = (v[sample_index(hi)] - v[sample_index(lo)]) / (f32(hi[a] - lo[a]) * f.h)
-		}
-	}
-	x0 := linalg.lerp(gc[0], gc[1], t.x)
-	x1 := linalg.lerp(gc[2], gc[3], t.x)
-	x2 := linalg.lerp(gc[4], gc[5], t.x)
-	x3 := linalg.lerp(gc[6], gc[7], t.x)
-	return linalg.lerp(linalg.lerp(x0, x1, t.y), linalg.lerp(x2, x3, t.y), t.z), true
 }
 
 // The slot of the brick holding p, the cell's lower corner within it and p's place in the
@@ -387,6 +408,6 @@ corners :: #force_inline proc(v: []f32, l: [3]int) -> (c: [8]f32) {
 
 // Bytes a field holds, for the bench and the memory budget.
 blend_field_bytes :: proc(f: ^Blend_Field) -> int {
-	return len(f.keys) * (8 + BLEND_SAMPLES * 5) + len(f.table) * 12
+	return len(f.keys) * (8 + BLEND_SAMPLES * 8) + len(f.table) * 12
 }
 
