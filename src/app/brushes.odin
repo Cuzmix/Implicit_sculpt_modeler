@@ -50,6 +50,7 @@ BRUSHES := [sculpt.Brush_Kind]Brush_Info {
 	.Rotate       = {"Rotate", "Turns what is under the press about it as the pointer\ngoes round it: the middle turns most, the rim not at all.", ui.ICON_BRUSH_ROTATE, 0.5, {.Grab}},
 	.Thumb        = {"Thumb", "Smears the surface along the stroke and presses it\nflat, as a thumb pushes clay (Ctrl: pushes it back).", ui.ICON_BRUSH_THUMB, 0.5, {}},
 	.Pose         = {"Pose", "Bends what the press reaches about a joint a radius along\nthe surface, as a finger at its root: drag to swing it.", ui.ICON_BRUSH_POSE, 0.5, {.Grab}},
+	.Boundary     = {"Boundary", "Drags the open edge nearest the press, the surface\nfollowing it less the further it lies from the edge.", ui.ICON_BRUSH_BOUNDARY, 0.5, {.Grab}},
 }
 
 brush_by_name :: proc(name: string) -> (sculpt.Brush_Kind, bool) {

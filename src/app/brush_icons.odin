@@ -46,6 +46,7 @@ BRUSH_ICON_FILES := [sculpt.Brush_Kind]string {
 	.Rotate       = #load("../../assets/brush_icons/rotate.png", string),
 	.Thumb        = #load("../../assets/brush_icons/thumb.png", string),
 	.Pose         = #load("../../assets/brush_icons/pose.png", string),
+	.Boundary     = #load("../../assets/brush_icons/boundary.png", string),
 }
 
 Brush_Icons :: struct {

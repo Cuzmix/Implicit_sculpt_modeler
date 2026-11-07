@@ -102,6 +102,9 @@ Grab_Job :: struct {
 	// Pose, in a move: per image the turn the drag gives what is held whole.
 	pose_axes:   [dynamic; SYM_IMAGES_MAX]Vec3,
 	pose_angles: [dynamic; SYM_IMAGES_MAX]f32,
+	// Boundary: each image holds what boundary_reach gives (`reach` and `geodesic`), by the
+	// falloff of the distance from the open edge.
+	boundary: bool,
 }
 
 // Starts dragging the vertices within the brush around `center`. Call inside a stroke
@@ -127,6 +130,12 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		reach = j.pose_out
 		j.r2 = reach * reach
 		brush.through, brush.connected, brush.topological, brush.same_side, brush.silhouette = {}, false, true, false, false
+	}
+	if brush.kind == .Boundary {
+		// Boundary holds the open edge nearest the press, which may lie a radius away, and
+		// the surface a radius in from it, a radius further along the edge again at most.
+		j.boundary, reach = true, 3 * brush.radius
+		brush.through, brush.connected, brush.topological, brush.same_side, brush.silhouette = {}, false, false, false, false
 	}
 	through := linalg.normalize0(brush.through)
 	g.normal, g.silhouette = {}, false
@@ -162,7 +171,22 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	// Reaching through the depth wins over Connected and Topological, which keep to the
 	// round reach; Topological reaches only what joins the press, so it is Connected too.
 	clear(&g.pivots)
-	if brush.topological && through == {} {
+	if j.boundary {
+		found := false
+		for k in 0 ..< len(j.centers) {
+			verts, dist, ok := boundary_reach(s, j.centers[k], brush.radius)
+			append(&j.reach, verts)
+			append(&j.geodesic, dist)
+			found ||= ok
+		}
+		if !found {
+			// No open edge near: it holds nothing, and a move finds nothing to drag.
+			clear(&g.leaves)
+			clear(&g.verts)
+			resize(&g.first, 1)
+			return 0
+		}
+	} else if brush.topological && through == {} {
 		j.connected, j.topological = true, true
 		for k in 0 ..< len(j.centers) {
 			verts, dist := geodesic_reach(s, j.centers[k], reach)
@@ -422,6 +446,22 @@ grab_follow :: #force_inline proc(j: ^Grab_Job, v: u32) -> (f: matrix[3, 3]f32, 
 		if f != 0 {
 			shielded := shield(j.s.fade, j.s.mask, v)
 			f, weight = mat_scaled(f, shielded), clamp(weight, 0, 1) * shielded
+		}
+		return
+	}
+	if j.boundary {
+		// By the distance from the open edge each image holds, along the surface.
+		for _, k in j.centers {
+			at, found := slice.binary_search(j.reach[k], v)
+			if !found do continue
+			d2 := j.geodesic[k][at] * j.geodesic[k][at] * j.inv_r2
+			w := falloff_drawn(j.shape, d2) if j.shape != nil else falloff(d2)
+			f += mat_scaled(j.turns[k], w)
+			if w > weight do image, weight = k, w
+		}
+		if f != 0 {
+			shielded := shield(j.s.fade, j.s.mask, v)
+			f, weight = mat_scaled(f, shielded), weight * shielded
 		}
 		return
 	}

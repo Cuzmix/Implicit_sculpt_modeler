@@ -112,6 +112,15 @@ preview_render :: proc(brush: Brush, pixels: []u8) -> bool {
 			_ = sculptor_flush(&s)
 		}
 		sculptor_grab_end(&s)
+	case .Boundary:
+		// Picked up beside the strip's far edge, which it lifts like a page's.
+		at := preview_on(&s, {0, PREVIEW_HALF.y - 0.1})
+		_ = sculptor_grab_begin(&s, b, at)
+		for i in 1 ..= 12 {
+			_ = sculptor_grab_move(&s, f32(i) / 12 * Vec3{0, -0.05, 0.16})
+			_ = sculptor_flush(&s)
+		}
+		sculptor_grab_end(&s)
 	case .Rotate:
 		// Picked up at the middle and turned a quarter about the way the strip faces.
 		at := preview_on(&s, {0, 0})
