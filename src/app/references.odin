@@ -62,7 +62,8 @@ Ref_Image :: struct {
 // picture's place can also stand over the view (`view`): its top left at `view_at` and
 // its width `view_w`, as parts of the main view's width (its height from its shape), at
 // `opacity`, turned `view_angle` radians clockwise about its middle, and kept there by
-// `view_locked` (two fingers then turn the view, not the picture). On the board it is
+// `view_locked` (two fingers then turn the view, not the picture), and drawn behind the
+// model rather than over it when `view_behind`, a backdrop the model covers. On the board it is
 // turned `angle` radians clockwise about its middle (a note never is), shown upright
 // while it is cropped. And it can stand on a plane in the scene (`plane`, refs_planes.odin), facing
 // that axis view: its middle at `plane_at` in the world, `plane_h` tall (its width from
@@ -89,6 +90,7 @@ Ref :: struct {
 	opacity: f32,
 	view_angle:  f32,
 	view_locked: bool,
+	view_behind: bool,
 	plane:     Ref_Plane,
 	plane_at:  [3]f32,
 	plane_h:   f32,
@@ -909,6 +911,13 @@ refs_view_locked_count :: proc(app: ^App) -> int {
 	return n
 }
 
+// How many pictures over the view are drawn behind the model, for the exit stats.
+refs_view_behind_count :: proc(app: ^App) -> int {
+	n := 0
+	for r in app.scene.refs.refs do if r.view && r.view_behind && r.image != 0 do n += 1
+	return n
+}
+
 // How many pictures have their GPU copy, for the exit stats.
 refs_shown_count :: proc(app: ^App) -> int {
 	n := 0
@@ -993,6 +1002,7 @@ Ref_Tag :: enum u16 {
 	Plane_H     = 24, // f32
 	Marks       = 25, // [2]f32: brow and chin
 	Text        = 26, // text, a note's
+	View_Behind = 27, // u8: over the view, drawn behind the model as a backdrop
 }
 
 refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {
@@ -1026,6 +1036,7 @@ refs_put :: proc(out: ^[dynamic]u8, refs: ^References) {
 		geom.rec_put(out, T.Sized, u8(r.sized))
 		geom.rec_put(out, T.View, u8(r.view))
 		geom.rec_put(out, T.View_Locked, u8(r.view_locked))
+		geom.rec_put(out, T.View_Behind, u8(r.view_behind))
 		geom.rec_put(out, T.View_At, r.view_at)
 		geom.rec_put(out, T.View_W, r.view_w)
 		geom.rec_put(out, T.Opacity, r.opacity)
@@ -1088,13 +1099,14 @@ refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
 		p.crop_lo = geom.rec_get(&pr, T.Crop_Lo, [2]f32, [2]f32{})
 		p.crop_hi = geom.rec_get(&pr, T.Crop_Hi, [2]f32, [2]f32{1, 1})
 		p.turn = geom.rec_get(&pr, T.Turn, u8, 0)
-		flags := [6]u8 {
+		flags := [7]u8 {
 			geom.rec_get(&pr, T.Flip, u8, 0),
 			geom.rec_get(&pr, T.Grey, u8, 0),
 			geom.rec_get(&pr, T.Locked, u8, 0),
 			geom.rec_get(&pr, T.Sized, u8, 0),
 			geom.rec_get(&pr, T.View, u8, 0),
 			geom.rec_get(&pr, T.View_Locked, u8, 0),
+			geom.rec_get(&pr, T.View_Behind, u8, 0),
 		}
 		p.view_at = geom.rec_get(&pr, T.View_At, [2]f32, REF_VIEW_AT)
 		p.view_w = geom.rec_get(&pr, T.View_W, f32, REF_VIEW_W)
@@ -1126,7 +1138,7 @@ refs_get :: proc(r: ^geom.Byte_Reader) -> (refs: References, ok: bool) {
 		if !(abs(p.at.x) < math.F32_MAX && abs(p.at.y) < math.F32_MAX) do return
 		if !(p.crop_lo.x >= 0 && p.crop_lo.y >= 0 && p.crop_hi.x <= 1 && p.crop_hi.y <= 1) do return
 		if !(p.crop_lo.x < p.crop_hi.x && p.crop_lo.y < p.crop_hi.y) do return
-		p.flip, p.grey, p.locked, p.sized, p.view, p.view_locked = flags[0] == 1, flags[1] == 1, flags[2] == 1, flags[3] == 1, flags[4] == 1, flags[5] == 1
+		p.flip, p.grey, p.locked, p.sized, p.view, p.view_locked, p.view_behind = flags[0] == 1, flags[1] == 1, flags[2] == 1, flags[3] == 1, flags[4] == 1, flags[5] == 1, flags[6] == 1
 		if p.view && p.image == 0 do return
 		if p.image == 0 {
 			if len(text) >= REF_NOTE_MAX do return

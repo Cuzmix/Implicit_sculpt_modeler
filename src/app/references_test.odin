@@ -49,6 +49,7 @@ references_read_back_as_written :: proc(t: ^testing.T) {
 	app.scene.refs.refs[1].through, app.scene.refs.refs[1].plane_off = true, true
 	app.scene.refs.refs[1].marks = {0.2, 0.7}
 	app.scene.refs.refs[0].angle, app.scene.refs.refs[0].view_angle, app.scene.refs.refs[0].view_locked = 0.5, -2.75, true
+	app.scene.refs.refs[0].view_behind = true
 	app.scene.refs.view_off = true
 	refs_add_note(&app)
 	app.scene.refs.refs[2].text = {}
@@ -619,4 +620,73 @@ references_two_fingers_turn_a_picture_on_view :: proc(t: ^testing.T) {
 	_ = ui.fingers_down(&tch.fingers, 2, {250, 200}, 0)
 	testing.expect(t, !refs_touch_gesture(&app, {zoom = 2, middle = {200, 200}}))
 	testing.expect(t, abs(app.scene.refs.refs[0].view_w - 0.75) < 1e-5)
+}
+
+// Behind the model is one undo step over the picked pictures on the view, and undone they
+// stand in front again; a picked note is left as it was.
+@(test)
+references_behind_the_model_is_one_undo_step :: proc(t: ^testing.T) {
+	app: App
+	defer test_refs_free(&app)
+	_, _ = refs_add(&app, "a.png", test_png(4, 2, 1), {})
+	refs_add_note(&app)
+	app.scene.refs.refs[0].view = true
+	b := &app.kit.board
+	clear(&b.selected)
+	append(&b.selected, app.scene.refs.refs[0].id, app.scene.refs.refs[1].id)
+	steps := len(app.history.done)
+	refs_edit(&app, .View_Behind)
+	testing.expect(t, app.scene.refs.refs[0].view_behind)
+	testing.expect(t, !app.scene.refs.refs[1].view_behind)
+	testing.expect_value(t, refs_view_behind_count(&app), 1)
+	testing.expect_value(t, len(app.history.done), steps + 1)
+	testing.expect(t, refs_view_behind_on(&app, app.scene.refs.refs[0]))
+	app.scene.refs.view_off = true
+	testing.expect(t, !refs_view_behind_on(&app, app.scene.refs.refs[0]), "Show refs off still drew a picture behind the model")
+	app.scene.refs.view_off = false
+	history_undo(&app)
+	testing.expect(t, !app.scene.refs.refs[0].view_behind)
+	testing.expect_value(t, refs_view_behind_count(&app), 0)
+}
+
+// A picture behind the model stands, in the viewport's normalized coordinates, where the
+// interface would draw it in front: filling the main view it spans -1 to 1, and turned a
+// quarter clockwise its width runs down the screen and its height to the right.
+@(test)
+references_behind_the_model_stand_where_shown :: proc(t: ^testing.T) {
+	main := ui.Rect{100, 50, 800, 600}
+	p := Ref{size = {4, 3}, view = true, view_w = 1}
+	near :: proc(a, b: [3]f32) -> bool {return abs(a.x - b.x) < 1e-5 && abs(a.y - b.y) < 1e-5 && a.z == b.z}
+	c, r, u := refs_view_backdrop(main, p)
+	testing.expectf(t, near(c, {0, 0, 0}) && near(r, {1, 0, 0}) && near(u, {0, 1, 0}), "%v %v %v", c, r, u)
+	p.size, p.view_angle = {1, 1}, math.PI / 2
+	c, r, u = refs_view_backdrop(main, p)
+	testing.expectf(t, near(c, {0, -1.0 / 3, 0}) && near(r, {0, -4.0 / 3, 0}) && near(u, {1, 0, 0}), "%v %v %v", c, r, u)
+}
+
+// Behind the model leaves a picked picture that is not on the view as it was.
+@(test)
+references_behind_the_model_only_on_the_view :: proc(t: ^testing.T) {
+	app: App
+	defer test_refs_free(&app)
+	_, _ = refs_add(&app, "a.png", test_png(4, 2, 1), {})
+	_, _ = refs_add(&app, "b.png", test_png(4, 2, 2), {})
+	app.scene.refs.refs[1].view = true
+	b := &app.kit.board
+	clear(&b.selected)
+	append(&b.selected, app.scene.refs.refs[0].id, app.scene.refs.refs[1].id)
+	refs_edit(&app, .View_Behind)
+	testing.expect(t, !app.scene.refs.refs[0].view_behind)
+	testing.expect(t, app.scene.refs.refs[1].view_behind)
+}
+
+// With no plane in the scene and no picture behind the model, the renderer is given
+// nothing to draw, so a picture in front costs the viewport nothing.
+@(test)
+references_in_front_give_the_renderer_nothing :: proc(t: ^testing.T) {
+	app: App
+	defer test_refs_free(&app)
+	_, _ = refs_add(&app, "a.png", test_png(4, 2, 1), {})
+	app.scene.refs.refs[0].view = true
+	testing.expect(t, refs_planes_frame(&app) == nil)
 }

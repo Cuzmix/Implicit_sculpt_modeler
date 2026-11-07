@@ -15,14 +15,20 @@ import "core:slice"
 // it shows only where no mesh is, as a backdrop, and the grid's lines cross it; Through,
 // it is drawn over everything at its opacity after the see-through items, the silhouette
 // check. Neither writes depth. With no planes, nothing is bound or drawn, and the pipelines are only
-// made the first time one is.
+// made the first time one is. A picture over the view drawn behind the model (the picture
+// menu's Behind the model) is a plane `on_screen`: its corners are in the viewport's
+// normalized coordinates rather than the world, so it keeps its place on the screen
+// whatever the camera does, and it is drawn as a plane behind is, a backdrop the model
+// covers; it costs nothing when no picture is behind, as the planes do.
 
 // One plane as the app sets it each frame (Renderer.ref_planes): the picture's texture,
 // the plane's middle, half its width along its view's right and half its height along
 // its view's up, the way it faces (toward the eye of its view, unit length), the
 // picture's texture coordinates at its top left, top right, bottom right and bottom left
 // corners, its opacity, whether it is drawn through the model, and whether it shows from
-// any side. Every field is hashed into the frame's key, so the struct has no padding.
+// any side, or `on_screen`, whether its middle and half sides are in the viewport's
+// normalized coordinates (x right, y up, -1 to 1) and it shows from every camera. Every
+// field is hashed into the frame's key, so the struct has no padding.
 Ref_Plane :: struct {
 	texture: gpu.Texture,
 	center:  [3]f32,
@@ -33,8 +39,9 @@ Ref_Plane :: struct {
 	opacity: f32,
 	through: b32,
 	always:  b32,
+	on_screen: b32,
 }
-#assert(size_of(Ref_Plane) == 4 + 4 * 12 + 32 + 4 + 4 + 4)
+#assert(size_of(Ref_Plane) == 4 + 4 * 12 + 32 + 4 + 4 + 4 + 4)
 
 // The cosine of 10°: how far from looking straight along a plane's axis the camera may
 // turn and still show it, as Blender's "Only Axis Aligned".
@@ -54,7 +61,7 @@ Ref_Plane_Uniforms :: struct {
 // Whether plane `p` shows from a camera looking along `forward` (world space, unit length).
 ref_plane_shown :: proc(p: Ref_Plane, forward: [3]f32) -> bool {
 	if p.texture == 0 || p.opacity <= 0 do return false
-	if p.always do return true
+	if p.always || p.on_screen do return true
 	return -(forward.x * p.facing.x + forward.y * p.facing.y + forward.z * p.facing.z) >= REF_PLANE_SHOWN_COS
 }
 
@@ -88,8 +95,9 @@ draw_ref_planes :: proc(r: ^Renderer, cmd: gpu.Cmd, pass: gpu.Render_Pass, pipes
 			gpu.bind_graphics_pipeline(pass, pipeline)
 			bound = true
 		}
+		// A plane on the screen is already where the projection would put it.
 		u := Ref_Plane_Uniforms {
-			view_proj = proj * view,
+			view_proj = Mat4(1) if p.on_screen else proj * view,
 			center    = {p.center.x, p.center.y, p.center.z, 1},
 			right     = {p.right.x, p.right.y, p.right.z, 0},
 			up        = {p.up.x, p.up.y, p.up.z, 0},

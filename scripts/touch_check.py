@@ -9906,6 +9906,45 @@ def references_two_fingers_with_the_card_open_turn_the_picture():
     return s, REFS_ON_VIEW, camera_still({"refs_view_angles": angle_between(30, 60), "refs_turns": near(1), "undo_steps": near(2), "dabs": near(0)})
 
 
+# --- References: a picture over the view put behind the model -------------------------
+
+
+def refs_view_behind(s):
+    refs_on_view(s, close=False)
+    s.ftap("refs edits/More")
+    s.wait(4)
+    s.ftap("refs more menu/Behind the model")
+    s.wait(6)
+
+
+@scenario
+def references_view_picture_goes_behind_the_model_and_back_by_undo():
+    """A picture over the view put behind the model from the card's More menu, one undo
+    step, then undone: it stands in front again, the step on the redo list, and nothing
+    turns or sculpts."""
+    s = Script()
+    refs_view_behind(s)
+    s.press("z", ("ctrl",))
+    s.wait(4)
+    return s, REFS_ON_VIEW, camera_still({"refs_view_behind": near(0), "undo_steps": near(1), "redo_steps": near(1), "dabs": near(0)})
+
+
+@scenario
+def references_behind_the_model_pen_sculpts_and_two_fingers_turn_it():
+    """A picture behind the model, the card shut: the pen sculpts the model over it, and two
+    fingers landing on the picture beside the model twist it, one undo step each."""
+    s = Script()
+    refs_view_behind(s)
+    s.ftap("card References/Close")
+    s.wait(6)
+    pen_stroke(s, line((480, 420), (580, 460), 12), pressure=0.8)
+    s.wait(4)
+    s.fingers([(300, 380), (420, 380)], [(0, -60), (0, 60)], 16)
+    s.wait(6)
+    return s, REFS_ON_VIEW, {"refs_view_behind": near(1), "dabs": lambda v: float(v) > 0, "refs_view_angles": angle_between(30, 60),
+                             "refs_turns": near(1), "undo_steps": near(4)}
+
+
 @scenario
 def references_pen_sculpts_through_a_picture_with_the_card_open():
     """With the References card open (pinned, so a press on the view keeps it) and a
