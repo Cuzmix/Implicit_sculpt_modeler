@@ -18,6 +18,12 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID) {
 	float3 delta = p - center;
 	float d2 = dot(delta, delta);
 	if (d2 >= d.center_r2.w) return;
+	if ((d.slabs.w & FLAG_SWEEP) != 0) {
+		// The offset from the nearest point of the sweep (sculpt.displace's ONCE).
+		float3 sw = d.alpha_up.xyz;
+		delta -= sw * clamp(dot(delta, sw) / dot(sw, sw), 0.0, 1.0);
+		d2 = dot(delta, delta);
+	}
 	float3 n = normal_at(v);
 	float w = dab_weight(d, delta, d2) * shield(d, v) * facing_weight(d, n);
 	if (w <= 0.0) return;

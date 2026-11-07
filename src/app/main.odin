@@ -363,6 +363,8 @@ App :: struct {
 	material_balls:  render.Material_Balls,
 	// Full render of the view at a size of its own (render_image.odin).
 	render_image:    Render_Image,
+	// What Render image... renders (the Export sheet's Render tab), remembered.
+	render_image_settings: Render_Image_Settings,
 	opts_dump_balls: string,
 	dump_balls_next: int,
 	thumb_slots:    Thumb_Slots,
