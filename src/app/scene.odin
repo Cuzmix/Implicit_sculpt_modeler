@@ -200,7 +200,7 @@ Surface :: struct {
 	mask:   []u8,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Unwrap, Straighten, Texel_Density, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Cage_Edit, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Curve_Points, Bake_Curve, Curve_Cage, Skin_Apply, Squeeze, Stack_Apply, Remove_Floaters}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Unwrap, Straighten, Texel_Density, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Cage_Edit, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Curve_Points, Bake_Curve, Curve_Cage, Skin_Apply, Squeeze, Stack_Apply, Remove_Floaters, Separate_Pieces}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
@@ -209,7 +209,7 @@ MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Stack_Apply, .Remesh, .Decima
 
 // The commands a curve object refuses: everything that works on a surface, as a voxel
 // object's or a cage's do; placing, copying, listing, showing and deleting work on it.
-CURVE_REFUSED_SCENE :: MESH_ONLY_COMMANDS + bit_set[Scene_Command_Kind]{.Symmetrize, .Remove_Floaters, .Boolean, .Material, .Voxel_To_Mesh, .Mesh_To_Voxels, .Voxel_Resample, .Apply_Cage, .Edit_Cage, .Tidy_Cage, .Cage_Edit, .Select_Cage, .Cage_Look, .Crease_Cage}
+CURVE_REFUSED_SCENE :: MESH_ONLY_COMMANDS + bit_set[Scene_Command_Kind]{.Symmetrize, .Remove_Floaters, .Separate_Pieces, .Boolean, .Material, .Voxel_To_Mesh, .Mesh_To_Voxels, .Voxel_Resample, .Apply_Cage, .Edit_Cage, .Tidy_Cage, .Cage_Edit, .Select_Cage, .Cage_Look, .Crease_Cage}
 
 Scene_Command :: struct {
 	kind:     Scene_Command_Kind,
@@ -1157,6 +1157,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 			if changed do history_record_swap(app, obj.id, before)
 			else do history_snapshot_drop(before)
 		}
+	case .Separate_Pieces:
+		return voxel_separate_pieces(app)
 	case .Remove_Floaters:
 		obj := selected_object(app)
 		if obj == nil || obj.voxel == nil {

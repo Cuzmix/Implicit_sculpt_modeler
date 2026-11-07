@@ -1,6 +1,7 @@
 package voxel
 
 import "base:runtime"
+import "core:slice"
 
 import "../jobs"
 
@@ -28,25 +29,69 @@ Piece_Run :: struct {
 	units: []Piece_Unit,
 }
 
+// The clay's pieces: its units labelled, the labels joined, and the pieces' roots by size,
+// largest first (the first of equals in number order).
+@(private = "file")
+Pieces :: struct {
+	units:  [dynamic]Piece_Unit,
+	parent: []i32,
+	ranked: [dynamic]i32,
+}
+
+@(private = "file")
+pieces_destroy :: proc(p: ^Pieces) {
+	delete(p.units)
+	delete(p.parent, runtime.heap_allocator())
+	delete(p.ranked)
+}
+
 // Keeps the largest piece of the clay and removes the rest. No stroke may be running.
 // Returns how many pieces went (0 leaves the clay as it was).
 clay_keep_largest :: proc(c: ^Clay) -> int {
+	p := pieces_find(c)
+	defer pieces_destroy(&p)
+	if len(p.ranked) < 2 do return 0
+	pieces_keep(c, &p, p.ranked[0])
+	return len(p.ranked) - 1
+}
+
+// How many pieces the clay is in.
+clay_piece_count :: proc(c: ^Clay) -> int {
+	p := pieces_find(c)
+	defer pieces_destroy(&p)
+	return len(p.ranked)
+}
+
+// Keeps only the clay's `rank`th largest piece (0 the largest), as an undo step of its
+// own; Separate pieces gives each copy of a clay one of them. False when the clay has no
+// piece of that rank or is that piece alone.
+clay_keep_piece :: proc(c: ^Clay, rank: int) -> bool {
+	p := pieces_find(c)
+	defer pieces_destroy(&p)
+	if rank >= len(p.ranked) || len(p.ranked) < 2 do return false
+	pieces_keep(c, &p, p.ranked[rank])
+	return true
+}
+
+@(private = "file")
+pieces_find :: proc(c: ^Clay) -> (p: Pieces) {
 	assert(!c.in_stroke, "a stroke is running")
 	v := &c.volume
 	heap := runtime.heap_allocator()
+	p.units = make([dynamic]Piece_Unit, heap)
+	p.ranked = make([dynamic]i32, heap)
+	units := &p.units
 	// The units: every brick in slot order, then the Inside tiles, which lie in the bricks'
 	// box (a band of bricks surrounds them).
-	units := make([dynamic]Piece_Unit, heap)
-	defer delete(units)
 	lo, hi := [3]i32{max(i32), max(i32), max(i32)}, [3]i32{min(i32), min(i32), min(i32)}
 	for bc, slot in v.coords {
 		if bc == BRICK_FREE do continue
-		append(&units, Piece_Unit{coord = bc, slot = u32(slot)})
+		append(units, Piece_Unit{coord = bc, slot = u32(slot)})
 		lo, hi = {min(lo.x, bc.x), min(lo.y, bc.y), min(lo.z, bc.z)}, {max(hi.x, bc.x), max(hi.y, bc.y), max(hi.z, bc.z)}
 	}
-	if len(units) == 0 do return 0
+	if len(units) == 0 do return
 	for z in lo.z ..= hi.z do for y in lo.y ..= hi.y do for x in lo.x ..= hi.x {
-		if t, _ := volume_tile(v, {x, y, z}); t == .Inside do append(&units, Piece_Unit{coord = {x, y, z}, slot = TILE_INSIDE})
+		if t, _ := volume_tile(v, {x, y, z}); t == .Inside do append(units, Piece_Unit{coord = {x, y, z}, slot = TILE_INSIDE})
 	}
 	unit_of := make(map[[3]i32]i32, len(units), heap)
 	defer delete(unit_of)
@@ -64,10 +109,10 @@ clay_keep_largest :: proc(c: ^Clay) -> int {
 		u.base = total
 		total += u.count
 	}
-	if total == 0 do return 0
-	parent := make([]i32, total, heap)
-	defer delete(parent, heap)
-	for &p, i in parent do p = i32(i)
+	if total == 0 do return
+	p.parent = make([]i32, total, heap)
+	parent := p.parent
+	for &x, i in parent do x = i32(i)
 	for &u in units {
 		for axis in 0 ..< 3 {
 			nc := u.coord
@@ -88,24 +133,33 @@ clay_keep_largest :: proc(c: ^Clay) -> int {
 		}
 	}
 
-	// The largest piece, the first of equals in number order.
+	// The pieces by size, largest first, the first of equals in number order.
 	size := make([]int, total, heap)
 	defer delete(size, heap)
 	for &u in units {
 		for l in u.labels do if l != 0 do size[piece_root(parent, i32(u.base) + i32(l) - 1)] += 1
 	}
-	keep := i32(-1)
-	pieces := 0
-	for s, i in size {
-		if s == 0 do continue
-		pieces += 1
-		if keep < 0 || s > size[keep] do keep = i32(i)
+	for n, i in size do if n > 0 do append(&p.ranked, i32(i))
+	Ranking :: struct {
+		size: []int,
 	}
-	if pieces < 2 do return 0
+	ranking := Ranking{size}
+	context.user_ptr = &ranking
+	slice.stable_sort_by(p.ranked[:], proc(a, b: i32) -> bool {
+		r := cast(^Ranking)context.user_ptr
+		return r.size[a] > r.size[b]
+	})
+	return
+}
 
+// Removes every piece but `keep` (a root), as one undo step.
+@(private = "file")
+pieces_keep :: proc(c: ^Clay, p: ^Pieces, keep: i32) {
+	v := &c.volume
+	parent := p.parent
 	// The units that lose a piece, and the bricks around them.
 	clay_stroke_begin(c)
-	for &u in units {
+	for &u in p.units {
 		if u.count == 0 do continue
 		lost := false
 		for p in 0 ..< u.count do lost ||= piece_root(parent, i32(u.base + p)) != keep
@@ -134,7 +188,6 @@ clay_keep_largest :: proc(c: ^Clay) -> int {
 		band_mark(c, u.slot)
 	}
 	_ = clay_stroke_end(c)
-	return pieces - 1
 }
 
 // Labels the pieces of unit `u` within it, face to face, in voxel order.

@@ -413,6 +413,56 @@ voxel_mesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, values: []u8,
 	return true
 }
 
+// The most objects Separate pieces makes: past it the clay is dust better cleared with
+// Remove floaters, and each new object holds a copy of the clay while it is cut down.
+SEPARATE_MOST :: 32
+
+// Separate pieces: each piece of the selected clay but the largest becomes a voxel object of
+// its own at the same place, the largest staying in the object, as one undo step (the
+// object's clay step, then each new object's add). False only on a GPU failure.
+voxel_separate_pieces :: proc(app: ^App) -> bool {
+	obj := selected_object(app)
+	if obj == nil || obj.voxel == nil {
+		report(app, Section.Voxels, {.Warning}, "Separate pieces works on voxel clay: the selected object is not")
+		return true
+	}
+	stroke_finish(app)
+	start := time.tick_now()
+	n := voxel.clay_piece_count(&obj.voxel.clay)
+	if n < 2 {
+		report(app, Section.Voxels, {}, "Nothing to separate: %s is one piece", object_label(obj))
+		return true
+	}
+	if n > SEPARATE_MOST {
+		report(app, Section.Voxels, {.Warning}, "%s is in %d pieces, more than %d: Remove floaters clears the small ones first", object_label(obj), n, SEPARATE_MOST)
+		return true
+	}
+	source := obj.id
+	twins := make([dynamic]int, 0, n - 1)
+	defer delete(twins)
+	// Each copy of the whole clay keeps one piece; the copies come first, from the clay
+	// as it is.
+	for rank in 1 ..< n {
+		obj = object_by_id(app, source)
+		if !scene_duplicate(app, obj) do return false
+		twin := selected_object(app)
+		twin.transform = obj.transform
+		_ = voxel.clay_keep_piece(&twin.voxel.clay, rank)
+		voxel.clay_clear_history(&twin.voxel.clay)
+		voxel_part_edited(twin.voxel)
+		append(&twins, twin.id)
+	}
+	obj = object_by_id(app, source)
+	_ = voxel.clay_keep_piece(&obj.voxel.clay, 0)
+	voxel_part_edited(obj.voxel)
+	history_record(app, obj, .Deform, "Separate pieces")
+	for id in twins do history_record_swap(app, id, history_snapshot(app, nil, "separate pieces"), chain = true)
+	select_object(app, obj)
+	ms := time.duration_milliseconds(time.tick_since(start))
+	report(app, Section.Voxels, {.Undo}, "Separated %s into %d objects in %.0f ms", object_label(obj), n, ms)
+	return true
+}
+
 // The Voxels card: what the clay is, and Convert to mesh.
 kit_voxels :: proc(app: ^App, obj: ^Object) {
 	ctx := &app.kit.ctx
@@ -441,8 +491,9 @@ kit_voxels :: proc(app: ^App, obj: ^Object) {
 	axes := [3]string{"X", "Y", "Z"}
 	if picked := ui.tabs(ctx, "mirror axis", axes[:], int(app.ui.mirror_axis)); picked >= 0 do app.ui.mirror_axis = i32(picked)
 	_ = ui.switch_row(ctx, "Keep the - side", &app.ui.mirror_negative)
-	kit_command_pair(app, .Mirror_Weld, .Remove_Floaters)
-	ui.paragraph(ctx, "Mirror and weld makes the side the axis does not keep the mirror image of the other, the halves fused where they meet. Remove floaters keeps the largest piece and removes every bit cut off from it. Each is one undo step.")
+	_ = command_button(app, .Mirror_Weld)
+	kit_command_pair(app, .Remove_Floaters, .Separate_Pieces)
+	ui.paragraph(ctx, "Mirror and weld makes the side the axis does not keep the mirror image of the other, the halves fused where they meet. Remove floaters keeps the largest piece and removes every bit cut off from it; Separate pieces makes each piece an object of its own instead. Each is one undo step.")
 	_ = command_button(app, .Convert_To_Mesh, variant = .Solid, tone = .Accent)
 	ui.paragraph(ctx, "Draw, Clay and Layer add clay (Ctrl takes it away), Smooth, Flatten and Inflate work as on a mesh, the mask is painted, drawn as a shape, inverted and cleared as on a mesh and holds the clay still under it, and booleans (the Booleans section) merge, cut and intersect the clay itself; the other brushes, levels and the rebuild tools need a mesh. Convert to mesh keeps the shape as triangles, and the mask, and is an undo step.")
 	kit_last_result(app, .Voxels)
