@@ -715,9 +715,10 @@ COLOUR_WELL, POPOVER_SKIN = At("card Tool/Pick a colour", 1322, 514), At("colour
 
 @scenario
 def colour_well_opens_the_picker():
-    """A tap on the Colour section's well opens the colour popover beside it, as
-    Procreate's colour well does; a tap on a swatch in it sets the paint colour and puts it
-    in the history, with the popover still open; a second tap on the well puts it away."""
+    """A finger's tap on the Colour section's well opens the colour popover beside it, as
+    Procreate's colour well does, though the Tool card stands over Paint's pinned Colours
+    card in the same column; a tap on a swatch in it sets the paint colour and puts it in the
+    history, with the popover still open; a second tap on the well puts it away."""
     # The Paint brush brings the Paint workspace on the first frame, whose layout puts the
     # cards it pins in place, so the section opens a frame later.
     setup = "--script=brush paint; wait 2; open_section paint_color"
@@ -731,35 +732,30 @@ def colour_well_opens_the_picker():
     closed.wait(10)
     closed.ftap(COLOUR_WELL)
     closed.wait(10)
-    return Steps([(s, [setup], camera_still({"dabs": near(0), "color_popover": near(1), "paint_color": is_text("F8E1D4"), "color_history": near(1)})),
+    return Steps([(s, [setup], camera_still({"dabs": near(0), "color_popover": near(1), "paint_color": is_text("F8E1D4"), "color_history": near(1),
+                                             "cards": lambda v: "Colours*" in v})),
                   (closed, [setup], camera_still({"dabs": near(0), "color_popover": near(0)}))])
 
-
-# The Colours card's Pin, in the pen side's column where COLORS opens it.
-COLOURS_PIN = At("card Colours/pin", 1450, 102)
 
 
 @scenario
 def finger_tap_reaches_the_card_over_a_pinned_one():
-    """With the Colours card pinned in the pen side's column and the Tool card opened over it
-    there, the mouse moved splits the column in two (the pinned card above); the first finger
+    """With the Colours card pinned in the pen side's column (as the Paint workspace pins it)
+    and the Tool card opened over it there, the mouse moved splits the column in two (the
+    pinned card above); the first finger
     tap on the Tool card's colour well, where it is shown, opens the colour popover. The
     column keeps the cards as drawn until the tap is over and shows the Tool card alone from
     the frame after, rather than laying itself out again under the finger's press, which
     sent the tap to whatever stood there next (the pinned card, or More options)."""
     s = Script()
-    s.wait(4)
-    s.ftap(COLOURS_PIN)
-    s.wait(6)
-    s.ftap(UI["inspector"])
-    s.wait(10)
+    s.wait(20)
     s.add("move:800,450")
     s.wait(6)
     s.ftap(COLOUR_WELL)
     s.wait(10)
-    # The Paint brush brings the Paint workspace on the first frame, whose layout replaces
-    # the cards open then, so they open a frame later.
-    return s, ["--script=brush paint; wait 2; open_section paint_color; open_card colours"], camera_still(
+    # The Paint brush brings the Paint workspace on the first frame, whose layout pins the
+    # Colours card and replaces the cards open then, so the section opens a frame later.
+    return s, ["--script=brush paint; wait 2; open_section paint_color"], camera_still(
         {"cards": is_text("left:;right:Colours*,Tool"), "card_front": is_text("tool"), "color_popover": near(1), "dabs": near(0)})
 
 
