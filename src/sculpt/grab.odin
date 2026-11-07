@@ -81,7 +81,7 @@ Grab_Job :: struct {
 	// Elastic: the Kelvinlet's constants for the brush (elastic.odin); its reach is
 	// ELASTIC_REACH radii, which r2 holds.
 	elastic: bool,
-	kelvin:  Kelvinlet,
+	kelvin:  geom.Kelvinlet,
 }
 
 // Starts dragging the vertices within the brush around `center`. Call inside a stroke
@@ -97,7 +97,7 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	brush := brush
 	if brush.kind == .Elastic {
 		reach = ELASTIC_REACH * brush.radius
-		j.elastic, j.kelvin, j.r2 = true, kelvinlet_make(brush.radius, brush.volume), reach * reach
+		j.elastic, j.kelvin, j.r2 = true, geom.kelvinlet_make(brush.radius, brush.volume), reach * reach
 		brush.through, brush.connected, brush.topological, brush.same_side, brush.silhouette = {}, false, false, false, false
 	}
 	through := linalg.normalize0(brush.through)
@@ -351,7 +351,7 @@ grab_follow :: #force_inline proc(j: ^Grab_Job, v: u32) -> (f: matrix[3, 3]f32, 
 		for c, k in j.centers {
 			r := p - c
 			if linalg.dot(r, r) >= j.r2 do continue
-			follow := kelvinlet_follow(&j.kelvin, r)
+			follow := geom.kelvinlet_follow(&j.kelvin, r)
 			f += follow * j.turns[k]
 			if w := (follow[0, 0] + follow[1, 1] + follow[2, 2]) / 3; w > weight do image, weight = k, w
 		}

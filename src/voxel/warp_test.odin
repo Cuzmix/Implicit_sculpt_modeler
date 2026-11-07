@@ -157,3 +157,65 @@ a_long_squeezing_pull_at_low_resolution_stays_closed :: proc(t: ^testing.T) {
 	check := geom.mesh_check(m)
 	testing.expectf(t, check.closed && check.degenerate_triangles == 0, "%v", check)
 }
+
+@(test)
+elastic_pulls_the_point_pressed_all_the_way_and_its_surround_part_way :: proc(t: ^testing.T) {
+	c := grab_sphere(128)
+	defer clay_destroy(&c)
+	voxel := c.volume.voxel
+	clay_stroke_begin(&c)
+	clay_grab_begin(&c, 0.25, {{0, 0, 1}}, {IDENTITY}, elastic = true, volume = 0.8)
+	for i in 1 ..= 4 do _ = clay_grab_move(&c, {0, 0, 0.05 * f32(i)})
+	testing.expect(t, clay_stroke_end(&c), "the pull changed nothing")
+	testing.expectf(t, math.abs(top_of(&c) - 1.2) < 1.5 * voxel, "the top is at %v, the pull took it to 1.2", top_of(&c))
+	// Past where Grab's falloff ends the clay still rose, by about a tenth of the pull,
+	// and past the Kelvinlet's reach it did not move.
+	near := top_of(&c, 0.28)
+	rest := math.sqrt(f32(1 - 0.28 * 0.28))
+	testing.expectf(t, near > rest + voxel && near < rest + 0.1, "past the radius the top is at %v, it was %v", near, rest)
+	side, _, ok := clay_raycast(&c, {5, 0, 0}, {-1, 0, 0})
+	testing.expectf(t, ok && math.abs(side.x - 1) < 0.5 * voxel, "the side moved to %v", side)
+	m := clay_to_mesh(&c)
+	defer geom.mesh_destroy(&m)
+	check := geom.mesh_check(m)
+	testing.expectf(t, check.closed && check.non_manifold_edges == 0 && !check.inverted, "%v", check)
+}
+
+@(test)
+elastic_with_more_volume_keeps_more_of_it :: proc(t: ^testing.T) {
+	gained: [2]f64
+	for volume, i in ([2]f32{0, 1}) {
+		c := grab_sphere(96)
+		defer clay_destroy(&c)
+		before := clay_to_mesh(&c)
+		defer geom.mesh_destroy(&before)
+		clay_stroke_begin(&c)
+		clay_grab_begin(&c, 0.3, {{0, 0, 1}}, {IDENTITY}, elastic = true, volume = volume)
+		for s in 1 ..= 4 do _ = clay_grab_move(&c, {0, 0, 0.06 * f32(s)})
+		_ = clay_stroke_end(&c)
+		after := clay_to_mesh(&c)
+		defer geom.mesh_destroy(&after)
+		gained[i] = geom.mesh_signed_volume(after) - geom.mesh_signed_volume(before)
+	}
+	testing.expectf(t, gained[0] > 0 && gained[1] < gained[0], "a soft pull gained %v, a firm one %v", gained[0], gained[1])
+}
+
+@(test)
+elastic_is_the_same_on_any_thread_count_and_undoes_bit_for_bit :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	clays := [2]Clay{grab_sphere(96), grab_sphere(96, &pool)}
+	defer for &c in clays do clay_destroy(&c)
+	before := clay_hash(&clays[0])
+	mirror := matrix[3, 3]f32{-1, 0, 0, 0, 1, 0, 0, 0, 1}
+	at := linalg.normalize(Vec3{0.4, 0, 0.9})
+	for &c in clays {
+		clay_stroke_begin(&c)
+		clay_grab_begin(&c, 0.2, {at, mirror * at}, {IDENTITY, mirror}, elastic = true, volume = 0.5)
+		for i in 1 ..= 4 do _ = clay_grab_move(&c, {0.03 * f32(i), 0.02 * f32(i), 0.05 * f32(i)}, {0, 0, 1}, 0.15 * f32(i))
+		_ = clay_stroke_end(&c)
+	}
+	testing.expect(t, clay_hash(&clays[0]) == clay_hash(&clays[1]), "the pull differs between one thread and three")
+	testing.expect(t, clay_undo(&clays[0]) && clay_hash(&clays[0]) == before, "undo left the field changed")
+}

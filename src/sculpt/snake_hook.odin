@@ -45,7 +45,7 @@ snake_hook_move :: #force_inline proc(d: ^Dab, delta: Vec3, d2, guard: f32) -> (
 	b := &d.brush
 	rake := b.hook_rake * b.rake_angle
 	if b.hook_elastic {
-		if guard > 0 do move = kelvinlet_follow(&d.kelvin, delta) * b.drag * guard
+		if guard > 0 do move = geom.kelvinlet_follow(&d.kelvin, delta) * b.drag * guard
 		if d2 * d.inv_r2 < 1 do w = dab_weight(d, delta, d2) * guard
 	} else {
 		w = dab_weight(d, delta, d2) * guard

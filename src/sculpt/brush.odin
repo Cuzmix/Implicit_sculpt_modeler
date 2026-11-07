@@ -1061,7 +1061,7 @@ Dab :: struct {
 	                // side (Clay), direction (Flatten, Pinch), or mask added (Mask)
 	// Snake_Hook: its Elastic tip's constants, how much this dab pinches (Brush.hook_pinch
 	// times the step over the radius) and the way it drags (unit length).
-	kelvin:   Kelvinlet,
+	kelvin:   geom.Kelvinlet,
 	pinch:    f32,
 	drag_dir: Vec3,
 	// A split dab (Brush.skin_split): the vertices' share of it, 0 to 1. In the skin's
@@ -1369,7 +1369,7 @@ dab_lay :: proc(s: ^Sculptor, d: ^Dab, brush: Brush, pool: ^jobs.Pool, img: Sym_
 		jobs.parallel_for(pool, len(s.hit), d, job_layer)
 	case .Snake_Hook:
 		if brush.drag == {} do return painted
-		if brush.hook_elastic do d.kelvin = kelvinlet_make(brush.radius, brush.volume)
+		if brush.hook_elastic do d.kelvin = geom.kelvinlet_make(brush.radius, brush.volume)
 		step := linalg.length(brush.drag)
 		d.pinch = clamp(brush.hook_pinch, -1, 1) * step / brush.radius
 		d.drag_dir = brush.drag / step
