@@ -392,6 +392,8 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 		}
 	}
 	physics_proxy_draw(app, &draws, &froms)
+	// Smooth blend's pages, before the copies are made, which draw without them.
+	blend_draw_items(app, cmd, draws[:], froms[:])
 	// The live stack's copies, after every item they copy (the boolean preview's too).
 	stack_draw_copies(app, &draws, &froms)
 	// The hover preview's dab, laid after every dispatch above and put back below.

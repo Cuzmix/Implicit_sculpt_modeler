@@ -110,6 +110,13 @@ grown :: proc(n: u32) -> u32 {
 	return c
 }
 
+// What an item's pages add to the keys that decide whether its pictures (the idle cache,
+// the studio's samples) still hold: zero without pages, so those keys stay as they were.
+blend_version :: proc(item: Draw_Item) -> u64 {
+	if item.blend == nil || item.blend.table == 0 do return 0
+	return item.blend.version * 0x9e3779b97f4a7c15
+}
+
 // What an item's vertex stage binds for its pages: its own, or the one-word dummies and
 // a zero flag (blend.x in the frame or shadow uniforms) when it has none.
 blend_bindings :: proc(r: ^Renderer, item: Draw_Item) -> (table, pages: gpu.Buffer, on: u32) {

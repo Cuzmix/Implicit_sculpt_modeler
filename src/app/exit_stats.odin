@@ -406,6 +406,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 					if stack_radial_on(sel) do radial = s.radial.count
 					if stack_along_on(app, sel) do along = s.along.count
 				}
+				if app.blend_test > 0 do fmt.printfln("blend_objects=%d blend_bricks=%d blend_moved=%d blend_fill_ms=%.1f blend_project_ms=%.1f", len(app.blend.objects), app.blend.bricks, app.blend.moved, app.blend.fill_ms, app.blend.project_ms)
 				fmt.printfln("stack_rows=%d stack_mirror=%s stack_array=%d stack_radial=%d stack_along=%d stack_copies=%d stack_bakes=%d", stack_rows, strings.join(strings.fields(mirror, context.temp_allocator), "_", context.temp_allocator), array, radial, along, app.stats.stack_copies, app.stack_bakes)
 				step, pivot, minus := Vec3{}, Vec3{}, false
 				if sel != nil do step, pivot, minus = sel.stack.array.offset, sel.stack.radial.pivot, sel.stack.mirror.minus

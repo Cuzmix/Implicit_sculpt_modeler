@@ -2172,7 +2172,7 @@ static_key :: proc(vt: Viewport_Target, view, proj: Mat4, items: []Draw_Item, lo
 	}
 	for item in items {
 		if item.live do continue
-		k := Keyed{u64(uintptr(item.mesh)), u64(uintptr(item.matcap)), item.mesh.version, item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.fade, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
+		k := Keyed{u64(uintptr(item.mesh)), u64(uintptr(item.matcap)), item.mesh.version ~ blend_version(item), item.model, item.color, item.material, item.checker, item.look, item.style, item.pass, item.fade, item.lights, item.surface, b32(item.wireframe), b32(item.flat), b32(item.paint), b32(item.groups), item.slots != nil, b32(item.cage_lines)}
 		h = hash.fnv64a(slice.bytes_from_ptr(&k, size_of(k)), h)
 		if item.slots != nil do h = hash.fnv64a(slice.bytes_from_ptr(item.slots, size_of(Material_Slots)), h)
 		h = layers_key(item, h)

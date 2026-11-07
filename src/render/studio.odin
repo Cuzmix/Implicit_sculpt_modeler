@@ -369,7 +369,7 @@ studio_scene_key :: proc(items: []Draw_Item, softness: f32, epoch: u64) -> u64 {
 	soft := softness
 	h = hash.fnv64a(mem.ptr_to_bytes(&soft), h)
 	for item in items {
-		k := Keyed{uintptr(rawptr(item.mesh)), item.mesh.version, item.mesh.index_version, item.mesh.hidden_stamp, item.model, 0}
+		k := Keyed{uintptr(rawptr(item.mesh)), item.mesh.version ~ blend_version(item), item.mesh.index_version, item.mesh.hidden_stamp, item.model, 0}
 		if len(item.hidden) > 0 do k.hidden = hash.fnv64a(transmute([]u8)item.hidden)
 		h = hash.fnv64a(mem.ptr_to_bytes(&k), h)
 	}
