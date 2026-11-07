@@ -30,6 +30,9 @@ SLOT_TIME :: 0.2 // an Edit button growing in, shrinking out, or gliding to its 
 POP_IN_TIME :: 0.2 // a pill or chip settling in
 POP_OUT_TIME :: 0.14 // and going
 POP_SETTLE :: 8 // how far it settles, in points
+// How far a floating card drifts toward its nearer side as it fades out with Clean view, and
+// back as it returns, in points: it goes the way the bars go without crossing the view.
+FLOAT_DRIFT :: 24
 // The Edit buttons followed at once, across the docks and bars being edited.
 SLOTS_SEEN :: 96
 
@@ -84,8 +87,24 @@ Panel_Motion :: struct {
 		// Its drawing as a floating card, for when it closes.
 		floated: ui.Draw_Range,
 	},
-	card_leave:  [Column_Side]Panel_Leave,
-	float_leave: Panel_Leave,
+	// The copies of cards and bars leaving, made on first use: on the heap, as App is
+	// close to what one stack frame may hold.
+	copies:      ^Panel_Copies,
+	// Floating cards coming back with the rest as Clean view ends, one start each.
+	float_back:  [Card]u64,
+	// The bars that are no dock (Chrome): where each was drawn last, the start it slides in
+	// with as Clean view ends, which way it goes, and its copy while it slides out.
+	chrome:      [Chrome]struct {
+		drawn:  ui.Draw_Range,
+		serial: u64,
+		way:    Panel_Way,
+	},
+	// The last frame Clean view was laid out, to tell its end from any other first frame.
+	clean_frame: u64,
+	// Exit stats: what Clean view sent off (docks, bars, cards, floating cards, pills), and
+	// the bars and floating cards it brought back (docks and cards count as slides).
+	clean_out:   int,
+	clean_in:    int,
 	// A floating card just put back, and where it was, for it to glide from.
 	glide_card:  Card,
 	glide_from:  ui.Rect,
@@ -133,10 +152,30 @@ Panel_Motion :: struct {
 	lifts:       int,
 }
 
+// One leave each, so the cards of a split column, every floating card and every bar can
+// leave at once (Clean view takes them all in one frame).
+Panel_Copies :: struct {
+	card_leave:   [Card]Panel_Leave,
+	float_leave:  [Card]Panel_Leave,
+	chrome_leave: [Chrome]Panel_Leave,
+}
+
+// Motion `m`'s copies, made the first time something leaves.
+@(private = "file")
+panel_copies :: proc(m: ^Panel_Motion) -> ^Panel_Copies {
+	if m.copies == nil do m.copies = new(Panel_Copies)
+	return m.copies
+}
+
 panel_motion_destroy :: proc(m: ^Panel_Motion) {
-	for &l in m.card_leave do ui.draw_copy_destroy(&l.copy)
+	if c := m.copies; c != nil {
+		for &l in c.card_leave do ui.draw_copy_destroy(&l.copy)
+		for &l in c.float_leave do ui.draw_copy_destroy(&l.copy)
+		for &l in c.chrome_leave do ui.draw_copy_destroy(&l.copy)
+		free(c)
+		m.copies = nil
+	}
 	for &l in m.dock_leave do ui.draw_copy_destroy(&l.copy)
-	ui.draw_copy_destroy(&m.float_leave.copy)
 	ui.draw_copy_destroy(&m.slot_leave.copy)
 	for &l in m.pop_leave do ui.draw_copy_destroy(&l.copy)
 }
@@ -256,9 +295,10 @@ cards_leaving :: proc(app: ^App, s: Column_Side, now: bit_set[Card], fresh: bool
 	k := &app.kit
 	ctx := &k.ctx
 	pm := &k.moving
-	l := &pm.card_leave[s]
+	pc := panel_copies(pm)
 	for c in Card {
 		e := &pm.cards[c]
+		l := &pc.card_leave[c]
 		if e.side != s || !ui.drawn_last(ctx, e.drawn) || c in now || c in k.cards.floats do continue
 		if motion_duration_of(ctx, .Cards) <= 0 || !ui.copy_prev(ctx, e.drawn, &l.copy) do continue
 		pm.serial += 1
@@ -269,7 +309,7 @@ cards_leaving :: proc(app: ^App, s: Column_Side, now: bit_set[Card], fresh: bool
 		// A sheet let go mid-drag was copied where the finger left it.
 		if pm.pull_card == c do pm.pull = 0
 	}
-	panel_leave_draw(app, l)
+	for c in Card do if pm.cards[c].side == s do panel_leave_draw(app, &pc.card_leave[c])
 }
 
 // The share of `kind`'s motion that runs, as a duration: 0 while it is off.
@@ -409,27 +449,56 @@ card_float_motion_end :: proc(app: ^App, c: Card, m: ui.Motion_Mark, r: ui.Rect,
 	id := ui.salt(ui.hash_under(0, "card lift"), u64(c))
 	lift := ui.tween(ctx, id, 1 if carried else 0, CARD_LIFT_TIME, .Out_Quad, class = motion_class(.Cards))
 	if lift > 0.001 do ui.transform_since(ctx, m.vertex, 1, 1 + CARD_LIFT * lift, {r.x + r.w * 0.5, r.y + r.h * 0.5}, {0, -2 * lift})
+	// Back with the bars as Clean view ends: it fades in, drifting from its nearer side.
+	if !ui.drawn_last(ctx, pm.cards[c].floated) && clean_just_ended(k) {
+		pm.serial += 1
+		pm.float_back[c] = pm.serial
+		pm.slides += 1
+		pm.clean_in += 1
+	}
+	if pm.float_back[c] != 0 {
+		p := panel_progress(ctx, pm.float_back[c], DOCK_SLIDE_TIME, .Cards)
+		if p >= 1 do pm.float_back[c] = 0
+		else do ui.slide_since(ctx, m, p, float_drift(ctx, r) * (1 - ease_out(p)))
+	}
 	pm.cards[c].floated = ui.range_end(ctx, m)
 }
 
 // After the floating cards: one drawn last frame that no longer floats, and is not in a
-// column now (closed rather than put back), fades where it was from a copy.
-floats_leaving :: proc(app: ^App) {
+// column now (closed rather than put back), fades where it was from a copy; with Clean view
+// (`clean`) every one drawn last frame fades out, drifting toward its nearer side.
+floats_leaving :: proc(app: ^App, clean := false) {
 	k := &app.kit
 	ctx := &k.ctx
 	pm := &k.moving
-	l := &pm.float_leave
+	pc := panel_copies(pm)
 	for c in Card {
 		e := &pm.cards[c]
-		if !ui.drawn_last(ctx, e.floated) || c in k.cards.floats do continue
-		if _, _, in_column := card_find(k, c); in_column do continue
+		l := &pc.float_leave[c]
+		if !ui.drawn_last(ctx, e.floated) do continue
+		if !clean {
+			if c in k.cards.floats do continue
+			if _, _, in_column := card_find(k, c); in_column do continue
+		}
 		if motion_duration_of(ctx, .Cards) <= 0 || !ui.copy_prev(ctx, e.floated, &l.copy) do continue
 		pm.serial += 1
 		pm.leaves += 1
 		l^ = {copy = l.copy, serial = pm.serial, fade = true, time = FLOAT_CLOSE_TIME, class = .Cards, active = true}
+		if clean {
+			l.way, l.time = {from = float_drift(ctx, panel_rect(app, c)) / FLOAT_DRIFT, dist = FLOAT_DRIFT}, DOCK_SLIDE_TIME
+		}
 	}
-	panel_leave_draw(app, l)
+	for &l in pc.float_leave do panel_leave_draw(app, &l)
 }
+
+// The step a floating card at `r` drifts by toward its nearer side as it goes with Clean
+// view (and from as it comes back).
+@(private = "file")
+float_drift :: proc(ctx: ^ui.Context, r: ui.Rect) -> [2]f32 {
+	left := r.x + r.w * 0.5 < ctx.input.window.x * 0.5
+	return {-FLOAT_DRIFT if left else FLOAT_DRIFT, 0}
+}
+
 
 // Dock `id` let go where it was carried, its outline at `box`: it glides from there to
 // where it snaps (dock_motion_end), unless that is where it already stands.
@@ -582,4 +651,101 @@ pop_motion_end :: proc(app: ^App, pop: Pop, m: ui.Motion_Mark) {
 		l^ = {copy = l.copy, way = way, serial = pm.serial, fade = true, time = POP_OUT_TIME, class = .Pills, active = true}
 	}
 	panel_leave_draw(app, l)
+}
+
+// The bars round the view that are no dock: Clean view takes them away and brings them back
+// as it does the docks, sliding off the window edge each stands nearest.
+Chrome :: enum u8 {
+	Top_Bar,
+	Nav_Head,
+	Action_Bar,
+	Colour_Island,
+}
+
+// Each one's root container.
+@(private = "file")
+CHROME_ROOTS := [Chrome]string {
+	.Top_Bar       = "top bar",
+	.Nav_Head      = "navigation head",
+	.Action_Bar    = "action bar",
+	.Colour_Island = "colour island",
+}
+
+// Whether Clean view was laid out last frame and is not now: what comes back with the
+// controls slides in this frame, and only then, so Home closing or a bar shown again by
+// its layout appears as it always has.
+@(private = "file")
+clean_just_ended :: proc(k: ^Kit_State) -> bool {
+	return !k.clean && k.moving.clean_frame != 0 && k.moving.clean_frame + 1 == k.ctx.frame
+}
+
+// Which way a bar standing at `r` goes off: toward the window edge nearest it.
+@(private = "file")
+chrome_way :: proc(ctx: ^ui.Context, r: ui.Rect) -> Panel_Way {
+	win := ctx.input.window
+	way := Panel_Way{from = {0, -1}, dist = r.y + r.h + 8}
+	best := r.y
+	if d := win.y - (r.y + r.h); d < best do best, way = d, {from = {0, 1}, dist = win.y - r.y + 8}
+	if d := r.x; d < best do best, way = d, {from = {-1, 0}, dist = r.x + r.w + 8}
+	if d := win.x - (r.x + r.w); d < best do way = {from = {1, 0}, dist = win.x - r.x + 8}
+	return way
+}
+
+// After bar `c` had its chance to draw from mark `m`: the first frame it shows after Clean
+// view it slides in from its edge, as a dock does (only fading with motion Reduced), and its
+// drawing is noted for when Clean view takes it.
+chrome_motion_end :: proc(app: ^App, c: Chrome, m: ui.Motion_Mark) {
+	k := &app.kit
+	ctx := &k.ctx
+	pm := &k.moving
+	e := &pm.chrome[c]
+	r := ui.root_rect(ctx, CHROME_ROOTS[c])
+	if r.w <= 0 do return
+	way := chrome_way(ctx, r)
+	if !ui.drawn_last(ctx, e.drawn) {
+		e.serial = 0
+		if clean_just_ended(k) {
+			pm.serial += 1
+			e.serial = pm.serial
+			pm.slides += 1
+			pm.clean_in += 1
+		}
+	}
+	if e.serial != 0 {
+		p := panel_progress(ctx, e.serial, DOCK_SLIDE_TIME, .Docks)
+		if p >= 1 do e.serial = 0
+		else do ui.slide_since(ctx, m, 1 if ctx.motion != .Reduced else p, way.from * way.dist * (1 - ease_out(p)))
+	}
+	e.drawn = ui.range_end(ctx, m)
+	e.way = way
+}
+
+// Clean view's frames: everything it hides that was drawn last frame (the docks, the bars,
+// the cards in their columns, the floating cards, the pills) goes from a copy of its last
+// drawing, each the way it goes when it hides alone. Copies are only drawn, never laid out,
+// so a press during the motion reaches the view.
+clean_leaving :: proc(app: ^App) {
+	k := &app.kit
+	ctx := &k.ctx
+	pm := &k.moving
+	pm.clean_frame = ctx.frame
+	before := pm.leaves + pm.unpopped
+	defer pm.clean_out += pm.leaves + pm.unpopped - before
+	docks_leaving(app)
+	for c in Chrome {
+		e := &pm.chrome[c]
+		l := &panel_copies(pm).chrome_leave[c]
+		if ui.drawn_last(ctx, e.drawn) && motion_duration_of(ctx, .Docks) > 0 && ui.copy_prev(ctx, e.drawn, &l.copy) {
+			pm.serial += 1
+			pm.leaves += 1
+			l.serial, l.active, l.swap, l.fade, l.class = pm.serial, true, false, false, .Docks
+			l.way, l.time, l.delay = e.way, DOCK_SLIDE_TIME, 0
+		}
+		e.drawn = {}
+		panel_leave_draw(app, l)
+	}
+	for s in Column_Side do cards_leaving(app, s, {}, false)
+	floats_leaving(app, clean = true)
+	m := ui.motion_mark(ctx)
+	for pop in Pop do pop_motion_end(app, pop, m)
 }

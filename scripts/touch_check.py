@@ -4081,6 +4081,61 @@ def four_finger_tap_hides_the_interface():
     return s, [], camera_still({"clean_view": near(1)})
 
 
+# --- Clean view's motion (panel_motion.odin's clean_leaving): what it hides slides off from
+# copies of its drawing and slides back as it ends; a press during the slide reaches the view.
+
+def four_finger_tap(s):
+    s.fingers([(500, 300), (560, 300), (620, 300), (680, 300)], [(0, 0)] * 4, 2)
+
+
+def at_least(n):
+    return lambda v: float(v) >= n
+
+
+@scenario
+def clean_view_by_finger_slides_the_controls_out_and_back():
+    """Four fingers with the Tool card pinned: the docks, the top bar, the navigation head, the
+    card and the readout slide off from copies; a finger on the hint brings them back, the
+    bars sliding in, the card still pinned in its column."""
+    s = Script()
+    pin_tool_card(s)
+    four_finger_tap(s)
+    s.wait(30)
+    s.ftap("@clean hint/Bring the interface back")
+    s.wait(30)
+    return s, [], camera_still({"clean_view": near(0), "clean_out": at_least(7), "clean_in": at_least(2), "cards": is_text("left:;right:Tool*"), "dabs": near(0)})
+
+
+@scenario
+def clean_view_by_mouse_takes_the_floating_card_and_brings_it_back():
+    """Tab with the Tool card floating: it fades off toward its side with the bars; a click on
+    the hint brings the controls back, the floating card fading in where it floated."""
+    s = Script()
+    float_tool_card(s)
+    s.press("Tab")
+    s.wait(30)
+    s.add("move:@clean hint/Bring the interface back")
+    s.wait(1)
+    s.add("down")
+    s.wait(1)
+    s.add("up")
+    s.wait(30)
+    return s, [], camera_still({"clean_view": near(0), "clean_out": at_least(7), "clean_in": at_least(3), "cards_float": is_text("Tool"), "dabs": near(0)})
+
+
+@scenario
+def tap_during_the_clean_view_slide_reaches_the_view():
+    """A finger tapping where the floating Tool card stood, two frames into Clean view's slide:
+    the leaving copy takes nothing, so the tap sculpts the model under it and the card stays
+    floating, Clean view on."""
+    s = Script()
+    float_tool_card(s)
+    s.press("Tab")
+    s.ftap(800, 450)
+    s.wait(24)
+    return s, [], camera_still({"clean_view": near(1), "dabs": at_least(1), "undo_steps": near(1), "cards_float": is_text("Tool"), "clean_in": near(0)})
+
+
 @scenario
 def a_stroke_under_a_pinned_card_fades_it():
     """A stroke that starts on the model and runs under the pinned Tool card fades the card while it lasts; the stroke goes on under it."""
