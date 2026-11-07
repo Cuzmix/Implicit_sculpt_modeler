@@ -1,4 +1,4 @@
-// slangc wgsl from dab_move.comp.spv sha256 645bef0164085e2b415f2c071635f3863c76bbee82e503606bbb9d8a14c5118e
+// slangc wgsl from dab_move.comp.spv sha256 68a38c89f4b613ac4bfce77399f584f6398ac10b41a6845cd8860a7e483ded88
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Params_std140_0
 {
@@ -272,8 +272,24 @@ fn main(@builtin(workgroup_id) group_id_0 : vec3<u32>, @builtin(local_invocation
     {
         return;
     }
+    var _S38 : vec4<u32> = dabs_0[Params_0.dab_0].slabs_1;
+    var _S39 : u32 = dabs_0[Params_0.dab_0].slabs_1.w;
+    var d2_1 : f32;
+    var delta_1 : vec3<f32>;
+    if(((_S39 & (u32(1024)))) != u32(0))
+    {
+        var sw_0 : vec3<f32> = dabs_0[Params_0.dab_0].alpha_up_0.xyz;
+        var delta_2 : vec3<f32> = delta_0 - sw_0 * vec3<f32>(clamp(dot(delta_0, sw_0) / dot(sw_0, sw_0), 0.0f, 1.0f));
+        d2_1 = dot(delta_2, delta_2);
+        delta_1 = delta_2;
+    }
+    else
+    {
+        d2_1 = d2_0;
+        delta_1 = delta_0;
+    }
     var n_1 : vec3<f32> = normal_at_0(v_3);
-    var w_1 : f32 = dab_weight_0(_S36, delta_0, d2_0) * shield_0(_S36, v_3) * facing_weight_0(_S36, n_1);
+    var w_1 : f32 = dab_weight_0(_S36, delta_1, d2_1) * shield_0(_S36, v_3) * facing_weight_0(_S36, n_1);
     if(w_1 <= 0.0f)
     {
         return;
@@ -282,12 +298,12 @@ fn main(@builtin(workgroup_id) group_id_0 : vec3<u32>, @builtin(local_invocation
     var strength_0 : f32 = dabs_0[Params_0.dab_0].tilt0_0.w;
     var normal_0 : vec3<f32> = areas_0[u32(5) * Params_0.dab_0].xyz;
     var plane_0 : vec3<f32> = areas_0[u32(5) * Params_0.dab_0 + u32(1)].xyz;
-    var kind_0 : u32 = dabs_0[Params_0.dab_0].slabs_1.z;
+    var kind_0 : u32 = _S38.z;
     var p_2 : vec3<f32>;
-    var h_2 : f32;
-    if((((dabs_0[Params_0.dab_0].slabs_1.w) & (u32(16)))) != u32(0))
+    if(((_S39 & (u32(16)))) != u32(0))
     {
         var l_1 : vec2<u32> = heights_0[v_3];
+        var h_2 : f32;
         if((heights_0[v_3].x) == (Params_0.stroke_0))
         {
             h_2 = (bitcast<f32>((l_1.y)));
@@ -349,17 +365,17 @@ fn main(@builtin(workgroup_id) group_id_0 : vec3<u32>, @builtin(local_invocation
                     if(kind_0 == u32(3))
                     {
                         var h_4 : f32 = dot(p_1 - plane_0, normal_0);
-                        var _S38 : vec4<f32> = dabs_0[Params_0.dab_0].misc_0;
-                        var _S39 : f32 = dabs_0[Params_0.dab_0].misc_0.z;
+                        var _S40 : vec4<f32> = dabs_0[Params_0.dab_0].misc_0;
+                        var _S41 : f32 = dabs_0[Params_0.dab_0].misc_0.z;
                         if(h_4 > 0.0f)
                         {
-                            h_2 = _S38.x;
+                            d2_1 = _S40.x;
                         }
                         else
                         {
-                            h_2 = _S38.y;
+                            d2_1 = _S40.y;
                         }
-                        if((abs(h_4)) <= (_S39 * (1.0f - clamp(h_2, 0.0f, 1.0f))))
+                        if((abs(h_4)) <= (_S41 * (1.0f - clamp(d2_1, 0.0f, 1.0f))))
                         {
                             p_2 = p_1 - normal_0 * vec3<f32>((h_4 * amount_0 * min(strength_0 * w_1 * 0.5f, 1.0f)));
                         }
@@ -377,17 +393,17 @@ fn main(@builtin(workgroup_id) group_id_0 : vec3<u32>, @builtin(local_invocation
                         }
                         else
                         {
-                            var _S40 : vec3<f32>;
+                            var _S42 : vec3<f32>;
                             if(kind_0 == u32(5))
                             {
                                 var to_1 : vec3<f32> = center_0 - p_1;
-                                _S40 = p_1 + (normal_0 * vec3<f32>((amount_0 * w_1 * w_1)) + (to_1 - normal_0 * vec3<f32>(dot(to_1, normal_0))) * vec3<f32>(min(strength_0 * w_1 * 0.20000000298023224f, 1.0f)));
+                                _S42 = p_1 + (normal_0 * vec3<f32>((amount_0 * w_1 * w_1)) + (to_1 - normal_0 * vec3<f32>(dot(to_1, normal_0))) * vec3<f32>(min(strength_0 * w_1 * 0.20000000298023224f, 1.0f)));
                             }
                             else
                             {
                                 return;
                             }
-                            p_2 = _S40;
+                            p_2 = _S42;
                         }
                     }
                 }

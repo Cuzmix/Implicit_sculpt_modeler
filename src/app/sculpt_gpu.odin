@@ -153,6 +153,7 @@ sculpt_gpu_translate :: proc(dabs: []sculpt.Gpu_Dab) -> (out: []render.Sculpt_Da
 			peaks        = d.smooth_only == .Peaks,
 			once         = d.once,
 			stroke       = d.stroke,
+			sweep        = d.sweep,
 			masked       = d.masked,
 			faded        = d.faded,
 			alpha        = d.alpha,
