@@ -350,7 +350,8 @@ kit_turntable :: proc(app: ^App) {
 	} else {
 		_ = command_button(app, .Record_Turntable, width = ui.fill_width(ctx), glyph = ui.ICON_FILM)
 	}
-	ui.paragraph(ctx, "The camera goes once round the scene. Each frame is saved as a picture, and the whole as one animated picture that loops; without the background when Screenshots without background is on.")
+	kit_record_video(app, "turntable")
+	ui.paragraph(ctx, "The camera goes once round the scene. Each frame is saved as a picture, and the whole as one animated picture that loops, and as a video where the system makes one; without the background when Screenshots without background is on.")
 }
 
 // Whether screenshots leave the background out.
@@ -451,4 +452,11 @@ kit_camera :: proc(app: ^App) {
 		_ = ui.slider(ctx, "Distance", &app.camera.distance, camera.MIN_DISTANCE, 20, .Logarithmic, fmt.tprintf("%.2f", app.camera.distance))
 		kit_more_end(app)
 	}
+}
+
+// Whether the turntable and the time-lapse make an MP4 too (video.odin), greyed where the
+// system has no encoder; `id` keeps each place's switch its own.
+kit_record_video :: proc(app: ^App, id: string) {
+	on := app.record_video && VIDEO_AVAILABLE
+	if ui.switch_row(&app.kit.ctx, fmt.tprintf("Make a video (MP4)##%s", id), &on, enabled = VIDEO_AVAILABLE) do app.record_video = on
 }

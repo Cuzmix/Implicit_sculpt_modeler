@@ -363,6 +363,8 @@ App :: struct {
 	material_balls:  render.Material_Balls,
 	// Full render of the view at a size of its own (render_image.odin).
 	render_image:    Render_Image,
+	// What Render image... renders (the Export sheet's Render tab), remembered.
+	render_image_settings: Render_Image_Settings,
 	opts_dump_balls: string,
 	dump_balls_next: int,
 	thumb_slots:    Thumb_Slots,
@@ -423,6 +425,8 @@ App :: struct {
 	background:      Background_Settings, // the viewport's background (background.odin)
 	// Screenshots on a see-through ground (capture.odin).
 	screenshot_transparent: bool,
+	// The turntable and the time-lapse make an MP4 too, where the system can (video.odin).
+	record_video: bool,
 	sym_center:      Symmetry_Center, // local symmetry's middle, kept (symmetry.odin)
 	poseable:        Poseable_Tried, // what poseable symmetry last paired (symmetry.odin)
 	sym_lines:       Symmetry_Lines, // where the mirror planes cut the selected object, kept (symmetry.odin)
@@ -875,6 +879,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.render_blur = RENDER_BLUR_DEFAULT
 	app.finish = FINISH_DEFAULTS
 	app.turntable_frames = TURNTABLE_FRAMES_DEFAULT
+	app.record_video = true
 	environment_settings_default(&app)
 	app.dim_others = true
 	app.skin_auto = false // a skin built at a press stalls that stroke, so it is added by hand unless asked for
@@ -1022,7 +1027,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 		return false
 	}
 
-	if opts.dump_viewport != "" && !(app.screenshot_transparent && opts.frames > 0) do _ = screenshot_save(&app, opts.dump_viewport)
+	if opts.dump_viewport != "" && !(app.screenshot_transparent && opts.frames > 0) do _, _, _, _ = screenshot_save(&app, opts.dump_viewport)
 	if opts.dump_view_window != "" do _ = view_window_save(&app, 1, opts.dump_view_window)
 	if opts.dump_balls != "" && !material_balls_save(&app, opts.dump_balls) do log.errorf("--dump-balls: no balls were drawn to write to %s", opts.dump_balls)
 	if opts.ui_map != "" {

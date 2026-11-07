@@ -387,7 +387,8 @@ case "$mode" in
 		[ -n "$libs" ] || { echo "pkg-config gave no flags for SDL's static library"; exit 1; }
 		read -r -a sdl_libs <<< "$libs"
 		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/stb_image.o" "$out/ufbx.o" "$out/sculpt_ios.o" "${sdl_libs[@]}" \
-			-framework UniformTypeIdentifiers -framework GameController -framework PhotosUI -o "$app/Sculpt"
+			-framework UniformTypeIdentifiers -framework GameController -framework PhotosUI \
+			-framework AVFoundation -framework CoreMedia -framework CoreVideo -o "$app/Sculpt"
 		cp "$ROOT/ios/Info.plist" "$app/Info.plist"
 		plutil -replace MinimumOSVersion -string "$IOS_MIN" "$app/Info.plist"
 		plutil -replace CFBundleVersion -string "${BUILD_NUMBER:-1}" "$app/Info.plist"
@@ -458,7 +459,8 @@ case "$mode" in
 		libs=$(PKG_CONFIG_PATH="$out/sdl/lib/pkgconfig" pkg-config --static --libs sdl3)
 		[ -n "$libs" ] || { echo "pkg-config gave no flags for SDL's static library"; exit 1; }
 		read -r -a sdl_libs <<< "$libs"
-		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/stb_image.o" "$out/ufbx.o" "${sdl_libs[@]}" -o "$app/Contents/MacOS/Sculpt"
+		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/stb_image.o" "$out/ufbx.o" "${sdl_libs[@]}" \
+			-framework AVFoundation -framework CoreMedia -framework CoreVideo -o "$app/Contents/MacOS/Sculpt"
 		plist="$app/Contents/Info.plist"
 		cp "$ROOT/mac/Info.plist" "$plist"
 		plutil -replace LSMinimumSystemVersion -string "$MAC_MIN" "$plist"

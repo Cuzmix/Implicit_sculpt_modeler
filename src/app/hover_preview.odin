@@ -38,6 +38,7 @@ Hover_Preview :: struct {
 	heat_checked: time.Tick, // when the device's warmth was last asked
 	warm:   bool, // what it said
 	verts:  int, // the last trial's, or past the cap what it would have reached
+	amount: f32, // the last trial's first dab's signed amount, negative for an inverted one
 	ms:     f64, // the CPU's time for the last trial
 }
 
@@ -78,6 +79,7 @@ hover_preview_frame :: proc(app: ^App, cmd: render.Cmd, input: Viewport_Input, d
 		if verts > sculpt.HOVER_VERTS_MAX do hp.capped += 1
 		return
 	}
+	hp.amount = dabs[0].amount
 	rdabs, kinds := sculpt_gpu_translate(dabs)
 	if !kinds do return
 	ranges := sculpt.sculptor_trial_ranges(dabs, context.temp_allocator)
@@ -106,7 +108,11 @@ hover_preview_restore :: proc(app: ^App, cmd: render.Cmd) {
 // or a recording).
 hover_preview_wanted :: proc(app: ^App, input: Viewport_Input) -> bool {
 	if !app.hover_preview || app.tool != .Brush || app.kit.ctx.input.pointer == .Finger do return false
-	if !input.hovered || input.primary || input.dragging || input.mask do return false
+	if !input.hovered || input.primary || input.dragging do return false
+	// A press that would paint the mask, run the hide gesture (smooth and invert together:
+	// clip.odin) or leave the button to the view (Alt alone) lays no dab to show.
+	m := hover_mods(app)
+	if m.mask || (m.smooth && m.invert) || (m.alt && !app.device.ctrl) do return false
 	if app.stroke.active || app.stroke_edit.open || app.ui.pie.open || app.clip.active || app.mask_shape.active || app.ui.adjust.kind != .None do return false
 	if long_job_busy(app) || replay_busy(app) || studio_running(app) || render_running(app) || timelapse_capturing(app) || turntable_recording(app) do return false
 	if device_hot(app) {

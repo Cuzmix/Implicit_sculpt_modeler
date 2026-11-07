@@ -38,6 +38,8 @@ Command_Id :: enum u16 {
 	Export_Sheet, // lens_export.odin
 	Screenshot,
 	Screenshot_Transparent,
+	Render_Picture,
+	Render_Picture_Stop,
 	Show_References,
 	Record_Turntable,
 	Send_To_Blender,
@@ -536,6 +538,20 @@ COMMANDS := [Command_Id]Command {
 		icon = ui.ICON_SCREENSHOT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Screenshot)},
 	},
+	.Render_Picture = {
+		label = "Render image...",
+		help = "Renders the view at a size of its own, up to 8192 pixels a side, in Full render or Fast, and saves it as a PNG once its samples are in, with its passes beside it if asked: the Export sheet's Picture > Render sets how.",
+		icon = ui.ICON_RENDER,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Render_Image)},
+		enabled = proc(app: ^App, _: int) -> bool {return !app.render_image.on},
+	},
+	.Render_Picture_Stop = {
+		label = "Stop rendering",
+		help = "Stops the picture Render image is making, writing nothing.",
+		icon = ui.ICON_STOP,
+		run = proc(app: ^App, _: int) {render_image_stop(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.render_image.on},
+	},
 	.Screenshot_Transparent = {
 		label = "Screenshots without background",
 		help = "Saves screenshots with the objects alone on a see-through ground, soft at their edges, to lay over other pictures: no background, floor grid or environment picture.",
@@ -552,7 +568,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Record_Turntable = {
 		label = "Record turntable...",
-		help = "Turns the camera once round the scene and saves every frame into a folder you pick, as numbered PNG pictures and one animated PNG that plays in a browser; again, while it records, stops it.",
+		help = "Turns the camera once round the scene and saves every frame into a folder you pick, as numbered PNG pictures, one animated PNG that plays in a browser and, with Make a video, an MP4; again, while it records, stops it.",
 		icon = ui.ICON_TURNTABLE,
 		run = proc(app: ^App, _: int) {
 			if turntable_recording(app) do turntable_stop(app, "stopped")

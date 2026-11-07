@@ -65,6 +65,7 @@ File_Kind :: enum u8 {
 	Skin_Map,     // a displacement or vector displacement image goes into the selected object's skin through its UVs (skin_map.odin)
 	Export_Bary,  // the selected object's skin goes to an NVIDIA displacement micro-map file (skin_map.odin)
 	Paint_Maps,   // the selected object's paint as base colour and ORM maps go into a folder (paint.odin)
+	Render_Image, // the view rendered at a size of its own goes to a PNG file (render_image.odin)
 }
 
 File_Request :: struct {
@@ -283,7 +284,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map:       dialog_open(app, userdata, IMAGE_FILTERS[:])
 	case .Reference:                                             dialog_open(app, userdata, REFERENCE_FILTERS[:])
 	case .Environment:                                           dialog_open(app, userdata, ENVIRONMENT_FILTERS[:])
-	case .Screenshot:                                            dialog_save(app, userdata, PNG_FILTERS[:])
+	case .Screenshot, .Render_Image:                             dialog_save(app, userdata, PNG_FILTERS[:])
 	case .Save_Strokes:                                          dialog_save(app, userdata, STROKES_FILTERS[:])
 	case .Load_Strokes:                                          dialog_open(app, userdata, STROKES_FILTERS[:])
 	case .Run_Script:                                            dialog_open(app, userdata, SCRIPT_FILTERS[:])
@@ -360,7 +361,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 			case:                                            suffix = ".obj"
 			}
 		case .Export_Print: suffix = PRINT_FILE_SUFFIX[Print_File(only)] if only < len(Print_File) else ".stl"
-		case .Screenshot: suffix = ".png"
+		case .Screenshot, .Render_Image: suffix = ".png"
 		case .Save_Strokes: suffix = ".strokes"
 		case .Make_Pack: suffix = ".sculptpack"
 		case .Export_Vdm: suffix = ".exr"
@@ -557,7 +558,9 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 		}
 	case .Screenshot:
 		if app.screenshot_transparent do capture_request(app, req.path)
-		else do _ = screenshot_save(app, req.path)
+		else do _, _, _, _ = screenshot_save(app, req.path)
+	case .Render_Image:
+		render_image_from_settings(app, req.path)
 	case .Timelapse:
 		timelapse_start(app, req.path)
 	case .Turntable:
@@ -624,19 +627,19 @@ file_drop :: proc(app: ^App, path: string) {
 
 // Writes the viewport as the last frame drew it, without the brush outline or gizmo,
 // to a PNG file (or a binary PPM when the path ends in .ppm, for the render checks).
-screenshot_save :: proc(app: ^App, path: string) -> bool {
+screenshot_save :: proc(app: ^App, path: string) -> (pixels: []u8, w, h: int, ok: bool) {
 	start := time.tick_now()
-	w, h := int(app.target.width), int(app.target.height)
+	w, h = int(app.target.width), int(app.target.height)
 	// What the viewport shows: the studio render's or live occlusion's image while on.
 	shown := viewport_shown(app)
-	pixels := render.viewport_download(&app.renderer, &app.target, context.temp_allocator, shown)
+	pixels = render.viewport_download(&app.renderer, &app.target, context.temp_allocator, shown)
 	if pixels == nil {
 		file_note(app, true, "Could not read the viewport back: %s", sdl.GetError())
-		return false
+		return
 	}
-	if !image_save(app, path, pixels, w, h) do return false
+	if !image_save(app, path, pixels, w, h) do return
 	file_note(app, false, "Saved %s (%d x %d) in %.0f ms", filepath.base(path), w, h, time.duration_milliseconds(time.tick_since(start)))
-	return true
+	return pixels, w, h, true
 }
 
 // Writes RGBA8 rows, top to bottom, to a PNG file, with its alpha or opaque (or a binary
