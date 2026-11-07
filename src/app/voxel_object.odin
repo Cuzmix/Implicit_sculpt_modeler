@@ -420,19 +420,25 @@ object_voxel_to_mesh :: proc(app: ^App, obj: ^Object) -> bool {
 	stroke_finish(app)
 	start := time.tick_now()
 	masked := voxel.clay_has_mask(&obj.voxel.clay)
+	colored := voxel.clay_colored(&obj.voxel.clay)
 	values: []u8
 	defer delete(values)
-	mesh := voxel.clay_to_mesh(&obj.voxel.clay, mask = &values if masked else nil)
-	return voxel_mesh_apply(app, obj, mesh, values, start)
+	surface: Surface
+	defer surface_free(&surface)
+	colors: [][4]u8
+	mesh := voxel.clay_to_mesh(&obj.voxel.clay, mask = &values if masked else nil, colors = &colors if colored else nil)
+	surface.color = colors
+	return voxel_mesh_apply(app, obj, mesh, values, start, surface = surface)
 }
 
 // The second half of Convert to mesh, on the frame thread: the object rebuilt on `mesh` (or
 // on the levels a long job's thread `prepared` from it), with the clay's mask `values` when
-// it had one. A long job's first half is clay_to_mesh on a flushed clay, which it only
-// reads. False only when the mesh could not be uploaded.
-voxel_mesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, values: []u8, start: time.Tick, prepared: ^sculpt.Levels = nil) -> bool {
+// it had one, and its colours as the mesh's polypaint (`surface`, read, not taken). A long
+// job's first half is clay_to_mesh on a flushed clay, which it only reads, and its levels
+// then carry the colours already. False only when the mesh could not be uploaded.
+voxel_mesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, values: []u8, start: time.Tick, prepared: ^sculpt.Levels = nil, surface: Surface = {}) -> bool {
 	object_release_mesh(app, obj)
-	if !object_build_from(app, obj, mesh, start, normals = true, prepared = prepared) do return false
+	if !object_build_from(app, obj, mesh, start, normals = true, surface = surface, prepared = prepared) do return false
 	if values != nil do _ = sculpt.sculptor_mask_values(object_sculptor(obj), values, .Replace)
 	return true
 }

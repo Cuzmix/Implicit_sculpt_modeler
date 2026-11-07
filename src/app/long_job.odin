@@ -436,7 +436,10 @@ long_job_thread :: proc(data: rawptr) {
 	case .Unwrap:
 		j.uvs, j.unwrapped, j.built = unwrap_compute(j.object, j.cmd.unwrap, &j.pool, &j.progress)
 	case .Voxel_To_Mesh:
-		j.mesh = voxel.clay_to_mesh(&j.object.voxel.clay, mask = &j.values if j.masked else nil, flush = false, pool = &j.pool)
+		// The colours ride on the prepared level as polypaint.
+		colors: [][4]u8
+		j.mesh = voxel.clay_to_mesh(&j.object.voxel.clay, mask = &j.values if j.masked else nil, flush = false, pool = &j.pool, colors = &colors if voxel.clay_colored(&j.object.voxel.clay) else nil)
+		j.surface.color = colors
 		jobs.progress_set(&j.progress, 0, 1, share)
 		j.built = true
 		long_job_prepare(j, normals = true)

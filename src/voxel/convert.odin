@@ -15,7 +15,7 @@ import "../jobs"
 // (its cell lies on the domain's edge) keeps its own vertex. With `flush` false the clay is
 // only read, for a thread of its own working on a clay the caller flushed (with `pool`
 // for its workers in place of the clay's).
-clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator, mask: ^[]u8 = nil, flush := true, pool: ^jobs.Pool = nil) -> (m: geom.Mesh) {
+clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator, mask: ^[]u8 = nil, flush := true, pool: ^jobs.Pool = nil, colors: ^[][4]u8 = nil) -> (m: geom.Mesh) {
 	s := &c.surface
 	// Flush first, so the mesh is the clay as it is now.
 	if flush do _ = clay_flush(c)
@@ -31,6 +31,7 @@ clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator, mask: ^[]u8 = nil
 		tris:   []u32, // per node: the triangles it keeps, then where they start
 		m:      ^geom.Mesh,
 		mask:   []u8, // per mesh vertex: its mask, when asked for
+		colors: [][4]u8, // per mesh vertex: its colour, when asked for
 	}
 	n := len(s.nodes)
 	total := len(s.mesh.positions)
@@ -119,6 +120,10 @@ clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator, mask: ^[]u8 = nil
 		mask^ = make([]u8, int(vertices), allocator)
 		w.mask = mask^
 	}
+	if colors != nil {
+		colors^ = make([][4]u8, int(vertices), allocator)
+		w.colors = colors^
+	}
 	// The kept vertices go into the mesh in node order, then slot order.
 	jobs.parallel_for(workers, n, &w, proc(data: rawptr, i: int) {
 		w := cast(^Weld)data
@@ -131,6 +136,7 @@ clay_to_mesh :: proc(c: ^Clay, allocator := context.allocator, mask: ^[]u8 = nil
 			w.m.positions[at] = s.mesh.positions[k]
 			w.m.normals[at] = s.mesh.normals[k]
 			if w.mask != nil do w.mask[at] = s.mask[k]
+			if w.colors != nil do w.colors[at] = s.color[k]
 			at += 1
 		}
 	})

@@ -23,6 +23,7 @@ Clay :: struct {
 	jobs:          [dynamic]Dab_Job, // scratch: the bricks one dab writes
 	job_slots:     [dynamic]u32, // scratch: the stroke's bricks, for the saddle pass at its end
 	scratch:       [dynamic]Brick, // Smooth writes here, one brick a job, then commits
+	color_scratch: [dynamic]Color_Brick, // a warping dab's colours on painted clay, one a job, then commits
 	windows:       [dynamic]i16, // a dab's gathered neighbourhoods (WINDOW_VOXELS a job), and the band repair's
 	presses:       [dynamic]i16, // Layer's: the same neighbourhoods as they were at the stroke's start
 	trim_angle:    f32, // Trim's angle as the stroke has eased it, once `trim_set`
@@ -56,6 +57,8 @@ Dab_Job :: struct {
 	slot:   u32,
 	coord:  [3]i32,
 	effect: Dab_Effect, // written by the job
+	// A warping dab on painted clay: its colour changed (in color_scratch), and to some paint.
+	color_changed, color_painted: bool,
 }
 
 // A dab's window (Smooth and the growing brushes): the brick and a voxel around it.
@@ -71,6 +74,7 @@ clay_init :: proc(c: ^Clay, voxel: f32, centre: Vec3, pool: ^jobs.Pool, allocato
 	c.jobs = make([dynamic]Dab_Job, allocator)
 	c.job_slots = make([dynamic]u32, allocator)
 	c.scratch = make([dynamic]Brick, allocator)
+	c.color_scratch = make([dynamic]Color_Brick, allocator)
 	c.windows = make([dynamic]i16, allocator)
 	c.presses = make([dynamic]i16, allocator)
 	c.pending = make([dynamic][3]i32, allocator)
@@ -97,6 +101,7 @@ clay_destroy :: proc(c: ^Clay) {
 	delete(c.jobs)
 	delete(c.job_slots)
 	delete(c.scratch)
+	delete(c.color_scratch)
 	delete(c.windows)
 	delete(c.presses)
 	delete(c.pending)
@@ -263,10 +268,27 @@ clay_dab_step :: proc(c: ^Clay, dab: Dab) -> int {
 			job := c.jobs[i]
 			c.jobs[i].effect = dab_brick(&r.d, job.coord, &c.volume.bricks[job.slot], &c.scratch[i], mask_of(&c.volume, job.slot))
 		})
+		// On painted clay the colour goes with the clay, read before anything commits.
+		colored := clay_colored(c)
+		if colored {
+			resize(&c.color_scratch, len(c.jobs))
+			jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
+				r := cast(^Run)data
+				job := &r.c.jobs[i]
+				job.color_changed, job.color_painted = warp_color(&r.d, job.coord, job.slot, mask_of(&r.c.volume, job.slot), &r.c.color_scratch[i])
+			})
+		}
 		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
 			c := (cast(^Run)data).c
 			c.volume.bricks[c.jobs[i].slot] = c.scratch[i]
 		})
+		// Serially, since a colour brick is made from the shared pool.
+		if colored do for job, i in c.jobs {
+			if !job.color_changed do continue
+			if job.color_painted do color_make(v, job.slot)^ = c.color_scratch[i]
+			else do color_drop(v, job.slot)
+			surface_mark_brick(c, job.coord)
+		}
 	} else if dab_reads_window(d.kind) {
 		// The window a brick and a voxel round it.
 		side := WINDOW

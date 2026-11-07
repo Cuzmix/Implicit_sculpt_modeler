@@ -84,6 +84,48 @@ warp_move :: #force_inline proc(d: ^Dab, p: Vec3, inv_r2, hold: f32) -> Vec3 {
 	return {}
 }
 
+// Where the clay at voxel `p` (index `i` in its brick) came from in a step of warping dab
+// `d`, undoing the move by fixed-point steps; false when it did not move.
+@(private)
+warp_source :: #force_inline proc(d: ^Dab, p: Vec3, inv_r2: f32, mask: ^Mask_Brick, i: int) -> (q: Vec3, moved: bool) {
+	if linalg.length2(p - d.centre) > (d.radius + f32(d.margin)) * (d.radius + f32(d.margin)) do return p, false
+	hold: f32 = 1
+	if mask != nil do hold = 1 - f32(mask.m[i]) / 255
+	if hold == 0 do return p, false
+	q = p - warp_move(d, p, inv_r2, hold)
+	for _ in 1 ..< WARP_ITERATIONS do q = p - warp_move(d, q, inv_r2, hold)
+	return q, q != p
+}
+
+// The colour of brick `bc` after a step of warping dab `d`, into `out`: each voxel whose
+// clay moved takes the colour of the voxel nearest where it came from, read before the
+// dab writes, so painted detail goes with the clay. Returns whether it differs from the
+// brick's colour now and whether any of it is painted; a brick with no colour round it
+// is left alone.
+@(private)
+warp_color :: proc(d: ^Dab, bc: [3]i32, slot: u32, mask: ^Mask_Brick, out: ^Color_Brick) -> (changed, painted: bool) {
+	v := d.volume
+	if !volume_colored_over(v, bc * BRICK - BRICK, 3 * BRICK) do return
+	live := color_of(v, slot)
+	if live != nil do out^ = live^
+	else do out^ = {}
+	inv_r2 := 1 / (d.radius * d.radius)
+	p0 := Vec3{f32(bc.x), f32(bc.y), f32(bc.z)} * BRICK
+	for z in 0 ..< BRICK do for y in 0 ..< BRICK do for x in 0 ..< BRICK {
+		i := voxel_index(x, y, z)
+		q, moved := warp_source(d, p0 + {f32(x), f32(y), f32(z)}, inv_r2, mask, i)
+		if !moved do continue
+		r := linalg.round(q)
+		out.c[i] = color_value(v, {i32(r.x), i32(r.y), i32(r.z)})
+	}
+	for x in out.c do if x[3] != 0 {
+		painted = true
+		break
+	}
+	changed = out.c != live.c if live != nil else painted
+	return
+}
+
 // A step of warping dab `d` on brick `bc` (values `b`) into `out`, read from the bricks
 // round it as they were before the dab (d.margin is under a brick, so its 27).
 @(private)
@@ -110,20 +152,14 @@ warp_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick, mask: ^Mask_Bric
 	inv_r2 := 1 / (d.radius * d.radius)
 	base := Vec3{f32(bc.x), f32(bc.y), f32(bc.z)} * BRICK - BRICK
 	top := f32(3 * BRICK - 1) - 1e-3
-	reach := d.radius + f32(d.margin)
 	p0 := Vec3{f32(bc.x), f32(bc.y), f32(bc.z)} * BRICK
 	for z in 0 ..< BRICK do for y in 0 ..< BRICK do for x in 0 ..< BRICK {
 		i := voxel_index(x, y, z)
 		out.d[i] = b.d[i]
 		p := p0 + {f32(x), f32(y), f32(z)}
-		// Clay comes to a voxel only from within the brush.
-		if linalg.length2(p - d.centre) > reach * reach do continue
-		hold: f32 = 1
-		if mask != nil do hold = 1 - f32(mask.m[i]) / 255
-		if hold == 0 do continue
-		q := p - warp_move(d, p, inv_r2, hold)
-		for _ in 1 ..< WARP_ITERATIONS do q = p - warp_move(d, q, inv_r2, hold)
-		if q == p do continue
+		// Clay comes to a voxel only from within the brush (warp_source).
+		q, moved := warp_source(d, p, inv_r2, mask, i)
+		if !moved do continue
 		// The value at q, trilinear.
 		l := linalg.clamp(q - base, Vec3{}, Vec3{top, top, top})
 		f := linalg.floor(l)
