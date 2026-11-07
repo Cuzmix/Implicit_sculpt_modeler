@@ -417,6 +417,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Section) {
 	.Level_Up              = .Levels,
 	.Level_Down            = .Levels,
 	.Delete_Lower_Levels   = .Levels,
+	.Rebuild_Levels        = .Levels,
 	.Delete_Higher_Levels  = .Levels,
 	.Hd_Divide             = .Hd,
 	.Detail_Skin           = .Hd,

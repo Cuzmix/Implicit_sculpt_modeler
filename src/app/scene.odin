@@ -200,12 +200,12 @@ Surface :: struct {
 	mask:   []u8,
 }
 
-Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Unwrap, Straighten, Texel_Density, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Cage_Edit, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Curve_Points, Bake_Curve, Curve_Cage, Skin_Apply, Squeeze, Stack_Apply, Remove_Floaters, Separate_Pieces}
+Scene_Command_Kind :: enum u8 {None, Add, New, Remesh, Decimate, Retopo, Delete, Duplicate, Symmetrize, Slice, Subdivide, Set_Level, Delete_Higher, Delete_Lower, Hd_Enter, Hd_Leave, Hd_Steps, Hd_Delete, Dyntopo, Boolean, Extract, View, Arrange, Copy, Paste, Delete_Others, Levels_All, Split, Merge, Align, Distribute, Material, Group_Material, Voxel_To_Mesh, Unwrap, Straighten, Texel_Density, Remove_Textures, Mesh_To_Voxels, Knife, Voxel_Resample, Repair, Add_Cage, Apply_Cage, Edit_Cage, Tidy_Cage, Cage_Edit, Select_Cage, Cage_Look, Crease_Cage, Curve_Look, Curve_Points, Bake_Curve, Curve_Cage, Skin_Apply, Squeeze, Stack_Apply, Remove_Floaters, Separate_Pieces, Rebuild_Levels}
 
 // The commands that work on a mesh object's level, and so refuse a voxel object until it
 // is converted to a mesh (Voxel_To_Mesh); the rest place, copy, list or delete objects of
 // either kind.
-MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Stack_Apply, .Remesh, .Decimate, .Retopo, .Slice, .Knife, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Split, .Merge, .Group_Material, .Unwrap, .Straighten, .Texel_Density, .Remove_Textures, .Repair, .Skin_Apply, .Squeeze}
+MESH_ONLY_COMMANDS :: bit_set[Scene_Command_Kind]{.Rebuild_Levels, .Stack_Apply, .Remesh, .Decimate, .Retopo, .Slice, .Knife, .Subdivide, .Set_Level, .Delete_Higher, .Delete_Lower, .Hd_Enter, .Hd_Leave, .Hd_Steps, .Hd_Delete, .Dyntopo, .Extract, .Split, .Merge, .Group_Material, .Unwrap, .Straighten, .Texel_Density, .Remove_Textures, .Repair, .Skin_Apply, .Squeeze}
 
 // The commands a curve object refuses: everything that works on a surface, as a voxel
 // object's or a cage's do; placing, copying, listing, showing and deleting work on it.
@@ -1159,6 +1159,8 @@ scene_apply :: proc(app: ^App, cmd: Scene_Command) -> bool {
 		}
 	case .Separate_Pieces:
 		return voxel_separate_pieces(app)
+	case .Rebuild_Levels:
+		if obj := selected_object(app); obj != nil do return object_rebuild_levels(app, obj)
 	case .Remove_Floaters:
 		obj := selected_object(app)
 		if obj == nil || obj.voxel == nil {
@@ -1739,4 +1741,67 @@ object_free :: proc(app: ^App, obj: ^Object) {
 	imported_materials_destroy(&obj.imported)
 	textures_free(&obj.textures)
 	free(obj)
+}
+
+// Rebuild levels (ZBrush's Reconstruct Subdiv): gives an object of one level that a
+// subdivision made (an import from another app, usually) the levels it was made from,
+// with its surface as the top level (sculpt.levels_rebuild), keeping its mask and
+// colours there; its polygroups, UVs, sculpt layers and strokes go, as a remesh's do, and
+// the swap undo step brings them back. Quads are read as Catmull-Clark, triangles as
+// Loop. Returns false only when the new levels could not be uploaded.
+object_rebuild_levels :: proc(app: ^App, obj: ^Object) -> bool {
+	if len(obj.levels.levels) > 1 {
+		report(app, Section.Levels, {.Warning}, "Rebuild levels works on an object with one level: delete the levels above or below first")
+		return true
+	}
+	if object_dynamic(obj) {
+		report(app, Section.Levels, {.Warning}, "Rebuild levels needs dynamic topology off")
+		return true
+	}
+	stroke_finish(app)
+	object_hd_leave(app, obj)
+	if obj.levels.hd.steps > 0 {
+		report(app, Section.Levels, {.Warning}, "Rebuild levels needs the HD level deleted first")
+		return true
+	}
+	start := time.tick_now()
+	s := object_sculptor(obj)
+	m := object_mesh(obj)
+	prepared: sculpt.Levels
+	below: int
+	from: []u32
+	defer delete(from)
+	// The quads first (Catmull-Clark), then the triangles (Loop).
+	if quads := obj.levels.faces.quads; quads != nil {
+		first := make([]u32, len(quads) + 1, context.temp_allocator)
+		corners := make([]u32, 4 * len(quads), context.temp_allocator)
+		for q, i in quads {
+			first[i + 1] = u32(4 * (i + 1))
+			for k in 0 ..< 4 do corners[4 * i + k] = q[k]
+		}
+		below, from = sculpt.levels_rebuild(&prepared, m.positions[:], first, corners, &app.pool)
+	}
+	if below == 0 {
+		tris := len(m.indices) / 3
+		first := make([]u32, tris + 1, context.temp_allocator)
+		for &f, i in first do f = u32(3 * i)
+		below, from = sculpt.levels_rebuild(&prepared, m.positions[:], first, m.indices[:], &app.pool)
+	}
+	if below == 0 {
+		report(app, Section.Levels, {.Warning}, "%s is not a subdivided mesh: Rebuild levels finds the levels of a closed mesh made by subdividing (every triangle cut in four, or every polygon into quads)", object_label(obj))
+		return true
+	}
+	mask := s.mask if sculpt.sculptor_has_mask(s) else nil
+	sculpt.levels_rebuild_take(&prepared, from, object_paint_flat(obj, s), mask)
+	vertices := len(m.positions)
+	base := len(prepared.levels[0].mesh.positions)
+	before := history_snapshot(app, obj, "rebuild levels")
+	top := sculpt.levels_current(&prepared).mesh
+	if !object_rebuild(app, obj, {positions = top.positions, indices = top.indices}, start, normals = false, prepared = &prepared) {
+		history_snapshot_drop(before)
+		return false
+	}
+	history_record_swap(app, obj.id, before)
+	report(app, Section.Levels, {.Undo}, "Rebuilt %d level%s below %s: the base has %s vertices, the top the %s it had (%.0f ms)", below, "" if below == 1 else "s", object_label(obj), count_label(base), count_label(vertices), time.duration_milliseconds(time.tick_since(start)))
+	return true
 }

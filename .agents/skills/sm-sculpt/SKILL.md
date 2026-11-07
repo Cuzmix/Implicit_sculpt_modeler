@@ -229,7 +229,7 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   sculptor, node_of_vertex, parents [4]u32, detail Vec3, even_of, deps, dependents}` (`:34-44`); detail is an offset in a
   frame that turns with the surface below. `levels_set_current` asserts no HD window and syncs first (`:92-99`);
   `levels_subdivide` returns false at `MAX_LEVELS`, with an HD level, or on an open mesh (`:101-113`);
-  `levels_subdivide_estimate` (`:138`); `levels_delete_higher/lower` (`:154-172`). `levels_sync` has three phases: push
+  `levels_subdivide_estimate` (`:138`); `levels_delete_higher/lower` (`:154-172`). `levels_rebuild` (`rebuild_levels.odin`) is Rebuild levels: steps down a subdivided mesh by topology (Loop for triangles, Catmull-Clark for quads, trying both vertex/face readings), places the coarse vertices by correcting each step's vertex rule, then `levels_init` + `levels_subdivide` with each level's positions set through `parents` and `recode_level(encode)`, as `levels_read` does; `from` maps the top back to the input. `levels_sync` has three phases: push
   the edit down as moves of the vertices below, re-encode detail, rebuild the levels above (`:202-228`). `frame_at` and
   `frame_point` are `#force_no_inline` so every level decodes the same bits.
 - HD (`src/sculpt/hd.odin:13-31`): detail `steps` Loop steps above the top level, stored per top-level node and only for

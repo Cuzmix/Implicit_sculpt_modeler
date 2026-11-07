@@ -124,6 +124,7 @@ Command_Id :: enum u16 {
 	Group, // the argument is the sculpt.Group_Command
 	Pick_Group,
 	Delete_Lower_Levels,
+	Rebuild_Levels,
 	Delete_Higher_Levels,
 	Hd_Divide,
 	Hd_Delete,
@@ -1448,6 +1449,15 @@ COMMANDS := [Command_Id]Command {
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
 			return obj != nil && obj.voxel == nil && !object_in_hd(obj) && sculpt.sculptor_has_groups(object_sculptor(obj))
+		},
+	},
+	.Rebuild_Levels = {
+		label = "Rebuild levels",
+		help = "Finds the coarser levels a subdivided mesh was made from (an import from ZBrush or Blender, say) and gives them back below it, its own surface kept as the top level, as ZBrush's Reconstruct Subdiv does. For an object of one level; its polygroups, UVs and sculpt layers go, Undo brings them back.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Rebuild_Levels}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel == nil && obj.curve == nil && obj.cage == nil && len(obj.levels.levels) == 1 && !object_dynamic(obj)
 		},
 	},
 	.Delete_Lower_Levels = {
