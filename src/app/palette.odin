@@ -149,6 +149,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Paint            = "polypaint colour color",
 	.Group            = "polygroup face set",
 	.Delete_Lower_Levels  = "subdivision",
+	.Rebuild_Levels       = "reconstruct subdivision unsubdivide levels multires rebuild",
 	.Delete_Higher_Levels = "subdivision",
 	.Hd_Divide        = "hd geometry",
 	.Hd_Delete        = "hd geometry",

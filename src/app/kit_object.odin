@@ -92,7 +92,12 @@ kit_levels :: proc(app: ^App, obj: ^Object) {
 	case can:
 		ui.paragraph(ctx, fmt.tprintf("Adds a level of %s vertices, about %s. %s", count_label(vertices), bytes_label(bytes), command_keys(app, .Subdivide)))
 	}
-	kit_command_pair(app, .Delete_Lower_Levels, .Delete_Higher_Levels, label_a = "Delete lower", label_b = "Delete higher", tone_a = .Danger, tone_b = .Danger)
+	// With one level there is nothing to delete, and Rebuild levels may find some below.
+	if len(levels.levels) > 1 {
+		kit_command_pair(app, .Delete_Lower_Levels, .Delete_Higher_Levels, label_a = "Delete lower", label_b = "Delete higher", tone_a = .Danger, tone_b = .Danger)
+	} else {
+		_ = command_button(app, .Rebuild_Levels, width = ui.fill_width(ctx))
+	}
 	if object_can_edit_cage(obj) do _ = command_button(app, .Edit_Cage, width = ui.fill_width(ctx), glyph = ui.ICON_EDIT_CAGE)
 	if up, down := command_keys(app, .Level_Up), command_keys(app, .Level_Down); up != "" && down != "" {
 		ui.paragraph(ctx, fmt.tprintf("%s and %s go up and down. All levels use %s of memory; %s undoes a deletion.", up, down, bytes_label(sculpt.levels_bytes(levels)), keys_or_name(app, .Undo)))
