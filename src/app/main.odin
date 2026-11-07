@@ -158,13 +158,10 @@ App :: struct {
 	// The selected object's lookup for the GPU's kernels is still going up a slice a frame
 	// (sculpt_gpu_prepare_level): the app does not rest, and --bench-stroke waits for it.
 	gpu_lookup_waiting: bool,
-	// Each brush's drawn or shifted falloff as the sculptor reads it, remade when its curve
-	// or focal shift changes.
-	falloff_tables: [sculpt.Brush_Kind]struct {
-		falloff: sculpt.Falloff,
-		shape:   Falloff_Setting,
-		built:   bool,
-	},
+	// The drawn or shifted falloffs of the brushes last asked for, as the sculptor reads
+	// them, remade when a curve or focal shift changes (brush_falloff).
+	falloff_tables: [FALLOFF_TABLES]Falloff_Table,
+	falloff_clock:  u64,
 	stroke:   Stroke,
 	stroke_edit: Stroke_Edit, // the stroke held to edit, while one is (stroke_edit.odin)
 	script:   Script_Run, // the script running: the start-up one (--run, --script), or a macro

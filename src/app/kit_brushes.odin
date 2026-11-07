@@ -89,6 +89,7 @@ BRUSH_CATEGORY_OF := [sculpt.Brush_Kind]Brush_Category {
 	.Elastic    = .Move,
 	.Clay_Strips  = .Clay,
 	.Trim_Dynamic = .Smooth,
+	.Tube         = .Clay,
 }
 
 // The Library's own state, in Kit_State.

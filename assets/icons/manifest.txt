@@ -197,6 +197,7 @@ ICON_BRUSH_SNAKE_HOOK    sculpt  tb:ease-in-out
 ICON_BRUSH_ELASTIC       sculpt  lu:stretch-horizontal
 ICON_BRUSH_CLAY_STRIPS   sculpt  tb:align-justified
 ICON_BRUSH_TRIM          sculpt  lu:tent
+ICON_BRUSH_TUBE          sculpt  own:brush_tube
 
 # Mask, hide and polygroups
 ICON_MASK                mask    ph:mask-happy

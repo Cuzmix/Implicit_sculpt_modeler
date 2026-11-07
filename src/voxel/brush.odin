@@ -32,6 +32,7 @@ Brush_Kind :: enum u8 {
 	Layer,       // raises the clay by one height a stroke, however often it passes (inverted lowers)
 	Clay_Strips, // builds flat-topped strips with square ends along the stroke (inverted digs)
 	Trim,        // cuts a ridge into two planes about the stroke, at the angle it finds (inverted: a valley)
+	Tube,        // lays a capsule from Brush.from to the dab, blended into the clay (tube.odin; inverted carves)
 }
 
 Brush :: struct {
@@ -46,6 +47,7 @@ Brush :: struct {
 	polish:   bool, // Smooth: keep the volume (Taubin's two passes)
 	trim_angle: f32, // Trim: the angle between its two planes, radians, while `trim_fixed`
 	trim_fixed: bool, // Trim: keep trim_angle rather than find the angle under the brush
+	from:     Vec3, // Tube: where the last dab's capsule ended, object space (the dab's own centre at the first); radius is the tube's
 }
 
 // How far a full-strength dab raises or lowers the surface, in radii (the mesh Draw
@@ -97,6 +99,9 @@ Dab :: struct {
 	// Smooth: the pass's rate, below 0 for Polish's pass that swells back.
 	rate:      f32,
 	history:   ^Undo_History,
+	// Tube: its capsule's ends, in voxels, and the blend's width.
+	tube_a, tube_b: Vec3,
+	blend:     f32,
 }
 
 // The dab's numbers for `brush` at `centre` (object space) on a volume of `voxel` size.
@@ -127,6 +132,11 @@ dab_make :: proc(brush: Brush, centre: Vec3, voxel: f32, origin: Vec3) -> (d: Da
 		d.lift = d.radius * CLAY_STRIPS_HEIGHT
 	case .Smooth:
 		d.rate = SMOOTH_RATE
+	case .Tube:
+		// The dab's centre is the capsule's middle, so its reach covers both ends.
+		d.tube_a, d.tube_b = (brush.from - origin) / voxel, d.centre
+		d.centre = 0.5 * (d.tube_a + d.tube_b)
+		d.blend = min(d.radius * TUBE_BLEND, TUBE_BLEND_MAX)
 	}
 	if d.kind == .Clay_Strips || d.kind == .Trim do d.sx, d.sy = stroke_frame(d.normal, brush.along)
 	d.share = 1
@@ -172,6 +182,7 @@ dab_adds :: #force_inline proc(d: ^Dab) -> bool {
 // The brush's reach from its centre, in voxels: the voxels it may change lie within it.
 dab_reach :: proc(d: ^Dab) -> f32 {
 	if d.kind == .Clay_Strips do return d.radius * math.SQRT_TWO + 1
+	if d.kind == .Tube do return 0.5 * linalg.length(d.tube_b - d.tube_a) + d.radius + CLAMP_VOXELS + d.blend + 1
 	return d.radius + 1 + f32(d.margin)
 }
 
@@ -219,6 +230,8 @@ dab_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick, mask: ^Mask_Brick
 		grow_brick(d, bc, b, out, mask, &e)
 	case .Trim:
 		trim_brick(d, bc, b, mask, &e)
+	case .Tube:
+		tube_brick(d, bc, b, mask, &e)
 	case .Flatten:
 		for z in 0 ..< BRICK do for y in 0 ..< BRICK do for x in 0 ..< BRICK {
 			p := p0 + {f32(x), f32(y), f32(z)}
@@ -418,6 +431,7 @@ brick_distance :: #force_inline proc(p: Vec3, bc: [3]i32) -> f32 {
 // clay can be carved. `reach` is dab_reach.
 dab_touches :: proc(d: ^Dab, bc: [3]i32, tile: Tile, reach: f32) -> bool {
 	if brick_distance(d.centre, bc) > reach do return false
+	if d.kind == .Tube do return tube_touches(d, bc, tile)
 	if tile == .Brick do return true
 	switch d.kind {
 	case .Flatten:
@@ -433,7 +447,7 @@ dab_touches :: proc(d: ^Dab, bc: [3]i32, tile: Tile, reach: f32) -> bool {
 		HALF_DIAGONAL :: BRICK * 0.8660254
 		h := max(linalg.dot(mid - d.plane, d.trim_plus), linalg.dot(mid - d.plane, d.trim_minus))
 		return h + HALF_DIAGONAL > -(BAND + 1)
-	case .Smooth, .Inflate, .Mask, .Add, .Subtract, .Clay, .Pinch, .Crease, .Snake_Hook, .Layer, .Clay_Strips:
+	case .Smooth, .Inflate, .Mask, .Add, .Subtract, .Clay, .Pinch, .Crease, .Snake_Hook, .Layer, .Clay_Strips, .Tube:
 		// They move the surface at most a voxel, the warps WARP_STEP voxels a step, less
 		// than the clamp, so the surface never reaches a tile within a step (the band grows
 		// into tiles through band dilation after each, not here), and a mask lives on

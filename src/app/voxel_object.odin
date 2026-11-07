@@ -158,15 +158,21 @@ voxel_upload :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, vp: ^Voxel_Part) 
 
 // Where a ray (in the object's space) meets the object: the clay's surface for a voxel
 // object, the mesh for the rest, with the surface normal there.
-object_raycast_local :: proc(obj: ^Object, origin, dir: Vec3) -> (hit, normal: Vec3, ok: bool) {
-	if vp := obj.voxel; vp != nil do return voxel.clay_raycast(&vp.clay, origin, dir)
+// With `press`, voxel clay is met as it was at the stroke's start, so a Tube stroke
+// follows the surface it began on rather than climbing its own rope.
+object_raycast_local :: proc(obj: ^Object, origin, dir: Vec3, press := false) -> (hit, normal: Vec3, ok: bool) {
+	if vp := obj.voxel; vp != nil {
+		if press do return voxel.clay_raycast_press(&vp.clay, origin, dir)
+		return voxel.clay_raycast(&vp.clay, origin, dir)
+	}
 	hit, ok = sculpt.sculptor_raycast(object_sculptor(obj), origin, dir)
 	return
 }
 
-// The voxel brush a mesh brush stands for: Draw and Layer add clay (take it away
-// inverted), Clay builds up to a plane above the surface (digs inverted), Smooth, Flatten
-// and Inflate do what they do on a mesh; the rest have no meaning on a volume (false). `normal` is the surface normal under the dab.
+// The voxel brush a mesh brush stands for: Draw adds clay (takes it away inverted), Clay
+// builds up to a plane above the surface (digs inverted), Tube lays a rope, the rest do
+// what the mesh brushes of their names do; those with no meaning on a volume give false.
+// `normal` is the surface normal under the dab.
 voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: bool) {
 	vb = {
 		radius = b.radius, strength = b.strength, invert = b.invert, normal = normal, drag = b.drag, pinch = b.hook_pinch,
@@ -185,6 +191,9 @@ voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: b
 	case .Pinch:   vb.kind = .Pinch
 	case .Crease:  vb.kind = .Crease
 	case .Snake_Hook: vb.kind = .Snake_Hook
+	case .Tube:
+		vb.kind = .Tube
+		vb.radius = b.radius * b.strength
 	case: return vb, false
 	}
 	return vb, true
@@ -195,7 +204,7 @@ voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: b
 voxel_brush_allowed :: proc(app: ^App, kind: sculpt.Brush_Kind, say: bool) -> bool {
 	if kind == .Grab || kind == .Elastic do return true
 	if _, ok := voxel_brush_of({kind = kind}, {}); ok do return true
-	if say do report(app, Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Clay strips, Trim dynamic, Smooth, Flatten, Inflate, Pinch, Crease, Snake hook, Grab, Elastic and Mask; convert the object to a mesh for the rest", BRUSHES[kind].name)
+	if say do report(app, Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Clay strips, Trim dynamic, Tube, Smooth, Flatten, Inflate, Pinch, Crease, Snake hook, Grab, Elastic and Mask; convert the object to a mesh for the rest", BRUSHES[kind].name)
 	return false
 }
 
@@ -222,6 +231,20 @@ object_dab :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, at, normal: Vec
 	}
 	vb, ok := voxel_brush_of(brush, normal)
 	if !ok do return
+	// Tube's rope runs along its axis, out from the surface by half its thickness (on it,
+	// carving), from where the last dab's ended.
+	if vb.kind == .Tube {
+		st := &app.stroke
+		axis := at + normal * (0 if vb.invert else vb.radius * TUBE_LIFT)
+		from := st.tube_from if st.tube_set else axis
+		st.tube_from, st.tube_set = axis, true
+		for img in sculpt.symmetry_images(brush) {
+			vb.normal = img.turn * normal
+			vb.from = sculpt.sym_point(img, brush.sym_center, from)
+			_ = voxel.clay_dab(&vp.clay, vb, sculpt.sym_point(img, brush.sym_center, axis))
+		}
+		return
+	}
 	// Not feathered (sculpt.symmetry_feather): clay's dabs meet their images as a union or
 	// a difference, which never stacks where they overlap.
 	for img in sculpt.symmetry_images(brush) {
@@ -231,6 +254,10 @@ object_dab :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, at, normal: Vec
 		_ = voxel.clay_dab(&vp.clay, vb, sculpt.sym_point(img, brush.sym_center, at))
 	}
 }
+
+// How far out from the surface a Tube's axis runs, in its radii: half sunk, so the rope
+// sits on the clay with a fillet rather than touching it along a line.
+TUBE_LIFT :: 0.5
 
 // The resolution Convert to voxels uses for `obj`: the Voxels section's choice, or the one
 // its vertex count maps to, in whole nodes within the range.

@@ -1,6 +1,6 @@
 # Brush icons: grey ball, coloured effect (2026-11-05)
 
-18 brush icons, one per `sculpt.Brush_Kind`, in the style Bolt picked: a matte grey ball with
+19 brush icons, one per `sculpt.Brush_Kind`, in the style Bolt picked: a matte grey ball with
 the brush's effect in its own glossy colour.
 
 ## Files
@@ -12,7 +12,7 @@ the brush's effect in its own glossy colour.
 | `ray2.py` | The renderer. Each brush is a signed distance field in `scene()`. |
 | `glossy.js` | Builds the SVGs and the sheet from the PNGs, and holds the vector marks (`OVER`). |
 
-Names: draw, clay, inflate, layer, clay_strips, crease, pinch, smooth, flatten, trim (Trim dynamic),
+Names: draw, clay, inflate, layer, clay_strips, crease, pinch, smooth, flatten, trim (Trim dynamic), tube,
 grab, snake (Snake hook), elastic, cloth, mask, paint, history, morph.
 
 ## Changing an icon

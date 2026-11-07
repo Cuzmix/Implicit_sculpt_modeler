@@ -51,6 +51,7 @@ Brush_Kind :: enum {
 	Elastic, // drag as an elastic solid pulled at the press would move: Grab's arrays, Kelvinlet weights (elastic.odin)
 	Clay_Strips,  // build flat-topped strips with square ends along the stroke (strips.odin; inverted digs)
 	Trim_Dynamic, // cut a ridge into two planes about the stroke, at the angle it finds (strips.odin; inverted: a valley)
+	Tube,         // voxel clay only: lay a rope of clay along the stroke (voxel.Brush_Kind.Tube; a mesh refuses it)
 }
 
 Axis :: enum u8 {
@@ -1075,7 +1076,9 @@ Dab :: struct {
 // mask). Positions and BVH bounds are current when it returns; vertex normals catch up
 // in sculptor_flush. Grab strokes go through sculptor_grab_begin instead.
 apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
-	if brush.kind == .Grab || brush.kind == .Elastic || brush.kind == .Cloth do return 0
+	// Tube lays clay, which only a voxel object has: on a mesh it does nothing (the app
+	// refuses the stroke and says so).
+	if brush.kind == .Grab || brush.kind == .Elastic || brush.kind == .Cloth || brush.kind == .Tube do return 0
 	stroke_gpu_decide(s, brush)
 	moved := 0
 	images := symmetry_images(brush)
@@ -1380,7 +1383,7 @@ dab_lay :: proc(s: ^Sculptor, d: ^Dab, brush: Brush, pool: ^jobs.Pool, img: Sym_
 	case .History:
 		if len(s.recall) != len(s.mesh.positions) do return painted
 		jobs.parallel_for(pool, len(s.hit), d, job_history)
-	case .Grab, .Elastic, .Mask, .Paint, .Cloth:
+	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Tube:
 		unreachable()
 	case .Smooth:
 		// Jacobi steps: every target of a pass is computed from that pass's unmoved

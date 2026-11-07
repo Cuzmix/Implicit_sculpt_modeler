@@ -112,7 +112,7 @@ preview_render :: proc(brush: Brush, pixels: []u8) -> bool {
 			_ = sculptor_flush(&s)
 		}
 		sculptor_grab_end(&s)
-	case .Draw, .Smooth, .Clay, .Flatten, .Inflate, .Pinch, .Crease, .Mask, .Layer, .Snake_Hook, .Morph, .Paint, .Clay_Strips, .Trim_Dynamic, .Cloth, .History:
+	case .Draw, .Smooth, .Clay, .Flatten, .Inflate, .Pinch, .Crease, .Mask, .Layer, .Snake_Hook, .Morph, .Paint, .Clay_Strips, .Trim_Dynamic, .Cloth, .History, .Tube:
 		last := preview_on(&s, path(0))
 		// Smooth goes over its path three times, as a sculptor's strokes do, so the calmed
 		// band reads against the rough strip on a tile.

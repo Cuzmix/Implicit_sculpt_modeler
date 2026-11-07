@@ -128,6 +128,12 @@ clay_raycast :: proc(c: ^Clay, origin, dir: Vec3) -> (hit, normal: Vec3, ok: boo
 	return volume_raycast(&c.volume, origin, dir)
 }
 
+// clay_raycast on the clay as it was when the stroke began (as it is, outside a stroke),
+// so a Tube stroke follows the surface it started on rather than climbing its own tube.
+clay_raycast_press :: proc(c: ^Clay, origin, dir: Vec3) -> (hit, normal: Vec3, ok: bool) {
+	return volume_raycast(&c.volume, origin, dir, &c.history if c.in_stroke else nil)
+}
+
 // Starts a stroke: its dabs go into one undo step.
 clay_stroke_begin :: proc(c: ^Clay) {
 	assert(!c.in_stroke, "a stroke is already running")
@@ -225,11 +231,12 @@ clay_dab_step :: proc(c: ^Clay, dab: Dab) -> int {
 		d: Dab,
 	}
 	run := Run{c, d}
+	// Layer and Tube read the clay as it was at the stroke's start (undo_press).
+	run.d.history, run.d.volume = &c.history, &c.volume
 	if d.margin > 0 {
 		// A warping dab reads the clay as far as its step moves it, straight from the
 		// bricks round each of its own (a step moves clay less than a brick): it writes
 		// scratch bricks and commits them once every job has read.
-		run.d.volume = &c.volume
 		resize(&c.scratch, len(c.jobs))
 		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
 			r := cast(^Run)data
@@ -246,11 +253,7 @@ clay_dab_step :: proc(c: ^Clay, dab: Dab) -> int {
 		side := WINDOW
 		resize(&c.scratch, len(c.jobs))
 		resize(&c.windows, len(c.jobs) * side * side * side)
-		if d.kind == .Layer {
-			resize(&c.presses, len(c.jobs) * side * side * side)
-			run.d.history = &c.history
-			run.d.volume = &c.volume
-		}
+		if d.kind == .Layer do resize(&c.presses, len(c.jobs) * side * side * side)
 		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
 			r := cast(^Run)data
 			c := r.c
