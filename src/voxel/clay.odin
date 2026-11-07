@@ -34,7 +34,13 @@ Clay :: struct {
 	fixed:         [dynamic][BRICK_VOXELS / 64]u64,
 	settled:       [dynamic]bool, // per region brick: the last sweep changed nothing in it
 	changed:       [dynamic]bool, // per region brick: the running sweep changed it
-	levels:        [dynamic]u64, // the region's bricks in the running sweep's wavefront order: level over index
+	levels:        [dynamic]u64, // the sweep units in the running sweep's wavefront order: level over unit index
+	repair_seen:   [dynamic]Dab_Effect, // per region brick, the changes the repair made that the mesh can see
+	level_of:      [dynamic]u32, // each sweep unit's level in the running sweep
+	units:         [dynamic][8]i32, // the region's bricks by 2³ block, each block's by place in it (-1: none)
+	unit_coords:   [dynamic][3]i32, // each unit's block
+	unit_of:       map[[3]i32]i32, // a block's unit while the units are made
+	level_starts:  [dynamic]u32, // where each level starts in `levels` (a counting sort)
 	level_first:   int, // where the running wavefront starts in `levels`
 	repair_gen:    u32,
 	sweep:         int,
@@ -73,6 +79,12 @@ clay_init :: proc(c: ^Clay, voxel: f32, centre: Vec3, pool: ^jobs.Pool, allocato
 	c.settled = make([dynamic]bool, allocator)
 	c.changed = make([dynamic]bool, allocator)
 	c.levels = make([dynamic]u64, allocator)
+	c.level_of = make([dynamic]u32, allocator)
+	c.units = make([dynamic][8]i32, allocator)
+	c.unit_coords = make([dynamic][3]i32, allocator)
+	c.unit_of = make(map[[3]i32]i32, allocator)
+	c.repair_seen = make([dynamic]Dab_Effect, allocator)
+	c.level_starts = make([dynamic]u32, allocator)
 	grab_init(&c.grab, allocator)
 	// Slots start stamped 0, so the first generation must not be 0.
 	c.repair_gen = 1
@@ -93,6 +105,12 @@ clay_destroy :: proc(c: ^Clay) {
 	delete(c.settled)
 	delete(c.changed)
 	delete(c.levels)
+	delete(c.level_of)
+	delete(c.units)
+	delete(c.unit_coords)
+	delete(c.unit_of)
+	delete(c.repair_seen)
+	delete(c.level_starts)
 	grab_destroy(&c.grab)
 	c^ = {}
 }

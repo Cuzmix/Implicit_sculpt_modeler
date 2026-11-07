@@ -202,6 +202,9 @@ remeshing_only_the_dirty_nodes_equals_remeshing_everything :: proc(t: ^testing.T
 	for i in 0 ..< 8 {
 		a := f32(i) * 0.2
 		_ = test_dab(&c, .Add, linalg.normalize(Vec3{math.cos(a), 0.2, math.sin(a)}), 0.2)
+		// Meshed after every dab, as the app does a frame, so the stroke's end remeshes only
+		// what the band repair changed where the mesh can see it.
+		_ = clay_flush(&c)
 	}
 	_ = clay_stroke_end(&c)
 	a := clay_to_mesh(&c)
@@ -211,7 +214,7 @@ remeshing_only_the_dirty_nodes_equals_remeshing_everything :: proc(t: ^testing.T
 	defer geom.mesh_destroy(&b)
 	testing.expect(t, len(a.positions) == len(b.positions) && len(a.indices) == len(b.indices), "the meshes differ in size")
 	same := true
-	for p, i in a.positions do if p != b.positions[i] do same = false
+	for p, i in a.positions do if p != b.positions[i] || a.normals[i] != b.normals[i] do same = false
 	testing.expect(t, same, "a dirty-only remesh differs from a full one")
 }
 
