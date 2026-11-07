@@ -1430,9 +1430,11 @@ kit_layout :: proc(app: ^App) {
 		kit_home(app)
 		return
 	}
+	// Clean view: what it hides slides off from copies of its last drawing (panel_motion.odin),
+	// under the dial and the hint, and comes back sliding in the frame it ends.
 	if k.clean {
+		clean_leaving(app)
 		kit_clean_view(app)
-		docks_leaving(app)
 		return
 	}
 	// Home just closed: the scene grows out of the tile it closed from, under the bars.
@@ -1455,7 +1457,9 @@ kit_layout :: proc(app: ^App) {
 	}
 	// Each bar notes where its buttons stand as it is drawn (bar_spot).
 	k.bar_spot_count = 0
+	chrome := ui.motion_mark(ctx)
 	menu_anchor, search_anchor := kit_top_bar(app)
+	chrome_motion_end(app, .Top_Bar, chrome)
 	pop = ui.motion_mark(ctx)
 	kit_job_pill(app)
 	pop_motion_end(app, .Job, pop)
@@ -1474,7 +1478,9 @@ kit_layout :: proc(app: ^App) {
 	else do kit_readout(app)
 	pop_motion_end(app, .Readout, pop)
 	if focus || !zone_hidden(k, .Brush_Bar) do kit_dock(app, .Offhand)
+	chrome = ui.motion_mark(ctx)
 	kit_nav_head(app)
+	chrome_motion_end(app, .Nav_Head, chrome)
 	if !zone_hidden(k, .View_Bar) {
 		kit_dock(app, .Rail)
 	} else {
@@ -1494,8 +1500,12 @@ kit_layout :: proc(app: ^App) {
 	// above both.
 	// A dock that stopped showing slides off its edge (panel_motion.odin).
 	docks_leaving(app)
+	chrome = ui.motion_mark(ctx)
 	kit_colour_island(app)
+	chrome_motion_end(app, .Colour_Island, chrome)
+	chrome = ui.motion_mark(ctx)
 	kit_action_bar(app)
+	chrome_motion_end(app, .Action_Bar, chrome)
 	stack_h := dock_stack(app)
 	ctx.toast_bottom = E + stack_h + 12
 

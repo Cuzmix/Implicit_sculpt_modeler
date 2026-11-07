@@ -132,6 +132,9 @@ kit_clean_view :: proc(app: ^App) {
 	age := ctx.time - k.clean_at
 	if age > CLEAN_HINT_TIME + CLEAN_HINT_FADE do return
 	shown := 1 - clamp(f32(age - CLEAN_HINT_TIME) / CLEAN_HINT_FADE, 0, 1)
+	// It fades in over the last part of the bars' slide (which starts slowly), so it never
+	// sits over the top bar on its way out.
+	if motion_duration_of(ctx, .Docks) > 0 do shown *= clamp((f32(age) - 0.6 * DOCK_SLIDE_TIME) / (0.4 * DOCK_SLIDE_TIME), 0, 1)
 	if ctx.motion == .Off do shown = 1
 	hint := "Tab or four-finger tap to bring the interface back"
 	mark := ui.vertex_mark(ctx)
