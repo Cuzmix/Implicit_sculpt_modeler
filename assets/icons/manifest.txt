@@ -438,3 +438,6 @@ ICON_SHADE_FLAT          render  tb:circle-half-vertical
 ICON_SHADE_FULL          render  ph:sphere
 ICON_SHADE_LIT           render  ph:sun-dim
 ICON_SHADE_RENDERED      render  tb:stars
+
+# Fill layers (paint_fill.odin)
+ICON_FILL_UPDATE         paint   ph:arrows-counter-clockwise

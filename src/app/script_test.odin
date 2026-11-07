@@ -183,11 +183,12 @@ stack mirror -xz
 curve_add 0 0 0 1 0 0
 cage move 0 0.5 0
 paint_channels Color height
+fill_layer facing_up invert
 render_focus Pivot`
 	s := script_parse(text, "x")
 	defer script_destroy(&s)
 	testing.expect_value(t, script_report(&s), "")
-	if !testing.expect_value(t, len(s.statements), 36) do return
+	if !testing.expect_value(t, len(s.statements), 37) do return
 	st := s.statements
 	for v, i in Script_Verb {
 		testing.expect_value(t, st[i].kind, Script_Kind.Verb)
@@ -233,7 +234,8 @@ render_focus Pivot`
 	testing.expect_value(t, st[31].text, "mirror -xz")
 	testing.expect_value(t, st[32].text, "0 0 0 1 0 0")
 	testing.expect_value(t, transmute(sculpt.Paint_Channels)u8(st[34].arg), sculpt.Paint_Channels{.Color, .Height})
-	testing.expect(t, st[35].verb == .Render_Focus && st[35].flip)
+	testing.expect(t, st[35].arg == int(sculpt.Fill_Mask.Facing_Up) && st[35].flip, "fill_layer's mask and invert")
+	testing.expect(t, st[36].verb == .Render_Focus && st[36].flip)
 
 	bad := script_parse("move 1 2\nrotate 0 x 0\nboolean maybe\nslice w\nhide -\nmask_rect 0 0 0 1\nmask_rect 0 0 2 1\nproject 0\ndraw_curve\ninsert_middle blob\nfalloff soft\nalpha\nlayer 0 1\nlayer 1 3\nlayer 1 1 shown\ninstall_pack\nfocal 101\nmatcap\npreset\npack_mesh", "bad")
 	defer script_destroy(&bad)

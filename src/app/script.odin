@@ -76,6 +76,7 @@ Script_Verb :: enum u8 {
 	Curve_Add,
 	Cage,
 	Paint_Channels,
+	Fill_Layer,
 }
 
 // Each verb's name and what it takes, for errors and the README.
@@ -119,6 +120,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 	.Curve_Add     = {"curve_add", "two or more points, x y z each, of an open curve object to add, smooth through them (as the Curve tool lays one)"},
 	.Cage          = {"cage", "the selected cage's selection: pick 0 4 5 (point numbers to pick), move x y z, turn x|y|z degrees or scale f, as its gizmo moves it"},
 	.Paint_Channels = {"paint_channels", "color, roughness, metal and height, one or more: what the picked paint layer's strokes write (height on a texture layer only)"},
+	.Fill_Layer     = {"fill_layer", "a mask (everywhere, cavities, edges, curvature, facing_up, facing_down, height, sculpt_mask) and optionally invert: the picked fill layer made again with it"},
 }
 
 // A command that is on or off (one with `checked`) can be told which: it then runs only
@@ -585,6 +587,11 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		st.arg = choice(args[0], reflect.enum_field_names(Ref_Plane))
 		st.flip = len(args) == 2
 		return st.arg >= 0 && (len(args) == 1 || script_name(args[1]) == "through")
+	case .Fill_Layer:
+		if len(args) < 1 || len(args) > 2 do return false
+		st.arg = choice(args[0], reflect.enum_field_names(sculpt.Fill_Mask))
+		st.flip = len(args) == 2
+		return st.arg >= 0 && (len(args) == 1 || script_name(args[1]) == "invert")
 	case .Paint_Channels:
 		// The channels as bits of `arg`, each named once.
 		if len(args) == 0 do return false
@@ -741,7 +748,7 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		_, hit, n, on := scene_raycast_surface(app, origin, dir)
 		if !on do return "no surface is under the middle of the view", true
 		if !insert_make(app, hit, n, app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, size.y)) do return "", false
-	case .Move, .Rotate, .Boolean, .Slice, .Knife, .Hide, .Mask_Rect, .Layer, .Group_Material, .Paint_Channels:
+	case .Move, .Rotate, .Boolean, .Slice, .Knife, .Hide, .Mask_Rect, .Layer, .Group_Material, .Paint_Channels, .Fill_Layer:
 		if obj == nil do return "nothing is selected", true
 		switch st.verb {
 		case .Move, .Rotate:
@@ -786,6 +793,15 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 			stroke_finish(app)
 			if !sculpt.sculptor_paint_set_channels(s, i, next) do return "a vertex layer paints no height", true
 			history_record(app, obj, .Paint, "Paint layer channels")
+			return "", true
+		case .Fill_Layer:
+			// As the FILL block's mask and Invert do, one undo step.
+			layer, is_fill := sculpt.levels_fill_picked(&obj.levels)
+			if !is_fill do return "the picked paint layer is not a fill layer", true
+			f := layer.fill
+			f.mask, f.invert = sculpt.Fill_Mask(st.arg), st.flip
+			if f == layer.fill do return "", true
+			if !fill_layer_make(app, obj, f, "Fill layer settings") do return "", false
 			return "", true
 		case .Group_Material:
 			// As the Material section's Group target does, in place so the next line sees it.
