@@ -643,7 +643,7 @@ export_preview_lines :: proc(app: ^App, f: Export_Format) -> []string {
 		if _, line, on := render_image_progress(app); on do append(&lines, line)
 	case .Turntable:
 		append(&lines, fmt.tprintf("%d frames, %.1f s at %d a second", app.turntable_frames, f32(app.turntable_frames) / TURNTABLE_FPS, TURNTABLE_FPS))
-		append(&lines, "Numbered PNG pictures and one looping PNG")
+		append(&lines, "Numbered PNG pictures, one looping PNG and an MP4" if app.record_video && VIDEO_AVAILABLE else "Numbered PNG pictures and one looping PNG")
 	case .Link:
 		n := len(selection_ids(app))
 		if n == 0 {
@@ -750,7 +750,8 @@ export_options :: proc(app: ^App, f: Export_Format) {
 		if ui.slider(ctx, "Frames##export", &frames, TURNTABLE_FRAMES_MIN, TURNTABLE_FRAMES_MAX, .Logarithmic, seconds, enabled = !turntable_recording(app)) do app.turntable_frames = i32(frames + 0.5)
 		on := app.screenshot_transparent
 		if ui.switch_row(ctx, "Without background##turntable", &on, keys = command_hint(app, .Screenshot_Transparent)) do command_run(app, .Screenshot_Transparent)
-		ui.paragraph(ctx, "The camera goes once round the scene, saving every frame into a folder you pick as numbered PNG pictures and one animated PNG that loops.")
+		kit_record_video(app, "export")
+		ui.paragraph(ctx, "The camera goes once round the scene, saving every frame into a folder you pick as numbered PNG pictures, one animated PNG that loops and, with Make a video, an MP4 (a video keeps no transparency: an empty ground shows black).")
 	case .Print, .Print_OBJ, .Print_3MF:
 		export_print_options(app)
 	case .Send:
