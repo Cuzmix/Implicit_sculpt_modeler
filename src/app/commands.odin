@@ -75,6 +75,7 @@ Command_Id :: enum u16 {
 	Settle,
 	Local_Symmetry,
 	Radial_Symmetry,
+	Poseable_Symmetry,
 	Brush_Add,
 	Brush_Subtract,
 	Paint_Channel,
@@ -1094,6 +1095,12 @@ COMMANDS := [Command_Id]Command {
 		help = "Repeats every stroke evenly round an axis, as many times as the Symmetry settings say (a long press on Symmetry).",
 		run = proc(app: ^App, _: int) {app.brush.radial_on = !app.brush.radial_on},
 		checked = proc(app: ^App, _: int) -> bool {return app.brush.radial_on},
+	},
+	.Poseable_Symmetry = {
+		label = "Poseable symmetry",
+		help = "Makes the symmetry mirror strokes by the mesh's own topology instead of across the plane, so a posed model (an arm raised, the head turned) still gets each stroke on the same place of its other side. Needs a mesh whose two halves are built alike; found once when turned on, and again for each level.",
+		run = proc(app: ^App, _: int) {poseable_toggle(app)},
+		checked = proc(app: ^App, _: int) -> bool {return app.brush.poseable},
 	},
 	.Brush_Add = {
 		label = "Add",

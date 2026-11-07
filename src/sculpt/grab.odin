@@ -111,9 +111,9 @@ sculptor_grab_begin :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 		if n, ok := sculptor_area_normal(s, center, 0.5 * brush.radius, nearest_normal(s, center, brush.radius)); ok do g.normal = linalg.normalize0(n)
 		g.silhouette = brush.silhouette && g.normal != {}
 	}
-	for img in symmetry_images(brush) {
+	for img in dab_images(s, brush, center) {
 		if brush.same_side && g.normal != {} do append(&j.sides, img.turn * g.normal)
-		at := sym_point(img, brush.sym_center, center)
+		at := sym_point(img, center)
 		dir := img.turn * through
 		append(&j.centers, at)
 		append(&j.turns, img.turn)

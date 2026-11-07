@@ -127,6 +127,8 @@ Brush_Settings :: struct {
 	// Local symmetry: the planes (and the radial axis) pass through the object's own middle
 	// instead of its origin (symmetry_center).
 	sym_local:         bool,
+	// Poseable symmetry: dabs mirror by the mesh's topology (symmetry.odin's poseable_*).
+	poseable:          bool,
 	// Radial symmetry: while on, every dab has radial_count copies evenly round radial_axis.
 	radial_on:         bool,
 	radial_count:      i32,
@@ -1574,6 +1576,7 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		radial   = sym.radial,
 		radial_axis = sym.radial_axis,
 		sym_center = sym.sym_center,
+		poseable = sym.poseable,
 		detail   = brush_detail(&app.brush, kind, brush_radius_px(app, pressure, tilt)),
 		detail_falloff = app.brush.detail_falloff,
 		collapse = app.brush.collapse,

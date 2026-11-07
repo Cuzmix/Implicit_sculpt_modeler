@@ -121,9 +121,10 @@ cursor_update :: proc(app: ^App, input: Viewport_Input) {
 	// Each image as a dab takes it, in the object's own space, then back to the world.
 	sym := brush_symmetry(app, obj)
 	local, local_n := to_local(t, hit), to_local_dir(t, normal)
-	for img, i in sculpt.symmetry_images(sym) {
+	sym.radius = radius / t.scale
+	for img, i in sculpt.dab_images(object_sculptor(obj), sym, local) {
 		if i == 0 do continue
-		at := to_world(t, sculpt.sym_point(img, sym.sym_center, local))
+		at := to_world(t, sculpt.sym_point(img, local))
 		append(&c.images, Cursor_Image{at, linalg.normalize0(to_world_dir(t, img.turn * local_n))})
 	}
 }

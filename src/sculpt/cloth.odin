@@ -270,7 +270,7 @@ cloth_start :: proc(s: ^Sculptor, brush: Brush, center: Vec3, mode: Cloth_Mode, 
 	c.mode, c.settings, c.invert = mode, settings, brush.invert
 	c.reach, c.follow = reach, clamp(follow, 0, 1)
 	c.center, c.radius, c.strength, c.brush = center, brush.radius, brush.strength, brush
-	c.images = symmetry_images(brush)
+	c.images = dab_images(s, brush, center)
 	normal, ok := sculptor_area_normal(s, center, brush.radius, brush.facing)
 	if !ok do normal = nearest_normal(s, center, brush.radius)
 	c.normal_at = linalg.normalize0(normal)
@@ -293,7 +293,7 @@ cloth_gather :: proc(s: ^Sculptor, at, offset: Vec3) -> int {
 	c.gathered = at
 	clear(&c.leaves)
 	for img in c.images {
-		centre := sym_point(img, c.brush.sym_center, at)
+		centre := sym_point(img, at)
 		if set.region != .Whole do stretch_note(s, centre, reach, {}, c.brush.radius * c.brush.detail)
 		geom.bvh_query_leaves(&s.bvh, centre, reach, &c.leaves)
 		if set.region == .Whole do break
@@ -335,7 +335,7 @@ cloth_gather :: proc(s: ^Sculptor, at, offset: Vec3) -> int {
 			p := m.positions[v]
 			near2 := f32(math.F32_MAX)
 			for img in c.images {
-				near2 = min(near2, linalg.length2(p - sym_point(img, c.brush.sym_center, at)))
+				near2 = min(near2, linalg.length2(p - sym_point(img, at)))
 				if set.region == .Whole do break
 			}
 			if near2 >= reach2 do continue
@@ -520,7 +520,7 @@ cloth_drives :: proc(s: ^Sculptor, at: Vec3) {
 			turn: matrix[3, 3]f32
 			focus: Vec3
 			for img in c.images {
-				centre := sym_point(img, c.brush.sym_center, j.center)
+				centre := sym_point(img, j.center)
 				d2 := linalg.length2(p - centre) / r2
 				w := falloff_drawn(c.brush.falloff_shape, d2) if c.brush.falloff_shape != nil else falloff(d2)
 				if w <= 0 do continue

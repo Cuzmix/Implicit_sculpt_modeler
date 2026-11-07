@@ -73,11 +73,15 @@ description: Sculpting in src/sculpt and the app's brush tool — the Sculptor's
   to an `after` copy kept on the `Undo_Step` at the first adjust (counted in `step_bytes`, freed by `step_move`), exact
   at 0 and 1 (`adjust_vec`), then `sculptor_nodes_moved`. Refused under dyntopo or for hide/group/layer-op steps.
 - `apply_dab(s, brush, center)` returns 0 for Grab, else runs `dab_once(s, sym_brush(brush, img), sym_point(img,
-  brush.sym_center, center), img, i == 0)` at every `Sym_Image{turn: matrix[3,3]f32, flipped}` of
+  center), img, i == 0)` at every `Sym_Image{turn: matrix[3,3]f32, flipped, from, to}` of `dab_images(s, brush,
+  center)` (grab, cloth and hover take theirs from it too). With `brush.poseable` and pairs that fit
+  (`sculptor_mirror_ready`; `Sculptor.mirror` per vertex its partner, found by `sculptor_mirror_find` walking
+  triangles outward from geometry-chosen seeds, `src/sculpt/mirror_topo.odin`; dyntopo drops them) that is the
+  identity and `mirror_image` (the nearest vertex's surface frame onto its partner's, reflected); otherwise
   `symmetry_images(brush)`: the identity first, then each `mirrors(symmetry)` sign flip times each of `brush.radial`
   turns about `radial_axis` (0 = off; up to `SYM_IMAGES_MAX` = 8·`RADIAL_MAX`). Mirror-only images are diagonal
   matrices of ±1, so results with radial off are bit-identical to the old sign-vector code. `sym_point` is
-  `sym_center + turn·(p − sym_center)` (the app passes the object's local middle with Local symmetry, else 0);
+  `to + turn·(p − from)`, both `sym_center` for planes (the app passes the object's local middle with Local symmetry, else 0);
   `sym_brush` turns the tilt (`T·R·Tᵀ`) and `alpha_up` and toggles `alpha_mirror` when `flipped`. Lock plane turns its
   normal and plane point the same way (`lock_plane_apply(s, d, img, own, weight)`). Grab keeps one `follow`
   `matrix[3,3]f32` per vertex (the image's turn scaled by the falloff weight, `grab_follow`), so `grab_move` is

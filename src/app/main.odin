@@ -424,6 +424,7 @@ App :: struct {
 	// Screenshots on a see-through ground (capture.odin).
 	screenshot_transparent: bool,
 	sym_center:      Symmetry_Center, // local symmetry's middle, kept (symmetry.odin)
+	poseable:        Poseable_Tried, // what poseable symmetry last paired (symmetry.odin)
 	sym_lines:       Symmetry_Lines, // where the mirror planes cut the selected object, kept (symmetry.odin)
 	// Transparency: every shown object but the selected one is drawn see-through, at
 	// SEE_THROUGH_OPACITY, so the selected one shows through whatever stands before it.

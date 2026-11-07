@@ -249,6 +249,7 @@ symmetry_controls :: proc(app: ^App) {
 	}
 	if ui.toggle_button(ctx, "Local", app.brush.sym_local, 64, command_hint(app, .Local_Symmetry), COMMANDS[.Local_Symmetry].help) do command_run(app, .Local_Symmetry)
 	ui.end(ctx)
+	if ui.toggle_button(ctx, "Poseable", app.brush.poseable, 96, command_hint(app, .Poseable_Symmetry), COMMANDS[.Poseable_Symmetry].help) do command_run(app, .Poseable_Symmetry)
 	ui.caption(ctx, "RADIAL")
 	ui.begin(ctx, "radial axes", {direction = .Row, gap = ui.SPACE_XS})
 	if ui.toggle_button(ctx, "Radial", app.brush.radial_on, 64, command_hint(app, .Radial_Symmetry), COMMANDS[.Radial_Symmetry].help) do command_run(app, .Radial_Symmetry)

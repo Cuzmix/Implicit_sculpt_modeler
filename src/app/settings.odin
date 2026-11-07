@@ -191,6 +191,7 @@ SETTINGS := [?]Setting {
 	{"stabilize", B + offset_of(Brush_Settings, stabilize), f32, 0, sculpt.STABILIZE_MAX},
 	{"sample_radius", B + offset_of(Brush_Settings, sample_radius), f32, sculpt.SAMPLE_RADIUS_MIN, 1},
 	{"symmetry_local", B + offset_of(Brush_Settings, sym_local), bool, 0, 0},
+	{"symmetry_poseable", B + offset_of(Brush_Settings, poseable), bool, 0, 0},
 	{"radial", B + offset_of(Brush_Settings, radial_on), bool, 0, 0},
 	{"radial_count", B + offset_of(Brush_Settings, radial_count), i32, RADIAL_MIN, sculpt.RADIAL_MAX},
 	{"radial_axis", B + offset_of(Brush_Settings, radial_axis), sculpt.Axis, 0, 0},
