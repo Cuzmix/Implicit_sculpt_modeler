@@ -323,7 +323,7 @@ a_clay_survives_the_file_and_damaged_bytes_are_refused :: proc(t: ^testing.T) {
 	defer geom.mesh_destroy(&b)
 	testing.expect(t, len(a.positions) == len(b.positions) && len(a.indices) == len(b.indices), "the meshes differ")
 
-	// Short, a bad tile code, a wrong tag: each refused without a trace.
+	// Short, a bad tile code, a wrong size: each refused without a trace.
 	for cut in ([3]int{len(out) - 1, len(out) / 2, 20}) {
 		short := geom.byte_reader(out[:cut])
 		bad: Clay
@@ -331,13 +331,16 @@ a_clay_survives_the_file_and_damaged_bytes_are_refused :: proc(t: ^testing.T) {
 	}
 	damaged := make([]u8, len(out), context.temp_allocator)
 	copy(damaged, out[:])
-	damaged[28 + 12] = 7 // the first chunk's first tile code
+	// The first chunk's first tile code: past the record's size, the voxel and origin fields,
+	// the chunk's field head, its coordinate field and the codes' field head.
+	FIRST_CODE :: 8 + (10 + 4) + (10 + 12) + 10 + (10 + 12) + 10
+	damaged[FIRST_CODE] = 7
 	d := geom.byte_reader(damaged)
 	bad: Clay
 	testing.expect(t, !clay_read(&bad, &d, nil), "a bad tile code read as a clay")
 	damaged[0] = 'X'
 	d = geom.byte_reader(damaged)
-	testing.expect(t, !clay_read(&bad, &d, nil), "a wrong tag read as a clay")
+	testing.expect(t, !clay_read(&bad, &d, nil), "a wrong size read as a clay")
 	// A write asked to stop, stops.
 	abort := true
 	stopped := make([dynamic]u8, context.temp_allocator)

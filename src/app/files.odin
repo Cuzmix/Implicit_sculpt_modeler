@@ -81,7 +81,7 @@ SCENE_MAGIC :: "SCULPTSC"
 // after the preview block (scene_chunk_begin), each read whole. Until release a format
 // change replaces the old reader: the writer and the reader change together, with no
 // branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(66)
+SCENE_VERSION :: u32(67)
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -2358,33 +2358,61 @@ object_put_bytes :: proc(out: ^[dynamic]u8, obj: ^Object, opts := sculpt.Write_O
 	return true
 }
 
-// A cage as an object's Cage field holds it: the polygon mesh, then how it is drawn and its
-// live rows, read by cage_part_get.
+// A cage object's fields in the scene file (cage_part_put, cage_part_get); tags are never
+// reused or retyped (geom/record.odin). A missing field is the plain cage's value.
+Cage_Part_Tag :: enum u16 {
+	Mesh               = 1,  // poly.mesh_write's record, required
+	Smooth             = 2,  // u8: Catmull-Clark steps shown
+	Flat               = 3,  // u8
+	Thickness          = 4,  // f32
+	Thickness_Segments = 5,  // u8
+	Side               = 6,  // u8 poly.Thickness_Side
+	Bevel              = 7,  // f32
+	Bevel_Segments     = 8,  // u8
+	Mirror             = 9,  // u8 poly.Mirror_Axes
+	Deform             = 10, // u8 poly.Deform_Kind
+	Deform_Axis        = 11, // u8 poly.Mirror_Axis
+	Deform_Amount      = 12, // f32
+	Displace           = 13, // f32
+	Displace_Scale     = 14, // f32
+	Curve              = 15, // i32: the object the cage follows, 0 for none
+	Curve_Axis         = 16, // u8 poly.Mirror_Axis
+	Curve_Fit          = 17, // u8
+	Wrap               = 18, // i32: the object it wraps onto, 0 for none
+	Wrap_Offset        = 19, // f32
+	Sharp              = 20, // f32: Sharp edges' angle
+	Held               = 21, // sculpt.levels_write's record of the sculpt Edit cage took it from
+}
+
+// Writes the cage in the levels' place of object_put, as a record.
 cage_part_put :: proc(out: ^[dynamic]u8, cp: ^Cage_Part) {
+	rec := geom.record_begin(out)
+	defer geom.record_end(out, rec)
+	at := geom.rec_begin(out, Cage_Part_Tag.Mesh)
 	poly.mesh_write(&cp.mesh, out)
-	geom.byte_put(out, u8(cp.look.smooth))
-	geom.byte_put(out, u8(cp.look.flat))
+	geom.rec_end(out, at)
+	geom.rec_put(out, Cage_Part_Tag.Smooth, u8(cp.look.smooth))
+	geom.rec_put(out, Cage_Part_Tag.Flat, u8(cp.look.flat))
 	live := cp.look.live
-	geom.byte_put(out, live.thickness)
-	geom.byte_put(out, u8(live.thickness_segments))
-	geom.byte_put(out, u8(live.side))
-	geom.byte_put(out, live.bevel)
-	geom.byte_put(out, u8(live.bevel_segments))
-	geom.byte_put(out, transmute(u8)live.mirror)
-	geom.byte_put(out, u8(live.deform))
-	geom.byte_put(out, u8(live.deform_axis))
-	geom.byte_put(out, live.deform_amount)
-	geom.byte_put(out, live.displace)
-	geom.byte_put(out, live.displace_scale)
+	geom.rec_put(out, Cage_Part_Tag.Thickness, live.thickness)
+	geom.rec_put(out, Cage_Part_Tag.Thickness_Segments, u8(live.thickness_segments))
+	geom.rec_put(out, Cage_Part_Tag.Side, u8(live.side))
+	geom.rec_put(out, Cage_Part_Tag.Bevel, live.bevel)
+	geom.rec_put(out, Cage_Part_Tag.Bevel_Segments, u8(live.bevel_segments))
+	geom.rec_put(out, Cage_Part_Tag.Mirror, transmute(u8)live.mirror)
+	geom.rec_put(out, Cage_Part_Tag.Deform, u8(live.deform))
+	geom.rec_put(out, Cage_Part_Tag.Deform_Axis, u8(live.deform_axis))
+	geom.rec_put(out, Cage_Part_Tag.Deform_Amount, live.deform_amount)
+	geom.rec_put(out, Cage_Part_Tag.Displace, live.displace)
+	geom.rec_put(out, Cage_Part_Tag.Displace_Scale, live.displace_scale)
 	follow := cp.look.follow
-	geom.byte_put(out, i32(follow.curve))
-	geom.byte_put(out, u8(follow.curve_axis))
-	geom.byte_put(out, u8(follow.curve_fit))
-	geom.byte_put(out, i32(follow.wrap))
-	geom.byte_put(out, follow.wrap_offset)
-	geom.byte_put(out, cp.look.sharp)
-	geom.byte_put(out, u32(len(cp.held)))
-	append(out, ..cp.held)
+	geom.rec_put(out, Cage_Part_Tag.Curve, i32(follow.curve))
+	geom.rec_put(out, Cage_Part_Tag.Curve_Axis, u8(follow.curve_axis))
+	geom.rec_put(out, Cage_Part_Tag.Curve_Fit, u8(follow.curve_fit))
+	geom.rec_put(out, Cage_Part_Tag.Wrap, i32(follow.wrap))
+	geom.rec_put(out, Cage_Part_Tag.Wrap_Offset, follow.wrap_offset)
+	geom.rec_put(out, Cage_Part_Tag.Sharp, cp.look.sharp)
+	if len(cp.held) > 0 do geom.rec_put_slice(out, Cage_Part_Tag.Held, cp.held)
 }
 
 // What `obj` is in the scene file.
@@ -2436,7 +2464,7 @@ object_put_estimate :: proc(obj: ^Object) -> int {
 	for set in sculpt.levels_sets(&obj.levels) do bytes += 64 + set.vertices
 	if vp := obj.voxel; vp != nil do bytes += 4 + voxel.clay_write_estimate(&vp.clay)
 	// A cage writes each point, corner and face once, with a few bytes a corner.
-	if cp := obj.curve; cp != nil do bytes += CURVE_POINT_BYTES * len(cp.points) + CURVE_TUBE_BYTES + CURVE_LATHE_BYTES + CURVE_ALONG_BYTES
+	if cp := obj.curve; cp != nil do bytes += CURVE_POINT_BYTES * len(cp.points) + CURVE_OPTIONS_BYTES
 	if cp := obj.cage; cp != nil do bytes += 20 * len(cp.mesh.positions) + 8 * len(cp.mesh.he_vert) + 6 * len(cp.mesh.face_he) + len(cp.held)
 	bytes += textures_bytes(obj.textures)
 	if sk := sculpt.levels_skin(&obj.levels); sk != nil do bytes += 32 + size_of(f16) * len(sk.heights)
