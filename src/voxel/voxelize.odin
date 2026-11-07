@@ -11,9 +11,10 @@ import "../jobs"
 // y and z through every voxel row collect where the mesh crosses them (geom.lattice_rays,
 // the exact casts the voxel remesh uses), the winding number along x says which voxels are
 // inside, and a voxel beside a crossing gets the distance a plane through the crossings on
-// its axes would have (exact for a flat surface, never more than the nearest axis distance).
-// Those seeds are within a voxel of the surface, so the band repair (band.odin) solves the
-// rest of the band from them, as it does after a stroke.
+// its axes would have, each looked for up to SEED_LOOK voxels out (exact for a flat
+// surface, never more than the nearest axis distance). Those seeds are within a voxel of
+// the surface, so the band repair (band.odin) solves the rest of the band from them, as it
+// does after a stroke, and the band then grows into the bricks it reaches.
 
 // How far along an axis a voxel can be from a crossing and still lie within BAND + 1 of the
 // surface: a voxel that close has a surface point within BAND + 1 along each axis, and the
@@ -126,13 +127,19 @@ clay_from_mesh :: proc(c: ^Clay, m: geom.Mesh, voxel: f32, pool: ^jobs.Pool, all
 		seed_brick(x, x.slots[i])
 	})
 	if !next(c, progress, &stage, share) do return false
-	// A brick the surface never came near is a tile after all; the rest are repaired.
+	// A brick with no seed is a tile for now; the rest are repaired, and the band then
+	// grows back into the tiles it reaches (a brick within the band but without a voxel
+	// beside a crossing would otherwise stay at the clamp, and the surface's gradient there,
+	// so its shading, would bend toward it), a layer of bricks at a time, as a boolean's.
+	kept := make([dynamic]u32, 0, len(x.slots), heap)
+	defer delete(kept)
 	for slot in x.slots {
 		if tile := brick_tile(&v.bricks[slot]); tile != .Brick {
 			volume_brick_collapse(v, v.coords[slot], tile)
 			continue
 		}
 		band_mark(c, slot)
+		append(&kept, slot)
 	}
 	{
 		live := volume_slots(v, heap)
@@ -141,6 +148,12 @@ clay_from_mesh :: proc(c: ^Clay, m: geom.Mesh, voxel: f32, pool: ^jobs.Pool, all
 	}
 	if !next(c, progress, &stage, share) do return false
 	band_repair(c)
+	for len(kept) > 0 {
+		grown := grow_band(c, kept[:], heap)
+		delete(kept)
+		kept = grown
+		if len(kept) > 0 do band_repair(c)
+	}
 	surface_mark_all(c)
 	return next(c, progress, &stage, share)
 }
@@ -166,18 +179,20 @@ hits_before :: #force_inline proc(hits: []geom.Lattice_Hit, w: f32) -> int {
 // Where the surface crosses the lattice edge from point `lo` to `lo + 1` along the ray
 // through (u, v) of `rays`, as a fraction of the edge: the last crossing in it that changes
 // the winding's sign, the middle when none does (the x rays decided the signs differ, so
-// something crosses), kept CROSSING_MARGIN off either end.
+// something crosses), kept CROSSING_MARGIN off either end. `found` is false for the
+// middle: this axis's ray did not see the change the x rays did (a crossing on an edge or
+// corner the rays' tie rules give the other way).
 @(private = "file")
-crossing_between :: proc(rays: geom.Lattice_Rays, u, v, lo: int) -> f32 {
-	at := f32(0.5)
+crossing_between :: proc(rays: geom.Lattice_Rays, u, v, lo: int) -> (at: f32, found: bool) {
+	at = 0.5
 	if u >= 0 && v >= 0 && u < rays.nu && v < rays.nv {
 		hits := geom.lattice_ray_hits(rays, u, v)
 		for i := hits_before(hits, f32(lo)); i < len(hits) && hits[i].w < f32(lo + 1); i += 1 {
 			prev: i32 = hits[i - 1].wind if i > 0 else 0
-			if (prev > 0) != (hits[i].wind > 0) do at = hits[i].w - f32(lo)
+			if (prev > 0) != (hits[i].wind > 0) do at, found = hits[i].w - f32(lo), true
 		}
 	}
-	return clamp(at, CROSSING_MARGIN, 1 - CROSSING_MARGIN)
+	return clamp(at, CROSSING_MARGIN, 1 - CROSSING_MARGIN), found
 }
 
 // Marks the bricks of slab `bz` of the box that lie within VOXELIZE_REACH voxels of a
@@ -228,9 +243,15 @@ mark_reach :: #force_inline proc(x: ^Voxelizer, bz: int, g: [3]int, axis: int) {
 	}
 }
 
-// The signs of a brick's voxels and the layer around them, from the x rays.
+// How far along each axis a seed looks for the surface's crossing: a crossing k voxels
+// away adds 1/k² to the plane's sum, so leaving out one farther than this errs by under
+// six percent of the distance (a crossing within a voxel only, the old reach, erred by up
+// to forty, which the gradient, and so the shading, shows as dents and a honeycomb).
 @(private = "file")
-SIGN_WINDOW :: BRICK + 2
+SEED_LOOK :: 3
+// The signs of a brick's voxels and SEED_LOOK layers around them, from the x rays.
+@(private = "file")
+SIGN_WINDOW :: BRICK + 2 * SEED_LOOK
 
 // Fills brick `slot` with its seeds: the sign of each voxel, and for a voxel beside a sign
 // change the planar distance from the crossings on its axes; far (the clamp) elsewhere.
@@ -239,7 +260,7 @@ seed_brick :: proc(x: ^Voxelizer, slot: u32) {
 	v := &x.c.volume
 	bc := v.coords[slot]
 	b := &v.bricks[slot]
-	base := bc * BRICK - 1 // the window's first voxel
+	base := bc * BRICK - SEED_LOOK // the window's first voxel
 	inside: [SIGN_WINDOW * SIGN_WINDOW * SIGN_WINDOW]bool
 	for wz in 0 ..< SIGN_WINDOW do for wy in 0 ..< SIGN_WINDOW {
 		g := base + {0, i32(wy), i32(wz)}
@@ -257,28 +278,41 @@ seed_brick :: proc(x: ^Voxelizer, slot: u32) {
 		}
 	}
 	at :: #force_inline proc(wx, wy, wz: int) -> int {return (wz * SIGN_WINDOW + wy) * SIGN_WINDOW + wx}
+	stride := [3]int{1, SIGN_WINDOW, SIGN_WINDOW * SIGN_WINDOW}
 	for z in 0 ..< BRICK do for y in 0 ..< BRICK do for x_ in 0 ..< BRICK {
-		w := at(x_ + 1, y + 1, z + 1)
+		w := at(x_ + SEED_LOOK, y + SEED_LOOK, z + SEED_LOOK)
 		in_ := inside[w]
+		// Only a voxel beside a sign change is a seed.
+		seed := false
+		for a in 0 ..< 3 do seed ||= inside[w - stride[a]] != in_ || inside[w + stride[a]] != in_
+		if !seed {
+			b.d[voxel_index(x_, y, z)] = -CLAMP if in_ else CLAMP
+			continue
+		}
 		l := bc * BRICK + {i32(x_), i32(y), i32(z)} - x.g0
-		// The nearest crossing per axis, in voxels; infinite without one.
+		// The nearest crossing per axis within SEED_LOOK, in voxels; infinite without one.
 		ax := [3]f32{math.INF_F32, math.INF_F32, math.INF_F32}
+		// A crossing an axis's ray did not see, used only when no axis saw one.
+		guess := f32(math.INF_F32)
 		for a in 0 ..< 3 {
 			u, vv := int(l[(a + 1) % 3]), int(l[(a + 2) % 3])
 			for side in 0 ..< 2 {
-				g := [3]int{x_ + 1, y + 1, z + 1}
-				g[a] += 1 if side == 1 else -1
-				if inside[at(g.x, g.y, g.z)] == in_ do continue
-				if side == 1 {
-					ax[a] = min(ax[a], crossing_between(x.rays[a], u, vv, int(l[a])))
-				} else {
-					ax[a] = min(ax[a], 1 - crossing_between(x.rays[a], u, vv, int(l[a]) - 1))
+				step := 1 if side == 1 else -1
+				for k in 1 ..= SEED_LOOK {
+					if inside[w + step * k * stride[a]] == in_ do continue
+					// The crossing is on the edge between k - 1 and k voxels away.
+					t, found := crossing_between(x.rays[a], u, vv, int(l[a]) + k - 1 if side == 1 else int(l[a]) - k)
+					d := f32(k - 1) + t if side == 1 else f32(k) - t
+					if found do ax[a] = min(ax[a], d)
+					else do guess = min(guess, d)
+					break
 				}
 			}
 		}
 		value := -CLAMP if in_ else CLAMP
 		sum: f32
 		for d in ax do if d < math.INF_F32 do sum += 1 / (d * d)
+		if sum == 0 && guess < math.INF_F32 do sum = 1 / (guess * guess)
 		if sum > 0 {
 			d := 1 / math.sqrt(sum)
 			value = quantize(-d if in_ else d)
