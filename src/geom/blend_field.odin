@@ -57,6 +57,7 @@ Blend_Field :: struct {
 	table:   []u64, // open addressing: key, then its slot at the same index of `slots`
 	slots:   []i32,
 	used:    int,
+	revision: u64, // moves on whenever the table does, for a copy kept elsewhere (the GPU's)
 }
 
 blend_field_init :: proc(f: ^Blend_Field, h, band: f32, allocator := context.allocator) {
@@ -121,6 +122,7 @@ blend_field_slot :: #force_inline proc(f: ^Blend_Field, k: u64) -> i32 {
 
 @(private = "file")
 table_put :: proc(f: ^Blend_Field, k: u64, slot: i32) {
+	f.revision += 1
 	if (f.used + 1) * 2 > len(f.table) do table_regrow(f, len(f.table) * 2)
 	mask := u64(len(f.table) - 1)
 	for i := u64(blend_key_hash(k)) & mask; ; i = (i + 1) & mask {
@@ -176,40 +178,70 @@ blend_field_fill :: proc(f: ^Blend_Field, s: ^Blend_Surface, keys: []u64, pool: 
 		first: int,
 	}
 	job := Fill{f, s, first}
-	jobs.parallel_for(pool, n * BLEND_SIDE, &job, proc(data: rawptr, i: int) {
+	// A job a row of a brick's samples, so a few bricks still spread over every worker.
+	jobs.parallel_for(pool, n * BLEND_SIDE * BLEND_SIDE, &job, proc(data: rawptr, i: int) {
 		job := cast(^Fill)data
-		fill_slice(job.f, job.s, job.first + i / BLEND_SIDE, i % BLEND_SIDE)
+		slot := job.first + i / (BLEND_SIDE * BLEND_SIDE)
+		values := job.f.values[slot * BLEND_SAMPLES:][:BLEND_SAMPLES]
+		extras := job.f.extras[slot * BLEND_SAMPLES:][:BLEND_SAMPLES]
+		fill_row(job.f.h, job.f.band, job.s, job.f.keys[slot], values, extras, (i / BLEND_SIDE) % BLEND_SIDE, i % BLEND_SIDE)
 	})
 	jobs.parallel_for(pool, n, &job, proc(data: rawptr, i: int) {
 		job := cast(^Fill)data
-		sign_unknown(job.f, job.first + i)
+		sign_unknown(job.f.values[(job.first + i) * BLEND_SAMPLES:][:BLEND_SAMPLES], job.f.band)
 	})
 	return n
 }
 
-// One z slice of a brick: its BLEND_SIDE² samples, rows along x, the hint carried from
-// each sample to the next. A sample with no surface within the band is stored as NaN for
-// sign_unknown.
+// One brick's samples, filled apart from any field: by blend_brick_sample on any thread
+// (it reads only the surface, which must not change meanwhile), then published by
+// blend_field_put on the thread that owns the field. A fill that must not hold up a frame
+// samples its bricks this way on threads of its own.
+Blend_Brick :: struct {
+	key:    u64,
+	values: [BLEND_SAMPLES]f32,
+	extras: [BLEND_SAMPLES]u32,
+}
+
+// Samples brick k of a field at spacing h and band `band` from surface s into b: the same
+// samples blend_field_fill makes.
+blend_brick_sample :: proc(h, band: f32, s: ^Blend_Surface, k: u64, b: ^Blend_Brick) {
+	b.key = k
+	for z in 0 ..< BLEND_SIDE do for y in 0 ..< BLEND_SIDE do fill_row(h, band, s, k, b.values[:], b.extras[:], z, y)
+	sign_unknown(b.values[:], band)
+}
+
+// Adds a sampled brick to the field and publishes it; false when the field holds it already.
+blend_field_put :: proc(f: ^Blend_Field, b: ^Blend_Brick) -> bool {
+	if blend_field_slot(f, b.key) >= 0 do return false
+	append(&f.keys, b.key)
+	append(&f.values, ..b.values[:])
+	append(&f.extras, ..b.extras[:])
+	table_put(f, b.key, i32(len(f.keys) - 1))
+	return true
+}
+
+// One row of a brick (y, z) into its samples: BLEND_SIDE samples along x, the hint carried
+// from each sample to the next. A sample with no surface within the band is stored as NaN
+// for sign_unknown.
 @(private = "file")
-fill_slice :: proc(f: ^Blend_Field, s: ^Blend_Surface, slot, z: int) {
-	b := blend_unkey(f.keys[slot])
-	lo := Vec3{f32(b.x), f32(b.y), f32(b.z)} * (f.h * BLEND_BRICK)
-	base := slot * BLEND_SAMPLES + z * BLEND_SIDE * BLEND_SIDE
+fill_row :: proc(h, band: f32, s: ^Blend_Surface, k: u64, values: []f32, extras: []u32, z, y: int) {
+	b := blend_unkey(k)
+	lo := Vec3{f32(b.x), f32(b.y), f32(b.z)} * (h * BLEND_BRICK)
+	base := z * BLEND_SIDE * BLEND_SIDE
 	hint := BVH_NONE
-	for y in 0 ..< BLEND_SIDE {
-		for x in 0 ..< BLEND_SIDE {
-			p := lo + Vec3{f32(x), f32(y), f32(z)} * f.h
-			d, n, w, tri, ok := surface_distance(s, p, f.band, hint)
-			at := base + y * BLEND_SIDE + x
-			if !ok {
-				f.values[at] = math.nan_f32()
-				f.extras[at] = 0
-				continue
-			}
-			hint = tri
-			f.values[at] = d
-			f.extras[at] = blend_extra_pack(n, w)
+	for x in 0 ..< BLEND_SIDE {
+		p := lo + Vec3{f32(x), f32(y), f32(z)} * h
+		d, n, w, tri, ok := surface_distance(s, p, band, hint)
+		at := base + y * BLEND_SIDE + x
+		if !ok {
+			values[at] = math.nan_f32()
+			extras[at] = 0
+			continue
 		}
+		hint = tri
+		values[at] = d
+		extras[at] = blend_extra_pack(n, w)
 	}
 }
 
@@ -218,8 +250,7 @@ fill_slice :: proc(f: ^Blend_Field, s: ^Blend_Surface, slot, z: int) {
 // neighbours h away lie on its side. Passes read the last pass's values only, so the
 // result is the same in any order; a brick with no signed sample at all is outside.
 @(private = "file")
-sign_unknown :: proc(f: ^Blend_Field, slot: int) {
-	v := f.values[slot * BLEND_SAMPLES:][:BLEND_SAMPLES]
+sign_unknown :: proc(v: []f32, band: f32) {
 	unknown := 0
 	for x in v do if math.is_nan(x) do unknown += 1
 	if unknown == 0 do return
@@ -248,7 +279,7 @@ sign_unknown :: proc(f: ^Blend_Field, slot: int) {
 		sign = next
 		if !changed do break
 	}
-	for &x, i in v do if math.is_nan(x) do x = f.band if sign[i] >= 0 else -f.band
+	for &x, i in v do if math.is_nan(x) do x = band if sign[i] >= 0 else -band
 }
 
 // The signed distance from p to the surface within `band`, the field's unit gradient there

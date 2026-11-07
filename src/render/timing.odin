@@ -17,6 +17,7 @@ Gpu_Span :: enum u8 {
 	Pictures,    // thumbnails and History step pictures
 	Interface,   // the interface's upload and drawing into each window
 	Sculpt,      // sculpting on the GPU: the normals kernel and its readback (sculpt_gpu.odin)
+	Blend,       // Smooth blend's projection slices (blend_compute.odin)
 }
 
 GPU_SPAN_NAMES := [Gpu_Span]string {
@@ -29,6 +30,7 @@ GPU_SPAN_NAMES := [Gpu_Span]string {
 	.Pictures    = "pictures",
 	.Interface   = "interface",
 	.Sculpt      = "sculpt",
+	.Blend       = "blend",
 }
 
 // Milliseconds of GPU time by span, and which spans ran.

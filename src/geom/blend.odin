@@ -130,15 +130,44 @@ blend_union :: #force_inline proc(a, b: f32, ga, gb: Vec3, k, s: f32) -> (g: f32
 
 // The blend radius at a point whose two unit gradients have cosine c: the radius times the
 // share of a blend the opening function gives the angle between them (θ = 0 a full blend,
-// π/4 a union), times the painted weight w (0 no blend to 1).
+// π/4 a union), times the painted weight w (0 no blend to 1). Read from BLEND_SHARES by
+// the angle, as the GPU reads the same table: Gourmel's θ costs two exps and a pow beside
+// the acos, which every step of every vertex's march would pay several times (they sample
+// their operators into textures for the same reason).
 blend_radius_at :: proc(radius, c, w: f32, opening: Blend_Opening) -> f32 {
-	theta := blend_opening_theta(opening, math.acos(clamp(c, -1, 1)))
-	return radius * w * (1 - theta / (math.PI / 4))
+	return radius * w * blend_share(opening, c)
+}
+
+// Steps of the opening function's table over the angle from 0 to π: Gourmel's θ is
+// smooth in the angle (in the cosine it is steep at the ends), so these few follow it
+// within 1e-3 of a share (checked by a test), and both tables fit the kernel's uniforms
+// (4 KB on every backend) beside its pair table.
+BLEND_SHARE_STEPS :: 192
+
+// Per opening function, the share of a blend, 1 - θ(α) / (π/4), at α = π i /
+// BLEND_SHARE_STEPS: made once at start-up, read by geom and uploaded for the GPU's.
+BLEND_SHARES: [Blend_Opening][BLEND_SHARE_STEPS + 1]f32
+
+@(init)
+blend_shares_make :: proc "contextless" () {
+	for o in Blend_Opening {
+		for i in 0 ..= BLEND_SHARE_STEPS {
+			BLEND_SHARES[o][i] = 1 - blend_opening_theta(o, math.PI * f32(i) / BLEND_SHARE_STEPS) / (math.PI / 4)
+		}
+	}
+}
+
+// The share of a blend at cosine c, read linearly from BLEND_SHARES by the angle.
+blend_share :: #force_inline proc(opening: Blend_Opening, c: f32) -> f32 {
+	q := math.acos(clamp(c, -1, 1)) / math.PI * BLEND_SHARE_STEPS
+	i := min(int(q), BLEND_SHARE_STEPS - 1)
+	t := q - f32(i)
+	return BLEND_SHARES[opening][i] * (1 - t) + BLEND_SHARES[opening][i + 1] * t
 }
 
 // Gourmel's opening function θ(α) (eq. 15): constant outside [α0, α2], and between them
 // two flat-ended C∞ ramps through θ1 at α1 shaped by κ (eq. 16) raised to the slopes.
-blend_opening_theta :: proc(opening: Blend_Opening, alpha: f32) -> f32 {
+blend_opening_theta :: proc "contextless" (opening: Blend_Opening, alpha: f32) -> f32 {
 	q := BLEND_OPENINGS[opening]
 	a0, a1, a2, t0, t1, t2, w0, w1 := q[0], q[1], q[2], q[3], q[4], q[5], q[6], q[7]
 	switch {
@@ -150,7 +179,7 @@ blend_opening_theta :: proc(opening: Blend_Opening, alpha: f32) -> f32 {
 }
 
 // Gourmel's κ (eq. 16): 0 at 0, 1 at 1, every derivative 0 at both ends.
-blend_kappa :: proc(x: f32) -> f32 {
+blend_kappa :: proc "contextless" (x: f32) -> f32 {
 	if x <= 0 do return 0
 	if x >= 1 do return 1
 	return 1 - math.exp(1 - 1 / (1 - math.exp(1 - 1 / x)))

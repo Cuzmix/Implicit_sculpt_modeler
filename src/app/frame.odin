@@ -48,6 +48,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 	if times, ok := render.timestamps_frame(&app.renderer); ok {
 		for span in times.ran do ring_push(&app.stats.gpu_spans[span], times.ms[span])
 		app.stats.gpu_viewport_stamped_ms = times.ms[.None] - times.ms[.Interface]
+		if .Blend in times.ran do blend_timed(app, times.ms[.Blend])
 	}
 	render.gpu_cull_frame(&app.renderer)
 	// The positions and normals a stroke's earlier frames read back land in the mesh

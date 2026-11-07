@@ -61,6 +61,7 @@ Options :: struct {
 	dump_viewport: string `usage:"On exit, write the last viewport image to this path: a PNG, or a binary PPM when it ends in .ppm (for checking renders), as Menu > Save screenshot does."`,
 	blend_cpu: bool `usage:"With --blend-test, project on the CPU even where the GPU could (for comparison)."`,
 	blend_check: bool `usage:"With --blend-test, project each object on the CPU too and compare the GPU's pages with it (exit stats blend_check_diff= blend_check_mismatch=)."`,
+	blend_drag: int `usage:"With --blend-test, move the second object a step a frame for this many frames, the blend following within each frame's budget, then until it settles (exit stats blend_drag_frames= blend_settle_frames= blend_frame_cpu_ms_most= blend_frame_gpu_ms_most= blend_mark_ms_most=); with --blend-check, the settled pages are compared with the CPU's projection."`,
 	blend_test: f32 `usage:"Join every shown sculpt object with every other by Smooth blend at this radius (world units) on the first frame, drawn from then on, as a test of the blend before its Live stack row exists."`,
 	check_mesh: bool `usage:"On exit, check every object's current mesh (closed, consistently wound, no degenerate triangles or NaN) and print the counts as mesh_* lines (slow on large meshes)."`,
 	no_partial: bool `usage:"Redraw the whole viewport every frame instead of only what changed (for comparison)."`,
@@ -374,6 +375,7 @@ App :: struct {
 	blend_gpu:       render.Blend_Compute,
 	blend_test:      f32,
 	blend_cpu:       bool,
+	blend_drag:      int,
 	blend_check:     bool,
 	dump_balls_next: int,
 	thumb_slots:    Thumb_Slots,
@@ -844,6 +846,7 @@ run :: proc(opts: Options, exit_code: ^int) -> bool {
 	app.opts_dump_balls = opts.dump_balls
 	app.blend_test = opts.blend_test
 	app.blend_cpu = opts.blend_cpu
+	app.blend_drag = opts.blend_drag
 	app.blend_check = opts.blend_check
 	app.polyframe_lines = true
 	app.floor = FLOOR_DEFAULT
