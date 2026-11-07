@@ -191,6 +191,7 @@ SETTINGS := [?]Setting {
 	{"stabilize", B + offset_of(Brush_Settings, stabilize), f32, 0, sculpt.STABILIZE_MAX},
 	{"sample_radius", B + offset_of(Brush_Settings, sample_radius), f32, sculpt.SAMPLE_RADIUS_MIN, 1},
 	{"symmetry_local", B + offset_of(Brush_Settings, sym_local), bool, 0, 0},
+	{"symmetry_poseable", B + offset_of(Brush_Settings, poseable), bool, 0, 0},
 	{"radial", B + offset_of(Brush_Settings, radial_on), bool, 0, 0},
 	{"radial_count", B + offset_of(Brush_Settings, radial_count), i32, RADIAL_MIN, sculpt.RADIAL_MAX},
 	{"radial_axis", B + offset_of(Brush_Settings, radial_axis), sculpt.Axis, 0, 0},
@@ -290,6 +291,7 @@ SETTINGS := [?]Setting {
 	{"flat", offset_of(App, flat), bool, 0, 0},
 	{"live_ao", offset_of(App, live_ao_on), bool, 0, 0},
 	{"screenshot_transparent", offset_of(App, screenshot_transparent), bool, 0, 0},
+	{"record_video", offset_of(App, record_video), bool, 0, 0},
 	{"turntable_frames", offset_of(App, turntable_frames), i32, TURNTABLE_FRAMES_MIN, TURNTABLE_FRAMES_MAX},
 	{"print_unit", offset_of(App, print_unit), Print_Unit, 0, 0},
 	{"studio_render", offset_of(App, studio_on), bool, 0, 0},
@@ -297,6 +299,10 @@ SETTINGS := [?]Setting {
 	{"studio_ao", offset_of(App, studio_ao), f32, 0, 1},
 	{"render_quality", offset_of(App, render_quality), Render_Quality, 0, 0},
 	{"render_samples", offset_of(App, render_samples), i32, 1, render.RENDER_SAMPLES_MAX},
+	{"render_image_size", offset_of(App, render_image_settings) + offset_of(Render_Image_Settings, size), Render_Image_Size, 0, 0},
+	{"render_image_fast", offset_of(App, render_image_settings) + offset_of(Render_Image_Settings, fast), bool, 0, 0},
+	{"render_image_passes", offset_of(App, render_image_settings) + offset_of(Render_Image_Settings, passes), bool, 0, 0},
+	{"render_image_catcher", offset_of(App, render_image_settings) + offset_of(Render_Image_Settings, catcher), bool, 0, 0},
 	{"render_bounces", offset_of(App, render_bounces), i32, 1, render.RENDER_BOUNCES_MAX},
 	{"render_denoise", offset_of(App, render_denoise), bool, 0, 0},
 	{"render_half", offset_of(App, render_half), bool, 0, 0},
@@ -345,6 +351,8 @@ SETTINGS := [?]Setting {
 	{"ridge", offset_of(App, ridge), f32, 0, 1},
 	{"motion", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, motion), ui.Motion_Level, 0, 0},
 	{"left_handed", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, mirror), bool, 0, 0},
+	{"icon_style", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, icon_style), ui.Icon_Style, 0, 0},
+	{"icon_weight", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, icon_weight), ui.Icon_Weight, 0, 0},
 	{"ortho", offset_of(App, camera) + offset_of(camera.Orbit, ortho), bool, 0, 0},
 	{"fov", offset_of(App, camera) + offset_of(camera.Orbit, fov_y), f32, camera.FOV_MIN, camera.FOV_MAX},
 	// Settings > Interface, Camera, Touch and Performance.
@@ -355,6 +363,7 @@ SETTINGS := [?]Setting {
 	{"new_panes", K + offset_of(Kit_State, new_panes), New_Panes, 0, 0},
 	{"action_bar", K + offset_of(Kit_State, action_bar), bool, 0, 0},
 	{"modifier_rail", K + offset_of(Kit_State, rail_side), Rail_Side, 0, 0},
+	{"layouts_for", K + offset_of(Kit_State, layouts_for), Layouts_For, 0, 0},
 	{"wheel_size", K + offset_of(Kit_State, wheel_size), Wheel_Size, 0, 0},
 	{"wheel_labels", K + offset_of(Kit_State, wheel_labels), Wheel_Labels, 0, 0},
 	{"wheel_turn", K + offset_of(Kit_State, wheel_turn), f32, -180, 180},
@@ -740,6 +749,9 @@ settings_load :: proc(app: ^App, path: string) {
 	// Each pack preset a slot held as the file wrote it, and where the library has it now.
 	pack_from, pack_to: [dynamic]int
 	pack_from.allocator, pack_to.allocator = context.temp_allocator, context.temp_allocator
+	// The workspaces as read so far (workspaces_load_line), made sound once every line is.
+	workspaces_read := Workspaces_Read{current = -1}
+	workspaces_read.order.allocator = context.temp_allocator
 	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
@@ -884,10 +896,9 @@ settings_load :: proc(app: ^App, path: string) {
 		case "ui_scale":
 			want := number(f[1], 1)
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
-		case "space_layout", "space_current":
-			// space_layout <Space> <layout, escaped>: a space's layout where it differs from
-			// how it ships; space_current <Space>: the space in front.
-			layouts_load_line(&app.kit, f)
+		case "workspace", "workspace_layout", "workspace_base", "workspace_order", "workspace_current":
+			// The workspaces, their layouts, their order and the one in front (workspaces_save).
+			workspaces_load_line(&app.kit, &workspaces_read, f)
 		case "brush_recent", "brush_favorite":
 			// brush_recent <key, escaped> ..., most recent first, and brush_favorite <key,
 			// escaped> ..., in the order added: what the brush browser's Recent and
@@ -1081,7 +1092,7 @@ settings_load :: proc(app: ^App, path: string) {
 	}
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
-	layouts_loaded(&app.kit)
+	workspaces_loaded(&app.kit, &workspaces_read)
 	log.infof("settings: read %s", path)
 
 	number :: proc(s: string, fallback: f32) -> f32 {
@@ -1160,7 +1171,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
 	themes_save(&app.kit, &out)
-	layouts_save(&app.kit, &out)
+	workspaces_save(&app.kit, &out)
 	if p := &app.kit.brushes; p.recent_count > 0 {
 		strings.write_string(&out, "brush_recent")
 		for &k in p.recent[:p.recent_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))

@@ -10,9 +10,9 @@ import "../ui"
 // centre line and at its end corner, each a dock of buttons the person edits as any other
 // (Edit docks, the Library), so the top bar holds whatever they reach for most. At first the
 // File dock holds the menu, the file chip (the file and whether it is saved), Save, Undo and
-// Redo; the Spaces dock the space tabs and the object chip; the App dock Search, History and
-// Settings. They are a setting, not a layout's: the Spaces dock holds the spaces' tabs, so
-// the bar is the same in every space. When the corners would reach the middle
+// Redo; the Workspaces dock the workspace tabs and the object chip; the App dock Search, History and
+// Settings. They are a setting, not a layout's: the Workspaces dock holds the workspace tabs,
+// so the bar is the same in every workspace. When the corners would reach the middle
 // dock, the chips give way in a fixed order (the object chip's badges, Search's field, the
 // chip's tag, the file chip, the tabs to the layout's chip, the object chip to its icon), and
 // only then does the middle leave the centre. Returns the menu button and the Search button,
@@ -25,7 +25,7 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	k.passes.chip_held = false
 	k.object_chip_fit = .None
 	k.top_at = {}
-	k.space_tabs_at = {}
+	k.workspace_tabs_at, k.workspace_tab_at = {}, {}
 	width := area.w - 2 * TOP_BAR_INSET
 	v := Top_Fit {
 		focus   = lens_focus(k) && !k.bars_edit,
@@ -38,7 +38,7 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	chip := object_chip_of(app)
 	fits :: proc(w: [Top_Dock]f32, width: f32) -> bool {
 		side := max(w[.File], w[.App])
-		return w[.Spaces] <= width - 2 * (side + TOP_ISLAND_GAP)
+		return w[.Workspaces] <= width - 2 * (side + TOP_ISLAND_GAP)
 	}
 	for step in 0 ..< 6 {
 		if fits(top_widths(app, v, chip), width) do break
@@ -47,17 +47,24 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 		case 1: v.field = false
 		case 2: if v.fit > .Name do v.fit = .Name
 		case 3: v.file = false
-		case 4: if v.tabs == 0 do v.tabs = 1
+		case 4:
+			// The tabs fold away from the last, the one in front staying, and only when one
+			// tab will not fit does the workspace chip stand in for them all.
+			if v.tabs != 0 do break
+			for v.shown = len(workspace_tabs(k)) - 1; v.shown >= 1; v.shown -= 1 {
+				if fits(top_widths(app, v, chip), width) do break
+			}
+			if v.shown < 1 do v.shown, v.tabs = 0, 1
 		case 5: if v.fit > .Icon do v.fit = .Icon
 		}
 	}
 	// Off centre at last: the middle takes what the corners leave, and gives up the
 	// layout's chip, then shrinks the object chip, before anything overlaps.
 	w := top_widths(app, v, chip)
-	if !v.arrange && !v.focus && w[.File] + w[.Spaces] + w[.App] + 2 * TOP_ISLAND_GAP > width {
+	if !v.arrange && !v.focus && w[.File] + w[.Workspaces] + w[.App] + 2 * TOP_ISLAND_GAP > width {
 		room := width - w[.File] - w[.App] - 2 * TOP_ISLAND_GAP
 		v.tabs = 2
-		rest := max(top_dock_width(app, .Spaces, v, chip, skip_chip = true), 2 * TOP_ISLAND_PAD)
+		rest := max(top_dock_width(app, .Workspaces, v, chip, skip_chip = true), 2 * TOP_ISLAND_PAD)
 		v.fit = object_chip_fit(ctx, chip, room - rest - TOP_ISLAND_PAD)
 		w = top_widths(app, v, chip)
 	}
@@ -75,12 +82,12 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 	used: f32 = 0
 	for d in Top_Dock {
 		if w[d] <= 0 do continue
-		dw := drawn(ctx, TOP_DOCK_ROOTS[d], w[d], trust = d == .Spaces && (v.focus || v.arrange))
+		dw := drawn(ctx, TOP_DOCK_ROOTS[d], w[d], trust = d == .Workspaces && (v.focus || v.arrange))
 		at: f32
 		switch d {
 		case .File:
 			at = 0
-		case .Spaces:
+		case .Workspaces:
 			at = clamp((width - dw) * 0.5, used + TOP_ISLAND_GAP, max(width - w[.App] - TOP_ISLAND_GAP - dw, used + TOP_ISLAND_GAP))
 		case .App:
 			at = max(width - dw, used)
@@ -88,12 +95,12 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 		ui.spacer(ctx, at - used)
 		ui.begin(ctx, TOP_DOCK_ROOTS[d], island)
 		switch {
-		case d == .Spaces && v.arrange:
+		case d == .Workspaces && v.arrange:
 			// Editing, the middle holds what editing needs in place of its buttons, or Done
 			// alone when the rest has no room.
 			if v.tabs == 0 do _ = arrange_top_controls(app)
 			else if ui.button(ctx, "Done##arrange narrow", .Solid, .Accent, width = ARRANGE_DONE_W) do k.bars_edit = false
-		case d == .Spaces && v.focus:
+		case d == .Workspaces && v.focus:
 			top_focus_middle(app)
 		case:
 			top_dock_draw(app, d, v, chip, &menu_anchor, &search_anchor)
@@ -111,7 +118,7 @@ kit_top_bar :: proc(app: ^App) -> (menu_anchor, search_anchor: ui.Rect) {
 top_dock_of :: proc(which: Bar_Which) -> (Top_Dock, bool) {
 	#partial switch which {
 	case .Top_File:   return .File, true
-	case .Top_Spaces: return .Spaces, true
+	case .Top_Workspaces: return .Workspaces, true
 	case .Top_App:    return .App, true
 	}
 	return {}, false
@@ -120,7 +127,7 @@ top_dock_of :: proc(which: Bar_Which) -> (Top_Dock, bool) {
 // The three docks of the top bar, from the start corner.
 Top_Dock :: enum u8 {
 	File,
-	Spaces,
+	Workspaces,
 	App,
 }
 
@@ -128,7 +135,7 @@ Top_Dock :: enum u8 {
 @(rodata)
 TOP_DOCK_BARS := [Top_Dock]Bar_Which {
 	.File   = .Top_File,
-	.Spaces = .Top_Spaces,
+	.Workspaces = .Top_Workspaces,
 	.App    = .Top_App,
 }
 
@@ -137,18 +144,19 @@ TOP_DOCK_BARS := [Top_Dock]Bar_Which {
 @(rodata)
 TOP_DOCK_ROOTS := [Top_Dock]string {
 	.File   = "file dock",
-	.Spaces = "spaces dock",
+	.Workspaces = "workspaces dock",
 	.App    = "app dock",
 }
 
 // What the top docks show this frame, from everything down to the least that still works.
 Top_Fit :: struct {
-	focus:   bool, // Focus's middle (the space chip, X symmetry) and View layout and Passes at the end
+	focus:   bool, // Focus's middle (the workspace chip, X symmetry) and View layout and Passes at the end
 	arrange: bool, // editing the docks: the middle holds the editing controls
 	edit:    bool, // the top docks' own buttons are edited: Edit docks, not one dock's Edit buttons
 	file:    bool, // the file chip
 	field:   bool, // Search as its field rather than its icon
-	tabs:    int, // the space tabs (0), the layout's chip (1) or neither (2); editing, all of the controls (0) or Done alone
+	tabs:    int, // the workspace tabs (0), the workspace chip (1) or neither (2); editing, all of the controls (0) or Done alone
+	shown:   int, // how many workspace tabs show, the one in front among them; 0 for all
 	fit:     Object_Chip_Fit,
 }
 
@@ -162,10 +170,10 @@ TOP_ISLAND_PAD :: 2
 ARRANGE_DONE_W :: 84
 
 // Whether a hairline stands between two neighbouring buttons of a top dock: after a chip
-// (the file, the space tabs) and after Search, as between the bar's groups.
+// (the file, the workspace tabs) and after Search, as between the bar's groups.
 top_divides :: proc(prev, next: Command_Id) -> bool {
 	#partial switch prev {
-	case .File_Chip, .Space_Tabs, .Command_Palette: return true
+	case .File_Chip, .Workspace_Tabs, .Command_Palette: return true
 	case .Main_Menu:                                return next != .File_Chip
 	}
 	return false
@@ -181,10 +189,10 @@ top_slot_width :: proc(app: ^App, s: Bar_Slot, v: Top_Fit, chip: Object_Chip) ->
 	#partial switch s.id {
 	case .File_Chip:
 		return top_file_width(app) if v.file else 0
-	case .Space_Tabs:
+	case .Workspace_Tabs:
 		switch v.tabs {
-		case 0: return space_tabs_width(app)
-		case 1: return SPACE_CHIP_ROOM
+		case 0: return workspace_tabs_width(app, v.shown)
+		case 1: return WORKSPACE_CHIP_ROOM
 		}
 		return 0
 	case .Object_Chip:
@@ -229,9 +237,9 @@ top_widths :: proc(app: ^App, v: Top_Fit, chip: Object_Chip) -> (w: [Top_Dock]f3
 	for d in Top_Dock do w[d] = top_dock_width(app, d, v, chip)
 	switch {
 	case v.arrange:
-		w[.Spaces] = (arrange_top_width(app) if v.tabs == 0 else ARRANGE_DONE_W) + 2 * TOP_ISLAND_PAD
+		w[.Workspaces] = (arrange_top_width(app) if v.tabs == 0 else ARRANGE_DONE_W) + 2 * TOP_ISLAND_PAD
 	case v.focus:
-		w[.Spaces] = SPACE_CHIP_ROOM + FOCUS_SYMMETRY_W + 3 * TOP_ISLAND_PAD
+		w[.Workspaces] = WORKSPACE_CHIP_ROOM + FOCUS_SYMMETRY_W + 3 * TOP_ISLAND_PAD
 		w[.App] += TOP_DIVIDER_W + 2 * app.kit.ctx.theme.target + 3 * TOP_ISLAND_PAD
 	}
 	return
@@ -277,12 +285,12 @@ top_dock_draw :: proc(app: ^App, d: Top_Dock, v: Top_Fit, chip: Object_Chip, men
 			if ui.icon_button(ctx, name, ui.ICON_UNDO if undo else ui.ICON_REDO, enabled = command_enabled(app, s.id), keys = command_hint(app, s.id)) do command_run(app, s.id)
 			quick_scrub_button(app, .Undo if undo else .Redo)
 			undo_at = ctx.last_rect if undo_at.w <= 0 else ui.rect_union(undo_at, ctx.last_rect)
-		case .Space_Tabs:
+		case .Workspace_Tabs:
 			if v.tabs == 0 {
-				_ = top_space_tabs(app)
-				k.space_tabs_at = ui.last_ended(ctx)
+				_ = top_workspace_tabs(app, v.shown)
+				k.workspace_tabs_at = ui.last_ended(ctx)
 			} else {
-				kit_space_chip(app)
+				kit_workspace_chip(app)
 			}
 		case .Object_Chip:
 			top_object_chip(app, chip, v.fit)
@@ -324,15 +332,15 @@ lens_focus :: proc(k: ^Kit_State) -> bool {
 // The width the X symmetry chip takes in Focus's middle island, in points.
 FOCUS_SYMMETRY_W :: 64
 
-// Focus's middle island: the space (its chip opens the layout menu) and X symmetry.
+// Focus's middle island: the workspace (its chip opens the workspace menu) and X symmetry.
 @(private = "file")
 top_focus_middle :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
-	kit_space_chip(app)
+	kit_workspace_chip(app)
 	x := command_checked(app, .Symmetry_X)
-	if a := lens_chip(ctx, "Symmetry X##focus", "X", glyph = ICON_SYMMETRY, lit = x, keys = command_hint(app, .Symmetry_X)); a.clicked do command_run(app, .Symmetry_X)
+	if a := lens_chip(ctx, "Symmetry X##focus", "X", glyph = ui.ICON_SYMMETRY, lit = x, keys = command_hint(app, .Symmetry_X)); a.clicked do command_run(app, .Symmetry_X)
 	if x do ui.stroke_rect(ctx, {ctx.last_rect.x, ctx.last_rect.y + (ctx.last_rect.h - LENS_CHIP_H) * 0.5, ctx.last_rect.w, LENS_CHIP_H}, t.radius_medium, t.accent, 1)
 }
 
@@ -344,9 +352,9 @@ top_focus_view :: proc(app: ^App) {
 	ctx := &k.ctx
 	top_divider(ctx)
 	layout := bar_pop_showing(app, .View_Layout)
-	if ui.icon_button(ctx, "View layout", ICON_VIEW_LAYOUT, selected = layout, keys = command_hint(app, .View_Layout_Menu)) do bar_pop_toggle(app, .View_Layout, ctx.last_rect, .Below)
+	if ui.icon_button(ctx, "View layout", ui.ICON_VIEW_LAYOUT, selected = layout, keys = command_hint(app, .View_Layout_Menu)) do bar_pop_toggle(app, .View_Layout, ctx.last_rect, .Below)
 	k.bar_at[.View_Layout], k.bar_side[.View_Layout] = ctx.last_rect, .Below
-	if ui.icon_button(ctx, "Shading modes", ICON_PASSES, selected = k.passes.menu, keys = command_hint(app, .Pass_Menu)) {
+	if ui.icon_button(ctx, "Shading modes", ui.ICON_PASSES, selected = k.passes.menu, keys = command_hint(app, .Pass_Menu)) {
 		k.passes.menu_at, k.passes.menu_side = ctx.last_rect, .Below
 		pass_menu_toggle(app)
 	}

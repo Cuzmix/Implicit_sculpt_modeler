@@ -10,12 +10,37 @@ description: Implicit and SDF modelling for this app — the voxel sculptor in s
   4096 units a voxel, `BAND` 3, `CLAMP` ±4 voxels, tiles `TILE_EMPTY`/`TILE_INSIDE` in each chunk's table, 4096³ domain)
   in `volume.odin`; `Clay` (volume + `Surface` + undo + pool) with `clay_init/destroy/fill_sphere/raycast/stroke_begin/dab/
   stroke_end/flush/to_mesh/write/read/undo/redo` in `clay.odin`, `mesh.odin`, `undo.odin`, `file.odin`, `convert.odin`;
-  brushes `Add, Subtract, Smooth, Flatten, Inflate` as a stamp `smin`, a 27-mean, a plane clip or fill and an offset
-  (`brush.odin`); band repair by Godunov sweeps at `clay_stroke_end` (`band.odin`): the region's bricks run in WAVEFRONTS
+  brushes `Add, Subtract, Clay, Inflate` as an offset of the band's values by height × falloff (never the clamp's,
+  which are bounds; far voxels bounded by the eikonal update from their neighbours; a voxel a step, `dab_steps`), `Smooth`
+  a 27-mean, `Flatten` a plane clip or fill (`brush.odin`); `Pinch`, `Crease`, `Snake_Hook` a dab's warp read from the 27
+  bricks round each brick, in steps of at most `WARP_STEP` (half the clamp, so dilation keeps the band ahead; `dab_warp.odin`); `Layer` grows
+  no further than `layer` above the press (the stroke's first undo saves, `Undo_History.first`, `undo_press`; past the clamp
+  `layer_press` steps back along the normal), `Clay_Strips` to a plane with a square falloff along `Brush.along`, `Trim` clips
+  to two planes turned by the sides' normals (`trim_planes`), `Brush.polish` adds a swell-back Smooth pass (`brush_more.odin`); `Tube` the smooth union of the press with a capsule
+  `Brush.from`→centre, `min`'d with the field so joints never swell, its points raycast through the press
+  (`clay_raycast_press`; `volume_raycast`/`volume_value` take an optional `^Undo_History`; `tube.odin`); `Grab` a warp (`warp.odin`: `clay_grab_begin/move`, every frame
+  samples the press's field, the undo step's first saves, through the inverse of the move found by fixed-point steps,
+  long drags chained in steps of 0.4 r, all symmetry images in one warp, sources on a lattice of every other voxel,
+  bricks whose sources fall in one tile pruned to it, first in blocks of 4³ bricks, corners shared through
+  `Corner_Grid`s; `Elastic` the same warp weighed by `geom.kelvinlet_follow`, the mesh Elastic's); `mesh_node` insets crossings by `CROSSING_INSET` so squeezed
+  values never fold a triangle onto a lattice point); band repair by Godunov sweeps at `clay_stroke_end` (`band.odin`): the region's bricks run in WAVEFRONTS
   (bricks of one coordinate sum share no face, so a wavefront is one `parallel_for` reading neighbours live: Gauss-Seidel
-  across bricks, no snapshot), a sweep per direction (`sweep & 7`), stopping at the first sweep that moves no value by
+  across bricks, no snapshot; units are 2³ brick blocks swept in order by one job, `Clay.units`, which keeps every
+  face-neighbour's order so the bits are the same; levels counting-sorted), a sweep per direction (`sweep & 7`), stopping at the first sweep that moves no value by
   more than `REPAIR_SETTLED` (`Clay.repair_sweeps` says how many; `band_repair(c, every_sweep = true)` runs them all for
-  the test). Negative is inside, as here.
+  the test); the end marks only nodes that see a change within `NEAR` (`Clay.repair_seen`, `surface_mark_box`). Negative is inside, as here.
+- Whole-clay steps outside a stroke copy `clay_mirror` (`mirror.odin`) and `clay_keep_largest` (`pieces.odin`): work the new
+  bricks out in parallel into scratch (or per-brick labels), then `clay_stroke_begin`, `undo_record` before each write,
+  `band_mark` what needs true distances again (and `undo_record` it: the repair writes only saved bricks), `surface_mark_brick`,
+  `clay_stroke_end`. Never collapse a brick to Empty whose outside voxels may hold a kept surface's distances: set its
+  voxels and let the repair empty it. The app runs them as scene commands (`.Symmetrize` on clay, `.Remove_Floaters`) and
+  records `history_record(.Deform)`, not a swap.
+- Colour on clay (`color.odin`): `Color_Brick` per brick beside the mask (`Volume.colors`, `color_of/make/drop`), saved in undo
+  and SVOX v4 like the mask, the Paint dab writes it like the Mask dab, surfaces sample it weighted (`color_trilinear`)
+  into `Surface.color`; an unpainted voxel is all zeros (the file packs it so). Anything that moves or copies bricks must carry it: the warps read the nearest source voxel's colour
+  (`warp_color`, `grab_color`) and commit serially (`color_make` is not thread safe), mirror, resample and booleans likewise. Whole-clay Fill, Gradient and Clear: `clay_paint_command`. Mesh polypaint onto new clay: `clay_paint_from_mesh`; the colour at a hit: `clay_color_at`.
+- Mask filters on clay (`mask_filter.odin`, `clay_mask_filter`): only voxels with |d| ≤ BAND·SCALE take part (what the mask
+  brush and shapes reach), so Shrink never erodes from the band's edge; `clay_hash` reads the field only, so mask tests hash the masks.
 - Rules it keeps: every new value depends on old values only (serial == parallel, `serial_and_parallel_strokes_agree_bit_for_bit`);
   jobs write disjoint bricks or node slots; the directory changes only in serial passes; a brick dirties the nodes whose
   20³ meshing window sees a change within `NEAR` (3 voxels) of the surface; unused index slots are zeros on a dummy vertex 0;

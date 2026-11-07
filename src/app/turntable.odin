@@ -29,6 +29,8 @@ Turntable :: struct {
 	apng:   png_write.Apng,
 	file:   ^os.File, // the animated PNG, written a frame at a time
 	buffer: [dynamic]u8, // its chunks between writes
+	video:  ^Video, // the MP4 beside them where the system makes one (video.odin); nil for none
+	video_note: string, // why there is none, for the note at the end
 }
 
 TURNTABLE_FRAMES_DEFAULT :: 120
@@ -40,6 +42,7 @@ TURNTABLE_FPS :: 30
 // a file too large to send. The numbered frames keep the viewport's size.
 TURNTABLE_ANIMATION_MAX :: 960
 TURNTABLE_ANIMATION_NAME :: "turntable.png"
+TURNTABLE_VIDEO_NAME :: "turntable.mp4"
 
 turntable_destroy :: proc(app: ^App) {
 	tt := &app.turntable
@@ -49,6 +52,7 @@ turntable_destroy :: proc(app: ^App) {
 		path, _ := filepath.join({tt.dir, TURNTABLE_ANIMATION_NAME}, context.temp_allocator)
 		_ = os.remove(path)
 	}
+	if app.turntable.video != nil do _ = video_close(app.turntable.video, false)
 	delete(app.turntable.dir)
 	delete(app.turntable.buffer)
 	app.turntable = {}
@@ -77,6 +81,7 @@ turntable_start :: proc(app: ^App, dir: string) {
 	tt.frames = clamp(int(app.turntable_frames), TURNTABLE_FRAMES_MIN, TURNTABLE_FRAMES_MAX)
 	tt.yaw = app.camera.yaw
 	tt.apng = {}
+	tt.video, tt.video_note = nil, ""
 	clear(&tt.buffer)
 	app.timeline.playing = false
 	log.infof("turntable: recording %d frames into %s", tt.frames, dir)
@@ -97,13 +102,23 @@ turntable_stop :: proc(app: ^App, why: string) {
 	if tt.file != nil do os.close(tt.file)
 	tt.file = nil
 	clear(&tt.buffer)
+	made_video := false
+	if tt.video != nil {
+		made_video = video_close(tt.video, reason == "")
+		if reason == "" && !made_video do tt.video_note = "the video could not be finished"
+		tt.video = nil
+	}
 	path, _ := filepath.join({tt.dir, TURNTABLE_ANIMATION_NAME}, context.temp_allocator)
 	if reason != "" {
 		_ = os.remove(path)
 		file_note(app, true, "Turntable stopped after %d of %d frames: %s", tt.frame, tt.frames, reason)
 		return
 	}
-	file_note(app, false, "Turntable: %d frames and %s in %s", tt.frames, TURNTABLE_ANIMATION_NAME, tt.dir)
+	switch {
+	case made_video:          file_note(app, false, "Turntable: %d frames, %s and %s in %s", tt.frames, TURNTABLE_ANIMATION_NAME, TURNTABLE_VIDEO_NAME, tt.dir)
+	case tt.video_note != "": file_note(app, false, "Turntable: %d frames and %s in %s; no video: %s", tt.frames, TURNTABLE_ANIMATION_NAME, tt.dir, tt.video_note)
+	case:                     file_note(app, false, "Turntable: %d frames and %s in %s", tt.frames, TURNTABLE_ANIMATION_NAME, tt.dir)
+	}
 }
 
 // At the start of a frame: turns the camera to the next frame's place and asks for it to
@@ -137,6 +152,17 @@ turntable_take :: proc(app: ^App, pixels: []u8, w, h: int, transparent: bool) {
 		for w / scale > TURNTABLE_ANIMATION_MAX && h / scale > 1 do scale *= 2
 		tt.apng = {width = w / scale, height = h / scale, alpha = transparent, frames = tt.frames, delay = {1, TURNTABLE_FPS}}
 		png_write.apng_begin(&tt.buffer, &tt.apng)
+		if app.record_video {
+			vw, vh := video_size(w, h)
+			video_path, _ := filepath.join({tt.dir, TURNTABLE_VIDEO_NAME}, context.temp_allocator)
+			tt.video, tt.video_note = video_open(video_path, vw, vh, TURNTABLE_FPS)
+		}
+	}
+	// The video goes on without its frames should the encoder refuse one: the pictures
+	// are the recording, the video a convenience.
+	if tt.video != nil && !video_frame(tt.video, video_picture(tt.video, pixels, w, h)) {
+		_ = video_close(tt.video, false)
+		tt.video, tt.video_note = nil, "the encoder refused a frame"
 	}
 	// Every frame of the animation is the first one's size, should the window change.
 	png_write.apng_frame(&tt.buffer, &tt.apng, image_resize(pixels, w, h, tt.apng.width, tt.apng.height))

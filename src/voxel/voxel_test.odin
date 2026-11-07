@@ -88,6 +88,55 @@ add_raises_the_surface_and_subtract_lowers_it_under_the_brush_only :: proc(t: ^t
 }
 
 @(test)
+an_add_dab_is_a_smooth_bump_of_its_height :: proc(t: ^testing.T) {
+	// One full-strength dab raises the surface under its centre by ADD_HEIGHT radii and
+	// less toward its rim, by the falloff, with nothing past it: a bump that follows the
+	// sphere, not a disc or a half sphere standing on it.
+	c := test_sphere(128)
+	defer clay_destroy(&c)
+	r := f32(0.3)
+	voxel := c.volume.voxel
+	height := r * ADD_HEIGHT
+	clay_stroke_begin(&c)
+	_ = test_dab(&c, .Add, {0, 0, 1}, r)
+	_ = clay_stroke_end(&c)
+	rise :: proc(c: ^Clay, angle: f32) -> f32 {
+		dir := Vec3{math.sin(angle), 0, math.cos(angle)}
+		hit, _, ok := clay_raycast(c, dir * 5, -dir)
+		return linalg.length(hit) - 1 if ok else -1
+	}
+	centre := rise(&c, 0)
+	testing.expectf(t, math.abs(centre - height) < 0.4 * voxel, "the centre rose %v, the dab's height is %v", centre, height)
+	// Half way out the falloff is (1 - 0.25)² of the height (the sphere bends away a little).
+	half := rise(&c, 0.5 * r)
+	testing.expectf(t, math.abs(half - height * 0.5625) < 0.5 * voxel, "half way out the surface rose %v, wanted %v", half, height * 0.5625)
+	testing.expectf(t, half < centre, "half way out (%v) is not below the centre (%v)", half, centre)
+	outside := rise(&c, 1.3 * r)
+	testing.expectf(t, math.abs(outside) < 0.3 * voxel, "past the rim the surface moved %v", outside)
+}
+
+@(test)
+clay_builds_up_to_its_plane_and_levels_off :: proc(t: ^testing.T) {
+	c := test_sphere(128)
+	defer clay_destroy(&c)
+	r := f32(0.3)
+	voxel := c.volume.voxel
+	clay_stroke_begin(&c)
+	for _ in 0 ..< 40 do _ = test_dab(&c, .Clay, {0, 0, 1}, r)
+	_ = clay_stroke_end(&c)
+	hit, _, ok := clay_raycast(&c, {0, 0, 5}, {0, 0, -1})
+	plane := 1 + r * CLAY_PLANE
+	testing.expectf(t, ok && math.abs(hit.z - plane) < voxel, "the top is at %v, the plane at %v", hit.z, plane)
+	// Off centre the top is flat too: on the plane, not rounded below it.
+	off, _, off_ok := clay_raycast(&c, {0.3 * r, 0, 5}, {0, 0, -1})
+	testing.expectf(t, off_ok && math.abs(off.z - plane) < 1.5 * voxel, "off centre the top is at %v, the plane at %v", off.z, plane)
+	m := clay_to_mesh(&c)
+	defer geom.mesh_destroy(&m)
+	check := geom.mesh_check(m)
+	testing.expectf(t, check.closed && check.non_manifold_edges == 0, "%v", check)
+}
+
+@(test)
 serial_and_parallel_strokes_agree_bit_for_bit :: proc(t: ^testing.T) {
 	pool: jobs.Pool
 	jobs.pool_init(&pool, 3)
@@ -153,6 +202,9 @@ remeshing_only_the_dirty_nodes_equals_remeshing_everything :: proc(t: ^testing.T
 	for i in 0 ..< 8 {
 		a := f32(i) * 0.2
 		_ = test_dab(&c, .Add, linalg.normalize(Vec3{math.cos(a), 0.2, math.sin(a)}), 0.2)
+		// Meshed after every dab, as the app does a frame, so the stroke's end remeshes only
+		// what the band repair changed where the mesh can see it.
+		_ = clay_flush(&c)
 	}
 	_ = clay_stroke_end(&c)
 	a := clay_to_mesh(&c)
@@ -162,7 +214,7 @@ remeshing_only_the_dirty_nodes_equals_remeshing_everything :: proc(t: ^testing.T
 	defer geom.mesh_destroy(&b)
 	testing.expect(t, len(a.positions) == len(b.positions) && len(a.indices) == len(b.indices), "the meshes differ in size")
 	same := true
-	for p, i in a.positions do if p != b.positions[i] do same = false
+	for p, i in a.positions do if p != b.positions[i] || a.normals[i] != b.normals[i] do same = false
 	testing.expect(t, same, "a dirty-only remesh differs from a full one")
 }
 
@@ -271,7 +323,7 @@ a_clay_survives_the_file_and_damaged_bytes_are_refused :: proc(t: ^testing.T) {
 	defer geom.mesh_destroy(&b)
 	testing.expect(t, len(a.positions) == len(b.positions) && len(a.indices) == len(b.indices), "the meshes differ")
 
-	// Short, a bad tile code, a wrong tag: each refused without a trace.
+	// Short, a bad tile code, a wrong size: each refused without a trace.
 	for cut in ([3]int{len(out) - 1, len(out) / 2, 20}) {
 		short := geom.byte_reader(out[:cut])
 		bad: Clay
@@ -279,13 +331,16 @@ a_clay_survives_the_file_and_damaged_bytes_are_refused :: proc(t: ^testing.T) {
 	}
 	damaged := make([]u8, len(out), context.temp_allocator)
 	copy(damaged, out[:])
-	damaged[28 + 12] = 7 // the first chunk's first tile code
+	// The first chunk's first tile code: past the record's size, the voxel and origin fields,
+	// the chunk's field head, its coordinate field and the codes' field head.
+	FIRST_CODE :: 8 + (10 + 4) + (10 + 12) + 10 + (10 + 12) + 10
+	damaged[FIRST_CODE] = 7
 	d := geom.byte_reader(damaged)
 	bad: Clay
 	testing.expect(t, !clay_read(&bad, &d, nil), "a bad tile code read as a clay")
 	damaged[0] = 'X'
 	d = geom.byte_reader(damaged)
-	testing.expect(t, !clay_read(&bad, &d, nil), "a wrong tag read as a clay")
+	testing.expect(t, !clay_read(&bad, &d, nil), "a wrong size read as a clay")
 	// A write asked to stop, stops.
 	abort := true
 	stopped := make([dynamic]u8, context.temp_allocator)

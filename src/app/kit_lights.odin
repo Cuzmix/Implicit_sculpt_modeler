@@ -39,13 +39,11 @@ Light_Sphere_State :: struct {
 // frame for a softbox's face.
 @(rodata)
 LIGHT_KIND_ICONS := [Light_Kind]rune {
-	.Sun   = ui.ICON_SUN,
-	.Point = ICON_LIGHTBULB,
-	.Spot  = ICON_LAMP_CEILING,
-	.Area  = ui.ICON_FRAME,
+	.Sun   = ui.ICON_LIGHT_SUN,
+	.Point = ui.ICON_LIGHT_POINT,
+	.Spot  = ui.ICON_LIGHT_SPOT,
+	.Area  = ui.ICON_LIGHT_AREA,
 }
-ICON_LIGHTBULB :: rune(0xe1c2)
-ICON_LAMP_CEILING :: rune(0xe2d9)
 
 kit_lights :: proc(app: ^App) {
 	ctx := &app.kit.ctx

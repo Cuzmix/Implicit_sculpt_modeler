@@ -10,6 +10,12 @@
 #define TEXTURED 1
 #include "mesh_io.slang"
 
+// Smooth blend's pages, read for a pulled mesh, whose slots name the level's vertices.
+#define BLEND_TABLE_BINDING 5
+#define BLEND_PAGES_BINDING 6
+#define BLEND_NORMALS 1
+#include "blend_pages.slang"
+
 // Per slot, the level's vertex it stands for; then the level's positions (three floats a
 // vertex, packed), packed normals, paint (render.Paint_Packed) and painted roughness and
 // metal (paint_material.slang). One-word dummies while not pulled.
@@ -37,8 +43,9 @@ Mesh_Vertex_Out main(
 	float3 tangent = in_tangent.xyz;
 	o.v.paint = float4(0.0);
 	o.v.material = float4(0.0);
+	uint v = 0u;
 	if (skin.x != 0u) {
-		uint v = slot_vertex[slot];
+		v = slot_vertex[slot];
 		position = float3(positions[3u * v], positions[3u * v + 1u], positions[3u * v + 2u]);
 		uint packed = normals[v];
 		// The two signed 16-bit halves as SHORT2_NORM reads them.
@@ -51,6 +58,7 @@ Mesh_Vertex_Out main(
 	}
 	float3 in_normal;
 	decode_normal_mask(normal_oct, in_normal, o.v.mask);
+	if (skin.x != 0u) blend_apply(v, position, in_normal);
 	if (skin.x != 0u) {
 		// Squared to the normal as it is now, which sculpting turns from the one the tangent
 		// was made with.

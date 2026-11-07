@@ -262,7 +262,7 @@ command_arg_name :: proc(id: Command_Id, arg: int) -> string {
 	case .Open_Section: return fmt.tprint(Section(arg))
 	case .View_Pass: return fmt.tprint(render.View_Pass(arg))
 	case .View_Grid: return fmt.tprint(Grid_Preset(arg))
-	case .Space_Switch: return fmt.tprint(Space(arg))
+	case .Workspace_Switch, .Workspace_Tab: return fmt.tprint(arg + 1)
 	case .New_Scene: return new_start_key(arg)
 	case .Pie:       return fmt.tprint(arg + 1) // as the menus count them
 	case .Run_Macro: return fmt.tprint(arg + 1)

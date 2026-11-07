@@ -247,8 +247,7 @@ studio_frame :: proc(r: ^Renderer, st: ^Studio, cmd: gpu.Cmd, vt: ^Viewport_Targ
 	gpu.bind_graphics_pipeline(pass, st.shadow_pipeline)
 	for item in items {
 		mb := item.mesh
-		u := Shadow_Uniforms{light, item.model}
-		push_vertex(cmd, Shadow_Vert_Uniforms.Shadow_Uniforms, &u)
+		shadow_item_bind(r, cmd, pass, item, light)
 		vbufs := [1]gpu.Buffer_Binding{{buffer = mb.positions}}
 		gpu.bind_vertex_buffers(pass, 0, &vbufs[0], 1)
 		gpu.bind_index_buffer(pass, {buffer = mb.indices}, .U32)

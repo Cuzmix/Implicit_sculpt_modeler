@@ -51,6 +51,7 @@ Brush_Kind :: enum {
 	Elastic, // drag as an elastic solid pulled at the press would move: Grab's arrays, Kelvinlet weights (elastic.odin)
 	Clay_Strips,  // build flat-topped strips with square ends along the stroke (strips.odin; inverted digs)
 	Trim_Dynamic, // cut a ridge into two planes about the stroke, at the angle it finds (strips.odin; inverted: a valley)
+	Tube,         // voxel clay only: lay a rope of clay along the stroke (voxel.Brush_Kind.Tube; a mesh refuses it)
 }
 
 Axis :: enum u8 {
@@ -79,6 +80,9 @@ RADIAL_MAX :: 32
 Sym_Image :: struct {
 	turn:    matrix[3, 3]f32,
 	flipped: bool,
+	// The image takes a point p to to + turn·(p − from): both the symmetry's centre for
+	// planes and radial copies, the dab's vertex and its partner under poseable symmetry.
+	from, to: Vec3,
 }
 
 // Every image a dab has: 8 mirrors times RADIAL_MAX turns at most.
@@ -97,6 +101,10 @@ Brush :: struct {
 	// Where the mirror planes meet and the radial axis passes, in the mesh's space: the
 	// origin for the usual symmetry, the object's own middle for local symmetry.
 	sym_center:  Vec3,
+	// Poseable symmetry: the dab's partner is found by the mesh's topology
+	// (Sculptor.mirror, mirror_topo.odin) in place of the planes and radial copies, so it
+	// follows a posed model; the planes stand in where the sculptor has no pairs.
+	poseable:    bool,
 	// Dynamic topology (dyntopo.odin), on a sculptor that has it on: edges in the brush
 	// longer than this share of the radius are split first; 0 leaves the triangles be.
 	detail:   f32,
@@ -201,6 +209,12 @@ Brush :: struct {
 	// Clay strips and Trim dynamic: the way the stroke goes, in the mesh's space (zero
 	// for its first dab), which their frame's x follows (strip_frame).
 	stroke_dir: Vec3,
+	// Draw and Inflate with Accumulate off: from this dab's centre back to the last one of
+	// the stroke, up to SWEEP_MAX radii (apply_dab sets it; zero for the stroke's first dab
+	// or an alpha). The dab weighs each vertex by its distance to that segment, not to the
+	// centre alone, so the heights the stroke keeps (each vertex the most any dab gave it)
+	// rise as one smooth ridge along the path instead of a bump per dab.
+	sweep: Vec3,
 	// Clay strips' tip: how round its square's corners are, 0 (square) to 1 (round), and
 	// its length along the stroke as a share of its width, CLAY_TIP_SCALE_MIN to 1 (0 is 1).
 	tip_roundness: f32,
@@ -303,6 +317,12 @@ Sculptor :: struct {
 	mesh:        ^geom.Mesh,
 	pool:        ^jobs.Pool,
 	faces:       geom.Vertex_Faces,
+	// Poseable symmetry's pairs (mirror_topo.odin): per vertex its partner across the
+	// mirror normal to mirror_axis, MIRROR_NONE where it has none; nil until found, and
+	// dropped by dynamic topology.
+	mirror:        []u32,
+	mirror_paired: int,
+	mirror_axis:   Axis,
 	bvh:         geom.Bvh,
 	nodes:       []Node, // indexed by node id
 	// Per node id, in index-buffer order: bounds and normal cone for view culling.
@@ -372,6 +392,9 @@ Sculptor :: struct {
 	// stroke number is layer_stroke; nil until the brush is first used.
 	layer:        []Layer_Height,
 	layer_stroke: u32,
+	// The last centre apply_dab laid in stroke number sweep_stroke (Brush.sweep).
+	sweep_from:   Vec3,
+	sweep_stroke: u32,
 	// The positions sculptor_morph_store kept, which the Morph brush brings vertices
 	// back to; nil when none is stored.
 	morph:        []Vec3,
@@ -530,6 +553,7 @@ sculptor_destroy :: proc(s: ^Sculptor) {
 	sculptor_lattice_clear(s)
 	topo_free(s)
 	connected_free(s)
+	sculptor_mirror_clear(s)
 	history_destroy(&s.history)
 	geom.vertex_faces_destroy(&s.faces)
 	geom.bvh_destroy(&s.bvh)
@@ -1061,7 +1085,7 @@ Dab :: struct {
 	                // side (Clay), direction (Flatten, Pinch), or mask added (Mask)
 	// Snake_Hook: its Elastic tip's constants, how much this dab pinches (Brush.hook_pinch
 	// times the step over the radius) and the way it drags (unit length).
-	kelvin:   Kelvinlet,
+	kelvin:   geom.Kelvinlet,
 	pinch:    f32,
 	drag_dir: Vec3,
 	// A split dab (Brush.skin_split): the vertices' share of it, 0 to 1. In the skin's
@@ -1075,16 +1099,39 @@ Dab :: struct {
 // mask). Positions and BVH bounds are current when it returns; vertex normals catch up
 // in sculptor_flush. Grab strokes go through sculptor_grab_begin instead.
 apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
-	if brush.kind == .Grab || brush.kind == .Elastic || brush.kind == .Cloth do return 0
+	// Tube lays clay, which only a voxel object has: on a mesh it does nothing (the app
+	// refuses the stroke and says so).
+	if brush.kind == .Grab || brush.kind == .Elastic || brush.kind == .Cloth || brush.kind == .Tube do return 0
 	stroke_gpu_decide(s, brush)
 	moved := 0
-	images := symmetry_images(brush)
+	images := dab_images(s, brush, center)
 	b := brush
+	b.sweep = dab_sweep(s, brush, center)
 	b.strength /= symmetry_feather(brush, images[:], center)
 	for img, i in images {
-		moved += dab_once(s, sym_brush(b, img), sym_point(img, b.sym_center, center), img, i == 0)
+		moved += dab_once(s, sym_brush(b, img), sym_point(img, center), img, i == 0)
 	}
 	return moved
+}
+
+// The longest sweep a dab weighs along, in radii. The vertex test stays the dab's own
+// sphere, so the stretch of the sweep's capsule that lies outside it and the last dab's is
+// missed: at half a radius it begins 0.97 radii from the path, where the falloff is 0.004.
+SWEEP_MAX :: 0.5
+
+// Brush.sweep for a dab of `brush` at `center`, and notes the centre for the next one: back
+// to the stroke's last centre when it lies within a radius (a farther one is a jump, a new
+// stroke the caller did not begin), shortened to SWEEP_MAX radii.
+@(private)
+dab_sweep :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> (sweep: Vec3) {
+	defer s.sweep_from, s.sweep_stroke = center, s.layer_stroke
+	if !brush.no_accumulate || (brush.kind != .Draw && brush.kind != .Inflate) || brush.alpha != nil do return
+	if s.sweep_stroke != s.layer_stroke || brush.radius <= 0 do return
+	sweep = s.sweep_from - center
+	length := linalg.length(sweep)
+	if length > brush.radius do return {}
+	if length > SWEEP_MAX * brush.radius do sweep *= SWEEP_MAX * brush.radius / length
+	return
 }
 
 // How much a dab at `center` and its images `images` (the dab itself first) overlap, by
@@ -1096,7 +1143,7 @@ symmetry_feather :: proc(brush: Brush, images: []Sym_Image, center: Vec3) -> f32
 	overlap: f32 = 1
 	reach := 2 * brush.radius
 	for img in images[1:] {
-		d := linalg.length(sym_point(img, brush.sym_center, center) - center)
+		d := linalg.length(sym_point(img, center) - center)
 		if d < reach do overlap += (reach - d) / reach
 	}
 	return overlap
@@ -1110,7 +1157,7 @@ symmetry_images :: proc(brush: Brush) -> (images: [dynamic; SYM_IMAGES_MAX]Sym_I
 	for sign in mirrors(brush.symmetry) {
 		flip := matrix[3, 3]f32{sign.x, 0, 0, 0, sign.y, 0, 0, 0, sign.z}
 		for k in 0 ..< turns {
-			img := Sym_Image{turn = flip, flipped = sign.x * sign.y * sign.z < 0}
+			img := Sym_Image{turn = flip, flipped = sign.x * sign.y * sign.z < 0, from = brush.sym_center, to = brush.sym_center}
 			if k > 0 do img.turn = radial_turn(brush.radial_axis, f32(k) / f32(turns)) * flip
 			append(&images, img)
 		}
@@ -1131,9 +1178,9 @@ radial_turn :: proc(axis: Axis, fraction: f32) -> matrix[3, 3]f32 {
 	return 1
 }
 
-// Where image `img` takes point `p`, turning about `center`.
-sym_point :: #force_inline proc(img: Sym_Image, center, p: Vec3) -> Vec3 {
-	return center + img.turn * (p - center)
+// Where image `img` takes point `p`.
+sym_point :: #force_inline proc(img: Sym_Image, p: Vec3) -> Vec3 {
+	return img.to + img.turn * (p - img.from)
 }
 
 // The brush for one image of a dab: every direction it carries turned as the image is (the
@@ -1152,6 +1199,7 @@ sym_brush :: proc(brush: Brush, img: Sym_Image) -> Brush {
 	b.facing = m * b.facing
 	b.projected = m * b.projected
 	b.stroke_dir = m * b.stroke_dir
+	b.sweep = m * b.sweep
 	if img.flipped do b.alpha_mirror = !b.alpha_mirror
 	return b
 }
@@ -1369,7 +1417,7 @@ dab_lay :: proc(s: ^Sculptor, d: ^Dab, brush: Brush, pool: ^jobs.Pool, img: Sym_
 		jobs.parallel_for(pool, len(s.hit), d, job_layer)
 	case .Snake_Hook:
 		if brush.drag == {} do return painted
-		if brush.hook_elastic do d.kelvin = kelvinlet_make(brush.radius, brush.volume)
+		if brush.hook_elastic do d.kelvin = geom.kelvinlet_make(brush.radius, brush.volume)
 		step := linalg.length(brush.drag)
 		d.pinch = clamp(brush.hook_pinch, -1, 1) * step / brush.radius
 		d.drag_dir = brush.drag / step
@@ -1380,7 +1428,7 @@ dab_lay :: proc(s: ^Sculptor, d: ^Dab, brush: Brush, pool: ^jobs.Pool, img: Sym_
 	case .History:
 		if len(s.recall) != len(s.mesh.positions) do return painted
 		jobs.parallel_for(pool, len(s.hit), d, job_history)
-	case .Grab, .Elastic, .Mask, .Paint, .Cloth:
+	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Tube:
 		unreachable()
 	case .Smooth:
 		// Jacobi steps: every target of a pass is computed from that pass's unmoved
@@ -1590,6 +1638,15 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind, $ONCE: bool) {
 		delta := p - d.center
 		d2 := linalg.dot(delta, delta)
 		if d2 < d.r2 {
+			when ONCE {
+				if d.brush.sweep != {} {
+					// The offset from the nearest point of the sweep (Brush.sweep).
+					sw := d.brush.sweep
+					t := clamp(linalg.dot(delta, sw) / linalg.dot(sw, sw), 0, 1)
+					delta -= sw * t
+					d2 = linalg.dot(delta, delta)
+				}
+			}
 			w := dab_weight(d, delta, d2) * shield(fade, mask, v) * facing_weight(d, m.normals[:], v)
 			if w > 0 {
 				when ONCE {

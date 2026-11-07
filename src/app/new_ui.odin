@@ -201,12 +201,13 @@ Kit_State :: struct {
 	guide_lines: int,
 	guide_drags: int,
 	rail_side:  Rail_Side, // where the modifier wheel sits, if anywhere (modifiers.odin)
-	// What the layout hides, and each space's layout (layouts.odin).
+	// What the layout hides, and the layouts' state (layouts.odin).
 	hidden:     bit_set[Zone],
 	layouts:    Layouts,
-	// The working space (spaces.odin), and the view toggles Focus and Inspect, which hide
-	// bars or show the form four ways without changing the layout.
-	spaces:     Spaces,
+	// The workspaces (workspaces.odin), and the views Focus and Inspect, which hide bars or
+	// show the form four ways without changing the layout.
+	workspaces: Workspaces,
+	layouts_for: Layouts_For, // which class of layouts shows: by the device, or set (Settings > Interface)
 	focus_mode: bool,
 	inspect:    Inspect_View,
 	passes:     Passes, // the pass the viewport shows (passes.odin)
@@ -215,10 +216,11 @@ Kit_State :: struct {
 	dials:      [Hands][4]Dial_Sector, // what each hands' sectors do, clockwise from the top
 	hands:      Hands, // what the hands are doing, from the tool in hand (hands.odin)
 	// The top bar's three docks' buttons (kit_top_lens.odin), a setting; where each dock and
-	// the space tabs were drawn this frame.
+	// the workspace tabs were drawn this frame.
 	top_docks:     [Top_Dock]Bar_List,
 	top_at:        [Top_Dock]ui.Rect,
-	space_tabs_at: ui.Rect,
+	workspace_tabs_at: ui.Rect,
+	workspace_tab_at: [WORKSPACE_SLOTS]ui.Rect, // each workspace's tab, where drawn this frame
 	wheel_turn: f32, // how far it is turned clockwise, in degrees, -180 to 180
 	wheel_offset: [2]f32, // how far its grip dragged it from its place, in points
 	// The hand the moved windows and the wheel's drag were placed for: ctx.mirror is the
@@ -556,6 +558,7 @@ Kit_Event_Kind :: enum u8 {
 	Pen_Pressure, // how hard the pen presses from then on, 0 to 1
 	Pen_Roll, // the pen's turn about its own length from then on, degrees from -180 to 180
 	Pen_Erase_Down, // the pen's eraser end touching down
+	Pen_Erase_Move, // the pen's eraser end moving, hovering or touching
 	Pen_Button, // a barrel button pressed and let go, its number in `value`
 	// An Apple Pencil's double-tap, and its squeeze (begun and ended), as the iPad's bridge
 	// sends them, `key` naming the iPad's preferred action ("" for its default).
@@ -628,7 +631,7 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 		}
 		if ok {
 			switch parts[1] {
-			case "move", "pdown", "pmove", "pedown", "ptilt":
+			case "move", "pdown", "pmove", "pedown", "pemove", "ptilt":
 				ok = len(parts) == 3
 				if ok do ev.at, ok = point(parts[2], &ev)
 				switch parts[1] {
@@ -636,6 +639,7 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 				case "pdown": ev.kind = .Pen_Down
 				case "pmove": ev.kind = .Pen_Move
 				case "ptilt": ev.kind = .Pen_Tilt
+				case "pemove": ev.kind = .Pen_Erase_Move
 				case:         ev.kind = .Pen_Erase_Down
 				}
 			case "pcoal":
@@ -908,16 +912,19 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 				}
 				break
 			}
-		case .Pen_Down, .Pen_Move, .Pen_Up, .Pen_Erase_Down:
+		case .Pen_Down, .Pen_Move, .Pen_Up, .Pen_Erase_Down, .Pen_Erase_Move:
 			if ev.kind != .Pen_Up {
-				// SDL reports the pen's own motion, then the mouse motion it makes of it.
-				e.pmotion = {type = .PEN_MOTION, timestamp = now, windowID = win, which = 1, x = at.x, y = at.y}
+				// SDL reports the pen's own motion, with the end in use, then the mouse motion it
+				// makes of it.
+				state: sdl.PenInputFlags
+				if ev.kind == .Pen_Erase_Down || ev.kind == .Pen_Erase_Move do state = {.ERASER_TIP}
+				e.pmotion = {type = .PEN_MOTION, timestamp = now, windowID = win, which = 1, pen_state = state, x = at.x, y = at.y}
 				push(e)
 				e = {}
 				e.motion = {type = .MOUSE_MOTION, timestamp = now, windowID = win, which = sdl.PEN_MOUSEID, x = at.x, y = at.y}
 				push(e)
 			}
-			if ev.kind == .Pen_Move do continue
+			if ev.kind == .Pen_Move || ev.kind == .Pen_Erase_Move do continue
 			down := ev.kind != .Pen_Up
 			e = {}
 			e.ptouch = {type = .PEN_DOWN if down else .PEN_UP, timestamp = now, windowID = win, which = 1, x = at.x if down else d.mouse.x, y = at.y if down else d.mouse.y, eraser = ev.kind == .Pen_Erase_Down, down = down}
@@ -1150,6 +1157,8 @@ kit_results :: proc(app: ^App) {
 	if serial := ui.toast_take_action(ctx); serial != 0 && serial == k.undo_toast.serial {
 		if undo_mark_on_top(app.history.done[:], k.undo_toast.mark) do command_run(app, .Undo)
 		k.undo_toast = {}
+	} else if serial != 0 && serial == k.layouts.edit.undo.serial {
+		workspace_undo(app)
 	} else if serial != 0 && serial == k.bar_removed.serial {
 		// A button let go clear of every bar goes back where it was.
 		bar_removed_undo(app)
@@ -1382,16 +1391,8 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 		// Alt held from the press leaves the left button to the view; Alt pressed while a
 		// Grab drags moves it along the surface instead (grab_moved).
 		input.primary = left && (!d.alt || d.ctrl || (app.stroke.active && app.stroke.grab))
-		input.alt = input.primary && d.alt
 		input.press = input.primary && .Left in d.pressed
-		input.smooth = input.primary && d.shift
-		// Ctrl+Alt with a brush paints the mask, as Ctrl does in ZBrush, and from empty space
-		// still draws the unmasking shape (Alt, mask_shape.odin); Ctrl alone inverts.
-		mask_keys := input.primary && d.ctrl && d.alt && !d.shift && app.tool == .Brush
-		input.mask = mask_keys
-		input.invert = input.primary && d.ctrl && !mask_keys
-		input.mask_shape = (input.invert && !d.shift) || mask_keys
-		// The modifier rail sets what the keys would, for this press (modifiers.odin).
+		// The keys and the modifier rail say what the press does (press_mods, modifiers.odin).
 		rail_press(app, &input)
 	}
 	// Who has the touch and the drag, then what they do this frame (touch.odin,
@@ -1414,7 +1415,7 @@ kit_layout :: proc(app: ^App) {
 	E := t.edge
 
 	// The space follows a tool picked last frame, before anything is laid out for it.
-	space_follow(app)
+	workspace_follow(app)
 	lens_view_frame(app)
 	// The Home screen covers the window and stands in for every panel while it shows.
 	// Input diagnostics covers the window as Home does (kit_diag.odin), and Home too: an
@@ -1651,7 +1652,7 @@ kit_shading_menu :: proc(app: ^App) {
 	ui.divider(&app.kit.ctx, across = true)
 	ui.caption(&app.kit.ctx, "  TEXTURES")
 	for v in render.Texture_View.Textured ..= render.Texture_View.Uv_Checker do _ = command_menu_item(app, .Texture_View, int(v))
-	if ui.menu_item(&app.kit.ctx, "Light card", glyph = ui.ICON_SUN) {
+	if ui.menu_item(&app.kit.ctx, "Light card", glyph = ui.ICON_LIGHTS) {
 		at := app.kit.bar_pop.at
 		app.kit.bar_pop.open = false
 		card_toggle(app, .Light, at, .Left)
@@ -1723,7 +1724,7 @@ kit_folder_menu :: proc(app: ^App) {
 	if f == nil do k.folder_menu = false
 	if !ui.popover_begin(ctx, "folder menu", &k.folder_menu, k.folder_menu_at, .Pointer, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
-	if ui.menu_item(ctx, "Rename...##folder", glyph = ui.ICON_PENCIL) {
+	if ui.menu_item(ctx, "Rename...##folder", glyph = ui.ICON_RENAME) {
 		rename_open(app, -f.id, k.folder_menu_at)
 		k.folder_menu = false
 		return
@@ -1744,16 +1745,16 @@ kit_folder_menu :: proc(app: ^App) {
 		picked = true
 	}
 	// Polypaint for every object in it at once, as ZBrush's folder menu offers.
-	if end > first && ui.menu_item(ctx, "Show polypaint##folder", glyph = ui.ICON_PAINTBRUSH) {
+	if end > first && ui.menu_item(ctx, "Show polypaint##folder", glyph = ui.ICON_PAINT) {
 		app.ui.scene_command = {kind = .View, view = .Folder_Paint_Show, id = f.id}
 		picked = true
 	}
-	if end > first && ui.menu_item(ctx, "Hide polypaint##folder", glyph = ui.ICON_PAINTBRUSH) {
+	if end > first && ui.menu_item(ctx, "Hide polypaint##folder", glyph = ui.ICON_PAINT) {
 		app.ui.scene_command = {kind = .View, view = .Folder_Paint_Hide, id = f.id}
 		picked = true
 	}
 	// Its shown objects as one new object at the end of the list, as ZBrush's Merge Folder.
-	if end - first >= 2 && ui.menu_item(ctx, "Merge folder", glyph = ICON_MERGE) {
+	if end - first >= 2 && ui.menu_item(ctx, "Merge folder", glyph = ui.ICON_MERGE) {
 		app.ui.scene_command = {kind = .Merge, on = true, id = f.id}
 		picked = true
 	}
@@ -1775,6 +1776,7 @@ Rename_Entry :: struct {
 	layer:  int, // a sculpt layer of object `id`, its index + 1 (lens_layers.odin)
 	shelf_page: int, // a page of the shelf, its Shelf_Page + 1 (lens_shelf.odin)
 	theme:  int, // a theme of the person's own, its place + 1 (themes.odin)
+	workspace: int, // a workspace, its slot + 1 (workspaces.odin)
 	at:     ui.Rect,
 	text:   [NAME_BYTES]u8,
 }
@@ -1805,6 +1807,7 @@ kit_rename :: proc(app: ^App) {
 	page := Shelf_Page(max(r.shelf_page - 1, 0))
 	if r.shelf_page > 0 do gone = !shelf_page_used(k, page)
 	if r.theme > 0 do gone = r.theme > k.themes.count
+	if r.workspace > 0 do gone = !workspace_used(k, r.workspace - 1)
 	if r.open && gone do r.open = false
 	if !r.open && r.typing {
 		ctx.text_focus = 0
@@ -1812,10 +1815,12 @@ kit_rename :: proc(app: ^App) {
 	}
 	if !ui.popover_begin(ctx, "rename", &r.open, r.at, .Below, {direction = .Column, gap = ui.SPACE_XS, padding = ui.POPOVER_PAD, width = ui.POPOVER_W}) do return
 	defer ui.popover_end(ctx)
-	ui.caption(ctx, "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
+	ui.caption(ctx, "RENAME WORKSPACE" if r.workspace > 0 else "RENAME THEME" if r.theme > 0 else "RENAME PAGE" if r.shelf_page > 0 else "RENAME MACRO" if r.macro else "BOOKMARK THE STEP" if r.step != {} else "RENAME LAYER" if r.layer > 0 else "RENAME FOLDER" if r.id < 0 else "RENAME OBJECT")
 	now := ""
 	if r.step != {} {
 		if has_step do now = history_entry_at(app, step).bookmark
+	} else if r.workspace > 0 {
+		now = k.workspaces.list[r.workspace - 1].name
 	} else if r.theme > 0 {
 		now = theme_ref_name(k, {.Lens, i32(r.theme - 1)})
 	} else if r.shelf_page > 0 {
@@ -1841,6 +1846,9 @@ kit_rename :: proc(app: ^App) {
 		name := rename_text(r.text[:])
 		if name == "" do name = history_bookmark_default(app) if fresh else now
 		history_bookmark_set(app, step, name)
+	} else if apply && r.open && r.workspace > 0 {
+		// A workspace is the settings', no part of the scene; a name another has is refused.
+		if name := rename_text(r.text[:]); name != "" && !workspace_rename(app, r.workspace - 1, name) do apply = false
 	} else if apply && r.open && r.theme > 0 {
 		// A theme is the settings', no part of the scene; a name another theme has is refused.
 		if name := rename_text(r.text[:]); name != "" && !theme_rename(k, r.theme - 1, name) do apply = false

@@ -310,17 +310,17 @@ spray_replays_from_a_strokes_file :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.stroke_scale_from, 0)
 
 
-	// Another version is not read.
+	// Another form is not read.
 	data, err := os.read_entire_file(path, context.allocator)
 	testing.expect(t, err == nil)
 	defer delete(data)
-	data[len(STROKES_MAGIC)] = u8(STROKES_VERSION - 1)
+	data[len(STROKES_MAGIC)] = u8(STROKES_FORMAT + 1)
 	testing.expect(t, os.write_entire_file(path, data) == nil)
 	c := new(App)
 	defer free(c)
 	defer replay_destroy(&c.replay)
 	defer results_destroy(c)
-	testing.expect(t, !strokes_load(c, path), "an older .strokes file was read")
+	testing.expect(t, !strokes_load(c, path), "a .strokes file of another form was read")
 }
 
 // Two Spray strokes whose release and press fall in one frame's samples are recorded

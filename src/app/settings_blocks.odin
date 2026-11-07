@@ -15,8 +15,10 @@ Settings_Block :: enum u8 {
 	// Interface.
 	Look,
 	Size,
+	Icons,
 	Clean_Dial,
 	Hands,
+	Layouts,
 	Top_Bar,
 	Motion,
 	Starting,
@@ -87,8 +89,10 @@ SETTINGS_KEYS := [?]Settings_Entry{{.Keys, ""}}
 SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Look             = "look theme themes colour color lens studio graphite paper midnight high contrast accent dark light match device night day tint opacity corners black oled shadow shadows panel",
 	.Size             = "size interface scale bigger text touch targets zoom smaller",
+	.Icons            = "icons icon colour color coloured duotone mono monochrome weight bold regular lines",
 	.Clean_Dial       = "clean view keeps dial shelf focus mode tab four-finger hide interface",
 	.Hands            = "left-handed right-handed hand mirror screen layout",
+	.Layouts          = "layouts for tablet desktop device workspace class",
 	.Top_Bar          = "top bar search field icon docks command palette file spaces object centred",
 	.Motion           = "reduce motion animation",
 	.Starting         = "start at home starting launch",
@@ -192,6 +196,16 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		if picked := ui.select(ctx, "Interface size", names[:], chosen); picked >= 0 do k.ui_scale = UI_SCALES[picked]
 		ui.paragraph(ctx, "How big panels, text and touch targets are, on top of the size the screen asks for.")
 		if k.ui_scale < 1 do ui.paragraph(ctx, "Below 100% the buttons are smaller than a fingertip: best with a mouse or a pen.", color = t.warning)
+	case .Icons:
+		styles := [len(ui.Icon_Style)]string{"Colour", "Duotone", "Mono"}
+		if picked := ui.tabs(ctx, "Icons", styles[:], int(ctx.icon_style)); picked >= 0 do ctx.icon_style = ui.Icon_Style(picked)
+		switch ctx.icon_style {
+		case .Colour:  ui.paragraph(ctx, "A soft shape under each icon's lines takes the colour of what it works on: orange for sculpting, blue for masking, pink for painting, green for modelling, violet for the view, yellow for rendering, cyan for files and grey for the app. The colours are under Look, Every colour.")
+		case .Duotone: ui.paragraph(ctx, "A faint shape in the icon's own colour under its lines.")
+		case .Mono:    ui.paragraph(ctx, "Lines alone, in one colour.")
+		}
+		weights := [len(ui.Icon_Weight)]string{"Regular", "Bold"}
+		if picked := ui.tabs(ctx, "Icon lines", weights[:], int(ctx.icon_weight)); picked >= 0 do ctx.icon_weight = ui.Icon_Weight(picked)
 	case .Clean_Dial:
 		keeps := [len(Clean_Keep)]string{"Nothing", "The dial", "Shelf and dial"}
 		if picked := ui.tabs(ctx, "Clean view keeps", keeps[:], int(k.clean_keep)); picked >= 0 do k.clean_keep = Clean_Keep(picked)
@@ -200,6 +214,10 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		hands := [2]string{"Right-handed", "Left-handed"}
 		if picked := ui.tabs(ctx, "Screen layout", hands[:], int(ctx.mirror)); picked >= 0 do ctx.mirror = picked == 1
 		ui.paragraph(ctx, "Left-handed swaps the sides: Size and Strength, the dial and the view info go to the right; the view gizmo, the view toolbar and the cards to the left.")
+	case .Layouts:
+		names := [len(Layouts_For)]string{"Automatic", "Desktop", "Tablet"}
+		if picked := ui.tabs(ctx, "Layouts for", names[:], int(k.layouts_for)); picked >= 0 do k.layouts_for = Layouts_For(picked)
+		ui.paragraph(ctx, "Each workspace keeps a desktop layout and a tablet layout apart, so the docks and cards that suit a mouse and those that suit a finger never undo each other. Automatic uses the tablet ones on an iPad or an Android tablet and the desktop ones elsewhere; a touch-screen computer can choose.")
 	case .Motion:
 		settings_motion(app)
 	case .Starting:
@@ -218,7 +236,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		_ = ui.switch_row(ctx, "Work in any view", &k.panes_work)
 		ui.paragraph(ctx, "A press in any pane works there, as Blender's quad views each take the tools; off, the other panes only show.")
 	case .Bars:
-		_ = command_button(app, .Customise_Bars, glyph = ICON_CUSTOMISE)
+		_ = command_button(app, .Customise_Bars, glyph = ui.ICON_CUSTOMISE)
 		ui.paragraph(ctx, "Choose the buttons on every toolbar: down the view toolbar and the brush toolbar and on each of the shelf's pages: any command, in any order.")
 		ui.paragraph(ctx, "Each toolbar's ⋯ sets how many lines its buttons stand in and when they show their names: Wide names them on a desktop's window, where the room is there, and names the view toolbar's on a touch screen, where no tooltip does; a tablet's other toolbars keep to their icons.")
 		_ = ui.switch_row(ctx, "Keep the shelf clear of the palm", &k.shelf_palm)
@@ -502,8 +520,10 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	switch b {
 	case .Look:            themes_reset(k)
 	case .Size:            k.ui_scale = 1
+	case .Icons:           k.ctx.icon_style, k.ctx.icon_weight = .Colour, .Regular
 	case .Clean_Dial:      k.clean_keep = .Dial
 	case .Hands:           k.ctx.mirror = false
+	case .Layouts:         k.layouts_for = .Automatic
 	case .Top_Bar:
 		k.search_field = false
 		for d in Top_Dock do k.top_docks[d] = bar_fresh(TOP_DOCK_BARS[d])

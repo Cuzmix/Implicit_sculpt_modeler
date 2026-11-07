@@ -152,14 +152,11 @@ uvs_refuse_damage :: proc(t: ^testing.T) {
 	out := make([dynamic]u8)
 	defer delete(out)
 	levels_write(&l, &out)
-	// The section starts at the triangle count before the first triangle's coordinates.
-	first := slice.to_bytes(l.uvs.corner[:1])
-	at := -1
-	for i in 0 ..= len(out) - len(first) do if slice.equal(out[i:][:len(first)], first) {at = i; break}
-	if !testing.expect(t, at > 4, "the UV section was not found") do return
-	count := len(l.uvs.corner)
-	seams := at + count * size_of([3][2]f32)
-	islands := seams + count * size_of(uv.Seams)
+	// The UVs' record: its coordinates, seams and islands.
+	at := levels_field_at(out[:], 15, 1)
+	seams := levels_field_at(out[:], 15, 2)
+	islands := levels_field_at(out[:], 15, 3)
+	if !testing.expect(t, at > 0 && seams > 0 && islands > 0, "the UV record was not found") do return
 	refused :: proc(t: ^testing.T, data: []u8, what: string, loc := #caller_location) {
 		back: Levels
 		r := geom.byte_reader(data)

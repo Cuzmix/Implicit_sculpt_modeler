@@ -310,3 +310,82 @@ render_image_end :: proc(app: ^App, ok: bool) {
 	}
 	render_image_drop(app)
 }
+
+// The picture's size on the Export sheet's Render tab (Render_Image_Settings): the view's
+// own pixels or twice them, or a fixed one, its aspect then the view's own crop.
+Render_Image_Size :: enum u8 {
+	View,
+	View_2x,
+	HD,     // 1920 x 1080
+	UHD,    // 3840 x 2160
+	Square, // 2048 x 2048
+}
+
+@(rodata)
+RENDER_IMAGE_SIZE_NAMES := [Render_Image_Size]string {
+	.View    = "View",
+	.View_2x = "View ×2",
+	.HD      = "1080p",
+	.UHD     = "4K",
+	.Square  = "Square",
+}
+
+// What Render image... renders, chosen on the Export sheet and remembered: its size, Full
+// render or Fast, and the passes and shadow catcher; the samples are the Render card's own
+// for that quality, and the background goes as Without background says.
+Render_Image_Settings :: struct {
+	size:    Render_Image_Size,
+	fast:    bool,
+	passes:  bool,
+	catcher: bool,
+}
+
+// The picture's width and height for size `size`, from the view's own pixels.
+render_image_dims :: proc(app: ^App, size: Render_Image_Size) -> (w, h: int) {
+	vw, vh := max(int(app.target.width), 16), max(int(app.target.height), 16)
+	switch size {
+	case .View:    w, h = vw, vh
+	case .View_2x: w, h = 2 * vw, 2 * vh
+	case .HD:      w, h = 1920, 1080
+	case .UHD:     w, h = 3840, 2160
+	case .Square:  w, h = 2048, 2048
+	}
+	return min(w, RENDER_IMAGE_MAX), min(h, RENDER_IMAGE_MAX)
+}
+
+// The samples the picture takes: the Render card's for the quality it renders in.
+render_image_samples :: proc(app: ^App, fast: bool) -> int {
+	n := app.studio_samples if fast else app.render_samples
+	return clamp(int(n), 1, render.RENDER_SAMPLES_MAX)
+}
+
+// Starts the picture Render image... asked for, to `path`, as the Export sheet set it.
+render_image_from_settings :: proc(app: ^App, path: string) {
+	st := app.render_image_settings
+	w, h := render_image_dims(app, st.size)
+	catcher := st.catcher && !st.fast && app.screenshot_transparent
+	if why := render_image_start(app, w, h, render_image_samples(app, st.fast), path, app.screenshot_transparent, st.passes, catcher, st.fast); why != "" {
+		file_note(app, true, "Cannot render %s: %s", filepath.base(path), why)
+	}
+}
+
+// Stops the picture under way, writing nothing.
+render_image_stop :: proc(app: ^App) {
+	if !app.render_image.on do return
+	file_note(app, false, "Stopped rendering %s", filepath.base(app.render_image.path))
+	render_image_drop(app)
+}
+
+// How far the picture under way has come, 0 to 1, and a line saying so; false when none is.
+render_image_progress :: proc(app: ^App) -> (share: f32, line: string, on: bool) {
+	ri := &app.render_image
+	if !ri.on do return 0, "", false
+	tiles := ri.tiles.x * ri.tiles.y
+	done := ri.studio.samples if ri.fast else ri.path_render.samples
+	if !ri.started do done = 0
+	done = min(done, ri.samples)
+	share = (f32(ri.tile) + f32(done) / f32(max(ri.samples, 1))) / f32(max(tiles, 1))
+	if tiles > 1 do line = fmt.tprintf("Rendering %s: tile %d of %d, %d / %d samples", filepath.base(ri.path), ri.tile + 1, tiles, done, ri.samples)
+	else do line = fmt.tprintf("Rendering %s: %d / %d samples", filepath.base(ri.path), done, ri.samples)
+	return share, line, true
+}

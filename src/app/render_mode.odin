@@ -159,6 +159,7 @@ render_preset_set :: proc(app: ^App, p: Render_Preset) {
 kit_render :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	kit_render_show(app)
+	defer kit_render_image(app)
 	// Off has nothing to set: the qualities' controls show once one is picked, so nothing
 	// looks live while nothing renders.
 	if render_show(app) == .Off {
@@ -268,4 +269,26 @@ kit_render_full :: proc(app: ^App) {
 		ui.paragraph(ctx, fmt.tprintf("Full shows the maps of %d textured objects; %d more show their material.", render.render_textured_max(pr), pr.tex_left_out))
 	}
 	ui.paragraph(ctx, "Full path traces the view while it is still: every light, the environment, materials and bounced light. Half resolution is four times as fast, for tablets.")
+}
+
+// The picture at a size of its own, at the Render section's end: Render image..., which
+// opens the Export sheet on it (its options live there alone), or while one renders how
+// far it has come and Stop.
+@(private = "file")
+kit_render_image :: proc(app: ^App) {
+	ctx := &app.kit.ctx
+	t := ctx.theme
+	share, line, on := render_image_progress(app)
+	if !on {
+		if ui.button(ctx, "Render image...##render card", .Bordered, width = ui.fill_width(ctx), glyph = ui.ICON_RENDER, keys = command_hint(app, .Render_Picture)) {
+			export_sheet_open_on(app, .Picture)
+			app.kit.export.format = .Render
+		}
+		return
+	}
+	ui.paragraph(ctx, line, color = t.text_secondary)
+	bar := ui.area(ctx, "render image bar", {ui.fill_width(ctx), ui.SPACE_XS})
+	ui.fill_rect(ctx, bar.rect, ui.SPACE_XS * 0.5, t.track)
+	if share > 0 do ui.fill_rect(ctx, {bar.rect.x, bar.rect.y, bar.rect.w * share, bar.rect.h}, ui.SPACE_XS * 0.5, t.accent)
+	_ = command_button(app, .Render_Picture_Stop, width = ui.fill_width(ctx), glyph = ui.ICON_STOP)
 }

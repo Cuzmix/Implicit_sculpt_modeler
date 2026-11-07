@@ -32,16 +32,11 @@ Object_Chip :: struct {
 
 OBJECT_CHIP_BADGE_GAP :: 4
 
-// Each type's icon, as the mock draws them: a mesh's triangle, a cage's box and clay's cuboid.
-ICON_SCULPT_MESH :: rune(0xe192) // triangle
-ICON_CAGE :: rune(0xe065) // box
-ICON_VOXEL_CLAY :: ICON_ORTHO // cuboid
-
 object_chip_of :: proc(app: ^App) -> (c: Object_Chip) {
 	obj := selected_object(app)
 	if obj == nil {
 		n := len(app.scene.objects)
-		c.glyph, c.empty = ICON_OBJECTS, true
+		c.glyph, c.empty = ui.ICON_OBJECTS, true
 		c.name = "No selection" if n == 0 else fmt.tprintf("%d object%s", n, "" if n == 1 else "s")
 		return
 	}

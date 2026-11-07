@@ -46,7 +46,7 @@ Bar_Which :: enum u8 {
 	Dock_4,
 	// The top bar's three docks (kit_top_lens.odin): the file, the spaces and the app's.
 	Top_File,
-	Top_Spaces,
+	Top_Workspaces,
 	Top_App,
 }
 
@@ -80,7 +80,7 @@ BAR_ZONES := [Bar_Which]string {
 	.Dock_3       = "dock_3",
 	.Dock_4       = "dock_4",
 	.Top_File     = "top_file",
-	.Top_Spaces   = "top_spaces",
+	.Top_Workspaces   = "top_workspaces",
 	.Top_App      = "top_app",
 }
 
@@ -116,7 +116,7 @@ VIEW_RAIL_DEFAULT :: [?]Bar_Slot {
 // The top bar's docks as they come: the menu, the file chip, Save, Undo and Redo; the space
 // tabs and the object chip; Search, History and Settings.
 TOP_FILE_DEFAULT :: [?]Bar_Slot{{.Main_Menu, 0}, {.File_Chip, 0}, {.Save_Scene, 0}, {.Undo, 0}, {.Redo, 0}}
-TOP_SPACES_DEFAULT :: [?]Bar_Slot{{.Space_Tabs, 0}, {.Object_Chip, 0}}
+TOP_WORKSPACES_DEFAULT :: [?]Bar_Slot{{.Workspace_Tabs, 0}, {.Object_Chip, 0}}
 TOP_APP_DEFAULT :: [?]Bar_Slot{{.Command_Palette, 0}, {.Open_Card, int(Card.History)}, {.Settings, 0}}
 
 // The island a fresh install has: Size and Strength as tall sliders.
@@ -179,8 +179,8 @@ bar_fresh :: proc(which: Bar_Which) -> Bar_List {
 	case .Top_File:
 		d := TOP_FILE_DEFAULT
 		return bar_list_of(d[:], bar_default_look(which))
-	case .Top_Spaces:
-		d := TOP_SPACES_DEFAULT
+	case .Top_Workspaces:
+		d := TOP_WORKSPACES_DEFAULT
 		return bar_list_of(d[:], bar_default_look(which))
 	case .Top_App:
 		d := TOP_APP_DEFAULT
@@ -204,7 +204,7 @@ bar_list_k :: proc(k: ^Kit_State, which: Bar_Which) -> ^Bar_List {
 	case .View_Rail: return &k.view_rail
 	case .Brush_Pie: return &k.brush_pie
 	case .Offhand:   return &k.offhand
-	case .Top_File, .Top_Spaces, .Top_App:
+	case .Top_File, .Top_Workspaces, .Top_App:
 		d, _ := top_dock_of(which)
 		return &k.top_docks[d]
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
@@ -227,7 +227,7 @@ bar_capacity :: proc(which: Bar_Which) -> int {
 	case .Brush_Pie: return PIE_SLOTS
 	case .Offhand:   return OFFHAND_MAX
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4: return USER_DOCK_MAX
-	case .Top_File, .Top_Spaces, .Top_App: return TOP_DOCK_MAX
+	case .Top_File, .Top_Workspaces, .Top_App: return TOP_DOCK_MAX
 	}
 	return 0
 }
@@ -345,7 +345,7 @@ bar_title :: proc(app: ^App, which: Bar_Which) -> string {
 	case .Brush_Pie:    return "The brush pie"
 	case .Offhand:      return "The brush toolbar"
 	case .Top_File:     return "The top bar's File toolbar"
-	case .Top_Spaces:   return "The top bar's Spaces toolbar"
+	case .Top_Workspaces:   return "The top bar's Workspaces toolbar"
 	case .Top_App:      return "The top bar's App toolbar"
 	case .Dock_1, .Dock_2, .Dock_3, .Dock_4:
 		d, _ := dock_of_bar(which)
@@ -409,7 +409,7 @@ bar_slot_actions :: proc(app: ^App, which: Bar_Which, slot: int) -> (close: bool
 	ctx := &k.ctx
 	count := bar_count(app, which)^
 	across := !bar_column(which)
-	if ui.icon_button(ctx, "Move earlier", ICON_CHEVRON_LEFT if across else ui.ICON_CHEVRON_UP, enabled = slot > 0) do bar_slot_moved(app, bar_move(app, which, slot, -1))
+	if ui.icon_button(ctx, "Move earlier", ui.ICON_CHEVRON_LEFT if across else ui.ICON_CHEVRON_UP, enabled = slot > 0) do bar_slot_moved(app, bar_move(app, which, slot, -1))
 	if ui.icon_button(ctx, "Move later", ui.ICON_CHEVRON_RIGHT if across else ui.ICON_CHEVRON_DOWN, enabled = slot < count - 1) do bar_slot_moved(app, bar_move(app, which, slot, 1))
 	if ui.icon_button(ctx, "Remove from the bar", ui.ICON_TRASH) {
 		bar_remove(app, which, slot)
@@ -448,32 +448,32 @@ bar_label :: proc(app: ^App, s: Bar_Slot) -> string {
 // A slot's icon: the bars' own for the commands they always had, the command's, or a wand.
 bar_icon :: proc(app: ^App, s: Bar_Slot) -> rune {
 	#partial switch s.id {
-	case .Tool_Move:       return ICON_GIZMO
-	case .Remesh:          return ICON_REMESH
-	case .Dyntopo_Toggle:  return ICON_DYNTOPO
-	case .Retopologize:    return ICON_RETOPO
-	case .Subdivide:       return ICON_SUBDIVIDE
-	case .Live_Boolean:    return ICON_BOOLEAN
-	case .Studio_Render:   return ui.ICON_SUN
-	case .Ortho_Toggle:    return ICON_ORTHO
-	case .Floor_Grid:      return ICON_FLOOR
-	case .Symmetry_X:      return ICON_SYMMETRY
-	case .Local_Symmetry:  return ICON_LOCAL_SYMMETRY
+	case .Tool_Move:       return ui.ICON_GIZMO
+	case .Remesh:          return ui.ICON_REMESH
+	case .Dyntopo_Toggle:  return ui.ICON_DYNTOPO
+	case .Retopologize:    return ui.ICON_RETOPO
+	case .Subdivide:       return ui.ICON_SUBDIVIDE
+	case .Live_Boolean:    return ui.ICON_BOOLEAN
+	case .Studio_Render:   return ui.ICON_STUDIO_RENDER
+	case .Ortho_Toggle:    return ui.ICON_ORTHO
+	case .Floor_Grid:      return ui.ICON_FLOOR
+	case .Symmetry_X:      return ui.ICON_SYMMETRY
+	case .Local_Symmetry:  return ui.ICON_LOCAL_SYMMETRY
 	case .Focus_Selected:  return ui.ICON_FOCUS
-	case .Wireframe:       return ICON_WIREFRAME
-	case .Transparency:    return ICON_TRANSPARENCY
+	case .Wireframe:       return ui.ICON_WIREFRAME
+	case .Transparency:    return ui.ICON_TRANSPARENCY
 	case .Ghost_Object:    return ui.ICON_GHOST
-	case .Solo_Object:     return ICON_SOLO
+	case .Solo_Object:     return ui.ICON_SOLO
 	case .Command_Palette: return ui.ICON_SEARCH
 	case .Brush:           return BRUSHES[sculpt.Brush_Kind(s.arg)].icon
 	case .Brush_Preset:    return preset_slot_icon(app, s.arg)
 	case .Mask_Shape_Pick: return SHAPE_TOOL_ICONS[Mask_Shape_Kind(s.arg)]
 	case .Hide_Gesture_Pick: return GESTURE_ICONS[Gesture_Tool(s.arg)]
-	case .Camera_Menu:     return ICON_CAMERA
-	case .Shading_Menu:    return ICON_SHADING
-	case .Second_View:       return ICON_SECOND_VIEW
-	case .View_Layout_Menu: return ICON_VIEW_LAYOUT
-	case .Pass_Menu:       return ICON_PASSES
+	case .Camera_Menu:     return ui.ICON_CAMERA
+	case .Shading_Menu:    return ui.ICON_SHADING
+	case .Second_View:       return ui.ICON_SECOND_VIEW
+	case .View_Layout_Menu: return ui.ICON_VIEW_LAYOUT
+	case .Pass_Menu:       return ui.ICON_PASSES
 	case .Open_Card:       return card_icon(app, Card(s.arg)) if s.arg >= 0 && s.arg < len(Card) else ui.ICON_PANEL
 	case .Open_Section:    return SECTION_ICONS[Section(s.arg)] if s.arg >= 0 && s.arg < len(Section) else ui.ICON_PANEL
 	case .Brush_Value:     if v, ok := value_of(s); ok do return BRUSH_VALUE_ICONS[v]

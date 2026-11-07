@@ -4,12 +4,13 @@ import "core:fmt"
 import "core:strings"
 import "../ui"
 
-// Layouts: each space (Sculpt, Model, Render) keeps one layout of the interface: which
-// bars show, the docks and their buttons, the cards pinned and floating, the view grid and
-// the pass. What is changed is kept, and a space left keeps its layout as it was left. The
-// space's tab carries an amber dot while its layout differs from how it ships, and Reset
-// layout puts it back so. A layout is kept as text, the lines kit_layout_text writes, so
-// comparing two is comparing strings and the settings file stores them as they are.
+// Layouts: each workspace (workspaces.odin) keeps one layout of the interface: which bars
+// show, the docks and their buttons, the cards pinned and floating, the view grid, the pass
+// and the shelf's pages. What is changed is kept, and a workspace left keeps its layout as
+// it was left. Its tab carries an amber dot while its layout differs from its base (the
+// layout it ships with, or the one it was made from), and Reset layout puts that back. A
+// layout is kept as text, the lines kit_layout_text writes, so comparing two is comparing
+// strings and the settings file stores them as they are.
 
 // A part of the interface a layout can hide. The top bar never hides: when a bar
 // holding Undo and Redo, or Search and the tray's button, is hidden, they move into it.
@@ -22,65 +23,90 @@ Zone :: enum u8 {
 }
 
 Layouts :: struct {
-	shipped:  [Space]string, // each space's layout as it ships (heap)
-	kept:     [Space]string, // each space but the current one's layout as it was left, "" when as it ships (heap)
-	modified: bool, // the current space's layout differs from how it ships, as of this frame
-	menu:     bool, // the tabs' menu (the spaces and Reset layout)
+	shipped:  [Starter]string, // each starter's layout as it ships (heap; None's is empty)
+	modified: bool, // the current workspace's layout differs from its base, as of this frame
+	menu:     bool, // the workspace menu (the workspaces and Reset layout)
 	menu_at:  ui.Rect,
 	resets:   int, // Reset layout runs (an exit stat)
+	edit:     Workspace_Menu, // what the menu edits (workspace_menu.odin)
 }
 
-// The layouts as they start: each space's as it ships.
+// The layouts as they start: each starter's as it ships, and the starting workspaces.
 layouts_init :: proc(k: ^Kit_State) {
-	for s in Space do layout_text_set(&k.layouts.shipped[s], built_in_layout(s))
-	spaces_init(k)
+	for s in Starter do if s != .None do layout_text_set(&k.layouts.shipped[s], built_in_layout(s))
+	workspaces_init(k)
 }
 
 layouts_destroy :: proc(k: ^Kit_State) {
-	for s in Space {
-		delete(k.layouts.shipped[s])
-		delete(k.layouts.kept[s])
-		k.layouts.shipped[s], k.layouts.kept[s] = "", ""
+	for &s in k.layouts.shipped {
+		delete(s)
+		s = ""
 	}
-	spaces_destroy(k)
+	workspace_undo_clear(&k.layouts.edit)
+	workspaces_destroy(k)
 }
 
 // Replaces the heap string `s` with a copy of `text`.
-@(private = "file")
 layout_text_set :: proc(s: ^string, text: string) {
 	delete(s^)
 	s^ = strings.clone(text) if text != "" else ""
 }
 
-// Once a frame: whether the current space's layout differs from how it ships.
+// Workspace `slot`'s base for class `class` (the class in place when not given): its
+// starter's layout as it ships, the same for both classes, or the one it was made from.
+workspace_base :: proc(k: ^Kit_State, slot: int, class: Maybe(Layout_Class) = nil) -> string {
+	w := &k.workspaces.list[slot]
+	c := class.? or_else k.workspaces.class
+	return w.base[c] if w.starter == .None else k.layouts.shipped[w.starter]
+}
+
+// Once a frame: whether the current workspace's layout differs from its base.
 layouts_frame :: proc(k: ^Kit_State) {
 	l := &k.layouts
 	if l.shipped[.Sculpt] == "" do return
-	now := kit_layout_text(k)
-	l.modified = now != l.shipped[k.spaces.current]
+	l.modified = kit_layout_text(k) != workspace_base(k, k.workspaces.current)
 }
 
-// Whether space `s`'s layout differs from how it ships: the current one's as of this
+// Whether workspace `slot`'s layout differs from its base: the current one's as of this
 // frame, another's as it was left.
-layout_changed :: proc(k: ^Kit_State, s: Space) -> bool {
-	return k.layouts.modified if s == k.spaces.current else k.layouts.kept[s] != ""
+layout_changed :: proc(k: ^Kit_State, slot: int) -> bool {
+	return k.layouts.modified if slot == k.workspaces.current else k.workspaces.list[slot].kept[k.workspaces.class] != ""
 }
 
-// Keeps the layout in place as space `from`'s and puts space `to`'s in its place.
-layout_switch :: proc(k: ^Kit_State, from, to: Space) {
+// Keeps the layout in place as workspace `from`'s and puts workspace `to`'s in its place.
+layout_switch :: proc(k: ^Kit_State, from, to: int) {
 	l := &k.layouts
 	if from == to || l.shipped[.Sculpt] == "" do return
+	ws := &k.workspaces
+	c := ws.class
 	now := kit_layout_text(k)
-	layout_text_set(&l.kept[from], now if now != l.shipped[from] else "")
-	kit_layout_put(k, l.kept[to] if l.kept[to] != "" else l.shipped[to])
-	layout_text_set(&l.kept[to], "")
+	layout_text_set(&ws.list[from].kept[c], now if now != workspace_base(k, from) else "")
+	kit_layout_put(k, ws.list[to].kept[c] if ws.list[to].kept[c] != "" else workspace_base(k, to))
+	layout_text_set(&ws.list[to].kept[c], "")
 }
 
-// Puts the current space's layout back as it ships.
+// Keeps the layout in place as the current workspace's for the class it was for, and puts
+// its layout for class `to` in place, as a window moved to another kind of screen would want.
+layout_class_switch :: proc(k: ^Kit_State, to: Layout_Class) {
+	ws := &k.workspaces
+	if to == ws.class do return
+	if k.layouts.shipped[.Sculpt] == "" {
+		ws.class = to
+		return
+	}
+	w := workspace_now(k)
+	now := kit_layout_text(k)
+	layout_text_set(&w.kept[ws.class], now if now != workspace_base(k, ws.current) else "")
+	ws.class = to
+	kit_layout_put(k, w.kept[to] if w.kept[to] != "" else workspace_base(k, ws.current))
+	layout_text_set(&w.kept[to], "")
+}
+
+// Puts the current workspace's layout back as its base.
 layout_reset :: proc(k: ^Kit_State) {
 	l := &k.layouts
 	if l.shipped[.Sculpt] == "" do return
-	kit_layout_put(k, l.shipped[k.spaces.current])
+	kit_layout_put(k, workspace_base(k, k.workspaces.current))
 	l.resets += 1
 }
 
@@ -117,7 +143,7 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	view_toggles_off(k)
 	panels_default(k)
 	// No card open but those the layout pins; which sections are folded is the person's,
-	// in every space.
+	// in every workspace.
 	if !k.cards.set do cards_default(k)
 	k.cards.columns = {}
 	k.cards.floats = {}
@@ -166,14 +192,15 @@ kit_layout_put :: proc(k: ^Kit_State, text: string) {
 	kit_floats_close(k)
 }
 
-// A space's layout as it ships, as kit_layout_text writes it.
-built_in_layout :: proc(s: Space) -> string {
+// A starter's layout as it ships, as kit_layout_text writes it.
+built_in_layout :: proc(s: Starter) -> string {
 	text: string
 	switch s {
+	case .None:
 	case .Sculpt:
 		// The view clear: every card opens from its dock button when it is wanted; the
-		// shelf's brushes, paint, Move and Curve pages.
-		text = "shelf Sculpt Paint Move Curve\n"
+		// shelf's brushes, Move and Curve pages (painting has a workspace of its own).
+		text = "shelf Sculpt Move Curve\n"
 	case .Model:
 		// As Sculpt, without the brush bar: its Size and Strength move no cage, so in Model
 		// they would only take room from the view. The shelf's Model page.
@@ -184,23 +211,26 @@ built_in_layout :: proc(s: Space) -> string {
 		// render build up beside it. No brush bar, as in Model: a press in Render turns the
 		// view, so Size and Strength would only take room. The shelf's Render page.
 		text = "hidden Brush_Bar\ncolumn right Material\nshelf Render\n"
+	case .Paint:
+		// The Colours card pinned on the pen side, as Procreate keeps its colours at hand,
+		// with the brush bar for Size and Strength; the shelf's Paint page, then the brushes.
+		text = "column right Colours\nshelf Paint Sculpt\n"
 	}
 	// Read and written again, so it is exactly what the layout writes when it is in place;
-	// every space ships with the bars a fresh install has.
+	// every starter ships with the bars a fresh install has.
 	st := new(Kit_State, context.temp_allocator)
 	kit_layout_put(st, strings.concatenate({text, "bars\n"}, context.temp_allocator))
 	return kit_layout_text(st)
 }
 
-// Takes added shelf page `p`, deleted, out of the layout every space kept, so a page added
-// later in its slot never shows where this one did.
+// Takes added shelf page `p`, deleted, out of every workspace's kept layout and base, so a
+// page added later in its slot never shows where this one did.
 layouts_forget_page :: proc(k: ^Kit_State, p: Shelf_Page) {
 	word := fmt.tprint(p)
-	for s in Space {
-		text := k.layouts.kept[s]
-		if text == "" do continue
+	forget :: proc(text: ^string, word: string) {
+		if text^ == "" do return
 		out := strings.builder_make(context.temp_allocator)
-		for line in strings.split_lines(text, context.temp_allocator) {
+		for line in strings.split_lines(text^, context.temp_allocator) {
 			if line == "" do continue
 			f := strings.fields(line, context.temp_allocator)
 			if f[0] != "shelf" {
@@ -211,7 +241,11 @@ layouts_forget_page :: proc(k: ^Kit_State, p: Shelf_Page) {
 			for w in f[1:] do if w != word do fmt.sbprintf(&out, " %s", w)
 			strings.write_byte(&out, '\n')
 		}
-		layout_text_set(&k.layouts.kept[s], strings.to_string(out))
+		layout_text_set(text, strings.to_string(out))
+	}
+	for &w in k.workspaces.list do for c in Layout_Class {
+		forget(&w.kept[c], word)
+		forget(&w.base[c], word)
 	}
 }
 
@@ -225,19 +259,21 @@ rail_shown :: proc(k: ^Kit_State) -> Rail_Side {
 	return .Off if .Wheel in k.hidden else k.rail_side
 }
 
-// The room the top bar's middle needs for the space chip, which stands in for the tabs on
-// a narrow window and in Focus.
-SPACE_CHIP_ROOM :: 160
+// The room the top bar's middle needs for the workspace chip, which stands in for the tabs
+// on a narrow window and in Focus.
+WORKSPACE_CHIP_ROOM :: 160
 
-// The space chip: the space's name, with the amber dot while its layout differs from how
-// it ships. A tap opens the layout menu under it, which also switches spaces.
-kit_space_chip :: proc(app: ^App) {
+// The workspace chip: the name of the workspace in front, with the amber dot while its
+// layout differs from its base. A tap opens the workspace menu under it.
+kit_workspace_chip :: proc(app: ^App) {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	l := &k.layouts
-	parts := []ui.Chip_Part{{text = SPACE_NAMES[k.spaces.current], strong = true}, {text = "   " if l.modified else ""}}
-	if ui.chip(ctx, "Space##chip", parts, command_hint(app, .Space_Switch, int(k.spaces.current))) {
+	w := workspace_now(k)
+	name := ui.text_fit(ctx, w.name, t.text_size, WORKSPACE_CHIP_ROOM - 40, .Semibold)
+	parts := []ui.Chip_Part{{text = name, strong = true}, {text = "   " if l.modified else ""}}
+	if ui.chip(ctx, "Workspace##chip", parts, command_hint(app, .Workspace_Switch, k.workspaces.current)) {
 		was := l.menu
 		kit_floats_close(k)
 		l.menu = !was
@@ -245,60 +281,4 @@ kit_space_chip :: proc(app: ^App) {
 	r := ctx.last_rect
 	l.menu_at = r
 	if l.modified do ui.fill_circle(ctx, {r.x + r.w - 18, r.y + r.h * 0.5}, 4, t.warning)
-}
-
-// The layout menu, from the space tabs' chevron or the space chip: the spaces, then Reset
-// layout.
-kit_layout_menu :: proc(app: ^App) {
-	k := &app.kit
-	ctx := &k.ctx
-	l := &k.layouts
-	if !ui.popover_begin(ctx, "layout menu", &l.menu, l.menu_at, .Below, {direction = .Column, gap = 0, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
-	defer ui.popover_end(ctx)
-	ui.caption(ctx, "  SPACES")
-	picked := false
-	for s in Space do picked ||= command_menu_item(app, .Space_Switch, int(s), label = fmt.tprintf("%s##layout menu", SPACE_NAMES[s]))
-	ui.divider(ctx, across = true)
-	picked ||= command_menu_item(app, .Layout_Reset)
-	if picked do l.menu = false
-}
-
-// The settings lines of the layouts: `space_layout <Space> <text>` for each space whose
-// layout differs from how it ships, the current one's as it is now.
-layouts_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
-	l := &k.layouts
-	if l.shipped[.Sculpt] == "" do return
-	for s in Space {
-		text := kit_layout_text(k) if s == k.spaces.current else l.kept[s]
-		if text != "" && text != l.shipped[s] do fmt.sbprintfln(out, "space_layout %v %s", s, preset_escape(text))
-	}
-	fmt.sbprintfln(out, "space_current %v", k.spaces.current)
-}
-
-// Reads a `space_layout` or `space_current` line (`f` split by spaces); a space this build
-// does not name is passed over.
-layouts_load_line :: proc(k: ^Kit_State, f: []string) {
-	if len(f) < 2 || k.layouts.shipped[.Sculpt] == "" do return
-	s: Space
-	found := false
-	for each in Space do if strings.equal_fold(f[1], fmt.tprint(each)) do s, found = each, true
-	if !found do return
-	switch f[0] {
-	case "space_layout":
-		if len(f) == 3 do layout_text_set(&k.layouts.kept[s], preset_unescape(f[2]))
-	case "space_current":
-		k.spaces.current = s
-	}
-}
-
-// After the settings are read: the current space's layout is put in place.
-layouts_loaded :: proc(k: ^Kit_State) {
-	l := &k.layouts
-	if l.shipped[.Sculpt] == "" do return
-	s := k.spaces.current
-	// Sculpt as it ships is how the interface starts, with any bar the settings named
-	// (a scenario's view rail), so it is put in place only when the file kept another.
-	if l.kept[s] != "" do kit_layout_put(k, l.kept[s])
-	else if s != .Sculpt do kit_layout_put(k, l.shipped[s])
-	layout_text_set(&l.kept[s], "")
 }

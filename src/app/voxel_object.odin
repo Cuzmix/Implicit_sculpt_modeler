@@ -112,9 +112,8 @@ voxel_part_free :: proc(app: ^App, obj: ^Object) {
 // Reads the clay object_put wrote in the levels' place into a new part on `obj`, with its
 // empty level, and uploads its surface. `read` is false when the bytes are damaged (nothing is made); `made` is
 // false on a GPU failure, with the object's part left for object_discard.
-voxel_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, made: bool) {
+voxel_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object, resolution: int) -> (read, made: bool) {
 	start := time.tick_now()
-	resolution := int(geom.byte_get(r, i32))
 	if !r.ok || resolution < VOXELS_MIN || resolution > VOXELS_MAX do return false, false
 	vp := new(Voxel_Part)
 	vp.resolution = resolution
@@ -147,34 +146,77 @@ voxel_upload :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, vp: ^Voxel_Part) 
 		vp.gpu = render.mesh_buffers_create(&app.renderer, m, mask) or_return
 		render.viewport_invalidate(&app.target)
 		app.stats.gpu_regrows += 1
+		_ = voxel_upload_color(app, cmd, vp, nil, true)
 		return len(m.positions) * render.VERTEX_BYTES + len(m.indices) * size_of(u32), f.damage, true
 	}
 	render.mesh_buffers_upload_ranges(&app.renderer, cmd, &vp.gpu, m, f.ranges, mask)
 	render.mesh_buffers_upload_indices(&app.renderer, cmd, &vp.gpu, m.indices[:], f.indices)
+	bytes += voxel_upload_color(app, cmd, vp, f.ranges, false)
 	for r in f.ranges do bytes += int(r.count) * render.VERTEX_BYTES
 	for r in f.indices do bytes += int(r.index_count) * size_of(u32)
 	return bytes, f.damage, true
 }
 
+// Brings the surface's colours on the GPU up to date when the clay is painted: the vertex
+// `ranges` the flush remeshed, or all of them for a new GPU copy (or a new paint buffer).
+// Returns the bytes sent; nothing while the clay holds no colour.
+voxel_upload_color :: proc(app: ^App, cmd: render.Cmd, vp: ^Voxel_Part, ranges: []geom.Vertex_Range, whole: bool) -> int {
+	if !voxel.clay_colored(&vp.clay) do return 0
+	all := whole || vp.gpu.paint == 0
+	if !all && len(ranges) == 0 do return 0
+	render.mesh_buffers_upload_paint(&app.renderer, cmd, &vp.gpu, vp.clay.surface.color[:], nil, ranges, all)
+	if all do return int(vp.gpu.vertex_capacity) * size_of(render.Paint_Packed)
+	bytes := 0
+	for r in ranges do bytes += int(r.count) * size_of(render.Paint_Packed)
+	return bytes
+}
+
+// Whether the clay's colours show: painted, and the object's paint not turned off.
+voxel_paint_shows :: proc(obj: ^Object) -> bool {
+	return obj.voxel != nil && voxel.clay_colored(&obj.voxel.clay) && !obj.paint_off
+}
+
 // Where a ray (in the object's space) meets the object: the clay's surface for a voxel
 // object, the mesh for the rest, with the surface normal there.
-object_raycast_local :: proc(obj: ^Object, origin, dir: Vec3) -> (hit, normal: Vec3, ok: bool) {
-	if vp := obj.voxel; vp != nil do return voxel.clay_raycast(&vp.clay, origin, dir)
+// With `press`, voxel clay is met as it was at the stroke's start, so a Tube stroke
+// follows the surface it began on rather than climbing its own rope.
+object_raycast_local :: proc(obj: ^Object, origin, dir: Vec3, press := false) -> (hit, normal: Vec3, ok: bool) {
+	if vp := obj.voxel; vp != nil {
+		if press do return voxel.clay_raycast_press(&vp.clay, origin, dir)
+		return voxel.clay_raycast(&vp.clay, origin, dir)
+	}
 	hit, ok = sculpt.sculptor_raycast(object_sculptor(obj), origin, dir)
 	return
 }
 
-// The voxel brush a mesh brush stands for: Draw, Clay and Layer add clay (take it away
-// inverted), Smooth, Flatten and Inflate do what they do on a mesh; the rest have no
-// meaning on a volume (false). `normal` is the surface normal under the dab.
+// The voxel brush a mesh brush stands for: Draw adds clay (takes it away inverted), Clay
+// builds up to a plane above the surface (digs inverted), Tube lays a rope, the rest do
+// what the mesh brushes of their names do; those with no meaning on a volume give false.
+// `normal` is the surface normal under the dab.
 voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: bool) {
-	vb = {radius = b.radius, strength = b.strength, invert = b.invert, normal = normal}
+	vb = {
+		radius = b.radius, strength = b.strength, invert = b.invert, normal = normal, drag = b.drag, pinch = b.hook_pinch,
+		along = b.stroke_dir, polish = b.smooth_mode == .Polish, trim_angle = b.trim_angle, trim_fixed = b.trim_fixed,
+	}
 	#partial switch b.kind {
-	case .Draw, .Clay, .Layer: vb.kind = .Add
+	case .Draw:    vb.kind = .Add
+	case .Layer:   vb.kind = .Layer
+	case .Clay_Strips: vb.kind = .Clay_Strips
+	case .Trim_Dynamic: vb.kind = .Trim
+	case .Clay:    vb.kind = .Clay
 	case .Smooth:  vb.kind = .Smooth
 	case .Flatten: vb.kind = .Flatten
 	case .Inflate: vb.kind = .Inflate
 	case .Mask:    vb.kind = .Mask
+	case .Paint:
+		vb.kind = .Paint
+		vb.color = b.color
+	case .Pinch:   vb.kind = .Pinch
+	case .Crease:  vb.kind = .Crease
+	case .Snake_Hook: vb.kind = .Snake_Hook
+	case .Tube:
+		vb.kind = .Tube
+		vb.radius = b.radius * b.strength
 	case: return vb, false
 	}
 	return vb, true
@@ -183,9 +225,22 @@ voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: b
 // Whether a stroke with `kind` can start on a voxel object; said once a press (`say`) when
 // not, so the press does nothing in silence.
 voxel_brush_allowed :: proc(app: ^App, kind: sculpt.Brush_Kind, say: bool) -> bool {
+	if kind == .Grab || kind == .Elastic do return true
 	if _, ok := voxel_brush_of({kind = kind}, {}); ok do return true
-	if say do report(app, Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Smooth, Flatten, Inflate and Mask; convert the object to a mesh for the rest", BRUSHES[kind].name)
+	if say do report(app, Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Clay strips, Trim dynamic, Tube, Smooth, Flatten, Inflate, Pinch, Crease, Snake hook, Grab, Elastic, Mask and Paint; convert the object to a mesh for the rest", BRUSHES[kind].name)
 	return false
+}
+
+// Starts a Grab or Elastic on the clay: the brush pressed at `at` (the object's space)
+// and at each of its symmetry images, which drag their clay the mirrored or turned way.
+voxel_grab_begin :: proc(vp: ^Voxel_Part, brush: sculpt.Brush, at: Vec3) {
+	centres: [dynamic; sculpt.SYM_IMAGES_MAX]Vec3
+	turns: [dynamic; sculpt.SYM_IMAGES_MAX]matrix[3, 3]f32
+	for img in sculpt.symmetry_images(brush) {
+		append(&centres, sculpt.sym_point(img, at))
+		append(&turns, img.turn)
+	}
+	voxel.clay_grab_begin(&vp.clay, brush.radius, centres[:], turns[:], brush.kind == .Elastic, brush.volume)
 }
 
 // One dab on the object at `at` (its space): the sculptor's for a mesh, the clay's for a
@@ -199,13 +254,33 @@ object_dab :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, at, normal: Vec
 	}
 	vb, ok := voxel_brush_of(brush, normal)
 	if !ok do return
+	// Tube's rope runs along its axis, out from the surface by half its thickness (on it,
+	// carving), from where the last dab's ended.
+	if vb.kind == .Tube {
+		st := &app.stroke
+		axis := at + normal * (0 if vb.invert else vb.radius * TUBE_LIFT)
+		from := st.tube_from if st.tube_set else axis
+		st.tube_from, st.tube_set = axis, true
+		for img in sculpt.symmetry_images(brush) {
+			vb.normal = img.turn * normal
+			vb.from = sculpt.sym_point(img, from)
+			_ = voxel.clay_dab(&vp.clay, vb, sculpt.sym_point(img, axis))
+		}
+		return
+	}
 	// Not feathered (sculpt.symmetry_feather): clay's dabs meet their images as a union or
 	// a difference, which never stacks where they overlap.
 	for img in sculpt.symmetry_images(brush) {
 		vb.normal = img.turn * normal
-		_ = voxel.clay_dab(&vp.clay, vb, sculpt.sym_point(img, brush.sym_center, at))
+		vb.drag = img.turn * brush.drag
+		vb.along = img.turn * brush.stroke_dir
+		_ = voxel.clay_dab(&vp.clay, vb, sculpt.sym_point(img, at))
 	}
 }
+
+// How far out from the surface a Tube's axis runs, in its radii: half sunk, so the rope
+// sits on the clay with a fillet rather than touching it along a line.
+TUBE_LIFT :: 0.5
 
 // The resolution Convert to voxels uses for `obj`: the Voxels section's choice, or the one
 // its vertex count maps to, in whole nodes within the range.
@@ -235,7 +310,10 @@ object_mesh_to_voxels :: proc(app: ^App, obj: ^Object, across: int) -> (changed,
 		delete(mask)
 		source = packed
 	}
-	vp := voxels_compute(source, across, &app.pool)
+	// The polypaint comes along as the clay's colour (a dynamic layout keeps none).
+	colors: [][4]u8
+	if !object_dynamic(obj) do colors = object_paint_flat(obj, object_sculptor(obj))
+	vp := voxels_compute(source, across, &app.pool, colors = colors)
 	geom.mesh_destroy(&packed)
 	free_all(context.temp_allocator)
 	if vp == nil {
@@ -247,8 +325,9 @@ object_mesh_to_voxels :: proc(app: ^App, obj: ^Object, across: int) -> (changed,
 
 // The computing half of Convert to voxels, which a long job (long_job.odin) runs on a thread
 // of its own with its own `pool` and `progress`: clay of `source`'s shape, `across` voxels
-// along its longest side, meshed. Nil when the mesh has no volume, or when cancelled.
-voxels_compute :: proc(source: geom.Mesh, across: int, pool: ^jobs.Pool, progress: ^jobs.Progress = nil) -> ^Voxel_Part {
+// along its longest side, with `colors` (the mesh's polypaint per vertex, or nil) laid on
+// it, meshed. Nil when the mesh has no volume, or when cancelled.
+voxels_compute :: proc(source: geom.Mesh, across: int, pool: ^jobs.Pool, progress: ^jobs.Progress = nil, colors: [][4]u8 = nil) -> ^Voxel_Part {
 	_, bounds := geom.mesh_area_bounds(source, pool)
 	vp := new(Voxel_Part)
 	vp.resolution = clamp(across, VOXELS_MIN, VOXELS_MAX)
@@ -256,6 +335,7 @@ voxels_compute :: proc(source: geom.Mesh, across: int, pool: ^jobs.Pool, progres
 		free(vp)
 		return nil
 	}
+	if colors != nil do _ = voxel.clay_paint_from_mesh(&vp.clay, source, colors)
 	_ = voxel.clay_flush(&vp.clay)
 	jobs.progress_set(progress, 0, 1, 1)
 	return vp
@@ -344,20 +424,76 @@ object_voxel_to_mesh :: proc(app: ^App, obj: ^Object) -> bool {
 	stroke_finish(app)
 	start := time.tick_now()
 	masked := voxel.clay_has_mask(&obj.voxel.clay)
+	colored := voxel.clay_colored(&obj.voxel.clay)
 	values: []u8
 	defer delete(values)
-	mesh := voxel.clay_to_mesh(&obj.voxel.clay, mask = &values if masked else nil)
-	return voxel_mesh_apply(app, obj, mesh, values, start)
+	surface: Surface
+	defer surface_free(&surface)
+	colors: [][4]u8
+	mesh := voxel.clay_to_mesh(&obj.voxel.clay, mask = &values if masked else nil, colors = &colors if colored else nil)
+	surface.color = colors
+	return voxel_mesh_apply(app, obj, mesh, values, start, surface = surface)
 }
 
 // The second half of Convert to mesh, on the frame thread: the object rebuilt on `mesh` (or
 // on the levels a long job's thread `prepared` from it), with the clay's mask `values` when
-// it had one. A long job's first half is clay_to_mesh on a flushed clay, which it only
-// reads. False only when the mesh could not be uploaded.
-voxel_mesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, values: []u8, start: time.Tick, prepared: ^sculpt.Levels = nil) -> bool {
+// it had one, and its colours as the mesh's polypaint (`surface`, read, not taken). A long
+// job's first half is clay_to_mesh on a flushed clay, which it only reads, and its levels
+// then carry the colours already. False only when the mesh could not be uploaded.
+voxel_mesh_apply :: proc(app: ^App, obj: ^Object, mesh: geom.Mesh, values: []u8, start: time.Tick, prepared: ^sculpt.Levels = nil, surface: Surface = {}) -> bool {
 	object_release_mesh(app, obj)
-	if !object_build_from(app, obj, mesh, start, normals = true, prepared = prepared) do return false
+	if !object_build_from(app, obj, mesh, start, normals = true, surface = surface, prepared = prepared) do return false
 	if values != nil do _ = sculpt.sculptor_mask_values(object_sculptor(obj), values, .Replace)
+	return true
+}
+
+// The most objects Separate pieces makes: past it the clay is dust better cleared with
+// Remove floaters, and each new object holds a copy of the clay while it is cut down.
+SEPARATE_MOST :: 32
+
+// Separate pieces: each piece of the selected clay but the largest becomes a voxel object of
+// its own at the same place, the largest staying in the object, as one undo step (the
+// object's clay step, then each new object's add). False only on a GPU failure.
+voxel_separate_pieces :: proc(app: ^App) -> bool {
+	obj := selected_object(app)
+	if obj == nil || obj.voxel == nil {
+		report(app, Section.Voxels, {.Warning}, "Separate pieces works on voxel clay: the selected object is not")
+		return true
+	}
+	stroke_finish(app)
+	start := time.tick_now()
+	n := voxel.clay_piece_count(&obj.voxel.clay)
+	if n < 2 {
+		report(app, Section.Voxels, {}, "Nothing to separate: %s is one piece", object_label(obj))
+		return true
+	}
+	if n > SEPARATE_MOST {
+		report(app, Section.Voxels, {.Warning}, "%s is in %d pieces, more than %d: Remove floaters clears the small ones first", object_label(obj), n, SEPARATE_MOST)
+		return true
+	}
+	source := obj.id
+	twins := make([dynamic]int, 0, n - 1)
+	defer delete(twins)
+	// Each copy of the whole clay keeps one piece; the copies come first, from the clay
+	// as it is.
+	for rank in 1 ..< n {
+		obj = object_by_id(app, source)
+		if !scene_duplicate(app, obj) do return false
+		twin := selected_object(app)
+		twin.transform = obj.transform
+		_ = voxel.clay_keep_piece(&twin.voxel.clay, rank)
+		voxel.clay_clear_history(&twin.voxel.clay)
+		voxel_part_edited(twin.voxel)
+		append(&twins, twin.id)
+	}
+	obj = object_by_id(app, source)
+	_ = voxel.clay_keep_piece(&obj.voxel.clay, 0)
+	voxel_part_edited(obj.voxel)
+	history_record(app, obj, .Deform, "Separate pieces")
+	for id in twins do history_record_swap(app, id, history_snapshot(app, nil, "separate pieces"), chain = true)
+	select_object(app, obj)
+	ms := time.duration_milliseconds(time.tick_since(start))
+	report(app, Section.Voxels, {.Undo}, "Separated %s into %d objects in %.0f ms", object_label(obj), n, ms)
 	return true
 }
 
@@ -386,6 +522,12 @@ kit_voxels :: proc(app: ^App, obj: ^Object) {
 	kit_command_pair(app, .Voxel_Res_Down, .Voxel_Res_Up)
 	ui.paragraph(ctx, fmt.tprintf("Res+ doubles the voxels along each side (%d across, about %s vertices) and Res− halves them (%d across, about %s vertices), each as one undo step; detail finer than a voxel goes with Res−.",
 		min(vp.resolution * 2, VOXELS_MAX), count_label(voxel_vertices_for(min(vp.resolution * 2, VOXELS_MAX))), max(vp.resolution / 2, VOXELS_MIN), count_label(voxel_vertices_for(max(vp.resolution / 2, VOXELS_MIN)))))
+	axes := [3]string{"X", "Y", "Z"}
+	if picked := ui.tabs(ctx, "mirror axis", axes[:], int(app.ui.mirror_axis)); picked >= 0 do app.ui.mirror_axis = i32(picked)
+	_ = ui.switch_row(ctx, "Keep the - side", &app.ui.mirror_negative)
+	_ = command_button(app, .Mirror_Weld)
+	kit_command_pair(app, .Remove_Floaters, .Separate_Pieces)
+	ui.paragraph(ctx, "Mirror and weld makes the side the axis does not keep the mirror image of the other, the halves fused where they meet. Remove floaters keeps the largest piece and removes every bit cut off from it; Separate pieces makes each piece an object of its own instead. Each is one undo step.")
 	_ = command_button(app, .Convert_To_Mesh, variant = .Solid, tone = .Accent)
 	ui.paragraph(ctx, "Draw, Clay and Layer add clay (Ctrl takes it away), Smooth, Flatten and Inflate work as on a mesh, the mask is painted, drawn as a shape, inverted and cleared as on a mesh and holds the clay still under it, and booleans (the Booleans section) merge, cut and intersect the clay itself; the other brushes, levels and the rebuild tools need a mesh. Convert to mesh keeps the shape as triangles, and the mask, and is an undo step.")
 	kit_last_result(app, .Voxels)

@@ -1,38 +1,90 @@
-// slangc metal from shadow.vert.spv sha256 67f5bdaedd655f3d3d4645c816d7fa3c342198996e711c1d978a355b70564690
-// slots s= rt= wt= rb= wb= u=0 a=
+// slangc metal from shadow.vert.spv sha256 ddf01ea36d3a41755e43b64b123843ad560228052ccdc8fd85fe8747326e9784
+// slots s= rt= wt= rb=1,2 wb= u=0 a=
 #include <metal_stdlib>
 #include <metal_math>
 #include <metal_texture>
 using namespace metal;
 
-#line 90 "core"
+#line 4 "src/render/shaders/shadow.vert.slang"
+struct SLANG_ParameterGroup_Shadow_Uniforms_0
+{
+    matrix<float,int(4),int(4)>  light_view_proj_0;
+    matrix<float,int(4),int(4)>  model_0;
+    uint4 blend_0;
+};
+
+
+#line 12 "src/render/shaders/blend_pages.slang"
+struct KernelContext_0
+{
+    SLANG_ParameterGroup_Shadow_Uniforms_0 constant* Shadow_Uniforms_0;
+    uint device* blend_table_0;
+    packed_uint4 device* blend_pages_0;
+};
+
+
+#line 17
+uint4 blend_entry_0(uint vertex_0, KernelContext_0 thread* kernelContext_0)
+{
+
+#line 18
+    if((kernelContext_0->Shadow_Uniforms_0->blend_0.x) == 0U)
+    {
+
+#line 18
+        return uint4(0U) ;
+    }
+
+#line 19
+    uint page_0 = kernelContext_0->blend_table_0[vertex_0 >> 10U];
+    if(page_0 == 4294967295U)
+    {
+
+#line 20
+        return uint4(0U) ;
+    }
+
+#line 21
+    return uint4(*(kernelContext_0->blend_pages_0+(page_0 * 1024U + (vertex_0 & 1023U)))) ;
+}
+
+
+#line 21
 struct vertexOutput_0
 {
     float4 output_0 [[position]];
 };
 
 
-#line 8 "src/render/shaders/shadow.vert.slang"
+#line 21
 struct vertexInput_0
 {
     float3 position_0 [[attribute(0)]];
 };
 
 
-#line 3
-struct SLANG_ParameterGroup_Shadow_Uniforms_0
-{
-    matrix<float,int(4),int(4)>  light_view_proj_0;
-    matrix<float,int(4),int(4)>  model_0;
-};
-
-
-#line 8
-[[vertex]] vertexOutput_0 main_0(vertexInput_0 _S1 [[stage_in]], SLANG_ParameterGroup_Shadow_Uniforms_0 constant* Shadow_Uniforms_0 [[buffer(0)]])
+#line 15 "src/render/shaders/shadow.vert.slang"
+[[vertex]] vertexOutput_0 main_0(vertexInput_0 _S1 [[stage_in]], uint vertex_1 [[vertex_id]], SLANG_ParameterGroup_Shadow_Uniforms_0 constant* Shadow_Uniforms_1 [[buffer(0)]], uint device* blend_table_1 [[buffer(1)]], packed_uint4 device* blend_pages_1 [[buffer(2)]])
 {
 
-#line 8
-    vertexOutput_0 _S2 = { ((((((Shadow_Uniforms_0->light_view_proj_0) * (Shadow_Uniforms_0->model_0)))) * (float4(_S1.position_0, 1.0f)))) };
-    return _S2;
+#line 15
+    thread KernelContext_0 kernelContext_1;
+
+#line 15
+    (&kernelContext_1)->Shadow_Uniforms_0 = Shadow_Uniforms_1;
+
+#line 15
+    (&kernelContext_1)->blend_table_0 = blend_table_1;
+
+#line 15
+    (&kernelContext_1)->blend_pages_0 = blend_pages_1;
+
+#line 15
+    uint4 _S2 = blend_entry_0(vertex_1, &kernelContext_1);
+
+#line 15
+    vertexOutput_0 _S3 = { (((((((&kernelContext_1)->Shadow_Uniforms_0->light_view_proj_0) * ((&kernelContext_1)->Shadow_Uniforms_0->model_0)))) * (float4(_S1.position_0 + (as_type<float3>((_S2.xyz))), 1.0f)))) };
+
+    return _S3;
 }
 

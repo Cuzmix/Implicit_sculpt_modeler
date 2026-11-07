@@ -672,7 +672,7 @@ draw_pie :: proc(app: ^App, o: Overlay) {
 		// Eight slices leave each label about a slice's chord across, and a little more: a
 		// label lies flat while the slice turns, so the side slices have more room than that.
 		room := 2 * r * math.sin(step / 2) + 16
-		glyph := ui.ICON_PLUS if slot.id == .None else (COMMANDS[slot.id].icon if COMMANDS[slot.id].icon != 0 else ui.ICON_WAND)
+		glyph := ui.ICON_PLUS if slot.id == .None else (COMMANDS[slot.id].icon if COMMANDS[slot.id].icon != 0 else ui.ICON_COMMAND)
 		name := pie_slot_label(slot)
 		if lens && slot.id != .None do glyph, name = bar_icon(app, slot), shelf_label(app, slot)
 		// A brush shows its own icon, larger than a glyph as its ink does not fill its square.

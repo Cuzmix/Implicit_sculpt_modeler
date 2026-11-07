@@ -32,10 +32,10 @@ OBJECT_TYPE_NAMES := [Object_Type]string {
 
 @(rodata)
 OBJECT_TYPE_ICONS := [Object_Type]rune {
-	.Sculpt_Mesh = ICON_SCULPT_MESH,
-	.Voxel_Clay  = ICON_VOXEL_CLAY,
-	.Cage        = ICON_CAGE,
-	.Curve       = ui.ICON_SPLINE,
+	.Sculpt_Mesh = ui.ICON_SCULPT_MESH,
+	.Voxel_Clay  = ui.ICON_VOXEL_CLAY,
+	.Cage        = ui.ICON_CAGE,
+	.Curve       = ui.ICON_CURVE,
 }
 
 // What `obj` is, as its chip says: clay, then a cage, then a curve, else a mesh to sculpt.

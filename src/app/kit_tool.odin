@@ -97,18 +97,18 @@ kit_brush_colors :: proc(app: ^App) {
 		names := [sculpt.Channel]string{.Sculpt = "Sculpt", .Both = "Both", .Color = "Paint"}
 		options: [len(sculpt.Channel)]string
 		for c in sculpt.Channel do options[c] = names[c]
-		if picked := ui.tabs(ctx, "paint channel", options[:], int(b.channel), glyphs = {ICON_CHANNEL_SCULPT, ICON_CHANNEL_BOTH, ICON_CHANNEL_COLOR}); picked >= 0 do b.channel = sculpt.Channel(picked)
+		if picked := ui.tabs(ctx, "paint channel", options[:], int(b.channel), glyphs = {ui.ICON_CHANNEL_SCULPT, ui.ICON_CHANNEL_BOTH, ui.ICON_CHANNEL_COLOR}); picked >= 0 do b.channel = sculpt.Channel(picked)
 		ui.paragraph(ctx, CHANNEL_HELP[b.channel])
 	} else {
 		ui.paragraph(ctx, fmt.tprintf("%s keeps to what it changes; Sculpt, Both and Paint are for the sculpting brushes.", BRUSHES[b.kind].name))
 	}
 	_ = kit_color(app, "brush colour", &b.color)
-	_ = command_button(app, .Open_Card, int(Card.Colours), label = "Open Colours", glyph = ICON_COLOUR, width = ui.fill_width(ctx))
+	_ = command_button(app, .Open_Card, int(Card.Colours), label = "Open Colours", glyph = ui.ICON_COLOUR, width = ui.fill_width(ctx))
 	_ = ui.switch_row(ctx, "Smooth blurs, Invert erases", &b.paint_dial, .Paint in BRUSHES[b.kind].flags || channel_brush(b.kind))
 	if kit_more(app, .Paint_Color) {
 		ui.caption(ctx, "SECONDARY")
 		_ = kit_color(app, "secondary colour", &b.color2)
-		_ = command_button(app, .Swap_Colors, glyph = ICON_SWAP_COLORS)
+		_ = command_button(app, .Swap_Colors, glyph = ui.ICON_SWAP_COLORS)
 		kit_more_end(app)
 	}
 }
@@ -541,7 +541,7 @@ kit_tilt :: proc(app: ^App) {
 @(private = "file")
 kit_move_tab :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	kit_tool_head(ctx, ui.ICON_MOVE, "Move", "Tap or click an object to select it, and drag it to move it across the view. The gizmo moves it along an arm or across a plane square, turns it about a ring, or scales it from the middle; All does the three at once.")
+	kit_tool_head(ctx, ui.ICON_MOVE_TOOL, "Move", "Tap or click an object to select it, and drag it to move it across the view. The gizmo moves it along an arm or across a plane square, turns it about a ring, or scales it from the middle; All does the three at once.")
 	// The camera's buttons first, where they always are, then the gizmo's settings.
 	half := (ui.fill_width(ctx) - 8) * 0.5
 	ui.begin(ctx, "move actions", {direction = .Row, gap = ui.SPACE_M})
@@ -579,14 +579,14 @@ kit_move_tab :: proc(app: ^App) {
 @(private = "file")
 kit_curve_tab :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	kit_tool_head(ctx, ui.ICON_SPLINE, "Curve", "Curve: drag for a curve that follows the path with as few points as keep it close, or tap points one by one, on the model or anywhere in the scene: Draw on says where a point lands (Surface: on the model, off it on the plane facing the view; View, Floor, Front or Side: on that plane, shown as a grid, through the view's centre and then the point before) (Enter ends, a tap on the first point closes it, Escape drops them). The curve stays an object of its own, a line over the model; Tube draws one with a tube along it, its width a share of the brush's diameter (S changes the brush size), which follows each edit of the curve until Bake makes it a mesh to sculpt. Stitches and Zipper draw one with stitches or zipper teeth set along it, as live.")
+	kit_tool_head(ctx, ui.ICON_CURVE, "Curve", "Curve: drag for a curve that follows the path with as few points as keep it close, or tap points one by one, on the model or anywhere in the scene: Draw on says where a point lands (Surface: on the model, off it on the plane facing the view; View, Floor, Front or Side: on that plane, shown as a grid, through the view's centre and then the point before) (Enter ends, a tap on the first point closes it, Escape drops them). The curve stays an object of its own, a line over the model; Tube draws one with a tube along it, its width a share of the brush's diameter (S changes the brush size), which follows each edit of the curve until Bake makes it a mesh to sculpt. Stitches and Zipper draw one with stitches or zipper teeth set along it, as live.")
 	kit_curve_settings(app)
 }
 
 @(private = "file")
 kit_insert_tab :: proc(app: ^App) {
 	ctx := &app.kit.ctx
-	kit_tool_head(ctx, ui.ICON_SHAPES, "Insert", "Click the surface to put the shape there, standing on it, the brush's size; drag to size it. Mark it Subtract with Live boolean on (Booleans card) to cut it out.")
+	kit_tool_head(ctx, ui.ICON_INSERT, "Insert", "Click the surface to put the shape there, standing on it, the brush's size; drag to size it. Mark it Subtract with Live boolean on (Booleans card) to cut it out.")
 	kit_insert_settings(app)
 }
 

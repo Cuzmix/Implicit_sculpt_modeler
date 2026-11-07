@@ -12,15 +12,17 @@ import "../voxel"
 // --voxel: at each size (voxels across a unit sphere, 256, 512 and 1024 by default), a
 // clay sphere, its first full meshing, then a wavy Add stroke across its front as the
 // mesh bench's: the dab, the per-frame flush (remesh of the dirty nodes) and the upload it
-// asks for, the stroke's end (band repair), undo and redo, then one Smooth and one Inflate
-// dab, the conversion to a plain mesh and that mesh voxelised again at the same voxel size.
+// asks for, the stroke's end (band repair), undo and redo, then one Smooth, Inflate, Pinch
+// and Snake hook dab (the hook dragging a quarter of the radius out), a Grab pulling the front out by a third of the sphere's radius over 20 frames (each
+// frame's warp, its flush and the stroke's end), the same pull as an Elastic (its warp and
+// end), the conversion to a plain mesh and that mesh voxelised again at the same voxel size.
 // Times are medians over the stroke, in milliseconds, with the worst frame beside the
 // flush. Regrows are the frames that had to remake the GPU copy because the mesh arrays
 // grew; Mesh MB is the arrays with their slack; Sweeps is how many the stroke's band repair
 // took to settle.
 voxel_header :: proc() {
-	fmt.println("| Voxels across | Bricks | Field MB | Fill ms | First mesh ms | Vertices | Triangles | Raycast ms | Add dab ms | Bricks/dab | Flush ms | Flush ms max | Upload KB/frame | Regrows | Mesh MB | Stroke end ms | Sweeps | Undo MB | Undo ms | Redo ms | Smooth dab ms | Inflate dab ms | To mesh ms | From mesh ms | Res− ms | Res+ ms | Union ms |")
-	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+	fmt.println("| Voxels across | Bricks | Field MB | Fill ms | First mesh ms | Vertices | Triangles | Raycast ms | Add dab ms | Bricks/dab | Flush ms | Flush ms max | Upload KB/frame | Regrows | Mesh MB | Stroke end ms | Sweeps | Undo MB | Undo ms | Redo ms | Smooth dab ms | Inflate dab ms | Pinch dab ms | Hook dab ms | Grab ms | Grab flush ms | Grab end ms | Elastic ms | Elastic end ms | To mesh ms | From mesh ms | Res− ms | Res+ ms | Union ms |")
+	fmt.println("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 }
 
 run_voxel :: proc(across: int, pool: ^jobs.Pool) {
@@ -88,6 +90,10 @@ run_voxel :: proc(across: int, pool: ^jobs.Pool) {
 
 	smooth_ms := one_dab_ms(&c, .Smooth, radius)
 	inflate_ms := one_dab_ms(&c, .Inflate, radius)
+	pinch_ms := one_dab_ms(&c, .Pinch, radius)
+	hook_ms := one_dab_ms(&c, .Snake_Hook, radius)
+	grab_ms, grab_flush_ms, grab_end_ms := grab_stroke_ms(&c, radius)
+	elastic_ms, _, elastic_end_ms := grab_stroke_ms(&c, radius, elastic = true)
 	m0 := time.tick_now()
 	m := voxel.clay_to_mesh(&c)
 	to_mesh_ms := time.duration_milliseconds(time.tick_since(m0))
@@ -126,7 +132,7 @@ run_voxel :: proc(across: int, pool: ^jobs.Pool) {
 	defer free_all(context.temp_allocator)
 
 	fmt.printfln(
-		"| %d | %s | %.1f | %.0f | %.0f | %s | %s | %.3f | %.2f | %d | %.2f | %.2f | %.0f | %d | %.0f | %.0f | %d | %.1f | %.1f | %.1f | %.2f | %.2f | %.0f | %.0f | %.0f | %.0f | %.0f |",
+		"| %d | %s | %.1f | %.0f | %.0f | %s | %s | %.3f | %.2f | %d | %.2f | %.2f | %.0f | %d | %.0f | %.0f | %d | %.1f | %.1f | %.1f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.0f | %.2f | %.0f | %.0f | %.0f | %.0f | %.0f | %.0f |",
 		across,
 		thousands(bricks),
 		field_mb,
@@ -149,6 +155,13 @@ run_voxel :: proc(across: int, pool: ^jobs.Pool) {
 		redo_ms,
 		smooth_ms,
 		inflate_ms,
+		pinch_ms,
+		hook_ms,
+		grab_ms,
+		grab_flush_ms,
+		grab_end_ms,
+		elastic_ms,
+		elastic_end_ms,
 		to_mesh_ms,
 		from_mesh_ms,
 		res_down_ms,
@@ -164,11 +177,39 @@ one_dab_ms :: proc(c: ^voxel.Clay, kind: voxel.Brush_Kind, radius: f32) -> f64 {
 	if !ok do return math.nan_f64()
 	voxel.clay_stroke_begin(c)
 	t0 := time.tick_now()
-	_ = voxel.clay_dab(c, {kind = kind, radius = radius, strength = 1, normal = linalg.normalize0(normal)}, hit)
+	n := linalg.normalize0(normal)
+	_ = voxel.clay_dab(c, {kind = kind, radius = radius, strength = 1, normal = n, drag = n * (radius / 4)}, hit)
 	ms := time.duration_milliseconds(time.tick_since(t0))
 	_ = voxel.clay_stroke_end(c)
 	_ = voxel.clay_flush(c)
 	return ms
+}
+
+// A Grab (or `elastic`, Elastic) stroke on the sphere's front pulling it out by a third of
+// the radius over 20 frames: the median frame's warp and flush, and the stroke's end with
+// its flush.
+@(private = "file")
+grab_stroke_ms :: proc(c: ^voxel.Clay, radius: f32, elastic := false) -> (move, flush, end: f64) {
+	FRAMES :: 20
+	hit, _, ok := voxel.clay_raycast(c, {-0.2, 0.2, 5}, {0, 0, -1})
+	if !ok do return math.nan_f64(), math.nan_f64(), math.nan_f64()
+	moves := make([dynamic]f64, 0, FRAMES, context.temp_allocator)
+	flushes := make([dynamic]f64, 0, FRAMES, context.temp_allocator)
+	identity := matrix[3, 3]f32{1, 0, 0, 0, 1, 0, 0, 0, 1}
+	voxel.clay_stroke_begin(c)
+	voxel.clay_grab_begin(c, 2 * radius, {hit}, {identity}, elastic, 0.8)
+	for i in 1 ..= FRAMES {
+		t0 := time.tick_now()
+		_ = voxel.clay_grab_move(c, Vec3{0.1, 0, 0.33} * (f32(i) / FRAMES))
+		append(&moves, time.duration_milliseconds(time.tick_since(t0)))
+		f0 := time.tick_now()
+		_ = voxel.clay_flush(c)
+		append(&flushes, time.duration_milliseconds(time.tick_since(f0)))
+	}
+	e0 := time.tick_now()
+	_ = voxel.clay_stroke_end(c)
+	_ = voxel.clay_flush(c)
+	return median(moves[:]), median(flushes[:]), time.duration_milliseconds(time.tick_since(e0))
 }
 
 @(private = "file")

@@ -248,11 +248,11 @@ send_init :: proc(app: ^App, folder: string, receive, allow, exit_after_receive:
 	sh.role = .Tablet if MOBILE else .Desktop
 	sh.me = send.Hello {
 		protocol      = send.PROTOCOL,
-		scene_version = SCENE_VERSION,
+		scene_version = SCENE_FORMAT,
 		role          = sh.role,
 		device        = send_device_id(folder),
 		name          = strings.clone(send_device_name()),
-		build         = fmt.aprintf("Sculpt, scenes v%d", SCENE_VERSION),
+		build         = fmt.aprintf("Sculpt, scene form %d", SCENE_FORMAT),
 	}
 	sh.allow = allow
 	sh.port = port if port > 0 else SEND_PORT

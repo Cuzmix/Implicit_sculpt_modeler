@@ -112,3 +112,37 @@ voxelisation_refuses_what_it_cannot_hold :: proc(t: ^testing.T) {
 	testing.expect(t, !clay_from_mesh(&c, sphere, 2.0 / (VOXELIZE_MAX + 8), nil), "a lattice past VOXELIZE_MAX was accepted")
 	testing.expect(t, c.volume.chunks == nil, "a refused clay was left initialised")
 }
+
+// A converted sphere's field is a true distance through the band: the voxels beside the
+// surface are within a tenth of a voxel of it (their crossings are looked for three voxels
+// out along each axis, not one), and no brick the band reaches is left a tile at the
+// clamp, either of which bent the shading into dents and a honeycomb.
+@(test)
+voxelised_sphere_is_a_true_distance_through_the_band :: proc(t: ^testing.T) {
+	sphere := geom.geodesic_sphere(geom.geodesic_frequency_for(50000), nil)
+	defer geom.mesh_destroy(&sphere)
+	_, bounds := geom.mesh_area_bounds(sphere, nil)
+	c: Clay
+	testing.expect(t, clay_from_mesh(&c, sphere, voxel_size_for(bounds, 128), nil))
+	defer clay_destroy(&c)
+	v := &c.volume
+	worst: f32
+	lost := 0
+	lo := brick_floor(voxel_coords(v, {-1.1, -1.1, -1.1}))
+	hi := brick_floor(voxel_coords(v, {1.1, 1.1, 1.1}))
+	for bz in lo.z ..= hi.z do for by in lo.y ..= hi.y do for bx in lo.x ..= hi.x {
+		bc := [3]i32{bx, by, bz}
+		tile, brick := volume_tile(v, bc)
+		for z in 0 ..< BRICK do for y in 0 ..< BRICK do for x in 0 ..< BRICK {
+			exact := (linalg.length(voxel_centre(v, bc * BRICK + {i32(x), i32(y), i32(z)})) - 1) / v.voxel
+			if abs(exact) > 2.5 do continue
+			if tile != .Brick {
+				lost += 1
+				continue
+			}
+			worst = max(worst, abs(f32(brick.d[voxel_index(x, y, z)]) / SCALE - exact))
+		}
+	}
+	testing.expectf(t, lost == 0, "%d voxels within the band were left in tiles", lost)
+	testing.expectf(t, worst < 0.12, "the band is off by up to %.3f voxels", worst)
+}

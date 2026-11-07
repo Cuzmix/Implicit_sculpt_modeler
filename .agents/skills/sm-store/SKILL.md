@@ -131,7 +131,7 @@ re-check the stores' pages before a first submission, because they move every ye
 
 ## Licences
 - Every third-party piece we ship keeps its licence text and appears in an About > Licences screen: SDL3 (zlib),
-  Inter (OFL 1.1, its licence beside the font files), Lucide (ISC), stb (public domain or MIT),
+  Inter (OFL 1.1, its licence beside the font files), the icon font's drawings from Phosphor (MIT), Tabler (MIT) and Lucide (ISC) (assets/licenses), stb (public domain or MIT),
   kb_text_shape, Luau (MIT, with Lua's MIT notice; its texts in the repository's assets/licenses folder, desktop builds only; Luau asks for "Luau"
   in user-facing docs), Stephen Hill's ACES fit (MIT, assets/licenses/ACES-fit-LICENSE.txt; finish.frag.slang), ufbx (MIT or public domain,
   assets/licenses/ufbx-LICENSE.txt; FBX import on every platform), SuiteSparse's AMD order (BSD 3-clause,

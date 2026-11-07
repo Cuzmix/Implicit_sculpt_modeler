@@ -92,7 +92,7 @@ sculptor_lock_plane :: proc(s: ^Sculptor, l: Locked_Plane) {s.locked = l}
 lock_plane_apply :: proc(s: ^Sculptor, d: ^Dab, img: Sym_Image, own: bool, weight: f32) {
 	l := &s.locked
 	if l.set {
-		d.normal, d.plane = img.turn * l.normal, sym_point(img, d.brush.sym_center, l.plane)
+		d.normal, d.plane = img.turn * l.normal, sym_point(img, l.plane)
 	} else if own && weight > 0 && d.normal != {} {
 		l^ = {true, d.normal, d.plane}
 	}
@@ -113,7 +113,7 @@ steady_apply :: proc(s: ^Sculptor, d: ^Dab, img: Sym_Image, own: bool, weight, k
 			st.plane = linalg.lerp(d.plane, st.plane, keep)
 		}
 	}
-	if st.set do d.normal, d.plane = img.turn * st.normal, sym_point(img, d.brush.sym_center, st.plane)
+	if st.set do d.normal, d.plane = img.turn * st.normal, sym_point(img, st.plane)
 }
 
 // Finds what of the surface inside the dab's reach joins the place it presses

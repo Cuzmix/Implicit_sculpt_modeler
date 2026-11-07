@@ -267,14 +267,14 @@ kit_pass_menu :: proc(app: ^App) {
 // The icon of each pass in Lens's list.
 @(rodata)
 PASS_ICONS := [render.View_Pass]rune {
-	.Shaded      = ui.ICON_SUN,
-	.Normals     = ICON_SCAN_EYE,
-	.Depth       = ICON_OBJECTS,
-	.Curvature   = ICON_CHANNEL_SCULPT,
-	.AO          = ICON_CONTRAST,
-	.Silhouette  = ui.ICON_FOCUS,
-	.Skin_Detail = ICON_SPARKLES,
-	.Unlit       = ICON_SHADING,
+	.Shaded      = ui.ICON_PASS_SHADED,
+	.Normals     = ui.ICON_PASS_NORMALS,
+	.Depth       = ui.ICON_PASS_DEPTH,
+	.Curvature   = ui.ICON_PASS_CURVATURE,
+	.AO          = ui.ICON_PASS_AO,
+	.Silhouette  = ui.ICON_PASS_SILHOUETTE,
+	.Skin_Detail = ui.ICON_PASS_SKIN,
+	.Unlit       = ui.ICON_PASS_UNLIT,
 }
 
 // The passes that check the form, as Lens's list groups them.
@@ -451,9 +451,6 @@ pass_layout_read :: proc(k: ^Kit_State, f: []string) {
 	for p in render.View_Pass do if int(p) < PASS_PICKED && fmt.tprint(p) == f[1] do k.passes.pass = p
 }
 
-// Lucide's square-split-horizontal, on the wipe's knob.
-ICON_WIPE :: rune(0xe3ba)
-
 // The wipe's handle over the main pane `m`, under the view panes and every panel: a light
 // line across it with a round knob in its middle, and each side's pass named beside the
 // line's top. A drag on the knob or along the line moves it; the press is the interface's, so
@@ -508,7 +505,7 @@ kit_wipe :: proc(app: ^App, m: ui.Rect) {
 	c := [2]f32{x, cy}
 	ui.fill_circle(ctx, c + {0, 1}, 15, color_dim(t.frame))
 	ui.fill_circle(ctx, c, 14, t.text)
-	ui.icon(ctx, ICON_WIPE, c, t.icon_small - 2, t.frame)
+	ui.icon(ctx, ui.ICON_WIPE, c, t.icon_small - 2, t.frame)
 	drag(app, a, m)
 	ui.end(ctx)
 }

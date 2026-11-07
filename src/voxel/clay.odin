@@ -23,7 +23,11 @@ Clay :: struct {
 	jobs:          [dynamic]Dab_Job, // scratch: the bricks one dab writes
 	job_slots:     [dynamic]u32, // scratch: the stroke's bricks, for the saddle pass at its end
 	scratch:       [dynamic]Brick, // Smooth writes here, one brick a job, then commits
-	windows:       [dynamic]i16, // Smooth's gathered neighbourhoods, WINDOW_VOXELS a job
+	color_scratch: [dynamic]Color_Brick, // a warping dab's colours on painted clay, one a job, then commits
+	windows:       [dynamic]i16, // a dab's gathered neighbourhoods (WINDOW_VOXELS a job), and the band repair's
+	presses:       [dynamic]i16, // Layer's: the same neighbourhoods as they were at the stroke's start
+	trim_angle:    f32, // Trim's angle as the stroke has eased it, once `trim_set`
+	trim_set:      bool,
 	// The band repair (band.odin): bricks waiting for it, its region, the fixed voxels of
 	// each region brick, the generation that stamps pending slots and the running sweep.
 	pending:       [dynamic][3]i32,
@@ -31,11 +35,18 @@ Clay :: struct {
 	fixed:         [dynamic][BRICK_VOXELS / 64]u64,
 	settled:       [dynamic]bool, // per region brick: the last sweep changed nothing in it
 	changed:       [dynamic]bool, // per region brick: the running sweep changed it
-	levels:        [dynamic]u64, // the region's bricks in the running sweep's wavefront order: level over index
+	levels:        [dynamic]u64, // the sweep units in the running sweep's wavefront order: level over unit index
+	repair_seen:   [dynamic]Dab_Effect, // per region brick, the changes the repair made that the mesh can see
+	level_of:      [dynamic]u32, // each sweep unit's level in the running sweep
+	units:         [dynamic][8]i32, // the region's bricks by 2³ block, each block's by place in it (-1: none)
+	unit_coords:   [dynamic][3]i32, // each unit's block
+	unit_of:       map[[3]i32]i32, // a block's unit while the units are made
+	level_starts:  [dynamic]u32, // where each level starts in `levels` (a counting sort)
 	level_first:   int, // where the running wavefront starts in `levels`
 	repair_gen:    u32,
 	sweep:         int,
 	repair_sweeps: int, // sweeps the last repair took before every brick had settled
+	grab:          Clay_Grab, // a running Grab stroke (warp.odin)
 	in_stroke:     bool,
 	stroke_bricks: int, // bricks written by the stroke's dabs, for the stats (one a dab each)
 	stroke_dabs:   int,
@@ -46,9 +57,11 @@ Dab_Job :: struct {
 	slot:   u32,
 	coord:  [3]i32,
 	effect: Dab_Effect, // written by the job
+	// A warping dab on painted clay: its colour changed (in color_scratch), and to some paint.
+	color_changed, color_painted: bool,
 }
 
-// Smooth's window: the brick and a voxel around it.
+// A dab's window (Smooth and the growing brushes): the brick and a voxel around it.
 WINDOW :: BRICK + 2
 WINDOW_VOXELS :: WINDOW * WINDOW * WINDOW
 
@@ -61,13 +74,22 @@ clay_init :: proc(c: ^Clay, voxel: f32, centre: Vec3, pool: ^jobs.Pool, allocato
 	c.jobs = make([dynamic]Dab_Job, allocator)
 	c.job_slots = make([dynamic]u32, allocator)
 	c.scratch = make([dynamic]Brick, allocator)
+	c.color_scratch = make([dynamic]Color_Brick, allocator)
 	c.windows = make([dynamic]i16, allocator)
+	c.presses = make([dynamic]i16, allocator)
 	c.pending = make([dynamic][3]i32, allocator)
 	c.region = make([dynamic]u32, allocator)
 	c.fixed = make([dynamic][BRICK_VOXELS / 64]u64, allocator)
 	c.settled = make([dynamic]bool, allocator)
 	c.changed = make([dynamic]bool, allocator)
 	c.levels = make([dynamic]u64, allocator)
+	c.level_of = make([dynamic]u32, allocator)
+	c.units = make([dynamic][8]i32, allocator)
+	c.unit_coords = make([dynamic][3]i32, allocator)
+	c.unit_of = make(map[[3]i32]i32, allocator)
+	c.repair_seen = make([dynamic]Dab_Effect, allocator)
+	c.level_starts = make([dynamic]u32, allocator)
+	grab_init(&c.grab, allocator)
 	// Slots start stamped 0, so the first generation must not be 0.
 	c.repair_gen = 1
 }
@@ -79,13 +101,22 @@ clay_destroy :: proc(c: ^Clay) {
 	delete(c.jobs)
 	delete(c.job_slots)
 	delete(c.scratch)
+	delete(c.color_scratch)
 	delete(c.windows)
+	delete(c.presses)
 	delete(c.pending)
 	delete(c.region)
 	delete(c.fixed)
 	delete(c.settled)
 	delete(c.changed)
 	delete(c.levels)
+	delete(c.level_of)
+	delete(c.units)
+	delete(c.unit_coords)
+	delete(c.unit_of)
+	delete(c.repair_seen)
+	delete(c.level_starts)
+	grab_destroy(&c.grab)
 	c^ = {}
 }
 
@@ -120,11 +151,18 @@ clay_raycast :: proc(c: ^Clay, origin, dir: Vec3) -> (hit, normal: Vec3, ok: boo
 	return volume_raycast(&c.volume, origin, dir)
 }
 
+// clay_raycast on the clay as it was when the stroke began (as it is, outside a stroke),
+// so a Tube stroke follows the surface it started on rather than climbing its own tube.
+clay_raycast_press :: proc(c: ^Clay, origin, dir: Vec3) -> (hit, normal: Vec3, ok: bool) {
+	return volume_raycast(&c.volume, origin, dir, &c.history if c.in_stroke else nil)
+}
+
 // Starts a stroke: its dabs go into one undo step.
 clay_stroke_begin :: proc(c: ^Clay) {
 	assert(!c.in_stroke, "a stroke is already running")
 	c.in_stroke = true
 	c.stroke_bricks, c.stroke_dabs = 0, 0
+	c.trim_set = false
 	undo_begin(&c.history)
 }
 
@@ -136,6 +174,7 @@ clay_stroke_begin :: proc(c: ^Clay) {
 clay_stroke_end :: proc(c: ^Clay) -> bool {
 	assert(c.in_stroke, "no stroke is running")
 	v := &c.volume
+	grab_end(c)
 	clear(&c.job_slots)
 	// The bricks the stroke saved that are bricks still, each once (a tile that became a
 	// brick is saved more than once).
@@ -154,8 +193,36 @@ clay_stroke_end :: proc(c: ^Clay) -> bool {
 // bricks it wrote.
 clay_dab :: proc(c: ^Clay, brush: Brush, centre: Vec3) -> int {
 	assert(c.in_stroke, "a dab needs a stroke")
+	d := dab_make(brush, centre, c.volume.voxel, c.volume.origin)
+	if d.kind == .Trim do trim_planes(c, &d, brush, centre)
+	if d.kind == .Smooth && brush.polish {
+		// Polish: the smoothing pass, then one that swells back by a little more.
+		written := clay_dab_step(c, d)
+		d.rate = -SMOOTH_RATE * POLISH_SWELL
+		written += clay_dab_step(c, d)
+		if written > 0 do c.stroke_dabs += 1
+		return written
+	}
+	// A growing dab higher than the band can follow in one step is laid in steps of at
+	// most ADD_MAX_VOXELS, each bringing the band along (brush.odin).
+	steps := dab_steps(&d)
+	if steps == 0 do return 0
+	d.height /= f32(steps)
+	written := 0
+	for _ in 0 ..< steps {
+		written += clay_dab_step(c, d)
+		// A Snake hook's middle goes along with the clay it drags.
+		if d.kind == .Snake_Hook do d.centre += d.drag
+	}
+	if written > 0 do c.stroke_dabs += 1
+	return written
+}
+
+// One pass of dab `d` over its bricks: how many it wrote.
+@(private)
+clay_dab_step :: proc(c: ^Clay, dab: Dab) -> int {
 	v := &c.volume
-	d := dab_make(brush, centre, v.voxel, v.origin)
+	d := dab
 	reach := dab_reach(&d)
 	lo := brick_floor(d.centre - reach)
 	hi := brick_floor(d.centre + reach)
@@ -175,30 +242,72 @@ clay_dab :: proc(c: ^Clay, brush: Brush, centre: Vec3) -> int {
 		}
 		// The Mask brush writes the brick's mask, made here (the jobs allocate nothing).
 		if d.kind == .Mask do _ = mask_make(v, slot)
+		if d.kind == .Paint do _ = color_make(v, slot)
 		append(&c.jobs, Dab_Job{slot = slot, coord = bc})
 	}
 	if len(c.jobs) == 0 do return 0
-	c.stroke_dabs += 1
 
-	// The parallel pass: one brick a job. Smooth reads neighbourhoods other jobs' bricks
-	// hold, so it writes scratch bricks from windows gathered before anything changes and
-	// commits them in a second pass.
+	// The parallel pass: one brick a job. Smooth and the growing brushes read
+	// neighbourhoods other jobs' bricks hold, so they write scratch bricks from windows
+	// gathered before anything changes and commit them in a second pass.
 	Run :: struct {
 		c: ^Clay,
 		d: Dab,
 	}
 	run := Run{c, d}
-	if d.kind == .Smooth {
+	// Layer and Tube read the clay as it was at the stroke's start (undo_press).
+	run.d.history, run.d.volume = &c.history, &c.volume
+	if d.margin > 0 {
+		// A warping dab reads the clay as far as its step moves it, straight from the
+		// bricks round each of its own (a step moves clay less than a brick): it writes
+		// scratch bricks and commits them once every job has read.
 		resize(&c.scratch, len(c.jobs))
-		resize(&c.windows, len(c.jobs) * WINDOW_VOXELS)
+		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
+			r := cast(^Run)data
+			c := r.c
+			job := c.jobs[i]
+			c.jobs[i].effect = dab_brick(&r.d, job.coord, &c.volume.bricks[job.slot], &c.scratch[i], mask_of(&c.volume, job.slot))
+		})
+		// On painted clay the colour goes with the clay, read before anything commits.
+		colored := clay_colored(c)
+		if colored {
+			resize(&c.color_scratch, len(c.jobs))
+			jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
+				r := cast(^Run)data
+				job := &r.c.jobs[i]
+				job.color_changed, job.color_painted = warp_color(&r.d, job.coord, job.slot, mask_of(&r.c.volume, job.slot), &r.c.color_scratch[i])
+			})
+		}
+		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
+			c := (cast(^Run)data).c
+			c.volume.bricks[c.jobs[i].slot] = c.scratch[i]
+		})
+		// Serially, since a colour brick is made from the shared pool.
+		if colored do for job, i in c.jobs {
+			if !job.color_changed do continue
+			if job.color_painted do color_make(v, job.slot)^ = c.color_scratch[i]
+			else do color_drop(v, job.slot)
+			surface_mark_brick(c, job.coord)
+		}
+	} else if dab_reads_window(d.kind) {
+		// The window a brick and a voxel round it.
+		side := WINDOW
+		resize(&c.scratch, len(c.jobs))
+		resize(&c.windows, len(c.jobs) * side * side * side)
+		if d.kind == .Layer do resize(&c.presses, len(c.jobs) * side * side * side)
 		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
 			r := cast(^Run)data
 			c := r.c
 			job := c.jobs[i]
 			d := r.d
-			d.window = c.windows[i * WINDOW_VOXELS:][:WINDOW_VOXELS]
+			side := WINDOW
+			d.window = c.windows[i * side * side * side:][:side * side * side]
 			d.window_lo = job.coord * BRICK - 1
-			gather_window(&c.volume, d.window_lo, WINDOW, d.window)
+			gather_window(&c.volume, d.window_lo, side, d.window)
+			if d.kind == .Layer {
+				d.press = c.presses[i * side * side * side:][:side * side * side]
+				gather_press(d.history, &c.volume, d.window_lo, side, d.press)
+			}
 			c.jobs[i].effect = dab_brick(&d, job.coord, &c.volume.bricks[job.slot], &c.scratch[i], mask_of(&c.volume, job.slot))
 		})
 		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
@@ -210,6 +319,12 @@ clay_dab :: proc(c: ^Clay, brush: Brush, centre: Vec3) -> int {
 			r := cast(^Run)data
 			job := &r.c.jobs[i]
 			job.effect = dab_mask_brick(&r.d, job.coord, mask_of(&r.c.volume, job.slot))
+		})
+	} else if d.kind == .Paint {
+		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
+			r := cast(^Run)data
+			job := &r.c.jobs[i]
+			job.effect = dab_paint_brick(&r.d, job.coord, color_of(&r.c.volume, job.slot), mask_of(&r.c.volume, job.slot))
 		})
 	} else {
 		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
@@ -229,7 +344,7 @@ clay_dab :: proc(c: ^Clay, brush: Brush, centre: Vec3) -> int {
 	for job in c.jobs {
 		b := &v.bricks[job.slot]
 		surface_mark_box(c, job.coord, job.effect.lo, job.effect.hi)
-		if d.kind == .Mask {
+		if d.kind == .Mask || d.kind == .Paint {
 			// The field is as it was: nothing to collapse, repair or dilate.
 			if job.effect.changed do written += 1
 			continue

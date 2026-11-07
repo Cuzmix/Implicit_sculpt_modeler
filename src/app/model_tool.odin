@@ -10,6 +10,7 @@ import "../geom"
 import "../gizmo"
 import "../poly"
 import "../sculpt"
+import "../ui"
 
 // The Model tool's pen grammar, as ZModeler's: an action (what a press does) and a
 // target (what it reaches from the element under the pen) are picked first, in the
@@ -105,54 +106,54 @@ MODEL_ACTION_NAMES := [Model_Action]string {
 	.Relax          = "Relax",
 }
 
-// Each action's icon (Lucide), one apiece, drawn from what it does to the cage: a face
+// Each action's icon, one apiece, drawn from what it does to the cage: a face
 // pushed out, a face inside a face, a loop across a quad, two edges pulled together.
 // The shelf, the dial, Search and every menu show these, so no two actions share a glyph,
 // and none is a brush's.
 @(rodata)
 MODEL_ACTION_ICONS := [Model_Action]rune {
-	.Extrude        = 0xe42f, // square-arrow-up
-	.Inset          = 0xe613, // square-square
-	.Move           = 0xe125, // move
-	.Delete         = 0xe179, // square-x
-	.Polygroup      = 0xe469, // group
-	.Flip           = 0xe04a, // arrow-down-up: the faces turned over
-	.Insert_Loop    = 0xe597, // between-horizontal-start
-	.Remove_Loop    = 0xe175, // square-minus
-	.Collapse       = 0xe11f, // minimize-2
-	.Spin           = 0xe14d, // rotate-cw
-	.Close_Hole     = 0xe4b5, // circle-dashed, the app's mark for a hole's open border
-	.Extrude_Edge   = 0xe45f, // arrow-up-from-line
-	.Bridge         = 0xe442, // unfold-horizontal
-	.Weld           = 0xe451, // combine
-	.Connect        = 0xe109, // link-2
-	.Dissolve_Point = 0xe5e6, // diamond-minus
-	.Select         = 0xe257, // scan
-	.Crease         = 0xe533, // tangent
-	.Crease_Point   = 0xe2d2, // diamond
-	.Bevel          = 0xe12a, // octagon: corners cut
-	.Circle_Loop    = 0xe07a, // circle
-	.Space_Loop     = 0xe275, // align-horizontal-space-around
-	.Flatten_Loop   = 0xe277, // align-vertical-justify-center
-	.Knife          = 0xe2f0, // slice
-	.Align          = 0xe03c, // align-center
-	.Spine          = 0xe35c, // bone
-	.Topo           = 0xe547, // waypoints
-	.Loop_Curve     = 0xe612, // chart-spline
-	.Measure        = 0xe14f, // ruler
-	.Slide          = 0xe1c6, // move-horizontal: points sliding along their edges
-	.Relax          = 0xe1b0, // wind: a brush that evens points out
+	.Extrude        = ui.ICON_EXTRUDE,
+	.Inset          = ui.ICON_INSET,
+	.Move           = ui.ICON_MOVE_POINTS,
+	.Delete         = ui.ICON_DELETE_FACES,
+	.Polygroup      = ui.ICON_POLYGROUP,
+	.Flip           = ui.ICON_FLIP_FACES,
+	.Insert_Loop    = ui.ICON_INSERT_LOOP,
+	.Remove_Loop    = ui.ICON_REMOVE_LOOP,
+	.Collapse       = ui.ICON_COLLAPSE,
+	.Spin           = ui.ICON_SPIN,
+	.Close_Hole     = ui.ICON_CLOSE_HOLE,
+	.Extrude_Edge   = ui.ICON_EXTRUDE_EDGE,
+	.Bridge         = ui.ICON_BRIDGE,
+	.Weld           = ui.ICON_WELD,
+	.Connect        = ui.ICON_CONNECT,
+	.Dissolve_Point = ui.ICON_DISSOLVE_POINT,
+	.Select         = ui.ICON_SELECT,
+	.Crease         = ui.ICON_CREASE,
+	.Crease_Point   = ui.ICON_CREASE_POINT,
+	.Bevel          = ui.ICON_BEVEL,
+	.Circle_Loop    = ui.ICON_CIRCLE_LOOP,
+	.Space_Loop     = ui.ICON_SPACE_LOOP,
+	.Flatten_Loop   = ui.ICON_FLATTEN_LOOP,
+	.Knife          = ui.ICON_KNIFE,
+	.Align          = ui.ICON_ALIGN,
+	.Spine          = ui.ICON_SPINE,
+	.Topo           = ui.ICON_TOPO,
+	.Loop_Curve     = ui.ICON_LOOP_CURVE,
+	.Measure        = ui.ICON_MEASURE,
+	.Slide          = ui.ICON_SLIDE,
+	.Relax          = ui.ICON_RELAX,
 }
 
-// Each primitive cage's icon (Lucide), its own shape.
+// Each primitive cage's icon, its own shape.
 @(rodata)
 PRIMITIVE_ICONS := [poly.Primitive]rune {
-	.Cube     = 0xe529, // cuboid
-	.Plane    = 0xe16b, // square
-	.Cylinder = 0xe52a, // cylinder
-	.Sphere   = 0xe634, // volleyball: a ball of patches
-	.Torus    = 0xe534, // torus
-	.Cone     = 0xe528, // cone
+	.Cube     = ui.ICON_CUBE,
+	.Plane    = ui.ICON_PLANE,
+	.Cylinder = ui.ICON_CYLINDER,
+	.Sphere   = ui.ICON_SPHERE,
+	.Torus    = ui.ICON_TORUS,
+	.Cone     = ui.ICON_CONE,
 }
 
 // Each action as an undo step names it, in the History panel and the undo button's tip.
@@ -534,7 +535,6 @@ model_target :: proc(m: ^Model_Tool, action: Model_Action) -> Model_Target {
 model_pick_action :: proc(app: ^App, action: Model_Action) {
 	app.model.action = action
 	app.tool = .Model
-	space_picked(app)
 }
 
 // Picks the target for the action in hand, when the action can take it.

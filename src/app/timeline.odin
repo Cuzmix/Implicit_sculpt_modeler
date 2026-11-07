@@ -85,7 +85,14 @@ Timelapse :: struct {
 	yaw:    f32, // the camera's turn before it began, restored after
 	shown:  bool, // the viewport shows the current step, ready to save
 	failed: bool,
+	video:  ^Video, // the MP4 beside the frames where the system makes one (video.odin); nil for none
+	video_note: string, // why there is none, for the note at the end
 }
+
+// The time-lapse video's frames a second, and its name in the frames' folder.
+TIMELAPSE_FPS :: 30
+TIMELAPSE_VIDEO_NAME :: "timelapse.mp4"
+
 
 // Seeking spends at most this long a frame stepping through the History, so dragging
 // across many steps on a large mesh keeps the window responsive; at least one step is
@@ -142,11 +149,13 @@ timeline_frame :: proc(app: ^App) {
 	case .Capturing:
 		if lapse.shown {
 			path, _ := filepath.join({lapse.dir, fmt.tprintf("frame_%05d.png", lapse.frame)}, context.temp_allocator)
-			if !screenshot_save(app, path) {
+			pixels, w, h, ok := screenshot_save(app, path)
+			if !ok {
 				lapse.failed = true
 				timelapse_stop(app, "a frame could not be written")
 				return
 			}
+			timelapse_video_frame(app, pixels, w, h)
 			lapse.frame += 1
 			if len(app.history.done) >= min(lapse.end, history_total(app)) {
 				timelapse_stop(app, "")
@@ -239,6 +248,7 @@ timelapse_start :: proc(app: ^App, dir: string) {
 	delete(lapse.dir)
 	lapse.dir = strings.clone(dir)
 	lapse.state, lapse.frame, lapse.failed = .Rewinding, 0, false
+	lapse.video, lapse.video_note = nil, ""
 	lapse.end = len(app.history.done)
 	// From the very end when the timeline stands at the start: there is nothing to see
 	// before the first step.
@@ -254,10 +264,17 @@ timelapse_stop :: proc(app: ^App, why: string) {
 	capturing := lapse.state == .Capturing
 	lapse.state = .Off
 	if capturing do app.camera.yaw = lapse.yaw
-	if why != "" {
-		file_note(app, true, "Time-lapse stopped after %d frames: %s", lapse.frame, why)
-	} else {
-		file_note(app, false, "Time-lapse: %d frames in %s", lapse.frame, lapse.dir)
+	made_video := false
+	if lapse.video != nil {
+		made_video = video_close(lapse.video, why == "")
+		if why == "" && !made_video do lapse.video_note = "the video could not be finished"
+		lapse.video = nil
+	}
+	switch {
+	case why != "":              file_note(app, true, "Time-lapse stopped after %d frames: %s", lapse.frame, why)
+	case made_video:             file_note(app, false, "Time-lapse: %d frames and %s in %s", lapse.frame, TIMELAPSE_VIDEO_NAME, lapse.dir)
+	case lapse.video_note != "": file_note(app, false, "Time-lapse: %d frames in %s; no video: %s", lapse.frame, lapse.dir, lapse.video_note)
+	case:                        file_note(app, false, "Time-lapse: %d frames in %s", lapse.frame, lapse.dir)
 	}
 	// The scrubbing that recording did leaves the timeline where it ends, as if dragged
 	// there.
@@ -336,7 +353,7 @@ history_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 	// The view, List or Strip, and in the list which object's steps it shows.
 	ui.begin(ctx, "history head", {direction = .Row, gap = ui.SPACE_M, center = true, width = inner})
 	views := [len(History_View)]string{"List", "Strip"}
-	glyphs := [len(History_View)]rune{ICON_HISTORY_LIST, ICON_HISTORY_STRIP}
+	glyphs := [len(History_View)]rune{ui.ICON_HISTORY_LIST, ui.ICON_HISTORY_STRIP}
 	// A view's tab also leaves the Settings page.
 	if picked := ui.tabs(ctx, "History view", views[:], -1 if tl.settings else int(tl.view), 84, glyphs = glyphs[:]); picked >= 0 do tl.view, tl.settings = History_View(picked), false
 	gear := t.target
@@ -401,8 +418,9 @@ history_card_body :: proc(app: ^App, inner, room: f32, owner: ui.Id) {
 		_ = ui.slider(ctx, "Turn a frame", &lapse.spin, 0, 10, .Linear, fmt.tprintf("%.1f°", lapse.spin))
 		ui.end(ctx)
 		ui.end(ctx)
+		kit_record_video(app, "time-lapse")
 	}
-	ui.paragraph(ctx, "Record time-lapse asks for a folder, replays the History from the start to where the bar stands, and saves the viewport each frame as numbered PNGs (frame_00000.png...) that any video tool turns into a film; Turn spins the camera a little each frame.", inner)
+	ui.paragraph(ctx, "Record time-lapse asks for a folder, replays the History from the start to where the bar stands, and saves the viewport each frame as numbered PNGs (frame_00000.png...) and, with Make a video, as timelapse.mp4 at 30 frames a second; Turn spins the camera a little each frame.", inner)
 }
 
 
@@ -427,7 +445,7 @@ timeline_flags :: proc(app: ^App, enabled: bool) {
 		x := r.x + r.w * f32(i) / f32(total)
 		flag := ui.Rect{x, r.y, max(right - x, 14), r.h}
 		colour := t.warning if i < len(app.history.done) else ui.color_fade(t.warning, 0.45)
-		ui.icon(ctx, ICON_FLAG, {x + 6, r.y + r.h * 0.5}, t.icon_small - 4, colour)
+		ui.icon(ctx, ui.ICON_FLAG, {x + 6, r.y + r.h * 0.5}, t.icon_small - 4, colour)
 		if room := right - x - 16; room > 12 do ui.text(ctx, ui.text_fit(ctx, e.bookmark, t.caption_size, room, .Semibold), x + 14, r.y + r.h * 0.5, t.caption_size, colour, .Semibold)
 		if a.clicked && enabled && ui.rect_contains(flag, a.mouse) {
 			_, last, _ := history_step_of(app, e.at)
@@ -561,4 +579,20 @@ timeline_step_card :: proc(app: ^App, head: int, x, top: f32) {
 	if head >= len(app.history.done) do ui.label(ctx, "undone", t.caption_size, t.text_tertiary)
 	ui.end(ctx)
 	ui.end(ctx)
+}
+
+// Adds a saved frame to the time-lapse's video, opening it at the first frame; a frame the
+// encoder refuses ends the video, not the time-lapse, whose pictures are the recording.
+@(private = "file")
+timelapse_video_frame :: proc(app: ^App, pixels: []u8, w, h: int) {
+	lapse := &app.timeline.lapse
+	if lapse.frame == 0 && app.record_video {
+		vw, vh := video_size(w, h)
+		path, _ := filepath.join({lapse.dir, TIMELAPSE_VIDEO_NAME}, context.temp_allocator)
+		lapse.video, lapse.video_note = video_open(path, vw, vh, TIMELAPSE_FPS)
+	}
+	if lapse.video != nil && !video_frame(lapse.video, video_picture(lapse.video, pixels, w, h)) {
+		_ = video_close(lapse.video, false)
+		lapse.video, lapse.video_note = nil, "the encoder refused a frame"
+	}
 }

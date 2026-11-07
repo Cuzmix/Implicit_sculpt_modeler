@@ -217,11 +217,6 @@ cage_follow_label :: proc(app: ^App, target: ^Object) -> string {
 	return object_label(target)
 }
 
-// The Curve row's glyph (a route: a way along a line) and the Wrap row's (a magnet: drawn
-// onto a surface).
-ICON_CAGE_CURVE :: rune(0xe543)
-ICON_CAGE_WRAP :: rune(0xe2b5)
-
 // The farthest Wrap's offset goes either way, as a percentage of the cage's size.
 CAGE_WRAP_PERCENT_MAX :: 10
 

@@ -264,10 +264,12 @@ case "$mode" in
 		python3 "$ROOT/scripts/shaders_msl.py" --check
 		python3 "$ROOT/scripts/shaders_wgsl.py" --check
 		python3 "$ROOT/scripts/shaders_gen.py" --check
+		# The icon fonts and their names (src/ui/icons_gen.odin) match assets/icons/manifest.txt.
+		python3 "$ROOT/scripts/icons_build.py" --check
 		# The web version compiles the engine for js, where a core:os or core:thread call on a
 		# sculpt path would fail; checking it here keeps that from going unnoticed.
 		python3 "$ROOT/scripts/web_build.py" --check
-		echo "check: 23 packages type-check, agent mirror current, only src/gpu talks to the GPU and only the platform files import SDL, the interface audit no worse than its baseline, Metal and WGSL shaders and their descriptions current, the web version type-checks"
+		echo "check: 23 packages type-check, agent mirror current, only src/gpu talks to the GPU and only the platform files import SDL, the interface audit no worse than its baseline, Metal and WGSL shaders and their descriptions current, the icon fonts current, the web version type-checks"
 		;;
 	web)
 		python3 "$ROOT/scripts/web_build.py" "$@"
@@ -385,7 +387,8 @@ case "$mode" in
 		[ -n "$libs" ] || { echo "pkg-config gave no flags for SDL's static library"; exit 1; }
 		read -r -a sdl_libs <<< "$libs"
 		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/stb_image.o" "$out/ufbx.o" "$out/sculpt_ios.o" "${sdl_libs[@]}" \
-			-framework UniformTypeIdentifiers -framework GameController -framework PhotosUI -o "$app/Sculpt"
+			-framework UniformTypeIdentifiers -framework GameController -framework PhotosUI \
+			-framework AVFoundation -framework CoreMedia -framework CoreVideo -o "$app/Sculpt"
 		cp "$ROOT/ios/Info.plist" "$app/Info.plist"
 		plutil -replace MinimumOSVersion -string "$IOS_MIN" "$app/Info.plist"
 		plutil -replace CFBundleVersion -string "${BUILD_NUMBER:-1}" "$app/Info.plist"
@@ -456,7 +459,8 @@ case "$mode" in
 		libs=$(PKG_CONFIG_PATH="$out/sdl/lib/pkgconfig" pkg-config --static --libs sdl3)
 		[ -n "$libs" ] || { echo "pkg-config gave no flags for SDL's static library"; exit 1; }
 		read -r -a sdl_libs <<< "$libs"
-		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/stb_image.o" "$out/ufbx.o" "${sdl_libs[@]}" -o "$app/Contents/MacOS/Sculpt"
+		"${cc[@]}" "$out/sculpt.o" "$out/stb_truetype.o" "$out/stb_image.o" "$out/ufbx.o" "${sdl_libs[@]}" \
+			-framework AVFoundation -framework CoreMedia -framework CoreVideo -o "$app/Contents/MacOS/Sculpt"
 		plist="$app/Contents/Info.plist"
 		cp "$ROOT/mac/Info.plist" "$plist"
 		plutil -replace LSMinimumSystemVersion -string "$MAC_MIN" "$plist"

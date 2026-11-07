@@ -87,6 +87,11 @@ fake_lay :: proc(s: ^Sculptor, rec: Gpu_Dab, normals: []Vec3) {
 		delta := p - rec.center
 		d2 := linalg.dot(delta, delta)
 		if d2 >= rec.r2 do continue
+		if rec.once && rec.sweep != {} {
+			// The offset from the sweep's nearest point, as dab_move.comp.slang takes it.
+			delta -= rec.sweep * clamp(linalg.dot(delta, rec.sweep) / linalg.dot(rec.sweep, rec.sweep), 0, 1)
+			d2 = linalg.dot(delta, delta)
+		}
 		// The kernels' weight: the round or drawn falloff, then the HD fade's and the
 		// mask's shield.
 		x2 := d2 * rec.inv_r2

@@ -225,6 +225,12 @@ theme_derive :: proc(seed: Theme_Seed, base := THEME_LENS) -> Theme {
 		if light do tint = color_mix(tint, {0, 0, 0, 255}, 0.3)
 		t.tints[i] = tint
 	}
+	// So do the icons' colours, which sit on the panels.
+	for g in Icon_Group {
+		c := base.icons[g]
+		if light do c = color_mix(c, {0, 0, 0, 255}, 0.3)
+		t.icons[g] = c
+	}
 	r := CORNER_RADII[seed.corners]
 	t.radius_small, t.radius_medium, t.radius_large = r[0], r[1], r[2]
 	return t
@@ -319,8 +325,8 @@ theme_card :: proc(ctx: ^Context, s: string, look: Theme, selected: bool, tag :=
 }
 
 // The colours a person may set by hand in Every colour, over what the seed made. The
-// washes (fill_hover, fill_pressed), the shadows and the cameras' and spaces' colours are
-// left out: they are see-through or have rows of their own.
+// washes (fill_hover, fill_pressed), the shadows and the cameras' colours are left out:
+// they are see-through or have rows of their own.
 Theme_Token :: enum u8 {
 	Frame,
 	Frame_Line,
@@ -345,16 +351,27 @@ Theme_Token :: enum u8 {
 	Success,
 	Warning,
 	Danger,
-	// The working spaces' tints (the Spaces tabs, the dots by an object's name), then the
-	// viewport's marks.
-	Space_Sculpt,
-	Space_Model,
-	Space_Render,
+	// The workspaces' four tints (the dot on the chosen workspace tab), then the viewport's
+	// marks.
+	Tint_1,
+	Tint_2,
+	Tint_3,
+	Tint_4,
 	Wire,
 	Selection,
+	// The icons' colours in the Colour style, one per kind of icon.
+	Icon_App,
+	Icon_Sculpt,
+	Icon_Mask,
+	Icon_Paint,
+	Icon_Model,
+	Icon_View,
+	Icon_Render,
+	Icon_File,
 }
 
-// Each token's word in a theme code and a settings line, which never changes once written.
+// Each token's word in a theme code and a settings line; a code or line naming a word this
+// build does not know is passed over.
 @(rodata)
 THEME_TOKEN_KEYS := [Theme_Token]string {
 	.Frame          = "frame",
@@ -380,11 +397,20 @@ THEME_TOKEN_KEYS := [Theme_Token]string {
 	.Success        = "success",
 	.Warning        = "warning",
 	.Danger         = "danger",
-	.Space_Sculpt   = "space_sculpt",
-	.Space_Model    = "space_model",
-	.Space_Render   = "space_render",
+	.Tint_1         = "tint_1",
+	.Tint_2         = "tint_2",
+	.Tint_3         = "tint_3",
+	.Tint_4         = "tint_4",
 	.Wire           = "wire",
 	.Selection      = "selection",
+	.Icon_App       = "icon_app",
+	.Icon_Sculpt    = "icon_sculpt",
+	.Icon_Mask      = "icon_mask",
+	.Icon_Paint     = "icon_paint",
+	.Icon_Model     = "icon_model",
+	.Icon_View      = "icon_view",
+	.Icon_Render    = "icon_render",
+	.Icon_File      = "icon_file",
 }
 
 // What each token colours, as Every colour lists it.
@@ -413,11 +439,20 @@ THEME_TOKEN_NAMES := [Theme_Token]string {
 	.Success        = "Done",
 	.Warning        = "Careful",
 	.Danger         = "Destructive",
-	.Space_Sculpt   = "Sculpt space",
-	.Space_Model    = "Model space",
-	.Space_Render   = "Render space",
+	.Tint_1         = "Workspace tint 1 (Sculpt)",
+	.Tint_2         = "Workspace tint 2 (Model)",
+	.Tint_3         = "Workspace tint 3 (Render)",
+	.Tint_4         = "Workspace tint 4 (Paint)",
 	.Wire           = "Wireframe",
 	.Selection      = "Model mode's selected faces",
+	.Icon_App       = "Icons: app and editing",
+	.Icon_Sculpt    = "Icons: sculpting",
+	.Icon_Mask      = "Icons: masking",
+	.Icon_Paint     = "Icons: painting and UVs",
+	.Icon_Model     = "Icons: modelling",
+	.Icon_View      = "Icons: the view",
+	.Icon_Render    = "Icons: rendering and light",
+	.Icon_File      = "Icons: files",
 }
 
 // The colours set by hand: those in `set`, each its value in `colors`, opaque.
@@ -451,11 +486,20 @@ theme_token :: proc(t: ^Theme, token: Theme_Token) -> ^Color {
 	case .Success:        return &t.success
 	case .Warning:        return &t.warning
 	case .Danger:         return &t.danger
-	case .Space_Sculpt:   return &t.tints[0]
-	case .Space_Model:    return &t.tints[1]
-	case .Space_Render:   return &t.tints[2]
+	case .Tint_1:         return &t.tints[0]
+	case .Tint_2:         return &t.tints[1]
+	case .Tint_3:         return &t.tints[2]
+	case .Tint_4:         return &t.tints[3]
 	case .Wire:           return &t.wire
 	case .Selection:      return &t.selection
+	case .Icon_App:       return &t.icons[.App]
+	case .Icon_Sculpt:    return &t.icons[.Sculpt]
+	case .Icon_Mask:      return &t.icons[.Mask]
+	case .Icon_Paint:     return &t.icons[.Paint]
+	case .Icon_Model:     return &t.icons[.Model]
+	case .Icon_View:      return &t.icons[.View]
+	case .Icon_Render:    return &t.icons[.Render]
+	case .Icon_File:      return &t.icons[.File]
 	}
 	return &t.frame
 }

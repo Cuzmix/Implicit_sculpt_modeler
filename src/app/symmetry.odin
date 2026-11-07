@@ -2,6 +2,7 @@ package main
 
 import "core:fmt"
 import "core:strings"
+import "core:time"
 
 import "../geom"
 import "../sculpt"
@@ -74,6 +75,7 @@ brush_symmetry :: proc(app: ^App, obj: ^Object) -> sculpt.Brush {
 		radial      = u8(clamp(b.radial_count, RADIAL_MIN, sculpt.RADIAL_MAX)) if b.radial_on else 0,
 		radial_axis = b.radial_axis,
 		sym_center  = symmetry_center(app, obj),
+		poseable    = b.poseable && b.symmetry + stack_symmetry(obj) != {},
 	}
 }
 
@@ -100,6 +102,7 @@ symmetry_label :: proc(app: ^App) -> string {
 	for axis in b.symmetry do strings.write_byte(&planes, names[int(axis)])
 	if b.symmetry == {} do strings.write_string(&planes, "none")
 	if b.sym_local do strings.write_string(&planes, "+local")
+	if b.poseable do strings.write_string(&planes, "+poseable")
 	if b.radial_on do fmt.sbprintf(&planes, "+radial%d%c", b.radial_count, names[int(b.radial_axis)])
 	return strings.to_string(planes)
 }
@@ -158,4 +161,63 @@ symmetry_lines :: proc(app: ^App) -> (^Object, ^Symmetry_Lines) {
 		sculpt.sculptor_plane_section(s, sym.sym_center, normal, &l.cuts[axis])
 	}
 	return obj, l
+}
+
+// Poseable symmetry (sculpt/mirror_topo.odin) on the app side: the selected object's shown
+// level is paired by its topology between strokes, once for each sculptor, axis and centre,
+// and dabs then mirror by the pairs (Brush.poseable).
+
+// What was last paired, or tried and refused, so a mesh with no pairs is not tried every
+// frame.
+Poseable_Tried :: struct {
+	sculptor: ^sculpt.Sculptor,
+	vertices: int,
+	axis:     sculpt.Axis,
+	center:   Vec3,
+}
+
+// The plane poseable symmetry pairs across: the first of the brush's planes (X when only
+// asked before any is on).
+poseable_axis :: proc(app: ^App, obj: ^Object) -> sculpt.Axis {
+	for a in app.brush.symmetry + stack_symmetry(obj) do return a
+	return .X
+}
+
+// Turns poseable symmetry on or off; on, the next frame pairs the selected object.
+poseable_toggle :: proc(app: ^App) {
+	app.brush.poseable = !app.brush.poseable
+	app.poseable = {}
+}
+
+// Pairs the selected object's shown level when poseable symmetry is on and it has no
+// pairs for the plane in use, and says how it went.
+poseable_frame :: proc(app: ^App) {
+	obj := selected_object(app)
+	if !app.brush.poseable || app.brush.symmetry + stack_symmetry(obj) == {} do return
+	if obj == nil || obj.voxel != nil || obj.curve != nil || obj.cage != nil || object_in_hd(obj) do return
+	s := object_sculptor(obj)
+	axis := poseable_axis(app, obj)
+	center := symmetry_center(app, obj)
+	key := Poseable_Tried{s, len(s.mesh.positions), axis, center}
+	// Pairs a sculptor already has stay its pairs: the topology decides them, not the
+	// centre, which only chose the seed.
+	if (sculpt.sculptor_mirror_ready(s) && s.mirror_axis == axis) || app.poseable == key do return
+	app.poseable = key
+	if s.dyn != nil {
+		report(app, Section.Symmetry, {.Warning}, "Poseable symmetry needs dynamic topology off on %s: strokes mirror across the plane", object_label(obj))
+		return
+	}
+	start := time.tick_now()
+	paired, ok := sculpt.sculptor_mirror_find(s, axis, center)
+	ms := time.duration_milliseconds(time.tick_since(start))
+	n := len(s.mesh.positions)
+	if !ok {
+		report(app, Section.Symmetry, {.Warning}, "Poseable symmetry found no matching halves on %s: strokes mirror across the plane", object_label(obj))
+		return
+	}
+	if paired < n {
+		report(app, Section.Symmetry, {.Warning}, "Poseable symmetry paired %s of %s vertices of %s across %v (%.0f ms); the rest mirror across the plane", count_label(paired), count_label(n), object_label(obj), axis, ms)
+		return
+	}
+	report(app, Section.Symmetry, {}, "Poseable symmetry paired all %s vertices of %s across %v (%.0f ms)", count_label(n), object_label(obj), axis, ms)
 }

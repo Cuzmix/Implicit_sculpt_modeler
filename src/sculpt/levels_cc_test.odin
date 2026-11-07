@@ -401,8 +401,8 @@ catmull_clark_levels_file_refuses_damage :: proc(t: ^testing.T) {
 	}
 	// Every byte of the Catmull-Clark block turned to 0xff in turn: refused or read, never
 	// a crash or a leak (the runner checks).
-	base := l.levels[0]
-	at := 5 * 4 + 8 + len(base.mesh.positions) * size_of(Vec3) + len(base.mesh.indices) * 4
+	at := levels_field_at(out[:], 8)
+	testing.expect(t, at > 0, "no Catmull-Clark record")
 	for k in 0 ..< 200 {
 		bad := slice.clone(out[:], context.temp_allocator)
 		if at + k * 7 >= len(bad) do break
