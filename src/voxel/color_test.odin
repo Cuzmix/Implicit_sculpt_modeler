@@ -222,3 +222,39 @@ convert_to_mesh_keeps_the_paint :: proc(t: ^testing.T) {
 	for p, k in m.positions do if d := linalg.length2(p - {0, 0, 1}); d < best do best, top = d, colors[k]
 	testing.expectf(t, top.rgb == {250, 200, 0} && top[3] > 200, "the mesh's top is %v", top)
 }
+
+@(test)
+fill_gradient_and_clear_paint_the_whole_clay :: proc(t: ^testing.T) {
+	c := color_sphere()
+	defer clay_destroy(&c)
+	testing.expect(t, !clay_paint_command(&c, .Clear, {}, {}), "clearing unpainted clay changed it")
+	testing.expect(t, clay_paint_command(&c, .Fill, {40, 80, 160}, {}))
+	_ = clay_flush(&c)
+	for p in ([3]Vec3{{1, 0, 0}, {0, -1, 0}, {0, 0, 1}}) {
+		col := color_near(&c, p)
+		testing.expectf(t, col == {40, 80, 160, 255}, "the fill left %v at %v", col, p)
+	}
+	testing.expect(t, !clay_paint_command(&c, .Fill, {40, 80, 160}, {}), "a second fill changed something")
+	// Top white to bottom black: the axis points down.
+	testing.expect(t, clay_paint_command(&c, .Gradient, {255, 255, 255}, {0, 0, 0}, {0, 0, -1}))
+	_ = clay_flush(&c)
+	top, middle, bottom := color_near(&c, {0, 0, 1}), color_near(&c, {1, 0, 0}), color_near(&c, {0, 0, -1})
+	testing.expectf(t, top.r > 220 && bottom.r < 35 && middle.r > 100 && middle.r < 155, "the gradient is %v, %v, %v", top, middle, bottom)
+	testing.expect(t, clay_paint_command(&c, .Clear, {}, {}))
+	testing.expect(t, !clay_has_color(&c), "the clear left paint")
+	testing.expect(t, clay_undo(&c) && color_near_flushed(&c, {0, 0, 1}).r > 220, "undo did not bring the gradient back")
+}
+
+@(test)
+a_gradient_is_the_same_on_any_thread_count :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	clays := [2]Clay{color_sphere(), color_sphere(&pool)}
+	defer for &c in clays do clay_destroy(&c)
+	for &c in clays {
+		paint_top(&c, {255, 0, 0}, 0.5)
+		_ = clay_paint_command(&c, .Gradient, {0, 255, 0}, {0, 0, 255}, linalg.normalize(Vec3{1, 2, -1}))
+	}
+	testing.expect(t, color_hash(&clays[0]) == color_hash(&clays[1]), "the gradient differs between one thread and three")
+}

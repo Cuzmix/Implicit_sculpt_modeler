@@ -352,7 +352,10 @@ kit_paint :: proc(app: ^App) {
 	_ = kit_color(app, "paint colour", &app.brush.color)
 	kit_command_pair(app, .Paint, .Paint, int(sculpt.Paint_Command.Fill), int(sculpt.Paint_Command.Clear), tone_b = .Danger)
 	_ = command_button(app, .Paint, int(sculpt.Paint_Command.Gradient), width = ui.fill_width(ctx))
-	ui.paragraph(ctx, "The Paint brush paints this colour over the clay, Ctrl takes it off. Fill gradient runs from the main colour at the top, as seen, to the secondary at the bottom. Fill and Clear skip what is masked or hidden. Each level keeps its own paint.")
+	// Voxel clay keeps its paint in the volume rather than on a level's vertices.
+	obj := selected_object(app)
+	keeps := "Voxel clay keeps its paint in the clay, and it goes with the clay as it is moved." if obj != nil && obj.voxel != nil else "Each level keeps its own paint."
+	ui.paragraph(ctx, fmt.tprintf("The Paint brush paints this colour over the clay, Ctrl takes it off. Fill gradient runs from the main colour at the top, as seen, to the secondary at the bottom. Fill and Clear skip what is masked or hidden. %s", keeps))
 }
 
 // Polygroups: making them, and showing them.
