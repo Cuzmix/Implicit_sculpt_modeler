@@ -106,6 +106,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Symmetry_X       = "mirror",
 	.Local_Symmetry   = "mirror centre center own middle",
 	.Radial_Symmetry  = "mirror around rotate repeat kaleidoscope",
+	.Poseable_Symmetry = "mirror posed pose topology topological",
 	.Brush_Add        = "zadd raise build positive plus",
 	.Brush_Subtract   = "zsub dig carve negative minus invert",
 	.Paint_Channel    = "rgb mrgb colour color channel paint sculpt both",

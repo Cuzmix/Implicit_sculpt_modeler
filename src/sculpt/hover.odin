@@ -27,7 +27,7 @@ HOVER_VERTS_MAX :: 262_144
 // reaches a vertex, or past HOVER_VERTS_MAX (`verts` then says how many it would reach).
 sculptor_trial_dabs :: proc(s: ^Sculptor, brush: Brush, center: Vec3, boost: f32, allocator := context.allocator) -> (dabs: []Gpu_Dab, verts: int, ok: bool) {
 	if s.history.recording || !dab_gpu_takes(s, brush) || brush.radius <= 0 do return
-	images := symmetry_images(brush)
+	images := dab_images(s, brush, center)
 	b := brush
 	b.strength /= symmetry_feather(brush, images[:], center)
 	hits := make([dynamic]u32, 0, 64, context.temp_allocator)
@@ -35,7 +35,7 @@ sculptor_trial_dabs :: proc(s: ^Sculptor, brush: Brush, center: Vec3, boost: f32
 	spans := make([dynamic]Vertex_Range, 0, 64, context.temp_allocator)
 	for img in images {
 		ib := sym_brush(b, img)
-		at := sym_point(img, b.sym_center, center)
+		at := sym_point(img, center)
 		// Its reach and view as dab_once works them out for the kinds the kernels lay.
 		reach := ib.radius * (ib.alpha.reach if ib.alpha != nil else 1)
 		view: Vec3

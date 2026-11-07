@@ -237,7 +237,7 @@ voxel_grab_begin :: proc(vp: ^Voxel_Part, brush: sculpt.Brush, at: Vec3) {
 	centres: [dynamic; sculpt.SYM_IMAGES_MAX]Vec3
 	turns: [dynamic; sculpt.SYM_IMAGES_MAX]matrix[3, 3]f32
 	for img in sculpt.symmetry_images(brush) {
-		append(&centres, sculpt.sym_point(img, brush.sym_center, at))
+		append(&centres, sculpt.sym_point(img, at))
 		append(&turns, img.turn)
 	}
 	voxel.clay_grab_begin(&vp.clay, brush.radius, centres[:], turns[:], brush.kind == .Elastic, brush.volume)
@@ -263,8 +263,8 @@ object_dab :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, at, normal: Vec
 		st.tube_from, st.tube_set = axis, true
 		for img in sculpt.symmetry_images(brush) {
 			vb.normal = img.turn * normal
-			vb.from = sculpt.sym_point(img, brush.sym_center, from)
-			_ = voxel.clay_dab(&vp.clay, vb, sculpt.sym_point(img, brush.sym_center, axis))
+			vb.from = sculpt.sym_point(img, from)
+			_ = voxel.clay_dab(&vp.clay, vb, sculpt.sym_point(img, axis))
 		}
 		return
 	}
@@ -274,7 +274,7 @@ object_dab :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, at, normal: Vec
 		vb.normal = img.turn * normal
 		vb.drag = img.turn * brush.drag
 		vb.along = img.turn * brush.stroke_dir
-		_ = voxel.clay_dab(&vp.clay, vb, sculpt.sym_point(img, brush.sym_center, at))
+		_ = voxel.clay_dab(&vp.clay, vb, sculpt.sym_point(img, at))
 	}
 }
 

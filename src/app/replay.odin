@@ -326,6 +326,7 @@ Stroke_Brush_Tag :: enum u16 {
 	Cloth_Gravity       = 75, // f32
 	Physics             = 76, // u8
 	Physics_Strength    = 77, // f32
+	Poseable            = 78, // u8
 }
 
 Stroke_Frame_Tag :: enum u16 {
@@ -397,6 +398,7 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.rec_put(o, B.Focal, f.focal)
 		geom.rec_put(o, B.Scale, t.scales[i])
 		geom.rec_put(o, B.Sym_Local, u8(b.sym_local))
+		geom.rec_put(o, B.Poseable, u8(b.poseable))
 		geom.rec_put(o, B.Radial_On, u8(b.radial_on))
 		geom.rec_put(o, B.Radial_Count, u8(clamp(b.radial_count, RADIAL_MIN, sculpt.RADIAL_MAX)))
 		geom.rec_put(o, B.Radial_Axis, u8(b.radial_axis))
@@ -587,6 +589,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		dial := g8(&br, B.Paint_Dial, b.paint_dial)
 		steady := [2]f32{geom.rec_get(&br, B.Smoothing, f32, f32(steady_count(b.smoothing))), geom.rec_get(&br, B.Pressure_Smoothing, f32, f32(steady_count(b.pressure_smoothing)))}
 		catch_up := g8(&br, B.Catch_Up, b.catch_up)
+		poseable := g8(&br, B.Poseable, b.poseable)
 		evened := [3]u8{g8(&br, B.Even_Strength, b.even_strength), g8(&br, B.Scene_Spacing, b.scene_spacing), g8(&br, B.Feather, b.feather)}
 		grabbing := [3]u8{geom.rec_get(&br, B.Grab_Mode, u8, u8(b.grab_mode)), g8(&br, B.Grab_Same_Side, b.grab_same_side), g8(&br, B.Grab_Silhouette, b.grab_silhouette)}
 		normal_weight := geom.rec_get(&br, B.Grab_Normal, f32, b.grab_normal)
@@ -627,7 +630,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		all_axes := transmute(u8)sculpt.Symmetry{.X, .Y, .Z}
 		if int(channel) >= len(sculpt.Channel) || dial > 1 || reach[0] > 1 || int(reach[1]) >= len(sculpt.Smooth_Only) do return false
 		if radial[0] > 1 || radial[1] > 1 || radial[2] < RADIAL_MIN || radial[2] > sculpt.RADIAL_MAX || int(radial[3]) >= len(sculpt.Axis) do return false
-		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 || line > 1 || join > 1 || lock_plane > 1 || connected > 1 || catch_up > 1 || evened[0] > 1 || evened[1] > 1 || evened[2] > 1 do return false
+		if symmetry & ~all_axes != 0 || drawn > 1 || pressure_strength > 1 || pressure_size > 1 || front > 1 || line > 1 || join > 1 || lock_plane > 1 || connected > 1 || catch_up > 1 || evened[0] > 1 || evened[1] > 1 || evened[2] > 1 || poseable > 1 do return false
 		if int(grabbing[0]) >= len(Grab_Mode) || grabbing[1] > 1 || grabbing[2] > 1 || topological > 1 || !finite(normal_weight, volume) || volume < 0 || volume > 1 || !finite(hooked[0], hooked[1]) || abs(hooked[0]) > 1 || hooked[1] < 0 || hooked[1] > 1 || hook_elastic > 1 || normal_weight < 0 || normal_weight > 1 do return false
 		if !finite(radius, strength, lazy, spread, color.r, color.g, color.b, focal, scale, spaced[0], spaced[1], steady[0], steady[1]) || !curve_ok(falloff) || !curve_ok(pressure_curve) || !curve_ok(pressure_size_curve) || !finite(size_floor) || size_floor < 0 || size_floor > 1 || stable > 1 || int(smooth_mode) >= len(sculpt.Smooth_Mode) do return false
 		if !finite(sampled[0], sampled[1]) || sampled[0] < 0 || sampled[0] > sculpt.STABILIZE_MAX || sampled[1] < 0 || sampled[1] > 1 || one_pass > 1 || !finite(hardness) || hardness < 0 || hardness > sculpt.HARDNESS_MAX || projected > 1 || ways[0] > 1 || ways[1] > 1 || ways[2] > 1 || !finite(size_ref) || size_ref < 0 do return false
@@ -669,6 +672,7 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		b.spacing, b.color_spray = clamp(spaced[0], MIN_SPACING, MAX_SPACING), clamp(spaced[1], 0, 1)
 		b.smoothing, b.pressure_smoothing, b.catch_up = f32(steady_count(steady[0])), f32(steady_count(steady[1])), catch_up == 1
 		b.even_strength, b.scene_spacing, b.feather = evened[0] == 1, evened[1] == 1, evened[2] == 1
+		b.poseable = poseable == 1
 		b.grab_mode, b.grab_same_side, b.grab_silhouette, b.grab_normal = Grab_Mode(grabbing[0]), grabbing[1] == 1, grabbing[2] == 1, normal_weight
 		b.grab_topological = topological == 1
 		b.elastic_volume = volume
