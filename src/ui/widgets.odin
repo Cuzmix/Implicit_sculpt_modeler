@@ -826,7 +826,7 @@ thumb_row :: proc(ctx: ^Context, s: string, parts: Thumb_Row, selected := false,
 // it. Returns true when picked.
 // `tag`, when given, is a small pill at the right end in `tag_color` (where the row
 // belongs, say), in place of the shortcut.
-menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "", starred := false, keys_accent := false, keys_muted := false, trailing := false, tag := "", tag_color: Color = {}, reason := "") -> bool {
+menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked := false, tone := Tone.Neutral, enabled := true, highlight := false, hint := "", starred := false, keys_accent := false, keys_muted := false, trailing := false, tag := "", tag_color: Color = {}, reason := "", picture: Picture = {}) -> bool {
 	ctx.controls += 1
 	t := ctx.theme
 	shown := label_text(s)
@@ -847,7 +847,13 @@ menu_item :: proc(ctx: ^Context, s: string, keys := "", glyph: rune = 0, checked
 	glyph_color := fg if tone == .Danger || !enabled else t.text_secondary
 	// Every row keeps the icon's column, with an icon or without, so a menu's labels all
 	// start at one x.
-	if glyph != 0 && !trailing do icon(ctx, glyph, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, glyph_color)
+	// A picture (a brush's own) stands for the glyph, a little larger since its ink does
+	// not fill its square, and faded as the label is when the row cannot be used.
+	if picture.image != 0 && !trailing {
+		picture_icon(ctx, picture, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small * MENU_PICTURE, 1 if enabled else DISABLED_FADE)
+	} else if glyph != 0 && !trailing {
+		icon(ctx, glyph, {x + t.icon_small * 0.5, vis.y + vis.h * 0.5}, t.icon_small, glyph_color)
+	}
 	x += t.icon_small + 10
 	text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, fg)
 	if starred {
@@ -1592,6 +1598,10 @@ Picture :: struct {
 // How large a picture icon is drawn on a tile or an icon button, in points: a little
 // larger than the glyph it replaces, since a picture's ink does not fill its square.
 PICTURE_ICON :: 34
+
+// How much larger than a row's glyph a picture standing for it is drawn in a menu or a
+// list row, by the same reasoning as PICTURE_ICON's.
+MENU_PICTURE :: 1.5
 
 // Draws picture icon `pic` centred on `center`, `size` points square, faded by `fade`.
 picture_icon :: proc(ctx: ^Context, pic: Picture, center: [2]f32, size: f32, fade: f32 = 1) {

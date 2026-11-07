@@ -1,7 +1,8 @@
 """The interface's icon fonts and their names, built from assets/icons/manifest.txt.
 
 Each manifest line names one meaning, its colour group and the drawing it uses, picked from
-Phosphor (ph), Tabler (tb) or Lucide (lu). This script turns those drawings into three
+Phosphor (ph), Tabler (tb) or Lucide (lu), or drawn for this app (own) where no pack draws
+a sculpting meaning well. This script turns those drawings into three
 fonts with the same code point per icon, so the kit draws them through fontstash like text:
 
     assets/fonts/Icons-Regular.ttf   the line drawing at Phosphor's regular weight
@@ -13,7 +14,12 @@ order from U+E000, and each icon's group. Phosphor draws filled outlines in a 25
 Tabler and Lucide draw 2 px strokes in a 24 grid, which are outlined here at Phosphor's
 stroke widths (1.5 and 2.25 in 24) so every icon reads at one weight.
 
-The drawings used are kept in assets/icons/svg/<set>/ (ph, ph-bold, ph-duotone, tb, lu).
+Our own drawings (assets/icons/svg/own/) follow Phosphor's duotone files: strokes on its
+256 grid, solid dots as `fill="currentColor" stroke="none"`, and the soft layer as shapes
+with `opacity="0.2"`; each element closes itself (no groups), and the strokes are drawn at
+Phosphor's widths, 16 and 24.
+
+The drawings used are kept in assets/icons/svg/<set>/ (ph, ph-bold, ph-duotone, tb, lu, own).
 A new drawing comes in with --vendor DIR, DIR holding the unpacked npm packages
 (`npm pack @phosphor-icons/core@2.1.1 @tabler/icons@3.19.0 lucide-static@0.460.0`, then
 `tar xzf` each into DIR/<package name>/).
@@ -43,6 +49,8 @@ FIRST = 0xE000
 UPM = 1024
 # Phosphor's stroke is 16 (regular) and 24 (bold) in its 256 grid: 1.5 and 2.25 in a 24 grid.
 STROKE = {"regular": 1.5, "bold": 2.25}
+# Our own drawings are strokes on Phosphor's 256 grid, so they take its widths as they are.
+OWN_STROKE = {"regular": 16, "bold": 24}
 
 # Where each set's drawing of `name` is, inside the vendored folder and inside --vendor's.
 PACKAGES = {
@@ -73,8 +81,8 @@ def read_manifest():
             fail(f"manifest.txt:{n}: {name} is not an ICON_ name")
         if group not in GROUPS:
             fail(f"manifest.txt:{n}: group {group} is not one of {', '.join(GROUPS)}")
-        if pack not in ("ph", "tb", "lu"):
-            fail(f"manifest.txt:{n}: pack {pack} is not ph, tb or lu")
+        if pack not in ("ph", "tb", "lu", "own"):
+            fail(f"manifest.txt:{n}: pack {pack} is not ph, tb, lu or own")
         if name in names:
             fail(f"manifest.txt:{n}: {name} is named twice")
         if name in ("ICON_FIRST", "ICON_COUNT", "ICON_GROUP_TABLE"):
@@ -259,6 +267,13 @@ def build_font(entries, kind):
             else:
                 text = svg_path("ph" if kind == "regular" else "ph-bold", drawing).read_text()
             path, scale = outline(text), UPM / 256
+        elif pack == "own":
+            text = svg_path("own", drawing).read_text()
+            if kind == "fill":
+                path = outline(strip_layer(text, True))
+            else:
+                path = outline(strip_layer(text, False), OWN_STROKE[kind])
+            scale = UPM / 256
         else:
             text = svg_path(pack, drawing).read_text()
             path, scale = (closed_areas(text) if kind == "fill" else outline(text, STROKE[kind])), UPM / 24

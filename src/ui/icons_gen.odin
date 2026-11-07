@@ -3,8 +3,8 @@ package ui
 // Written by scripts/icons_build.py from assets/icons/manifest.txt: edit that and run the
 // script. One name per meaning, each its own drawing in the icon fonts (text.odin).
 
-ICONS_SOURCE_HASH :: "11362bf01fafdbe62ed63a36afe1cc15dd713972a40af769f0db847479041ac1"
-ICONS_FONTS_HASH :: "9a85c9a9331de51b60a5aa8abd65f31c5ec8592063f786ee9a1eb5533a2a3b2f"
+ICONS_SOURCE_HASH :: "86c0ae6688eba23e818690cf1efaa17f3aaba52dd772224356424b81f35cd85c"
+ICONS_FONTS_HASH :: "99ae9c97200b14ad786fbe3e18ca67944697971834ce47919b9afe79348e2feb"
 
 // What an icon works on, which colours it in the Colour icon style.
 Icon_Group :: enum u8 {
@@ -147,7 +147,7 @@ ICON_IMAGE_PLUS          :: rune(0xE07A) // tb:photo-plus
 ICON_IMAGE_DOWN          :: rune(0xE07B) // tb:photo-down
 ICON_PHOTOS              :: rune(0xE07C) // tb:photo
 ICON_BRUSH               :: rune(0xE07D) // ph:paint-brush
-ICON_SCULPT_TOOL         :: rune(0xE07E) // tb:brush
+ICON_SCULPT_TOOL         :: rune(0xE07E) // own:sculpt_tool
 ICON_BRUSH_PICKER        :: rune(0xE07F) // ph:squares-four
 ICON_PRESET              :: rune(0xE080) // ph:bookmarks
 ICON_PRESET_SAVE         :: rune(0xE081) // ph:bookmark
@@ -160,7 +160,7 @@ ICON_PRESSURE            :: rune(0xE087) // lu:signature
 ICON_EXPOSURE            :: rune(0xE088) // tb:aperture
 ICON_ADD                 :: rune(0xE089) // tb:circle-plus
 ICON_SUBTRACT            :: rune(0xE08A) // ph:minus-circle
-ICON_SYMMETRY            :: rune(0xE08B) // ph:flip-horizontal
+ICON_SYMMETRY            :: rune(0xE08B) // own:symmetry
 ICON_LOCAL_SYMMETRY      :: rune(0xE08C) // ph:flip-vertical
 ICON_STROKE              :: rune(0xE08D) // ph:scribble
 ICON_FALLOFF             :: rune(0xE08E) // ph:circle-dashed
@@ -172,11 +172,11 @@ ICON_STROKE_RECT         :: rune(0xE093) // ph:rectangle
 ICON_STROKE_SPRAY        :: rune(0xE094) // ph:spray-bottle
 ICON_STROKE_ROLL         :: rune(0xE095) // ph:paint-roller
 ICON_STROKE_DRAG_DOT     :: rune(0xE096) // ph:arrow-right
-ICON_DYNTOPO             :: rune(0xE097) // ph:graph
-ICON_REMESH              :: rune(0xE098) // ph:globe-simple
+ICON_DYNTOPO             :: rune(0xE097) // own:dyntopo
+ICON_REMESH              :: rune(0xE098) // own:remesh
 ICON_HD                  :: rune(0xE099) // tb:zoom-scan
 ICON_LEVELS              :: rune(0xE09A) // lu:grid-2x2-plus
-ICON_SUBDIVIDE           :: rune(0xE09B) // ph:grid-four
+ICON_SUBDIVIDE           :: rune(0xE09B) // own:subdivide
 ICON_LEVEL_UP            :: rune(0xE09C) // ph:caret-double-up
 ICON_LEVEL_DOWN          :: rune(0xE09D) // ph:caret-double-down
 ICON_DELETE_LEVELS       :: rune(0xE09E) // ph:stack-minus
@@ -194,11 +194,11 @@ ICON_HEIGHT              :: rune(0xE0A9) // ph:mountains
 ICON_SCULPT_SPACE        :: rune(0xE0AA) // ph:hand
 ICON_BRUSH_DRAW          :: rune(0xE0AB) // ph:pen
 ICON_BRUSH_SMOOTH        :: rune(0xE0AC) // ph:waves
-ICON_BRUSH_CLAY          :: rune(0xE0AD) // tb:chart-area
-ICON_BRUSH_FLATTEN       :: rune(0xE0AE) // tb:arrow-bar-to-down
-ICON_BRUSH_INFLATE       :: rune(0xE0AF) // tb:balloon
+ICON_BRUSH_CLAY          :: rune(0xE0AD) // own:brush_clay
+ICON_BRUSH_FLATTEN       :: rune(0xE0AE) // own:brush_flatten
+ICON_BRUSH_INFLATE       :: rune(0xE0AF) // own:brush_inflate
 ICON_BRUSH_PINCH         :: rune(0xE0B0) // tb:arrows-diagonal-minimize
-ICON_BRUSH_CREASE        :: rune(0xE0B1) // ph:line-segment
+ICON_BRUSH_CREASE        :: rune(0xE0B1) // own:brush_crease
 ICON_BRUSH_GRAB          :: rune(0xE0B2) // ph:hand-grabbing
 ICON_BRUSH_LAYER         :: rune(0xE0B3) // ph:rows
 ICON_BRUSH_SNAKE_HOOK    :: rune(0xE0B4) // tb:ease-in-out
@@ -254,7 +254,7 @@ ICON_METAL               :: rune(0xE0E5) // tb:circle-half-2
 ICON_ROUGHNESS           :: rune(0xE0E6) // ph:drop-half
 ICON_MODEL               :: rune(0xE0E7) // ph:polygon
 ICON_EDIT_CAGE           :: rune(0xE0E8) // tb:cube-unfolded
-ICON_CAGE                :: rune(0xE0E9) // tb:cube-3d-sphere
+ICON_CAGE                :: rune(0xE0E9) // own:cage
 ICON_CAGE_SELECT         :: rune(0xE0EA) // ph:cursor-click
 ICON_CAGE_EDIT           :: rune(0xE0EB) // ph:hammer
 ICON_CAGE_CHECK          :: rune(0xE0EC) // ph:seal-check

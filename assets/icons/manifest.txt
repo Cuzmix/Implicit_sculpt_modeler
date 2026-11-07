@@ -1,6 +1,7 @@
 # The interface's icons: one line per meaning, `NAME group source`, where source is
 # pack:name. The packs are Phosphor (ph, MIT: a regular, a bold and a duotone drawing of each),
-# Tabler (tb, MIT) and Lucide (lu, ISC), the best drawing of each meaning wherever it is;
+# Tabler (tb, MIT) and Lucide (lu, ISC), the best drawing of each meaning wherever it is,
+# and our own (own, assets/icons/svg/own) for sculpting meanings no pack draws well;
 # a stroked drawing is outlined at Phosphor's stroke width so the set reads as one.
 # Each name stands for one meaning and no two names share a drawing (icons_build.py refuses
 # it): a second thing that looks the same is a second meaning wanting its own picture.
@@ -138,7 +139,7 @@ ICON_PHOTOS              file    tb:photo
 
 # Sculpt
 ICON_BRUSH               sculpt  ph:paint-brush
-ICON_SCULPT_TOOL         sculpt  tb:brush
+ICON_SCULPT_TOOL         sculpt  own:sculpt_tool
 ICON_BRUSH_PICKER        sculpt  ph:squares-four
 ICON_PRESET              sculpt  ph:bookmarks
 ICON_PRESET_SAVE         sculpt  ph:bookmark
@@ -151,7 +152,7 @@ ICON_PRESSURE            sculpt  lu:signature
 ICON_EXPOSURE            sculpt  tb:aperture
 ICON_ADD                 sculpt  tb:circle-plus
 ICON_SUBTRACT            sculpt  ph:minus-circle
-ICON_SYMMETRY            sculpt  ph:flip-horizontal
+ICON_SYMMETRY            sculpt  own:symmetry
 ICON_LOCAL_SYMMETRY      sculpt  ph:flip-vertical
 ICON_STROKE              sculpt  ph:scribble
 ICON_FALLOFF             sculpt  ph:circle-dashed
@@ -163,11 +164,11 @@ ICON_STROKE_RECT         sculpt  ph:rectangle
 ICON_STROKE_SPRAY        sculpt  ph:spray-bottle
 ICON_STROKE_ROLL         sculpt  ph:paint-roller
 ICON_STROKE_DRAG_DOT     sculpt  ph:arrow-right
-ICON_DYNTOPO             sculpt  ph:graph
-ICON_REMESH              sculpt  ph:globe-simple
+ICON_DYNTOPO             sculpt  own:dyntopo
+ICON_REMESH              sculpt  own:remesh
 ICON_HD                  sculpt  tb:zoom-scan
 ICON_LEVELS              sculpt  lu:grid-2x2-plus
-ICON_SUBDIVIDE           sculpt  ph:grid-four
+ICON_SUBDIVIDE           sculpt  own:subdivide
 ICON_LEVEL_UP            sculpt  ph:caret-double-up
 ICON_LEVEL_DOWN          sculpt  ph:caret-double-down
 ICON_DELETE_LEVELS       sculpt  ph:stack-minus
@@ -185,11 +186,11 @@ ICON_HEIGHT              sculpt  ph:mountains
 ICON_SCULPT_SPACE        sculpt  ph:hand
 ICON_BRUSH_DRAW          sculpt  ph:pen
 ICON_BRUSH_SMOOTH        sculpt  ph:waves
-ICON_BRUSH_CLAY          sculpt  tb:chart-area
-ICON_BRUSH_FLATTEN       sculpt  tb:arrow-bar-to-down
-ICON_BRUSH_INFLATE       sculpt  tb:balloon
+ICON_BRUSH_CLAY          sculpt  own:brush_clay
+ICON_BRUSH_FLATTEN       sculpt  own:brush_flatten
+ICON_BRUSH_INFLATE       sculpt  own:brush_inflate
 ICON_BRUSH_PINCH         sculpt  tb:arrows-diagonal-minimize
-ICON_BRUSH_CREASE        sculpt  ph:line-segment
+ICON_BRUSH_CREASE        sculpt  own:brush_crease
 ICON_BRUSH_GRAB          sculpt  ph:hand-grabbing
 ICON_BRUSH_LAYER         sculpt  ph:rows
 ICON_BRUSH_SNAKE_HOOK    sculpt  tb:ease-in-out
@@ -251,7 +252,7 @@ ICON_ROUGHNESS           paint   ph:drop-half
 # Model: cages, primitives, booleans and the live stack
 ICON_MODEL               model   ph:polygon
 ICON_EDIT_CAGE           model   tb:cube-unfolded
-ICON_CAGE                model   tb:cube-3d-sphere
+ICON_CAGE                model   own:cage
 ICON_CAGE_SELECT         model   ph:cursor-click
 ICON_CAGE_EDIT           model   ph:hammer
 ICON_CAGE_CHECK          model   ph:seal-check
