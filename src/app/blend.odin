@@ -54,6 +54,13 @@ Blend_State :: struct {
 	fill_ms:    f64,
 	project_ms: f64,
 	grows:      int,
+	// The GPU's projection and --blend-check's comparison with the CPU's.
+	gpu_ms:         f64,
+	gpu_upload_ms:  f64,
+	gpu_pages:      int,
+	check_diff:     f32,
+	check_mismatch: int,
+	check_failed:   bool,
 }
 
 // A chunk layout no sculptor gives, mixed into a blended item's: the GPU's copy of its
@@ -63,6 +70,7 @@ BLEND_LAYOUT_MIX :: u64(0x5bd1e9955bd1e995)
 
 blend_destroy :: proc(app: ^App) {
 	for &bo in app.blend.objects do blend_object_free(&bo)
+	render.blend_compute_destroy(&app.renderer, &app.blend_gpu)
 	delete(app.blend.objects)
 	app.blend.objects = {}
 }
@@ -126,14 +134,145 @@ blend_test_run :: proc(app: ^App, cmd: render.Cmd, radius: f32) {
 	t1 := time.tick_now()
 	for &bo, i in app.blend.objects {
 		app.blend.bricks += len(bo.field.keys)
+		if !app.blend_cpu && blend_project_gpu(app, instances[:], pairs[:], i) {
+			if app.blend_check do blend_check(app, instances[:], pairs[:], i)
+			continue
+		}
 		moves := make([dynamic]geom.Blend_Move, context.temp_allocator)
 		_ = geom.blend_project(instances[:], pairs[:], i, &moves, &app.pool)
 		blend_pages_fill(app, cmd, &bo, moves[:])
 		app.blend.moved += len(moves)
-		log.infof("blend test: object %d moved %d vertices, the furthest by %v, through %d pages", bo.id, len(moves), bo.reach, len(bo.touched))
+		log.infof("blend test: object %d moved %d vertices on the CPU, the furthest by %v, through %d pages", bo.id, len(moves), bo.reach, len(bo.touched))
 	}
 	app.blend.project_ms = time.duration_milliseconds(time.tick_since(t1))
 	render.viewport_invalidate(&app.target)
+}
+
+// Projects instance `which` on the GPU into its object's pages: the pages are those of the
+// nodes whose chunk box meets a brick of its own field (a vertex anywhere else cannot
+// move), and each such chunk is padded by how far a vertex can move, as the moves stay on
+// the GPU. False when the GPU cannot take it (no compute, a mesh whose positions it cannot
+// read, a group past render.BLEND_TERMS_MAX): the caller projects on the CPU.
+@(private = "file")
+blend_project_gpu :: proc(app: ^App, instances: []geom.Blend_Instance, pairs: []geom.Blend_Pair, which: int) -> bool {
+	bo := &app.blend.objects[which]
+	obj := object_by_id(app, bo.id)
+	mb := &obj.gpu[obj.levels.current]
+	if !mb.storage || !render.blend_compute_ready(&app.renderer, &app.blend_gpu) do return false
+	self := &instances[which]
+	views, reach := geom.blend_views(instances, pairs, which, context.temp_allocator)
+	if reach <= 0 || len(views) + 1 > render.BLEND_TERMS_MAX do return false
+	// The terms: the instance itself first, then its group's others, each with its field.
+	terms := make([dynamic]render.Blend_Term, 0, len(views) + 1, context.temp_allocator)
+	fields := make([dynamic]^geom.Blend_Field, 0, len(views) + 1, context.temp_allocator)
+	index := make([dynamic]int, 0, len(views) + 1, context.temp_allocator)
+	append(&terms, render.Blend_Term{into = 1, ratio = 1, edge = self.surface.edge, id = self.id, field = 0})
+	append(&fields, self.field)
+	append(&index, which)
+	for v in views {
+		append(&terms, render.Blend_Term{into = v.into, ratio = v.ratio, edge = v.inst.surface.edge * v.ratio, id = v.inst.id, field = u32(len(fields))})
+		append(&fields, v.inst.field)
+		append(&index, v.index)
+	}
+	term_pairs: [render.BLEND_TERMS_MAX][render.BLEND_TERMS_MAX][2]f32
+	for a in 0 ..< len(terms) do for b in 0 ..< len(terms) {
+		if a == b do continue
+		radius, strength := geom.blend_pair_between(pairs, index[a], index[b], self.scale)
+		term_pairs[a][b] = {radius, strength}
+	}
+	// The candidate pages, from the nodes near the field.
+	s := &bo.level.sculptor
+	table := make([]u32, (bo.vertices + render.BLEND_PAGE_VERTICES - 1) / render.BLEND_PAGE_VERTICES, context.temp_allocator)
+	for &w in table do w = render.BLEND_PAGE_NONE
+	page_list := make([dynamic]u32, context.temp_allocator)
+	resize(&bo.pads, len(s.chunks))
+	for &p in bo.pads do p = 0
+	clear(&bo.touched)
+	// A vertex moves at most about the radius (the Newton steps are clamped and the
+	// projection lands on the union within the radius of where it started), plus the
+	// seam's lift: the pad for culling the moved parts.
+	pad := reach * 1.25
+	for node, k in s.nodes {
+		if node.vert_count == 0 || !field_meets(&bo.field, s.chunks[k].bounds) do continue
+		bo.pads[k] = pad
+		append(&bo.touched, geom.Aabb{s.chunks[k].bounds.lo - pad, s.chunks[k].bounds.hi + pad})
+		for page in node.vert_first / render.BLEND_PAGE_VERTICES ..= (node.vert_first + node.vert_count - 1) / render.BLEND_PAGE_VERTICES {
+			if table[page] != render.BLEND_PAGE_NONE do continue
+			table[page] = u32(len(page_list))
+			append(&page_list, page)
+		}
+	}
+	bo.reach = pad
+	bo.pads_key += 1
+	if len(page_list) == 0 do return true
+	timing, ok := render.blend_compute_run(&app.renderer, &app.blend_gpu, mb.positions, u32(bo.vertices), fields[:], terms[:], &term_pairs, reach, self.surface.edge, table, page_list[:], &bo.pages)
+	if !ok do return false
+	app.blend.gpu_ms += timing.compute_ms
+	app.blend.gpu_upload_ms += timing.upload_ms
+	app.blend.gpu_pages += len(page_list)
+	log.infof("blend test: object %d projected on the GPU through %d pages in %.2f ms (upload %.2f ms, %.0f KB)", bo.id, len(page_list), timing.compute_ms, timing.upload_ms, timing.upload_kb)
+	return true
+}
+
+// Whether any brick of the field lies in the box (in the field's space).
+@(private = "file")
+field_meets :: proc(f: ^geom.Blend_Field, box: geom.Aabb) -> bool {
+	lo, hi := geom.blend_brick_of(f.h, box.lo), geom.blend_brick_of(f.h, box.hi)
+	for z in lo.z ..= hi.z do for y in lo.y ..= hi.y do for x in lo.x ..= hi.x {
+		if geom.blend_brick_fits({x, y, z}) && geom.blend_field_slot(f, geom.blend_key({x, y, z})) >= 0 do return true
+	}
+	return false
+}
+
+// --blend-check: the GPU's pages of instance `which` against the CPU's projection of it,
+// vertex by vertex: how many vertices one moves and the other does not, and the largest
+// difference of the offsets both make, for the exit stats.
+@(private = "file")
+blend_check :: proc(app: ^App, instances: []geom.Blend_Instance, pairs: []geom.Blend_Pair, which: int) {
+	bo := &app.blend.objects[which]
+	moves := make([dynamic]geom.Blend_Move, context.temp_allocator)
+	_ = geom.blend_project(instances, pairs, which, &moves, &app.pool)
+	slots := u32(0)
+	table := make([]u32, (bo.vertices + render.BLEND_PAGE_VERTICES - 1) / render.BLEND_PAGE_VERTICES, context.temp_allocator)
+	for &w in table do w = render.BLEND_PAGE_NONE
+	// The same table blend_project_gpu laid, found again from the page buffer's order.
+	s := &bo.level.sculptor
+	for node, k in s.nodes {
+		if node.vert_count == 0 || bo.pads[k] == 0 do continue
+		for page in node.vert_first / render.BLEND_PAGE_VERTICES ..= (node.vert_first + node.vert_count - 1) / render.BLEND_PAGE_VERTICES {
+			if table[page] != render.BLEND_PAGE_NONE do continue
+			table[page] = slots
+			slots += 1
+		}
+	}
+	entries := render.blend_pages_read(&app.renderer, &bo.pages, slots, context.temp_allocator)
+	if entries == nil {
+		app.blend.check_failed = true
+		return
+	}
+	moved := make([]bool, bo.vertices, context.temp_allocator)
+	for m in moves {
+		moved[m.vertex] = true
+		page := table[m.vertex / render.BLEND_PAGE_VERTICES]
+		if page == render.BLEND_PAGE_NONE {
+			app.blend.check_mismatch += 1
+			continue
+		}
+		e := entries[int(page) * render.BLEND_PAGE_VERTICES + int(m.vertex % render.BLEND_PAGE_VERTICES)]
+		if e == {} {
+			app.blend.check_mismatch += 1
+			continue
+		}
+		app.blend.check_diff = max(app.blend.check_diff, linalg.length(e.offset - m.offset))
+	}
+	for slot, page in table {
+		if slot == render.BLEND_PAGE_NONE do continue
+		for k in 0 ..< render.BLEND_PAGE_VERTICES {
+			v := page * render.BLEND_PAGE_VERTICES + k
+			if v < bo.vertices && !moved[v] && entries[int(slot) * render.BLEND_PAGE_VERTICES + k] != {} do app.blend.check_mismatch += 1
+		}
+	}
+	app.blend.moved += len(moves)
 }
 
 // Lays an object's moves into pages of render.BLEND_PAGE_VERTICES vertices, in vertex

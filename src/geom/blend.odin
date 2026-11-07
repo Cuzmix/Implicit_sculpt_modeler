@@ -121,18 +121,51 @@ blend_band :: proc(h, radius: f32) -> f32 {
 	return max(6 * h, radius) + h
 }
 
-// What one instance sees of another: the transform from its space into the other's, and
-// the factor that turns the other's distances and gradients back into its own.
-@(private = "file")
-View :: struct {
-	inst:    ^Blend_Instance,
-	index:   int,
-	into:    matrix[4, 4]f32, // this instance's space -> the other's
-	back:    matrix[3, 3]f32, // the other's gradients -> this space's, times ratio (a rotation)
-	ratio:   f32,             // the other's distances -> this space's
-	joined:  bool,            // joined with the projected instance itself
-	radius:  f32,             // that pair's radius, in this space
+// What one instance sees of another in its group: the transform from its space into the
+// other's, the factor that turns the other's distances back into its own (the gradients
+// turn by the transpose of the transform's linear part, `back`, times it), and the pair
+// joining the two, if any (radius in this space). The CPU projection and the GPU's
+// (render/blend_compute.odin) read the same views.
+Blend_View :: struct {
+	inst:     ^Blend_Instance,
+	index:    int,
+	into:     matrix[4, 4]f32,
+	back:     matrix[3, 3]f32,
+	ratio:    f32,
+	joined:   bool,
+	radius:   f32,
 	strength: f32,
+}
+
+// The views of instance `which` of every other instance of its group, in the group's
+// order, and the largest radius it is joined at (0: it blends with nothing).
+blend_views :: proc(instances: []Blend_Instance, pairs: []Blend_Pair, which: int, allocator := context.allocator) -> (views: []Blend_View, reach: f32) {
+	self := &instances[which]
+	group := blend_group(instances, pairs, which, context.temp_allocator)
+	out := make([dynamic]Blend_View, 0, len(group), allocator)
+	for j in group {
+		if j == which do continue
+		o := &instances[j]
+		into := linalg.inverse(o.place) * self.place
+		lin := matrix[3, 3]f32{into[0, 0], into[0, 1], into[0, 2], into[1, 0], into[1, 1], into[1, 2], into[2, 0], into[2, 1], into[2, 2]}
+		v := Blend_View{inst = o, index = j, into = into, back = linalg.transpose(lin), ratio = o.scale / self.scale}
+		v.radius, v.strength = blend_pair_between(pairs, which, j, self.scale)
+		v.joined = v.radius > 0
+		reach = max(reach, v.radius)
+		append(&out, v)
+	}
+	return out[:], reach
+}
+
+// The radius (in the space of an instance of scale `scale`) and fullness of the pair
+// joining instances ia and ib, the largest when several do; zero when none does.
+blend_pair_between :: proc(pairs: []Blend_Pair, ia, ib: int, scale: f32) -> (radius, strength: f32) {
+	for p in pairs {
+		if (p.a == ia && p.b == ib) || (p.a == ib && p.b == ia) {
+			if r := p.radius / scale; r > radius do radius, strength = r, p.strength
+		}
+	}
+	return
 }
 
 // One field's reading at a point, for the fold.
@@ -149,7 +182,7 @@ Term :: struct {
 Project :: struct {
 	self:     ^Blend_Instance,
 	which:    int,
-	views:    []View,
+	views:    []Blend_View,
 	pairs:    []Blend_Pair,
 	instances: []Blend_Instance,
 	reach:    f32, // the largest joined radius, in this space
@@ -166,36 +199,14 @@ Project :: struct {
 // blend_pair_bricks named for every pair.
 blend_project :: proc(instances: []Blend_Instance, pairs: []Blend_Pair, which: int, out: ^[dynamic]Blend_Move, pool: ^jobs.Pool) -> (stats: Blend_Stats) {
 	self := &instances[which]
-	group := blend_group(instances, pairs, which, context.temp_allocator)
-	views := make([dynamic]View, 0, len(group), context.temp_allocator)
-	inverse_self := self.place
-	reach: f32 = 0
-	for j in group {
-		if j == which do continue
-		o := &instances[j]
-		inv := linalg.inverse(o.place)
-		into := inv * inverse_self
-		ratio := o.scale / self.scale
-		lin := matrix[3, 3]f32{into[0, 0], into[0, 1], into[0, 2], into[1, 0], into[1, 1], into[1, 2], into[2, 0], into[2, 1], into[2, 2]}
-		v := View{inst = o, index = j, into = into, back = linalg.transpose(lin), ratio = ratio}
-		for p in pairs {
-			if (p.a == which && p.b == j) || (p.b == which && p.a == j) {
-				v.joined = true
-				if r := p.radius / self.scale; r > v.radius {
-					v.radius, v.strength = r, p.strength
-				}
-			}
-		}
-		reach = max(reach, v.radius)
-		append(&views, v)
-	}
+	views, reach := blend_views(instances, pairs, which, context.temp_allocator)
 	if reach <= 0 do return
 	n := len(self.surface.mesh.positions)
 	chunk_count := (n + PROJECT_GRAIN - 1) / PROJECT_GRAIN
 	pr := Project {
 		self      = self,
 		which     = which,
-		views     = views[:],
+		views     = views,
 		pairs     = pairs,
 		instances = instances,
 		reach     = reach,
@@ -310,14 +321,14 @@ project_vertex :: proc(pr: ^Project, v: u32, out: ^[dynamic]Blend_Move, st: ^Ble
 
 // A view's field at x of the projected instance's space, in that space's units.
 @(private = "file")
-view_at :: #force_inline proc(view: ^View, x: Vec3) -> (d: f32, g: Vec3, w: f32, ok: bool) {
+view_at :: #force_inline proc(view: ^Blend_View, x: Vec3) -> (d: f32, g: Vec3, w: f32, ok: bool) {
 	p := (view.into * [4]f32{x.x, x.y, x.z, 1}).xyz
 	d, g, w = blend_field_at(view.inst.field, p) or_return
 	return d * view.ratio, view.back * g * view.ratio, w, true
 }
 
 @(private = "file")
-view_normal :: #force_inline proc(view: ^View, x: Vec3) -> (g: Vec3, ok: bool) {
+view_normal :: #force_inline proc(view: ^Blend_View, x: Vec3) -> (g: Vec3, ok: bool) {
 	p := (view.into * [4]f32{x.x, x.y, x.z, 1}).xyz
 	g = blend_field_normal(view.inst.field, p) or_return
 	return view.back * g * view.ratio, true
@@ -395,12 +406,7 @@ blend_surface_edge :: proc(m: Mesh) -> f32 {
 pair_of :: proc(pr: ^Project, a, b: int) -> (radius, strength: f32) {
 	ia := pr.which if a < 0 else pr.views[a].index
 	ib := pr.which if b < 0 else pr.views[b].index
-	for p in pr.pairs {
-		if (p.a == ia && p.b == ib) || (p.a == ib && p.b == ia) {
-			if r := p.radius / pr.self.scale; r > radius do radius, strength = r, p.strength
-		}
-	}
-	return
+	return blend_pair_between(pr.pairs, ia, ib, pr.self.scale)
 }
 
 // The bricks each field of a pair needs: where a's surface comes within the radius of b's,

@@ -406,7 +406,11 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 					if stack_radial_on(sel) do radial = s.radial.count
 					if stack_along_on(app, sel) do along = s.along.count
 				}
-				if app.blend_test > 0 do fmt.printfln("blend_objects=%d blend_bricks=%d blend_moved=%d blend_fill_ms=%.1f blend_project_ms=%.1f blend_grows=%d", len(app.blend.objects), app.blend.bricks, app.blend.moved, app.blend.fill_ms, app.blend.project_ms, app.blend.grows)
+				if app.blend_test > 0 {
+					b := &app.blend
+					fmt.printfln("blend_objects=%d blend_bricks=%d blend_moved=%d blend_fill_ms=%.1f blend_project_ms=%.1f blend_grows=%d", len(b.objects), b.bricks, b.moved, b.fill_ms, b.project_ms, b.grows)
+					fmt.printfln("blend_gpu_ms=%.3f blend_gpu_upload_ms=%.3f blend_gpu_pages=%d blend_check_diff=%.3e blend_check_mismatch=%d blend_check_failed=%d", b.gpu_ms, b.gpu_upload_ms, b.gpu_pages, b.check_diff, b.check_mismatch, int(b.check_failed))
+				}
 				fmt.printfln("stack_rows=%d stack_mirror=%s stack_array=%d stack_radial=%d stack_along=%d stack_copies=%d stack_bakes=%d", stack_rows, strings.join(strings.fields(mirror, context.temp_allocator), "_", context.temp_allocator), array, radial, along, app.stats.stack_copies, app.stack_bakes)
 				step, pivot, minus := Vec3{}, Vec3{}, false
 				if sel != nil do step, pivot, minus = sel.stack.array.offset, sel.stack.radial.pivot, sel.stack.mirror.minus
