@@ -38,23 +38,23 @@ Blas_Refit_Comp_Buffers :: enum u32 {positions, indices, order, chunks}
 Blas_Refit_Comp_Write_Buffers :: enum u32 {nodes}
 Blas_Refit_Comp_Uniforms :: enum u32 {Params}
 
-// blend_project.comp.spv sha256 3507b924d0c01b27429a193081a765dd8eb522cc99a4cbba482c845a4e613278
+// blend_project.comp.spv sha256 d4578ad7a3f27f0bf7a7074dc0b29a153688f52ca099a50ea222597c88d9f368
 BLEND_PROJECT_COMP :: gpu.Compute_Pipeline_Desc{
 	code = #load("shaders/blend_project.comp" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
 	format = SHADER_FORMAT,
 	num_samplers = 0,
 	num_readonly_storage_textures = 0,
-	num_readonly_storage_buffers = 7,
+	num_readonly_storage_buffers = 6,
 	num_readwrite_storage_textures = 0,
-	num_readwrite_storage_buffers = 1,
+	num_readwrite_storage_buffers = 2,
 	num_uniform_buffers = 1,
 	threadcount_x = 256,
 	threadcount_y = 1,
 	threadcount_z = 1,
 }
-Blend_Project_Comp_Buffers :: enum u32 {positions, page_list, fields, brick_table, brick_values, brick_extras, terms}
-Blend_Project_Comp_Write_Buffers :: enum u32 {pages}
+Blend_Project_Comp_Buffers :: enum u32 {positions, page_list, brick_table, brick_values, brick_extras, terms}
+Blend_Project_Comp_Write_Buffers :: enum u32 {pages, table}
 Blend_Project_Comp_Uniforms :: enum u32 {Blend_Params}
 
 // bloom_down.frag.spv sha256 0c6a396d73d52306182f7627e1d56be1719f216013f99d27b551d21626fa98f3
@@ -329,7 +329,7 @@ MESH_FRAG :: gpu.Shader_Desc{
 Mesh_Frag_Samplers :: enum u32 {matcap, environment_map}
 Mesh_Frag_Uniforms :: enum u32 {Material_Uniforms, Slot_Uniforms}
 
-// mesh.vert.spv sha256 3e1051aa61ddae0ee8bbffb1355c37123f2387a66072b72560a2507e90a50155
+// mesh.vert.spv sha256 f06dc422b3b14d4da4c25f50ef53f55b020c2350bb4e712b3880afb86124809d
 MESH_VERT :: gpu.Shader_Desc{
 	code = #load("shaders/mesh.vert" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
@@ -400,7 +400,7 @@ Mesh_Wire_Frag_Samplers :: enum u32 {matcap, environment_map}
 Mesh_Wire_Frag_Buffers :: enum u32 {tri_edges}
 Mesh_Wire_Frag_Uniforms :: enum u32 {Material_Uniforms, Slot_Uniforms}
 
-// mesh_wire.vert.spv sha256 10b93dfe3f3c9d46b2fa92c8aa1f2ac5aa0292174a5f61c8f4fe8c3f933ff009
+// mesh_wire.vert.spv sha256 3342313a5f3436a88a44ab27038aaef0e60d84b3637ee0f899630fd815775df8
 MESH_WIRE_VERT :: gpu.Shader_Desc{
 	code = #load("shaders/mesh_wire.vert" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
@@ -640,7 +640,7 @@ SHADOW_FRAG :: gpu.Shader_Desc{
 	num_uniform_buffers = 0,
 }
 
-// shadow.vert.spv sha256 ddf01ea36d3a41755e43b64b123843ad560228052ccdc8fd85fe8747326e9784
+// shadow.vert.spv sha256 f08817dac5bbb8ba33ca67d5c483a5a81721c87a2ca22c6645dbad4ce784281a
 SHADOW_VERT :: gpu.Shader_Desc{
 	code = #load("shaders/shadow.vert" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
@@ -868,7 +868,7 @@ TEXTURED_FRAG :: gpu.Shader_Desc{
 Textured_Frag_Samplers :: enum u32 {matcap, environment_map, base_map, orm_map, normal_map, paint_map, paint_material_map, paint_height_map}
 Textured_Frag_Uniforms :: enum u32 {Material_Uniforms}
 
-// textured.vert.spv sha256 e83581949377b10115bd06830301111e2fc1207d80e7550deedb5e5604c1795e
+// textured.vert.spv sha256 a75b19d1df39fd4a4d8a09edd7b0be778e6307eaf358e0784d79e52c9b1c828f
 TEXTURED_VERT :: gpu.Shader_Desc{
 	code = #load("shaders/textured.vert" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,

@@ -1,4 +1,4 @@
-// slangc wgsl from mesh.vert.spv sha256 3e1051aa61ddae0ee8bbffb1355c37123f2387a66072b72560a2507e90a50155
+// slangc wgsl from mesh.vert.spv sha256 f06dc422b3b14d4da4c25f50ef53f55b020c2350bb4e712b3880afb86124809d
 diagnostic(off, derivative_uniformity);
 struct _MatrixStorage_float4x4std140_0
 {
@@ -75,7 +75,7 @@ fn blend_entry_0( vertex_0 : u32) -> vec4<u32>
         return vec4<u32>(u32(0));
     }
     var page_0 : u32 = blend_table_0[(vertex_0 >> (u32(10)))];
-    if(page_0 == u32(4294967295))
+    if(page_0 >= u32(2147483648))
     {
         return vec4<u32>(u32(0));
     }

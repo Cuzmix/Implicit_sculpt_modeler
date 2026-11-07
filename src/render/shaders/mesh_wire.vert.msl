@@ -1,4 +1,4 @@
-// slangc metal from mesh_wire.vert.spv sha256 10b93dfe3f3c9d46b2fa92c8aa1f2ac5aa0292174a5f61c8f4fe8c3f933ff009
+// slangc metal from mesh_wire.vert.spv sha256 3342313a5f3436a88a44ab27038aaef0e60d84b3637ee0f899630fd815775df8
 // slots s= rt= wt= rb=3,4,1,2 wb= u=0 a=
 #include <metal_stdlib>
 #include <metal_math>
@@ -115,48 +115,48 @@ struct KernelContext_0
 };
 
 
-#line 17 "src/render/shaders/blend_pages.slang"
+#line 18 "src/render/shaders/blend_pages.slang"
 uint4 blend_entry_0(uint vertex_0, KernelContext_0 thread* kernelContext_0)
 {
 
-#line 18
+#line 19
     if((kernelContext_0->Frame_Uniforms_0->blend_0.x) == 0U)
     {
 
-#line 18
+#line 19
         return uint4(0U) ;
     }
-
-#line 19
-    uint page_0 = kernelContext_0->blend_table_0[vertex_0 >> 10U];
-    if(page_0 == 4294967295U)
-    {
 
 #line 20
+    uint page_0 = kernelContext_0->blend_table_0[vertex_0 >> 10U];
+    if(page_0 >= 2147483648U)
+    {
+
+#line 21
         return uint4(0U) ;
     }
 
-#line 21
+#line 22
     return uint4(*(kernelContext_0->blend_pages_0+(page_0 * 1024U + (vertex_0 & 1023U)))) ;
 }
 
 
-#line 28
+#line 29
 void blend_apply_0(uint vertex_1, float3 thread* position_0, float3 thread* normal_1, KernelContext_0 thread* kernelContext_1)
 {
 
-#line 28
+#line 29
     uint4 _S9 = blend_entry_0(vertex_1, kernelContext_1);
 
     *position_0 = *position_0 + (as_type<float3>((_S9.xyz)));
     uint _S10 = _S9.w;
 
-#line 31
+#line 32
     float amount_0 = float((_S10 >> 24U) & 15U) / 15.0f;
     if(amount_0 <= 0.0f)
     {
 
-#line 32
+#line 33
         return;
     }
     *normal_1 = normalize(mix(*normal_1, oct_decode_0(float2(float(_S10 & 4095U), float((_S10 >> 12U) & 4095U)) / float2(4095.0f)  * float2(2.0f)  - float2(1.0f) ), float3(amount_0) ));

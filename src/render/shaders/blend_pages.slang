@@ -3,7 +3,8 @@
 // BLEND_TABLE_BINDING and BLEND_PAGES_BINDING (set 0) and declares a uniform `uint4 blend`
 // whose x is 1 while the item's pages are bound (dummies otherwise).
 //
-// The table holds, per 1024 vertices, the page with their moves, or BLEND_PAGE_NONE. A
+// The table holds, per 1024 vertices, the page with their moves; a word with its top bit
+// set (BLEND_PAGE_NONE, or a candidate page the projection found no move in) holds none. A
 // page holds 1024 entries: the offset in xyz (float bits), and in w the blended surface's
 // normal (two 12-bit octahedral halves, low first), how much of the blend acts there
 // (4 bits, 0 none to 15 all) and which side of the seam the vertex is on (4 bits).
@@ -17,7 +18,7 @@ static const uint BLEND_PAGE_NONE = 0xffffffffu;
 uint4 blend_entry(uint vertex) {
 	if (blend.x == 0u) return uint4(0u);
 	uint page = blend_table[vertex >> 10u];
-	if (page == BLEND_PAGE_NONE) return uint4(0u);
+	if (page >= 0x80000000u) return uint4(0u);
 	return blend_pages[page * 1024u + (vertex & 1023u)];
 }
 

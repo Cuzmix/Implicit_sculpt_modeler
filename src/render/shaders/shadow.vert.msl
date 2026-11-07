@@ -1,4 +1,4 @@
-// slangc metal from shadow.vert.spv sha256 ddf01ea36d3a41755e43b64b123843ad560228052ccdc8fd85fe8747326e9784
+// slangc metal from shadow.vert.spv sha256 f08817dac5bbb8ba33ca67d5c483a5a81721c87a2ca22c6645dbad4ce784281a
 // slots s= rt= wt= rb=1,2 wb= u=0 a=
 #include <metal_stdlib>
 #include <metal_math>
@@ -14,7 +14,7 @@ struct SLANG_ParameterGroup_Shadow_Uniforms_0
 };
 
 
-#line 12 "src/render/shaders/blend_pages.slang"
+#line 13 "src/render/shaders/blend_pages.slang"
 struct KernelContext_0
 {
     SLANG_ParameterGroup_Shadow_Uniforms_0 constant* Shadow_Uniforms_0;
@@ -23,40 +23,40 @@ struct KernelContext_0
 };
 
 
-#line 17
+#line 18
 uint4 blend_entry_0(uint vertex_0, KernelContext_0 thread* kernelContext_0)
 {
 
-#line 18
+#line 19
     if((kernelContext_0->Shadow_Uniforms_0->blend_0.x) == 0U)
     {
 
-#line 18
+#line 19
         return uint4(0U) ;
     }
-
-#line 19
-    uint page_0 = kernelContext_0->blend_table_0[vertex_0 >> 10U];
-    if(page_0 == 4294967295U)
-    {
 
 #line 20
+    uint page_0 = kernelContext_0->blend_table_0[vertex_0 >> 10U];
+    if(page_0 >= 2147483648U)
+    {
+
+#line 21
         return uint4(0U) ;
     }
 
-#line 21
+#line 22
     return uint4(*(kernelContext_0->blend_pages_0+(page_0 * 1024U + (vertex_0 & 1023U)))) ;
 }
 
 
-#line 21
+#line 22
 struct vertexOutput_0
 {
     float4 output_0 [[position]];
 };
 
 
-#line 21
+#line 22
 struct vertexInput_0
 {
     float3 position_0 [[attribute(0)]];

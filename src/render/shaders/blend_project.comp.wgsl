@@ -1,4 +1,4 @@
-// slangc wgsl from blend_project.comp.spv sha256 3507b924d0c01b27429a193081a765dd8eb522cc99a4cbba482c845a4e613278
+// slangc wgsl from blend_project.comp.spv sha256 d4578ad7a3f27f0bf7a7074dc0b29a153688f52ca099a50ea222597c88d9f368
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Blend_Params_std140_0
 {
@@ -19,17 +19,22 @@ struct SLANG_ParameterGroup_Blend_Params_std140_0
 
 @binding(0) @group(0) var<storage, read> positions_0 : array<f32>;
 
-@binding(12) @group(0) var<storage, read> terms_0 : array<vec4<f32>>;
+@binding(10) @group(0) var<storage, read> terms_0 : array<vec4<f32>>;
 
-@binding(4) @group(0) var<storage, read> fields_0 : array<vec4<u32>>;
+@binding(4) @group(0) var<storage, read> brick_table_0 : array<vec4<u32>>;
 
-@binding(6) @group(0) var<storage, read> brick_table_0 : array<vec4<u32>>;
+@binding(6) @group(0) var<storage, read> brick_values_0 : array<f32>;
 
-@binding(8) @group(0) var<storage, read> brick_values_0 : array<f32>;
-
-@binding(10) @group(0) var<storage, read> brick_extras_0 : array<u32>;
+@binding(8) @group(0) var<storage, read> brick_extras_0 : array<u32>;
 
 @binding(0) @group(1) var<storage, read_write> pages_0 : array<vec4<u32>>;
+
+@binding(2) @group(1) var<storage, read_write> table_0 : array<u32>;
+
+fn field_desc_0( f_0 : u32) -> vec4<u32>
+{
+    return (bitcast<vec4<u32>>((terms_0[u32(4) * Blend_Params_0.term_count_0 + f_0])));
+}
 
 fn key_hash_0( x_0 : u32,  y_0 : u32,  z_0 : u32) -> u32
 {
@@ -39,7 +44,7 @@ fn key_hash_0( x_0 : u32,  y_0 : u32,  z_0 : u32) -> u32
     return (h_2 ^ (((h_2 >> (u32(16))))));
 }
 
-fn brick_base_0( f_0 : u32,  b_0 : vec3<i32>) -> i32
+fn brick_base_0( f_1 : u32,  b_0 : vec3<i32>) -> i32
 {
     var _S1 : i32 = b_0.x;
     var _S2 : bool;
@@ -63,7 +68,7 @@ fn brick_base_0( f_0 : u32,  b_0 : vec3<i32>) -> i32
     {
         return i32(-1);
     }
-    var fd_0 : vec4<u32> = fields_0[f_0];
+    var fd_0 : vec4<u32> = field_desc_0(f_1);
     var x_1 : u32 = (u32(_S1 + i32(1048576)) & (u32(2097151)));
     var y_1 : u32 = (u32(b_0.y + i32(1048576)) & (u32(2097151)));
     var z_1 : u32 = (u32(b_0.z + i32(1048576)) & (u32(2097151)));
@@ -192,15 +197,15 @@ fn mix3_0( a_1 : vec3<f32>,  b_2 : vec3<f32>,  t_1 : f32) -> vec3<f32>
     return a_1 * vec3<f32>((1.0f - t_1)) + b_2 * vec3<f32>(t_1);
 }
 
-fn field_at_0( f_1 : u32,  p_0 : vec3<f32>,  d_0 : ptr<function, f32>,  g_0 : ptr<function, vec3<f32>>,  w_1 : ptr<function, f32>) -> bool
+fn field_at_0( f_2 : u32,  p_0 : vec3<f32>,  d_0 : ptr<function, f32>,  g_0 : ptr<function, vec3<f32>>,  w_1 : ptr<function, f32>) -> bool
 {
     (*d_0) = 0.0f;
     (*g_0) = vec3<f32>(0.0f);
     (*w_1) = 0.0f;
-    var q_0 : vec3<f32> = p_0 / vec3<f32>((bitcast<f32>((fields_0[f_1].x))));
+    var q_0 : vec3<f32> = p_0 / vec3<f32>((bitcast<f32>((field_desc_0(f_2).x))));
     var cell_0 : vec3<f32> = floor(q_0);
     var _S15 : vec3<i32> = vec3<i32>(floor(cell_0 / vec3<f32>(8.0f)));
-    var base_1 : i32 = brick_base_0(f_1, _S15);
+    var base_1 : i32 = brick_base_0(f_2, _S15);
     if(base_1 < i32(0))
     {
         return false;
@@ -945,10 +950,10 @@ fn project_0( v_4 : u32) -> vec4<u32>
     {
         return none_0;
     }
-    var f_2 : Eval_0 = evaluate_0(best_x_0);
+    var f_3 : Eval_0 = evaluate_0(best_x_0);
     if((e0_0.g_3) < a0_1)
     {
-        softened_1 = (f_2.amount_0) < 0.05000000074505806f;
+        softened_1 = (f_3.amount_0) < 0.05000000074505806f;
     }
     else
     {
@@ -958,22 +963,22 @@ fn project_0( v_4 : u32) -> vec4<u32>
     {
         return none_0;
     }
-    var n_2 : vec3<f32> = normalize0_0(f_2.grad_0);
+    var n_2 : vec3<f32> = normalize0_0(f_3.grad_0);
     var offset_2 : vec3<f32> = best_x_0 - x0_1;
-    if((bitcast<u32>((terms_0[u32(3)].z))) < (f_2.rival_0))
+    if((bitcast<u32>((terms_0[u32(3)].z))) < (f_3.rival_0))
     {
-        if((f_2.own_0) < -0.05000000074505806f)
+        if((f_3.own_0) < -0.05000000074505806f)
         {
             return none_0;
         }
-        var _S70 : f32 = max(Blend_Params_0.self_edge_0, f_2.rival_edge_0);
-        offset_1 = offset_2 + n_2 * vec3<f32>((max(0.0020000000949949f * Blend_Params_0.reach_0, 0.75f * _S70 * _S70 / Blend_Params_0.reach_0) * clamp(1.0f - f_2.own_0 / 0.5f, 0.0f, 1.0f)));
+        var _S70 : f32 = max(Blend_Params_0.self_edge_0, f_3.rival_edge_0);
+        offset_1 = offset_2 + n_2 * vec3<f32>((max(0.0020000000949949f * Blend_Params_0.reach_0, 0.75f * _S70 * _S70 / Blend_Params_0.reach_0) * clamp(1.0f - f_3.own_0 / 0.5f, 0.0f, 1.0f)));
     }
     else
     {
         offset_1 = offset_2;
     }
-    return entry_0(offset_1, n_2, f_2.amount_0, f_2.own_0);
+    return entry_0(offset_1, n_2, f_3.amount_0, f_3.own_0);
 }
 
 @compute
@@ -1008,6 +1013,10 @@ fn main(@builtin(workgroup_id) group_id_0 : vec3<u32>, @builtin(local_invocation
         result_0 = _S71;
     }
     pages_0[slot_0 * u32(1024) + k_3] = result_0;
+    if((any((result_0 != _S71))))
+    {
+        table_0[page_list_0[slot_0]] = slot_0;
+    }
     return;
 }
 

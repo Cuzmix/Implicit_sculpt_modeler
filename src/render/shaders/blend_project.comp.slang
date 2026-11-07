@@ -15,21 +15,26 @@
 [[vk::binding(0, 0)]] StructuredBuffer<float> positions;
 // Per slot of the pages, the page (vertex >> 10) it holds.
 [[vk::binding(1, 0)]] StructuredBuffer<uint> page_list;
-// Per field: its spacing (float bits), its table's first entry, its table's mask and its
-// first slot among every field's.
-[[vk::binding(2, 0)]] StructuredBuffer<uint4> fields;
 // Every field's hash table (geom.Blend_Field.table and .slots): the key's low and high
 // words, the slot (or anything for a free entry, whose key is all ones), unused.
-[[vk::binding(3, 0)]] StructuredBuffer<uint4> brick_table;
+[[vk::binding(2, 0)]] StructuredBuffer<uint4> brick_table;
 // Every field's samples, 729 a slot, x fastest: the distances, and beside each its exact
 // gradient and painted weight in one word (geom.blend_extra_pack).
-[[vk::binding(4, 0)]] StructuredBuffer<float> brick_values;
-[[vk::binding(5, 0)]] StructuredBuffer<uint> brick_extras;
+[[vk::binding(3, 0)]] StructuredBuffer<float> brick_values;
+[[vk::binding(4, 0)]] StructuredBuffer<uint> brick_extras;
 // Per term (0 the instance itself, then its group's others): the rows of the transform
 // into the term's space, then x the factor back to this space, y the term's mean edge in
-// this space, z the term's id (float bits), w the term's field (float bits).
-[[vk::binding(6, 0)]] StructuredBuffer<float4> terms;
+// this space, z the term's id (float bits), w the term's field (float bits). After the
+// terms' rows, one per field (their bits): its spacing (float bits), its table's first
+// entry, its table's mask and its first slot among every field's. One buffer for both
+// keeps the kernel within WebGPU's eight storage buffers a stage.
+[[vk::binding(5, 0)]] StructuredBuffer<float4> terms;
 [[vk::binding(0, 1)]] RWStructuredBuffer<uint4> pages;
+// The pages' table (render.Blend_Pages.table): each candidate page comes up marked
+// pending (its slot with the top bit set), which the vertex stages read as no page, and a
+// slot in which any vertex moves is written back plain, so a page of none costs a draw
+// no read of its entries.
+[[vk::binding(1, 1)]] RWStructuredBuffer<uint> table;
 
 [[vk::binding(0, 2)]] cbuffer Blend_Params {
 	uint vertex_count;
@@ -92,10 +97,15 @@ uint key_hash(uint x, uint y, uint z) {
 	return h;
 }
 
+// Field f's description, after the terms' rows.
+uint4 field_desc(uint f) {
+	return asuint(terms[4u * term_count + f]);
+}
+
 // Field f's first sample of brick b, or -1 when it holds no such brick.
 int brick_base(uint f, int3 b) {
 	if (abs(b.x) >= int(KEY_OFFSET) - 1 || abs(b.y) >= int(KEY_OFFSET) - 1 || abs(b.z) >= int(KEY_OFFSET) - 1) return -1;
-	uint4 fd = fields[f];
+	uint4 fd = field_desc(f);
 	uint x = uint(b.x + int(KEY_OFFSET)) & KEY_MASK;
 	uint y = uint(b.y + int(KEY_OFFSET)) & KEY_MASK;
 	uint z = uint(b.z + int(KEY_OFFSET)) & KEY_MASK;
@@ -140,7 +150,7 @@ bool field_at(uint f, float3 p, out float d, out float3 g, out float w) {
 	d = 0.0;
 	g = float3(0.0);
 	w = 0.0;
-	float h = asfloat(fields[f].x);
+	float h = asfloat(field_desc(f).x);
 	float3 q = p / h;
 	float3 cell = floor(q);
 	int3 b = int3(floor(cell / float(BRICK)));
@@ -468,4 +478,6 @@ void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID) {
 	uint4 result = uint4(0u);
 	if (v < vertex_count && near_test(v)) result = project(v);
 	pages[slot * 1024u + k] = result;
+	// Every thread that moves a vertex writes the same word, so no order matters.
+	if (any(result != uint4(0u))) table[page_list[slot]] = slot;
 }
