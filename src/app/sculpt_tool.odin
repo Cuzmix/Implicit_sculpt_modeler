@@ -1623,14 +1623,19 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 }
 
 // The brush a stroke pressed now at `hit` (local space) would lay its first dab with, for
-// the hover preview: the kind `input`'s keys would pick, at full pressure, with the pen's
-// lean as it hovers. The stroke's own state is left as it was.
+// the hover preview: with the modifiers the press would take (hover_mods: the keys, the
+// wheel latched or held, the pen's eraser end), which a hovering `input` lacks since it
+// carries them only while pressed, the kind they would pick, at full pressure, with the
+// pen's lean as it hovers. The stroke's own state is left as it was.
 brush_hovering :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3) -> sculpt.Brush {
+	press := input
+	m := hover_mods(app)
+	press.smooth, press.invert, press.mask, press.mask_shape, press.alt = m.smooth, m.invert, m.mask, m.mask_shape, m.alt
 	st := &app.stroke
 	kept := st^
 	defer st^ = kept
-	st.kind, st.held, st.blur, st.scale, st.last_set, st.skin = stroke_brush(app, input), held_brush(input), false, 1, false, false
-	return brush_at(app, input, t, hit, 1, input.pen_tilt)
+	st.kind, st.held, st.blur, st.scale, st.last_set, st.skin = stroke_brush(app, press), held_brush(press), press.smooth && painting(app), 1, false, false
+	return brush_at(app, press, t, hit, 1, input.pen_tilt)
 }
 
 // How many brushes' falloff tables are kept: a frame asks for at most three (the brush

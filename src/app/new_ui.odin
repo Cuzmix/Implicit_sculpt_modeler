@@ -556,6 +556,7 @@ Kit_Event_Kind :: enum u8 {
 	Pen_Pressure, // how hard the pen presses from then on, 0 to 1
 	Pen_Roll, // the pen's turn about its own length from then on, degrees from -180 to 180
 	Pen_Erase_Down, // the pen's eraser end touching down
+	Pen_Erase_Move, // the pen's eraser end moving, hovering or touching
 	Pen_Button, // a barrel button pressed and let go, its number in `value`
 	// An Apple Pencil's double-tap, and its squeeze (begun and ended), as the iPad's bridge
 	// sends them, `key` naming the iPad's preferred action ("" for its default).
@@ -628,7 +629,7 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 		}
 		if ok {
 			switch parts[1] {
-			case "move", "pdown", "pmove", "pedown", "ptilt":
+			case "move", "pdown", "pmove", "pedown", "pemove", "ptilt":
 				ok = len(parts) == 3
 				if ok do ev.at, ok = point(parts[2], &ev)
 				switch parts[1] {
@@ -636,6 +637,7 @@ kit_events_parse :: proc(app: ^App, spec: string) -> bool {
 				case "pdown": ev.kind = .Pen_Down
 				case "pmove": ev.kind = .Pen_Move
 				case "ptilt": ev.kind = .Pen_Tilt
+				case "pemove": ev.kind = .Pen_Erase_Move
 				case:         ev.kind = .Pen_Erase_Down
 				}
 			case "pcoal":
@@ -908,16 +910,19 @@ kit_events_push :: proc(app: ^App, window: ^sdl.Window) {
 				}
 				break
 			}
-		case .Pen_Down, .Pen_Move, .Pen_Up, .Pen_Erase_Down:
+		case .Pen_Down, .Pen_Move, .Pen_Up, .Pen_Erase_Down, .Pen_Erase_Move:
 			if ev.kind != .Pen_Up {
-				// SDL reports the pen's own motion, then the mouse motion it makes of it.
-				e.pmotion = {type = .PEN_MOTION, timestamp = now, windowID = win, which = 1, x = at.x, y = at.y}
+				// SDL reports the pen's own motion, with the end in use, then the mouse motion it
+				// makes of it.
+				state: sdl.PenInputFlags
+				if ev.kind == .Pen_Erase_Down || ev.kind == .Pen_Erase_Move do state = {.ERASER_TIP}
+				e.pmotion = {type = .PEN_MOTION, timestamp = now, windowID = win, which = 1, pen_state = state, x = at.x, y = at.y}
 				push(e)
 				e = {}
 				e.motion = {type = .MOUSE_MOTION, timestamp = now, windowID = win, which = sdl.PEN_MOUSEID, x = at.x, y = at.y}
 				push(e)
 			}
-			if ev.kind == .Pen_Move do continue
+			if ev.kind == .Pen_Move || ev.kind == .Pen_Erase_Move do continue
 			down := ev.kind != .Pen_Up
 			e = {}
 			e.ptouch = {type = .PEN_DOWN if down else .PEN_UP, timestamp = now, windowID = win, which = 1, x = at.x if down else d.mouse.x, y = at.y if down else d.mouse.y, eraser = ev.kind == .Pen_Erase_Down, down = down}
@@ -1382,16 +1387,8 @@ kit_viewport_input :: proc(app: ^App, size: [2]f32) -> (input: Viewport_Input) {
 		// Alt held from the press leaves the left button to the view; Alt pressed while a
 		// Grab drags moves it along the surface instead (grab_moved).
 		input.primary = left && (!d.alt || d.ctrl || (app.stroke.active && app.stroke.grab))
-		input.alt = input.primary && d.alt
 		input.press = input.primary && .Left in d.pressed
-		input.smooth = input.primary && d.shift
-		// Ctrl+Alt with a brush paints the mask, as Ctrl does in ZBrush, and from empty space
-		// still draws the unmasking shape (Alt, mask_shape.odin); Ctrl alone inverts.
-		mask_keys := input.primary && d.ctrl && d.alt && !d.shift && app.tool == .Brush
-		input.mask = mask_keys
-		input.invert = input.primary && d.ctrl && !mask_keys
-		input.mask_shape = (input.invert && !d.shift) || mask_keys
-		// The modifier rail sets what the keys would, for this press (modifiers.odin).
+		// The keys and the modifier rail say what the press does (press_mods, modifiers.odin).
 		rail_press(app, &input)
 	}
 	// Who has the touch and the drag, then what they do this frame (touch.odin,
