@@ -1,4 +1,4 @@
-// slangc wgsl from blend_project.comp.spv sha256 c939e02386091b4cddd8f3c34b90e93002c10ab482e3f179f0ec76f365bc6513
+// slangc wgsl from blend_project.comp.spv sha256 3507b924d0c01b27429a193081a765dd8eb522cc99a4cbba482c845a4e613278
 diagnostic(off, derivative_uniformity);
 struct SLANG_ParameterGroup_Blend_Params_std140_0
 {
@@ -665,7 +665,10 @@ fn project_0( v_4 : u32) -> vec4<u32>
 {
     var converged_0 : bool;
     var turned_0 : bool;
+    var softened_0 : bool;
+    var stop_x_0 : vec3<f32>;
     var offset_1 : vec3<f32>;
+    var stop_w_0 : f32;
     var none_0 : vec4<u32> = vec4<u32>(u32(0));
     var _S60 : u32 = u32(3) * v_4;
     var x0_1 : vec3<f32> = vec3<f32>(positions_0[_S60], positions_0[_S60 + u32(1)], positions_0[_S60 + u32(2)]);
@@ -678,16 +681,16 @@ fn project_0( v_4 : u32) -> vec4<u32>
         return none_0;
     }
     var e0_0 : Eval_0 = evaluate_0(x0_1);
-    var has_out_0 : bool;
+    var softened_1 : bool;
     if((e0_0.amount_0) <= 0.0f)
     {
-        has_out_0 = (e0_0.g_3) < a0_1;
+        softened_1 = (e0_0.g_3) < a0_1;
     }
     else
     {
-        has_out_0 = false;
+        softened_1 = false;
     }
-    if(has_out_0)
+    if(softened_1)
     {
         return none_0;
     }
@@ -696,13 +699,16 @@ fn project_0( v_4 : u32) -> vec4<u32>
     var _S62 : bool = best_0 < (0.00009999999747379f * Blend_Params_0.reach_0);
     var _S63 : vec3<f32> = vec3<f32>(0.0f);
     var last_dir_0 : vec3<f32> = _S63;
+    softened_1 = false;
+    var best_x_0 : vec3<f32> = x0_1;
     var best_1 : f32 = best_0;
     var kept_0 : i32 = i32(0);
-    has_out_0 = false;
+    var has_out_0 : bool = false;
     var has_in_0 : bool = false;
     var out_x_0 : vec3<f32> = _S63;
     var in_x_0 : vec3<f32> = _S63;
-    var best_x_0 : vec3<f32> = x0_1;
+    var stop_x_1 : vec3<f32> = x0_1;
+    var stop_w_1 : f32 = 1.0f;
     var steps_0 : u32 = u32(0);
     var x_6 : vec3<f32> = x0_1;
     var in_r_0 : f32 = 0.0f;
@@ -724,6 +730,9 @@ fn project_0( v_4 : u32) -> vec4<u32>
         {
             converged_0 = _S62;
             turned_0 = false;
+            softened_0 = softened_1;
+            stop_x_0 = stop_x_1;
+            stop_w_0 = stop_w_1;
             break;
         }
         var e_4 : Eval_0 = evaluate_0(x_6);
@@ -731,38 +740,65 @@ fn project_0( v_4 : u32) -> vec4<u32>
         {
             converged_0 = _S62;
             turned_0 = false;
+            softened_0 = softened_1;
+            stop_x_0 = stop_x_1;
+            stop_w_0 = stop_w_1;
             break;
         }
         var dir_0 : vec3<f32> = normalize0_0(e_4.grad_0);
         if(steps_0 > u32(0))
         {
-            turned_0 = (dot(dir_0, last_dir_0)) < 0.57357639074325562f;
+            var c_1 : f32 = dot(dir_0, last_dir_0);
+            if(c_1 < 0.70710676908493042f)
+            {
+                turned_0 = !softened_1;
+            }
+            else
+            {
+                turned_0 = false;
+            }
+            if(turned_0)
+            {
+                var t_4 : f32 = clamp((c_1 - 0.57357639074325562f) / 0.1335303783416748f, 0.0f, 1.0f);
+                var _S64 : f32 = t_4 * t_4 * (3.0f - 2.0f * t_4);
+                softened_0 = true;
+                stop_x_0 = best_x_0;
+                stop_w_0 = _S64;
+            }
+            else
+            {
+                softened_0 = softened_1;
+                stop_x_0 = stop_x_1;
+                stop_w_0 = stop_w_1;
+            }
+            if(c_1 < 0.57357639074325562f)
+            {
+                converged_0 = _S62;
+                turned_0 = true;
+                break;
+            }
         }
         else
         {
-            turned_0 = false;
+            softened_0 = softened_1;
+            stop_x_0 = stop_x_1;
+            stop_w_0 = stop_w_1;
         }
-        if(turned_0)
-        {
-            converged_0 = _S62;
-            turned_0 = true;
-            break;
-        }
-        var _S64 : u32 = steps_0 + u32(1);
+        var _S65 : u32 = steps_0 + u32(1);
         var r_0 : f32 = e_4.g_3 - target_0;
-        var _S65 : f32 = abs(r_0);
+        var _S66 : f32 = abs(r_0);
         var best_2 : f32;
-        if(_S65 < best_1)
+        if(_S66 < best_1)
         {
-            best_2 = _S65;
             offset_1 = x_6;
+            best_2 = _S66;
         }
         else
         {
-            best_2 = best_1;
             offset_1 = best_x_0;
+            best_2 = best_1;
         }
-        if(_S65 < (0.00009999999747379f * Blend_Params_0.reach_0))
+        if(_S66 < (0.00009999999747379f * Blend_Params_0.reach_0))
         {
             converged_0 = true;
             turned_0 = false;
@@ -770,7 +806,6 @@ fn project_0( v_4 : u32) -> vec4<u32>
             best_x_0 = offset_1;
             break;
         }
-        var has_out_1 : bool;
         var has_in_1 : bool;
         var out_x_1 : vec3<f32>;
         var in_x_1 : vec3<f32>;
@@ -787,14 +822,14 @@ fn project_0( v_4 : u32) -> vec4<u32>
             {
                 out_r_1 = in_r_0;
             }
-            var _S66 : f32 = out_r_1;
-            has_out_1 = true;
+            var _S67 : f32 = out_r_1;
+            turned_0 = true;
             has_in_1 = has_in_0;
             out_x_1 = x_6;
             in_x_1 = in_x_0;
             kept_1 = i32(1);
             out_r_1 = r_0;
-            in_r_1 = _S66;
+            in_r_1 = _S67;
         }
         else
         {
@@ -806,35 +841,38 @@ fn project_0( v_4 : u32) -> vec4<u32>
             {
                 out_r_1 = out_r_0;
             }
-            has_out_1 = has_out_0;
+            turned_0 = has_out_0;
             has_in_1 = true;
             out_x_1 = out_x_0;
             in_x_1 = x_6;
             kept_1 = i32(-1);
             in_r_1 = r_0;
         }
-        var _S67 : bool;
-        if(has_out_1)
+        var _S68 : bool;
+        if(turned_0)
         {
-            _S67 = has_in_1;
+            _S68 = has_in_1;
         }
         else
         {
-            _S67 = false;
+            _S68 = false;
         }
-        if(_S67)
+        if(_S68)
         {
-            var _S68 : vec3<f32> = out_x_1 + (in_x_1 - out_x_1) * vec3<f32>((out_r_1 / (out_r_1 - in_r_1)));
+            var _S69 : vec3<f32> = out_x_1 + (in_x_1 - out_x_1) * vec3<f32>((out_r_1 / (out_r_1 - in_r_1)));
             last_dir_0 = dir_0;
+            softened_1 = softened_0;
+            best_x_0 = offset_1;
             best_1 = best_2;
             kept_0 = kept_1;
-            has_out_0 = has_out_1;
+            has_out_0 = turned_0;
             has_in_0 = has_in_1;
             out_x_0 = out_x_1;
             in_x_0 = in_x_1;
-            best_x_0 = offset_1;
-            steps_0 = _S64;
-            x_6 = _S68;
+            stop_x_1 = stop_x_0;
+            stop_w_1 = stop_w_0;
+            steps_0 = _S65;
+            x_6 = _S69;
             in_r_0 = in_r_1;
             out_r_0 = out_r_1;
             continue;
@@ -861,14 +899,17 @@ fn project_0( v_4 : u32) -> vec4<u32>
         }
         var x_7 : vec3<f32> = x_6 - step_1;
         last_dir_0 = dir_0;
+        softened_1 = softened_0;
+        best_x_0 = offset_1;
         best_1 = best_2;
         kept_0 = kept_1;
-        has_out_0 = has_out_1;
+        has_out_0 = turned_0;
         has_in_0 = has_in_1;
         out_x_0 = out_x_1;
         in_x_0 = in_x_1;
-        best_x_0 = offset_1;
-        steps_0 = _S64;
+        stop_x_1 = stop_x_0;
+        stop_w_1 = stop_w_0;
+        steps_0 = _S65;
         x_6 = x_7;
         in_r_0 = in_r_1;
         out_r_0 = out_r_1;
@@ -884,17 +925,21 @@ fn project_0( v_4 : u32) -> vec4<u32>
             var e_5 : Eval_0 = evaluate_0(x_6);
             if(e_5.ok_0)
             {
-                has_out_0 = (abs(e_5.g_3 - target_0)) < best_1;
+                softened_1 = (abs(e_5.g_3 - target_0)) < best_1;
             }
             else
             {
-                has_out_0 = false;
+                softened_1 = false;
             }
-            if(has_out_0)
+            if(softened_1)
             {
                 best_x_0 = x_6;
             }
         }
+    }
+    if(softened_0)
+    {
+        best_x_0 = stop_x_0 + (best_x_0 - stop_x_0) * vec3<f32>(stop_w_0);
     }
     if((all((best_x_0 == x0_1))))
     {
@@ -903,13 +948,13 @@ fn project_0( v_4 : u32) -> vec4<u32>
     var f_2 : Eval_0 = evaluate_0(best_x_0);
     if((e0_0.g_3) < a0_1)
     {
-        has_out_0 = (f_2.amount_0) < 0.05000000074505806f;
+        softened_1 = (f_2.amount_0) < 0.05000000074505806f;
     }
     else
     {
-        has_out_0 = false;
+        softened_1 = false;
     }
-    if(has_out_0)
+    if(softened_1)
     {
         return none_0;
     }
@@ -921,8 +966,8 @@ fn project_0( v_4 : u32) -> vec4<u32>
         {
             return none_0;
         }
-        var _S69 : f32 = max(Blend_Params_0.self_edge_0, f_2.rival_edge_0);
-        offset_1 = offset_2 + n_2 * vec3<f32>((max(0.0020000000949949f * Blend_Params_0.reach_0, 0.75f * _S69 * _S69 / Blend_Params_0.reach_0) * clamp(1.0f - f_2.own_0 / 0.5f, 0.0f, 1.0f)));
+        var _S70 : f32 = max(Blend_Params_0.self_edge_0, f_2.rival_edge_0);
+        offset_1 = offset_2 + n_2 * vec3<f32>((max(0.0020000000949949f * Blend_Params_0.reach_0, 0.75f * _S70 * _S70 / Blend_Params_0.reach_0) * clamp(1.0f - f_2.own_0 / 0.5f, 0.0f, 1.0f)));
     }
     else
     {
@@ -943,24 +988,24 @@ fn main(@builtin(workgroup_id) group_id_0 : vec3<u32>, @builtin(local_invocation
     }
     var k_3 : u32 = ((g_5 & (u32(3)))) * u32(256) + local_id_0.x;
     var v_5 : u32 = page_list_0[slot_0] * u32(1024) + k_3;
-    var _S70 : vec4<u32> = vec4<u32>(u32(0));
-    var _S71 : bool;
+    var _S71 : vec4<u32> = vec4<u32>(u32(0));
+    var _S72 : bool;
     if(v_5 < (Blend_Params_0.vertex_count_0))
     {
-        _S71 = near_test_0(v_5);
+        _S72 = near_test_0(v_5);
     }
     else
     {
-        _S71 = false;
+        _S72 = false;
     }
     var result_0 : vec4<u32>;
-    if(_S71)
+    if(_S72)
     {
         result_0 = project_0(v_5);
     }
     else
     {
-        result_0 = _S70;
+        result_0 = _S71;
     }
     pages_0[slot_0 * u32(1024) + k_3] = result_0;
     return;

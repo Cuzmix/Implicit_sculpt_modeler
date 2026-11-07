@@ -20,6 +20,12 @@ import "../jobs"
 // Vaillant's guard: a vertex whose march turns the gradient by more than this (55°) from
 // one step to the next has met a contact surface, a crease of the field, and stops there.
 BLEND_TURN_COS :: 0.5735764
+// Where the guard begins (45°): a march whose first turn lies between this and the guard
+// carries on, and its vertex goes from where it would have stopped toward where it ends by
+// a smooth step of the angle. A hard stop alone made the result jump across the curve of
+// the surface where the turn is 55°: a vertex left in place beside neighbours moved far,
+// and the GPU and the CPU, rounding differently, fell on its two sides.
+BLEND_TURN_COS_SOFT :: 0.70710678
 // Steps a vertex's march takes at most: Newton's until the target is bracketed, then
 // false position (the spike's plain Newton needed 3 on average and never 6).
 BLEND_STEPS :: 10
@@ -370,13 +376,26 @@ project_vertex :: proc(pr: ^Project, v: u32, out: ^[dynamic]Blend_Move, st: ^Ble
 	out_r, in_r: f32
 	has_out, has_in := false, false
 	kept := 0 // +1 when the outside point was kept last, -1 the inside one
+	// The first turn past the guard's start: where the vertex would have stopped, and how
+	// much of the rest of the march it takes.
+	softened := false
+	stop_x := x0
+	stop_w: f32 = 1
 	for !converged && steps < BLEND_STEPS {
 		g, grad, _, _, _, _, okg := evaluate(pr, x)
 		if !okg do break
 		dir := linalg.normalize0(grad)
-		if steps > 0 && linalg.dot(dir, last_dir) < BLEND_TURN_COS {
-			turned = true
-			break
+		if steps > 0 {
+			c := linalg.dot(dir, last_dir)
+			if c < BLEND_TURN_COS_SOFT && !softened {
+				softened = true
+				stop_x = best_x
+				stop_w = blend_turn_weight(c)
+			}
+			if c < BLEND_TURN_COS {
+				turned = true
+				break
+			}
 		}
 		last_dir = dir
 		steps += 1
@@ -415,6 +434,7 @@ project_vertex :: proc(pr: ^Project, v: u32, out: ^[dynamic]Blend_Move, st: ^Ble
 		if g, _, _, _, _, _, okg := evaluate(pr, x); okg && abs(g - target) < best do best_x = x
 		st.unconverged += 1
 	}
+	if softened do best_x = stop_x + (best_x - stop_x) * stop_w
 	st.steps += steps
 	st.most_steps = max(st.most_steps, steps)
 	if best_x == x0 do return
@@ -429,6 +449,13 @@ project_vertex :: proc(pr: ^Project, v: u32, out: ^[dynamic]Blend_Move, st: ^Ble
 	}
 	append(out, Blend_Move{vertex = v, offset = offset, normal = n, amount = amount, own = own})
 	st.moved += 1
+}
+
+// How much of a march past a turn of cosine c a vertex takes: 0 at the guard, 1 at its
+// start, a smooth step between.
+blend_turn_weight :: proc "contextless" (c: f32) -> f32 {
+	t := clamp((c - BLEND_TURN_COS) / (BLEND_TURN_COS_SOFT - BLEND_TURN_COS), 0, 1)
+	return t * t * (3 - 2 * t)
 }
 
 // A view's field at x of the projected instance's space, in that space's units.
