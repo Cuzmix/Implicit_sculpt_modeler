@@ -258,3 +258,39 @@ a_gradient_is_the_same_on_any_thread_count :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, color_hash(&clays[0]) == color_hash(&clays[1]), "the gradient differs between one thread and three")
 }
+
+@(test)
+convert_to_voxels_keeps_the_meshs_paint :: proc(t: ^testing.T) {
+	// A coarse sphere, so the paint has to be laid along its triangles, not from vertices.
+	sphere := geom.icosphere(3)
+	defer geom.mesh_destroy(&sphere)
+	colors := make([][4]u8, len(sphere.positions))
+	defer delete(colors)
+	for p, k in sphere.positions do if p.z > 0.6 do colors[k] = {30, 200, 90, 255}
+	c: Clay
+	testing.expect(t, clay_from_mesh(&c, sphere, 2.0 / 64, nil))
+	defer clay_destroy(&c)
+	testing.expect(t, clay_paint_from_mesh(&c, sphere, colors))
+	_ = clay_flush(&c)
+	top := color_near(&c, {0, 0, 1})
+	testing.expectf(t, top == {30, 200, 90, 255}, "the top is %v", top)
+	testing.expectf(t, color_near(&c, {1, 0, 0})[3] == 0, "the side took paint: %v", color_near(&c, {1, 0, 0}))
+	testing.expectf(t, color_near(&c, {0, 0, -1})[3] == 0, "the bottom took paint")
+	unpainted := make([][4]u8, len(sphere.positions))
+	defer delete(unpainted)
+	testing.expect(t, !clay_paint_from_mesh(&c, sphere, unpainted), "an unpainted mesh painted the clay")
+}
+
+@(test)
+the_colour_at_a_hit_is_the_paint_there :: proc(t: ^testing.T) {
+	c := color_sphere()
+	defer clay_destroy(&c)
+	testing.expect_value(t, clay_color_at(&c, {0, 0, 1}), [4]u8{})
+	paint_top(&c, {200, 40, 30}, 0.4)
+	hit, _, ok := clay_raycast(&c, {0, 0, 5}, {0, 0, -1})
+	testing.expect(t, ok)
+	top := clay_color_at(&c, hit)
+	testing.expectf(t, top.rgb == {200, 40, 30} && top[3] > 240, "the eyedropper sees %v", top)
+	side, _, _ := clay_raycast(&c, {5, 0, 0}, {-1, 0, 0})
+	testing.expect_value(t, clay_color_at(&c, side)[3], 0)
+}
