@@ -235,13 +235,19 @@ toasts_draw :: proc(ctx: ^Context) {
 
 // `s` as it fits in `width` points: whole, or cut at a character with "..." after. The
 // app's own drawing (the pie's labels) cuts with it too.
-text_fit :: proc(ctx: ^Context, s: string, size, width: f32, font := Font.Regular) -> string {
-	if text_width(ctx, s, size, font) <= width do return s
+text_fit :: proc(ctx: ^Context, english: string, size, width: f32, font := Font.Regular) -> string {
+	// Translated whole before it is cut.
+	return text_fit_plain(ctx, tr(ctx, english), size, width, font)
+}
+
+// text_fit of `s` as it is, never translated: a part of a line already translated.
+text_fit_plain :: proc(ctx: ^Context, s: string, size, width: f32, font := Font.Regular) -> string {
+	if text_width_plain(ctx, s, size, font) <= width do return s
 	dots :: "..."
-	room := width - text_width(ctx, dots, size, font)
+	room := width - text_width_plain(ctx, dots, size, font)
 	end := 0
 	for _, i in s {
-		if text_width(ctx, s[:i], size, font) > room do break
+		if text_width_plain(ctx, s[:i], size, font) > room do break
 		end = i
 	}
 	return strings.concatenate({s[:end], dots}, context.temp_allocator)

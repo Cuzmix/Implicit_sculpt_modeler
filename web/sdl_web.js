@@ -622,6 +622,29 @@ class Web {
 			SDL_GetPlatform: () => self.staticCstring("Web"),
 			SDL_GetSystemRAM: () => Math.round((navigator.deviceMemory || 4) * 1024),
 			SDL_GetSystemTheme: () => (matchMedia("(prefers-color-scheme: dark)").matches ? 2 : 1),
+			// The browser's languages as SDL_Locale pointers, the list freed with SDL_free and
+			// the strings kept by the page, as SDL's list holds them in one block.
+			SDL_GetPreferredLocales(count) {
+				const tags = (navigator.languages && navigator.languages.length ? [...navigator.languages] : [navigator.language || "en"]).slice(0, 8);
+				const n = tags.length;
+				// The strings first: making one may grow the memory, which a view taken
+				// before would not see.
+				const parts = tags.map((tag) => {
+					const [language, country] = tag.split("-");
+					return [self.staticCstring(language), country ? self.staticCstring(country) : 0];
+				});
+				const list = self.alloc(4 * (n + 1) + 8 * n);
+				const v = self.view();
+				parts.forEach(([language, country], i) => {
+					const at = list + 4 * (n + 1) + 8 * i;
+					v.setUint32(list + 4 * i, at, true);
+					v.setUint32(at, language, true);
+					v.setUint32(at + 4, country, true);
+				});
+				v.setUint32(list + 4 * n, 0, true);
+				if (count) v.setInt32(count, n, true);
+				return list;
+			},
 			SDL_free(ptr) { self.free(ptr); },
 			SDL_GetTicksNS: () => self.ticks(),
 			SDL_DelayNS() {},

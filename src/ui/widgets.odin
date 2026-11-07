@@ -1296,12 +1296,12 @@ text_field :: proc(ctx: ^Context, name: string, buf: []u8, width: f32 = 0, hold 
 	// the caret blinking there twice a second, in view.
 	shown := string(buf[:n])
 	inner := Rect{vis.x + 12, vis.y, vis.w - 24, vis.h}
-	shown_w := text_width(ctx, shown, t.text_size)
+	shown_w := text_width_plain(ctx, shown, t.text_size)
 	x := inner.x - (max(shown_w + 3 - inner.w, 0) if focused else 0)
 	previous := ctx.clip
 	ctx.clip = rect_intersect(ctx.clip, to_px(ctx, inner))
 	if n == 0 && hint != "" do text(ctx, hint, inner.x, vis.y + vis.h * 0.5, t.text_size, t.text_tertiary)
-	text(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, t.text)
+	text_plain(ctx, shown, x, vis.y + vis.h * 0.5, t.text_size, t.text)
 	if focused && int(ctx.time * 2) % 2 == 0 do fill_rect(ctx, {x + shown_w + 1, vis.y + 9, 1.5, vis.h - 18}, 0, t.accent)
 	ctx.clip = previous
 	if focused do ctx.text_rect, ctx.text_caret = vis, x + shown_w + 1 - vis.x
@@ -1348,14 +1348,16 @@ divider :: proc(ctx: ^Context, length: f32 = 28, across := false) {
 
 // Text wrapped at word boundaries to the column's fill width (or `width`), dimmer than a
 // label: help under a heading.
-paragraph :: proc(ctx: ^Context, s: string, width: f32 = 0, color: Color = {}) {
+paragraph :: proc(ctx: ^Context, english: string, width: f32 = 0, color: Color = {}) {
+	// Translated whole before it is cut into lines or sentences.
+	s := tr(ctx, english)
 	t := ctx.theme
 	w := width if width > 0 else fill_width(ctx)
 	if w <= 0 do w = 260
 	// A warning, in a colour of its own, always shows whole.
 	// One that takes more than a line shows as a hint.
 	if ctx.hints && color.a == 0 {
-		if short := hint_short(s); len(short) < len(s) || text_width(ctx, s, t.small_size) > w {
+		if short := hint_short(s); len(short) < len(s) || text_width_plain(ctx, s, t.small_size) > w {
 			hint_line(ctx, s, short, w)
 			return
 		}
@@ -1375,7 +1377,7 @@ paragraph :: proc(ctx: ^Context, s: string, width: f32 = 0, color: Color = {}) {
 	for i := 0; i <= len(s); i += 1 {
 		at_end := i == len(s)
 		if !at_end && s[i] != ' ' && s[i] != '\n' do continue
-		line_w := text_run_part_width(glyphs, line_start, i) / d if run != nil else text_width(ctx, s[line_start:i], size)
+		line_w := text_run_part_width(glyphs, line_start, i) / d if run != nil else text_width_plain(ctx, s[line_start:i], size)
 		if line_w > w && last_space > line_start {
 			append(&lines, [2]int{line_start, last_space})
 			line_start = last_space + 1
@@ -1387,7 +1389,7 @@ paragraph :: proc(ctx: ^Context, s: string, width: f32 = 0, color: Color = {}) {
 		last_space = i
 	}
 	r := place(ctx, {w, line_h * f32(len(lines))})
-	for l, i in lines do text(ctx, s[l[0]:l[1]], r.x, r.y + line_h * (f32(i) + 0.5), size, color)
+	for l, i in lines do text_plain(ctx, s[l[0]:l[1]], r.x, r.y + line_h * (f32(i) + 0.5), size, color)
 }
 
 // The first sentence of `s`: up to the first full stop, question or exclamation mark
@@ -1422,11 +1424,11 @@ hint_line :: proc(ctx: ^Context, s, short: string, w: f32) {
 	// second line holds the rest, as a sentence cut mid-word on a tablet cannot be read
 	// without the popover.
 	first, rest := short, ""
-	if text_width(ctx, short, t.small_size) > room {
+	if text_width_plain(ctx, short, t.small_size) > room {
 		cut := -1
 		for i in 0 ..< len(short) {
 			if short[i] != ' ' do continue
-			if text_width(ctx, short[:i], t.small_size) > room do break
+			if text_width_plain(ctx, short[:i], t.small_size) > room do break
 			cut = i
 		}
 		if cut > 0 do first, rest = short[:cut], short[cut + 1:]
@@ -1442,8 +1444,8 @@ hint_line :: proc(ctx: ^Context, s, short: string, w: f32) {
 	open := ctx.hint_open == id
 	color := t.text_secondary if hovered || open else t.text_tertiary
 	y := r.y + HINT_H * 0.5 if rest == "" else r.y + (HINT_H - line_h) * 0.5 + line_h * 0.5
-	text(ctx, text_fit(ctx, first, t.small_size, room), r.x, y, t.small_size, color)
-	if rest != "" do text(ctx, text_fit(ctx, rest, t.small_size, room), r.x, y + line_h, t.small_size, color)
+	text_plain(ctx, text_fit_plain(ctx, first, t.small_size, room), r.x, y, t.small_size, color)
+	if rest != "" do text_plain(ctx, text_fit_plain(ctx, rest, t.small_size, room), r.x, y + line_h, t.small_size, color)
 	icon(ctx, ICON_HELP, {r.x + r.w - QUESTION * 0.5, y}, t.icon_small, t.accent if open else color)
 	tip(ctx, id, r, "More about this")
 	// The popover belongs to the hint drawn last with it open (or closing).

@@ -354,6 +354,7 @@ SETTINGS := [?]Setting {
 	{"left_handed", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, mirror), bool, 0, 0},
 	{"icon_style", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, icon_style), ui.Icon_Style, 0, 0},
 	{"icon_weight", K + offset_of(Kit_State, ctx) + offset_of(ui.Context, icon_weight), ui.Icon_Weight, 0, 0},
+	{"language", K + offset_of(Kit_State, language) + offset_of(Language_State, choice), Language_Choice, 0, 0},
 	{"ortho", offset_of(App, camera) + offset_of(camera.Orbit, ortho), bool, 0, 0},
 	{"fov", offset_of(App, camera) + offset_of(camera.Orbit, fov_y), f32, camera.FOV_MIN, camera.FOV_MAX},
 	// Settings > Interface, Camera, Touch and Performance.

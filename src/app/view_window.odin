@@ -309,6 +309,7 @@ view_window_layout :: proc(app: ^App, w: ^View_Window) {
 	if w.laid_out do _ = ui.frame_end(&w.ctx)
 	w.ctx.theme = kit_theme(app)
 	w.ctx.mirror = k.ctx.mirror
+	w.ctx.language = k.ctx.language
 	ui.frame_begin(&w.ctx, in_)
 	w.laid_out = true
 	ctx := &w.ctx

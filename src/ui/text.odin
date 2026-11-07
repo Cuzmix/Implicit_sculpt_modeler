@@ -99,8 +99,14 @@ Align :: enum u8 {
 	Right,
 }
 
-// How wide `s` is at `size` points, in points.
+// How wide `s` is at `size` points, in points, shown in the context's language (tr).
 text_width :: proc(ctx: ^Context, s: string, size: f32, font := Font.Regular) -> f32 {
+	return text_width_plain(ctx, tr(ctx, s), size, font)
+}
+
+// text_width of `s` as it is, never translated: what the user typed, a file's path, or a
+// part of a line already translated.
+text_width_plain :: proc(ctx: ^Context, s: string, size: f32, font := Font.Regular) -> f32 {
 	d := px(ctx)
 	text_state(ctx, size, font)
 	if run, _ := text_run(ctx, s, font); run != nil do return run.width / d
@@ -108,8 +114,14 @@ text_width :: proc(ctx: ^Context, s: string, size: f32, font := Font.Regular) ->
 }
 
 // Draws one line of text whose capitals are centred on `y`, starting at, centred on or
-// ending at `x` (points).
+// ending at `x` (points), in the context's language (tr).
 text :: proc(ctx: ^Context, s: string, x, y: f32, size: f32, color: Color, font := Font.Regular, align := Align.Left) {
+	text_plain(ctx, tr(ctx, s), x, y, size, color, font, align)
+}
+
+// text of `s` as it is, never translated: what the user typed, a file's path, or a part
+// of a line already translated.
+text_plain :: proc(ctx: ^Context, s: string, x, y: f32, size: f32, color: Color, font := Font.Regular, align := Align.Left) {
 	d := px(ctx)
 	stash := &ctx.fonts.stash
 	text_state(ctx, size, font)
