@@ -256,6 +256,7 @@ frame_step :: proc(app: ^App, loop: ^Frame_Loop) -> bool {
 				lights    = viewport_lights(app),
 				// The Wireframe overlay is the active object's alone, as ZBrush's PolyFrame is.
 				wireframe = app.wireframe && app.polyframe_lines && selected,
+				paint     = voxel_paint_shows(obj),
 				live      = live,
 				source    = &vp.clay.surface.mesh,
 				chunks    = vp.clay.surface.chunks[:],

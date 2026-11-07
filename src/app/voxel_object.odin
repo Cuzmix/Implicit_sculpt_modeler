@@ -147,13 +147,34 @@ voxel_upload :: proc(app: ^App, cmd: render.Cmd, obj: ^Object, vp: ^Voxel_Part) 
 		vp.gpu = render.mesh_buffers_create(&app.renderer, m, mask) or_return
 		render.viewport_invalidate(&app.target)
 		app.stats.gpu_regrows += 1
+		_ = voxel_upload_color(app, cmd, vp, nil, true)
 		return len(m.positions) * render.VERTEX_BYTES + len(m.indices) * size_of(u32), f.damage, true
 	}
 	render.mesh_buffers_upload_ranges(&app.renderer, cmd, &vp.gpu, m, f.ranges, mask)
 	render.mesh_buffers_upload_indices(&app.renderer, cmd, &vp.gpu, m.indices[:], f.indices)
+	bytes += voxel_upload_color(app, cmd, vp, f.ranges, false)
 	for r in f.ranges do bytes += int(r.count) * render.VERTEX_BYTES
 	for r in f.indices do bytes += int(r.index_count) * size_of(u32)
 	return bytes, f.damage, true
+}
+
+// Brings the surface's colours on the GPU up to date when the clay is painted: the vertex
+// `ranges` the flush remeshed, or all of them for a new GPU copy (or a new paint buffer).
+// Returns the bytes sent; nothing while the clay holds no colour.
+voxel_upload_color :: proc(app: ^App, cmd: render.Cmd, vp: ^Voxel_Part, ranges: []geom.Vertex_Range, whole: bool) -> int {
+	if !voxel.clay_colored(&vp.clay) do return 0
+	all := whole || vp.gpu.paint == 0
+	if !all && len(ranges) == 0 do return 0
+	render.mesh_buffers_upload_paint(&app.renderer, cmd, &vp.gpu, vp.clay.surface.color[:], nil, ranges, all)
+	if all do return int(vp.gpu.vertex_capacity) * size_of(render.Paint_Packed)
+	bytes := 0
+	for r in ranges do bytes += int(r.count) * size_of(render.Paint_Packed)
+	return bytes
+}
+
+// Whether the clay's colours show: painted, and the object's paint not turned off.
+voxel_paint_shows :: proc(obj: ^Object) -> bool {
+	return obj.voxel != nil && voxel.clay_colored(&obj.voxel.clay) && !obj.paint_off
 }
 
 // Where a ray (in the object's space) meets the object: the clay's surface for a voxel
@@ -188,6 +209,9 @@ voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: b
 	case .Flatten: vb.kind = .Flatten
 	case .Inflate: vb.kind = .Inflate
 	case .Mask:    vb.kind = .Mask
+	case .Paint:
+		vb.kind = .Paint
+		vb.color = b.color
 	case .Pinch:   vb.kind = .Pinch
 	case .Crease:  vb.kind = .Crease
 	case .Snake_Hook: vb.kind = .Snake_Hook
@@ -204,7 +228,7 @@ voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: b
 voxel_brush_allowed :: proc(app: ^App, kind: sculpt.Brush_Kind, say: bool) -> bool {
 	if kind == .Grab || kind == .Elastic do return true
 	if _, ok := voxel_brush_of({kind = kind}, {}); ok do return true
-	if say do report(app, Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Clay strips, Trim dynamic, Tube, Smooth, Flatten, Inflate, Pinch, Crease, Snake hook, Grab, Elastic and Mask; convert the object to a mesh for the rest", BRUSHES[kind].name)
+	if say do report(app, Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Clay strips, Trim dynamic, Tube, Smooth, Flatten, Inflate, Pinch, Crease, Snake hook, Grab, Elastic, Mask and Paint; convert the object to a mesh for the rest", BRUSHES[kind].name)
 	return false
 }
 

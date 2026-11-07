@@ -38,7 +38,7 @@ warp_steps :: proc(d: ^Dab) -> int {
 		far = d.radius * min(d.strength * PINCH_RATE, 1)
 	case .Crease:
 		far = abs(d.push) + d.radius * min(d.strength * CREASE_PINCH, 1)
-	case .Add, .Subtract, .Smooth, .Flatten, .Inflate, .Mask, .Clay, .Layer, .Clay_Strips, .Trim, .Tube:
+	case .Add, .Subtract, .Smooth, .Flatten, .Inflate, .Mask, .Paint, .Clay, .Layer, .Clay_Strips, .Trim, .Tube:
 		return 1
 	}
 	if far <= 0 do return 0
