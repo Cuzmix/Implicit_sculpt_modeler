@@ -112,9 +112,8 @@ voxel_part_free :: proc(app: ^App, obj: ^Object) {
 // Reads the clay object_put wrote in the levels' place into a new part on `obj`, with its
 // empty level, and uploads its surface. `read` is false when the bytes are damaged (nothing is made); `made` is
 // false on a GPU failure, with the object's part left for object_discard.
-voxel_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object) -> (read, made: bool) {
+voxel_part_get :: proc(app: ^App, r: ^geom.Byte_Reader, obj: ^Object, resolution: int) -> (read, made: bool) {
 	start := time.tick_now()
-	resolution := int(geom.byte_get(r, i32))
 	if !r.ok || resolution < VOXELS_MIN || resolution > VOXELS_MAX do return false, false
 	vp := new(Voxel_Part)
 	vp.resolution = resolution

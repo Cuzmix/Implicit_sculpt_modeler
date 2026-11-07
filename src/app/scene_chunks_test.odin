@@ -39,8 +39,9 @@ scene_chunks_read_back_and_skip :: proc(t: ^testing.T) {
 	testing.expect(t, !ok && !r.ok, "a chunk cut short is damage")
 }
 
-// The scene's own fields read back from the header's chunk; bytes after them at the
-// chunk's end are left unread.
+
+// The scene's own fields read back from the header's chunk; a field this build does not
+// know is stepped over, and one it must understand refuses the scene.
 @(test)
 scene_fields_read_back_from_their_chunk :: proc(t: ^testing.T) {
 	app: App
@@ -54,39 +55,43 @@ scene_fields_read_back_from_their_chunk :: proc(t: ^testing.T) {
 	head: [dynamic]u8
 	defer delete(head)
 	scene_header_put(&app, &head)
-	// Bytes past the scene's fields, at the chunk's end.
-	geom.byte_put(&head, u32(0xfeed))
-	// The chunk's size takes it in, as the newer app's scene_chunk_end would have.
-	r := geom.byte_reader(head[len(SCENE_MAGIC):])
-	testing.expect_value(t, geom.byte_get(&r, u32), SCENE_VERSION)
-	testing.expect(t, preview_block_skip(&r))
-	size_at := r.at + 4
-	size := transmute([8]u8)u64(len(head) - len(SCENE_MAGIC) - size_at - 8)
-	copy(head[len(SCENE_MAGIC) + size_at:][:8], size[:])
-	tag, chunk, ok := scene_chunk_next(&r)
-	testing.expect(t, ok && tag == CHUNK_SCENE)
-	f, fields_ok := scene_fields_get(&app, &chunk)
+	rec := test_scene_record(head[:])
+	// A field a later build added, after the ones this build writes.
+	later: [dynamic]u8
+	defer delete(later)
+	append(&later, ..rec.data)
+	geom.rec_put(&later, Later_Scene_Tag.Lens_Shift, [2]f32{0.1, 0})
+	r := geom.byte_reader(later[:])
+	f, fields_ok := scene_fields_get(&app, &r)
 	defer scene_fields_destroy(&f)
 	testing.expect(t, fields_ok)
 	testing.expect_value(t, f.count, 3)
 	testing.expect_value(t, f.selected, 2)
 	testing.expect_value(t, f.next_id, 9)
 	testing.expect_value(t, f.print_mm, 40)
-	// The references' chunk follows the scene's, so the chunk took it in too.
-	refs: [dynamic]u8
-	defer delete(refs)
-	refs_put(&refs, &app.scene.refs)
-	testing.expect_value(t, len(chunk.data) - chunk.at, 4 + len(refs))
+	// One it must understand.
+	critical: [dynamic]u8
+	defer delete(critical)
+	append(&critical, ..rec.data)
+	geom.rec_put(&critical, Later_Scene_Tag.Units, f32(0.01))
+	rc := geom.byte_reader(critical[:])
+	_, critical_ok := scene_fields_get(&app, &rc)
+	testing.expect(t, !critical_ok)
 
 	// A selection past the objects is damage.
 	app.scene.selected = 5
 	bad: [dynamic]u8
 	defer delete(bad)
 	scene_header_put(&app, &bad)
-	rb := geom.byte_reader(bad[len(SCENE_MAGIC):])
-	_ = geom.byte_get(&rb, u32)
-	_ = preview_block_skip(&rb)
-	_, bad_chunk, _ := scene_chunk_next(&rb)
-	_, bad_ok := scene_fields_get(&app, &bad_chunk)
+	brec := test_scene_record(bad[:])
+	rb := geom.byte_reader(brec.data)
+	_, bad_ok := scene_fields_get(&app, &rb)
 	testing.expect(t, !bad_ok)
+}
+
+// Tags a later build might add to the scene chunk: one to step over, one to refuse.
+@(private = "file")
+Later_Scene_Tag :: enum u16 {
+	Lens_Shift = 900,
+	Units      = geom.RECORD_TAG_CRITICAL | 900,
 }
