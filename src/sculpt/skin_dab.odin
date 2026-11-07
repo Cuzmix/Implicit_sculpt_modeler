@@ -394,7 +394,7 @@ skin_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 		jobs.parallel_for(pool, items, d, job_skin_pinch)
 	case .Snake_Hook:
 		if brush.drag == {} do return 0
-		if brush.hook_elastic do d.kelvin = kelvinlet_make(brush.radius, brush.volume)
+		if brush.hook_elastic do d.kelvin = geom.kelvinlet_make(brush.radius, brush.volume)
 		step := linalg.length(brush.drag)
 		d.pinch = clamp(brush.hook_pinch, -1, 1) * step / brush.radius
 		d.drag_dir = brush.drag / step

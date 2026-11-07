@@ -15,7 +15,8 @@ description: Implicit and SDF modelling for this app — the voxel sculptor in s
   a 27-mean, `Flatten` a plane clip or fill (`brush.odin`); `Grab` a warp (`warp.odin`: `clay_grab_begin/move`, every frame
   samples the press's field, the undo step's first saves, through the inverse of the move found by fixed-point steps,
   long drags chained in steps of 0.4 r, all symmetry images in one warp, sources on a lattice of every other voxel,
-  bricks whose sources fall in one tile pruned to it; `mesh_node` insets crossings by `CROSSING_INSET` so squeezed
+  bricks whose sources fall in one tile pruned to it, first in blocks of 4³ bricks, corners shared through
+  `Corner_Grid`s; `Elastic` the same warp weighed by `geom.kelvinlet_follow`, the mesh Elastic's); `mesh_node` insets crossings by `CROSSING_INSET` so squeezed
   values never fold a triangle onto a lattice point); band repair by Godunov sweeps at `clay_stroke_end` (`band.odin`): the region's bricks run in WAVEFRONTS
   (bricks of one coordinate sum share no face, so a wavefront is one `parallel_for` reading neighbours live: Gauss-Seidel
   across bricks, no snapshot), a sweep per direction (`sweep & 7`), stopping at the first sweep that moves no value by
