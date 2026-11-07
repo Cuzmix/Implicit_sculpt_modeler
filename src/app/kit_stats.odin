@@ -266,6 +266,7 @@ gpu_span_label :: proc(span: render.Gpu_Span) -> string {
 	case .Pictures:    return "Pictures"
 	case .Interface:   return "Interface"
 	case .Sculpt:      return "Sculpt"
+	case .Blend:       return "Smooth blend"
 	}
 	return ""
 }

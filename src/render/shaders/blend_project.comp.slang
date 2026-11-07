@@ -1,10 +1,12 @@
 // slangc: -fp-mode precise
 // Smooth blend's projection on the GPU: geom.blend_project's project_vertex step for step
 // (src/geom/blend.odin and blend_field.odin, their constants copied below), for the vertices
-// of one instance's pages. Each workgroup takes a quarter of a page (1024 vertices); every
-// thread writes its vertex's entry, zero where nothing moves, so the pages need no clearing
-// and their layout is the host's. The first line keeps every multiply and add unfused, as
-// the CPU's.
+// of one instance's pages, a run of its slots a dispatch (so a large projection can spread
+// over frames). Each workgroup takes a quarter of a page (1024 vertices), a thread a vertex:
+// every thread writes its vertex's entry, zero where nothing moves, so the pages need no
+// clearing and their layout is the host's. (Packing a workgroup's near vertices into a
+// list for its first threads, behind two barriers, measured 2.6x slower at 20M.) The first
+// line keeps every multiply and add unfused, as the CPU's.
 //
 // SDL_GPU's SPIR-V layout for compute: set 0 holds the read-only storage buffers, set 1
 // the read-write ones, set 2 the uniform buffers.
@@ -31,18 +33,21 @@
 
 [[vk::binding(0, 2)]] cbuffer Blend_Params {
 	uint vertex_count;
-	uint slot_count;
+	uint slot_count; // the end of the slots this dispatch fills
 	uint term_count;
 	uint groups_x; // the dispatch's width, since many pages need a second dimension
 	float reach;   // the largest radius the instance is joined at
 	float self_edge;
-	uint _pad0;
+	uint slot_first; // the first slot this dispatch fills; slot_count is its end
 	uint _pad1;
 	// Per pair of terms (TERMS_MAX x TERMS_MAX, row-major): the joining pair's radius in
 	// this space, its fullness and its opening function (geom.Blend_Opening, as a float),
 	// zero when the two are not joined. In the uniforms, so the kernel binds the eight
 	// storage buffers WebGPU allows a stage.
 	float4 pair_table[64];
+	// geom.BLEND_SHARES: per opening function, the share of a blend at SHARE_STEPS + 1
+	// angles from 0 to π, laid end to end, four a vector.
+	float4 share_table[97];
 };
 
 static const uint TERMS_MAX = 8;
@@ -63,6 +68,7 @@ static const float SEAM_SAG = 0.75;
 static const float SEAM_BAND = 0.5;
 static const float FAR = 3.4028235e38;
 static const float PI = 3.14159265358979;
+static const uint SHARE_STEPS = 192u;
 
 float mixf(float a, float b, float t) { return a * (1.0 - t) + b * t; }
 float3 mix3(float3 a, float3 b, float t) { return a * (1.0 - t) + b * t; }
@@ -182,33 +188,15 @@ bool term_at(uint j, float3 x, out float d, out float3 g, out float w) {
 	return true;
 }
 
-// geom.blend_kappa (Gourmel's eq. 16).
-float kappa(float x) {
-	if (x <= 0.0) return 0.0;
-	if (x >= 1.0) return 1.0;
-	return 1.0 - exp(1.0 - 1.0 / (1.0 - exp(1.0 - 1.0 / x)));
-}
+float share_at(uint i) { return share_table[i >> 2u][i & 3u]; }
 
-// geom.blend_opening_theta (Gourmel's eq. 15) with geom.BLEND_OPENINGS: 0 Organic, 1 Camel.
-float opening_theta(uint opening, float alpha) {
-	float a0 = 0.0;
-	float a1 = opening == 0u ? PI / 3.0 : PI / 2.0;
-	float a2 = opening == 0u ? 3.0 * PI / 4.0 : PI;
-	float t0 = opening == 0u ? PI / 6.0 : PI / 4.0;
-	float t1 = 0.0;
-	float t2 = PI / 4.0;
-	float w0 = opening == 0u ? 3.0 : 1.0;
-	float w1 = 1.0;
-	if (alpha <= a0) return t0;
-	if (alpha <= a1) return pow(kappa((alpha - a1) / (a0 - a1)), w0) * (t0 - t1) + t1;
-	if (alpha < a2) return pow(kappa((alpha - a1) / (a2 - a1)), w1) * (t2 - t1) + t1;
-	return t2;
-}
-
-// geom.blend_radius_at.
+// geom.blend_radius_at through geom.blend_share: the opening function's table, by angle.
 float radius_at(float radius, float c, float w, uint opening) {
-	float theta = opening_theta(opening, acos(clamp(c, -1.0, 1.0)));
-	return radius * w * (1.0 - theta / (PI / 4.0));
+	float q = acos(clamp(c, -1.0, 1.0)) / PI * float(SHARE_STEPS);
+	uint i = min(uint(q), SHARE_STEPS - 1u);
+	float t = q - float(i);
+	uint base = opening * (SHARE_STEPS + 1u) + i;
+	return radius * w * (share_at(base) * (1.0 - t) + share_at(base + 1u) * t);
 }
 
 struct Eval {
@@ -346,7 +334,27 @@ uint4 entry(float3 offset, float3 normal, float amount, float own) {
 	return uint4(asuint(offset.x), asuint(offset.y), asuint(offset.z), qx | (qy << 12u) | (a << 24u) | (o << 28u));
 }
 
-// geom's project_vertex, for vertex v: its entry, zero where it stays.
+// geom's project_vertex's first test: a brick of the instance's own field holds the vertex,
+// and a joined partner is within reach of it and not deep inside.
+bool near_test(uint v) {
+	float3 x0 = float3(positions[3u * v], positions[3u * v + 1u], positions[3u * v + 2u]);
+	float a0;
+	float3 ga;
+	float wa;
+	if (!term_at(0u, x0, a0, ga, wa)) return false;
+	for (uint j = 1u; j < term_count; j++) {
+		float radius = term_pair(0u, j).x; // the pair of term j and the instance itself
+		if (radius <= 0.0) continue;
+		float b;
+		float3 gb;
+		float wb;
+		if (term_at(j, x0, b, gb, wb) && b > -HIDDEN_DEPTH * radius && b < radius) return true;
+	}
+	return false;
+}
+
+// The rest of geom's project_vertex, for a vertex near_test passed: its entry, zero where it
+// stays.
 uint4 project(uint v) {
 	uint4 none = uint4(0u);
 	float3 x0 = float3(positions[3u * v], positions[3u * v + 1u], positions[3u * v + 2u]);
@@ -354,16 +362,6 @@ uint4 project(uint v) {
 	float3 ga;
 	float wa;
 	if (!term_at(0u, x0, a0, ga, wa)) return none;
-	bool near = false;
-	for (uint j = 1u; j < term_count; j++) {
-		float radius = term_pair(0u, j).x; // the pair of term j and the instance itself
-		if (radius <= 0.0) continue;
-		float b;
-		float3 gb;
-		float wb;
-		if (term_at(j, x0, b, gb, wb) && b > -HIDDEN_DEPTH * radius && b < radius) near = true;
-	}
-	if (!near) return none;
 	Eval e0 = evaluate(x0);
 	if (e0.amount <= 0.0 && e0.g < a0) return none;
 	float target = a0 * (1.0 - e0.amount);
@@ -448,11 +446,11 @@ uint4 project(uint v) {
 [numthreads(256, 1, 1)]
 void main(uint3 group_id : SV_GroupID, uint3 local_id : SV_GroupThreadID) {
 	uint g = group_id.y * groups_x + group_id.x;
-	uint slot = g >> 2u;
+	uint slot = slot_first + (g >> 2u);
 	if (slot >= slot_count) return;
 	uint k = (g & 3u) * 256u + local_id.x;
 	uint v = page_list[slot] * 1024u + k;
 	uint4 result = uint4(0u);
-	if (v < vertex_count) result = project(v);
+	if (v < vertex_count && near_test(v)) result = project(v);
 	pages[slot * 1024u + k] = result;
 }

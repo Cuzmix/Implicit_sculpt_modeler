@@ -409,3 +409,51 @@ blend_aligned_surfaces_do_not_bulge :: proc(t: ^testing.T) {
 	testing.expect(t, abs(blend_radius_at(1, 0.5, 1, .Organic) - 1) < 1e-6)
 	testing.expect_value(t, blend_radius_at(1, -0.75, 1, .Organic), 0)
 }
+
+// The opening functions' table follows Gourmel's curve within 1e-3 of a share at every
+// cosine, steps and between them.
+@(test)
+blend_share_table_follows_the_curve :: proc(t: ^testing.T) {
+	worst: f32
+	for o in Blend_Opening {
+		for i in 0 ..= 16 * BLEND_SHARE_STEPS {
+			c := -1 + 2 * f32(i) / (16 * BLEND_SHARE_STEPS)
+			exact := 1 - blend_opening_theta(o, math.acos(c)) / (math.PI / 4)
+			worst = max(worst, abs(blend_share(o, c) - exact))
+		}
+	}
+	fmt.printfln("blend share table: worst %.2e", worst)
+	testing.expectf(t, worst < 1e-3, "within 1e-3 of a share: %v", worst)
+}
+
+// A brick sampled apart from the field (as a fill on threads of its own does) holds the
+// same samples as one the field filled itself, whatever order the bricks are put in, and a
+// brick put twice is refused.
+@(test)
+blend_brick_put_matches_the_fill :: proc(t: ^testing.T) {
+	balls := []Ball{{{0, 0, 0}, 1}, {{1.2, 0.1, 0}, 0.6}}
+	s := scene_make(balls, 40, 0.2, 1, nil)
+	defer scene_destroy(&s)
+	whole := &s.fields[0]
+	part: Blend_Field
+	blend_field_init(&part, whole.h, whole.band)
+	defer blend_field_destroy(&part)
+	b := new(Blend_Brick)
+	defer free(b)
+	#reverse for k in whole.keys {
+		blend_brick_sample(part.h, part.band, &s.surfaces[0], k, b)
+		revision := part.revision
+		testing.expect(t, blend_field_put(&part, b), "put once")
+		testing.expect(t, part.revision != revision, "the table moved on")
+		testing.expect(t, !blend_field_put(&part, b), "refused twice")
+	}
+	testing.expect_value(t, len(part.keys), len(whole.keys))
+	for k, i in whole.keys {
+		j := int(blend_field_slot(&part, k))
+		testing.expect(t, j >= 0, "every brick published")
+		if j < 0 do continue
+		a, c := whole.values[i * BLEND_SAMPLES:][:BLEND_SAMPLES], part.values[j * BLEND_SAMPLES:][:BLEND_SAMPLES]
+		testing.expect(t, slice.equal(slice.to_bytes(a), slice.to_bytes(c)), "the same distances")
+		testing.expect(t, slice.equal(whole.extras[i * BLEND_SAMPLES:][:BLEND_SAMPLES], part.extras[j * BLEND_SAMPLES:][:BLEND_SAMPLES]), "the same gradients and weights")
+	}
+}

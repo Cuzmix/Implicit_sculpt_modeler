@@ -409,7 +409,8 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 				if app.blend_test > 0 {
 					b := &app.blend
 					fmt.printfln("blend_objects=%d blend_bricks=%d blend_moved=%d blend_fill_ms=%.1f blend_project_ms=%.1f blend_grows=%d", len(b.objects), b.bricks, b.moved, b.fill_ms, b.project_ms, b.grows)
-					fmt.printfln("blend_gpu_ms=%.3f blend_gpu_upload_ms=%.3f blend_gpu_pages=%d blend_check_diff=%.3e blend_check_mismatch=%d blend_check_failed=%d", b.gpu_ms, b.gpu_upload_ms, b.gpu_pages, b.check_diff, b.check_mismatch, int(b.check_failed))
+					fmt.printfln("blend_gpu_ms=%.3f blend_gpu_upload_ms=%.3f blend_gpu_pages=%d blend_check_diff=%.3e blend_check_mismatch=%d blend_check_failed=%d blend_check_missing=%d blend_check_mismatch_most=%.3e", b.gpu_ms, b.gpu_upload_ms, b.gpu_pages, b.check_diff, b.check_mismatch, int(b.check_failed), b.check_missing, b.check_mismatch_most)
+					if app.blend_drag > 0 do fmt.printfln("blend_drag_frames=%d blend_settle_frames=%d blend_frame_cpu_ms_most=%.3f blend_frame_gpu_ms_most=%.3f blend_mark_ms_most=%.3f blend_drag_left=%d blend_fill_ms_most=%.3f blend_begin_ms_most=%.3f blend_upload_ms_most=%.3f", b.frames, b.settled_after, b.frame_cpu_most, b.frame_gpu_most, b.mark_most, b.drag_left, b.fill_most, b.begin_most, b.upload_most)
 				}
 				fmt.printfln("stack_rows=%d stack_mirror=%s stack_array=%d stack_radial=%d stack_along=%d stack_copies=%d stack_bakes=%d", stack_rows, strings.join(strings.fields(mirror, context.temp_allocator), "_", context.temp_allocator), array, radial, along, app.stats.stack_copies, app.stack_bakes)
 				step, pivot, minus := Vec3{}, Vec3{}, false

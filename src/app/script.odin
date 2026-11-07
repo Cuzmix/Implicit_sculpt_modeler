@@ -43,6 +43,7 @@ Script_Kind :: enum u8 {
 Script_Verb :: enum u8 {
 	Move,
 	Rotate,
+	Scale,
 	Boolean,
 	Slice,
 	Hide,
@@ -87,6 +88,7 @@ SCRIPT_VERBS := [Script_Verb]struct {
 } {
 	.Move          = {"move", "three numbers: where the selected object's middle goes, x y z"},
 	.Rotate        = {"rotate", "three numbers: the selected object's turn in degrees about x, y and z"},
+	.Scale         = {"scale", "a number: the selected object's size, 1 being the size it was made at"},
 	.Boolean       = {"boolean", "none, union, subtract or intersect"},
 	.Slice         = {"slice", "x, y or z: the axis the cut through the middle goes across"},
 	.Hide          = {"hide", "x, y or z to hide the + side of the middle, -x, -y or -z the - side"},
@@ -531,6 +533,8 @@ script_verb_read :: proc(st: ^Script_Statement, args: []string) -> bool {
 		return numbers(st, args, 3, -1e4, 1e4)
 	case .Rotate:
 		return numbers(st, args, 3, -1e6, 1e6)
+	case .Scale:
+		return numbers(st, args, 1, MIN_OBJECT_SCALE, MAX_OBJECT_SCALE)
 	case .Mask_Rect:
 		return numbers(st, args, 4, 0, 1) && st.numbers[0] != st.numbers[2] && st.numbers[1] != st.numbers[3]
 	case .Render_Focus:
@@ -748,14 +752,17 @@ script_verb :: proc(app: ^App, st: Script_Statement) -> (failure: string, ok: bo
 		_, hit, n, on := scene_raycast_surface(app, origin, dir)
 		if !on do return "no surface is under the middle of the view", true
 		if !insert_make(app, hit, n, app.brush.radius_px * camera.orbit_world_per_px(app.camera, hit, size.y)) do return "", false
-	case .Move, .Rotate, .Boolean, .Slice, .Knife, .Hide, .Mask_Rect, .Layer, .Group_Material, .Paint_Channels, .Fill_Layer:
+	case .Move, .Rotate, .Scale, .Boolean, .Slice, .Knife, .Hide, .Mask_Rect, .Layer, .Group_Material, .Paint_Channels, .Fill_Layer:
 		if obj == nil do return "nothing is selected", true
 		switch st.verb {
-		case .Move, .Rotate:
+		case .Move, .Rotate, .Scale:
 			// As the Transform values do: one change, one undo step.
 			from := obj.transform
-			if st.verb == .Move do obj.transform.position = st.numbers.xyz
-			else do for i in 0 ..< 3 do obj.transform.rotation[i] = math.mod(st.numbers[i] + 540, 360) - 180
+			#partial switch st.verb {
+			case .Move:  obj.transform.position = st.numbers.xyz
+			case .Scale: obj.transform.scale = st.numbers[0]
+			case:        for i in 0 ..< 3 do obj.transform.rotation[i] = math.mod(st.numbers[i] + 540, 360) - 180
+			}
 			if obj.transform == from do return "", true
 			transform_drag_changed(app, obj, from)
 			transform_drag_end(app, force = true)

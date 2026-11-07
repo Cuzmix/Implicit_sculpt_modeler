@@ -38,7 +38,7 @@ Blas_Refit_Comp_Buffers :: enum u32 {positions, indices, order, chunks}
 Blas_Refit_Comp_Write_Buffers :: enum u32 {nodes}
 Blas_Refit_Comp_Uniforms :: enum u32 {Params}
 
-// blend_project.comp.spv sha256 3c8ac46ec784f56e0278cfd6978d4ae16d7e761387447061d985a9e397db850a
+// blend_project.comp.spv sha256 c939e02386091b4cddd8f3c34b90e93002c10ab482e3f179f0ec76f365bc6513
 BLEND_PROJECT_COMP :: gpu.Compute_Pipeline_Desc{
 	code = #load("shaders/blend_project.comp" + SHADER_EXT, string),
 	entrypoint = SHADER_ENTRY,
