@@ -36,6 +36,7 @@ Clay :: struct {
 	repair_gen:    u32,
 	sweep:         int,
 	repair_sweeps: int, // sweeps the last repair took before every brick had settled
+	grab:          Clay_Grab, // a running Grab stroke (warp.odin)
 	in_stroke:     bool,
 	stroke_bricks: int, // bricks written by the stroke's dabs, for the stats (one a dab each)
 	stroke_dabs:   int,
@@ -68,6 +69,7 @@ clay_init :: proc(c: ^Clay, voxel: f32, centre: Vec3, pool: ^jobs.Pool, allocato
 	c.settled = make([dynamic]bool, allocator)
 	c.changed = make([dynamic]bool, allocator)
 	c.levels = make([dynamic]u64, allocator)
+	grab_init(&c.grab, allocator)
 	// Slots start stamped 0, so the first generation must not be 0.
 	c.repair_gen = 1
 }
@@ -86,6 +88,7 @@ clay_destroy :: proc(c: ^Clay) {
 	delete(c.settled)
 	delete(c.changed)
 	delete(c.levels)
+	grab_destroy(&c.grab)
 	c^ = {}
 }
 
@@ -136,6 +139,7 @@ clay_stroke_begin :: proc(c: ^Clay) {
 clay_stroke_end :: proc(c: ^Clay) -> bool {
 	assert(c.in_stroke, "no stroke is running")
 	v := &c.volume
+	grab_end(c)
 	clear(&c.job_slots)
 	// The bricks the stroke saved that are bricks still, each once (a tile that became a
 	// brick is saved more than once).

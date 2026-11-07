@@ -810,6 +810,9 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 		if n, found := sculpt.sculptor_area_normal(object_sculptor(obj), local, 0.5 * brush.radius, to_local_dir(t, camera.orbit_toward(app.camera, hit))); found {
 			st.grab_normal = linalg.normalize0(to_world_dir(t, n))
 		}
+	} else if st.grab {
+		// The clay's own normal there: the field's gradient.
+		st.grab_normal = linalg.normalize0(to_world_dir(t_obj, object_normal_local(obj, local)))
 	}
 	st.cloth = .Cloth in flags
 	st.physics = false
@@ -851,7 +854,9 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	case .Dots, .Drag_Rect, .Drag_Dot:
 	}
 	t1 := time.tick_now()
-	if st.grab {
+	if st.grab && obj.voxel != nil {
+		voxel_grab_begin(obj.voxel, brush, local)
+	} else if st.grab {
 		sculpt.sculptor_grab_begin(object_sculptor(obj), brush, local)
 	} else if st.cloth {
 		// Invert (Ctrl) turns each mode about: Pinch spreads, Push lifts, Twist turns back.
@@ -901,7 +906,8 @@ grab_follow :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, pos:
 		twist = {linalg.normalize0(to_local_dir(stroke_frame(app, obj), facing)), angle}
 	}
 	t1 := time.tick_now()
-	sculpt.sculptor_grab_move(object_sculptor(obj), offset, twist)
+	if vp := obj.voxel; vp != nil do _ = voxel.clay_grab_move(&vp.clay, offset, twist.axis, twist.angle)
+	else do sculpt.sculptor_grab_move(object_sculptor(obj), offset, twist)
 	res.brush_ms += time.duration_milliseconds(time.tick_since(t1))
 	res.dabs += 1
 }

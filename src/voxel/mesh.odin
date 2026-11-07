@@ -687,6 +687,8 @@ CELL_LOOPS :: 4
 LOOP_NONE :: i8(-1)
 // What a zero voxel value is read as where a crossing is placed: a quarter of a quantum.
 ZERO_OUTSIDE :: f32(0.25)
+// The nearest a crossing is placed to a lattice point, in voxels (mesh_node).
+CROSSING_INSET :: f32(1.0 / 64)
 
 // A cell's vertices: the index of the first (CELL_NONE until the cell is met) and, per
 // edge, which of its loops the edge is in.
@@ -789,7 +791,11 @@ cell_vertex :: #force_no_inline proc(c: ^Clay, r: ^Mesh_Result, window: []i16, m
 			// its vertex, one on top of another; it is read as a hair outside instead.
 			if a == 0 do a = ZERO_OUTSIDE
 			if b == 0 do b = ZERO_OUTSIDE
-			t := a / (a - b)
+			// Nor nearer a lattice point than CROSSING_INSET: a voxel a hair from the surface
+			// beside voxels far past it (a warp's squeezed field) would otherwise set the
+			// crossing of every edge out of it on the point, and a bubble of one voxel would
+			// mesh as eight vertices on one spot.
+			t := clamp(a / (a - b), CROSSING_INSET, 1 - CROSSING_INSET)
 			p0 := Vec3{f32(e[0] & 1), f32(e[0] >> 1 & 1), f32(e[0] >> 2 & 1)}
 			p1 := Vec3{f32(e[1] & 1), f32(e[1] >> 1 & 1), f32(e[1] >> 2 & 1)}
 			sum += p0 + (p1 - p0) * t
