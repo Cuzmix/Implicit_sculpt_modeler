@@ -311,7 +311,10 @@ object_mesh_to_voxels :: proc(app: ^App, obj: ^Object, across: int) -> (changed,
 		delete(mask)
 		source = packed
 	}
-	vp := voxels_compute(source, across, &app.pool)
+	// The polypaint comes along as the clay's colour (a dynamic layout keeps none).
+	colors: [][4]u8
+	if !object_dynamic(obj) do colors = object_paint_flat(obj, object_sculptor(obj))
+	vp := voxels_compute(source, across, &app.pool, colors = colors)
 	geom.mesh_destroy(&packed)
 	free_all(context.temp_allocator)
 	if vp == nil {
@@ -323,8 +326,9 @@ object_mesh_to_voxels :: proc(app: ^App, obj: ^Object, across: int) -> (changed,
 
 // The computing half of Convert to voxels, which a long job (long_job.odin) runs on a thread
 // of its own with its own `pool` and `progress`: clay of `source`'s shape, `across` voxels
-// along its longest side, meshed. Nil when the mesh has no volume, or when cancelled.
-voxels_compute :: proc(source: geom.Mesh, across: int, pool: ^jobs.Pool, progress: ^jobs.Progress = nil) -> ^Voxel_Part {
+// along its longest side, with `colors` (the mesh's polypaint per vertex, or nil) laid on
+// it, meshed. Nil when the mesh has no volume, or when cancelled.
+voxels_compute :: proc(source: geom.Mesh, across: int, pool: ^jobs.Pool, progress: ^jobs.Progress = nil, colors: [][4]u8 = nil) -> ^Voxel_Part {
 	_, bounds := geom.mesh_area_bounds(source, pool)
 	vp := new(Voxel_Part)
 	vp.resolution = clamp(across, VOXELS_MIN, VOXELS_MAX)
@@ -332,6 +336,7 @@ voxels_compute :: proc(source: geom.Mesh, across: int, pool: ^jobs.Pool, progres
 		free(vp)
 		return nil
 	}
+	if colors != nil do _ = voxel.clay_paint_from_mesh(&vp.clay, source, colors)
 	_ = voxel.clay_flush(&vp.clay)
 	jobs.progress_set(progress, 0, 1, 1)
 	return vp

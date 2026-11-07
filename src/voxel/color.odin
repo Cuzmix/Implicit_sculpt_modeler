@@ -1,5 +1,6 @@
 package voxel
 
+import "base:runtime"
 import "core:math"
 import "core:math/linalg"
 import "core:slice"
@@ -353,4 +354,121 @@ paint_op_brick :: proc(r: ^Paint_Run, slot: u32, out: ^Color_Brick) -> (changed,
 	}
 	changed = live.c != out.c if live != nil else painted
 	return
+}
+
+// Lays a mesh's per-vertex paint (`colors`, sRGB and a painted weight, as the clay's) onto
+// clay made from it (clay_from_mesh, in the mesh's space): each voxel of the band near the
+// surface takes the colour of the nearest of points laid a voxel apart over the mesh's
+// triangles, each blended from its triangle's corners, so a coarse mesh's paint lands as
+// smoothly as a dense one's. Triangles with paint go first and make colour bricks; the
+// unpainted ones then only claim voxels in bricks that have one, so a painted edge stops
+// where the mesh's paint does. Serial, so the same on any machine. No undo step: it is
+// for clay just made. Returns whether any paint landed.
+clay_paint_from_mesh :: proc(c: ^Clay, m: geom.Mesh, colors: [][4]u8) -> bool {
+	assert(!c.in_stroke, "a stroke is running")
+	if len(colors) != len(m.positions) do return false
+	any_paint := false
+	for x in colors do if x[3] != 0 {
+		any_paint = true
+		break
+	}
+	if !any_paint do return false
+	v := &c.volume
+	heap := runtime.heap_allocator()
+	// The nearest sample's squared distance per voxel of each colour brick made here, by
+	// brick slot (-1: none made here).
+	near := make([]i32, len(v.bricks), heap)
+	defer delete(near, heap)
+	slice.fill(near, -1)
+	dist := make([dynamic][BRICK_VOXELS]f32, heap)
+	defer delete(dist)
+	LIMIT :: i16(BAND * SCALE)
+	for pass in 0 ..< 2 {
+		for t := 0; t + 2 < len(m.indices); t += 3 {
+			k := [3]u32{m.indices[t], m.indices[t + 1], m.indices[t + 2]}
+			painted := colors[k[0]][3] != 0 || colors[k[1]][3] != 0 || colors[k[2]][3] != 0
+			if painted != (pass == 0) do continue
+			a := voxel_coords(v, m.positions[k[0]])
+			b := voxel_coords(v, m.positions[k[1]])
+			e := voxel_coords(v, m.positions[k[2]])
+			// An unpainted triangle matters only next to the paint: is any brick its
+			// samples reach a colour brick made here?
+			if !painted {
+				lo := brick_floor(linalg.min(a, linalg.min(b, e)) - 2)
+				hi := brick_floor(linalg.max(a, linalg.max(b, e)) + 2)
+				reaches := false
+				for z in lo.z ..= hi.z do for y in lo.y ..= hi.y do for x in lo.x ..= hi.x {
+					bc := [3]i32{x, y, z}
+					if !brick_in_domain(bc) do continue
+					slot := volume_slot(v, bc)
+					if slot != TILE_EMPTY && slot != TILE_INSIDE && near[slot] >= 0 do reaches = true
+				}
+				if !reaches do continue
+			}
+			// A point a voxel apart, at most, along both edges from the first corner.
+			n := max(int(math.ceil(max(linalg.length(b - a), linalg.length(e - a), linalg.length(e - b)))), 1)
+			for i in 0 ..= n do for j in 0 ..= n - i {
+				u, w := f32(i) / f32(n), f32(j) / f32(n)
+				q := a + (b - a) * u + (e - a) * w
+				bary := [3]f32{1 - u - w, u, w}
+				col: [4]u8
+				if painted {
+					rgb: [3]f32
+					weight: f32
+					for corner in 0 ..< 3 {
+						x := colors[k[corner]]
+						s := f32(x[3]) * bary[corner]
+						rgb += [3]f32{f32(x.r), f32(x.g), f32(x.b)} * s
+						weight += s
+					}
+					if weight > 0 {
+						rgb /= weight
+						col = {u8(rgb.r + 0.5), u8(rgb.g + 0.5), u8(rgb.b + 0.5), u8(math.min(weight, 255) + 0.5)}
+					}
+				}
+				r := linalg.round(q)
+				centre := [3]i32{i32(r.x), i32(r.y), i32(r.z)}
+				for dz in i32(-1) ..= 1 do for dy in i32(-1) ..= 1 do for dx in i32(-1) ..= 1 {
+					g := centre + {dx, dy, dz}
+					if g.x < 0 || g.y < 0 || g.z < 0 do continue
+					bc := shr3(g, 3)
+					if !brick_in_domain(bc) do continue
+					slot := volume_slot(v, bc)
+					if slot == TILE_EMPTY || slot == TILE_INSIDE do continue
+					l := and3(g, BRICK - 1)
+					vi := voxel_index(int(l.x), int(l.y), int(l.z))
+					if abs(v.bricks[slot].d[vi]) > LIMIT do continue
+					at := int(near[slot])
+					if at < 0 {
+						// Only painted samples start a colour brick.
+						if pass == 1 || color_of(v, slot) != nil do continue
+						at = len(dist)
+						append(&dist, [BRICK_VOXELS]f32{})
+						for &x in dist[at] do x = max(f32)
+						near[slot] = i32(at)
+						_ = color_make(v, slot)
+					}
+					d := linalg.length2(Vec3{f32(g.x), f32(g.y), f32(g.z)} - q)
+					if d >= dist[at][vi] do continue
+					dist[at][vi] = d
+					color_of(v, slot).c[vi] = col
+				}
+			}
+		}
+	}
+	surface_mark_all(c)
+	return true
+}
+
+// The clay's colour at object-space point `p` (on its surface, as a raycast finds it), as a
+// surface vertex there would show it: sRGB and the painted weight, zero where unpainted.
+clay_color_at :: proc(c: ^Clay, p: Vec3) -> [4]u8 {
+	if !clay_colored(c) do return {}
+	v := &c.volume
+	q := voxel_coords(v, p)
+	f := linalg.floor(q)
+	g := [3]i32{i32(f.x), i32(f.y), i32(f.z)}
+	corners: [8][4]u8
+	for k in 0 ..< 8 do corners[k] = color_value(v, g + {i32(k & 1), i32(k >> 1 & 1), i32(k >> 2 & 1)})
+	return color_trilinear(corners, q - f)
 }

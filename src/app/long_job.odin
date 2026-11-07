@@ -273,6 +273,11 @@ long_job_start :: proc(app: ^App, cmd: Scene_Command, obj: ^Object, before: ^Obj
 			if sculpt.sculptor_has_groups(s) do j.groups = slice.clone(sculpt.sculptor_groups(s))
 			if sculpt.sculptor_has_mask(s) do j.mask = slice.clone(s.mask)
 		}
+	case .Mesh_To_Voxels:
+		// The polypaint becomes the clay's colour; a dynamic layout keeps none.
+		if !object_dynamic(obj) {
+			if c := object_paint_flat(obj, object_sculptor(obj)); c != nil do j.color = slice.clone(c)
+		}
 	case .Decimate:
 		src := decimate_source(obj, cmd.decimate)
 		j.input, j.color, j.groups, j.mask = src.mesh, src.color, src.groups, src.mask
@@ -429,7 +434,7 @@ long_job_thread :: proc(data: rawptr) {
 	case .Subdivide:
 		j.level, j.built = sculpt.levels_subdivide_build(&j.object.levels, &j.pool, &j.progress)
 	case .Mesh_To_Voxels:
-		j.voxels = voxels_compute(j.input, j.cmd.voxels, &j.pool, &j.progress)
+		j.voxels = voxels_compute(j.input, j.cmd.voxels, &j.pool, &j.progress, j.color)
 		j.built = j.voxels != nil
 	case .Voxel_Resample:
 		j.clay, j.built = resample_compute(j.object.voxel, j.cmd.voxels, &j.pool, &j.progress)

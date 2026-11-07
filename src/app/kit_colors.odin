@@ -6,6 +6,7 @@ import "core:strings"
 
 import "../sculpt"
 import "../ui"
+import "../voxel"
 import "../geom"
 
 // The Colours card (Card.Colours): it opens in the column beside the dock button that asks
@@ -1052,8 +1053,12 @@ surface_sample :: proc(app: ^App, at, size: [2]f32) -> (rgb: [3]f32, rm: [2]f32,
 	under: [3]u32
 	for k in 0 ..< 3 do under[k] = u32(geom.srgb_encode(base[k]) * 255 + 0.5)
 	paint, painted: sculpt.Color
-	// Voxel clay, curves, cages and HD windows hold no polypaint of their own.
-	if obj.voxel == nil && obj.curve == nil && obj.cage == nil && !object_in_hd(obj) {
+	// Curves, cages and HD windows hold no polypaint of their own; voxel clay keeps its
+	// colour in its volume, read where the ray meets the clay.
+	if vp := obj.voxel; vp != nil {
+		t := obj.transform
+		if at_clay, _, on := voxel.clay_raycast(&vp.clay, to_local(t, origin), to_local_dir(t, dir)); on do paint = voxel.clay_color_at(&vp.clay, at_clay)
+	} else if obj.curve == nil && obj.cage == nil && !object_in_hd(obj) {
 		t := obj.transform
 		paint, painted, _ = sculpt.levels_paint_at(&obj.levels, to_local(t, origin), to_local_dir(t, dir))
 	}
