@@ -218,7 +218,7 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		_ = ui.switch_row(ctx, "Work in any view", &k.panes_work)
 		ui.paragraph(ctx, "A press in any pane works there, as Blender's quad views each take the tools; off, the other panes only show.")
 	case .Bars:
-		_ = command_button(app, .Customise_Bars, glyph = ICON_CUSTOMISE)
+		_ = command_button(app, .Customise_Bars, glyph = ui.ICON_CUSTOMISE)
 		ui.paragraph(ctx, "Choose the buttons on every toolbar: down the view toolbar and the brush toolbar and on each of the shelf's pages: any command, in any order.")
 		ui.paragraph(ctx, "Each toolbar's ⋯ sets how many lines its buttons stand in and when they show their names: Wide names them on a desktop's window, where the room is there, and names the view toolbar's on a touch screen, where no tooltip does; a tablet's other toolbars keep to their icons.")
 		_ = ui.switch_row(ctx, "Keep the shelf clear of the palm", &k.shelf_palm)

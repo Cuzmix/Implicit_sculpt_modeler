@@ -131,7 +131,7 @@ refs_view :: proc(app: ^App) {
 			if !p.view || p.image == 0 || !(p.view_locked || board_picked(b, p.id)) do continue
 			corner := refs_turned(refs_view_rect(main, p), p.view_angle)[1]
 			ui.begin_at(ctx, fmt.tprintf("ref view lock %d", p.id), corner - REFS_HEAD_BUTTON * 0.5, {radius = t.radius_large, background = .Raised, pen_through = true})
-			if ui.icon_button(ctx, "Lock on view##refs view", ICON_LOCK if p.view_locked else ICON_LOCK_OPEN, selected = p.view_locked, size = REFS_HEAD_BUTTON) {
+			if ui.icon_button(ctx, "Lock on view##refs view", ui.ICON_LOCK if p.view_locked else ui.ICON_LOCK_OPEN, selected = p.view_locked, size = REFS_HEAD_BUTTON) {
 				before := refs_clone(refs.refs[:])
 				p.view_locked = !p.view_locked
 				history_record_refs(app, before, "Lock reference on view" if p.view_locked else "Unlock reference on view")
@@ -365,5 +365,3 @@ refs_view_toggle :: proc(app: ^App) {
 	app.scene_edits += 1
 }
 
-// Lucide's gallery-thumbnails, for Show refs.
-ICON_SHOW_REFS :: rune(0xe4d5)

@@ -202,7 +202,7 @@ kit_pie_editor :: proc(app: ^App) {
 		ui.caption(ctx, fmt.tprintf("PIE %d · %s", n + 1, keys) if keys != "" else fmt.tprintf("PIE %d", n + 1))
 		ui.begin(ctx, fmt.tprintf("pie row %d", n), {direction = .Row, gap = 0})
 		for &s, i in k.pies[n] {
-			glyph := ui.ICON_PLUS if s.id == .None else (COMMANDS[s.id].icon if COMMANDS[s.id].icon != 0 else ui.ICON_WAND)
+			glyph := ui.ICON_PLUS if s.id == .None else (COMMANDS[s.id].icon if COMMANDS[s.id].icon != 0 else ui.ICON_COMMAND)
 			lit := put.id != .None && s == put
 			if ui.brush_tile(ctx, fmt.tprintf("%s##pie %d %d", pie_slot_label(s), n, i), glyph, lit) && put.id != .None {
 				s = put

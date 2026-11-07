@@ -811,11 +811,6 @@ CAGE_DISPLACE_PERCENT_MAX :: 10
 CAGE_DISPLACE_SCALE_START :: 0.25
 CAGE_DISPLACE_SCALE_MAX :: 1
 
-// The Live stack's Deform (a tornado: a twist) and Displace (a rough peak) glyphs, on
-// their rows and commands.
-ICON_DEFORM :: rune(0xe218)
-ICON_DISPLACE :: rune(0xe232)
-
 // Sharp edges' largest angle, and the angle the row starts at (Blender's Smooth by Angle).
 CAGE_SHARP_MAX :: 180
 CAGE_SHARP_START :: 30
@@ -827,7 +822,6 @@ PANEL_WIDTH_MAX :: 10.0
 PANEL_DEPTH_MAX :: 10.0
 PANEL_WIDTH_START :: 0.03
 PANEL_DEPTH_START :: 0.02
-ICON_SHARP :: rune(0xe242) // gem, whose facets meet at hard edges
 
 // The amount Deform starts at for `kind`: a quarter turn for Bend and Twist, half as wide
 // again at the far end for Taper.
@@ -1169,7 +1163,7 @@ model_segments :: proc(m: Model_Tool) -> poly.Primitive_Options {
 kit_model_tab :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	m := &app.model
-	kit_tool_head(ctx, ui.ICON_GRID, "Model", "Builds and edits cages: polygons with their edges shown, as ZBrush's ZModeler and Blender's edit mode work. Pick an action and a target, then press on a cage: the faces it would reach light up under the pen first. Add a primitive here; Apply to sculpt turns a cage into a mesh to sculpt.")
+	kit_tool_head(ctx, ui.ICON_MODEL, "Model", "Builds and edits cages: polygons with their edges shown, as ZBrush's ZModeler and Blender's edit mode work. Pick an action and a target, then press on a cage: the faces it would reach light up under the pen first. Add a primitive here; Apply to sculpt turns a cage into a mesh to sculpt.")
 	ui.caption(ctx, "ACTION")
 	actions: [len(Model_Action)]string
 	for a, i in Model_Action do actions[i] = MODEL_ACTION_NAMES[a]

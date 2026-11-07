@@ -82,7 +82,7 @@ kit_macro_row :: proc(app: ^App, slot: int, inner: f32) {
 	ui.end(ctx)
 	run := ui.icon_button(ctx, fmt.tprintf("Run %s##macro run %d", s.name, slot + 1), ui.ICON_PLAY, enabled = command_enabled(app, .Run_Macro, slot), keys = command_hint(app, .Run_Macro, slot))
 	key := ui.icon_button(ctx, fmt.tprintf("Give it a key##macro key %d", slot + 1), ui.ICON_KEYBOARD)
-	rename := ui.icon_button(ctx, fmt.tprintf("Rename##macro rename %d", slot + 1), ui.ICON_PENCIL)
+	rename := ui.icon_button(ctx, fmt.tprintf("Rename##macro rename %d", slot + 1), ui.ICON_RENAME)
 	delete_tap := ui.icon_button(ctx, fmt.tprintf("Delete##macro delete %d", slot + 1), ui.ICON_TRASH, selected = armed)
 	ui.end(ctx)
 	row := ctx.last_rect

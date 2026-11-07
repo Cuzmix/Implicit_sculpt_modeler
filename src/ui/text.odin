@@ -5,13 +5,15 @@ import "core:unicode/utf8"
 import fs "vendor:fontstash"
 import stbtt "vendor:stb/truetype"
 
-// The typefaces: Inter for text (SIL Open Font License) and Lucide for icons (ISC), both
-// embedded so the app needs no files beside it. Their licences are beside them.
+// The typefaces: Inter for text (SIL Open Font License), and for icons the app's own font,
+// built from Phosphor (MIT), Tabler (MIT) and Lucide (ISC) drawings by scripts/icons_build.py
+// (icons_gen.odin names them), all embedded so the app needs no files beside them. Their
+// licences are in assets/fonts and assets/licenses.
 // Loaded as strings and turned into bytes where used: Odin's wasm64p32 code generation
 // stops on #load as bytes (README "Web").
 INTER_REGULAR := #load("../../assets/fonts/Inter-Regular.ttf", string)
 INTER_SEMIBOLD := #load("../../assets/fonts/Inter-SemiBold.ttf", string)
-LUCIDE := #load("../../assets/fonts/Lucide.ttf", string)
+ICONS_REGULAR := #load("../../assets/fonts/Icons-Regular.ttf", string)
 
 Font :: enum u8 {
 	Regular,
@@ -43,7 +45,7 @@ fonts_init :: proc(f: ^Fonts) {
 	data := [Font][]u8 {
 		.Regular  = transmute([]u8)INTER_REGULAR,
 		.Semibold = transmute([]u8)INTER_SEMIBOLD,
-		.Icons    = transmute([]u8)LUCIDE,
+		.Icons    = transmute([]u8)ICONS_REGULAR,
 	}
 	for font in Font {
 		f.ids[font] = fs.AddFontMem(&f.stash, "", data[font], false)

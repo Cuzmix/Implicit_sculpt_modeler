@@ -991,7 +991,7 @@ kit_dock_menu :: proc(app: ^App) {
 		d.more_off = false
 	}
 	if !editing {
-		if ui.menu_item(ctx, "Edit buttons", glyph = ICON_CUSTOMISE) {
+		if ui.menu_item(ctx, "Edit buttons", glyph = ui.ICON_CUSTOMISE) {
 			p.open = false
 			dock_edit_buttons(app, id)
 		}

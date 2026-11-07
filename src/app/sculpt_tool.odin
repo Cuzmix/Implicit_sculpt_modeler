@@ -208,11 +208,11 @@ STROKE_MODE_SHORT := [Stroke_Mode]string {
 	.Drag_Dot  = "Drag",
 }
 STROKE_MODE_ICONS := [Stroke_Mode]rune {
-	.Dots      = rune(0xe0ba), // Lucide ellipsis
-	.Drag_Rect = rune(0xe37a), // rectangle-horizontal
-	.Spray     = rune(0xe49a), // spray-can
-	.Roll      = rune(0xe5a3), // paint-roller
-	.Drag_Dot  = rune(0xe495), // move-right
+	.Dots      = ui.ICON_STROKE_DOTS,
+	.Drag_Rect = ui.ICON_STROKE_RECT,
+	.Spray     = ui.ICON_STROKE_SPRAY,
+	.Roll      = ui.ICON_STROKE_ROLL,
+	.Drag_Dot  = ui.ICON_STROKE_DRAG_DOT,
 }
 
 // A brush's falloff: the built-in smooth one, or a curve the user drew (read from the
