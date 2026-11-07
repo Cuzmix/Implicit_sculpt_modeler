@@ -1,5 +1,6 @@
 package voxel
 
+import "core:math"
 import "core:math/linalg"
 import "core:testing"
 
@@ -112,4 +113,112 @@ paint_is_the_same_on_any_thread_count :: proc(t: ^testing.T) {
 		paint_top(&c, {0, 0, 255}, 0.3)
 	}
 	testing.expect(t, color_hash(&clays[0]) == color_hash(&clays[1]), "paint differs between one thread and three")
+}
+
+// Paint carried by the clay: the top painted red, then each edit, on one thread and three.
+@(private = "file")
+painted_pair :: proc(pool: ^jobs.Pool) -> [2]Clay {
+	clays := [2]Clay{color_sphere(), color_sphere(pool)}
+	for &c in clays do paint_top(&c, {220, 30, 30}, 0.35)
+	return clays
+}
+
+@(test)
+grab_carries_the_paint :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	clays := painted_pair(&pool)
+	defer for &c in clays do clay_destroy(&c)
+	for &c in clays {
+		clay_stroke_begin(&c)
+		clay_grab_begin(&c, 0.5, {{0, 0, 1}}, {IDENTITY})
+		for i in 1 ..= 4 do _ = clay_grab_move(&c, {0, 0, 0.1 * f32(i)})
+		_ = clay_stroke_end(&c)
+		_ = clay_flush(&c)
+	}
+	c := &clays[0]
+	// The paint went up with the top, which is now at about 1.4.
+	top := color_near(c, {0, 0, 1.4})
+	testing.expectf(t, top.rgb == {220, 30, 30} && top[3] > 200, "the dragged top is %v", top)
+	testing.expectf(t, color_near(c, {1, 0, 0})[3] == 0, "paint reached the side")
+	testing.expect(t, color_hash(&clays[0]) == color_hash(&clays[1]), "the grabbed paint differs between one thread and three")
+	testing.expect(t, clay_undo(c), "nothing to undo")
+	testing.expectf(t, color_near_flushed(c, {0, 0, 1}).rgb == {220, 30, 30}, "undo lost the paint")
+}
+
+@(test)
+snake_hook_carries_the_paint :: proc(t: ^testing.T) {
+	pool: jobs.Pool
+	jobs.pool_init(&pool, 3)
+	defer jobs.pool_destroy(&pool)
+	clays := painted_pair(&pool)
+	defer for &c in clays do clay_destroy(&c)
+	for &c in clays {
+		clay_stroke_begin(&c)
+		at := Vec3{0, 0, 1}
+		for _ in 0 ..< 6 {
+			_ = clay_dab(&c, {kind = .Snake_Hook, radius = 0.35, strength = 1, normal = {0, 0, 1}, drag = {0, 0, 0.05}}, at)
+			at.z += 0.05
+		}
+		_ = clay_stroke_end(&c)
+		_ = clay_flush(&c)
+	}
+	top := color_near(&clays[0], {0, 0, 1.3})
+	testing.expectf(t, top.rgb == {220, 30, 30} && top[3] > 200, "the hooked tip is %v", top)
+	testing.expect(t, color_hash(&clays[0]) == color_hash(&clays[1]), "the hooked paint differs between one thread and three")
+}
+
+@(test)
+mirror_and_resample_keep_the_paint :: proc(t: ^testing.T) {
+	c := color_sphere()
+	defer clay_destroy(&c)
+	clay_stroke_begin(&c)
+	_ = clay_dab(&c, {kind = .Paint, radius = 0.35, strength = 1, normal = {1, 0, 0}, color = {10, 200, 40}}, {1, 0, 0})
+	_ = clay_stroke_end(&c)
+	_ = clay_flush(&c)
+	testing.expect(t, clay_mirror(&c, 0, true))
+	_ = clay_flush(&c)
+	other := color_near(&c, {-1, 0, 0})
+	testing.expectf(t, other.rgb == {10, 200, 40} && other[3] > 200, "the mirrored side is %v", other)
+	testing.expect(t, clay_resample(&c, RESAMPLE_UP))
+	_ = clay_flush(&c)
+	for x in ([2]f32{1, -1}) {
+		col := color_near(&c, {x, 0, 0})
+		testing.expectf(t, col.rgb == {10, 200, 40} && col[3] > 200, "after Res+ the side at %v is %v", x, col)
+	}
+	testing.expectf(t, color_near(&c, {0, 0, 1})[3] == 0, "Res+ spread paint to the top")
+}
+
+@(test)
+union_takes_the_other_clays_paint :: proc(t: ^testing.T) {
+	a := color_sphere()
+	defer clay_destroy(&a)
+	b := color_sphere()
+	defer clay_destroy(&b)
+	paint_top(&b, {0, 0, 250}, 2.5)
+	want := color_near(&b, {1, 0, 0})
+	// The other sphere sits 1.2 along x: its far side shows its paint, this one's none.
+	to_other := matrix[4, 4]f32{1, 0, 0, -1.2, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}
+	testing.expect(t, clay_combine(&a, &b.volume, to_other, 1, .Union))
+	_ = clay_flush(&a)
+	far := color_near(&a, {2.2, 0, 0})
+	testing.expectf(t, far.rgb == {0, 0, 250} && math.abs(f32(far[3]) - f32(want[3])) < 8, "the other's side is %v, its own %v", far, want)
+	testing.expectf(t, color_near(&a, {-1, 0, 0})[3] == 0, "this clay's side took paint")
+}
+
+@(test)
+convert_to_mesh_keeps_the_paint :: proc(t: ^testing.T) {
+	c := color_sphere()
+	defer clay_destroy(&c)
+	paint_top(&c, {250, 200, 0}, 0.4)
+	colors: [][4]u8
+	m := clay_to_mesh(&c, colors = &colors)
+	defer geom.mesh_destroy(&m)
+	defer delete(colors)
+	testing.expect_value(t, len(colors), len(m.positions))
+	best := f32(1e9)
+	top: [4]u8
+	for p, k in m.positions do if d := linalg.length2(p - {0, 0, 1}); d < best do best, top = d, colors[k]
+	testing.expectf(t, top.rgb == {250, 200, 0} && top[3] > 200, "the mesh's top is %v", top)
 }

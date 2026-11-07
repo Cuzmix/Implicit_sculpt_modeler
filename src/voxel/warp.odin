@@ -77,6 +77,11 @@ Clay_Grab :: struct {
 	work:    [dynamic][3]i32,
 	results: [dynamic]Brick,
 	differs: [dynamic]bool,
+	// While the clay is painted, each work brick's colour from its sources and whether any
+	// of it is painted: the colour goes with the clay.
+	colored:  bool,
+	colors:   [dynamic]Color_Brick,
+	painted:  [dynamic]bool,
 	moves:   [dynamic]Grab_Move,
 	steps:   int,
 	// The sources of the frame's brick corners (each shared by eight bricks), and of its
@@ -105,6 +110,8 @@ grab_init :: proc(g: ^Clay_Grab, allocator: runtime.Allocator) {
 	g.work = make([dynamic][3]i32, allocator)
 	g.results = make([dynamic]Brick, allocator)
 	g.differs = make([dynamic]bool, allocator)
+	g.colors = make([dynamic]Color_Brick, allocator)
+	g.painted = make([dynamic]bool, allocator)
 	g.moves = make([dynamic]Grab_Move, allocator)
 	corner_grid_init(&g.corners, 1, allocator)
 	corner_grid_init(&g.coarse, BLOCK, allocator)
@@ -123,6 +130,8 @@ grab_destroy :: proc(g: ^Clay_Grab) {
 	delete(g.work)
 	delete(g.results)
 	delete(g.differs)
+	delete(g.colors)
+	delete(g.painted)
 	delete(g.moves)
 	corner_grid_destroy(&g.corners)
 	corner_grid_destroy(&g.coarse)
@@ -244,15 +253,22 @@ clay_grab_move :: proc(c: ^Clay, offset: Vec3, axis := Vec3{}, angle: f32 = 0) -
 	append(&g.work, ..fills[:])
 	resize(&g.results, n)
 	resize(&g.differs, n)
+	g.colored = clay_colored(c)
+	if g.colored {
+		resize(&g.colors, n)
+		resize(&g.painted, n)
+	}
 	jobs.parallel_for(c.pool, worked, c, proc(data: rawptr, i: int) {
 		c := cast(^Clay)data
 		g := &c.grab
 		g.differs[i] = grab_brick(c, g.work[i], &g.results[i])
+		if g.colored do g.differs[i] |= grab_color(c, g.work[i], &g.results[i], &g.colors[i], &g.painted[i])
 	})
 	for t, i in fill_tiles {
 		value := tile_value(t)
 		for &d in g.results[worked + i].d do d = value
 		g.differs[worked + i] = true
+		if g.colored do g.painted[worked + i] = false
 	}
 
 	// Commit, serially: a brick is saved for undo before its first change and made from a
@@ -276,6 +292,10 @@ clay_grab_move :: proc(c: ^Clay, offset: Vec3, axis := Vec3{}, angle: f32 = 0) -
 		if int(slot) >= len(g.saved) do resize(&g.saved, len(v.bricks))
 		if len(undo_current(&c.history).bricks) > saves do g.saved[slot] = i32(saves) + 1
 		v.bricks[slot] = g.results[i]
+		if g.colored {
+			if g.painted[i] do color_make(v, slot)^ = g.colors[i]
+			else do color_drop(v, slot)
+		}
 		if bc not_in g.kept {
 			g.kept[bc] = true
 			append(&g.bricks, bc)
@@ -743,4 +763,54 @@ corner_grid_frame :: proc(c: ^Clay, grid: ^Corner_Grid, all, some: [][3]i32) {
 			g.sources[k] = grab_source(rows.c, Vec3{f32(at.x), f32(at.y), f32(at.z)}, inv_r2)
 		}
 	})
+}
+
+// Brick `bc`'s colour after the frame's drag, into `out`, the field `field` it was just
+// worked out to: each voxel near the surface takes the press's colour nearest where its
+// clay came from (the voxels deep in the band show no colour, so they are left
+// unpainted). Sets `painted` and returns whether the colour differs from the brick's now.
+@(private = "file")
+grab_color :: proc(c: ^Clay, bc: [3]i32, field: ^Brick, out: ^Color_Brick, painted: ^bool) -> bool {
+	g := &c.grab
+	inv_r2 := 1 / (g.radius * g.radius)
+	painted^ = false
+	p0 := Vec3{f32(bc.x), f32(bc.y), f32(bc.z)} * BRICK
+	for z in 0 ..< BRICK do for y in 0 ..< BRICK do for x in 0 ..< BRICK {
+		k := voxel_index(x, y, z)
+		out.c[k] = {}
+		if abs(field.d[k]) > NEAR do continue
+		q := grab_source(c, p0 + {f32(x), f32(y), f32(z)}, inv_r2)
+		col := snap_color(c, q)
+		out.c[k] = col
+		painted^ ||= col[3] != 0
+	}
+	live: ^Color_Brick
+	if tile, _ := volume_tile(&c.volume, bc); tile == .Brick do live = color_of(&c.volume, volume_slot(&c.volume, bc))
+	if live == nil do return painted^
+	return live.c != out.c
+}
+
+// The colour at the press at the voxel nearest `p`, as snap_mask reads the mask.
+@(private)
+snap_color :: proc(c: ^Clay, p: Vec3) -> [4]u8 {
+	r := linalg.round(p)
+	g := [3]i32{i32(r.x), i32(r.y), i32(r.z)}
+	bc := shr3(g, 3)
+	if !brick_in_domain(bc) do return {}
+	l := g - bc * BRICK
+	k := voxel_index(int(l.x), int(l.y), int(l.z))
+	tile, _ := volume_tile(&c.volume, bc)
+	if tile != .Brick do return {}
+	slot := volume_slot(&c.volume, bc)
+	if int(slot) < len(c.grab.saved) {
+		if i := c.grab.saved[slot]; i > 0 {
+			step := undo_current(&c.history)
+			saved := &step.bricks[i - 1]
+			if saved.color < 0 do return {}
+			return step.colors[saved.color].c[k]
+		}
+	}
+	b := color_of(&c.volume, slot)
+	if b == nil do return {}
+	return b.c[k]
 }

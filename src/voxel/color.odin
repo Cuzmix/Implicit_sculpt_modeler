@@ -64,6 +64,19 @@ clay_has_color :: proc(c: ^Clay) -> bool {
 	return false
 }
 
+// The colour at voxel `g`: its brick's, or unpainted on a tile and outside the domain.
+color_value :: proc(v: ^Volume, g: [3]i32) -> [4]u8 {
+	if g.x < 0 || g.y < 0 || g.z < 0 do return {}
+	bc := shr3(g, 3) // BRICK is 8
+	if !brick_in_domain(bc) do return {}
+	slot := volume_slot(v, bc)
+	if slot == TILE_EMPTY || slot == TILE_INSIDE do return {}
+	b := color_of(v, slot)
+	if b == nil do return {}
+	l := and3(g, BRICK - 1)
+	return b.c[voxel_index(int(l.x), int(l.y), int(l.z))]
+}
+
 // Whether the clay holds any colour brick (painted or since erased): a check of two counts,
 // for the frame to tell whether the surface's colours need uploading.
 clay_colored :: #force_inline proc(c: ^Clay) -> bool {
