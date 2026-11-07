@@ -291,6 +291,7 @@ SETTINGS := [?]Setting {
 	{"flat", offset_of(App, flat), bool, 0, 0},
 	{"live_ao", offset_of(App, live_ao_on), bool, 0, 0},
 	{"screenshot_transparent", offset_of(App, screenshot_transparent), bool, 0, 0},
+	{"record_video", offset_of(App, record_video), bool, 0, 0},
 	{"turntable_frames", offset_of(App, turntable_frames), i32, TURNTABLE_FRAMES_MIN, TURNTABLE_FRAMES_MAX},
 	{"print_unit", offset_of(App, print_unit), Print_Unit, 0, 0},
 	{"studio_render", offset_of(App, studio_on), bool, 0, 0},

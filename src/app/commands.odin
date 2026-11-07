@@ -568,7 +568,7 @@ COMMANDS := [Command_Id]Command {
 	},
 	.Record_Turntable = {
 		label = "Record turntable...",
-		help = "Turns the camera once round the scene and saves every frame into a folder you pick, as numbered PNG pictures and one animated PNG that plays in a browser; again, while it records, stops it.",
+		help = "Turns the camera once round the scene and saves every frame into a folder you pick, as numbered PNG pictures, one animated PNG that plays in a browser and, with Make a video, an MP4; again, while it records, stops it.",
 		icon = ui.ICON_TURNTABLE,
 		run = proc(app: ^App, _: int) {
 			if turntable_recording(app) do turntable_stop(app, "stopped")
