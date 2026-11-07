@@ -370,7 +370,7 @@ question 8).
 - `src/geom/blend.odin` (new): `Blend_Params`, `blend_union(...)`, the global fold, and
   `blend_project(...)`, the CPU reference.
 - `src/render/blend.odin` + `shaders/blend_project.comp.slang` (new kernel), the page read in
-  `mesh_io.slang`, the per-fragment own test in `mesh_shading.slang`, the new `shadow.vert` layout;
+  `mesh_io.slang`, the new `shadow.vert` layout;
   `Draw_Item.blend: ^Blend_Pages`.
 - `src/sculpt`: `Sculptor.blend_weight`, `Mask_Target`, the undo field, the carry and the file flag.
   sculpt knows nothing of blending: this is an extra paintable weight.
@@ -442,7 +442,7 @@ What this means:
    textured and shadow vertex shaders (the shadow layout is new, with its MSL and WGSL tables), and a
    dummy for items without pages. Evidence: parity_check at 0 px without pages, and smoke.
 3. **P2b render: what pages change.** Grown chunk, group and LOD boxes, GPU-cull stamps, damage boxes,
-   `static_key` and `studio_scene_key`, the per-fragment own test in every fragment variant, and
+   `static_key` and `studio_scene_key`, the seam's owner and lift (geom), and
    `--blend-test` filling pages from P1's CPU reference for two spheres at mismatched densities (1M
    against 20k). Evidence: `--dump-cull` with no mismatch, a described dump, background pixels inside
    the silhouette counted at the seam (0 expected), and gpubench orbit with and without.
