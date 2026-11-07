@@ -5,6 +5,7 @@ import "core:image"
 import "core:image/qoi"
 import "core:math/linalg"
 import "core:os"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 
@@ -113,8 +114,7 @@ textured_vertices_follow_the_split :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 }
 
-// The scene file keeps the maps byte for byte and refuses damaged ones; a file of version
-// 17 has none.
+// The scene file keeps the maps byte for byte and refuses damaged ones.
 @(test)
 scene_keeps_textures :: proc(t: ^testing.T) {
 	maps: Object_Textures
@@ -136,16 +136,18 @@ scene_keeps_textures :: proc(t: ^testing.T) {
 	r = geom.byte_reader(none[:])
 	testing.expect(t, textures_get(&r).stamp == 0 && r.ok, "no maps, nothing to decode")
 
-	// A bit past the maps, a count past the end, and bytes that are no image.
+	// A critical field this build does not know, a record cut short, and bytes that are no
+	// image.
 	for damage in 0 ..< 3 {
-		bad := make([dynamic]u8, len(out), context.temp_allocator)
-		copy(bad[:], out[:])
+		bad: []u8
 		switch damage {
-		case 0: bad[0] = 1 << 3
-		case 1: bad[1] = 0xff; bad[2] = 0xff
-		case 2: bad[5] ~= 0xff // inside the first PNG's signature
+		case 0: bad = test_record_set(out[:], {1}, geom.RECORD_TAG_CRITICAL | 900)
+		case 1: bad = out[:len(out) - 1]
+		case 2:
+			bad = slice.clone(out[:], context.temp_allocator)
+			bad[size_of(u64) + geom.RECORD_FIELD_HEAD + 1] ~= 0xff // inside the first PNG's signature
 		}
-		r = geom.byte_reader(bad[:])
+		r = geom.byte_reader(bad)
 		got := textures_get(&r)
 		testing.expectf(t, !r.ok, "damage %d was read", damage)
 		for img in got.image do testing.expect(t, img == nil, "damaged maps must be freed")

@@ -106,7 +106,7 @@ send_answer_run :: proc(sh: ^Send_Shared, sock: net.UDP_Socket, gen: int, arena:
 		}
 		clear(&out)
 		legacy := from.port != send.MDNS_PORT
-		send.answer_put(&out, advert, id, legacy, question, SCENE_VERSION)
+		send.answer_put(&out, advert, id, legacy, question, SCENE_FORMAT)
 		to := from if unicast else net.Endpoint{net.IP4_Address(send.MDNS_GROUP), send.MDNS_PORT}
 		_, _ = net.send_udp(sock, out[:], to)
 		runtime.arena_free_all(arena)

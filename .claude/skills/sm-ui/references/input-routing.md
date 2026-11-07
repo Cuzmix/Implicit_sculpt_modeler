@@ -48,7 +48,7 @@ Read from sm-ui before changing how a finger, the pen or the mouse reaches a pan
   `invert`) starts a mask shape; `stroke_brush`/`held_brush` (`sculpt_tool.odin`) pick Mask for `mask`. `route_mute`
   and `viewport_mute` clear all of them. `drag_decide` keeps empty space for Mask/Hide (Brush tool only) and gives
   them the safe zone only when held (`Rail_Press.held`). A new `Viewport_Input` flag a stroke depends on is also a
-  `Take_Frame` flag in `replay.odin` (bump `STROKES_VERSION`).
+  `Take_Frame` flag in `replay.odin` (the next tag of `Stroke_Frame_Tag`, missing in older files as off).
 - Long press (`ui.odin`: `Long_Press`, `long_due`, `secondary`, `long_cancel`, `press_used`, `long_press_decide`): a
   finger or pen held `theme.long_press` within the slop on the held widget: Settings > Touch > Hold delay
   (`Nav_Prefs.hold_delay`, 0.25 s by default, 0.1 to 1.5), which `kit_begin` puts in the theme each frame with

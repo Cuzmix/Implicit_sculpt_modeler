@@ -28,11 +28,11 @@ description: CAD-style mesh tools inside this app on geom.Mesh — primitives, b
   axis as `mesh_normalize` does; materials as polypaint: readers given a `geom.Mesh_Look` (`src/geom/mesh_look.odin`: materials' linear colours, borrowed image bytes) fill each part's per-triangle `materials` and per-corner `uvs` (v down from the image's top), the OBJ reader through `obj_look`/`mtl_read` and a `Mesh_Resolve` for files beside it, and `mesh_parts_paint` bakes them into `colors` and drops them BEFORE `mesh_clean`, which knows nothing of corners; past `MESH_PARTS_MAX` `mesh_parts_merge` makes one with a group a part; the app's
   `mesh_file_parse` cleans each part and `import_add_parts` makes an object each in a folder, one undo step: chained
   swaps, then `history_record_arrange(chain = true)` with the layout taken before the folder), and the native `.sculpt` scene (`scene_save`/`scene_open`, levels through
-  `sculpt.levels_write`/`levels_read`). `Object.file` keeps where an import was in its file, for export. Until
-  release there is no backward compatibility (AGENTS.md): a new per-object field goes in `object_put_bytes` (its
-  `OBJ ` chunk) and is read unconditionally in `object_get`, a scene-level one in `scene_header_put`'s `SCEN` chunk and
-  `scene_fields_get`, and `scene_open` reads only `SCENE_VERSION`; no `version >=` branch, no "where the chunk has
-  bytes left" read, and files an earlier build wrote are refused. Every file action ends in one `file_note`. The
+  `sculpt.levels_write`/`levels_read`). `Object.file` keeps where an import was in its file, for export. Files survive updates
+  (AGENTS.md): a new per-object field is the next tag of `Object_Tag` (`object_put_bytes`, its `OBJ ` chunk) with a
+  default `object_get` uses when it is missing, a scene-level one the next of the `SCEN` chunk's tags
+  (`scene_header_put`, `scene_fields_get`); never renumber or retype a tag, and never rewrite the golden files in
+  `src/app/testdata/golden/` (`scene_golden_test.odin` opens them). Every file action ends in one `file_note`. The
   header's first field is the preview block (`scene_preview.odin`: `preview_block_put`/`preview_block_skip`,
   `scene_preview_read` reads only the file's start through SDL IO); new header fields go after it, never before.
 - Binary glTF out (`geom.mesh_write_glb`, `src/geom/gltf_write.odin`, from `object_export` by the `.glb` name): the

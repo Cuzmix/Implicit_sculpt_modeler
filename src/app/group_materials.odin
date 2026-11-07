@@ -176,14 +176,28 @@ group_materials_replace :: proc(app: ^App, obj: ^Object, table: []Group_Material
 	append(&obj.group_materials, ..table)
 }
 
-// The scene file's form of an object's table (object_put): the count, then
-// each group and its material, with its content pack parts by name, one of `refs` a
-// group (none for none).
+// The scene file's form of an object's table (object_put), a record (tags are never reused
+// or retyped, geom/record.odin) of an entry a group: its number and its material, with
+// its content pack parts by name, one of `refs` a group (none for none).
+Group_Materials_Tag :: enum u16 {
+	Entry = 1, // Group_Material_Tag record, groups rising from 1
+}
+
+Group_Material_Tag :: enum u16 {
+	Group    = 1, // u16, required
+	Material = 2, // material_put's record, required
+}
+
 group_materials_put :: proc(out: ^[dynamic]u8, obj: ^Object, refs: []Material_Refs = nil) {
-	geom.byte_put(out, u16(len(obj.group_materials)))
+	rec := geom.record_begin(out)
+	defer geom.record_end(out, rec)
 	for e, k in obj.group_materials {
-		geom.byte_put(out, e.group)
+		at := geom.rec_begin(out, Group_Materials_Tag.Entry)
+		geom.rec_put(out, Group_Material_Tag.Group, e.group)
+		m := geom.rec_begin(out, Group_Material_Tag.Material)
 		material_put(out, e.material, refs[k] if k < len(refs) else {})
+		geom.rec_end(out, m)
+		geom.rec_end(out, at)
 	}
 }
 
@@ -192,16 +206,22 @@ group_materials_put :: proc(out: ^[dynamic]u8, obj: ^Object, refs: []Material_Re
 // MatCap or damaged. Groups need not exist: a table may hold groups a later step brings
 // back. A content pack's material is looked up in `app` as material_get does.
 group_materials_get :: proc(r: ^geom.Byte_Reader, obj: ^Object, app: ^App = nil, missing: ^int = nil) {
-	n := int(geom.byte_get(r, u16))
-	if !r.ok || n > GROUP_MATERIALS_MAX {
+	rec := geom.record_take(r)
+	known, _ := geom.record_known(&rec, Group_Materials_Tag)
+	n := geom.rec_count(&rec, Group_Materials_Tag.Entry)
+	if !rec.ok || !known || n > GROUP_MATERIALS_MAX {
 		r.ok = false
 		return
 	}
 	last := u16(0)
+	at := 0
 	for _ in 0 ..< n {
-		group := geom.byte_get(r, u16)
-		m := material_get(r, app, missing)
-		if !r.ok || group <= last || m.label == nil || !group_material_allowed(m) {
+		payload, _ := geom.rec_next(&rec, Group_Materials_Tag.Entry, &at)
+		er := geom.record_of(payload)
+		group := geom.rec_need(&er, Group_Material_Tag.Group, u16)
+		mr, has_material := geom.rec_reader(&er, Group_Material_Tag.Material)
+		m := material_get(&mr, app, missing)
+		if !er.ok || !has_material || !mr.ok || group <= last || m.label == nil || !group_material_allowed(m) {
 			r.ok = false
 			return
 		}
