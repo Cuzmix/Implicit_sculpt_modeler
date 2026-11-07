@@ -173,6 +173,63 @@ def outline(svg_text, stroke=None):
     return path
 
 
+def closed_subpaths(d):
+    """The subpaths of path data `d` that end where they began (Tabler draws a circle as
+    two arcs with no close), as path data again."""
+    from fontTools.pens.recordingPen import RecordingPen
+    from fontTools.pens.svgPathPen import SVGPathPen
+    from fontTools.svgLib.path import parse_path
+
+    rec = RecordingPen()
+    parse_path(d, rec)
+    out, sub = SVGPathPen(None), []
+
+    def flush():
+        if not sub:
+            return
+        closed = sub[-1][0] == "closePath"
+        drawn = [(op, args) for op, args in sub if op not in ("closePath", "endPath")]
+        start, end = drawn[0][1][0], drawn[-1][1][-1]
+        if len(drawn) > 2 and (closed or (abs(start[0] - end[0]) < 0.01 and abs(start[1] - end[1]) < 0.01)):
+            for op, args in drawn:
+                getattr(out, op)(*args)
+            out.closePath()
+        sub.clear()
+
+    for op, args in rec.value:
+        if op == "moveTo":
+            flush()
+        sub.append((op, args))
+        if op in ("closePath", "endPath"):
+            flush()
+    flush()
+    return out.getCommands()
+
+
+def closed_areas(svg_text):
+    """A stroked drawing's soft layer, as Phosphor's duotone has one: the inside of each
+    closed shape (circles, rectangles, polygons and closed paths), with no stroke. Open
+    lines (arrows, ticks) give none, so their icons stay plain lines."""
+    body = re.sub(r"<!--.*?-->", "", svg_text, flags=re.S)
+    head = re.search(r"<svg[^>]*>", body).group(0)
+    shapes = []
+    for el in re.findall(r"<(?:path|circle|rect|ellipse|polygon)\b[^>]*/>", body):
+        if 'stroke="none"' in el:
+            continue  # Tabler's invisible 24 x 24 frame
+        if el.startswith("<path"):
+            d = re.search(r'\bd="([^"]*)"', el)
+            closed = closed_subpaths(d.group(1)) if d else ""
+            if not closed:
+                continue
+            el = el.replace(d.group(0), f'd="{closed}"')
+        el = re.sub(r'\s(fill|stroke|stroke-width|stroke-linecap|stroke-linejoin)="[^"]*"', "", el)
+        shapes.append(el.replace("/>", ' fill="black" stroke="none"/>'))
+    if not shapes:
+        return None
+    head = re.sub(r'\s(fill|stroke|stroke-width|stroke-linecap|stroke-linejoin)="[^"]*"', "", head)
+    return outline(head + "".join(shapes) + "</svg>")
+
+
 def glyph_from_path(path, scale):
     from fontTools.pens.cu2quPen import Cu2QuPen
     from fontTools.pens.transformPen import TransformPen
@@ -204,7 +261,7 @@ def build_font(entries, kind):
             path, scale = outline(text), UPM / 256
         else:
             text = svg_path(pack, drawing).read_text()
-            path, scale = (None if kind == "fill" else outline(text, STROKE[kind])), UPM / 24
+            path, scale = (closed_areas(text) if kind == "fill" else outline(text, STROKE[kind])), UPM / 24
         glyphs[g] = glyph_from_path(path, scale) if path is not None else empty
         bounds = path.bounds if path is not None else (0, 0, 0, 0)
         metrics[g] = (UPM, int(round(bounds[0] * scale)))

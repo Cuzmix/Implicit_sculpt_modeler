@@ -131,11 +131,51 @@ cached_icons_sit_where_fontstash_put_them :: proc(t: ^testing.T) {
 	init(&ctx)
 	defer destroy(&ctx)
 	frame_begin(&ctx, {window = {800, 600}, pixel_density = 1.5})
+	// Lines alone, as icon drew before the soft layer under them.
+	ctx.icon_style = .Mono
 	for i in 0 ..< 6 {
 		want := make([]Vertex, len(drawn(&ctx, icon_fontstash, i)), context.temp_allocator)
 		copy(want, ctx.draw.vertices[:])
 		for _ in 0 ..< 2 do same_vertices(t, drawn(&ctx, icon_cached, i), want, fmt.tprintf("icon %d", i))
 	}
+	frame_end(&ctx)
+}
+
+// In Colour and Duotone the soft shape goes under the lines, at the same pen, and leaves
+// the lines where Mono draws them; Colour tints it with the icon's group, Duotone fades
+// the lines' own colour.
+@(test)
+icon_styles_lay_the_fill_under_the_same_lines :: proc(t: ^testing.T) {
+	ctx: Context
+	init(&ctx)
+	defer destroy(&ctx)
+	frame_begin(&ctx, {window = {800, 600}, pixel_density = 2})
+	testing.expect_value(t, ctx.icon_style, Icon_Style.Colour)
+	ink := Color{255, 255, 255, 200}
+	draw_one :: proc(ctx: ^Context, ink: Color) -> []Vertex {
+		draw_list_clear(&ctx.draw)
+		icon(ctx, ICON_UNDO, {50, 30}, 24, ink)
+		out := make([]Vertex, len(ctx.draw.vertices), context.temp_allocator)
+		copy(out, ctx.draw.vertices[:])
+		return out
+	}
+	ctx.icon_style = .Mono
+	mono := draw_one(&ctx, ink)
+	for style in ([]Icon_Style{.Colour, .Duotone}) {
+		ctx.icon_style = style
+		got := draw_one(&ctx, ink)
+		if !testing.expectf(t, len(got) > len(mono), "%v: %d vertices, Mono's %d", style, len(got), len(mono)) do continue
+		lines := got[len(got) - len(mono):]
+		for v, i in mono do testing.expectf(t, lines[i] == v, "%v: line vertex %d moved", style, i)
+		fill := got[0].color
+		want := ctx.theme.icons[ICON_GROUP_TABLE[ICON_UNDO - ICON_FIRST]] if style == .Colour else ink
+		testing.expectf(t, fill.rgb == want.rgb, "%v: fill %v, want %v", style, fill, want)
+		testing.expectf(t, fill.a < ink.a, "%v: fill alpha %d is not under the lines' %d", style, fill.a, ink.a)
+	}
+	ctx.icon_weight = .Bold
+	ctx.icon_style = .Mono
+	bold := draw_one(&ctx, ink)
+	testing.expect(t, len(bold) == len(mono) && bold[0].uv != mono[0].uv, "Bold draws its own glyph")
 	frame_end(&ctx)
 }
 

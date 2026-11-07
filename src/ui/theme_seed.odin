@@ -225,6 +225,12 @@ theme_derive :: proc(seed: Theme_Seed, base := THEME_LENS) -> Theme {
 		if light do tint = color_mix(tint, {0, 0, 0, 255}, 0.3)
 		t.tints[i] = tint
 	}
+	// So do the icons' colours, which sit on the panels.
+	for g in Icon_Group {
+		c := base.icons[g]
+		if light do c = color_mix(c, {0, 0, 0, 255}, 0.3)
+		t.icons[g] = c
+	}
 	r := CORNER_RADII[seed.corners]
 	t.radius_small, t.radius_medium, t.radius_large = r[0], r[1], r[2]
 	return t
@@ -319,8 +325,8 @@ theme_card :: proc(ctx: ^Context, s: string, look: Theme, selected: bool, tag :=
 }
 
 // The colours a person may set by hand in Every colour, over what the seed made. The
-// washes (fill_hover, fill_pressed), the shadows and the cameras' and spaces' colours are
-// left out: they are see-through or have rows of their own.
+// washes (fill_hover, fill_pressed), the shadows and the cameras' colours are left out:
+// they are see-through or have rows of their own.
 Theme_Token :: enum u8 {
 	Frame,
 	Frame_Line,
@@ -352,6 +358,15 @@ Theme_Token :: enum u8 {
 	Space_Render,
 	Wire,
 	Selection,
+	// The icons' colours in the Colour style, one per kind of icon.
+	Icon_App,
+	Icon_Sculpt,
+	Icon_Mask,
+	Icon_Paint,
+	Icon_Model,
+	Icon_View,
+	Icon_Render,
+	Icon_File,
 }
 
 // Each token's word in a theme code and a settings line, which never changes once written.
@@ -385,6 +400,14 @@ THEME_TOKEN_KEYS := [Theme_Token]string {
 	.Space_Render   = "space_render",
 	.Wire           = "wire",
 	.Selection      = "selection",
+	.Icon_App       = "icon_app",
+	.Icon_Sculpt    = "icon_sculpt",
+	.Icon_Mask      = "icon_mask",
+	.Icon_Paint     = "icon_paint",
+	.Icon_Model     = "icon_model",
+	.Icon_View      = "icon_view",
+	.Icon_Render    = "icon_render",
+	.Icon_File      = "icon_file",
 }
 
 // What each token colours, as Every colour lists it.
@@ -418,6 +441,14 @@ THEME_TOKEN_NAMES := [Theme_Token]string {
 	.Space_Render   = "Render space",
 	.Wire           = "Wireframe",
 	.Selection      = "Model mode's selected faces",
+	.Icon_App       = "Icons: app and editing",
+	.Icon_Sculpt    = "Icons: sculpting",
+	.Icon_Mask      = "Icons: masking",
+	.Icon_Paint     = "Icons: painting and UVs",
+	.Icon_Model     = "Icons: modelling",
+	.Icon_View      = "Icons: the view",
+	.Icon_Render    = "Icons: rendering and light",
+	.Icon_File      = "Icons: files",
 }
 
 // The colours set by hand: those in `set`, each its value in `colors`, opaque.
@@ -456,6 +487,14 @@ theme_token :: proc(t: ^Theme, token: Theme_Token) -> ^Color {
 	case .Space_Render:   return &t.tints[2]
 	case .Wire:           return &t.wire
 	case .Selection:      return &t.selection
+	case .Icon_App:       return &t.icons[.App]
+	case .Icon_Sculpt:    return &t.icons[.Sculpt]
+	case .Icon_Mask:      return &t.icons[.Mask]
+	case .Icon_Paint:     return &t.icons[.Paint]
+	case .Icon_Model:     return &t.icons[.Model]
+	case .Icon_View:      return &t.icons[.View]
+	case .Icon_Render:    return &t.icons[.Render]
+	case .Icon_File:      return &t.icons[.File]
 	}
 	return &t.frame
 }

@@ -3,8 +3,8 @@ package ui
 // Written by scripts/icons_build.py from assets/icons/manifest.txt: edit that and run the
 // script. One name per meaning, each its own drawing in the icon fonts (text.odin).
 
-ICONS_SOURCE_HASH :: "d948e3eb7c52b4e21391730eab7a17214a17f58fb03d6100cd1504b27440bd1f"
-ICONS_FONTS_HASH :: "5d9ef19ed9ae87f71eb0498a7c581bcc6bec049c653c3100c93ba591bb52e61b"
+ICONS_SOURCE_HASH :: "11362bf01fafdbe62ed63a36afe1cc15dd713972a40af769f0db847479041ac1"
+ICONS_FONTS_HASH :: "9a85c9a9331de51b60a5aa8abd65f31c5ec8592063f786ee9a1eb5533a2a3b2f"
 
 // What an icon works on, which colours it in the Colour icon style.
 Icon_Group :: enum u8 {

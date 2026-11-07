@@ -15,6 +15,7 @@ Settings_Block :: enum u8 {
 	// Interface.
 	Look,
 	Size,
+	Icons,
 	Clean_Dial,
 	Hands,
 	Top_Bar,
@@ -87,6 +88,7 @@ SETTINGS_KEYS := [?]Settings_Entry{{.Keys, ""}}
 SETTINGS_BLOCK_WORDS := [Settings_Block]string {
 	.Look             = "look theme themes colour color lens studio graphite paper midnight high contrast accent dark light match device night day tint opacity corners black oled shadow shadows panel",
 	.Size             = "size interface scale bigger text touch targets zoom smaller",
+	.Icons            = "icons icon colour color coloured duotone mono monochrome weight bold regular lines",
 	.Clean_Dial       = "clean view keeps dial shelf focus mode tab four-finger hide interface",
 	.Hands            = "left-handed right-handed hand mirror screen layout",
 	.Top_Bar          = "top bar search field icon docks command palette file spaces object centred",
@@ -192,6 +194,16 @@ settings_block :: proc(app: ^App, b: Settings_Block) {
 		if picked := ui.select(ctx, "Interface size", names[:], chosen); picked >= 0 do k.ui_scale = UI_SCALES[picked]
 		ui.paragraph(ctx, "How big panels, text and touch targets are, on top of the size the screen asks for.")
 		if k.ui_scale < 1 do ui.paragraph(ctx, "Below 100% the buttons are smaller than a fingertip: best with a mouse or a pen.", color = t.warning)
+	case .Icons:
+		styles := [len(ui.Icon_Style)]string{"Colour", "Duotone", "Mono"}
+		if picked := ui.tabs(ctx, "Icons", styles[:], int(ctx.icon_style)); picked >= 0 do ctx.icon_style = ui.Icon_Style(picked)
+		switch ctx.icon_style {
+		case .Colour:  ui.paragraph(ctx, "A soft shape under each icon's lines takes the colour of what it works on: orange for sculpting, blue for masking, pink for painting, green for modelling, violet for the view, yellow for rendering, cyan for files and grey for the app. The colours are under Look, Every colour.")
+		case .Duotone: ui.paragraph(ctx, "A faint shape in the icon's own colour under its lines.")
+		case .Mono:    ui.paragraph(ctx, "Lines alone, in one colour.")
+		}
+		weights := [len(ui.Icon_Weight)]string{"Regular", "Bold"}
+		if picked := ui.tabs(ctx, "Icon lines", weights[:], int(ctx.icon_weight)); picked >= 0 do ctx.icon_weight = ui.Icon_Weight(picked)
 	case .Clean_Dial:
 		keeps := [len(Clean_Keep)]string{"Nothing", "The dial", "Shelf and dial"}
 		if picked := ui.tabs(ctx, "Clean view keeps", keeps[:], int(k.clean_keep)); picked >= 0 do k.clean_keep = Clean_Keep(picked)
@@ -502,6 +514,7 @@ settings_block_reset :: proc(app: ^App, b: Settings_Block) {
 	switch b {
 	case .Look:            themes_reset(k)
 	case .Size:            k.ui_scale = 1
+	case .Icons:           k.ctx.icon_style, k.ctx.icon_weight = .Colour, .Regular
 	case .Clean_Dial:      k.clean_keep = .Dial
 	case .Hands:           k.ctx.mirror = false
 	case .Top_Bar:
