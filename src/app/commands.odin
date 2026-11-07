@@ -38,6 +38,8 @@ Command_Id :: enum u16 {
 	Export_Sheet, // lens_export.odin
 	Screenshot,
 	Screenshot_Transparent,
+	Render_Picture,
+	Render_Picture_Stop,
 	Show_References,
 	Record_Turntable,
 	Send_To_Blender,
@@ -535,6 +537,20 @@ COMMANDS := [Command_Id]Command {
 		help = "Saves the window as a PNG image.",
 		icon = ui.ICON_SCREENSHOT,
 		run = proc(app: ^App, _: int) {file_dialog(app, .Screenshot)},
+	},
+	.Render_Picture = {
+		label = "Render image...",
+		help = "Renders the view at a size of its own, up to 8192 pixels a side, in Full render or Fast, and saves it as a PNG once its samples are in, with its passes beside it if asked: the Export sheet's Picture > Render sets how.",
+		icon = ui.ICON_RENDER,
+		run = proc(app: ^App, _: int) {file_dialog(app, .Render_Image)},
+		enabled = proc(app: ^App, _: int) -> bool {return !app.render_image.on},
+	},
+	.Render_Picture_Stop = {
+		label = "Stop rendering",
+		help = "Stops the picture Render image is making, writing nothing.",
+		icon = ui.ICON_STOP,
+		run = proc(app: ^App, _: int) {render_image_stop(app)},
+		enabled = proc(app: ^App, _: int) -> bool {return app.render_image.on},
 	},
 	.Screenshot_Transparent = {
 		label = "Screenshots without background",

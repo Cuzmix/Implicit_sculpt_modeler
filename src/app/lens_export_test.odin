@@ -108,7 +108,7 @@ export_presets_remember_their_format :: proc(t: ^testing.T) {
 	export_preset_pick(&s, .Game)
 	testing.expect_value(t, s.format, Export_Format.GLTF)
 	export_preset_pick(&s, .Picture)
-	testing.expect_value(t, s.format, Export_Format.Screenshot)
+	testing.expect_value(t, s.format, Export_Format.Render)
 	export_preset_pick(&s, .Print)
 	testing.expect_value(t, s.format, Export_Format.Print_OBJ)
 	testing.expect_value(t, export_last_label(.Game, .GLTF), "Last time: glTF for the game engine")
@@ -220,4 +220,28 @@ export_hollows_a_print :: proc(t: ^testing.T) {
 	testing.expect(t, print_export_many(&app, objs[:], three, {hollow = 2}), "the 3MF was not written")
 	testing.expect(t, app.export_hollowed > 0, "the 3MF's objects got no inside wall")
 	free_all(context.temp_allocator)
+}
+
+// Render image's sizes: the view's own pixels or twice them, or a fixed size, each held to
+// the largest picture; the samples are the Render card's for the quality; nothing renders
+// until asked.
+@(test)
+render_image_sizes_follow_the_view :: proc(t: ^testing.T) {
+	app: App
+	app.target.width, app.target.height = 1600, 900
+	w, h := render_image_dims(&app, .View)
+	testing.expect(t, w == 1600 && h == 900)
+	w, h = render_image_dims(&app, .View_2x)
+	testing.expect(t, w == 3200 && h == 1800)
+	w, h = render_image_dims(&app, .UHD)
+	testing.expect(t, w == 3840 && h == 2160)
+	app.target.width = 6000
+	w, _ = render_image_dims(&app, .View_2x)
+	testing.expect_value(t, w, RENDER_IMAGE_MAX)
+	app.render_samples, app.studio_samples = 300, 40
+	testing.expect_value(t, render_image_samples(&app, false), 300)
+	testing.expect_value(t, render_image_samples(&app, true), 40)
+	_, _, on := render_image_progress(&app)
+	testing.expect(t, !on)
+	testing.expect_value(t, export_command(.Render), Command_Id.Render_Picture)
 }
