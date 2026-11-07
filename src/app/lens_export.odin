@@ -36,6 +36,7 @@ Export_Format :: enum u8 {
 	Print_3MF,
 	Send, // the scene to another device over Wi-Fi (send_ui.odin)
 	Render, // the view rendered at a size of its own (render_image.odin)
+	FBX,
 }
 
 @(rodata)
@@ -54,6 +55,7 @@ EXPORT_FORMAT_NAMES := [Export_Format]string {
 	.Print_3MF  = "3D print 3MF",
 	.Send       = "Send over Wi-Fi",
 	.Render     = "Render image",
+	.FBX        = "FBX",
 }
 
 // What each format makes.
@@ -73,6 +75,7 @@ EXPORT_FORMAT_DETAIL := [Export_Format]string {
 	.Print_3MF  = ".3mf, sized",
 	.Send       = ".sculpt, sent",
 	.Render     = ".png",
+	.FBX        = ".fbx",
 }
 
 // Each format's name on its preset's format tabs, where the preset says the rest.
@@ -92,6 +95,7 @@ EXPORT_FORMAT_TABS := [Export_Format]string {
 	.Print_3MF  = "3MF",
 	.Send       = "Wi-Fi",
 	.Render     = "Render",
+	.FBX        = "FBX",
 }
 
 // What a file is for, the sheet's first choice.
@@ -120,12 +124,12 @@ EXPORT_PRESET_NAMES := [Export_Preset]string {
 @(rodata)
 EXPORT_PRESET_DETAIL := [Export_Preset]string {
 	.Print     = "STL, OBJ or 3MF, sized in millimetres",
-	.Game      = "glTF with its maps and shape keys",
+	.Game      = "glTF or FBX, with shape keys",
 	.Blender   = "The live link, or USD with layers and lights" when LINK_AVAILABLE else "USD with layers and lights",
 	.Turntable = "Once round, as frames and a loop",
 	.Picture   = "The view rendered at any size, or a screenshot",
 	.Send      = "The scene, over Wi-Fi",
-	.Formats   = "Scene, OBJ, PLY, STL, glTF, USD",
+	.Formats   = "Scene, OBJ, PLY, STL, glTF, USD, FBX",
 }
 
 @(rodata)
@@ -144,7 +148,7 @@ EXPORT_PRESET_ICONS := [Export_Preset]rune {
 @(private = "file", rodata)
 EXPORT_PRINT_FORMATS := [?]Export_Format{.Print, .Print_OBJ, .Print_3MF}
 @(private = "file", rodata)
-EXPORT_GAME_FORMATS := [?]Export_Format{.GLTF, .OBJ}
+EXPORT_GAME_FORMATS := [?]Export_Format{.GLTF, .FBX, .OBJ}
 @(private = "file", rodata)
 EXPORT_BLENDER_FORMATS := [?]Export_Format{.Link, .USD}
 @(private = "file", rodata)
@@ -154,7 +158,7 @@ EXPORT_PICTURE_FORMATS := [?]Export_Format{.Render, .Screenshot}
 @(private = "file", rodata)
 EXPORT_SEND_FORMATS := [?]Export_Format{.Send}
 @(private = "file", rodata)
-EXPORT_ANY_FORMATS := [?]Export_Format{.Scene, .OBJ, .PLY, .STL, .GLTF, .USD}
+EXPORT_ANY_FORMATS := [?]Export_Format{.Scene, .OBJ, .PLY, .STL, .GLTF, .USD, .FBX}
 
 export_preset_formats :: proc(p: Export_Preset) -> []Export_Format {
 	switch p {
@@ -253,7 +257,7 @@ export_last_label :: proc(p: Export_Preset, f: Export_Format) -> string {
 export_command :: proc(f: Export_Format, copy := false) -> Command_Id {
 	switch f {
 	case .Scene:                           return .Save_Scene_Copy if copy else .Save_Scene_As
-	case .OBJ, .PLY, .STL, .GLTF, .USD:    return .Export_Mesh
+	case .OBJ, .PLY, .STL, .GLTF, .USD, .FBX: return .Export_Mesh
 	case .Screenshot:                      return .Screenshot
 	case .Turntable:                       return .Record_Turntable
 	case .Print, .Print_OBJ, .Print_3MF:   return .Export_Print
@@ -282,6 +286,7 @@ export_filter :: proc(f: Export_Format) -> (Export_Filter, bool) {
 	case .STL:  return .STL, true
 	case .GLTF: return .GLTF, true
 	case .USD:  return .USD, true
+	case .FBX:  return .FBX, true
 	}
 	return {}, false
 }
@@ -314,6 +319,7 @@ export_object_bytes :: proc(app: ^App, obj: ^Object, f: Export_Format) -> int {
 	case .STL, .Print:     return 84 + 50 * t
 	case .GLTF:            return 1024 + 24 * v + 12 * t
 	case .USD:             return 40 * v + 30 * t
+	case .FBX:             return 1024 + 48 * v + 16 * t
 	case .Print_3MF:       return 1024 + 52 * v + 46 * t
 	}
 	return 0
@@ -418,7 +424,7 @@ export_file_name :: proc(app: ^App, f: Export_Format) -> string {
 	case .Turntable:  return "a folder of frames"
 	case .Link:       return "Blender link folder"
 	case .Send:       suffix = ".sculpt"
-	case .Scene, .OBJ, .PLY, .STL, .GLTF, .USD, .Screenshot, .Render:
+	case .Scene, .OBJ, .PLY, .STL, .GLTF, .USD, .FBX, .Screenshot, .Render:
 	}
 	stem := "Untitled"
 	if app.scene_path != "" do stem = filepath.stem(app.scene_path)
@@ -672,7 +678,7 @@ export_preview_lines :: proc(app: ^App, f: Export_Format) -> []string {
 			wall, least := export_hollow_wall(&app.kit.export), print_wall_least(app)
 			append(&lines, fmt.tprintf("Hollow inside a %s mm wall", print_number(wall)) if wall >= least else fmt.tprintf("Hollow inside a %s mm wall, under the %s mm least", print_number(wall), print_number(least)))
 		}
-	case .OBJ, .PLY, .STL, .GLTF, .USD:
+	case .OBJ, .PLY, .STL, .GLTF, .USD, .FBX:
 		if obj == nil {
 			append(&lines, "Nothing selected")
 			break
@@ -704,7 +710,7 @@ export_options :: proc(app: ^App, f: Export_Format) {
 		ways := [2]string{"Save as", "Save a copy"}
 		if picked := ui.tabs(ctx, "Scene export", ways[:], int(k.export.copy)); picked >= 0 do k.export.copy = picked == 1
 		ui.paragraph(ctx, "Save a copy writes the scene to another file and keeps working in this one; Save as makes the new file the scene's own. Either keeps everything: objects, levels, layers, masks, materials, lights and the camera.")
-	case .OBJ, .PLY, .STL, .GLTF, .USD:
+	case .OBJ, .PLY, .STL, .GLTF, .USD, .FBX:
 		if obj == nil {
 			ui.paragraph(ctx, "Select an object to export.")
 			return
@@ -720,6 +726,7 @@ export_options :: proc(app: ^App, f: Export_Format) {
 		case .STL:  ui.paragraph(ctx, "Triangles alone, as slicers read them. For a print at its real size, 3D print sets it in millimetres.")
 		case .GLTF: ui.paragraph(ctx, "Binary glTF, as Unity, Unreal and Godot read it: the object's layers as shape keys, its materials and its maps.")
 		case .USD:  ui.paragraph(ctx, "USD text, with the object's layers as blend shapes and the scene's lights.")
+		case .FBX:  ui.paragraph(ctx, "Binary FBX, as Maya, 3ds Max, Unity and Unreal read it: the object's layers as blend shapes, its materials, its polypaint as vertex colours and a retopologized base level as its quads and UVs.")
 		case .OBJ:  ui.paragraph(ctx, "The object's shown level, placed as it is in the scene, with its polypaint as vertex colours; a retopologized base level goes as its quads and UVs.")
 		case:       ui.paragraph(ctx, "The object's shown level, placed as it is in the scene, with its polypaint as vertex colours.")
 		}

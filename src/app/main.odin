@@ -103,7 +103,7 @@ Options :: struct {
 	gpubench_frames: int `usage:"Measured frames per --gpubench case (default 120, at most 240)."`,
 	open:      string `usage:"Start with the scene saved in this .sculpt file instead of spheres, as Menu > Open scene... does."`,
 	import_mesh: string `args:"name=import" usage:"Start with the mesh in this .obj, .ply, .stl, .glb, .gltf, .usd, .usda, .usdc, .usdz or .fbx file instead of spheres (after any --open), as Menu > Import mesh... does."`,
-	export:    string `usage:"On exit, write the selected object's shown level to this .obj, .ply, .stl, .glb or .usda file, as Menu > Export mesh... does."`,
+	export:    string `usage:"On exit, write the selected object's shown level to this .obj, .ply, .stl, .glb, .usda or .fbx file, as Menu > Export mesh... does."`,
 	export_print: string `usage:"On exit, write the selected objects to this .stl, .obj or .3mf file at their print size, as the Export sheet's 3D print does."`,
 	save:      string `usage:"On exit, save the scene to this .sculpt file, as Menu > Save scene does."`,
 	autosave:  f32 `usage:"Autosave every this many seconds once the scene changed and the app rested, as Settings > System > Autosave does every few minutes; scripted runs only autosave with this or --autosave-folder."`,
