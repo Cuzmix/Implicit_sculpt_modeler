@@ -49,6 +49,7 @@ BRUSHES := [sculpt.Brush_Kind]Brush_Info {
 	.Trim_Dynamic = {"Trim dynamic", "Cuts a ridge into two flat planes about the stroke, at\nthe angle it finds, for hard edges (Ctrl: a valley).", ui.ICON_BRUSH_TRIM, 0.5, {}},
 	.Rotate       = {"Rotate", "Turns what is under the press about it as the pointer\ngoes round it: the middle turns most, the rim not at all.", ui.ICON_BRUSH_ROTATE, 0.5, {.Grab}},
 	.Thumb        = {"Thumb", "Smears the surface along the stroke and presses it\nflat, as a thumb pushes clay (Ctrl: pushes it back).", ui.ICON_BRUSH_THUMB, 0.5, {}},
+	.Pose         = {"Pose", "Bends what the press reaches about a joint a radius along\nthe surface, as a finger at its root: drag to swing it.", ui.ICON_BRUSH_POSE, 0.5, {.Grab}},
 }
 
 brush_by_name :: proc(name: string) -> (sculpt.Brush_Kind, bool) {
