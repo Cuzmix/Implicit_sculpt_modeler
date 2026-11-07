@@ -82,3 +82,58 @@ thumb_smears_along_the_stroke :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, slice.equal(result[0], result[1]), "parallel thumb differs from serial")
 }
+
+// Pose bends what the press reaches along the surface about a joint a radius away: on a
+// ball pressed at its top with a radius of 0.8, the cap turns about the middle of the
+// ring 0.8 down the surface, keeping its shape (each held vertex keeps its distance from
+// the joint), and the far side stays. Edge paths run a little longer than the arc, so
+// the ring sits a little nearer the press.
+@(test)
+pose_bends_about_its_joint :: proc(t: ^testing.T) {
+	m: geom.Mesh
+	s: Sculptor
+	before := ball(&s, &m)
+	defer {sculptor_destroy(&s); geom.mesh_destroy(&m)}
+	top := Vec3{0, 0, 1}
+	sculptor_stroke_begin(&s)
+	held := sculptor_grab_begin(&s, {kind = .Pose, radius = 0.8, strength = 0.5}, top)
+	testing.expect(t, held > 0, "pose held nothing")
+	pivot := s.grab.pivots[0]
+	testing.expectf(t, abs(pivot.x) < 0.02 && abs(pivot.y) < 0.02 && abs(pivot.z - math.cos(f32(0.8))) < 0.06, "the joint is at %v", pivot)
+	_ = sculptor_grab_move(&s, {0.4, 0, 0})
+	sculptor_grab_end(&s)
+	testing.expect(t, sculptor_stroke_end(&s), "the pose was not an undo step")
+	tip := nearest_to(before, top)
+	moved := m.positions[tip] - before[tip]
+	testing.expectf(t, moved.x > 0.1 && moved.z < 0, "the tip moved %v", moved)
+	testing.expectf(t, abs(linalg.length(m.positions[tip] - pivot) - linalg.length(before[tip] - pivot)) < 1e-3, "the tip did not keep its distance from the joint")
+	for q, i in m.positions do if before[i].z < 0 do testing.expect_value(t, q, before[i])
+	testing.expect(t, sculptor_undo(&s))
+	testing.expect(t, slice.equal(m.positions[:], before), "undo left the pose")
+}
+
+// On a finger-like ellipsoid three times as tall as wide, Pose pressed on the tip with a
+// radius of half its height swings the tip sideways about a joint halfway down, keeping
+// the tip's length from the joint, and leaves the lower half where it was.
+@(test)
+pose_swings_a_finger :: proc(t: ^testing.T) {
+	m := geom.icosphere(5)
+	for &p in m.positions do p.z *= 3
+	geom.mesh_recompute_normals(&m)
+	s: Sculptor
+	sculptor_init(&s, &m, nil, 64)
+	defer {sculptor_destroy(&s); geom.mesh_destroy(&m)}
+	before := slice.clone(m.positions[:], context.temp_allocator)
+	tip := Vec3{0, 0, 3}
+	sculptor_stroke_begin(&s)
+	_ = sculptor_grab_begin(&s, {kind = .Pose, radius = 3, strength = 0.5}, tip)
+	pivot := s.grab.pivots[0]
+	testing.expectf(t, abs(pivot.x) < 0.05 && pivot.z > -0.3 && pivot.z < 0.6, "the joint is at %v", pivot)
+	_ = sculptor_grab_move(&s, {1, 0, 0})
+	sculptor_grab_end(&s)
+	_ = sculptor_stroke_end(&s)
+	at := nearest_to(before, tip)
+	testing.expectf(t, m.positions[at].x > 0.6, "the tip went to %v", m.positions[at])
+	testing.expectf(t, abs(linalg.length(m.positions[at] - pivot) - linalg.length(before[at] - pivot)) < 1e-3, "the tip did not keep its length from the joint")
+	for q, i in m.positions do if before[i].z < -1.2 do testing.expect_value(t, q, before[i])
+}
