@@ -42,7 +42,7 @@ scene_make :: proc(balls: []Ball, f: int, radius, strength: f32, pool: ^jobs.Poo
 		m := geodesic_sphere(f, pool)
 		for &p in m.positions do p *= b.radius
 		mesh_recompute_normals(&m)
-		s.surfaces[i] = {mesh = m, bvh = bvh_build_morton(m, LOOKUP_LEAF, pool), faces = vertex_faces_build(m, pool)}
+		s.surfaces[i] = {mesh = m, bvh = bvh_build_morton(m, LOOKUP_LEAF, pool), faces = vertex_faces_build(m, pool), edge = blend_surface_edge(m)}
 		blend_field_init(&s.fields[i], h, blend_band(h, radius))
 		s.instances[i] = {
 			surface = &s.surfaces[i],
@@ -62,6 +62,15 @@ scene_make :: proc(balls: []Ball, f: int, radius, strength: f32, pool: ^jobs.Poo
 		blend_field_fill(&s.fields[p.b], &s.surfaces[p.b], want_b[:], pool)
 	}
 	return s
+}
+
+// The seam's lift between any two of the scene's balls: their meshes share a frequency,
+// but the larger ball's edges are the longer.
+@(private = "file")
+scene_lift :: proc(s: ^Scene, radius: f32) -> f32 {
+	edge: f32
+	for sf in s.surfaces do edge = max(edge, sf.edge)
+	return blend_seam_lift(radius, edge)
 }
 
 @(private = "file")
@@ -233,10 +242,10 @@ blend_three_way_junction_ignores_the_order :: proc(t: ^testing.T) {
 		}
 	}
 	fmt.printfln("blend (c): moved %d, worst |G_ref| %.5f (%.3f%% of R); other order identical %v; other ids: %d vertices both move, largest difference %.2e (the lift %.2e)",
-		stats.moved, worst, 100 * worst / R, same_order, both, ids_worst, BLEND_SEAM_LIFT * R)
+		stats.moved, worst, 100 * worst / R, same_order, both, ids_worst, scene_lift(&s, R))
 	testing.expect(t, same_order, "another order gives the same bits")
 	testing.expect(t, both > stats.moved / 2, "other ids move most of the same vertices")
-	testing.expectf(t, ids_worst <= BLEND_SEAM_LIFT * R * 1.001 + 1e-6, "other ids move them alike but for the lift: %v", ids_worst)
+	testing.expectf(t, ids_worst <= scene_lift(&s, R) * 1.001 + 1e-6, "other ids move them alike but for the lift: %v", ids_worst)
 	testing.expectf(t, worst < 0.01 * R, "every shown moved vertex on the three-way union within 1%% of R: %v", worst)
 }
 
@@ -322,13 +331,13 @@ blend_seam_has_one_owner :: proc(t: ^testing.T) {
 	for m in moves[0] {
 		for k < len(moves2[0]) && moves2[0][k].vertex < m.vertex do k += 1
 		if k == len(moves2[0]) || moves2[0][k].vertex != m.vertex || abs(m.own) > 0.05 do continue
-		want := BLEND_SEAM_LIFT * R * clamp(1 - m.own / BLEND_SEAM_BAND, 0, 1)
+		want := scene_lift(&s, R) * clamp(1 - m.own / BLEND_SEAM_BAND, 0, 1)
 		got := linalg.dot(m.offset - moves2[0][k].offset, m.normal)
 		worst = max(worst, abs(got - want))
 		seam += 1
 	}
 	fmt.printfln("blend seam: owner past its cut %d; other's vertices past the bisector %d; %d owner vertices at the seam stand out by the lift within %.2e (lift %.2e)",
-		owner_past, under, seam, worst, BLEND_SEAM_LIFT * R)
+		owner_past, under, seam, worst, scene_lift(&s, R))
 	testing.expect_value(t, owner_past, 0)
 	testing.expect(t, under > 0, "the other's sheet reaches past the bisector")
 	testing.expect(t, seam > 0, "vertices at the seam")

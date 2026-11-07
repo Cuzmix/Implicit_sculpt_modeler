@@ -3,6 +3,7 @@ package render
 import "core:log"
 import "core:math"
 import "core:math/linalg"
+import "core:mem"
 
 import "../gpu"
 
@@ -85,8 +86,8 @@ blend_pages_set :: proc(r: ^Renderer, cmd: gpu.Cmd, bp: ^Blend_Pages, table: []u
 		blend_pages_destroy(bp)
 		return false
 	}
-	ok := gpu.upload(cmd, bp.table, 0, transmute([]u8)table)
-	if len(entries) > 0 do ok = ok && gpu.upload(cmd, bp.pages, 0, transmute([]u8)entries)
+	ok := gpu.upload(cmd, bp.table, 0, mem.slice_to_bytes(table))
+	if len(entries) > 0 do ok = ok && gpu.upload(cmd, bp.pages, 0, mem.slice_to_bytes(entries))
 	if !ok {
 		log.errorf("blend pages: upload failed: %s", gpu.last_error())
 		blend_pages_destroy(bp)

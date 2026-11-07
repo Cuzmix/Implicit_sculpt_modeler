@@ -46,7 +46,7 @@ surface_make :: proc(vertices: int, radius: f32, pool: ^jobs.Pool) -> geom.Blend
 	m := geom.geodesic_sphere(geom.geodesic_frequency_for(vertices), pool)
 	for &p in m.positions do p *= radius
 	geom.mesh_recompute_normals(&m)
-	return {mesh = m, bvh = geom.bvh_build_morton(m, geom.LOOKUP_LEAF, pool), faces = geom.vertex_faces_build(m, pool)}
+	return {mesh = m, bvh = geom.bvh_build_morton(m, geom.LOOKUP_LEAF, pool), faces = geom.vertex_faces_build(m, pool), edge = geom.blend_surface_edge(m)}
 }
 
 @(private = "file")
