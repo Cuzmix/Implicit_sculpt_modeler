@@ -35,6 +35,7 @@ MAX_NODES :: MAX_BRICKS / NODE_BRICKS
 SCALE :: 4096 // fixed-point units a voxel: a thousandth of a voxel is well below what shows
 BAND :: 3 // voxels either side of the surface that hold true distances
 CLAMP :: i16((BAND + 1) * SCALE) // values are kept within this; one voxel past the band keeps interpolation right
+CLAMP_VOXELS :: f32(BAND + 1) // the clamp in voxels
 
 // Tile codes in a chunk's brick table, where no pool index is.
 TILE_EMPTY :: max(u32)
