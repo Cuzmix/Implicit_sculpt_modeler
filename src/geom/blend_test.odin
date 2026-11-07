@@ -472,6 +472,9 @@ blend_turn_weight_is_smooth :: proc(t: ^testing.T) {
 		w := blend_turn_weight(c)
 		testing.expectf(t, w >= last && w - last < 0.02, "step %d: %v after %v", i, w, last)
 		last = w
+	}
+}
+
 // Dropping the bricks a box meets takes out those and only those, and the rest still read
 // the same distances by key.
 @(test)
