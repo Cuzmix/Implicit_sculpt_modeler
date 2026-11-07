@@ -311,8 +311,9 @@ workspaces_read_back :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	text := "workspace 1 Sculpt 0 Sculpt Brushes,Curve,Insert\n" +
 		"workspace 5 Big%20view 3 None Model\n" +
-		"workspace_base 5 hidden%20Brush_Bar%0Ashelf%20Model%0Abars%0A\n" +
-		"workspace_layout 5 hidden%20Brush_Bar%20View_Bar%0Ashelf%20Model%0Abars%0A\n" +
+		"workspace_base 5 Desktop hidden%20Brush_Bar%0Ashelf%20Model%0Abars%0A\n" +
+		"workspace_base 5 Tablet hidden%20Brush_Bar%0Ashelf%20Model%0Abars%0A\n" +
+		"workspace_layout 5 Desktop hidden%20Brush_Bar%20View_Bar%0Ashelf%20Model%0Abars%0A\n" +
 		"workspace_order 5 1\n" +
 		"workspace_current 5\n"
 	a := workspaces_from_text(t, text, path)
@@ -359,7 +360,7 @@ workspace_lines_refused_and_repaired :: proc(t: ^testing.T) {
 		"workspace 3 sculpt 1 None -\n" +
 		"workspace 4 Look 2 Render Look,Brushes\n" +
 		"workspace 6 Second 2 Render Look\n" +
-		"workspace_layout 9 hidden%20Dock%0A\n" +
+		"workspace_layout 9 Desktop hidden%20Dock%0A\n" +
 		"workspace_order 6 6 9\n" +
 		"workspace_current 9\n"
 	b := workspaces_from_text(t, fixable, path)
@@ -444,4 +445,39 @@ the_paint_brush_brings_paint :: proc(t: ^testing.T) {
 	command_run(a, .Workspace_Switch, slot_paint)
 	testing.expect_value(t, a.tool, Tool.Brush)
 	testing.expect_value(t, a.brush.kind, sculpt.Brush_Kind.Paint)
+}
+
+// Each workspace keeps a desktop and a tablet layout apart: a change made under one class is
+// not in the other, Layouts for switches between them as a workspace switch would, and both
+// round-trip through settings.
+@(test)
+desktop_and_tablet_layouts_are_kept_apart :: proc(t: ^testing.T) {
+	path := "build/workspaces_class_test.txt"
+	defer os.remove(path)
+	defer free_all(context.temp_allocator)
+	a := workspaces_app()
+	defer workspaces_app_free(a)
+	k := &a.kit
+	testing.expect_value(t, k.workspaces.class, Layout_Class.Desktop)
+	command_run(a, .Second_View, 0)
+	layouts_frame(k)
+	testing.expect(t, layout_changed(k, SLOT_SCULPT))
+	k.layouts_for = .Tablet
+	workspace_follow(a)
+	testing.expect_value(t, k.workspaces.class, Layout_Class.Tablet)
+	testing.expect(t, grid_panes(&k.grid) == 1, "the tablet layout has one view")
+	layouts_frame(k)
+	testing.expect(t, !layout_changed(k, SLOT_SCULPT))
+	testing.expect(t, settings_save(a, path))
+	k.layouts_for = .Desktop
+	workspace_follow(a)
+	testing.expect(t, grid_panes(&k.grid) == 2, "the desktop layout keeps its two views")
+	b := workspaces_from_text(t, string(os.read_entire_file(path, context.temp_allocator) or_else nil), "build/workspaces_class_b.txt")
+	defer os.remove("build/workspaces_class_b.txt")
+	defer workspaces_app_free(b)
+	testing.expect_value(t, b.kit.workspaces.class, Layout_Class.Tablet)
+	testing.expect(t, grid_panes(&b.kit.grid) == 1)
+	b.kit.layouts_for = .Desktop
+	workspace_follow(b)
+	testing.expect(t, grid_panes(&b.kit.grid) == 2, "the desktop layout read back")
 }

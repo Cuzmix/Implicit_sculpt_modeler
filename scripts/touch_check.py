@@ -6842,6 +6842,28 @@ def lens_pie_editor_brush_slot_chooses_in_search():
 
 
 @scenario
+def desktop_and_tablet_layouts_kept_apart():
+    """The Tool card pinned in the desktop layout is not in the tablet one (Settings > Interface > Layouts for set to Tablet), and is there again once Layouts for is back on Desktop."""
+    path = settings_file()
+    def pinned():
+        s = Script()
+        pin_tool_card(s)
+        s.wait(10)
+        return s, [f"--settings-file={path}"], camera_still({"dabs": near(0), "layout_class": is_text("desktop"), "layout_modified": near(1)})
+    def tablet():
+        s = Script()
+        s.wait(10)
+        return s, [f"--settings-file={path}", "--script=set layouts_for tablet"], camera_still({"dabs": near(0), "layout_class": is_text("tablet"),
+                                                                                             "layout_modified": near(0), "cards": is_text("left:;right:")})
+    def desktop():
+        s = Script()
+        s.wait(10)
+        return s, [f"--settings-file={path}", "--script=set layouts_for desktop"], camera_still({"dabs": near(0), "layout_class": is_text("desktop"),
+                                                                                              "layout_modified": near(1)})
+    return Steps([pinned(), tablet(), desktop()])
+
+
+@scenario
 def each_workspace_keeps_its_layout_in_settings():
     """Model's layout with the Tool card pinned, then Render in front: the settings keep Model's layout and Render as current, and a fresh run with them starts in Render, holding the Look tool, with Model marked."""
     path = settings_file()

@@ -50,10 +50,12 @@ layout_text_set :: proc(s: ^string, text: string) {
 	s^ = strings.clone(text) if text != "" else ""
 }
 
-// Workspace `slot`'s base: its starter's layout as it ships, or the one it was made from.
-workspace_base :: proc(k: ^Kit_State, slot: int) -> string {
+// Workspace `slot`'s base for class `class` (the class in place when not given): its
+// starter's layout as it ships, the same for both classes, or the one it was made from.
+workspace_base :: proc(k: ^Kit_State, slot: int, class: Maybe(Layout_Class) = nil) -> string {
 	w := &k.workspaces.list[slot]
-	return w.base if w.starter == .None else k.layouts.shipped[w.starter]
+	c := class.? or_else k.workspaces.class
+	return w.base[c] if w.starter == .None else k.layouts.shipped[w.starter]
 }
 
 // Once a frame: whether the current workspace's layout differs from its base.
@@ -66,7 +68,7 @@ layouts_frame :: proc(k: ^Kit_State) {
 // Whether workspace `slot`'s layout differs from its base: the current one's as of this
 // frame, another's as it was left.
 layout_changed :: proc(k: ^Kit_State, slot: int) -> bool {
-	return k.layouts.modified if slot == k.workspaces.current else k.workspaces.list[slot].kept != ""
+	return k.layouts.modified if slot == k.workspaces.current else k.workspaces.list[slot].kept[k.workspaces.class] != ""
 }
 
 // Keeps the layout in place as workspace `from`'s and puts workspace `to`'s in its place.
@@ -74,10 +76,28 @@ layout_switch :: proc(k: ^Kit_State, from, to: int) {
 	l := &k.layouts
 	if from == to || l.shipped[.Sculpt] == "" do return
 	ws := &k.workspaces
+	c := ws.class
 	now := kit_layout_text(k)
-	layout_text_set(&ws.list[from].kept, now if now != workspace_base(k, from) else "")
-	kit_layout_put(k, ws.list[to].kept if ws.list[to].kept != "" else workspace_base(k, to))
-	layout_text_set(&ws.list[to].kept, "")
+	layout_text_set(&ws.list[from].kept[c], now if now != workspace_base(k, from) else "")
+	kit_layout_put(k, ws.list[to].kept[c] if ws.list[to].kept[c] != "" else workspace_base(k, to))
+	layout_text_set(&ws.list[to].kept[c], "")
+}
+
+// Keeps the layout in place as the current workspace's for the class it was for, and puts
+// its layout for class `to` in place, as a window moved to another kind of screen would want.
+layout_class_switch :: proc(k: ^Kit_State, to: Layout_Class) {
+	ws := &k.workspaces
+	if to == ws.class do return
+	if k.layouts.shipped[.Sculpt] == "" {
+		ws.class = to
+		return
+	}
+	w := workspace_now(k)
+	now := kit_layout_text(k)
+	layout_text_set(&w.kept[ws.class], now if now != workspace_base(k, ws.current) else "")
+	ws.class = to
+	kit_layout_put(k, w.kept[to] if w.kept[to] != "" else workspace_base(k, ws.current))
+	layout_text_set(&w.kept[to], "")
 }
 
 // Puts the current workspace's layout back as its base.
@@ -222,9 +242,9 @@ layouts_forget_page :: proc(k: ^Kit_State, p: Shelf_Page) {
 		}
 		layout_text_set(text, strings.to_string(out))
 	}
-	for &w in k.workspaces.list {
-		forget(&w.kept, word)
-		forget(&w.base, word)
+	for &w in k.workspaces.list do for c in Layout_Class {
+		forget(&w.kept[c], word)
+		forget(&w.base[c], word)
 	}
 }
 

@@ -363,6 +363,7 @@ SETTINGS := [?]Setting {
 	{"new_panes", K + offset_of(Kit_State, new_panes), New_Panes, 0, 0},
 	{"action_bar", K + offset_of(Kit_State, action_bar), bool, 0, 0},
 	{"modifier_rail", K + offset_of(Kit_State, rail_side), Rail_Side, 0, 0},
+	{"layouts_for", K + offset_of(Kit_State, layouts_for), Layouts_For, 0, 0},
 	{"wheel_size", K + offset_of(Kit_State, wheel_size), Wheel_Size, 0, 0},
 	{"wheel_labels", K + offset_of(Kit_State, wheel_labels), Wheel_Labels, 0, 0},
 	{"wheel_turn", K + offset_of(Kit_State, wheel_turn), f32, -180, 180},

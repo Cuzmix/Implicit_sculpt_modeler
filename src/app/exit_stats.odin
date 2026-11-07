@@ -580,7 +580,7 @@ exit_stats_print :: proc(app: ^App, opts: Options, loop: ^Frame_Loop, exit_code:
 			// whose children lie over each other or spill out of a fixed size.
 			lo := k.ctx.overlap_prev
 			fmt.printfln("layout_overlaps=%d layout_overlap_at=%.0f,%.0f,%.0f,%.0f", k.ctx.overlaps_prev, lo.x, lo.y, lo.w, lo.h)
-			fmt.printfln("workspace=%s workspace_slot=%d workspaces=%d workspace_switches=%d focus_mode=%d inspect_mode=%d object_chip=%s readout=%d readout_at=%.0f,%.0f readout_menus=%d readout_memory_mb=%.0f", stat_word(workspace_now(k).name), k.workspaces.current + 1, len(workspace_tabs(k)), k.workspaces.switches, int(k.focus_mode), int(k.inspect.on), object_chip_stat(app), int(k.readout.shown), k.readout.at.x, k.readout.at.y, k.readout.menus, f64(k.readout.memory) / (1 << 20))
+			fmt.printfln("workspace=%s workspace_slot=%d workspaces=%d workspace_switches=%d layout_class=%s focus_mode=%d inspect_mode=%d object_chip=%s readout=%d readout_at=%.0f,%.0f readout_menus=%d readout_memory_mb=%.0f", stat_word(workspace_now(k).name), k.workspaces.current + 1, len(workspace_tabs(k)), k.workspaces.switches, stat_word(fmt.tprint(k.workspaces.class)), int(k.focus_mode), int(k.inspect.on), object_chip_stat(app), int(k.readout.shown), k.readout.at.x, k.readout.at.y, k.readout.menus, f64(k.readout.memory) / (1 << 20))
 			// The second line of the top bar's file block.
 			fmt.printfln("file_status=%s clean_view=%d panels_faded=%d camera_shift=%.3f,%.3f", preset_escape(file_status(app, time.now())), int(k.clean), k.panels_faded, app.camera.shift.x, app.camera.shift.y)
 			// The chrome round the view: the view rail's slots, the main camera's projection,

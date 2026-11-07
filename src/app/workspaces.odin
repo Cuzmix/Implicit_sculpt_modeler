@@ -90,14 +90,38 @@ Workspace_Tool :: struct {
 	action: Model_Action,
 }
 
+// Which layouts a workspace shows: its desktop one, or its tablet one, kept apart so a desk
+// with a mouse and a tablet under a palm each keep the docks that suit them.
+Layout_Class :: enum u8 {
+	Desktop,
+	Tablet,
+}
+
+// How the class is chosen: by the device (an iPad or an Android tablet is Tablet), or set.
+Layouts_For :: enum u8 {
+	Automatic,
+	Desktop,
+	Tablet,
+}
+
+// The class the layouts in place are for, by Settings > Interface > Layouts for.
+layout_class :: proc(k: ^Kit_State) -> Layout_Class {
+	switch k.layouts_for {
+	case .Desktop: return .Desktop
+	case .Tablet:  return .Tablet
+	case .Automatic:
+	}
+	return .Tablet when MOBILE else .Desktop
+}
+
 // One workspace; a slot whose name is empty is free.
 Workspace :: struct {
 	name:    string, // heap
 	tint:    u8, // its dot's colour, an index into Theme.tints
 	starter: Starter,
 	ties:    bit_set[Tie],
-	kept:    string, // heap: its layout as last left, "" while it is its base
-	base:    string, // heap, for one made by the person: what Reset layout puts back
+	kept:    [Layout_Class]string, // heap: its layout for each class as last left, "" while it is its base
+	base:    [Layout_Class]string, // heap, for one made by the person: what Reset layout puts back
 	tool:    Workspace_Tool,
 	page:    Shelf_Page, // the shelf's page it was left on (a page turn changes no layout)
 }
@@ -106,6 +130,7 @@ Workspaces :: struct {
 	list:     [WORKSPACE_SLOTS]Workspace,
 	order:    [WORKSPACE_SLOTS]i8, // slots in tab order, -1 after the last
 	current:  int, // the slot in front
+	class:    Layout_Class, // the class of the layout in place
 	// The tie of the tool in hand as of the last frame (Move, Mask and Smooth leave it), and
 	// whether the first frame has run.
 	seen:     Tie,
@@ -128,6 +153,7 @@ workspaces_init :: proc(k: ^Kit_State) {
 	}
 	for slot, place in ([]i8{0, 1, 3, 2}) do ws.order[place] = slot
 	ws.current = 0
+	ws.class = layout_class(k)
 }
 
 // Frees every workspace and leaves none.
@@ -135,8 +161,10 @@ workspaces_clear :: proc(k: ^Kit_State) {
 	ws := &k.workspaces
 	for &w in ws.list {
 		delete(w.name)
-		delete(w.kept)
-		delete(w.base)
+		for c in Layout_Class {
+			delete(w.kept[c])
+			delete(w.base[c])
+		}
 		w = {}
 	}
 	for &o in ws.order do o = -1
@@ -290,6 +318,7 @@ workspace_switch :: proc(app: ^App, slot: int, restore := true) {
 // brushes. Nothing switches while a stroke is going on (a curve brush's path starts one).
 workspace_follow :: proc(app: ^App) {
 	ws := &app.kit.workspaces
+	if c := layout_class(&app.kit); c != ws.class do layout_class_switch(&app.kit, c)
 	if !ws.set {
 		ws.set = true
 		workspace_tool_put(app, ws.current)
@@ -393,8 +422,8 @@ workspace_tabs_width :: proc(app: ^App) -> f32 {
 
 // The settings lines of the workspaces:
 //   workspace <slot from 1> <name> <tint> <starter> <ties joined by commas, or ->
-//   workspace_layout <slot> <layout>   its layout, where it differs from its base
-//   workspace_base <slot> <layout>     a workspace of the person's own: its base
+//   workspace_layout <slot> <class> <layout>   its layout for a class, where it differs from its base
+//   workspace_base <slot> <class> <layout>     a workspace of the person's own: its base
 //   workspace_order <slot> ...
 //   workspace_current <slot>
 // with names and layouts escaped.
@@ -406,9 +435,11 @@ workspaces_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 		ties := strings.builder_make(context.temp_allocator)
 		for t in Tie do if t in w.ties do fmt.sbprintf(&ties, "%s%v", "," if strings.builder_len(ties) > 0 else "", t)
 		fmt.sbprintfln(out, "workspace %d %s %d %v %s", slot + 1, preset_escape(w.name), w.tint, w.starter, strings.to_string(ties) if strings.builder_len(ties) > 0 else "-")
-		text := kit_layout_text(k) if slot == ws.current else w.kept
-		if text != "" && text != workspace_base(k, slot) do fmt.sbprintfln(out, "workspace_layout %d %s", slot + 1, preset_escape(text))
-		if w.starter == .None do fmt.sbprintfln(out, "workspace_base %d %s", slot + 1, preset_escape(w.base))
+		for c in Layout_Class {
+			text := kit_layout_text(k) if slot == ws.current && c == ws.class else w.kept[c]
+			if text != "" && text != workspace_base(k, slot, c) do fmt.sbprintfln(out, "workspace_layout %d %v %s", slot + 1, c, preset_escape(text))
+			if w.starter == .None do fmt.sbprintfln(out, "workspace_base %d %v %s", slot + 1, c, preset_escape(w.base[c]))
+		}
 	}
 	strings.write_string(out, "workspace_order")
 	for slot in workspace_tabs(k) do fmt.sbprintf(out, " %d", slot + 1)
@@ -466,13 +497,17 @@ workspaces_load_line :: proc(k: ^Kit_State, r: ^Workspaces_Read, f: []string) {
 		w.tint, w.starter, w.ties = u8(tint), starter, ties
 		w.page = shelf_first_page(starter)
 	case "workspace_layout", "workspace_base":
-		if len(f) != 3 do return
+		if len(f) != 4 do return
 		slot, ok := slot_of(f[1])
 		if !ok || !workspace_used(k, slot) do return
+		class: Layout_Class
+		known := false
+		for c in Layout_Class do if strings.equal_fold(f[2], fmt.tprint(c)) do class, known = c, true
+		if !known do return
 		w := &ws.list[slot]
-		text := &w.kept if f[0] == "workspace_layout" else &w.base
+		text := &w.kept[class] if f[0] == "workspace_layout" else &w.base[class]
 		delete(text^)
-		text^ = strings.clone(preset_unescape(f[2]))
+		text^ = strings.clone(preset_unescape(f[3]))
 	case "workspace_order":
 		clear(&r.order)
 		for word in f[1:] do if slot, ok := slot_of(word); ok do append(&r.order, slot)
@@ -511,19 +546,20 @@ workspaces_loaded :: proc(k: ^Kit_State, r: ^Workspaces_Read) {
 			n += 1
 		}
 		if n == 0 do workspaces_init(k)
-		for &w in ws.list do if w.name != "" && w.starter == .None && w.base == "" {
-			w.base = strings.clone(w.kept if w.kept != "" else k.layouts.shipped[.Sculpt])
+		for &w in ws.list do if w.name != "" && w.starter == .None {
+			for c in Layout_Class do if w.base[c] == "" do w.base[c] = strings.clone(w.kept[c] if w.kept[c] != "" else k.layouts.shipped[.Sculpt])
 		}
 	}
 	if workspace_used(k, r.current) do ws.current = r.current
 	if !workspace_used(k, ws.current) do ws.current = workspace_tabs(k)[0]
+	ws.class = layout_class(k)
 	w := workspace_now(k)
 	// Sculpt as it ships is how the interface starts, with any bar the settings named (a
 	// scenario's view rail), so it is put in place only when the workspace in front has
 	// another layout.
-	text := w.kept if w.kept != "" else workspace_base(k, ws.current)
+	text := w.kept[ws.class] if w.kept[ws.class] != "" else workspace_base(k, ws.current)
 	if text != k.layouts.shipped[.Sculpt] do kit_layout_put(k, text)
-	delete(w.kept)
-	w.kept = ""
+	delete(w.kept[ws.class])
+	w.kept[ws.class] = ""
 	k.shelf.page = w.page
 }

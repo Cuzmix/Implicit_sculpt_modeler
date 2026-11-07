@@ -207,6 +207,7 @@ Kit_State :: struct {
 	// The workspaces (workspaces.odin), and the views Focus and Inspect, which hide bars or
 	// show the form four ways without changing the layout.
 	workspaces: Workspaces,
+	layouts_for: Layouts_For, // which class of layouts shows: by the device, or set (Settings > Interface)
 	focus_mode: bool,
 	inspect:    Inspect_View,
 	passes:     Passes, // the pass the viewport shows (passes.odin)
