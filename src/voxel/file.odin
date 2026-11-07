@@ -6,14 +6,28 @@ import "core:sync"
 import "../geom"
 import "../jobs"
 
-// The clay in a scene file: a tag and a version of its own inside the object, then the
-// field chunk by chunk: each occupied chunk's coordinate, its 4096 tile codes and the
-// values of its bricks in table order, packed (pack.odin) with their masks and colours (color.odin). The surface is
-// not stored; it is meshed again on reading. Damaged bytes are refused, never asserted on:
-// every count is checked against what is left before anything is read.
+// The clay in a scene file, as a tagged record (geom/record.odin): its voxel size and
+// origin, then a field a chunk, each a record of its coordinate, its 4096 tile codes and
+// the values of its bricks in table order, packed (pack.odin), with the masks and colours
+// (color.odin) of the bricks whose codes say so in fields of their own. The surface is not
+// stored; it is meshed again on reading. Damaged bytes are refused, never asserted on.
 
-SVOX_TAG :: u32(0x584F_5653) // "SVOX" in the file
-SVOX_VERSION :: u32(4) // the only one read: a change replaces the reader (AGENTS.md)
+// Tags are never reused or retyped.
+@(private = "file")
+Clay_Tag :: enum u16 {
+	Voxel  = 1, // f32, required: a voxel's size
+	Origin = 2, // Vec3
+	Chunk  = 3, // one an occupied chunk: a Chunk_Tag record
+}
+
+@(private = "file")
+Chunk_Tag :: enum u16 {
+	Coord  = 1, // [3]u32, required
+	Codes  = 2, // u8 per tile, CHUNK_BRICKS³ of them, required
+	Bricks = 3, // each brick's values packed (pack_brick), in tile order
+	Masks  = 4, // each masked brick's mask packed (pack_mask), in tile order
+	Colors = 5, // each coloured brick's colours packed (pack_color), in tile order
+}
 
 // Tile codes in the file.
 @(private = "file")
@@ -22,7 +36,7 @@ FILE_EMPTY :: u8(0)
 FILE_INSIDE :: u8(1)
 @(private = "file")
 FILE_BRICK :: u8(2)
-// A brick's code adds these to FILE_BRICK when a mask, a colour or both follow its values.
+// A brick's code adds these to FILE_BRICK when it has a mask, a colour or both.
 @(private = "file")
 FILE_MASKED :: u8(1)
 @(private = "file")
@@ -34,11 +48,10 @@ FILE_CODE_LAST :: FILE_BRICK + FILE_MASKED + FILE_COLORED
 // autosave thread asks the writer to stop before a change): false when it was set.
 clay_write :: proc(c: ^Clay, out: ^[dynamic]u8, abort: ^bool = nil) -> bool {
 	v := &c.volume
-	geom.byte_put(out, SVOX_TAG)
-	geom.byte_put(out, SVOX_VERSION)
-	geom.byte_put(out, v.voxel)
-	geom.byte_put(out, v.origin)
-	geom.byte_put(out, u32(len(v.tables)))
+	rec := geom.record_begin(out)
+	defer geom.record_end(out, rec)
+	geom.rec_put(out, Clay_Tag.Voxel, v.voxel)
+	geom.rec_put(out, Clay_Tag.Origin, v.origin)
 	for table, t in v.tables {
 		if abort != nil && sync.atomic_load(abort) do return false
 		// The chunk's coordinate: found from the directory, which points at the table.
@@ -51,8 +64,12 @@ clay_write :: proc(c: ^Clay, out: ^[dynamic]u8, abort: ^bool = nil) -> bool {
 			break
 		}
 		assert(found, "every table is in the directory")
-		geom.byte_put(out, cc)
+		chunk := geom.rec_begin(out, Clay_Tag.Chunk)
+		geom.rec_put(out, Chunk_Tag.Coord, cc)
+		at := geom.rec_begin(out, Chunk_Tag.Codes)
 		codes := geom.byte_put_bytes(out, len(table.bricks))
+		geom.rec_end(out, at)
+		masked, colored := false, false
 		for slot, i in table.bricks {
 			switch slot {
 			case TILE_EMPTY:
@@ -60,15 +77,26 @@ clay_write :: proc(c: ^Clay, out: ^[dynamic]u8, abort: ^bool = nil) -> bool {
 			case TILE_INSIDE:
 				codes[i] = FILE_INSIDE
 			case:
-				codes[i] = FILE_BRICK + (FILE_MASKED if mask_of(v, slot) != nil else 0) + (FILE_COLORED if color_of(v, slot) != nil else 0)
+				m, b := mask_of(v, slot) != nil, color_of(v, slot) != nil
+				codes[i] = FILE_BRICK + (FILE_MASKED if m else 0) + (FILE_COLORED if b else 0)
+				masked ||= m
+				colored ||= b
 			}
 		}
-		for slot in table.bricks {
-			if slot == TILE_EMPTY || slot == TILE_INSIDE do continue
-			pack_brick(out, &v.bricks[slot])
-			if m := mask_of(v, slot); m != nil do pack_mask(out, m)
-			if b := color_of(v, slot); b != nil do pack_color(out, b)
+		at = geom.rec_begin(out, Chunk_Tag.Bricks)
+		for slot in table.bricks do if slot != TILE_EMPTY && slot != TILE_INSIDE do pack_brick(out, &v.bricks[slot])
+		geom.rec_end(out, at)
+		if masked {
+			at = geom.rec_begin(out, Chunk_Tag.Masks)
+			for slot in table.bricks do if slot != TILE_EMPTY && slot != TILE_INSIDE do if m := mask_of(v, slot); m != nil do pack_mask(out, m)
+			geom.rec_end(out, at)
 		}
+		if colored {
+			at = geom.rec_begin(out, Chunk_Tag.Colors)
+			for slot in table.bricks do if slot != TILE_EMPTY && slot != TILE_INSIDE do if b := color_of(v, slot); b != nil do pack_color(out, b)
+			geom.rec_end(out, at)
+		}
+		geom.rec_end(out, chunk)
 	}
 	return true
 }
@@ -76,17 +104,17 @@ clay_write :: proc(c: ^Clay, out: ^[dynamic]u8, abort: ^bool = nil) -> bool {
 // Reads a clay written by clay_write into `c`, which must not be initialised; false, with
 // `c` left empty, when the bytes are not a clay. Every node is queued for meshing.
 clay_read :: proc(c: ^Clay, r: ^geom.Byte_Reader, pool: ^jobs.Pool, allocator := context.allocator) -> bool {
-	if geom.byte_get(r, u32) != SVOX_TAG do return false
-	version := geom.byte_get(r, u32)
-	if version != SVOX_VERSION do return false
-	voxel := geom.byte_get(r, f32)
-	origin := geom.byte_get(r, Vec3)
-	count := int(geom.byte_get(r, u32))
-	if !r.ok || !(voxel > 0) || math.is_inf(voxel) || count > MAX_CHUNKS * MAX_CHUNKS * MAX_CHUNKS do return false
+	rec := geom.record_take(r)
+	if !rec.ok do return false
+	if known, _ := geom.record_known(&rec, Clay_Tag); !known do return false
+	voxel := geom.rec_need(&rec, Clay_Tag.Voxel, f32)
+	origin := geom.rec_get(&rec, Clay_Tag.Origin, Vec3, Vec3{})
+	count := geom.rec_count(&rec, Clay_Tag.Chunk)
+	if !rec.ok || !(voxel > 0) || math.is_inf(voxel) || count > MAX_CHUNKS * MAX_CHUNKS * MAX_CHUNKS do return false
 	for x in origin do if math.is_nan(x) || math.is_inf(x) do return false
 	clay_init(c, voxel, {}, pool, allocator)
 	c.volume.origin = origin
-	ok := clay_read_chunks(c, r, count)
+	ok := clay_read_chunks(c, &rec, count)
 	if !ok {
 		clay_destroy(c)
 		return false
@@ -98,26 +126,23 @@ clay_read :: proc(c: ^Clay, r: ^geom.Byte_Reader, pool: ^jobs.Pool, allocator :=
 }
 
 @(private = "file")
-clay_read_chunks :: proc(c: ^Clay, r: ^geom.Byte_Reader, count: int) -> bool {
+clay_read_chunks :: proc(c: ^Clay, rec: ^geom.Record, count: int) -> bool {
 	v := &c.volume
+	at := 0
 	for _ in 0 ..< count {
-		cc := geom.byte_get(r, [3]u32)
-		if !r.ok || cc.x >= MAX_CHUNKS || cc.y >= MAX_CHUNKS || cc.z >= MAX_CHUNKS do return false
+		payload, _ := geom.rec_next(rec, Clay_Tag.Chunk, &at)
+		cr := geom.record_of(payload)
+		if known, _ := geom.record_known(&cr, Chunk_Tag); !known do return false
+		cc := geom.rec_need(&cr, Chunk_Tag.Coord, [3]u32)
+		codes, _ := geom.rec_find(&cr, Chunk_Tag.Codes)
+		if !cr.ok || len(codes) != CHUNK_BRICKS * CHUNK_BRICKS * CHUNK_BRICKS || cc.x >= MAX_CHUNKS || cc.y >= MAX_CHUNKS || cc.z >= MAX_CHUNKS do return false
 		bc := [3]i32{i32(cc.x), i32(cc.y), i32(cc.z)} * CHUNK_BRICKS
 		if volume_table(v, bc) != nil do return false // listed twice
-		codes := geom.byte_get_bytes(r, CHUNK_BRICKS * CHUNK_BRICKS * CHUNK_BRICKS)
-		if codes == nil do return false
-		bricks, extras := 0, 0
-		for code in codes {
-			if code > FILE_CODE_LAST do return false
-			if code < FILE_BRICK do continue
-			bricks += 1
-			if (code - FILE_BRICK) & FILE_MASKED != 0 do extras += 1
-			if (code - FILE_BRICK) & FILE_COLORED != 0 do extras += 1
-		}
-		// A packed brick, mask or colour carries its own count and is checked as it is read.
-		left := len(r.data) - r.at
-		if left < (bricks + extras) * 2 do return false
+		for code in codes do if code > FILE_CODE_LAST do return false
+		// Packed bricks, masks and colours carry their own counts and are checked as read.
+		bricks, _ := geom.rec_reader(&cr, Chunk_Tag.Bricks)
+		masks, _ := geom.rec_reader(&cr, Chunk_Tag.Masks)
+		colors, _ := geom.rec_reader(&cr, Chunk_Tag.Colors)
 		table := volume_table_make(v, bc)
 		for code, i in codes {
 			lb := [3]i32{i32(i % CHUNK_BRICKS), i32(i / CHUNK_BRICKS % CHUNK_BRICKS), i32(i / (CHUNK_BRICKS * CHUNK_BRICKS))}
@@ -126,26 +151,28 @@ clay_read_chunks :: proc(c: ^Clay, r: ^geom.Byte_Reader, count: int) -> bool {
 				table.bricks[i] = TILE_INSIDE
 			case FILE_BRICK ..= FILE_CODE_LAST:
 				slot, brick := volume_brick_make(v, bc + lb, 0)
-				if !unpack_brick(r, brick) do return false
-				if (code - FILE_BRICK) & FILE_MASKED != 0 && !unpack_mask(r, mask_make(v, slot)) do return false
-				if (code - FILE_BRICK) & FILE_COLORED != 0 && !unpack_color(r, color_make(v, slot)) do return false
+				if !unpack_brick(&bricks, brick) do return false
+				if (code - FILE_BRICK) & FILE_MASKED != 0 && !unpack_mask(&masks, mask_make(v, slot)) do return false
+				if (code - FILE_BRICK) & FILE_COLORED != 0 && !unpack_color(&colors, color_make(v, slot)) do return false
 			}
 		}
+		// Every packed byte belongs to a brick the codes name.
+		if !bricks.ok || !masks.ok || !colors.ok || bricks.at != len(bricks.data) || masks.at != len(masks.data) || colors.at != len(colors.data) do return false
 	}
-	return r.ok
+	return true
 }
 
 // The most bytes clay_write appends (every brick, mask and colour raw), to reserve them up front.
 clay_write_estimate :: proc(c: ^Clay) -> int {
 	v := &c.volume
-	// The header: tag, version, voxel, origin and the chunk count.
+	// The record's size, voxel and origin, and per chunk its field heads, coordinate and codes.
 	masked, colored := 0, 0
 	for coord, slot in v.coords {
 		if coord == BRICK_FREE do continue
 		if mask_of(v, u32(slot)) != nil do masked += 1
 		if color_of(v, u32(slot)) != nil do colored += 1
 	}
-	return 28 + len(v.tables) * (12 + CHUNK_BRICKS * CHUNK_BRICKS * CHUNK_BRICKS) + volume_brick_count(v) * (2 + size_of(Brick)) + masked * (2 + size_of(Mask_Brick)) + colored * (2 + size_of(Color_Brick))
+	return 64 + len(v.tables) * (96 + CHUNK_BRICKS * CHUNK_BRICKS * CHUNK_BRICKS) + volume_brick_count(v) * (2 + size_of(Brick)) + masked * (2 + size_of(Mask_Brick)) + colored * (2 + size_of(Color_Brick))
 }
 
 // A hash of the field, for the autosave's torn-file check: a sum of per-brick hashes, so
