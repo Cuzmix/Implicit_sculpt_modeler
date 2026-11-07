@@ -1,4 +1,4 @@
-// slangc metal from skin_tess.vert.spv sha256 9f53ec4ce387cd5d509e4a3be40592fc92826e35ba33ff3a1c36ad715475a377
+// slangc metal from skin_tess.vert.spv sha256 d8aa312a129affefc2d371c5783fe20387659ac82e9106153baa202b1207ca47
 // slots s= rt= wt= rb=1,2,3,4,5,6,7,8 wb= u=0 a=
 #include <metal_stdlib>
 #include <metal_math>
@@ -14,10 +14,11 @@ struct SLANG_ParameterGroup_Frame_Uniforms_0
     float4 options_0;
     array<uint4, int(4)> slot_group_0;
     uint4 skin_0;
+    uint4 blend_0;
 };
 
 
-#line 53 "src/render/shaders/mesh.vert.slang"
+#line 62 "src/render/shaders/mesh.vert.slang"
 struct KernelContext_0
 {
     SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_0;
@@ -32,85 +33,85 @@ struct KernelContext_0
 };
 
 
-#line 55
+#line 64
 float3 mesh_point_0(uint v_0, KernelContext_0 thread* kernelContext_0)
 {
 
-#line 56
+#line 65
     uint _S1 = 3U * v_0;
 
-#line 56
+#line 65
     return float3(kernelContext_0->positions_0[_S1], kernelContext_0->positions_0[_S1 + 1U], kernelContext_0->positions_0[_S1 + 2U]);
 }
 
 
-#line 65 "src/render/shaders/mesh_io.slang"
+#line 67 "src/render/shaders/mesh_io.slang"
 float3 oct_decode_0(float2 e_0)
 {
 
-#line 66
+#line 68
     float _S2 = e_0.x;
 
-#line 66
+#line 68
     float _S3 = e_0.y;
 
-#line 66
+#line 68
     float3 _S4 = float3(e_0, 1.0f - abs(_S2) - abs(_S3));
 
-#line 66
+#line 68
     thread float3 v_1 = _S4;
     if((_S4.z) < 0.0f)
     {
 
-#line 67
+#line 69
         float2 _S5 = float2(1.0f)  - abs(e_0.yx);
 
-#line 67
+#line 69
         float _S6;
 
-#line 67
+#line 69
         if(_S2 >= 0.0f)
         {
 
-#line 67
+#line 69
             _S6 = 1.0f;
 
-#line 67
+#line 69
         }
         else
         {
 
-#line 67
+#line 69
             _S6 = -1.0f;
 
-#line 67
+#line 69
         }
 
-#line 67
+#line 69
         float _S7;
 
-#line 67
+#line 69
         if(_S3 >= 0.0f)
         {
 
-#line 67
+#line 69
             _S7 = 1.0f;
 
-#line 67
+#line 69
         }
         else
         {
 
-#line 67
+#line 69
             _S7 = -1.0f;
 
-#line 67
+#line 69
         }
 
-#line 67
+#line 69
         v_1.xy = _S5 * float2(_S6, _S7);
 
-#line 67
+#line 69
     }
     return normalize(v_1);
 }
@@ -121,7 +122,7 @@ float3 oct_decode_0(float2 e_0)
 void decode_normal_mask_0(float2 normal_oct_0, float3 thread* normal_0, float thread* mask_0)
 {
 
-#line 74
+#line 76
     float2 _S8 = float2(32767.0f) ;
     int2 _S9 = int2(round(max(normal_oct_0, float2(-1.0f) ) * _S8));
     *normal_0 = oct_decode_0(float2(_S9 & (int2(int(-16)) )) / _S8);
@@ -130,11 +131,11 @@ void decode_normal_mask_0(float2 normal_oct_0, float3 thread* normal_0, float th
 }
 
 
-#line 59 "src/render/shaders/mesh.vert.slang"
+#line 68 "src/render/shaders/mesh.vert.slang"
 void mesh_normal_mask_0(uint v_2, float3 thread* n_0, float thread* mask_1, KernelContext_0 thread* kernelContext_1)
 {
 
-#line 60
+#line 69
     uint packed_0 = kernelContext_1->normals_0[v_2];
     decode_normal_mask_0(max(float2(int2(int(packed_0 << 16U) >> 16U, int(packed_0) >> 16U)) / float2(32767.0f) , float2(-1.0f) ), n_0, mask_1);
     return;
@@ -294,58 +295,58 @@ uint skin_index_0(uint i_0, uint j_0, uint S_0, uint V_0, uint E_0, uint tri_0, 
 }
 
 
-#line 66 "src/render/shaders/mesh.vert.slang"
+#line 75 "src/render/shaders/mesh.vert.slang"
 float half_bits_0(uint h_0)
 {
 
-#line 67
+#line 76
     uint e_2 = (h_0 >> 10U) & 31U;
     float m_0 = float(h_0 & 1023U);
 
-#line 68
+#line 77
     float v_4;
     if(e_2 == 0U)
     {
 
-#line 69
+#line 78
         v_4 = m_0 * exp2(-24.0f);
 
-#line 69
+#line 78
     }
     else
     {
 
-#line 69
+#line 78
         v_4 = (1.0f + m_0 / 1024.0f) * exp2(float(e_2) - 15.0f);
 
-#line 69
+#line 78
     }
     if((h_0 & 32768U) != 0U)
     {
 
-#line 70
+#line 79
         v_4 = - v_4;
 
-#line 70
+#line 79
     }
 
-#line 70
+#line 79
     return v_4;
 }
 
 float3 octahedral_0(uint p_0)
 {
 
-#line 74
+#line 83
     return oct_decode_0(max(float2(int2(int(p_0 << 16U) >> 16U, int(p_0) >> 16U)) / float2(32767.0f) , float2(-1.0f) ));
 }
 
 
-#line 21
+#line 30
 float3 srgb_decode_0(float3 c_0)
 {
 
-#line 22
+#line 31
     return mix(c_0 / float3(12.92000007629394531f) , pow((c_0 + float3(0.05499999970197678f) ) / float3(1.0549999475479126f) , float3(2.40000009536743164f) ), step(float3(0.04044999927282333f) , c_0));
 }
 
@@ -359,41 +360,41 @@ float4 paint_material_0(uint word_0)
 }
 
 
-#line 13 "src/render/shaders/mesh.vert.slang"
+#line 22 "src/render/shaders/mesh.vert.slang"
 float3 group_color_0(uint g_0)
 {
 
-#line 13
+#line 22
     float3 _S17 = float3(3.0f) ;
 
     float3 _S18 = float3(1.0f) ;
 
-#line 15
+#line 24
     float3 rgb_0 = clamp(abs(fract(float3(fract(float(g_0) * 0.6180340051651001f + 0.11999999731779099f))  + float3(0.0f, 2.0f, 1.0f) / _S17) * float3(6.0f)  - _S17) - float3(1.0f) , float3(0.0f) , _S18);
 
-#line 15
+#line 24
     float light_0;
     if((g_0 & 1U) == 0U)
     {
 
-#line 16
+#line 25
         light_0 = 0.75f;
 
-#line 16
+#line 25
     }
     else
     {
 
-#line 16
+#line 25
         light_0 = 0.55000001192092896f;
 
-#line 16
+#line 25
     }
     return mix(_S18, rgb_0, float3(0.55000001192092896f) ) * float3(light_0) ;
 }
 
 
-#line 17
+#line 26
 struct main_Result_0
 {
     float4 position_0 [[position]];
@@ -408,7 +409,7 @@ struct main_Result_0
 };
 
 
-#line 21 "src/render/shaders/mesh_io.slang"
+#line 23 "src/render/shaders/mesh_io.slang"
 struct Mesh_Varyings_0
 {
     float3 view_normal_1;
@@ -422,7 +423,7 @@ struct Mesh_Varyings_0
 };
 
 
-#line 60
+#line 62
 struct Mesh_Vertex_Out_0
 {
     float4 position_1;
@@ -430,94 +431,94 @@ struct Mesh_Vertex_Out_0
 };
 
 
-#line 156 "src/render/shaders/mesh.vert.slang"
+#line 165 "src/render/shaders/mesh.vert.slang"
 [[vertex]] main_Result_0 main_0(uint id_0 [[vertex_id]], SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_1 [[buffer(0)]], uint device* indices_1 [[buffer(2)]], packed_uint4 device* skin_tris_1 [[buffer(6)]], float device* positions_1 [[buffer(3)]], uint device* normals_1 [[buffer(4)]], uint device* skin_heights_1 [[buffer(7)]], uint device* skin_normals_1 [[buffer(5)]], packed_uint2 device* paint_3 [[buffer(1)]], uint device* paint_material_words_1 [[buffer(8)]])
 {
 
-#line 156
+#line 165
     Mesh_Vertex_Out_0 _S19;
 
-#line 156
+#line 165
     thread KernelContext_0 kernelContext_2;
 
-#line 156
+#line 165
     (&kernelContext_2)->Frame_Uniforms_0 = Frame_Uniforms_1;
 
-#line 156
+#line 165
     (&kernelContext_2)->indices_0 = indices_1;
 
-#line 156
+#line 165
     (&kernelContext_2)->skin_tris_0 = skin_tris_1;
 
-#line 156
+#line 165
     (&kernelContext_2)->positions_0 = positions_1;
 
-#line 156
+#line 165
     (&kernelContext_2)->normals_0 = normals_1;
 
-#line 156
+#line 165
     (&kernelContext_2)->skin_heights_0 = skin_heights_1;
 
-#line 156
+#line 165
     (&kernelContext_2)->skin_normals_0 = skin_normals_1;
 
-#line 156
+#line 165
     (&kernelContext_2)->paint_0 = paint_3;
 
-#line 156
+#line 165
     (&kernelContext_2)->paint_material_words_0 = paint_material_words_1;
 
-#line 156
+#line 165
     for(;;)
     {
 
-#line 84
+#line 93
         uint S_1 = (&kernelContext_2)->Frame_Uniforms_0->skin_0.x;
 
-#line 84
+#line 93
         uint V_1 = (&kernelContext_2)->Frame_Uniforms_0->skin_0.y;
 
-#line 84
+#line 93
         uint E_1 = (&kernelContext_2)->Frame_Uniforms_0->skin_0.z;
         uint per_0 = 3U * S_1 * S_1;
         uint tri_1 = id_0 / per_0;
         uint _S20 = id_0 - tri_1 * per_0;
 
-#line 87
+#line 96
         uint small_0 = _S20 / 3U;
         uint c_1 = _S20 - 3U * small_0;
 
-#line 88
+#line 97
         uint first_0 = 0U;
 
-#line 88
+#line 97
         uint j_1 = 0U;
 
         for(;;)
         {
 
-#line 90
+#line 99
             uint _S21 = 2U * (S_1 - j_1);
 
-#line 90
+#line 99
             if((first_0 + _S21 - 1U) <= small_0)
             {
             }
             else
             {
 
-#line 90
+#line 99
                 break;
             }
             uint _S22 = j_1 + 1U;
 
-#line 92
+#line 101
             first_0 = first_0 + (_S21 - 1U);
 
-#line 92
+#line 101
             j_1 = _S22;
 
-#line 90
+#line 99
         }
 
 
@@ -525,62 +526,62 @@ struct Mesh_Vertex_Out_0
         uint q_0 = small_0 - first_0;
         uint i_1 = q_0 >> 1U;
 
-#line 95
+#line 104
         uint gi_0;
 
-#line 95
+#line 104
         uint gj_0;
 
         if((q_0 & 1U) == 0U)
         {
 
-#line 98
+#line 107
             if(c_1 == 1U)
             {
 
-#line 98
+#line 107
                 first_0 = 1U;
 
-#line 98
+#line 107
             }
             else
             {
 
-#line 98
+#line 107
                 first_0 = 0U;
 
-#line 98
+#line 107
             }
 
-#line 98
+#line 107
             uint _S23 = i_1 + first_0;
             if(c_1 == 2U)
             {
 
-#line 99
+#line 108
                 first_0 = 1U;
 
-#line 99
+#line 108
             }
             else
             {
 
-#line 99
+#line 108
                 first_0 = 0U;
 
-#line 99
+#line 108
             }
 
-#line 99
+#line 108
             uint _S24 = j_1 + first_0;
 
-#line 99
+#line 108
             gi_0 = _S23;
 
-#line 99
+#line 108
             gj_0 = _S24;
 
-#line 97
+#line 106
         }
         else
         {
@@ -588,18 +589,18 @@ struct Mesh_Vertex_Out_0
             if(c_1 == 2U)
             {
 
-#line 101
+#line 110
                 first_0 = i_1;
 
-#line 101
+#line 110
             }
             else
             {
 
-#line 101
+#line 110
                 first_0 = i_1 + 1U;
 
-#line 101
+#line 110
             }
             if(c_1 == 0U)
             {
@@ -607,59 +608,59 @@ struct Mesh_Vertex_Out_0
             else
             {
 
-#line 102
+#line 111
                 j_1 = j_1 + 1U;
 
-#line 102
+#line 111
             }
 
-#line 102
+#line 111
             gi_0 = first_0;
 
-#line 102
+#line 111
             gj_0 = j_1;
 
-#line 97
+#line 106
         }
 
-#line 104
+#line 113
         uint _S25 = 3U * tri_1;
 
-#line 104
+#line 113
         uint _S26 = (&kernelContext_2)->indices_0[_S25];
 
-#line 104
+#line 113
         uint _S27 = (&kernelContext_2)->indices_0[_S25 + 1U];
 
-#line 104
+#line 113
         uint _S28 = (&kernelContext_2)->indices_0[_S25 + 2U];
 
-#line 104
+#line 113
         uint3 v_6 = uint3(_S26, _S27, _S28);
 
-#line 104
+#line 113
         uint4 _S29 = uint4(*((&kernelContext_2)->skin_tris_0+tri_1)) ;
 
-#line 104
+#line 113
         float3 _S30 = mesh_point_0(_S26, &kernelContext_2);
 
-#line 104
+#line 113
         float3 _S31 = mesh_point_0(_S27, &kernelContext_2);
 
-#line 104
+#line 113
         float3 _S32 = mesh_point_0(_S28, &kernelContext_2);
 
         array<float3, int(3)> P_0 = { { _S30, _S31, _S32 } };
         thread array<float3, int(3)> N_0;
         thread array<float, int(3)> M_0;
 
-#line 108
+#line 117
         mesh_normal_mask_0(_S26, &N_0[int(0)], &M_0[int(0)], &kernelContext_2);
 
-#line 108
+#line 117
         mesh_normal_mask_0(_S27, &N_0[int(1)], &M_0[int(1)], &kernelContext_2);
 
-#line 108
+#line 117
         mesh_normal_mask_0(_S28, &N_0[int(2)], &M_0[int(2)], &kernelContext_2);
 
 
@@ -667,351 +668,351 @@ struct Mesh_Vertex_Out_0
         float fS_0 = float(S_1);
         float _S33 = float(gi_0);
 
-#line 113
+#line 122
         float _S34 = float(gj_0);
 
-#line 113
+#line 122
         float _S35 = 1.0f - _S33 / fS_0 - _S34 / fS_0;
 
-#line 113
+#line 122
         float _S36 = _S33 / fS_0;
 
-#line 113
+#line 122
         float _S37 = _S34 / fS_0;
 
-#line 113
+#line 122
         float3 w_0 = float3(_S35, _S36, _S37);
         float3 _S38 = float3(0.0f) ;
 
         bool _S39 = gi_0 == 0U;
 
-#line 116
+#line 125
         bool _S40;
 
-#line 116
+#line 125
         if(_S39)
         {
 
-#line 116
+#line 125
             _S40 = gj_0 == 0U;
 
-#line 116
+#line 125
         }
         else
         {
 
-#line 116
+#line 125
             _S40 = false;
 
-#line 116
+#line 125
         }
 
-#line 116
+#line 125
         uint a_0;
 
-#line 116
+#line 125
         uint k_1;
 
-#line 116
+#line 125
         uint e_3;
 
-#line 116
+#line 125
         float3 nb_0;
 
-#line 116
+#line 125
         float3 b_0;
 
-#line 116
+#line 125
         if(_S40)
         {
 
-#line 116
+#line 125
             a_0 = 3U;
 
-#line 116
+#line 125
             k_1 = 0U;
 
-#line 116
+#line 125
             e_3 = 0U;
 
-#line 116
+#line 125
             nb_0 = N_0[int(0)];
 
-#line 116
+#line 125
             b_0 = _S30;
 
-#line 116
+#line 125
         }
         else
         {
 
-#line 117
+#line 126
             if(gi_0 == S_1)
             {
 
-#line 117
+#line 126
                 a_0 = 3U;
 
-#line 117
+#line 126
                 k_1 = 0U;
 
-#line 117
+#line 126
                 e_3 = 0U;
 
-#line 117
+#line 126
                 nb_0 = N_0[int(1)];
 
-#line 117
+#line 126
                 b_0 = _S31;
 
-#line 117
+#line 126
             }
             else
             {
 
-#line 118
+#line 127
                 if(gj_0 == S_1)
                 {
 
-#line 118
+#line 127
                     a_0 = 3U;
 
-#line 118
+#line 127
                     k_1 = 0U;
 
-#line 118
+#line 127
                     e_3 = 0U;
 
-#line 118
+#line 127
                     nb_0 = N_0[int(2)];
 
-#line 118
+#line 127
                     b_0 = _S32;
 
-#line 118
+#line 127
                 }
                 else
                 {
 
-#line 119
+#line 128
                     if(gj_0 == 0U)
                     {
 
-#line 119
+#line 128
                         uint _S41 = _S29.x;
 
-#line 119
+#line 128
                         a_0 = 0U;
 
-#line 119
+#line 128
                         k_1 = gi_0;
 
-#line 119
+#line 128
                         e_3 = _S41;
 
-#line 119
+#line 128
                         nb_0 = _S38;
 
-#line 119
+#line 128
                         b_0 = _S38;
 
-#line 119
+#line 128
                     }
                     else
                     {
 
-#line 120
+#line 129
                         if((gi_0 + gj_0) == S_1)
                         {
 
-#line 120
+#line 129
                             uint _S42 = _S29.y;
 
-#line 120
+#line 129
                             a_0 = 1U;
 
-#line 120
+#line 129
                             k_1 = gj_0;
 
-#line 120
+#line 129
                             e_3 = _S42;
 
-#line 120
+#line 129
                             nb_0 = _S38;
 
-#line 120
+#line 129
                             b_0 = _S38;
 
-#line 120
+#line 129
                         }
                         else
                         {
 
-#line 121
+#line 130
                             if(_S39)
                             {
 
-#line 121
+#line 130
                                 uint _S43 = _S29.z;
 
-#line 121
+#line 130
                                 uint _S44 = S_1 - gj_0;
 
-#line 121
+#line 130
                                 a_0 = 2U;
 
-#line 121
+#line 130
                                 k_1 = _S44;
 
-#line 121
+#line 130
                                 e_3 = _S43;
 
-#line 121
+#line 130
                                 nb_0 = _S38;
 
-#line 121
+#line 130
                                 b_0 = _S38;
 
-#line 121
+#line 130
                             }
                             else
                             {
 
-#line 121
+#line 130
                                 float3 _S45 = float3(_S35) ;
 
-#line 121
+#line 130
                                 float3 _S46 = float3(_S36) ;
 
-#line 121
+#line 130
                                 float3 _S47 = float3(_S37) ;
 
                                 float3 _S48 = _S30 * _S45 + _S31 * _S46 + _S32 * _S47;
                                 float3 _S49 = N_0[int(0)] * _S45 + N_0[int(1)] * _S46 + N_0[int(2)] * _S47;
 
-#line 124
+#line 133
                                 a_0 = 3U;
 
-#line 124
+#line 133
                                 k_1 = 0U;
 
-#line 124
+#line 133
                                 e_3 = 0U;
 
-#line 124
+#line 133
                                 nb_0 = _S49;
 
-#line 124
+#line 133
                                 b_0 = _S48;
 
-#line 121
+#line 130
                             }
 
-#line 120
+#line 129
                         }
 
-#line 119
+#line 128
                     }
 
-#line 118
+#line 127
                 }
 
-#line 117
+#line 126
             }
 
-#line 116
+#line 125
         }
 
-#line 116
+#line 125
         uint m_1;
 
-#line 126
+#line 135
         if(a_0 < 3U)
         {
             uint to_0 = (a_0 + 1U) % 3U;
 
-#line 128
+#line 137
             uint from_0;
 
-#line 128
+#line 137
             uint to_1;
             if((e_3 & 1U) == 1U)
             {
 
-#line 129
+#line 138
                 m_1 = S_1 - k_1;
 
-#line 129
+#line 138
                 from_0 = to_0;
 
-#line 129
+#line 138
                 to_1 = a_0;
 
-#line 129
+#line 138
             }
             else
             {
 
-#line 129
+#line 138
                 m_1 = k_1;
 
-#line 129
+#line 138
                 from_0 = a_0;
 
-#line 129
+#line 138
                 to_1 = to_0;
 
-#line 129
+#line 138
             }
 
-#line 129
+#line 138
             float3 _S50 = float3((float(m_1) / fS_0)) ;
 
-#line 135
+#line 144
             float3 _S51 = P_0[from_0] + (P_0[to_1] - P_0[from_0]) * _S50;
 
-#line 135
+#line 144
             nb_0 = N_0[from_0] + (N_0[to_1] - N_0[from_0]) * _S50;
 
-#line 135
+#line 144
             b_0 = _S51;
 
-#line 126
+#line 135
         }
 
-#line 138
+#line 147
         float3 nu_0 = normalize(nb_0);
 
-#line 138
+#line 147
         m_1 = 0U;
 
-#line 138
+#line 147
         float3 curved_0 = _S38;
 
         for(;;)
         {
 
-#line 140
+#line 149
             if(m_1 < 3U)
             {
             }
             else
             {
 
-#line 140
+#line 149
                 break;
             }
 
-#line 140
+#line 149
             float3 curved_1 = curved_0 + (b_0 - N_0[m_1] * float3(dot(b_0 - P_0[m_1], N_0[m_1])) ) * float3(w_0[m_1]) ;
 
-#line 140
+#line 149
             m_1 = m_1 + 1U;
 
-#line 140
+#line 149
             curved_0 = curved_1;
 
-#line 140
+#line 149
         }
         uint x_0 = skin_index_0(gi_0, gj_0, S_1, V_1, E_1, tri_1, v_6, _S29.xyz);
 
@@ -1019,7 +1020,7 @@ struct Mesh_Vertex_Out_0
 
         float3 in_normal_0 = octahedral_0((&kernelContext_2)->skin_normals_0[x_0]);
 
-#line 144
+#line 153
         thread Mesh_Vertex_Out_0 o_0;
 
         (&(&o_0)->v_5)->mask_3 = M_0[int(0)] * _S35 + M_0[int(1)] * _S36 + M_0[int(2)] * _S37;
@@ -1028,7 +1029,7 @@ struct Mesh_Vertex_Out_0
         uint _S52 = (_S29.w) & 3U;
         float4 _S53 = float4(0.0f) ;
 
-#line 150
+#line 159
         (&(&o_0)->v_5)->paint_2 = _S53;
         (&(&o_0)->v_5)->material_1 = _S53;
         (&(&o_0)->v_5)->group_1 = float3(-1.0f) ;
@@ -1036,163 +1037,163 @@ struct Mesh_Vertex_Out_0
         if(((&kernelContext_2)->Frame_Uniforms_0->options_0.x) > 0.5f)
         {
 
-#line 154
+#line 163
             m_1 = 0U;
             for(;;)
             {
 
-#line 155
+#line 164
                 if(m_1 < 3U)
                 {
                 }
                 else
                 {
 
-#line 155
+#line 164
                     break;
                 }
 
-#line 155
+#line 164
                 uint _S54 = m_1;
                 float4 p_1 = unpack_unorm4x8_to_float((uint2(*((&kernelContext_2)->paint_0+v_6[m_1])) ).x);
 
-#line 156
+#line 165
                 float4 _S55 = float4(w_0[m_1]) ;
                 (&(&o_0)->v_5)->paint_2 = (&(&o_0)->v_5)->paint_2 + float4(srgb_decode_0(p_1.xyz), p_1.w) * _S55;
                 if(((&kernelContext_2)->Frame_Uniforms_0->options_0.w) > 0.5f)
                 {
 
-#line 158
+#line 167
                     (&(&o_0)->v_5)->material_1 = (&(&o_0)->v_5)->material_1 + paint_material_0((&kernelContext_2)->paint_material_words_0[v_6[_S54]]) * _S55;
 
-#line 158
+#line 167
                 }
 
-#line 155
+#line 164
                 m_1 = m_1 + 1U;
 
-#line 155
+#line 164
             }
 
-#line 154
+#line 163
         }
 
-#line 161
+#line 170
         if(((&kernelContext_2)->Frame_Uniforms_0->options_0.y) > 0.5f)
         {
 
-#line 161
+#line 170
             _S40 = true;
 
-#line 161
+#line 170
         }
         else
         {
 
-#line 161
+#line 170
             _S40 = ((&kernelContext_2)->Frame_Uniforms_0->options_0.z) > 0.5f;
 
-#line 161
+#line 170
         }
 
-#line 161
+#line 170
         if(_S40)
         {
 
-#line 162
+#line 171
             uint group_2 = ((uint2(*((&kernelContext_2)->paint_0+v_6[_S52])) ).y) & 65535U;
             if(((&kernelContext_2)->Frame_Uniforms_0->options_0.y) > 0.5f)
             {
 
-#line 163
+#line 172
                 (&(&o_0)->v_5)->group_1 = group_color_0(group_2);
 
-#line 163
+#line 172
             }
             if(((&kernelContext_2)->Frame_Uniforms_0->options_0.z) > 0.5f)
             {
 
-#line 164
+#line 173
                 k_1 = 1U;
                 for(;;)
                 {
 
-#line 165
+#line 174
                     if(k_1 < 16U)
                     {
                     }
                     else
                     {
 
-#line 165
+#line 174
                         break;
                     }
 
-#line 166
+#line 175
                     if(((&kernelContext_2)->Frame_Uniforms_0->slot_group_0[k_1 >> 2U][k_1 & 3U]) == group_2)
                     {
 
-#line 166
+#line 175
                         (&(&o_0)->v_5)->slot_1 = k_1;
 
-#line 166
+#line 175
                     }
 
-#line 165
+#line 174
                     k_1 = k_1 + 1U;
 
-#line 165
+#line 174
                 }
 
-#line 164
+#line 173
             }
 
-#line 161
+#line 170
         }
 
-#line 170
+#line 179
         float4 world_0 = ((((&kernelContext_2)->Frame_Uniforms_0->model_0) * (float4(in_position_0, 1.0f))));
         (&o_0)->position_1 = ((((&kernelContext_2)->Frame_Uniforms_0->view_proj_0) * (world_0)));
         (&(&o_0)->v_5)->view_normal_1 = ((((((matrix<float,int(3),int(3)> ((&kernelContext_2)->Frame_Uniforms_0->view_0[int(0)].xyz, (&kernelContext_2)->Frame_Uniforms_0->view_0[int(1)].xyz, (&kernelContext_2)->Frame_Uniforms_0->view_0[int(2)].xyz)) * (matrix<float,int(3),int(3)> ((&kernelContext_2)->Frame_Uniforms_0->model_0[int(0)].xyz, (&kernelContext_2)->Frame_Uniforms_0->model_0[int(1)].xyz, (&kernelContext_2)->Frame_Uniforms_0->model_0[int(2)].xyz))))) * (in_normal_0)));
         (&(&o_0)->v_5)->view_pos_1 = ((((&kernelContext_2)->Frame_Uniforms_0->view_0) * (world_0))).xyz;
         (&(&o_0)->v_5)->mesh_pos_1 = in_position_0;
 
-#line 174
+#line 183
         _S19 = o_0;
         break;
     }
 
-#line 175
+#line 184
     thread main_Result_0 _S56;
 
-#line 175
+#line 184
     (&_S56)->position_0 = _S19.position_1;
 
-#line 175
+#line 184
     (&_S56)->view_normal_0 = _S19.v_5.view_normal_1;
 
-#line 175
+#line 184
     (&_S56)->view_pos_0 = _S19.v_5.view_pos_1;
 
-#line 175
+#line 184
     (&_S56)->mask_2 = _S19.v_5.mask_3;
 
-#line 175
+#line 184
     (&_S56)->paint_1 = _S19.v_5.paint_2;
 
-#line 175
+#line 184
     (&_S56)->group_0 = _S19.v_5.group_1;
 
-#line 175
+#line 184
     (&_S56)->mesh_pos_0 = _S19.v_5.mesh_pos_1;
 
-#line 175
+#line 184
     (&_S56)->slot_0 = _S19.v_5.slot_1;
 
-#line 175
+#line 184
     (&_S56)->material_0 = _S19.v_5.material_1;
 
-#line 175
+#line 184
     return _S56;
 }
 

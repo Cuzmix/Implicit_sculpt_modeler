@@ -1,4 +1,4 @@
-// slangc wgsl from skin.vert.spv sha256 27b81f4b8030969986c77cf4fef23f268389779107636e1eecd49281bfb4e06f
+// slangc wgsl from skin.vert.spv sha256 bc959aa5774e0a2c24a2c41a681d393c76b6f29ac6072c597d3efcee1b3098ec
 diagnostic(off, derivative_uniformity);
 @binding(2) @group(0) var<storage, read> indices_0 : array<u32>;
 
@@ -19,6 +19,7 @@ struct SLANG_ParameterGroup_Frame_Uniforms_std140_0
     @align(16) options_0 : vec4<f32>,
     @align(16) slot_group_0 : array<vec4<u32>, i32(4)>,
     @align(16) skin_0 : vec4<u32>,
+    @align(16) blend_0 : vec4<u32>,
 };
 
 @binding(0) @group(1) var<uniform> Frame_Uniforms_0 : SLANG_ParameterGroup_Frame_Uniforms_std140_0;
