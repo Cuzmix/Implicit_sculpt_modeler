@@ -16,9 +16,10 @@ import "../ui"
 
 // What the tab shows: the picked layer's opacity as a fraction and its eye, or a hint.
 @(private = "file")
-paint_layer_caption :: proc(l: sculpt.Paint_Layer, picked: bool) -> string {
+paint_layer_caption :: proc(l: sculpt.Paint_Layer, picked, fill: bool) -> string {
 	// A texture layer says so first, as the mock's "Texture 2K" rows do.
 	kind := "Texture · " if l.texels != 0 else ""
+	if fill do kind = "Fill · "
 	return fmt.tprintf("%sMix %d%% · %s%s%s", kind, int(l.opacity * 100 + 0.5), paint_channels_text(l.channels), " · hidden" if !l.visible else "", " · painting" if picked else "")
 }
 
@@ -79,6 +80,7 @@ kit_lens_paint_layers :: proc(app: ^App, obj: ^Object) {
 	for i := len(layers) - 1; i >= 0; i -= 1 do lens_paint_row(app, obj, i, i == picked, width, allowed)
 	if len(layers) == 0 do ui.paragraph(ctx, "Paint anything, or add a layer, to start the stack: the Paint brush, a brush's Colour channel and Fill all paint the lit layer.")
 	if picked >= 0 && picked < len(layers) do lens_paint_channels(app, obj, picked, width, allowed)
+	kit_lens_paint_fill(app, obj, width, allowed)
 
 	// The foot shows with no layers too, its buttons off, so it stays where it is found.
 	{
@@ -121,6 +123,10 @@ kit_paint_new_menu :: proc(app: ^App) {
 	if ui.menu_item(ctx, "In a texture##paint new", glyph = ui.ICON_PLUS, tag = fmt.tprintf("%dK", side / 1024) if side >= 1024 else fmt.tprintf("%d", side), tag_color = t.accent, hint = "As fine as the texture. Uses the UVs.", enabled = command_enabled(app, .New_Texture_Layer), reason = reason) {
 		k.paint_new_pop = false
 		texture_layer_add(app, obj)
+	}
+	if ui.menu_item(ctx, "Fill layer##paint new", glyph = ui.ICON_PLUS, hint = "A texture made, not painted: a colour where a mask from the sculpt says.", enabled = command_enabled(app, .New_Fill_Layer), reason = reason) {
+		k.paint_new_pop = false
+		fill_layer_add(app, obj)
 	}
 	ui.paragraph(ctx, "A texture layer takes the Bake size and stands above the vertex layers." if len(obj.levels.texels.layers) == 0 else fmt.tprintf("This object's texture layers are %d square.", obj.levels.texels.side))
 }
@@ -184,7 +190,7 @@ lens_paint_row :: proc(app: ^App, obj: ^Object, i: int, picked: bool, width: f32
 	weight: ui.Font = .Semibold if picked else .Regular
 	tx := a.rect.x + LAYER_PICTURE + 8
 	ui.text(ctx, ui.text_fit(ctx, sculpt.sculptor_paint_layer_name(&l), t.text_size, words_w, weight), tx, a.rect.y + 13, t.text_size, ui.color_fade(t.text, fade), weight)
-	ui.text(ctx, ui.text_fit(ctx, paint_layer_caption(l, picked), t.caption_size, words_w), tx, a.rect.y + 33, t.caption_size, ui.color_fade(t.text_tertiary, fade))
+	ui.text(ctx, ui.text_fit(ctx, paint_layer_caption(l, picked, layer_is_fill(obj, l)), t.caption_size, words_w), tx, a.rect.y + 33, t.caption_size, ui.color_fade(t.text_tertiary, fade))
 	if a.clicked && allowed {
 		stroke_finish(app)
 		sculpt.sculptor_paint_pick(s, i)

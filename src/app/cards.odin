@@ -454,6 +454,8 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Section) {
 	.Layer_Edit            = .Layers,
 	.New_Paint_Layer       = .Layers,
 	.New_Texture_Layer     = .Layers,
+	.New_Fill_Layer        = .Layers,
+	.Fill_Layer_Update     = .Layers,
 	.Export_Paint_Maps     = .Layers,
 	.Paint_Layer_Edit      = .Layers,
 	.Paint                 = .Paint,
@@ -513,7 +515,7 @@ card_show :: proc(app: ^App, id: Command_Id, arg := 0) -> bool {
 	// The Layers card's tab that holds the command.
 	#partial switch id {
 	case .New_Layer, .Layer_Edit:             app.ui.layers_paint = false
-	case .New_Paint_Layer, .New_Texture_Layer, .Paint_Layer_Edit: app.ui.layers_paint = true
+	case .New_Paint_Layer, .New_Texture_Layer, .New_Fill_Layer, .Fill_Layer_Update, .Paint_Layer_Edit: app.ui.layers_paint = true
 	}
 	card_reveal(app, sec)
 	k.more[sec] = true

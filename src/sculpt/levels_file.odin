@@ -124,6 +124,20 @@ Texels_Tag :: enum u16 {
 Texel_Layer_Tag :: enum u16 {
 	Id   = 1, // u32, required
 	Tile = 2, // one a painted tile: a Tile_Tag record
+	Fill = 3, // a fill layer's settings: a Fill_Tag record; none for a painted layer
+}
+
+// A fill layer's settings (Paint_Fill); a missing field takes PAINT_FILL_DEFAULT's.
+@(private = "file")
+Fill_Tag :: enum u16 {
+	Mask     = 1, // u8 Fill_Mask
+	Color    = 2, // [3]u8
+	Material = 3, // [2]u8: roughness, metal
+	Height   = 4, // u16
+	Strength = 5, // f32
+	Low      = 6, // f32
+	High     = 7, // f32
+	Invert   = 8, // u8
 }
 
 @(private = "file")
@@ -345,6 +359,19 @@ write_texels :: proc(w: ^Writer, l: ^Levels) -> bool {
 		la := geom.rec_begin(out, Texels_Tag.Layer)
 		defer geom.rec_end(out, la)
 		geom.rec_put(out, Texel_Layer_Tag.Id, layer.id)
+		if layer.filled {
+			f := layer.fill
+			fa := geom.rec_begin(out, Texel_Layer_Tag.Fill)
+			geom.rec_put(out, Fill_Tag.Mask, u8(f.mask))
+			geom.rec_put(out, Fill_Tag.Color, f.color)
+			geom.rec_put(out, Fill_Tag.Material, f.material)
+			geom.rec_put(out, Fill_Tag.Height, f.height)
+			geom.rec_put(out, Fill_Tag.Strength, f.strength)
+			geom.rec_put(out, Fill_Tag.Low, f.low)
+			geom.rec_put(out, Fill_Tag.High, f.high)
+			geom.rec_put(out, Fill_Tag.Invert, u8(f.invert))
+			geom.rec_end(out, fa)
+		}
 		for tile, i in layer.tiles {
 			if tile == nil do continue
 			ta := geom.rec_begin(out, Texel_Layer_Tag.Tile)
@@ -530,6 +557,24 @@ read_texels :: proc(rec: ^geom.Record, l: ^Levels) -> bool {
 		// In the store before its tiles, so a damaged file frees what was read with it.
 		append(&t.layers, Texel_Layer{id = id, tiles = make([]^Texel_Tile, across * across, h)})
 		layer := &t.layers[len(t.layers) - 1]
+		if fr, has := geom.rec_sub(&lr, Texel_Layer_Tag.Fill); has {
+			d := PAINT_FILL_DEFAULT
+			mask := geom.rec_get(&fr, Fill_Tag.Mask, u8, u8(d.mask))
+			f := Paint_Fill {
+				color    = geom.rec_get(&fr, Fill_Tag.Color, [3]u8, d.color),
+				material = geom.rec_get(&fr, Fill_Tag.Material, [2]u8, d.material),
+				height   = geom.rec_get(&fr, Fill_Tag.Height, u16, d.height),
+				strength = geom.rec_get(&fr, Fill_Tag.Strength, f32, d.strength),
+				low      = geom.rec_get(&fr, Fill_Tag.Low, f32, d.low),
+				high     = geom.rec_get(&fr, Fill_Tag.High, f32, d.high),
+			}
+			invert := geom.rec_get(&fr, Fill_Tag.Invert, u8, 0)
+			ok := fr.ok && int(mask) < len(Fill_Mask) && invert <= 1
+			for v in ([3]f32{f.strength, f.low, f.high}) do ok &&= v >= 0 && v <= 1
+			if !ok do return false
+			f.mask, f.invert = Fill_Mask(mask), invert == 1
+			layer.fill, layer.filled = f, true
+		}
 		tile_at := 0
 		for _ in 0 ..< painted {
 			tile_bytes, _ := geom.rec_next(&lr, Texel_Layer_Tag.Tile, &tile_at)

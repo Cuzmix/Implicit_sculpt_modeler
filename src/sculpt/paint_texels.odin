@@ -55,8 +55,12 @@ Height_Paint :: [2]u16
 HEIGHT_FLAT :: 32768
 
 Texel_Layer :: struct {
-	id:    u32,
-	tiles: []^Texel_Tile, // (side / TEXEL_TILE)² from the top left, row by row; nil: unpainted
+	id:     u32,
+	tiles:  []^Texel_Tile, // (side / TEXEL_TILE)² from the top left, row by row; nil: unpainted
+	// A fill layer (paint_fill.odin): what its paint is made from, which making it again
+	// reads.
+	fill:   Paint_Fill,
+	filled: bool,
 }
 
 // One tile of the texel map: per texel its triangle (TEXEL_NONE for none) and its second
@@ -227,7 +231,7 @@ texels_bytes :: proc(t: ^Texels) -> (n: int) {
 // or -1: dynamic topology on, no UVs, a full stack, a size that is not one of the bake's,
 // or a size other than the one the object's texture layers already have (counting the ones
 // an undo step holds).
-levels_texel_layer_add :: proc(l: ^Levels, side: int) -> int {
+levels_texel_layer_add :: proc(l: ^Levels, side: int, prefix := "Texture ") -> int {
 	s := &levels_current(l).sculptor
 	_ = sculptor_stroke_end(s)
 	if s.dyn != nil || !levels_has_uvs(l) || len(s.paint.list) >= MAX_PAINT_LAYERS || !texel_side_ok(side) do return -1
@@ -246,7 +250,7 @@ levels_texel_layer_add :: proc(l: ^Levels, side: int) -> int {
 	top := 0
 	for row, i in s.paint.list do if row.texels == 0 do top = i + 1
 	index = max(index, top)
-	row := paint_layer_make(s, "Texture ")
+	row := paint_layer_make(s, prefix)
 	row.texels = t.next_id
 	sculptor_stroke_begin(s)
 	s.history.current.paint_op = {active = true, toggle = true, index = index, held = true, layer = row, picked = row.id}
@@ -727,11 +731,16 @@ Texel_Step :: struct {
 	layer: u32,
 	saved: [dynamic]Texel_Saved,
 	seen:  []bool, // per tile: saved already
+	// A fill layer made (again): its settings as they were, which swap with the live ones
+	// as the tiles do.
+	fill:     Paint_Fill,
+	filled:   bool,
+	fill_set: bool,
 }
 
 // Saves tile `index` of `layer` into `step` the first time a step writes it (copy on
 // write). Serial: called before the jobs that write the tiles.
-@(private = "file")
+@(private)
 texel_step_save :: proc(step: ^Texel_Step, layer: ^Texel_Layer, index: int) {
 	if step == nil do return
 	h := runtime.heap_allocator()
@@ -754,6 +763,10 @@ levels_texel_step_swap :: proc(l: ^Levels, step: ^Texel_Step) {
 	for &s in step.saved {
 		layer.tiles[s.index], s.tile = s.tile, layer.tiles[s.index]
 		texels_touch(t, s.index)
+	}
+	if step.fill_set {
+		layer.fill, step.fill = step.fill, layer.fill
+		layer.filled, step.filled = step.filled, layer.filled
 	}
 }
 

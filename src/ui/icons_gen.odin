@@ -3,8 +3,8 @@ package ui
 // Written by scripts/icons_build.py from assets/icons/manifest.txt: edit that and run the
 // script. One name per meaning, each its own drawing in the icon fonts (text.odin).
 
-ICONS_SOURCE_HASH :: "f2167b3449ceefdf7a60649156826c695584a7d521670ded6034ac4c6db66fb9"
-ICONS_FONTS_HASH :: "6f8ee7678e9b7827998dd8e510d7f21af4ae1e42a21e19ce10b8ef996f618455"
+ICONS_SOURCE_HASH :: "85e44b3e2f81931de89bae5428490f31369592becb31488cb3f09d19549d1e03"
+ICONS_FONTS_HASH :: "a12d050d9fde9f65c8e96c6b6f2a9ec93eb1d4b437de315e57b7affdcdba201d"
 
 // What an icon works on, which colours it in the Colour icon style.
 Icon_Group :: enum u8 {
@@ -19,7 +19,7 @@ Icon_Group :: enum u8 {
 }
 
 ICON_FIRST :: rune(0xE000)
-ICON_COUNT :: 412
+ICON_COUNT :: 413
 
 ICON_MENU                :: rune(0xE000) // ph:list
 ICON_MORE                :: rune(0xE001) // ph:dots-three-circle
@@ -433,6 +433,7 @@ ICON_SHADE_FLAT          :: rune(0xE198) // tb:circle-half-vertical
 ICON_SHADE_FULL          :: rune(0xE199) // ph:sphere
 ICON_SHADE_LIT           :: rune(0xE19A) // ph:sun-dim
 ICON_SHADE_RENDERED      :: rune(0xE19B) // tb:stars
+ICON_FILL_UPDATE         :: rune(0xE19C) // ph:arrows-counter-clockwise
 
 ICON_GROUP_TABLE := [ICON_COUNT]Icon_Group {
 	.App, // ICON_MENU
@@ -847,4 +848,5 @@ ICON_GROUP_TABLE := [ICON_COUNT]Icon_Group {
 	.Render, // ICON_SHADE_FULL
 	.Render, // ICON_SHADE_LIT
 	.Render, // ICON_SHADE_RENDERED
+	.Paint, // ICON_FILL_UPDATE
 }
