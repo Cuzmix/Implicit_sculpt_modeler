@@ -181,7 +181,14 @@ lens_palette_row :: proc(app: ^App, e: Palette_Entry, title, id: string, width: 
 	else if a.hovered && !picked do ui.fill_rect(ctx, full, t.radius_small + 2, t.fill_hover)
 	fg := t.text if enabled else ui.disabled_ink(t)
 	mid := r.y + r.h * 0.5
-	ui.icon(ctx, palette_icon(e), {r.x + 10 + t.icon_small * 0.5, mid}, t.icon_small, fg if !enabled else t.text_secondary)
+	// A brush's row shows the brush's own picture, as the shelf does.
+	icon_at := [2]f32{r.x + 10 + t.icon_small * 0.5, mid}
+	if pic := bar_picture(app, {e.id, e.arg}) if e.kind == .Command else {}; pic.image != 0 {
+		ui.picture_icon(ctx, pic, icon_at, t.icon_small * ui.MENU_PICTURE, 1 if enabled else ui.DISABLED_FADE)
+	} else {
+		// bar_icon gives a brush's or a preset's own glyph, and the palette's for the rest.
+		ui.icon(ctx, bar_icon(app, {e.id, e.arg}) if e.kind == .Command else palette_icon(e), icon_at, t.icon_small, fg if !enabled else t.text_secondary)
+	}
 	x := r.x + 20 + t.icon_small
 	keys := command_keys(app, e.id, e.arg) if e.kind == .Command else ""
 	checked := e.kind == .Command && command_checked(app, e.id, e.arg)

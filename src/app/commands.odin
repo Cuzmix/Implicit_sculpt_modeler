@@ -3317,7 +3317,11 @@ command_menu_item :: proc(app: ^App, id: Command_Id, arg := 0, label := "", tone
 	// With the icon where the shortcut goes, the shortcut moves to the tooltip.
 	hint := hint_join(keys, gesture) if gesture != "" || (trailing && keys != "") else ""
 	can := command_enabled(app, id, arg)
-	if !ui.menu_item(&app.kit.ctx, text, keys, c.icon, command_checked(app, id, arg), tone, can, hint = hint, trailing = trailing, reason = "" if can else command_reason(app, id, arg)) do return false
+	// A brush or a preset shows its brush's own picture, and its own glyph without one,
+	// rather than the one icon every brush command shares.
+	slot := Bar_Slot{id, arg}
+	glyph := bar_icon(app, slot) if id == .Brush || id == .Brush_Preset else c.icon
+	if !ui.menu_item(&app.kit.ctx, text, keys, glyph, command_checked(app, id, arg), tone, can, hint = hint, trailing = trailing, reason = "" if can else command_reason(app, id, arg), picture = bar_picture(app, slot)) do return false
 	return command_run(app, id, arg)
 }
 
