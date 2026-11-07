@@ -72,6 +72,7 @@ SCREENS = {
     "uvs_peel_flat": ("An unwrapped sculpt peeled all the way: its UV layout standing flat, facing the view", tap("card Mesh/Peel~135,0", 20), ["--script=unwrap; open_section uvs"]),
     "uvs_section": ("The Mesh card's UVs section after Unwrap, the islands shown as polygroups", "", ["--script=unwrap; group uv_charts; polygroups on; open_section uvs"]),
     "stack_card_cage": ("The Live stack card on a cage: its SHAPE rows, Smooth open, then COPIES with an Array", tap("view bar/Live stack") + ";" + tap("card Stack/stack row Smooth", 20), ["--script=add_cage cube; select 1; delete_object; cage_smooth 2; cage_mirror x; stack array 3 0 0 2.5; frame_all"]),
+    "export_render": ("The Export sheet's Picture preset on Render: the picture's size, Full or Fast, samples, background and passes", "", ["--script=set export_preset picture; set export_format render; set render_image_passes on; export_sheet"]),
     "export_stack": ("The Export sheet on an object with a live stack: Bake the live stack", "", ["--script=stack array 3 2.2 0 0; export_sheet"]),
     "stack_card": ("The Live stack card with a Mirror, an Array and a Radial row, the Array open", tap("view bar/Live stack") + ";" + tap("card Stack/stack row Array", 20), ["--script=stack mirror x; stack array 3 2.2 0 0; stack radial 6 y; frame_all"]),
     "stack_array": ("The Live stack card with its Array open: the step's arrow and tip in the view", tap("view bar/Live stack") + ";" + tap("card Stack/stack row Array", 20), ["--script=stack array 3 0 2.2 0; frame_all"]),

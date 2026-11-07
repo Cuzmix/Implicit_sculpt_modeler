@@ -486,6 +486,8 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Section) {
 	.Export_Print          = .Print,
 	.Floor_Grid            = .Floor,
 	.Screenshot_Transparent = .Background,
+	.Render_Picture        = .Render,
+	.Render_Picture_Stop   = .Render,
 }
 
 // Opens the card that holds section `sec` on the pen side (or where it shows already),

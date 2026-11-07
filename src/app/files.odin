@@ -65,6 +65,7 @@ File_Kind :: enum u8 {
 	Skin_Map,     // a displacement or vector displacement image goes into the selected object's skin through its UVs (skin_map.odin)
 	Export_Bary,  // the selected object's skin goes to an NVIDIA displacement micro-map file (skin_map.odin)
 	Paint_Maps,   // the selected object's paint as base colour and ORM maps go into a folder (paint.odin)
+	Render_Image, // the view rendered at a size of its own goes to a PNG file (render_image.odin)
 }
 
 File_Request :: struct {
@@ -283,7 +284,7 @@ file_dialog :: proc(app: ^App, kind: File_Kind) {
 	case .Matcap, .Base_Color_Map, .Orm_Map, .Normal_Map:       dialog_open(app, userdata, IMAGE_FILTERS[:])
 	case .Reference:                                             dialog_open(app, userdata, REFERENCE_FILTERS[:])
 	case .Environment:                                           dialog_open(app, userdata, ENVIRONMENT_FILTERS[:])
-	case .Screenshot:                                            dialog_save(app, userdata, PNG_FILTERS[:])
+	case .Screenshot, .Render_Image:                             dialog_save(app, userdata, PNG_FILTERS[:])
 	case .Save_Strokes:                                          dialog_save(app, userdata, STROKES_FILTERS[:])
 	case .Load_Strokes:                                          dialog_open(app, userdata, STROKES_FILTERS[:])
 	case .Run_Script:                                            dialog_open(app, userdata, SCRIPT_FILTERS[:])
@@ -360,7 +361,7 @@ file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.
 			case:                                            suffix = ".obj"
 			}
 		case .Export_Print: suffix = PRINT_FILE_SUFFIX[Print_File(only)] if only < len(Print_File) else ".stl"
-		case .Screenshot: suffix = ".png"
+		case .Screenshot, .Render_Image: suffix = ".png"
 		case .Save_Strokes: suffix = ".strokes"
 		case .Make_Pack: suffix = ".sculptpack"
 		case .Export_Vdm: suffix = ".exr"
@@ -558,6 +559,8 @@ file_apply :: proc(app: ^App, req: File_Request) -> bool {
 	case .Screenshot:
 		if app.screenshot_transparent do capture_request(app, req.path)
 		else do _ = screenshot_save(app, req.path)
+	case .Render_Image:
+		render_image_from_settings(app, req.path)
 	case .Timelapse:
 		timelapse_start(app, req.path)
 	case .Turntable:
