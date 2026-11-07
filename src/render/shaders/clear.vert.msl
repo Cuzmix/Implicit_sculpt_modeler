@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 3 "/home/user/Implicit_sculpt_modeler/src/render/shaders/clear.vert.slang"
+#line 3 "src/render/shaders/clear.vert.slang"
 struct vertexOutput_0
 {
     float4 output_0 [[position]];

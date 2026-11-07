@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+#line 9 "src/render/shaders/common.slang"
 int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
 
@@ -25,7 +25,7 @@ int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_samp
 }
 
 
-#line 54 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_trace.comp.slang"
+#line 54 "src/render/shaders/studio_trace.comp.slang"
 struct SLANG_ParameterGroup_Trace_Uniforms_0
 {
     matrix<float,int(4),int(4)>  inv_view_proj_0;
@@ -64,7 +64,7 @@ struct KernelContext_0
 };
 
 
-#line 70 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_trace.comp.slang"
+#line 70 "src/render/shaders/studio_trace.comp.slang"
 float3 world_at_0(float2 frag_0, float depth_0, float2 size_0, KernelContext_0 thread* kernelContext_0)
 {
 

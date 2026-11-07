@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 9 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/display.slang"
+#line 9 "src/render/shaders/display.slang"
 float3 srgb_encode_0(float3 c_0)
 {
 
@@ -15,7 +15,7 @@ float3 srgb_encode_0(float3 c_0)
 }
 
 
-#line 11 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/paint_material.slang"
+#line 11 "src/render/shaders/paint_material.slang"
 float2 paint_surface_0(float2 surf_0, float4 m_0)
 {
 
@@ -24,7 +24,7 @@ float2 paint_surface_0(float2 surf_0, float4 m_0)
 }
 
 
-#line 320 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/mesh_shading.slang"
+#line 320 "src/render/shaders/mesh_shading.slang"
 float curvature_0(float3 n_0, float3 p_0)
 {
 
@@ -118,7 +118,7 @@ struct SLANG_ParameterGroup_Layer_Uniforms_0
 };
 
 
-#line 21 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/mesh_io.slang"
+#line 21 "src/render/shaders/mesh_io.slang"
 struct Mesh_Varyings_0
 {
     float3 view_normal_0;
@@ -132,7 +132,7 @@ struct Mesh_Varyings_0
 };
 
 
-#line 200 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/mesh_shading.slang"
+#line 200 "src/render/shaders/mesh_shading.slang"
 struct KernelContext_0
 {
     SLANG_ParameterGroup_Material_Uniforms_0 constant* Material_Uniforms_0;
@@ -207,7 +207,7 @@ float opacity_0(KernelContext_0 thread* kernelContext_1)
 }
 
 
-#line 4 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/common.slang"
+#line 4 "src/render/shaders/common.slang"
 float glsl_mod_0(float x_0, float y_0)
 {
 
@@ -216,7 +216,7 @@ float glsl_mod_0(float x_0, float y_0)
 }
 
 
-#line 14 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/ggx_albedo.slang"
+#line 14 "src/render/shaders/ggx_albedo.slang"
 float ggx_albedo_0(float mu_0, float r_0)
 {
 
@@ -238,7 +238,7 @@ float3 energy_compensation_0(float3 f0_0, float mu_1, float r_1)
 }
 
 
-#line 9 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/thin_film.slang"
+#line 9 "src/render/shaders/thin_film.slang"
 float3 thin_film_0(float c1_0, float3 f0_1, float nm_0, float n2_0)
 {
 
@@ -291,7 +291,7 @@ float3 thin_film_0(float c1_0, float3 f0_1, float nm_0, float n2_0)
 }
 
 
-#line 396 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/mesh_shading.slang"
+#line 396 "src/render/shaders/mesh_shading.slang"
 float2 area_clamp_0(int i_0, float2 q_0, KernelContext_0 thread* kernelContext_2)
 {
 
@@ -688,7 +688,7 @@ float3 irradiance_0(float3 n_5, KernelContext_0 thread* kernelContext_6)
 }
 
 
-#line 22 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/studio_env.slang"
+#line 22 "src/render/shaders/studio_env.slang"
 float3 lobe_0(float3 dir_0, float3 toward_0, float3 color_1, float sharp_0, float rough_1)
 {
 
@@ -709,7 +709,7 @@ float3 studio_0(float3 dir_1, float rough_2)
 }
 
 
-#line 485 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/mesh_shading.slang"
+#line 485 "src/render/shaders/mesh_shading.slang"
 float sky_facing_0(float3 n_6, matrix<float,int(3),int(3)>  rig_0)
 {
 
@@ -727,7 +727,7 @@ float underside_0(float3 n_7, matrix<float,int(3),int(3)>  rig_1, KernelContext_
 }
 
 
-#line 8 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/panorama.slang"
+#line 8 "src/render/shaders/panorama.slang"
 float2 panorama_uv_0(float3 d_6)
 {
 
@@ -735,7 +735,7 @@ float2 panorama_uv_0(float3 d_6)
 }
 
 
-#line 275 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/mesh_shading.slang"
+#line 275 "src/render/shaders/mesh_shading.slang"
 float3 reflected_0(float3 dir_2, float rough_3, matrix<float,int(3),int(3)>  to_rig_0, KernelContext_0 thread* kernelContext_8)
 {
 
@@ -748,7 +748,7 @@ float3 reflected_0(float3 dir_2, float rough_3, matrix<float,int(3),int(3)>  to_
 }
 
 
-#line 18 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/display.slang"
+#line 18 "src/render/shaders/display.slang"
 float3 tone_map_0(float3 c_6)
 {
 
@@ -796,7 +796,7 @@ float3 display_color_0(float3 c_7, float stops_0)
 }
 
 
-#line 311 "/home/prime/Manny/Document/sculpt-ball-glass-lit/src/render/shaders/mesh_shading.slang"
+#line 311 "src/render/shaders/mesh_shading.slang"
 float4 display_0(float3 c_8, KernelContext_0 thread* kernelContext_9)
 {
 

@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 7 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
+#line 7 "src/render/shaders/mesh_io.slang"
 struct SLANG_ParameterGroup_Frame_Uniforms_0
 {
     matrix<float,int(4),int(4)>  view_proj_0;
@@ -17,7 +17,7 @@ struct SLANG_ParameterGroup_Frame_Uniforms_0
 };
 
 
-#line 53 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh.vert.slang"
+#line 53 "src/render/shaders/mesh.vert.slang"
 struct KernelContext_0
 {
     SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_0;
@@ -44,73 +44,73 @@ float3 mesh_point_0(uint v_0, KernelContext_0 thread* kernelContext_0)
 }
 
 
-#line 64 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
+#line 65 "src/render/shaders/mesh_io.slang"
 float3 oct_decode_0(float2 e_0)
 {
 
-#line 65
+#line 66
     float _S2 = e_0.x;
 
-#line 65
+#line 66
     float _S3 = e_0.y;
 
-#line 65
+#line 66
     float3 _S4 = float3(e_0, 1.0f - abs(_S2) - abs(_S3));
 
-#line 65
+#line 66
     thread float3 v_1 = _S4;
     if((_S4.z) < 0.0f)
     {
 
-#line 66
+#line 67
         float2 _S5 = float2(1.0f)  - abs(e_0.yx);
 
-#line 66
+#line 67
         float _S6;
 
-#line 66
+#line 67
         if(_S2 >= 0.0f)
         {
 
-#line 66
+#line 67
             _S6 = 1.0f;
 
-#line 66
+#line 67
         }
         else
         {
 
-#line 66
+#line 67
             _S6 = -1.0f;
 
-#line 66
+#line 67
         }
 
-#line 66
+#line 67
         float _S7;
 
-#line 66
+#line 67
         if(_S3 >= 0.0f)
         {
 
-#line 66
+#line 67
             _S7 = 1.0f;
 
-#line 66
+#line 67
         }
         else
         {
 
-#line 66
+#line 67
             _S7 = -1.0f;
 
-#line 66
+#line 67
         }
 
-#line 66
+#line 67
         v_1.xy = _S5 * float2(_S6, _S7);
 
-#line 66
+#line 67
     }
     return normalize(v_1);
 }
@@ -121,7 +121,7 @@ float3 oct_decode_0(float2 e_0)
 void decode_normal_mask_0(float2 normal_oct_0, float3 thread* normal_0, float thread* mask_0)
 {
 
-#line 73
+#line 74
     float2 _S8 = float2(32767.0f) ;
     int2 _S9 = int2(round(max(normal_oct_0, float2(-1.0f) ) * _S8));
     *normal_0 = oct_decode_0(float2(_S9 & (int2(int(-16)) )) / _S8);
@@ -130,7 +130,7 @@ void decode_normal_mask_0(float2 normal_oct_0, float3 thread* normal_0, float th
 }
 
 
-#line 59 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh.vert.slang"
+#line 59 "src/render/shaders/mesh.vert.slang"
 void mesh_normal_mask_0(uint v_2, float3 thread* n_0, float thread* mask_1, KernelContext_0 thread* kernelContext_1)
 {
 
@@ -141,7 +141,7 @@ void mesh_normal_mask_0(uint v_2, float3 thread* n_0, float thread* mask_1, Kern
 }
 
 
-#line 8 "/home/user/Implicit_sculpt_modeler/src/render/shaders/skin_grid.slang"
+#line 8 "src/render/shaders/skin_grid.slang"
 uint skin_index_0(uint i_0, uint j_0, uint S_0, uint V_0, uint E_0, uint tri_0, uint3 v_3, uint3 e_1)
 {
 
@@ -294,7 +294,7 @@ uint skin_index_0(uint i_0, uint j_0, uint S_0, uint V_0, uint E_0, uint tri_0, 
 }
 
 
-#line 66 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh.vert.slang"
+#line 66 "src/render/shaders/mesh.vert.slang"
 float half_bits_0(uint h_0)
 {
 
@@ -350,7 +350,7 @@ float3 srgb_decode_0(float3 c_0)
 }
 
 
-#line 4 "/home/user/Implicit_sculpt_modeler/src/render/shaders/paint_material.slang"
+#line 4 "src/render/shaders/paint_material.slang"
 float4 paint_material_0(uint word_0)
 {
 
@@ -359,7 +359,7 @@ float4 paint_material_0(uint word_0)
 }
 
 
-#line 13 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh.vert.slang"
+#line 13 "src/render/shaders/mesh.vert.slang"
 float3 group_color_0(uint g_0)
 {
 
@@ -408,7 +408,7 @@ struct main_Result_0
 };
 
 
-#line 20 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
+#line 21 "src/render/shaders/mesh_io.slang"
 struct Mesh_Varyings_0
 {
     float3 view_normal_1;
@@ -422,7 +422,7 @@ struct Mesh_Varyings_0
 };
 
 
-#line 59
+#line 60
 struct Mesh_Vertex_Out_0
 {
     float4 position_1;
@@ -430,7 +430,7 @@ struct Mesh_Vertex_Out_0
 };
 
 
-#line 156 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh.vert.slang"
+#line 156 "src/render/shaders/mesh.vert.slang"
 [[vertex]] main_Result_0 main_0(uint id_0 [[vertex_id]], SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_1 [[buffer(0)]], uint device* indices_1 [[buffer(2)]], packed_uint4 device* skin_tris_1 [[buffer(6)]], float device* positions_1 [[buffer(3)]], uint device* normals_1 [[buffer(4)]], uint device* skin_heights_1 [[buffer(7)]], uint device* skin_normals_1 [[buffer(5)]], packed_uint2 device* paint_3 [[buffer(1)]], uint device* paint_material_words_1 [[buffer(8)]])
 {
 

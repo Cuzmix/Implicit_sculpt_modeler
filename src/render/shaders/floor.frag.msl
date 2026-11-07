@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 24 "/home/user/Implicit_sculpt_modeler/src/render/shaders/floor.frag.slang"
+#line 24 "src/render/shaders/floor.frag.slang"
 float lines_0(float2 cells_0, float2 per_pixel_0)
 {
 

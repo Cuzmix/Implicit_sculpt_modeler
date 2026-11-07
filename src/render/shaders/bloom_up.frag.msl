@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+#line 9 "src/render/shaders/common.slang"
 int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
 
@@ -32,7 +32,7 @@ struct pixelOutput_0
 };
 
 
-#line 10 "/home/user/Implicit_sculpt_modeler/src/render/shaders/bloom_up.frag.slang"
+#line 10 "src/render/shaders/bloom_up.frag.slang"
 struct SLANG_ParameterGroup_Bloom_Up_Uniforms_0
 {
     float4 params_0;

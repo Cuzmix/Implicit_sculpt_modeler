@@ -12,7 +12,7 @@ struct vertexOutput_0
 };
 
 
-#line 8 "/home/user/Implicit_sculpt_modeler/src/render/shaders/shadow.vert.slang"
+#line 8 "src/render/shaders/shadow.vert.slang"
 struct vertexInput_0
 {
     float3 position_0 [[attribute(0)]];

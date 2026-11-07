@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 22 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+#line 22 "src/render/shaders/common.slang"
 struct pixelOutput_0
 {
     float4 output_0 [[color(0)]];
@@ -20,7 +20,7 @@ struct KernelContext_0
 };
 
 
-#line 8 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_depth_keep.frag.slang"
+#line 8 "src/render/shaders/studio_depth_keep.frag.slang"
 [[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], texture2d<float, access::sample> view_depth_texture_1 [[texture(0)]], sampler view_depth_sampler_1 [[sampler(0)]])
 {
 

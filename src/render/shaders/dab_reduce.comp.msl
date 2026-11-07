@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 84 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab.slang"
+#line 84 "src/render/shaders/dab.slang"
 struct SLANG_ParameterGroup_Params_0
 {
     uint dab_0;
@@ -30,7 +30,7 @@ struct Dab_natural_0
 };
 
 
-#line 10 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab_reduce.comp.slang"
+#line 10 "src/render/shaders/dab_reduce.comp.slang"
 struct KernelContext_0
 {
     SLANG_ParameterGroup_Params_0 constant* Params_0;
@@ -51,7 +51,7 @@ struct KernelContext_0
 };
 
 
-#line 96 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab.slang"
+#line 96 "src/render/shaders/dab.slang"
 void keep_bindings_0(KernelContext_0 thread* kernelContext_0)
 {
 
@@ -100,7 +100,7 @@ float3 normalize0_0(float3 v_0)
 }
 
 
-#line 13 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab_reduce.comp.slang"
+#line 13 "src/render/shaders/dab_reduce.comp.slang"
 [[kernel]] void main_0(uint3 local_id_0 [[thread_position_in_threadgroup]], SLANG_ParameterGroup_Params_0 constant* Params_1 [[buffer(14)]], uint device* indices_1 [[buffer(0)]], uint device* offsets_1 [[buffer(1)]], uint device* tris_1 [[buffer(2)]], packed_uint2 device* slabs_2 [[buffer(3)]], Dab_natural_0 device* dabs_1 [[buffer(4)]], uint device* normals_1 [[buffer(5)]], uint device* mask_1 [[buffer(6)]], uint device* fade_1 [[buffer(8)]], float device* positions_1 [[buffer(9)]], float device* tables_1 [[buffer(7)]], packed_float4 device* partials_1 [[buffer(10)]], packed_float4 device* areas_1 [[buffer(11)]])
 {
 

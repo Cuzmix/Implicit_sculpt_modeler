@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+#line 9 "src/render/shaders/common.slang"
 int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
 
@@ -25,7 +25,7 @@ int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_samp
 }
 
 
-#line 12 "/home/user/Implicit_sculpt_modeler/src/render/shaders/sharpen.frag.slang"
+#line 12 "src/render/shaders/sharpen.frag.slang"
 struct SLANG_ParameterGroup_Sharpen_Uniforms_0
 {
     float4 params_0;
@@ -41,7 +41,7 @@ struct KernelContext_0
 };
 
 
-#line 18 "/home/user/Implicit_sculpt_modeler/src/render/shaders/sharpen.frag.slang"
+#line 18 "src/render/shaders/sharpen.frag.slang"
 float3 at_0(int2 p_0, KernelContext_0 thread* kernelContext_0)
 {
 
@@ -52,7 +52,7 @@ float3 at_0(int2 p_0, KernelContext_0 thread* kernelContext_0)
 }
 
 
-#line 6 "/home/user/Implicit_sculpt_modeler/src/render/shaders/finish_grain.slang"
+#line 6 "src/render/shaders/finish_grain.slang"
 float lattice_noise_0(int2 p_1, uint seed_0)
 {
 
@@ -131,7 +131,7 @@ struct pixelOutput_0
 };
 
 
-#line 23 "/home/user/Implicit_sculpt_modeler/src/render/shaders/sharpen.frag.slang"
+#line 23 "src/render/shaders/sharpen.frag.slang"
 [[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], texture2d<float, access::sample> graded_texture_1 [[texture(0)]], sampler graded_sampler_1 [[sampler(0)]], SLANG_ParameterGroup_Sharpen_Uniforms_0 constant* Sharpen_Uniforms_1 [[buffer(0)]])
 {
 

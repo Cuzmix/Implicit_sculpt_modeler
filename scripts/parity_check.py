@@ -28,10 +28,12 @@ import headless
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-# Name, start-up script, frames, and an exit stat the run must print (that the pass ran).
+# Name, start-up script, frames, and what the run must show it did: an exit stat it must
+# print (that the pass ran), or for render mode the samples it asks for (RENDER_SAMPLES).
 # Every case starts from the same sphere with no remembered settings; the accumulating
 # passes (studio, render mode) run until their sample count is reached, after which the
 # image is the same every run however fast the frames went.
+RENDER_SAMPLES = 4
 CASES = [
     ("default", "", 20, ""),
     ("msaa_off", "set msaa off", 20, ""),
@@ -48,9 +50,9 @@ CASES = [
     ("live_ao", "set live_ao on", 20, ""),
     ("live_ao_msaa_off", "set msaa off\nset live_ao on", 20, ""),
     ("studio", "set studio_ao 1\nset studio_shadow 1\nstudio_render on", 420, "studio=1"),
-    ("render_full", "set render_samples 4\nset render_half off\nrender_mode on", 900, "render_samples=4 "),
-    ("render_half", "set render_samples 4\nset render_half on\nrender_mode on", 600, "render_samples=4 "),
-    ("render_dof", "set render_samples 4\nset render_half on\nset render_dof on\nrender_mode on", 600, "render_samples=4 "),
+    ("render_full", f"set render_samples {RENDER_SAMPLES}\nset render_half off\nrender_mode on", 900, RENDER_SAMPLES),
+    ("render_half", f"set render_samples {RENDER_SAMPLES}\nset render_half on\nrender_mode on", 600, RENDER_SAMPLES),
+    ("render_dof", f"set render_samples {RENDER_SAMPLES}\nset render_half on\nset render_dof on\nrender_mode on", 600, RENDER_SAMPLES),
     ("second_view", "second_view on", 30, ""),
 ]
 
@@ -60,6 +62,25 @@ def app_path(given) -> pathlib.Path:
     if not exe.exists():
         sys.exit(f"parity: {exe} is missing: build the app first")
     return exe
+
+
+def want_missing(text, want) -> str:
+    """What the stats lack of what the case wants, or "" when they show it.
+
+    A string is a stat that must be printed. A number is the samples render mode was asked
+    for: the app prints render_samples as the samples it built over the whole run, and the
+    accumulation may start over in its first frames (these runs print 8 for 4), so the count
+    is a whole number of accumulations of the asked samples rather than the asked samples
+    themselves. Any other count means the last one was cut short."""
+    if isinstance(want, str):
+        return "" if want in text else f"no {want.strip()!r} in the stats"
+    m = re.search(r"\brender_samples=(\d+)\b", text)
+    if not m:
+        return "no render_samples in the stats"
+    got = int(m.group(1))
+    if got == 0 or got % want != 0:
+        return f"render_samples={got} is not a whole number of accumulations of the {want} asked for"
+    return ""
 
 
 def run_case(exe, out, name, script, frames, want, extra) -> bool:
@@ -79,9 +100,10 @@ def run_case(exe, out, name, script, frames, want, extra) -> bool:
     if "Vulkan validation:" in text:
         print(f"FAIL {name}: Vulkan validation messages (see {name}.log)")
         return False
-    if r.returncode != 0 or not view.exists() or not screen.exists() or (script and "script_failed=0" not in text) or want not in text:
+    missing = want_missing(text, want)
+    if r.returncode != 0 or not view.exists() or not screen.exists() or (script and "script_failed=0" not in text) or missing:
         tail = text.strip().splitlines()[-5:]
-        print(f"FAIL {name}: exit {r.returncode}" + (f", no {want.strip()!r} in the stats" if want not in text else ""))
+        print(f"FAIL {name}: exit {r.returncode}" + (f", {missing}" if missing else ""))
         for line in tail:
             print("    " + line)
         return False

@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 25 "/home/user/Implicit_sculpt_modeler/src/render/shaders/blas_refit.comp.slang"
+#line 25 "src/render/shaders/blas_refit.comp.slang"
 struct SLANG_ParameterGroup_Params_0
 {
     uint chunk_count_0;

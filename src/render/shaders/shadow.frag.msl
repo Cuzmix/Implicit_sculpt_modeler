@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 2 "/home/user/Implicit_sculpt_modeler/src/render/shaders/shadow.frag.slang"
+#line 2 "src/render/shaders/shadow.frag.slang"
 [[fragment]] void main_0()
 {
 

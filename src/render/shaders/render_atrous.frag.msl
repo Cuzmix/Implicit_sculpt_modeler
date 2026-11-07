@@ -5,10 +5,10 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 24 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_atrous.frag.slang"
+#line 24 "src/render/shaders/render_atrous.frag.slang"
 constant array<float, int(3)> KERNEL_0 = { { 0.375f, 0.25f, 0.0625f } };
 
-#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+#line 9 "src/render/shaders/common.slang"
 int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
 
@@ -28,7 +28,7 @@ int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_samp
 }
 
 
-#line 15 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_atrous.frag.slang"
+#line 15 "src/render/shaders/render_atrous.frag.slang"
 struct SLANG_ParameterGroup_Atrous_Uniforms_0
 {
     float4 params_0;
@@ -48,7 +48,7 @@ struct KernelContext_0
 };
 
 
-#line 27 "/home/user/Implicit_sculpt_modeler/src/render/shaders/render_atrous.frag.slang"
+#line 27 "src/render/shaders/render_atrous.frag.slang"
 float3 light_at_0(int2 px_0, KernelContext_0 thread* kernelContext_0)
 {
 
