@@ -92,7 +92,8 @@ kit_brush_colors :: proc(app: ^App) {
 	ctx := &app.kit.ctx
 	b := &app.brush
 	if .Paint in BRUSHES[b.kind].flags {
-		ui.paragraph(ctx, "Paint lays the main colour; Ctrl, or Subtract, takes paint off, and with Smooth blurs on, Shift, or Smooth, blurs it." if b.paint_dial else "Paint lays the main colour; Ctrl, or Subtract, takes paint off.")
+		ui.paragraph(ctx, "Ctrl, or Subtract, takes paint off; with Smooth blurs on, Shift blurs it." if b.paint_dial else "Ctrl, or Subtract, takes paint off.")
+		kit_paint_source(app)
 	} else if channel_brush(b.kind) {
 		names := [sculpt.Channel]string{.Sculpt = "Sculpt", .Both = "Both", .Color = "Paint"}
 		options: [len(sculpt.Channel)]string

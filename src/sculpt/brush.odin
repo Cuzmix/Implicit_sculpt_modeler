@@ -162,6 +162,17 @@ Brush :: struct {
 	// each vertex mixes toward the average of its neighbours' paint (the inverted brush
 	// still takes paint off). Paint's Smooth in the dial, as ZBrush's and Nomad's do.
 	blur:     bool,
+	// Paint: where the colour it lays comes from (paint_source.odin): its own `color`, the
+	// colours under it dragged along (Smudge), the surface `clone_offset` away (Clone, in
+	// the mesh's space), or the picture over the view (Stencil, `stencil`). Colour alone.
+	source:       Paint_Source,
+	clone_offset: Vec3,
+	stencil:      ^Paint_Stencil,
+	// Set by apply_dab for each image of a dab: its number, and its turn back about
+	// `sym_center` to the stroke's own dab (Smudge keeps a colour for each image; Stencil
+	// reads the picture where the stroke's own dab sees it).
+	image:        int,
+	image_back:   matrix[3, 3]f32,
 	// What a sculpting dab changes: the surface, as it always has; the surface and the
 	// polypaint, painting `color` under the same falloff; or only the polypaint, moving
 	// nothing (paint_channel_dab). Paint, Mask, Grab and Cloth keep to their own channel.
@@ -392,6 +403,10 @@ Sculptor :: struct {
 	// stroke number is layer_stroke; nil until the brush is first used.
 	layer:        []Layer_Height,
 	layer_stroke: u32,
+	// Smudge: the colour each dab image drags, and the stroke (layer_stroke) it was
+	// picked up in; an older stroke's is picked up afresh (paint_source.odin).
+	smudge:        [SYM_IMAGES_MAX][4]f32,
+	smudge_stroke: [SYM_IMAGES_MAX]u32,
 	// The last centre apply_dab laid in stroke number sweep_stroke (Brush.sweep).
 	sweep_from:   Vec3,
 	sweep_stroke: u32,
@@ -1109,7 +1124,9 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	b.sweep = dab_sweep(s, brush, center)
 	b.strength /= symmetry_feather(brush, images[:], center)
 	for img, i in images {
-		moved += dab_once(s, sym_brush(b, img), sym_point(img, center), img, i == 0)
+		ib := sym_brush(b, img)
+		ib.image, ib.image_back = i, linalg.transpose(img.turn)
+		moved += dab_once(s, ib, sym_point(img, center), img, i == 0)
 	}
 	return moved
 }
@@ -1200,6 +1217,7 @@ sym_brush :: proc(brush: Brush, img: Sym_Image) -> Brush {
 	b.projected = m * b.projected
 	b.stroke_dir = m * b.stroke_dir
 	b.sweep = m * b.sweep
+	b.clone_offset = m * b.clone_offset
 	if img.flipped do b.alpha_mirror = !b.alpha_mirror
 	return b
 }

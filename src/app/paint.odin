@@ -83,7 +83,7 @@ paint_command :: proc(app: ^App, command: sculpt.Paint_Command) {
 		// The picked layer lives in a texture: its tiles change, kept by an undo step of
 		// the object's own.
 		step := new(sculpt.Texel_Step)
-		changed := sculpt.levels_texel_command(&obj.levels, command, brush_color_bytes(app), material, step, sculpt.height_value(clamp(app.brush.height, -1, 1)))
+		changed := sculpt.levels_texel_command(&obj.levels, command, brush_color_bytes(app), material, step, sculpt.height_value(clamp(app.brush.height, -1, 1)), gradient)
 		log.infof("%s on a texture layer: %.0f ms%s", PAINT_COMMAND_NAMES[command], time.duration_milliseconds(time.tick_since(start)), "" if changed else ", nothing changed")
 		if changed do history_record_texels(app, obj, step, PAINT_COMMAND_NAMES[command])
 		else {

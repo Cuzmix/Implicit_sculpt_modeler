@@ -327,6 +327,8 @@ Stroke_Brush_Tag :: enum u16 {
 	Physics             = 76, // u8
 	Physics_Strength    = 77, // f32
 	Poseable            = 78, // u8
+	Paint_Source        = 79, // u8 sculpt.Paint_Source
+	Clone_Offset        = 80, // [3]f32, in the object's space
 }
 
 Stroke_Frame_Tag :: enum u16 {
@@ -399,6 +401,8 @@ strokes_save :: proc(app: ^App, path: string) -> bool {
 		geom.rec_put(o, B.Scale, t.scales[i])
 		geom.rec_put(o, B.Sym_Local, u8(b.sym_local))
 		geom.rec_put(o, B.Poseable, u8(b.poseable))
+		geom.rec_put(o, B.Paint_Source, u8(b.paint_source))
+		geom.rec_put(o, B.Clone_Offset, b.clone_offset)
 		geom.rec_put(o, B.Radial_On, u8(b.radial_on))
 		geom.rec_put(o, B.Radial_Count, u8(clamp(b.radial_count, RADIAL_MIN, sculpt.RADIAL_MAX)))
 		geom.rec_put(o, B.Radial_Axis, u8(b.radial_axis))
@@ -590,6 +594,8 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		steady := [2]f32{geom.rec_get(&br, B.Smoothing, f32, f32(steady_count(b.smoothing))), geom.rec_get(&br, B.Pressure_Smoothing, f32, f32(steady_count(b.pressure_smoothing)))}
 		catch_up := g8(&br, B.Catch_Up, b.catch_up)
 		poseable := g8(&br, B.Poseable, b.poseable)
+		source := geom.rec_get(&br, B.Paint_Source, u8, u8(b.paint_source))
+		clone := geom.rec_get(&br, B.Clone_Offset, [3]f32, b.clone_offset)
 		evened := [3]u8{g8(&br, B.Even_Strength, b.even_strength), g8(&br, B.Scene_Spacing, b.scene_spacing), g8(&br, B.Feather, b.feather)}
 		grabbing := [3]u8{geom.rec_get(&br, B.Grab_Mode, u8, u8(b.grab_mode)), g8(&br, B.Grab_Same_Side, b.grab_same_side), g8(&br, B.Grab_Silhouette, b.grab_silhouette)}
 		normal_weight := geom.rec_get(&br, B.Grab_Normal, f32, b.grab_normal)
@@ -673,6 +679,10 @@ strokes_read :: proc(app: ^App, data: []u8, t: ^Take) -> bool {
 		b.smoothing, b.pressure_smoothing, b.catch_up = f32(steady_count(steady[0])), f32(steady_count(steady[1])), catch_up == 1
 		b.even_strength, b.scene_spacing, b.feather = evened[0] == 1, evened[1] == 1, evened[2] == 1
 		b.poseable = poseable == 1
+		// A replayed Clone stroke paints from the way off it was recorded with, on
+		// whichever object it lands (clone_object 0).
+		b.paint_source = sculpt.Paint_Source(source) if int(source) < len(sculpt.Paint_Source) else .Color
+		if b.paint_source == .Clone do b.clone_offset, b.clone_object, b.clone_set, b.clone_pending, b.clone_armed = clone, 0, true, false, false
 		b.grab_mode, b.grab_same_side, b.grab_silhouette, b.grab_normal = Grab_Mode(grabbing[0]), grabbing[1] == 1, grabbing[2] == 1, normal_weight
 		b.grab_topological = topological == 1
 		b.elastic_volume = volume

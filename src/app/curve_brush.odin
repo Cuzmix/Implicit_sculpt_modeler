@@ -103,7 +103,7 @@ stroke_path_start :: proc(app: ^App, obj: ^Object) -> bool {
 	st := &app.stroke
 	st.active, st.object, st.framed = true, obj.id, false
 	st.kind, st.held = app.brush.kind, false
-	st.blur = false
+	st.blur, st.source = false, .Color
 	st.seed, st.step, st.turn = app.stroke_seed, 0, 0
 	app.stroke_seed += 1
 	st.scale = 1
