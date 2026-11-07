@@ -44,7 +44,7 @@ stay in step through the tokens: every colour, size, radius, type size and durat
   is a new token to propose, not a one-off.
 - Sizes in points, as the kit's: every hit area at least 48 x 48 (`target`), drawn controls 36 high (`control`), rows
   40 (`row`), panels 12 from the window edge (`edge`), radii 6, 8, 12 (`radius_small`, `_medium`, `_large`), Inter at
-  the theme's five sizes (11, 12, 13, 15, 17), Lucide icons at 18 in toolbars and 16 in rows. Spacing on the kit's
+  the theme's five sizes (11, 12, 13, 15, 17), the app's icons (Phosphor's look, one per meaning in the icon manifest) at 18 in toolbars and 16 in rows. Spacing on the kit's
   steps: 4 and 8 inside a group, 12 between groups (`gap`), 12 to 16 panel padding.
 - One frame per target size (desktop 1440 x 900, tablet 1366 x 1024, and portrait or split view when the layout must
   survive them), with the safe area marked on tablet frames. Annotate what a tap, a drag and a scroll do, and motion

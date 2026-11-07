@@ -89,7 +89,7 @@ kit_menu_lens :: proc(app: ^App, anchor: ui.Rect) {
 	ui.divider(ctx, across = true)
 	lens_sub_row(app, .New, ui.ICON_PLUS)
 	if command_menu_item(app, .Open_Scene) do pick = true
-	lens_sub_row(app, .Recent, ui.ICON_HISTORY)
+	lens_sub_row(app, .Recent, ui.ICON_RECENT)
 	for id in ([?]Command_Id{.Save_Scene, .Save_Scene_As, .Save_Scene_Copy, .Scene_Versions}) {
 		if command_menu_item(app, id) do pick = true
 	}
@@ -222,7 +222,7 @@ lens_recent_list :: proc(app: ^App) -> (pick: bool) {
 			}
 		}
 		label := "Discard changes and open?" if armed else filepath.base(path)
-		if !ui.menu_item(ctx, fmt.tprintf("%s##menu recent %d", label, i), when_text, ICON_OBJECT_BOX, tone = .Danger if armed else .Neutral, keys_muted = missing) do continue
+		if !ui.menu_item(ctx, fmt.tprintf("%s##menu recent %d", label, i), when_text, ui.ICON_RECENT, tone = .Danger if armed else .Neutral, keys_muted = missing) do continue
 		switch {
 		case path == app.scene_path:
 			pick = true

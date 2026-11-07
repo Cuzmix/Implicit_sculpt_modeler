@@ -275,38 +275,3 @@ bar_section :: proc(app: ^App, sec: Section) -> (title: string, draw: proc(app: 
 	return
 }
 
-ICON_MATERIAL :: rune(0xe5a2) // eclipse: a lit sphere
-ICON_COLOUR :: rune(0xe1dd) // palette
-ICON_OBJECTS :: rune(0xe104) // layers
-ICON_OBJECTS_CARD :: rune(0xe2d0) // boxes
-ICON_SPLIT :: rune(0xe445) // split
-ICON_MERGE :: rune(0xe444) // merge
-ICON_ORTHO :: rune(0xe529) // cuboid
-ICON_SYMMETRY :: rune(0xe362) // flip-horizontal-2
-ICON_ADD :: rune(0xe086) // circle-plus: brushes raise and build
-ICON_SUBTRACT :: rune(0xe083) // circle-minus: brushes dig and carve
-ICON_SWAP_COLORS :: rune(0xe24a) // arrow-left-right
-// The paint channel's three states: the surface, the surface and its colour, the colour.
-ICON_CHANNEL_SCULPT :: rune(0xe231) // mountain
-ICON_CHANNEL_BOTH :: rune(0xe5a1) // blend
-ICON_CHANNEL_COLOR :: rune(0xe0b8) // droplet
-ICON_LOCAL_SYMMETRY :: rune(0xe364) // flip-vertical-2: a mirror through the object's own middle
-ICON_WIREFRAME :: rune(0xe0ec) // grid-3x3
-ICON_FLOOR :: rune(0xe2fe) // axis-3d: the axes over the floor
-ICON_TRANSPARENCY :: rune(0xe4a7) // square-stack: shapes seen through one another
-ICON_SOLO :: rune(0xe53b) // scan-eye
-// Save a copy writes the scene elsewhere and keeps the file it was: a copy with a plus,
-// not Save's disk. Earlier saves lists the scene's own numbered saves: a file with a clock,
-// not the History arrow that Open recent and the History card use.
-ICON_SAVE_COPY :: rune(0xe402) // copy-plus
-ICON_EARLIER_SAVES :: rune(0xe318) // file-clock
-ICON_GIZMO :: rune(0xe2e5) // move-3d
-ICON_REMESH :: rune(0xe0eb) // globe: a sphere of even lines
-ICON_DYNTOPO :: rune(0xe129) // network
-ICON_RETOPO :: rune(0xe504) // grid-2x2
-ICON_SUBDIVIDE :: rune(0xe62d) // grid-2x2-plus
-ICON_BOOLEAN :: rune(0xe5a1) // blend
-ICON_SHADING :: rune(0xe0a1) // contrast: a sphere half lit
-ICON_CHEVRON_LEFT :: rune(0xe072)
-ICON_CUSTOMISE :: rune(0xe1f9) // pencil
-ICON_CAMERA :: rune(0xe068) // camera

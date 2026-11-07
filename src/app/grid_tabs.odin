@@ -26,12 +26,9 @@ Tab_Kind :: enum u8 {
 
 @(rodata)
 TAB_KIND_ICONS := [Tab_Kind]rune {
-	.View    = ICON_ORBIT_VIEW,
-	.Texture = ui.ICON_IMAGE,
+	.View    = ui.ICON_ORBIT_VIEW,
+	.Texture = ui.ICON_TEXTURE_TAB,
 }
-
-// Lucide's rotate-3d: a 3D view tab in the kind list.
-ICON_ORBIT_VIEW :: rune(0xe2d5)
 
 // A tab's state: every kind's, so a tab keeps what it showed whatever it shows now. A 2D
 // kind draws with the interface kit inside its pane, so it needs no picture of its own.

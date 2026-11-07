@@ -443,19 +443,19 @@ STACK_ROW_NAMES := [Stack_Row]string {
 }
 
 STACK_ROW_GLYPHS := [Stack_Row]rune {
-	.Smooth      = ICON_SUBDIVIDE,
-	.Cage_Mirror = ICON_SYMMETRY,
-	.Thickness   = ICON_STRETCH_VERTICAL,
-	.Bevel       = ui.ICON_SHAPES,
-	.Deform      = ICON_DEFORM,
-	.Curve       = ICON_CAGE_CURVE,
-	.Wrap        = ICON_CAGE_WRAP,
-	.Displace    = ICON_DISPLACE,
-	.Sharp       = ICON_SHARP,
-	.Mirror      = ICON_SYMMETRY,
-	.Array       = ui.ICON_COPY,
-	.Radial      = ICON_TURN,
-	.Along       = ui.ICON_SPLINE,
+	.Smooth      = ui.ICON_STACK_SMOOTH,
+	.Cage_Mirror = ui.ICON_CAGE_MIRROR,
+	.Thickness   = ui.ICON_THICKNESS,
+	.Bevel       = ui.ICON_STACK_BEVEL,
+	.Deform      = ui.ICON_CAGE_DEFORM,
+	.Curve       = ui.ICON_CAGE_CURVE,
+	.Wrap        = ui.ICON_CAGE_WRAP,
+	.Displace    = ui.ICON_DISPLACE,
+	.Sharp       = ui.ICON_SHARP,
+	.Mirror      = ui.ICON_SYMMETRY,
+	.Array       = ui.ICON_ARRAY,
+	.Radial      = ui.ICON_RADIAL,
+	.Along       = ui.ICON_ALONG,
 }
 
 // The card's own state between frames, which holds no sculpt state: which object's row is
@@ -809,7 +809,7 @@ kit_stack_row_menu :: proc(app: ^App, obj: ^Object, r: Stack_Row) {
 	}
 	lower := strings.to_lower(STACK_ROW_NAMES[r], context.temp_allocator)
 	if r == .Cage_Mirror && obj.cage.look.live.mirror != {} {
-		if ui.menu_item(ctx, "Apply mirror##stack menu", glyph = ICON_SYMMETRY, keys = command_hint(app, .Tidy_Cage, int(Cage_Tidy.Apply_Mirror)), hint = "The mirrored half becomes the cage's own") {
+		if ui.menu_item(ctx, "Apply mirror##stack menu", glyph = ui.ICON_SYMMETRY, keys = command_hint(app, .Tidy_Cage, int(Cage_Tidy.Apply_Mirror)), hint = "The mirrored half becomes the cage's own") {
 			_ = command_run(app, .Tidy_Cage, int(Cage_Tidy.Apply_Mirror))
 			c.menu = false
 		}
@@ -881,7 +881,7 @@ kit_stack_count :: proc(app: ^App, key: string, count: ^int, lo: int) -> (tapped
 	v := f32(count^)
 	if ui.drag_value(ctx, fmt.tprintf("Count##%s", key), &v, 0.05, f32(lo), STACK_COUNT_MAX, fmt.tprintf("%d", count^)) do count^ = int(math.round(v))
 	ui.end(ctx)
-	if ui.button(ctx, fmt.tprintf("Fewer##%s", key), width = t.target, glyph = ICON_MINUS, icon_only = true, enabled = count^ > lo) {
+	if ui.button(ctx, fmt.tprintf("Fewer##%s", key), width = t.target, glyph = ui.ICON_MINUS, icon_only = true, enabled = count^ > lo) {
 		count^ -= 1
 		tapped = "Fewer copies"
 	}

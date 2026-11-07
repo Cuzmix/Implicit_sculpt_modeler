@@ -238,7 +238,7 @@ lens_palette_footer :: proc(app: ^App, e: Maybe(Palette_Entry), width: f32, anch
 	r := ui.place(ctx, {width - 16 - buttons, t.target})
 	ui.text(ctx, ui.text_fit(ctx, hint, t.caption_size, r.w - 8), r.x + 4, r.y + r.h * 0.5, t.caption_size, t.text_tertiary)
 	if c, ok := e.?; ok && c.kind == .Command && k.palette_for == nil {
-		show = ui.icon_button(ctx, "Show where it lives##palette show", ui.ICON_FOCUS, enabled = palette_home(c) != "", keys = "Tab")
+		show = ui.icon_button(ctx, "Show where it lives##palette show", ui.ICON_LOCATE, enabled = palette_home(c) != "", keys = "Tab")
 		starred := favourite_find(app, c.id, c.arg) >= 0
 		if ui.icon_button(ctx, "Starred##palette star" if starred else "Star##palette star", ui.ICON_STAR, selected = starred) {
 			if favourite_toggle(app, c.id, c.arg) do pies_saved(app)
@@ -249,7 +249,7 @@ lens_palette_footer :: proc(app: ^App, e: Maybe(Palette_Entry), width: f32, anch
 		if pin {
 			which := shelf_which(k.shelf.page)
 			_, held := shelf_holds(app, which, {c.id, c.arg})
-			if ui.icon_button(ctx, "On the shelf##palette pin" if held else "Pin to shelf##palette pin", ICON_PIN, selected = held, enabled = !held) do shelf_pin(app, {c.id, c.arg}, which)
+			if ui.icon_button(ctx, "On the shelf##palette pin" if held else "Pin to shelf##palette pin", ui.ICON_PIN, selected = held, enabled = !held) do shelf_pin(app, {c.id, c.arg}, which)
 		}
 	}
 	ui.end(ctx)

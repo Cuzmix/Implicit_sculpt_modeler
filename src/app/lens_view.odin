@@ -7,9 +7,6 @@ import "../ui"
 // control floating over it, so the model is drawn in the middle of the room the controls
 // leave rather than of the window, and Clean view hides the controls altogether.
 
-// Lucide's fullscreen, for Clean view.
-ICON_CLEAN_VIEW :: rune(0xe539)
-
 // Seconds Clean view's hint shows before it fades, and how long the fade takes.
 CLEAN_HINT_TIME :: 2.5
 CLEAN_HINT_FADE :: 0.5

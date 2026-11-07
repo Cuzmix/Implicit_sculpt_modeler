@@ -65,13 +65,6 @@ Member_Start :: struct {
 	start: Transform,
 }
 
-// The pivot row's own icons (Lucide's crosshair and rotate-ccw).
-ICON_PIVOT_CENTER :: rune(0xe0b0)
-ICON_PIVOT_RESET :: rune(0xe14c)
-// A middle inside a dashed edge (circle-dot-dashed): the middle of what the mask leaves
-// free, a glyph of its own, as the mask's own glyph means masking.
-ICON_PIVOT_UNMASKED :: rune(0xe4b6)
-
 // Where turns and scales go about, when not the object's origin: a point in the object's
 // own space, so moving, turning or scaling the object carries it along. Each object keeps
 // its own (Object.pivot), saved with it in the scene file.
@@ -172,14 +165,14 @@ GIZMO_ORIENT_NAMES := [Gizmo_Orient]string {
 	.View    = "View",
 }
 
-// Each orientation's icon on the pivot row (Lucide's globe, box, arrow-up-from-dot and
-// scan-eye).
+// Each orientation's icon on the pivot row: the globe, the object's box, the surface's
+// normal and the eye.
 @(rodata)
 GIZMO_ORIENT_ICONS := [Gizmo_Orient]rune {
-	.World   = rune(0xe0eb),
-	.Object  = rune(0xe065),
-	.Surface = rune(0xe453),
-	.View    = rune(0xe53b),
+	.World   = ui.ICON_WORLD,
+	.Object  = ui.ICON_OBJECT_SPACE,
+	.Surface = ui.ICON_SURFACE,
+	.View    = ui.ICON_VIEW_SPACE,
 }
 
 // The gizmo's arms on `obj` in the orientation chosen: unit, at right angles, right-handed.

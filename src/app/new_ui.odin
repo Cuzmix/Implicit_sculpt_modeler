@@ -1641,7 +1641,7 @@ kit_shading_menu :: proc(app: ^App) {
 	ui.divider(&app.kit.ctx, across = true)
 	ui.caption(&app.kit.ctx, "  TEXTURES")
 	for v in render.Texture_View.Textured ..= render.Texture_View.Uv_Checker do _ = command_menu_item(app, .Texture_View, int(v))
-	if ui.menu_item(&app.kit.ctx, "Light card", glyph = ui.ICON_SUN) {
+	if ui.menu_item(&app.kit.ctx, "Light card", glyph = ui.ICON_LIGHTS) {
 		at := app.kit.bar_pop.at
 		app.kit.bar_pop.open = false
 		card_toggle(app, .Light, at, .Left)
@@ -1713,7 +1713,7 @@ kit_folder_menu :: proc(app: ^App) {
 	if f == nil do k.folder_menu = false
 	if !ui.popover_begin(ctx, "folder menu", &k.folder_menu, k.folder_menu_at, .Pointer, {direction = .Column, padding = ui.MENU_PAD, width = ui.MENU_W}) do return
 	defer ui.popover_end(ctx)
-	if ui.menu_item(ctx, "Rename...##folder", glyph = ui.ICON_PENCIL) {
+	if ui.menu_item(ctx, "Rename...##folder", glyph = ui.ICON_RENAME) {
 		rename_open(app, -f.id, k.folder_menu_at)
 		k.folder_menu = false
 		return
@@ -1734,16 +1734,16 @@ kit_folder_menu :: proc(app: ^App) {
 		picked = true
 	}
 	// Polypaint for every object in it at once, as ZBrush's folder menu offers.
-	if end > first && ui.menu_item(ctx, "Show polypaint##folder", glyph = ui.ICON_PAINTBRUSH) {
+	if end > first && ui.menu_item(ctx, "Show polypaint##folder", glyph = ui.ICON_PAINT) {
 		app.ui.scene_command = {kind = .View, view = .Folder_Paint_Show, id = f.id}
 		picked = true
 	}
-	if end > first && ui.menu_item(ctx, "Hide polypaint##folder", glyph = ui.ICON_PAINTBRUSH) {
+	if end > first && ui.menu_item(ctx, "Hide polypaint##folder", glyph = ui.ICON_PAINT) {
 		app.ui.scene_command = {kind = .View, view = .Folder_Paint_Hide, id = f.id}
 		picked = true
 	}
 	// Its shown objects as one new object at the end of the list, as ZBrush's Merge Folder.
-	if end - first >= 2 && ui.menu_item(ctx, "Merge folder", glyph = ICON_MERGE) {
+	if end - first >= 2 && ui.menu_item(ctx, "Merge folder", glyph = ui.ICON_MERGE) {
 		app.ui.scene_command = {kind = .Merge, on = true, id = f.id}
 		picked = true
 	}

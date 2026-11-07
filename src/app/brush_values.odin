@@ -55,20 +55,20 @@ BRUSH_VALUE_NAMES := [Brush_Value]string {
 	.Height      = "Height",
 }
 
-// Lucide's nearest glyphs: a radius, a gauge, a lens's focus, dabs in a row, the line
-// trailing the pen, a pen's weighted line, and an aperture's blades.
+// A radius, a gauge, a focus, dabs in a row, the line trailing the pen, a pen's weighted
+// line, and an aperture's blades.
 @(rodata)
 BRUSH_VALUE_ICONS := [Brush_Value]rune {
-	.Size        = rune(0xe532), // radius
-	.Strength    = rune(0xe1bf), // gauge
-	.Focal_Shift = rune(0xe29e), // focus
-	.Spacing     = rune(0xe0ba), // ellipsis
-	.Lazy        = rune(0xe38f), // spline
-	.Pressure    = rune(0xe5f7), // signature
-	.Exposure    = rune(0xe044), // aperture
-	.Roughness   = ICON_SPARKLES, // how much it shines
-	.Metal       = ICON_MATERIAL, // a lit sphere
-	.Height      = ICON_CHANNEL_SCULPT, // a mountain
+	.Size        = ui.ICON_SIZE,
+	.Strength    = ui.ICON_STRENGTH,
+	.Focal_Shift = ui.ICON_FOCAL,
+	.Spacing     = ui.ICON_SPACING,
+	.Lazy        = ui.ICON_LAZY,
+	.Pressure    = ui.ICON_PRESSURE,
+	.Exposure    = ui.ICON_EXPOSURE,
+	.Roughness   = ui.ICON_ROUGHNESS,
+	.Metal       = ui.ICON_METAL,
+	.Height      = ui.ICON_HEIGHT,
 }
 
 @(rodata)
@@ -476,7 +476,7 @@ kit_value_menu :: proc(app: ^App) {
 	}
 	ui.divider(ctx, across = true)
 	// Exposure is the view's: its slider is in Material's More options, opened with it.
-	if ui.menu_item(ctx, "Material settings" if v == .Exposure else "Brush settings", glyph = ui.ICON_PANEL) {
+	if ui.menu_item(ctx, "Material settings" if v == .Exposure else "Brush settings", glyph = ui.ICON_OPEN_CARD) {
 		at, side := p.at, p.side
 		if v == .Exposure do k.more[.Material] = true
 		p.open = false
@@ -486,7 +486,7 @@ kit_value_menu :: proc(app: ^App) {
 	column := bar_column(which)
 	earlier, later := "Move up", "Move down"
 	if !column do earlier, later = "Move left", "Move right"
-	if ui.menu_item(ctx, earlier, glyph = ui.ICON_CHEVRON_UP if column else ICON_CHEVRON_LEFT, enabled = slot > 0) do p.slot = bar_move(app, which, slot, -1)
+	if ui.menu_item(ctx, earlier, glyph = ui.ICON_CHEVRON_UP if column else ui.ICON_CHEVRON_LEFT, enabled = slot > 0) do p.slot = bar_move(app, which, slot, -1)
 	if ui.menu_item(ctx, later, glyph = ui.ICON_CHEVRON_DOWN if column else ui.ICON_CHEVRON_RIGHT, enabled = slot < len(used) - 1) do p.slot = bar_move(app, which, slot, 1)
 	room := len(used) < bar_capacity(which)
 	if ui.menu_item(ctx, "Add another value", glyph = ui.ICON_PLUS, enabled = room && value_missing(app, which) != {}) do p.adding = !p.adding

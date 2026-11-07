@@ -206,31 +206,24 @@ kit_history_list :: proc(app: ^App, inner, room: f32, owner: ui.Id, can: bool) {
 	history_transport(app, can)
 }
 
-// Lucide's list, columns-3, layers and file: the List and Strip views, a layer's step and
-// the first row.
-ICON_HISTORY_LIST :: rune(0xe10c)
-ICON_HISTORY_STRIP :: rune(0xe09d)
-ICON_LAYERS :: rune(0xe104)
-ICON_FILE :: rune(0xe0c4)
-
 // A row's kind glyph.
 @(rodata)
 KIND_GLYPHS := [History_Kind]rune {
-	.Stroke    = ui.ICON_BRUSH,
-	.Mask      = ICON_MASK,
-	.Hide      = ui.ICON_EYE_OFF,
-	.Deform    = ui.ICON_WAND,
-	.Rebuild   = ICON_REMESH,
-	.Paint     = ui.ICON_PAINTBRUSH,
-	.Layer     = ICON_LAYERS,
-	.Transform = ui.ICON_MOVE,
+	.Stroke    = ui.ICON_STROKE,
+	.Mask      = ui.ICON_MASK,
+	.Hide      = ui.ICON_HIDE,
+	.Deform    = ui.ICON_DEFORM,
+	.Rebuild   = ui.ICON_REMESH,
+	.Paint     = ui.ICON_PAINT,
+	.Layer     = ui.ICON_LAYERS,
+	.Transform = ui.ICON_TRANSFORM,
 	.Arrange   = ui.ICON_FOLDER,
-	.Textures  = ui.ICON_IMAGE,
-	.Lights    = ui.ICON_SUN,
-	.Model     = ICON_CAGE,
-	.Curve     = ui.ICON_SPLINE,
-	.References = ICON_REFERENCES,
-	.Stack     = ICON_LIVE_STACK,
+	.Textures  = ui.ICON_TEXTURES,
+	.Lights    = ui.ICON_LIGHTS,
+	.Model     = ui.ICON_CAGE,
+	.Curve     = ui.ICON_CURVE,
+	.References = ui.ICON_REFERENCES,
+	.Stack     = ui.ICON_LIVE_STACK,
 }
 
 // One row: a tap goes to its step (a group's newest), a long press, a right click or the
@@ -286,7 +279,7 @@ history_row :: proc(app: ^App, row: History_Row, width: f32, can: bool, recall: 
 	sw := ui.text_width(ctx, size, t.caption_size)
 	ui.text(ctx, size, right, mid, t.caption_size, ui.color_fade(t.text_secondary, fade), .Regular, .Right)
 	if recall >= row.oldest && recall <= row.last {
-		ui.icon(ctx, ui.ICON_BRUSH, {right - sw - 12, mid}, t.icon_small - 4, t.accent)
+		ui.icon(ctx, ui.ICON_PAINT_BACK, {right - sw - 12, mid}, t.icon_small - 4, t.accent)
 		sw += 18
 	}
 	title := entry_label(e)
@@ -316,7 +309,7 @@ history_row :: proc(app: ^App, row: History_Row, width: f32, can: bool, recall: 
 		// A bookmark leads the line with its flag and name, in the flags' amber.
 		if e.bookmark != "" {
 			amber := ui.color_fade(t.warning, fade)
-			ui.icon(ctx, ICON_FLAG, {lx + 5, mid + 9}, t.icon_small - 6, amber)
+			ui.icon(ctx, ui.ICON_FLAG, {lx + 5, mid + 9}, t.icon_small - 6, amber)
 			name := ui.text_fit(ctx, e.bookmark, t.caption_size, (right - sw - 10 - tx) * 0.6, .Semibold)
 			ui.text(ctx, name, lx + 13, mid + 9, t.caption_size, amber, .Semibold)
 			lx += 13 + ui.text_width(ctx, name, t.caption_size, .Semibold)
@@ -363,7 +356,7 @@ history_root_row :: proc(app: ^App, width: f32, can: bool) {
 	}
 	mid := box.y + box.h * 0.5
 	ui.text(ctx, "0", box.x + 24, mid, t.caption_size, t.text_tertiary, .Regular, .Right)
-	ui.icon(ctx, ICON_FILE, {box.x + 52, mid}, t.icon_small, t.text_secondary)
+	ui.icon(ctx, ui.ICON_FILE, {box.x + 52, mid}, t.icon_small, t.text_secondary)
 	start := fmt.tprintf("Opened %s", filepath.base(app.scene_path)) if app.scene_path != "" else "New scene"
 	if h.began != {} do start = fmt.tprintf("%s · %s", start, ago_label(h.began))
 	dropped := fmt.tprintf("%d older dropped", h.dropped) if h.dropped > 0 else ""

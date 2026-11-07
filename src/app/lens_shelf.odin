@@ -679,7 +679,7 @@ shelf_head :: proc(app: ^App, active: Brush_Item, active_on: bool, which: Bar_Wh
 	k := &app.kit
 	ctx := &k.ctx
 	all :: proc(app: ^App) {
-		if ui.brush_tile(&app.kit.ctx, "All##shelf all", ui.ICON_GRID, app.kit.browser, command_hint(app, .Brush_Picker)) do brush_picker_toggle(app)
+		if ui.brush_tile(&app.kit.ctx, "All##shelf all", ui.ICON_BRUSH_PICKER, app.kit.browser, command_hint(app, .Brush_Picker)) do brush_picker_toggle(app)
 	}
 	if !ctx.mirror {
 		all(app)
@@ -734,7 +734,7 @@ shelf_visiting_pin :: proc(app: ^App, it: Brush_Item, which: Bar_Which, at: ui.R
 	a := ui.area(ctx, "Pin to shelf##visiting", {r.w, r.h})
 	ui.fill_circle(ctx, {r.x + 12, r.y + 12}, 10, t.surface_raised)
 	ui.stroke_circle(ctx, {r.x + 12, r.y + 12}, 10, t.border_strong, 1)
-	ui.icon(ctx, ICON_PIN, {r.x + 12, r.y + 12}, 12, t.text if !a.hovered else t.accent)
+	ui.icon(ctx, ui.ICON_PIN, {r.x + 12, r.y + 12}, 12, t.text if !a.hovered else t.accent)
 	ui.tip(ctx, a.id, r, fmt.tprintf("Pin %s to %s", brush_item_name(app, it), shelf_page_name(k, sh.page)), "Keeps it on this page")
 	if a.clicked do shelf_pin(app, slot, which)
 	ui.end(ctx)
@@ -756,11 +756,6 @@ shelf_dashed_ring :: proc(ctx: ^ui.Context, r: ui.Rect, c: ui.Color) {
 		ui.fill_rect(ctx, {r.x + r.w - 1.5, y, 1.5, h}, 0, c)
 	}
 }
-
-// The Lucide pin, the visiting tile's way onto the page, and its struck-through twin for
-// taking a tile off.
-ICON_PIN :: rune(0xe259)
-ICON_PIN_OFF :: rune(0xe2b6)
 
 // Keeps `slot` on shelf page `which`: first after All, where it visited, so it does not
 // move. A page with no room asks for the tile it replaces (the next tap on one), saying
@@ -1014,7 +1009,7 @@ kit_shelf_quick :: proc(app: ^App) {
 	lens_stroke_preview(ctx, r, cur, app)
 	ui.label(ctx, ui.text_fit(ctx, brush_item_name(app, cur), t.title_size, 360 - 24 - 40 - 8 - t.target, .Semibold), t.title_size, t.text, .Semibold)
 	ui.spacer(ctx, ui.row_room(ctx) - 8 - t.target)
-	if ui.icon_button(ctx, "Favorite (on)##quick" if favourite else "Favorite##quick", ICON_HEART, selected = favourite) do brush_favorite_toggle(&k.brushes, key)
+	if ui.icon_button(ctx, "Favorite (on)##quick" if favourite else "Favorite##quick", ui.ICON_HEART, selected = favourite) do brush_favorite_toggle(&k.brushes, key)
 	ui.end(ctx)
 	_ = ui.slider(ctx, "Size", &app.brush.radius_px, MIN_RADIUS_PX, MAX_RADIUS_PX, .Logarithmic, fmt.tprintf("%.0f px", app.brush.radius_px))
 	s := brush_strength(app)
@@ -1045,13 +1040,13 @@ kit_shelf_quick :: proc(app: ^App) {
 	if slot, ok := shelf_slot_of(cur); ok {
 		which := shelf_which(sh.page)
 		at, held := shelf_holds(app, which, slot)
-		if ui.icon_button(ctx, "Remove from shelf##quick" if held else "Pin to shelf##quick", ICON_PIN_OFF if held else ICON_PIN, selected = held) {
+		if ui.icon_button(ctx, "Remove from shelf##quick" if held else "Pin to shelf##quick", ui.ICON_PIN_OFF if held else ui.ICON_PIN, selected = held) {
 			sh.quick = false
 			if held do shelf_unpin(app, which, at)
 			else do shelf_pin(app, slot, which)
 		}
 	}
-	if command_button(app, .Open_Section, int(Section.Stroke), label = "Stroke settings", variant = .Bordered, glyph = ui.ICON_PANEL) do sh.quick = false
+	if command_button(app, .Open_Section, int(Section.Stroke), label = "Stroke settings", variant = .Bordered, glyph = ui.ICON_OPEN_CARD) do sh.quick = false
 	if ui.button(ctx, "All settings", .Bordered, glyph = ui.ICON_SETTINGS) {
 		sh.quick = false
 		brush_item_settings(app, cur)
@@ -1176,7 +1171,7 @@ kit_brush_sheet :: proc(app: ^App, anchor: ui.Rect, side: ui.Side) {
 		lens_stroke_preview(ctx, {a.rect.x + 8, a.rect.y + 8, a.rect.w - 16, 70}, l.item, app)
 		name := ui.text_fit(ctx, l.name, t.small_size, a.rect.w - 40, .Semibold)
 		ui.text(ctx, name, a.rect.x + 10, a.rect.y + a.rect.h - 16, t.small_size, t.accent if on else t.text, .Semibold)
-		if _, fav := brush_favorite(p, l.key); fav do ui.icon(ctx, ICON_HEART, {a.rect.x + a.rect.w - 16, a.rect.y + a.rect.h - 16}, t.icon_small - 2, t.warning)
+		if _, fav := brush_favorite(p, l.key); fav do ui.icon(ctx, ui.ICON_HEART, {a.rect.x + a.rect.w - 16, a.rect.y + a.rect.h - 16}, t.icon_small - 2, t.warning)
 		if adding do ui.icon(ctx, ui.ICON_CHECK if on else ui.ICON_PLUS, {a.rect.x + a.rect.w - 18, a.rect.y + 18}, t.icon_small - 2, t.accent if on else t.text_secondary)
 		ui.tip(ctx, a.id, a.rect, l.name, brush_item_hint(app, l.item))
 		// A drag past the slop carries the card toward the shelf; it is no tap then. A finger

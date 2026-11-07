@@ -544,7 +544,7 @@ palette_icon :: proc(e: Palette_Entry) -> rune {
 	if e.id == .Brush_Value && e.arg >= 0 && e.arg < len(Brush_Value) do return BRUSH_VALUE_ICONS[Brush_Value(e.arg)]
 	if e.id == .Model_Action && e.arg >= 0 && e.arg < len(Model_Action) do return MODEL_ACTION_ICONS[Model_Action(e.arg)]
 	if e.id == .Add_Cage && e.arg >= 0 && e.arg < len(poly.Primitive) do return PRIMITIVE_ICONS[poly.Primitive(e.arg)]
-	return COMMANDS[e.id].icon if COMMANDS[e.id].icon != 0 else ui.ICON_WAND
+	return COMMANDS[e.id].icon if COMMANDS[e.id].icon != 0 else ui.ICON_COMMAND
 }
 
 // The entry's name as settings.txt and the exit stats write it: the command's name, and

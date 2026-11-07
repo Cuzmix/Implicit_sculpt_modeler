@@ -23,10 +23,6 @@ HOME_STARTS := [6]int{0, 1, 6, 8, 7, 9}
 @(rodata)
 HOME_MORE := [4]int{2, 3, 4, 5}
 
-// Lucide's user-round, pressed into the Head tile's ball.
-@(private = "file")
-ICON_HEAD :: rune(0xe46d)
-
 // A warm clay, as the mock's starters are.
 @(private = "file")
 CLAY :: ui.Color{206, 170, 148, 255}
@@ -180,7 +176,7 @@ home_continue_card :: proc(app: ^App, size: [2]f32) {
 	case kind == .Start:
 		ui.fill_ball(ctx, {picture.x + picture.w * 0.5, picture.y + picture.h * 0.55}, min(picture.w, picture.h) * 0.36, CLAY)
 	case:
-		ui.icon(ctx, ICON_FILE_GONE if tile.state == .Missing else ui.ICON_IMAGE, {picture.x + picture.w * 0.5, picture.y + picture.h * 0.5}, t.icon_size + 12, t.text_tertiary)
+		ui.icon(ctx, ui.ICON_FILE_GONE if tile.state == .Missing else ui.ICON_IMAGE, {picture.x + picture.w * 0.5, picture.y + picture.h * 0.5}, t.icon_size + 12, t.text_tertiary)
 	}
 	ui.fill_rect(ctx, {card.x + 1, card.y + card.h - FOOT_H, card.w - 2, FOOT_H - 1}, 0, ui.color_fade(t.surface, 0.88))
 	if tap.hovered || tap.held do ui.fill_rect(ctx, card, t.radius_large, ui.color_fade(t.text, 0.08 if tap.held else 0.04))
@@ -306,7 +302,7 @@ start_drawing :: proc(ctx: ^ui.Context, start: New_Start, c: [2]f32, s: f32) {
 			ui.fill_ball(ctx, c, r * 0.9, CLAY)
 			if start.shape == .Head {
 				stamp := ui.Color{CLAY.r / 3, CLAY.g / 3, CLAY.b / 3, 210}
-				ui.icon(ctx, ICON_HEAD, c, t.icon_size + 10, stamp)
+				ui.icon(ctx, ui.ICON_HEAD, c, t.icon_size + 10, stamp)
 			}
 		}
 	}

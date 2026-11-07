@@ -50,14 +50,14 @@ COLORS_TAB_NAMES := [Colors_Tab]string {
 	.Palettes = "Palettes",
 }
 
-// Lucide's circle, square, split, sliders-horizontal and grid-3x3, as Procreate's tab icons.
+// The colour tabs' icons, one per way of picking, as Procreate's tabs have.
 @(rodata)
 COLORS_TAB_ICONS := [Colors_Tab]rune {
-	.Disc     = 0xe07a,
-	.Classic  = 0xe16b,
-	.Harmony  = 0xe445,
-	.Value    = 0xe29a,
-	.Palettes = 0xe0ec,
+	.Disc     = ui.ICON_COLOR_DISC,
+	.Classic  = ui.ICON_COLOR_CLASSIC,
+	.Harmony  = ui.ICON_COLOR_HARMONY,
+	.Value    = ui.ICON_COLOR_VALUE,
+	.Palettes = ui.ICON_PALETTES,
 }
 
 // Procreate's colour schemes on the Harmony tab.
@@ -494,10 +494,10 @@ colors_header :: proc(app: ^App) {
 		if s.clicked do c.editing = which
 		if s.long do command_run(app, .Swap_Colors)
 	}
-	_ = colors_command(app, .Swap_Colors, ICON_SWAP_COLORS)
-	_ = colors_command(app, .Paint, ICON_FILL, int(sculpt.Paint_Command.Fill))
-	_ = colors_command(app, .Paint, ICON_FILL_GRADIENT, int(sculpt.Paint_Command.Gradient))
-	_ = colors_command(app, .Eyedropper, ICON_EYEDROPPER)
+	_ = colors_command(app, .Swap_Colors, ui.ICON_SWAP_COLORS)
+	_ = colors_command(app, .Paint, ui.ICON_FILL, int(sculpt.Paint_Command.Fill))
+	_ = colors_command(app, .Paint, ui.ICON_FILL_GRADIENT, int(sculpt.Paint_Command.Gradient))
+	_ = colors_command(app, .Eyedropper, ui.ICON_EYEDROPPER)
 	ui.end(ctx)
 }
 
@@ -820,7 +820,7 @@ colors_palettes :: proc(app: ^App, inner: f32) {
 		name, swatches, mine := palette_swatches(app, n)
 		mine_i := n - len(BUILT_IN_PALETTES)
 		ui.begin(ctx, fmt.tprintf("palette head %d", n), {direction = .Row, center = true, gap = 0})
-		if ui.icon_button(ctx, fmt.tprintf("Default palette##%d", n), ui.ICON_CHECK if c.default_palette == n else ICON_CIRCLE, selected = c.default_palette == n) do c.default_palette = n
+		if ui.icon_button(ctx, fmt.tprintf("Default palette##%d", n), ui.ICON_CHECK if c.default_palette == n else ui.ICON_UNCHECKED, selected = c.default_palette == n) do c.default_palette = n
 		if mine {
 			p := &c.palettes[mine_i]
 			_ = ui.text_field(ctx, fmt.tprintf("palette name %d", mine_i), p.name[:PALETTE_NAME - 1], inner - 2 * ctx.theme.target, hint = "Name")
@@ -908,7 +908,7 @@ kit_colors_menus :: proc(app: ^App) {
 	}
 	if ui.popover_begin(ctx, "colors swatch menu", &c.swatch_menu, c.swatch_menu_at, .Below, {direction = .Column, gap = ui.SPACE_2XS, padding = ui.SPACE_S}) {
 		i, j := c.swatch_menu_of[0], c.swatch_menu_of[1]
-		if ui.menu_item(ctx, "Set to current colour", glyph = ICON_FILL) {
+		if ui.menu_item(ctx, "Set to current colour", glyph = ui.ICON_FILL) {
 			if i >= 0 && i < c.palette_count && j < c.palettes[i].count do c.palettes[i].colors[j] = colors_target(app)^
 			c.swatch_menu = false
 		}
@@ -1148,8 +1148,3 @@ draw_eyedropper :: proc(app: ^App, o: Overlay) {
 	overlay_circle(o, u.eyedrop_at, 4 * o.scale, {255, 255, 255, 230}, 1.5 * o.scale)
 }
 
-// Lucide's paint-bucket, paint-roller, pipette and circle.
-ICON_FILL :: rune(0xe2e6)
-ICON_FILL_GRADIENT :: rune(0xe5a3)
-ICON_EYEDROPPER :: rune(0xe13f)
-ICON_CIRCLE :: rune(0xe07a)
