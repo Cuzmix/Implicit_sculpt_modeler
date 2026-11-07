@@ -376,6 +376,7 @@ ICON_GREY                app     tb:contrast
 ICON_TURN                app     tb:rotate-clockwise
 ICON_CROP                app     tb:crop
 ICON_ON_VIEW             app     ph:picture-in-picture
+ICON_VIEW_BEHIND         app     tb:stack-back
 ICON_STRAIGHTEN          app     tb:ruler-2
 ICON_SEND_TO_BACK        app     tb:layers-subtract
 ICON_HEAD                app     ph:user

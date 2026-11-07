@@ -303,6 +303,7 @@ Command_Id :: enum u16 {
 	Main_Menu, // kit_top_lens.odin: the top bar's chips and menu
 	File_Chip,
 	Workspace_Tabs,
+	Workspace_New,
 	Object_Chip,
 	Viewport_Readout,
 	Readout_Gpu,
@@ -2745,6 +2746,13 @@ COMMANDS := [Command_Id]Command {
 			app.kit.menu = !app.kit.menu
 			app.kit.menu_scroll = 0
 		},
+	},
+	.Workspace_New = {
+		label = "New workspace...",
+		help = "Makes a workspace: a copy of the layout in front, tied to no tool, or a starting workspace as it ships. Its name is asked first.",
+		icon = ui.ICON_PLUS,
+		run = proc(app: ^App, _: int) {kit_floats_close(&app.kit); workspace_naming_open(&app.kit); app.kit.layouts.menu_at = app.kit.workspace_tabs_at},
+		enabled = proc(app: ^App, _: int) -> bool {return len(workspace_tabs(&app.kit)) < WORKSPACE_SLOTS},
 	},
 	.Workspace_Tabs = {
 		label = "Workspace tabs",

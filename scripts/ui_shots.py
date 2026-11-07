@@ -51,8 +51,21 @@ def tap(name, at=5):
     return f"{at}:move:@{name};{at + 1}:down;{at + 2}:up"
 
 
-# Each screen: (what it shows, the --ui-events that open it, extra arguments). The order is
-# the order a person meets them: the bare view, the panels beside it, then what floats.
+def clean_chrome():
+    """The Tool card floated out over the view by its title and the Scene card open in the
+    view rail's column: what Clean view has to take away besides the bars."""
+    drag = ";".join(f"{16 + k}:move:{1330 - 52 * k},{102 + 16 * k}" for k in range(1, 13))
+    return tap("view bar/Tool") + ";14:move:@card Tool/card title;15:down;" + drag + ";29:up;" + tap("view bar/Scene", 40)
+
+
+# Clean view's Tab, `at` frames in.
+def clean_tab(at):
+    return f"{at}:key:Tab;{at + 1}:keyup:Tab"
+
+
+# Each screen: (what it shows, the --ui-events that open it, extra arguments[, frames]).
+# The order is the order a person meets them: the bare view, the panels beside it, then
+# what floats. A screen with its own frame count is taken mid-motion.
 SCREENS = {
     "sculpt": ("The default Sculpt screen, nothing open", "", []),
     "tool_card": ("The Tool card from the view rail", tap("view bar/Tool"), []),
@@ -98,6 +111,11 @@ SCREENS = {
     "render_card": ("The Render card with the render off", "", ["--script=open_section render"]),
     "shading_menu": ("The shading chip's list in Clay: the looks, Colour, the MatCap discs and Import", tap("readout/Shading", 12), ["--script=shading_mode clay"]),
     "render_full": ("The Render card with Full building up", "", ["--script=render_mode on; open_section render"]),
+    "clean_chrome": ("A floating Tool card and the Scene card open: what Clean view takes away", clean_chrome(), [], 70),
+    "clean_leaving": ("Clean view six frames after Tab: the bars, cards and floating card on their way out", clean_chrome() + ";" + clean_tab(60), [], 67),
+    "clean_leaving_reduced": ("The same six frames with motion Reduced: nothing slides, everything fades where it stood", clean_chrome() + ";" + clean_tab(60), ["--script=set motion reduced"], 67),
+    "clean_view": ("Clean view settled: the dial alone, and the hint", clean_chrome() + ";" + clean_tab(60), [], 100),
+    "clean_returning": ("Six frames after Tab again: the bars, cards and floating card coming back", clean_chrome() + ";" + clean_tab(60) + ";" + clean_tab(100), [], 107),
 }
 
 FRAMES = 60  # enough for every panel's motion to settle at --ui-dt 1/60
@@ -105,14 +123,15 @@ FRAMES = 60  # enough for every panel's motion to settle at --ui-dt 1/60
 
 def shot(screen, size, theme, out, exe):
     """Takes one shot; returns (key, ok, message)."""
-    _, events, extra = SCREENS[screen]
+    _, events, extra, *own = SCREENS[screen]
+    frames = own[0] if own else FRAMES
     w, h = SIZES[size]
     key = f"{screen}@{size}-{theme}"
     with tempfile.TemporaryDirectory() as tmp:
         settings = Path(tmp) / "settings.txt"
         settings.write_text(f"look {THEMES[theme]}\n")
         dump = Path(tmp) / "screen.ppm"
-        cmd = [str(exe), f"--width={w}", f"--height={h}", f"--frames={FRAMES}", "--ui-dt=0.016667",
+        cmd = [str(exe), f"--width={w}", f"--height={h}", f"--frames={frames}", "--ui-dt=0.016667",
                f"--settings-file={settings}", f"--dump-screen={dump}", f"--ui-map={out / (key + '.map')}"] + SIZE_FLAGS[size] + extra
         if events:
             cmd.append(f"--ui-events={events}")
@@ -210,8 +229,8 @@ def sheet(before, after, out):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["list"]:
-        for name, (what, _, _) in SCREENS.items():
-            print(f"{name:14} {what}")
+        for name, (what, *_) in SCREENS.items():
+            print(f"{name:{max(map(len, SCREENS))}} {what}")
         return 0
     if argv[:1] == ["sheet"]:
         if len(argv) != 4:

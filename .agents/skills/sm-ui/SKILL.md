@@ -86,8 +86,9 @@ description: The interface — the kit in src/ui (containers, widgets, hit testi
 - Layouts (`src/app/layouts.odin`, `k.layouts`): one per space. A layout is text,
   `kit_layout_text(k)` (`hidden`, `open`, `window`, `column`, `card_float`, dock and `bars` lines, places written
   right-handed, plus the shelf's `shelf` line) and `kit_layout_put(k, text)`. `shipped[starter]` is
-  `built_in_layout(starter)`; each workspace keeps `kept` (left with changes, "" = its base) and, when it is the
-  person's own, `base`; `workspace_base(k, slot)` is the one Reset puts back. `layouts_frame` sets `modified` (the
+  `built_in_layout(starter)`; each workspace keeps `kept[class]` (left with changes, "" = its base) and, when it is
+  the person's own, `base[class]`, one per `Layout_Class` (Desktop, Tablet: `layout_class(k)` from the device or
+  `k.layouts_for`; `layout_class_switch` swaps them as a workspace switch does); `workspace_base(k, slot)` is the one Reset puts back. `layouts_frame` sets `modified` (the
   current text against its base) and `layout_changed(k, slot)` drives each tab's amber dot. `layout_switch(k, from,
   to)` (from `workspace_switch`) keeps the one left and puts the next in place; `.Layout_Reset` puts the base back.
   A hidden `Zone` skips its bar in `kit_layout` (the top bar takes Undo/Redo or Search); read the wheel's side with

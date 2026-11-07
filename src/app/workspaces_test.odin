@@ -311,8 +311,9 @@ workspaces_read_back :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	text := "workspace 1 Sculpt 0 Sculpt Brushes,Curve,Insert\n" +
 		"workspace 5 Big%20view 3 None Model\n" +
-		"workspace_base 5 hidden%20Brush_Bar%0Ashelf%20Model%0Abars%0A\n" +
-		"workspace_layout 5 hidden%20Brush_Bar%20View_Bar%0Ashelf%20Model%0Abars%0A\n" +
+		"workspace_base 5 Desktop hidden%20Brush_Bar%0Ashelf%20Model%0Abars%0A\n" +
+		"workspace_base 5 Tablet hidden%20Brush_Bar%0Ashelf%20Model%0Abars%0A\n" +
+		"workspace_layout 5 Desktop hidden%20Brush_Bar%20View_Bar%0Ashelf%20Model%0Abars%0A\n" +
 		"workspace_order 5 1\n" +
 		"workspace_current 5\n"
 	a := workspaces_from_text(t, text, path)
@@ -359,7 +360,7 @@ workspace_lines_refused_and_repaired :: proc(t: ^testing.T) {
 		"workspace 3 sculpt 1 None -\n" +
 		"workspace 4 Look 2 Render Look,Brushes\n" +
 		"workspace 6 Second 2 Render Look\n" +
-		"workspace_layout 9 hidden%20Dock%0A\n" +
+		"workspace_layout 9 Desktop hidden%20Dock%0A\n" +
 		"workspace_order 6 6 9\n" +
 		"workspace_current 9\n"
 	b := workspaces_from_text(t, fixable, path)
@@ -419,7 +420,7 @@ ties_bring_their_workspace :: proc(t: ^testing.T) {
 	testing.expect_value(t, k.workspaces.current, SLOT_MODEL)
 }
 
-// The Paint brush brings Paint, on its shelf's Paint page; Smooth and Mask in Paint keep it
+// The Paint brush brings Paint, on its shelf's Paint page with the Colours card pinned; Smooth and Mask in Paint keep it
 // there, and a sculpting brush goes back to Sculpt. Paint's tab gives back the Paint brush.
 @(test)
 the_paint_brush_brings_paint :: proc(t: ^testing.T) {
@@ -433,6 +434,7 @@ the_paint_brush_brings_paint :: proc(t: ^testing.T) {
 	workspace_follow(a)
 	testing.expect_value(t, k.workspaces.current, slot_paint)
 	testing.expect_value(t, k.shelf.page, Shelf_Page.Paint)
+	testing.expect(t, card_pinned(k, .Colours), "Paint pins the Colours card")
 	for kind in ([]sculpt.Brush_Kind{.Smooth, .Mask, .Paint}) {
 		command_run(a, .Brush, int(kind))
 		workspace_follow(a)
@@ -444,4 +446,98 @@ the_paint_brush_brings_paint :: proc(t: ^testing.T) {
 	command_run(a, .Workspace_Switch, slot_paint)
 	testing.expect_value(t, a.tool, Tool.Brush)
 	testing.expect_value(t, a.brush.kind, sculpt.Brush_Kind.Paint)
+}
+
+// Each workspace keeps a desktop and a tablet layout apart: a change made under one class is
+// not in the other, Layouts for switches between them as a workspace switch would, and both
+// round-trip through settings.
+@(test)
+desktop_and_tablet_layouts_are_kept_apart :: proc(t: ^testing.T) {
+	path := "build/workspaces_class_test.txt"
+	defer os.remove(path)
+	defer free_all(context.temp_allocator)
+	a := workspaces_app()
+	defer workspaces_app_free(a)
+	k := &a.kit
+	testing.expect_value(t, k.workspaces.class, Layout_Class.Desktop)
+	command_run(a, .Second_View, 0)
+	layouts_frame(k)
+	testing.expect(t, layout_changed(k, SLOT_SCULPT))
+	k.layouts_for = .Tablet
+	workspace_follow(a)
+	testing.expect_value(t, k.workspaces.class, Layout_Class.Tablet)
+	testing.expect(t, grid_panes(&k.grid) == 1, "the tablet layout has one view")
+	layouts_frame(k)
+	testing.expect(t, !layout_changed(k, SLOT_SCULPT))
+	testing.expect(t, settings_save(a, path))
+	k.layouts_for = .Desktop
+	workspace_follow(a)
+	testing.expect(t, grid_panes(&k.grid) == 2, "the desktop layout keeps its two views")
+	b := workspaces_from_text(t, string(os.read_entire_file(path, context.temp_allocator) or_else nil), "build/workspaces_class_b.txt")
+	defer os.remove("build/workspaces_class_b.txt")
+	defer workspaces_app_free(b)
+	testing.expect_value(t, b.kit.workspaces.class, Layout_Class.Tablet)
+	testing.expect(t, grid_panes(&b.kit.grid) == 1)
+	b.kit.layouts_for = .Desktop
+	workspace_follow(b)
+	testing.expect(t, grid_panes(&b.kit.grid) == 2, "the desktop layout read back")
+}
+
+// A new workspace copies the layout in front and is tied to nothing; one from a starter
+// takes the starter's ties no other holds, so a deleted Model comes back as it was; renames
+// refuse a taken name; Delete gives the one in front's place to its left neighbour, its
+// Undo puts it back (not in front), and the last workspace stays.
+@(test)
+workspaces_made_renamed_and_deleted :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	a := workspaces_app()
+	defer workspaces_app_free(a)
+	k := &a.kit
+	command_run(a, .Second_View, 0)
+	testing.expect(t, workspace_new(a, "", .None))
+	mine := k.workspaces.current
+	testing.expect_value(t, k.workspaces.list[mine].name, "Workspace 5")
+	testing.expect(t, slice.equal(workspace_tabs(k)[:2], []int{SLOT_SCULPT, mine}), "after the tab in front")
+	testing.expect_value(t, k.workspaces.list[mine].ties, bit_set[Tie]{})
+	testing.expect(t, grid_panes(&k.grid) == 2, "a copy of the layout in front")
+	layouts_frame(k)
+	testing.expect(t, !layout_changed(k, mine), "its base is the copy")
+	testing.expect(t, !workspace_new(a, "sculpt", .None), "a name taken")
+	testing.expect(t, !workspace_rename(a, mine, "MODEL"))
+	testing.expect(t, !workspace_rename(a, mine, "Two##ids"))
+	testing.expect(t, workspace_rename(a, mine, "  Big view "))
+	testing.expect_value(t, k.workspaces.list[mine].name, "Big view")
+
+	// Model goes, its tie with it; a new one from Model brings it back with the tie.
+	workspace_delete(a, SLOT_MODEL)
+	testing.expect_value(t, workspace_holding(k, .Model), -1)
+	testing.expect(t, workspace_new(a, "Model", .Model))
+	model := k.workspaces.current
+	testing.expect_value(t, workspace_holding(k, .Model), model)
+	testing.expect_value(t, a.tool, Tool.Model)
+	// A tie ticked elsewhere moves.
+	workspace_tie_toggle(a, mine, .Model)
+	testing.expect_value(t, workspace_holding(k, .Model), mine)
+	testing.expect_value(t, k.workspaces.list[model].ties, bit_set[Tie]{})
+
+	// Deleting the one in front shows its left neighbour; Undo puts it back where it was.
+	workspace_switch(a, mine)
+	before := slice.clone(workspace_tabs(k), context.temp_allocator)
+	workspace_delete(a, mine)
+	testing.expect_value(t, k.workspaces.current, SLOT_SCULPT)
+	testing.expect(t, !workspace_used(k, mine))
+	workspace_undo(a)
+	testing.expect(t, slice.equal(workspace_tabs(k), before), "back in its place")
+	testing.expect_value(t, k.workspaces.current, SLOT_SCULPT)
+	testing.expect_value(t, workspace_holding(k, .Model), mine)
+	// An Undo whose name was taken meanwhile is refused.
+	workspace_delete(a, mine)
+	testing.expect(t, workspace_new(a, "Big view", .None))
+	workspace_undo(a)
+	testing.expect_value(t, len(workspace_tabs(k)), len(before))
+	// The last one stays.
+	for len(workspace_tabs(k)) > 1 do workspace_delete(a, workspace_tabs(k)[0])
+	last := workspace_tabs(k)[0]
+	workspace_delete(a, last)
+	testing.expect(t, workspace_used(k, last))
 }

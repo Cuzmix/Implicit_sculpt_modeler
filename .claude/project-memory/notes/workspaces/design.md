@@ -167,7 +167,7 @@ small fixed fields keep `App` far under its 256 KB stack bound; the layout texts
 |---|---|---|---|---|
 | Sculpt | Brushes, Curve, Insert | today's Sculpt (`built_in_layout`, `layouts.odin:219`) | Brushes, Move, Curve | tints[0] |
 | Model | Model | `hidden Brush_Bar` | Model | tints[1] |
-| Paint | Paint_Brush | brush bar shown, no card pinned (built: a pinned card took a finger's taps on a card opened over it, so Colours opens from the shelf's tile) | Paint, Brushes | tints[3] |
+| Paint | Paint_Brush | Colours card pinned on the pen side, brush bar shown (shipped unpinned at first while a pinned card took a finger's taps on a card opened over it; #791 fixed that) | Paint, Brushes | tints[3] |
 | Render | Look | `hidden Brush_Bar`, `column right Look` | Render | tints[2] |
 
 The tablet class ships the same texts as desktop for now; they part as soon as the person changes
@@ -192,8 +192,9 @@ layout_class auto|desktop|tablet                             one SETTINGS row
   starter-none workspace with no base takes its kept text (or Sculpt's built-in) as its base.
   `workspaces_loaded` repairs the rest: an order naming a free slot or a slot twice is cut, slots
   missing from it go at the end, and a `workspace_current` naming a free slot becomes the first tab.
-- Reset all settings brings the four starters back: workspaces become a `Settings_Block` of their
-  own (`settings_blocks.odin:581` resets every block, and today none holds the layouts).
+- Reset all settings leaves the workspaces as they are, as it left the layouts (built: a reset of
+  Settings > Interface throwing away the person's workspaces would cost more than it saves; the
+  starters come back from New workspace's Start from).
 - The `space_layout`, `space_current`, `layout_saved`, `dial_sector` and `dial_space` lines are
   deleted with their readers; a settings file from an earlier build loses them (passed over, never
   converted: AGENTS.md section 5). `dial <hands> <0-3> modifier <name> | command <name>` replaces the

@@ -49,6 +49,16 @@ STARTER_ICONS := [Starter]rune {
 	.Paint  = ui.ICON_PAINT,
 }
 
+// The tint each starter takes, as the spaces had them, and Paint the fourth.
+@(rodata)
+STARTER_TINTS := [Starter]u8 {
+	.None   = 0,
+	.Sculpt = 0,
+	.Model  = 1,
+	.Render = 2,
+	.Paint  = 3,
+}
+
 // What a tool in hand is, for the ties: picking a tool whose tie another workspace holds
 // brings that workspace.
 Tie :: enum u8 {
@@ -90,14 +100,38 @@ Workspace_Tool :: struct {
 	action: Model_Action,
 }
 
+// Which layouts a workspace shows: its desktop one, or its tablet one, kept apart so a desk
+// with a mouse and a tablet under a palm each keep the docks that suit them.
+Layout_Class :: enum u8 {
+	Desktop,
+	Tablet,
+}
+
+// How the class is chosen: by the device (an iPad or an Android tablet is Tablet), or set.
+Layouts_For :: enum u8 {
+	Automatic,
+	Desktop,
+	Tablet,
+}
+
+// The class the layouts in place are for, by Settings > Interface > Layouts for.
+layout_class :: proc(k: ^Kit_State) -> Layout_Class {
+	switch k.layouts_for {
+	case .Desktop: return .Desktop
+	case .Tablet:  return .Tablet
+	case .Automatic:
+	}
+	return .Tablet when MOBILE else .Desktop
+}
+
 // One workspace; a slot whose name is empty is free.
 Workspace :: struct {
 	name:    string, // heap
 	tint:    u8, // its dot's colour, an index into Theme.tints
 	starter: Starter,
 	ties:    bit_set[Tie],
-	kept:    string, // heap: its layout as last left, "" while it is its base
-	base:    string, // heap, for one made by the person: what Reset layout puts back
+	kept:    [Layout_Class]string, // heap: its layout for each class as last left, "" while it is its base
+	base:    [Layout_Class]string, // heap, for one made by the person: what Reset layout puts back
 	tool:    Workspace_Tool,
 	page:    Shelf_Page, // the shelf's page it was left on (a page turn changes no layout)
 }
@@ -106,12 +140,14 @@ Workspaces :: struct {
 	list:     [WORKSPACE_SLOTS]Workspace,
 	order:    [WORKSPACE_SLOTS]i8, // slots in tab order, -1 after the last
 	current:  int, // the slot in front
+	class:    Layout_Class, // the class of the layout in place
 	// The tie of the tool in hand as of the last frame (Move, Mask and Smooth leave it), and
 	// whether the first frame has run.
 	seen:     Tie,
 	seen_set: bool,
 	set:      bool,
 	switches: int, // for the exit stats
+	shown:    int, // tabs the top bar showed last frame (exit stats)
 }
 
 // The workspaces as a fresh install has them: the starters, in order, Sculpt in front.
@@ -123,11 +159,12 @@ workspaces_init :: proc(k: ^Kit_State) {
 	for s, slot in ([]Starter{.Sculpt, .Model, .Render, .Paint}) {
 		w := &ws.list[slot]
 		w.name = strings.clone(STARTER_NAMES[s])
-		w.starter, w.ties, w.tint = s, STARTER_TIES[s], u8(slot)
+		w.starter, w.ties, w.tint = s, STARTER_TIES[s], STARTER_TINTS[s]
 		w.page = shelf_first_page(s)
 	}
 	for slot, place in ([]i8{0, 1, 3, 2}) do ws.order[place] = slot
 	ws.current = 0
+	ws.class = layout_class(k)
 }
 
 // Frees every workspace and leaves none.
@@ -135,8 +172,10 @@ workspaces_clear :: proc(k: ^Kit_State) {
 	ws := &k.workspaces
 	for &w in ws.list {
 		delete(w.name)
-		delete(w.kept)
-		delete(w.base)
+		for c in Layout_Class {
+			delete(w.kept[c])
+			delete(w.base[c])
+		}
 		w = {}
 	}
 	for &o in ws.order do o = -1
@@ -290,6 +329,7 @@ workspace_switch :: proc(app: ^App, slot: int, restore := true) {
 // brushes. Nothing switches while a stroke is going on (a curve brush's path starts one).
 workspace_follow :: proc(app: ^App) {
 	ws := &app.kit.workspaces
+	if c := layout_class(&app.kit); c != ws.class do layout_class_switch(&app.kit, c)
 	if !ws.set {
 		ws.set = true
 		workspace_tool_put(app, ws.current)
@@ -318,57 +358,86 @@ workspace_label :: proc(k: ^Kit_State, slot: int) -> string {
 	return k.workspaces.list[slot].name
 }
 
-// The workspace tabs, in the top bar's middle: a tap on another switches to it (Ctrl+1 to 9
-// by place); a tap on the lit one, or on the chevron after them, opens the workspace menu.
-// The chosen tab has the one selected look, with its own colour as a dot at its top left;
-// every tab whose layout differs from where it started carries the amber dot. Returns the
-// width laid out.
-top_workspace_tabs :: proc(app: ^App) -> f32 {
+// The tabs the top bar shows when only `shown` fit (0 for all): the first in order, the one
+// in front always among them. In temp memory.
+workspace_tabs_shown :: proc(k: ^Kit_State, shown: int) -> []int {
+	tabs := workspace_tabs(k)
+	if shown <= 0 || shown >= len(tabs) do return tabs
+	// The first `shown`, or the first `shown - 1` and the one in front after them.
+	place := 0
+	for slot, i in tabs do if slot == k.workspaces.current do place = i
+	if place < shown do return tabs[:shown]
+	out := make([]int, shown, context.temp_allocator)
+	copy(out, tabs[:shown - 1])
+	out[shown - 1] = k.workspaces.current
+	return out
+}
+
+// The workspace tabs, in the top bar's middle, the first `shown` (0 for all; the rest are in
+// the menu): a tap on another switches to it (Ctrl+1 to 9 by place); a tap on the lit one, or
+// a long press or right click on any, opens the workspace menu on that one's actions; a drag
+// (a finger's after the long press) carries a tab along the row. The chevron after them opens
+// the menu, the + New workspace. The chosen tab has the one selected look, with its colour as
+// a dot at its top left; a tab whose layout differs from its base carries the amber dot.
+// Returns the width laid out.
+top_workspace_tabs :: proc(app: ^App, shown: int) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
 	t := ctx.theme
 	l := &k.layouts
-	tabs := workspace_tabs(k)
+	tabs := workspace_tabs_shown(k, shown)
+	folded := len(workspace_tabs(k)) - len(tabs)
+	k.workspaces.shown = len(tabs)
 	names := make([]string, len(tabs), context.temp_allocator)
 	glyphs := make([]rune, len(tabs), context.temp_allocator)
 	keys := make([]string, len(tabs), context.temp_allocator)
 	chosen := -1
 	for slot, i in tabs {
 		w := &k.workspaces.list[slot]
-		names[i] = fmt.tprintf("%s##slot %d", w.name, slot)
+		names[i] = fmt.tprintf("%s##slot %d", ui.text_fit(ctx, w.name, t.text_size, WORKSPACE_TAB_TEXT_MAX, .Semibold), slot)
 		glyphs[i] = STARTER_ICONS[w.starter]
 		keys[i] = command_hint(app, .Workspace_Switch, slot)
 		if slot == k.workspaces.current do chosen = i
 	}
 	ui.begin(ctx, "workspace tabs", {direction = .Row, center = true, background = .Track, radius = t.radius_medium + 1.5})
 	start := ctx.last_rect.x
-	picked := ui.tabs(ctx, "Workspaces", names, chosen, glyphs = glyphs, keys = keys)
+	dragged, menu := -1, -1
+	picked := ui.tabs(ctx, "Workspaces", names, chosen, glyphs = glyphs, keys = keys, dragged = &dragged, menu = &menu)
 	seg := ctx.last_rect
-	if picked >= 0 {
-		if picked == chosen {
-			was := l.menu
-			kit_floats_close(k)
-			l.menu = !was
-		} else {
-			command_run(app, .Workspace_Switch, tabs[picked])
-		}
-	}
 	x := start + 3
-	for slot, i in tabs {
+	for slot in tabs {
 		w := &k.workspaces.list[slot]
 		sw := workspace_tab_width(ctx, w.name)
 		k.workspace_tab_at[slot] = {x, seg.y, sw, seg.h}
-		if i == chosen {
-			l.menu_at = {x, seg.y, sw, seg.h}
-			ui.fill_circle(ctx, {x + 7, seg.y + 7}, 2.5, t.tints[int(w.tint) % len(t.tints)])
-		}
+		// Every tab carries its workspace's colour, the colour the menu sets.
+		ui.fill_circle(ctx, {x + 8, seg.y + 8}, 2.5, t.tints[int(w.tint) % len(t.tints)])
 		if layout_changed(k, slot) do ui.fill_circle(ctx, {x + sw - 9, seg.y + seg.h * 0.5}, 3, t.warning)
 		x += sw
 	}
-	if ui.icon_button(ctx, "Workspace menu", ui.ICON_CHEVRON_DOWN, selected = l.menu, size = t.control) {
+	if picked >= 0 && picked == chosen do menu = picked
+	if menu >= 0 {
+		was := l.menu && l.edit.more == tabs[menu] + 1
+		kit_floats_close(k)
+		l.menu = !was
+		l.edit.more, l.edit.ties, l.edit.naming = tabs[menu] + 1, false, false
+		l.menu_at = k.workspace_tab_at[tabs[menu]]
+	} else if picked >= 0 {
+		command_run(app, .Workspace_Switch, tabs[picked])
+	}
+	if dragged >= 0 do workspace_tab_carry(app, tabs, dragged)
+	folded_tip := fmt.tprintf("%d more in the menu", folded) if folded > 0 else ""
+	if ui.icon_button(ctx, "Workspace menu", ui.ICON_CHEVRON_DOWN, selected = l.menu && !l.edit.naming && l.edit.more == 0, size = t.control, keys = folded_tip) {
 		was := l.menu
 		kit_floats_close(k)
 		l.menu = !was
+		l.edit.more, l.edit.naming = 0, false
+		l.menu_at = ctx.last_rect
+	}
+	if folded > 0 do ui.text(ctx, fmt.tprintf("+%d", folded), ctx.last_rect.x + ctx.last_rect.w - 4, ctx.last_rect.y + 9, t.small_size, t.text_secondary, .Semibold, .Center)
+	if ui.icon_button(ctx, "New workspace", ui.ICON_PLUS, selected = l.menu && l.edit.naming, size = t.control, keys = command_hint(app, .Workspace_New)) {
+		was := l.menu && l.edit.naming
+		kit_floats_close(k)
+		if !was do workspace_naming_open(k)
 		l.menu_at = ctx.last_rect
 	}
 	end := ctx.last_rect
@@ -376,25 +445,60 @@ top_workspace_tabs :: proc(app: ^App) -> f32 {
 	return end.x + end.w - start
 }
 
+// The longest a tab's name stands before it ends in an ellipsis, in points.
+WORKSPACE_TAB_TEXT_MAX :: 140
+
+// Carries the tab at `place` among the tabs shown along the row with the pointer: once the
+// pointer passes a neighbour's middle the two change places, which Ctrl+1 to 9 follow. Its
+// menu closes, as the press is a drag now.
+@(private = "file")
+workspace_tab_carry :: proc(app: ^App, tabs: []int, place: int) {
+	k := &app.kit
+	ws := &k.workspaces
+	x := k.ctx.input.mouse.x
+	k.layouts.menu = false
+	to := place
+	if place > 0 {
+		r := k.workspace_tab_at[tabs[place - 1]]
+		if x < r.x + r.w * 0.5 do to = place - 1
+	}
+	if place + 1 < len(tabs) {
+		r := k.workspace_tab_at[tabs[place + 1]]
+		if x > r.x + r.w * 0.5 do to = place + 1
+	}
+	if to == place do return
+	// Swap the two in the whole order, where folded tabs may stand between.
+	a, b := -1, -1
+	for o, i in ws.order {
+		if int(o) == tabs[place] do a = i
+		if int(o) == tabs[to] do b = i
+	}
+	if a < 0 || b < 0 do return
+	ws.order[a], ws.order[b] = ws.order[b], ws.order[a]
+	k.layouts.edit.moved += 1
+	if app.settings_file != "" do _ = settings_save(app, app.settings_file)
+}
+
 // One tab's width, as ui.tabs sizes a tab with a glyph.
 workspace_tab_width :: proc(ctx: ^ui.Context, name: string) -> f32 {
 	t := ctx.theme
-	return ui.text_width(ctx, name, t.text_size, .Semibold) + 28 + t.icon_small + 6
+	return ui.text_width(ctx, ui.text_fit(ctx, name, t.text_size, WORKSPACE_TAB_TEXT_MAX, .Semibold), t.text_size, .Semibold) + 28 + t.icon_small + 6
 }
 
-// The tabs' width: the tabs in their well, then the chevron.
-workspace_tabs_width :: proc(app: ^App) -> f32 {
+// The tabs' width when `shown` of them show: the tabs in their well, then the chevron and
+// the +.
+workspace_tabs_width :: proc(app: ^App, shown: int) -> f32 {
 	k := &app.kit
 	ctx := &k.ctx
-	w: f32 = 2 * 3 + ctx.theme.control
-	for slot in workspace_tabs(k) do w += workspace_tab_width(ctx, k.workspaces.list[slot].name)
+	w: f32 = 2 * 3 + 2 * ctx.theme.control
+	for slot in workspace_tabs_shown(k, shown) do w += workspace_tab_width(ctx, k.workspaces.list[slot].name)
 	return w
 }
 
 // The settings lines of the workspaces:
 //   workspace <slot from 1> <name> <tint> <starter> <ties joined by commas, or ->
-//   workspace_layout <slot> <layout>   its layout, where it differs from its base
-//   workspace_base <slot> <layout>     a workspace of the person's own: its base
+//   workspace_layout <slot> <class> <layout>   its layout for a class, where it differs from its base
+//   workspace_base <slot> <class> <layout>     a workspace of the person's own: its base
 //   workspace_order <slot> ...
 //   workspace_current <slot>
 // with names and layouts escaped.
@@ -406,9 +510,11 @@ workspaces_save :: proc(k: ^Kit_State, out: ^strings.Builder) {
 		ties := strings.builder_make(context.temp_allocator)
 		for t in Tie do if t in w.ties do fmt.sbprintf(&ties, "%s%v", "," if strings.builder_len(ties) > 0 else "", t)
 		fmt.sbprintfln(out, "workspace %d %s %d %v %s", slot + 1, preset_escape(w.name), w.tint, w.starter, strings.to_string(ties) if strings.builder_len(ties) > 0 else "-")
-		text := kit_layout_text(k) if slot == ws.current else w.kept
-		if text != "" && text != workspace_base(k, slot) do fmt.sbprintfln(out, "workspace_layout %d %s", slot + 1, preset_escape(text))
-		if w.starter == .None do fmt.sbprintfln(out, "workspace_base %d %s", slot + 1, preset_escape(w.base))
+		for c in Layout_Class {
+			text := kit_layout_text(k) if slot == ws.current && c == ws.class else w.kept[c]
+			if text != "" && text != workspace_base(k, slot, c) do fmt.sbprintfln(out, "workspace_layout %d %v %s", slot + 1, c, preset_escape(text))
+			if w.starter == .None do fmt.sbprintfln(out, "workspace_base %d %v %s", slot + 1, c, preset_escape(w.base[c]))
+		}
 	}
 	strings.write_string(out, "workspace_order")
 	for slot in workspace_tabs(k) do fmt.sbprintf(out, " %d", slot + 1)
@@ -466,13 +572,17 @@ workspaces_load_line :: proc(k: ^Kit_State, r: ^Workspaces_Read, f: []string) {
 		w.tint, w.starter, w.ties = u8(tint), starter, ties
 		w.page = shelf_first_page(starter)
 	case "workspace_layout", "workspace_base":
-		if len(f) != 3 do return
+		if len(f) != 4 do return
 		slot, ok := slot_of(f[1])
 		if !ok || !workspace_used(k, slot) do return
+		class: Layout_Class
+		known := false
+		for c in Layout_Class do if strings.equal_fold(f[2], fmt.tprint(c)) do class, known = c, true
+		if !known do return
 		w := &ws.list[slot]
-		text := &w.kept if f[0] == "workspace_layout" else &w.base
+		text := &w.kept[class] if f[0] == "workspace_layout" else &w.base[class]
 		delete(text^)
-		text^ = strings.clone(preset_unescape(f[2]))
+		text^ = strings.clone(preset_unescape(f[3]))
 	case "workspace_order":
 		clear(&r.order)
 		for word in f[1:] do if slot, ok := slot_of(word); ok do append(&r.order, slot)
@@ -511,19 +621,20 @@ workspaces_loaded :: proc(k: ^Kit_State, r: ^Workspaces_Read) {
 			n += 1
 		}
 		if n == 0 do workspaces_init(k)
-		for &w in ws.list do if w.name != "" && w.starter == .None && w.base == "" {
-			w.base = strings.clone(w.kept if w.kept != "" else k.layouts.shipped[.Sculpt])
+		for &w in ws.list do if w.name != "" && w.starter == .None {
+			for c in Layout_Class do if w.base[c] == "" do w.base[c] = strings.clone(w.kept[c] if w.kept[c] != "" else k.layouts.shipped[.Sculpt])
 		}
 	}
 	if workspace_used(k, r.current) do ws.current = r.current
 	if !workspace_used(k, ws.current) do ws.current = workspace_tabs(k)[0]
+	ws.class = layout_class(k)
 	w := workspace_now(k)
 	// Sculpt as it ships is how the interface starts, with any bar the settings named (a
 	// scenario's view rail), so it is put in place only when the workspace in front has
 	// another layout.
-	text := w.kept if w.kept != "" else workspace_base(k, ws.current)
+	text := w.kept[ws.class] if w.kept[ws.class] != "" else workspace_base(k, ws.current)
 	if text != k.layouts.shipped[.Sculpt] do kit_layout_put(k, text)
-	delete(w.kept)
-	w.kept = ""
+	delete(w.kept[ws.class])
+	w.kept[ws.class] = ""
 	k.shelf.page = w.page
 }
