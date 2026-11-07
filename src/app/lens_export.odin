@@ -560,24 +560,26 @@ export_preset_card :: proc(ctx: ^ui.Context, p: Export_Preset, w: f32, lit: bool
 	line_h := ui.line_height(t.small_size)
 	y += name_h * 0.5 + 4 + line_h * 0.5
 	first, second := export_two_lines(ctx, EXPORT_PRESET_DETAIL[p], t.small_size, room)
-	ui.text(ctx, first, x, y, t.small_size, t.text_secondary)
-	if second != "" do ui.text(ctx, second, x, y + line_h, t.small_size, t.text_secondary)
+	ui.text_plain(ctx, first, x, y, t.small_size, t.text_secondary)
+	if second != "" do ui.text_plain(ctx, second, x, y + line_h, t.small_size, t.text_secondary)
 	return a.clicked
 }
 
 // `s` wrapped at a space onto at most two lines of `w` points, the second cut short with
 // an ellipsis when it still does not fit.
 @(private = "file")
-export_two_lines :: proc(ctx: ^ui.Context, s: string, size, w: f32) -> (first, second: string) {
-	if ui.text_width(ctx, s, size) <= w do return s, ""
+export_two_lines :: proc(ctx: ^ui.Context, english: string, size, w: f32) -> (first, second: string) {
+	// Translated whole before it is cut; the parts are drawn as they are.
+	s := ui.tr(ctx, english)
+	if ui.text_width_plain(ctx, s, size) <= w do return s, ""
 	cut := 0
 	for i in 0 ..< len(s) {
 		if s[i] != ' ' do continue
-		if ui.text_width(ctx, s[:i], size) > w do break
+		if ui.text_width_plain(ctx, s[:i], size) > w do break
 		cut = i
 	}
-	if cut == 0 do return ui.text_fit(ctx, s, size, w), ""
-	return s[:cut], ui.text_fit(ctx, s[cut + 1:], size, w)
+	if cut == 0 do return ui.text_fit_plain(ctx, s, size, w), ""
+	return s[:cut], ui.text_fit_plain(ctx, s[cut + 1:], size, w)
 }
 
 // What goes out, `w` points wide: the picture (the object's thumbnail, or the view for

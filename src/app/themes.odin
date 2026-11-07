@@ -532,7 +532,7 @@ settings_look :: proc(app: ^App) {
 		if i % columns == columns - 1 || i == n - 1 do ui.end(ctx)
 	}
 
-	modes := [3]string{"Dark", "Light", "Match device"}
+	modes := [3]string{"Dark", ui.trc(ctx, "theme", "Light"), "Match device"}
 	at := 2 if ts.match else int(seed.mode)
 	if picked := ui.tabs(ctx, "Appearance##look", modes[:], at); picked >= 0 && picked != at {
 		ts.match = picked == 2

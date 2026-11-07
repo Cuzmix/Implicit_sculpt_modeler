@@ -1,5 +1,6 @@
 package main
 
+import "core:c"
 import "core:strings"
 import "core:time"
 
@@ -128,6 +129,23 @@ write_file_whole :: proc(path: string, data: []u8, chunk: int) -> string {
 	why := "" if flushed else strings.concatenate({"cannot write the file: ", platform_error()}, context.temp_allocator)
 	if !sdl.CloseIO(io) && why == "" do why = strings.concatenate({"cannot close the file: ", platform_error()}, context.temp_allocator)
 	return why
+}
+
+// The device's preferred languages, most preferred first, as ISO codes with an optional
+// region ("de", "pt-BR"), in temp memory; empty when the system does not say.
+platform_languages :: proc() -> []string {
+	count: c.int
+	list := sdl.GetPreferredLocales(&count)
+	if list == nil do return nil
+	defer sdl.free(list)
+	out := make([]string, int(count), context.temp_allocator)
+	for i in 0 ..< int(count) {
+		l := list[i]
+		if l == nil || l.language == nil do continue
+		out[i] = strings.clone(string(l.language), context.temp_allocator)
+		if l.country != nil do out[i] = strings.concatenate({out[i], "-", string(l.country)}, context.temp_allocator)
+	}
+	return out
 }
 
 // Whether the device is set to its dark appearance; a system that does not say counts as

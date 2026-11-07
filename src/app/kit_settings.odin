@@ -112,11 +112,12 @@ settings_close :: proc(app: ^App) {
 
 // `s` as it fits in `width` points: whole, or its end with "..." before it.
 text_fit_end :: proc(ctx: ^ui.Context, s: string, size, width: f32) -> string {
-	if ui.text_width(ctx, s, size) <= width do return s
-	room := width - ui.text_width(ctx, "...", size)
+	// A path: never translated.
+	if ui.text_width_plain(ctx, s, size) <= width do return s
+	room := width - ui.text_width_plain(ctx, "...", size)
 	start := len(s)
 	for _, i in s {
-		if ui.text_width(ctx, s[i:], size) <= room {
+		if ui.text_width_plain(ctx, s[i:], size) <= room {
 			start = i
 			break
 		}

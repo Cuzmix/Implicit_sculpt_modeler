@@ -1,0 +1,1547 @@
+@language Français
+# The interface in French: each English line as the app writes it, then its translation
+# after "= ". A line not here shows in English; "where|English" is the English where one
+# word means two things (ui.trc). scripts/lang_check.py checks this file, and the app's
+# --language-missing lists what a run showed that is not here yet.
+
+ABOUT THE POINT
+= AUTOUR DU POINT
+
+ACCENT
+= ACCENT
+
+Accent on panels
+= Accent sur les panneaux
+
+Actions
+= Actions
+
+Add
+= Ajouter
+
+Add loop
+= Ajouter une boucle
+
+All
+= Tout
+
+All objects
+= Tous les objets
+
+Along a curve
+= Le long d'une courbe
+
+Alpha
+= Alpha
+
+Angle
+= Angle
+
+Any format
+= Tout format
+
+AO only
+= AO seule
+
+Apply stack
+= Appliquer la pile
+
+Apply to
+= Appliquer à
+
+Apply to sculpt
+= Appliquer à la sculpture
+
+Area
+= Zone
+
+Arrange outlines
+= Disposer les contours
+
+Array
+= Réseau
+
+as it comes
+= tel quel
+
+Automatic
+= Automatique
+
+Back
+= Retour
+
+Background
+= Arrière-plan
+
+Bake
+= Précalculer
+
+Bake the live stack
+= Précalculer la pile active
+
+Bars
+= Barres
+
+Base sculpt
+= Sculpture de base
+
+BEFORE IT PRINTS
+= AVANT L'IMPRESSION
+
+Blob
+= Boule
+
+Blue
+= Bleu
+
+Bold
+= Gras
+
+Booleans
+= Booléens
+
+Boundary
+= Bord
+
+Bridge
+= Pont
+
+Bring its background
+= Avec son arrière-plan
+
+Brush
+= Pinceau
+
+Brush picker
+= Sélecteur de pinceau
+
+BRUSH RING
+= ANNEAU DU PINCEAU
+
+BRUSHES
+= PINCEAUX
+
+Brushes
+= Pinceaux
+
+BUTTONS
+= BOUTONS
+
+Cage
+= Cage
+
+Camera
+= Caméra
+
+Camera moves
+= Mouvements de caméra
+
+Cancel
+= Annuler
+
+Capture VDM from object
+= Capturer un VDM depuis l'objet
+
+Car Paint
+= Peinture auto
+
+Car paint
+= Peinture auto
+
+CARDS
+= CARTES
+
+Cards
+= Cartes
+
+Cards sliding
+= Cartes qui glissent
+
+Cavity
+= Cavité
+
+Ceramic
+= Céramique
+
+Changing hands
+= Changement de main
+
+Checker
+= Damier
+
+CHOSEN BRUSH TILE
+= VIGNETTE DU PINCEAU CHOISI
+
+Classic
+= Classique
+
+Clay
+= Argile
+
+Clay buildup
+= Accumulation d'argile
+
+Clay strips
+= Bandes d'argile
+
+Clear
+= Effacer
+
+Clear paint
+= Effacer la peinture
+
+Clip and hide
+= Couper et masquer
+
+Clone
+= Cloner
+
+Close
+= Fermer
+
+Cloth
+= Tissu
+
+Cloth smooth brush
+= Pinceau lissage tissu
+
+Coat
+= Vernis
+
+Coat roughness
+= Rugosité du vernis
+
+Coat weight
+= Poids du vernis
+
+Colour
+= Couleur
+
+Colour from
+= Couleur depuis
+
+Colour temperature
+= Température de couleur
+
+Colours
+= Couleurs
+
+COMMANDS
+= COMMANDES
+
+Commands
+= Commandes
+
+COMMON
+= COURANT
+
+Contrast
+= Contraste
+
+CONTRAST CHECK
+= VÉRIFICATION DU CONTRASTE
+
+Convert to voxels
+= Convertir en voxels
+
+COPIES
+= COPIES
+
+Count
+= Nombre
+
+Crease
+= Pli
+
+Cube
+= Cube
+
+Curvature
+= Courbure
+
+Curve
+= Courbe
+
+Curve and insert
+= Courbe et insertion
+
+Custom
+= Personnalisé
+
+Cut loop
+= Couper une boucle
+
+Cylinder
+= Cylindre
+
+Dark
+= Sombre
+
+Decimate for this file only
+= Décimer pour ce fichier seulement
+
+Delete
+= Supprimer
+
+Denoise
+= Débruiter
+
+Density
+= Densité
+
+Depth
+= Profondeur
+
+Desktop
+= Bureau
+
+Dial
+= Molette
+
+Disc
+= Disque
+
+Done
+= Terminé
+
+Dots
+= Points
+
+Draft
+= Brouillon
+
+Drag
+= Glisser
+
+Draw
+= Dessiner
+
+Duotone
+= Bichromie
+
+Duplicate
+= Dupliquer
+
+Dynamic off
+= Dynamique désactivée
+
+Dynamic topology
+= Topologie dynamique
+
+Dyntopo
+= Dyntopo
+
+EACH STEP MOVES
+= CHAQUE PAS DÉPLACE
+
+Each tool keeps its look
+= Chaque outil garde son aspect
+
+Earlier saves...
+= Sauvegardes précédentes...
+
+Edit
+= Modifier
+
+Edit cage
+= Modifier la cage
+
+Elastic
+= Élastique
+
+Environment
+= Environnement
+
+every face
+= chaque face
+
+Every object
+= Chaque objet
+
+Explain every setting
+= Expliquer chaque réglage
+
+Export
+= Exporter
+
+Export...
+= Exporter...
+
+Extract
+= Extraire
+
+Extract masked
+= Extraire la partie masquée
+
+Extrude
+= Extruder
+
+Eyedropper
+= Pipette
+
+Fabric
+= Tissu
+
+Facets
+= Facettes
+
+Facing up
+= Orienté vers le haut
+
+Falloff
+= Atténuation
+
+falloff|Firm
+= Ferme
+
+falloff|Flat
+= Plat
+
+falloff|Sharp
+= Pointu
+
+falloff|Smooth
+= Doux
+
+falloff|Soft
+= Doux
+
+Fast
+= Rapide
+
+Favourites
+= Favoris
+
+Fewer
+= Moins
+
+Fewer options
+= Moins d'options
+
+Files
+= Fichiers
+
+FILL
+= REMPLISSAGE
+
+Fill
+= Remplir
+
+Fill gradient
+= Remplir d'un dégradé
+
+Fill hole
+= Combler le trou
+
+Fill layer
+= Calque de remplissage
+
+Fill with colour
+= Remplir de couleur
+
+Final
+= Final
+
+Find an object
+= Trouver un objet
+
+Finish
+= Finition
+
+Firm
+= Ferme
+
+Flat
+= Plat
+
+Flat corners
+= Coins plats
+
+Flatten
+= Aplatir
+
+Floor grid
+= Grille au sol
+
+Focal shift
+= Décalage focal
+
+Focus
+= Focus
+
+Focus selected
+= Centrer sur la sélection
+
+Folder
+= Dossier
+
+Four views
+= Quatre vues
+
+Frame rate
+= Fréquence d'images
+
+From
+= De
+
+Full
+= Complet
+
+Game engine
+= Moteur de jeu
+
+Glass
+= Verre
+
+Glossy
+= Brillant
+
+Glow
+= Lueur
+
+Good
+= Bon
+
+Grab
+= Saisir
+
+Graphite
+= Graphite
+
+Green
+= Vert
+
+Grey
+= Gris
+
+Grid off
+= Grille désactivée
+
+Group
+= Groupe
+
+Hard polish
+= Polissage dur
+
+Hardness
+= Dureté
+
+Harmony
+= Harmonie
+
+Hatch
+= Hachures
+
+HD detail
+= Détail HD
+
+HDRI
+= HDRI
+
+Height
+= Hauteur
+
+Help
+= Aide
+
+Help and shortcuts
+= Aide et raccourcis
+
+Hide object
+= Masquer l'objet
+
+Hide, clip and slice
+= Masquer, couper et trancher
+
+High contrast
+= Contraste élevé
+
+Higher
+= Plus haut
+
+Hints on panels
+= Conseils sur les panneaux
+
+HISTORY
+= HISTORIQUE
+
+History
+= Historique
+
+Hold to compare
+= Comparer
+
+Hollow for this file only
+= Évider pour ce fichier seulement
+
+Home
+= Accueil
+
+Home screen
+= Écran d'accueil
+
+HOVER PREVIEW
+= APERÇU AU SURVOL
+
+Hover preview
+= Aperçu au survol
+
+ICONS
+= ICÔNES
+
+Import
+= Importer
+
+Import code
+= Importer un code
+
+In a texture
+= Dans une texture
+
+In this scene
+= Dans cette scène
+
+Inflate
+= Gonfler
+
+Inset
+= Incrustation
+
+INSPECT
+= INSPECTER
+
+Intensity
+= Intensité
+
+Interface
+= Interface
+
+Invert
+= Inverser
+
+Invert the mask
+= Inverser le masque
+
+Keep as new
+= Garder comme nouveau
+
+Keep my seams
+= Garder mes coutures
+
+Labels on panels
+= Étiquettes sur les panneaux
+
+LANGUAGE
+= LANGUE
+
+Language
+= Langue
+
+Lasso
+= Lasso
+
+Last shading
+= Dernier ombrage
+
+Lay the brush ring on the surface
+= Poser l'anneau du pinceau sur la surface
+
+Layer
+= Couche
+
+Layer brush
+= Pinceau couche
+
+Layers
+= Calques
+
+LAYOUTS FOR
+= DISPOSITIONS POUR
+
+Left-handed
+= Gaucher
+
+Level 1 of 1
+= Niveau 1 sur 1
+
+Library
+= Bibliothèque
+
+Light
+= Lumière
+
+Lights
+= Lumières
+
+Lights follow the camera
+= Les lumières suivent la caméra
+
+Limits in Settings
+= Limites dans les Réglages
+
+Linear
+= Linéaire
+
+List
+= Liste
+
+Lit
+= Éclairé
+
+Live stack
+= Pile active
+
+Load base colour map...
+= Charger la carte de couleur de base...
+
+Load image...
+= Charger une image...
+
+Load normal map...
+= Charger la carte de normales...
+
+Load ORM map...
+= Charger la carte ORM...
+
+Lock object
+= Verrouiller l'objet
+
+LOOK
+= APPARENCE
+
+Lower
+= Plus bas
+
+Make a ghost
+= Créer un fantôme
+
+Manage packs
+= Gérer les packs
+
+Maps
+= Cartes
+
+Mask
+= Masque
+
+Mask all
+= Tout masquer
+
+Mask by smoothness
+= Masquer selon le lissé
+
+Mask commands
+= Commandes de masque
+
+Match device
+= Comme l'appareil
+
+Material
+= Matériau
+
+Matte
+= Mat
+
+Menu
+= Menu
+
+Menus and popovers
+= Menus et fenêtres contextuelles
+
+Merge down
+= Fusionner vers le bas
+
+Mesh
+= Maillage
+
+Metal
+= Métal
+
+Metallic
+= Métallique
+
+Midnight
+= Minuit
+
+Mirror
+= Miroir
+
+Mirror and weld
+= Miroir et soudure
+
+Model
+= Modèle
+
+Modify topology
+= Modifier la topologie
+
+Mono
+= Mono
+
+MORE
+= PLUS
+
+More
+= Plus
+
+More options
+= Plus d'options
+
+Morph
+= Morphe
+
+MOTION
+= ANIMATION
+
+Move
+= Déplacer
+
+Move paint layer down
+= Descendre le calque de peinture
+
+Move paint layer up
+= Monter le calque de peinture
+
+My presets
+= Mes préréglages
+
+New
+= Nouveau
+
+New folder
+= Nouveau dossier
+
+New layer
+= Nouveau calque
+
+New mesh after a rebuild
+= Nouveau maillage après reconstruction
+
+New scene: Bust
+= Nouvelle scène : Buste
+
+New scene: Creature
+= Nouvelle scène : Créature
+
+New scene: Cube
+= Nouvelle scène : Cube
+
+New scene: Figure
+= Nouvelle scène : Personnage
+
+New scene: Hand
+= Nouvelle scène : Main
+
+New scene: Head
+= Nouvelle scène : Tête
+
+New scene: Plane
+= Nouvelle scène : Plan
+
+New scene: Sphere
+= Nouvelle scène : Sphère
+
+No holes
+= Aucun trou
+
+No UVs
+= Pas d'UV
+
+none
+= aucun
+
+Normal
+= Normal
+
+Normals
+= Normales
+
+Not saved
+= Non enregistré
+
+Notes
+= Notes
+
+Now
+= Maintenant
+
+Object
+= Objet
+
+Off
+= Désactivé
+
+On
+= Activé
+
+On vertices
+= Sur les sommets
+
+one pass
+= une passe
+
+Only the selected objects (1)
+= Seulement les objets sélectionnés (1)
+
+Open
+= Ouvrir
+
+Open Colours
+= Ouvrir Couleurs
+
+Open recent
+= Ouvrir un fichier récent
+
+Open scene...
+= Ouvrir une scène...
+
+OPTIONS
+= OPTIONS
+
+Options
+= Options
+
+Or drag the arrow's tip in the view.
+= Ou glissez la pointe de la flèche dans la vue.
+
+Or drag the pivot's dot in the view.
+= Ou glissez le point du pivot dans la vue.
+
+PACKS
+= PACKS
+
+Paint
+= Peindre
+
+Palettes
+= Palettes
+
+Panel opacity
+= Opacité des panneaux
+
+PANEL PLACES
+= EMPLACEMENTS DES PANNEAUX
+
+Panel shadows
+= Ombres des panneaux
+
+Panels and sections
+= Panneaux et sections
+
+Paper
+= Papier
+
+Passes beside it
+= Passe à côté
+
+Peel
+= Peler
+
+Pen
+= Stylet
+
+Performance
+= Performances
+
+Perspective
+= Perspective
+
+Pick a colour
+= Choisir une couleur
+
+Picks a brush and the Sculpt tool.
+= Choisit un pinceau et l'outil Sculpter.
+
+Picture
+= Image
+
+Pies and the dial
+= Menus circulaires et molette
+
+Pills and chips
+= Pastilles et puces
+
+Pinch
+= Pincer
+
+Pivot
+= Pivot
+
+Place highlight
+= Placer le reflet
+
+PLANES
+= PLANS
+
+Plastic
+= Plastique
+
+Point
+= Point
+
+Polygroups
+= Polygroupes
+
+Polypaint
+= Polypaint
+
+Pose
+= Pose
+
+Preset
+= Préréglage
+
+Presses and hovers
+= Appuis et survols
+
+pressure → strength
+= pression → force
+
+pressure|Light
+= Léger
+
+Project detail
+= Projeter le détail
+
+Projected
+= Projeté
+
+Pure black
+= Noir pur
+
+Put on a toolbar
+= Mettre dans une barre d'outils
+
+Quad remesh
+= Remaillage en quads
+
+Quality
+= Qualité
+
+Radial
+= Radial
+
+REBUILD
+= RECONSTRUIRE
+
+Rebuild levels
+= Reconstruire les niveaux
+
+Recent
+= Récents
+
+Rect
+= Rect.
+
+Rectangle
+= Rectangle
+
+Red
+= Rouge
+
+Redo
+= Rétablir
+
+Reduced
+= Réduite
+
+Regular
+= Normal
+
+Relax
+= Détendre
+
+Remesh and decimate
+= Remailler et décimer
+
+Rename...
+= Renommer...
+
+Render
+= Rendu
+
+Render image...
+= Rendre une image...
+
+Rendered
+= Rendu
+
+Reset
+= Réinitialiser
+
+Reset all settings
+= Réinitialiser tous les réglages
+
+Reset Interface settings
+= Réinitialiser les réglages de l'interface
+
+Reset panel positions
+= Réinitialiser la position des panneaux
+
+RESOLUTION
+= RÉSOLUTION
+
+Ridge
+= Arête
+
+Right-handed
+= Droitier
+
+Roll
+= Rouleau
+
+Rotate
+= Pivoter
+
+Rough
+= Rugueux
+
+Roughness
+= Rugosité
+
+Round
+= Rond
+
+Rubber
+= Caoutchouc
+
+Samples
+= Échantillons
+
+Save
+= Enregistrer
+
+Save a copy...
+= Enregistrer une copie...
+
+Save scene
+= Enregistrer la scène
+
+Save scene as...
+= Enregistrer la scène sous...
+
+Save tick
+= Coche d'enregistrement
+
+Scene
+= Scène
+
+Scrape
+= Racler
+
+SCREEN LAYOUT
+= DISPOSITION DE L'ÉCRAN
+
+Screenshot
+= Capture d'écran
+
+Sculpt
+= Sculpter
+
+Sculpt and paint
+= Sculpter et peindre
+
+Sculpt mesh
+= Maillage de sculpture
+
+Search
+= Rechercher
+
+Search as a field in the top bar
+= Recherche en champ dans la barre du haut
+
+Search brushes and tools
+= Rechercher pinceaux et outils
+
+Search commands and settings
+= Rechercher commandes et réglages
+
+Search settings
+= Rechercher dans les réglages
+
+Selected
+= Sélectionné
+
+Selection outline
+= Contour de sélection
+
+SELECTION SETS
+= ENSEMBLES DE SÉLECTION
+
+Selection sets
+= Ensembles de sélection
+
+Send
+= Envoyer
+
+Send to...
+= Envoyer vers...
+
+Set texel density
+= Définir la densité de texels
+
+Set the source
+= Définir la source
+
+Settings
+= Réglages
+
+Settings...
+= Réglages...
+
+SHADING
+= OMBRAGE
+
+Shading and look changes
+= Changements d'ombrage et d'apparence
+
+SHAPE
+= FORME
+
+Share code
+= Partager le code
+
+Sharp
+= Net
+
+Sharp crease
+= Pli net
+
+Sheen
+= Lustre
+
+Shelf
+= Étagère
+
+Shelf pages
+= Pages de l'étagère
+
+Shortcuts
+= Raccourcis
+
+Show every option
+= Afficher toutes les options
+
+Show the symmetry line
+= Afficher la ligne de symétrie
+
+Silhouette
+= Silhouette
+
+SIZE
+= TAILLE
+
+Size
+= Taille
+
+SKIN
+= PEAU
+
+Skin & wax
+= Peau et cire
+
+Skin detail
+= Détail de peau
+
+Slash
+= Entaille
+
+Sliders
+= Curseurs
+
+Smooth
+= Lisser
+
+Smooth all
+= Tout lisser
+
+Smooth blurs, Invert erases
+= Lisser floute, Inverser efface
+
+Smooth brush
+= Pinceau de lissage
+
+Smooth cage points
+= Lisser les points de la cage
+
+Smooth peaks
+= Lisser les crêtes
+
+Smooth peaks brush
+= Pinceau lisser les crêtes
+
+Smooth stronger
+= Lisser plus fort
+
+Smooth stronger brush
+= Pinceau lisser plus fort
+
+Smooth valleys
+= Lisser les creux
+
+Smooth valleys brush
+= Pinceau lisser les creux
+
+Smudge
+= Estomper
+
+Snake hook
+= Crochet serpent
+
+Snapshot
+= Instantané
+
+Soft
+= Doux
+
+Solid
+= Plein
+
+Solo
+= Solo
+
+Sphere
+= Sphère
+
+Split
+= Diviser
+
+Spot
+= Spot
+
+Spray
+= Pulvériser
+
+Square
+= Carré
+
+Standard
+= Standard
+
+Starred
+= Favoris
+
+Start at Home
+= Démarrer sur l'accueil
+
+STARTING
+= DÉMARRAGE
+
+Steady
+= Régulier
+
+Stencil
+= Pochoir
+
+Steps
+= Étapes
+
+Store mask as set
+= Enregistrer le masque comme ensemble
+
+Straighten quad islands
+= Redresser les îlots de quads
+
+Strength
+= Force
+
+Strip
+= Bande
+
+Stroke
+= Trait
+
+Stroke recorder
+= Enregistreur de traits
+
+Studio
+= Studio
+
+Studio grey
+= Gris studio
+
+Subdivide
+= Subdiviser
+
+Subdivision levels
+= Niveaux de subdivision
+
+Subsurface
+= Diffusion sous-surface
+
+Sun
+= Soleil
+
+SURFACE
+= SURFACE
+
+Surface layers
+= Calques de surface
+
+SURFACES
+= SURFACES
+
+Swap colours
+= Échanger les couleurs
+
+Switching workspace
+= Changement d'espace de travail
+
+SYMMETRY
+= SYMÉTRIE
+
+Tablet
+= Tablette
+
+Tabs and choices
+= Onglets et choix
+
+Take the brush's colour
+= Prendre la couleur du pinceau
+
+Texel density
+= Densité de texels
+
+Text on the accent
+= Texte sur l'accent
+
+Textures
+= Textures
+
+The view
+= La vue
+
+The words of the interface. Automatic follows the device's language. A line with no translation yet shows in English; scripts, keys and files are the same in every language.
+= Les mots de l'interface. Automatique suit la langue de l'appareil. Une ligne pas encore traduite s'affiche en anglais ; scripts, raccourcis et fichiers sont les mêmes dans toutes les langues.
+
+theme|Light
+= Clair
+
+Thumb
+= Pouce
+
+TINT
+= TEINTE
+
+Tint strength
+= Force de la teinte
+
+To
+= À
+
+To sculpt
+= Pour sculpter
+
+Tool
+= Outil
+
+Toolbars sliding
+= Barres d'outils qui glissent
+
+Tooltips
+= Infobulles
+
+TOP BAR
+= BARRE DU HAUT
+
+Torus
+= Tore
+
+Touch
+= Tactile
+
+Transmission
+= Transmission
+
+Trim
+= Rogner
+
+Trim dynamic
+= Rognage dynamique
+
+Tube
+= Tube
+
+TURNS ROUND
+= TOURNE AUTOUR
+
+Turntable
+= Plateau tournant
+
+Undo
+= Annuler
+
+Undo and redo glow
+= Lueur d'annulation et de rétablissement
+
+Unsaved changes
+= Modifications non enregistrées
+
+Untitled
+= Sans titre
+
+Unwrap
+= Déplier
+
+Update from the sculpt
+= Mettre à jour depuis la sculpture
+
+UV options
+= Options UV
+
+UVs
+= UV
+
+Value
+= Valeur
+
+VDM FILES FROM
+= FICHIERS VDM DEPUIS
+
+VDM STAMPS
+= TAMPONS VDM
+
+View
+= Vue
+
+VIEW GRID
+= GRILLE DE VUE
+
+View panes
+= Volets de vue
+
+VIEWPORT
+= FENÊTRE 3D
+
+Viewport style
+= Style de la vue
+
+Voxel
+= Voxel
+
+Voxel remesh
+= Remaillage voxel
+
+Voxels
+= Voxels
+
+Watertight: every edge has two faces
+= Étanche : chaque arête a deux faces
+
+Weld
+= Souder
+
+White
+= Blanc
+
+Wipe compare
+= Comparaison par balayage
+
+With its background
+= Avec son arrière-plan
+
+Without background
+= Sans arrière-plan
+
+Work in any view
+= Travailler dans n'importe quelle vue
