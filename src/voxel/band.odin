@@ -28,6 +28,10 @@ REPAIR_SWEEPS :: 16
 // voxel) leaves the brick settled: the first-order scheme's directional bias keeps
 // nudging values by a quantum or two for sweeps after the solution is as good as it gets.
 REPAIR_SETTLED :: 16
+// A voxel over √3 in SCALE units, rounded down: no update lowers a value to less than its
+// smallest neighbour plus this (band_sweep_brick's test; the values are whole, so this is
+// the same test in whole numbers).
+SWEEP_FLOOR :: i32(2363) // 4096 × 0.577 = 2363.4
 // The pending stamp of a brick while it is in the running repair's region.
 IN_REGION :: max(u32)
 
@@ -100,9 +104,12 @@ band_repair :: proc(c: ^Clay, every_sweep := false) {
 			}
 		}
 	})
+	// The seeds go in and the values as they were stay in scratch, to tell which changes
+	// the mesh can see once the sweeps are done.
 	jobs.parallel_for(c.pool, n, c, proc(data: rawptr, i: int) {
 		c := cast(^Clay)data
-		c.volume.bricks[c.region[i]] = c.scratch[i]
+		b := &c.volume.bricks[c.region[i]]
+		b^, c.scratch[i] = c.scratch[i], b^
 	})
 
 	// The sweeps, each in the next of the eight corner-to-corner directions, the bricks in
@@ -112,32 +119,79 @@ band_repair :: proc(c: ^Clay, every_sweep := false) {
 	// in every direction and the repair stops.
 	resize(&c.settled, n)
 	resize(&c.changed, n)
-	resize(&c.levels, n)
+	// The sweep's units: the region's bricks in blocks of 2³, a block's bricks swept by
+	// one job in the sweep's order. Two bricks that share a face differ by one level,
+	// whether in one block or in two blocks (whose levels then differ by one), so every
+	// brick still reads its neighbours after the lower and before the higher: the same
+	// values as one brick a job, in half the wavefronts, each job with more work.
+	clear(&c.units)
+	clear(&c.unit_coords)
+	{
+		unit_of := &c.unit_of
+		clear(unit_of)
+		for slot, i in c.region {
+			bc := v.coords[slot]
+			block := shr3(bc, 1)
+			u, found := unit_of[block]
+			if !found {
+				u = i32(len(c.units))
+				unit_of[block] = u
+				append(&c.units, [8]i32{-1, -1, -1, -1, -1, -1, -1, -1})
+				append(&c.unit_coords, block)
+			}
+			place := and3(bc, 1)
+			c.units[u][place.x | place.y << 1 | place.z << 2] = i32(i)
+		}
+	}
+	units := len(c.units)
+	resize(&c.levels, units)
+	resize(&c.level_of, units)
 	slice.fill(c.settled[:], false)
 	c.repair_sweeps = 0
 	for sweep in 0 ..< REPAIR_SWEEPS {
 		dir := sweep & 7
 		c.sweep = dir
-		// The level of a brick is the sum of its coordinates, each counted from the side the
-		// sweep starts at; bricks of one level share no face.
-		for slot, i in c.region {
-			bc := v.coords[slot]
-			level := 0
-			for a in 0 ..< 3 do level += int(MAX_BRICKS - 1 - bc[a]) if dir & (1 << uint(a)) != 0 else int(bc[a])
-			c.levels[i] = u64(level) << 32 | u64(i)
+		// The level of a block is the sum of its coordinates, each counted from the side the
+		// sweep starts at; blocks of one level share no face. Levels are small, so they are
+		// sorted by counting (a comparison sort a sweep took most of the repair's serial
+		// time), each level's blocks in index order.
+		lo_level, hi_level := max(u32), u32(0)
+		for block, i in c.unit_coords {
+			level: u32
+			for a in 0 ..< 3 do level += u32(MAX_BRICKS / 2 - 1 - block[a]) if dir & (1 << uint(a)) != 0 else u32(block[a])
+			c.level_of[i] = level
+			lo_level, hi_level = min(lo_level, level), max(hi_level, level)
 		}
-		slice.sort(c.levels[:])
+		span := int(hi_level - lo_level) + 1
+		resize(&c.level_starts, span + 1)
+		slice.zero(c.level_starts[:])
+		for level in c.level_of do c.level_starts[level - lo_level + 1] += 1
+		for k in 1 ..= span do c.level_starts[k] += c.level_starts[k - 1]
+		for level, i in c.level_of {
+			at := &c.level_starts[level - lo_level]
+			c.levels[at^] = u64(level) << 32 | u64(i)
+			at^ += 1
+		}
 		slice.fill(c.changed[:], false)
 		at := 0
-		for at < n {
+		for at < units {
 			level := c.levels[at] >> 32
 			end := at
-			for end < n && c.levels[end] >> 32 == level do end += 1
+			for end < units && c.levels[end] >> 32 == level do end += 1
 			c.level_first = at
 			jobs.parallel_for(c.pool, end - at, c, proc(data: rawptr, i: int) {
 				c := cast(^Clay)data
-				brick := int(u32(c.levels[c.level_first + i]))
-				c.changed[brick] = band_sweep_brick(c, brick)
+				unit := &c.units[int(u32(c.levels[c.level_first + i]))]
+				// A block's places in the order of their level in the sweep (the place's
+				// bits flipped along the axes the sweep runs backwards, counted).
+				@(static, rodata) ORDER := [8][8]u8 {
+					{0, 1, 2, 4, 3, 5, 6, 7}, {1, 0, 3, 5, 2, 4, 7, 6}, {2, 3, 0, 6, 1, 7, 4, 5}, {3, 2, 1, 7, 0, 6, 5, 4},
+					{4, 5, 6, 0, 7, 1, 2, 3}, {5, 4, 7, 1, 6, 0, 3, 2}, {6, 7, 4, 2, 5, 3, 0, 1}, {7, 6, 5, 3, 4, 2, 1, 0},
+				}
+				for place in ORDER[c.sweep] {
+					brick := unit[place]
+					if brick >= 0 do c.changed[brick] = band_sweep_brick(c, int(brick))
+				}
 			})
 			at = end
 		}
@@ -149,9 +203,26 @@ band_repair :: proc(c: ^Clay, every_sweep := false) {
 		}
 		if !every_sweep && unsettled == 0 do break
 	}
-	for slot in c.region {
+	// Only the nodes that can see a change are meshed again: most of what the repair
+	// moves lies farther from the surface than the mesh reads (put's rule for a dab), and
+	// the voxels beside the surface it keeps.
+	resize(&c.repair_seen, n)
+	jobs.parallel_for(c.pool, n, c, proc(data: rawptr, i: int) {
+		c := cast(^Clay)data
+		b := &c.volume.bricks[c.region[i]]
+		was := &c.scratch[i]
+		e := Dab_Effect{lo = {BRICK, BRICK, BRICK}, hi = {-1, -1, -1}}
+		for z in 0 ..< BRICK do for y in 0 ..< BRICK do for x in 0 ..< BRICK {
+			k := voxel_index(x, y, z)
+			old := was.d[k]
+			_ = put(&e, &old, b.d[k], x, y, z)
+		}
+		c.repair_seen[i] = e
+	})
+	for slot, i in c.region {
 		bc := v.coords[slot]
-		surface_mark_brick(c, bc)
+		e := c.repair_seen[i]
+		surface_mark_box(c, bc, e.lo, e.hi)
 		if tile := brick_tile(&v.bricks[slot]); tile != .Brick do volume_brick_collapse(v, bc, tile)
 	}
 }
@@ -234,15 +305,15 @@ band_sweep_brick :: proc(c: ^Clay, i: int) -> (changed: bool) {
 		// The smaller unsigned neighbour per axis, in SCALE units; a neighbour of the other
 		// sign counts as zero distance (the surface is between).
 		sign := d >> 15 // all ones inside
-		near := [3]f32 {
-			f32(min(unsigned_toward(window[w - 1], sign), unsigned_toward(window[w + 1], sign))),
-			f32(min(unsigned_toward(window[w - WINDOW], sign), unsigned_toward(window[w + WINDOW], sign))),
-			f32(min(unsigned_toward(window[w - WINDOW * WINDOW], sign), unsigned_toward(window[w + WINDOW * WINDOW], sign))),
-		}
+		nx := min(unsigned_toward(window[w - 1], sign), unsigned_toward(window[w + 1], sign))
+		ny := min(unsigned_toward(window[w - WINDOW], sign), unsigned_toward(window[w + WINDOW], sign))
+		nz := min(unsigned_toward(window[w - WINDOW * WINDOW], sign), unsigned_toward(window[w + WINDOW * WINDOW], sign))
 		// The solution is at least the smallest neighbour plus a voxel over √3: when that is
-		// no less than the value, the update cannot lower it.
+		// no less than the value, the update cannot lower it. Tested in integers, before
+		// any float work, as most voxels a sweep visits stop here.
+		if i32(min(nx, ny, nz)) + SWEEP_FLOOR >= i32(abs(d)) do continue
 		dist := f32(abs(d))
-		if min(near.x, near.y, near.z) + SCALE * 0.577 >= dist do continue
+		near := [3]f32{f32(nx), f32(ny), f32(nz)}
 		u := eikonal_update(near / SCALE) * SCALE
 		if u < dist {
 			q := i16(min(u, f32(CLAMP)))

@@ -25,9 +25,10 @@ description: Implicit and SDF modelling for this app — the voxel sculptor in s
   `Corner_Grid`s; `Elastic` the same warp weighed by `geom.kelvinlet_follow`, the mesh Elastic's); `mesh_node` insets crossings by `CROSSING_INSET` so squeezed
   values never fold a triangle onto a lattice point); band repair by Godunov sweeps at `clay_stroke_end` (`band.odin`): the region's bricks run in WAVEFRONTS
   (bricks of one coordinate sum share no face, so a wavefront is one `parallel_for` reading neighbours live: Gauss-Seidel
-  across bricks, no snapshot), a sweep per direction (`sweep & 7`), stopping at the first sweep that moves no value by
+  across bricks, no snapshot; units are 2³ brick blocks swept in order by one job, `Clay.units`, which keeps every
+  face-neighbour's order so the bits are the same; levels counting-sorted), a sweep per direction (`sweep & 7`), stopping at the first sweep that moves no value by
   more than `REPAIR_SETTLED` (`Clay.repair_sweeps` says how many; `band_repair(c, every_sweep = true)` runs them all for
-  the test). Negative is inside, as here.
+  the test); the end marks only nodes that see a change within `NEAR` (`Clay.repair_seen`, `surface_mark_box`). Negative is inside, as here.
 - Rules it keeps: every new value depends on old values only (serial == parallel, `serial_and_parallel_strokes_agree_bit_for_bit`);
   jobs write disjoint bricks or node slots; the directory changes only in serial passes; a brick dirties the nodes whose
   20³ meshing window sees a change within `NEAR` (3 voxels) of the surface; unused index slots are zeros on a dummy vertex 0;
