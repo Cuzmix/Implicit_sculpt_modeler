@@ -43,6 +43,8 @@ BRUSH_ICON_FILES := [sculpt.Brush_Kind]string {
 	.Clay_Strips  = #load("../../assets/brush_icons/clay_strips.png", string),
 	.Trim_Dynamic = #load("../../assets/brush_icons/trim_dynamic.png", string),
 	.Tube         = #load("../../assets/brush_icons/tube.png", string),
+	.Rotate       = #load("../../assets/brush_icons/rotate.png", string),
+	.Thumb        = #load("../../assets/brush_icons/thumb.png", string),
 }
 
 Brush_Icons :: struct {

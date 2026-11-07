@@ -441,3 +441,7 @@ ICON_SHADE_RENDERED      render  tb:stars
 
 # Fill layers (paint_fill.odin)
 ICON_FILL_UPDATE         paint   ph:arrows-counter-clockwise
+
+# Mesh brushes (gap 9)
+ICON_BRUSH_ROTATE        sculpt  ph:arrow-arc-right
+ICON_BRUSH_THUMB         sculpt  ph:hand-swipe-right

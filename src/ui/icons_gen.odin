@@ -3,8 +3,8 @@ package ui
 // Written by scripts/icons_build.py from assets/icons/manifest.txt: edit that and run the
 // script. One name per meaning, each its own drawing in the icon fonts (text.odin).
 
-ICONS_SOURCE_HASH :: "c983688127f0ce7d79dfdf4bf650bc29c9bae1be930cea9a264268aaf2bdf086"
-ICONS_FONTS_HASH :: "02166de379791c18ddf5e85ab7e9aae6272c6d66049bfc3c49eb51848ac4b742"
+ICONS_SOURCE_HASH :: "5e714b1feb82d8c01e44892ebac74e09a0a58720d69b0f4f3a67470d0337082d"
+ICONS_FONTS_HASH :: "7e075b7844683d89b6cd29266becdf6564cd5a87c225b7f047b471372662f8e0"
 
 // What an icon works on, which colours it in the Colour icon style.
 Icon_Group :: enum u8 {
@@ -19,7 +19,7 @@ Icon_Group :: enum u8 {
 }
 
 ICON_FIRST :: rune(0xE000)
-ICON_COUNT :: 414
+ICON_COUNT :: 416
 
 ICON_MENU                :: rune(0xE000) // ph:list
 ICON_MORE                :: rune(0xE001) // ph:dots-three-circle
@@ -435,6 +435,8 @@ ICON_SHADE_FULL          :: rune(0xE19A) // ph:sphere
 ICON_SHADE_LIT           :: rune(0xE19B) // ph:sun-dim
 ICON_SHADE_RENDERED      :: rune(0xE19C) // tb:stars
 ICON_FILL_UPDATE         :: rune(0xE19D) // ph:arrows-counter-clockwise
+ICON_BRUSH_ROTATE        :: rune(0xE19E) // ph:arrow-arc-right
+ICON_BRUSH_THUMB         :: rune(0xE19F) // ph:hand-swipe-right
 
 ICON_GROUP_TABLE := [ICON_COUNT]Icon_Group {
 	.App, // ICON_MENU
@@ -851,4 +853,6 @@ ICON_GROUP_TABLE := [ICON_COUNT]Icon_Group {
 	.Render, // ICON_SHADE_LIT
 	.Render, // ICON_SHADE_RENDERED
 	.Paint, // ICON_FILL_UPDATE
+	.Sculpt, // ICON_BRUSH_ROTATE
+	.Sculpt, // ICON_BRUSH_THUMB
 }

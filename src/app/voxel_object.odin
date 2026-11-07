@@ -225,9 +225,9 @@ voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: b
 // Whether a stroke with `kind` can start on a voxel object; said once a press (`say`) when
 // not, so the press does nothing in silence.
 voxel_brush_allowed :: proc(app: ^App, kind: sculpt.Brush_Kind, say: bool) -> bool {
-	if kind == .Grab || kind == .Elastic do return true
+	if kind == .Grab || kind == .Elastic || kind == .Rotate do return true
 	if _, ok := voxel_brush_of({kind = kind}, {}); ok do return true
-	if say do report(app, Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Clay strips, Trim dynamic, Tube, Smooth, Flatten, Inflate, Pinch, Crease, Snake hook, Grab, Elastic, Mask and Paint; convert the object to a mesh for the rest", BRUSHES[kind].name)
+	if say do report(app, Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Clay strips, Trim dynamic, Tube, Smooth, Flatten, Inflate, Pinch, Crease, Snake hook, Grab, Elastic, Rotate, Mask and Paint; convert the object to a mesh for the rest", BRUSHES[kind].name)
 	return false
 }
 
