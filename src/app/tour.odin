@@ -53,7 +53,7 @@ TOUR_TEXT := [Tour_Step]string {
 	.Dial     = "Hold Smooth while you draw to smooth, Invert to dig, Mask to mask; tap one to keep it on. Try it now on the model.",
 	.Cards    = "A toolbar button opens its card beside it, and a tap on the view closes it again. Pin keeps a card open while you sculpt, and Search opens any section by name. Tap one to try it.",
 	.History  = "History lists what you did: tap a step to go back to it, or hold Undo to scrub. Open it now.",
-	.Paint    = "The shelf's Paint page holds the painting brushes, and Also paint colour in any brush's quick settings (a long press on its tile) makes it paint too. Pick Paint and paint a stroke.",
+	.Paint    = "Painting has a workspace of its own: Paint, with the Paint brush in hand and the Colours card beside it, and the Paint brush picked anywhere brings it. Tap Paint and paint a stroke.",
 }
 
 // Starts the tour from its first step (Take the tour), closing what would cover it.
@@ -81,7 +81,9 @@ tour_target :: proc(app: ^App, s: Tour_Step) -> ui.Rect {
 	case .History:
 		return k.history_at
 	case .Paint:
-		// The shelf with its page names, so the card stands clear of the tiles to tap.
+		// The Paint workspace's tab; with no Paint workspace, the shelf and its page names,
+		// so the card stands clear of the tiles to tap.
+		for slot in workspace_tabs(k) do if k.workspaces.list[slot].starter == .Paint && k.workspace_tab_at[slot].w > 0 do return k.workspace_tab_at[slot]
 		dock, pages := ui.prev_root_rect(&k.ctx, "dock"), ui.prev_root_rect(&k.ctx, "dock pages")
 		if dock.w <= 0 do return pages
 		return ui.rect_union(dock, pages) if pages.w > 0 else dock

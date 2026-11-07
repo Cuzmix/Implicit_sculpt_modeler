@@ -219,6 +219,7 @@ Kit_State :: struct {
 	top_docks:     [Top_Dock]Bar_List,
 	top_at:        [Top_Dock]ui.Rect,
 	workspace_tabs_at: ui.Rect,
+	workspace_tab_at: [WORKSPACE_SLOTS]ui.Rect, // each workspace's tab, where drawn this frame
 	wheel_turn: f32, // how far it is turned clockwise, in degrees, -180 to 180
 	wheel_offset: [2]f32, // how far its grip dragged it from its place, in points
 	// The hand the moved windows and the wheel's drag were placed for: ctx.mirror is the

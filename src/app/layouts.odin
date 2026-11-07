@@ -177,8 +177,8 @@ built_in_layout :: proc(s: Starter) -> string {
 	case .None:
 	case .Sculpt:
 		// The view clear: every card opens from its dock button when it is wanted; the
-		// shelf's brushes, paint, Move and Curve pages.
-		text = "shelf Sculpt Paint Move Curve\n"
+		// shelf's brushes, Move and Curve pages (painting has a workspace of its own).
+		text = "shelf Sculpt Move Curve\n"
 	case .Model:
 		// As Sculpt, without the brush bar: its Size and Strength move no cage, so in Model
 		// they would only take room from the view. The shelf's Model page.
@@ -189,6 +189,11 @@ built_in_layout :: proc(s: Starter) -> string {
 		// render build up beside it. No brush bar, as in Model: a press in Render turns the
 		// view, so Size and Strength would only take room. The shelf's Render page.
 		text = "hidden Brush_Bar\ncolumn right Material\nshelf Render\n"
+	case .Paint:
+		// The brush bar for Size and Strength, the colour island over the shelf, and the
+		// shelf's Paint page (its Colours tile opens the Colours card), then the brushes. No
+		// card is pinned, so a card opened by a finger is the only one in its column.
+		text = "shelf Paint Sculpt\n"
 	}
 	// Read and written again, so it is exactly what the layout writes when it is in place;
 	// every starter ships with the bars a fresh install has.

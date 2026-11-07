@@ -167,7 +167,7 @@ small fixed fields keep `App` far under its 256 KB stack bound; the layout texts
 |---|---|---|---|---|
 | Sculpt | Brushes, Curve, Insert | today's Sculpt (`built_in_layout`, `layouts.odin:219`) | Brushes, Move, Curve | tints[0] |
 | Model | Model | `hidden Brush_Bar` | Model | tints[1] |
-| Paint | Paint_Brush | Colours card pinned on the pen side, brush bar shown | Paint, Brushes | tints[3] |
+| Paint | Paint_Brush | brush bar shown, no card pinned (built: a pinned card took a finger's taps on a card opened over it, so Colours opens from the shelf's tile) | Paint, Brushes | tints[3] |
 | Render | Look | `hidden Brush_Bar`, `column right Look` | Render | tints[2] |
 
 The tablet class ships the same texts as desktop for now; they part as soon as the person changes

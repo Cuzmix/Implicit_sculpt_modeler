@@ -251,7 +251,7 @@ render_has_its_own_shelf_page :: proc(t: ^testing.T) {
 	testing.expect_value(t, shelf_which(.Render), Bar_Which.Shelf_Render)
 	a := workspaces_app()
 	defer workspaces_app_free(a)
-	testing.expect_value(t, len(shelf_pages(&a.kit)), 4)
+	testing.expect_value(t, len(shelf_pages(&a.kit)), 3)
 	command_run(a, .Workspace_Switch, SLOT_RENDER)
 	testing.expect_value(t, len(shelf_pages(&a.kit)), 1)
 	testing.expect_value(t, shelf_pages(&a.kit)[0], Shelf_Page.Render)
@@ -353,7 +353,7 @@ workspace_lines_refused_and_repaired :: proc(t: ^testing.T) {
 		"workspace 6 Two##ids 0 None -\n"
 	a := workspaces_from_text(t, bad, path)
 	defer workspaces_app_free(a)
-	testing.expect(t, slice.equal(workspace_tabs(&a.kit), []int{0, 1, 2}), "the starters")
+	testing.expect(t, slice.equal(workspace_tabs(&a.kit), []int{0, 1, 3, 2}), "the starters, Paint before Render")
 
 	fixable := "workspace 2 Sculpt 0 Sculpt Brushes,Curve,Insert\n" +
 		"workspace 3 sculpt 1 None -\n" +
@@ -417,4 +417,31 @@ ties_bring_their_workspace :: proc(t: ^testing.T) {
 	a.stroke.active = false
 	workspace_follow(a)
 	testing.expect_value(t, k.workspaces.current, SLOT_MODEL)
+}
+
+// The Paint brush brings Paint, on its shelf's Paint page; Smooth and Mask in Paint keep it
+// there, and a sculpting brush goes back to Sculpt. Paint's tab gives back the Paint brush.
+@(test)
+the_paint_brush_brings_paint :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	a := workspaces_app()
+	defer workspaces_app_free(a)
+	k := &a.kit
+	slot_paint := workspace_tabs(k)[2]
+	testing.expect_value(t, k.workspaces.list[slot_paint].name, "Paint")
+	command_run(a, .Brush, int(sculpt.Brush_Kind.Paint))
+	workspace_follow(a)
+	testing.expect_value(t, k.workspaces.current, slot_paint)
+	testing.expect_value(t, k.shelf.page, Shelf_Page.Paint)
+	for kind in ([]sculpt.Brush_Kind{.Smooth, .Mask, .Paint}) {
+		command_run(a, .Brush, int(kind))
+		workspace_follow(a)
+		testing.expect_value(t, k.workspaces.current, slot_paint)
+	}
+	command_run(a, .Brush, int(sculpt.Brush_Kind.Clay))
+	workspace_follow(a)
+	testing.expect_value(t, k.workspaces.current, SLOT_SCULPT)
+	command_run(a, .Workspace_Switch, slot_paint)
+	testing.expect_value(t, a.tool, Tool.Brush)
+	testing.expect_value(t, a.brush.kind, sculpt.Brush_Kind.Paint)
 }
