@@ -165,7 +165,7 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		testing.expect(t, object_put_bytes(&out, obj))
 		back: Object
 		r := geom.byte_reader(out[:])
-		object_get_fields(&r, &back)
+		test_object_fields(&r, &back)
 		defer delete(back.name)
 		testing.expect(t, r.ok)
 		testing.expect_value(t, back.off, obj.off)
@@ -178,28 +178,20 @@ view_flags_round_trip_in_the_file :: proc(t: ^testing.T) {
 		testing.expect_value(t, back.stack, obj.stack)
 		testing.expect_value(t, back.physics, object_physics(obj))
 
-		// The flags byte sits ten bytes, the live stack's and the Physics card's before the
-		// end of the head: the flags, the folder, the stored eyes, the last remesh's cell,
-		// the stack and the card.
-		flags := r.at - 10 - STACK_BYTES - PHYSICS_BYTES
-
-		// Each known bit reads back; one past them is damage.
-		out[flags] = 4
+		// Each flag reads back on its own; a value past 1 is damage.
+		rec := test_object_record(out[:])
+		paint, _ := geom.rec_find(&rec, Object_Tag.Paint_Off)
+		paint[0] = 1
 		painted: Object
 		rp := geom.byte_reader(out[:])
-		object_get_fields(&rp, &painted)
+		test_object_fields(&rp, &painted)
 		defer delete(painted.name)
-		testing.expect(t, rp.ok && painted.paint_off && !painted.off && !painted.ghost)
-		out[flags] = 8
-		locked: Object
-		rl := geom.byte_reader(out[:])
-		object_get_fields(&rl, &locked)
-		defer delete(locked.name)
-		testing.expect(t, rl.ok && locked.locked && !locked.off && !locked.ghost)
-		out[flags] = 16
+		testing.expect(t, rp.ok && painted.paint_off && painted.off == obj.off && painted.ghost == obj.ghost)
+		lock, _ := geom.rec_find(&rec, Object_Tag.Locked)
+		lock[0] = 2
 		damaged: Object
 		rd := geom.byte_reader(out[:])
-		object_get_fields(&rd, &damaged)
+		test_object_fields(&rd, &damaged)
 		defer delete(damaged.name)
 		testing.expect(t, !rd.ok)
 	}
@@ -389,62 +381,43 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	head: [dynamic]u8
 	defer delete(head)
 	scene_header_put(&app, &head)
-	r := geom.byte_reader(head[:])
-	// The folders come before the stored visibility's two bytes, the link token's eight,
-	// the lights, the print scale's four, the guides and the curves' fields.
-	lights: [dynamic]u8
-	defer delete(lights)
-	lights_put(&lights, app.scene.lights)
-	// ...and the lights' further fields (lights_more_put) at the very end.
-	more: [dynamic]u8
-	defer delete(more)
-	lights_more_put(&more, app.scene.lights)
-	// The references' chunk follows the scene's.
-	end := len(head) - len(more) - test_refs_chunk_len(&app)
-	r.at = end - (4 + 4 + 4 + len("Ears") + 1 + 1 + 4 + 4 + 2 + 8 + len(lights) + 4 + GUIDES_BYTES + SCENE_CURVE_FIELD_BYTES)
-	folders, next, ok := folders_get(&r)
+	rec := test_scene_record(head[:])
+	folders, next, ok := folders_get(&rec)
 	defer {
 		folders_clear(&folders)
 		delete(folders)
 	}
-	testing.expect(t, ok && r.ok && r.at == end - 2 - 8 - len(lights) - 4 - GUIDES_BYTES - SCENE_CURVE_FIELD_BYTES)
+	testing.expect(t, ok && rec.ok)
 	testing.expect_value(t, len(folders), 1)
 	testing.expect(t, folders[0].id == f.id && folders[0].name == "Ears" && folders[0].off && !folders[0].open && !folders[0].ghost)
 	testing.expect_value(t, next, app.scene.next_folder_id)
 	// The same id twice is damage.
 	twice: [dynamic]u8
 	defer delete(twice)
-	geom.byte_put(&twice, u32(2))
 	for _ in 0 ..< 2 {
-		geom.byte_put(&twice, i32(1))
-		geom.byte_put_string(&twice, "a")
-		geom.byte_put(&twice, u8(0))
-		geom.byte_put(&twice, u8(0))
-		geom.byte_put(&twice, i32(0))
+		fa := geom.rec_begin(&twice, Scene_Tag.Folder)
+		folder_put(&twice, {id = 1, name = "a"})
+		geom.rec_end(&twice, fa)
 	}
-	geom.byte_put(&twice, i32(1))
-	rt := geom.byte_reader(twice[:])
+	rt := geom.record_of(twice[:])
 	bad, _, bad_ok := folders_get(&rt)
 	testing.expect(t, !bad_ok && bad == nil)
 
 	// Each folder keeps the folder it is in, and a parent below zero is damage.
 	nested :: proc(parent: i32) -> [dynamic]u8 {
 		b: [dynamic]u8
-		geom.byte_put(&b, u32(2))
 		for id in 1 ..= 2 {
-			geom.byte_put(&b, i32(id))
-			geom.byte_put_string(&b, "a")
-			geom.byte_put(&b, u8(1))
-			geom.byte_put(&b, u8(0))
-			geom.byte_put(&b, parent if id == 2 else 0)
+			fa := geom.rec_begin(&b, Scene_Tag.Folder)
+			folder_put(&b, {id = id, name = "a", open = true, parent = int(parent) if id == 2 else 0})
+			geom.rec_end(&b, fa)
 		}
-		geom.byte_put(&b, i32(2))
+		geom.rec_put(&b, Scene_Tag.Next_Folder_Id, i32(3))
 		return b
 	}
 	for c in ([2]struct {parent: i32, ok: bool, want: int}{{1, true, 1}, {-1, false, 0}}) {
 		b := nested(c.parent)
 		defer delete(b)
-		rb := geom.byte_reader(b[:])
+		rb := geom.record_of(b[:])
 		got, _, got_ok := folders_get(&rb)
 		testing.expectf(t, got_ok == c.ok, "parent %d: read %v", c.parent, got_ok)
 		if got_ok do testing.expect_value(t, got[1].parent, c.want)
@@ -457,7 +430,7 @@ folders_round_trip_in_the_file :: proc(t: ^testing.T) {
 	testing.expect(t, object_put_bytes(&out, objs[2]))
 	back: Object
 	ro := geom.byte_reader(out[:])
-	object_get_fields(&ro, &back)
+	test_object_fields(&ro, &back)
 	defer delete(back.name)
 	testing.expect(t, ro.ok && back.folder == f.id)
 }
