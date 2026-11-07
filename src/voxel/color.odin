@@ -5,6 +5,7 @@ import "core:math/linalg"
 import "core:slice"
 
 import "../geom"
+import "../jobs"
 
 // Colour on clay, as 3D-Coat's voxel paint and Medium's colour: a brick may carry a colour
 // brick beside its mask brick, an sRGB colour and a painted weight a voxel (weight 0 is
@@ -237,4 +238,119 @@ unpack_color :: proc(r: ^geom.Byte_Reader, b: ^Color_Brick) -> bool {
 		}
 	}
 	return n == BRICK_VOXELS
+}
+
+// What clay_paint_command does to the whole clay's colour, as the mesh's Paint commands.
+Paint_Op :: enum {
+	Fill, // the colour everywhere the surface can show it
+	Clear, // the paint off
+	Gradient, // from the colour to the second one along an axis
+}
+
+// The bricks clay_paint_command works out at once before committing them: the colour
+// scratch stays 2 MiB however large the clay.
+@(private = "file")
+PAINT_BATCH :: 1024
+
+@(private = "file")
+Paint_Run :: struct {
+	c:             ^Clay,
+	op:            Paint_Op,
+	color, color2: [3]f32,
+	axis:          Vec3,
+	lo, span:      f32, // the gradient's start and length along the axis
+}
+
+// Fills the clay's band with `color`, or with a gradient from it to `color2` along the
+// object-space direction `axis` (the colour where the clay is least along it), or takes the
+// paint off, each voxel by its unmasked share, as one undo step. Only voxels within the
+// band take paint, since no surface reaches the others. The bricks are worked out in
+// parallel a batch at a time and committed serially, so any thread count gives the same
+// colours. Returns whether anything changed.
+clay_paint_command :: proc(c: ^Clay, op: Paint_Op, color, color2: [3]u8, axis: Vec3 = {}) -> bool {
+	assert(!c.in_stroke, "a stroke is running")
+	v := &c.volume
+	if op == .Clear && !clay_colored(c) do return false
+	run := Paint_Run{c = c, op = op, color = {f32(color.r), f32(color.g), f32(color.b)}, color2 = {f32(color2.r), f32(color2.g), f32(color2.b)}, axis = axis}
+	if op == .Gradient {
+		// The gradient's span: the clay's extent along the axis.
+		b := volume_bounds(v)
+		run.lo = max(f32)
+		hi := -max(f32)
+		for k in 0 ..< 8 {
+			corner := Vec3{b.lo.x if k & 1 == 0 else b.hi.x, b.lo.y if k & 2 == 0 else b.hi.y, b.lo.z if k & 4 == 0 else b.hi.z}
+			run.lo, hi = min(run.lo, linalg.dot(corner, axis)), max(hi, linalg.dot(corner, axis))
+		}
+		run.span = max(hi - run.lo, 1e-6)
+	}
+	clay_stroke_begin(c)
+	clear(&c.jobs)
+	commit :: proc(c: ^Clay, run: ^Paint_Run) {
+		resize(&c.color_scratch, len(c.jobs))
+		jobs.parallel_for(c.pool, len(c.jobs), run, proc(data: rawptr, i: int) {
+			r := cast(^Paint_Run)data
+			job := &r.c.jobs[i]
+			job.color_changed, job.color_painted = paint_op_brick(r, job.slot, &r.c.color_scratch[i])
+		})
+		v := &c.volume
+		for job, i in c.jobs {
+			if !job.color_changed do continue
+			undo_record(&c.history, v, job.coord)
+			if job.color_painted do color_make(v, job.slot)^ = c.color_scratch[i]
+			else do color_drop(v, job.slot)
+			surface_mark_brick(c, job.coord)
+		}
+		clear(&c.jobs)
+	}
+	for coord, slot in v.coords {
+		if coord == BRICK_FREE do continue
+		if op == .Clear && color_of(v, u32(slot)) == nil do continue
+		append(&c.jobs, Dab_Job{slot = u32(slot), coord = coord})
+		if len(c.jobs) == PAINT_BATCH do commit(c, &run)
+	}
+	commit(c, &run)
+	c.in_stroke = false
+	return undo_end(&c.history)
+}
+
+// Brick slot `slot`'s colour after clay_paint_command's op, into `out`: whether it differs
+// from the brick's colour now and whether any of it is painted.
+@(private = "file")
+paint_op_brick :: proc(r: ^Paint_Run, slot: u32, out: ^Color_Brick) -> (changed, painted: bool) {
+	LIMIT :: i16(BAND * SCALE)
+	v := &r.c.volume
+	coord := v.coords[slot]
+	live := color_of(v, slot)
+	mask := mask_of(v, slot)
+	b := &v.bricks[slot]
+	if live != nil do out^ = live^
+	else do out^ = {}
+	for z in 0 ..< BRICK do for y in 0 ..< BRICK do for x in 0 ..< BRICK {
+		k := voxel_index(x, y, z)
+		w: f32 = 1
+		if mask != nil do w = 1 - f32(mask.m[k]) / 255
+		if w <= 0 do continue
+		was := out.c[k]
+		if r.op == .Clear {
+			now := was
+			now[3] = u8(math.max(f32(was[3]) - 255 * w, 0) + 0.5)
+			out.c[k] = now if now[3] != 0 else {}
+			continue
+		}
+		if abs(b.d[k]) > LIMIT do continue
+		want := r.color
+		if r.op == .Gradient {
+			t := clamp((linalg.dot(voxel_centre(v, coord * BRICK + {i32(x), i32(y), i32(z)}), r.axis) - r.lo) / r.span, 0, 1)
+			want = linalg.lerp(want, r.color2, t)
+		}
+		from := [3]f32{f32(was.r), f32(was.g), f32(was.b)} if was[3] != 0 else want
+		mixed := linalg.lerp(from, want, w)
+		out.c[k] = {u8(mixed.r + 0.5), u8(mixed.g + 0.5), u8(mixed.b + 0.5), u8(math.min(f32(was[3]) + 255 * w, 255) + 0.5)}
+	}
+	for x in out.c do if x[3] != 0 {
+		painted = true
+		break
+	}
+	changed = live.c != out.c if live != nil else painted
+	return
 }
