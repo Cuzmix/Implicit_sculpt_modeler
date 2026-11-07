@@ -234,7 +234,40 @@ def hazards():
                     at = line.find("#load(", end)
     for line in found:
         print(f"web: {line} (Odin's wasm64p32 code generation stops on it)", file=sys.stderr)
-    return 1 if found else 0
+    return 1 if found or page_imports_missing() else 0
+
+
+def page_imports_missing():
+    """The procedures src imports from a module the page provides (a `foreign import x
+    "module"` whose module is a block of web/sdl_web.js's imports, such as sculpt_fbx) that
+    the block lacks. The browser refuses to start a wasm file with an import it was not
+    given, and only the browser test sees that, which a machine without Playwright skips:
+    so check compares the two names lists here. Returns how many are missing."""
+    with open(os.path.join(ROOT, "web", "sdl_web.js"), encoding="utf-8") as f:
+        page = f.read().split("\n")
+    blocks = {}
+    for i, line in enumerate(page):
+        m = re.match(r"^\t\t\t(\w+): \{$", line)
+        if m:
+            end = page.index("\t\t\t},", i)
+            blocks[m.group(1)] = set(re.findall(r"\b(\w+)\s*(?:\(|:)", "\n".join(page[i + 1:end])))
+    missing = 0
+    for directory, _, files in os.walk(os.path.join(ROOT, "src")):
+        for name in sorted(files):
+            if not name.endswith(".odin") or name.endswith("_test.odin"):
+                continue
+            path = os.path.join(directory, name)
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+            for alias, module in re.findall(r'foreign import (\w+) "(\w+)"', text):
+                if module not in blocks:
+                    continue
+                for body in re.findall(r"\nforeign " + alias + r" \{\n(.*?)\n\}", text, re.S):
+                    for proc in re.findall(r"^\s*(\w+)\s*::\s*proc", body, re.M):
+                        if proc not in blocks[module]:
+                            print(f"web: {os.path.relpath(path, ROOT)}: {proc} is imported from \"{module}\" but web/sdl_web.js's {module} block has no stand-in for it, so the page would not start", file=sys.stderr)
+                            missing += 1
+    return missing
 
 
 def build(debug):
@@ -260,7 +293,68 @@ def build(debug):
     shutil.copy2(os.path.join(ROOT, "web", "sdl_web.js"), SITE)
     size = os.path.getsize(os.path.join(SITE, "sculpt.wasm"))
     print(f"web: build/web/site ({'debug' if debug else 'release'}, sculpt.wasm {size / 1e6:.1f} MB)")
-    return 0
+    return 1 if wasm_imports_missing(os.path.join(SITE, "sculpt.wasm")) else 0
+
+
+# The import modules web/sdl_web.js answers; Odin's odin.js and wgpu.js answer the rest.
+PAGE_MODULES = ("sdl3", "sculpt_page", "sculpt_fs", "sculpt_fbx")
+
+
+def wasm_imports_missing(wasm):
+    """The functions the built wasm imports from a module the page answers (PAGE_MODULES)
+    that web/sdl_web.js defines nowhere. A browser refuses to start a wasm with an import it
+    was not given; the wasm's import section names exactly what the build kept, after every
+    `when` was decided, so this catches what a source scan cannot (an SDL procedure a
+    desktop path brought in) without a browser. Returns how many are missing."""
+    def leb(b, i):
+        value = shift = 0
+        while True:
+            byte = b[i]
+            i += 1
+            value |= (byte & 0x7F) << shift
+            shift += 7
+            if byte < 0x80:
+                return value, i
+    with open(wasm, "rb") as f:
+        b = f.read()
+    with open(os.path.join(ROOT, "web", "sdl_web.js"), encoding="utf-8") as f:
+        page = f.read()
+    imports, i = [], 8
+    while i < len(b):
+        section, (size, i) = b[i], leb(b, i + 1)
+        if section != 2:
+            i += size
+            continue
+        count, i = leb(b, i)
+        for _ in range(count):
+            n, i = leb(b, i)
+            module = b[i:i + n].decode()
+            i += n
+            n, i = leb(b, i)
+            name = b[i:i + n].decode()
+            i += n
+            kind = b[i]
+            i += 1
+            if kind == 0:  # a function: its type index
+                _, i = leb(b, i)
+            elif kind == 1:  # a table: its element type, then limits
+                flags = b[i + 1]
+                _, i = leb(b, i + 2)
+                if flags & 1:
+                    _, i = leb(b, i)
+            elif kind == 2:  # a memory: limits
+                flags = b[i]
+                _, i = leb(b, i + 1)
+                if flags & 1:
+                    _, i = leb(b, i)
+            else:  # a global: its value type and mutability
+                i += 2
+            imports.append((module, name))
+        break
+    missing = [(m, n) for m, n in imports if m in PAGE_MODULES and not re.search(r"\b" + re.escape(n) + r"\s*(\(|:)", page)]
+    for module, name in missing:
+        print(f"web: sculpt.wasm imports {module}.{name}, which web/sdl_web.js does not define, so the page would not start", file=sys.stderr)
+    return len(missing)
 
 
 def check():

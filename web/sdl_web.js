@@ -601,7 +601,7 @@ class Web {
 					if (error && Number(errorSize) > 0) self.bytes().set(text.subarray(0, Number(errorSize) - 1), error);
 					return 0;
 				},
-				sculpt_fbx_part_count: () => 0n, sculpt_fbx_rig() {}, sculpt_fbx_material_count: () => 0n, sculpt_fbx_material() {},
+				sculpt_fbx_part_count: () => 0n, sculpt_fbx_rig() {}, sculpt_fbx_material_count: () => 0n, sculpt_fbx_material() {}, sculpt_fbx_material_values() {},
 				sculpt_fbx_texture_file_count: () => 0n, sculpt_fbx_texture_file() {}, sculpt_fbx_part_size() {},
 				sculpt_fbx_part_folders: () => 0n, sculpt_fbx_part_folder() {}, sculpt_fbx_part_fill: () => 0, sculpt_fbx_free() {},
 			},
@@ -791,6 +791,10 @@ class Web {
 				io.at += n;
 				return BigInt(n);
 			},
+			// The app's writer (write_file_whole) needs these to link; SDL_IOFromFile opens
+			// nothing for writing here, so they only ever answer a stream that cannot exist.
+			SDL_WriteIO() { self.error = "the page writes files only through Save as a download"; return 0n; },
+			SDL_FlushIO() { self.error = "the page writes files only through Save as a download"; return 0; },
 			SDL_CloseIO(id) { self.ios.delete(id); return ok; },
 			SDL_ShowOpenFileDialog(cb, data, win, filters, n) { self.openDialog(cb, data, filters, n); },
 			SDL_ShowSaveFileDialog(cb, data, win, filters, n, location) { setTimeout(() => self.saveDialog(cb, data, filters, n, location)); },
