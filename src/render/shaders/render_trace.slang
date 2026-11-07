@@ -436,7 +436,15 @@ uint merged_triangle(uint item, uint geometry, uint primitive) {
 // registers of its own, even one in a branch a specialised kernel folds away, so a query a
 // call (trace is inlined at each) cost a kernel without subsurface materials a quarter of
 // its waves once the walk added a call. Traces never overlap, so one object serves them all.
+// Metal refuses a ray query as a struct's field or a return value, and slangc keeps module
+// statics in a context struct for Metal, so there (shaders_msl.py defines METAL) each trace
+// declares its own query instead.
+#ifdef METAL
+#define TRACE_QUERY RayQuery<RAY_FLAG_NONE> trace_query;
+#else
 static RayQuery<RAY_FLAG_NONE> trace_query;
+#define TRACE_QUERY
+#endif
 
 bool trace(float3 o, float3 d, float t_max, bool any, out Hit hit) {
 	hit.t = t_max;
@@ -449,6 +457,7 @@ bool trace(float3 o, float3 d, float t_max, bool any, out Hit hit) {
 	ray.TMin = 0.0;
 	ray.Direction = d;
 	ray.TMax = t_max;
+	TRACE_QUERY
 	trace_query.TraceRayInline(structure, any ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH : RAY_FLAG_NONE, 0xFF, ray);
 	while (trace_query.Proceed()) {
 		uint tri = merged_triangle(trace_query.CandidateInstanceID(), trace_query.CandidateGeometryIndex(), trace_query.CandidatePrimitiveIndex());

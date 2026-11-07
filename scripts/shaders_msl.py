@@ -37,6 +37,13 @@ fails `build.bat check` / `./build.sh check` instead of drawing the old shader o
 shader whose Slang source starts with "// vulkan only" (an array of textures indexed per pixel)
 has no .msl: only the own Vulkan backend loads it. Without slangc, remaking prints a note and
 leaves the committed files as they are, as the build does with the .spv.
+
+Metal refuses an intersection_query (a ray query) as a struct's field or a function's return
+value, and slangc puts a module-level static into a context struct it passes around, so a ray
+query shared at module level compiles for Vulkan and fails only on the Mac and iPad builds.
+--check (and remaking) refuses a .msl that declares one either way, naming the line of the .msl
+and of the Slang source it came from. The Metal compile defines METAL, so a shader can keep a
+shared query for Vulkan and declare one where it is used for Metal (render_trace.slang).
 """
 
 import hashlib
@@ -55,6 +62,8 @@ STAGES = {"vert": "vertex", "frag": "fragment", "comp": "compute"}
 SLANGC = os.path.join(ROOT, "deps", "slang", "bin", "slangc.exe" if os.name == "nt" else "slangc")
 if not os.path.exists(SLANGC):
     SLANGC = shutil.which("slangc") or SLANGC
+LINE = re.compile(r'^#line (\d+)(?: "([^"]*)")?')
+QUERY = "intersection_query<"
 HEADER = re.compile(r"^// slangc metal from (\S+) sha256 ([0-9a-f]{64})$")
 # The Metal backend's first vertex buffer slot (src/gpu/mtl_resources.odin).
 FIRST_VERTEX_BUFFER = 14
@@ -96,7 +105,38 @@ def problem(source):
         return f"{msl} was made from an older {spv}"
     if not slots.startswith("// slots "):
         return f"{msl} has no slot table on its second line"
+    with open(os.path.join(SHADERS, msl), encoding="utf-8") as f:
+        misuses = query_misuses(f.read())
+    if misuses:
+        return f"{msl}: " + f"; {msl}: ".join(misuses)
     return ""
+
+
+def query_misuses(text):
+    """Each ray query the Metal source declares as a struct's field or returns from a function,
+    as "line N (source.slang:M): what", where M is slangc's #line for it."""
+    found, depth, struct_depth, src, src_line = [], 0, None, "?", 0
+    for n, line in enumerate(text.split("\n"), 1):
+        directive = LINE.match(line)
+        if directive:
+            src_line = int(directive.group(1)) - 1
+            if directive.group(2):
+                src = os.path.basename(directive.group(2))
+            continue
+        src_line += 1
+        code = line.split("//")[0].strip()
+        if QUERY in code:
+            where = f"line {n} ({src}:{src_line})"
+            if struct_depth is not None and depth == struct_depth + 1 and code.endswith(";") and "(" not in code:
+                found.append(f"{where}: a ray query is a struct field, which Metal refuses")
+            elif depth == 0 and "(" in code and code.index(QUERY) < code.index("("):
+                found.append(f"{where}: a function returns a ray query, which Metal refuses")
+        if struct_depth is None and re.match(r"^(struct|class)\b", code):
+            struct_depth = depth
+        depth += code.count("{") - code.count("}")
+        if struct_depth is not None and depth <= struct_depth and "}" in code:
+            struct_depth = None
+    return found
 
 
 def slangc(source, target, out, reflection):
@@ -110,6 +150,8 @@ def slangc(source, target, out, reflection):
             "-matrix-layout-row-major", "-O0", "-o", out, "-reflection-json", reflection] + flags
     if target == "spirv":
         args += ["-profile", "spirv_1_3"]
+    else:
+        args += ["-D", "METAL"]
     run = subprocess.run(args, capture_output=True, text=True)
     if run.returncode != 0:
         raise RuntimeError(f"slangc {target} failed:\n{run.stdout}{run.stderr}")
@@ -194,6 +236,9 @@ def remake(source):
         table = slots(source, metal, spirv)
         with open(os.path.join(scratch, "k.metal"), encoding="utf-8") as f:
             body = f.read().replace("\r\n", "\n")
+        misuses = query_misuses(body)
+        if misuses:
+            raise RuntimeError("; ".join(misuses))
     with open(os.path.join(SHADERS, name + ".msl"), "w", encoding="utf-8", newline="\n") as f:
         f.write(f"// slangc metal from {spv} sha256 {sha256(os.path.join(SHADERS, spv))}\n{table}\n")
         f.write(body)
