@@ -748,6 +748,9 @@ settings_load :: proc(app: ^App, path: string) {
 	// Each pack preset a slot held as the file wrote it, and where the library has it now.
 	pack_from, pack_to: [dynamic]int
 	pack_from.allocator, pack_to.allocator = context.temp_allocator, context.temp_allocator
+	// The workspaces as read so far (workspaces_load_line), made sound once every line is.
+	workspaces_read := Workspaces_Read{current = -1}
+	workspaces_read.order.allocator = context.temp_allocator
 	lines: for line in strings.split_lines_iterator(&text) {
 		f := strings.fields(line, context.temp_allocator)
 		if len(f) < 2 do continue
@@ -892,10 +895,9 @@ settings_load :: proc(app: ^App, path: string) {
 		case "ui_scale":
 			want := number(f[1], 1)
 			for s in UI_SCALES do if abs(s - want) < 0.01 do app.kit.ui_scale = s
-		case "space_layout", "space_current":
-			// space_layout <Space> <layout, escaped>: a space's layout where it differs from
-			// how it ships; space_current <Space>: the space in front.
-			layouts_load_line(&app.kit, f)
+		case "workspace", "workspace_layout", "workspace_base", "workspace_order", "workspace_current":
+			// The workspaces, their layouts, their order and the one in front (workspaces_save).
+			workspaces_load_line(&app.kit, &workspaces_read, f)
 		case "brush_recent", "brush_favorite":
 			// brush_recent <key, escaped> ..., most recent first, and brush_favorite <key,
 			// escaped> ..., in the order added: what the brush browser's Recent and
@@ -1089,7 +1091,7 @@ settings_load :: proc(app: ^App, path: string) {
 	}
 	// The windows and the wheel were saved where they were for the layout saved with them.
 	app.kit.placed_mirrored = app.kit.ctx.mirror
-	layouts_loaded(&app.kit)
+	workspaces_loaded(&app.kit, &workspaces_read)
 	log.infof("settings: read %s", path)
 
 	number :: proc(s: string, fallback: f32) -> f32 {
@@ -1168,7 +1170,7 @@ settings_save :: proc(app: ^App, path: string) -> bool {
 	k := app.kit
 	fmt.sbprintfln(&out, "ui_scale %g", k.ui_scale)
 	themes_save(&app.kit, &out)
-	layouts_save(&app.kit, &out)
+	workspaces_save(&app.kit, &out)
 	if p := &app.kit.brushes; p.recent_count > 0 {
 		strings.write_string(&out, "brush_recent")
 		for &k in p.recent[:p.recent_count] do fmt.sbprintf(&out, " %s", preset_escape(brush_key_text(&k)))

@@ -11,10 +11,10 @@ summary.
   `TOP_BAR_H` stays the room it takes): three docks (`Top_Dock`, bars `.Top_File/.Top_Spaces/.Top_App`, roots "file dock",
   "spaces dock", "app dock"; `top_dock_draw` draws the chips and bar buttons by command id, anything else `bar_slot_button`;
   `top_widths` + the give-way loop): Main_Menu, File_Chip (`file_status`, fixed width so Undo/Redo never move) | Save, Undo,
-  Redo | space tabs `top_space_tabs` | the object chip `top_object_chip` (`object_chip.odin`, shrunk by
-  `object_chip_fit`; its tap opens `kit_object_menu`, `object_menu.odin`: rows from `OBJECT_VERBS[Object_Type][Space]`,
-  each a registry command, another space's first enabled verb tagged with `menu_item(tag =, tag_color = t.tints[space])`
-  and run after `Space_Switch`; a new verb is a table row, never a menu branch; on the view `view_menu_open` serves the right
+  Redo | workspace tabs `top_workspace_tabs` | the object chip `top_object_chip` (`object_chip.odin`, shrunk by
+  `object_chip_fit`; its tap opens `kit_object_menu`, `object_menu.odin`: rows from `OBJECT_VERBS` by type and hands,
+  each a registry command, other hands' first enabled verb tagged with `menu_item(tag =, tag_color = t.tints[hands])`
+  and run after `hands_pick`; a new verb is a table row, never a menu branch; on the view `view_menu_open` serves the right
   click (`pie_update`), the `Object_Menu` command and the finger's `hold_menu_check` in `pointer_route`; `space_fit` (`offers.odin`)
   rings it amber and `kit_offer_line` takes the action bar's place; a dimmed command passes `command_reason` as `reason`;
   `kit_colour_island` sits under both while painting, lifting them by `colour_island_lift`) | Search field | History, Settings, all laid inline with spacers (a `begin_at` inside the bar

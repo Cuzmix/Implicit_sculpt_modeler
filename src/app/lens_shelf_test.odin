@@ -286,7 +286,7 @@ shelf_pages_are_added_renamed_and_kept :: proc(t: ^testing.T) {
 	panels_default(&a.kit)
 	layouts_init(&a.kit)
 	a.tool = .Brush
-	space_follow(a)
+	workspace_follow(a)
 	k := &a.kit
 	k.shelf.row = {0, 0, 640, 58}
 	testing.expect_value(t, len(shelf_pages(k)), 4)
@@ -295,7 +295,7 @@ shelf_pages_are_added_renamed_and_kept :: proc(t: ^testing.T) {
 	testing.expect_value(t, shelf_page_name(k, p), "Page 5")
 	testing.expect_value(t, len(shelf_pages(k)), 5)
 	layouts_frame(k)
-	testing.expect(t, layout_changed(k, .Sculpt), "a page added changes the layout")
+	testing.expect(t, layout_changed(k, SLOT_SCULPT), "a page added changes the layout")
 	// The new page is the layout's last, so a turn from Curve reaches it.
 	k.shelf.page = .Curve
 	testing.expect(t, shelf_turn(a, 1) && k.shelf.page == p)
@@ -307,11 +307,11 @@ shelf_pages_are_added_renamed_and_kept :: proc(t: ^testing.T) {
 	testing.expect_value(t, shelf_page_name(k, p), "Detail")
 	testing.expect_value(t, shelf_page_name(k, .Paint), "Colour")
 	testing.expect_value(t, shelf_page_name(k, .Move), "Move")
-	command_run(a, .Space_Switch, int(Space.Model))
+	command_run(a, .Workspace_Switch, SLOT_MODEL)
 	testing.expect_value(t, len(shelf_pages(k)), 1)
 	q, _ := shelf_page_add(k)
 	testing.expect_value(t, shelf_page_name(k, q), "Page 2")
-	command_run(a, .Space_Switch, int(Space.Sculpt))
+	command_run(a, .Workspace_Switch, SLOT_SCULPT)
 	testing.expect_value(t, len(shelf_pages(k)), 5)
 	testing.expect(t, settings_save(a, path))
 
@@ -329,9 +329,9 @@ shelf_pages_are_added_renamed_and_kept :: proc(t: ^testing.T) {
 	testing.expect_value(t, shelf_page_name(&b.kit, .Paint), "Colour")
 	testing.expect_value(t, shelf_page_name(&b.kit, .Extra_2), "Page 2")
 	testing.expect_value(t, bar_names(b, .Shelf_Extra_1), "Brush:Inflate")
-	command_run(b, .Space_Switch, int(Space.Model))
+	command_run(b, .Workspace_Switch, SLOT_MODEL)
 	testing.expect_value(t, len(shelf_pages(&b.kit)), 2)
-	command_run(b, .Space_Switch, int(Space.Sculpt))
+	command_run(b, .Workspace_Switch, SLOT_SCULPT)
 
 	shelf_page_delete(k, p)
 	testing.expect_value(t, len(shelf_pages(k)), 4)
@@ -342,7 +342,7 @@ shelf_pages_are_added_renamed_and_kept :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(shelf_pages(k)), 4)
 	// Model's added page goes from Model's kept layout too.
 	shelf_page_delete(k, q)
-	command_run(a, .Space_Switch, int(Space.Model))
+	command_run(a, .Workspace_Switch, SLOT_MODEL)
 	testing.expect_value(t, len(shelf_pages(k)), 1)
 	// Six of one's own at most.
 	for _ in 0 ..< 6 do _, _ = shelf_page_add(k)

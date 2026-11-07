@@ -69,7 +69,6 @@ layer_mask_stop :: proc(app: ^App, restore: bool) {
 		app.brush.kind = lm.kind
 		app.tool = lm.tool
 	}
-	space_picked(app)
 }
 
 // The layer whose mask the interface has picked on `obj`, or -1.

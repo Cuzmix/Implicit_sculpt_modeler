@@ -126,7 +126,7 @@ ARRANGE_TOP_LABELS := [4]string{"New toolbar", "Mirror", "Reset layout", "Done"}
 arrange_title :: proc(app: ^App) -> string {
 	k := &app.kit
 	if one, only := k.edit_dock.?; only do return fmt.tprintf("Editing %s", DOCK_TITLES[one])
-	return fmt.tprintf("Editing %s", SPACE_NAMES[k.spaces.current])
+	return fmt.tprintf("Editing %s", workspace_now(k).name)
 }
 
 @(private = "file")

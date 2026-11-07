@@ -205,10 +205,10 @@ shelf_layout_read :: proc(k: ^Kit_State, f: []string) {
 	shelf_pages_set(k, pages[:])
 }
 
-// The page a space opens on in a fresh install: the first its layout ships with.
-shelf_first_page :: proc(s: Space) -> Shelf_Page {
+// The page a starting workspace opens on: the first its layout ships with.
+shelf_first_page :: proc(s: Starter) -> Shelf_Page {
 	switch s {
-	case .Sculpt: return .Sculpt
+	case .None, .Sculpt: return .Sculpt
 	case .Model:  return .Model
 	case .Render: return .Render
 	}
@@ -272,7 +272,7 @@ shelf_page_delete :: proc(k: ^Kit_State, p: Shelf_Page) {
 	k.shelf.names[p] = {}
 	shelf_pages_set(k, shelf_pages(k))
 	layouts_forget_page(k, p)
-	for s in Space do if k.spaces.page[s] == p do k.spaces.page[s] = shelf_first_page(s)
+	for &w in k.workspaces.list do if w.page == p do w.page = .Sculpt
 	if k.shelf.page == p do k.shelf.page = shelf_pages(k)[0]
 }
 
