@@ -170,6 +170,7 @@ Command_Id :: enum u16 {
 	Voxel_Res_Up,
 	Voxel_Res_Down,
 	Remove_Floaters,
+	Separate_Pieces,
 	Add_Cage,
 	Add_Curve,
 	Apply_Cage,
@@ -2036,6 +2037,15 @@ COMMANDS := [Command_Id]Command {
 		label = "Remove floaters",
 		help = "Keeps the largest piece of the selected voxel object and removes every piece cut off from it, as one undo step.",
 		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Remove_Floaters}},
+		enabled = proc(app: ^App, _: int) -> bool {
+			obj := selected_object(app)
+			return obj != nil && obj.voxel != nil
+		},
+	},
+	.Separate_Pieces = {
+		label = "Separate pieces",
+		help = "Makes each piece of the selected voxel object cut off from the rest a voxel object of its own, in place, as one undo step.",
+		run = proc(app: ^App, _: int) {app.ui.scene_command = {kind = .Separate_Pieces}},
 		enabled = proc(app: ^App, _: int) -> bool {
 			obj := selected_object(app)
 			return obj != nil && obj.voxel != nil

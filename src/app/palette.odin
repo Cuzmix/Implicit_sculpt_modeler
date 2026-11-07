@@ -194,6 +194,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Voxel_Res_Up     = "resolution double finer voxels increase resample",
 	.Voxel_Res_Down   = "resolution halve coarser voxels decrease resample",
 	.Remove_Floaters  = "loose parts pieces islands clean keep largest delete floating bits",
+	.Separate_Pieces  = "split loose parts pieces islands objects break apart",
 	.Adjust_Last      = "redo last tweak change settings again stroke amount",
 	.Add_Object       = "subtool primitive append sphere cube",
 	.Frame_All        = "fit zoom extents home",

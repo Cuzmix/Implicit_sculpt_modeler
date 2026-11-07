@@ -60,3 +60,20 @@ removing_floaters_is_the_same_on_any_thread_count_and_undoes_bit_for_bit :: proc
 	testing.expect(t, clay_hash(&clays[0]) != before, "removing floaters changed nothing")
 	testing.expect(t, clay_undo(&clays[0]) && clay_hash(&clays[0]) == before, "undo left the field changed")
 }
+
+@(test)
+keeping_one_piece_leaves_that_piece_alone :: proc(t: ^testing.T) {
+	c := floater_clay()
+	defer clay_destroy(&c)
+	testing.expect_value(t, clay_piece_count(&c), 3)
+	// The two balls are the same size: the first in brick order ranks first, the same each run.
+	testing.expect(t, clay_keep_piece(&c, 1), "the second piece was not kept")
+	testing.expect_value(t, clay_piece_count(&c), 1)
+	m := clay_to_mesh(&c)
+	defer geom.mesh_destroy(&m)
+	check := geom.mesh_check(m)
+	size := check.bounds.hi - check.bounds.lo
+	testing.expectf(t, check.closed && size.x < 0.25 && size.y < 0.25 && size.z < 0.25, "what is left is not one ball: %v", check)
+	testing.expect(t, !clay_keep_piece(&c, 0), "a single piece changed")
+	testing.expect(t, clay_undo(&c) && clay_piece_count(&c) == 3, "undo did not bring the pieces back")
+}
