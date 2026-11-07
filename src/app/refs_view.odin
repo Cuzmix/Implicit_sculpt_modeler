@@ -16,6 +16,11 @@ import "../ui"
 // as ever. The pen always sculpts through them, and with the card shut so do one finger
 // and the mouse; the one under the pointer then fades to REF_VIEW_FADE of its opacity so
 // the brush never works blind. The Eyedropper picks their colour as it picks the model's.
+// One may stand behind the model instead (the picture menu's Behind the model): the
+// renderer draws it as a backdrop the model covers (refs_planes_frame), in front of the
+// background and the environment, and the interface only takes the pointer on it and
+// outlines it; it never fades, as nothing of it covers the model, and where the model
+// stands over it the Eyedropper and two fingers find the model.
 
 // What a place under the pointer fades to, and how fast, per second, it goes there and back.
 REF_VIEW_FADE :: 0.15
@@ -109,14 +114,13 @@ refs_view :: proc(app: ^App) {
 			refs_view_input(app, &p, a)
 			r = refs_view_rect(main, p)
 		}
-		// Under the pointer while the card is shut, it gives way to the brush.
-		fade := b.fades[p.id] or_else 1
-		under := !editing && ctx.input.mouse_valid && ui.rect_contains(r, refs_unturn(r, p.view_angle, ctx.input.mouse))
-		goal: f32 = REF_VIEW_FADE if under else 1
-		fade += (goal - fade) * min(step, 1)
-		b.fades[p.id] = fade
-		alpha := u8(clamp(p.opacity * fade, 0, 1) * 255 + 0.5)
-		refs_picture_draw(app, r, p, alpha, p.view_angle)
+		// Behind the model the renderer draws it, the interface only while it loads.
+		if p.view_behind {
+			img := ref_image(refs, p.image)
+			if img == nil || img.texture == 0 do refs_picture_draw(app, r, p, u8(clamp(p.opacity, 0, 1) * 255 + 0.5), p.view_angle)
+		} else {
+			refs_view_picture(app, r, p, editing, step)
+		}
 		if editing && board_picked(b, p.id) {
 			corners := refs_turned(r, p.view_angle)
 			ui.polyline(ctx, corners[:], t.accent, 2, closed = true)
@@ -146,6 +150,21 @@ refs_view :: proc(app: ^App) {
 		_ = refs_bring_front(&refs.refs, b.selected[:], b.view_raise)
 		b.view_raise = 0
 	}
+}
+
+// Draws place `p` over the view at `r`, faded while the pointer is over it with the card
+// shut, so the brush never works blind.
+@(private = "file")
+refs_view_picture :: proc(app: ^App, r: ui.Rect, p: Ref, editing: bool, step: f32) {
+	ctx := &app.kit.ctx
+	b := &app.kit.board
+	fade := b.fades[p.id] or_else 1
+	under := !editing && ctx.input.mouse_valid && ui.rect_contains(r, refs_unturn(r, p.view_angle, ctx.input.mouse))
+	goal: f32 = REF_VIEW_FADE if under else 1
+	fade += (goal - fade) * min(step, 1)
+	b.fades[p.id] = fade
+	alpha := u8(clamp(p.opacity * fade, 0, 1) * 255 + 0.5)
+	refs_picture_draw(app, r, p, alpha, p.view_angle)
 }
 
 // The pointer on place `p` over the view, through its area `a`: a press picks it on the
@@ -266,6 +285,7 @@ refs_view_color :: proc(app: ^App, at: [2]f32) -> (rgb: [3]f32, over, ok: bool) 
 		if !p.view || p.image == 0 do continue
 		r := refs_view_rect(k.grid.main, p)
 		if !ui.rect_contains(r, refs_unturn(r, p.view_angle, point)) do continue
+		if p.view_behind && refs_model_at(app, point) do continue
 		rgb, ok = refs_color_at(app, p, r, point, p.view_angle)
 		return rgb, true, ok
 	}
@@ -283,9 +303,21 @@ refs_view_hit :: proc(app: ^App, at: [2]f32) -> u32 {
 		if !p.view || p.image == 0 do continue
 		r := refs_view_rect(main, p)
 		if !ui.rect_contains(r, refs_unturn(r, p.view_angle, at)) do continue
+		if p.view_behind && refs_model_at(app, at) do continue
 		return 0 if p.view_locked else p.id
 	}
 	return 0
+}
+
+// Whether the model shows at point `at` (in points) of the main view, covering a picture
+// behind it there.
+@(private = "file")
+refs_model_at :: proc(app: ^App, at: [2]f32) -> bool {
+	size := [2]f32{f32(app.target.width), f32(app.target.height)}
+	if size.x <= 0 || size.y <= 0 do return false
+	origin, dir := mouse_ray(app.camera, at * app.kit.scale - app.ui.viewport_origin, size)
+	_, _, hit := scene_raycast(app, origin, dir)
+	return hit
 }
 
 // Two fingers on an unlocked picture over the view pinch it to size, twist it to any

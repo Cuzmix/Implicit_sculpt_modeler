@@ -149,12 +149,37 @@ refs_plane_on :: proc(app: ^App, p: Ref) -> bool {
 	return p.plane != .None && !p.plane_off && p.image != 0 && !app.scene.refs.view_off
 }
 
-// The planes the renderer draws this frame, in the frame's memory. Each one the main
-// view shows marks its picture seen, so the memory limit never makes it small.
+// Whether place `p` stands over the view behind the model, drawn by the renderer as a
+// backdrop rather than by the interface.
+refs_view_behind_on :: proc(app: ^App, p: Ref) -> bool {
+	return p.view && p.view_behind && p.image != 0 && !app.scene.refs.view_off
+}
+
+// Where place `p`, over the main view `main` in points, stands in a viewport of `size`
+// pixels whose top left is `origin` in the window's pixels, `scale` pixels a point: its
+// middle and its half sides along its turned width and up its turned height, in the
+// viewport's normalized coordinates (x right, y up, -1 to 1), as render.Ref_Plane's
+// on_screen takes them.
+refs_view_backdrop :: proc(main: ui.Rect, p: Ref, scale: f32, origin, size: [2]f32) -> (center, right, up: [3]f32) {
+	c := refs_turned(refs_view_rect(main, p), p.view_angle)
+	ndc :: proc(q: [2]f32, scale: f32, origin, size: [2]f32) -> [3]f32 {
+		px := q * scale - origin
+		return {2 * px.x / size.x - 1, 1 - 2 * px.y / size.y, 0}
+	}
+	mid := (c[0] + c[2]) * 0.5
+	center = ndc(mid, scale, origin, size)
+	right = ndc((c[1] + c[2]) * 0.5, scale, origin, size) - center
+	up = ndc((c[0] + c[1]) * 0.5, scale, origin, size) - center
+	return
+}
+
+// The planes the renderer draws this frame, in the frame's memory: those in the scene,
+// then the pictures over the view drawn behind the model, in the board's order. Each one
+// the main view shows marks its picture seen, so the memory limit never makes it small.
 refs_planes_frame :: proc(app: ^App) -> []render.Ref_Plane {
 	refs := &app.scene.refs
 	n := 0
-	for p in refs.refs do if refs_plane_on(app, p) do n += 1
+	for p in refs.refs do if refs_plane_on(app, p) || refs_view_behind_on(app, p) do n += 1
 	if n == 0 do return nil
 	out := make([dynamic]render.Ref_Plane, 0, n, context.temp_allocator)
 	forward := render.view_forward(camera.orbit_view(app.camera))
@@ -177,6 +202,17 @@ refs_planes_frame :: proc(app: ^App) -> []render.Ref_Plane {
 		}
 		if render.ref_plane_shown(plane, forward) do ref_image(refs, p.image).seen = app.kit.ctx.time
 		append(&out, plane)
+	}
+	k := &app.kit
+	size := [2]f32{f32(app.target.width), f32(app.target.height)}
+	if k.scale <= 0 || size.x <= 0 || size.y <= 0 || k.grid.main.w <= 0 || k.grid.main.h <= 0 do return out[:]
+	for p in refs.refs {
+		if !refs_view_behind_on(app, p) do continue
+		texture := refs_plane_texture(app, p)
+		if texture == 0 do continue
+		center, right, up := refs_view_backdrop(k.grid.main, p, k.scale, app.ui.viewport_origin, size)
+		ref_image(refs, p.image).seen = app.kit.ctx.time
+		append(&out, render.Ref_Plane{texture = texture, center = center, right = right, up = up, facing = {0, 0, 1}, uv = ref_corners(p), opacity = p.opacity, on_screen = true})
 	}
 	return out[:]
 }

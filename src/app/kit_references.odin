@@ -377,6 +377,7 @@ Ref_Edit :: enum u8 {
 	Plane_Any,
 	Straighten,
 	View_Lock,
+	View_Behind,
 }
 
 refs_edit :: proc(app: ^App, edit: Ref_Edit) {
@@ -412,6 +413,8 @@ refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 			r.angle, r.view_angle = 0, 0
 		case .View_Lock:
 			r.view_locked = !f.view_locked
+		case .View_Behind:
+			r.view_behind = !f.view_behind
 		case .Turn:
 			if r.locked do continue
 			middle := r.at + r.size * 0.5
@@ -424,7 +427,7 @@ refs_edit :: proc(app: ^App, edit: Ref_Edit) {
 		delete(before)
 		return
 	}
-	names := [Ref_Edit]string{.Flip = "Flip reference", .Grey = "Grey reference", .Turn = "Turn reference", .Lock = "Lock reference", .View = "Reference on view", .Behind = "Reference behind the model", .Through = "Reference through the model", .Plane_Any = "Reference shown from any side", .Straighten = "Straighten reference", .View_Lock = "Lock reference on view"}
+	names := [Ref_Edit]string{.Flip = "Flip reference", .Grey = "Grey reference", .Turn = "Turn reference", .Lock = "Lock reference", .View = "Reference on view", .Behind = "Reference behind the model", .Through = "Reference through the model", .Plane_Any = "Reference shown from any side", .Straighten = "Straighten reference", .View_Lock = "Lock reference on view", .View_Behind = "Reference behind the model"}
 	history_record_refs(app, before, names[edit])
 	if edit == .Turn || edit == .Lock do b.cropping = 0
 }
@@ -846,8 +849,8 @@ refs_board_menu :: proc(app: ^App) {
 	}
 }
 
-// The picture menus' Lock on view (while a picked picture is over the view) and
-// Straighten (while one is turned on the board or the view), each closing menu `open`.
+// The picture menus' Lock on view and Behind the model (while a picked picture is over
+// the view) and Straighten (while one is turned on the board or the view), each closing menu `open`.
 @(private = "file")
 refs_turn_items :: proc(app: ^App, open: ^bool) {
 	ctx := &app.kit.ctx
@@ -861,6 +864,13 @@ refs_turn_items :: proc(app: ^App, open: ^bool) {
 		locked := refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || !r.view || r.view_locked})
 		if ui.menu_item(ctx, "Unlock on view##refs turn" if locked else "Lock on view##refs turn", glyph = ICON_LOCK if locked else ICON_LOCK_OPEN, hint = "" if locked else "Two fingers on it then turn the view") {
 			refs_edit(app, .View_Lock)
+			open^ = false
+		}
+	}
+	if viewed {
+		behind := refs_picked_all(app, proc(r: Ref) -> bool {return r.image == 0 || !r.view || r.view_behind})
+		if ui.menu_item(ctx, "Behind the model##refs turn", glyph = ICON_VIEW_BEHIND, checked = behind, hint = "" if behind else "A backdrop the model covers") {
+			refs_edit(app, .View_Behind)
 			open^ = false
 		}
 	}
@@ -1385,6 +1395,8 @@ ICON_GREY :: rune(0xe2b2)
 ICON_TURN :: rune(0xe5d6)
 ICON_CROP :: rune(0xe0af)
 ICON_ON_VIEW :: rune(0xe3b3) // picture-in-picture-2
+// Lucide's layers-2, for Behind the model.
+ICON_VIEW_BEHIND :: rune(0xe52e)
 // Lucide's rotate-ccw-square, for Straighten.
 ICON_STRAIGHTEN :: rune(0xe5d5)
 // Lucide's send-to-back, for Send to back.
