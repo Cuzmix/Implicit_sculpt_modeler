@@ -739,46 +739,52 @@ texture_preview_release :: proc(app: ^App, obj: ^Object) {
 	obj.preview = {}
 }
 
-// The scene file's form of an object's maps (version 18): a byte of which maps there are
-// (bit k for Texture_Map k), then each one's byte count and bytes, in that order.
-textures_put :: proc(out: ^[dynamic]u8, t: Object_Textures) {
-	bits: u8
-	for img, m in t.image do if img != nil do bits |= 1 << u8(m)
-	geom.byte_put(out, bits)
-	for img in t.image {
-		if img == nil do continue
-		geom.byte_put(out, u32(len(img)))
-		append(out, ..img)
-	}
+// The scene file's form of an object's maps, a record (tags are never reused or retyped,
+// geom/record.odin) of a field a map it has, holding the map's encoded image.
+Textures_Tag :: enum u16 {
+	Base_Color = 1,
+	Orm        = 2,
+	Normal     = 3,
 }
 
-// Reads what textures_put wrote; r.ok goes false on damage: a map that is not one, a count
-// past the end, or an image whose header does not read as one no larger than the limit.
+// The field of each map.
+@(private = "file")
+TEXTURE_TAGS := [render.Texture_Map]Textures_Tag {
+	.Base_Color = .Base_Color,
+	.Orm        = .Orm,
+	.Normal     = .Normal,
+}
+
+textures_put :: proc(out: ^[dynamic]u8, t: Object_Textures) {
+	rec := geom.record_begin(out)
+	defer geom.record_end(out, rec)
+	for img, m in t.image do if img != nil do geom.rec_put_slice(out, TEXTURE_TAGS[m], img)
+}
+
+// Reads what textures_put wrote; r.ok goes false on damage: an empty map, or an image whose
+// header does not read as one no larger than the limit.
 textures_get :: proc(r: ^geom.Byte_Reader) -> (t: Object_Textures) {
-	bits := geom.byte_get(r, u8)
-	if bits >= 1 << len(render.Texture_Map) {
+	rec := geom.record_take(r)
+	known, _ := geom.record_known(&rec, Textures_Tag)
+	if !rec.ok || !known {
 		r.ok = false
 		return
 	}
+	any := false
 	for m in render.Texture_Map {
-		if bits & (1 << u8(m)) == 0 do continue
-		n := int(geom.byte_get(r, u32))
-		if !r.ok || n < 1 || n > len(r.data) - r.at {
-			r.ok = false
-			break
-		}
-		img := r.data[r.at:][:n]
-		r.at += n
-		if texture_image_check(img) != "" {
+		img, present := geom.rec_find(&rec, TEXTURE_TAGS[m])
+		if !present do continue
+		if len(img) == 0 || texture_image_check(img) != "" {
 			r.ok = false
 			break
 		}
 		t.image[m] = clone_bytes(img)
+		any = true
 	}
 	if !r.ok do textures_free(&t)
 	// Read maps are new to the object's preview, which starts at stamp 0; with none, the
 	// two agree and nothing is decoded.
-	if bits != 0 && r.ok do t.stamp = 1
+	if any && r.ok do t.stamp = 1
 	return
 }
 

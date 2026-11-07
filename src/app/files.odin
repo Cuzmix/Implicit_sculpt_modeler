@@ -77,11 +77,24 @@ File_Request :: struct {
 // be in a console nobody watches. `at` tells a new note from the one already shown.
 // The native scene file starts with these bytes, then its version.
 SCENE_MAGIC :: "SCULPTSC"
-// The version this app writes and the only one it reads. The scene is a list of chunks
-// after the preview block (scene_chunk_begin), each read whole. Until release a format
-// change replaces the old reader: the writer and the reader change together, with no
-// branch for files an earlier build wrote, which then refuse to open.
-SCENE_VERSION :: u32(67)
+// The scene file's form, after its magic: what every part inside it is built of, tagged
+// records (geom/record.odin) in chunks. Fields come and go between builds without changing
+// it: an earlier build steps over a field a later one added and gives a field it lacks its
+// default, and a later build marks critical any field an earlier one must not open the
+// file without (AGENTS.md, the scene file rule). It changes only when the file is laid out
+// another way, which no earlier build could read at all; a file of another form is
+// refused.
+SCENE_FORMAT :: u32(1)
+
+// Reads a scene file's magic and form: the one check every reader of the file makes
+// (opening it, its preview, its references, Send). False for a file that is not a scene
+// this app reads.
+scene_head_read :: proc(r: ^geom.Byte_Reader) -> bool {
+	magic: [len(SCENE_MAGIC)]u8
+	geom.byte_get_slice(r, magic[:])
+	format := geom.byte_get(r, u32)
+	return r.ok && string(magic[:]) == SCENE_MAGIC && format == SCENE_FORMAT
+}
 // The chunks of a scene file: the scene's own fields, then one an object.
 CHUNK_SCENE :: "SCEN"
 CHUNK_OBJECT :: "OBJ "
@@ -1645,12 +1658,12 @@ scene_save_request :: proc(app: ^App, req: File_Request) {
 }
 
 
-// The scene file's start: its magic and version, the preview block, then the scene's
+// The scene file's start: its magic and form, the preview block, then the scene's
 // chunk, a record (Scene_Tag) of how many objects follow, the selected one, the next id,
 // the camera and the rest of what the scene itself keeps.
 scene_header_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	append(out, SCENE_MAGIC)
-	geom.byte_put(out, SCENE_VERSION)
+	geom.byte_put(out, SCENE_FORMAT)
 	preview_block_put(app, out)
 	at := scene_chunk_begin(out, CHUNK_SCENE)
 	curves, _ := curve_counts(app)
@@ -2061,10 +2074,7 @@ scene_open :: proc(app: ^App, path: string) -> (opened, ok: bool) {
 	}
 	defer delete(data)
 	r := geom.byte_reader(data)
-	magic: [len(SCENE_MAGIC)]u8
-	geom.byte_get_slice(&r, magic[:])
-	version := geom.byte_get(&r, u32)
-	if !r.ok || string(magic[:]) != SCENE_MAGIC || version != SCENE_VERSION {
+	if !scene_head_read(&r) {
 		file_note(app, true, "Cannot open %s: it is not a scene this version of the app reads", name)
 		return false, true
 	}

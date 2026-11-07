@@ -2,7 +2,6 @@ package main
 
 import "core:math/linalg"
 import "core:os"
-import "core:slice"
 import "core:strings"
 import "core:testing"
 
@@ -125,20 +124,23 @@ stack_bytes_round_trip :: proc(t: ^testing.T) {
 	out: [dynamic]u8
 	defer delete(out)
 	stack_put(&out, s)
-	testing.expect_value(t, len(out), STACK_BYTES)
 	r := geom.byte_reader(out[:])
 	back, ok := stack_get(&r)
-	testing.expect(t, ok && r.at == STACK_BYTES)
+	testing.expect(t, ok && r.at == len(out))
 	testing.expect_value(t, back, s)
-	// A bit past the mirror's, an array of one, a size step of nothing or too few bytes is
-	// damage.
-	for b in ([?][2]u8{{0, 8}, {3, 1}}) {
-		bad := slice.clone(out[:], context.temp_allocator)
-		bad[b[0]] = b[1]
+	// An axis past the mirror's, an array of one, or a critical field this build does not
+	// know is damage; a field a later build added is stepped over.
+	bad_axes := test_record_set(out[:], {8}, u16(Stack_Tag.Mirror), u16(Stack_Row_Tag.Axes))
+	one := test_record_set(out[:], {1}, u16(Stack_Tag.Array), u16(Stack_Row_Tag.Count))
+	critical := test_record_set(out[:], {1}, geom.RECORD_TAG_CRITICAL | 900)
+	for bad in ([3][]u8{bad_axes, one, critical}) {
 		rb := geom.byte_reader(bad)
 		_, bad_ok := stack_get(&rb)
 		testing.expect(t, !bad_ok)
 	}
+	later := geom.byte_reader(test_record_set(out[:], {1}, 900))
+	later_back, later_ok := stack_get(&later)
+	testing.expect(t, later_ok && later_back == s, "a later build's field was not stepped over")
 	grown := s
 	grown.array.grow = 0
 	out2: [dynamic]u8

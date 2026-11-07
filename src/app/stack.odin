@@ -348,54 +348,103 @@ stack_step_apply :: proc(app: ^App, obj: ^Object, step: ^Stack_Step, back: bool)
 	app.scene_edits += 1
 }
 
-// What the stack writes into the object's bytes (object_put_bytes), read back by
-// stack_get, which refuses a damaged one.
+// The stack in the object's bytes (object_put_bytes), a record of a record a row (tags are
+// never reused or retyped, geom/record.odin), read back by stack_get, which refuses a
+// damaged one. A row the file lacks is not in the stack.
+Stack_Tag :: enum u16 {
+	Mirror = 1, // Stack_Row_Tag record
+	Array  = 2,
+	Radial = 3,
+	Along  = 4,
+}
+
+// The fields of a row, each row taking those it has.
+Stack_Row_Tag :: enum u16 {
+	Added  = 1,  // u8
+	Shown  = 2,  // u8
+	Count  = 3,  // u8: copies, the object's own included
+	Axis   = 4,  // u8 sculpt.Axis
+	Minus  = 5,  // u8: the mirror keeps the - side
+	Axes   = 6,  // u8 sculpt.Symmetry: the mirror's
+	Offset = 7,  // Vec3: the array's step
+	Turn   = 8,  // Vec3: the array's turn a step, degrees
+	Grow   = 9,  // f32: the array's size a step
+	Pivot  = 10, // Vec3: what the radial copies turn about
+	Curve  = 11, // i32: the curve object Along lays copies on
+}
+
 stack_put :: proc(out: ^[dynamic]u8, s: Stack) {
+	R :: Stack_Row_Tag
+	rec := geom.record_begin(out)
+	defer geom.record_end(out, rec)
+	row :: proc(out: ^[dynamic]u8, tag: Stack_Tag, added, shown: bool) -> int {
+		at := geom.rec_begin(out, tag)
+		geom.rec_put(out, Stack_Row_Tag.Added, u8(added))
+		geom.rec_put(out, Stack_Row_Tag.Shown, u8(shown))
+		return at
+	}
 	m := s.mirror
-	geom.byte_put(out, u8(m.added) | u8(m.shown) << 1 | u8(m.minus) << 2)
-	geom.byte_put(out, transmute(u8)m.axes)
+	at := row(out, .Mirror, m.added, m.shown)
+	geom.rec_put(out, R.Minus, u8(m.minus))
+	geom.rec_put(out, R.Axes, transmute(u8)m.axes)
+	geom.rec_end(out, at)
 	a := s.array
-	geom.byte_put(out, u8(a.added) | u8(a.shown) << 1)
-	geom.byte_put(out, u8(a.count))
-	geom.byte_put(out, a.offset)
-	geom.byte_put(out, a.turn)
-	geom.byte_put(out, a.grow)
+	at = row(out, .Array, a.added, a.shown)
+	geom.rec_put(out, R.Count, u8(a.count))
+	geom.rec_put(out, R.Offset, a.offset)
+	geom.rec_put(out, R.Turn, a.turn)
+	geom.rec_put(out, R.Grow, a.grow)
+	geom.rec_end(out, at)
 	r := s.radial
-	geom.byte_put(out, u8(r.added) | u8(r.shown) << 1)
-	geom.byte_put(out, u8(r.count))
-	geom.byte_put(out, u8(r.axis))
-	geom.byte_put(out, r.pivot)
+	at = row(out, .Radial, r.added, r.shown)
+	geom.rec_put(out, R.Count, u8(r.count))
+	geom.rec_put(out, R.Axis, u8(r.axis))
+	geom.rec_put(out, R.Pivot, r.pivot)
+	geom.rec_end(out, at)
 	l := s.along
-	geom.byte_put(out, u8(l.added) | u8(l.shown) << 1)
-	geom.byte_put(out, u8(l.count))
-	geom.byte_put(out, u8(l.axis))
-	geom.byte_put(out, i32(l.curve))
+	at = row(out, .Along, l.added, l.shown)
+	geom.rec_put(out, R.Count, u8(l.count))
+	geom.rec_put(out, R.Axis, u8(l.axis))
+	geom.rec_put(out, R.Curve, i32(l.curve))
+	geom.rec_end(out, at)
 }
 
 stack_get :: proc(r: ^geom.Byte_Reader) -> (s: Stack, ok: bool) {
-	mb, axes := geom.byte_get(r, u8), geom.byte_get(r, u8)
-	ab, ac := geom.byte_get(r, u8), geom.byte_get(r, u8)
-	offset, turn, grow := geom.byte_get(r, Vec3), geom.byte_get(r, Vec3), geom.byte_get(r, f32)
-	rb, rc, ra := geom.byte_get(r, u8), geom.byte_get(r, u8), geom.byte_get(r, u8)
-	pivot := geom.byte_get(r, Vec3)
-	lb, lc, la, curve := geom.byte_get(r, u8), geom.byte_get(r, u8), geom.byte_get(r, u8), geom.byte_get(r, i32)
-	if !r.ok || mb > 7 || axes > 7 || ab > 3 || rb > 3 || ra > 2 do return
-	if ac > STACK_COUNT_MAX || rc > STACK_COUNT_MAX || lc > STACK_COUNT_MAX || lb > 3 || la > 2 || curve < 0 do return
-	if lb & 1 != 0 && lc < 1 do return
+	R :: Stack_Row_Tag
+	rec := geom.record_take(r)
+	if known, _ := geom.record_known(&rec, Stack_Tag); !rec.ok || !known do return
+	mr, _ := geom.rec_sub(&rec, Stack_Tag.Mirror)
+	ar, _ := geom.rec_sub(&rec, Stack_Tag.Array)
+	rr, _ := geom.rec_sub(&rec, Stack_Tag.Radial)
+	lr, _ := geom.rec_sub(&rec, Stack_Tag.Along)
+	flags :: proc(rec: ^geom.Record) -> (added, shown: u8) {
+		return geom.rec_get(rec, Stack_Row_Tag.Added, u8, 0), geom.rec_get(rec, Stack_Row_Tag.Shown, u8, 0)
+	}
+	ma, ms := flags(&mr)
+	minus, axes := geom.rec_get(&mr, R.Minus, u8, 0), geom.rec_get(&mr, R.Axes, u8, 0)
+	aa, as := flags(&ar)
+	ac := geom.rec_get(&ar, R.Count, u8, 0)
+	offset, turn, grow := geom.rec_get(&ar, R.Offset, Vec3, Vec3{}), geom.rec_get(&ar, R.Turn, Vec3, Vec3{}), geom.rec_get(&ar, R.Grow, f32, 0)
+	ra, rs := flags(&rr)
+	rc, rax := geom.rec_get(&rr, R.Count, u8, 0), geom.rec_get(&rr, R.Axis, u8, 0)
+	pivot := geom.rec_get(&rr, R.Pivot, Vec3, Vec3{})
+	la, ls := flags(&lr)
+	lc, lax, curve := geom.rec_get(&lr, R.Count, u8, 0), geom.rec_get(&lr, R.Axis, u8, 0), geom.rec_get(&lr, R.Curve, i32, 0)
+	if !rec.ok || !mr.ok || !ar.ok || !rr.ok || !lr.ok do return
+	if ma > 1 || ms > 1 || minus > 1 || axes > 7 || aa > 1 || as > 1 || ra > 1 || rs > 1 || rax > 2 || la > 1 || ls > 1 || lax > 2 do return
+	if ac > STACK_COUNT_MAX || rc > STACK_COUNT_MAX || lc > STACK_COUNT_MAX || curve < 0 do return
+	if la == 1 && lc < 1 do return
 	if !vec_finite(offset) || !vec_finite(turn) || !vec_finite(pivot) do return
-	// A row not in the stack is all zeros; one in it has copies and a size step.
-	if ab & 1 != 0 && (ac < 2 || !(grow >= STACK_GROW_MIN && grow <= STACK_GROW_MAX)) || rb & 1 != 0 && rc < 2 do return
-	s.mirror = {added = mb & 1 != 0, shown = mb & 2 != 0, minus = mb & 4 != 0, axes = transmute(sculpt.Symmetry)axes}
-	s.array = {added = ab & 1 != 0, shown = ab & 2 != 0, count = int(ac), offset = offset, turn = turn, grow = grow}
-	s.radial = {added = rb & 1 != 0, shown = rb & 2 != 0, count = int(rc), axis = sculpt.Axis(ra), pivot = pivot}
-	s.along = {added = lb & 1 != 0, shown = lb & 2 != 0, count = int(lc), axis = sculpt.Axis(la), curve = int(curve)}
+	// A row in the stack has copies and a size step.
+	if aa == 1 && (ac < 2 || !(grow >= STACK_GROW_MIN && grow <= STACK_GROW_MAX)) || ra == 1 && rc < 2 do return
+	s.mirror = {added = ma == 1, shown = ms == 1, minus = minus == 1, axes = transmute(sculpt.Symmetry)axes}
+	s.array = {added = aa == 1, shown = as == 1, count = int(ac), offset = offset, turn = turn, grow = grow}
+	s.radial = {added = ra == 1, shown = rs == 1, count = int(rc), axis = sculpt.Axis(rax), pivot = pivot}
+	s.along = {added = la == 1, shown = ls == 1, count = int(lc), axis = sculpt.Axis(lax), curve = int(curve)}
 	return s, true
 }
 
 STACK_GROW_MIN :: 0.05
-// What stack_put writes: the mirror's 2 bytes, the array's 30, the radial's 15 and
-// Along's 7.
-STACK_BYTES :: 54
 STACK_GROW_MAX :: 4
 
 @(private = "file")

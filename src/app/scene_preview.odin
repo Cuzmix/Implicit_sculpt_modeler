@@ -27,8 +27,15 @@ PREVIEW_REST :: 1.0
 PREVIEW_EVERY :: 2.0
 // The most a preview block may hold: more is a damaged file.
 PREVIEW_BLOCK_MAX :: 4 << 20
-// The numbers before the picture: when, objects, vertices, width and height.
-PREVIEW_HEAD :: 8 + 4 + 8 + 2 + 2
+// The preview block's fields (tags are never reused or retyped, geom/record.odin).
+Preview_Tag :: enum u16 {
+	Saved    = 1, // i64 unix seconds
+	Objects  = 2, // u32
+	Vertices = 3, // u64
+	Width    = 4, // u16: the picture's, 0 for none
+	Height   = 5, // u16
+	Png      = 6, // the picture
+}
 
 Scene_Preview :: struct {
 	png:        [dynamic]u8, // the picture as a PNG, empty for none yet
@@ -48,7 +55,6 @@ Scene_Preview :: struct {
 
 // What a saved scene's start says about it (scene_preview_read).
 Scene_File_Info :: struct {
-	version:  u32,
 	saved:    i64, // unix seconds when it was written; 0 when not known
 	objects:  int,
 	vertices: int,
@@ -152,30 +158,32 @@ preview_shrink :: proc(pixels: []u8, w, h, long: int, allocator := context.alloc
 	return
 }
 
-// Writes the preview block a scene file keeps after its version: its
-// length, then when, how many objects and vertices, the picture's size and the PNG.
+// The preview block after the file's head, a record (Preview_Tag): when it was saved, how
+// many objects and vertices, and the picture.
 preview_block_put :: proc(app: ^App, out: ^[dynamic]u8) {
 	p := &app.preview
 	vertices := 0
 	for obj in app.scene.objects do vertices += object_vertex_count(obj)
-	geom.byte_put(out, u32(PREVIEW_HEAD + len(p.png)))
-	geom.byte_put(out, unix_now())
-	geom.byte_put(out, u32(len(app.scene.objects)))
-	geom.byte_put(out, u64(vertices))
-	has := len(p.png) > 0
-	geom.byte_put(out, u16(p.w if has else 0))
-	geom.byte_put(out, u16(p.h if has else 0))
-	append(out, ..p.png[:])
+	rec := geom.record_begin(out)
+	defer geom.record_end(out, rec)
+	geom.rec_put(out, Preview_Tag.Saved, unix_now())
+	geom.rec_put(out, Preview_Tag.Objects, u32(len(app.scene.objects)))
+	geom.rec_put(out, Preview_Tag.Vertices, u64(vertices))
+	if len(p.png) > 0 {
+		geom.rec_put(out, Preview_Tag.Width, u16(p.w))
+		geom.rec_put(out, Preview_Tag.Height, u16(p.h))
+		geom.rec_put_slice(out, Preview_Tag.Png, p.png[:])
+	}
 }
 
-// Steps over the preview block of a scene file being opened, which the scene does not
-// need; false when its length runs past the file or past PREVIEW_BLOCK_MAX, a damaged
-// file. The picture itself is not looked at: a bad one only shows no picture at Home.
+// Steps over the preview block; false when it is not whole fields or larger than any is.
 preview_block_skip :: proc(r: ^geom.Byte_Reader) -> bool {
-	n := int(geom.byte_get(r, u32))
-	if !r.ok || n < PREVIEW_HEAD || n > PREVIEW_BLOCK_MAX do return false
-	_ = geom.byte_get_bytes(r, n)
-	return r.ok
+	n := geom.byte_get(r, u64)
+	if !r.ok || n > PREVIEW_BLOCK_MAX || n > u64(len(r.data) - r.at) {
+		r.ok = false
+		return false
+	}
+	return geom.record_of(geom.byte_get_bytes(r, int(n))).ok
 }
 
 // Reads what the start of the scene file at `path` says about it and its picture's PNG
@@ -186,26 +194,25 @@ scene_preview_read :: proc(path: string, allocator := context.allocator) -> (inf
 	file, opened := read_file_open(path)
 	if !opened do return
 	defer read_file_close(file)
-	head: [len(SCENE_MAGIC) + 4 + 4]u8
-	got := read_file_read(file, head[:])
-	if got < len(SCENE_MAGIC) + 4 || string(head[:len(SCENE_MAGIC)]) != SCENE_MAGIC do return
-	r := geom.byte_reader(head[len(SCENE_MAGIC):got])
-	info.version = geom.byte_get(&r, u32)
-	if info.version != SCENE_VERSION do return
-	n := int(geom.byte_get(&r, u32))
-	if !r.ok || n < PREVIEW_HEAD || n > PREVIEW_BLOCK_MAX do return
-	block := make([]u8, n, context.temp_allocator)
-	if read_file_read(file, block) != n do return
-	b := geom.byte_reader(block)
-	info.saved = geom.byte_get(&b, i64)
-	info.objects = int(geom.byte_get(&b, u32))
-	info.vertices = int(geom.byte_get(&b, u64))
-	info.w = int(geom.byte_get(&b, u16))
-	info.h = int(geom.byte_get(&b, u16))
-	if !b.ok do return
-	if n > PREVIEW_HEAD && info.w > 0 && info.h > 0 {
-		png = make([]u8, n - PREVIEW_HEAD, allocator)
-		copy(png, block[PREVIEW_HEAD:])
+	head: [len(SCENE_MAGIC) + 4 + 8]u8
+	if read_file_read(file, head[:]) != len(head) do return
+	r := geom.byte_reader(head[:])
+	if !scene_head_read(&r) do return
+	n := geom.byte_get(&r, u64)
+	if !r.ok || n > PREVIEW_BLOCK_MAX do return
+	block := make([]u8, int(n), context.temp_allocator)
+	if read_file_read(file, block) != int(n) do return
+	rec := geom.record_of(block)
+	info.saved = geom.rec_get(&rec, Preview_Tag.Saved, i64, 0)
+	info.objects = int(geom.rec_get(&rec, Preview_Tag.Objects, u32, 0))
+	info.vertices = int(geom.rec_get(&rec, Preview_Tag.Vertices, u64, 0))
+	info.w = int(geom.rec_get(&rec, Preview_Tag.Width, u16, 0))
+	info.h = int(geom.rec_get(&rec, Preview_Tag.Height, u16, 0))
+	picture, _ := geom.rec_find(&rec, Preview_Tag.Png)
+	if !rec.ok do return
+	if len(picture) > 0 && info.w > 0 && info.h > 0 {
+		png = make([]u8, len(picture), allocator)
+		copy(png, picture)
 	} else {
 		info.w, info.h = 0, 0
 	}

@@ -112,11 +112,15 @@ skill whose description fits the request BEFORE you form a plan.
   which drops its levels, mask and strokes, and record it as a swap undo entry (`history_snapshot` / `history_record_swap`: `sm-cad`).
 - The interface never owns sculpt state; panels keep no references between frames; scene changes are `Scene_Command`s and
   file actions are requests (`file_take`), both applied at the start of the next frame.
-- No backward compatibility until release: nobody uses the app yet. The `.sculpt` scene file (chunks, `SCENE_VERSION`
-  in `src/app/files.odin`), `settings.txt`, the space layouts, `.strokes` and the cage and voxel sections read only what
-  this build writes: a format change edits the writer and the reader together and deletes the old reading, with no
-  version branches, optional trailing fields, renamed-line aliases or one-time default conversions. A file an earlier
-  build wrote is refused (or a settings line passed over), never converted. A damaged file is refused, never asserted on.
+- Files survive updates: the `.sculpt` scene file, `.strokes` and every section inside them (levels, skin, cage, clay,
+  curves, stack, materials, references, preview) are tagged records (`src/geom/record.odin`): a field is a tag, a size
+  and its bytes. Each format's tag enum numbers its tags explicitly; a tag is never reused or retyped, a removed field's
+  number stays retired, a new field takes the next number and a default its reader uses when it is missing, so a file
+  an earlier build wrote opens, and a field a later build added is stepped over (unless its tag has the critical bit,
+  0x8000, which a reader that does not know it refuses). `SCENE_FORMAT` and `STROKES_FORMAT` change only when the
+  layout of records itself changes, and then the golden files go too. The golden files in `src/app/testdata/golden/`
+  are never rewritten: a change that breaks reading them is wrong. No version branches or one-time conversions;
+  `settings.txt` and the space layouts pass over a line they do not know. A damaged file is refused, never asserted on.
 - GPU: consume every `gpu.*` result (`hal.odin` marks them `require_results`); release any time (the GPU layer frees an object once no work in flight uses it, so nothing waits for the GPU before freeing); set vsync before acquiring the
   swapchain; `Draw_Item.model` is a similarity: rotation, translation, uniform scale (no shear or non-uniform scale).
 - No TODO or FIXME: write it or design it. Comments are full sentences giving reasons. README is updated with any flag,
