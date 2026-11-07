@@ -220,6 +220,9 @@ card_motion_end :: proc(app: ^App, s: Column_Side, c: Card, m: ui.Motion_Mark, r
 	ctx := &k.ctx
 	pm := &k.moving
 	e := &pm.cards[c]
+	// Drawn again (Clean view ended mid-leave): its copy on the way out goes, so it is never
+	// drawn twice.
+	if pm.copies != nil do pm.copies.card_leave[c].active = false
 	if !ui.drawn_last(ctx, e.drawn) {
 		pm.serial += 1
 		e.serial = pm.serial
@@ -449,12 +452,18 @@ card_float_motion_end :: proc(app: ^App, c: Card, m: ui.Motion_Mark, r: ui.Rect,
 	id := ui.salt(ui.hash_under(0, "card lift"), u64(c))
 	lift := ui.tween(ctx, id, 1 if carried else 0, CARD_LIFT_TIME, .Out_Quad, class = motion_class(.Cards))
 	if lift > 0.001 do ui.transform_since(ctx, m.vertex, 1, 1 + CARD_LIFT * lift, {r.x + r.w * 0.5, r.y + r.h * 0.5}, {0, -2 * lift})
-	// Back with the bars as Clean view ends: it fades in, drifting from its nearer side.
-	if !ui.drawn_last(ctx, pm.cards[c].floated) && clean_just_ended(k) {
-		pm.serial += 1
-		pm.float_back[c] = pm.serial
-		pm.slides += 1
-		pm.clean_in += 1
+	// Back with the bars as Clean view ends: it fades in, drifting from its nearer side. Any
+	// other first frame (floated again later) starts nothing, and a copy still on its way
+	// out goes, so it is never drawn twice.
+	if pm.copies != nil do pm.copies.float_leave[c].active = false
+	if !ui.drawn_last(ctx, pm.cards[c].floated) {
+		pm.float_back[c] = 0
+		if clean_just_ended(k) && motion_duration_of(ctx, .Cards) > 0 {
+			pm.serial += 1
+			pm.float_back[c] = pm.serial
+			pm.slides += 1
+			pm.clean_in += 1
+		}
 	}
 	if pm.float_back[c] != 0 {
 		p := panel_progress(ctx, pm.float_back[c], DOCK_SLIDE_TIME, .Cards)
@@ -488,7 +497,13 @@ floats_leaving :: proc(app: ^App, clean := false) {
 			l.way, l.time = {from = float_drift(ctx, panel_rect(app, c)) / FLOAT_DRIFT, dist = FLOAT_DRIFT}, DOCK_SLIDE_TIME
 		}
 	}
-	for &l in pc.float_leave do panel_leave_draw(app, &l)
+	// In the order they were drawn, so overlapping ones keep which is on top as they fade.
+	left := bit_set[Card]{}
+	for c in k.order {
+		panel_leave_draw(app, &pc.float_leave[c])
+		left += {c}
+	}
+	for c in Card do if c not_in left do panel_leave_draw(app, &pc.float_leave[c])
 }
 
 // The step a floating card at `r` drifts by toward its nearer side as it goes with Clean
@@ -498,7 +513,6 @@ float_drift :: proc(ctx: ^ui.Context, r: ui.Rect) -> [2]f32 {
 	left := r.x + r.w * 0.5 < ctx.input.window.x * 0.5
 	return {-FLOAT_DRIFT if left else FLOAT_DRIFT, 0}
 }
-
 
 // Dock `id` let go where it was carried, its outline at `box`: it glides from there to
 // where it snaps (dock_motion_end), unless that is where it already stands.
@@ -702,9 +716,12 @@ chrome_motion_end :: proc(app: ^App, c: Chrome, m: ui.Motion_Mark) {
 	r := ui.root_rect(ctx, CHROME_ROOTS[c])
 	if r.w <= 0 do return
 	way := chrome_way(ctx, r)
+	// Drawn again: a copy still leaving (Clean view ended mid-slide) goes, so it never comes
+	// back as a ghost of an old frame on the next Clean view.
+	if pm.copies != nil do pm.copies.chrome_leave[c].active = false
 	if !ui.drawn_last(ctx, e.drawn) {
 		e.serial = 0
-		if clean_just_ended(k) {
+		if clean_just_ended(k) && motion_duration_of(ctx, .Docks) > 0 {
 			pm.serial += 1
 			e.serial = pm.serial
 			pm.slides += 1

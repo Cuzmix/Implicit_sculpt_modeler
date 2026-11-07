@@ -4125,7 +4125,7 @@ def clean_view_by_mouse_takes_the_floating_card_and_brings_it_back():
 
 @scenario
 def tap_during_the_clean_view_slide_reaches_the_view():
-    """A finger tapping where the floating Tool card stood, two frames into Clean view's slide:
+    """A finger tapping where the floating Tool card stood, four frames into Clean view's slide:
     the leaving copy takes nothing, so the tap sculpts the model under it and the card stays
     floating, Clean view on."""
     s = Script()

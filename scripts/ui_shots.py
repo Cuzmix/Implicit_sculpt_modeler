@@ -228,7 +228,7 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["list"]:
         for name, (what, *_) in SCREENS.items():
-            print(f"{name:14} {what}")
+            print(f"{name:{max(map(len, SCREENS))}} {what}")
         return 0
     if argv[:1] == ["sheet"]:
         if len(argv) != 4:
