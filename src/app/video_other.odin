@@ -1,10 +1,13 @@
 #+build !linux
 #+build !windows
+#+build !darwin
 package main
 
-// Video on the systems whose encoder is not wired up yet (video.odin): the Mac and the
-// iPad (AVFoundation) and the web, which has none; the frames stay as pictures.
+// Video where the system has no encoder to hand (video.odin): the web; the frames stay as
+// pictures.
 VIDEO_AVAILABLE :: false
+// The encoder takes sides that are multiples of this.
+VIDEO_ALIGN :: 2
 
 Video_Backend :: struct {}
 

@@ -26,7 +26,7 @@ VIDEO_MAX :: 1920
 // why it cannot.
 video_open :: proc(path: string, w, h, fps: int) -> (v: ^Video, why: string) {
 	if !VIDEO_AVAILABLE do return nil, "this system has no video encoder"
-	if w < 2 || h < 2 || w % 2 != 0 || h % 2 != 0 do return nil, "a video's sides are even"
+	if w < VIDEO_ALIGN || h < VIDEO_ALIGN || w % VIDEO_ALIGN != 0 || h % VIDEO_ALIGN != 0 do return nil, "a video's sides do not suit the encoder"
 	v = new(Video)
 	v.path = strings.clone(path)
 	v.width, v.height, v.fps = w, h, fps
@@ -58,15 +58,15 @@ video_close :: proc(v: ^Video, keep: bool) -> (ok: bool) {
 	return ok && keep
 }
 
-// The size a video of a `w` x `h` picture takes: scaled down by whole steps until its
-// longest side is at most VIDEO_MAX, each side then even.
+// The size a video of a `w` x `h` picture takes: scaled down until its longest side is at
+// most VIDEO_MAX, each side then a multiple of the encoder's VIDEO_ALIGN.
 video_size :: proc(w, h: int) -> (vw, vh: int) {
 	vw, vh = w, h
 	if m := max(vw, vh); m > VIDEO_MAX {
 		vw = vw * VIDEO_MAX / m
 		vh = vh * VIDEO_MAX / m
 	}
-	return max(vw &~ 1, 2), max(vh &~ 1, 2)
+	return max(vw &~ (VIDEO_ALIGN - 1), VIDEO_ALIGN), max(vh &~ (VIDEO_ALIGN - 1), VIDEO_ALIGN)
 }
 
 // A frame for the video from a picture `w` x `h`: resized to the video's size and laid

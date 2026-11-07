@@ -9,6 +9,8 @@ import win "core:sys/windows"
 // driver gives one) for the stream. Frames go in as RGB32 (BGRX bytes, rows bottom up,
 // as Media Foundation lays RGB out), stamped in 100 ns units.
 VIDEO_AVAILABLE :: true
+// The encoder takes sides that are multiples of this.
+VIDEO_ALIGN :: 2
 
 Video_Backend :: struct {
 	writer:  ^Com, // IMFSinkWriter
