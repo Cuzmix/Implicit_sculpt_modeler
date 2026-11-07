@@ -33,6 +33,7 @@ static const uint FLAG_DRAWN = 64;  // a drawn falloff's table (sculpt.falloff_d
 static const uint FLAG_FADE = 128;  // an HD window's fade bytes shield the vertices (sculpt.shield)
 static const uint FLAG_ALPHA = 256; // an alpha's values in `tables` weigh the dab (sculpt.dab_weight)
 static const uint FLAG_MIRROR = 512; // the alpha is mirrored (Brush.alpha_mirror)
+static const uint FLAG_SWEEP = 1024; // with FLAG_ONCE: weigh by the distance to the sweep in alpha_up.xyz (sculpt.Brush.sweep)
 
 // The float4s a dab's area takes in `areas`: the normal, a point on the plane, then with
 // an alpha its frame (sculpt.alpha_frame's au, av and an).
@@ -54,7 +55,7 @@ struct Dab {
 	float4 tilt1;         // .w 1 / (the sample radius)²
 	float4 tilt2;         // .w Clay's plane offset along the normal (0 for the rest)
 	float4 misc;          // Flatten's plane_short above and below, the radius, the alpha's or else the drawn falloff's first value in `tables`
-	float4 alpha_up;      // the alpha's up (FLAG_ALPHA), .w its size a side
+	float4 alpha_up;      // the alpha's up (FLAG_ALPHA), or else the sweep (FLAG_SWEEP); .w the alpha's size a side
 	uint4 slabs;          // first slab, slab count, kind, flags
 };
 

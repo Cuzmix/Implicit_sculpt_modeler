@@ -1,11 +1,11 @@
-// slangc metal from dab_move.comp.spv sha256 645bef0164085e2b415f2c071635f3863c76bbee82e503606bbb9d8a14c5118e
+// slangc metal from dab_move.comp.spv sha256 68a38c89f4b613ac4bfce77399f584f6398ac10b41a6845cd8860a7e483ded88
 // slots s= rt= wt= rb=0,1,2,3,4,5,6,7,8 wb=9,10,11,12,13 u=14 a=
 #include <metal_stdlib>
 #include <metal_math>
 #include <metal_texture>
 using namespace metal;
 
-#line 84 "src/render/shaders/dab.slang"
+#line 85 "src/render/shaders/dab.slang"
 struct SLANG_ParameterGroup_Params_0
 {
     uint dab_0;
@@ -15,7 +15,7 @@ struct SLANG_ParameterGroup_Params_0
 };
 
 
-#line 65
+#line 66
 struct Dab_natural_0
 {
     packed_float4 center_r2_0;
@@ -30,7 +30,7 @@ struct Dab_natural_0
 };
 
 
-#line 82
+#line 83
 struct KernelContext_0
 {
     SLANG_ParameterGroup_Params_0 constant* Params_0;
@@ -49,16 +49,16 @@ struct KernelContext_0
 };
 
 
-#line 96
+#line 97
 void keep_bindings_0(KernelContext_0 thread* kernelContext_0)
 {
 
-#line 97
+#line 98
     if((kernelContext_0->Params_0->groups_x_0) == 0U)
     {
         *(kernelContext_0->positions_0+int(0)) = float(kernelContext_0->indices_0[int(0)] + kernelContext_0->offsets_0[int(0)] + kernelContext_0->tris_0[int(0)] + (uint2(*(kernelContext_0->slabs_1+int(0))) ).x + (uint4((kernelContext_0->dabs_0+int(0))->slabs_0) ).x + kernelContext_0->normals_0[int(0)] + kernelContext_0->mask_0[int(0)] + kernelContext_0->fade_0[int(0)]) + kernelContext_0->tables_0[int(0)];
 
-#line 97
+#line 98
     }
 
 
@@ -67,139 +67,139 @@ void keep_bindings_0(KernelContext_0 thread* kernelContext_0)
 }
 
 
-#line 103
+#line 104
 float3 at_0(uint v_0, KernelContext_0 thread* kernelContext_1)
 {
 
-#line 104
+#line 105
     uint _S1 = 3U * v_0;
 
-#line 104
+#line 105
     return float3(*(kernelContext_1->positions_0+_S1), *(kernelContext_1->positions_0+(_S1 + 1U)), *(kernelContext_1->positions_0+(_S1 + 2U)));
 }
 
 
-#line 114
+#line 115
 float3 normal_at_0(uint v_1, KernelContext_0 thread* kernelContext_2)
 {
 
-#line 115
+#line 116
     uint e_0 = kernelContext_2->normals_0[v_1];
 
 
     float _S2 = max(float((int(e_0 << 16U) >> 16U) & int(-16)) / 32767.0f, -1.0f);
 
-#line 118
+#line 119
     float _S3 = max(float((int(e_0) >> 16U) & int(-16)) / 32767.0f, -1.0f);
     float _S4 = 1.0f - abs(_S2);
 
-#line 119
+#line 120
     float _S5 = abs(_S3);
 
-#line 119
+#line 120
     float _S6 = _S4 - _S5;
 
-#line 119
+#line 120
     thread float3 n_0 = float3(_S2, _S3, _S6);
     if(_S6 < 0.0f)
     {
 
-#line 120
+#line 121
         float sx_0;
         if((n_0.x) >= 0.0f)
         {
 
-#line 121
+#line 122
             sx_0 = 1.0f;
 
-#line 121
+#line 122
         }
         else
         {
 
-#line 121
+#line 122
             sx_0 = -1.0f;
 
-#line 121
+#line 122
         }
 
-#line 121
+#line 122
         float sy_0;
         if((n_0.y) >= 0.0f)
         {
 
-#line 122
+#line 123
             sy_0 = 1.0f;
 
-#line 122
+#line 123
         }
         else
         {
 
-#line 122
+#line 123
             sy_0 = -1.0f;
 
-#line 122
+#line 123
         }
         n_0.x = (1.0f - _S5) * sx_0;
         n_0.y = _S4 * sy_0;
 
-#line 120
+#line 121
     }
 
-#line 126
+#line 127
     float l_0 = length(n_0);
 
-#line 126
+#line 127
     float3 _S7;
     if(l_0 > 0.0f)
     {
 
-#line 127
+#line 128
         _S7 = n_0 / float3(l_0) ;
 
-#line 127
+#line 128
     }
     else
     {
 
-#line 127
+#line 128
         _S7 = float3(0.0f) ;
 
-#line 127
+#line 128
     }
 
-#line 127
+#line 128
     return _S7;
 }
 
 
-#line 136
+#line 137
 float falloff_0(float x2_0)
 {
 
-#line 137
+#line 138
     if(x2_0 >= 1.0f)
     {
 
-#line 137
+#line 138
         return 0.0f;
     }
 
-#line 138
+#line 139
     float t_0 = 1.0f - x2_0;
     return t_0 * t_0;
 }
 
 
-#line 107
+#line 108
 void put_0(uint v_2, float3 p_0, KernelContext_0 thread* kernelContext_3)
 {
 
-#line 108
+#line 109
     uint _S8 = 3U * v_2;
 
-#line 108
+#line 109
     *(kernelContext_3->positions_0+_S8) = p_0.x;
     *(kernelContext_3->positions_0+(_S8 + 1U)) = p_0.y;
     *(kernelContext_3->positions_0+(_S8 + 2U)) = p_0.z;
@@ -214,71 +214,71 @@ bool slab_vertex_0(uint _S9, uint3 _S10, uint3 _S11, uint thread* _S12, uint thr
 #line 11
     Dab_natural_0 device* _S14 = kernelContext_4->dabs_0+_S9;
 
-#line 214 "src/render/shaders/dab.slang"
+#line 215 "src/render/shaders/dab.slang"
     *_S12 = _S10.y * kernelContext_4->Params_0->groups_x_0 + _S10.x;
     *_S13 = 0U;
 
-#line 215
+#line 216
     uint4 _S15 = uint4(_S14->slabs_0) ;
     if((*_S12) >= (_S15.y))
     {
 
-#line 216
+#line 217
         return false;
     }
 
-#line 216
+#line 217
     uint2 _S16 = uint2(*(kernelContext_4->slabs_1+(_S15.x + *_S12))) ;
 
     uint _S17 = _S11.x;
 
-#line 218
+#line 219
     if(_S17 >= (_S16.y))
     {
 
-#line 218
+#line 219
         return false;
     }
 
-#line 219
+#line 220
     *_S13 = _S16.x + _S17;
     return true;
 }
 
 
-#line 49
+#line 50
 float alpha_sample_0(uint _S18, float _S19, float _S20, KernelContext_0 thread* kernelContext_5)
 {
 
-#line 49
+#line 50
     Dab_natural_0 device* _S21 = kernelContext_5->dabs_0+_S18;
 
-#line 49
+#line 50
     bool _S22;
 
-#line 155
+#line 156
     if((abs(_S19)) < 1.0f)
     {
 
-#line 155
+#line 156
         _S22 = (abs(_S20)) < 1.0f;
 
-#line 155
+#line 156
     }
     else
     {
 
-#line 155
+#line 156
         _S22 = false;
 
-#line 155
+#line 156
     }
 
-#line 155
+#line 156
     if(!_S22)
     {
 
-#line 155
+#line 156
         return 0.0f;
     }
     int size_0 = int((float4(_S21->alpha_up_0) ).w);
@@ -287,7 +287,7 @@ float alpha_sample_0(uint _S18, float _S19, float _S20, KernelContext_0 thread* 
     float y_0 = (0.5f - _S20 * 0.5f) * last_0;
     int _S23 = size_0 - int(2);
 
-#line 161
+#line 162
     int _S24 = min(int(x_0), _S23);
     int _S25 = min(int(y_0), _S23);
     float fx_0 = x_0 - float(_S24);
@@ -300,159 +300,159 @@ float alpha_sample_0(uint _S18, float _S19, float _S20, KernelContext_0 thread* 
 }
 
 
-#line 169
+#line 170
 float falloff_drawn_0(uint _S26, float _S27, KernelContext_0 thread* kernelContext_6)
 {
 
-#line 169
+#line 170
     Dab_natural_0 device* _S28 = kernelContext_6->dabs_0+_S26;
 
-#line 144
+#line 145
     if(_S27 >= 1.0f)
     {
 
-#line 144
+#line 145
         return 0.0f;
     }
     float x_1 = _S27 * 256.0f;
     int i_0 = int(x_1);
     uint _S29 = uint((float4(_S28->misc_0) ).w) + uint(i_0);
 
-#line 148
+#line 149
     float a_0 = kernelContext_6->tables_0[_S29];
     return a_0 + (kernelContext_6->tables_0[_S29 + 1U] - a_0) * (x_1 - float(i_0));
 }
 
 
-#line 149
+#line 150
 float dab_weight_0(uint _S30, float3 _S31, float _S32, KernelContext_0 thread* kernelContext_7)
 {
 
-#line 149
+#line 150
     Dab_natural_0 device* _S33 = kernelContext_7->dabs_0+_S30;
 
-#line 176
+#line 177
     uint _S34 = (uint4(_S33->slabs_0) ).w;
 
-#line 176
+#line 177
     if((_S34 & 256U) != 0U)
     {
 
 
         float h_0 = dot(_S31, (float4(*(kernelContext_7->areas_0+(5U * kernelContext_7->Params_0->dab_0 + 4U))) ).xyz);
 
-#line 180
+#line 181
         float _S35 = alpha_sample_0(_S30, dot(_S31, (float4(*(kernelContext_7->areas_0+(5U * kernelContext_7->Params_0->dab_0 + 2U))) ).xyz), dot(_S31, (float4(*(kernelContext_7->areas_0+(5U * kernelContext_7->Params_0->dab_0 + 3U))) ).xyz), kernelContext_7);
         return _S35 * falloff_0(h_0 * h_0);
     }
 
-#line 181
+#line 182
     float4 _S36 = float4(_S33->view_inv_r2_0) ;
 
     float x2_1 = _S32 * _S36.w;
     float3 view_0 = _S36.xyz;
 
-#line 184
+#line 185
     float x2_2;
     if(any(view_0 != (float3(0.0f) )))
     {
 
-#line 186
+#line 187
         float h_1 = dot(_S31, view_0);
         float _S37 = h_1 * h_1;
 
-#line 187
+#line 188
         if(_S37 >= 1.0f)
         {
 
-#line 187
+#line 188
             return 0.0f;
         }
 
-#line 187
+#line 188
         x2_2 = x2_1 - _S37;
 
-#line 185
+#line 186
     }
     else
     {
 
-#line 185
+#line 186
         x2_2 = x2_1;
 
-#line 185
-    }
-
-#line 190
-    if((_S34 & 64U) != 0U)
-    {
-
-#line 190
-        float _S38 = falloff_drawn_0(_S30, x2_2, kernelContext_7);
-
-#line 190
-        return _S38;
+#line 186
     }
 
 #line 191
+    if((_S34 & 64U) != 0U)
+    {
+
+#line 191
+        float _S38 = falloff_drawn_0(_S30, x2_2, kernelContext_7);
+
+#line 191
+        return _S38;
+    }
+
+#line 192
     return falloff_0(x2_2);
 }
 
 
-#line 191
+#line 192
 float shield_0(uint _S39, uint _S40, KernelContext_0 thread* kernelContext_8)
 {
 
-#line 198
+#line 199
     uint shift_0 = (_S40 & 3U) * 8U;
     uint _S41 = (uint4((kernelContext_8->dabs_0+_S39)->slabs_0) ).w;
 
-#line 199
+#line 200
     float w_0;
 
-#line 199
+#line 200
     if((_S41 & 128U) != 0U)
     {
 
-#line 199
+#line 200
         w_0 = float((kernelContext_8->fade_0[_S40 >> 2U] >> shift_0) & 255U) * 0.00392156885936856f;
 
-#line 199
+#line 200
     }
     else
     {
 
-#line 199
+#line 200
         w_0 = 1.0f;
 
-#line 199
+#line 200
     }
     if((_S41 & 32U) != 0U)
     {
 
-#line 200
+#line 201
         w_0 = w_0 * (float(255U - ((kernelContext_8->mask_0[_S40 >> 2U] >> shift_0) & 255U)) * 0.00392156885936856f);
 
-#line 200
+#line 201
     }
     return w_0;
 }
 
 
-#line 201
+#line 202
 float facing_weight_0(uint _S42, float3 _S43, KernelContext_0 thread* kernelContext_9)
 {
 
-#line 207
+#line 208
     float3 facing_0 = (float4((kernelContext_9->dabs_0+_S42)->facing_amount_0) ).xyz;
     if(all(facing_0 == (float3(0.0f) )))
     {
 
-#line 208
+#line 209
         return 1.0f;
     }
 
-#line 209
+#line 210
     return clamp(dot(_S43, facing_0) * 5.0f + 0.5f, 0.0f, 1.0f);
 }
 
@@ -541,160 +541,194 @@ float facing_weight_0(uint _S42, float3 _S43, KernelContext_0 thread* kernelCont
     }
 
 #line 20
-    float3 _S49 = normal_at_0(v_3, &kernelContext_10);
+    uint4 _S49 = uint4(_S45->slabs_0) ;
+    uint _S50 = _S49.w;
 
-#line 20
-    float _S50 = dab_weight_0(_S44, delta_0, d2_0, &kernelContext_10);
+#line 21
+    float d2_1;
 
-#line 20
-    float _S51 = shield_0(_S44, v_3, &kernelContext_10);
+#line 21
+    float3 delta_1;
 
-    float _S52 = _S50 * _S51;
-
-#line 22
-    float _S53 = facing_weight_0(_S44, _S49, &kernelContext_10);
-
-#line 22
-    float w_1 = _S52 * _S53;
-    if(w_1 <= 0.0f)
+#line 21
+    if((_S50 & 1024U) != 0U)
     {
-
-#line 23
-        return;
-    }
+        float3 sw_0 = (float4(_S45->alpha_up_0) ).xyz;
+        float3 delta_2 = delta_0 - sw_0 * float3(clamp(dot(delta_0, sw_0) / dot(sw_0, sw_0), 0.0f, 1.0f)) ;
 
 #line 24
-    float amount_0 = (float4(_S45->facing_amount_0) ).w;
-    float strength_0 = (float4(_S45->tilt0_0) ).w;
-    float3 normal_0 = (float4(*((&kernelContext_10)->areas_0+5U * (&kernelContext_10)->Params_0->dab_0)) ).xyz;
-    float3 plane_0 = (float4(*((&kernelContext_10)->areas_0+(5U * (&kernelContext_10)->Params_0->dab_0 + 1U))) ).xyz;
+        d2_1 = dot(delta_2, delta_2);
 
-#line 27
-    uint4 _S54 = uint4(_S45->slabs_0) ;
-    uint kind_0 = _S54.z;
+#line 24
+        delta_1 = delta_2;
 
-#line 28
-    float3 p_1;
-
-#line 28
-    float h_2;
-    if(((_S54.w) & 16U) != 0U)
-    {
-
-#line 29
-        uint2 _S55 = uint2(*((&kernelContext_10)->heights_0+v_3)) ;
-
-        if((_S55.x) == ((&kernelContext_10)->Params_0->stroke_0))
-        {
-
-#line 31
-            h_2 = (as_type<float>((_S55.y)));
-
-#line 31
-        }
-        else
-        {
-
-#line 31
-            h_2 = 0.0f;
-
-#line 31
-        }
-        float want_0 = amount_0 * w_1;
-
-#line 32
-        float next_0;
-        if(amount_0 > 0.0f)
-        {
-
-#line 33
-            next_0 = max(h_2, want_0);
-
-#line 33
-        }
-        else
-        {
-
-#line 33
-            next_0 = min(h_2, want_0);
-
-#line 33
-        }
-        if(kind_0 == 0U)
-        {
-
-#line 34
-            p_1 = normal_0;
-
-#line 34
-        }
-        else
-        {
-
-#line 34
-            p_1 = _S49;
-
-#line 34
-        }
-        float3 p_2 = _S47 + p_1 * float3((next_0 - h_2)) ;
-
-#line 35
-        *((&kernelContext_10)->heights_0+v_3) = packed_uint2(uint2((&kernelContext_10)->Params_0->stroke_0, (as_type<uint>((next_0))))) ;
-
-#line 35
-        p_1 = p_2;
-
-#line 29
+#line 21
     }
     else
     {
 
-#line 37
-        if(kind_0 == 0U)
+#line 21
+        d2_1 = d2_0;
+
+#line 21
+        delta_1 = delta_0;
+
+#line 21
+    }
+
+#line 21
+    float3 _S51 = normal_at_0(v_3, &kernelContext_10);
+
+#line 21
+    float _S52 = dab_weight_0(_S44, delta_1, d2_1, &kernelContext_10);
+
+#line 21
+    float _S53 = shield_0(_S44, v_3, &kernelContext_10);
+
+#line 28
+    float _S54 = _S52 * _S53;
+
+#line 28
+    float _S55 = facing_weight_0(_S44, _S51, &kernelContext_10);
+
+#line 28
+    float w_1 = _S54 * _S55;
+    if(w_1 <= 0.0f)
+    {
+
+#line 29
+        return;
+    }
+
+#line 30
+    float amount_0 = (float4(_S45->facing_amount_0) ).w;
+    float strength_0 = (float4(_S45->tilt0_0) ).w;
+    float3 normal_0 = (float4(*((&kernelContext_10)->areas_0+5U * (&kernelContext_10)->Params_0->dab_0)) ).xyz;
+    float3 plane_0 = (float4(*((&kernelContext_10)->areas_0+(5U * (&kernelContext_10)->Params_0->dab_0 + 1U))) ).xyz;
+    uint kind_0 = _S49.z;
+
+#line 34
+    float3 p_1;
+    if((_S50 & 16U) != 0U)
+    {
+
+#line 35
+        uint2 _S56 = uint2(*((&kernelContext_10)->heights_0+v_3)) ;
+
+#line 35
+        float h_2;
+
+        if((_S56.x) == ((&kernelContext_10)->Params_0->stroke_0))
         {
 
 #line 37
-            p_1 = _S47 + normal_0 * float3((amount_0 * w_1)) ;
+            h_2 = (as_type<float>((_S56.y)));
 
 #line 37
         }
         else
         {
 
+#line 37
+            h_2 = 0.0f;
+
+#line 37
+        }
+        float want_0 = amount_0 * w_1;
+
+#line 38
+        float next_0;
+        if(amount_0 > 0.0f)
+        {
+
 #line 39
+            next_0 = max(h_2, want_0);
+
+#line 39
+        }
+        else
+        {
+
+#line 39
+            next_0 = min(h_2, want_0);
+
+#line 39
+        }
+        if(kind_0 == 0U)
+        {
+
+#line 40
+            p_1 = normal_0;
+
+#line 40
+        }
+        else
+        {
+
+#line 40
+            p_1 = _S51;
+
+#line 40
+        }
+        float3 p_2 = _S47 + p_1 * float3((next_0 - h_2)) ;
+
+#line 41
+        *((&kernelContext_10)->heights_0+v_3) = packed_uint2(uint2((&kernelContext_10)->Params_0->stroke_0, (as_type<uint>((next_0))))) ;
+
+#line 41
+        p_1 = p_2;
+
+#line 35
+    }
+    else
+    {
+
+#line 43
+        if(kind_0 == 0U)
+        {
+
+#line 43
+            p_1 = _S47 + normal_0 * float3((amount_0 * w_1)) ;
+
+#line 43
+        }
+        else
+        {
+
+#line 45
             if(kind_0 == 1U)
             {
 
-#line 39
-                p_1 = _S47 + _S49 * float3((amount_0 * w_1)) ;
+#line 45
+                p_1 = _S47 + _S51 * float3((amount_0 * w_1)) ;
 
-#line 39
+#line 45
             }
             else
             {
 
-#line 41
+#line 47
                 if(kind_0 == 2U)
                 {
                     float h_3 = dot(_S47 - plane_0, normal_0);
                     if((h_3 * amount_0) < 0.0f)
                     {
 
-#line 44
+#line 50
                         p_1 = _S47 - normal_0 * float3((h_3 * min(strength_0 * w_1 * 0.5f, 1.0f))) ;
 
-#line 44
+#line 50
                     }
                     else
                     {
 
-#line 44
+#line 50
                         p_1 = _S47;
 
-#line 44
+#line 50
                     }
 
-#line 41
+#line 47
                 }
                 else
                 {
@@ -703,45 +737,45 @@ float facing_weight_0(uint _S42, float3 _S43, KernelContext_0 thread* kernelCont
                     {
                         float h_4 = dot(_S47 - plane_0, normal_0);
 
-#line 47
-                        float4 _S56 = float4(_S45->misc_0) ;
-                        float _S57 = _S56.z;
+#line 53
+                        float4 _S57 = float4(_S45->misc_0) ;
+                        float _S58 = _S57.z;
 
-#line 48
+#line 54
                         if(h_4 > 0.0f)
                         {
 
-#line 48
-                            h_2 = _S56.x;
+#line 54
+                            d2_1 = _S57.x;
 
-#line 48
+#line 54
                         }
                         else
                         {
 
-#line 48
-                            h_2 = _S56.y;
+#line 54
+                            d2_1 = _S57.y;
 
-#line 48
+#line 54
                         }
-                        if((abs(h_4)) <= (_S57 * (1.0f - clamp(h_2, 0.0f, 1.0f))))
+                        if((abs(h_4)) <= (_S58 * (1.0f - clamp(d2_1, 0.0f, 1.0f))))
                         {
 
-#line 49
+#line 55
                             p_1 = _S47 - normal_0 * float3((h_4 * amount_0 * min(strength_0 * w_1 * 0.5f, 1.0f))) ;
 
-#line 49
+#line 55
                         }
                         else
                         {
 
-#line 49
+#line 55
                             p_1 = _S47;
 
-#line 49
+#line 55
                         }
 
-#line 45
+#line 51
                     }
                     else
                     {
@@ -750,32 +784,32 @@ float facing_weight_0(uint _S42, float3 _S43, KernelContext_0 thread* kernelCont
                         if(kind_0 == 4U)
                         {
 
-#line 51
+#line 57
                             float3 to_0 = center_0 - _S47;
 
-#line 51
+#line 57
                             p_1 = _S47 + (to_0 - normal_0 * float3(dot(to_0, normal_0)) ) * float3((amount_0 * min(strength_0 * w_1 * 0.25f, 1.0f))) ;
 
-#line 50
+#line 56
                         }
                         else
                         {
 
-#line 50
-                            float3 _S58;
+#line 56
+                            float3 _S59;
 
 
 
                             if(kind_0 == 5U)
                             {
 
-#line 55
+#line 61
                                 float3 to_1 = center_0 - _S47;
 
-#line 55
-                                _S58 = _S47 + (normal_0 * float3((amount_0 * w_1 * w_1))  + (to_1 - normal_0 * float3(dot(to_1, normal_0)) ) * float3(min(strength_0 * w_1 * 0.20000000298023224f, 1.0f)) );
+#line 61
+                                _S59 = _S47 + (normal_0 * float3((amount_0 * w_1 * w_1))  + (to_1 - normal_0 * float3(dot(to_1, normal_0)) ) * float3(min(strength_0 * w_1 * 0.20000000298023224f, 1.0f)) );
 
-#line 54
+#line 60
                             }
                             else
                             {
@@ -784,31 +818,31 @@ float facing_weight_0(uint _S42, float3 _S43, KernelContext_0 thread* kernelCont
                                 return;
                             }
 
-#line 59
-                            p_1 = _S58;
+#line 65
+                            p_1 = _S59;
 
-#line 50
+#line 56
                         }
 
-#line 45
+#line 51
                     }
 
-#line 41
+#line 47
                 }
 
-#line 39
+#line 45
             }
 
-#line 37
+#line 43
         }
 
-#line 29
+#line 35
     }
 
-#line 29
+#line 35
     put_0(v_3, p_1, &kernelContext_10);
 
-#line 62
+#line 68
     return;
 }
 

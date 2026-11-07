@@ -209,6 +209,12 @@ Brush :: struct {
 	// Clay strips and Trim dynamic: the way the stroke goes, in the mesh's space (zero
 	// for its first dab), which their frame's x follows (strip_frame).
 	stroke_dir: Vec3,
+	// Draw and Inflate with Accumulate off: from this dab's centre back to the last one of
+	// the stroke, up to SWEEP_MAX radii (apply_dab sets it; zero for the stroke's first dab
+	// or an alpha). The dab weighs each vertex by its distance to that segment, not to the
+	// centre alone, so the heights the stroke keeps (each vertex the most any dab gave it)
+	// rise as one smooth ridge along the path instead of a bump per dab.
+	sweep: Vec3,
 	// Clay strips' tip: how round its square's corners are, 0 (square) to 1 (round), and
 	// its length along the stroke as a share of its width, CLAY_TIP_SCALE_MIN to 1 (0 is 1).
 	tip_roundness: f32,
@@ -386,6 +392,9 @@ Sculptor :: struct {
 	// stroke number is layer_stroke; nil until the brush is first used.
 	layer:        []Layer_Height,
 	layer_stroke: u32,
+	// The last centre apply_dab laid in stroke number sweep_stroke (Brush.sweep).
+	sweep_from:   Vec3,
+	sweep_stroke: u32,
 	// The positions sculptor_morph_store kept, which the Morph brush brings vertices
 	// back to; nil when none is stored.
 	morph:        []Vec3,
@@ -1097,11 +1106,32 @@ apply_dab :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> int {
 	moved := 0
 	images := dab_images(s, brush, center)
 	b := brush
+	b.sweep = dab_sweep(s, brush, center)
 	b.strength /= symmetry_feather(brush, images[:], center)
 	for img, i in images {
 		moved += dab_once(s, sym_brush(b, img), sym_point(img, center), img, i == 0)
 	}
 	return moved
+}
+
+// The longest sweep a dab weighs along, in radii. The vertex test stays the dab's own
+// sphere, so the stretch of the sweep's capsule that lies outside it and the last dab's is
+// missed: at half a radius it begins 0.97 radii from the path, where the falloff is 0.004.
+SWEEP_MAX :: 0.5
+
+// Brush.sweep for a dab of `brush` at `center`, and notes the centre for the next one: back
+// to the stroke's last centre when it lies within a radius (a farther one is a jump, a new
+// stroke the caller did not begin), shortened to SWEEP_MAX radii.
+@(private)
+dab_sweep :: proc(s: ^Sculptor, brush: Brush, center: Vec3) -> (sweep: Vec3) {
+	defer s.sweep_from, s.sweep_stroke = center, s.layer_stroke
+	if !brush.no_accumulate || (brush.kind != .Draw && brush.kind != .Inflate) || brush.alpha != nil do return
+	if s.sweep_stroke != s.layer_stroke || brush.radius <= 0 do return
+	sweep = s.sweep_from - center
+	length := linalg.length(sweep)
+	if length > brush.radius do return {}
+	if length > SWEEP_MAX * brush.radius do sweep *= SWEEP_MAX * brush.radius / length
+	return
 }
 
 // How much a dab at `center` and its images `images` (the dab itself first) overlap, by
@@ -1169,6 +1199,7 @@ sym_brush :: proc(brush: Brush, img: Sym_Image) -> Brush {
 	b.facing = m * b.facing
 	b.projected = m * b.projected
 	b.stroke_dir = m * b.stroke_dir
+	b.sweep = m * b.sweep
 	if img.flipped do b.alpha_mirror = !b.alpha_mirror
 	return b
 }
@@ -1607,6 +1638,15 @@ displace :: #force_inline proc(d: ^Dab, i: int, $K: Brush_Kind, $ONCE: bool) {
 		delta := p - d.center
 		d2 := linalg.dot(delta, delta)
 		if d2 < d.r2 {
+			when ONCE {
+				if d.brush.sweep != {} {
+					// The offset from the nearest point of the sweep (Brush.sweep).
+					sw := d.brush.sweep
+					t := clamp(linalg.dot(delta, sw) / linalg.dot(sw, sw), 0, 1)
+					delta -= sw * t
+					d2 = linalg.dot(delta, delta)
+				}
+			}
 			w := dab_weight(d, delta, d2) * shield(fade, mask, v) * facing_weight(d, m.normals[:], v)
 			if w > 0 {
 				when ONCE {
