@@ -3,8 +3,8 @@ package ui
 // Written by scripts/icons_build.py from assets/icons/manifest.txt: edit that and run the
 // script. One name per meaning, each its own drawing in the icon fonts (text.odin).
 
-ICONS_SOURCE_HASH :: "90bf4556a748ba8e6e7dc65ba6b3bbb4efa17fe6a86ec52931dce7dd36b4dc0c"
-ICONS_FONTS_HASH :: "a6ed8dde89d35725990ae3582e152caf74855ebd0df221d15c015d340ae09532"
+ICONS_SOURCE_HASH :: "8988cae6fcb2c59932de74c08c691e1882c5a8d47c1615397c265b7a0aa76c12"
+ICONS_FONTS_HASH :: "369aca1ea05d30e9f812577b67f1133b4af0bb3a5c71a42371fda84948295ca2"
 
 // What an icon works on, which colours it in the Colour icon style.
 Icon_Group :: enum u8 {
@@ -19,7 +19,7 @@ Icon_Group :: enum u8 {
 }
 
 ICON_FIRST :: rune(0xE000)
-ICON_COUNT :: 417
+ICON_COUNT :: 418
 
 ICON_MENU                :: rune(0xE000) // ph:list
 ICON_MORE                :: rune(0xE001) // ph:dots-three-circle
@@ -438,6 +438,7 @@ ICON_FILL_UPDATE         :: rune(0xE19D) // ph:arrows-counter-clockwise
 ICON_BRUSH_ROTATE        :: rune(0xE19E) // ph:arrow-arc-right
 ICON_BRUSH_THUMB         :: rune(0xE19F) // ph:hand-swipe-right
 ICON_BRUSH_POSE          :: rune(0xE1A0) // ph:person-simple-tai-chi
+ICON_BRUSH_BOUNDARY      :: rune(0xE1A1) // ph:bounding-box
 
 ICON_GROUP_TABLE := [ICON_COUNT]Icon_Group {
 	.App, // ICON_MENU
@@ -857,4 +858,5 @@ ICON_GROUP_TABLE := [ICON_COUNT]Icon_Group {
 	.Sculpt, // ICON_BRUSH_ROTATE
 	.Sculpt, // ICON_BRUSH_THUMB
 	.Sculpt, // ICON_BRUSH_POSE
+	.Sculpt, // ICON_BRUSH_BOUNDARY
 }

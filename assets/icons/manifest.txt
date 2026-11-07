@@ -446,3 +446,4 @@ ICON_FILL_UPDATE         paint   ph:arrows-counter-clockwise
 ICON_BRUSH_ROTATE        sculpt  ph:arrow-arc-right
 ICON_BRUSH_THUMB         sculpt  ph:hand-swipe-right
 ICON_BRUSH_POSE          sculpt  ph:person-simple-tai-chi
+ICON_BRUSH_BOUNDARY      sculpt  ph:bounding-box

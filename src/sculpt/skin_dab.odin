@@ -314,7 +314,7 @@ skin_split_brush :: proc(d: ^Dab, share: f32) {
 	case .Snake_Hook:
 		// The hook drags by its drag, not its strength.
 		d.brush.drag *= 1 - share
-	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Pinch, .Morph, .History, .Clay_Strips, .Trim_Dynamic, .Clay, .Flatten, .Layer, .Tube, .Rotate, .Thumb, .Pose:
+	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Pinch, .Morph, .History, .Clay_Strips, .Trim_Dynamic, .Clay, .Flatten, .Layer, .Tube, .Rotate, .Thumb, .Pose, .Boundary:
 		d.brush.strength *= 1 - share
 	}
 }
@@ -413,7 +413,7 @@ skin_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 			jobs.parallel_for(pool, items, d, job_skin_smooth_targets)
 			jobs.parallel_for(pool, len(s.hit), d, job_skin_smooth_apply)
 		}
-	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Morph, .History, .Clay_Strips, .Trim_Dynamic, .Tube, .Rotate, .Thumb, .Pose:
+	case .Grab, .Elastic, .Mask, .Paint, .Cloth, .Morph, .History, .Clay_Strips, .Trim_Dynamic, .Tube, .Rotate, .Thumb, .Pose, .Boundary:
 		unreachable()
 	}
 	if brush.kind != .Smooth {

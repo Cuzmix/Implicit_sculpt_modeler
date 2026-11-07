@@ -30,7 +30,7 @@ COL={'clay':(0.36,0.52,0.98),'smooth':(0.86,0.88,0.92),'grab':(0.62,0.52,0.96),'
      'draw':(0.93,0.93,0.97),'layer':(0.27,0.78,0.74),'clay_strips':(0.45,0.5,1.0),'mask':(0.13,0.15,0.2),
      'paint':(0.92,0.36,0.82),'cloth':(0.96,0.55,0.64),'history':(0.37,0.84,0.77),'morph':(0.71,0.88,0.42),'elastic':(0.56,0.6,1.0),
      'inflate':(0.98,0.78,0.36),'crease':(0.35,0.72,0.98),'pinch':(0.98,0.4,0.42),'trim':(0.98,0.5,0.32),'snake':(0.45,0.8,0.42),'tube':(0.99,0.66,0.2),
-     'rotate':(0.98,0.42,0.62),'thumb':(0.52,0.82,0.98),'pose':(0.62,0.86,0.5)}
+     'rotate':(0.98,0.42,0.62),'thumb':(0.52,0.82,0.98),'pose':(0.62,0.86,0.5),'boundary':(0.98,0.7,0.3)}
 def cap_region(p,c,a0):
     # Distance, along the ball, from the round region of angle a0 about direction c.
     c=norm(c); return (np.arccos(np.clip((p@c)/(L(p)+1e-9),-1,1))-a0)*R
@@ -158,6 +158,14 @@ def scene(n,p):
         d,_=smin(ball,arm,0.25)
         bent=np.clip((p@norm(b-j)-(j@norm(b-j))+0.1)*6,0,1)
         return d, np.clip((ball-arm)*5+0.2,0,1)*(0.35+0.65*bent)
+    if n=='boundary':
+        # The ball as an open shell cut across its top, the open rim drawn out and up into a
+        # flare, the surface below following it less the further down it lies.
+        up=norm([0.2,0.85,0.5]); h=p@up
+        f=np.clip((h-0.2)/0.55,0,1)**2
+        shell=np.abs(L(p-up*0.18*f[...,None])-R*(1+0.3*f))-0.07
+        d=np.maximum(shell,h-0.78)
+        return d, np.clip((h-0.35)*4,0,1)
 def render(n):
     M=N*SS; s=(np.arange(M)+0.5)/M*2-1; sc=1.42
     X,Y=np.meshgrid(s*sc+0.08,-s*sc+0.12)
