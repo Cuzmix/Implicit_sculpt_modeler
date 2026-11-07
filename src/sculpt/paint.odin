@@ -104,6 +104,8 @@ paint_dab :: proc(s: ^Sculptor, d: ^Dab, pool: ^jobs.Pool) -> int {
 			jobs.parallel_for(pool, len(s.hit), d, job_blur_material_apply)
 			for &p, i in s.partials do p.moved += moved[i]
 		}
+	} else if paint_sourced(d.brush) {
+		paint_source_dab(s, d, pool)
 	} else {
 		jobs.parallel_for(pool, len(s.hit), d, job_paint)
 	}

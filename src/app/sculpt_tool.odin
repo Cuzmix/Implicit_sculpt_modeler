@@ -170,6 +170,17 @@ Brush_Settings :: struct {
 	// digging it (painting): Paint's Blur and Erase in the dial, as Nomad and Procreate
 	// have them.
 	paint_dial:        bool,
+	// The Paint brush's colour source (paint_source.odin), and Clone's: the source in the
+	// object's space and its object (clone_set once a press set it), the way off the
+	// strokes paint from it (fixed by the first stroke after, while clone_pending), and
+	// whether the next press sets it again (Set source).
+	paint_source:      sculpt.Paint_Source,
+	clone_from:        Vec3,
+	clone_object:      int,
+	clone_offset:      Vec3,
+	clone_set:         bool,
+	clone_pending:     bool,
+	clone_armed:       bool,
 	cloth_mode:        sculpt.Cloth_Mode, // what the Cloth brush does
 	cloth:             sculpt.Cloth_Settings, // how its cloth behaves: region, stiffness, gravity...
 	// Physics: what a moving brush moves drives the surface round it as cloth
@@ -322,6 +333,10 @@ Stroke :: struct {
 	mode:     Stroke_Mode, // the held brush's stroke mode as it began; Dots for any other
 	invert:   bool, // whether it started inverted, for the History panel
 	blur:     bool, // Smooth while painting: a Paint stroke that blurs the paint (painting)
+	// Stencil: the picture over the view as the stroke began (paint_stencil_make), which
+	// its dabs read, so moving the view or the picture mid-stroke changes nothing.
+	stencil:  sculpt.Paint_Stencil,
+	source:   sculpt.Paint_Source, // the colour source its Paint dabs take (paint_source_of)
 	// What its brush's strength is multiplied by: Touch strength for a finger, 1 for the
 	// pen and mouse, or what a replay recorded (App.stroke_scale_from).
 	scale:    f32,
@@ -761,6 +776,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 		return
 	}
 	if stroke_brush(app, input) == .History && !recall_ready(app, obj, s.kind == .Press) do return
+	if !paint_source_start(app, obj, t_obj, hit, input, s.kind == .Press) do return
 	// The offer line already says why a press does nothing; the note says it otherwise.
 	say := s.kind == .Press && !offer_standing(app)
 	if obj.voxel != nil && !voxel_brush_allowed(app, stroke_brush(app, input), say) do return
@@ -781,6 +797,7 @@ stroke_start :: proc(app: ^App, input: Viewport_Input, inv: matrix[4, 4]f32, s: 
 	st.frame, st.framed = t_obj, framed
 	st.kind, st.held = stroke_brush(app, input), held_brush(input)
 	st.blur = input.smooth && !input.mask && painting(app)
+	st.source = paint_source_of(app, input)
 	st.seed, st.step, st.turn = app.stroke_seed, 0, 0
 	app.stroke_seed += 1
 	st.scale = app.stroke_scale_from if app.stroke_scale_from > 0 else (app.nav.touch_strength if app.device.pointer == .Finger else 1)
@@ -1591,6 +1608,9 @@ brush_at :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3, pres
 		metal    = u8(clamp(app.brush.metal, 0, 1) * 255 + 0.5),
 		height   = clamp(app.brush.height, -1, 1),
 		blur     = app.stroke.blur,
+		source   = app.stroke.source if kind == .Paint else .Color,
+		clone_offset = clone_offset(app) if app.stroke.source == .Clone else {},
+		stencil  = &app.stroke.stencil if app.stroke.source == .Stencil else nil,
 		channel  = brush_channel(app, selected_object(app)) if app.stroke.held else .Sculpt,
 		lock_plane = app.brush.lock_plane,
 		connected  = app.brush.connected,
@@ -1635,6 +1655,7 @@ brush_hovering :: proc(app: ^App, input: Viewport_Input, t: Transform, hit: Vec3
 	kept := st^
 	defer st^ = kept
 	st.kind, st.held, st.blur, st.scale, st.last_set, st.skin = stroke_brush(app, press), held_brush(press), press.smooth && painting(app), 1, false, false
+	st.source = .Color
 	return brush_at(app, press, t, hit, 1, input.pen_tilt)
 }
 
