@@ -94,6 +94,8 @@ Gpu_Dab :: struct {
 	// `stroke`) cap each vertex's move, as displace's ONCE does.
 	once:        bool,
 	stroke:      u32,
+	// With `once`: Brush.sweep, the segment the dab weighs along (zero for none).
+	sweep:       Vec3,
 	// The mask shields the vertices (sculpt.shield): the kernels read the level's mask
 	// bytes, which the app keeps on the GPU while the sculptor has a mask.
 	masked:      bool,
@@ -349,6 +351,7 @@ gpu_dab_make :: proc(s: ^Sculptor, d: ^Dab, brush: Brush) -> Gpu_Dab {
 	case .Draw, .Inflate:
 		rec.amount = sign * brush.radius * brush.strength * DRAW_HEIGHT
 		rec.once = brush.no_accumulate
+		if rec.once do rec.sweep = brush.sweep
 	case .Clay:
 		rec.amount = sign
 		rec.plane_offset = sign * brush.radius * CLAY_HEIGHT
