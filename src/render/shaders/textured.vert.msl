@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 23 "/home/user/Implicit_sculpt_modeler/src/render/shaders/textured.vert.slang"
+#line 23 "src/render/shaders/textured.vert.slang"
 float3 srgb_decode_0(float3 c_0)
 {
 
@@ -14,7 +14,7 @@ float3 srgb_decode_0(float3 c_0)
 }
 
 
-#line 4 "/home/user/Implicit_sculpt_modeler/src/render/shaders/paint_material.slang"
+#line 4 "src/render/shaders/paint_material.slang"
 float4 paint_material_0(uint word_0)
 {
 
@@ -23,7 +23,7 @@ float4 paint_material_0(uint word_0)
 }
 
 
-#line 65 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
+#line 65 "src/render/shaders/mesh_io.slang"
 float3 oct_decode_0(float2 e_0)
 {
 
@@ -136,7 +136,7 @@ struct vertexInput_0
 };
 
 
-#line 7 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
+#line 7 "src/render/shaders/mesh_io.slang"
 struct SLANG_ParameterGroup_Frame_Uniforms_0
 {
     matrix<float,int(4),int(4)>  view_proj_0;
@@ -148,7 +148,7 @@ struct SLANG_ParameterGroup_Frame_Uniforms_0
 };
 
 
-#line 20 "/home/user/Implicit_sculpt_modeler/src/render/shaders/textured.vert.slang"
+#line 20 "src/render/shaders/textured.vert.slang"
 struct KernelContext_0
 {
     SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_0;
@@ -160,7 +160,7 @@ struct KernelContext_0
 };
 
 
-#line 21 "/home/user/Implicit_sculpt_modeler/src/render/shaders/mesh_io.slang"
+#line 21 "src/render/shaders/mesh_io.slang"
 struct Mesh_Varyings_0
 {
     float3 view_normal_1;
@@ -184,7 +184,7 @@ struct Mesh_Vertex_Out_0
 };
 
 
-#line 47 "/home/user/Implicit_sculpt_modeler/src/render/shaders/textured.vert.slang"
+#line 47 "src/render/shaders/textured.vert.slang"
 [[vertex]] main_Result_0 main_0(vertexInput_0 _S9 [[stage_in]], uint slot_2 [[vertex_id]], SLANG_ParameterGroup_Frame_Uniforms_0 constant* Frame_Uniforms_1 [[buffer(0)]], uint device* slot_vertex_1 [[buffer(1)]], float device* positions_1 [[buffer(2)]], uint device* normals_1 [[buffer(3)]], packed_uint2 device* paint_3 [[buffer(4)]], uint device* paint_material_words_1 [[buffer(5)]])
 {
 

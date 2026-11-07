@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 19 "/home/user/Implicit_sculpt_modeler/src/render/shaders/node_bounds.comp.slang"
+#line 19 "src/render/shaders/node_bounds.comp.slang"
 struct SLANG_ParameterGroup_Params_0
 {
     uint node_count_0;

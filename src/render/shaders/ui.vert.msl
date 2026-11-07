@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 3 "/home/user/Implicit_sculpt_modeler/src/render/shaders/ui.vert.slang"
+#line 3 "src/render/shaders/ui.vert.slang"
 struct main_Result_0
 {
     float4 position_0 [[position]];

@@ -53,7 +53,7 @@ using namespace metal;
                 }
             
 
-#line 11 "/home/user/Implicit_sculpt_modeler/src/render/shaders/ray_query_check.comp.slang"
+#line 11 "src/render/shaders/ray_query_check.comp.slang"
 struct SLANG_ParameterGroup_Params_0
 {
     uint ray_count_0;
@@ -80,7 +80,7 @@ struct RayDesc_0
 };
 
 
-#line 17 "/home/user/Implicit_sculpt_modeler/src/render/shaders/ray_query_check.comp.slang"
+#line 17 "src/render/shaders/ray_query_check.comp.slang"
 [[kernel]] void main_0(uint3 id_0 [[thread_position_in_grid]], SLANG_ParameterGroup_Params_0 constant* Params_1 [[buffer(2)]], packed_float4 device* rays_1 [[buffer(0)]], metal::raytracing::acceleration_structure<metal::raytracing::instancing> scene_1 [[buffer(3)]], packed_float4 device* hits_1 [[buffer(1)]])
 {
 

@@ -41,7 +41,7 @@ using namespace metal;
                 }
             
 
-#line 157 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/render_trace.slang"
+#line 157 "src/render/shaders/render_trace.slang"
 constant uint fc_RT_ENV_IMAGE_0 [[function_constant(1)]];
 constant uint RT_ENV_IMAGE_0 = is_function_constant_defined(fc_RT_ENV_IMAGE_0) ? fc_RT_ENV_IMAGE_0 : 1U;
 
@@ -56,7 +56,7 @@ constant uint RT_CATCHER_0 = is_function_constant_defined(fc_RT_CATCHER_0) ? fc_
 constant uint fc_RT_LENS_0 [[function_constant(2)]];
 constant uint RT_LENS_0 = is_function_constant_defined(fc_RT_LENS_0) ? fc_RT_LENS_0 : 1U;
 
-#line 9 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/common.slang"
+#line 9 "src/render/shaders/common.slang"
 int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
 
@@ -76,7 +76,7 @@ int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_samp
 }
 
 
-#line 166 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/render_trace.slang"
+#line 166 "src/render/shaders/render_trace.slang"
 struct SLANG_ParameterGroup_Render_Uniforms_0
 {
     matrix<float,int(4),int(4)>  inv_view_proj_0;
@@ -251,7 +251,7 @@ struct RayDesc_0
 };
 
 
-#line 449 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/render_trace.slang"
+#line 449 "src/render/shaders/render_trace.slang"
 bool trace_0(float3 o_0, float3 d_0, float t_max_0, bool any_0, Hit_0 thread* hit_0, KernelContext_0 thread* kernelContext_5)
 {
 
@@ -770,7 +770,7 @@ float sphere_cone_0(int i_1, float3 p_1, KernelContext_0 thread* kernelContext_9
 }
 
 
-#line 7 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/light_window.slang"
+#line 7 "src/render/shaders/light_window.slang"
 float light_window_0(float4 pos_0, float4 shape_0, float4 spot_0, float d2_1, float3 l_0)
 {
     float _S43 = shape_0.y;
@@ -833,7 +833,7 @@ float light_window_0(float4 pos_0, float4 shape_0, float4 spot_0, float d2_1, fl
 }
 
 
-#line 960 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/render_trace.slang"
+#line 960 "src/render/shaders/render_trace.slang"
 float light_falloff_0(int i_2, float d2_2, float3 l_1, KernelContext_0 thread* kernelContext_10)
 {
 
@@ -1072,7 +1072,7 @@ float3 lights_met_0(float3 o_2, float3 d_3, float t_hit_0, bool escaped_0, float
 }
 
 
-#line 8 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/panorama.slang"
+#line 8 "src/render/shaders/panorama.slang"
 float2 panorama_uv_0(float3 d_4)
 {
 
@@ -1080,7 +1080,7 @@ float2 panorama_uv_0(float3 d_4)
 }
 
 
-#line 22 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/studio_env.slang"
+#line 22 "src/render/shaders/studio_env.slang"
 float3 lobe_0(float3 dir_0, float3 toward_0, float3 color_1, float sharp_0, float rough_0)
 {
 
@@ -1101,7 +1101,7 @@ float3 studio_0(float3 dir_1, float rough_1)
 }
 
 
-#line 992 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/render_trace.slang"
+#line 992 "src/render/shaders/render_trace.slang"
 float3 environment_0(float3 d_5, KernelContext_0 thread* kernelContext_12)
 {
 
@@ -1220,7 +1220,7 @@ float3 vertex_0(uint v_0, KernelContext_0 thread* kernelContext_15)
 }
 
 
-#line 8 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/skin_grid.slang"
+#line 8 "src/render/shaders/skin_grid.slang"
 uint skin_index_0(uint i_4, uint j_0, uint S_0, uint V_0, uint E_0, uint tri_1, uint3 v_1, uint3 e_1)
 {
 
@@ -1559,7 +1559,7 @@ void skin_grid_corners_0(uint S_1, uint V_1, uint E_1, uint tri_2, uint4 rec_0, 
 }
 
 
-#line 244 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/render_trace.slang"
+#line 244 "src/render/shaders/render_trace.slang"
 float3 oct_decode_0(float2 e_2)
 {
 
@@ -1713,7 +1713,7 @@ uint vertex_material_0(uint v_6, KernelContext_0 thread* kernelContext_20)
 }
 
 
-#line 4 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/paint_material.slang"
+#line 4 "src/render/shaders/paint_material.slang"
 float4 paint_material_0(uint word_0)
 {
 
@@ -1732,7 +1732,7 @@ float2 paint_surface_0(float2 surf_0, float4 m_0)
 }
 
 
-#line 393 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/render_trace.slang"
+#line 393 "src/render/shaders/render_trace.slang"
 float3 group_color_0(uint g_0)
 {
 
@@ -2084,7 +2084,7 @@ float2 paint_height_slope_at_0(uint slot_3, float2 uv_4, KernelContext_0 thread*
 }
 
 
-#line 4 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/common.slang"
+#line 4 "src/render/shaders/common.slang"
 float glsl_mod_0(float x_3, float y_0)
 {
 
@@ -2093,7 +2093,7 @@ float glsl_mod_0(float x_3, float y_0)
 }
 
 
-#line 364 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/render_trace.slang"
+#line 364 "src/render/shaders/render_trace.slang"
 float3 uv_checker_0(float2 uv_5)
 {
 
@@ -2150,7 +2150,7 @@ Surface_0 surface_plain_0(float3 diffuse_1, float3 f0_1, float a_4)
 }
 
 
-#line 9 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/thin_film.slang"
+#line 9 "src/render/shaders/thin_film.slang"
 float3 thin_film_0(float c1_0, float3 f0_2, float nm_0, float n2_0)
 {
 
@@ -2203,7 +2203,7 @@ float3 thin_film_0(float c1_0, float3 f0_2, float nm_0, float n2_0)
 }
 
 
-#line 739 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/render_trace.slang"
+#line 739 "src/render/shaders/render_trace.slang"
 float3 sample_vndf_0(float3 ve_0, float a_5, float2 u_1)
 {
 
@@ -2872,7 +2872,7 @@ bool subsurface_walk_0(float3 p_2, float3 ng_0, float3 color_2, float3 radius_0,
 }
 
 
-#line 15 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/panorama.slang"
+#line 15 "src/render/shaders/panorama.slang"
 float3 panorama_dir_0(float2 uv_6)
 {
 
@@ -2884,7 +2884,7 @@ float3 panorama_dir_0(float2 uv_6)
 }
 
 
-#line 1007 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/render_trace.slang"
+#line 1007 "src/render/shaders/render_trace.slang"
 float3 env_sample_0(float thread* pdf_1, KernelContext_0 thread* kernelContext_29)
 {
 
@@ -2987,7 +2987,7 @@ float ggx_d_0(float n_dot_h_0, float a_10)
 }
 
 
-#line 14 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/ggx_albedo.slang"
+#line 14 "src/render/shaders/ggx_albedo.slang"
 float ggx_albedo_0(float mu_4, float r_6)
 {
 
@@ -3009,7 +3009,7 @@ float3 energy_compensation_0(float3 f0_4, float mu_5, float r_7)
 }
 
 
-#line 685 "/home/prime/Manny/Document/sculpt-msl-ray-query/src/render/shaders/render_trace.slang"
+#line 685 "src/render/shaders/render_trace.slang"
 float sheen_term_0(float n_dot_h_1, float n_dot_l_0, float n_dot_v_1, float a_11)
 {
 

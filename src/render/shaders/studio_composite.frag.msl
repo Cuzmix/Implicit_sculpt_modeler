@@ -12,7 +12,7 @@ struct pixelOutput_0
 };
 
 
-#line 11 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_composite.frag.slang"
+#line 11 "src/render/shaders/studio_composite.frag.slang"
 struct SLANG_ParameterGroup_Composite_Uniforms_0
 {
     float4 params_0;

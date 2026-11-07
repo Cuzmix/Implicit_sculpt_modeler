@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+#line 9 "src/render/shaders/common.slang"
 int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
 
@@ -25,7 +25,7 @@ int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_samp
 }
 
 
-#line 12 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_trace_add.frag.slang"
+#line 12 "src/render/shaders/studio_trace_add.frag.slang"
 struct SLANG_ParameterGroup_Add_Uniforms_0
 {
     matrix<float,int(4),int(4)>  inv_view_proj_0;
@@ -48,7 +48,7 @@ struct KernelContext_0
 };
 
 
-#line 21 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_trace_add.frag.slang"
+#line 21 "src/render/shaders/studio_trace_add.frag.slang"
 float3 world_at_0(float2 frag_0, float depth_0, float2 size_0, KernelContext_0 thread* kernelContext_0)
 {
 
@@ -70,7 +70,7 @@ float3 world_at_1(float2 frag_1, float depth_1, float2 size_1, KernelContext_0 t
 }
 
 
-#line 16 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_weight.slang"
+#line 16 "src/render/shaders/studio_weight.slang"
 float3 depth_normal_0(texture2d<float, access::sample> view_depth_texture_1, sampler view_depth_sampler_1, int2 px_0, float2 frag_2, float d_0, float3 p_0, float2 size_2, KernelContext_0 thread* kernelContext_2)
 {
 
@@ -179,7 +179,7 @@ float3 depth_normal_0(texture2d<float, access::sample> view_depth_texture_1, sam
 }
 
 
-#line 7 "/home/user/Implicit_sculpt_modeler/src/render/shaders/light_window.slang"
+#line 7 "src/render/shaders/light_window.slang"
 float light_window_0(float4 pos_0, float4 shape_0, float4 spot_0, float d2_0, float3 l_0)
 {
     float _S13 = shape_0.y;
@@ -242,7 +242,7 @@ float light_window_0(float4 pos_0, float4 shape_0, float4 spot_0, float d2_0, fl
 }
 
 
-#line 34 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_weight.slang"
+#line 34 "src/render/shaders/studio_weight.slang"
 float shadow_light_0(int i_0, float3 p_1, float3 n_2, KernelContext_0 thread* kernelContext_3)
 {
 
@@ -356,7 +356,7 @@ struct pixelOutput_0
 };
 
 
-#line 29 "/home/user/Implicit_sculpt_modeler/src/render/shaders/studio_trace_add.frag.slang"
+#line 29 "src/render/shaders/studio_trace_add.frag.slang"
 [[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], texture2d<float, access::sample> view_depth_texture_2 [[texture(1)]], sampler view_depth_sampler_2 [[sampler(1)]], texture2d<float, access::sample> visible_texture_1 [[texture(0)]], sampler visible_sampler_1 [[sampler(0)]], SLANG_ParameterGroup_Add_Uniforms_0 constant* Add_Uniforms_1 [[buffer(0)]])
 {
 

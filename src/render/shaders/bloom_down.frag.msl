@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+#line 9 "src/render/shaders/common.slang"
 int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
 
@@ -25,7 +25,7 @@ int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_samp
 }
 
 
-#line 34 "/home/user/Implicit_sculpt_modeler/src/render/shaders/display.slang"
+#line 34 "src/render/shaders/display.slang"
 float3 srgb_decode_0(float3 c_0)
 {
 
@@ -128,7 +128,7 @@ float3 tone_map_0(float3 c_2)
 }
 
 
-#line 19 "/home/user/Implicit_sculpt_modeler/src/render/shaders/bloom.slang"
+#line 19 "src/render/shaders/bloom.slang"
 float3 bloom_decode_0(float3 v_0)
 {
 
@@ -168,7 +168,7 @@ float3 above_threshold_0(float3 c_4, float threshold_0)
 }
 
 
-#line 12 "/home/user/Implicit_sculpt_modeler/src/render/shaders/bloom_down.frag.slang"
+#line 12 "src/render/shaders/bloom_down.frag.slang"
 struct SLANG_ParameterGroup_Bloom_Down_Uniforms_0
 {
     float4 params_0;
@@ -185,7 +185,7 @@ struct KernelContext_0
 };
 
 
-#line 24 "/home/user/Implicit_sculpt_modeler/src/render/shaders/bloom_down.frag.slang"
+#line 24 "src/render/shaders/bloom_down.frag.slang"
 float3 light_0(float2 uv_0, KernelContext_0 thread* kernelContext_0)
 {
 

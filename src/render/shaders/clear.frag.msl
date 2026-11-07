@@ -5,10 +5,10 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 22 "/home/user/Implicit_sculpt_modeler/src/render/shaders/clear.frag.slang"
+#line 22 "src/render/shaders/clear.frag.slang"
 constant array<float, int(16)> BAYER_0 = { { 0.0f, 8.0f, 2.0f, 10.0f, 12.0f, 4.0f, 14.0f, 6.0f, 3.0f, 11.0f, 1.0f, 9.0f, 15.0f, 7.0f, 13.0f, 5.0f } };
 
-#line 8 "/home/user/Implicit_sculpt_modeler/src/render/shaders/panorama.slang"
+#line 8 "src/render/shaders/panorama.slang"
 float2 panorama_uv_0(float3 d_0)
 {
 
@@ -16,7 +16,7 @@ float2 panorama_uv_0(float3 d_0)
 }
 
 
-#line 18 "/home/user/Implicit_sculpt_modeler/src/render/shaders/display.slang"
+#line 18 "src/render/shaders/display.slang"
 float3 tone_map_0(float3 c_0)
 {
 
@@ -81,7 +81,7 @@ struct pixelOutput_0
 };
 
 
-#line 8 "/home/user/Implicit_sculpt_modeler/src/render/shaders/clear.frag.slang"
+#line 8 "src/render/shaders/clear.frag.slang"
 struct SLANG_ParameterGroup_Clear_Uniforms_0
 {
     float4 top_0;

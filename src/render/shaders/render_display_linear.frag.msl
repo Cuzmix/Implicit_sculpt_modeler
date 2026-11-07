@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 16 "/home/prime/Manny/Document/sculpt-usd-materials/src/render/shaders/render_display.frag.slang"
+#line 16 "src/render/shaders/render_display.frag.slang"
 struct SLANG_ParameterGroup_Display_Uniforms_0
 {
     float4 params_0;
@@ -27,7 +27,7 @@ struct KernelContext_0
 };
 
 
-#line 25 "/home/prime/Manny/Document/sculpt-usd-materials/src/render/shaders/render_display.frag.slang"
+#line 25 "src/render/shaders/render_display.frag.slang"
 float4 traced_0(int2 q_0, KernelContext_0 thread* kernelContext_0)
 {
 
@@ -197,7 +197,7 @@ float4 traced_1(int2 q_1, KernelContext_0 thread* kernelContext_1)
 }
 
 
-#line 9 "/home/prime/Manny/Document/sculpt-usd-materials/src/render/shaders/common.slang"
+#line 9 "src/render/shaders/common.slang"
 int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
 
@@ -217,7 +217,7 @@ int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_samp
 }
 
 
-#line 37 "/home/prime/Manny/Document/sculpt-usd-materials/src/render/shaders/render_display.frag.slang"
+#line 37 "src/render/shaders/render_display.frag.slang"
 float4 blended_0(int2 q_2, float w_1, KernelContext_0 thread* kernelContext_2)
 {
 
@@ -231,7 +231,7 @@ float4 blended_0(int2 q_2, float w_1, KernelContext_0 thread* kernelContext_2)
 }
 
 
-#line 34 "/home/prime/Manny/Document/sculpt-usd-materials/src/render/shaders/display.slang"
+#line 34 "src/render/shaders/display.slang"
 float3 srgb_decode_0(float3 c_0)
 {
 
@@ -302,7 +302,7 @@ struct pixelOutput_0
 };
 
 
-#line 42 "/home/prime/Manny/Document/sculpt-usd-materials/src/render/shaders/render_display.frag.slang"
+#line 42 "src/render/shaders/render_display.frag.slang"
 [[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], texture2d<float, access::sample> view_color_texture_1 [[texture(0)]], sampler view_color_sampler_1 [[sampler(0)]], SLANG_ParameterGroup_Display_Uniforms_0 constant* Display_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> accum_texture_1 [[texture(1)]], sampler accum_sampler_1 [[sampler(1)]], texture2d<float, access::sample> guide_albedo_texture_1 [[texture(3)]], sampler guide_albedo_sampler_1 [[sampler(3)]], texture2d<float, access::sample> denoised_texture_1 [[texture(2)]], sampler denoised_sampler_1 [[sampler(2)]])
 {
 

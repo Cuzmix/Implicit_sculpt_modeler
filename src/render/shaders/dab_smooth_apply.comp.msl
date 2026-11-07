@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 84 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab.slang"
+#line 84 "src/render/shaders/dab.slang"
 struct SLANG_ParameterGroup_Params_0
 {
     uint dab_0;
@@ -207,14 +207,14 @@ void put_0(uint v_2, float3 p_0, KernelContext_0 thread* kernelContext_3)
 }
 
 
-#line 11 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab_smooth_apply.comp.slang"
+#line 11 "src/render/shaders/dab_smooth_apply.comp.slang"
 bool slab_vertex_0(uint _S9, uint3 _S10, uint3 _S11, uint thread* _S12, uint thread* _S13, KernelContext_0 thread* kernelContext_4)
 {
 
 #line 11
     Dab_natural_0 device* _S14 = kernelContext_4->dabs_0+_S9;
 
-#line 214 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab.slang"
+#line 214 "src/render/shaders/dab.slang"
     *_S12 = _S10.y * kernelContext_4->Params_0->groups_x_0 + _S10.x;
     *_S13 = 0U;
 
@@ -457,7 +457,7 @@ float dab_weight_0(uint _S35, float3 _S36, float _S37, KernelContext_0 thread* k
 }
 
 
-#line 11 "/home/user/Implicit_sculpt_modeler/src/render/shaders/dab_smooth_apply.comp.slang"
+#line 11 "src/render/shaders/dab_smooth_apply.comp.slang"
 [[kernel]] void main_0(uint3 group_id_0 [[threadgroup_position_in_grid]], uint3 local_id_0 [[thread_position_in_threadgroup]], SLANG_ParameterGroup_Params_0 constant* Params_1 [[buffer(14)]], uint device* indices_1 [[buffer(0)]], uint device* offsets_1 [[buffer(1)]], uint device* tris_1 [[buffer(2)]], packed_uint2 device* slabs_2 [[buffer(3)]], Dab_natural_0 device* dabs_1 [[buffer(4)]], uint device* normals_1 [[buffer(5)]], uint device* mask_1 [[buffer(6)]], uint device* fade_1 [[buffer(8)]], float device* positions_1 [[buffer(9)]], float device* tables_1 [[buffer(7)]], packed_float4 device* scratch_1 [[buffer(12)]], packed_float4 device* areas_1 [[buffer(11)]])
 {
 

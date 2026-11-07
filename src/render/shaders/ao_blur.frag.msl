@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 13 "/home/user/Implicit_sculpt_modeler/src/render/shaders/ao_blur.frag.slang"
+#line 13 "src/render/shaders/ao_blur.frag.slang"
 struct SLANG_ParameterGroup_Blur_Uniforms_0
 {
     matrix<float,int(4),int(4)>  inv_proj_0;
@@ -27,7 +27,7 @@ struct KernelContext_0
 };
 
 
-#line 22 "/home/user/Implicit_sculpt_modeler/src/render/shaders/ao_blur.frag.slang"
+#line 22 "src/render/shaders/ao_blur.frag.slang"
 float view_z_0(float depth_0, KernelContext_0 thread* kernelContext_0)
 {
 
@@ -37,7 +37,7 @@ float view_z_0(float depth_0, KernelContext_0 thread* kernelContext_0)
 }
 
 
-#line 9 "/home/user/Implicit_sculpt_modeler/src/render/shaders/common.slang"
+#line 9 "src/render/shaders/common.slang"
 int2 texture_size_0(texture2d<float, access::sample> t_texture_0, sampler t_sampler_0)
 {
 
@@ -64,7 +64,7 @@ struct pixelOutput_0
 };
 
 
-#line 27 "/home/user/Implicit_sculpt_modeler/src/render/shaders/ao_blur.frag.slang"
+#line 27 "src/render/shaders/ao_blur.frag.slang"
 [[fragment]] pixelOutput_0 main_0(float4 frag_coord_0 [[position]], texture2d<float, access::sample> view_color_texture_1 [[texture(0)]], sampler view_color_sampler_1 [[sampler(0)]], texture2d<float, access::sample> view_depth_texture_1 [[texture(2)]], sampler view_depth_sampler_1 [[sampler(2)]], SLANG_ParameterGroup_Blur_Uniforms_0 constant* Blur_Uniforms_1 [[buffer(0)]], texture2d<float, access::sample> ao_map_texture_1 [[texture(1)]], sampler ao_map_sampler_1 [[sampler(1)]])
 {
 

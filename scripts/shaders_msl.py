@@ -76,6 +76,30 @@ def sha256(path):
         return hashlib.sha256(f.read()).hexdigest()
 
 
+def relative_lines(text):
+    """The Metal source with each #line's file inside the repository named from its root
+    ("src/render/shaders/x.slang"), as slangc names it by its absolute path: the committed
+    .msl is then the same whichever folder made it, and names no one's machine."""
+    def rel(m):
+        path = m.group(2)
+        if path and os.path.isabs(path):
+            r = os.path.relpath(os.path.normpath(path), ROOT)
+            if not r.startswith(".."):
+                return f'#line {m.group(1)} "{r.replace(os.sep, "/")}"'
+        return m.group(0)
+    return "\n".join(LINE.sub(rel, line, count=1) for line in text.split("\n"))
+
+
+def absolute_lines(text):
+    """Each #line of a .msl that names a file by an absolute path, as "line N"."""
+    found = []
+    for n, line in enumerate(text.split("\n"), 1):
+        m = LINE.match(line)
+        if m and m.group(2) and (m.group(2).startswith("/") or re.match(r"^[A-Za-z]:[\\/]", m.group(2))):
+            found.append(f"line {n}")
+    return found
+
+
 def first_line(source):
     with open(os.path.join(SHADERS, source), encoding="utf-8") as f:
         return f.readline()
@@ -106,9 +130,13 @@ def problem(source):
     if not slots.startswith("// slots "):
         return f"{msl} has no slot table on its second line"
     with open(os.path.join(SHADERS, msl), encoding="utf-8") as f:
-        misuses = query_misuses(f.read())
+        text = f.read()
+    misuses = query_misuses(text)
     if misuses:
         return f"{msl}: " + f"; {msl}: ".join(misuses)
+    absolute = absolute_lines(text)
+    if absolute:
+        return f"{msl} names a file by an absolute path at {', '.join(absolute[:3])}" + (" and more" if len(absolute) > 3 else "")
     return ""
 
 
@@ -235,7 +263,7 @@ def remake(source):
                 raise RuntimeError(f"{block} is laid out differently for Metal ({', '.join(moved[:4])})")
         table = slots(source, metal, spirv)
         with open(os.path.join(scratch, "k.metal"), encoding="utf-8") as f:
-            body = f.read().replace("\r\n", "\n")
+            body = relative_lines(f.read().replace("\r\n", "\n"))
         misuses = query_misuses(body)
         if misuses:
             raise RuntimeError("; ".join(misuses))

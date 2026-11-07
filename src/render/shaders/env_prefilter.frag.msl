@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 15 "/home/user/Implicit_sculpt_modeler/src/render/shaders/panorama.slang"
+#line 15 "src/render/shaders/panorama.slang"
 float3 panorama_dir_0(float2 uv_0)
 {
 
@@ -17,7 +17,7 @@ float3 panorama_dir_0(float2 uv_0)
 }
 
 
-#line 18 "/home/user/Implicit_sculpt_modeler/src/render/shaders/env_prefilter.frag.slang"
+#line 18 "src/render/shaders/env_prefilter.frag.slang"
 float2 hammersley_0(uint i_0)
 {
 
@@ -26,7 +26,7 @@ float2 hammersley_0(uint i_0)
 }
 
 
-#line 8 "/home/user/Implicit_sculpt_modeler/src/render/shaders/panorama.slang"
+#line 8 "src/render/shaders/panorama.slang"
 float2 panorama_uv_0(float3 d_0)
 {
 
@@ -41,7 +41,7 @@ struct pixelOutput_0
 };
 
 
-#line 11 "/home/user/Implicit_sculpt_modeler/src/render/shaders/env_prefilter.frag.slang"
+#line 11 "src/render/shaders/env_prefilter.frag.slang"
 struct SLANG_ParameterGroup_Prefilter_Uniforms_0
 {
     float4 params_0;

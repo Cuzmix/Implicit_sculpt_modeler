@@ -5,7 +5,7 @@
 #include <metal_texture>
 using namespace metal;
 
-#line 18 "/home/user/Implicit_sculpt_modeler/src/render/shaders/smooth_all.comp.slang"
+#line 18 "src/render/shaders/smooth_all.comp.slang"
 struct SLANG_ParameterGroup_Params_0
 {
     uint vertex_count_0;
