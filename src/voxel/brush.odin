@@ -24,6 +24,10 @@ Brush_Kind :: enum u8 {
 	Inflate,
 	Mask, // paints the mask (mask.odin) rather than the field; inverted it erases
 	Clay, // grows the surface up to a plane above it, filling dips first (inverted digs)
+	// The warping brushes (dab_warp.odin): each dab moves the clay rather than growing it.
+	Pinch,      // draws the clay along the surface toward the centre (inverted pushes it away)
+	Crease,     // cuts a sharp groove: pushes in with a narrow falloff and pinches (inverted: a ridge)
+	Snake_Hook, // drags the clay under the brush by Brush.drag, so a stroke pulls out a horn
 }
 
 Brush :: struct {
@@ -32,6 +36,8 @@ Brush :: struct {
 	strength: f32, // 0 to 1
 	invert:   bool, // Add and Subtract swap, Clay digs, Flatten fills instead of clipping, Inflate deflates
 	normal:   Vec3, // the surface normal under the pointer, unit length, in the object's space
+	drag:     Vec3, // Snake hook: how far this dab drags, object space
+	pinch:    f32, // Snake hook: draws the clay in across the drag (below 0 swells it), -1 to 1
 }
 
 // How far a full-strength dab raises or lowers the surface, in radii (the mesh Draw
@@ -59,10 +65,18 @@ Dab :: struct {
 	normal:    Vec3,
 	height:    f32, // Add, Subtract, Clay, Inflate: voxels a full-weight voxel moves
 	lift:      f32, // Clay: how far above the hit its plane stands, in voxels
+	// The warping brushes: Snake hook's drag a step, Crease's push a step and the share of
+	// a dab's pinch a step takes, all in voxels.
+	drag:      Vec3,
+	pinch:     f32, // Snake hook's pinch a step, by how far the step drags over the radius
+	push:      f32,
+	share:     f32,
+	margin:    i32, // how far past its brick a step's window reaches
 	// Smooth and the growing brushes read a voxel's neighbours from a window gathered
 	// before the dab writes.
 	window:    []i16,
 	window_lo: [3]i32,
+	volume:    ^Volume, // a warping dab reads it as it was before the dab, round each brick
 }
 
 // The dab's numbers for `brush` at `centre` (object space) on a volume of `voxel` size.
@@ -79,7 +93,14 @@ dab_make :: proc(brush: Brush, centre: Vec3, voxel: f32, origin: Vec3) -> (d: Da
 		d.lift = d.radius * CLAY_PLANE
 	case .Inflate:
 		d.height = d.radius * d.strength * INFLATE_HEIGHT
+	case .Snake_Hook:
+		d.drag = brush.drag / voxel
+		d.pinch = clamp(brush.pinch, -1, 1)
+	case .Crease:
+		// Cuts in by default, as the mesh Crease does.
+		d.push = -(1 if !d.invert else -1) * d.radius * d.strength * CREASE_HEIGHT
 	}
+	d.share = 1
 	// The weight's own strength factor is in the height, so a step's weight is the falloff.
 	if d.height > 0 do d.strength = 1
 	return
@@ -99,6 +120,8 @@ dab_steps :: proc(d: ^Dab) -> int {
 			d.height = MAX_DAB_STEPS * ADD_MAX_VOXELS
 		}
 		return n
+	case .Pinch, .Crease, .Snake_Hook:
+		return warp_steps(d)
 	}
 	return 1
 }
@@ -119,7 +142,7 @@ dab_adds :: #force_inline proc(d: ^Dab) -> bool {
 
 // The brush's reach from its centre, in voxels: the voxels it may change lie within it.
 dab_reach :: proc(d: ^Dab) -> f32 {
-	return d.radius + 1
+	return d.radius + 1 + f32(d.margin)
 }
 
 // The quadratic smooth minimum: min(a, b) blended over `k` (Quilez), which keeps k the
@@ -184,6 +207,8 @@ dab_brick :: proc(d: ^Dab, bc: [3]i32, b: ^Brick, out: ^Brick, mask: ^Mask_Brick
 			put(&e, &b.d[i], masked(b.d[i], quantize(math.lerp(v, target, w)), mask, i), x, y, z)
 		}
 		e.repair = e.changed
+	case .Pinch, .Crease, .Snake_Hook:
+		warp_brick(d, bc, b, out, mask, &e)
 	case .Smooth:
 		// The window holds the brick and a voxel around it: 10³, its first voxel at window_lo.
 		W :: BRICK + 2
@@ -339,9 +364,11 @@ dab_touches :: proc(d: ^Dab, bc: [3]i32, tile: Tile, reach: f32) -> bool {
 		mid := Vec3{f32(bc.x), f32(bc.y), f32(bc.z)} * BRICK + (BRICK - 1) * 0.5
 		HALF_DIAGONAL :: BRICK * 0.8660254 // sqrt(3) / 2
 		return abs(linalg.dot(mid - d.centre, d.normal)) - HALF_DIAGONAL < BAND + 1
-	case .Smooth, .Inflate, .Mask, .Add, .Subtract, .Clay:
-		// They move the surface at most a voxel (the band grows into tiles through band
-		// dilation after the dab, not here), and a mask lives on bricks only.
+	case .Smooth, .Inflate, .Mask, .Add, .Subtract, .Clay, .Pinch, .Crease, .Snake_Hook:
+		// They move the surface at most a voxel, the warps WARP_STEP voxels a step, less
+		// than the clamp, so the surface never reaches a tile within a step (the band grows
+		// into tiles through band dilation after each, not here), and a mask lives on
+		// bricks only.
 		return false
 	}
 	return false

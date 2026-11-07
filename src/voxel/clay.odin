@@ -23,7 +23,7 @@ Clay :: struct {
 	jobs:          [dynamic]Dab_Job, // scratch: the bricks one dab writes
 	job_slots:     [dynamic]u32, // scratch: the stroke's bricks, for the saddle pass at its end
 	scratch:       [dynamic]Brick, // Smooth writes here, one brick a job, then commits
-	windows:       [dynamic]i16, // Smooth's gathered neighbourhoods, WINDOW_VOXELS a job
+	windows:       [dynamic]i16, // a dab's gathered neighbourhoods (WINDOW_VOXELS a job), and the band repair's
 	// The band repair (band.odin): bricks waiting for it, its region, the fixed voxels of
 	// each region brick, the generation that stamps pending slots and the running sweep.
 	pending:       [dynamic][3]i32,
@@ -165,7 +165,11 @@ clay_dab :: proc(c: ^Clay, brush: Brush, centre: Vec3) -> int {
 	if steps == 0 do return 0
 	d.height /= f32(steps)
 	written := 0
-	for _ in 0 ..< steps do written += clay_dab_step(c, d)
+	for _ in 0 ..< steps {
+		written += clay_dab_step(c, d)
+		// A Snake hook's middle goes along with the clay it drags.
+		if d.kind == .Snake_Hook do d.centre += d.drag
+	}
 	if written > 0 do c.stroke_dabs += 1
 	return written
 }
@@ -206,17 +210,36 @@ clay_dab_step :: proc(c: ^Clay, dab: Dab) -> int {
 		d: Dab,
 	}
 	run := Run{c, d}
-	if dab_reads_window(d.kind) {
+	if d.margin > 0 {
+		// A warping dab reads the clay as far as its step moves it, straight from the
+		// bricks round each of its own (a step moves clay less than a brick): it writes
+		// scratch bricks and commits them once every job has read.
+		run.d.volume = &c.volume
 		resize(&c.scratch, len(c.jobs))
-		resize(&c.windows, len(c.jobs) * WINDOW_VOXELS)
+		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
+			r := cast(^Run)data
+			c := r.c
+			job := c.jobs[i]
+			c.jobs[i].effect = dab_brick(&r.d, job.coord, &c.volume.bricks[job.slot], &c.scratch[i], mask_of(&c.volume, job.slot))
+		})
+		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
+			c := (cast(^Run)data).c
+			c.volume.bricks[c.jobs[i].slot] = c.scratch[i]
+		})
+	} else if dab_reads_window(d.kind) {
+		// The window a brick and a voxel round it.
+		side := WINDOW
+		resize(&c.scratch, len(c.jobs))
+		resize(&c.windows, len(c.jobs) * side * side * side)
 		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {
 			r := cast(^Run)data
 			c := r.c
 			job := c.jobs[i]
 			d := r.d
-			d.window = c.windows[i * WINDOW_VOXELS:][:WINDOW_VOXELS]
+			side := WINDOW
+			d.window = c.windows[i * side * side * side:][:side * side * side]
 			d.window_lo = job.coord * BRICK - 1
-			gather_window(&c.volume, d.window_lo, WINDOW, d.window)
+			gather_window(&c.volume, d.window_lo, side, d.window)
 			c.jobs[i].effect = dab_brick(&d, job.coord, &c.volume.bricks[job.slot], &c.scratch[i], mask_of(&c.volume, job.slot))
 		})
 		jobs.parallel_for(c.pool, len(c.jobs), &run, proc(data: rawptr, i: int) {

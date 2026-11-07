@@ -168,7 +168,7 @@ object_raycast_local :: proc(obj: ^Object, origin, dir: Vec3) -> (hit, normal: V
 // inverted), Clay builds up to a plane above the surface (digs inverted), Smooth, Flatten
 // and Inflate do what they do on a mesh; the rest have no meaning on a volume (false). `normal` is the surface normal under the dab.
 voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: bool) {
-	vb = {radius = b.radius, strength = b.strength, invert = b.invert, normal = normal}
+	vb = {radius = b.radius, strength = b.strength, invert = b.invert, normal = normal, drag = b.drag, pinch = b.hook_pinch}
 	#partial switch b.kind {
 	case .Draw, .Layer: vb.kind = .Add
 	case .Clay:    vb.kind = .Clay
@@ -176,6 +176,9 @@ voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: b
 	case .Flatten: vb.kind = .Flatten
 	case .Inflate: vb.kind = .Inflate
 	case .Mask:    vb.kind = .Mask
+	case .Pinch:   vb.kind = .Pinch
+	case .Crease:  vb.kind = .Crease
+	case .Snake_Hook: vb.kind = .Snake_Hook
 	case: return vb, false
 	}
 	return vb, true
@@ -186,7 +189,7 @@ voxel_brush_of :: proc(b: sculpt.Brush, normal: Vec3) -> (vb: voxel.Brush, ok: b
 voxel_brush_allowed :: proc(app: ^App, kind: sculpt.Brush_Kind, say: bool) -> bool {
 	if kind == .Grab || kind == .Elastic do return true
 	if _, ok := voxel_brush_of({kind = kind}, {}); ok do return true
-	if say do report(app, Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Smooth, Flatten, Inflate, Grab, Elastic and Mask; convert the object to a mesh for the rest", BRUSHES[kind].name)
+	if say do report(app, Section.Voxels, {.Warning}, "%s is not a voxel brush: voxels take Draw, Clay, Layer, Smooth, Flatten, Inflate, Pinch, Crease, Snake hook, Grab, Elastic and Mask; convert the object to a mesh for the rest", BRUSHES[kind].name)
 	return false
 }
 
@@ -217,6 +220,7 @@ object_dab :: proc(app: ^App, obj: ^Object, brush: sculpt.Brush, at, normal: Vec
 	// a difference, which never stacks where they overlap.
 	for img in sculpt.symmetry_images(brush) {
 		vb.normal = img.turn * normal
+		vb.drag = img.turn * brush.drag
 		_ = voxel.clay_dab(&vp.clay, vb, sculpt.sym_point(img, brush.sym_center, at))
 	}
 }
