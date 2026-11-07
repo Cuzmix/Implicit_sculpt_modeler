@@ -465,6 +465,7 @@ COMMAND_HOMES := #partial [Command_Id]Maybe(Section) {
 	.Convert_To_Voxels     = .Voxels,
 	.Voxel_Res_Up          = .Voxels,
 	.Voxel_Res_Down        = .Voxels,
+	.Remove_Floaters       = .Voxels,
 	.Duplicate_Object      = .Scene,
 	.Delete_Object         = .Scene,
 	.Studio_Render         = .Render,

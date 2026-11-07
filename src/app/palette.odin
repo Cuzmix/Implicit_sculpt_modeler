@@ -193,6 +193,7 @@ SEARCH_WORDS := #partial [Command_Id]string {
 	.Convert_To_Voxels = "mesh clay volume voxelise voxelize sdf",
 	.Voxel_Res_Up     = "resolution double finer voxels increase resample",
 	.Voxel_Res_Down   = "resolution halve coarser voxels decrease resample",
+	.Remove_Floaters  = "loose parts pieces islands clean keep largest delete floating bits",
 	.Adjust_Last      = "redo last tweak change settings again stroke amount",
 	.Add_Object       = "subtool primitive append sphere cube",
 	.Frame_All        = "fit zoom extents home",

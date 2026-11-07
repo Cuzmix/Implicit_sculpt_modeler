@@ -438,6 +438,11 @@ kit_voxels :: proc(app: ^App, obj: ^Object) {
 	kit_command_pair(app, .Voxel_Res_Down, .Voxel_Res_Up)
 	ui.paragraph(ctx, fmt.tprintf("Res+ doubles the voxels along each side (%d across, about %s vertices) and Res− halves them (%d across, about %s vertices), each as one undo step; detail finer than a voxel goes with Res−.",
 		min(vp.resolution * 2, VOXELS_MAX), count_label(voxel_vertices_for(min(vp.resolution * 2, VOXELS_MAX))), max(vp.resolution / 2, VOXELS_MIN), count_label(voxel_vertices_for(max(vp.resolution / 2, VOXELS_MIN)))))
+	axes := [3]string{"X", "Y", "Z"}
+	if picked := ui.tabs(ctx, "mirror axis", axes[:], int(app.ui.mirror_axis)); picked >= 0 do app.ui.mirror_axis = i32(picked)
+	_ = ui.switch_row(ctx, "Keep the - side", &app.ui.mirror_negative)
+	kit_command_pair(app, .Mirror_Weld, .Remove_Floaters)
+	ui.paragraph(ctx, "Mirror and weld makes the side the axis does not keep the mirror image of the other, the halves fused where they meet. Remove floaters keeps the largest piece and removes every bit cut off from it. Each is one undo step.")
 	_ = command_button(app, .Convert_To_Mesh, variant = .Solid, tone = .Accent)
 	ui.paragraph(ctx, "Draw, Clay and Layer add clay (Ctrl takes it away), Smooth, Flatten and Inflate work as on a mesh, the mask is painted, drawn as a shape, inverted and cleared as on a mesh and holds the clay still under it, and booleans (the Booleans section) merge, cut and intersect the clay itself; the other brushes, levels and the rebuild tools need a mesh. Convert to mesh keeps the shape as triangles, and the mask, and is an undo step.")
 	kit_last_result(app, .Voxels)

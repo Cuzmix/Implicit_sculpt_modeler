@@ -86,7 +86,7 @@ command_reason :: proc(app: ^App, id: Command_Id, arg := 0) -> string {
 // scene commands, which scene_apply still refuses for scripts.
 VOXEL_REFUSED_COMMANDS :: Command_Set{
 	.Remesh, .Remesh_To, .Decimate_To, .Dyntopo_Toggle, .Subdivide, .Level_Up, .Level_Down, .Hd_Toggle, .Hd_Divide, .Detail_Skin, .Skin_Apply, .Skin_Squeeze,
-	.Hd_Delete, .Hd_Sculpt, .Hd_Leave, .Delete_Lower_Levels, .Delete_Higher_Levels, .Mirror_Weld, .Close_Holes,
+	.Hd_Delete, .Hd_Sculpt, .Hd_Leave, .Delete_Lower_Levels, .Delete_Higher_Levels, .Close_Holes,
 	.Delete_Hidden, .Weld_Points, .Fix_Mesh, .Delete_Half, .Retopologize, .Extract_Masked, .Split_Object, .Merge_Down,
 	.Merge_Visible, .Remove_Textures,
 }
